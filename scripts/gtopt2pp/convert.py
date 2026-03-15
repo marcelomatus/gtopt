@@ -16,13 +16,17 @@ For multi-block / multi-scenario cases the converter produces one
 pandapower network per (scenario, block) pair with the appropriate
 demand and generator profiles applied.
 
+Scenario and block parameters always use **UIDs** (as they appear in
+the JSON ``scenario_array`` / ``block_array``), never 0-based C++
+indices.
+
 Usage::
 
     from gtopt2pp.convert import convert, load_gtopt_case
 
-    # Load a gtopt JSON case and get a pandapower net for block 0
+    # Load a gtopt JSON case and get a pandapower net for block UID 1
     case = load_gtopt_case("ieee_9b.json")
-    net = convert(case, scenario=0, block=0)
+    net = convert(case, scenario=1, block=1)
 
     # Run pandapower DC OPF
     import pandapower as pp
@@ -43,6 +47,10 @@ _TMAX_UNLIMITED = 9999.0
 def load_gtopt_case(path: str | Path) -> dict[str, Any]:
     """Load a gtopt JSON case file.
 
+    The returned dict includes a ``_case_dir`` key with the directory
+    containing the JSON file, used for resolving FieldSched file
+    references.
+
     Parameters
     ----------
     path
@@ -51,7 +59,7 @@ def load_gtopt_case(path: str | Path) -> dict[str, Any]:
     Returns
     -------
     dict
-        The parsed JSON as a Python dictionary.
+        The parsed JSON as a Python dictionary (with ``_case_dir``).
 
     Raises
     ------
@@ -62,7 +70,28 @@ def load_gtopt_case(path: str | Path) -> dict[str, Any]:
     if not p.exists():
         raise FileNotFoundError(f"gtopt case not found: {p}")
     with open(p, encoding="utf-8") as fh:
-        return json.load(fh)
+        case = json.load(fh)
+    case["_case_dir"] = str(p.parent.resolve())
+    return case
+
+
+def _build_bus_ref_map(
+    system: dict[str, Any],
+) -> dict[Any, int]:
+    """Build a mapping from bus UID or name → 0-based pandapower bus index.
+
+    gtopt JSON allows bus references by integer UID or by name string.
+    This map resolves both to the pandapower index.
+    """
+    ref_map: dict[Any, int] = {}
+    for i, bus in enumerate(system.get("bus_array", [])):
+        uid = bus.get("uid")
+        name = bus.get("name", "")
+        if uid is not None:
+            ref_map[uid] = i
+        if name:
+            ref_map[name] = i
+    return ref_map
 
 
 def _get_bus_uid_to_idx(system: dict[str, Any]) -> dict[int, int]:
@@ -77,6 +106,46 @@ def _get_reference_bus_uid(system: dict[str, Any]) -> int | None:
         if "reference_theta" in bus:
             return int(bus["uid"])
     return None
+
+
+def _uid_to_index(
+    uid: int,
+    array: list[dict[str, Any]],
+    label: str,
+) -> int:
+    """Convert a UID to a 0-based array index.
+
+    Raises
+    ------
+    ValueError
+        If *uid* is not found in *array*.
+    """
+    for i, elem in enumerate(array):
+        if elem.get("uid") == uid:
+            return i
+    raise ValueError(
+        f"{label} UID {uid} not found; "
+        f"available UIDs: {[e.get('uid') for e in array]}"
+    )
+
+
+def _first_uid(
+    array: list[dict[str, Any]],
+    label: str,
+) -> int:
+    """Return the UID of the first element in *array*.
+
+    Raises
+    ------
+    ValueError
+        If *array* is empty.
+    """
+    if not array:
+        raise ValueError(f"No {label} defined in the simulation")
+    uid = array[0].get("uid")
+    if uid is None:
+        raise ValueError(f"First {label} has no uid field")
+    return int(uid)
 
 
 def _resolve_field_sched(
@@ -117,16 +186,150 @@ def _resolve_field_sched(
     return None
 
 
+def _resolve_field_sched_with_file(
+    field: Any,
+    scenario_idx: int,
+    block_idx: int,
+    case_dir: str | None,
+    input_dir: str,
+    class_name: str,
+    element_uid: int | None,
+    element_name: str | None,
+    scenario_uid: int | None,
+    block_uid: int | None,
+    preferred_format: str = "parquet",
+) -> float | None:
+    """Resolve a FieldSched value, reading from file if needed.
+
+    For scalar and list types, delegates to :func:`_resolve_field_sched`.
+    For string (FileSched) references, reads the external Parquet/CSV
+    file using the gtopt input file conventions.
+    """
+    if field is None:
+        return None
+    if isinstance(field, (int, float)):
+        return float(field)
+    if isinstance(field, list):
+        return _resolve_field_sched(field, scenario_idx, block_idx)
+    if isinstance(field, str) and case_dir is not None:
+        return _read_file_sched_value(
+            case_dir,
+            input_dir,
+            class_name,
+            field,
+            element_uid,
+            element_name,
+            scenario_uid,
+            block_uid,
+            preferred_format,
+        )
+    return None
+
+
+def _read_file_sched_value(
+    case_dir: str,
+    input_dir: str,
+    class_name: str,
+    field_name: str,
+    element_uid: int | None,
+    element_name: str | None,
+    scenario_uid: int | None,
+    block_uid: int | None,
+    preferred_format: str,
+) -> float | None:
+    """Read a single value from a FieldSched Parquet/CSV file."""
+    import pandas as pd  # pylint: disable=import-outside-toplevel
+
+    # Build table path (mirrors C++ build_table_path)
+    if "@" in field_name:
+        parts = field_name.split("@", 1)
+        base = str(Path(case_dir) / input_dir / parts[0] / parts[1])
+    else:
+        base = str(Path(case_dir) / input_dir / class_name / field_name)
+
+    # Try to load with format fallback
+    extensions = (
+        [".parquet", ".parquet.gz", ".csv", ".csv.gz"]
+        if preferred_format == "parquet"
+        else [".csv", ".csv.gz", ".parquet", ".parquet.gz"]
+    )
+
+    df = None
+    for ext in extensions:
+        fpath = Path(base + ext)
+        if not fpath.exists():
+            continue
+        try:
+            if ".parquet" in ext:
+                df = pd.read_parquet(fpath)
+            else:
+                df = pd.read_csv(fpath)
+            break
+        except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            continue
+
+    if df is None:
+        return None
+
+    # Find the element column (uid:<N>, name, or bare UID)
+    col = None
+    if element_uid is not None:
+        uid_col = f"uid:{element_uid}"
+        if uid_col in df.columns:
+            col = uid_col
+    if col is None and element_name and element_name in df.columns:
+        col = element_name
+    if col is None and element_uid is not None:
+        if str(element_uid) in df.columns:
+            col = str(element_uid)
+    if col is None:
+        return None
+
+    # Filter by scenario/block UIDs
+    filtered = df
+    if scenario_uid is not None and "scenario" in filtered.columns:
+        filtered = filtered[filtered["scenario"] == scenario_uid]
+    if block_uid is not None and "block" in filtered.columns:
+        filtered = filtered[filtered["block"] == block_uid]
+
+    if filtered.empty:
+        if not df.empty:
+            return float(df[col].iloc[0])
+        return None
+
+    return float(filtered[col].iloc[0])
+
+
 def _pu_to_ohm(x_pu: float, base_kv: float, base_mva: float = 100.0) -> float:
     """Convert per-unit reactance to Ohm."""
     z_base = base_kv**2 / base_mva
     return x_pu * z_base
 
 
+def _resolve_bus_ref(
+    ref: Any,
+    bus_ref_map: dict[Any, int],
+) -> int | None:
+    """Resolve a bus reference (int UID or str name) to a pp bus index."""
+    if ref is None:
+        return None
+    if ref in bus_ref_map:
+        return bus_ref_map[ref]
+    # Try integer conversion for string-encoded UIDs
+    if isinstance(ref, str):
+        try:
+            int_ref = int(ref)
+            if int_ref in bus_ref_map:
+                return bus_ref_map[int_ref]
+        except ValueError:
+            pass
+    return None
+
+
 def convert(
     case: dict[str, Any],
-    scenario: int = 0,
-    block: int = 0,
+    scenario: int | None = None,
+    block: int | None = None,
     base_mva: float = _BASE_MVA,
 ) -> pp.pandapowerNet:
     """Convert a gtopt JSON case to a pandapower network.
@@ -140,9 +343,11 @@ def convert(
     case
         Parsed gtopt JSON (as returned by :func:`load_gtopt_case`).
     scenario
-        0-based scenario index (default 0).
+        Scenario **UID** (as in the JSON ``scenario_array``).
+        ``None`` defaults to the first scenario's UID.
     block
-        0-based block index within the scenario (default 0).
+        Block **UID** (as in the JSON ``block_array``).
+        ``None`` defaults to the first block's UID.
     base_mva
         System base MVA for impedance conversions (default 100).
 
@@ -153,8 +358,40 @@ def convert(
         populated from the gtopt case.
     """
     system = case.get("system", {})
+    simulation = case.get("simulation", {})
+    options = case.get("options", {})
 
-    bus_uid_to_idx = _get_bus_uid_to_idx(system)
+    # File-reading context
+    case_dir = case.get("_case_dir")
+    input_dir = options.get("input_directory", "input")
+    preferred_fmt = options.get("input_format", "parquet")
+
+    scenarios = simulation.get("scenario_array", [{"uid": 1}])
+    blocks = simulation.get("block_array", [{"uid": 1, "duration": 1}])
+
+    # Resolve UID → 0-based index for FieldSched lookup
+    if scenario is None:
+        scenario = _first_uid(scenarios, "scenario")
+    scenario_idx = _uid_to_index(scenario, scenarios, "scenario")
+
+    if block is None:
+        block = _first_uid(blocks, "block")
+    block_idx = _uid_to_index(block, blocks, "block")
+
+    # Shorthand for resolving a FieldSched with file fallback
+    def _rfs(
+        field: Any,
+        cls: str,
+        elem_uid: int | None = None,
+        elem_name: str | None = None,
+    ) -> float | None:
+        return _resolve_field_sched_with_file(
+            field, scenario_idx, block_idx,
+            case_dir, input_dir, cls, elem_uid, elem_name,
+            scenario, block, preferred_fmt,
+        )
+
+    bus_ref_map = _build_bus_ref_map(system)
     ref_bus_uid = _get_reference_bus_uid(system)
 
     net = pp.create_empty_network(
@@ -163,41 +400,48 @@ def convert(
     )
 
     # ── Buses ─────────────────────────────────────────────────────────────
-    for bus in system.get("bus_array", []):
-        bus_uid = int(bus["uid"])
+    for i, bus in enumerate(system.get("bus_array", [])):
+        bus_uid = bus.get("uid")
         vn_kv = float(bus.get("voltage", 110.0))
         pp.create_bus(
             net,
             vn_kv=vn_kv,
             name=bus.get("name", f"b{bus_uid}"),
-            index=bus_uid_to_idx[bus_uid],
+            index=i,
         )
 
     # ── Generators ────────────────────────────────────────────────────────
-    gen_profiles = _build_gen_profile_map(system, scenario, block)
+    gen_profiles = _build_gen_profile_map(system, scenario_idx, block_idx)
 
     for gen in system.get("generator_array", []):
         gen_uid = int(gen["uid"])
-        bus_uid = int(gen["bus"])
-        if bus_uid not in bus_uid_to_idx:
+        gen_name = gen.get("name", "")
+        bus_ref = gen.get("bus")
+        bus_idx = _resolve_bus_ref(bus_ref, bus_ref_map)
+        if bus_idx is None:
             continue
-        bus_idx = bus_uid_to_idx[bus_uid]
 
-        pmax = _resolve_field_sched(gen.get("pmax"), scenario, block)
+        pmax = _rfs(gen.get("pmax"), "Generator", gen_uid, gen_name)
         if pmax is None:
-            pmax = float(gen.get("capacity", 0.0))
+            cap = gen.get("capacity", 0.0)
+            pmax = float(cap) if isinstance(cap, (int, float)) else 0.0
 
         # Apply generator profile if available
         profile_factor = gen_profiles.get(gen_uid, 1.0)
         effective_pmax = pmax * profile_factor
 
-        pmin = _resolve_field_sched(gen.get("pmin"), scenario, block)
+        pmin = _rfs(gen.get("pmin"), "Generator", gen_uid, gen_name)
         if pmin is None:
             pmin = 0.0
 
-        gcost = float(gen.get("gcost", 0.0))
+        gcost_val = _rfs(gen.get("gcost"), "Generator", gen_uid, gen_name)
+        gcost = gcost_val if gcost_val is not None else 0.0
 
-        is_slack = ref_bus_uid is not None and bus_uid == ref_bus_uid
+        is_slack = (
+            ref_bus_uid is not None
+            and _resolve_bus_ref(bus_ref, bus_ref_map)
+            == _resolve_bus_ref(ref_bus_uid, bus_ref_map)
+        )
 
         if is_slack:
             # ext_grid: the reference generator
@@ -238,16 +482,19 @@ def convert(
             )
 
     # ── Demands (loads) ───────────────────────────────────────────────────
-    demand_profiles = _build_demand_profile_map(system, scenario, block)
+    demand_profiles = _build_demand_profile_map(
+        system, scenario_idx, block_idx
+    )
 
     for dem in system.get("demand_array", []):
         dem_uid = int(dem["uid"])
-        bus_uid = int(dem["bus"])
-        if bus_uid not in bus_uid_to_idx:
+        dem_name = dem.get("name", "")
+        bus_ref = dem.get("bus")
+        bus_idx = _resolve_bus_ref(bus_ref, bus_ref_map)
+        if bus_idx is None:
             continue
-        bus_idx = bus_uid_to_idx[bus_uid]
 
-        lmax = _resolve_field_sched(dem.get("lmax"), scenario, block)
+        lmax = _rfs(dem.get("lmax"), "Demand", dem_uid, dem_name)
         if lmax is None:
             lmax = 0.0
 
@@ -265,19 +512,35 @@ def convert(
 
     # ── Lines ─────────────────────────────────────────────────────────────
     for line in system.get("line_array", []):
-        bus_a = int(line["bus_a"])
-        bus_b = int(line["bus_b"])
-        if bus_a not in bus_uid_to_idx or bus_b not in bus_uid_to_idx:
+        line_uid = line.get("uid")
+        line_name = line.get("name", "")
+        bus_a_ref = line.get("bus_a")
+        bus_b_ref = line.get("bus_b")
+        idx_a = _resolve_bus_ref(bus_a_ref, bus_ref_map)
+        idx_b = _resolve_bus_ref(bus_b_ref, bus_ref_map)
+        if idx_a is None or idx_b is None:
             continue
-        idx_a = bus_uid_to_idx[bus_a]
-        idx_b = bus_uid_to_idx[bus_b]
 
-        x_pu = float(line.get("reactance", 0.01))
+        x_pu_val = _rfs(
+            line.get("reactance"), "Line", line_uid, line_name,
+        )
+        x_pu = x_pu_val if x_pu_val is not None else 0.01
+
         line_type = line.get("type", "line")
 
-        tmax_ab = float(line.get("tmax_ab", _TMAX_UNLIMITED))
-        tmax_ba = float(line.get("tmax_ba", _TMAX_UNLIMITED))
+        tmax_ab_val = _rfs(
+            line.get("tmax_ab"), "Line", line_uid, line_name,
+        )
+        tmax_ab = tmax_ab_val if tmax_ab_val is not None else _TMAX_UNLIMITED
+
+        tmax_ba_val = _rfs(
+            line.get("tmax_ba"), "Line", line_uid, line_name,
+        )
+        tmax_ba = tmax_ba_val if tmax_ba_val is not None else _TMAX_UNLIMITED
+
         tmax = min(tmax_ab, tmax_ba)
+
+        display_name = line_name or f"l{bus_a_ref}_{bus_b_ref}"
 
         if line_type == "transformer":
             # Model as transformer
@@ -298,7 +561,7 @@ def convert(
                 vk_percent=max(vk_percent, 0.01),
                 pfe_kw=0.0,
                 i0_percent=0.0,
-                name=line.get("name", f"t{bus_a}_{bus_b}"),
+                name=display_name,
             )
         else:
             # Model as standard line
@@ -321,7 +584,7 @@ def convert(
                 x_ohm_per_km=x_ohm,
                 c_nf_per_km=0.0,
                 max_i_ka=max_i_ka,
-                name=line.get("name", f"l{bus_a}_{bus_b}"),
+                name=display_name,
             )
 
     return net
@@ -365,7 +628,7 @@ def _build_demand_profile_map(
 
 def convert_all_blocks(
     case: dict[str, Any],
-    scenario: int = 0,
+    scenario: int | None = None,
     base_mva: float = _BASE_MVA,
 ) -> list[pp.pandapowerNet]:
     """Convert a gtopt case to one pandapower network per block.
@@ -375,7 +638,7 @@ def convert_all_blocks(
     case
         Parsed gtopt JSON.
     scenario
-        0-based scenario index.
+        Scenario **UID**.  ``None`` defaults to the first scenario.
     base_mva
         System base MVA.
 
@@ -387,15 +650,20 @@ def convert_all_blocks(
     simulation = case.get("simulation", {})
     blocks = simulation.get("block_array", [{"uid": 1, "duration": 1}])
     return [
-        convert(case, scenario=scenario, block=bi, base_mva=base_mva)
-        for bi in range(len(blocks))
+        convert(
+            case,
+            scenario=scenario,
+            block=int(b["uid"]),
+            base_mva=base_mva,
+        )
+        for b in blocks
     ]
 
 
 def run_dcopp(
     case: dict[str, Any],
-    scenario: int = 0,
-    block: int = 0,
+    scenario: int | None = None,
+    block: int | None = None,
 ) -> pp.pandapowerNet:
     """Convert and solve a DC OPF for a single (scenario, block).
 
@@ -404,9 +672,9 @@ def run_dcopp(
     case
         Parsed gtopt JSON.
     scenario
-        0-based scenario index.
+        Scenario **UID**.  ``None`` defaults to the first scenario.
     block
-        0-based block index.
+        Block **UID**.  ``None`` defaults to the first block.
 
     Returns
     -------
@@ -422,7 +690,8 @@ def run_dcopp(
     pp.rundcopp(net)
     if not net.OPF_converged:
         raise RuntimeError(
-            f"pandapower DC OPF failed to converge (scenario={scenario}, block={block})"
+            f"pandapower DC OPF failed to converge "
+            f"(scenario={scenario}, block={block})"
         )
     return net
 
