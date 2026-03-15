@@ -62,9 +62,10 @@ class GTOptWriter:
     def process_options(self, options):
         """Process options data to include input and output paths.
 
-        SDDP-specific settings (solver type, aperture count, …) are grouped
-        under the ``sddp_options`` nested key so that the gtopt C++ JSON
-        parser maps them correctly to ``Options::sddp_options``.
+        The solver type is emitted at the top level as ``solver_type`` so that
+        the gtopt C++ JSON parser maps it directly to ``Options::solver_type``.
+        All other SDDP-specific settings are still grouped under the nested
+        ``sddp_options`` key.
         """
         if not options:
             options = {}
@@ -74,8 +75,8 @@ class GTOptWriter:
         compression = options.get("compression", "gzip")
         solver_type = self._normalize_solver_type(options.get("solver_type", "sddp"))
 
-        # Build the nested sddp_options block (maps to Options::sddp_options).
-        sddp_opts: dict = {"sddp_solver_type": solver_type}
+        # Build the nested sddp_options block (all sddp_* fields except solver_type).
+        sddp_opts: dict = {}
         num_apertures = options.get("num_apertures")
         if num_apertures is not None:
             spec_str = str(num_apertures).strip().lower()
@@ -100,6 +101,7 @@ class GTOptWriter:
             sddp_opts["sddp_cut_sharing_mode"] = cut_sharing_mode
 
         planning_opts = {
+            "solver_type": solver_type,
             "input_directory": str(options.get("output_dir", "")),
             "input_format": input_format,
             "output_directory": "results",
