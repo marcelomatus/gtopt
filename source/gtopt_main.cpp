@@ -368,6 +368,12 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     //
     apply_cli_options(my_planning, opts);
 
+    // Propagate just_create into planning options so the SDDP solver can
+    // handle it internally (run init + one forward pass then stop).
+    if (opts.just_create) {
+      my_planning.options.just_create = opts.just_create;
+    }
+
     //
     // Load user constraints from external file (if specified)
     //
@@ -455,7 +461,14 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
         planning_lp.write_lp(opts.lp_file.value());
       }
 
-      if (opts.just_create.value_or(false)) {
+      // For the monolithic solver, just_create exits here right after LP
+      // matrix assembly (no solving at all).  For the SDDP solver, the flag
+      // is forwarded through SDDPOptions so that initialize_solver() + one
+      // forward pass can run before stopping — that way all scene/phase LPs
+      // are built and (if lp_debug=true) saved, which is useful for profiling.
+      const bool is_sddp = planning_lp.options().solver_type() == "sddp";
+      if (opts.just_create.value_or(false) && !is_sddp) {
+        spdlog::info("just_create: LP model built, skipping solve");
         return 0;
       }
 

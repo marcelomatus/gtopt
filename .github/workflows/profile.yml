@@ -1,0 +1,355 @@
+name: Profile
+
+# Profiling workflow for gtopt (C++) and Python scripts (plp2gtopt, gtopt2pp).
+#
+# C++ profiling strategy:
+#   - valgrind/callgrind for detailed call-graph profiling (slow but accurate)
+#   - Linux perf + flamegraph for production-representative profiling
+#   - The gtopt binary is run with just_create=true to measure LP creation
+#     time without solver overhead (set "just_create": true in the JSON options
+#     or pass via PlanningLP options).
+#
+# Python profiling strategy:
+#   - python -m cProfile for function-level timing
+#   - The output is converted to a text report and uploaded as an artifact.
+#
+# Triggers: workflow_dispatch only (manual, on-demand).
+
+on:
+  workflow_dispatch:
+    inputs:
+      case:
+        description: 'Test case to profile (path relative to repo root, e.g. cases/ieee_9b_ori)'
+        type: string
+        default: 'cases/ieee_9b_ori'
+      plp_case:
+        description: 'PLP case directory to profile plp2gtopt with (relative to scripts/cases/)'
+        type: string
+        default: 'plp_dat_ex'
+      just_create:
+        description: 'Profile LP creation only (no solve, just_create=true)'
+        type: boolean
+        default: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CTEST_OUTPUT_ON_FAILURE: 1
+  CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
+  CCACHE_BASEDIR: ${{ github.workspace }}
+  CCACHE_SLOPPINESS: gcno_file_location
+
+permissions:
+  contents: read
+
+jobs:
+  # ── C++ LP creation profiling ──────────────────────────────────────────────
+  cpp-profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    name: C++ LP creation profile (${{ inputs.case || 'cases/ieee_9b_ori' }})
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: profile-clang
+          restore-keys: |
+            profile-clang-
+            Ubuntu-clang-
+          max-size: 2G
+
+      - uses: actions/cache@v4
+        with:
+          path: "**/cpm_modules"
+          key: profile-clang-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+
+      - name: install dependencies
+        uses: ./.github/actions/install-apt-deps
+        with:
+          extra-packages: valgrind linux-perf
+
+      - name: install clang
+        uses: ./.github/actions/install-clang
+        with:
+          version: 21
+          install-coverage-runtime: 'false'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache uv packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-scripts-${{ hashFiles('scripts/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-scripts-
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Pre-install scripts dependencies
+        run: uv pip install --system -q -e "./scripts[dev]" graphviz
+
+      # Build in Release mode with debug symbols for accurate profiling
+      - name: configure (Release + debug symbols)
+        run: |
+          cmake -S all -B build \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        env:
+          CC: clang
+          CXX: clang++
+
+      - name: build
+        run: cmake --build build -j$(nproc)
+
+      - name: Prepare profiling case
+        id: prep
+        run: |
+          CASE="${{ inputs.case || 'cases/ieee_9b_ori' }}"
+          CASE_DIR="${CASE}"
+          # Find the JSON file for the case
+          JSON_FILE=$(ls "${CASE_DIR}"/*.json 2>/dev/null | head -1)
+          if [ -z "$JSON_FILE" ]; then
+            echo "::error::No JSON file found in ${CASE_DIR}"
+            exit 1
+          fi
+          JSON_BASE=$(basename "${JSON_FILE}" .json)
+          echo "case_dir=${CASE_DIR}" >> $GITHUB_OUTPUT
+          echo "json_base=${JSON_BASE}" >> $GITHUB_OUTPUT
+          echo "json_file=${JSON_FILE}" >> $GITHUB_OUTPUT
+          echo "Profiling case: ${JSON_FILE}"
+
+          # If just_create is requested, inject "just_create": true into a copy
+          if [ "${{ inputs.just_create }}" = "true" ]; then
+            PROFILE_JSON="/tmp/profile_case.json"
+            # Use python to inject just_create into the options block
+            python3 - "${JSON_FILE}" "${PROFILE_JSON}" <<'PYEOF'
+          import json, sys
+          with open(sys.argv[1]) as f:
+              data = json.load(f)
+          if "options" not in data:
+              data["options"] = {}
+          data["options"]["just_create"] = True
+          with open(sys.argv[2], "w") as f:
+              json.dump(data, f, indent=2)
+          print(f"Injected just_create=true into {sys.argv[2]}")
+          PYEOF
+            echo "profile_json=${PROFILE_JSON}" >> $GITHUB_OUTPUT
+          else
+            echo "profile_json=${JSON_FILE}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Profile with valgrind/callgrind
+        run: |
+          CASE_DIR="${{ steps.prep.outputs.case_dir }}"
+          PROFILE_JSON="${{ steps.prep.outputs.profile_json }}"
+          JSON_BASE=$(basename "${PROFILE_JSON}" .json)
+          mkdir -p /tmp/profile_output
+          # Run valgrind callgrind (instrument all calls)
+          # --collect-atstart=no / --toggle-collect=main allows finer control
+          # but for simplicity we profile everything from the start.
+          cd "${CASE_DIR}"
+          valgrind \
+            --tool=callgrind \
+            --callgrind-out-file=/tmp/profile_output/callgrind.out \
+            --collect-systime=yes \
+            --simulate-cache=yes \
+            ../../build/standalone/gtopt "${PROFILE_JSON}" \
+            2>&1 | tee /tmp/profile_output/valgrind.log || true
+          echo "=== Valgrind log summary ==="
+          tail -20 /tmp/profile_output/valgrind.log
+
+      - name: Generate callgrind text report
+        run: |
+          if [ -f /tmp/profile_output/callgrind.out ]; then
+            callgrind_annotate \
+              --auto=yes \
+              --threshold=90 \
+              /tmp/profile_output/callgrind.out \
+              > /tmp/profile_output/callgrind_report.txt 2>&1 || true
+            echo "=== Top functions (callgrind) ==="
+            # Extract function-level summary: sort by inclusive cost
+            callgrind_annotate \
+              --auto=no \
+              --threshold=98 \
+              /tmp/profile_output/callgrind.out \
+              2>&1 | grep -v "^-\|^=\|^$\|^Ir\|For" \
+              | head -40 || true
+          else
+            echo "No callgrind output found"
+          fi
+
+      - name: Profile with time measurement (LP creation timing)
+        run: |
+          CASE_DIR="${{ steps.prep.outputs.case_dir }}"
+          PROFILE_JSON="${{ steps.prep.outputs.profile_json }}"
+          echo "=== LP creation timing (10 repetitions) ==="
+          mkdir -p /tmp/profile_output
+          for i in $(seq 1 10); do
+            cd "${CASE_DIR}"
+            /usr/bin/time -v \
+              ../../build/standalone/gtopt "${PROFILE_JSON}" \
+              2>&1 | grep -E "wall clock|Maximum resident|Elapsed" | head -5 || true
+          done 2>&1 | tee /tmp/profile_output/timing.txt
+          echo "=== Timing summary ==="
+          cat /tmp/profile_output/timing.txt
+
+      - name: Generate profiling step summary
+        run: |
+          echo "## C++ Profiling Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Case**: \`${{ inputs.case || 'cases/ieee_9b_ori' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Mode**: LP creation only (just_create=${{ inputs.just_create }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Timing (10 repetitions)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat /tmp/profile_output/timing.txt 2>/dev/null | head -50 || echo "No timing data"
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Top Functions (callgrind)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          if [ -f /tmp/profile_output/callgrind.out ]; then
+            callgrind_annotate --auto=no --threshold=95 \
+              /tmp/profile_output/callgrind.out 2>&1 \
+              | grep -v "^-\|^=\|^$\|^Ir\|For" | head -30 || true
+          else
+            echo "No callgrind data"
+          fi
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: upload profiling artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpp-profile-${{ github.run_number }}
+          path: /tmp/profile_output/
+          retention-days: 14
+
+  # ── Python scripts profiling ───────────────────────────────────────────────
+  python-profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    name: Python scripts profiling
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache uv packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-scripts-${{ hashFiles('scripts/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-scripts-
+
+      - name: Install uv and scripts
+        run: |
+          pip install uv
+          uv pip install --system -q -e "./scripts[dev]" graphviz
+
+      - name: Profile plp2gtopt
+        run: |
+          mkdir -p /tmp/python_profile_output
+          PLP_CASE="scripts/cases/${{ inputs.plp_case || 'plp_dat_ex' }}"
+          if [ ! -d "${PLP_CASE}" ]; then
+            echo "::warning::PLP case directory '${PLP_CASE}' not found, skipping plp2gtopt profile"
+            echo "plp_case_found=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          echo "plp_case_found=true" >> $GITHUB_ENV
+          INPUT_DIR="$(pwd)/${PLP_CASE}"
+          OUTPUT_DIR="/tmp/plp2gtopt_output"
+          # Run cProfile on plp2gtopt using -m syntax (supported since Python 3.7)
+          python3 -m cProfile \
+            -o /tmp/python_profile_output/plp2gtopt.pstats \
+            -m plp2gtopt \
+            --input-dir "${INPUT_DIR}" \
+            --output-dir "${OUTPUT_DIR}" \
+            2>&1 | tee /tmp/python_profile_output/plp2gtopt_run.log || true
+          # Generate text report sorted by cumulative time
+          python3 - <<'PYEOF'
+import pstats, io
+try:
+    s = pstats.Stats('/tmp/python_profile_output/plp2gtopt.pstats', stream=(buf := io.StringIO()))
+    s.sort_stats('cumulative')
+    s.print_stats(30)
+    report = buf.getvalue()
+    with open('/tmp/python_profile_output/plp2gtopt_profile.txt', 'w') as f:
+        f.write(report)
+    print("=== Top 30 functions (plp2gtopt, cumulative time) ===")
+    print(report)
+except Exception as e:
+    print(f"Could not generate profile report: {e}")
+PYEOF
+
+      - name: Profile gtopt2pp
+        run: |
+          # Find a suitable JSON case for gtopt2pp
+          CASE_JSON=$(ls cases/*/*.json 2>/dev/null | head -1)
+          if [ -z "${CASE_JSON}" ]; then
+            echo "::warning::No JSON case found for gtopt2pp profiling"
+            exit 0
+          fi
+          mkdir -p /tmp/python_profile_output
+          echo "Profiling gtopt2pp with: ${CASE_JSON}"
+          # Run cProfile on gtopt2pp (convert only, no solve)
+          # Use -m syntax: python -m cProfile [-o file] -m module [args...]
+          python3 -m cProfile \
+            -o /tmp/python_profile_output/gtopt2pp.pstats \
+            -m gtopt2pp "${CASE_JSON}" \
+            2>&1 | tee /tmp/python_profile_output/gtopt2pp_run.log || true
+          # Generate text report
+          python3 - <<'PYEOF'
+import pstats, io
+try:
+    s = pstats.Stats('/tmp/python_profile_output/gtopt2pp.pstats', stream=(buf := io.StringIO()))
+    s.sort_stats('cumulative')
+    s.print_stats(30)
+    report = buf.getvalue()
+    with open('/tmp/python_profile_output/gtopt2pp_profile.txt', 'w') as f:
+        f.write(report)
+    print("=== Top 30 functions (gtopt2pp, cumulative time) ===")
+    print(report)
+except Exception as e:
+    print(f"Could not generate profile report: {e}")
+PYEOF
+
+      - name: Python profiling summary
+        run: |
+          echo "## Python Scripts Profiling" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          for script in plp2gtopt gtopt2pp; do
+            REPORT="/tmp/python_profile_output/${script}_profile.txt"
+            if [ -f "$REPORT" ]; then
+              echo "### ${script}" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              head -40 "$REPORT" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+          echo "📥 Download full pstats files from the **python-profile** artifact." >> $GITHUB_STEP_SUMMARY
+
+      - name: upload Python profiling artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-profile-${{ github.run_number }}
+          path: /tmp/python_profile_output/
+          retention-days: 14

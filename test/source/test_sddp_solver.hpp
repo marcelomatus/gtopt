@@ -13,6 +13,7 @@
  *  6. Multi-scene SDDP solving
  *  7. Solver interface integration (monolithic vs SDDP dispatch)
  *  8. Simple 2-phase linear Benders cut and aperture tests
+ *  9. just_create=true stops after first forward pass (LP creation profiling)
  */
 
 #include <cmath>
@@ -20,6 +21,7 @@
 #include <fstream>
 
 #include <doctest/doctest.h>
+#include <gtopt/gtopt_main.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_solver.hpp>
@@ -3475,4 +3477,97 @@ TEST_CASE("compute_convergence_gap - large absolute upper bound")  // NOLINT
 {
   // denom = max(1.0, 1000.0) = 1000.0 → gap = 10/1000 = 0.01
   CHECK(compute_convergence_gap(1000.0, 990.0) == doctest::Approx(0.01));
+}
+
+// ─── just_create tests ─────────────────────────────────────────────────────
+
+TEST_CASE(
+    "SDDPSolver - just_create=true stops after first forward pass")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+
+  // Use the 3-phase hydro planning that the other SDDP tests use.
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 100;  // would run many iterations normally
+  sddp_opts.just_create = true;  // stop after first forward pass
+
+  PlanningLP planning_lp(std::move(planning));
+  SDDPSolver sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+
+  REQUIRE(results.has_value());
+  // Exactly one iteration result (the first forward pass)
+  CHECK(results->size() == 1);
+  CHECK(results->front().iteration == 1);
+  // No convergence (only one pass, no backward pass)
+  CHECK_FALSE(results->front().converged);
+}
+
+TEST_CASE("SDDPPlanningSolver - just_create=true returns 0")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  planning.options.solver_type = OptName {"sddp"};
+  planning.options.just_create = OptBool {true};
+
+  PlanningLP planning_lp(std::move(planning));
+  auto result = planning_lp.resolve();
+
+  // just_create succeeds with return value 0
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+}
+
+TEST_CASE(
+    "gtopt_main - just_create=true with SDDP solver stops after forward pass")  // NOLINT
+{
+  // Minimal multi-phase SDDP JSON: two phases so the SDDP solver accepts it.
+  // just_create should run init + forward pass and return 0.
+  constexpr auto sddp_just_create_json = R"({
+    "options": {
+      "demand_fail_cost": 1000,
+      "output_compression": "uncompressed",
+      "solver_type": "sddp",
+      "use_single_bus": true
+    },
+    "simulation": {
+      "block_array": [
+        {"uid": 1, "duration": 1},
+        {"uid": 2, "duration": 1}
+      ],
+      "stage_array": [
+        {"uid": 1, "first_block": 0, "count_block": 1},
+        {"uid": 2, "first_block": 1, "count_block": 1}
+      ],
+      "scenario_array": [{"uid": 1}],
+      "phase_array": [
+        {"uid": 1, "first_stage": 0, "count_stage": 1},
+        {"uid": 2, "first_stage": 1, "count_stage": 1}
+      ]
+    },
+    "system": {
+      "name": "sddp_just_create_test",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}
+      ]
+    }
+  })";
+
+  const auto tmp =
+      std::filesystem::temp_directory_path() / "sddp_just_create_test";
+  {
+    std::ofstream ofs(tmp.string() + ".json");
+    ofs << sddp_just_create_json;
+  }
+
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {tmp.string()},
+      .just_create = true,
+  });
+
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
 }

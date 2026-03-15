@@ -228,6 +228,13 @@ struct SDDPOptions
   /// Files are named using sddp_file::debug_lp_fmt.
   bool lp_debug {false};
 
+  /// When true, run initialization + one forward pass then stop without
+  /// iterating.  All scene/phase LPs are built and solved once (same as
+  /// one SDDP forward pass).  If lp_debug is also true the LP files are
+  /// saved before returning.  No backward pass, no cut generation, no
+  /// convergence loop.  Useful for profiling LP creation time.
+  bool just_create {false};
+
   /// Compression format for LP debug files ("gzip" / "uncompressed" / "").
   /// Empty or "uncompressed" means no compression; any other value uses gzip.
   std::string lp_debug_compression {};

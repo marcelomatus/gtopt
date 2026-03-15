@@ -267,6 +267,21 @@ public:
     return m_options_.lp_debug.value_or(false);
   }
 
+  /**
+   * @brief Gets the just_create flag, using default if not set.
+   *
+   * When true, the solver should build LP model(s) without solving to
+   * convergence.  For the monolithic solver this exits right after LP
+   * matrix assembly; for the SDDP solver it runs initialization + one
+   * forward pass and then exits.
+   *
+   * @return Whether to stop after LP creation
+   */
+  [[nodiscard]] constexpr auto just_create() const
+  {
+    return m_options_.just_create.value_or(false);
+  }
+
   // Default values for SDDP solver settings
   /** @brief Default solver type */
   static constexpr auto default_sddp_solver_type = "monolithic";
