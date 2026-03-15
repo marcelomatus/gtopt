@@ -14,7 +14,13 @@ def get_pandapower_diagnostics(planning: dict[str, Any]) -> str:
     Uses gtopt2pp internally if available.  Falls back to direct
     pandapower conversion when possible.
     """
-    # Try calling gtopt2pp via subprocess
+    # Resolve first scenario/block UID (gtopt2pp expects UIDs, not 0-based indices)
+    sim = planning.get("simulation", {})
+    scenarios = sim.get("scenario_array", [{"uid": 1}])
+    blocks = sim.get("block_array", [{"uid": 1}])
+    first_scenario_uid = str(scenarios[0].get("uid", 1))
+    first_block_uid = str(blocks[0].get("uid", 1))
+
     try:
         with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as tmp:
             json.dump(planning, tmp)
@@ -26,9 +32,9 @@ def get_pandapower_diagnostics(planning: dict[str, Any]) -> str:
                 "gtopt2pp",
                 tmp_path,
                 "--scenario",
-                "0",
+                first_scenario_uid,
                 "--block",
-                "0",
+                first_block_uid,
                 "-o",
                 out_path,
             ],

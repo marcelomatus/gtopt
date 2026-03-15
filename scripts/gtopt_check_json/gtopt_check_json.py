@@ -18,6 +18,7 @@ Usage
 import argparse
 import json
 import sys
+import types
 from pathlib import Path
 from typing import Any
 
@@ -126,14 +127,12 @@ def check_json(
         cfg.get("ai_enabled", "false").lower() in ("true", "1", "yes")
         and "ai_system_analysis" in enabled
     ):
-        # Lightweight namespace for AI options
-        class _AIOpts:  # pylint: disable=too-few-public-methods
-            provider = cfg.get("ai_provider", "claude")
-            model = cfg.get("ai_model", "") or None
-            key = None
-            timeout = 60
-
-        ai_options = _AIOpts()
+        ai_options = types.SimpleNamespace(
+            provider=cfg.get("ai_provider", "claude"),
+            model=cfg.get("ai_model", "") or None,
+            key=None,
+            timeout=60,
+        )
 
     # Run checks
     print(col.header("gtopt_check_json"))
