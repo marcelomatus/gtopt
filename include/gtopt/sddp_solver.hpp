@@ -797,13 +797,13 @@ private:
   SDDPOptions m_options_;
   LabelMaker m_label_maker_;
   scene_phase_states_t m_scene_phase_states_;
-  std::vector<StoredCut> m_stored_cuts_;
+  std::vector<StoredCut> m_stored_cuts_ {};
   mutable std::mutex m_cuts_mutex_;  ///< Protects m_stored_cuts_
 
   /// Per-scene cut storage — each scene writes its own vector without
   /// needing the shared m_cuts_mutex_, preventing lock contention during
   /// parallel backward passes.
-  StrongIndexVector<SceneIndex, std::vector<StoredCut>> m_scene_cuts_;
+  StrongIndexVector<SceneIndex, std::vector<StoredCut>> m_scene_cuts_ {};
 
   /// Per-(scene, phase) count of consecutive forward-pass infeasibilities.
   /// Incremented when the elastic filter is used in forward_pass at (scene,
@@ -889,7 +889,7 @@ public:
 
 private:
   SDDPOptions m_sddp_opts_;
-  std::vector<SDDPIterationResult> m_last_results_;
+  std::vector<SDDPIterationResult> m_last_results_ {};
 };
 
 }  // namespace gtopt
