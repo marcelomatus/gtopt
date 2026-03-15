@@ -420,6 +420,21 @@ def convert(
     # ── Generators ────────────────────────────────────────────────────────
     gen_profiles = _build_gen_profile_map(system, scenario_idx, block_idx)
 
+    # Determine the reference bus index.  When no bus carries
+    # ``reference_theta``, fall back to the bus of the first generator
+    # (matching the DC-OPF convention used by PLP and gtopt itself, where
+    # bus 1 is the implicit slack).  If there are no generators at all,
+    # fall back to the first bus in the network (index 0).
+    if ref_bus_uid is None:
+        generator_array = system.get("generator_array", [])
+        if generator_array:
+            first_gen_bus_ref = generator_array[0].get("bus")
+            fallback_bus_idx = _resolve_bus_ref(first_gen_bus_ref, bus_ref_map)
+        else:
+            fallback_bus_idx = 0 if net.bus is not None and len(net.bus) else None
+    else:
+        fallback_bus_idx = None  # ref_bus_uid drives the slack selection below
+
     for gen in system.get("generator_array", []):
         gen_uid = int(gen["uid"])
         gen_name = gen.get("name", "")
@@ -449,9 +464,16 @@ def convert(
         gcost_val = _rfs(gen.get("gcost"), "Generator", gen_uid, gen_name)
         gcost = gcost_val if gcost_val is not None else 0.0
 
-        is_slack = ref_bus_uid is not None and _resolve_bus_ref(
-            bus_ref, bus_ref_map
-        ) == _resolve_bus_ref(ref_bus_uid, bus_ref_map)
+        # Decide whether this generator becomes the ext_grid (slack).
+        # Priority: explicit reference_theta bus → first-generator fallback.
+        if ref_bus_uid is not None:
+            is_slack = _resolve_bus_ref(bus_ref, bus_ref_map) == _resolve_bus_ref(
+                ref_bus_uid, bus_ref_map
+            )
+        else:
+            is_slack = bus_idx == fallback_bus_idx
+            if is_slack:
+                fallback_bus_idx = None  # consume the fallback slot
 
         if is_slack:
             # ext_grid: the reference generator
@@ -490,6 +512,13 @@ def convert(
                 cp0_eur=0.0,
                 cp2_eur_per_mw2=0.0,
             )
+
+    # If no ext_grid was created at all (no generators in the case or all
+    # generators were skipped due to unresolvable bus references), add a
+    # zero-cost ext_grid on the first available bus so that pandapower
+    # diagnostics and power-flow tools have a valid reference bus.
+    if len(net.ext_grid) == 0 and len(net.bus) > 0:
+        pp.create_ext_grid(net, bus=0, name="slack")
 
     # ── Demands (loads) ───────────────────────────────────────────────────
     demand_profiles = _build_demand_profile_map(system, scenario_idx, block_idx)
