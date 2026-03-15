@@ -45,7 +45,7 @@ except ImportError:  # pragma: no cover
         """Minimal AiOptions shim when gtopt_check_lp is not installed."""
 
         enabled: bool = True
-        provider: str = "claude"
+        provider: str = "github"
         model: str = ""
         prompt: str = ""
         key: str = ""
