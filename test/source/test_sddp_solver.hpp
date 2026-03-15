@@ -20,6 +20,7 @@
 #include <fstream>
 
 #include <doctest/doctest.h>
+#include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_solver.hpp>
 #include <gtopt/sddp_solver.hpp>
@@ -594,6 +595,47 @@ TEST_CASE("Options sddp_solver_type defaults")  // NOLINT
   const OptionsLP options_lp;
   CHECK(options_lp.sddp_solver_type() == "monolithic");
   CHECK(options_lp.sddp_cut_sharing_mode() == "max");
+}
+
+TEST_CASE("Options top-level solver_type takes precedence")  // NOLINT
+{
+  // Top-level solver_type overrides sddp_options.sddp_solver_type
+  Options opts;
+  opts.solver_type = OptName {"sddp"};
+  opts.sddp_options.sddp_solver_type = OptName {"monolithic"};
+
+  const OptionsLP options_lp(std::move(opts));
+  // top-level wins
+  CHECK(options_lp.sddp_solver_type() == "sddp");
+}
+
+TEST_CASE("Options top-level solver_type fallback to sddp_options")  // NOLINT
+{
+  // When top-level is unset, fall back to sddp_options.sddp_solver_type
+  Options opts;
+  opts.sddp_options.sddp_solver_type = OptName {"sddp"};
+
+  const OptionsLP options_lp(std::move(opts));
+  CHECK(options_lp.sddp_solver_type() == "sddp");
+}
+
+TEST_CASE("Options solver_type from JSON top-level field")  // NOLINT
+{
+  // Verify that "solver_type": "sddp" in the top-level options block is
+  // correctly parsed — this is the documented shorthand for users who do not
+  // want to nest the field under sddp_options.
+  constexpr std::string_view json_str = R"json(
+  {
+    "options": {
+      "solver_type": "sddp"
+    }
+  }
+  )json";
+
+  const auto planning =
+      daw::json::from_json<Planning>(json_str);  // NOLINT(misc-include-cleaner)
+  const OptionsLP options_lp(planning.options);
+  CHECK(options_lp.sddp_solver_type() == "sddp");
 }
 
 // ─── Integration: monolithic vs SDDP comparison ────────────────────────────

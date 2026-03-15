@@ -299,12 +299,20 @@ public:
 
   /**
    * @brief Gets the solver type, using default if not set
+   *
+   * Checks the top-level `solver_type` field first (the recommended
+   * shorthand), then falls back to `sddp_options.sddp_solver_type`,
+   * and finally to the built-in default `"monolithic"`.
+   *
    * @return The solver type ("monolithic" or "sddp")
    */
-  [[nodiscard]] constexpr auto sddp_solver_type() const
+  [[nodiscard]] auto sddp_solver_type() const -> Name
   {
+    if (m_options_.solver_type.has_value()) {
+      return *m_options_.solver_type;
+    }
     return m_options_.sddp_options.sddp_solver_type.value_or(
-        default_sddp_solver_type);
+        Name {default_sddp_solver_type});
   }
 
   /**
