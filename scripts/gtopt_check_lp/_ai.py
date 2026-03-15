@@ -14,10 +14,10 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 _AI_PROVIDERS = ("claude", "openai", "deepseek", "github")
-_AI_DEFAULT_PROVIDER = "claude"
+_AI_DEFAULT_PROVIDER = "github"
 
 _AI_DEFAULT_MODEL: dict[str, str] = {
-    "claude": "claude-opus-4-5",
+    "claude": "claude-3-5-sonnet-20241022",
     "openai": "gpt-4o",
     "deepseek": "deepseek-chat",
     "github": "gpt-4o",
@@ -224,22 +224,29 @@ def _query_github(
     api_key: Optional[str],
     timeout: int,
 ) -> tuple[bool, str]:
-    """Call the GitHub Copilot AI API (OpenAI-compatible).
+    """Call the GitHub Models AI API (OpenAI-compatible).
 
     Uses:
-    * ``OPENAI_API_BASE`` env var as the base URL (defaults to
-      ``https://api.githubcopilot.com``).
-    * ``OPENAI_API_KEY`` env var for authentication.
+    * ``OPENAI_API_BASE`` env var as a custom base URL override (defaults to
+      ``https://models.github.ai/inference`` — the GitHub Models endpoint).
+      Can also point to ``https://api.githubcopilot.com`` for GitHub Copilot.
+    * ``GITHUB_TOKEN`` env var for authentication (falls back to
+      ``OPENAI_API_KEY``).  In GitHub Actions ``GITHUB_TOKEN`` is
+      injected automatically.
     """
-    key = api_key or os.environ.get("OPENAI_API_KEY", "")
+    key = (
+        api_key
+        or os.environ.get("GITHUB_TOKEN", "")
+        or os.environ.get("OPENAI_API_KEY", "")
+    )
     if not key:
         return (
             False,
-            "No API key found for GitHub AI.  Set the OPENAI_API_KEY environment "
-            "variable or pass --ai-key KEY.",
+            "No API key found for GitHub AI.  Set the GITHUB_TOKEN (or "
+            "OPENAI_API_KEY) environment variable or pass --ai-key KEY.",
         )
     base_url = os.environ.get(
-        "OPENAI_API_BASE", "https://api.githubcopilot.com"
+        "OPENAI_API_BASE", "https://models.github.ai/inference"
     ).rstrip("/")
     url = f"{base_url}/chat/completions"
     payload: dict[str, Any] = {

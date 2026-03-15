@@ -2363,7 +2363,7 @@ auto SDDPSolver::solve_apertures_for_phase(
     // Use all aperture definitions (each with count = 1)
     for (const auto& ap : aperture_defs) {
       if (ap.is_active()) {
-        effective_apertures.push_back({std::cref(ap), 1});
+        effective_apertures.push_back({.aperture = std::cref(ap), .count = 1});
       }
     }
   } else {
@@ -2388,7 +2388,7 @@ auto SDDPSolver::solve_apertures_for_phase(
     for (const auto& [uid, cnt] : uid_counts) {
       for (const auto& ap : aperture_defs) {
         if (ap.uid == uid && ap.is_active()) {
-          effective_apertures.push_back({std::cref(ap), cnt});
+          effective_apertures.push_back({.aperture = std::cref(ap), .count = cnt});
           break;
         }
       }

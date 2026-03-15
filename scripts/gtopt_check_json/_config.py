@@ -27,7 +27,7 @@ CHECK_DEFAULTS: dict[str, str] = {
 _CONFIG_DEFAULTS: dict[str, str] = {
     "color": "auto",
     "ai_enabled": "false",
-    "ai_provider": "claude",
+    "ai_provider": "github",
     "ai_model": "",
     "ai_prompt": "",
     **{f"check_{k}": v for k, v in CHECK_DEFAULTS.items()},
@@ -35,7 +35,7 @@ _CONFIG_DEFAULTS: dict[str, str] = {
 
 # Supported AI providers (kept in sync with gtopt_check_lp._ai._AI_PROVIDERS).
 _AI_PROVIDERS = ("claude", "openai", "deepseek", "github")
-_AI_DEFAULT_PROVIDER = "claude"
+_AI_DEFAULT_PROVIDER = "github"
 
 
 def default_config_path() -> Path:
