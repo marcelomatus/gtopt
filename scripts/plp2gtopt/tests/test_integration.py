@@ -1684,7 +1684,7 @@ def test_hydro_4b_mono_conversion(tmp_path):
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
     sim = data["simulation"]
 
-    assert data["options"]["sddp_options"]["sddp_solver_type"] == "monolithic"
+    assert data["options"]["solver_type"] == "monolithic"
 
     # 3 scenarios with equal probability
     scenarios = sim["scenario_array"]

@@ -134,6 +134,9 @@ struct UniqueFd
   }
 };
 
+/// Maximum bytes of child output captured before truncation.
+constexpr std::size_t kMaxCapturedOutput = 64UZ * 1024UZ;  // 64 KB
+
 /**
  * @brief Result returned by spawn_tool().
  */
@@ -299,9 +302,6 @@ struct SpawnResult
 }
 
 }  // namespace
-
-// Maximum bytes of child output captured before truncation.
-constexpr std::size_t kMaxCapturedOutput = 64UZ * 1024UZ;  // 64 KB
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
