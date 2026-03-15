@@ -810,8 +810,8 @@ class TestQueryAi:
         assert "{report}" in _AI_INFEASIBILITY_PROMPT
 
     def test_ai_default_provider(self):
-        """Default AI provider is 'claude'."""
-        assert _AI_DEFAULT_PROVIDER == "claude"
+        """Default AI provider is 'github'."""
+        assert _AI_DEFAULT_PROVIDER == "github"
 
 
 # ── check_lp integration ─────────────────────────────────────────────────────
