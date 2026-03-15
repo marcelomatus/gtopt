@@ -518,23 +518,36 @@ the JSON planning file.
 {
   "options": {
     "solver_type": "sddp",
-    "cut_sharing_mode": "expected",
-    "cut_directory": "cuts",
     "log_directory": "logs",
-    "sddp_max_iterations": 200,
-    "sddp_convergence_tol": 1e-5,
-    "sddp_elastic_penalty": 1e7,
-    "sddp_elastic_mode": "backpropagate"
+    "sddp_options": {
+      "sddp_cut_sharing_mode": "expected",
+      "sddp_cut_directory": "cuts",
+      "sddp_max_iterations": 200,
+      "sddp_convergence_tol": 1e-5,
+      "sddp_elastic_penalty": 1e7,
+      "sddp_elastic_mode": "backpropagate"
+    }
   }
 }
 ```
 
+The top-level `solver_type` field selects the planning solver.  All
+`sddp_`-prefixed options live in the nested `sddp_options` sub-object.
+
+**Top-level `options` fields:**
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `solver_type` | string | `"monolithic"` | Solver to use: `"monolithic"` or `"sddp"` |
-| `cut_sharing_mode` | string | `"none"` | Cut sharing: `"none"`, `"expected"`, or `"max"` |
-| `cut_directory` | string | `"cuts"` | Directory for Benders cut files |
+| `solver_type` | string | `"monolithic"` | Solver: `"monolithic"` or `"sddp"` (recommended shorthand) |
 | `log_directory` | string | `"logs"` | Directory for log and trace files |
+
+**`sddp_options` sub-object fields:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `sddp_solver_type` | string | — | Alternative to top-level `solver_type` (lower precedence) |
+| `sddp_cut_sharing_mode` | string | `"max"` | Cut sharing: `"none"`, `"expected"`, `"accumulate"`, or `"max"` |
+| `sddp_cut_directory` | string | `"cuts"` | Directory for Benders cut files |
 | `sddp_max_iterations` | int | 100 | Maximum SDDP iterations |
 | `sddp_convergence_tol` | double | 1e-4 | Relative gap convergence tolerance |
 | `sddp_elastic_penalty` | double | 1e6 | Penalty for elastic slack variables |
