@@ -50,8 +50,6 @@ namespace gtopt
  */
 struct SddpOptions
 {
-  /** @brief Solver type: `"monolithic"` (default) or `"sddp"` */
-  OptName sddp_solver_type {};
   /** @brief Cut sharing mode: `"none"`, `"expected"`, `"accumulate"`,
    *  or `"max"` (default) */
   OptName sddp_cut_sharing_mode {};
@@ -149,7 +147,6 @@ struct SddpOptions
 
   void merge(SddpOptions&& opts)
   {
-    merge_opt(sddp_solver_type, std::move(opts.sddp_solver_type));
     merge_opt(sddp_cut_sharing_mode, std::move(opts.sddp_cut_sharing_mode));
     merge_opt(sddp_cut_directory, std::move(opts.sddp_cut_directory));
     merge_opt(sddp_api_enabled, opts.sddp_api_enabled);
@@ -241,9 +238,8 @@ struct Options
 
   /** @brief Planning solver type: `"monolithic"` (default) or `"sddp"`.
    *
-   * Top-level shorthand for `sddp_options.sddp_solver_type`.  When set, it
-   * takes precedence over the nested field.  Recommended way to select the
-   * solver from a JSON options block:
+   * This is the only supported way to select the solver.
+   * Example:
    *
    * ```json
    * { "options": { "solver_type": "sddp" } }

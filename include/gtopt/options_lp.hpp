@@ -298,21 +298,16 @@ public:
   static constexpr int default_sddp_multi_cut_threshold = 10;
 
   /**
-   * @brief Gets the solver type, using default if not set
+   * @brief Gets the solver type, using default if not set.
    *
-   * Checks the top-level `solver_type` field first (the recommended
-   * shorthand), then falls back to `sddp_options.sddp_solver_type`,
-   * and finally to the built-in default `"monolithic"`.
+   * Reads the top-level `solver_type` field (`"monolithic"` or `"sddp"`).
+   * Defaults to `"monolithic"` when not set.
    *
    * @return The solver type ("monolithic" or "sddp")
    */
-  [[nodiscard]] auto sddp_solver_type() const -> Name
+  [[nodiscard]] auto solver_type() const -> Name
   {
-    if (m_options_.solver_type.has_value()) {
-      return *m_options_.solver_type;
-    }
-    return m_options_.sddp_options.sddp_solver_type.value_or(
-        Name {default_sddp_solver_type});
+    return m_options_.solver_type.value_or(Name {default_sddp_solver_type});
   }
 
   /**

@@ -131,6 +131,9 @@ template<typename T>
       ("fast-parsing,p",
        po::value<bool>().implicit_value(/*v=*/true),
        "use fast (non strict) json parsing")  //
+      ("check-json,J",
+       po::value<bool>().implicit_value(/*v=*/true),
+       "warn about JSON fields not recognised by the schema")  //
       ("stats,S",
        po::value<bool>().implicit_value(/*v=*/true),
        "print system statistics before and after solving")  //
@@ -383,6 +386,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .json_file = get_opt<std::string>(vm, "json-file"),
       .just_create = get_opt<bool>(vm, "just-create"),
       .fast_parsing = get_opt<bool>(vm, "fast-parsing"),
+      .check_json = get_opt<bool>(vm, "check-json"),
       .print_stats = get_opt<bool>(vm, "stats"),
       .lp_debug = get_opt<bool>(vm, "lp-debug"),
       .trace_log = get_opt<std::string>(vm, "trace-log"),

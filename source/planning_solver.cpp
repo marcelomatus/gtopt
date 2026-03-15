@@ -172,7 +172,7 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
 
 std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options)
 {
-  if (options.sddp_solver_type() == "sddp") {
+  if (options.solver_type() == "sddp") {
     SDDPOptions sddp_opts;
 
     // Iteration control

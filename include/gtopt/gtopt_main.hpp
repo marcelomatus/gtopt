@@ -73,6 +73,8 @@ struct MainOptions
   std::optional<bool> just_create {};
   /** @brief Use fast (non-strict) JSON parsing */
   std::optional<bool> fast_parsing {};
+  /** @brief Warn about JSON fields not recognised by the schema */
+  std::optional<bool> check_json {};
   /** @brief Print pre- and post-solve system statistics */
   std::optional<bool> print_stats {};
   /** @brief Save debug LP files to the log directory (monolithic: one per
