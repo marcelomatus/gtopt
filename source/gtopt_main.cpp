@@ -124,7 +124,8 @@ constexpr auto ExactParsePolicy = daw::json::options::parse_flags<
       // the normal policy below.
       if (check_json) {
         try {
-          daw::json::from_json<Planning>(json_result.value(), ExactParsePolicy);
+          (void)daw::json::from_json<Planning>(json_result.value(),
+                                               ExactParsePolicy);
         } catch (const daw::json::json_exception& jex) {
           spdlog::warn("Unknown JSON field in '{}': {}",
                        fpath.string(),
