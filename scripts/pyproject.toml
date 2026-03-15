@@ -17,7 +17,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gtopt-scripts"
 version = "1.0.0"
-description = "gtopt conversion, diagram and utility scripts (gtopt_compare, cvs2parquet, gtopt_diagram, gtopt_check_lp, gtopt2pp, igtopt, plp2gtopt, pp2gtopt, ts2gtopt)"
+description = "gtopt conversion, diagram and utility scripts (gtopt_compare, cvs2parquet, gtopt_diagram, gtopt_check_lp, gtopt_check_json, gtopt2pp, igtopt, plp2gtopt, pp2gtopt, ts2gtopt)"
 requires-python = ">=3.8"
 dependencies = [
     "numpy>=1.26.0,<2.4",
@@ -37,6 +37,7 @@ igtopt                = "igtopt.igtopt:main"
 plp2gtopt             = "plp2gtopt.main:main"
 pp2gtopt              = "pp2gtopt.main:main"
 gtopt2pp              = "gtopt2pp.main:main"
+gtopt_check_json      = "gtopt_check_json.gtopt_check_json:main"
 sddp_monitor          = "sddp_monitor:main"
 ts2gtopt              = "ts2gtopt.main:main"
 
@@ -59,7 +60,7 @@ diagram = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["gtopt_compare*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "igtopt*", "plp2gtopt*", "pp2gtopt*", "gtopt2pp*", "sddp_monitor*", "ts2gtopt*"]
+include = ["gtopt_compare*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "gtopt_check_json*", "igtopt*", "plp2gtopt*", "pp2gtopt*", "gtopt2pp*", "sddp_monitor*", "ts2gtopt*"]
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +74,7 @@ testpaths = [
     "cvs2parquet/tests",
     "gtopt_diagram/tests",
     "gtopt_check_lp/tests",
+    "gtopt_check_json/tests",
     "gtopt2pp/tests",
     "igtopt/tests",
     "plp2gtopt/tests",

@@ -21,7 +21,5 @@ def header(title: str) -> str:
     """Return a boxed section header string."""
     line = "─" * (len(title) + 4)
     return (
-        f"\n{c(BOLD, f'┌{line}┐')}"
-        f"\n{c(BOLD, f'│  {title}  │')}"
-        f"\n{c(BOLD, f'└{line}┘')}"
+        f"\n{c(BOLD, f'┌{line}┐')}\n{c(BOLD, f'│  {title}  │')}\n{c(BOLD, f'└{line}┘')}"
     )

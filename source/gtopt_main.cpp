@@ -24,6 +24,7 @@
  */
 
 #include <chrono>
+#include <cstdlib>
 #include <expected>
 #include <filesystem>
 #include <fstream>
@@ -175,12 +176,38 @@ constexpr auto StrictParsePolicy = daw::json::options::parse_flags<
 }
 
 /**
- * @brief Log pre-solve system, simulation, and option statistics.
+ * @brief Run the gtopt_check_json script with --info to print pre-solve
+ * statistics.
  *
- * @param planning The planning object whose statistics are logged.
+ * Falls back to the built-in C++ stats if the script is not found on PATH.
+ *
+ * @param planning_files The list of planning JSON file stems/paths.
+ * @param planning       The parsed planning (used only for the fallback).
  */
-void log_pre_solve_stats(const Planning& planning)
+void log_pre_solve_stats(const std::vector<std::string>& planning_files,
+                         const Planning& planning)
 {
+  // Build the command: gtopt_check_json --info <file1.json> [<file2.json> ...]
+  std::string cmd = "gtopt_check_json --info";
+  for (const auto& stem : planning_files) {
+    auto p = std::filesystem::path {stem};
+    if (!p.has_extension()) {
+      p.replace_extension(".json");
+    }
+    cmd += std::format(" \"{}\"", p.string());
+  }
+  cmd += " 2>&1";
+
+  // Try running the external script
+  // NOLINTNEXTLINE(cert-env33-c,concurrency-mt-unsafe)
+  const int rc = std::system(cmd.c_str());
+  if (rc == 0) {
+    return;
+  }
+
+  // Fall back to built-in C++ stats if the script is not available
+  spdlog::debug("gtopt_check_json not found on PATH; using built-in stats");
+
   const auto& sys = planning.system;
   const auto& sim = planning.simulation;
   const auto& plan_opts = planning.options;
@@ -406,6 +433,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
 
       if (do_stats) {
         log_pre_solve_stats(
+            opts.planning_files,
             my_planning);  // NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)
       }
 

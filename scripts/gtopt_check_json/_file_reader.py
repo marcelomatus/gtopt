@@ -113,9 +113,7 @@ def resolve_file_sched_value(
     if df is None:
         return None
 
-    return _lookup_value(
-        df, element_uid, element_name, scenario_uid, block_uid
-    )
+    return _lookup_value(df, element_uid, element_name, scenario_uid, block_uid)
 
 
 def resolve_file_sched_series(

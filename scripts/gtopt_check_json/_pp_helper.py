@@ -16,9 +16,7 @@ def get_pandapower_diagnostics(planning: dict[str, Any]) -> str:
     """
     # Try calling gtopt2pp via subprocess
     try:
-        with tempfile.NamedTemporaryFile(
-            suffix=".json", mode="w", delete=False
-        ) as tmp:
+        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as tmp:
             json.dump(planning, tmp)
             tmp_path = tmp.name
 
@@ -76,9 +74,7 @@ def _try_direct_diagnostics(planning: dict[str, Any]) -> str:
         import pandapower as pp  # pylint: disable=import-outside-toplevel
 
         sys = planning.get("system", {})
-        net = pp.create_empty_network(
-            name=sys.get("name", "gtopt_check")
-        )
+        net = pp.create_empty_network(name=sys.get("name", "gtopt_check"))
 
         # Build buses
         bus_map: dict[Any, int] = {}
@@ -86,9 +82,7 @@ def _try_direct_diagnostics(planning: dict[str, Any]) -> str:
             uid = bus.get("uid")
             name = bus.get("name", str(uid))
             voltage = bus.get("voltage", 110.0)
-            pp_idx = pp.create_bus(
-                net, vn_kv=voltage, name=name
-            )
+            pp_idx = pp.create_bus(net, vn_kv=voltage, name=name)
             bus_map[uid] = pp_idx
             if name:
                 bus_map[name] = pp_idx
@@ -113,9 +107,7 @@ def _try_direct_diagnostics(planning: dict[str, Any]) -> str:
                     x_ohm_per_km=0.1,
                     c_nf_per_km=0,
                     max_i_ka=tmax / 110.0,
-                    name=line.get(
-                        "name", str(line.get("uid", ""))
-                    ),
+                    name=line.get("name", str(line.get("uid", ""))),
                 )
 
         diag = pp.diagnostic(net, report_style=None)

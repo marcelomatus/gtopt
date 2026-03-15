@@ -12,10 +12,3 @@ Sub-modules
 :mod:`._config`  — Config I/O and check enable/disable
 :mod:`._info`    — System / simulation statistics
 """
-
-from .gtopt_check_json import check_json, main  # noqa: F401
-
-__all__ = [
-    "check_json",
-    "main",
-]

@@ -59,9 +59,7 @@ _ELEMENT_ARRAYS: dict[str, str] = {
 }
 
 
-def _get_uid_set(
-    sys: dict[str, Any], array_key: str
-) -> dict[Any, list[int]]:
+def _get_uid_set(sys: dict[str, Any], array_key: str) -> dict[Any, list[int]]:
     """Return a mapping of uid → list of indices for an element array."""
     result: dict[Any, list[int]] = defaultdict(list)
     for idx, elem in enumerate(sys.get(array_key, [])):
@@ -71,9 +69,7 @@ def _get_uid_set(
     return result
 
 
-def _get_name_set(
-    sys: dict[str, Any], array_key: str
-) -> dict[str, list[int]]:
+def _get_name_set(sys: dict[str, Any], array_key: str) -> dict[str, list[int]]:
     """Return a mapping of name → list of indices for an element array."""
     result: dict[str, list[int]] = defaultdict(list)
     for idx, elem in enumerate(sys.get(array_key, [])):
@@ -190,10 +186,7 @@ def check_uid_uniqueness(planning: dict[str, Any]) -> list[Finding]:
                     Finding(
                         check_id="uid_uniqueness",
                         severity=Severity.CRITICAL,
-                        message=(
-                            f"{label}: duplicate uid={uid} "
-                            f"at indices {indices}"
-                        ),
+                        message=(f"{label}: duplicate uid={uid} at indices {indices}"),
                     )
                 )
 
@@ -210,10 +203,7 @@ def check_uid_uniqueness(planning: dict[str, Any]) -> list[Finding]:
                     Finding(
                         check_id="uid_uniqueness",
                         severity=Severity.CRITICAL,
-                        message=(
-                            f"{label}: duplicate uid={uid} "
-                            f"at indices {indices}"
-                        ),
+                        message=(f"{label}: duplicate uid={uid} at indices {indices}"),
                     )
                 )
 
@@ -234,8 +224,7 @@ def check_name_uniqueness(planning: dict[str, Any]) -> list[Finding]:
                         check_id="name_uniqueness",
                         severity=Severity.CRITICAL,
                         message=(
-                            f"{label}: duplicate name='{name}' "
-                            f"at indices {indices}"
+                            f"{label}: duplicate name='{name}' at indices {indices}"
                         ),
                     )
                 )
@@ -307,9 +296,7 @@ def check_element_references(
     junc_uids, junc_names = _build_uid_name_maps(sys, "junction_array")
     ww_uids, ww_names = _build_uid_name_maps(sys, "waterway_array")
     res_uids, res_names = _build_uid_name_maps(sys, "reservoir_array")
-    rz_uids, rz_names = _build_uid_name_maps(
-        sys, "reserve_zone_array"
-    )
+    rz_uids, rz_names = _build_uid_name_maps(sys, "reserve_zone_array")
 
     def _check_ref(
         elem_label: str,
@@ -319,9 +306,7 @@ def check_element_references(
         target_uids: set[Any],
         target_names: dict[str, Any],
     ) -> None:
-        if ref is not None and not _resolve_uid_ref(
-            ref, target_uids, target_names
-        ):
+        if ref is not None and not _resolve_uid_ref(ref, target_uids, target_names):
             findings.append(
                 Finding(
                     check_id="element_references",
@@ -338,28 +323,44 @@ def check_element_references(
     for gen in sys.get("generator_array", []):
         name = gen.get("name", str(gen.get("uid", "?")))
         _check_ref(
-            "Generator", name, "bus", gen.get("bus"),
-            bus_uids, bus_names,
+            "Generator",
+            name,
+            "bus",
+            gen.get("bus"),
+            bus_uids,
+            bus_names,
         )
 
     # Demand → Bus
     for dem in sys.get("demand_array", []):
         name = dem.get("name", str(dem.get("uid", "?")))
         _check_ref(
-            "Demand", name, "bus", dem.get("bus"),
-            bus_uids, bus_names,
+            "Demand",
+            name,
+            "bus",
+            dem.get("bus"),
+            bus_uids,
+            bus_names,
         )
 
     # Line → Bus (bus_a, bus_b)
     for line in sys.get("line_array", []):
         name = line.get("name", str(line.get("uid", "?")))
         _check_ref(
-            "Line", name, "bus_a", line.get("bus_a"),
-            bus_uids, bus_names,
+            "Line",
+            name,
+            "bus_a",
+            line.get("bus_a"),
+            bus_uids,
+            bus_names,
         )
         _check_ref(
-            "Line", name, "bus_b", line.get("bus_b"),
-            bus_uids, bus_names,
+            "Line",
+            name,
+            "bus_b",
+            line.get("bus_b"),
+            bus_uids,
+            bus_names,
         )
 
     # Battery → Bus (optional)
@@ -368,110 +369,178 @@ def check_element_references(
         bus_ref = bat.get("bus")
         if bus_ref is not None:
             _check_ref(
-                "Battery", name, "bus", bus_ref,
-                bus_uids, bus_names,
+                "Battery",
+                name,
+                "bus",
+                bus_ref,
+                bus_uids,
+                bus_names,
             )
         gen_ref = bat.get("source_generator")
         if gen_ref is not None:
             _check_ref(
-                "Battery", name, "source_generator", gen_ref,
-                gen_uids, gen_names,
+                "Battery",
+                name,
+                "source_generator",
+                gen_ref,
+                gen_uids,
+                gen_names,
             )
 
     # Converter → Battery, Generator, Demand
     for conv in sys.get("converter_array", []):
         name = conv.get("name", str(conv.get("uid", "?")))
         _check_ref(
-            "Converter", name, "battery", conv.get("battery"),
-            bat_uids, bat_names,
+            "Converter",
+            name,
+            "battery",
+            conv.get("battery"),
+            bat_uids,
+            bat_names,
         )
         _check_ref(
-            "Converter", name, "generator", conv.get("generator"),
-            gen_uids, gen_names,
+            "Converter",
+            name,
+            "generator",
+            conv.get("generator"),
+            gen_uids,
+            gen_names,
         )
         _check_ref(
-            "Converter", name, "demand", conv.get("demand"),
-            dem_uids, dem_names,
+            "Converter",
+            name,
+            "demand",
+            conv.get("demand"),
+            dem_uids,
+            dem_names,
         )
 
     # ReserveProvision → Generator, ReserveZone
     for rp in sys.get("reserve_provision_array", []):
         name = rp.get("name", str(rp.get("uid", "?")))
         _check_ref(
-            "ReserveProvision", name, "generator",
-            rp.get("generator"), gen_uids, gen_names,
+            "ReserveProvision",
+            name,
+            "generator",
+            rp.get("generator"),
+            gen_uids,
+            gen_names,
         )
         _check_ref(
-            "ReserveProvision", name, "reserve_zone",
-            rp.get("reserve_zone"), rz_uids, rz_names,
+            "ReserveProvision",
+            name,
+            "reserve_zone",
+            rp.get("reserve_zone"),
+            rz_uids,
+            rz_names,
         )
 
     # GeneratorProfile → Generator
     for gp in sys.get("generator_profile_array", []):
         name = gp.get("name", str(gp.get("uid", "?")))
         _check_ref(
-            "GeneratorProfile", name, "generator",
-            gp.get("generator"), gen_uids, gen_names,
+            "GeneratorProfile",
+            name,
+            "generator",
+            gp.get("generator"),
+            gen_uids,
+            gen_names,
         )
 
     # DemandProfile → Demand
     for dp in sys.get("demand_profile_array", []):
         name = dp.get("name", str(dp.get("uid", "?")))
         _check_ref(
-            "DemandProfile", name, "demand",
-            dp.get("demand"), dem_uids, dem_names,
+            "DemandProfile",
+            name,
+            "demand",
+            dp.get("demand"),
+            dem_uids,
+            dem_names,
         )
 
     # Turbine → Waterway, Generator
     for turb in sys.get("turbine_array", []):
         name = turb.get("name", str(turb.get("uid", "?")))
         _check_ref(
-            "Turbine", name, "waterway", turb.get("waterway"),
-            ww_uids, ww_names,
+            "Turbine",
+            name,
+            "waterway",
+            turb.get("waterway"),
+            ww_uids,
+            ww_names,
         )
         _check_ref(
-            "Turbine", name, "generator", turb.get("generator"),
-            gen_uids, gen_names,
+            "Turbine",
+            name,
+            "generator",
+            turb.get("generator"),
+            gen_uids,
+            gen_names,
         )
 
     # Waterway → Junction (junction_a, junction_b)
     for ww in sys.get("waterway_array", []):
         name = ww.get("name", str(ww.get("uid", "?")))
         _check_ref(
-            "Waterway", name, "junction_a", ww.get("junction_a"),
-            junc_uids, junc_names,
+            "Waterway",
+            name,
+            "junction_a",
+            ww.get("junction_a"),
+            junc_uids,
+            junc_names,
         )
         _check_ref(
-            "Waterway", name, "junction_b", ww.get("junction_b"),
-            junc_uids, junc_names,
+            "Waterway",
+            name,
+            "junction_b",
+            ww.get("junction_b"),
+            junc_uids,
+            junc_names,
         )
 
     # Flow → Junction
     for flow in sys.get("flow_array", []):
         name = flow.get("name", str(flow.get("uid", "?")))
         _check_ref(
-            "Flow", name, "junction", flow.get("junction"),
-            junc_uids, junc_names,
+            "Flow",
+            name,
+            "junction",
+            flow.get("junction"),
+            junc_uids,
+            junc_names,
         )
 
     # Reservoir → Junction
     for res in sys.get("reservoir_array", []):
         name = res.get("name", str(res.get("uid", "?")))
         _check_ref(
-            "Reservoir", name, "junction", res.get("junction"),
-            junc_uids, junc_names,
+            "Reservoir",
+            name,
+            "junction",
+            res.get("junction"),
+            junc_uids,
+            junc_names,
         )
 
     # Filtration → Waterway, Reservoir
     for filt in sys.get("filtration_array", []):
         name = filt.get("name", str(filt.get("uid", "?")))
         _check_ref(
-            "Filtration", name, "waterway", filt.get("waterway"),
-            ww_uids, ww_names,
+            "Filtration",
+            name,
+            "waterway",
+            filt.get("waterway"),
+            ww_uids,
+            ww_names,
         )
         _check_ref(
-            "Filtration", name, "reservoir", filt.get("reservoir"),
-            res_uids, res_names,
+            "Filtration",
+            name,
+            "reservoir",
+            filt.get("reservoir"),
+            res_uids,
+            res_names,
         )
 
     return findings
@@ -495,7 +564,6 @@ def check_bus_connectivity(planning: dict[str, Any]) -> list[Finding]:
 
     adjacency: dict[Any, set[Any]] = {bid: set() for bid in bus_ids}
 
-    _, bus_name_to_uid = _resolve_bus_lookup(sys)
     bus_uid_to_name: dict[Any, str] = {}
     for bus in buses:
         uid = bus.get("uid")
@@ -667,10 +735,7 @@ def check_unreferenced_elements(
     for junc in sys.get("junction_array", []):
         uid = junc.get("uid")
         name = junc.get("name", "")
-        if (
-            uid not in junc_referenced
-            and name not in junc_referenced
-        ):
+        if uid not in junc_referenced and name not in junc_referenced:
             label = name if name else str(uid)
             findings.append(
                 Finding(
@@ -720,9 +785,7 @@ def check_ai_system_analysis(
 
         mermaid = get_mermaid_summary(planning)
         if mermaid:
-            report_parts.append(
-                "=== Network Diagram (Mermaid) ===\n" + mermaid
-            )
+            report_parts.append("=== Network Diagram (Mermaid) ===\n" + mermaid)
     except ImportError:
         report_parts.append(
             "NOTE: gtopt_diagram not available for network visualization"
@@ -736,13 +799,9 @@ def check_ai_system_analysis(
 
         pp_report = get_pandapower_diagnostics(planning)
         if pp_report:
-            report_parts.append(
-                "=== Pandapower Diagnostics ===\n" + pp_report
-            )
+            report_parts.append("=== Pandapower Diagnostics ===\n" + pp_report)
     except ImportError:
-        report_parts.append(
-            "NOTE: pandapower not available for grid diagnostics"
-        )
+        report_parts.append("NOTE: pandapower not available for grid diagnostics")
 
     if not report_parts:
         return findings
@@ -803,9 +862,7 @@ def check_ai_system_analysis(
 # ---------------------------------------------------------------------------
 
 # Registry of all checks: (check_id, function, needs_ai)
-_CHECK_REGISTRY: list[
-    tuple[str, Any, bool]
-] = [
+_CHECK_REGISTRY: list[tuple[str, Any, bool]] = [
     ("uid_uniqueness", check_uid_uniqueness, False),
     ("name_uniqueness", check_name_uniqueness, False),
     ("demand_lmax_nonneg", check_demand_lmax_nonneg, False),

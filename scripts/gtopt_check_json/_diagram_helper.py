@@ -15,9 +15,7 @@ def get_mermaid_summary(planning: dict[str, Any]) -> str:
     """
     # Try calling gtopt_diagram via subprocess
     try:
-        with tempfile.NamedTemporaryFile(
-            suffix=".json", mode="w", delete=False
-        ) as tmp:
+        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as tmp:
             json.dump(planning, tmp)
             tmp_path = tmp.name
 
@@ -61,10 +59,7 @@ def _text_summary(planning: dict[str, Any]) -> str:
         bus = gen.get("bus", "?")
         pmax = gen.get("pmax", "?")
         gcost = gen.get("gcost", "?")
-        lines_out.append(
-            f"Generator: {name} at bus {bus}, "
-            f"pmax={pmax}, gcost={gcost}"
-        )
+        lines_out.append(f"Generator: {name} at bus {bus}, pmax={pmax}, gcost={gcost}")
 
     for dem in sys.get("demand_array", []):
         name = dem.get("name", str(dem.get("uid", "?")))

@@ -93,9 +93,7 @@ def is_check_enabled(cfg: dict[str, str], check_id: str) -> bool:
     )
 
 
-def run_interactive_setup(
-    config_path: Path, use_color: bool = True
-) -> dict[str, str]:
+def run_interactive_setup(config_path: Path, use_color: bool = True) -> dict[str, str]:
     """Run the interactive first-run setup wizard."""
 
     def _c(code: str, text: str) -> str:
@@ -148,9 +146,7 @@ def _prompt(prompt_text: str, default: str = "") -> str:
     """Prompt the user for input, showing a default if provided."""
     if not sys.stdin.isatty():
         return default
-    full_prompt = (
-        f"{prompt_text} [{default}]: " if default else f"{prompt_text}: "
-    )
+    full_prompt = f"{prompt_text} [{default}]: " if default else f"{prompt_text}: "
     try:
         answer = input(full_prompt).strip()
         return answer if answer else default
