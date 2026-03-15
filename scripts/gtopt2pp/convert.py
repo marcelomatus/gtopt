@@ -42,6 +42,12 @@ import pandapower as pp
 
 _BASE_MVA = 100.0
 _TMAX_UNLIMITED = 9999.0
+# Relative voltage-level difference threshold above which a line connecting
+# two buses is auto-promoted to a pandapower transformer.  5% catches all
+# real-world inter-voltage-level connections (e.g. 100 kV vs 110 kV = 9.1%)
+# while avoiding false positives for minor nominal-voltage differences within
+# the same level (e.g. 110 kV vs 112 kV = 1.8%).
+_VOLTAGE_THRESHOLD = 0.05
 
 
 def load_gtopt_case(path: str | Path) -> dict[str, Any]:
@@ -568,6 +574,20 @@ def convert(
 
         line_type = line.get("type", "line")
 
+        # Auto-detect transformer: a line connecting buses at significantly
+        # different voltage levels must be modelled as a pandapower transformer
+        # to avoid "different_voltage_levels_connected" diagnostics and
+        # implausible impedance values.  A 5% relative threshold catches
+        # inter-voltage-level connections (e.g. 100 kV vs 110 kV = 9.1%) while
+        # avoiding false positives from very minor nominal-voltage differences
+        # within the same voltage level (e.g. 110 kV vs 112 kV = 1.8%).
+        if line_type != "transformer":
+            _kv_a = float(net.bus.at[idx_a, "vn_kv"])
+            _kv_b = float(net.bus.at[idx_b, "vn_kv"])
+            _kv_max = max(_kv_a, _kv_b)
+            if _kv_max > 0 and abs(_kv_a - _kv_b) / _kv_max > _VOLTAGE_THRESHOLD:
+                line_type = "transformer"
+
         tmax_ab_val = _rfs(
             line.get("tmax_ab"),
             "Line",
@@ -593,13 +613,20 @@ def convert(
             sn_mva = tmax if tmax < _TMAX_UNLIMITED else base_mva
             vk_percent = x_pu * 100.0 * (sn_mva / base_mva)
 
-            hv_kv = float(net.bus.at[idx_a, "vn_kv"])
-            lv_kv = float(net.bus.at[idx_b, "vn_kv"])
+            kv_a = float(net.bus.at[idx_a, "vn_kv"])
+            kv_b = float(net.bus.at[idx_b, "vn_kv"])
+            # pandapower requires vn_hv_kv >= vn_lv_kv; assign buses accordingly
+            if kv_a >= kv_b:
+                hv_bus, lv_bus = idx_a, idx_b
+                hv_kv, lv_kv = kv_a, kv_b
+            else:
+                hv_bus, lv_bus = idx_b, idx_a
+                hv_kv, lv_kv = kv_b, kv_a
 
             pp.create_transformer_from_parameters(
                 net,
-                hv_bus=idx_a,
-                lv_bus=idx_b,
+                hv_bus=hv_bus,
+                lv_bus=lv_bus,
                 sn_mva=sn_mva,
                 vn_hv_kv=hv_kv,
                 vn_lv_kv=lv_kv,
