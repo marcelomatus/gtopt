@@ -42,6 +42,12 @@ import pandapower as pp
 
 _BASE_MVA = 100.0
 _TMAX_UNLIMITED = 9999.0
+# Relative voltage-level difference threshold above which a line connecting
+# two buses is auto-promoted to a pandapower transformer.  5% catches all
+# real-world inter-voltage-level connections (e.g. 100 kV vs 110 kV = 9.1%)
+# while avoiding false positives for minor nominal-voltage differences within
+# the same level (e.g. 110 kV vs 112 kV = 1.8%).
+_VOLTAGE_THRESHOLD = 0.05
 
 
 def load_gtopt_case(path: str | Path) -> dict[str, Any]:
@@ -571,14 +577,15 @@ def convert(
         # Auto-detect transformer: a line connecting buses at significantly
         # different voltage levels must be modelled as a pandapower transformer
         # to avoid "different_voltage_levels_connected" diagnostics and
-        # implausible impedance values.  A 10% relative threshold avoids
-        # false positives from minor nominal-voltage differences within the
-        # same voltage level (e.g. 110 kV vs 111 kV).
+        # implausible impedance values.  A 5% relative threshold catches
+        # inter-voltage-level connections (e.g. 100 kV vs 110 kV = 9.1%) while
+        # avoiding false positives from very minor nominal-voltage differences
+        # within the same voltage level (e.g. 110 kV vs 112 kV = 1.8%).
         if line_type != "transformer":
             _kv_a = float(net.bus.at[idx_a, "vn_kv"])
             _kv_b = float(net.bus.at[idx_b, "vn_kv"])
             _kv_max = max(_kv_a, _kv_b)
-            if _kv_max > 0 and abs(_kv_a - _kv_b) / _kv_max > 0.1:
+            if _kv_max > 0 and abs(_kv_a - _kv_b) / _kv_max > _VOLTAGE_THRESHOLD:
                 line_type = "transformer"
 
         tmax_ab_val = _rfs(

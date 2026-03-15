@@ -12,6 +12,9 @@ from typing import Any
 _TMAX_UNLIMITED = 9999.0
 # Default voltage base (kV) used as fallback when a bus has no voltage data
 _DEFAULT_KV = 110.0
+# Relative voltage-level difference threshold above which a line is promoted
+# to a transformer (must match the constant in gtopt2pp.convert)
+_VOLTAGE_THRESHOLD = 0.05
 
 
 def get_pandapower_diagnostics(planning: dict[str, Any]) -> str:
@@ -115,7 +118,7 @@ def _try_direct_diagnostics(planning: dict[str, Any]) -> str:
                 kv_b = float(net.bus.at[b_idx, "vn_kv"])
                 kv_max = max(kv_a, kv_b)
 
-                if kv_max > 0 and abs(kv_a - kv_b) / kv_max > 0.1:
+                if kv_max > 0 and abs(kv_a - kv_b) / kv_max > _VOLTAGE_THRESHOLD:
                     # Different voltage levels: model as transformer to avoid
                     # "different_voltage_levels_connected" diagnostics.
                     sn_mva = tmax / math.sqrt(3) if tmax < _TMAX_UNLIMITED else 100.0
