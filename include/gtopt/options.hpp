@@ -13,6 +13,7 @@
  * ```json
  * {
  *   "options": {
+ *     "solver_type": "sddp",
  *     "demand_fail_cost": 1000,
  *     "use_kirchhoff": true,
  *     "scale_objective": 1000,
@@ -20,7 +21,6 @@
  *     "output_format": "parquet",
  *     "input_directory": "input",
  *     "sddp_options": {
- *       "sddp_solver_type": "sddp",
  *       "sddp_cut_sharing_mode": "expected",
  *       "sddp_cut_directory": "cuts",
  *       "sddp_api_enabled": true,
@@ -239,6 +239,18 @@ struct Options
   /** @brief Whether to apply the solver's built-in presolve (default: true) */
   OptBool lp_presolve {};
 
+  /** @brief Planning solver type: `"monolithic"` (default) or `"sddp"`.
+   *
+   * Top-level shorthand for `sddp_options.sddp_solver_type`.  When set, it
+   * takes precedence over the nested field.  Recommended way to select the
+   * solver from a JSON options block:
+   *
+   * ```json
+   * { "options": { "solver_type": "sddp" } }
+   * ```
+   */
+  OptName solver_type {};
+
   // ── Logging ────────────────────────────────────────────────────────────────
   /** @brief Directory for log and trace files (default: `"logs"`).
    * Used for error LP dumps (both monolithic and SDDP) and SDDP iteration
@@ -285,6 +297,7 @@ struct Options
     merge_opt(lp_algorithm, opts.lp_algorithm);
     merge_opt(lp_threads, opts.lp_threads);
     merge_opt(lp_presolve, opts.lp_presolve);
+    merge_opt(solver_type, std::move(opts.solver_type));
     merge_opt(log_directory, std::move(opts.log_directory));
     merge_opt(lp_debug, opts.lp_debug);
 
