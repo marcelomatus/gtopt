@@ -1567,7 +1567,13 @@ auto SDDPSolver::validate_inputs() const -> std::optional<Error>
 
 auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
 {
-  if (auto r = planning_lp().resolve(); !r.has_value()) {
+  // Use MonolithicSolver for the initial phase-by-phase solve to avoid
+  // infinite recursion: calling planning_lp().resolve() when
+  // sddp_solver_type == "sddp" would create another SDDPSolver which in
+  // turn calls initialize_solver() again, causing a stack overflow.
+  if (auto r = MonolithicSolver {}.solve(planning_lp(), SolverOptions {});
+      !r.has_value())
+  {
     return std::unexpected(Error {
         .code = ErrorCode::SolverError,
         .message = std::format("Initial PlanningLP solve failed: {}",
@@ -2348,7 +2354,7 @@ auto SDDPSolver::solve_apertures_for_phase(
   struct ApertureEntry
   {
     std::reference_wrapper<const Aperture> aperture;
-    int count;
+    int count {};
   };
 
   std::vector<ApertureEntry> effective_apertures;
