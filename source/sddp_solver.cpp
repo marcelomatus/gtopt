@@ -1569,8 +1569,9 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
 {
   // Use MonolithicSolver for the initial phase-by-phase solve to avoid
   // infinite recursion: calling planning_lp().resolve() when
-  // sddp_solver_type == "sddp" would create another SDDPSolver which in
+  // solver_type == "sddp" would create another SDDPSolver which in
   // turn calls initialize_solver() again, causing a stack overflow.
+  SPDLOG_INFO("SDDP: running initial forward pass via MonolithicSolver");
   if (auto r = MonolithicSolver {}.solve(planning_lp(), SolverOptions {});
       !r.has_value())
   {
@@ -2052,6 +2053,13 @@ auto SDDPPlanningSolver::solve(PlanningLP& planning_lp,
                                const SolverOptions& opts)
     -> std::expected<int, Error>
 {
+  const auto num_scenes = static_cast<int>(planning_lp.systems().size());
+  const auto num_phases = num_scenes > 0
+      ? static_cast<int>(planning_lp.systems().front().size())
+      : 0;
+  SPDLOG_INFO(
+      "SDDPSolver: starting {} scene(s) × {} phase(s)", num_scenes, num_phases);
+
   SDDPSolver sddp(planning_lp, m_sddp_opts_);
   auto results = sddp.solve(opts);
 
