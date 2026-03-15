@@ -808,7 +808,10 @@ def check_ai_system_analysis(
 
     # Send to AI
     try:
-        from gtopt_check_lp._ai import query_ai
+        from gtopt_check_lp._ai import (  # noqa: PLC0415
+            _AI_DEFAULT_PROVIDER,
+            query_ai,
+        )
 
         combined = "\n\n".join(report_parts)
         prompt = (
@@ -824,8 +827,9 @@ def check_ai_system_analysis(
         )
         ok, response = query_ai(
             prompt,
-            provider=getattr(ai_options, "provider", "claude"),
+            provider=getattr(ai_options, "provider", _AI_DEFAULT_PROVIDER),
             model=getattr(ai_options, "model", None) or None,
+            prompt_template="{report}",
             api_key=getattr(ai_options, "key", None) or None,
             timeout=getattr(ai_options, "timeout", 60),
         )
