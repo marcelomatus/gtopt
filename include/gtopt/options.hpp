@@ -257,6 +257,12 @@ struct Options
    * model.  SDDP solver: saves one LP file per (iteration, scene, phase) during
    * the forward pass. */
   OptBool lp_debug {};
+  /** @brief When true, build the LP model but skip solving.
+   * For the monolithic solver, exits after LP matrix assembly.
+   * For the SDDP solver, runs initialization + one forward pass (creating
+   * all scene/phase LPs), then exits without iterating.
+   * Combine with `lp_debug=true` to save the forward-pass LP files. */
+  OptBool just_create {};
 
   // ── SDDP-specific options (grouped sub-object) ────────────────────────────
   /** @brief SDDP solver configuration (sub-object with sddp_* fields) */
@@ -296,6 +302,7 @@ struct Options
     merge_opt(solver_type, std::move(opts.solver_type));
     merge_opt(log_directory, std::move(opts.log_directory));
     merge_opt(lp_debug, opts.lp_debug);
+    merge_opt(just_create, opts.just_create);
 
     // Merge SDDP-specific options
     sddp_options.merge(std::move(opts.sddp_options));
