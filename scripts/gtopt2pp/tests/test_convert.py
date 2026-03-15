@@ -20,6 +20,11 @@ from gtopt2pp.convert import (
     load_gtopt_case,
 )
 
+# ── Paths ─────────────────────────────────────────────────────────────────
+
+_CASES_DIR = Path(__file__).parent.parent.parent / "cases"
+_PLP_CASE_2Y = _CASES_DIR / "plp_case_2y"
+
 # ── Minimal gtopt case (4 buses, 2 generators, 2 demands, 3 lines) ──────────
 
 _MINIMAL_CASE: dict = {
@@ -517,6 +522,205 @@ class TestTransformerConversion:
         assert len(net.trafo) == 1
         assert len(net.line) == 0
 
+    def test_different_voltage_levels_auto_transformer(self) -> None:
+        """Lines between buses at significantly different voltage levels are
+        automatically modelled as pandapower transformers even when 'type' is
+        not set to 'transformer'."""
+        case = {
+            "options": {},
+            "simulation": {
+                "block_array": [{"uid": 1, "duration": 1}],
+                "scenario_array": [{"uid": 1, "probability_factor": 1}],
+            },
+            "system": {
+                "name": "auto_trafo_test",
+                "bus_array": [
+                    {
+                        "uid": 1,
+                        "name": "b1_hv",
+                        "voltage": 220.0,
+                        "reference_theta": 0,
+                    },
+                    {"uid": 2, "name": "b2_lv", "voltage": 110.0},
+                ],
+                "generator_array": [
+                    {
+                        "uid": 1,
+                        "name": "g1",
+                        "bus": 1,
+                        "pmax": 200,
+                        "gcost": 20,
+                        "capacity": 200,
+                    },
+                ],
+                "demand_array": [
+                    {"uid": 1, "name": "d1", "bus": 2, "lmax": 100},
+                ],
+                "line_array": [
+                    {
+                        "uid": 1,
+                        "name": "xfmr_hv_lv",
+                        "bus_a": 1,
+                        "bus_b": 2,
+                        "reactance": 0.1,
+                        "tmax_ab": 200,
+                        "tmax_ba": 200,
+                        # type intentionally not set to "transformer"
+                    },
+                ],
+            },
+        }
+        net = convert(case)
+        # Must be modelled as a transformer, not a standard line
+        assert len(net.trafo) == 1
+        assert len(net.line) == 0
+
+    def test_auto_transformer_hv_lv_assignment(self) -> None:
+        """When bus_b has a higher voltage than bus_a, hv_bus must still be
+        the high-voltage bus (pandapower requires vn_hv_kv >= vn_lv_kv)."""
+        case = {
+            "options": {},
+            "simulation": {
+                "block_array": [{"uid": 1, "duration": 1}],
+                "scenario_array": [{"uid": 1, "probability_factor": 1}],
+            },
+            "system": {
+                "name": "reversed_hv_lv",
+                "bus_array": [
+                    # bus_a is 110 kV (lower), bus_b is 220 kV (higher)
+                    {"uid": 1, "name": "b1_lv", "voltage": 110.0},
+                    {
+                        "uid": 2,
+                        "name": "b2_hv",
+                        "voltage": 220.0,
+                        "reference_theta": 0,
+                    },
+                ],
+                "generator_array": [
+                    {
+                        "uid": 1,
+                        "name": "g1",
+                        "bus": 2,
+                        "pmax": 200,
+                        "gcost": 20,
+                        "capacity": 200,
+                    },
+                ],
+                "demand_array": [
+                    {"uid": 1, "name": "d1", "bus": 1, "lmax": 100},
+                ],
+                "line_array": [
+                    {
+                        "uid": 1,
+                        "name": "xfmr_lv_hv",
+                        "bus_a": 1,
+                        "bus_b": 2,
+                        "reactance": 0.1,
+                    },
+                ],
+            },
+        }
+        net = convert(case)
+        assert len(net.trafo) == 1
+        assert len(net.line) == 0
+        # pandapower transformer must have vn_hv_kv >= vn_lv_kv
+        trafo = net.trafo.iloc[0]
+        assert trafo["vn_hv_kv"] >= trafo["vn_lv_kv"]
+        assert trafo["vn_hv_kv"] == pytest.approx(220.0)
+        assert trafo["vn_lv_kv"] == pytest.approx(110.0)
+
+    def test_near_threshold_100kv_110kv_auto_transformer(self) -> None:
+        """A line between 100 kV and 110 kV buses (9.1% diff, above 5% threshold)
+        must be auto-promoted to a transformer even though both are in the
+        'medium voltage' range."""
+        case = {
+            "options": {},
+            "simulation": {
+                "block_array": [{"uid": 1, "duration": 1}],
+                "scenario_array": [{"uid": 1, "probability_factor": 1}],
+            },
+            "system": {
+                "name": "near_threshold_kv",
+                "bus_array": [
+                    {
+                        "uid": 1,
+                        "name": "b1_110",
+                        "voltage": 110.0,
+                        "reference_theta": 0,
+                    },
+                    {"uid": 2, "name": "b2_100", "voltage": 100.0},
+                ],
+                "generator_array": [
+                    {
+                        "uid": 1,
+                        "name": "g1",
+                        "bus": 1,
+                        "pmax": 200,
+                        "gcost": 20,
+                        "capacity": 200,
+                    },
+                ],
+                "demand_array": [
+                    {"uid": 1, "name": "d1", "bus": 2, "lmax": 100},
+                ],
+                "line_array": [
+                    {
+                        "uid": 1,
+                        "name": "l_110_100",
+                        "bus_a": 1,
+                        "bus_b": 2,
+                        "reactance": 0.1,
+                    },
+                ],
+            },
+        }
+        net = convert(case)
+        # 9.1% > 5% threshold → must become a transformer
+        assert len(net.trafo) == 1
+        assert len(net.line) == 0
+
+    def test_same_voltage_stays_line(self) -> None:
+        """Lines between buses at the same voltage level remain standard lines."""
+        case = {
+            "options": {},
+            "simulation": {
+                "block_array": [{"uid": 1, "duration": 1}],
+                "scenario_array": [{"uid": 1, "probability_factor": 1}],
+            },
+            "system": {
+                "name": "same_kv",
+                "bus_array": [
+                    {"uid": 1, "name": "b1", "voltage": 220.0, "reference_theta": 0},
+                    {"uid": 2, "name": "b2", "voltage": 220.0},
+                ],
+                "generator_array": [
+                    {
+                        "uid": 1,
+                        "name": "g1",
+                        "bus": 1,
+                        "pmax": 200,
+                        "gcost": 20,
+                        "capacity": 200,
+                    },
+                ],
+                "demand_array": [
+                    {"uid": 1, "name": "d1", "bus": 2, "lmax": 100},
+                ],
+                "line_array": [
+                    {
+                        "uid": 1,
+                        "name": "l1_2",
+                        "bus_a": 1,
+                        "bus_b": 2,
+                        "reactance": 0.05,
+                    },
+                ],
+            },
+        }
+        net = convert(case)
+        assert len(net.line) == 1
+        assert len(net.trafo) == 0
+
 
 class TestLoadGtoptCase:
     """Test load_gtopt_case."""
@@ -608,3 +812,137 @@ class TestDCOPFSolve:
         total_gen = net.res_ext_grid["p_mw"].sum() + net.res_gen["p_mw"].sum()
         total_load = net.load["p_mw"].sum()
         assert total_gen == pytest.approx(total_load, abs=0.1)
+
+
+# ── plp_case_2y end-to-end integration test ──────────────────────────────────
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not _PLP_CASE_2Y.exists(), reason="plp_case_2y case not present")
+class TestPlpCase2YGtopt2PP:
+    """Integration test: plp_case_2y → plp2gtopt → gtopt2pp → pandapower.
+
+    Validates the full conversion pipeline for a real Chilean SEN network:
+    1.  ``plp2gtopt`` converts the PLP dat-files to a gtopt JSON case.
+    2.  ``gtopt2pp`` converts the JSON to a pandapower network.
+    3.  The network topology is sound (buses, lines, trafos).
+    4.  Lines between buses at different voltage levels are auto-promoted to
+        pandapower transformers (no ``different_voltage_levels_connected``
+        pandapower diagnostic warning).
+    5.  A pandapower DC OPF can be executed on the network.
+    """
+
+    @pytest.fixture(scope="class")
+    def gtopt_case(self, tmp_path_factory: pytest.TempPathFactory) -> dict:
+        """Convert plp_case_2y (stage 1 only) to a gtopt JSON case dict."""
+        from plp2gtopt.plp2gtopt import (  # pylint: disable=import-outside-toplevel
+            convert_plp_case,
+        )
+
+        tmp = tmp_path_factory.mktemp("plp_case_2y")
+        out_dir = tmp / "gtopt_case_2y"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        opts = {
+            "input_dir": _PLP_CASE_2Y,
+            "output_dir": out_dir,
+            "output_file": tmp / "gtopt_case_2y.json",
+            # Use only stage 1 so the fixture completes quickly
+            "last_stage": 1,
+            "hydrologies": "all",
+            "num_apertures": "all",
+            "last_time": -1,
+            "compression": "gzip",
+            "probability_factors": None,
+            "discount_rate": 0.0,
+            "management_factor": 0.0,
+        }
+        convert_plp_case(opts)
+        with open(tmp / "gtopt_case_2y.json", encoding="utf-8") as fh:
+            case = json.load(fh)
+        case["_case_dir"] = str(out_dir)
+        return case
+
+    @pytest.fixture(scope="class")
+    def pp_net(self, gtopt_case: dict) -> pp.pandapowerNet:
+        """Convert the gtopt case to a pandapower network (first scenario, first block)."""
+        return convert(gtopt_case, scenario=1, block=1)
+
+    # ── structural assertions ────────────────────────────────────────────────
+
+    def test_gtopt_case_has_buses(self, gtopt_case: dict) -> None:
+        """Converted gtopt case must have buses."""
+        buses = gtopt_case["system"]["bus_array"]
+        assert len(buses) > 0
+
+    def test_gtopt_case_has_multiple_voltage_levels(self, gtopt_case: dict) -> None:
+        """plp_case_2y spans several voltage levels (66/110/154/220/345/500 kV)."""
+        voltages = {b.get("voltage") for b in gtopt_case["system"]["bus_array"]}
+        voltages.discard(None)
+        assert len(voltages) > 3, (
+            f"Expected at least 4 distinct voltage levels, got {voltages}"
+        )
+
+    def test_gtopt_case_has_lines(self, gtopt_case: dict) -> None:
+        """Converted gtopt case must have transmission lines."""
+        assert len(gtopt_case["system"]["line_array"]) > 0
+
+    def test_pandapower_network_has_buses(self, pp_net: pp.pandapowerNet) -> None:
+        """pandapower network must have buses after conversion."""
+        assert len(pp_net.bus) > 0
+
+    def test_pandapower_network_has_transformers(
+        self, pp_net: pp.pandapowerNet
+    ) -> None:
+        """Auto-detection must produce pandapower transformers for cross-voltage lines."""
+        assert len(pp_net.trafo) > 0, (
+            "Expected at least one transformer from cross-voltage-level lines"
+        )
+
+    def test_no_different_voltage_levels_connected(
+        self, pp_net: pp.pandapowerNet
+    ) -> None:
+        """After auto-promotion of cross-voltage lines to transformers, pandapower
+        must not flag 'different_voltage_levels_connected'."""
+        diag = pp.diagnostic(pp_net, report_style=None)
+        assert "different_voltage_levels_connected" not in diag, (
+            "Lines between different-voltage buses should be transformers, "
+            f"not standard lines. Issues: {diag.get('different_voltage_levels_connected')}"
+        )
+
+    def test_pandapower_network_has_generators(self, pp_net: pp.pandapowerNet) -> None:
+        """pandapower network must have generators."""
+        total_gens = len(pp_net.gen) + len(pp_net.ext_grid)
+        assert total_gens > 0
+
+    def test_pandapower_network_has_loads(self, pp_net: pp.pandapowerNet) -> None:
+        """pandapower network must have loads."""
+        assert len(pp_net.load) > 0
+
+    def test_pandapower_network_line_count(self, pp_net: pp.pandapowerNet) -> None:
+        """Total branches (lines + trafos) is positive."""
+        total_branches = len(pp_net.line) + len(pp_net.trafo)
+        assert total_branches > 0
+
+    # ── DC OPF ────────────────────────────────────────────────────────────────
+
+    def test_pandapower_dc_opf_runs(self, pp_net: pp.pandapowerNet) -> None:
+        """pandapower rundcopp must complete without raising an exception.
+
+        For a large real-world case the DC OPF may not converge (singular
+        bus-admittance matrix due to very high reactances); that is
+        acceptable.  What is *not* acceptable is a crash (unexpected
+        exception such as TypeError, AttributeError, etc.).
+        """
+        import copy  # pylint: disable=import-outside-toplevel
+
+        from pandapower.optimal_powerflow import (  # pylint: disable=import-outside-toplevel
+            OPFNotConverged,
+        )
+
+        net_copy = copy.deepcopy(pp_net)
+        try:
+            pp.rundcopp(net_copy)
+        except OPFNotConverged:
+            pass  # non-convergence on a large real-world case is expected
+        # OPF_converged attribute must be present regardless of convergence
+        assert hasattr(net_copy, "OPF_converged")
