@@ -21,7 +21,6 @@ template<>
 struct json_data_contract<SddpOptions>
 {
   using type = json_member_list<
-      json_string_null<"sddp_solver_type", OptName>,
       json_string_null<"sddp_cut_sharing_mode", OptName>,
       json_string_null<"sddp_cut_directory", OptName>,
       json_bool_null<"sddp_api_enabled", OptBool>,
@@ -43,8 +42,7 @@ struct json_data_contract<SddpOptions>
 
   constexpr static auto to_json_data(SddpOptions const& opt)
   {
-    return std::forward_as_tuple(opt.sddp_solver_type,
-                                 opt.sddp_cut_sharing_mode,
+    return std::forward_as_tuple(opt.sddp_cut_sharing_mode,
                                  opt.sddp_cut_directory,
                                  opt.sddp_api_enabled,
                                  opt.sddp_efficiency_update_skip,

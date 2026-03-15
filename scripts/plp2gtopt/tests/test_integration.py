@@ -1179,8 +1179,8 @@ def test_min_hydro_ms_monolithic_structure(tmp_path):
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
     sim = data["simulation"]
 
-    # sddp_solver_type in options must be "monolithic" (nested in sddp_options)
-    assert data["options"]["sddp_options"]["sddp_solver_type"] == "monolithic"
+    # solver_type in options must be "monolithic" (top-level field)
+    assert data["options"]["solver_type"] == "monolithic"
 
     # 2 scenarios with equal probability
     scenarios = sim["scenario_array"]
@@ -1209,14 +1209,14 @@ def test_min_hydro_ms_monolithic_structure(tmp_path):
 
 @pytest.mark.integration
 def test_min_hydro_ms_sddp_options_key(tmp_path):
-    """plp_min_hydro_ms + --solver sddp: options must have sddp_solver_type='sddp'."""
+    """plp_min_hydro_ms + --solver sddp: options must have solver_type='sddp'."""
     opts = _make_opts(_PLPMinHydroMs, tmp_path, "plp_min_hydro_ms_sddp")
     opts["hydrologies"] = "1,2"
     opts["solver_type"] = "sddp"
     convert_plp_case(opts)
 
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
-    assert data["options"]["sddp_options"]["sddp_solver_type"] == "sddp"
+    assert data["options"]["solver_type"] == "sddp"
 
     sim = data["simulation"]
     # SDDP: one scene per scenario
@@ -1236,7 +1236,7 @@ def test_min_hydro_ms_num_apertures(tmp_path):
 
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
     sddp = data["options"]["sddp_options"]
-    assert sddp["sddp_solver_type"] == "sddp"
+    assert data["options"]["solver_type"] == "sddp"
     assert sddp["sddp_num_apertures"] == 2
 
 
@@ -1670,7 +1670,7 @@ def test_hydro_4b_sddp_conversion(tmp_path):
 
     # SDDP options
     sddp_opts = data["options"]["sddp_options"]
-    assert sddp_opts["sddp_solver_type"] == "sddp"
+    assert data["options"]["solver_type"] == "sddp"
     assert sddp_opts["sddp_num_apertures"] == 3
 
 
@@ -1684,7 +1684,7 @@ def test_hydro_4b_mono_conversion(tmp_path):
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
     sim = data["simulation"]
 
-    assert data["options"]["sddp_options"]["sddp_solver_type"] == "monolithic"
+    assert data["options"]["solver_type"] == "monolithic"
 
     # 3 scenarios with equal probability
     scenarios = sim["scenario_array"]

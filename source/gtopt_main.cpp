@@ -24,16 +24,19 @@
  */
 
 #include <chrono>
-#include <cstdlib>
 #include <expected>
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <ranges>
 #include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 #include <daw/daw_read_file.h>
 #include <gtopt/app_options.hpp>
+#include <gtopt/check_lp.hpp>
 #include <gtopt/error.hpp>
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/json/json_planning.hpp>
@@ -63,6 +66,14 @@ constexpr auto StrictParsePolicy = daw::json::options::parse_flags<
     daw::json::options::ExcludeSpecialEscapes::yes,
     daw::json::options::UseExactMappingsByDefault::no>;
 
+/// Same as StrictParsePolicy but rejects any JSON key not listed in the schema.
+/// Used by the --check-json pass to surface typos / unknown fields.
+constexpr auto ExactParsePolicy = daw::json::options::parse_flags<
+    daw::json::options::PolicyCommentTypes::hash,
+    daw::json::options::CheckedParseMode::yes,
+    daw::json::options::ExcludeSpecialEscapes::yes,
+    daw::json::options::UseExactMappingsByDefault::yes>;
+
 /**
  * @brief Parse planning JSON files into a Planning object.
  *
@@ -71,10 +82,13 @@ constexpr auto StrictParsePolicy = daw::json::options::parse_flags<
  *
  * @param planning_files Paths to input JSON files (without extension).
  * @param strict_parsing Use strict parse policy when true.
+ * @param check_json     Warn (via spdlog) about unrecognised JSON fields.
  * @return The merged Planning or an error message.
  */
 [[nodiscard]] std::expected<Planning, std::string> parse_planning_files(
-    const std::vector<std::string>& planning_files, bool strict_parsing)
+    const std::vector<std::string>& planning_files,
+    bool strict_parsing,
+    bool check_json)
 {
   const spdlog::stopwatch sw;
   Planning my_planning;
@@ -102,6 +116,22 @@ constexpr auto StrictParsePolicy = daw::json::options::parse_flags<
       }
 
       spdlog::info(std::format("  Parsing input file {}", fpath.string()));
+
+      // Optional pre-pass: parse with exact-mapping policy to surface any
+      // JSON key not listed in the schema.  This parses the file a second
+      // time (performance trade-off), but only when --check-json is
+      // explicitly requested.  Warnings only — parsing always proceeds with
+      // the normal policy below.
+      if (check_json) {
+        try {
+          (void)daw::json::from_json<Planning>(json_result.value(),
+                                               ExactParsePolicy);
+        } catch (const daw::json::json_exception& jex) {
+          spdlog::warn("Unknown JSON field in '{}': {}",
+                       fpath.string(),
+                       to_formatted_string(jex, json_result.value().c_str()));
+        }
+      }
 
       try {
         if (strict_parsing) {
@@ -176,125 +206,91 @@ constexpr auto StrictParsePolicy = daw::json::options::parse_flags<
 }
 
 /**
- * @brief Run the gtopt_check_json script with --info to print pre-solve
- * statistics.
+ * @brief Log pre-solve system statistics.
  *
- * Falls back to the built-in C++ stats if the script is not found on PATH.
+ * Delegates to `gtopt_check_json --info` via posix_spawn (no shell, timeout-
+ * protected, output captured).  Each output line is forwarded through the
+ * spdlog INFO stream so that stats always appear in the same log channel as
+ * the rest of the solver output.  Falls back to the built-in C++
+ * implementation when the script is not installed or exits non-zero.
  *
  * @param planning_files The list of planning JSON file stems/paths.
- * @param planning       The parsed planning (used only for the fallback).
+ * @param planning        The parsed planning (used for the built-in fallback).
  */
 void log_pre_solve_stats(const std::vector<std::string>& planning_files,
                          const Planning& planning)
 {
-  // Build the command: gtopt_check_json --info <file1.json> [<file2.json> ...]
-  std::string cmd = "gtopt_check_json --info";
-  for (const auto& stem : planning_files) {
-    auto p = std::filesystem::path {stem};
-    if (!p.has_extension()) {
-      p.replace_extension(".json");
-    }
-    // Shell-escape: wrap in single quotes, escaping embedded single quotes
-    auto path_str = p.string();
-    std::string escaped;
-    escaped.reserve(path_str.size() + 4);
-    escaped += '\'';
-    for (const char ch : path_str) {
-      if (ch == '\'') {
-        escaped += "'\\''";
-      } else {
-        escaped += ch;
+  const auto stats = run_check_json_info(planning_files);
+  if (!stats.empty()) {
+    // Forward each line through the spdlog INFO stream.
+    for (const auto line : std::views::split(std::string_view {stats}, '\n')) {
+      const std::string_view sv {line.begin(), line.end()};
+      if (!sv.empty()) {
+        spdlog::info("{}", sv);
       }
     }
-    escaped += '\'';
-    cmd += " " + escaped;
-  }
-  cmd += " 2>&1";
-
-  // Try running the external script
-  // NOLINTNEXTLINE(bugprone-command-processor,cert-env33-c,concurrency-mt-unsafe)
-  const int rc = std::system(cmd.c_str());
-  if (rc == 0) {
     return;
   }
 
-  // Fall back to built-in C++ stats if the script is not available
-  spdlog::debug("gtopt_check_json not found on PATH; using built-in stats");
+  // Built-in fallback: print via spdlog when the external tool is absent.
+  SPDLOG_DEBUG("gtopt_check_json not found on PATH; using built-in stats");
 
   const auto& sys = planning.system;
   const auto& sim = planning.simulation;
   const auto& plan_opts = planning.options;
 
   spdlog::info("=== System statistics ===");
-  spdlog::info(  //
-      std::format("  System name     : {}", sys.name));
-  spdlog::info(  //
-      std::format("  System version  : {}", sys.version));
+  spdlog::info(std::format("  System name     : {}", sys.name));
+  spdlog::info(std::format("  System version  : {}", sys.version));
   spdlog::info("=== System elements  ===");
-  spdlog::info(  //
-      std::format("  Buses           : {}", sys.bus_array.size()));
-  spdlog::info(  //
+  spdlog::info(std::format("  Buses           : {}", sys.bus_array.size()));
+  spdlog::info(
       std::format("  Generators      : {}", sys.generator_array.size()));
-  spdlog::info(  //
-      std::format("  Generator profs : {}",
-                  sys.generator_profile_array.size()));
-  spdlog::info(  //
-      std::format("  Demands         : {}", sys.demand_array.size()));
-  spdlog::info(  //
+  spdlog::info(std::format("  Generator profs : {}",
+                           sys.generator_profile_array.size()));
+  spdlog::info(std::format("  Demands         : {}", sys.demand_array.size()));
+  spdlog::info(
       std::format("  Demand profs    : {}", sys.demand_profile_array.size()));
-  spdlog::info(  //
-      std::format("  Lines           : {}", sys.line_array.size()));
-  spdlog::info(  //
-      std::format("  Batteries       : {}", sys.battery_array.size()));
-  spdlog::info(  //
+  spdlog::info(std::format("  Lines           : {}", sys.line_array.size()));
+  spdlog::info(std::format("  Batteries       : {}", sys.battery_array.size()));
+  spdlog::info(
       std::format("  Converters      : {}", sys.converter_array.size()));
-  spdlog::info(  //
+  spdlog::info(
       std::format("  Reserve zones   : {}", sys.reserve_zone_array.size()));
-  spdlog::info(  //
-      std::format("  Reserve provisions   : {}",
-                  sys.reserve_provision_array.size()));
+  spdlog::info(std::format("  Reserve provisions   : {}",
+                           sys.reserve_provision_array.size()));
   spdlog::info(
       std::format("  Junctions       : {}", sys.junction_array.size()));
-  spdlog::info(  //
+  spdlog::info(
       std::format("  Waterways       : {}", sys.waterway_array.size()));
-  spdlog::info(  //
-      std::format("  Flows           : {}", sys.flow_array.size()));
-  spdlog::info(  //
+  spdlog::info(std::format("  Flows           : {}", sys.flow_array.size()));
+  spdlog::info(
       std::format("  Reservoirs      : {}", sys.reservoir_array.size()));
-  spdlog::info(  //
+  spdlog::info(
       std::format("  Filtrations     : {}", sys.filtration_array.size()));
-  spdlog::info(  //
-      std::format("  Turbines        : {}", sys.turbine_array.size()));
-
+  spdlog::info(std::format("  Turbines        : {}", sys.turbine_array.size()));
   spdlog::info("=== Simulation statistics ===");
-  spdlog::info(  //
-      std::format("  Blocks          : {}", sim.block_array.size()));
-  spdlog::info(  //
-      std::format("  Stages          : {}", sim.stage_array.size()));
-  spdlog::info(  //
+  spdlog::info(std::format("  Blocks          : {}", sim.block_array.size()));
+  spdlog::info(std::format("  Stages          : {}", sim.stage_array.size()));
+  spdlog::info(
       std::format("  Scenarios       : {}", sim.scenario_array.size()));
   spdlog::info("=== Key options ===");
-  spdlog::info(  //
+  spdlog::info(
       std::format("  use_kirchhoff   : {}",
                   plan_opts.use_kirchhoff.value_or(false) ? "true" : "false"));
-  spdlog::info(  //
+  spdlog::info(
       std::format("  use_single_bus  : {}",
                   plan_opts.use_single_bus.value_or(false) ? "true" : "false"));
-  spdlog::info(  //
-      std::format("  scale_objective : {}",
-                  plan_opts.scale_objective.value_or(1'000.0)));
-  spdlog::info(  //
-      std::format("  demand_fail_cost: {}",
-                  plan_opts.demand_fail_cost.value_or(0.0)));
-  spdlog::info(  //
-      std::format("  input_directory : {}",
-                  plan_opts.input_directory.value_or("(default)")));
-  spdlog::info(  //
-      std::format("  output_directory: {}",
-                  plan_opts.output_directory.value_or("(default)")));
-  spdlog::info(  //
-      std::format("  output_format   : {}",
-                  plan_opts.output_format.value_or("csv")));
+  spdlog::info(std::format("  scale_objective : {}",
+                           plan_opts.scale_objective.value_or(1'000.0)));
+  spdlog::info(std::format("  demand_fail_cost: {}",
+                           plan_opts.demand_fail_cost.value_or(0.0)));
+  spdlog::info(std::format("  input_directory : {}",
+                           plan_opts.input_directory.value_or("(default)")));
+  spdlog::info(std::format("  output_directory: {}",
+                           plan_opts.output_directory.value_or("(default)")));
+  spdlog::info(std::format("  output_format   : {}",
+                           plan_opts.output_format.value_or("csv")));
 }
 
 /**
@@ -360,8 +356,8 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     //
     // Parse planning JSON files
     //
-    auto parse_result =
-        parse_planning_files(opts.planning_files, strict_parsing);
+    auto parse_result = parse_planning_files(
+        opts.planning_files, strict_parsing, opts.check_json.value_or(false));
     if (!parse_result) {
       return std::unexpected(std::move(parse_result.error()));
     }
@@ -445,9 +441,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
       const bool do_stats = opts.print_stats.value_or(true);
 
       if (do_stats) {
-        log_pre_solve_stats(
-            opts.planning_files,
-            my_planning);  // NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)
+        log_pre_solve_stats(opts.planning_files, my_planning);
       }
 
       const spdlog::stopwatch sw;
