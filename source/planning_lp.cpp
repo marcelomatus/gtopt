@@ -7,12 +7,16 @@
  *
  */
 
+#include <chrono>
 #include <filesystem>
+#include <format>
+#include <future>
 #include <ranges>
 
 #include <gtopt/check_lp.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_solver.hpp>
+#include <gtopt/solver_monitor.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
@@ -21,6 +25,77 @@
 
 namespace gtopt
 {
+
+auto PlanningLP::create_systems(System& system,
+                                SimulationLP& simulation,
+                                const OptionsLP& options,
+                                const FlatOptions& flat_opts)
+    -> scene_phase_systems_t
+{
+  system.expand_batteries();
+  system.setup_reference_bus(options);
+  auto&& scenes = simulation.scenes();
+  auto&& phases = simulation.phases();
+
+  const auto num_scenes = static_cast<int>(scenes.size());
+  const auto num_phases = static_cast<int>(phases.size());
+  SPDLOG_INFO(
+      "  Building LP: {} scene(s) × {} phase(s)", num_scenes, num_phases);
+
+  PlanningLP::scene_phase_systems_t all_systems(scenes.size());
+
+  // Use the work pool to build scenes in parallel.  Each scene's phases
+  // are constructed sequentially (state variables within a scene depend
+  // on phase order), but different scenes are independent.
+  auto pool = make_solver_work_pool();
+
+  const auto build_start = std::chrono::steady_clock::now();
+
+  std::vector<std::future<void>> futures;
+  futures.reserve(scenes.size());
+
+  for (auto&& [scene_num, scene] : std::views::enumerate(scenes)) {
+    const auto scene_index = SceneIndex {static_cast<Index>(scene_num)};
+    auto result = pool->submit(
+        [&, scene_index]
+        {
+          [[maybe_unused]] const auto sn =
+              static_cast<int>(scene_index) + 1;  // 1-based for logging
+          SPDLOG_DEBUG("  Building LP scene {}/{} (uid {})",
+                       sn,
+                       num_scenes,
+                       scene.uid());
+          PlanningLP::phase_systems_t phase_systems;
+          phase_systems.reserve(phases.size());
+          for (auto&& phase : phases) {
+            SPDLOG_TRACE("    Building LP scene {}/{} phase {} (uid {})",
+                         sn,
+                         num_scenes,
+                         static_cast<int>(phase.index()),
+                         phase.uid());
+            phase_systems.emplace_back(
+                system, simulation, phase, scene, flat_opts);
+          }
+          all_systems[scene_index] = std::move(phase_systems);
+        });
+    if (!result.has_value()) {
+      throw std::runtime_error(
+          std::format("Failed to submit scene {} to work pool", scene_index));
+    }
+    futures.push_back(std::move(*result));
+  }
+
+  for (auto& fut : futures) {
+    fut.get();
+  }
+
+  const double elapsed = std::chrono::duration<double>(
+                             std::chrono::steady_clock::now() - build_start)
+                             .count();
+  SPDLOG_INFO("  Building LP done in {:.3f}s", elapsed);
+
+  return all_systems;
+}
 
 void PlanningLP::write_lp(const std::string& filename) const
 {
