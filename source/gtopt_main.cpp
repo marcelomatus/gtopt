@@ -212,7 +212,7 @@ void log_pre_solve_stats(const std::vector<std::string>& planning_files,
   cmd += " 2>&1";
 
   // Try running the external script
-  // NOLINTNEXTLINE(cert-env33-c,concurrency-mt-unsafe)
+  // NOLINTNEXTLINE(bugprone-command-processor,cert-env33-c,concurrency-mt-unsafe)
   const int rc = std::system(cmd.c_str());
   if (rc == 0) {
     return;
