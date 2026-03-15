@@ -444,6 +444,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
         log_pre_solve_stats(opts.planning_files, my_planning);
       }
 
+      spdlog::info("=== Building LP model ===");
       const spdlog::stopwatch sw;
       PlanningLP planning_lp {std::move(my_planning),  // NOLINT
                               flat_opts};

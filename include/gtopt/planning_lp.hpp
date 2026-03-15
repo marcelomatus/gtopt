@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <ranges>
 #include <string>
 #include <utility>
 
@@ -43,24 +44,38 @@ public:
   using scene_phase_systems_t = StrongIndexVector<SceneIndex, phase_systems_t>;
 
 private:
-  constexpr static auto create_systems(System& system,
-                                       SimulationLP& simulation,
-                                       const OptionsLP& options,
-                                       const FlatOptions& flat_opts)
+  static auto create_systems(System& system,
+                             SimulationLP& simulation,
+                             const OptionsLP& options,
+                             const FlatOptions& flat_opts)
       -> scene_phase_systems_t
   {
     system.expand_batteries();
     system.setup_reference_bus(options);
     auto&& scenes = simulation.scenes();
+    auto&& phases = simulation.phases();
+
+    const auto num_scenes = static_cast<int>(scenes.size());
+    const auto num_phases = static_cast<int>(phases.size());
+    SPDLOG_INFO(
+        "  Building LP: {} scene(s) × {} phase(s)", num_scenes, num_phases);
 
     PlanningLP::scene_phase_systems_t all_systems;
     all_systems.reserve(scenes.size());
 
-    for (auto&& scene : scenes) {
-      auto&& phases = simulation.phases();
+    for (auto&& [scene_num, scene] : std::views::enumerate(scenes)) {
+      SPDLOG_DEBUG("  Building LP scene {}/{} (uid {})",
+                   scene_num + 1,
+                   num_scenes,
+                   scene.uid());
       PlanningLP::phase_systems_t phase_systems;
       phase_systems.reserve(phases.size());
       for (auto&& phase : phases) {
+        SPDLOG_TRACE("    Building LP scene {}/{} phase {} (uid {})",
+                     scene_num + 1,
+                     num_scenes,
+                     static_cast<int>(phase.index()),
+                     phase.uid());
         phase_systems.emplace_back(system, simulation, phase, scene, flat_opts);
       }
       all_systems.push_back(std::move(phase_systems));
