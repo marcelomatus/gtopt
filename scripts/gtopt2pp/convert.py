@@ -430,8 +430,13 @@ def convert(
 
         pmax = _rfs(gen.get("pmax"), "Generator", gen_uid, gen_name)
         if pmax is None:
-            cap = gen.get("capacity", 0.0)
-            pmax = float(cap) if isinstance(cap, (int, float)) else 0.0
+            cap_val = _rfs(
+                gen.get("capacity"),
+                "Generator",
+                gen_uid,
+                gen_name,
+            )
+            pmax = cap_val if cap_val is not None else 0.0
 
         # Apply generator profile if available
         profile_factor = gen_profiles.get(gen_uid, 1.0)

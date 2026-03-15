@@ -194,7 +194,20 @@ void log_pre_solve_stats(const std::vector<std::string>& planning_files,
     if (!p.has_extension()) {
       p.replace_extension(".json");
     }
-    cmd += std::format(" \"{}\"", p.string());
+    // Shell-escape: wrap in single quotes, escaping embedded single quotes
+    auto path_str = p.string();
+    std::string escaped;
+    escaped.reserve(path_str.size() + 4);
+    escaped += '\'';
+    for (const char ch : path_str) {
+      if (ch == '\'') {
+        escaped += "'\\''";
+      } else {
+        escaped += ch;
+      }
+    }
+    escaped += '\'';
+    cmd += " " + escaped;
   }
   cmd += " 2>&1";
 
