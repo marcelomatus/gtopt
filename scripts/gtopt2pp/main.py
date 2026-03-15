@@ -15,17 +15,17 @@ except ImportError:  # pragma: no cover
 
 
 def _parse_block_spec(spec: str) -> list[int]:
-    """Parse a block specification string into a sorted list of indices.
+    """Parse a block specification string into a sorted list of UIDs.
 
     Accepts:
-    - A single integer: ``"0"``
-    - A comma-separated list: ``"0,1,3"``
-    - A range: ``"0-5"`` (inclusive on both ends)
-    - A mix: ``"0,2-4,7"``
+    - A single integer: ``"1"``
+    - A comma-separated list: ``"1,2,4"``
+    - A range: ``"1-5"`` (inclusive on both ends)
+    - A mix: ``"1,3-5,8"``
 
-    Returns a sorted, deduplicated list of 0-based block indices.
+    Returns a sorted, deduplicated list of block UIDs.
     """
-    indices: set[int] = set()
+    uids: set[int] = set()
     for part in spec.split(","):
         part = part.strip()
         if not part:
@@ -33,10 +33,10 @@ def _parse_block_spec(spec: str) -> list[int]:
         if "-" in part:
             lo_s, hi_s = part.split("-", maxsplit=1)
             lo, hi = int(lo_s), int(hi_s)
-            indices.update(range(lo, hi + 1))
+            uids.update(range(lo, hi + 1))
         else:
-            indices.add(int(part))
-    return sorted(indices)
+            uids.add(int(part))
+    return sorted(uids)
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -67,19 +67,23 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "-s",
         "--scenario",
         type=int,
-        default=0,
-        help="0-based scenario index (default: 0).",
+        default=None,
+        help=(
+            "Scenario UID as defined in scenario_array "
+            "(default: first scenario)."
+        ),
     )
     parser.add_argument(
         "-b",
         "--block",
         type=str,
-        default="0",
+        default=None,
         help=(
-            "Block specification: a single 0-based index, a comma-separated "
-            "list (e.g. '0,1,3'), a range (e.g. '0-5'), or a mix "
-            "(e.g. '0,2-4,7').  Multiple blocks produce one output file "
-            "per block named <stem>_pp_b<N>.json.  (default: 0)"
+            "Block UID specification: a single UID, a comma-separated "
+            "list (e.g. '1,2,4'), a range (e.g. '1-5'), or a mix "
+            "(e.g. '1,3-5,8').  Multiple blocks produce one output file "
+            "per block named <stem>_pp_b<UID>.json.  "
+            "(default: first block)"
         ),
     )
     parser.add_argument(
@@ -94,7 +98,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=False,
         help=(
             "Convert all blocks (one network per block).  "
-            "Output files are named <stem>_pp_b<N>.json."
+            "Output files are named <stem>_pp_b<UID>.json."
         ),
     )
     return parser.parse_args(argv)
@@ -105,16 +109,25 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     case = load_gtopt_case(args.case_file)
 
-    block_indices = _parse_block_spec(args.block)
+    simulation = case.get("simulation", {})
+    blocks = simulation.get(
+        "block_array", [{"uid": 1, "duration": 1}]
+    )
+
+    # Determine block UIDs to process
+    if args.block is not None:
+        block_uids = _parse_block_spec(args.block)
+    else:
+        block_uids = [int(blocks[0]["uid"])] if blocks else [1]
 
     if args.solve:
-        if len(block_indices) > 1:
+        if len(block_uids) > 1:
             print(
                 "Warning: --solve uses only the first block; "
-                f"ignoring blocks {block_indices[1:]}",
+                f"ignoring blocks {block_uids[1:]}",
                 file=sys.stderr,
             )
-        bi = block_indices[0]
+        bi = block_uids[0]
         net = run_dcopp(case, scenario=args.scenario, block=bi)
         print(f"DC OPF converged: {net.OPF_converged}")
         print(f"Objective: {net.res_cost:.4f}")
@@ -127,25 +140,28 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.all_blocks:
-        simulation = case.get("simulation", {})
-        blocks = simulation.get("block_array", [{"uid": 1}])
-        block_indices = list(range(len(blocks)))
+        block_uids = [int(b["uid"]) for b in blocks]
 
-    if len(block_indices) == 1:
-        bi = block_indices[0]
+    if len(block_uids) == 1:
+        bi = block_uids[0]
         net = convert(case, scenario=args.scenario, block=bi)
-        out = args.output or args.case_file.with_name(f"{args.case_file.stem}_pp.json")
+        out = args.output or args.case_file.with_name(
+            f"{args.case_file.stem}_pp.json"
+        )
         pp.to_json(net, str(out))
         print(f"Written: {out}")
     else:
         stem = args.case_file.stem
-        for bi in block_indices:
+        for bi in block_uids:
             net = convert(case, scenario=args.scenario, block=bi)
             if args.output:
-                # Insert block index before extension for user-provided path
-                out = args.output.with_stem(f"{args.output.stem}_b{bi}")
+                out = args.output.with_stem(
+                    f"{args.output.stem}_b{bi}"
+                )
             else:
-                out = args.case_file.with_name(f"{stem}_pp_b{bi}.json")
+                out = args.case_file.with_name(
+                    f"{stem}_pp_b{bi}.json"
+                )
             pp.to_json(net, str(out))
             print(f"Block {bi}: written {out}")
     return 0
@@ -153,3 +169,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
