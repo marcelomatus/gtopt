@@ -45,7 +45,14 @@ void PlanningLP::write_lp(const std::string& filename) const
 
 void PlanningLP::write_out() const
 {
-  for (auto&& phase_systems : m_systems_) {
+  const auto num_scenes = static_cast<int>(m_systems_.size());
+  const auto num_phases =
+      num_scenes > 0 ? static_cast<int>(m_systems_.front().size()) : 0;
+  SPDLOG_INFO(
+      "  Writing output: {} scene(s) × {} phase(s)", num_scenes, num_phases);
+
+  for (auto&& [scene_num, phase_systems] : std::views::enumerate(m_systems_)) {
+    SPDLOG_DEBUG("  Writing output scene {}/{}", scene_num + 1, num_scenes);
     for (auto&& system : phase_systems) {
       system.write_out();
     }
@@ -57,7 +64,17 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
     phase_systems_t& phase_systems,
     const SolverOptions& lp_opts)
 {
+  [[maybe_unused]] const auto num_phases =
+      static_cast<int>(phase_systems.size());
+  SPDLOG_DEBUG("  Solving scene {} ({} phase(s))", scene_index, num_phases);
+
   for (auto&& [phase_index, system_sp] : enumerate<PhaseIndex>(phase_systems)) {
+    SPDLOG_TRACE("    Solving scene {} phase {} ({} cols, {} rows)",
+                 scene_index,
+                 phase_index,
+                 system_sp.linear_interface().get_numcols(),
+                 system_sp.linear_interface().get_numrows());
+
     if (auto result = system_sp.resolve(lp_opts); !result) {
       // On error, write the problematic model to the log directory for
       // debugging
@@ -81,6 +98,8 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
 
       return std::unexpected(std::move(error));
     }
+
+    SPDLOG_DEBUG("    Scene {} phase {} solved ok", scene_index, phase_index);
 
     // update state variable dependents with the last solution
     const auto& solution_vector = system_sp.linear_interface().get_col_sol();

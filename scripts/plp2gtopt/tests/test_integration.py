@@ -2134,3 +2134,126 @@ def test_hydro_4b_plp_vs_gtopt(tmp_path):
             vols = gtopt_eini[col].astype(float)
             assert vols.min() >= _RESERVOIR_EMIN - _VOLUME_TOLERANCE
             assert vols.max() <= _RESERVOIR_EMAX + _VOLUME_TOLERANCE
+
+
+# ---------------------------------------------------------------------------
+# plp_min_1bus: PLP → gtopt full pipeline integration tests
+# ---------------------------------------------------------------------------
+
+# Expected result: Thermal1 (50 $/MWh, Pmax=100 MW) serves Bus1 demand (80 MW)
+_MIN_1BUS_DEMAND_MW = 80.0
+_MIN_1BUS_GEN_COST = 50.0  # $/MWh
+
+
+@pytest.mark.integration
+def test_min_1bus_gtopt_solve(tmp_path, gtopt_bin):
+    """plp_min_1bus: convert PLP → gtopt and verify optimal solution."""
+    opts = _make_opts(_PLPMin1Bus, tmp_path, "gtopt_min_1bus")
+    opts["solver_type"] = "mono"
+    convert_plp_case(opts)
+
+    json_file = Path(opts["output_file"])
+    case_dir = json_file.parent
+
+    rc, stderr = _run_gtopt(gtopt_bin, case_dir, json_file.stem)
+    assert rc == 0, f"gtopt failed with rc={rc}: {stderr}"
+
+    results_dir = case_dir / "results"
+    sol = _read_solution_csv(results_dir)
+    assert sol.get("status") == 0, f"Solver status={sol.get('status')} (expected 0)"
+    assert sol.get("obj_value", -1) >= 0, f"Negative objective: {sol.get('obj_value')}"
+
+    # Generation output must exist and Thermal1 must cover the full demand
+    gen_df = _read_output(results_dir, "Generator", "generation_sol")
+    assert gen_df is not None and len(gen_df) > 0, "No generation data"
+    uid_cols = [c for c in gen_df.columns if c.startswith("uid:")]
+    total_gen = sum(gen_df[c].astype(float).sum() for c in uid_cols)
+    assert total_gen == pytest.approx(_MIN_1BUS_DEMAND_MW, abs=0.1), (
+        f"Total generation {total_gen} != expected demand {_MIN_1BUS_DEMAND_MW}"
+    )
+
+    # No load shedding expected (Thermal1 has sufficient capacity)
+    fail_df = _read_output(results_dir, "Demand", "fail_sol")
+    if fail_df is not None:
+        uid_cols_f = [c for c in fail_df.columns if c.startswith("uid:")]
+        for col in uid_cols_f:
+            total_fail = fail_df[col].astype(float).sum()
+            assert total_fail == pytest.approx(0.0, abs=0.1), (
+                f"Unexpected load shedding: {col}={total_fail}"
+            )
+
+
+@pytest.mark.integration
+def test_min_1bus_gtopt_generation_cost(tmp_path, gtopt_bin):
+    """plp_min_1bus: objective value matches expected generation cost."""
+    opts = _make_opts(_PLPMin1Bus, tmp_path, "gtopt_min_1bus_cost")
+    opts["solver_type"] = "mono"
+    convert_plp_case(opts)
+
+    json_file = Path(opts["output_file"])
+    case_dir = json_file.parent
+
+    rc, _stderr = _run_gtopt(gtopt_bin, case_dir, json_file.stem)
+    assert rc == 0, f"gtopt failed with rc={rc}"
+
+    results_dir = case_dir / "results"
+    sol = _read_solution_csv(results_dir)
+    assert sol.get("status") == 0
+
+    # Read the converted JSON to get scale_objective
+    data = json.loads(json_file.read_text(encoding="utf-8"))
+    scale = float(data.get("options", {}).get("scale_objective", 1000.0))
+
+    # Unscaled expected cost: 80 MW × 1 h × 50 $/MWh = 4000 $
+    expected_unscaled = _MIN_1BUS_DEMAND_MW * 1.0 * _MIN_1BUS_GEN_COST
+    expected_scaled = expected_unscaled / scale
+
+    obj = float(sol.get("obj_value", -1))
+    assert obj == pytest.approx(expected_scaled, rel=1e-3), (
+        f"obj_value={obj} != expected {expected_scaled} "
+        f"(demand={_MIN_1BUS_DEMAND_MW} MW × cost={_MIN_1BUS_GEN_COST} $/MWh "
+        f"/ scale={scale})"
+    )
+
+
+# ---------------------------------------------------------------------------
+# plp_min_2bus: PLP → gtopt multi-bus pipeline integration test
+# ---------------------------------------------------------------------------
+
+_PLPMin2Bus = _CASES_DIR / "plp_min_2bus"
+
+
+@pytest.mark.integration
+def test_min_2bus_gtopt_solve(tmp_path, gtopt_bin):
+    """plp_min_2bus: convert PLP → gtopt multi-bus case and verify optimal."""
+    if not _PLPMin2Bus.exists():
+        pytest.skip(f"plp_min_2bus case not found at {_PLPMin2Bus}")
+
+    opts = _make_opts(_PLPMin2Bus, tmp_path, "gtopt_min_2bus")
+    opts["solver_type"] = "mono"
+    convert_plp_case(opts)
+
+    json_file = Path(opts["output_file"])
+    case_dir = json_file.parent
+
+    rc, stderr = _run_gtopt(gtopt_bin, case_dir, json_file.stem)
+    assert rc == 0, f"gtopt failed with rc={rc}: {stderr}"
+
+    results_dir = case_dir / "results"
+    sol = _read_solution_csv(results_dir)
+    assert sol.get("status") == 0, f"Solver status={sol.get('status')} (expected 0)"
+    assert sol.get("obj_value", -1) >= 0, f"Negative objective: {sol.get('obj_value')}"
+
+    # Generation output must exist
+    gen_df = _read_output(results_dir, "Generator", "generation_sol")
+    assert gen_df is not None and len(gen_df) > 0, "No generation data"
+
+    # No load shedding expected
+    fail_df = _read_output(results_dir, "Demand", "fail_sol")
+    if fail_df is not None:
+        uid_cols = [c for c in fail_df.columns if c.startswith("uid:")]
+        for col in uid_cols:
+            total_fail = fail_df[col].astype(float).sum()
+            assert total_fail == pytest.approx(0.0, abs=0.1), (
+                f"Unexpected load shedding: {col}={total_fail}"
+            )
