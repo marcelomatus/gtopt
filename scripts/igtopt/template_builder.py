@@ -1090,8 +1090,8 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     ),
     # SDDP options
     (
-        "sddp_solver_type",
-        "SDDP sub-problem solver type: 'monolithic' or 'sddp'",
+        "solver_type",
+        "Planning solver type: 'monolithic' (default) or 'sddp'",
         None,
     ),
     (
