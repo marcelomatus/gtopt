@@ -55,6 +55,13 @@ def test_to_json_array(sample_bus_writer):  # pylint: disable=redefined-outer-na
         assert isinstance(bus["name"], str)
         assert isinstance(bus["voltage"], float)
 
+    # First bus must carry reference_theta = 0.0 (PLP always fixes bus 1)
+    assert json_buses[0].get("reference_theta") == 0.0
+
+    # Non-first buses must NOT have reference_theta
+    for bus in json_buses[1:]:
+        assert "reference_theta" not in bus
+
 
 def test_write_to_file(sample_bus_writer):  # pylint: disable=redefined-outer-name
     """Test writing bus data to JSON file."""
@@ -76,12 +83,34 @@ def test_json_output_structure(
     """Verify JSON output matches expected structure."""
     json_buses = sample_bus_writer.to_json_array()
 
-    # Check against example from system_c0.json
-    for bus in json_buses:
+    # First bus has reference_theta; all others do not
+    assert "reference_theta" in json_buses[0]
+    assert json_buses[0]["reference_theta"] == 0.0
+
+    for bus in json_buses[1:]:
         assert set(bus.keys()) == {"uid", "name", "voltage"}
         assert isinstance(bus["uid"], int)
         assert isinstance(bus["name"], str)
         assert isinstance(bus["voltage"], float)
+
+    # First bus has the same required keys plus reference_theta
+    assert {"uid", "name", "voltage", "reference_theta"}.issubset(json_buses[0].keys())
+
+
+def test_reference_bus_is_first():
+    """First bus gets reference_theta=0.0; subsequent buses do not."""
+    parser = BusParser("dummy.dat")
+    parser._data = [  # pylint: disable=protected-access
+        {"number": 3, "name": "BusA220", "voltage": 220.0},
+        {"number": 7, "name": "BusB110", "voltage": 110.0},
+        {"number": 9, "name": "BusC066", "voltage": 66.0},
+    ]
+    writer = BusWriter(parser)
+    buses = writer.to_json_array()
+
+    assert buses[0].get("reference_theta") == 0.0
+    for bus in buses[1:]:
+        assert "reference_theta" not in bus
 
 
 def test_write_empty_buses():

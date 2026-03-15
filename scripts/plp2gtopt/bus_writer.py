@@ -27,7 +27,13 @@ class BusWriter(BaseWriter):
         super().__init__(bus_parser, options)
 
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
-        """Convert bus data to JSON array format."""
+        """Convert bus data to JSON array format.
+
+        In PLP the first bus is always used as the DC-OPF reference bus
+        (angle variable th1 is fixed to zero via [0, 0] bounds in
+        GenPDAngFO).  We therefore set ``reference_theta: 0.0`` on the
+        first bus so that gtopt knows which bus angle to pin.
+        """
         if items is None:
             items = self.items or []
         json_buses: List[Bus] = [
@@ -38,4 +44,9 @@ class BusWriter(BaseWriter):
             }
             for bus in items
         ]
-        return cast(List[Dict[str, Any]], json_buses)
+        result = cast(List[Dict[str, Any]], json_buses)
+        # Mark the first bus as the reference bus (theta = 0).
+        # PLP always fixes bus 1 as the angle reference (GenPDAngFO).
+        if result:
+            result[0]["reference_theta"] = 0.0
+        return result
