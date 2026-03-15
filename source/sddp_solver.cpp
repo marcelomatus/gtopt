@@ -1991,6 +1991,18 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
       ir.feasibility_issue = true;
     }
 
+    // ── just_create: stop after the first forward pass ──
+    // All scene/phase LPs have been built and solved once.  If lp_debug is
+    // also set the LP files were saved inside forward_pass().  There is no
+    // backward pass, no cut generation, and no convergence loop.
+    if (m_options_.just_create) {
+      SPDLOG_INFO(
+          "SDDP: just_create mode — stopping after forward pass (iter {})",
+          iter);
+      results.push_back(ir);
+      break;
+    }
+
     // ── Scene weights and bounds ──
     const auto& scenes = planning_lp().simulation().scenes();
     const auto weights = compute_scene_weights(scenes, fwd->scene_feasible);
@@ -2068,6 +2080,11 @@ auto SDDPPlanningSolver::solve(PlanningLP& planning_lp,
   }
 
   m_last_results_ = std::move(*results);
+
+  // just_create: one forward pass completed successfully — return 0.
+  if (m_sddp_opts_.just_create) {
+    return 0;
+  }
 
   // Return 1 if converged, 0 otherwise
   if (!m_last_results_.empty() && m_last_results_.back().converged) {
