@@ -68,10 +68,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--scenario",
         type=int,
         default=None,
-        help=(
-            "Scenario UID as defined in scenario_array "
-            "(default: first scenario)."
-        ),
+        help=("Scenario UID as defined in scenario_array (default: first scenario)."),
     )
     parser.add_argument(
         "-b",
@@ -110,9 +107,7 @@ def main(argv: list[str] | None = None) -> int:
     case = load_gtopt_case(args.case_file)
 
     simulation = case.get("simulation", {})
-    blocks = simulation.get(
-        "block_array", [{"uid": 1, "duration": 1}]
-    )
+    blocks = simulation.get("block_array", [{"uid": 1, "duration": 1}])
 
     # Determine block UIDs to process
     if args.block is not None:
@@ -145,9 +140,7 @@ def main(argv: list[str] | None = None) -> int:
     if len(block_uids) == 1:
         bi = block_uids[0]
         net = convert(case, scenario=args.scenario, block=bi)
-        out = args.output or args.case_file.with_name(
-            f"{args.case_file.stem}_pp.json"
-        )
+        out = args.output or args.case_file.with_name(f"{args.case_file.stem}_pp.json")
         pp.to_json(net, str(out))
         print(f"Written: {out}")
     else:
@@ -155,13 +148,9 @@ def main(argv: list[str] | None = None) -> int:
         for bi in block_uids:
             net = convert(case, scenario=args.scenario, block=bi)
             if args.output:
-                out = args.output.with_stem(
-                    f"{args.output.stem}_b{bi}"
-                )
+                out = args.output.with_stem(f"{args.output.stem}_b{bi}")
             else:
-                out = args.case_file.with_name(
-                    f"{stem}_pp_b{bi}.json"
-                )
+                out = args.case_file.with_name(f"{stem}_pp_b{bi}.json")
             pp.to_json(net, str(out))
             print(f"Block {bi}: written {out}")
     return 0
@@ -169,4 +158,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

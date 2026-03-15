@@ -124,8 +124,7 @@ def _uid_to_index(
         if elem.get("uid") == uid:
             return i
     raise ValueError(
-        f"{label} UID {uid} not found; "
-        f"available UIDs: {[e.get('uid') for e in array]}"
+        f"{label} UID {uid} not found; available UIDs: {[e.get('uid') for e in array]}"
     )
 
 
@@ -386,9 +385,17 @@ def convert(
         elem_name: str | None = None,
     ) -> float | None:
         return _resolve_field_sched_with_file(
-            field, scenario_idx, block_idx,
-            case_dir, input_dir, cls, elem_uid, elem_name,
-            scenario, block, preferred_fmt,
+            field,
+            scenario_idx,
+            block_idx,
+            case_dir,
+            input_dir,
+            cls,
+            elem_uid,
+            elem_name,
+            scenario,
+            block,
+            preferred_fmt,
         )
 
     bus_ref_map = _build_bus_ref_map(system)
@@ -437,11 +444,9 @@ def convert(
         gcost_val = _rfs(gen.get("gcost"), "Generator", gen_uid, gen_name)
         gcost = gcost_val if gcost_val is not None else 0.0
 
-        is_slack = (
-            ref_bus_uid is not None
-            and _resolve_bus_ref(bus_ref, bus_ref_map)
-            == _resolve_bus_ref(ref_bus_uid, bus_ref_map)
-        )
+        is_slack = ref_bus_uid is not None and _resolve_bus_ref(
+            bus_ref, bus_ref_map
+        ) == _resolve_bus_ref(ref_bus_uid, bus_ref_map)
 
         if is_slack:
             # ext_grid: the reference generator
@@ -482,9 +487,7 @@ def convert(
             )
 
     # ── Demands (loads) ───────────────────────────────────────────────────
-    demand_profiles = _build_demand_profile_map(
-        system, scenario_idx, block_idx
-    )
+    demand_profiles = _build_demand_profile_map(system, scenario_idx, block_idx)
 
     for dem in system.get("demand_array", []):
         dem_uid = int(dem["uid"])
@@ -522,19 +525,28 @@ def convert(
             continue
 
         x_pu_val = _rfs(
-            line.get("reactance"), "Line", line_uid, line_name,
+            line.get("reactance"),
+            "Line",
+            line_uid,
+            line_name,
         )
         x_pu = x_pu_val if x_pu_val is not None else 0.01
 
         line_type = line.get("type", "line")
 
         tmax_ab_val = _rfs(
-            line.get("tmax_ab"), "Line", line_uid, line_name,
+            line.get("tmax_ab"),
+            "Line",
+            line_uid,
+            line_name,
         )
         tmax_ab = tmax_ab_val if tmax_ab_val is not None else _TMAX_UNLIMITED
 
         tmax_ba_val = _rfs(
-            line.get("tmax_ba"), "Line", line_uid, line_name,
+            line.get("tmax_ba"),
+            "Line",
+            line_uid,
+            line_name,
         )
         tmax_ba = tmax_ba_val if tmax_ba_val is not None else _TMAX_UNLIMITED
 
@@ -690,8 +702,7 @@ def run_dcopp(
     pp.rundcopp(net)
     if not net.OPF_converged:
         raise RuntimeError(
-            f"pandapower DC OPF failed to converge "
-            f"(scenario={scenario}, block={block})"
+            f"pandapower DC OPF failed to converge (scenario={scenario}, block={block})"
         )
     return net
 
