@@ -568,7 +568,7 @@ TEST_CASE("make_planning_solver factory - sddp")  // NOLINT
   REQUIRE(solver != nullptr);
 }
 
-TEST_CASE("PlanningLP::resolve uses sddp_solver_type option")  // NOLINT
+TEST_CASE("PlanningLP::resolve uses solver_type option")  // NOLINT
 {
   auto planning = make_single_phase_planning();
   // Default solver_type is "monolithic"
