@@ -2,6 +2,8 @@
 """Configuration file I/O for gtopt_check_json."""
 
 import configparser
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -31,10 +33,35 @@ _CONFIG_DEFAULTS: dict[str, str] = {
     **{f"check_{k}": v for k, v in CHECK_DEFAULTS.items()},
 }
 
+# Supported AI providers (kept in sync with gtopt_check_lp._ai._AI_PROVIDERS).
+_AI_PROVIDERS = ("claude", "openai", "deepseek", "github")
+_AI_DEFAULT_PROVIDER = "claude"
+
 
 def default_config_path() -> Path:
     """Return the default config file path: ``~/.gtopt_check_json.conf``."""
     return Path.home() / ".gtopt_check_json.conf"
+
+
+def read_git_email() -> str:
+    """Read the user e-mail from the git global configuration.
+
+    Returns an empty string when git is not installed or no email is set.
+    """
+    git_bin = shutil.which("git")
+    if git_bin is None:
+        return ""
+    try:
+        result = subprocess.run(
+            [git_bin, "config", "--global", "user.email"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        return result.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
 
 
 def load_config(config_path: Path) -> dict[str, str]:
@@ -94,7 +121,14 @@ def is_check_enabled(cfg: dict[str, str], check_id: str) -> bool:
 
 
 def run_interactive_setup(config_path: Path, use_color: bool = True) -> dict[str, str]:
-    """Run the interactive first-run setup wizard."""
+    """Run the interactive first-run setup wizard.
+
+    Reads the git email as a proposed default, prompts for check
+    enable/disable settings and AI configuration, then writes the
+    resulting config to *config_path*.
+
+    Returns the final config dict.
+    """
 
     def _c(code: str, text: str) -> str:
         return f"{code}{text}{col.RESET}" if use_color else text
@@ -128,11 +162,34 @@ def run_interactive_setup(config_path: Path, use_color: bool = True) -> dict[str
     # ── AI settings ────────────────────────────────────────────────────────
     print()
     print(_c(col.BOLD, "AI diagnostics:"))
+    print(
+        "\n  When an API key is available, gtopt_check_json can send system"
+        "\n  information to an AI provider for an expert diagnosis."
+        "\n  Supported providers: " + ", ".join(_AI_PROVIDERS)
+    )
+
     current_ai = cfg.get("ai_enabled", "false")
     ai_str = _prompt("  Enable AI diagnostics ('true' or 'false')", current_ai)
     if ai_str.lower() not in ("true", "false", "1", "0", "yes", "no"):
         ai_str = "false"
     cfg["ai_enabled"] = ai_str
+
+    current_ai_provider = cfg.get("ai_provider", _AI_DEFAULT_PROVIDER)
+    provider_choices_str = _c(col.CYAN, str(list(_AI_PROVIDERS)))
+    ai_provider = _prompt(
+        f"  Preferred AI provider {provider_choices_str}", current_ai_provider
+    )
+    if ai_provider not in _AI_PROVIDERS:
+        print(f"  Unknown provider '{ai_provider}', using '{_AI_DEFAULT_PROVIDER}'")
+        ai_provider = _AI_DEFAULT_PROVIDER
+    cfg["ai_provider"] = ai_provider
+
+    current_ai_model = cfg.get("ai_model", "")
+    ai_model = _prompt(
+        "  AI model override (leave blank for provider default)",
+        current_ai_model,
+    )
+    cfg["ai_model"] = ai_model
 
     # ── Save ───────────────────────────────────────────────────────────────
     save_config(config_path, cfg)

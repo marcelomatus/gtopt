@@ -18,7 +18,6 @@ Usage
 import argparse
 import json
 import sys
-import types
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +31,25 @@ from gtopt_check_json._config import (
     run_interactive_setup,
 )
 from gtopt_check_json._info import format_info
+
+# Use AiOptions from gtopt_check_lp when available; fall back to a minimal
+# implementation so that gtopt_check_json works even if gtopt_check_lp is not
+# installed.
+try:
+    from gtopt_check_lp._ai import AiOptions  # noqa: PLC0415
+except ImportError:  # pragma: no cover
+    from dataclasses import dataclass  # noqa: PLC0415
+
+    @dataclass
+    class AiOptions:  # type: ignore[no-redef]
+        """Minimal AiOptions shim when gtopt_check_lp is not installed."""
+
+        enabled: bool = True
+        provider: str = "claude"
+        model: str = ""
+        prompt: str = ""
+        key: str = ""
+        timeout: int = 60
 
 
 def _load_planning(
@@ -127,10 +145,10 @@ def check_json(
         cfg.get("ai_enabled", "false").lower() in ("true", "1", "yes")
         and "ai_system_analysis" in enabled
     ):
-        ai_options = types.SimpleNamespace(
+        ai_options = AiOptions(
             provider=cfg.get("ai_provider", "claude"),
-            model=cfg.get("ai_model", "") or None,
-            key=None,
+            model=cfg.get("ai_model", ""),
+            key="",
             timeout=60,
         )
 
