@@ -92,6 +92,7 @@ struct json_data_contract<Options>
                        json_number_null<"lp_threads", OptInt>,
                        json_bool_null<"lp_presolve", OptBool>,
 
+                       json_string_null<"solver_type", OptName>,
                        json_string_null<"log_directory", OptName>,
                        json_bool_null<"lp_debug", OptBool>,
 
@@ -122,6 +123,7 @@ struct json_data_contract<Options>
                                  opt.lp_threads,
                                  opt.lp_presolve,
 
+                                 opt.solver_type,
                                  opt.log_directory,
                                  opt.lp_debug,
 
