@@ -25,6 +25,7 @@ from gtopt_check_json import _colors as col
 from gtopt_check_json._checks import Finding, Severity, run_all_checks
 from gtopt_check_json._config import (
     CHECK_DEFAULTS,
+    _AI_DEFAULT_PROVIDER,
     default_config_path,
     is_check_enabled,
     load_config,
@@ -45,7 +46,7 @@ except ImportError:  # pragma: no cover
         """Minimal AiOptions shim when gtopt_check_lp is not installed."""
 
         enabled: bool = True
-        provider: str = "claude"
+        provider: str = "github"
         model: str = ""
         prompt: str = ""
         key: str = ""
@@ -146,7 +147,7 @@ def check_json(
         and "ai_system_analysis" in enabled
     ):
         ai_options = AiOptions(
-            provider=cfg.get("ai_provider", "claude"),
+            provider=cfg.get("ai_provider", _AI_DEFAULT_PROVIDER),
             model=cfg.get("ai_model", ""),
             key="",
             timeout=60,
