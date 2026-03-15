@@ -9,6 +9,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <format>
 #include <future>
 #include <ranges>
 
@@ -77,7 +78,11 @@ auto PlanningLP::create_systems(System& system,
           }
           all_systems[scene_index] = std::move(phase_systems);
         });
-    futures.push_back(std::move(result.value()));
+    if (!result.has_value()) {
+      throw std::runtime_error(
+          std::format("Failed to submit scene {} to work pool", scene_index));
+    }
+    futures.push_back(std::move(*result));
   }
 
   for (auto& fut : futures) {
