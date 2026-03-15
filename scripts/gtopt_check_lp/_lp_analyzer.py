@@ -97,8 +97,16 @@ def _strip_comments(line: str) -> str:
 
 
 def _parse_coefficients(expr: str) -> list[float]:
-    """Extract all numeric coefficients from an LP constraint expression."""
-    return [float(m) for m in re.findall(r"[+-]?\s*\d+\.?\d*(?:[eE][+-]?\d+)?", expr)]
+    """Extract all numeric coefficients from an LP constraint expression.
+
+    LP files may contain whitespace between a sign and the number
+    (e.g. ``- 0.9``).  We strip internal whitespace before calling
+    ``float()`` so that such tokens are parsed correctly.
+    """
+    return [
+        float(m.replace(" ", ""))
+        for m in re.findall(r"[+-]?\s*\d+\.?\d*(?:[eE][+-]?\d+)?", expr)
+    ]
 
 
 # ---------------------------------------------------------------------------

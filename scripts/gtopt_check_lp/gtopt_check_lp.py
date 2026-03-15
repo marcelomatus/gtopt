@@ -337,6 +337,7 @@ def check_lp(
     print(f"\nAnalyzing: {_c(_BOLD, str(lp_path))}{compression_note}")
     print("  Running static analysis …")
 
+    stats = None
     try:
         stats = analyze_lp_file(lp_path)
     except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
@@ -346,13 +347,15 @@ def check_lp(
                 _c(_YELLOW, f"Warning: static analysis failed: {exc}"),
                 file=sys.stderr,
             )
-            return 0
-        print(_c(_RED, f"Error: {exc}"), file=sys.stderr)
-        return 1
+            # Continue to IIS / solver analysis instead of returning early.
+        else:
+            print(_c(_RED, f"Error: {exc}"), file=sys.stderr)
+            return 1
 
-    static_report = format_static_report(lp_path, stats)
-    print(static_report)
-    report_parts.append(static_report)
+    if stats is not None:
+        static_report = format_static_report(lp_path, stats)
+        print(static_report)
+        report_parts.append(static_report)
 
     if analyze_only:
         if output_file:
