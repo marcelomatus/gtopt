@@ -2241,6 +2241,14 @@ def _build_planning_html(
 # Graphviz topology renderer
 # ---------------------------------------------------------------------------
 
+_GRAPHVIZ_INSTALL_MSG = (
+    "Graphviz executables not found.\n"
+    "Install the system package, e.g.:\n"
+    "  sudo apt-get install graphviz    # Debian/Ubuntu\n"
+    "  brew install graphviz            # macOS\n"
+    "  winget install graphviz          # Windows"
+)
+
 
 def _gv_node_label(node: Node, icon_path: Optional[str]) -> str:
     bg = _PALETTE.get(node.kind, "#FFF")
@@ -2356,16 +2364,23 @@ def render_graphviz(
 
     if fmt == "dot":
         return dot.source
+
     if output_path:
         out = Path(output_path)
-        rendered = dot.render(
-            filename=str(out.stem),
-            directory=str(out.parent) if str(out.parent) != "." else ".",
-            format=fmt,
-            cleanup=True,
-        )
+        try:
+            rendered = dot.render(
+                filename=str(out.stem),
+                directory=str(out.parent) if str(out.parent) != "." else ".",
+                format=fmt,
+                cleanup=True,
+            )
+        except FileNotFoundError as err:
+            raise SystemExit(_GRAPHVIZ_INSTALL_MSG) from err
         return rendered
-    return dot.pipe(format=fmt).decode("utf-8", errors="replace")
+    try:
+        return dot.pipe(format=fmt).decode("utf-8", errors="replace")
+    except FileNotFoundError as err:
+        raise SystemExit(_GRAPHVIZ_INSTALL_MSG) from err
 
 
 # ---------------------------------------------------------------------------

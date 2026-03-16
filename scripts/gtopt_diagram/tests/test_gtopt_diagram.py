@@ -9,6 +9,7 @@ Covers:
 """
 
 import json
+from unittest import mock
 
 import pytest
 
@@ -240,6 +241,26 @@ class TestMain:
         assert rc == 0
         out = capsys.readouterr().out
         assert "graph" in out or "flowchart" in out
+
+    @_skip_no_graphviz
+    def test_render_graphviz_missing_dot_binary(self, tmp_path):
+        """render_graphviz raises SystemExit with an install hint when dot is missing."""
+        json_path = tmp_path / "mini.json"
+        json_path.write_text(json.dumps(_MINI_PLANNING))
+
+        # Build a minimal GraphModel so we can call render_graphviz() directly.
+        planning = json.loads(json_path.read_text())
+        tb = gd.TopologyBuilder(planning, gd.FilterOptions())
+        model = tb.build()
+
+        # Patch graphviz.Graph.pipe to simulate a missing `dot` executable.
+        with mock.patch("graphviz.Graph.pipe", side_effect=FileNotFoundError("dot")):
+            with pytest.raises(SystemExit) as exc_info:
+                gd.render_graphviz(model, fmt="svg")
+        assert (
+            "graphviz" in str(exc_info.value).lower()
+            and "install" in str(exc_info.value).lower()
+        )
 
     @_skip_no_graphviz
     def test_render_dot_to_stdout(self, tmp_path, capsys):
