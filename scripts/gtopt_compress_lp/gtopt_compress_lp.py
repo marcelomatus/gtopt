@@ -125,6 +125,7 @@ def _run_compressor(
             cmd,
             capture_output=True,
             text=False,
+            shell=False,
             timeout=_TIMEOUT_S,
             check=False,
         )
@@ -141,6 +142,7 @@ def _run_compressor(
                 file=sys.stderr,
             )
             if result.stderr:
+                # Decode stderr safely: compressors may emit binary diagnostics.
                 stderr_text = result.stderr.decode("utf-8", errors="replace").strip()
                 print(f"  {stderr_text}", file=sys.stderr)
         return None
