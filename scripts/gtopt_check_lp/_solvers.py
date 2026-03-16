@@ -477,11 +477,9 @@ def run_all_solvers(
         any_success = any_success or ok
         parts.append(_format_solver_block("COIN-OR (clp/cbc)", ok, out))
 
-    # GLPK
-    if shutil.which("glpsol"):
-        ok, out = run_local_glpk(lp_path, timeout=timeout)
-        any_success = any_success or ok
-        parts.append(_format_solver_block("GLPK", ok, out))
+    # GLPK — skipped in "all" mode because glpsol cannot parse the CPLEX LP
+    # format produced by COIN-OR / gtopt (it fails with "missing variable
+    # name").  Users who need GLPK can still request it with --solver glpk.
 
     # CPLEX (local)
     if shutil.which("cplex"):
@@ -499,10 +497,9 @@ def run_all_solvers(
     if not parts:
         hint = (
             f"\n{col.c(col._YELLOW, 'Tip:')} "  # noqa: SLF001
-            "Install a local solver (CPLEX, HiGHS, CLP/CBC, or GLPK) or\n"
+            "Install a local solver (CPLEX, HiGHS, or CLP/CBC) or\n"
             "  provide --email <address> to submit to the NEOS server.\n"
             "  CLP/CBC: sudo apt install coinor-clp coinor-cbc\n"
-            "  GLPK:    sudo apt install glpk-utils\n"
             "  HiGHS:   pip install highspy"
         )
         return False, "all", hint

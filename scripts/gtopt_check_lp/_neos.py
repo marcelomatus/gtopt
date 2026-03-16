@@ -25,6 +25,7 @@ produces "Command 'conflict' does not exist."  Always use ``refineconflict``.
 
 import http.client
 import time
+import urllib.request
 import xmlrpc.client
 from pathlib import Path
 from typing import Optional
@@ -32,6 +33,81 @@ from typing import Optional
 from ._compress import read_lp_text
 
 _NEOS_DEFAULT_URL = "https://neos-server.org:3333"
+
+# Size threshold (bytes) above which we warn that the LP may be too large
+# for NEOS.  NEOS has an undocumented payload limit; large submissions
+# typically time out or are rejected silently.
+_NEOS_LP_SIZE_WARN = 50 * 1024 * 1024  # 50 MiB
+
+
+def _check_internet(timeout: int = 5) -> bool:
+    """Return True when basic internet connectivity is available.
+
+    Tries a lightweight HTTPS HEAD request to a well-known host.  Returns
+    False on any network error so callers can distinguish "no internet" from
+    "NEOS-specific failure".
+    """
+    try:
+        req = urllib.request.Request(
+            "https://www.google.com",
+            method="HEAD",
+        )
+        with urllib.request.urlopen(req, timeout=timeout):  # noqa: S310
+            return True
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        return False
+
+
+def _diagnose_network_error(
+    neos_url: str, lp_path: Path, error: Exception, timeout: int = 5
+) -> str:
+    """Return a human-readable diagnostic for a NEOS network failure.
+
+    Inspects the error, checks basic internet connectivity, and checks the
+    LP file size to give the user an actionable message rather than a raw
+    traceback.
+    """
+    parts: list[str] = [f"Network error connecting to {neos_url}: {error}"]
+
+    # 1. Check if the LP file is very large — NEOS may reject or time out.
+    try:
+        size = lp_path.stat().st_size
+        if size > _NEOS_LP_SIZE_WARN:
+            size_mb = size / (1024 * 1024)
+            parts.append(
+                f"  ⚠ The LP file is {size_mb:.1f} MiB — NEOS may reject or "
+                "time out on large submissions."
+            )
+            parts.append("  Tip: try a local solver (--solver coinor) for large files.")
+    except OSError:
+        pass
+
+    # 2. Check basic internet connectivity.
+    if not _check_internet(timeout=timeout):
+        parts.append(
+            "  ✗ No internet connectivity detected (cannot reach www.google.com)."
+        )
+        parts.append("  Check your network connection and proxy settings.")
+    else:
+        # Internet works but NEOS is unreachable — service-specific issue.
+        is_timeout = "timed out" in str(error).lower()
+        if is_timeout:
+            parts.append("  ✗ The NEOS server appears to be slow or unreachable.")
+            parts.append(
+                "  The connection timed out.  This may be a temporary issue; "
+                "try again later or use --timeout with a larger value."
+            )
+        else:
+            parts.append(
+                "  ✗ Internet is reachable but the NEOS server returned an error."
+            )
+            parts.append(
+                "  The NEOS service may be temporarily unavailable.  "
+                "Try again later or use a local solver (--solver coinor)."
+            )
+
+    return "\n".join(parts)
+
 
 # NEOS CPLEX LP XML template.
 #
@@ -139,7 +215,7 @@ class NeosClient:
         except xmlrpc.client.Fault as exc:
             return None, f"NEOS XML-RPC fault: {exc}"
         except OSError as exc:
-            return None, f"Network error connecting to {self.url}: {exc}"
+            return None, _diagnose_network_error(self.url, lp_path, exc)
 
     def wait_for_result(
         self,
@@ -189,11 +265,34 @@ class NeosClient:
     ) -> tuple[bool, str]:
         """Submit an LP to NEOS and wait for the conflict-analysis result."""
         if not self.ping():
-            return (
-                False,
-                f"Cannot reach NEOS server at {self.url}. "
-                "Check your internet connection.",
-            )
+            # Ping failed — diagnose whether it's a general internet issue
+            # or a NEOS-specific problem.
+            diag_parts: list[str] = [
+                f"Cannot reach NEOS server at {self.url}.",
+            ]
+            if not _check_internet(timeout=5):
+                diag_parts.append("  ✗ No internet connectivity detected.")
+                diag_parts.append("  Check your network connection and proxy settings.")
+            else:
+                diag_parts.append(
+                    "  Internet is reachable but the NEOS service is not responding."
+                )
+                diag_parts.append(
+                    "  The NEOS server may be temporarily unavailable.  "
+                    "Try again later or use a local solver (--solver coinor)."
+                )
+            # Also check file size for a helpful hint.
+            try:
+                size = lp_path.stat().st_size
+                if size > _NEOS_LP_SIZE_WARN:
+                    size_mb = size / (1024 * 1024)
+                    diag_parts.append(
+                        f"  ⚠ The LP file is {size_mb:.1f} MiB — consider a "
+                        "local solver for large files."
+                    )
+            except OSError:
+                pass
+            return False, "\n".join(diag_parts)
 
         print(f"  Submitting to NEOS ({self.url}) …")
         job_number, password_or_err = self.submit_lp(lp_path, email, version=version)
