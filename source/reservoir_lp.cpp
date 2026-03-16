@@ -10,6 +10,8 @@
  * constraints and relationships with other system components.
  */
 
+#include <limits>
+
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/reservoir_lp.hpp>
@@ -63,6 +65,19 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   const auto fmin = reservoir().fmin.value_or(-LinearProblem::DblMax);
   const auto fmax = reservoir().fmax.value_or(+LinearProblem::DblMax);
 
+  // vol_scale is used both as the energy (volume) scale and as the flow
+  // variable scale so that the energy-balance (rsv_vol) row coefficients
+  // become flow_conversion_rate × duration — O(1) — instead of the tiny
+  // values (~1e-5) that arise when vol_scale is large (e.g. 100 000).
+  //
+  // Trade-off: the junction-balance (jct_bal) coefficient for rsv_fext
+  // becomes vol_scale (instead of 1). In practice a single large coefficient
+  // in an otherwise ±1 matrix is handled well by LP solvers, whereas many
+  // energy-balance rows with 1e-5 coefficients degrade convergence.
+  const double vol_scale =
+      reservoir().vol_scale.value_or(Reservoir::default_vol_scale);
+  const double inv_vol_scale = 1.0 / vol_scale;
+
   BIndexHolder<ColIndex> rcols;
   BIndexHolder<ColIndex> scols;
   map_reserve(rcols, blocks.size());
@@ -71,25 +86,28 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   for (auto&& block : blocks) {
     const auto buid = block.uid();
 
+    // rsv_fext LP variable = physical_flow [m³/s] / vol_scale.
+    // Bounds are scaled accordingly.
     const auto rc = lp.add_col(SparseCol {
         .name = sc.lp_label(scenario, stage, block, cname, "fext", uid()),
-        .lowb = fmin,
-        .uppb = fmax,
+        .lowb = fmin * inv_vol_scale,
+        .uppb = fmax * inv_vol_scale,
     });
 
     rcols[buid] = rc;
 
-    // the flow in the reservoir is an extraction, therefore, it adds flow  to
-    // the junction balance
+    // The extraction adds flow to the junction balance (in m³/s).
+    // Since rsv_fext_LP = fext_m3s / vol_scale, restore the physical unit by
+    // using vol_scale as the coefficient: fext_m3s = rsv_fext_LP × vol_scale.
     auto& brow = lp.row_at(balance_rows.at(buid));
-    brow[rc] = 1;
+    brow[rc] = vol_scale;
   }
 
   const StorageOptions opts {
       .use_state_variable = reservoir().use_state_variable.value_or(true),
       .daily_cycle = reservoir().daily_cycle.value_or(false),
-      .energy_scale =
-          reservoir().vol_scale.value_or(Reservoir::default_vol_scale),
+      .energy_scale = vol_scale,
+      .flow_scale = vol_scale,
   };
   if (!StorageBase::add_to_lp(cname,
                               sc,
@@ -134,8 +152,19 @@ bool ReservoirLP::add_to_output(OutputContext& out) const
 {
   static constexpr std::string_view cname = ClassName.full_name();
 
-  out.add_col_sol(cname, "extraction", id(), extraction_cols);
-  out.add_col_cost(cname, "extraction", id(), extraction_cols);
+  // rsv_fext LP variable is in physical_flow / energy_scale units; multiply
+  // primal by energy_scale to recover m³/s, divide reduced cost accordingly.
+  if (std::abs(energy_scale() - 1.0) > std::numeric_limits<double>::epsilon()) {
+    const auto scale = energy_scale();
+    const auto inv_scale = 1.0 / scale;
+    const auto sol_r = [scale](auto v) { return v * scale; };
+    const auto cost_r = [inv_scale](auto v) { return v * inv_scale; };
+    out.add_col_sol(cname, "extraction", id(), extraction_cols, sol_r);
+    out.add_col_cost(cname, "extraction", id(), extraction_cols, cost_r);
+  } else {
+    out.add_col_sol(cname, "extraction", id(), extraction_cols);
+    out.add_col_cost(cname, "extraction", id(), extraction_cols);
+  }
 
   return StorageBase::add_to_output(out, ClassName.full_name());
 }
