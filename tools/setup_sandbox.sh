@@ -118,14 +118,28 @@ ok "ccache and base packages installed"
 log "Installing Arrow/Parquet via conda-forge..."
 
 ARROW_INSTALLED_VIA="conda"
-if conda list arrow-cpp 2>/dev/null | grep -q "^arrow-cpp"; then
-  ok "Arrow/Parquet already installed via conda"
+# Check that the *real* Arrow library is installed (not just the dummy
+# arrow-cpp transitional package v0.2.post).  The definitive test is whether
+# cmake can actually find ArrowConfig.cmake inside the conda prefix.
+CONDA_PREFIX_DIR="$(conda info --base 2>/dev/null || echo "")"
+ARROW_CONFIG_FOUND=false
+if [[ -n "$CONDA_PREFIX_DIR" ]] && \
+   find "$CONDA_PREFIX_DIR" -name "ArrowConfig.cmake" -print -quit 2>/dev/null | grep -q .; then
+  ARROW_CONFIG_FOUND=true
+fi
+
+if $ARROW_CONFIG_FOUND; then
+  ok "Arrow/Parquet already installed via conda (ArrowConfig.cmake found)"
 else
   if ! command -v conda &>/dev/null; then
     echo "ERROR: conda not found.  Install Miniconda/Anaconda first." >&2
     exit 1
   fi
-  conda install -y -c conda-forge arrow-cpp parquet-cpp boost-cpp
+  # Remove the dummy transitional arrow-cpp package if present, then install
+  # the real libarrow + libparquet packages from conda-forge.
+  log "Installing real Arrow/Parquet libraries via conda-forge..."
+  conda remove -y --force arrow-cpp parquet-cpp 2>/dev/null || true
+  conda install -y -c conda-forge libarrow libparquet boost-cpp
   ok "Arrow/Parquet installed via conda-forge"
 fi
 
@@ -153,7 +167,7 @@ if (
     if [[ $attempt -lt 3 ]]; then sleep 15; else exit 1; fi
   done
 
-  sudo gpg --dearmor -o /usr/share/keyrings/llvm-snapshot.gpg \
+  sudo gpg --yes --dearmor -o /usr/share/keyrings/llvm-snapshot.gpg \
     /tmp/llvm-snapshot.gpg.key
 
   echo "deb [signed-by=/usr/share/keyrings/llvm-snapshot.gpg] \
@@ -204,11 +218,17 @@ if $INSTALL_PYTHON; then
   # Ensure uv is available (install it via pip if missing)
   if ! command -v uv &>/dev/null; then
     log "uv not found — installing via pip..."
-    pip install uv -q
+    pip install --break-system-packages uv -q 2>/dev/null \
+      || pip install uv -q
     ok "uv installed"
   fi
   log "Pre-installing Python scripts dev dependencies..."
-  uv pip install --system -q -e "./scripts[dev]" graphviz
+  # --break-system-packages is needed on Ubuntu 24.04+ (PEP 668) where the
+  # system Python is marked as externally-managed.
+  uv pip install --system --break-system-packages -q -e "./scripts[dev]" graphviz 2>/dev/null \
+    || uv pip install --system -q -e "./scripts[dev]" graphviz 2>/dev/null \
+    || pip install --break-system-packages -q -e "./scripts[dev]" graphviz 2>/dev/null \
+    || { warn "Python scripts dep install failed — CTest fixture will install them (slower)."; }
   ok "Python scripts dev dependencies installed"
 fi
 

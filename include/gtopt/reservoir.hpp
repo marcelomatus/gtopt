@@ -61,6 +61,16 @@ namespace gtopt
  */
 struct Reservoir
 {
+  /// @name Default physical constants
+  /// @{
+  static constexpr Real default_spillway_capacity = 6'000.0;  ///< [m³/s]
+  static constexpr Real default_fmin = -10'000.0;  ///< [m³/s]
+  static constexpr Real default_fmax = +10'000.0;  ///< [m³/s]
+  static constexpr Real default_vol_scale = 100'000.0;  ///< [dimensionless]
+  static constexpr Real default_flow_conversion_rate =
+      0.0036;  ///< [dam³/(m³/s·h)]
+  /// @}
+
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Activation status (default: active)
@@ -68,7 +78,8 @@ struct Reservoir
   SingleId junction {unknown_uid};  ///< ID of the associated hydraulic junction
 
   OptReal spillway_capacity {
-      +6'000.0};  ///< Maximum uncontrolled spill capacity [m³/s]
+      default_spillway_capacity};  ///< Maximum uncontrolled spill capacity
+                                   ///< [m³/s]
   OptReal
       spillway_cost {};  ///< Penalty cost per unit of spilled water [$/dam³]
 
@@ -83,16 +94,16 @@ struct Reservoir
   OptReal efin {};  ///< Target stored volume at end of horizon [dam³]
 
   OptReal fmin {
-      -10'000.0};  ///< Minimum net flow into the reservoir junction [m³/s]
+      default_fmin};  ///< Minimum net flow into the reservoir junction [m³/s]
   OptReal fmax {
-      +10'000.0};  ///< Maximum net flow into the reservoir junction [m³/s]
+      default_fmax};  ///< Maximum net flow into the reservoir junction [m³/s]
 
   OptReal vol_scale {
-      100'000.0};  ///< Volume scale factor: LP variable = physical_volume /
-                   ///< vol_scale. Default 100000 for better LP numerics
-                   ///< [dimensionless]
+      default_vol_scale};  ///< Volume scale factor: LP variable =
+                           ///< physical_volume / vol_scale [dimensionless]
   OptReal flow_conversion_rate {
-      0.0036};  ///< Converts m³/s × hours into dam³ [dam³/(m³/s·h)]
+      default_flow_conversion_rate};  ///< Converts m³/s × hours into dam³
+                                      ///< [dam³/(m³/s·h)]
 
   /// Whether to propagate volume state across stage/phase boundaries via
   /// StateVariables (SDDP-style coupling). When true (the default for

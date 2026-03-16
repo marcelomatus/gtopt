@@ -126,6 +126,11 @@ namespace gtopt
  */
 struct Battery
 {
+  /// @name Default physical constants
+  /// @{
+  static constexpr Real default_energy_scale = 0.1;  ///< [dimensionless]
+  /// @}
+
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable battery name
   OptActive active {};  ///< Activation status (default: active)
@@ -196,7 +201,7 @@ struct Battery
   /// Energy scale factor: the LP energy variable is divided by this value so
   /// that the LP works in scaled units (physical_energy / energy_scale).
   /// Default is 0.1 for better LP numerics on typical battery MWh values.
-  OptReal energy_scale {0.1};
+  OptReal energy_scale {default_energy_scale};
 };
 
 }  // namespace gtopt
