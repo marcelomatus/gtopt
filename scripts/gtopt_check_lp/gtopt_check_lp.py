@@ -415,7 +415,7 @@ def check_lp(
     else:
         hint = (
             f"\n{_c(_YELLOW, 'Tip:')} "
-            "Install a local solver (CPLEX, HiGHS, CLP/CBC, or GLPK) or provide\n"
+            "Install a local solver (CPLEX, HiGHS, or CLP/CBC) or provide\n"
             "  --email <address> to submit to the NEOS server for IIS analysis.\n"
             "  CLP/CBC (coinor-clp / coinor-cbc) are usually available on\n"
             "  systems where gtopt is installed: "

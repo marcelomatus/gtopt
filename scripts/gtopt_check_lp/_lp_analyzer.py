@@ -73,6 +73,11 @@ class LPStats:
     top_max_coeffs: list[CoeffEntry] = field(default_factory=list)
     top_min_coeffs: list[CoeffEntry] = field(default_factory=list)
 
+    # Mapping from constraint name to its full LP expression text.
+    # Populated during analysis so that top-N reports can display the
+    # complete constraint, not just its name.
+    constraint_texts: dict[str, str] = field(default_factory=dict)
+
     # Issues found
     infeasible_bounds: list[VariableBounds] = field(default_factory=list)
     empty_constraints: list[str] = field(default_factory=list)
@@ -213,6 +218,10 @@ def analyze_lp_file(lp_path: Path) -> LPStats:  # noqa: PLR0912, PLR0915
     def _flush_constraint(name: str, expr: str) -> None:
         if not name:
             return
+        # Store the raw constraint expression for later display in top-N
+        # reports.  Collapse multi-line continuations into a single line
+        # and trim excessive whitespace to keep it readable.
+        stats.constraint_texts[name] = " ".join(expr.split())
         expr_part = expr.split(":")[1] if ":" in expr else expr
         coeffs = _parse_coefficients(expr_part)
         pairs = _parse_coeff_var_pairs(expr_part)
@@ -455,25 +464,50 @@ def format_static_report(lp_path: Path, stats: LPStats) -> str:
             + _c(col._YELLOW, "  ← poor numerical conditioning")  # noqa: SLF001
         )
 
+    # Maximum width for inline constraint display; longer constraints are
+    # truncated with an ellipsis to keep the report readable.
+    _MAX_CON_DISPLAY = 120
+
+    def _constraint_detail(con_name: str) -> str:
+        """Return a formatted constraint detail line for *con_name*."""
+        text = stats.constraint_texts.get(con_name, "")
+        if not text:
+            return ""
+        if len(text) > _MAX_CON_DISPLAY:
+            text = text[:_MAX_CON_DISPLAY] + " …"
+        return f"        {text}"
+
     if stats.top_max_coeffs:
         n = len(stats.top_max_coeffs)
         label = _c(col._BOLD, f"Top-{n} largest |coefficients|:")  # noqa: SLF001
         lines.append(f"\n{label}")
+        seen_cons: set[str] = set()
         for entry in stats.top_max_coeffs:
             lines.append(
                 f"  {entry.abs_coeff:.3e}  var={entry.var_name}"
                 f"  con={entry.constraint_name}"
             )
+            if entry.constraint_name not in seen_cons:
+                detail = _constraint_detail(entry.constraint_name)
+                if detail:
+                    lines.append(detail)
+                seen_cons.add(entry.constraint_name)
 
     if stats.top_min_coeffs:
         n = len(stats.top_min_coeffs)
         label = _c(col._BOLD, f"Top-{n} smallest non-zero |coefficients|:")  # noqa: SLF001
         lines.append(f"\n{label}")
+        seen_cons_min: set[str] = set()
         for entry in stats.top_min_coeffs:
             lines.append(
                 f"  {entry.abs_coeff:.3e}  var={entry.var_name}"
                 f"  con={entry.constraint_name}"
             )
+            if entry.constraint_name not in seen_cons_min:
+                detail = _constraint_detail(entry.constraint_name)
+                if detail:
+                    lines.append(detail)
+                seen_cons_min.add(entry.constraint_name)
     if not stats.has_issues():
         lines.append(
             f"\n{_c(col._GREEN, '✓ No obvious static infeasibilities detected.')}"  # noqa: SLF001
