@@ -6,18 +6,27 @@ Supports reading and decompressing gzip-compressed LP files
 path on disk use the :func:`as_plain_lp` context manager, which transparently
 decompresses to a temporary file and cleans up afterward.
 
+The :func:`sanitize_lp_names` function and :func:`as_sanitized_lp` context
+manager strip illegal ``':'`` characters from variable and constraint names so
+that COIN-OR CLP/CBC and GLPK can parse the file.  In LP format ``':'`` is
+strictly reserved as the separator between a constraint (or objective) name
+and its expression; it must not appear inside any name.
+
 Public API
 ----------
 .. autofunction:: is_compressed
 .. autofunction:: read_lp_text
 .. autofunction:: as_plain_lp
 .. autofunction:: resolve_lp_path
+.. autofunction:: sanitize_lp_names
+.. autofunction:: as_sanitized_lp
 """
 
 from __future__ import annotations
 
 import gzip
 import os
+import re
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
@@ -27,6 +36,35 @@ from typing import Iterator, Optional
 # ".gzip" is the canonical form mentioned in the problem statement;
 # ".gz" is the universally used short form.
 _COMPRESSED_SUFFIXES = frozenset({".gz", ".gzip"})
+
+# ---------------------------------------------------------------------------
+# LP name-sanitisation helpers
+# ---------------------------------------------------------------------------
+
+# Section keywords that mark the start of a new LP section.
+_LP_SECTION_STARTS = frozenset(
+    {
+        "minimize",
+        "minimum",
+        "min",
+        "maximize",
+        "maximum",
+        "max",
+        "subject to",
+        "such that",
+        "st",
+        "s.t.",
+        "bounds",
+        "bound",
+        "general",
+        "generals",
+        "integer",
+        "integers",
+        "binary",
+        "binaries",
+        "end",
+    }
+)
 
 
 def is_compressed(path: Path) -> bool:
@@ -97,3 +135,160 @@ def resolve_lp_path(lp_path: Path) -> Optional[Path]:
         if candidate.exists():
             return candidate
     return None
+
+
+# ---------------------------------------------------------------------------
+# LP name sanitisation
+# ---------------------------------------------------------------------------
+
+
+def _sanitize_names_in_expr(expr: str) -> str:
+    """Replace ``:`` embedded within identifier tokens in an LP expression.
+
+    The colon character is reserved in LP format as the separator between a
+    constraint/objective *name* and its expression.  It is **not** allowed
+    inside variable or constraint names themselves.  This helper replaces any
+    ``:`` that immediately follows an alphanumeric-or-underscore character
+    (i.e.  any ``:`` that is part of a name token, not a standalone separator)
+    with ``_``.
+
+    In practice, for well-formed LP files produced by current gtopt, names
+    already use ``_`` separators so this function is a no-op.  It exists to
+    handle historical LP files or third-party LP files that use the CPLEX
+    dialect where ``:`` may appear inside names.
+    """
+    return re.sub(r"(?<=[A-Za-z0-9_]):", "_", expr)
+
+
+def _sanitize_definition_line(line: str) -> str:
+    """Sanitise a constraint/objective definition line.
+
+    A *definition line* is one that starts a new named constraint or objective:
+    ``  name: expression``.  The first ``:`` is the LP separator and must be
+    preserved.  Any ``:`` embedded *inside* the name before the separator, and
+    any ``:`` inside variable tokens in the expression, are replaced with ``_``.
+
+    Lines that are continuations (no leading ``name:`` prefix) are sanitised
+    as plain expressions.
+    """
+    stripped = line.rstrip("\r\n")
+    content = stripped.lstrip()
+    leading = stripped[: len(stripped) - len(content)]
+    trailing = line[len(stripped) :]
+
+    if not content or content.startswith("\\"):
+        return line  # empty or comment line – leave untouched
+
+    # Match a constraint/objective label: identifier (possibly with ':' inside)
+    # followed by a ':' separator.  The regex is greedy but backtracks so that
+    # the *last* ':' immediately before optional whitespace becomes the
+    # separator (leaving one ':' to serve as the constraint delimiter).
+    def_match = re.match(r"([A-Za-z_][A-Za-z0-9_:.]*)\s*:", content)
+    if def_match:
+        name = def_match.group(1)
+        rest = content[def_match.end() :]
+        sanitized_name = name.replace(":", "_") if ":" in name else name
+        sanitized_rest = _sanitize_names_in_expr(rest)
+        return leading + sanitized_name + ":" + sanitized_rest + trailing
+
+    # Continuation line (expression only)
+    return leading + _sanitize_names_in_expr(content) + trailing
+
+
+def _sanitize_non_definition_line(line: str) -> str:
+    """Sanitise a line outside the objective/constraints section.
+
+    In Bounds, Ranges, General and Binary sections, any ``:`` appearing after
+    an identifier character is not a constraint separator and must be replaced
+    with ``_``.  This handles the case where CoinLpIO (COIN-OR LP reader)
+    writes constraint names with the separator ``:`` attached into these
+    sections, causing it to later read them back as invalid column names.
+    """
+    stripped = line.rstrip("\r\n")
+    content = stripped.lstrip()
+    leading = stripped[: len(stripped) - len(content)]
+    trailing = line[len(stripped) :]
+
+    if not content or content.startswith("\\"):
+        return line  # empty or comment line – leave untouched
+
+    return leading + _sanitize_names_in_expr(content) + trailing
+
+
+def sanitize_lp_names(text: str) -> str:
+    """Sanitise LP variable/constraint names that contain ``':'``.
+
+    In the standard CPLEX LP file format, ``':'`` is **strictly reserved** as
+    the separator between a constraint (or objective) name and its expression.
+    It may not appear inside any variable or constraint name.  COIN-OR
+    CLP/CBC (CoinLpIO) and GLPK enforce this rule and reject LP files where
+    names contain ``':'``.
+
+    This function performs two operations:
+
+    1. **Constraint/objective section**: preserves the single ``:`` separator
+       after each constraint/objective name; replaces any ``:`` embedded
+       *inside* a name with ``_``.
+    2. **All other sections** (Bounds, Ranges, General, Binary): strips any
+       trailing ``:`` from identifier tokens (CoinLpIO sometimes writes
+       constraint names *with* their separator colon into these sections,
+       causing the reader to misparse them as column names).
+
+    For well-formed LP files produced by current gtopt (names use ``_``
+    separators only), this function is effectively a no-op.
+
+    Returns the sanitised LP text, preserving original line endings.
+    """
+    lines = text.splitlines(keepends=True)
+    result: list[str] = []
+    section = "preamble"
+
+    for line in lines:
+        content = line.strip()
+        lower = content.lower()
+
+        # Detect section transitions.
+        new_section: Optional[str] = None
+        for kw in _LP_SECTION_STARTS:
+            if lower == kw or lower.startswith(kw + " ") or lower.startswith(kw + "\t"):
+                new_section = kw
+                break
+
+        if new_section is not None:
+            section = new_section
+            result.append(line)  # section keyword lines are left untouched
+            continue
+
+        if section in ("minimize", "minimum", "min", "maximize", "maximum", "max",
+                       "subject to", "such that", "st", "s.t."):
+            result.append(_sanitize_definition_line(line))
+        else:
+            result.append(_sanitize_non_definition_line(line))
+
+    return "".join(result)
+
+
+@contextmanager
+def as_sanitized_lp(path: Path) -> Iterator[Path]:
+    """Yield a sanitised, plain (uncompressed) ``.lp`` file path.
+
+    Combines decompression (if the file is gzip-compressed) with LP name
+    sanitisation (see :func:`sanitize_lp_names`).  The temporary file is
+    always created and deleted when the context exits.
+
+    Usage example::
+
+        with as_sanitized_lp(maybe_compressed_path) as lp_path:
+            subprocess.run(["clp", str(lp_path), "solve"], ...)
+    """
+    text = read_lp_text(path)
+    sanitized = sanitize_lp_names(text)
+
+    tmp_fd, tmp_name = tempfile.mkstemp(suffix=".lp", prefix="gtopt_san_")
+    tmp_path = Path(tmp_name)
+    try:
+        os.close(tmp_fd)
+        tmp_path.write_text(sanitized, encoding="utf-8")
+        yield tmp_path
+    finally:
+        tmp_path.unlink(missing_ok=True)
