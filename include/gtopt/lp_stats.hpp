@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -37,13 +38,21 @@ struct ScenePhaseLPStats
   int num_vars {};
   int num_constraints {};
   size_t stats_nnz {};
+  size_t stats_zeroed {};  ///< Non-zero entries filtered to zero by eps
   double stats_max_abs {};
   double stats_min_abs {};
 
+  int stats_max_col {-1};  ///< Column index with largest |coefficient|
+  int stats_min_col {-1};  ///< Column index with smallest |coefficient|
+
+  std::string stats_max_col_name {};  ///< Name of column with largest |coeff|
+  std::string stats_min_col_name {};  ///< Name of column with smallest |coeff|
+
   [[nodiscard]] constexpr double coeff_ratio() const noexcept
   {
-    if (stats_min_abs <= 0.0 || stats_nnz == 0
-        || stats_min_abs == stats_max_abs)
+    if (stats_min_abs <= 0.0 || stats_min_col < 0
+        || stats_min_abs >= std::numeric_limits<double>::max()
+        || stats_min_abs == stats_max_abs || stats_nnz == 0)
     {
       return 1.0;
     }
