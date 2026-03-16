@@ -32,6 +32,8 @@
 #include <string>
 #include <vector>
 
+#include <gtopt/solver_options.hpp>
+
 namespace gtopt
 {
 
@@ -42,7 +44,10 @@ namespace gtopt
  * directly (without invoking a shell) via @c posix_spawn with:
  * @code
  *   gtopt_check_lp --quiet --no-color --no-ai --timeout <timeout_seconds>
- *                   [--algo <algo>] <lp_file>
+ *                   [--algo <algo>]
+ *                   [--optimal-eps <v>] [--feasible-eps <v>]
+ *                   [--barrier-eps <v>]
+ *                   <lp_file>
  * @endcode
  * and returns the captured stdout+stderr.  If the binary is not on PATH or
  * the file does not exist, an empty string is returned so callers can skip
@@ -52,18 +57,19 @@ namespace gtopt
  * input and always exits with code 0, even when no solver is available or
  * NEOS is unreachable.
  *
- * @param lp_file        Full path to the LP file (may include or omit the
- *                       .lp extension).
+ * @param lp_file         Full path to the LP file (may include or omit the
+ *                        .lp extension).
  * @param timeout_seconds Maximum execution time in seconds (default: 10).
- * @param algo           LP algorithm name passed via @c --algo (e.g.
- *                       @c "barrier", @c "primal", @c "dual").  Empty
- *                       string omits the flag (the script defaults to
- *                       @c "barrier" for COIN-OR and CPLEX).
+ * @param solver_opts     Solver options to forward to gtopt_check_lp so
+ *                        the diagnostic replicates the same algorithm and
+ *                        tolerance settings used by gtopt.  Default-constructs
+ *                        to algorithm=barrier with no tolerance overrides.
  * @return Captured diagnostic output, or an empty string if unavailable.
  */
-[[nodiscard]] std::string run_check_lp_diagnostic(const std::string& lp_file,
-                                                  int timeout_seconds = 10,
-                                                  const std::string& algo = "");
+[[nodiscard]] std::string run_check_lp_diagnostic(
+    const std::string& lp_file,
+    int timeout_seconds = 10,
+    const SolverOptions& solver_opts = {});
 
 /**
  * @brief Run `gtopt_check_json --info` on one or more JSON files and return

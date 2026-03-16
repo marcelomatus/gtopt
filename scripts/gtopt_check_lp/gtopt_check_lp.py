@@ -230,12 +230,15 @@ def _header(title: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def check_lp(
+def check_lp(  # pylint: disable=too-many-arguments
     lp_path: Path,
     *,
     analyze_only: bool = False,
     solver: str = "all",
     algo: str = "",
+    optimal_eps: float = 0.0,
+    feasible_eps: float = 0.0,
+    barrier_eps: float = 0.0,
     email: str = "",
     neos_url: str = _NEOS_DEFAULT_URL,
     timeout: int = 5,
@@ -264,6 +267,16 @@ def check_lp(
         ``"default"``, ``"primal"``, ``"dual"``, ``"barrier"``, or ``""``
         (empty string means use the solver-specific default, which is
         ``"barrier"`` for COIN-OR and CPLEX).
+    optimal_eps:
+        Optimality (dual) tolerance for COIN-OR and CPLEX.  0.0 means use
+        the solver's built-in default.  Passed by the gtopt binary to match
+        the tolerance settings used in the original solve.
+    feasible_eps:
+        Feasibility (primal) tolerance for COIN-OR and CPLEX.  0.0 means use
+        the solver's built-in default.
+    barrier_eps:
+        Barrier convergence tolerance for COIN-OR and CPLEX.  0.0 means use
+        the solver's built-in default.
     email:
         E-mail address for NEOS submissions.
     neos_url:
@@ -395,6 +408,9 @@ def check_lp(
                 lp_path,
                 solver=solver,
                 algo=algo,
+                optimal_eps=optimal_eps,
+                feasible_eps=feasible_eps,
+                barrier_eps=barrier_eps,
                 email=filtered_email,
                 neos_url=neos_url,
                 timeout=timeout,
@@ -626,6 +642,37 @@ def _build_parser() -> argparse.ArgumentParser:
             "LP algorithm to request when running COIN-OR (CLP/CBC) or CPLEX.\n"
             "When omitted, 'barrier' is used for COIN-OR and CPLEX.  Passed\n"
             "automatically by the gtopt binary to match its own solver settings."
+        ),
+    )
+    parser.add_argument(
+        "--optimal-eps",
+        type=float,
+        default=None,
+        metavar="EPS",
+        help=(
+            "Optimality (dual) tolerance for COIN-OR and CPLEX.  When omitted,\n"
+            "the solver's built-in default is used.  Passed automatically by the\n"
+            "gtopt binary to match its own tolerance settings."
+        ),
+    )
+    parser.add_argument(
+        "--feasible-eps",
+        type=float,
+        default=None,
+        metavar="EPS",
+        help=(
+            "Feasibility (primal) tolerance for COIN-OR and CPLEX.  When\n"
+            "omitted, the solver's built-in default is used."
+        ),
+    )
+    parser.add_argument(
+        "--barrier-eps",
+        type=float,
+        default=None,
+        metavar="EPS",
+        help=(
+            "Barrier convergence tolerance for COIN-OR and CPLEX.  When\n"
+            "omitted, the solver's built-in default is used."
         ),
     )
     parser.add_argument(
@@ -892,6 +939,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         analyze_only=args.analyze_only,
         solver=effective_solver,
         algo=args.algo or "",
+        optimal_eps=args.optimal_eps or 0.0,
+        feasible_eps=args.feasible_eps or 0.0,
+        barrier_eps=args.barrier_eps or 0.0,
         email=effective_email,
         neos_url=effective_neos_url,
         timeout=effective_timeout,
