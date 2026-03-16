@@ -41,6 +41,25 @@ struct StorageOptions
   /// energy_scale). Default 1.0 = no scaling. For reservoirs the default is
   /// 100000 (dam³→Gm³) and for batteries 0.1.
   double energy_scale {1.0};
+
+  /// Flow variable scale factor applied to finp/fout/drain LP variables.
+  ///
+  /// When > 1.0, the caller has pre-divided the flow LP variables (finp_cols,
+  /// fout_cols, and the drain variable) by this factor.  StorageLP compensates
+  /// by multiplying the energy-balance row coefficients by flow_scale, so that
+  /// the net contribution remains physically correct:
+  ///
+  ///   coeff = flow_conversion_rate × duration × flow_scale / energy_scale
+  ///
+  /// With flow_scale == energy_scale (the reservoir case) this simplifies to:
+  ///   coeff = flow_conversion_rate × duration
+  /// which is O(1) for typical hydro parameters — no more 1e-5 entries.
+  ///
+  /// For drain: bounds are divided and LP cost is multiplied by flow_scale so
+  /// that the physical objective value is preserved.
+  ///
+  /// Default 1.0 = no flow scaling (battery behaviour is unchanged).
+  double flow_scale {1.0};
 };
 
 template<typename Object>
@@ -179,6 +198,13 @@ public:
     const double energy_scale =
         opts.energy_scale > 0.0 ? opts.energy_scale : 1.0;
     m_energy_scale_ = energy_scale;
+
+    // Flow variable scale factor for finp/fout/drain LP variables.
+    // When flow_scale > 1.0 the caller has pre-divided those variables by
+    // flow_scale; we multiply the energy-balance coefficients by flow_scale to
+    // compensate.  Default 1.0 = no flow scaling (battery case).
+    const double flow_scale = opts.flow_scale > 0.0 ? opts.flow_scale : 1.0;
+    m_flow_scale_ = flow_scale;
 
     // Daily-cycle scaling is only meaningful when the stage is longer than
     // 24 h AND the average block duration exceeds 1 h.  Below those thresholds
@@ -325,30 +351,36 @@ public:
       erow[prev_vc] = -(1 - (hour_loss * block.duration() * dc_stage_scale));
       erow[ec] = 1;
 
-      // Flow coefficients are divided by energy_scale so that flow [m³/s]
-      // × duration [h] × (conversion / energy_scale) = LP_energy_change.
+      // Flow coefficients: flow_scale×duration×conversion / energy_scale.
+      // When flow_scale == energy_scale (reservoir case) this simplifies to
+      // flow_conversion_rate × duration — avoiding the ~1e-5 LP coefficients
+      // that arise when energy_scale is large (e.g. 100 000 for reservoirs).
+      // For batteries flow_scale == 1.0 so behaviour is unchanged.
       const auto fout_col = fout_cols.at(buid);
       const auto finp_col = finp_cols.at(buid);
       erow[fout_col] = +(flow_conversion_rate / fout_efficiency)
-          * block.duration() * dc_stage_scale / energy_scale;
+          * block.duration() * dc_stage_scale * flow_scale / energy_scale;
 
       // if the input and output are the same, we only need one entry
       if (fout_col != finp_col) {
         erow[finp_col] = -(flow_conversion_rate * finp_efficiency)
-            * block.duration() * dc_stage_scale / energy_scale;
+            * block.duration() * dc_stage_scale * flow_scale / energy_scale;
       }
 
       if (drain_cost) {
+        // The drain LP variable is pre-divided by flow_scale (bounds scaled
+        // down); multiply cost by flow_scale to keep objective invariant.
         const auto dcol = lp.add_col({
             .name = sc.lp_label(scenario, stage, block, cname, "drain", uid()),
             .lowb = 0,
-            .uppb = drain_capacity.value_or(LinearProblem::DblMax),
-            .cost = sc.block_ecost(scenario, stage, block, *drain_cost),
+            .uppb = drain_capacity.value_or(LinearProblem::DblMax) / flow_scale,
+            .cost = sc.block_ecost(scenario, stage, block, *drain_cost)
+                * flow_scale,
         });
 
         dcols[buid] = dcol;
         erow[dcol] = flow_conversion_rate * block.duration() * dc_stage_scale
-            / energy_scale;
+            * flow_scale / energy_scale;
       }
 
       erows[buid] = lp.add_row(std::move(erow));
@@ -499,8 +531,20 @@ public:
     out.add_row_dual(cname, "capacity", pid, capacity_rows);
     out.add_row_dual(cname, "efin", pid, efin_rows);
 
-    out.add_col_sol(cname, "drain", pid, drain_cols);
-    out.add_col_cost(cname, "drain", pid, drain_cols);
+    // Drain LP variable is in physical/m_flow_scale_ units; multiply primal
+    // by m_flow_scale_ to recover physical units, divide cost by m_flow_scale_.
+    if (std::abs(m_flow_scale_ - 1.0) > std::numeric_limits<double>::epsilon())
+    {
+      const auto fscale = m_flow_scale_;
+      const auto inv_fscale = 1.0 / fscale;
+      const auto sol_f = [fscale](auto v) { return v * fscale; };
+      const auto cost_f = [inv_fscale](auto v) { return v * inv_fscale; };
+      out.add_col_sol(cname, "drain", pid, drain_cols, sol_f);
+      out.add_col_cost(cname, "drain", pid, drain_cols, cost_f);
+    } else {
+      out.add_col_sol(cname, "drain", pid, drain_cols);
+      out.add_col_cost(cname, "drain", pid, drain_cols);
+    }
 
     return true;
   }
@@ -537,6 +581,11 @@ private:
   /// Equals StorageOptions::energy_scale; used in add_to_output to rescale
   /// primal solution values back to physical units.
   double m_energy_scale_ {1.0};
+
+  /// Flow variable scale factor cached from the last add_to_lp call.
+  /// Equals StorageOptions::flow_scale; used in add_to_output to rescale
+  /// drain primal solution values back to physical units.
+  double m_flow_scale_ {1.0};
 };
 
 }  // namespace gtopt
