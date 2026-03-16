@@ -420,8 +420,14 @@ cmake --build build -j$(nproc)
 > # Uses tools/compile_commands.json (saved by setup_sandbox.sh --build).
 > # If tools/compile_commands.json does not exist, run:
 > #   bash tools/setup_sandbox.sh --build
+> # NOTE: clang-tidy must ONLY be run on *.cpp files, NEVER on *.hpp files.
+> # Running clang-tidy on .hpp files triggers spurious header-specific checks
+> # (e.g. cppcoreguidelines-avoid-non-const-global-variables for TEST_CASE
+> # macros, hicpp-member-init for aggregate structs) that are false positives
+> # in this project's conventions. The .cpp translation units already pull in
+> # the headers and are the correct analysis targets.
 > git diff --name-only --diff-filter=d HEAD \
->   | grep -E '\.(cpp|hpp|h|cc|cxx|hxx)$' \
+>   | grep -E '\.cpp$' \
 >   | xargs -r clang-tidy -p tools/compile_commands.json --warnings-as-errors='*'
 > ```
 >

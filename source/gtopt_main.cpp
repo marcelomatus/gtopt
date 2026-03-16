@@ -479,8 +479,13 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
                 .num_vars = static_cast<int>(li.get_numcols()),
                 .num_constraints = static_cast<int>(li.get_numrows()),
                 .stats_nnz = li.lp_stats_nnz(),
+                .stats_zeroed = li.lp_stats_zeroed(),
                 .stats_max_abs = li.lp_stats_max_abs(),
                 .stats_min_abs = li.lp_stats_min_abs(),
+                .stats_max_col = static_cast<int>(li.lp_stats_max_col()),
+                .stats_min_col = static_cast<int>(li.lp_stats_min_col()),
+                .stats_max_col_name = std::string(li.lp_stats_max_col_name()),
+                .stats_min_col_name = std::string(li.lp_stats_min_col_name()),
             });
           }
         }

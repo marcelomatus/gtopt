@@ -68,6 +68,17 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
   double stats_max = 0.0;
   double stats_min = std::numeric_limits<double>::max();
   size_t stats_nnz = 0;
+  size_t stats_zeroed = 0;
+  fp_index_t stats_max_col = -1;
+  fp_index_t stats_min_col = -1;
+
+  // Effective minimum for stats min/max tracking:
+  //   max(eps, stats_eps) — applied after the matrix eps filter.
+  // The new requirement states that min/max stats are computed after applying
+  // the eps tolerance for the A-matrix coefficients, so both the matrix eps
+  // (outer if-condition) and the stats_eps floor are respected here.
+  const double eff_stats_eps =
+      (eps >= 0) ? std::max(eps, opts.stats_eps) : opts.stats_eps;
 
   for (const auto& [i, row] : std::views::enumerate(rows)) {
     for (const auto& [j, v] : row.cmap) {
@@ -80,10 +91,23 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
 
         if (do_stats) [[unlikely]] {
           const double abs_v = std::abs(v);
-          stats_max = std::max(stats_max, abs_v);
-          stats_min = std::min(stats_min, abs_v);
           ++stats_nnz;
+          // MIN/MAX are computed after applying the effective eps tolerance.
+          // Values in [0, eff_stats_eps] are in the matrix but not counted
+          // for min, ensuring consistent results with external LP analysis
+          // tools that use LP-file precision (typically ~1e-10 floor).
+          if (abs_v > stats_max) {
+            stats_max = abs_v;
+            stats_max_col = static_cast<fp_index_t>(j);
+          }
+          if (abs_v >= eff_stats_eps && abs_v < stats_min) {
+            stats_min = abs_v;
+            stats_min_col = static_cast<fp_index_t>(j);
+          }
         }
+      } else if (do_stats && eps >= 0 && v != 0.0) [[unlikely]] {
+        // Non-zero entry filtered out (set to zero) by the eps tolerance.
+        ++stats_zeroed;
       }
     }
   }
@@ -162,6 +186,21 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
     rowmp = build_name_map(rownm, "row");
   }
 
+  // Populate col name strings for stats if column names are available.
+  // Access cols[] directly (member variable) to get the source name —
+  // this works whether or not colnm was built (col_with_names may be false).
+  std::string stats_max_col_name;
+  std::string stats_min_col_name;
+  if (do_stats) {
+    const bool have_names = opts.col_with_names || opts.col_with_name_map;
+    if (have_names && stats_max_col >= 0) {
+      stats_max_col_name = cols[static_cast<size_t>(stats_max_col)].name;
+    }
+    if (have_names && stats_min_col >= 0) {
+      stats_min_col_name = cols[static_cast<size_t>(stats_min_col)].name;
+    }
+  }
+
   return {
       .ncols = static_cast<fp_index_t>(ncols),
       .nrows = static_cast<fp_index_t>(nrows),
@@ -180,9 +219,14 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
       .rowmp = std::move(rowmp),
       .name = opts.move_names ? std::move(pname) : pname,
       .stats_nnz = stats_nnz,
+      .stats_zeroed = stats_zeroed,
       .stats_max_abs = stats_max,
       .stats_min_abs =
-          stats_nnz > 0 ? stats_min : std::numeric_limits<double>::max(),
+          stats_min_col >= 0 ? stats_min : std::numeric_limits<double>::max(),
+      .stats_max_col = stats_max_col,
+      .stats_min_col = stats_min_col,
+      .stats_max_col_name = std::move(stats_max_col_name),
+      .stats_min_col_name = std::move(stats_min_col_name),
   };
 }
 
