@@ -34,8 +34,13 @@ Field definitions:
   constant        – Efficiency at the volume breakpoint [MW·s/m³]
   scale           – Scaling factor (historical, ignored in gtopt)
 
-The efficiency at a given reservoir volume V is:
+The efficiency at a given reservoir volume V is (concave-envelope minimum,
+matching PLP Fortran ``FRendimientos`` in ``plp-frendim.f``):
   efficiency(V) = min_i { constant_i + slope_i × (V − volume_i) }
+
+Note: Unlike filtration where ``constant`` is the y-intercept (value at V=0),
+here ``constant`` is the efficiency value **at the breakpoint** (point-slope
+form).  This is the native PLP convention for rendimientos.
 """
 
 from typing import Any, Dict, List, Optional
