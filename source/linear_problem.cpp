@@ -80,12 +80,8 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
 
         if (do_stats) [[unlikely]] {
           const double abs_v = std::abs(v);
-          if (abs_v > stats_max) {
-            stats_max = abs_v;
-          }
-          if (abs_v < stats_min) {
-            stats_min = abs_v;
-          }
+          stats_max = std::max(stats_max, abs_v);
+          stats_min = std::min(stats_min, abs_v);
           ++stats_nnz;
         }
       }
@@ -117,12 +113,8 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
     // Include objective coefficients in the stats scan.
     if (do_stats && col.cost != 0.0) [[unlikely]] {
       const double abs_c = std::abs(col.cost);
-      if (abs_c > stats_max) {
-        stats_max = abs_c;
-      }
-      if (abs_c < stats_min) {
-        stats_min = abs_c;
-      }
+      stats_max = std::max(stats_max, abs_c);
+      stats_min = std::min(stats_min, abs_c);
       ++stats_nnz;
     }
   }
