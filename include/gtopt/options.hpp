@@ -257,6 +257,24 @@ struct Options
    * model.  SDDP solver: saves one LP file per (iteration, scene, phase) during
    * the forward pass. */
   OptBool lp_debug {};
+  /** @brief Compression codec for LP debug files.
+   *
+   * Controls how LP debug files (`lp_debug=true`) are compressed.
+   *
+   * - `""` / not set (default): let `gtopt_compress_lp` decide; falls back to
+   *   `gzip` then inline zlib when the script is not available.
+   * - `"none"`: never compress; keep plain `.lp` files.
+   * - `"gzip"`, `"zstd"`, `"lz4"`, `"bzip2"`, `"xz"`: request a specific
+   *   codec.  The value is passed as `--codec <codec>` to `gtopt_compress_lp`;
+   *   if the script or codec is unavailable the named binary is tried directly,
+   *   then `gzip`, then inline zlib.
+   */
+  OptName lp_compression {};
+  /** @brief When true, build all scene/phase LP matrices but skip solving.
+   * Both the monolithic and SDDP solvers exit immediately after LP matrix
+   * assembly — no solving occurs at all.
+   * Combine with `lp_debug=true` to save every scene/phase LP file. */
+  OptBool just_build_lp {};
 
   // ── SDDP-specific options (grouped sub-object) ────────────────────────────
   /** @brief SDDP solver configuration (sub-object with sddp_* fields) */
@@ -296,6 +314,8 @@ struct Options
     merge_opt(solver_type, std::move(opts.solver_type));
     merge_opt(log_directory, std::move(opts.log_directory));
     merge_opt(lp_debug, opts.lp_debug);
+    merge_opt(lp_compression, std::move(opts.lp_compression));
+    merge_opt(just_build_lp, opts.just_build_lp);
 
     // Merge SDDP-specific options
     sddp_options.merge(std::move(opts.sddp_options));

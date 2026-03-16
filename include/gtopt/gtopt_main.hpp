@@ -69,8 +69,8 @@ struct MainOptions
   std::optional<std::string> json_file {};
 
   // ---- execution control ----
-  /** @brief Build the LP model but skip solving */
-  std::optional<bool> just_create {};
+  /** @brief Build all scene/phase LP matrices but skip solving entirely */
+  std::optional<bool> just_build_lp {};
   /** @brief Use fast (non-strict) JSON parsing */
   std::optional<bool> fast_parsing {};
   /** @brief Warn about JSON fields not recognised by the schema */
@@ -80,6 +80,10 @@ struct MainOptions
   /** @brief Save debug LP files to the log directory (monolithic: one per
    * scene/phase; SDDP: one per iteration/scene/phase) */
   std::optional<bool> lp_debug {};
+  /** @brief Compression codec for LP debug files.
+   * `""` = auto (let gtopt_compress_lp decide); `"none"` = no compression;
+   * `"gzip"`, `"zstd"`, `"lz4"`, `"bzip2"`, `"xz"` = specific codec. */
+  std::optional<std::string> lp_compression {};
 
   // ---- tracing / diagnostics ----
   /** @brief Path to a file for SPDLOG_TRACE output (enables trace-level

@@ -232,7 +232,7 @@ TEST_CASE("PlanningLP - Write LP file")
   planning_lp.write_lp("test_planning");
 
   // Check if the file was created
-  const std::string lp_file = "test_planning_0_0.lp";
+  const std::string lp_file = "test_planning_scene_0_phase_0.lp";
   const bool file_exists = std::filesystem::exists(lp_file);
 
   // Clean up the file if it exists
@@ -345,7 +345,7 @@ TEST_CASE("PlanningLP - Run with write_only flag")
   REQUIRE(result.has_value());
 
   // Check if the file was created
-  const std::string lp_file = "test_planning_lp_write_only_0_0.lp";
+  const std::string lp_file = "test_planning_lp_write_only_scene_0_phase_0.lp";
   const bool file_exists = std::filesystem::exists(lp_file);
 
   // Clean up the file if it exists

@@ -75,7 +75,16 @@ auto create_scenario_array(const Simulation& simulation)
 
 auto create_phase_array(const Simulation& simulation, const OptionsLP& options)
 {
-  static const Array<Phase> default_phases {Phase {}};
+  // When phase_array is empty, use a single default Phase with uid=0 so that
+  // file names produced by write_lp() are always based on valid UIDs.
+  static const Array<Phase> default_phases {Phase {
+      .uid = 0,
+      .name = {},
+      .active = {},
+      .first_stage = 0,
+      .count_stage = std::dynamic_extent,
+      .aperture_set = {},
+  }};
   const auto& phases =
       simulation.phase_array.empty() ? default_phases : simulation.phase_array;
 
@@ -95,7 +104,15 @@ auto create_phase_array(const Simulation& simulation, const OptionsLP& options)
 
 auto create_scene_array(const Simulation& simulation)
 {
-  static const Array<Scene> default_scenes {Scene {}};
+  // When scene_array is empty, use a single default Scene with uid=0 so that
+  // file names produced by write_lp() are always based on valid UIDs.
+  static const Array<Scene> default_scenes {Scene {
+      .uid = 0,
+      .name = {},
+      .active = {},
+      .first_scenario = 0,
+      .count_scenario = std::dynamic_extent,
+  }};
   const auto& scenes =
       simulation.scene_array.empty() ? default_scenes : simulation.scene_array;
 
