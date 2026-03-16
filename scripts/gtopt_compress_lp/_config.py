@@ -159,7 +159,7 @@ def print_compressor_status(use_color: bool = True) -> None:
     print()
     any_missing = False
 
-    for binary, label, speed, installed, _hint, notes in get_compressor_status():
+    for _binary, label, speed, installed, _hint, notes in get_compressor_status():
         speed_tag = f"[{speed}]"
         if installed:
             mark = _c(col._GREEN, "✓")  # noqa: SLF001
@@ -175,16 +175,21 @@ def print_compressor_status(use_color: bool = True) -> None:
     if any_missing:
         print()
         print(_c(col._YELLOW, "  To install missing tools:"))  # noqa: SLF001
-        for binary, label, _speed, installed, hint, _notes in get_compressor_status():
+        for _b, label, _speed, installed, hint, _notes in get_compressor_status():
             if not installed and hint:
                 print(f"    {hint:40s}   # {label}")
 
     print()
+    _green = col._GREEN  # noqa: SLF001
+    _cyan = col._CYAN  # noqa: SLF001
+    _rec1 = _c(_green, "1st choice")
+    _rec2 = _c(_green, "2nd choice")
+    _rec3 = _c(_cyan, "3rd choice")
     print(
         "  Recommended for LP files  (text, highly compressible):\n"
-        f"    {_c(col._GREEN, '1st choice')}: zstd  — best speed/ratio balance for debug files\n"  # noqa: SLF001
-        f"    {_c(col._GREEN, '2nd choice')}: lz4   — fastest writes, larger files\n"  # noqa: SLF001
-        f"    {_c(col._CYAN,  '3rd choice')}: gzip  — universally available fallback"  # noqa: SLF001
+        f"    {_rec1}: zstd  — best speed/ratio balance for debug files\n"
+        f"    {_rec2}: lz4   — fastest writes, larger files\n"
+        f"    {_rec3}: gzip  — universally available fallback"
     )
 
 
@@ -242,9 +247,7 @@ def run_interactive_setup(config_path: Path, use_color: bool = True) -> dict[str
             f"  Best available tool: {_c(col._GREEN, auto)}\n"  # noqa: SLF001
         )
 
-    valid_choices = ["auto"] + [
-        b for b, *_ in _COMPRESSOR_CATALOGUE
-    ]
+    valid_choices = ["auto"] + [b for b, *_ in _COMPRESSOR_CATALOGUE]
     compressor = _prompt(
         f"  Compressor to use {_c(col._CYAN, str(valid_choices))}",  # noqa: SLF001
         proposed,
@@ -259,7 +262,9 @@ def run_interactive_setup(config_path: Path, use_color: bool = True) -> dict[str
 
     # ── Extra args ─────────────────────────────────────────────────────────
     current_extra = cfg.get("extra_args", "")
-    extra = _prompt("  Extra arguments for compressor (leave blank for none)", current_extra)
+    extra = _prompt(
+        "  Extra arguments for compressor (leave blank for none)", current_extra
+    )
     cfg["extra_args"] = extra
 
     # ── Color ──────────────────────────────────────────────────────────────
