@@ -332,12 +332,12 @@ def _http_post_json(
         except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             msg = str(exc)
         return False, f"HTTP {exc.code} from AI API: {msg}"
-    except (urllib.error.URLError, OSError) as exc:
-        reason = getattr(exc, "reason", exc)
-        return False, _diagnose_ai_network_error(url, reason)
     except TimeoutError:
         return False, _diagnose_ai_network_error(
             url, TimeoutError(f"Request timed out after {timeout}s")
         )
+    except (urllib.error.URLError, OSError) as exc:
+        reason = getattr(exc, "reason", exc)
+        return False, _diagnose_ai_network_error(url, reason)
     except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
         return False, f"Unexpected error calling AI API: {exc}"

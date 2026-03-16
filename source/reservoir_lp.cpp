@@ -88,7 +88,8 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   const StorageOptions opts {
       .use_state_variable = reservoir().use_state_variable.value_or(true),
       .daily_cycle = reservoir().daily_cycle.value_or(false),
-      .energy_scale = reservoir().vol_scale.value_or(100'000.0),
+      .energy_scale =
+          reservoir().vol_scale.value_or(Reservoir::default_vol_scale),
   };
   if (!StorageBase::add_to_lp(cname,
                               sc,

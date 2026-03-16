@@ -228,17 +228,20 @@ TEST_CASE("Reservoir construction and default values")
   CHECK_FALSE(reservoir.efin.has_value());
 
   REQUIRE(reservoir.fmin.has_value());
-  CHECK(reservoir.fmin.value_or(0.0) == doctest::Approx(-10'000.0));
+  CHECK(reservoir.fmin.value_or(0.0)
+        == doctest::Approx(Reservoir::default_fmin));
 
   REQUIRE(reservoir.fmax.has_value());
-  CHECK(reservoir.fmax.value_or(0.0) == doctest::Approx(10'000.0));
+  CHECK(reservoir.fmax.value_or(0.0)
+        == doctest::Approx(Reservoir::default_fmax));
 
   REQUIRE(reservoir.vol_scale.has_value());
-  CHECK(reservoir.vol_scale.value_or(0.0) == doctest::Approx(100'000.0));
+  CHECK(reservoir.vol_scale.value_or(0.0)
+        == doctest::Approx(Reservoir::default_vol_scale));
 
   REQUIRE(reservoir.flow_conversion_rate.has_value());
   CHECK(reservoir.flow_conversion_rate.value_or(0.0)
-        == doctest::Approx(0.0036));
+        == doctest::Approx(Reservoir::default_flow_conversion_rate));
 
   // use_state_variable defaults to nullopt (coupled by value_or(true))
   CHECK_FALSE(reservoir.use_state_variable.has_value());
