@@ -14,7 +14,7 @@ _LARGE_COEFF_THRESHOLD = 1e10
 _SMALL_COEFF_THRESHOLD = 1e-10
 
 # How many top/bottom coefficient entries to retain.
-_TOP_N_COEFFS = 10
+_TOP_N_COEFFS = 3
 
 # Matches a variable name token (used to collect names from each section).
 _VAR_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_:.]*")
@@ -277,6 +277,7 @@ def analyze_lp_file(lp_path: Path) -> LPStats:  # noqa: PLR0912, PLR0915
             break
 
         if section == "objective":
+            # Collect variable names only; stats use the constraint matrix A.
             all_var_names.update(
                 v for v in _VAR_RE.findall(line) if not re.match(r"^[eE]$", v)
             )
