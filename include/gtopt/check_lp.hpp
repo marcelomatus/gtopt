@@ -61,10 +61,9 @@ namespace gtopt
  *                       @c "barrier" for COIN-OR and CPLEX).
  * @return Captured diagnostic output, or an empty string if unavailable.
  */
-[[nodiscard]] std::string run_check_lp_diagnostic(
-    const std::string& lp_file,
-    int timeout_seconds = 10,
-    const std::string& algo = "");
+[[nodiscard]] std::string run_check_lp_diagnostic(const std::string& lp_file,
+                                                  int timeout_seconds = 10,
+                                                  const std::string& algo = "");
 
 /**
  * @brief Run `gtopt_check_json --info` on one or more JSON files and return
