@@ -101,6 +101,7 @@ import os
 import sys
 import tempfile
 import textwrap
+import webbrowser
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -384,6 +385,7 @@ _PALETTE: dict[str, str] = {
     "line_edge": "#2C3E50",
     "waterway_edge": "#2980B9",
     "bat_link_edge": "#7D3C98",
+    "efficiency_edge": "#A04000",
 }
 
 _MM_SHAPES: dict[str, tuple[str, str]] = {
@@ -504,6 +506,36 @@ def _turbine_gen_refs(sys: dict) -> set:
         g = t.get("generator")
         if g is not None:
             refs.add(g)
+    return refs
+
+
+def _turbine_waterway_refs(sys: dict) -> set:
+    """Return the set of waterway uid/name references that have a turbine.
+
+    Used by :meth:`TopologyBuilder._waterways` to suppress the direct
+    ``junction_a → junction_b`` edge for waterways that already have a
+    turbine node representing the arc.
+    """
+    refs: set = set()
+    for t in sys.get("turbine_array", []):
+        w = t.get("waterway")
+        if w is not None:
+            refs.add(w)
+    return refs
+
+
+def _efficiency_turbine_pairs(sys: dict) -> set:
+    """Return the set of turbine uid/name references covered by reservoir_efficiency_array.
+
+    Used by :meth:`TopologyBuilder._turbines` to avoid drawing a duplicate
+    ``main_reservoir`` edge when a ``reservoir_efficiency_array`` entry already
+    represents the same turbine-reservoir relationship.
+    """
+    refs: set = set()
+    for e in sys.get("reservoir_efficiency_array", []):
+        t = e.get("turbine")
+        if t is not None:
+            refs.add(t)
     return refs
 
 
@@ -811,8 +843,12 @@ class GraphModel:
 def _scalar(v) -> str:
     if v is None:
         return "\u2014"
-    if isinstance(v, (int, float)):
-        return str(int(v)) if isinstance(v, float) and v == int(v) else str(v)
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, float):
+        if v == int(v):
+            return str(int(v))
+        return f"{v:.2f}"
     if isinstance(v, list):
         flat: list = []
 
@@ -826,7 +862,7 @@ def _scalar(v) -> str:
         _flatten_values(v)
         if flat:
             mn, mx = min(flat), max(flat)
-            return f"{mn}\u2026{mx}" if mn != mx else _scalar(mn)
+            return f"{_scalar(mn)}\u2026{_scalar(mx)}" if mn != mx else _scalar(mn)
         return "\u2014"
     if isinstance(v, str):
         return f'"{v}"'
@@ -1018,6 +1054,8 @@ class TopologyBuilder:
         self.opts = opts or FilterOptions()
         self.model = GraphModel(title=self.sys.get("name", "gtopt Network"))
         self._turb_refs = _turbine_gen_refs(self.sys)
+        self._turb_way_refs = _turbine_waterway_refs(self.sys)
+        self._eff_turb_refs = _efficiency_turbine_pairs(self.sys)
         self._vmap = _build_voltage_map(
             self.sys.get("bus_array", []),
             self.sys.get("line_array", []),
@@ -1082,6 +1120,10 @@ class TopologyBuilder:
     def _fid(f):
         return f"flow_{f.get('uid', f.get('name', '?'))}"
 
+    @staticmethod
+    def _filtid(fi):
+        return f"filt_{fi.get('uid', fi.get('name', '?'))}"
+
     def _find(self, arr_key, ref):
         return _resolve(self.sys.get(arr_key, []), ref)
 
@@ -1121,6 +1163,7 @@ class TopologyBuilder:
                 "turbine_array",
                 "flow_array",
                 "filtration_array",
+                "reservoir_efficiency_array",
             )
         )
 
@@ -1188,6 +1231,7 @@ class TopologyBuilder:
             self._turbines()
             self._flows()
             self._filtrations()
+            self._reservoir_efficiencies()
         if self.opts.hide_isolated:
             connected = {e.src for e in self.model.edges} | {
                 e.dst for e in self.model.edges
@@ -1527,6 +1571,10 @@ class TopologyBuilder:
         for w in self.sys.get("waterway_array", []):
             name = w.get("name", w.get("uid", "?"))
             fmax = _scalar(w.get("fmax"))
+            uid = w.get("uid")
+            # Skip direct arc when a turbine already represents this waterway
+            if uid in self._turb_way_refs or name in self._turb_way_refs:
+                continue
             ja = self._find_node_id("junction_array", w.get("junction_a"), self._jid)
             jb = self._find_node_id("junction_array", w.get("junction_b"), self._jid)
             if ja and jb:
@@ -1587,9 +1635,32 @@ class TopologyBuilder:
                 ja = self._find_node_id(
                     "junction_array", way.get("junction_a"), self._jid
                 )
+                jb = self._find_node_id(
+                    "junction_array", way.get("junction_b"), self._jid
+                )
+                way_name = way.get("name", way.get("uid", "?"))
+                fmax = _scalar(way.get("fmax"))
+                lbl_w = (
+                    str(way_name) if self.opts.compact else f"{way_name}\n≤{fmax} m³/s"
+                )
                 if ja:
                     self.model.add_edge(
-                        Edge(ja, tid, label="water in", color=_PALETTE["waterway_edge"])
+                        Edge(
+                            ja,
+                            tid,
+                            label=lbl_w,
+                            color=_PALETTE["waterway_edge"],
+                        )
+                    )
+                if jb:
+                    # Water-out edge carries no label: the waterway name
+                    # is already shown on the water-in edge above.
+                    self.model.add_edge(
+                        Edge(
+                            tid,
+                            jb,
+                            color=_PALETTE["waterway_edge"],
+                        )
                     )
             gen_id = self._find_node_id(
                 "generator_array", t.get("generator"), self._gid
@@ -1604,6 +1675,25 @@ class TopologyBuilder:
                         style="dashed",
                     )
                 )
+            # Draw main_reservoir → turbine edge when not already covered
+            # by a reservoir_efficiency_array entry (to avoid duplication).
+            uid = t.get("uid")
+            name_ref = t.get("name")
+            if uid not in self._eff_turb_refs and name_ref not in self._eff_turb_refs:
+                res_id = self._find_node_id(
+                    "reservoir_array", t.get("main_reservoir"), self._rid
+                )
+                if res_id:
+                    lbl_e = "" if self.opts.compact else "head"
+                    self.model.add_edge(
+                        Edge(
+                            res_id,
+                            tid,
+                            label=lbl_e,
+                            style="dashed",
+                            color=_PALETTE["efficiency_edge"],
+                        )
+                    )
 
     def _flows(self):
         for f in self.sys.get("flow_array", []):
@@ -1628,11 +1718,23 @@ class TopologyBuilder:
 
     def _filtrations(self):
         for fi in self.sys.get("filtration_array", []):
+            name = fi.get("name", fi.get("uid", "?"))
+            fiid = self._filtid(fi)
+            lbl = str(name) if self.opts.compact else f"{name}\n(filtration)"
+            self.model.add_node(
+                Node(
+                    node_id=fiid,
+                    label=lbl,
+                    kind="filtration",
+                    cluster="hydro",
+                    tooltip=f"Filtration uid={fi.get('uid')} name={name}",
+                )
+            )
             wway = _resolve(self.sys.get("waterway_array", []), fi.get("waterway"))
             res_id = self._find_node_id(
                 "reservoir_array", fi.get("reservoir"), self._rid
             )
-            if wway and res_id:
+            if wway:
                 ja = self._find_node_id(
                     "junction_array", wway.get("junction_a"), self._jid
                 )
@@ -1640,12 +1742,45 @@ class TopologyBuilder:
                     self.model.add_edge(
                         Edge(
                             ja,
-                            res_id,
-                            label=f"{fi.get('name', 'filtration')}\n(filtration)",
+                            fiid,
                             style="dotted",
                             color=_PALETTE["filtration_border"],
                         )
                     )
+            if res_id:
+                self.model.add_edge(
+                    Edge(
+                        fiid,
+                        res_id,
+                        style="dotted",
+                        color=_PALETTE["filtration_border"],
+                    )
+                )
+
+    def _reservoir_efficiencies(self):
+        """Draw turbine-reservoir efficiency relationships.
+
+        Each entry in ``reservoir_efficiency_array`` associates a turbine with
+        a reservoir whose volume drives the turbine's conversion rate (hydraulic
+        head effect).  The relationship is drawn as a dashed edge
+        ``reservoir → turbine`` coloured with ``efficiency_edge``.
+        """
+        for e in self.sys.get("reservoir_efficiency_array", []):
+            res_id = self._find_node_id(
+                "reservoir_array", e.get("reservoir"), self._rid
+            )
+            turb_id = self._find_node_id("turbine_array", e.get("turbine"), self._tid)
+            if res_id and turb_id:
+                lbl = "" if self.opts.compact else "head"
+                self.model.add_edge(
+                    Edge(
+                        res_id,
+                        turb_id,
+                        label=lbl,
+                        style="dashed",
+                        color=_PALETTE["efficiency_edge"],
+                    )
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -2238,8 +2373,41 @@ def _build_planning_html(
 
 
 # ---------------------------------------------------------------------------
+# Image viewer helper
+# ---------------------------------------------------------------------------
+
+
+def display_diagram(path: str, fmt: str) -> None:
+    """Open *path* in a suitable viewer.
+
+    Strategy (tried in order):
+    1. For PNG: try ``PIL.Image`` (Pillow) ``show()``.
+    2. For all formats: ``webbrowser.open()`` — works on Linux, macOS and
+       Windows without any extra dependencies.
+    """
+    abs_path = str(Path(path).resolve())
+    if fmt == "png":
+        try:
+            from PIL import Image  # noqa: PLC0415
+
+            Image.open(abs_path).show()
+            return
+        except ImportError:
+            pass  # fall through to webbrowser
+    webbrowser.open(Path(abs_path).as_uri())
+
+
+# ---------------------------------------------------------------------------
 # Graphviz topology renderer
 # ---------------------------------------------------------------------------
+
+_GRAPHVIZ_INSTALL_MSG = (
+    "Graphviz executables not found.\n"
+    "Install the system package, e.g.:\n"
+    "  sudo apt-get install graphviz    # Debian/Ubuntu\n"
+    "  brew install graphviz            # macOS\n"
+    "  winget install graphviz          # Windows"
+)
 
 
 def _gv_node_label(node: Node, icon_path: Optional[str]) -> str:
@@ -2356,16 +2524,23 @@ def render_graphviz(
 
     if fmt == "dot":
         return dot.source
+
     if output_path:
         out = Path(output_path)
-        rendered = dot.render(
-            filename=str(out.stem),
-            directory=str(out.parent) if str(out.parent) != "." else ".",
-            format=fmt,
-            cleanup=True,
-        )
+        try:
+            rendered = dot.render(
+                filename=str(out.stem),
+                directory=str(out.parent) if str(out.parent) != "." else ".",
+                format=fmt,
+                cleanup=True,
+            )
+        except FileNotFoundError as err:
+            raise SystemExit(_GRAPHVIZ_INSTALL_MSG) from err
         return rendered
-    return dot.pipe(format=fmt).decode("utf-8", errors="replace")
+    try:
+        return dot.pipe(format=fmt).decode("utf-8", errors="replace")
+    except FileNotFoundError as err:
+        raise SystemExit(_GRAPHVIZ_INSTALL_MSG) from err
 
 
 # ---------------------------------------------------------------------------
@@ -2875,6 +3050,17 @@ Examples:
         default=False,
         help="Show only names/counts; omit pmax/gcost/reactance detail labels",
     )
+    red.add_argument(
+        "--show",
+        action="store_true",
+        default=False,
+        help=(
+            "Open the output file in a viewer after writing it. "
+            "Uses Pillow (PIL) for PNG; webbrowser for SVG, PDF and HTML. "
+            "Ignored for dot/mermaid formats written to stdout. "
+            "Enabled automatically when no --output path is given."
+        ),
+    )
     args = parser.parse_args(argv)
 
     # ── Load JSON ────────────────────────────────────────────────────────────
@@ -2900,6 +3086,10 @@ Examples:
     }.get(fmt, f".{fmt}")
     out = args.output or f"{case_name}_{args.diagram_type}{sfx}"
 
+    # Auto-enable show when no explicit output path was given (except for
+    # text formats that are written to stdout, where there is nothing to open).
+    show = args.show or (args.output is None and fmt not in ("mermaid", "dot"))
+
     # ── Planning structure diagram ───────────────────────────────────────────
     if args.diagram_type == "planning":
         if fmt == "mermaid":
@@ -2920,6 +3110,8 @@ Examples:
                 _build_planning_html(planning, title=ttl), encoding="utf-8"
             )
             print(f"Planning HTML written to {out}", file=sys.stderr)
+            if show:
+                display_diagram(out, fmt)
             return 0
         svg_src = _build_planning_svg(planning)
         if fmt in ("svg", "dot"):
@@ -2943,6 +3135,8 @@ Examples:
                 out = out.rsplit(".", 1)[0] + ".svg"
                 Path(out).write_text(svg_src, encoding="utf-8")
         print(f"Planning diagram written to {out}", file=sys.stderr)
+        if show:
+            display_diagram(out, fmt)
         return 0
 
     # ── Topology diagram ─────────────────────────────────────────────────────
@@ -2996,6 +3190,8 @@ Examples:
     if fmt == "html":
         render_html(model, output_path=out)
         print(f"Interactive HTML written to {out}", file=sys.stderr)
+        if show:
+            display_diagram(out, fmt)
         return 0
 
     layout = args.layout or _auto_layout(model, args.subsystem)
@@ -3014,6 +3210,8 @@ Examples:
         model, fmt=fmt, output_path=out, layout=layout, use_clusters=clusters
     )
     print(f"Diagram written to {rendered}", file=sys.stderr)
+    if show:
+        display_diagram(rendered, fmt)
     return 0
 
 
