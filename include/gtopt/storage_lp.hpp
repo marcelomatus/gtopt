@@ -85,6 +85,10 @@ public:
   ///   - Same-phase reuse: eini_cols stores the previous stage's efin col.
   ///   - Cross-phase SDDP boundary: sini_cols stores the "sini" col; fall
   ///     back from eini_cols (which does NOT have this entry) to sini_cols.
+  ///
+  /// Invariant: every active (scenario, stage) pair is stored in exactly one
+  /// of the two maps.  The fallback throws std::out_of_range only if the
+  /// caller passes an invalid (scenario, stage) combination.
   [[nodiscard]] ColIndex eini_col_at(const ScenarioLP& scenario,
                                      const StageLP& stage) const
   {
@@ -92,6 +96,9 @@ public:
     if (const auto it = eini_cols.find(key); it != eini_cols.end()) {
       return it->second;
     }
+    // Cross-phase SDDP boundary: key must be in sini_cols.
+    // std::out_of_range is thrown if neither map has the key, which
+    // indicates a programming error (stage was never added to the LP).
     return sini_cols.at(key);
   }
 
@@ -289,12 +296,9 @@ public:
     auto prev_vc = eicol;
     for (const auto& block : blocks) {
       const auto buid = block.uid();
-      // These flags identify the boundary blocks for global initial/final
-      // conditions.  The eini column (created above) is the initial state
-      // that feeds the first block's energy balance; the efin constraint row
-      // (added below) references the last block's energy column.
-      const auto is_first_block =
-          is_first_stage && (buid == blocks.front().uid());
+      // is_last_block identifies the terminal block for the global efin
+      // condition.  The eini column feeds into the first block automatically
+      // via prev_vc = eicol, so no explicit is_first_block guard is needed.
       const auto is_last_block = is_last_stage && (buid == blocks.back().uid());
 
       auto erow =
@@ -385,10 +389,6 @@ public:
         efin_row[ec] = 1.0;
         efin_rows[st_key] = lp.add_row(std::move(efin_row));
       }
-
-      // Suppress unused-variable warning: is_first_block is used only in
-      // the comment above to document which block eini feeds into.
-      [[maybe_unused]] const auto first_block_marker = is_first_block;
 
       prev_vc = ec;
     }
