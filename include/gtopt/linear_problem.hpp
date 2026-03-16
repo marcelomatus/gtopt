@@ -58,9 +58,9 @@ struct FlatLinearProblem
 
   /// @name Coefficient statistics (populated when FlatOptions::compute_stats)
   /// @{
-  size_t stats_nnz {};  ///< Total non-zero coefficients (obj + matrix)
-  double stats_max_abs {};  ///< Largest  |coefficient| (obj + matrix)
-  double stats_min_abs {///< Smallest |coefficient| ≠ 0 (obj + matrix)
+  size_t stats_nnz {};  ///< Non-zero count for the constraint matrix A
+  double stats_max_abs {};  ///< Largest  |coefficient| in constraint matrix A
+  double stats_min_abs {///< Smallest |coefficient| ≠ 0 in constraint matrix A
                         std::numeric_limits<double>::max()};
 
   /// Coefficient ratio max/min (1.0 when empty or all equal).

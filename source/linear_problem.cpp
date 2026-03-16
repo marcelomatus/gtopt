@@ -109,14 +109,6 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
     if (col.is_integer) [[unlikely]] {
       colint.push_back(static_cast<fp_index_t>(i));
     }
-
-    // Include objective coefficients in the stats scan.
-    if (do_stats && col.cost != 0.0) [[unlikely]] {
-      const double abs_c = std::abs(col.cost);
-      stats_max = std::max(stats_max, abs_c);
-      stats_min = std::min(stats_min, abs_c);
-      ++stats_nnz;
-    }
   }
 
   // Name vectors
