@@ -363,6 +363,10 @@ def check_lp(
         print(static_report)
         report_parts.append(static_report)
 
+    # Flush so the parent process receives output even if we are killed by
+    # an external timeout wrapper (e.g. the gtopt binary's spawn_tool).
+    sys.stdout.flush()
+
     if analyze_only:
         if output_file:
             _write_report(output_file, report_parts)
@@ -430,6 +434,10 @@ def check_lp(
         )
         print(hint)
         report_parts.append(hint)
+
+    # Flush after solver analysis so the parent process receives the complete
+    # static + solver output even if the AI step below hangs or is killed.
+    sys.stdout.flush()
 
     # 3 ── AI diagnostics ─────────────────────────────────────────────────────
     if ai_opts.enabled:
