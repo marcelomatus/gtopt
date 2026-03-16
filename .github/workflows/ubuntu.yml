@@ -588,12 +588,18 @@ jobs:
           export GTOPT_BIN="$HOME/gtopt-install/bin/gtopt"
           cd $HOME/gtopt-install/bin
           echo "Testing gtopt_gui with --no-webservice..."
-          timeout 10 ./gtopt_gui --no-webservice --no-browser --port 5100 > /tmp/gtopt_gui_noweb.log 2>&1 &
+          timeout 30 ./gtopt_gui --no-webservice --no-browser --port 5100 > /tmp/gtopt_gui_noweb.log 2>&1 &
           GUI_NO_WEB_PID=$!
-          sleep 3
-          if curl -s http://localhost:5100/api/schemas > /dev/null; then
-            echo "✓ gtopt_gui works with --no-webservice"
-          else
+          NOWEB_UP=false
+          for i in {1..30}; do
+            if curl -s http://localhost:5100/api/schemas > /dev/null; then
+              echo "✓ gtopt_gui works with --no-webservice (ready after ${i}s)"
+              NOWEB_UP=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$NOWEB_UP" != "true" ]; then
             echo "✗ gtopt_gui failed with --no-webservice"
             cat /tmp/gtopt_gui_noweb.log
             exit 1
