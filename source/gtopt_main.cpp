@@ -41,6 +41,7 @@
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/json/json_user_constraint.hpp>
+#include <gtopt/lp_stats.hpp>
 #include <gtopt/pampl_parser.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/solver_options.hpp>
@@ -442,9 +443,9 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     // Create and load the LP
     //
     try {
-      const auto flat_opts =
-          make_flat_options(opts.use_lp_names, opts.matrix_eps);
       const bool do_stats = opts.print_stats.value_or(true);
+      const auto flat_opts =
+          make_flat_options(opts.use_lp_names, opts.matrix_eps, do_stats);
 
       if (do_stats) {
         log_pre_solve_stats(opts.planning_files, my_planning);
@@ -459,6 +460,31 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
 
       if (opts.lp_file) {
         planning_lp.write_lp(opts.lp_file.value());
+      }
+
+      // LP coefficient static analysis: the stats were computed during
+      // to_flat() and stored in the LinearInterface of each scene×phase LP.
+      // When the global coefficient ratio is below 1e5 only a one-line
+      // summary is emitted; otherwise per-scene/phase details are shown.
+      if (do_stats) {
+        std::vector<ScenePhaseLPStats> lp_entries;
+        for (auto&& [si, phase_systems] :
+             std::views::enumerate(planning_lp.systems()))
+        {
+          for (auto&& [pi, system_lp] : std::views::enumerate(phase_systems)) {
+            const auto& li = system_lp.linear_interface();
+            lp_entries.push_back({
+                .scene_uid = static_cast<int>(system_lp.scene().uid()),
+                .phase_uid = static_cast<int>(system_lp.phase().uid()),
+                .num_vars = static_cast<int>(li.get_numcols()),
+                .num_constraints = static_cast<int>(li.get_numrows()),
+                .stats_nnz = li.lp_stats_nnz(),
+                .stats_max_abs = li.lp_stats_max_abs(),
+                .stats_min_abs = li.lp_stats_min_abs(),
+            });
+          }
+        }
+        log_lp_stats_summary(lp_entries);
       }
 
       // just_build_lp: LP matrix assembly is done (all scene×phase LPs exist

@@ -128,7 +128,7 @@ struct Battery
 {
   /// @name Default physical constants
   /// @{
-  static constexpr Real default_energy_scale = 0.1;  ///< [dimensionless]
+  static constexpr Real default_energy_scale = 1.0;  ///< [dimensionless]
   /// @}
 
   Uid uid {unknown_uid};  ///< Unique identifier
@@ -200,7 +200,8 @@ struct Battery
 
   /// Energy scale factor: the LP energy variable is divided by this value so
   /// that the LP works in scaled units (physical_energy / energy_scale).
-  /// Default is 0.1 for better LP numerics on typical battery MWh values.
+  /// Default is 1.0 (no scaling).  Output values are rescaled back to
+  /// physical units so results are invariant to the choice of energy_scale.
   OptReal energy_scale {default_energy_scale};
 };
 

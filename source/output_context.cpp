@@ -404,7 +404,8 @@ void OutputContext::write() const
 OutputContext::OutputContext(const SystemContext& psc,
                              const LinearInterface& linear_interface)
     : sc(psc)
-    , sol_obj_value(linear_interface.get_obj_value())
+    , sol_obj_value(linear_interface.get_obj_value()
+                    * psc.options().scale_objective())
     , sol_status(linear_interface.get_status())
     , sol_kappa(linear_interface.get_kappa())
     , col_sol_span(linear_interface.get_col_sol())
