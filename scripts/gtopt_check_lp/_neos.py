@@ -52,6 +52,8 @@ def _check_internet(timeout: int = 5) -> bool:
             "https://www.google.com",
             method="HEAD",
         )
+        # S310: unverified HTTPS is acceptable for a connectivity check to
+        # a well-known public host — no sensitive data is transmitted.
         with urllib.request.urlopen(req, timeout=timeout):  # noqa: S310
             return True
     except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
