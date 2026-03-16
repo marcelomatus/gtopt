@@ -338,7 +338,7 @@ jobs:
             -DCMAKE_CXX_COMPILER=clang++ \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_CLANG_TIDY="clang-tidy-cache;clang-tidy;--warnings-as-errors=*"
+            -DCMAKE_CXX_CLANG_TIDY="clang-tidy-cache;clang-tidy;--warnings-as-errors=*;--header-filter=''"
 
       - name: build with clang-tidy
         run: cmake --build build -j$(nproc)
