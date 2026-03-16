@@ -90,8 +90,12 @@ struct Reservoir
   OptTRealFieldSched emax {};  ///< Maximum allowed stored volume [dam³]
   OptTRealFieldSched
       ecost {};  ///< Shadow cost of stored water (water value) [$/dam³]
-  OptReal eini {};  ///< Initial stored volume at start of horizon [dam³]
-  OptReal efin {};  ///< Target stored volume at end of horizon [dam³]
+  OptReal eini {};  ///< Initial stored volume at start of horizon [dam³].
+                    ///< Sets an equality constraint vol_start = eini in the
+                    ///< first stage of the first phase only.
+  OptReal efin {};  ///< Minimum required stored volume at end of horizon
+                    ///< [dam³].  Sets a >= constraint vol_end >= efin in the
+                    ///< last stage of the last phase (not an equality).
 
   OptReal fmin {
       default_fmin};  ///< Minimum net flow into the reservoir junction [m³/s]
