@@ -10,12 +10,32 @@
  * piecewise-linear concave function that maps current reservoir volume
  * [dam³] to turbine conversion rate [MW·s/m³].
  *
- * ### Piecewise-linear evaluation
- * The efficiency is the **minimum** over all segments:
+ * ### Piecewise-linear evaluation (matches PLP Fortran `FRendimientos`)
+ *
+ * The efficiency is the **minimum** over all segments (concave envelope):
  * ```
  * efficiency(V) = min_i { constant_i + slope_i × (V − volume_i) }
  * ```
+ * Here `constant_i` is the efficiency **at the breakpoint** `volume_i`
+ * (point-slope form).  This matches the PLP Fortran function
+ * `FRendimientos` in `plp-frendim.f`:
+ * ```fortran
+ * ValFRendimientos = MIN(ValFRendimientos,
+ *     Constantes(i) + Pendientes(i) * (Vol - Bordes(i)))
+ * ```
+ *
+ * **Note**: This differs from `FiltrationSegment` where `constant` is
+ * the y-intercept at V = 0.  For efficiency, `constant` is the value
+ * **at** the breakpoint (point-slope form), not the y-intercept.
+ *
  * Slopes must be given in **decreasing** order so the function is concave.
+ *
+ * ### Volume used for SDDP updates
+ *
+ * During SDDP iterations, the conversion-rate LP coefficient is updated
+ * using the **average volume** `vavg = (vini + vfin) / 2` from the
+ * previous LP solve, providing a better linearization point than using
+ * only the initial volume.
  *
  * ### JSON Example
  * ```json
@@ -49,13 +69,18 @@ namespace gtopt
  *
  * Each segment contributes `constant + slope × (V − volume)` to the
  * concave envelope.  The overall efficiency at volume V is the minimum
- * over all segments.
+ * over all segments (matching PLP Fortran `FRendimientos`).
+ *
+ * **Note**: Unlike `FiltrationSegment` where `constant` is the
+ * y-intercept at V = 0, here `constant` is the efficiency value
+ * **at the breakpoint** `volume` (point-slope form).
  */
 struct EfficiencySegment
 {
-  Real volume {0.0};  ///< Volume breakpoint [dam³]
-  Real slope {0.0};  ///< Slope at this breakpoint [efficiency/dam³]
-  Real constant {0.0};  ///< Intercept at this breakpoint [efficiency]
+  Real volume {0.0};  ///< Volume breakpoint [dam³] (Fortran `Bordes`)
+  Real slope {
+      0.0};  ///< Slope at this breakpoint [efficiency/dam³] (`Pendientes`)
+  Real constant {0.0};  ///< Efficiency at breakpoint [MW·s/m³] (`Constantes`)
 };
 
 /**
@@ -64,8 +89,8 @@ struct EfficiencySegment
  * Associates a turbine with a reservoir and provides a piecewise-linear
  * concave function mapping reservoir volume to turbine conversion rate.
  * When used with the SDDP solver, the conversion-rate LP coefficient is
- * updated at each forward-pass iteration based on the current reservoir
- * volume (the initial volume of the current phase).
+ * updated at each forward-pass iteration based on the average reservoir
+ * volume `vavg = (vini + vfin) / 2` from the previous LP solve.
  *
  * @see Turbine for the turbine whose conversion_rate is modulated
  * @see Reservoir for the reservoir whose volume drives the function
@@ -94,11 +119,23 @@ struct ReservoirEfficiency
 /**
  * @brief Evaluate the piecewise-linear concave efficiency function
  *
- * Implements the PLP FRendimientos function:
+ * Implements the PLP `FRendimientos` function (plp-frendim.f):
  * ```
  * result = min over all segments of
  *          { constant_i + slope_i × (volume − volume_breakpoint_i) }
  * ```
+ * Here `constant_i` is the efficiency **at** breakpoint_i (point-slope
+ * form).  This is the concave-envelope minimum, matching the Fortran:
+ * ```fortran
+ * ValFRendimientos = MIN(ValFRendimientos,
+ *     Constantes(i) + Pendientes(i) * (Vol - Bordes(i)))
+ * ```
+ *
+ * **Difference from filtration**: `FiltrationSegment.constant` is the
+ * y-intercept (value at V = 0), while `EfficiencySegment.constant` is
+ * the value at the breakpoint.  Filtration uses range-based segment
+ * selection; efficiency uses concave-envelope minimum.
+ *
  * Returns at least 0.0 (efficiency cannot be negative).
  *
  * @param segments The piecewise-linear segments
