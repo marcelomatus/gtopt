@@ -13,6 +13,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from ._neos import _check_internet
+
 _AI_PROVIDERS = ("claude", "openai", "deepseek", "github")
 _AI_DEFAULT_PROVIDER = "github"
 
@@ -265,6 +267,37 @@ def _query_github(
 # ---------------------------------------------------------------------------
 
 
+def _diagnose_ai_network_error(url: str, error: Exception) -> str:
+    """Return a human-readable diagnostic for an AI API network failure.
+
+    Checks basic internet connectivity to distinguish "no internet" from
+    "AI service unreachable", providing actionable guidance.
+    """
+    parts: list[str] = [f"Network error connecting to AI API ({url}): {error}"]
+
+    if not _check_internet(timeout=5):
+        parts.append(
+            "  ✗ No internet connectivity detected (cannot reach www.google.com)."
+        )
+        parts.append("  Check your network connection and proxy settings.")
+    else:
+        is_timeout = "timed out" in str(error).lower()
+        if is_timeout:
+            parts.append("  ✗ The AI service appears to be slow or unreachable.")
+            parts.append(
+                "  The connection timed out.  Try again later or use "
+                "--timeout with a larger value."
+            )
+        else:
+            parts.append(
+                "  ✗ The AI service is temporarily unavailable or rejecting "
+                "connections."
+            )
+            parts.append("  Try again later or use --no-ai to skip AI diagnostics.")
+
+    return "\n".join(parts)
+
+
 def _http_post_json(
     url: str,
     payload: dict[str, Any],
@@ -299,9 +332,12 @@ def _http_post_json(
         except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             msg = str(exc)
         return False, f"HTTP {exc.code} from AI API: {msg}"
-    except urllib.error.URLError as exc:
-        return False, f"Network error connecting to AI API: {exc.reason}"
+    except (urllib.error.URLError, OSError) as exc:
+        reason = getattr(exc, "reason", exc)
+        return False, _diagnose_ai_network_error(url, reason)
     except TimeoutError:
-        return False, f"Request to AI API timed out after {timeout}s."
+        return False, _diagnose_ai_network_error(
+            url, TimeoutError(f"Request timed out after {timeout}s")
+        )
     except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
         return False, f"Unexpected error calling AI API: {exc}"

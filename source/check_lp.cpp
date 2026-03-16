@@ -306,23 +306,37 @@ struct SpawnResult
 // ── Public API ───────────────────────────────────────────────────────────────
 
 std::string run_check_lp_diagnostic(const std::string& lp_file,
-                                    int timeout_seconds)
+                                    int timeout_seconds,
+                                    const std::string& algo)
 {
   // Ensure the LP file path has an extension; default to ".lp".
   const std::string lp_path = lp_file.contains('.') ? lp_file : lp_file + ".lp";
 
   // Effective command:
-  //   [timeout <N>] gtopt_check_lp --quiet --no-color --timeout <N> <file>
+  //   [timeout <N>] gtopt_check_lp --quiet --no-color --timeout <N>
+  //                                [--algo <algo>] <file>
   //
   // --quiet ensures the child never blocks for user input and always exits
   // with code 0 (tries every available solver, falls back to NEOS if an
   // e-mail is configured, warns on failures instead of erroring out).
+  std::vector<std::string> args {
+      "--quiet",
+      "--no-color",
+      "--timeout",
+      std::to_string(timeout_seconds),
+  };
+
+  // Pass the LP algorithm when the caller specifies one, so gtopt_check_lp
+  // uses the same algorithm (barrier, primal, dual) as the gtopt solver.
+  if (!algo.empty()) {
+    args.emplace_back("--algo");
+    args.emplace_back(algo);
+  }
+
+  args.emplace_back(lp_path);
+
   const auto result = spawn_tool("gtopt_check_lp",
-                                 {"--quiet",
-                                  "--no-color",
-                                  "--timeout",
-                                  std::to_string(timeout_seconds),
-                                  lp_path},
+                                 args,
                                  /*capture_output=*/true,
                                  timeout_seconds);
 

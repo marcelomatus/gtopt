@@ -163,7 +163,12 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
       spdlog::error("  Infeasible LP written to: {}", lp_file);
 
       // Run gtopt_check_lp static analysis and log the diagnostic.
-      if (const auto diag = run_check_lp_diagnostic(lp_file); !diag.empty()) {
+      // Pass the LP algorithm so the diagnostic uses the same solver method.
+      const auto algo_name = std::string(lp_algo_name(lp_opts.algorithm));
+      if (const auto diag =
+              run_check_lp_diagnostic(lp_file, /*timeout_seconds=*/10, algo_name);
+          !diag.empty())
+      {
         spdlog::error("LP infeasibility diagnostic for {}:\n{}", lp_file, diag);
       }
 

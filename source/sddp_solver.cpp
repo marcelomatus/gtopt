@@ -428,7 +428,10 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
           li.write_lp(err_file);
           spdlog::warn("SDDP: saved infeasible LP to {}.lp", err_file);
           // Run gtopt_check_lp static analysis and log the diagnostic.
-          if (const auto diag = run_check_lp_diagnostic(err_file);
+          // Pass the LP algorithm so the diagnostic uses the same method.
+          const auto algo_name = std::string(lp_algo_name(opts.algorithm));
+          if (const auto diag =
+                  run_check_lp_diagnostic(err_file, /*timeout_seconds=*/10, algo_name);
               !diag.empty())
           {
             spdlog::error(
