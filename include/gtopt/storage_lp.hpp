@@ -11,6 +11,7 @@
 #pragma once
 
 #include <limits>
+#include <span>
 
 #include <gtopt/index_holder.hpp>
 #include <gtopt/input_context.hpp>
@@ -100,6 +101,34 @@ public:
   [[nodiscard]] constexpr double to_physical(double lp_value) const noexcept
   {
     return lp_value * m_energy_scale_;
+  }
+
+  /// Retrieve a physical energy/volume value from an LP column vector.
+  /// @param col_values  LP solution (or bounds) vector indexed by ColIndex
+  /// @param col         Column index of the energy/volume variable
+  /// @return The column value converted to physical units
+  [[nodiscard]] constexpr double physical_col_value(
+      std::span<const double> col_values, ColIndex col) const noexcept
+  {
+    return col_values[col] * m_energy_scale_;
+  }
+
+  /// Retrieve the physical eini (initial energy/volume) from an LP solution
+  /// or bound vector for a given scenario and stage.
+  [[nodiscard]] double physical_eini(std::span<const double> col_values,
+                                     const ScenarioLP& scenario,
+                                     const StageLP& stage) const
+  {
+    return physical_col_value(col_values, eini_col_at(scenario, stage));
+  }
+
+  /// Retrieve the physical efin (final energy/volume) from an LP solution
+  /// or bound vector for a given scenario and stage.
+  [[nodiscard]] double physical_efin(std::span<const double> col_values,
+                                     const ScenarioLP& scenario,
+                                     const StageLP& stage) const
+  {
+    return physical_col_value(col_values, efin_col_at(scenario, stage));
   }
 
   template<typename SystemContextT>

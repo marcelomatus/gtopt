@@ -172,11 +172,9 @@ int TurbineLP::update_lp(SystemLP& sys,
     auto& li = sys.linear_interface();
     if (iteration > 1 && phase != PhaseIndex {0}) {
       if (li.is_optimal()) {
-        const auto eini_col = rsv.eini_col_at(scenario, stage);
-        const auto efin_col = rsv.efin_col_at(scenario, stage);
-        // LP volumes are in scaled units; convert to physical.
-        const auto vini = rsv.to_physical(li.get_col_sol()[eini_col]);
-        const auto vfin = rsv.to_physical(li.get_col_sol()[efin_col]);
+        const auto col_sol = li.get_col_sol();
+        const auto vini = rsv.physical_eini(col_sol, scenario, stage);
+        const auto vfin = rsv.physical_efin(col_sol, scenario, stage);
         volume = (vini + vfin) / 2.0;
       }
     }
