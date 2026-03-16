@@ -430,8 +430,8 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
           // Run gtopt_check_lp static analysis and log the diagnostic.
           // Pass the LP algorithm so the diagnostic uses the same method.
           const auto algo_name = std::string(lp_algo_name(opts.algorithm));
-          if (const auto diag =
-                  run_check_lp_diagnostic(err_file, /*timeout_seconds=*/10, algo_name);
+          if (const auto diag = run_check_lp_diagnostic(
+                  err_file, /*timeout_seconds=*/10, algo_name);
               !diag.empty())
           {
             spdlog::error(
