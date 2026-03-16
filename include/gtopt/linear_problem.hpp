@@ -59,15 +59,23 @@ struct FlatLinearProblem
   /// @name Coefficient statistics (populated when FlatOptions::compute_stats)
   /// @{
   size_t stats_nnz {};  ///< Non-zero count for the constraint matrix A
+  size_t stats_zeroed {};  ///< Count of non-zero entries filtered out by eps
   double stats_max_abs {};  ///< Largest  |coefficient| in constraint matrix A
-  double stats_min_abs {///< Smallest |coefficient| ≠ 0 in constraint matrix A
+  double stats_min_abs {///< Smallest |coefficient| in filtered A
                         std::numeric_limits<double>::max()};
 
-  /// Coefficient ratio max/min (1.0 when empty or all equal).
+  index_t stats_max_col {-1};  ///< Column index of the largest |coefficient|
+  index_t stats_min_col {-1};  ///< Column index of the smallest |coefficient|
+
+  std::string stats_max_col_name {};  ///< Name of column with largest |coeff|
+  std::string stats_min_col_name {};  ///< Name of column with smallest |coeff|
+
+  /// Coefficient ratio max/min (1.0 when empty, no valid min, or all equal).
   [[nodiscard]] constexpr double stats_coeff_ratio() const noexcept
   {
-    if (stats_min_abs <= 0.0 || stats_min_abs == stats_max_abs
-        || stats_nnz == 0)
+    if (stats_min_abs <= 0.0 || stats_min_col < 0
+        || stats_min_abs >= std::numeric_limits<double>::max()
+        || stats_min_abs == stats_max_abs || stats_nnz == 0)
     {
       return 1.0;
     }
@@ -84,7 +92,13 @@ struct FlatOptions
 {
   constexpr static auto default_reserve_factor = 1.25;
 
-  double eps {0};  ///< Coefficient epsilon (if negative, don't check)
+  double eps {0};  ///< Coefficient epsilon: |v| <= eps is treated as zero.
+                   ///< If negative, no filtering is applied.
+  double stats_eps {1e-10};  ///< Minimum |coefficient| tracked in stats
+                             ///< min/max. Applied in addition to eps: only
+                             ///< values with |v| > max(eps, stats_eps) update
+                             ///< stats_min_abs. Defaults to 1e-10 for
+                             ///< consistency with external LP analysis tools.
   bool col_with_names {false};  ///< Include column names
   bool row_with_names {false};  ///< Include row names
   bool col_with_name_map {false};  ///< Include column name mapping

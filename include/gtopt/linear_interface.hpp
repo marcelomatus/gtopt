@@ -350,6 +350,10 @@ public:
   {
     return m_stats_nnz_;
   }
+  [[nodiscard]] constexpr size_t lp_stats_zeroed() const noexcept
+  {
+    return m_stats_zeroed_;
+  }
   [[nodiscard]] constexpr double lp_stats_max_abs() const noexcept
   {
     return m_stats_max_abs_;
@@ -357,6 +361,26 @@ public:
   [[nodiscard]] constexpr double lp_stats_min_abs() const noexcept
   {
     return m_stats_min_abs_;
+  }
+  [[nodiscard]] constexpr FlatLinearProblem::index_t lp_stats_max_col()
+      const noexcept
+  {
+    return m_stats_max_col_;
+  }
+  [[nodiscard]] constexpr FlatLinearProblem::index_t lp_stats_min_col()
+      const noexcept
+  {
+    return m_stats_min_col_;
+  }
+  [[nodiscard]] constexpr const std::string& lp_stats_max_col_name()
+      const noexcept
+  {
+    return m_stats_max_col_name_;
+  }
+  [[nodiscard]] constexpr const std::string& lp_stats_min_col_name()
+      const noexcept
+  {
+    return m_stats_min_col_name_;
   }
   /// @}
 
@@ -395,8 +419,13 @@ private:
   std::string log_file {};
 
   size_t m_stats_nnz_ {};
+  size_t m_stats_zeroed_ {};
   double m_stats_max_abs_ {};
   double m_stats_min_abs_ {};
+  FlatLinearProblem::index_t m_stats_max_col_ {-1};
+  FlatLinearProblem::index_t m_stats_min_col_ {-1};
+  std::string m_stats_max_col_name_ {};
+  std::string m_stats_min_col_name_ {};
 
   struct FILEcloser
   {

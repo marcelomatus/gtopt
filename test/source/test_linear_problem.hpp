@@ -558,6 +558,102 @@ TEST_CASE("Linear problem to_flat with epsilon filtering")
   CHECK(flat.matval[1] == -2.0);
 }
 
+TEST_CASE(
+    "Linear problem to_flat compute_stats with col names and zeroed count")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  LinearProblem lp("stats_test");
+
+  const auto c0 = lp.add_col(SparseCol {.name = "big_col"});
+  const auto c1 = lp.add_col(SparseCol {.name = "small_col"});
+  const auto c2 = lp.add_col(SparseCol {.name = "tiny_col"});
+
+  auto r0 = lp.add_row(SparseRow {.name = "r0"});
+  auto r1 = lp.add_row(SparseRow {.name = "r1"});
+  auto r2 = lp.add_row(SparseRow {.name = "r2"});
+
+  lp.set_coeff(r0, c0, 100.0);  // largest coefficient
+  lp.set_coeff(r1, c1, 0.5);  // medium
+  lp.set_coeff(r2, c2, 1e-12);  // tiny — below stats_eps default (1e-10)
+
+  SUBCASE("compute_stats=true with default stats_eps=1e-10")
+  {
+    const auto flat = lp.to_flat({
+        .col_with_names = true,
+        .compute_stats = true,
+    });
+
+    // All three pass the default eps=0 filter → nnz=3
+    CHECK(flat.stats_nnz == 3);
+    // The 1e-12 value is below stats_eps=1e-10, so it is NOT counted as zeroed
+    // (zeroed = filtered by eps, not by stats_eps)
+    CHECK(flat.stats_zeroed == 0);
+
+    // max = 100.0 from c0 (col index 0, name "big_col")
+    CHECK(flat.stats_max_abs == doctest::Approx(100.0));
+    CHECK(flat.stats_max_col == 0);
+    CHECK(flat.stats_max_col_name == "big_col");
+
+    // min from stats tracking: 1e-12 < stats_eps=1e-10, so min = 0.5 (c1)
+    CHECK(flat.stats_min_abs == doctest::Approx(0.5));
+    CHECK(flat.stats_min_col == 1);
+    CHECK(flat.stats_min_col_name == "small_col");
+  }
+
+  SUBCASE("compute_stats=true with eps=1.0 (filters 0.5 and 1e-12)")
+  {
+    const auto flat = lp.to_flat({
+        .eps = 1.0,
+        .col_with_names = true,
+        .compute_stats = true,
+    });
+
+    // Only 100.0 passes eps=1.0; 0.5 and 1e-12 are zeroed
+    CHECK(flat.stats_nnz == 1);
+    CHECK(flat.stats_zeroed == 2);
+
+    CHECK(flat.stats_max_abs == doctest::Approx(100.0));
+    CHECK(flat.stats_max_col == 0);
+    CHECK(flat.stats_max_col_name == "big_col");
+
+    // Only one value in the matrix — min equals max
+    CHECK(flat.stats_min_abs == doctest::Approx(100.0));
+    CHECK(flat.stats_min_col == 0);
+    CHECK(flat.stats_min_col_name == "big_col");
+  }
+
+  SUBCASE("compute_stats=true without col names — col index still tracked")
+  {
+    // col_with_names=false but compute_stats=true: indices available, names
+    // empty
+    const auto flat = lp.to_flat({
+        .col_with_names = false,
+        .compute_stats = true,
+    });
+
+    CHECK(flat.stats_max_col == 0);
+    CHECK(flat.stats_max_col_name.empty());
+    CHECK(flat.stats_min_col == 1);
+    CHECK(flat.stats_min_col_name.empty());
+  }
+
+  SUBCASE("compute_stats=false — stats fields stay default")
+  {
+    const auto flat = lp.to_flat({
+        .col_with_names = true,
+        .compute_stats = false,
+    });
+
+    CHECK(flat.stats_nnz == 0);
+    CHECK(flat.stats_zeroed == 0);
+    CHECK(flat.stats_max_col == -1);
+    CHECK(flat.stats_min_col == -1);
+    CHECK(flat.stats_max_col_name.empty());
+    CHECK(flat.stats_min_col_name.empty());
+  }
+}
+
 TEST_CASE("Linear problem set_coeff overwrite preserves correctness")
 {
   gtopt::LinearProblem lp("overwrite_test");
