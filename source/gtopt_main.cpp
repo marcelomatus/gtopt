@@ -508,7 +508,10 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
         // Build SolverOptions from Planning options (JSON) merged with any
         // CLI overrides already applied via apply_cli_options.
         const auto& plp_opts_ref = planning_lp.options();
-        SolverOptions solver_opts {};
+        // Start from the solver_options sub-object (which carries any
+        // tolerance values set via JSON "solver_options": {...}).
+        SolverOptions solver_opts = plp_opts_ref.solver_options();
+        // Individual top-level fields override the sub-object values.
         if (const auto algo = plp_opts_ref.lp_algorithm()) {
           solver_opts.algorithm = static_cast<LPAlgo>(*algo);
         }
@@ -539,6 +542,9 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
           } else {
             spdlog::error(msg);
           }
+          // Format optional tolerances: show "(default)" when not set.
+          const auto eps_str = [](std::optional<double> v) -> std::string
+          { return v ? std::format("{}", *v) : "(default)"; };
           spdlog::error(
               std::format("  Solver options used:"
                           " algorithm={}, threads={}, presolve={},"
@@ -547,9 +553,9 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
                           solver_opts.algorithm,
                           solver_opts.threads,
                           solver_opts.presolve,
-                          solver_opts.optimal_eps,
-                          solver_opts.feasible_eps,
-                          solver_opts.barrier_eps,
+                          eps_str(solver_opts.optimal_eps),
+                          eps_str(solver_opts.feasible_eps),
+                          eps_str(solver_opts.barrier_eps),
                           solver_opts.log_level));
         }
       }

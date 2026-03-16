@@ -35,6 +35,7 @@
 
 #pragma once
 
+#include <gtopt/solver_options.hpp>
 #include <gtopt/utils.hpp>
 
 namespace gtopt
@@ -280,6 +281,25 @@ struct Options
   /** @brief SDDP solver configuration (sub-object with sddp_* fields) */
   SddpOptions sddp_options {};
 
+  // ── LP solver options (grouped sub-object) ────────────────────────────────
+  /** @brief LP solver configuration (algorithm, tolerances, threads, etc.)
+   *
+   * Exposes the full @c SolverOptions struct as a JSON sub-object so that
+   * users can set LP solver parameters — including the optional tolerance
+   * values — directly in the planning JSON:
+   *
+   * ```json
+   * { "options": { "solver_options": { "algorithm": 3,
+   *                                    "optimal_eps": 1e-8,
+   *                                    "feasible_eps": 1e-8 } } }
+   * ```
+   *
+   * Individual top-level fields (@c lp_algorithm, @c lp_threads,
+   * @c lp_presolve) are still respected for backward compatibility and take
+   * precedence over the corresponding @c solver_options sub-fields.
+   */
+  SolverOptions solver_options {};
+
   void merge(Options&& opts)
   {
     // Merge input-related options (always moving string values)
@@ -319,6 +339,10 @@ struct Options
 
     // Merge SDDP-specific options
     sddp_options.merge(std::move(opts.sddp_options));
+
+    // Merge LP solver options (only optional tolerance fields are merged;
+    // non-optional fields in the first file win)
+    solver_options.merge(opts.solver_options);
 
     auto _ = std::move(opts);
   }

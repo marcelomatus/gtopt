@@ -259,6 +259,22 @@ public:
   }
 
   /**
+   * @brief Gets the LP solver options sub-object.
+   *
+   * Returns the @c SolverOptions sub-object embedded in the planning JSON
+   * @c options block.  Individual top-level fields (@c lp_algorithm,
+   * @c lp_threads, @c lp_presolve) in @c Options take precedence over the
+   * corresponding fields in this sub-object when building the final
+   * @c SolverOptions at solve time (see @c gtopt_main()).
+   *
+   * @return Const reference to the @c SolverOptions from the wrapped Options
+   */
+  [[nodiscard]] constexpr const SolverOptions& solver_options() const noexcept
+  {
+    return m_options_.solver_options;
+  }
+
+  /**
    * @brief Gets the LP debug flag, using default if not set
    * @return Whether to save debug LP files to the log directory
    */
