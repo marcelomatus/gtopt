@@ -130,6 +130,12 @@ bool TurbineLP::add_to_output(OutputContext& out) const
  * Finds the ReservoirEfficiencyLP element(s) that reference this turbine,
  * queries the associated reservoir for the current volume and updates the
  * turbine conversion-rate coefficient in the LP.
+ *
+ * When the LP has been previously solved (iteration > 1 and past the first
+ * phase), uses `vavg = (vini + vfin) / 2` — the average of the initial and
+ * final reservoir volumes from the previous solve — as the linearization
+ * point for the efficiency evaluation.  This provides a better approximation
+ * than using only vini.
  */
 int TurbineLP::update_lp(SystemLP& sys,
                          const ScenarioLP& scenario,
@@ -155,7 +161,7 @@ int TurbineLP::update_lp(SystemLP& sys,
 
     // Determine current reservoir volume:
     //  - first iteration OR first phase → use static initial volume (eini)
-    //  - otherwise → read from eini column (fixed to previous-phase efin)
+    //  - otherwise → use vavg = (vini + vfin) / 2 from previous LP solve
     const auto& rsv = sys.element<ReservoirLP>(eff.reservoir_sid());
 
     if (!rsv.reservoir().eini.has_value()) {
@@ -167,7 +173,10 @@ int TurbineLP::update_lp(SystemLP& sys,
     if (iteration > 1 && phase != PhaseIndex {0}) {
       if (li.is_optimal()) {
         const auto eini_col = rsv.eini_col_at(scenario, stage);
-        volume = li.get_col_sol()[eini_col];
+        const auto efin_col = rsv.efin_col_at(scenario, stage);
+        const auto vini = li.get_col_sol()[eini_col];
+        const auto vfin = li.get_col_sol()[efin_col];
+        volume = (vini + vfin) / 2.0;
       }
     }
 
