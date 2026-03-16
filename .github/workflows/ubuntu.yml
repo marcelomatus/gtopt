@@ -15,6 +15,10 @@ on:
         description: 'Run clang-tidy static analysis'
         type: boolean
         default: false
+      run_coverage:
+        description: 'Enable code coverage (slower build)'
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -53,10 +57,11 @@ env:
   GCOV_TOOL: /tmp/llvm-gcov.sh
   # Set to 'true' to enable code coverage instrumentation and collection.
   # Leave 'false' for faster builds without coverage overhead.
-  ENABLE_COVERAGE: 'false'
+  # Can also be enabled via workflow_dispatch input `run_coverage: true`.
+  ENABLE_COVERAGE: ${{ github.event.inputs.run_coverage == 'true' && 'true' || 'false' }}
   # Set to 'true' to enable the clang-tidy static analysis job.
   # Leave 'false' to skip it (saves ~10 min of analysis time).
-  ENABLE_CLANG_TIDY: 'false'
+  ENABLE_CLANG_TIDY: ${{ github.event.inputs.run_clang_tidy == 'true' && 'true' || 'false' }}
   # ccache configuration (applied globally to every step)
   CCACHE_BASEDIR: ${{ github.workspace }}
   CCACHE_SLOPPINESS: gcno_file_location
@@ -333,7 +338,7 @@ jobs:
             -DCMAKE_CXX_COMPILER=clang++ \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_CLANG_TIDY="clang-tidy-cache;clang-tidy;--warnings-as-errors=*"
+            -DCMAKE_CXX_CLANG_TIDY="clang-tidy-cache;clang-tidy;--warnings-as-errors=*;--header-filter=''"
 
       - name: build with clang-tidy
         run: cmake --build build -j$(nproc)

@@ -267,6 +267,39 @@ public:
     return m_options_.lp_debug.value_or(false);
   }
 
+  /**
+   * @brief Gets the LP compression codec for debug LP files.
+   *
+   * Returns the value of `lp_compression` when set.  An empty string (the
+   * default) means "inherit from output_compression" — the caller (e.g.
+   * planning_solver.cpp) falls back to `output_compression()` when this is
+   * empty.  `"none"` or `"uncompressed"` disables LP compression regardless
+   * of `output_compression`.  Any other value is a codec name passed as
+   * `--codec <value>` to `gtopt_compress_lp`.
+   *
+   * @return Compression codec string (may be empty = inherit)
+   */
+  [[nodiscard]] constexpr auto lp_compression() const
+  {
+    static constexpr auto default_lp_compression = "";
+    return m_options_.lp_compression.value_or(default_lp_compression);
+  }
+
+  /**
+   * @brief Gets the just_build_lp flag, using default if not set.
+   *
+   * When true, the solver builds all scene×phase LP matrices but skips
+   * solving entirely.  Applies uniformly to both the monolithic solver and
+   * the SDDP solver: exit right after LP assembly with no solve at all.
+   * Combine with lp_debug=true to save every scene/phase LP file to disk.
+   *
+   * @return Whether to stop after LP building
+   */
+  [[nodiscard]] constexpr auto just_build_lp() const
+  {
+    return m_options_.just_build_lp.value_or(false);
+  }
+
   // Default values for SDDP solver settings
   /** @brief Default solver type */
   static constexpr auto default_sddp_solver_type = "monolithic";

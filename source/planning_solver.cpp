@@ -63,12 +63,13 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
           lp_writer.compress_async(system.write_lp(lp_stem));
         }
       }
-      spdlog::info("MonolithicSolver: wrote LP debug file(s) to {}_*.lp{}",
-                   lp_stem,
-                   (lp_debug_compression.empty()
-                    || lp_debug_compression == "uncompressed")
-                       ? ""
-                       : " (compressing async)");
+      spdlog::info(
+          "MonolithicSolver: wrote LP debug file(s) to {}_*.lp{}",
+          lp_stem,
+          (lp_debug_compression.empty() || lp_debug_compression == "none"
+           || lp_debug_compression == "uncompressed")
+              ? ""
+              : " (compressing async)");
     }
 
     std::vector<future_t> futures;
@@ -218,7 +219,10 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options)
     // Logging and API
     sddp_opts.log_directory = std::string(options.log_directory());
     sddp_opts.lp_debug = options.lp_debug();
-    sddp_opts.lp_debug_compression = std::string(options.output_compression());
+    sddp_opts.just_build_lp = options.just_build_lp();
+    sddp_opts.lp_debug_compression = !options.lp_compression().empty()
+        ? std::string(options.lp_compression())
+        : std::string(options.output_compression());
     sddp_opts.enable_api = options.sddp_api_enabled();
     if (!output_dir.empty()) {
       sddp_opts.api_status_file =
@@ -245,7 +249,9 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options)
   }
   solver->lp_debug = options.lp_debug();
   solver->lp_debug_directory = std::string(options.log_directory());
-  solver->lp_debug_compression = std::string(options.output_compression());
+  solver->lp_debug_compression = !options.lp_compression().empty()
+      ? std::string(options.lp_compression())
+      : std::string(options.output_compression());
   return solver;
 }
 

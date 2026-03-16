@@ -1,0 +1,162 @@
+name: Coverage
+
+# Dedicated workflow for C++ and Python code-coverage reports.
+#
+# Produces:
+#   - cpp-coverage-report : HTML coverage report (lcov/genhtml)
+#   - python-coverage-report : Python HTML coverage report (pytest-cov)
+#   - reports/coverage/coverage-summary.md committed back to the repo
+#
+# The coverage/ CMake sub-project orchestrates the full pipeline:
+#   cmake -S coverage -B build-coverage && cmake --build build-coverage
+#
+# Triggers:
+#   - workflow_dispatch : manual run at any time
+#   - schedule          : every Sunday at 02:00 UTC (weekly baseline)
+
+on:
+  workflow_dispatch:
+    inputs:
+      compiler:
+        description: 'Compiler to use (clang or gcc)'
+        type: choice
+        options:
+          - clang
+          - gcc
+        default: clang
+  schedule:
+    - cron: '0 2 * * 0'  # Every Sunday at 02:00 UTC
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CTEST_OUTPUT_ON_FAILURE: 1
+  CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
+  CCACHE_BASEDIR: ${{ github.workspace }}
+  CCACHE_SLOPPINESS: gcno_file_location
+
+permissions:
+  contents: write
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    name: Coverage (${{ inputs.compiler || 'clang' }})
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: coverage-${{ inputs.compiler || 'clang' }}
+          restore-keys: |
+            coverage-${{ inputs.compiler || 'clang' }}-
+          max-size: 2G
+
+      - uses: actions/cache@v4
+        with:
+          path: "**/cpm_modules"
+          key: coverage-${{ inputs.compiler || 'clang' }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+
+      - name: install dependencies
+        uses: ./.github/actions/install-apt-deps
+        with:
+          extra-packages: lcov
+
+      - name: setup gcc
+        if: ${{ (inputs.compiler || 'clang') == 'gcc' }}
+        uses: ./.github/actions/install-gcc
+        with:
+          version: 14
+
+      - name: install clang
+        if: ${{ (inputs.compiler || 'clang') == 'clang' }}
+        uses: ./.github/actions/install-clang
+        with:
+          version: 21
+          install-coverage-runtime: 'true'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache uv packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-scripts-${{ hashFiles('scripts/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-scripts-
+
+      - name: Install uv and pre-install scripts dependencies
+        run: |
+          pip install uv
+          uv pip install --system -q -e "./scripts[dev]" graphviz
+
+      - name: Configure coverage sub-project
+        run: |
+          COMPILER="${{ inputs.compiler || 'clang' }}"
+          cmake -S coverage -B build-coverage \
+            -DCOVERAGE_COMPILER="${COMPILER}" \
+            -DCOVERAGE_OUTPUT_DIR="${PWD}/reports/coverage" \
+            -DCOVERAGE_CMAKE_PREFIX_PATH="$(conda info --base)" \
+            -DCOVERAGE_PYTHON=ON
+
+      - name: Run full coverage analysis
+        run: cmake --build build-coverage -j$(nproc)
+
+      - name: Upload C++ coverage HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpp-coverage-report-${{ inputs.compiler || 'clang' }}
+          path: reports/coverage/html/
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload Python coverage HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-coverage-report
+          path: reports/coverage/python/
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Upload coverage.info artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-info-${{ inputs.compiler || 'clang' }}
+          path: reports/coverage/coverage.info
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Write GitHub Actions step summary
+        if: always()
+        run: |
+          SUMMARY_MD="reports/coverage/coverage-summary.md"
+          if [ -f "${SUMMARY_MD}" ]; then
+            cat "${SUMMARY_MD}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Coverage Report" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "> ⚠️ coverage-summary.md not found — check build logs." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "📥 Download the full HTML report from the **cpp-coverage-report** artifact." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit coverage reports back to repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add reports/coverage/
+          git commit --allow-empty \
+            -m "chore: update coverage report (${{ inputs.compiler || 'clang' }}) [skip ci]" \
+            || echo "Nothing to commit"
+          git push || echo "Push failed (OK for PRs from forks)"

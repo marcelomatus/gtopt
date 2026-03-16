@@ -13,6 +13,7 @@
  *  6. Multi-scene SDDP solving
  *  7. Solver interface integration (monolithic vs SDDP dispatch)
  *  8. Simple 2-phase linear Benders cut and aperture tests
+ *  9. just_build_lp=true builds all LP matrices, no solving
  */
 
 #include <cmath>
@@ -20,6 +21,7 @@
 #include <fstream>
 
 #include <doctest/doctest.h>
+#include <gtopt/gtopt_main.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_solver.hpp>
@@ -3475,4 +3477,95 @@ TEST_CASE("compute_convergence_gap - large absolute upper bound")  // NOLINT
 {
   // denom = max(1.0, 1000.0) = 1000.0 → gap = 10/1000 = 0.01
   CHECK(compute_convergence_gap(1000.0, 990.0) == doctest::Approx(0.01));
+}
+
+// ─── just_build_lp tests ─────────────────────────────────────────────────────
+
+TEST_CASE(
+    "SDDPSolver - just_build_lp=true builds LP only, no solving")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+
+  // Use the 3-phase hydro planning that the other SDDP tests use.
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 100;  // would run many iterations normally
+  sddp_opts.just_build_lp = true;  // build LP only — no solving whatsoever
+
+  PlanningLP planning_lp(std::move(planning));
+  SDDPSolver sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+
+  REQUIRE(results.has_value());
+  // just_build_lp returns immediately before initialize_solver()
+  // → empty results vector (no forward pass, no iterations)
+  CHECK(results->empty());
+}
+
+TEST_CASE("SDDPPlanningSolver - just_build_lp=true returns 0")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  planning.options.solver_type = OptName {"sddp"};
+  planning.options.just_build_lp = OptBool {true};
+
+  PlanningLP planning_lp(std::move(planning));
+  auto result = planning_lp.resolve();
+
+  // just_build_lp succeeds with return value 0 (no solving performed)
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+}
+
+TEST_CASE(
+    "gtopt_main - just_build_lp=true with SDDP solver builds LP only")  // NOLINT
+{
+  // Minimal multi-phase SDDP JSON: two phases so the SDDP solver accepts it.
+  // just_build_lp should build the LP and return 0 without any solving.
+  constexpr auto sddp_just_build_lp_json = R"({
+    "options": {
+      "demand_fail_cost": 1000,
+      "output_compression": "uncompressed",
+      "solver_type": "sddp",
+      "use_single_bus": true
+    },
+    "simulation": {
+      "block_array": [
+        {"uid": 1, "duration": 1},
+        {"uid": 2, "duration": 1}
+      ],
+      "stage_array": [
+        {"uid": 1, "first_block": 0, "count_block": 1},
+        {"uid": 2, "first_block": 1, "count_block": 1}
+      ],
+      "scenario_array": [{"uid": 1}],
+      "phase_array": [
+        {"uid": 1, "first_stage": 0, "count_stage": 1},
+        {"uid": 2, "first_stage": 1, "count_stage": 1}
+      ]
+    },
+    "system": {
+      "name": "sddp_just_build_lp_test",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}
+      ]
+    }
+  })";
+
+  const auto tmp =
+      std::filesystem::temp_directory_path() / "sddp_just_build_lp_test";
+  {
+    std::ofstream ofs(tmp.string() + ".json");
+    ofs << sddp_just_build_lp_json;
+  }
+
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {tmp.string()},
+      .just_build_lp = true,
+  });
+
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
 }

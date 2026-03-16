@@ -1,0 +1,155 @@
+name: Profile
+
+# Profiling workflow for gtopt (C++) and Python scripts (plp2gtopt).
+#
+# C++ profiling strategy:
+#   - valgrind/callgrind for detailed call-graph profiling (accurate)
+#   - /usr/bin/time for wall-clock + peak RSS measurements
+#   - The gtopt binary is run with just_build_lp=true (default) to measure
+#     LP-creation time without solver overhead.
+#
+# Python profiling strategy:
+#   - python -m cProfile for function-level timing on plp2gtopt
+#
+# The profiling/ CMake sub-project orchestrates the full pipeline:
+#   cmake -S profiling -B build-profiling && cmake --build build-profiling
+#
+# Triggers: workflow_dispatch only (manual, on-demand).
+
+on:
+  workflow_dispatch:
+    inputs:
+      case:
+        description: 'Test case to profile (path relative to repo root)'
+        type: string
+        default: 'cases/ieee_9b_ori'
+      plp_case:
+        description: 'PLP case under scripts/cases/ for Python profiling'
+        type: string
+        default: 'plp_dat_ex'
+      just_build_lp:
+        description: 'Profile LP creation only (just_build_lp=true)'
+        type: boolean
+        default: true
+      reps:
+        description: 'Number of timing repetitions'
+        type: number
+        default: 5
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CTEST_OUTPUT_ON_FAILURE: 1
+  CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
+  CCACHE_BASEDIR: ${{ github.workspace }}
+  CCACHE_SLOPPINESS: gcno_file_location
+
+permissions:
+  contents: write
+
+jobs:
+  profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    name: Profile (${{ inputs.case || 'cases/ieee_9b_ori' }})
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: profile-clang
+          restore-keys: |
+            profile-clang-
+            Ubuntu-clang-
+          max-size: 2G
+
+      - uses: actions/cache@v4
+        with:
+          path: "**/cpm_modules"
+          key: profile-clang-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+
+      - name: install dependencies
+        uses: ./.github/actions/install-apt-deps
+        with:
+          extra-packages: valgrind time linux-perf
+
+      - name: install clang
+        uses: ./.github/actions/install-clang
+        with:
+          version: 21
+          install-coverage-runtime: 'false'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache uv packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-scripts-${{ hashFiles('scripts/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-scripts-
+
+      - name: Install uv and pre-install scripts dependencies
+        run: |
+          pip install uv
+          uv pip install --system -q -e "./scripts[dev]" graphviz
+
+      - name: Configure profiling sub-project
+        run: |
+          CASE_DIR="${{ inputs.case || 'cases/ieee_9b_ori' }}"
+          JUST_LP="${{ inputs.just_build_lp }}"
+          REPS="${{ inputs.reps || 5 }}"
+          PLP_CASE="${{ inputs.plp_case || 'plp_dat_ex' }}"
+          cmake -S profiling -B build-profiling \
+            "-DPROFILING_CASE=${PWD}/${CASE_DIR}" \
+            "-DPROFILING_OUTPUT_DIR=${PWD}/reports/profiling" \
+            "-DPROFILING_JUST_BUILD_LP=${JUST_LP}" \
+            "-DPROFILING_REPS=${REPS}" \
+            "-DPROFILING_PLP_CASE=${PLP_CASE}" \
+            "-DPROFILING_CMAKE_PREFIX_PATH=$(conda info --base)" \
+            -DPROFILING_PYTHON=ON
+
+      - name: Run full profiling analysis
+        run: cmake --build build-profiling -j$(nproc)
+
+      - name: Upload profiling artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpp-profile-${{ github.run_number }}
+          path: reports/profiling/
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Write GitHub Actions step summary
+        if: always()
+        run: |
+          SUMMARY_MD="reports/profiling/profiling-summary.md"
+          if [ -f "${SUMMARY_MD}" ]; then
+            cat "${SUMMARY_MD}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Profiling Report" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "> ⚠️ profiling-summary.md not found — check build logs." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "📥 Download full callgrind data from the **cpp-profile** artifact." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit profiling reports back to repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add reports/profiling/
+          git commit --allow-empty \
+            -m "chore: update profiling report (${{ inputs.case || 'cases/ieee_9b_ori' }}) [skip ci]" \
+            || echo "Nothing to commit"
+          git push || echo "Push failed (OK for PRs from forks)"

@@ -1935,6 +1935,13 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     return std::unexpected(std::move(*err));
   }
 
+  // just_build_lp: the LP matrix is already built (PlanningLP constructor).
+  // Return an empty results vector immediately — no solving, no initialization.
+  if (m_options_.just_build_lp) {
+    SPDLOG_INFO("SDDP: just_build_lp mode — LP built, skipping all solving");
+    return std::vector<SDDPIterationResult> {};
+  }
+
   // Bootstrap LP + initialize α vars, state links, hot-start cuts
   if (auto err = initialize_solver(); !err.has_value()) {
     return std::unexpected(std::move(err.error()));
@@ -2059,6 +2066,13 @@ auto SDDPPlanningSolver::solve(PlanningLP& planning_lp,
       : 0;
   SPDLOG_INFO(
       "SDDPSolver: starting {} scene(s) × {} phase(s)", num_scenes, num_phases);
+
+  // just_build_lp: LP already built in PlanningLP constructor — skip all
+  // solving.
+  if (m_sddp_opts_.just_build_lp) {
+    SPDLOG_INFO("SDDP: just_build_lp mode — LP built, skipping solve");
+    return 0;
+  }
 
   SDDPSolver sddp(planning_lp, m_sddp_opts_);
   auto results = sddp.solve(opts);

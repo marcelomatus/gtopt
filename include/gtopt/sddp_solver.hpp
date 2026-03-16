@@ -228,6 +228,13 @@ struct SDDPOptions
   /// Files are named using sddp_file::debug_lp_fmt.
   bool lp_debug {false};
 
+  /// When true, build all scene×phase LP matrices and exit immediately —
+  /// no solving of any kind is performed.  Applies to both the monolithic
+  /// and SDDP solvers.  If lp_debug is also true, every LP file is saved
+  /// before returning.  Useful for profiling LP build time without solver
+  /// overhead.
+  bool just_build_lp {false};
+
   /// Compression format for LP debug files ("gzip" / "uncompressed" / "").
   /// Empty or "uncompressed" means no compression; any other value uses gzip.
   std::string lp_debug_compression {};

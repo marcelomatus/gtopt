@@ -125,9 +125,9 @@ template<typename T>
       ("matrix-eps,e",
        po::value<double>(),
        "eps value to define A matrix non-zero values")  //
-      ("just-create,c",
+      ("build-lp,c",
        po::value<bool>().implicit_value(/*v=*/true),
-       "just create the problem, then exit")  //
+       "build all scene/phase LP matrices then exit without solving")  //
       ("fast-parsing,p",
        po::value<bool>().implicit_value(/*v=*/true),
        "use fast (non strict) json parsing")  //
@@ -140,7 +140,13 @@ template<typename T>
       ("lp-debug",
        po::value<bool>().implicit_value(/*v=*/true),
        "save debug LP files to the log directory (one per scene/phase for "
-       "monolithic; one per iteration/scene/phase for SDDP)")(
+       "monolithic; one per iteration/scene/phase for SDDP)")  //
+      ("lp-compression",
+       po::value<std::string>(),
+       "compression codec for LP debug files: empty=auto (let "
+       "gtopt_compress_lp decide), none=no compression, or a specific codec "
+       "name (gzip, zstd, lz4, bzip2, xz) passed as --codec suggestion to "
+       "gtopt_compress_lp")(
           "lp-algorithm,a",
           po::value<std::string>(),
           "LP solution algorithm: 0/default, 1/primal, 2/dual, 3/barrier "
@@ -218,7 +224,8 @@ inline void apply_cli_options(
     const std::optional<double>& sddp_elastic_penalty = {},
     const std::optional<std::string>& sddp_elastic_mode = {},
     const std::optional<int>& sddp_num_apertures = {},
-    const std::optional<bool>& lp_debug = {})
+    const std::optional<bool>& lp_debug = {},
+    const std::optional<std::string>& lp_compression = {})
 {
   if (use_single_bus) {
     planning.options.use_single_bus = use_single_bus;
@@ -295,6 +302,10 @@ inline void apply_cli_options(
   if (lp_debug) {
     planning.options.lp_debug = lp_debug;
   }
+
+  if (lp_compression) {
+    planning.options.lp_compression = lp_compression;
+  }
 }
 
 /**
@@ -328,7 +339,8 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
                     opts.sddp_elastic_penalty,
                     opts.sddp_elastic_mode,
                     opts.sddp_num_apertures,
-                    opts.lp_debug);
+                    opts.lp_debug,
+                    opts.lp_compression);
 }
 
 /**
@@ -384,11 +396,12 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .use_lp_names = get_opt<int>(vm, "use-lp-names"),
       .matrix_eps = get_opt<double>(vm, "matrix-eps"),
       .json_file = get_opt<std::string>(vm, "json-file"),
-      .just_create = get_opt<bool>(vm, "just-create"),
+      .just_build_lp = get_opt<bool>(vm, "build-lp"),
       .fast_parsing = get_opt<bool>(vm, "fast-parsing"),
       .check_json = get_opt<bool>(vm, "check-json"),
       .print_stats = get_opt<bool>(vm, "stats"),
       .lp_debug = get_opt<bool>(vm, "lp-debug"),
+      .lp_compression = get_opt<std::string>(vm, "lp-compression"),
       .trace_log = get_opt<std::string>(vm, "trace-log"),
       .cut_directory = get_opt<std::string>(vm, "cut-directory"),
       .log_directory = get_opt<std::string>(vm, "log-directory"),
