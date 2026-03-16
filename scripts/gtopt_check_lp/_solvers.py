@@ -68,8 +68,16 @@ def detect_local_solvers() -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _cplex_script(lp_path: Path) -> str:
+def _cplex_script(lp_path: Path, algo: str = "") -> str:
     """Return CPLEX interactive commands to find and display the conflict.
+
+    Parameters
+    ----------
+    lp_path:
+        Path to the LP file.
+    algo:
+        LP algorithm hint: ``"barrier"``, ``"primal"``, ``"dual"``, or
+        ``""`` (default → barrier for best infeasibility diagnostics).
 
     Command sequence rationale
     --------------------------
@@ -79,13 +87,26 @@ def _cplex_script(lp_path: Path) -> str:
     The correct approach:
     1. Disable presolve so the simplex method (not presolve) detects
        infeasibility and builds an infeasibility certificate.
-    2. Re-solve with ``optimize``.
-    3. Invoke the CPLEX conflict refiner with ``refineconflict``.
-    4. Display the minimal conflict set with ``display conflict all``.
+    2. Optionally set the LP method (barrier, primal, or dual).
+    3. Re-solve with ``optimize``.
+    4. Invoke the CPLEX conflict refiner with ``refineconflict``.
+    5. Display the minimal conflict set with ``display conflict all``.
     """
+    # Map algo names to CPLEX lpmethod values:
+    #   0 = automatic, 1 = primal simplex, 2 = dual simplex, 4 = barrier
+    effective_algo = algo.lower() if algo else "barrier"
+    cplex_method_cmds = {
+        "barrier": "set lpmethod 4\n",
+        "primal": "set lpmethod 1\n",
+        "dual": "set lpmethod 2\n",
+        "default": "",
+    }
+    method_cmd = cplex_method_cmds.get(effective_algo, "")
+
     return (
         f"read {lp_path}\n"
         "set preprocessing presolve 0\n"
+        f"{method_cmd}"
         "optimize\n"
         "refineconflict\n"
         "display conflict all\n"
@@ -93,11 +114,19 @@ def _cplex_script(lp_path: Path) -> str:
     )
 
 
-def run_local_cplex(lp_path: Path, timeout: int = 120) -> tuple[bool, str]:
+def run_local_cplex(
+    lp_path: Path, timeout: int = 120, algo: str = ""
+) -> tuple[bool, str]:
     """
     Run the local ``cplex`` binary to identify the infeasible conflict.
 
     Accepts plain or gzip-compressed LP files.
+
+    Parameters
+    ----------
+    algo:
+        LP algorithm: ``"barrier"`` (default when empty), ``"primal"``,
+        ``"dual"``, or ``"default"`` (CPLEX automatic).
 
     Returns ``(success, output)`` where *success* is True when CPLEX was
     found and executed without crashing.
@@ -111,7 +140,7 @@ def run_local_cplex(lp_path: Path, timeout: int = 120) -> tuple[bool, str]:
     script_path = ""
     try:
         with as_plain_lp(lp_path) as plain_path:
-            script = _cplex_script(plain_path)
+            script = _cplex_script(plain_path, algo=algo)
             with tempfile.NamedTemporaryFile(
                 mode="w", suffix=".cplex_cmds", delete=False, encoding="utf-8"
             ) as tf:
@@ -316,7 +345,9 @@ def parse_coinor_infeasibility(output: str) -> list[str]:
 _parse_coinor_infeasibility = parse_coinor_infeasibility
 
 
-def run_local_coinor(lp_path: Path, timeout: int = 10) -> tuple[bool, str]:
+def run_local_coinor(
+    lp_path: Path, timeout: int = 10, algo: str = ""
+) -> tuple[bool, str]:
     """
     Run CLP or CBC (COIN-OR) to analyse the LP file for infeasibility.
 
@@ -324,14 +355,34 @@ def run_local_coinor(lp_path: Path, timeout: int = 10) -> tuple[bool, str]:
 
     Tries ``clp`` first (pure LP, lighter) and falls back to ``cbc``.
 
+    Parameters
+    ----------
+    algo:
+        LP algorithm: ``"barrier"`` (default when empty), ``"primal"``,
+        ``"dual"``, or ``"default"`` (solver automatic).
+
     Returns ``(success, output)`` where *success* is True when at least one
     COIN-OR binary was found and executed without crashing.
     """
+    # Map algo names to COIN-OR command-line flags.
+    # CLP/CBC accept these commands before "solve":
+    #   "barrier"  → solve with interior point method
+    #   "primalS"  → solve with primal simplex
+    #   "dualS"    → solve with dual simplex
+    effective_algo = algo.lower() if algo else "barrier"
+    coinor_algo_args: dict[str, list[str]] = {
+        "barrier": ["barrier"],
+        "primal": ["primalS"],
+        "dual": ["dualS"],
+        "default": ["solve"],
+    }
+    algo_cmd = coinor_algo_args.get(effective_algo, ["barrier"])
+
     # Determine which solvers are available before touching the file.
     available: list[tuple[str, str, list[str]]] = []
     for binary_name, extra_args in [
-        ("clp", ["statistics", "solve"]),
-        ("cbc", ["statistics", "solve"]),
+        ("clp", ["statistics"] + algo_cmd),
+        ("cbc", ["statistics"] + algo_cmd),
     ]:
         binary = shutil.which(binary_name)
         if binary is not None:
@@ -440,12 +491,19 @@ def _format_solver_block(name: str, _success: bool, output: str) -> str:
 def run_all_solvers(
     lp_path: Path,
     *,
+    algo: str = "",
     email: str = "",
     neos_url: str = _NEOS_DEFAULT_URL,
     timeout: int = 120,
 ) -> tuple[bool, str, str]:
     """
     Run every available solver against *lp_path* and combine their output.
+
+    Parameters
+    ----------
+    algo:
+        LP algorithm passed to COIN-OR and CPLEX solvers.  When empty,
+        ``"barrier"`` is used as the default for these solvers.
 
     Returns ``(any_success, solver_name, combined_output)``.
     """
@@ -473,7 +531,7 @@ def run_all_solvers(
 
     # COIN-OR
     if shutil.which("clp") or shutil.which("cbc"):
-        ok, out = run_local_coinor(lp_path, timeout=timeout)
+        ok, out = run_local_coinor(lp_path, timeout=timeout, algo=algo)
         any_success = any_success or ok
         parts.append(_format_solver_block("COIN-OR (clp/cbc)", ok, out))
 
@@ -483,7 +541,7 @@ def run_all_solvers(
 
     # CPLEX (local)
     if shutil.which("cplex"):
-        ok, out = run_local_cplex(lp_path, timeout=timeout)
+        ok, out = run_local_cplex(lp_path, timeout=timeout, algo=algo)
         any_success = any_success or ok
         parts.append(_format_solver_block("CPLEX (local)", ok, out))
 
@@ -510,6 +568,7 @@ def run_all_solvers(
 def run_iis(
     lp_path: Path,
     solver: str = "all",
+    algo: str = "",
     email: str = "",
     neos_url: str = _NEOS_DEFAULT_URL,
     timeout: int = 120,
@@ -523,18 +582,23 @@ def run_iis(
         One of ``"all"`` (default — runs every available solver),
         ``"auto"`` (first available), ``"cplex"``, ``"highs"``,
         ``"coinor"``, ``"glpk"``, ``"neos"``.
+    algo:
+        LP algorithm passed to COIN-OR and CPLEX: ``"barrier"`` (default
+        when empty), ``"primal"``, ``"dual"``, or ``"default"``.
 
     Returns
     -------
     ``(success, solver_name, output)``
     """
     if solver in ("all", "auto"):
-        return run_all_solvers(lp_path, email=email, neos_url=neos_url, timeout=timeout)
+        return run_all_solvers(
+            lp_path, algo=algo, email=email, neos_url=neos_url, timeout=timeout
+        )
 
     solver_lower = solver.lower()
 
     if solver_lower == "cplex":
-        ok, out = run_local_cplex(lp_path, timeout=timeout)
+        ok, out = run_local_cplex(lp_path, timeout=timeout, algo=algo)
         return ok, "CPLEX", out
 
     if solver_lower == "highs":
@@ -547,7 +611,7 @@ def run_iis(
         return ok, "HiGHS", out
 
     if solver_lower == "coinor":
-        ok, out = run_local_coinor(lp_path, timeout=timeout)
+        ok, out = run_local_coinor(lp_path, timeout=timeout, algo=algo)
         return ok, "COIN-OR (clp/cbc)", out
 
     if solver_lower == "glpk":
