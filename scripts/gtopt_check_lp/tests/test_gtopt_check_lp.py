@@ -1574,12 +1574,66 @@ class TestTopNCoefficients:
         assert a < b
         assert b >= a
 
-    def test_empty_lp_has_empty_top_lists(self, tmp_path):
+    def test_empty_constraints_objective_coeffs_appear(self, tmp_path):
+        """LP with objective but no constraints: objective coefficients still tracked.
+
+        After the fix, objective function coefficients are included in min/max
+        stats and top-N entries (matching the C++ to_flat() behaviour which
+        includes both obj + matrix coefficients in stats_min_abs/stats_max_abs).
+        """
         lp_text = "Minimize\n obj: x\nSubject To\nEnd\n"
         lp = _write_lp(tmp_path, "empty.lp", lp_text)
         stats = analyze_lp_file(lp)
-        assert not stats.top_max_coeffs
-        assert not stats.top_min_coeffs
+        # Objective coefficient 1.0 for 'x' is now included.
+        assert len(stats.top_max_coeffs) == 1
+        assert stats.top_max_coeffs[0].abs_coeff == pytest.approx(1.0)
+        assert stats.top_max_coeffs[0].var_name == "x"
+        assert stats.top_max_coeffs[0].constraint_name == "obj"
+        assert len(stats.top_min_coeffs) == 1
+        assert stats.top_min_coeffs[0].abs_coeff == pytest.approx(1.0)
+
+    def test_objective_coeffs_included_in_min_max(self, tmp_path):
+        """Objective function coefficients contribute to max/min abs stats.
+
+        The C++ to_flat() includes objective coefficients in stats_min_abs and
+        stats_max_abs (obj + matrix).  This test verifies the Python analyser
+        matches that behaviour.
+        """
+        # Constraint coefficients are all 1.0; objective has 500.0 and 1e-8.
+        lp_text = (
+            "Minimize\n obj: 500.0 x1 + 1e-8 x2\nSubject To\n c1: x1 + x2 >= 1\nEnd\n"
+        )
+        lp = _write_lp(tmp_path, "obj_range.lp", lp_text)
+        stats = analyze_lp_file(lp)
+        # max comes from objective (500.0 > 1.0)
+        assert stats.max_abs_coeff == pytest.approx(500.0)
+        # min comes from objective (1e-8 < 1.0)
+        assert stats.min_abs_nonzero_coeff == pytest.approx(1e-8)
+
+    def test_objective_coeffs_in_top_n(self, tmp_path):
+        """Objective coefficients appear in top-N max/min lists with obj label."""
+        lp_text = (
+            "Minimize\n"
+            " obj: 999 x1 + 0.001 x2\n"
+            "Subject To\n"
+            " c1: 5 x1 + 2 x2 >= 1\n"
+            "End\n"
+        )
+        lp = _write_lp(tmp_path, "obj_topn.lp", lp_text)
+        stats = analyze_lp_file(lp)
+        # The largest coefficient is 999 from the objective.
+        assert stats.top_max_coeffs[0].abs_coeff == pytest.approx(999.0)
+        assert stats.top_max_coeffs[0].var_name == "x1"
+        assert stats.top_max_coeffs[0].constraint_name == "obj"
+
+    def test_objective_texts_stored(self, tmp_path):
+        """constraint_texts also stores the objective expression, keyed by name."""
+        lp_text = "Minimize\n obj: 2.5 x1 + 3.0 x2\nSubject To\n c1: x1 >= 1\nEnd\n"
+        lp = _write_lp(tmp_path, "obj_texts.lp", lp_text)
+        stats = analyze_lp_file(lp)
+        assert "obj" in stats.constraint_texts
+        assert "x1" in stats.constraint_texts["obj"]
+        assert "x2" in stats.constraint_texts["obj"]
 
     def test_constraint_texts_populated(self, tmp_path):
         """constraint_texts stores the full expression for each constraint."""
