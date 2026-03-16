@@ -57,14 +57,11 @@ from typing import Optional
 
 from . import _colors as col
 from ._config import (
-    _CONFIG_DEFAULTS,
     default_config_path,
-    get_compressor_status,
     load_config,
     pick_auto_compressor,
     print_compressor_status,
     run_interactive_setup,
-    save_config,
 )
 
 __version__ = "0.1.0"
@@ -237,8 +234,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--quiet",
         action="store_true",
         help=(
-            "Non-interactive mode: never prompt, never fail.  "
-            "Used by the gtopt binary."
+            "Non-interactive mode: never prompt, never fail.  Used by the gtopt binary."
         ),
     )
     parser.add_argument(
@@ -283,9 +279,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     color_flag = args.color
     if color_flag is None:
         color_flag = "auto"
-    use_color = color_flag == "always" or (
-        color_flag == "auto" and sys.stdout.isatty()
-    )
+    use_color = color_flag == "always" or (color_flag == "auto" and sys.stdout.isatty())
     col.USE_COLOR = use_color
 
     def _c(code: str, text: str) -> str:
@@ -357,12 +351,11 @@ def _prompt_first_run(use_color: bool) -> bool:
         return f"{code}{text}{col._RESET}" if use_color else text  # noqa: SLF001
 
     print(
-        "\n  " + _c(col._BOLD, "gtopt_compress_lp")  # noqa: SLF001
+        "\n  "
+        + _c(col._BOLD, "gtopt_compress_lp")  # noqa: SLF001
         + " needs to be configured before first use."
     )
-    print(
-        "  This wizard will show available compression tools and let you pick one.\n"
-    )
+    print("  This wizard will show available compression tools and let you pick one.\n")
     try:
         answer = input("  Run setup now? [Y/n]: ").strip().lower()
         return answer in ("", "y", "yes")
