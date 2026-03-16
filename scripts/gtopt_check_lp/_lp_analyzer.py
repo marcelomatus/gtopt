@@ -14,7 +14,7 @@ _LARGE_COEFF_THRESHOLD = 1e10
 _SMALL_COEFF_THRESHOLD = 1e-10
 
 # How many top/bottom coefficient entries to retain.
-_TOP_N_COEFFS = 10
+_TOP_N_COEFFS = 3
 
 # Matches a variable name token (used to collect names from each section).
 _VAR_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_:.]*")
@@ -214,36 +214,6 @@ def analyze_lp_file(lp_path: Path) -> LPStats:  # noqa: PLR0912, PLR0915
     section = "preamble"
     current_con_name = ""
     current_con_expr = ""
-    current_obj_name = ""
-    current_obj_expr = ""
-
-    def _flush_objective(name: str, expr: str) -> None:
-        """Parse objective expression and include its coefficients in stats.
-
-        Matches the C++ LinearProblem::to_flat() behaviour where objective
-        coefficients are included in stats_min_abs / stats_max_abs alongside
-        constraint-matrix coefficients (see linear_problem.cpp lines 113-119).
-        """
-        if not name:
-            return
-        # Store for later display in top-N reports (same as constraints).
-        stats.constraint_texts[name] = " ".join(expr.split())
-        expr_part = expr.split(":")[1] if ":" in expr else expr
-        coeffs = _parse_coefficients(expr_part)
-        pairs = _parse_coeff_var_pairs(expr_part)
-        if coeffs:
-            abs_coeffs = [abs(c) for c in coeffs if c != 0.0]
-            if abs_coeffs:
-                local_max = max(abs_coeffs)
-                local_min = min(abs_coeffs)
-                stats.max_abs_coeff = max(stats.max_abs_coeff, local_max)
-                stats.min_abs_nonzero_coeff = min(
-                    stats.min_abs_nonzero_coeff, local_min
-                )
-        for coeff, var in pairs:
-            ac = abs(coeff)
-            if ac > 0.0:
-                _all_coeff_entries.append(CoeffEntry(ac, var, name))
 
     def _flush_constraint(name: str, expr: str) -> None:
         if not name:
@@ -293,10 +263,6 @@ def analyze_lp_file(lp_path: Path) -> LPStats:  # noqa: PLR0912, PLR0915
                 break
 
         if matched_section is not None:
-            if section == "objective" and current_obj_name:
-                _flush_objective(current_obj_name, current_obj_expr)
-                current_obj_name = ""
-                current_obj_expr = ""
             if section == "constraints" and current_con_name:
                 _flush_constraint(current_con_name, current_con_expr)
                 current_con_name = ""
@@ -311,14 +277,7 @@ def analyze_lp_file(lp_path: Path) -> LPStats:  # noqa: PLR0912, PLR0915
             break
 
         if section == "objective":
-            obj_match = re.match(r"^\s*([A-Za-z_][A-Za-z0-9_:.()\[\]]*)\s*:", line)
-            if obj_match:
-                if current_obj_name:
-                    _flush_objective(current_obj_name, current_obj_expr)
-                current_obj_name = obj_match.group(1)
-                current_obj_expr = line
-            elif current_obj_name:
-                current_obj_expr += " " + line
+            # Collect variable names only; stats use the constraint matrix A.
             all_var_names.update(
                 v for v in _VAR_RE.findall(line) if not re.match(r"^[eE]$", v)
             )
@@ -425,8 +384,6 @@ def analyze_lp_file(lp_path: Path) -> LPStats:  # noqa: PLR0912, PLR0915
             stats.n_binary += len(_VAR_RE.findall(line))
             all_var_names.update(_VAR_RE.findall(line))
 
-    if section == "objective" and current_obj_name:
-        _flush_objective(current_obj_name, current_obj_expr)
     if section == "constraints" and current_con_name:
         _flush_constraint(current_con_name, current_con_expr)
 
