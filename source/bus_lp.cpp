@@ -111,6 +111,8 @@ bool BusLP::add_to_output(OutputContext& out) const
 
   out.add_row_dual(cname, "balance", pid, balance_rows);
 
+  // Primal: LP variable theta' = theta_phys * scale_theta, so
+  // theta_phys = theta' / scale_theta = theta' * inv_scale_theta.
   const auto inv_scale_theta = 1.0 / out.options().scale_theta();
   out.add_col_sol(cname,
                   "theta",
@@ -119,12 +121,15 @@ bool BusLP::add_to_output(OutputContext& out) const
                   [inv_scale_theta](auto&& value)
                   { return value * inv_scale_theta; });
 
+  // Reduced cost: rc_phys = rc_LP * scale_theta (inverse of primal).
+  // Per unit of physical theta, the cost is rc_LP * scale_theta because
+  // 1 unit of theta_phys = scale_theta units of theta_LP.
+  const auto scale_theta = out.options().scale_theta();
   out.add_col_cost(cname,
                    "theta",
                    pid,
                    theta_cols,
-                   [inv_scale_theta](auto&& value)
-                   { return value * inv_scale_theta; });
+                   [scale_theta](auto&& value) { return value * scale_theta; });
 
   return true;
 }

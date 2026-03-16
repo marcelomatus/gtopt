@@ -174,8 +174,9 @@ int TurbineLP::update_lp(SystemLP& sys,
       if (li.is_optimal()) {
         const auto eini_col = rsv.eini_col_at(scenario, stage);
         const auto efin_col = rsv.efin_col_at(scenario, stage);
-        const auto vini = li.get_col_sol()[eini_col];
-        const auto vfin = li.get_col_sol()[efin_col];
+        // LP volumes are in scaled units; convert to physical.
+        const auto vini = rsv.to_physical(li.get_col_sol()[eini_col]);
+        const auto vfin = rsv.to_physical(li.get_col_sol()[efin_col]);
         volume = (vini + vfin) / 2.0;
       }
     }

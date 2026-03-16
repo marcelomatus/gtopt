@@ -342,6 +342,24 @@ public:
   void set_prob_name(const std::string& pname);
   [[nodiscard]] std::string get_prob_name() const;
 
+  /// @name LP coefficient statistics (populated during load_flat from
+  ///       FlatLinearProblem::stats_* fields, which are computed in
+  ///       LinearProblem::to_flat when FlatOptions::compute_stats is true).
+  /// @{
+  [[nodiscard]] constexpr size_t lp_stats_nnz() const noexcept
+  {
+    return m_stats_nnz_;
+  }
+  [[nodiscard]] constexpr double lp_stats_max_abs() const noexcept
+  {
+    return m_stats_max_abs_;
+  }
+  [[nodiscard]] constexpr double lp_stats_min_abs() const noexcept
+  {
+    return m_stats_min_abs_;
+  }
+  /// @}
+
 private:
   void set_solver_opts(const SolverOptions& solver_options);
 
@@ -375,6 +393,10 @@ private:
 
   solver_ptr_t solver;
   std::string log_file {};
+
+  size_t m_stats_nnz_ {};
+  double m_stats_max_abs_ {};
+  double m_stats_min_abs_ {};
 
   struct FILEcloser
   {

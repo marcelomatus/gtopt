@@ -124,6 +124,11 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
                       flat_lp.rowlb.data(),
                       flat_lp.rowub.data());
 
+  // Preserve coefficient statistics computed during to_flat().
+  m_stats_nnz_ = flat_lp.stats_nnz;
+  m_stats_max_abs_ = flat_lp.stats_max_abs;
+  m_stats_min_abs_ = flat_lp.stats_min_abs;
+
   for (auto i : flat_lp.colint) {
     solver->setInteger(i);
   }

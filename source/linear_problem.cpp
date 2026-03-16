@@ -62,6 +62,13 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
   // Use a working copy of matbeg as write cursors
   std::vector<fp_index_t> colpos = matbeg;
 
+  // Optionally track coefficient stats during the matrix scan (zero cost
+  // when disabled — the branch is predictable and the inner loop is hot).
+  const bool do_stats = opts.compute_stats;
+  double stats_max = 0.0;
+  double stats_min = std::numeric_limits<double>::max();
+  size_t stats_nnz = 0;
+
   for (const auto& [i, row] : std::views::enumerate(rows)) {
     for (const auto& [j, v] : row.cmap) {
       if (eps < 0 || std::abs(v) > eps) [[likely]] {
@@ -70,6 +77,17 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
         matind[pos] = static_cast<fp_index_t>(i);
         matval[pos] = v;
         ++colpos[c];
+
+        if (do_stats) [[unlikely]] {
+          const double abs_v = std::abs(v);
+          if (abs_v > stats_max) {
+            stats_max = abs_v;
+          }
+          if (abs_v < stats_min) {
+            stats_min = abs_v;
+          }
+          ++stats_nnz;
+        }
       }
     }
   }
@@ -94,6 +112,18 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
 
     if (col.is_integer) [[unlikely]] {
       colint.push_back(static_cast<fp_index_t>(i));
+    }
+
+    // Include objective coefficients in the stats scan.
+    if (do_stats && col.cost != 0.0) [[unlikely]] {
+      const double abs_c = std::abs(col.cost);
+      if (abs_c > stats_max) {
+        stats_max = abs_c;
+      }
+      if (abs_c < stats_min) {
+        stats_min = abs_c;
+      }
+      ++stats_nnz;
     }
   }
 
@@ -165,6 +195,10 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
       .colmp = std::move(colmp),
       .rowmp = std::move(rowmp),
       .name = opts.move_names ? std::move(pname) : pname,
+      .stats_nnz = stats_nnz,
+      .stats_max_abs = stats_max,
+      .stats_min_abs =
+          stats_nnz > 0 ? stats_min : std::numeric_limits<double>::max(),
   };
 }
 

@@ -352,7 +352,8 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
  */
 [[nodiscard]] inline FlatOptions make_flat_options(
     const std::optional<int>& use_lp_names,
-    const std::optional<double>& matrix_eps)
+    const std::optional<double>& matrix_eps,
+    bool compute_stats = false)
 {
   const auto eps = matrix_eps.value_or(0);
   const auto lp_names = use_lp_names.value_or(true);
@@ -365,6 +366,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   flat_opts.row_with_name_map = lp_names > 1;
   flat_opts.reserve_matrix = false;
   flat_opts.reserve_factor = 2;
+  flat_opts.compute_stats = compute_stats;
 
   return flat_opts;
 }
