@@ -268,6 +268,22 @@ public:
   }
 
   /**
+   * @brief Gets the LP compression codec for debug LP files.
+   *
+   * Returns the value of `lp_compression` when set.  An empty string means
+   * "let gtopt_compress_lp decide" (auto-cascade).  `"none"` disables
+   * compression entirely.  Any other value is a codec suggestion passed as
+   * `--codec <value>` to `gtopt_compress_lp`.
+   *
+   * @return Compression codec string (may be empty)
+   */
+  [[nodiscard]] constexpr auto lp_compression() const
+  {
+    static constexpr auto default_lp_compression = "";
+    return m_options_.lp_compression.value_or(default_lp_compression);
+  }
+
+  /**
    * @brief Gets the just_build_lp flag, using default if not set.
    *
    * When true, the solver builds all scene×phase LP matrices but skips
