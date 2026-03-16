@@ -22,7 +22,7 @@ import threading
 from pathlib import Path
 
 from . import _colors as col
-from ._compress import as_plain_lp
+from ._compress import as_plain_lp, as_sanitized_lp
 from ._neos import NeosClient
 
 log = logging.getLogger(__name__)
@@ -327,17 +327,22 @@ def run_local_coinor(lp_path: Path, timeout: int = 10) -> tuple[bool, str]:
     Returns ``(success, output)`` where *success* is True when at least one
     COIN-OR binary was found and executed without crashing.
     """
+    # Determine which solvers are available before touching the file.
+    available: list[tuple[str, str, list[str]]] = []
+    for binary_name, extra_args in [
+        ("clp", ["statistics", "solve"]),
+        ("cbc", ["statistics", "solve"]),
+    ]:
+        binary = shutil.which(binary_name)
+        if binary is not None:
+            available.append((binary_name, binary, extra_args))
+
+    if not available:
+        return False, "Neither clp nor cbc binary found on PATH."
+
     results: list[str] = []
-
-    with as_plain_lp(lp_path) as plain_path:
-        for binary_name, extra_args in [
-            ("clp", ["statistics", "solve"]),
-            ("cbc", ["statistics", "solve"]),
-        ]:
-            binary = shutil.which(binary_name)
-            if binary is None:
-                continue
-
+    with as_sanitized_lp(lp_path) as plain_path:
+        for binary_name, binary, extra_args in available:
             log.debug("Running COIN-OR %s from: %s", binary_name.upper(), binary)
             try:
                 proc = subprocess.run(
@@ -399,7 +404,7 @@ def run_local_glpk(lp_path: Path, timeout: int = 120) -> tuple[bool, str]:
 
     log.debug("Running GLPK from: %s", glpsol_bin)
     try:
-        with as_plain_lp(lp_path) as plain_path:
+        with as_sanitized_lp(lp_path) as plain_path:
             result = subprocess.run(
                 [glpsol_bin, "--lp", str(plain_path)],
                 capture_output=True,

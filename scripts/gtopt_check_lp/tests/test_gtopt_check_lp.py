@@ -15,9 +15,15 @@ import pytest
 
 from gtopt_check_lp._compress import (
     as_plain_lp,
+    as_sanitized_lp,
     is_compressed,
     read_lp_text,
     resolve_lp_path,
+    sanitize_lp_names,
+)
+from gtopt_check_lp._lp_analyzer import (
+    CoeffEntry,
+    _parse_coeff_var_pairs,
 )
 from gtopt_check_lp.gtopt_check_lp import (
     AiOptions,
@@ -1402,3 +1408,175 @@ class TestSubprocessRun:
         assert any(
             kw in combined.lower() for kw in ("infeasible", "coin-or", "clp", "cbc")
         ), f"Expected COIN-OR infeasibility output:\n{combined}"
+
+
+# ── sanitize_lp_names ──────────────────────────────────────────────────────
+
+
+class TestSanitizeLpNames:
+    """Tests for the sanitize_lp_names() function and as_sanitized_lp()."""
+
+    def test_no_colon_in_names_unchanged(self):
+        """LP files without ':' in names pass through unchanged."""
+        lp = "Minimize\n obj: x1 + x2\nSubject To\n c1: x1 + x2 >= 1\nEnd\n"
+        assert sanitize_lp_names(lp) == lp
+
+    def test_colon_inside_variable_name_replaced(self):
+        """A ':' embedded inside a variable token in an expression is replaced."""
+        lp = "Minimize\n obj: uid:1 + uid:2\nSubject To\n c1: uid:1 + uid:2 >= 1\nEnd\n"
+        result = sanitize_lp_names(lp)
+        # The constraint separator colon after 'obj' and 'c1' must be preserved.
+        assert "obj:" in result
+        assert "c1:" in result
+        # The colons inside token names must be replaced.
+        assert "uid:1" not in result
+        assert "uid_1" in result
+        assert "uid_2" in result
+
+    def test_constraint_separator_colon_preserved(self):
+        """The ':' after a constraint name is always kept."""
+        lp = "Subject To\n balance_1_2_3: gen_1 + gen_2 >= 10\nEnd\n"
+        result = sanitize_lp_names(lp)
+        assert "balance_1_2_3:" in result
+
+    def test_as_sanitized_lp_creates_temp_file(self, tmp_path):
+        """as_sanitized_lp writes a sanitised temporary file."""
+        lp = "Minimize\n obj: uid:10 + uid:20\nSubject To\n c1: uid:10 >= 5\nEnd\n"
+        lp_file = tmp_path / "test.lp"
+        lp_file.write_text(lp, encoding="utf-8")
+
+        with as_sanitized_lp(lp_file) as san_path:
+            text = san_path.read_text(encoding="utf-8")
+
+        assert "uid:10" not in text
+        assert "uid_10" in text
+
+    def test_as_sanitized_lp_temp_file_removed_after(self, tmp_path):
+        """The temporary file created by as_sanitized_lp is removed on exit."""
+        lp_file = tmp_path / "test.lp"
+        lp_file.write_text("Minimize\n obj: x\nEnd\n", encoding="utf-8")
+
+        with as_sanitized_lp(lp_file) as san_path:
+            captured = san_path
+
+        assert not captured.exists()
+
+    def test_as_sanitized_lp_on_compressed_file(self, tmp_path):
+        """as_sanitized_lp transparently decompresses and sanitises."""
+        lp = "Minimize\n obj: uid:1\nEnd\n"
+        gz_file = tmp_path / "test.lp.gz"
+        with gzip.open(str(gz_file), "wt", encoding="utf-8") as fh:
+            fh.write(lp)
+
+        with as_sanitized_lp(gz_file) as san_path:
+            text = san_path.read_text(encoding="utf-8")
+
+        assert "uid:1" not in text
+        assert "uid_1" in text
+
+
+# ── _parse_coeff_var_pairs ─────────────────────────────────────────────────
+
+
+class TestParseCoeffVarPairs:
+    """Tests for _parse_coeff_var_pairs()."""
+
+    @staticmethod
+    def _to_var_coeff_dict(expr: str) -> dict[str, float]:
+        """Helper: convert (coeff, var) pairs to {var: coeff} dict."""
+        return {var: coeff for coeff, var in _parse_coeff_var_pairs(expr)}
+
+    def test_explicit_coefficient(self):
+        pairs = self._to_var_coeff_dict("2.5 x1 + 3.0 x2")
+        assert pairs.get("x1") == pytest.approx(2.5)
+        assert pairs.get("x2") == pytest.approx(3.0)
+
+    def test_negative_coefficient(self):
+        pairs = self._to_var_coeff_dict("- 0.9 var_a + 1.1 var_b")
+        assert pairs.get("var_a") == pytest.approx(-0.9)
+        assert pairs.get("var_b") == pytest.approx(1.1)
+
+    def test_sign_only_positive(self):
+        pairs = self._to_var_coeff_dict("+ my_var")
+        assert pairs.get("my_var") == pytest.approx(1.0)
+
+    def test_sign_only_negative(self):
+        pairs = self._to_var_coeff_dict("- my_var")
+        assert pairs.get("my_var") == pytest.approx(-1.0)
+
+    def test_no_sign_no_coeff(self):
+        pairs = self._to_var_coeff_dict("my_var_1 + my_var_2")
+        assert pairs.get("my_var_1") == pytest.approx(1.0)
+        assert pairs.get("my_var_2") == pytest.approx(1.0)
+
+    def test_scientific_notation(self):
+        pairs = self._to_var_coeff_dict("- 3.8994e-05 rsv_eini")
+        assert pairs.get("rsv_eini") == pytest.approx(-3.8994e-05)
+
+    def test_rhs_stripped(self):
+        """Coefficients after '=' should not be returned."""
+        pairs = self._to_var_coeff_dict("x1 - 3.5 x2 = 10")
+        assert set(pairs.keys()) <= {"x1", "x2"}
+        assert pairs.get("x1") == pytest.approx(1.0)
+        assert pairs.get("x2") == pytest.approx(-3.5)
+
+
+# ── top-N coefficient tracking ─────────────────────────────────────────────
+
+
+class TestTopNCoefficients:
+    """Tests for top_max_coeffs / top_min_coeffs in LPStats."""
+
+    _LP_WITH_VARIED_COEFFS = (
+        "Minimize\n"
+        " obj: x1\n"
+        "Subject To\n"
+        " c_large: 1e12 x1 + x2 >= 1\n"
+        " c_small: 1e-12 x1 - 0.5 x2 >= 0\n"
+        " c_mid: 3.0 x1 + 2.0 x2 >= 2\n"
+        "Bounds\n"
+        " 0 <= x1 <= 1e30\n"
+        " 0 <= x2 <= 1e30\n"
+        "End\n"
+    )
+
+    def test_top_max_coeffs_populated(self, tmp_path):
+        lp = _write_lp(tmp_path, "varied.lp", self._LP_WITH_VARIED_COEFFS)
+        stats = analyze_lp_file(lp)
+        assert len(stats.top_max_coeffs) > 0
+        # Largest should be 1e12
+        assert stats.top_max_coeffs[0].abs_coeff == pytest.approx(1e12)
+
+    def test_top_min_coeffs_populated(self, tmp_path):
+        lp = _write_lp(tmp_path, "varied.lp", self._LP_WITH_VARIED_COEFFS)
+        stats = analyze_lp_file(lp)
+        assert len(stats.top_min_coeffs) > 0
+        # Smallest should be 1e-12
+        assert stats.top_min_coeffs[0].abs_coeff == pytest.approx(1e-12)
+
+    def test_top_max_includes_var_and_constraint_names(self, tmp_path):
+        lp = _write_lp(tmp_path, "varied.lp", self._LP_WITH_VARIED_COEFFS)
+        stats = analyze_lp_file(lp)
+        entry = stats.top_max_coeffs[0]
+        assert entry.var_name  # non-empty variable name
+        assert entry.constraint_name  # non-empty constraint name
+
+    def test_format_report_shows_top_coeffs(self, tmp_path):
+        lp = _write_lp(tmp_path, "varied.lp", self._LP_WITH_VARIED_COEFFS)
+        stats = analyze_lp_file(lp)
+        report = format_static_report(lp, stats)
+        assert "largest" in report.lower() or "1.000e+12" in report
+
+    def test_coeff_entry_ordering(self):
+        """CoeffEntry supports __lt__ for heapq operations."""
+        a = CoeffEntry(1.0, "x", "c")
+        b = CoeffEntry(2.0, "y", "d")
+        assert a < b
+        assert b >= a
+
+    def test_empty_lp_has_empty_top_lists(self, tmp_path):
+        lp_text = "Minimize\n obj: x\nSubject To\nEnd\n"
+        lp = _write_lp(tmp_path, "empty.lp", lp_text)
+        stats = analyze_lp_file(lp)
+        assert not stats.top_max_coeffs
+        assert not stats.top_min_coeffs
