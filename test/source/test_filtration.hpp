@@ -298,45 +298,64 @@ TEST_CASE("evaluate_filtration with single segment")
       {.volume = 0.0, .slope = 0.001, .constant = 2.0},
   };
 
-  // At V=0: 2.0 + 0.001 * (0 - 0) = 2.0
+  // At V=0: constant + slope * V = 2.0 + 0.001 * 0 = 2.0
   CHECK(evaluate_filtration(segments, 0.0) == doctest::Approx(2.0));
 
   // At V=500: 2.0 + 0.001 * 500 = 2.5
   CHECK(evaluate_filtration(segments, 500.0) == doctest::Approx(2.5));
 }
 
-TEST_CASE("evaluate_filtration with two segments (concave envelope)")
+TEST_CASE("evaluate_filtration with two segments (piecewise linear)")
 {
-  // Two segments creating a concave envelope:
-  // seg1: constant=2.0, slope=0.001, volume=0.0 → 2.0 + 0.001 * V
-  // seg2: constant=2.8, slope=0.0002, volume=500.0 → 2.8 + 0.0002*(V-500)
+  // Two segments modelling a piecewise-linear filtration curve:
+  //   seg1: constant=2.0 (y-intercept), slope=0.001, breakpoint=0.0
+  //         → filtration = 2.0 + 0.001 * V  (applies when V < 500)
+  //   seg2: constant=2.7 (y-intercept), slope=0.0002, breakpoint=500.0
+  //         → filtration = 2.7 + 0.0002 * V  (applies when V ≥ 500)
   //
-  // At V=0:   seg1=2.0, seg2=2.8+0.0002*(-500)=2.7 → min=2.0
-  // At V=500: seg1=2.5, seg2=2.8 → min=2.5
-  // At V=1500: seg1=3.5, seg2=2.8+0.0002*1000=3.0 → min=3.0
+  // Note: constants are y-intercepts (PLP Fortran FiltConst), matching the
+  // format stored by filemb_parser.py.  The function applies the segment whose
+  // breakpoint is the largest that is ≤ the current volume (range selection,
+  // matching PLP FFiltracionesi).
+  //
+  // Values at key volumes:
+  //   V=0:    seg1 → 2.0 + 0.001*0   = 2.0
+  //   V=500:  seg2 → 2.7 + 0.0002*500 = 2.8
+  //   V=1500: seg2 → 2.7 + 0.0002*1500 = 3.0
   const std::vector<FiltrationSegment> segments {
       {.volume = 0.0, .slope = 0.001, .constant = 2.0},
-      {.volume = 500.0, .slope = 0.0002, .constant = 2.8},
+      {.volume = 500.0, .slope = 0.0002, .constant = 2.7},
   };
 
   CHECK(evaluate_filtration(segments, 0.0) == doctest::Approx(2.0));
-  CHECK(evaluate_filtration(segments, 500.0) == doctest::Approx(2.5));
+  CHECK(evaluate_filtration(segments, 500.0) == doctest::Approx(2.8));
   CHECK(evaluate_filtration(segments, 1500.0) == doctest::Approx(3.0));
 }
 
 TEST_CASE("select_filtration_coeffs with two segments")
 {
+  // Constants are y-intercepts (PLP format: filtration = constant + slope * V).
+  // seg1: y-intercept=2.0, slope=0.001, breakpoint=0.0
+  // seg2: y-intercept=2.7, slope=0.0002, breakpoint=500.0
+  //       (at V=500: 2.7 + 0.0002*500 = 2.8)
+  //
+  // Segment selection follows PLP range logic: pick segment whose breakpoint
+  // is the largest ≤ current volume.
   const std::vector<FiltrationSegment> segments {
       {.volume = 0.0, .slope = 0.001, .constant = 2.0},
-      {.volume = 500.0, .slope = 0.0002, .constant = 2.8},
+      {.volume = 500.0, .slope = 0.0002, .constant = 2.7},
   };
 
-  // At V=0: seg1 gives min → slope=0.001, intercept=2.0-0.001*0=2.0
+  // At V=0: seg1 selected (breakpoint 0 ≤ 0 < 500)
+  // LP: filt - 0.001*0.5*eini - 0.001*0.5*efin = 2.0
+  //     → filt = 2.0 + 0.001 * V_avg  (positive at any V_avg ≥ 0)
   auto c0 = select_filtration_coeffs(segments, 0.0);
   CHECK(c0.slope == doctest::Approx(0.001));
   CHECK(c0.intercept == doctest::Approx(2.0));
 
-  // At V=1500: seg2 gives min → slope=0.0002, intercept=2.8-0.0002*500=2.7
+  // At V=1500: seg2 selected (breakpoint 500 ≤ 1500)
+  // LP: filt - 0.0002*0.5*eini - 0.0002*0.5*efin = 2.7
+  //     → filt = 2.7 + 0.0002 * V_avg  (positive at any V_avg ≥ 0)
   auto c1500 = select_filtration_coeffs(segments, 1500.0);
   CHECK(c1500.slope == doctest::Approx(0.0002));
   CHECK(c1500.intercept == doctest::Approx(2.7));
