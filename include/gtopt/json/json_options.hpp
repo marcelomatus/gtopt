@@ -10,12 +10,14 @@
 
 #include <daw/json/daw_json_link.h>
 #include <gtopt/json/json_basic_types.hpp>
+#include <gtopt/json/json_solver_options.hpp>
 #include <gtopt/options.hpp>
 
 namespace daw::json
 {
 using gtopt::Options;
 using gtopt::SddpOptions;
+using gtopt::SolverOptions;
 
 template<>
 struct json_data_contract<SddpOptions>
@@ -96,7 +98,8 @@ struct json_data_contract<Options>
                        json_string_null<"lp_compression", OptName>,
                        json_bool_null<"just_build_lp", OptBool>,
 
-                       json_class_null<"sddp_options", SddpOptions>>;
+                       json_class_null<"sddp_options", SddpOptions>,
+                       json_class_null<"solver_options", SolverOptions>>;
 
   constexpr static auto to_json_data(Options const& opt)
   {
@@ -129,7 +132,8 @@ struct json_data_contract<Options>
                                  opt.lp_compression,
                                  opt.just_build_lp,
 
-                                 opt.sddp_options);
+                                 opt.sddp_options,
+                                 opt.solver_options);
   }
 };
 

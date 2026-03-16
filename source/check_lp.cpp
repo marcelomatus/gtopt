@@ -14,6 +14,7 @@
 
 #include <array>
 #include <filesystem>
+#include <format>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -307,14 +308,17 @@ struct SpawnResult
 
 std::string run_check_lp_diagnostic(const std::string& lp_file,
                                     int timeout_seconds,
-                                    const std::string& algo)
+                                    const SolverOptions& solver_opts)
 {
   // Ensure the LP file path has an extension; default to ".lp".
   const std::string lp_path = lp_file.contains('.') ? lp_file : lp_file + ".lp";
 
   // Effective command:
   //   [timeout <N>] gtopt_check_lp --quiet --no-color --no-ai --timeout <N>
-  //                                [--algo <algo>] <file>
+  //                                [--algo <algo>]
+  //                                [--optimal-eps <v>] [--feasible-eps <v>]
+  //                                [--barrier-eps <v>]
+  //                                <file>
   //
   // --quiet ensures the child never blocks for user input and always exits
   // with code 0 (tries every available solver, falls back to NEOS if an
@@ -331,9 +335,25 @@ std::string run_check_lp_diagnostic(const std::string& lp_file,
 
   // Pass the LP algorithm when the caller specifies one, so gtopt_check_lp
   // uses the same algorithm (barrier, primal, dual) as the gtopt solver.
-  if (!algo.empty()) {
+  const auto algo_name = std::string(lp_algo_name(solver_opts.algorithm));
+  if (!algo_name.empty() && algo_name != "unknown") {
     args.emplace_back("--algo");
-    args.emplace_back(algo);
+    args.emplace_back(algo_name);
+  }
+
+  // Pass optional tolerance values so gtopt_check_lp uses the same numerical
+  // settings as the original gtopt solve.
+  if (solver_opts.optimal_eps) {
+    args.emplace_back("--optimal-eps");
+    args.emplace_back(std::format("{}", *solver_opts.optimal_eps));
+  }
+  if (solver_opts.feasible_eps) {
+    args.emplace_back("--feasible-eps");
+    args.emplace_back(std::format("{}", *solver_opts.feasible_eps));
+  }
+  if (solver_opts.barrier_eps) {
+    args.emplace_back("--barrier-eps");
+    args.emplace_back(std::format("{}", *solver_opts.barrier_eps));
   }
 
   args.emplace_back(lp_path);

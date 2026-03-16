@@ -339,20 +339,17 @@ void LinearInterface::write_lp(const std::string& filename) const
 
 void LinearInterface::set_solver_opts(const SolverOptions& solver_options)
 {
-  const auto oeps = solver_options.optimal_eps;
-  if (oeps > 0) {
-    solver->setDblParam(OsiDualTolerance, oeps);
+  if (const auto oeps = solver_options.optimal_eps; oeps && *oeps > 0) {
+    solver->setDblParam(OsiDualTolerance, *oeps);
   }
 
-  const auto feps = solver_options.feasible_eps;
-  if (feps > 0) {
-    solver->setDblParam(OsiPrimalTolerance, feps);
+  if (const auto feps = solver_options.feasible_eps; feps && *feps > 0) {
+    solver->setDblParam(OsiPrimalTolerance, *feps);
   }
 
 #ifdef OSI_EXTENDED
-  const auto beps = solver_options.barrier_eps;
-  if (beps > 0) {
-    solver->setDblParam(OsiBarrierTolerance, beps);
+  if (const auto beps = solver_options.barrier_eps; beps && *beps > 0) {
+    solver->setDblParam(OsiBarrierTolerance, *beps);
   }
 #endif
 

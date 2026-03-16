@@ -68,7 +68,13 @@ def detect_local_solvers() -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _cplex_script(lp_path: Path, algo: str = "") -> str:
+def _cplex_script(
+    lp_path: Path,
+    algo: str = "",
+    optimal_eps: float = 0.0,
+    feasible_eps: float = 0.0,
+    barrier_eps: float = 0.0,
+) -> str:
     """Return CPLEX interactive commands to find and display the conflict.
 
     Parameters
@@ -78,6 +84,12 @@ def _cplex_script(lp_path: Path, algo: str = "") -> str:
     algo:
         LP algorithm hint: ``"barrier"``, ``"primal"``, ``"dual"``, or
         ``""`` (default → barrier for best infeasibility diagnostics).
+    optimal_eps:
+        Dual (optimality) tolerance; 0.0 means use CPLEX default.
+    feasible_eps:
+        Primal (feasibility) tolerance; 0.0 means use CPLEX default.
+    barrier_eps:
+        Barrier convergence tolerance; 0.0 means use CPLEX default.
 
     Command sequence rationale
     --------------------------
@@ -88,9 +100,10 @@ def _cplex_script(lp_path: Path, algo: str = "") -> str:
     1. Disable presolve so the simplex method (not presolve) detects
        infeasibility and builds an infeasibility certificate.
     2. Optionally set the LP method (barrier, primal, or dual).
-    3. Re-solve with ``optimize``.
-    4. Invoke the CPLEX conflict refiner with ``refineconflict``.
-    5. Display the minimal conflict set with ``display conflict all``.
+    3. Optionally set numerical tolerances.
+    4. Re-solve with ``optimize``.
+    5. Invoke the CPLEX conflict refiner with ``refineconflict``.
+    6. Display the minimal conflict set with ``display conflict all``.
     """
     # Map algo names to CPLEX lpmethod values:
     #   0 = automatic, 1 = primal simplex, 2 = dual simplex, 4 = barrier
@@ -103,10 +116,19 @@ def _cplex_script(lp_path: Path, algo: str = "") -> str:
     }
     method_cmd = cplex_method_cmds.get(effective_algo, "")
 
+    tol_cmds = ""
+    if optimal_eps > 0:
+        tol_cmds += f"set simplex tolerances dual {optimal_eps}\n"
+    if feasible_eps > 0:
+        tol_cmds += f"set simplex tolerances primal {feasible_eps}\n"
+    if barrier_eps > 0:
+        tol_cmds += f"set barrier convergetol {barrier_eps}\n"
+
     return (
         f"read {lp_path}\n"
         "set preprocessing presolve 0\n"
         f"{method_cmd}"
+        f"{tol_cmds}"
         "optimize\n"
         "refineconflict\n"
         "display conflict all\n"
@@ -115,7 +137,12 @@ def _cplex_script(lp_path: Path, algo: str = "") -> str:
 
 
 def run_local_cplex(
-    lp_path: Path, timeout: int = 120, algo: str = ""
+    lp_path: Path,
+    timeout: int = 120,
+    algo: str = "",
+    optimal_eps: float = 0.0,
+    feasible_eps: float = 0.0,
+    barrier_eps: float = 0.0,
 ) -> tuple[bool, str]:
     """
     Run the local ``cplex`` binary to identify the infeasible conflict.
@@ -127,6 +154,12 @@ def run_local_cplex(
     algo:
         LP algorithm: ``"barrier"`` (default when empty), ``"primal"``,
         ``"dual"``, or ``"default"`` (CPLEX automatic).
+    optimal_eps:
+        Dual (optimality) tolerance; 0.0 means use CPLEX default.
+    feasible_eps:
+        Primal (feasibility) tolerance; 0.0 means use CPLEX default.
+    barrier_eps:
+        Barrier convergence tolerance; 0.0 means use CPLEX default.
 
     Returns ``(success, output)`` where *success* is True when CPLEX was
     found and executed without crashing.
@@ -140,7 +173,13 @@ def run_local_cplex(
     script_path = ""
     try:
         with as_plain_lp(lp_path) as plain_path:
-            script = _cplex_script(plain_path, algo=algo)
+            script = _cplex_script(
+                plain_path,
+                algo=algo,
+                optimal_eps=optimal_eps,
+                feasible_eps=feasible_eps,
+                barrier_eps=barrier_eps,
+            )
             with tempfile.NamedTemporaryFile(
                 mode="w", suffix=".cplex_cmds", delete=False, encoding="utf-8"
             ) as tf:
@@ -346,7 +385,12 @@ _parse_coinor_infeasibility = parse_coinor_infeasibility
 
 
 def run_local_coinor(
-    lp_path: Path, timeout: int = 10, algo: str = ""
+    lp_path: Path,
+    timeout: int = 10,
+    algo: str = "",
+    optimal_eps: float = 0.0,
+    feasible_eps: float = 0.0,
+    barrier_eps: float = 0.0,
 ) -> tuple[bool, str]:
     """
     Run CLP or CBC (COIN-OR) to analyse the LP file for infeasibility.
@@ -360,6 +404,17 @@ def run_local_coinor(
     algo:
         LP algorithm: ``"barrier"`` (default when empty), ``"primal"``,
         ``"dual"``, or ``"default"`` (solver automatic).
+    optimal_eps:
+        Dual (optimality) tolerance; 0.0 means use the solver default.
+        Passed as ``-dualtolerance`` to CLP/CBC.
+    feasible_eps:
+        Primal (feasibility) tolerance; 0.0 means use the solver default.
+        Passed as ``-primaltolerance`` to CLP/CBC.
+    barrier_eps:
+        Barrier convergence tolerance; 0.0 means use the solver default.
+        Passed as ``-dualbound`` is not applicable; barrier tol is not
+        directly exposed via CLP CLI, so this parameter is accepted but
+        silently ignored for CLP/CBC.
 
     Returns ``(success, output)`` where *success* is True when at least one
     COIN-OR binary was found and executed without crashing.
@@ -378,11 +433,19 @@ def run_local_coinor(
     }
     algo_cmd = coinor_algo_args.get(effective_algo, ["barrier"])
 
+    # Build tolerance flags (placed before the solve command).
+    tol_args: list[str] = []
+    if optimal_eps > 0:
+        tol_args += ["-dualtolerance", str(optimal_eps)]
+    if feasible_eps > 0:
+        tol_args += ["-primaltolerance", str(feasible_eps)]
+    # barrier_eps has no direct CLP/CBC command-line equivalent; ignore.
+
     # Determine which solvers are available before touching the file.
     available: list[tuple[str, str, list[str]]] = []
     for binary_name, extra_args in [
-        ("clp", ["statistics"] + algo_cmd),
-        ("cbc", ["statistics"] + algo_cmd),
+        ("clp", ["statistics"] + tol_args + algo_cmd),
+        ("cbc", ["statistics"] + tol_args + algo_cmd),
     ]:
         binary = shutil.which(binary_name)
         if binary is not None:
@@ -492,6 +555,9 @@ def run_all_solvers(
     lp_path: Path,
     *,
     algo: str = "",
+    optimal_eps: float = 0.0,
+    feasible_eps: float = 0.0,
+    barrier_eps: float = 0.0,
     email: str = "",
     neos_url: str = _NEOS_DEFAULT_URL,
     timeout: int = 120,
@@ -504,6 +570,15 @@ def run_all_solvers(
     algo:
         LP algorithm passed to COIN-OR and CPLEX solvers.  When empty,
         ``"barrier"`` is used as the default for these solvers.
+    optimal_eps:
+        Dual (optimality) tolerance passed to COIN-OR and CPLEX; 0.0 uses
+        solver defaults.
+    feasible_eps:
+        Primal (feasibility) tolerance passed to COIN-OR and CPLEX; 0.0
+        uses solver defaults.
+    barrier_eps:
+        Barrier convergence tolerance passed to CPLEX; 0.0 uses solver
+        defaults.
 
     Returns ``(any_success, solver_name, combined_output)``.
     """
@@ -531,7 +606,14 @@ def run_all_solvers(
 
     # COIN-OR
     if shutil.which("clp") or shutil.which("cbc"):
-        ok, out = run_local_coinor(lp_path, timeout=timeout, algo=algo)
+        ok, out = run_local_coinor(
+            lp_path,
+            timeout=timeout,
+            algo=algo,
+            optimal_eps=optimal_eps,
+            feasible_eps=feasible_eps,
+            barrier_eps=barrier_eps,
+        )
         any_success = any_success or ok
         parts.append(_format_solver_block("COIN-OR (clp/cbc)", ok, out))
 
@@ -541,7 +623,14 @@ def run_all_solvers(
 
     # CPLEX (local)
     if shutil.which("cplex"):
-        ok, out = run_local_cplex(lp_path, timeout=timeout, algo=algo)
+        ok, out = run_local_cplex(
+            lp_path,
+            timeout=timeout,
+            algo=algo,
+            optimal_eps=optimal_eps,
+            feasible_eps=feasible_eps,
+            barrier_eps=barrier_eps,
+        )
         any_success = any_success or ok
         parts.append(_format_solver_block("CPLEX (local)", ok, out))
 
@@ -569,6 +658,9 @@ def run_iis(
     lp_path: Path,
     solver: str = "all",
     algo: str = "",
+    optimal_eps: float = 0.0,
+    feasible_eps: float = 0.0,
+    barrier_eps: float = 0.0,
     email: str = "",
     neos_url: str = _NEOS_DEFAULT_URL,
     timeout: int = 120,
@@ -585,6 +677,12 @@ def run_iis(
     algo:
         LP algorithm passed to COIN-OR and CPLEX: ``"barrier"`` (default
         when empty), ``"primal"``, ``"dual"``, or ``"default"``.
+    optimal_eps:
+        Dual (optimality) tolerance; 0.0 uses solver defaults.
+    feasible_eps:
+        Primal (feasibility) tolerance; 0.0 uses solver defaults.
+    barrier_eps:
+        Barrier convergence tolerance; 0.0 uses solver defaults.
 
     Returns
     -------
@@ -592,13 +690,27 @@ def run_iis(
     """
     if solver in ("all", "auto"):
         return run_all_solvers(
-            lp_path, algo=algo, email=email, neos_url=neos_url, timeout=timeout
+            lp_path,
+            algo=algo,
+            optimal_eps=optimal_eps,
+            feasible_eps=feasible_eps,
+            barrier_eps=barrier_eps,
+            email=email,
+            neos_url=neos_url,
+            timeout=timeout,
         )
 
     solver_lower = solver.lower()
 
     if solver_lower == "cplex":
-        ok, out = run_local_cplex(lp_path, timeout=timeout, algo=algo)
+        ok, out = run_local_cplex(
+            lp_path,
+            timeout=timeout,
+            algo=algo,
+            optimal_eps=optimal_eps,
+            feasible_eps=feasible_eps,
+            barrier_eps=barrier_eps,
+        )
         return ok, "CPLEX", out
 
     if solver_lower == "highs":
@@ -611,7 +723,14 @@ def run_iis(
         return ok, "HiGHS", out
 
     if solver_lower == "coinor":
-        ok, out = run_local_coinor(lp_path, timeout=timeout, algo=algo)
+        ok, out = run_local_coinor(
+            lp_path,
+            timeout=timeout,
+            algo=algo,
+            optimal_eps=optimal_eps,
+            feasible_eps=feasible_eps,
+            barrier_eps=barrier_eps,
+        )
         return ok, "COIN-OR (clp/cbc)", out
 
     if solver_lower == "glpk":

@@ -105,6 +105,10 @@ inline constexpr auto lp_algo_entries = std::to_array<LPAlgoEntry>({
  * The SolverOptions structure contains parameters that control how linear
  * programming problems are solved, including algorithm selection, parallel
  * processing settings, numerical tolerances, and logging preferences.
+ *
+ * The three tolerance fields (@c optimal_eps, @c feasible_eps,
+ * @c barrier_eps) are **optional**: when they are @c std::nullopt the solver
+ * keeps its built-in default values instead of overriding them.
  */
 struct SolverOptions
 {
@@ -117,17 +121,41 @@ struct SolverOptions
   /** @brief Whether to apply presolve optimizations (default: true) */
   bool presolve {true};
 
-  /** @brief Optimality tolerance for solution */
-  double optimal_eps {1e-6};
+  /** @brief Optimality tolerance for solution (nullopt = use solver default)
+   */
+  std::optional<double> optimal_eps {};
 
-  /** @brief Feasibility tolerance for constraints */
-  double feasible_eps {1e-6};
+  /** @brief Feasibility tolerance for constraints (nullopt = use solver
+   * default) */
+  std::optional<double> feasible_eps {};
 
-  /** @brief Convergence tolerance for barrier algorithm */
-  double barrier_eps {1e-6};
+  /** @brief Convergence tolerance for barrier algorithm (nullopt = use solver
+   * default) */
+  std::optional<double> barrier_eps {};
 
   /** @brief Verbosity level for solver output (0 = none) */
   int log_level {0};
+
+  /**
+   * @brief Merge another SolverOptions into this one (first-value-wins for
+   * optional fields).
+   *
+   * Only the three optional tolerance fields are merged; the non-optional
+   * fields (algorithm, threads, presolve, log_level) are not changed by
+   * merge — they keep their already-set values.
+   */
+  void merge(const SolverOptions& other) noexcept
+  {
+    if (!optimal_eps && other.optimal_eps) {
+      optimal_eps = other.optimal_eps;
+    }
+    if (!feasible_eps && other.feasible_eps) {
+      feasible_eps = other.feasible_eps;
+    }
+    if (!barrier_eps && other.barrier_eps) {
+      barrier_eps = other.barrier_eps;
+    }
+  }
 };
 
 }  // namespace gtopt
