@@ -49,11 +49,9 @@ void log_lp_stats_summary(const std::vector<ScenePhaseLPStats>& entries,
     global.num_vars += e.num_vars;
     global.num_constraints += e.num_constraints;
     global.stats_nnz += e.stats_nnz;
-    if (e.stats_max_abs > global.stats_max_abs) {
-      global.stats_max_abs = e.stats_max_abs;
-    }
-    if (e.stats_nnz > 0 && e.stats_min_abs < global.stats_min_abs) {
-      global.stats_min_abs = e.stats_min_abs;
+    global.stats_max_abs = std::max(global.stats_max_abs, e.stats_max_abs);
+    if (e.stats_nnz > 0) {
+      global.stats_min_abs = std::min(global.stats_min_abs, e.stats_min_abs);
     }
   }
 

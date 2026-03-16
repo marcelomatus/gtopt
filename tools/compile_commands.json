@@ -163,6 +163,12 @@
 },
 {
   "directory": "/home/runner/work/gtopt/gtopt/build/_deps/gtopt-build",
+  "command": "/usr/bin/clang++ -DBOOST_CONTAINER_DYN_LINK -DBOOST_CONTAINER_NO_LIB -DCOIN_USE_CLP -DSPDLOG_COMPILED_LIB -DSPDLOG_USE_STD_FORMAT -D_GLIBCXX_CISO646 -D__cpp_lib_expected=202211L -I/home/runner/work/gtopt/gtopt/include -I/home/runner/work/gtopt/gtopt/build/_deps/gtopt-build/PackageProjectInclude -isystem /usr/share/miniconda/include -isystem /home/runner/.cache/cpm/spdlog/1250/include -isystem /home/runner/.cache/cpm/daw/116a/include -isystem /home/runner/work/gtopt/gtopt/build/_deps/daw_header_libraries-src/include -isystem /home/runner/work/gtopt/gtopt/build/_deps/daw_utf_range-src/include -isystem /home/runner/.cache/cpm/strong_type/e921/include -g -std=c++26 -Wall -Wpedantic -Wextra -Werror -Wno-deprecated-declarations -Wno-invalid-constexpr -o CMakeFiles/gtopt.dir/source/lp_stats.cpp.o -c /home/runner/work/gtopt/gtopt/source/lp_stats.cpp",
+  "file": "/home/runner/work/gtopt/gtopt/source/lp_stats.cpp",
+  "output": "_deps/gtopt-build/CMakeFiles/gtopt.dir/source/lp_stats.cpp.o"
+},
+{
+  "directory": "/home/runner/work/gtopt/gtopt/build/_deps/gtopt-build",
   "command": "/usr/bin/clang++ -DBOOST_CONTAINER_DYN_LINK -DBOOST_CONTAINER_NO_LIB -DCOIN_USE_CLP -DSPDLOG_COMPILED_LIB -DSPDLOG_USE_STD_FORMAT -D_GLIBCXX_CISO646 -D__cpp_lib_expected=202211L -I/home/runner/work/gtopt/gtopt/include -I/home/runner/work/gtopt/gtopt/build/_deps/gtopt-build/PackageProjectInclude -isystem /usr/share/miniconda/include -isystem /home/runner/.cache/cpm/spdlog/1250/include -isystem /home/runner/.cache/cpm/daw/116a/include -isystem /home/runner/work/gtopt/gtopt/build/_deps/daw_header_libraries-src/include -isystem /home/runner/work/gtopt/gtopt/build/_deps/daw_utf_range-src/include -isystem /home/runner/.cache/cpm/strong_type/e921/include -g -std=c++26 -Wall -Wpedantic -Wextra -Werror -Wno-deprecated-declarations -Wno-invalid-constexpr -o CMakeFiles/gtopt.dir/source/output_context.cpp.o -c /home/runner/work/gtopt/gtopt/source/output_context.cpp",
   "file": "/home/runner/work/gtopt/gtopt/source/output_context.cpp",
   "output": "_deps/gtopt-build/CMakeFiles/gtopt.dir/source/output_context.cpp.o"

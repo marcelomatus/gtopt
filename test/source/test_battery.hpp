@@ -390,3 +390,227 @@ TEST_CASE(  // NOLINT
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 }
+
+/// Verify that StorageLP physical_eini/physical_efin accessors correctly
+/// convert LP-scaled values to physical units, and that energy_scale()
+/// and to_physical() are consistent.
+TEST_CASE(  // NOLINT
+    "StorageLP physical accessor methods and scale conversion")
+{
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .lmax = 50.0,
+      },
+  };
+
+  // Battery with explicit energy_scale = 10.0 (large scale for testing)
+  const Array<Battery> battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat1",
+          .bus = Uid {1},
+          .input_efficiency = 0.95,
+          .output_efficiency = 0.95,
+          .emin = 0.0,
+          .emax = 100.0,
+          .eini = 50.0,
+          .capacity = 100.0,
+          .energy_scale = 10.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  const System system = {
+      .name = "StorageLPAccessorTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .battery_array = battery_array,
+  };
+
+  Options opts;
+  opts.demand_fail_cost = 1000.0;
+  const OptionsLP options {opts};
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  // Verify energy_scale is correctly stored
+  const auto& bat_lp = system_lp.elements<BatteryLP>().front();
+  CHECK(bat_lp.energy_scale() == doctest::Approx(10.0));
+
+  // Verify to_physical converts LP→physical correctly
+  CHECK(bat_lp.to_physical(5.0) == doctest::Approx(50.0));
+  CHECK(bat_lp.to_physical(0.0) == doctest::Approx(0.0));
+
+  // Solve to get a solution
+  auto& li = system_lp.linear_interface();
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Verify physical_eini returns physical units (not LP-scaled)
+  const auto& scenarios = simulation_lp.scenarios();
+  const auto& stages = simulation_lp.stages();
+  REQUIRE(!scenarios.empty());
+  REQUIRE(!stages.empty());
+
+  const auto col_sol = li.get_col_sol();
+  const auto phys_eini = bat_lp.physical_eini(col_sol, scenarios[0], stages[0]);
+  // eini was set to 50.0 in the battery definition
+  CHECK(phys_eini == doctest::Approx(50.0));
+}
+
+/// Verify that the LP solution and output are invariant to the choice of
+/// energy_scale.  Two identical batteries with different energy_scale values
+/// must produce the same objective value and the same physical output.
+TEST_CASE(  // NOLINT
+    "Battery energy_scale invariance – same solution for different scales")
+{
+  // Helper lambda: builds and solves a single-battery LP with the given scale,
+  // returns the objective value.
+  auto solve_with_scale = [](double scale) -> double
+  {
+    const Array<Bus> bus_array = {
+        {
+            .uid = Uid {1},
+            .name = "b1",
+        },
+    };
+
+    const Array<Generator> generator_array = {
+        {
+            .uid = Uid {1},
+            .name = "g1",
+            .bus = Uid {1},
+            .gcost = 20.0,
+            .capacity = 200.0,
+        },
+    };
+
+    const Array<Demand> demand_array = {
+        {
+            .uid = Uid {1},
+            .name = "d1",
+            .bus = Uid {1},
+            .lmax = 100.0,
+        },
+    };
+
+    const Array<Battery> battery_array = {
+        {
+            .uid = Uid {1},
+            .name = "bat1",
+            .bus = Uid {1},
+            .input_efficiency = 0.95,
+            .output_efficiency = 0.95,
+            .emin = 0.0,
+            .emax = 200.0,
+            .eini = 50.0,
+            .capacity = 200.0,
+            .energy_scale = scale,
+        },
+    };
+
+    const Simulation simulation = {
+        .block_array =
+            {
+                {
+                    .uid = Uid {1},
+                    .duration = 1,
+                },
+                {
+                    .uid = Uid {2},
+                    .duration = 1,
+                },
+            },
+        .stage_array =
+            {
+                {
+                    .uid = Uid {1},
+                    .first_block = 0,
+                    .count_block = 2,
+                },
+            },
+        .scenario_array =
+            {
+                {
+                    .uid = Uid {0},
+                },
+            },
+    };
+
+    const System system = {
+        .name = "ScaleInvariance",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .battery_array = battery_array,
+    };
+
+    Options opts;
+    opts.demand_fail_cost = 1000.0;
+    const OptionsLP options {opts};
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+
+    auto& li = system_lp.linear_interface();
+    const auto result = li.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+
+    return li.get_obj_value();
+  };
+
+  const auto obj_scale_1 = solve_with_scale(1.0);
+  const auto obj_scale_01 = solve_with_scale(0.1);
+  const auto obj_scale_10 = solve_with_scale(10.0);
+  const auto obj_scale_100 = solve_with_scale(100.0);
+
+  // All objective values must be identical (within floating-point tolerance)
+  CHECK(obj_scale_01 == doctest::Approx(obj_scale_1).epsilon(1e-8));
+  CHECK(obj_scale_10 == doctest::Approx(obj_scale_1).epsilon(1e-8));
+  CHECK(obj_scale_100 == doctest::Approx(obj_scale_1).epsilon(1e-8));
+}
