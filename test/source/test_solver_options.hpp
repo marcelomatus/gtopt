@@ -9,8 +9,6 @@
  * functionality.
  */
 
-#include <utility>
-
 #include <doctest/doctest.h>
 #include <gtopt/json/json_solver_options.hpp>
 #include <gtopt/linear_interface.hpp>
@@ -209,7 +207,7 @@ TEST_CASE("SolverOptions - merge() only applies to optional tolerance fields")
         .optimal_eps = 1e-8,
         .feasible_eps = 1e-7,
     };
-    dest.merge(std::move(src));
+    dest.merge(src);
 
     CHECK(dest.optimal_eps.value_or(0.0) == doctest::Approx(1e-8));
     CHECK(dest.feasible_eps.value_or(0.0) == doctest::Approx(1e-7));
@@ -224,7 +222,7 @@ TEST_CASE("SolverOptions - merge() only applies to optional tolerance fields")
     SolverOptions src {
         .optimal_eps = 1e-10,
     };
-    dest.merge(std::move(src));
+    dest.merge(src);
 
     // First-file value should win
     CHECK(dest.optimal_eps.value_or(0.0) == doctest::Approx(1e-6));
@@ -234,7 +232,7 @@ TEST_CASE("SolverOptions - merge() only applies to optional tolerance fields")
   {
     SolverOptions dest {};
     SolverOptions src {};
-    dest.merge(std::move(src));
+    dest.merge(src);
 
     CHECK_FALSE(dest.optimal_eps.has_value());
     CHECK_FALSE(dest.feasible_eps.has_value());
