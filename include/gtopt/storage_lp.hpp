@@ -77,10 +77,22 @@ public:
     return efin_cols.at({scenario.uid(), stage.uid()});
   }
 
-  [[nodiscard]] constexpr auto eini_col_at(const ScenarioLP& scenario,
-                                           const StageLP& stage) const
+  /// Return the initial-energy column for (scenario, stage).
+  ///
+  /// Three cases:
+  ///   - Global initial condition (first stage of first phase): stored in
+  ///     eini_cols with a fixed "eini" column.
+  ///   - Same-phase reuse: eini_cols stores the previous stage's efin col.
+  ///   - Cross-phase SDDP boundary: sini_cols stores the "sini" col; fall
+  ///     back from eini_cols (which does NOT have this entry) to sini_cols.
+  [[nodiscard]] ColIndex eini_col_at(const ScenarioLP& scenario,
+                                     const StageLP& stage) const
   {
-    return eini_cols.at({scenario.uid(), stage.uid()});
+    const auto key = std::pair {scenario.uid(), stage.uid()};
+    if (const auto it = eini_cols.find(key); it != eini_cols.end()) {
+      return it->second;
+    }
+    return sini_cols.at(key);
   }
 
   [[nodiscard]] constexpr const auto& energy_cols_at(const ScenarioLP& scenario,
@@ -196,18 +208,31 @@ public:
     const double lp_emin = stage_emin / energy_scale;
 
     // Determine the initial-energy column (vicol / eini):
-    //   • No previous stage (first stage of phase 0): create a fresh eini col.
-    //   • Previous stage in the SAME phase: reuse its efin col (shared LP).
-    //   • Previous stage in a DIFFERENT phase (SDDP boundary):
-    //     - use_state_variable=true:  create a new eini col and register it as
-    //       a DependentVariable of the previous phase's efin StateVariable so
-    //       that PlanningLP::resolve_scene_phases() and the SDDP forward pass
-    //       can propagate the trial value.
-    //     - use_state_variable=false: create a new eini col without linking;
-    //       an efin==eini constraint is added below to close the phase.
+    //
+    //  ┌─────────────────────┬──────────────────────────────────────────────┐
+    //  │ Case                │ LP column                                    │
+    //  ├─────────────────────┼──────────────────────────────────────────────┤
+    //  │ First stage of      │ "eini" col – GLOBAL INITIAL CONDITION.       │
+    //  │ first phase         │ Bounds fixed to storage().eini.              │
+    //  │                     │ Only one per scenario, in phase-0 LP only.   │
+    //  ├─────────────────────┼──────────────────────────────────────────────┤
+    //  │ Same phase,         │ Reuse previous stage's efin col (shared LP). │
+    //  │ later stage         │ Inter-stage connection – no new column.      │
+    //  ├─────────────────────┼──────────────────────────────────────────────┤
+    //  │ Cross-phase SDDP    │ "sini" col – INTER-PHASE STATE VARIABLE.     │
+    //  │ boundary            │ Bounds free (lp_emin/lp_emax); SDDP forward  │
+    //  │                     │ pass fixes to prev phase's efin trial value. │
+    //  │                     │ Linked via DependentVariable when usv=true.  │
+    //  └─────────────────────┴──────────────────────────────────────────────┘
+    //
+    // Global final condition ("efin") is an explicit named constraint row
+    // added AFTER the block loop for the last stage of the last phase only.
     ColIndex eicol;
-    if (prev_stage == nullptr) {
-      // First stage of the first phase – create the initial energy column.
+    const bool is_first_stage = (prev_stage == nullptr);
+    const bool is_cross_phase =
+        (prev_stage != nullptr && prev_phase != nullptr);
+    if (is_first_stage) {
+      // Global initial condition – first stage of the first phase only.
       // eini bounds are in LP (scaled) units.
       eicol = lp.add_col({
           .name = sc.lp_label(scenario, stage, cname, "eini", uid()),
@@ -220,9 +245,12 @@ public:
       eicol = efin_col_at(scenario, *prev_stage);
     } else {
       // Cross-phase boundary (gtopt-phase = PLP-stage for SDDP).
-      // Create a new eini column for this phase's LP.
+      // Create a new "sini" (state-initial) column for this phase's LP.
+      // Named "sini" to distinguish from the global "eini" which only exists
+      // in the first phase; sini columns are the SDDP inter-phase coupling
+      // variables propagated by the forward pass.
       eicol = lp.add_col({
-          .name = sc.lp_label(scenario, stage, cname, "eini", uid()),
+          .name = sc.lp_label(scenario, stage, cname, "sini", uid()),
           .lowb = lp_emin,
           .uppb = lp_emax,
       });
@@ -236,14 +264,14 @@ public:
           prev_efin->get().add_dependent_variable(scenario, stage, eicol);
         } else {
           SPDLOG_WARN(
-              "StorageLP: no efin StateVariable found for cross-phase eini "
+              "StorageLP: no efin StateVariable found for cross-phase sini "
               "linking (class='{}' uid={} phase boundary). "
               "Reservoir/battery state will NOT be coupled across this phase.",
               cname,
               static_cast<int>(uid()));
         }
       }
-      // If !use_state_variable: eini is free (within emin/emax bounds).
+      // If !use_state_variable: sini is free (within emin/emax bounds).
       // An efin==eini close constraint is added after the block loop below.
     }
 
@@ -256,9 +284,17 @@ public:
     map_reserve(crows, blocks.size());
     map_reserve(dcols, blocks.size());
 
+    const auto st_key = std::pair {scenario.uid(), stage.uid()};
+
     auto prev_vc = eicol;
     for (const auto& block : blocks) {
       const auto buid = block.uid();
+      // These flags identify the boundary blocks for global initial/final
+      // conditions.  The eini column (created above) is the initial state
+      // that feeds the first block's energy balance; the efin constraint row
+      // (added below) references the last block's energy column.
+      const auto is_first_block =
+          is_first_stage && (buid == blocks.front().uid());
       const auto is_last_block = is_last_stage && (buid == blocks.back().uid());
 
       auto erow =
@@ -268,11 +304,14 @@ public:
               .equal(0);
 
       // Energy LP variable is in scaled units (physical / energy_scale).
+      // All blocks use uniform bounds [lp_emin, lp_emax].
+      // - Global initial condition (eini) is a separate column created before
+      //   this loop, used as prev_vc for the first block (is_first_block).
+      // - Global final condition (efin) is a named >= row added below for the
+      //   last block (is_last_block) of the last stage.
       const auto ec = lp.add_col({
           .name = erow.name,
-          .lowb = !is_last_block
-              ? lp_emin
-              : storage().efin.value_or(stage_emin) / energy_scale,
+          .lowb = lp_emin,
           .uppb = lp_emax,
           .cost = stage_ecost,
       });
@@ -326,6 +365,31 @@ public:
         crows[buid] = lp.add_row(std::move(crow));
       }
 
+      // Global final condition: for the last block of the last stage only,
+      // add a named ">=" constraint row enforcing vol_last >= storage().efin.
+      // Counterpart of the global "eini" equality column (first block, first
+      // stage):
+      //
+      //   eini col   (1st phase, 1st stage, 1st block): vol_start  = eini [=]
+      //   efin row   (last phase, last stage, last block): vol_end >= efin [>=]
+      //
+      // Named "efin" so it appears as rsv_efin_uid_scen_stage (or
+      // bat_soc_efin_uid_scen_stage) in the LP file.
+      if (is_last_block && storage().efin.has_value()) {
+        const double lp_efin = storage().efin.value() / energy_scale;
+        auto efin_row =
+            SparseRow {
+                .name = sc.lp_label(scenario, stage, cname, "efin", uid()),
+            }
+                .greater_equal(lp_efin);
+        efin_row[ec] = 1.0;
+        efin_rows[st_key] = lp.add_row(std::move(efin_row));
+      }
+
+      // Suppress unused-variable warning: is_first_block is used only in
+      // the comment above to document which block eini feeds into.
+      [[maybe_unused]] const auto first_block_marker = is_first_block;
+
       prev_vc = ec;
     }
 
@@ -340,13 +404,6 @@ public:
       // No cross-stage/phase state coupling: add efin == eini constraint so
       // that each independent segment (phase or single-stage horizon) is
       // "closed" – i.e., the storage ends at the same energy level it started.
-      //
-      // The constraint is added for EVERY stage in the phase (not just the
-      // first or last) because within-phase stages share efin columns:
-      //   Stage N eicol = efin_{N-1}  (column reuse, not a new variable).
-      // Adding efin_N == eicol_N for each N creates the chain:
-      //   efin_1 == eini, efin_2 == efin_1 == eini, …
-      // so the entire phase is closed without needing to detect the last stage.
       auto close_row =
           SparseRow {
               .name = sc.lp_label(scenario, stage, cname, "eclose", uid()),
@@ -363,14 +420,22 @@ public:
     // This corrects both the daily-cycle time-scaling and the energy scaling.
     // When the factor is effectively 1.0, no entry is stored; downstream
     // flat() defaults to 1.0 for absent keys (no correction applied).
-    const auto st_key = std::pair {scenario.uid(), stage.uid()};
     const double dual_scale = dc_stage_scale / energy_scale;
     if (std::abs(dual_scale - 1.0) > std::numeric_limits<double>::epsilon()) {
       output_dual_scale[st_key] = dual_scale;
     }
 
     // storing the indices for this scenario and stage
-    eini_cols[st_key] = eicol;
+    if (is_cross_phase) {
+      // Cross-phase SDDP state variable (sini): stored only in sini_cols.
+      // eini_col_at() falls back to sini_cols when the key is absent from
+      // eini_cols, so no duplicate entry is needed in eini_cols.
+      sini_cols[st_key] = eicol;
+    } else {
+      // Global initial condition (first stage) or same-phase reuse:
+      // stored in eini_cols for direct access via eini_col_at().
+      eini_cols[st_key] = eicol;
+    }
     efin_cols[st_key] = prev_vc;
     energy_rows[st_key] = std::move(erows);
     energy_cols[st_key] = std::move(ecols);
@@ -408,6 +473,8 @@ public:
       const auto cost_rescale = [inv_scale](auto v) { return v * inv_scale; };
       out.add_col_sol(cname, "eini", pid, eini_cols, sol_rescale);
       out.add_col_cost(cname, "eini", pid, eini_cols, cost_rescale);
+      out.add_col_sol(cname, "sini", pid, sini_cols, sol_rescale);
+      out.add_col_cost(cname, "sini", pid, sini_cols, cost_rescale);
       out.add_col_sol(cname, "efin", pid, efin_cols, sol_rescale);
       out.add_col_cost(cname, "efin", pid, efin_cols, cost_rescale);
       out.add_col_sol(cname, "volumen", pid, energy_cols, sol_rescale);
@@ -415,6 +482,8 @@ public:
     } else {
       out.add_col_sol(cname, "eini", pid, eini_cols);
       out.add_col_cost(cname, "eini", pid, eini_cols);
+      out.add_col_sol(cname, "sini", pid, sini_cols);
+      out.add_col_cost(cname, "sini", pid, sini_cols);
       out.add_col_sol(cname, "efin", pid, efin_cols);
       out.add_col_cost(cname, "efin", pid, efin_cols);
       out.add_col_sol(cname, "volumen", pid, energy_cols);
@@ -428,6 +497,7 @@ public:
     out.add_row_dual(cname, "volumen", pid, energy_rows, output_dual_scale);
 
     out.add_row_dual(cname, "capacity", pid, capacity_rows);
+    out.add_row_dual(cname, "efin", pid, efin_rows);
 
     out.add_col_sol(cname, "drain", pid, drain_cols);
     out.add_col_cost(cname, "drain", pid, drain_cols);
@@ -447,8 +517,16 @@ private:
   STBIndexHolder<RowIndex> energy_rows;
   STBIndexHolder<RowIndex> capacity_rows;
 
-  STIndexHolder<ColIndex> eini_cols;
-  STIndexHolder<ColIndex> efin_cols;
+  STIndexHolder<ColIndex> eini_cols;  ///< Global initial (first stage) and
+                                      ///< same-phase reuse entries; used by
+                                      ///< eini_col_at().
+  STIndexHolder<ColIndex>
+      sini_cols;  ///< Cross-phase SDDP state-initial cols
+                  ///< ("sini"); subset of eini_cols entries.
+  STIndexHolder<ColIndex> efin_cols;  ///< Last-block energy col per stage;
+                                      ///< used by SDDP StateVariable linking.
+  STIndexHolder<RowIndex> efin_rows;  ///< Explicit >= efin constraint rows;
+                                      ///< only for last stage when efin set.
 
   /// Combined dual correction factor per (scenario, stage):
   ///   dual_physical = dual_LP * output_dual_scale[{suid, tuid}]

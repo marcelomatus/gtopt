@@ -165,8 +165,12 @@ struct Battery
       emax {};  ///< Maximum state of charge (usable capacity) [MWh]
   OptTRealFieldSched
       ecost {};  ///< Storage usage cost (penalty for SoC) [$/MWh]
-  OptReal eini {};  ///< Initial state of charge [MWh]
-  OptReal efin {};  ///< Terminal state of charge (end condition) [MWh]
+  OptReal eini {};  ///< Initial state of charge [MWh].  Sets an equality
+                    ///< constraint SoC_start = eini in the first stage of the
+                    ///< first phase only.
+  OptReal efin {};  ///< Minimum required terminal state of charge [MWh].
+                    ///< Sets a >= constraint SoC_end >= efin in the last stage
+                    ///< of the last phase (not an equality).
 
   OptTRealFieldSched
       pmax_charge {};  ///< Max charging power [MW] (unified definition)
