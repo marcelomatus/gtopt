@@ -218,7 +218,7 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options)
     // Logging and API
     sddp_opts.log_directory = std::string(options.log_directory());
     sddp_opts.lp_debug = options.lp_debug();
-    sddp_opts.just_create = options.just_create();
+    sddp_opts.just_build_lp = options.just_build_lp();
     sddp_opts.lp_debug_compression = std::string(options.output_compression());
     sddp_opts.enable_api = options.sddp_api_enabled();
     if (!output_dir.empty()) {

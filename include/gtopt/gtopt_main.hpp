@@ -69,8 +69,8 @@ struct MainOptions
   std::optional<std::string> json_file {};
 
   // ---- execution control ----
-  /** @brief Build the LP model but skip solving */
-  std::optional<bool> just_create {};
+  /** @brief Build all scene/phase LP matrices but skip solving entirely */
+  std::optional<bool> just_build_lp {};
   /** @brief Use fast (non-strict) JSON parsing */
   std::optional<bool> fast_parsing {};
   /** @brief Warn about JSON fields not recognised by the schema */

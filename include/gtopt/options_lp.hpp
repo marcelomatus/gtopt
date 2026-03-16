@@ -268,18 +268,18 @@ public:
   }
 
   /**
-   * @brief Gets the just_create flag, using default if not set.
+   * @brief Gets the just_build_lp flag, using default if not set.
    *
-   * When true, the solver should build LP model(s) without solving to
-   * convergence.  For the monolithic solver this exits right after LP
-   * matrix assembly; for the SDDP solver it runs initialization + one
-   * forward pass and then exits.
+   * When true, the solver builds all scene×phase LP matrices but skips
+   * solving entirely.  Applies uniformly to both the monolithic solver and
+   * the SDDP solver: exit right after LP assembly with no solve at all.
+   * Combine with lp_debug=true to save every scene/phase LP file to disk.
    *
-   * @return Whether to stop after LP creation
+   * @return Whether to stop after LP building
    */
-  [[nodiscard]] constexpr auto just_create() const
+  [[nodiscard]] constexpr auto just_build_lp() const
   {
-    return m_options_.just_create.value_or(false);
+    return m_options_.just_build_lp.value_or(false);
   }
 
   // Default values for SDDP solver settings
