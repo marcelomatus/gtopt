@@ -93,7 +93,7 @@ struct json_data_contract<Options>
                        json_string_null<"solver_type", OptName>,
                        json_string_null<"log_directory", OptName>,
                        json_bool_null<"lp_debug", OptBool>,
-                       json_bool_null<"just_create", OptBool>,
+                       json_bool_null<"just_build_lp", OptBool>,
 
                        json_class_null<"sddp_options", SddpOptions>>;
 
@@ -125,7 +125,7 @@ struct json_data_contract<Options>
                                  opt.solver_type,
                                  opt.log_directory,
                                  opt.lp_debug,
-                                 opt.just_create,
+                                 opt.just_build_lp,
 
                                  opt.sddp_options);
   }

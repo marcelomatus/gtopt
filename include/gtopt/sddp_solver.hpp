@@ -228,12 +228,12 @@ struct SDDPOptions
   /// Files are named using sddp_file::debug_lp_fmt.
   bool lp_debug {false};
 
-  /// When true, run initialization + one forward pass then stop without
-  /// iterating.  All scene/phase LPs are built and solved once (same as
-  /// one SDDP forward pass).  If lp_debug is also true the LP files are
-  /// saved before returning.  No backward pass, no cut generation, no
-  /// convergence loop.  Useful for profiling LP creation time.
-  bool just_create {false};
+  /// When true, build all scene×phase LP matrices and exit immediately —
+  /// no solving of any kind is performed.  Applies to both the monolithic
+  /// and SDDP solvers.  If lp_debug is also true, every LP file is saved
+  /// before returning.  Useful for profiling LP build time without solver
+  /// overhead.
+  bool just_build_lp {false};
 
   /// Compression format for LP debug files ("gzip" / "uncompressed" / "").
   /// Empty or "uncompressed" means no compression; any other value uses gzip.

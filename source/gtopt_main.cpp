@@ -11,7 +11,7 @@
  * Key options handled here:
  *  - `planning_files`: list of JSON case file stems to load and merge.
  *  - `fast_parsing`: use lenient (non-strict) JSON parsing.
- *  - `just_create`: build the LP model but skip solving; useful for
+ *  - `just_build_lp`: build all scene/phase LP matrices but skip solving;
  *    validating input without running the solver.
  *  - `json_file`: write the merged Planning to a JSON file before solving.
  *  - `lp_file`: write the flat LP model to a `.lp` file before solving.
@@ -368,10 +368,10 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     //
     apply_cli_options(my_planning, opts);
 
-    // Propagate just_create into planning options so the SDDP solver can
-    // handle it internally (run init + one forward pass then stop).
-    if (opts.just_create) {
-      my_planning.options.just_create = opts.just_create;
+    // Propagate just_build_lp into planning options so the SDDP solver
+    // also sees it when called via planning_lp.resolve().
+    if (opts.just_build_lp) {
+      my_planning.options.just_build_lp = opts.just_build_lp;
     }
 
     //
@@ -461,14 +461,11 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
         planning_lp.write_lp(opts.lp_file.value());
       }
 
-      // For the monolithic solver, just_create exits here right after LP
-      // matrix assembly (no solving at all).  For the SDDP solver, the flag
-      // is forwarded through SDDPOptions so that initialize_solver() + one
-      // forward pass can run before stopping — that way all scene/phase LPs
-      // are built and (if lp_debug=true) saved, which is useful for profiling.
-      const bool is_sddp = planning_lp.options().solver_type() == "sddp";
-      if (opts.just_create.value_or(false) && !is_sddp) {
-        spdlog::info("just_create: LP model built, skipping solve");
+      // just_build_lp: LP matrix assembly is done (all scene×phase LPs exist
+      // in memory and, if lp_file was set, are saved to disk).  Exit before
+      // ANY solving — this applies to both the monolithic and SDDP solvers.
+      if (opts.just_build_lp.value_or(false)) {
+        spdlog::info("just_build_lp: all LP matrices built, skipping solve");
         return 0;
       }
 
