@@ -18,6 +18,7 @@
 namespace daw::json
 {
 using gtopt::LPAlgo;
+using gtopt::OptReal;
 using gtopt::SolverOptions;
 
 template<>
@@ -26,9 +27,9 @@ struct json_data_contract<SolverOptions>
   using type = json_member_list<json_number<"algorithm", LPAlgo>,
                                 json_number<"threads", int>,
                                 json_bool<"presolve", bool>,
-                                json_number<"optimal_eps", double>,
-                                json_number<"feasible_eps", double>,
-                                json_number<"barrier_eps", double>,
+                                json_number_null<"optimal_eps", OptReal>,
+                                json_number_null<"feasible_eps", OptReal>,
+                                json_number_null<"barrier_eps", OptReal>,
                                 json_number<"log_level", int>>;
 
   constexpr static auto to_json_data(SolverOptions const& opt)

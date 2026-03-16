@@ -428,10 +428,10 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
           li.write_lp(err_file);
           spdlog::warn("SDDP: saved infeasible LP to {}.lp", err_file);
           // Run gtopt_check_lp static analysis and log the diagnostic.
-          // Pass the LP algorithm so the diagnostic uses the same method.
-          const auto algo_name = std::string(lp_algo_name(opts.algorithm));
+          // Pass the full SolverOptions so the diagnostic uses the same
+          // algorithm and tolerance settings as the gtopt solver.
           if (const auto diag = run_check_lp_diagnostic(
-                  err_file, /*timeout_seconds=*/10, algo_name);
+                  err_file, /*timeout_seconds=*/10, opts);
               !diag.empty())
           {
             spdlog::error(
@@ -2504,8 +2504,9 @@ auto SDDPSolver::solve_apertures_for_phase(
 
         // Submit gtopt_check_lp diagnostic as a non-LP task with low
         // priority so it doesn't block LP solves.
-        // Pass the LP algorithm so the diagnostic uses the same method.
-        const auto algo_name = std::string(lp_algo_name(opts.algorithm));
+        // Pass the full SolverOptions so the diagnostic uses the same
+        // algorithm and tolerance settings as the gtopt solver.
+        const auto solver_opts_copy = opts;
         if (m_pool_ != nullptr) {
           auto diag_req = BasicTaskRequirements<SDDPTaskKey> {
               .priority_key =
@@ -2521,10 +2522,10 @@ auto SDDPSolver::solve_apertures_for_phase(
                                   ap_uid),
           };
           [[maybe_unused]] auto diag_fut = m_pool_->submit(
-              [err_stem, algo_name]
+              [err_stem, solver_opts_copy]
               {
                 if (const auto diag = run_check_lp_diagnostic(
-                        err_stem, /*timeout_seconds=*/10, algo_name);
+                        err_stem, /*timeout_seconds=*/10, solver_opts_copy);
                     !diag.empty())
                 {
                   spdlog::error("LP infeasibility diagnostic for {}.lp:\n{}",
@@ -2537,7 +2538,7 @@ auto SDDPSolver::solve_apertures_for_phase(
         } else {
           // No pool available — run diagnostic synchronously
           if (const auto diag = run_check_lp_diagnostic(
-                  err_stem, /*timeout_seconds=*/10, algo_name);
+                  err_stem, /*timeout_seconds=*/10, solver_opts_copy);
               !diag.empty())
           {
             spdlog::error(
