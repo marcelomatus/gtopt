@@ -11,6 +11,7 @@
 #pragma once
 
 #include <limits>
+#include <span>
 
 #include <gtopt/index_holder.hpp>
 #include <gtopt/input_context.hpp>
@@ -86,6 +87,48 @@ public:
                                                      const StageLP& stage) const
   {
     return energy_cols.at({scenario.uid(), stage.uid()});
+  }
+
+  /// Energy/volume scale factor used in the LP: LP_var = physical / scale.
+  /// For batteries this is Battery::energy_scale; for reservoirs it is
+  /// Reservoir::vol_scale.  Use to convert between LP and physical units.
+  [[nodiscard]] constexpr double energy_scale() const noexcept
+  {
+    return m_energy_scale_;
+  }
+
+  /// Convert an LP-unit energy/volume value to physical units.
+  [[nodiscard]] constexpr double to_physical(double lp_value) const noexcept
+  {
+    return lp_value * m_energy_scale_;
+  }
+
+  /// Retrieve a physical energy/volume value from an LP column vector.
+  /// @param col_values  LP solution (or bounds) vector indexed by ColIndex
+  /// @param col         Column index of the energy/volume variable
+  /// @return The column value converted to physical units
+  [[nodiscard]] constexpr double physical_col_value(
+      std::span<const double> col_values, ColIndex col) const noexcept
+  {
+    return col_values[col] * m_energy_scale_;
+  }
+
+  /// Retrieve the physical eini (initial energy/volume) from an LP solution
+  /// or bound vector for a given scenario and stage.
+  [[nodiscard]] double physical_eini(std::span<const double> col_values,
+                                     const ScenarioLP& scenario,
+                                     const StageLP& stage) const
+  {
+    return physical_col_value(col_values, eini_col_at(scenario, stage));
+  }
+
+  /// Retrieve the physical efin (final energy/volume) from an LP solution
+  /// or bound vector for a given scenario and stage.
+  [[nodiscard]] double physical_efin(std::span<const double> col_values,
+                                     const ScenarioLP& scenario,
+                                     const StageLP& stage) const
+  {
+    return physical_col_value(col_values, efin_col_at(scenario, stage));
   }
 
   template<typename SystemContextT>
@@ -350,17 +393,25 @@ public:
     // Primal outputs: LP variable is in scaled units
     // (physical/m_energy_scale_). Multiply by m_energy_scale_ to recover
     // physical energy/volume.
+    //
+    // Reduced cost (cost) outputs: the LP reduced cost is per unit of the LP
+    // variable.  To convert to per unit of the physical variable, divide by
+    // m_energy_scale_:  rc_phys = rc_LP / energy_scale.
+    // This is the inverse of the primal rescaling, ensuring that the output
+    // is invariant to the choice of energy_scale.
     if (std::abs(m_energy_scale_ - 1.0)
         > std::numeric_limits<double>::epsilon())
     {
       const auto scale = m_energy_scale_;
-      const auto rescale = [scale](auto v) { return v * scale; };
-      out.add_col_sol(cname, "eini", pid, eini_cols, rescale);
-      out.add_col_cost(cname, "eini", pid, eini_cols, rescale);
-      out.add_col_sol(cname, "efin", pid, efin_cols, rescale);
-      out.add_col_cost(cname, "efin", pid, efin_cols, rescale);
-      out.add_col_sol(cname, "volumen", pid, energy_cols, rescale);
-      out.add_col_cost(cname, "volumen", pid, energy_cols, rescale);
+      const auto inv_scale = 1.0 / scale;
+      const auto sol_rescale = [scale](auto v) { return v * scale; };
+      const auto cost_rescale = [inv_scale](auto v) { return v * inv_scale; };
+      out.add_col_sol(cname, "eini", pid, eini_cols, sol_rescale);
+      out.add_col_cost(cname, "eini", pid, eini_cols, cost_rescale);
+      out.add_col_sol(cname, "efin", pid, efin_cols, sol_rescale);
+      out.add_col_cost(cname, "efin", pid, efin_cols, cost_rescale);
+      out.add_col_sol(cname, "volumen", pid, energy_cols, sol_rescale);
+      out.add_col_cost(cname, "volumen", pid, energy_cols, cost_rescale);
     } else {
       out.add_col_sol(cname, "eini", pid, eini_cols);
       out.add_col_cost(cname, "eini", pid, eini_cols);
