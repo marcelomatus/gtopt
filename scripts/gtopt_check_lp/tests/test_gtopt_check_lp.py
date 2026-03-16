@@ -1580,3 +1580,175 @@ class TestTopNCoefficients:
         stats = analyze_lp_file(lp)
         assert not stats.top_max_coeffs
         assert not stats.top_min_coeffs
+
+    def test_constraint_texts_populated(self, tmp_path):
+        """constraint_texts stores the full expression for each constraint."""
+        lp = _write_lp(tmp_path, "varied.lp", self._LP_WITH_VARIED_COEFFS)
+        stats = analyze_lp_file(lp)
+        assert "c_large" in stats.constraint_texts
+        assert "c_small" in stats.constraint_texts
+        # The stored text should contain the variable names and the RHS.
+        assert "x1" in stats.constraint_texts["c_large"]
+
+    def test_format_report_shows_constraint_detail(self, tmp_path):
+        """format_static_report includes the constraint expression below each entry."""
+        lp = _write_lp(tmp_path, "varied.lp", self._LP_WITH_VARIED_COEFFS)
+        stats = analyze_lp_file(lp)
+        report = format_static_report(lp, stats)
+        # The constraint detail line should appear (indented with 8 spaces).
+        # The constraint c_large should appear both as "con=c_large" and as
+        # the full expression on the next line.
+        lines = report.splitlines()
+        found_detail = False
+        for line in lines:
+            if line.startswith("        ") and "c_large" in line:
+                found_detail = True
+                break
+        assert found_detail, "Expected constraint detail line for c_large in report"
+
+    def test_constraint_detail_deduped_in_report(self, tmp_path):
+        """When multiple entries share a constraint, the detail is shown only once."""
+        lp_text = (
+            "Minimize\n"
+            " obj: x1\n"
+            "Subject To\n"
+            " shared: 100 x1 + 0.001 x2 >= 1\n"
+            "Bounds\n"
+            " 0 <= x1 <= 10\n"
+            " 0 <= x2 <= 10\n"
+            "End\n"
+        )
+        lp = _write_lp(tmp_path, "shared.lp", lp_text)
+        stats = analyze_lp_file(lp)
+        report = format_static_report(lp, stats)
+        # The constraint detail line should appear exactly once per section.
+        detail_count = sum(
+            1
+            for line in report.splitlines()
+            if line.startswith("        ") and "shared:" in line
+        )
+        # Could be 1 (in max section) + 1 (in min section) = 2 at most.
+        assert detail_count <= 2
+
+
+# ── GLPK excluded from "all" ─────────────────────────────────────────────
+
+
+class TestGlpkExcludedFromAll:
+    """GLPK should not be run automatically as part of the 'all' solver."""
+
+    def test_all_solvers_skips_glpk(self):
+        """run_all_solvers does not call run_local_glpk."""
+        from gtopt_check_lp._solvers import run_all_solvers as _ras
+
+        with patch("gtopt_check_lp._solvers.shutil.which") as mock_which, patch(
+            "gtopt_check_lp._solvers.run_local_glpk"
+        ) as mock_glpk, patch(
+            "gtopt_check_lp._solvers.run_local_coinor", return_value=(True, "ok")
+        ):
+            # Pretend glpsol and clp are available.
+            def _which(name):
+                if name in ("glpsol", "clp"):
+                    return f"/usr/bin/{name}"
+                return None
+
+            mock_which.side_effect = _which
+
+            _ras(Path("dummy.lp"), email="", timeout=5)
+            mock_glpk.assert_not_called()
+
+    def test_glpk_still_works_explicitly(self):
+        """run_iis with solver='glpk' still calls run_local_glpk."""
+        from gtopt_check_lp._solvers import run_iis as _iis
+
+        with patch(
+            "gtopt_check_lp._solvers.run_local_glpk", return_value=(True, "glpk output")
+        ) as mock_glpk:
+            _ok, name, _out = _iis(Path("dummy.lp"), solver="glpk")
+            mock_glpk.assert_called_once()
+            assert name == "GLPK"
+
+
+# ── NEOS network diagnostics ────────────────────────────────────────────
+
+
+class TestNeosNetworkDiagnostics:
+    """Tests for the improved NEOS network error diagnostics."""
+
+    def test_diagnose_no_internet(self, tmp_path):
+        """When internet is down, the diagnostic says so."""
+        from gtopt_check_lp._neos import _diagnose_network_error
+
+        lp = _write_lp(tmp_path, "test.lp", "Minimize\n obj: x\nEnd\n")
+        with patch("gtopt_check_lp._neos._check_internet", return_value=False):
+            msg = _diagnose_network_error(
+                "https://neos-server.org:3333", lp, OSError("timed out")
+            )
+        assert "No internet connectivity" in msg
+
+    def test_diagnose_neos_specific_timeout(self, tmp_path):
+        """When internet works but NEOS times out, the diagnostic explains."""
+        from gtopt_check_lp._neos import _diagnose_network_error
+
+        lp = _write_lp(tmp_path, "test.lp", "Minimize\n obj: x\nEnd\n")
+        with patch("gtopt_check_lp._neos._check_internet", return_value=True):
+            msg = _diagnose_network_error(
+                "https://neos-server.org:3333",
+                lp,
+                OSError("The write operation timed out"),
+            )
+        assert "slow or unreachable" in msg
+        assert "No internet" not in msg
+
+    def test_diagnose_neos_other_error(self, tmp_path):
+        """When internet works but NEOS returns a non-timeout error."""
+        from gtopt_check_lp._neos import _diagnose_network_error
+
+        lp = _write_lp(tmp_path, "test.lp", "Minimize\n obj: x\nEnd\n")
+        with patch("gtopt_check_lp._neos._check_internet", return_value=True):
+            msg = _diagnose_network_error(
+                "https://neos-server.org:3333",
+                lp,
+                OSError("Connection refused"),
+            )
+        assert "temporarily unavailable" in msg
+
+    def test_diagnose_large_file_warning(self, tmp_path):
+        """When the LP file is very large, the diagnostic warns about size."""
+        from gtopt_check_lp._neos import _NEOS_LP_SIZE_WARN, _diagnose_network_error
+
+        lp = tmp_path / "big.lp"
+        # Create a file larger than the threshold.
+        lp.write_bytes(b"x" * (_NEOS_LP_SIZE_WARN + 1))
+        with patch("gtopt_check_lp._neos._check_internet", return_value=True):
+            msg = _diagnose_network_error(
+                "https://neos-server.org:3333",
+                lp,
+                OSError("timed out"),
+            )
+        assert "MiB" in msg
+        assert "local solver" in msg
+
+    def test_submit_and_wait_ping_fail_no_internet(self, tmp_path):
+        """submit_and_wait ping failure with no internet gives clear message."""
+        lp = _write_lp(tmp_path, "test.lp", "Minimize\n obj: x\nEnd\n")
+        client = NeosClient()
+        mock_proxy = MagicMock()
+        mock_proxy.ping.side_effect = OSError("connection refused")
+        client._proxy = mock_proxy  # noqa: SLF001
+        with patch("gtopt_check_lp._neos._check_internet", return_value=False):
+            ok, msg = client.submit_and_wait(lp, "test@example.com")
+        assert not ok
+        assert "No internet connectivity" in msg
+
+    def test_submit_and_wait_ping_fail_neos_down(self, tmp_path):
+        """submit_and_wait ping failure with internet up blames NEOS."""
+        lp = _write_lp(tmp_path, "test.lp", "Minimize\n obj: x\nEnd\n")
+        client = NeosClient()
+        mock_proxy = MagicMock()
+        mock_proxy.ping.side_effect = OSError("connection refused")
+        client._proxy = mock_proxy  # noqa: SLF001
+        with patch("gtopt_check_lp._neos._check_internet", return_value=True):
+            ok, msg = client.submit_and_wait(lp, "test@example.com")
+        assert not ok
+        assert "NEOS service is not responding" in msg
