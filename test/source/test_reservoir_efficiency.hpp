@@ -42,10 +42,12 @@ TEST_CASE("evaluate_efficiency with single segment")
 
 TEST_CASE("evaluate_efficiency with multiple segments (concave envelope)")
 {
-  // Two segments creating a concave envelope (PLP rendimiento style):
-  // seg1: constant=2.0, slope=0.001, volume=0.0 → 2.0 + 0.001 * V
+  // Two segments creating a concave envelope (PLP FRendimientos style):
+  // constant is the value AT the breakpoint (point-slope form).
+  // seg1: constant=2.0, slope=0.001, volume=0.0 → 2.0 + 0.001 * (V-0)
   // seg2: constant=2.8, slope=0.0002, volume=500.0 → 2.8 + 0.0002*(V-500)
   //
+  // The Fortran FRendimientos computes min over all segments:
   // At V=0:   seg1=2.0, seg2=2.8+0.0002*(-500)=2.7 → min=2.0
   // At V=500: seg1=2.5, seg2=2.8 → min=2.5
   // At V=1500: seg1=3.5, seg2=2.8+0.0002*1000=3.0 → min=3.0
@@ -320,6 +322,9 @@ TEST_CASE("SystemLP with reservoir efficiency element")
     // Verify the coefficient was changed (original was -1.0)
     auto& effs = system_lp.elements<ReservoirEfficiencyLP>();
     auto& eff = effs.front();
+    // evaluate_efficiency uses concave-envelope min (PLP FRendimientos):
+    // seg1: 1.0 + 0.001*(500-0)=1.5, seg2: 1.5+0.0001*(500-800)=1.47
+    // min = 1.47
     const auto expected_rate = eff.compute_efficiency(500.0);
     CHECK(expected_rate > 0.0);
 
