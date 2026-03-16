@@ -5,8 +5,8 @@ name: Profile
 # C++ profiling strategy:
 #   - valgrind/callgrind for detailed call-graph profiling (slow but accurate)
 #   - Linux perf + flamegraph for production-representative profiling
-#   - The gtopt binary is run with just_create=true to measure LP creation
-#     time without solver overhead (set "just_create": true in the JSON options
+#   - The gtopt binary is run with just_build_lp=true to measure LP creation
+#     time without solver overhead (set "just_build_lp": true in the JSON options
 #     or pass via PlanningLP options).
 #
 # Python profiling strategy:
@@ -26,8 +26,8 @@ on:
         description: 'PLP case directory to profile plp2gtopt with (relative to scripts/cases/)'
         type: string
         default: 'plp_dat_ex'
-      just_create:
-        description: 'Profile LP creation only (no solve, just_create=true)'
+      just_build_lp:
+        description: 'Profile LP creation only (no solve, just_build_lp=true)'
         type: boolean
         default: true
 
@@ -130,20 +130,20 @@ jobs:
           echo "json_file=${JSON_FILE}" >> $GITHUB_OUTPUT
           echo "Profiling case: ${JSON_FILE}"
 
-          # If just_create is requested, inject "just_create": true into a copy
-          if [ "${{ inputs.just_create }}" = "true" ]; then
+          # If just_build_lp is requested, inject "just_build_lp": true into a copy
+          if [ "${{ inputs.just_build_lp }}" = "true" ]; then
             PROFILE_JSON="/tmp/profile_case.json"
-            # Use python to inject just_create into the options block
+            # Use python to inject just_build_lp into the options block
             python3 - "${JSON_FILE}" "${PROFILE_JSON}" <<'PYEOF'
           import json, sys
           with open(sys.argv[1]) as f:
               data = json.load(f)
           if "options" not in data:
               data["options"] = {}
-          data["options"]["just_create"] = True
+          data["options"]["just_build_lp"] = True
           with open(sys.argv[2], "w") as f:
               json.dump(data, f, indent=2)
-          print(f"Injected just_create=true into {sys.argv[2]}")
+          print(f"Injected just_build_lp=true into {sys.argv[2]}")
           PYEOF
             echo "profile_json=${PROFILE_JSON}" >> $GITHUB_OUTPUT
           else
@@ -210,7 +210,7 @@ jobs:
           echo "## C++ Profiling Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Case**: \`${{ inputs.case || 'cases/ieee_9b_ori' }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Mode**: LP creation only (just_create=${{ inputs.just_create }})" >> $GITHUB_STEP_SUMMARY
+          echo "**Mode**: LP build only (just_build_lp=${{ inputs.just_build_lp }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Timing (10 repetitions)" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY

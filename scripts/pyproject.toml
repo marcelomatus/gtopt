@@ -33,6 +33,7 @@ cvs2parquet           = "cvs2parquet.cvs2parquet:main"
 gtopt_diagram         = "gtopt_diagram:main"
 gtopt_field_extractor = "gtopt_field_extractor:main"
 gtopt_check_lp        = "gtopt_check_lp.gtopt_check_lp:main"
+gtopt_compress_lp     = "gtopt_compress_lp.gtopt_compress_lp:main"
 igtopt                = "igtopt.igtopt:main"
 plp2gtopt             = "plp2gtopt.main:main"
 pp2gtopt              = "pp2gtopt.main:main"
@@ -60,7 +61,7 @@ diagram = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["gtopt_compare*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "gtopt_check_json*", "igtopt*", "plp2gtopt*", "pp2gtopt*", "gtopt2pp*", "sddp_monitor*", "ts2gtopt*"]
+include = ["gtopt_compare*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "gtopt_compress_lp*", "gtopt_check_json*", "igtopt*", "plp2gtopt*", "pp2gtopt*", "gtopt2pp*", "sddp_monitor*", "ts2gtopt*"]
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +75,7 @@ testpaths = [
     "cvs2parquet/tests",
     "gtopt_diagram/tests",
     "gtopt_check_lp/tests",
+    "gtopt_compress_lp/tests",
     "gtopt_check_json/tests",
     "gtopt2pp/tests",
     "igtopt/tests",

@@ -125,9 +125,9 @@ template<typename T>
       ("matrix-eps,e",
        po::value<double>(),
        "eps value to define A matrix non-zero values")  //
-      ("just-create,c",
+      ("build-lp,c",
        po::value<bool>().implicit_value(/*v=*/true),
-       "just create the problem, then exit")  //
+       "build all scene/phase LP matrices then exit without solving")  //
       ("fast-parsing,p",
        po::value<bool>().implicit_value(/*v=*/true),
        "use fast (non strict) json parsing")  //
@@ -384,7 +384,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .use_lp_names = get_opt<int>(vm, "use-lp-names"),
       .matrix_eps = get_opt<double>(vm, "matrix-eps"),
       .json_file = get_opt<std::string>(vm, "json-file"),
-      .just_create = get_opt<bool>(vm, "just-create"),
+      .just_build_lp = get_opt<bool>(vm, "build-lp"),
       .fast_parsing = get_opt<bool>(vm, "fast-parsing"),
       .check_json = get_opt<bool>(vm, "check-json"),
       .print_stats = get_opt<bool>(vm, "stats"),
