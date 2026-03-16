@@ -38,7 +38,7 @@ struct StorageOptions
   /// Energy (volume) scale factor: the LP energy variable is divided by this
   /// value so that the LP works in scaled units (physical_energy /
   /// energy_scale). Default 1.0 = no scaling. For reservoirs the default is
-  /// 1000 (dam³→Mm³).
+  /// 100000 (dam³→Gm³) and for batteries 0.1.
   double energy_scale {1.0};
 };
 
@@ -113,7 +113,7 @@ public:
         opts.daily_cycle ? false : opts.use_state_variable;
 
     // Energy scale factor: LP variable = physical_energy / energy_scale.
-    // Default 1.0 = no scaling.  For reservoirs typically 1000 (dam³→Mm³).
+    // Default 1.0 = no scaling.  Reservoir default: 100000, Battery: 0.1.
     const double energy_scale =
         opts.energy_scale > 0.0 ? opts.energy_scale : 1.0;
     m_energy_scale_ = energy_scale;

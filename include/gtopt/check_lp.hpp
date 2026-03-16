@@ -41,7 +41,8 @@ namespace gtopt
  * Searches PATH for the @c gtopt_check_lp binary.  If found, spawns it
  * directly (without invoking a shell) via @c posix_spawn with:
  * @code
- *   gtopt_check_lp --quiet --no-color --timeout <timeout_seconds> <lp_file>
+ *   gtopt_check_lp --quiet --no-color --no-ai --timeout <timeout_seconds>
+ *                   [--algo <algo>] <lp_file>
  * @endcode
  * and returns the captured stdout+stderr.  If the binary is not on PATH or
  * the file does not exist, an empty string is returned so callers can skip
@@ -54,10 +55,15 @@ namespace gtopt
  * @param lp_file        Full path to the LP file (may include or omit the
  *                       .lp extension).
  * @param timeout_seconds Maximum execution time in seconds (default: 10).
+ * @param algo           LP algorithm name passed via @c --algo (e.g.
+ *                       @c "barrier", @c "primal", @c "dual").  Empty
+ *                       string omits the flag (the script defaults to
+ *                       @c "barrier" for COIN-OR and CPLEX).
  * @return Captured diagnostic output, or an empty string if unavailable.
  */
 [[nodiscard]] std::string run_check_lp_diagnostic(const std::string& lp_file,
-                                                  int timeout_seconds = 10);
+                                                  int timeout_seconds = 10,
+                                                  const std::string& algo = "");
 
 /**
  * @brief Run `gtopt_check_json --info` on one or more JSON files and return

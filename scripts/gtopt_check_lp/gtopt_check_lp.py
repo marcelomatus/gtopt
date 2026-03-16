@@ -235,6 +235,7 @@ def check_lp(
     *,
     analyze_only: bool = False,
     solver: str = "all",
+    algo: str = "",
     email: str = "",
     neos_url: str = _NEOS_DEFAULT_URL,
     timeout: int = 5,
@@ -258,6 +259,11 @@ def check_lp(
     solver:
         Solver strategy: ``"all"``, ``"auto"``, ``"cplex"``, ``"highs"``,
         ``"coinor"``, ``"glpk"``, or ``"neos"``.
+    algo:
+        LP algorithm to use for COIN-OR and CPLEX solvers.  One of
+        ``"default"``, ``"primal"``, ``"dual"``, ``"barrier"``, or ``""``
+        (empty string means use the solver-specific default, which is
+        ``"barrier"`` for COIN-OR and CPLEX).
     email:
         E-mail address for NEOS submissions.
     neos_url:
@@ -357,6 +363,10 @@ def check_lp(
         print(static_report)
         report_parts.append(static_report)
 
+    # Flush so the parent process receives output even if we are killed by
+    # an external timeout wrapper (e.g. the gtopt binary's spawn_tool).
+    sys.stdout.flush()
+
     if analyze_only:
         if output_file:
             _write_report(output_file, report_parts)
@@ -384,6 +394,7 @@ def check_lp(
             ok, solver_name, out = run_iis(
                 lp_path,
                 solver=solver,
+                algo=algo,
                 email=filtered_email,
                 neos_url=neos_url,
                 timeout=timeout,
@@ -415,7 +426,7 @@ def check_lp(
     else:
         hint = (
             f"\n{_c(_YELLOW, 'Tip:')} "
-            "Install a local solver (CPLEX, HiGHS, CLP/CBC, or GLPK) or provide\n"
+            "Install a local solver (CPLEX, HiGHS, or CLP/CBC) or provide\n"
             "  --email <address> to submit to the NEOS server for IIS analysis.\n"
             "  CLP/CBC (coinor-clp / coinor-cbc) are usually available on\n"
             "  systems where gtopt is installed: "
@@ -423,6 +434,10 @@ def check_lp(
         )
         print(hint)
         report_parts.append(hint)
+
+    # Flush after solver analysis so the parent process receives the complete
+    # static + solver output even if the AI step below hangs or is killed.
+    sys.stdout.flush()
 
     # 3 ── AI diagnostics ─────────────────────────────────────────────────────
     if ai_opts.enabled:
@@ -601,6 +616,16 @@ def _build_parser() -> argparse.ArgumentParser:
             "solver and combines their diagnoses into one report.  'auto' tries\n"
             "local solvers in order then NEOS, stopping at the first success.\n"
             "Defaults to the value in the config file ('all')."
+        ),
+    )
+    parser.add_argument(
+        "--algo",
+        default=None,
+        choices=["default", "primal", "dual", "barrier"],
+        help=(
+            "LP algorithm to request when running COIN-OR (CLP/CBC) or CPLEX.\n"
+            "When omitted, 'barrier' is used for COIN-OR and CPLEX.  Passed\n"
+            "automatically by the gtopt binary to match its own solver settings."
         ),
     )
     parser.add_argument(
@@ -866,6 +891,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         lp_path,
         analyze_only=args.analyze_only,
         solver=effective_solver,
+        algo=args.algo or "",
         email=effective_email,
         neos_url=effective_neos_url,
         timeout=effective_timeout,
