@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: BSD-3-Clause
 """Static LP file analyser and formatted report generator for gtopt_check_lp."""
 
+import heapq
 import re
 from dataclasses import dataclass, field
+from functools import total_ordering
 from pathlib import Path
 
 from . import _colors as col
@@ -10,6 +12,9 @@ from ._compress import read_lp_text
 
 _LARGE_COEFF_THRESHOLD = 1e10
 _SMALL_COEFF_THRESHOLD = 1e-10
+
+# How many top/bottom coefficient entries to retain.
+_TOP_N_COEFFS = 10
 
 # Matches a variable name token (used to collect names from each section).
 _VAR_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_:.]*")
@@ -29,6 +34,26 @@ class VariableBounds:
     ub: float = float("inf")
 
 
+@total_ordering
+@dataclass
+class CoeffEntry:
+    """A single (abs_coeff, variable_name, constraint_name) entry for top-N reporting."""
+
+    abs_coeff: float
+    var_name: str
+    constraint_name: str
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, CoeffEntry):
+            return NotImplemented
+        return self.abs_coeff == other.abs_coeff
+
+    def __lt__(self, other: "CoeffEntry") -> bool:  # for heapq ordering
+        if not isinstance(other, CoeffEntry):
+            return NotImplemented
+        return self.abs_coeff < other.abs_coeff
+
+
 @dataclass
 class LPStats:
     """Statistics and potential issues discovered in an LP file."""
@@ -43,6 +68,10 @@ class LPStats:
     # Numerical range
     max_abs_coeff: float = 0.0
     min_abs_nonzero_coeff: float = float("inf")
+
+    # Top-N coefficients (by absolute value) with variable and constraint names
+    top_max_coeffs: list[CoeffEntry] = field(default_factory=list)
+    top_min_coeffs: list[CoeffEntry] = field(default_factory=list)
 
     # Issues found
     infeasible_bounds: list[VariableBounds] = field(default_factory=list)
@@ -109,6 +138,46 @@ def _parse_coefficients(expr: str) -> list[float]:
     ]
 
 
+def _parse_coeff_var_pairs(expr: str) -> list[tuple[float, str]]:
+    """Extract (coefficient, variable_name) pairs from an LP expression string.
+
+    Handles terms like ``2.5 x1``, ``- 0.9 x2``, ``+ x3``, ``x4``.
+    The right-hand side (after the comparison operator) is stripped before
+    scanning so that constants on the RHS are not mistaken for coefficients.
+
+    Returns a list of ``(coefficient, variable_name)`` tuples.
+    """
+    # Strip the RHS: everything from the first comparison operator onward.
+    lhs = re.split(r"\s*[<>]?=", expr)[0]
+
+    pairs: list[tuple[float, str]] = []
+    # Each term has the form:  [sign]? [number]? varname
+    # We match: optional sign, optional numeric part (with whitespace), then varname.
+    term_re = re.compile(
+        r"([+-]?)\s*(\d+\.?\d*(?:[eE][+-]?\d+)?)?\s*([A-Za-z_][A-Za-z0-9_:.]*)"
+    )
+    for m in term_re.finditer(lhs):
+        sign_s, num_s, varname = m.group(1), m.group(2), m.group(3)
+        # Skip bare 'e'/'E' tokens that are part of an already-matched scientific
+        # notation number (e.g. '3.8994e' matched num_s, then 'e' appears as varname
+        # for the '-05' fragment — this should not happen with the greedy regex but
+        # guard it anyway).
+        if re.fullmatch(r"[eE]", varname):
+            continue
+        if num_s:
+            try:
+                coeff = float((sign_s or "") + num_s)
+            except ValueError:
+                coeff = 1.0 if sign_s != "-" else -1.0
+        elif sign_s == "-":
+            coeff = -1.0
+        else:
+            coeff = 1.0
+        pairs.append((coeff, varname))
+
+    return pairs
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -129,6 +198,8 @@ def analyze_lp_file(lp_path: Path) -> LPStats:  # noqa: PLR0912, PLR0915
     bounds: dict[str, VariableBounds] = {}
     constraint_names: list[str] = []
     all_var_names: set[str] = set()
+    # Accumulate all coeff entries for top-N computation at the end.
+    _all_coeff_entries: list[CoeffEntry] = []
 
     try:
         text = read_lp_text(lp_path)
@@ -142,7 +213,9 @@ def analyze_lp_file(lp_path: Path) -> LPStats:  # noqa: PLR0912, PLR0915
     def _flush_constraint(name: str, expr: str) -> None:
         if not name:
             return
-        coeffs = _parse_coefficients(expr.split(":")[1] if ":" in expr else expr)
+        expr_part = expr.split(":")[1] if ":" in expr else expr
+        coeffs = _parse_coefficients(expr_part)
+        pairs = _parse_coeff_var_pairs(expr_part)
         if not coeffs:
             stats.empty_constraints.append(name)
         else:
@@ -158,6 +231,10 @@ def analyze_lp_file(lp_path: Path) -> LPStats:  # noqa: PLR0912, PLR0915
                     stats.large_coeff_constraints.append(name)
                 if 0.0 < local_min <= _SMALL_COEFF_THRESHOLD:
                     stats.small_coeff_constraints.append(name)
+        for coeff, var in pairs:
+            ac = abs(coeff)
+            if ac > 0.0:
+                _all_coeff_entries.append(CoeffEntry(ac, var, name))
 
     for raw_line in text.splitlines():
         line = _strip_comments(raw_line)
@@ -319,6 +396,15 @@ def analyze_lp_file(lp_path: Path) -> LPStats:  # noqa: PLR0912, PLR0915
     if stats.min_abs_nonzero_coeff == float("inf"):
         stats.min_abs_nonzero_coeff = 0.0
 
+    # Compute top-N max and min (non-zero) coefficient entries.
+    if _all_coeff_entries:
+        stats.top_max_coeffs = heapq.nlargest(
+            _TOP_N_COEFFS, _all_coeff_entries, key=lambda e: e.abs_coeff
+        )
+        stats.top_min_coeffs = heapq.nsmallest(
+            _TOP_N_COEFFS, _all_coeff_entries, key=lambda e: e.abs_coeff
+        )
+
     return stats
 
 
@@ -369,6 +455,25 @@ def format_static_report(lp_path: Path, stats: LPStats) -> str:
             + _c(col._YELLOW, "  ← poor numerical conditioning")  # noqa: SLF001
         )
 
+    if stats.top_max_coeffs:
+        n = len(stats.top_max_coeffs)
+        label = _c(col._BOLD, f"Top-{n} largest |coefficients|:")  # noqa: SLF001
+        lines.append(f"\n{label}")
+        for entry in stats.top_max_coeffs:
+            lines.append(
+                f"  {entry.abs_coeff:.3e}  var={entry.var_name}"
+                f"  con={entry.constraint_name}"
+            )
+
+    if stats.top_min_coeffs:
+        n = len(stats.top_min_coeffs)
+        label = _c(col._BOLD, f"Top-{n} smallest non-zero |coefficients|:")  # noqa: SLF001
+        lines.append(f"\n{label}")
+        for entry in stats.top_min_coeffs:
+            lines.append(
+                f"  {entry.abs_coeff:.3e}  var={entry.var_name}"
+                f"  con={entry.constraint_name}"
+            )
     if not stats.has_issues():
         lines.append(
             f"\n{_c(col._GREEN, '✓ No obvious static infeasibilities detected.')}"  # noqa: SLF001
