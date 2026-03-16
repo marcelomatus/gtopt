@@ -56,17 +56,17 @@ TEST_CASE("LpDebugWriter with non-empty directory is active")  // NOLINT
 }
 
 TEST_CASE(
-    "LpDebugWriter compress_async no-op when compression empty")  // NOLINT
+    "LpDebugWriter compress_async no-op when compression is none")  // NOLINT
 {
   const auto lp = make_tmp_lp("test_lp_nocompress.lp");
   {
     LpDebugWriter writer(lp.parent_path().string(),
-                         /*compression=*/"",
+                         /*compression=*/"none",
                          /*pool=*/nullptr);
     writer.compress_async(lp.string());
     writer.drain();
   }
-  // File should still exist (no compression requested)
+  // "none" means no compression; file should still exist unchanged
   CHECK(std::filesystem::exists(lp));
   std::filesystem::remove(lp);
 }

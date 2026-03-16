@@ -540,19 +540,18 @@ TEST_CASE("gtopt_main - lp_debug writes LP files to log directory")  // NOLINT
       .planning_files = {stem.string()},
       .use_single_bus = true,
       .lp_debug = true,
+      .lp_compression = "none",
       .log_directory = log_dir.string(),
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
 
-  // At least one LP file (or its compressed .gz) should exist in log_dir.
+  // At least one plain LP file should exist in log_dir.
   bool found = false;
   if (std::filesystem::exists(log_dir)) {
     for (const auto& entry : std::filesystem::directory_iterator(log_dir)) {
       const auto name = entry.path().filename().string();
-      if (name.starts_with("gtopt_lp")
-          && (name.ends_with(".lp") || name.ends_with(".lp.gz")))
-      {
+      if (name.starts_with("gtopt_lp") && name.ends_with(".lp")) {
         found = true;
         break;
       }
@@ -565,30 +564,9 @@ TEST_CASE("gtopt_main - lp_debug writes LP files to log directory")  // NOLINT
 TEST_CASE(
     "gtopt_main - lp_debug with gzip writes compressed LP files")  // NOLINT
 {
-  // Patch minimal_json to set output_compression=gzip so LP files are
-  // compressed.  We verify a .gz file appears and no bare .lp remains.
-  constexpr auto json_gz = R"({
-  "options": {
-    "demand_fail_cost": 1000,
-    "output_compression": "gzip"
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array":  [{"uid": 1, "first_block": 0, "count_block": 1}],
-    "scenario_array": [{"uid": 1}]
-  },
-  "system": {
-    "name": "gtopt_main_test",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}
-    ]
-  }
-})";
-  const auto stem = write_tmp_json("gtopt_main_lp_debug_gz", json_gz);
+  // Set lp_compression=gzip so LP debug files are gzip-compressed.
+  // We verify a .gz file appears and no bare .lp remains.
+  const auto stem = write_tmp_json("gtopt_main_lp_debug_gz", minimal_json);
   const auto log_dir =
       std::filesystem::temp_directory_path() / "gtopt_main_lp_debug_gz_logs";
   std::filesystem::remove_all(log_dir);
@@ -597,6 +575,7 @@ TEST_CASE(
       .planning_files = {stem.string()},
       .use_single_bus = true,
       .lp_debug = true,
+      .lp_compression = "gzip",
       .log_directory = log_dir.string(),
   });
   REQUIRE(result.has_value());
