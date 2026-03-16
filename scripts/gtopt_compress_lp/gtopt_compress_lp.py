@@ -112,18 +112,24 @@ def _run_compressor(
     Never raises.
     """
     base_args = _COMPRESSOR_COMMANDS.get(binary, [binary, "-f"])
+    ext = _COMPRESSOR_EXTENSIONS.get(binary, ".gz")
+    out_path = Path(str(lp_path) + ext)
     cmd = base_args + extra_args + [str(lp_path)]
+    # lz4 writes to stdout unless an explicit output path is given.
+    if binary == "lz4":
+        cmd.append(str(out_path))
     try:
+        # Use text=False to avoid UnicodeDecodeError when a compressor
+        # (e.g. lz4) writes binary data to stdout.
         result = subprocess.run(
             cmd,
             capture_output=True,
-            text=True,
+            text=False,
+            shell=False,
             timeout=_TIMEOUT_S,
             check=False,
         )
         if result.returncode == 0:
-            ext = _COMPRESSOR_EXTENSIONS.get(binary, ".gz")
-            out_path = Path(str(lp_path) + ext)
             if out_path.exists():
                 return out_path
             # Some compressors (e.g. lz4 with --rm) keep the original name.
@@ -136,7 +142,9 @@ def _run_compressor(
                 file=sys.stderr,
             )
             if result.stderr:
-                print(f"  {result.stderr.strip()}", file=sys.stderr)
+                # Decode stderr safely: compressors may emit binary diagnostics.
+                stderr_text = result.stderr.decode("utf-8", errors="replace").strip()
+                print(f"  {stderr_text}", file=sys.stderr)
         return None
     except FileNotFoundError:
         if not quiet:
