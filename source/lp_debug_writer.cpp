@@ -102,18 +102,77 @@ std::string gzip_lp_file_inline(const std::string& src_path)
   return gz_path;
 }
 
-/// Compress @p src_path.
+/// Compress @p src_path using @p compression.
 ///
-/// Cascade order:
-///   1. gtopt_compress_lp — user-configured script (may use any codec).
-///   2. gzip              — universally available fallback.
+/// When @p compression names a specific codec ("gzip", "zstd", "lz4",
+/// "bzip2", "xz") that codec is tried directly.  For any other value
+/// (including the empty string or "auto") the full auto-cascade is used:
+///
+///   1. gtopt_compress_lp — user-configured script (any codec).
+///   2. gzip binary       — universally available fallback.
 ///   3. inline zlib       — statically linked, always available.
-///   4. skip              — no compression; log a warning and continue.
+///   4. skip              — keep plain .lp, log a warning.
 ///
 /// Never throws, never exits with a non-zero error.  The original file is
 /// left unmodified when all compression attempts fail.
-std::string compress_lp_file(const std::string& src_path)
+std::string compress_lp_file(const std::string& src_path,
+                             const std::string& compression = {})
 {
+  // ── Explicit codec — bypass gtopt_compress_lp and use the codec directly ─
+  // This respects caller intent (e.g. output_compression="gzip" must produce
+  // .gz, not .zst just because gtopt_compress_lp prefers zstd).
+  struct CodecInfo
+  {
+    const char* name;
+    const char* cmd;
+    const char* ext;
+  };
+  static constexpr std::array<CodecInfo, 5> kCodecs {{
+      {"gzip", "gzip -f", ".gz"},
+      {"zstd", "zstd --rm -f", ".zst"},
+      {"lz4", "lz4 -f --rm", ".lz4"},
+      {"bzip2", "bzip2 -f", ".bz2"},
+      {"xz", "xz -f", ".xz"},
+  }};
+
+  for (const auto& c : kCodecs) {
+    if (compression == c.name) {
+      // Try the named binary.
+      if (command_available(c.name)) {
+        if (run_external(c.cmd, src_path)) {
+          const std::string out = src_path + c.ext;
+          if (std::filesystem::exists(out)) {
+            spdlog::debug("LpDebugWriter: compressed {} via {} → {}",
+                          src_path,
+                          c.name,
+                          out);
+            return out;
+          }
+        }
+      }
+      // Named binary unavailable or failed — fall through to inline zlib for
+      // gzip, or keep plain .lp for other codecs (we cannot emulate them).
+      if (compression == "gzip") {
+        const auto result = gzip_lp_file_inline(src_path);
+        if (!result.empty()) {
+          spdlog::debug(
+              "LpDebugWriter: compressed {} via inline zlib → {} (gzip "
+              "binary unavailable)",
+              src_path,
+              result);
+          return result;
+        }
+      }
+      spdlog::warn(
+          "LpDebugWriter: codec '{}' unavailable for {}; keeping plain .lp",
+          c.name,
+          src_path);
+      return src_path;
+    }
+  }
+
+  // ── Auto-cascade (no explicit codec requested) ───────────────────────────
+
   // ── 1. gtopt_compress_lp (user-configured, recommended) ─────────────────
   if (command_available("gtopt_compress_lp")) {
     if (run_external("gtopt_compress_lp --quiet", src_path)) {
@@ -129,10 +188,8 @@ std::string compress_lp_file(const std::string& src_path)
           return candidate;
         }
       }
-      // File may have been compressed in-place with the same name (e.g.
-      // brotli), or the original was already removed without a known extension.
+      // File may have been compressed in-place or with an unknown extension.
       if (!std::filesystem::exists(src_path)) {
-        // Assume success even without knowing the exact output name.
         return src_path;
       }
     } else {
@@ -224,14 +281,15 @@ void LpDebugWriter::compress_async(const std::string& lp_path)
         .priority_key = 0,
         .name = {},
     };
-    auto fut = m_pool_->submit([lp_path] { return compress_lp_file(lp_path); },
+    auto fut = m_pool_->submit([lp_path, compr = m_compression_]
+                               { return compress_lp_file(lp_path, compr); },
                                kCompressReq);
     if (fut.has_value()) {
       m_compress_futures_.push_back(std::move(*fut));
       return;
     }
   }
-  (void)compress_lp_file(lp_path);
+  (void)compress_lp_file(lp_path, m_compression_);
 }
 
 void LpDebugWriter::drain()
