@@ -259,8 +259,18 @@ def sanitize_lp_names(text: str) -> str:
             result.append(line)  # section keyword lines are left untouched
             continue
 
-        if section in ("minimize", "minimum", "min", "maximize", "maximum", "max",
-                       "subject to", "such that", "st", "s.t."):
+        if section in (
+            "minimize",
+            "minimum",
+            "min",
+            "maximize",
+            "maximum",
+            "max",
+            "subject to",
+            "such that",
+            "st",
+            "s.t.",
+        ):
             result.append(_sanitize_definition_line(line))
         else:
             result.append(_sanitize_non_definition_line(line))
