@@ -170,6 +170,17 @@ if(GTOPT_BUILD_DOCS)
   add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../documentation" documentation)
 endif()
 
+option(GTOPT_BUILD_COVERAGE  "Build coverage analysis sub-project"  OFF)
+option(GTOPT_BUILD_PROFILING "Build profiling analysis sub-project" OFF)
+
+if(GTOPT_BUILD_COVERAGE)
+  add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../coverage" coverage)
+endif()
+
+if(GTOPT_BUILD_PROFILING)
+  add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../profiling" profiling)
+endif()
+
 # ---- Uninstall target ----
 # `cmake --build build --target uninstall` removes every file recorded in
 # build/install_manifest.txt by the last `cmake --install` run.
