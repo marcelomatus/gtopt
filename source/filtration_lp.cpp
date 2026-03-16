@@ -143,23 +143,25 @@ int FiltrationLP::update_lp(SystemLP& sys,
 
   // Determine current reservoir volume (in physical units):
   //  - first iteration OR first phase → use static initial volume (eini)
-  //  - otherwise → read from eini column (LP units) and convert to physical
+  //  - otherwise → use vavg = (vini + vfin) / 2 from previous LP solve
   const auto& rsv = sys.element<ReservoirLP>(reservoir_sid());
   Real volume = rsv.reservoir().eini.value_or(0.0);
 
   const auto st_key = std::pair {scenario.uid(), stage.uid()};
   auto& state = m_states_.at(st_key);
 
-  // Use LP-bound volume only when we are past the first iteration AND past
+  // Use LP solution volume only when we are past the first iteration AND past
   // the first phase.  In iteration 1 the LP has not yet been solved from a
-  // previous phase, so there is no meaningful bound to read back.  In phase 0
-  // the eini column is the fixed initial condition, so reservoir().eini is
-  // always correct.
+  // previous phase, so there is no meaningful solution to read back.  In
+  // phase 0 the eini column is the fixed initial condition, so
+  // reservoir().eini is always correct.
   if (iteration > 1 && phase != PhaseIndex {0}) {
-    const auto eini_col = rsv.eini_col_at(scenario, stage);
-    // eini is fixed as a bound — read col_low (LP units) and convert to
-    // physical units for segment selection.
-    volume = li.get_col_low()[eini_col] * state.vol_scale;
+    if (li.is_optimal()) {
+      const auto col_sol = li.get_col_sol();
+      const auto vini = rsv.physical_eini(col_sol, scenario, stage);
+      const auto vfin = rsv.physical_efin(col_sol, scenario, stage);
+      volume = (vini + vfin) / 2.0;
+    }
   }
 
   // Select the active segment for the current volume (physical units)
