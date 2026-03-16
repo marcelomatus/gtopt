@@ -260,8 +260,9 @@ void SystemLP::write_out() const
 
 std::string SystemLP::write_lp(const std::string& filename) const
 {
-  // Use UIDs (not 0-based indices) so filenames are stable and match
-  // the SDDP naming convention: {stem}_scene_{scene_uid}_phase_{phase_uid}
+  // Use UIDs (always valid: default Phase/Scene are assigned uid=0 in
+  // simulation_lp.cpp when phase_array/scene_array are empty).
+  // Naming convention: {stem}_scene_{scene_uid}_phase_{phase_uid}
   const auto fname =
       as_label(filename, "scene", scene().uid(), "phase", phase().uid());
 

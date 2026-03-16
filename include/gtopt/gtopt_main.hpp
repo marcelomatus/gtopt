@@ -80,6 +80,10 @@ struct MainOptions
   /** @brief Save debug LP files to the log directory (monolithic: one per
    * scene/phase; SDDP: one per iteration/scene/phase) */
   std::optional<bool> lp_debug {};
+  /** @brief Compression codec for LP debug files.
+   * `""` = auto (let gtopt_compress_lp decide); `"none"` = no compression;
+   * `"gzip"`, `"zstd"`, `"lz4"`, `"bzip2"`, `"xz"` = specific codec. */
+  std::optional<std::string> lp_compression {};
 
   // ---- tracing / diagnostics ----
   /** @brief Path to a file for SPDLOG_TRACE output (enables trace-level

@@ -41,6 +41,7 @@ Usage
 
     gtopt_compress_lp file.lp
     gtopt_compress_lp file.lp --quiet          # non-failing, used by gtopt
+    gtopt_compress_lp file.lp --codec zstd     # suggest a codec to use
     gtopt_compress_lp file.lp --compressor zstd
     gtopt_compress_lp --init-config            # create/update config file
     gtopt_compress_lp --list-tools             # show available tools + status
@@ -155,13 +156,20 @@ def compress_lp(
     lp_path: Path,
     cfg: dict[str, str],
     quiet: bool = False,
+    codec_hint: str | None = None,
 ) -> Optional[Path]:
     """Compress *lp_path* using the configured compressor.
 
+    *codec_hint* is an optional suggestion from the caller (e.g. the gtopt
+    binary's ``lp_compression`` option passed as ``--codec``).  When provided
+    it is tried first.  If it is unknown or the binary is unavailable a warning
+    is printed (in non-quiet mode) and the normal config/auto cascade is used.
+
     Cascade:
-    1. Configured compressor (``cfg["compressor"]``; ``"auto"`` → first available).
-    2. First available tool found on PATH (if step 1 failed or ``"auto"``).
-    3. Return ``None`` (leave the original unchanged).
+    1. ``codec_hint`` (if provided and available).
+    2. Configured compressor (``cfg["compressor"]``; ``"auto"`` → first available).
+    3. First available tool found on PATH.
+    4. Return ``None`` (leave the original unchanged).
 
     Returns the compressed file path, or ``None`` when nothing worked.
     """
@@ -177,9 +185,25 @@ def compress_lp(
     extra_args = shlex.split(cfg.get("extra_args", ""))
 
     candidates: list[str] = []
-    if compressor != "auto" and compressor:
+
+    # ── codec_hint: validate and insert at the front ─────────────────────
+    if codec_hint and codec_hint not in ("none", "auto", ""):
+        if codec_hint in _COMPRESSOR_COMMANDS:
+            candidates.append(codec_hint)
+        else:
+            if not quiet:
+                print(
+                    f"  Warning: unknown codec '{codec_hint}' requested; "
+                    "falling back to configured compressor.",
+                    file=sys.stderr,
+                )
+            # Unknown codec — ignore and fall through to config/auto.
+
+    # ── configured compressor ─────────────────────────────────────────────
+    if compressor != "auto" and compressor and compressor not in candidates:
         candidates.append(compressor)
-    # Always append the auto-detected fallback chain so we never give up.
+
+    # ── auto-detected fallback chain ──────────────────────────────────────
     auto = pick_auto_compressor()
     if auto and auto not in candidates:
         candidates.append(auto)
@@ -235,6 +259,16 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Non-interactive mode: never prompt, never fail.  Used by the gtopt binary."
+        ),
+    )
+    parser.add_argument(
+        "--codec",
+        default=None,
+        metavar="CODEC",
+        help=(
+            "Codec suggestion from the caller (e.g. 'gzip', 'zstd', 'lz4'). "
+            "Tried first; falls back to the configured compressor when the "
+            "codec is unknown or unavailable.  Ignored when 'none' or empty."
         ),
     )
     parser.add_argument(
@@ -333,7 +367,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     all_ok = True
     for file_arg in args.lp_files:
         lp_path = Path(file_arg)
-        result = compress_lp(lp_path, cfg, quiet=args.quiet)
+        result = compress_lp(lp_path, cfg, quiet=args.quiet, codec_hint=args.codec)
         if result is None and not lp_path.name.endswith(
             (".gz", ".zst", ".lz4", ".bz2", ".xz", ".lzma")
         ):
