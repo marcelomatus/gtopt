@@ -50,6 +50,13 @@ bool FiltrationLP::add_to_lp(const SystemContext& sc,
   const auto eini_col = reservoir.eini_col_at(scenario, stage);
   const auto efin_col = reservoir.efin_col_at(scenario, stage);
 
+  // The volume columns are in LP (scaled) units: LP_vol = phys_vol / vol_scale.
+  // The filtration slope is in physical units [m³/s / dam³].  Multiplying the
+  // slope by vol_scale converts it to [m³/s / LP_unit] so the constraint
+  //   filt_flow = slope_lp * V_avg_lp + constant
+  // is dimensionally correct.
+  const double vol_scale = reservoir.energy_scale();
+
   // Determine effective slope and intercept (RHS).
   // Priority: piecewise segments (volume-dependent) > per-stage schedule >
   // scalar default 0.0.
@@ -63,6 +70,9 @@ bool FiltrationLP::add_to_lp(const SystemContext& sc,
     effective_slope = coeffs.slope;
     effective_rhs = coeffs.intercept;
   }
+
+  // Convert slope from physical to LP units.
+  const Real lp_slope = effective_slope * vol_scale;
 
   const auto& blocks = stage.blocks();
 
@@ -81,7 +91,7 @@ bool FiltrationLP::add_to_lp(const SystemContext& sc,
         }
             .equal(effective_rhs);
 
-    frow[eini_col] = frow[efin_col] = -effective_slope * 0.5;
+    frow[eini_col] = frow[efin_col] = -lp_slope * 0.5;
 
     frow[fcol] = 1;
 
@@ -98,6 +108,7 @@ bool FiltrationLP::add_to_lp(const SystemContext& sc,
   m_states_[st_key] = FiltrationState {
       .eini_col = eini_col,
       .efin_col = efin_col,
+      .vol_scale = vol_scale,
       .current_slope = effective_slope,
       .current_rhs = effective_rhs,
   };
@@ -130,28 +141,31 @@ int FiltrationLP::update_lp(SystemLP& sys,
 
   auto& li = sys.linear_interface();
 
-  // Determine current reservoir volume:
+  // Determine current reservoir volume (in physical units):
   //  - first iteration OR first phase → use static initial volume (eini)
-  //  - otherwise → read from eini column (fixed to previous-phase efin)
+  //  - otherwise → use vavg = (vini + vfin) / 2 from previous LP solve
   const auto& rsv = sys.element<ReservoirLP>(reservoir_sid());
   Real volume = rsv.reservoir().eini.value_or(0.0);
 
-  // Use LP-bound volume only when we are past the first iteration AND past
-  // the first phase.  In iteration 1 the LP has not yet been solved from a
-  // previous phase, so there is no meaningful bound to read back.  In phase 0
-  // the eini column is the fixed initial condition, so reservoir().eini is
-  // always correct.
-  if (iteration > 1 && phase != PhaseIndex {0}) {
-    const auto eini_col = rsv.eini_col_at(scenario, stage);
-    // eini is fixed as a bound — read col_low (= col_upp = trial value)
-    volume = li.get_col_low()[eini_col];
-  }
-
-  // Select the active segment for the current volume
-  const auto coeffs = select_filtration_coeffs(filtration().segments, volume);
-
   const auto st_key = std::pair {scenario.uid(), stage.uid()};
   auto& state = m_states_.at(st_key);
+
+  // Use LP solution volume only when we are past the first iteration AND past
+  // the first phase.  In iteration 1 the LP has not yet been solved from a
+  // previous phase, so there is no meaningful solution to read back.  In
+  // phase 0 the eini column is the fixed initial condition, so
+  // reservoir().eini is always correct.
+  if (iteration > 1 && phase != PhaseIndex {0}) {
+    if (li.is_optimal()) {
+      const auto col_sol = li.get_col_sol();
+      const auto vini = rsv.physical_eini(col_sol, scenario, stage);
+      const auto vfin = rsv.physical_efin(col_sol, scenario, stage);
+      volume = (vini + vfin) / 2.0;
+    }
+  }
+
+  // Select the active segment for the current volume (physical units)
+  const auto coeffs = select_filtration_coeffs(filtration().segments, volume);
 
   const auto new_slope = coeffs.slope;
   const auto new_rhs = coeffs.intercept;
@@ -161,13 +175,16 @@ int FiltrationLP::update_lp(SystemLP& sys,
     return 0;
   }
 
+  // Convert slope from physical to LP units.
+  const auto new_lp_slope = new_slope * state.vol_scale;
+
   const auto& frows = filtration_rows.at(st_key);
   int count = 0;
 
   for (const auto& [buid, row] : frows) {
     if (new_slope != state.current_slope) {
-      li.set_coeff(row, state.eini_col, -new_slope * 0.5);
-      li.set_coeff(row, state.efin_col, -new_slope * 0.5);
+      li.set_coeff(row, state.eini_col, -new_lp_slope * 0.5);
+      li.set_coeff(row, state.efin_col, -new_lp_slope * 0.5);
     }
     if (new_rhs != state.current_rhs) {
       li.set_rhs(row, new_rhs);

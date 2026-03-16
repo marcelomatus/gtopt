@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include <limits>
 #include <map>
 #include <string>
 #include <vector>
@@ -54,6 +55,25 @@ struct FlatLinearProblem
   index_map_t rowmp;  ///< Map from constraint names to indices
 
   std::string name;  ///< Problem name
+
+  /// @name Coefficient statistics (populated when FlatOptions::compute_stats)
+  /// @{
+  size_t stats_nnz {};  ///< Total non-zero coefficients (obj + matrix)
+  double stats_max_abs {};  ///< Largest  |coefficient| (obj + matrix)
+  double stats_min_abs {///< Smallest |coefficient| ≠ 0 (obj + matrix)
+                        std::numeric_limits<double>::max()};
+
+  /// Coefficient ratio max/min (1.0 when empty or all equal).
+  [[nodiscard]] constexpr double stats_coeff_ratio() const noexcept
+  {
+    if (stats_min_abs <= 0.0 || stats_min_abs == stats_max_abs
+        || stats_nnz == 0)
+    {
+      return 1.0;
+    }
+    return stats_max_abs / stats_min_abs;
+  }
+  /// @}
 };
 
 /**
@@ -72,6 +92,7 @@ struct FlatOptions
   bool move_names {false};  ///< Move instead of copy names
   bool reserve_matrix {false};  ///< Pre-reserve matrix memory
   double reserve_factor {default_reserve_factor};  ///< Reserve factor
+  bool compute_stats {false};  ///< Compute coefficient min/max/ratio
 };
 
 /**
