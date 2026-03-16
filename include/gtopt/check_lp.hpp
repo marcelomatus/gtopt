@@ -41,7 +41,7 @@ namespace gtopt
  * Searches PATH for the @c gtopt_check_lp binary.  If found, spawns it
  * directly (without invoking a shell) via @c posix_spawn with:
  * @code
- *   gtopt_check_lp --quiet --no-color --timeout <timeout_seconds>
+ *   gtopt_check_lp --quiet --no-color --no-ai --timeout <timeout_seconds>
  *                   [--algo <algo>] <lp_file>
  * @endcode
  * and returns the captured stdout+stderr.  If the binary is not on PATH or
