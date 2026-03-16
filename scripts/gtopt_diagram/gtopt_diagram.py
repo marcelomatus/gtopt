@@ -574,6 +574,27 @@ def _gen_pmax(gen: dict) -> float:
     return 0.0
 
 
+def _elem_name(item: dict) -> str:
+    """Return a display label combining name and uid: ``'NAME(UID)'``.
+
+    Examples:
+      - ``{"name": "ELTORO", "uid": 2}``  → ``"ELTORO(2)"``
+      - ``{"name": "b1",     "uid": 1}``  → ``"b1(1)"``
+      - ``{"name": "b1"}``                → ``"b1"``
+      - ``{"uid": 3}``                    → ``"3"``
+      - ``{}``                            → ``"?"``
+    """
+    name = item.get("name")
+    uid = item.get("uid")
+    if name is not None and uid is not None and str(name) != str(uid):
+        return f"{name}({uid})"
+    if name is not None:
+        return str(name)
+    if uid is not None:
+        return str(uid)
+    return "?"
+
+
 # ---------------------------------------------------------------------------
 # FilterOptions — controls diagram reduction for large cases
 # ---------------------------------------------------------------------------
@@ -1232,6 +1253,13 @@ class TopologyBuilder:
             self._flows()
             self._filtrations()
             self._reservoir_efficiencies()
+        # Remove edges that reference nodes absent from the model (e.g. when
+        # subsystem="hydro" skips _generators(), turbine→generator edges would
+        # otherwise reference non-existent node IDs and crash pyvis/render_html).
+        node_ids = {n.node_id for n in self.model.nodes}
+        self.model.edges = [
+            e for e in self.model.edges if e.src in node_ids and e.dst in node_ids
+        ]
         if self.opts.hide_isolated:
             connected = {e.src for e in self.model.edges} | {
                 e.dst for e in self.model.edges
@@ -1278,14 +1306,14 @@ class TopologyBuilder:
             if self._focus_nids is not None and nid not in self._focus_nids:
                 continue
             v = f"\n{bus['voltage']} kV" if "voltage" in bus else ""
-            name = bus.get("name", bus.get("uid", "?"))
+            name = _elem_name(bus)
             self.model.add_node(
                 Node(
                     node_id=nid,
                     label=f"{name}{v}",
                     kind="bus",
                     cluster="electrical",
-                    tooltip=f"Bus uid={bus.get('uid')} name={name}{v}",
+                    tooltip=f"Bus uid={bus.get('uid')} name={bus.get('name')}{v}",
                 )
             )
             self._bus_node_ids.add(nid)
@@ -1311,7 +1339,7 @@ class TopologyBuilder:
             gcost = _scalar(gen.get("gcost", "\u2014"))
             gt = _classify_gen(gen, self._turb_refs)
             kind = self._gen_kind(gen)
-            name = gen.get("name", gen.get("uid", "?"))
+            name = _elem_name(gen)
             lbl = (
                 f"{name}\n{pmax} MW"
                 if self.opts.compact
@@ -1342,7 +1370,13 @@ class TopologyBuilder:
             if self.opts.top_gens > 0:
                 grp = sorted(grp, key=_gen_pmax, reverse=True)[: self.opts.top_gens]
             total = sum(_gen_pmax(g) for g in grp)
-            bname = bus_ref if isinstance(bus_ref, str) else f"bus{bus_ref}"
+            rep = _resolve_bus_ref(bus_ref, self._vmap)
+            bus = self._find("bus_array", rep) or self._find("bus_array", bus_ref)
+            bname = (
+                _elem_name(bus)
+                if bus
+                else (bus_ref if isinstance(bus_ref, str) else f"bus{bus_ref}")
+            )
             types = [_classify_gen(g, self._turb_refs) for g in grp]
             kind = _dominant_kind(types)
             nid = f"agg_bus_{bus_ref}"
@@ -1370,7 +1404,13 @@ class TopologyBuilder:
             if self.opts.top_gens > 0:
                 grp = sorted(grp, key=_gen_pmax, reverse=True)[: self.opts.top_gens]
             total = sum(_gen_pmax(g) for g in grp)
-            bname = bus_ref if isinstance(bus_ref, str) else f"bus{bus_ref}"
+            rep = _resolve_bus_ref(bus_ref, self._vmap)
+            bus = self._find("bus_array", rep) or self._find("bus_array", bus_ref)
+            bname = (
+                _elem_name(bus)
+                if bus
+                else (bus_ref if isinstance(bus_ref, str) else f"bus{bus_ref}")
+            )
             meta = _GEN_TYPE_META.get(gt, ("?", "⚡", "gen"))
             label, icon, palette_key = meta
             nid = f"agg_type_{bus_ref}_{gt}"
@@ -1420,7 +1460,7 @@ class TopologyBuilder:
 
     def _demands(self):
         for dem in self.sys.get("demand_array", []):
-            name = dem.get("name", dem.get("uid", "?"))
+            name = _elem_name(dem)
             lmax = _scalar(dem.get("lmax"))
             nid = self._did(dem)
             lbl = f"{name}" if self.opts.compact else f"{name}\n{lmax} MW"
@@ -1430,7 +1470,7 @@ class TopologyBuilder:
                     label=lbl,
                     kind="demand",
                     cluster="electrical",
-                    tooltip=f"Demand uid={dem.get('uid')} name={name} lmax={lmax}",
+                    tooltip=f"Demand uid={dem.get('uid')} name={dem.get('name')} lmax={lmax}",
                 )
             )
             bus_id = self._bus_node_id(dem.get("bus"))
@@ -1460,7 +1500,7 @@ class TopologyBuilder:
             if self.opts.voltage_threshold > 0 and edge_key in seen_edges:
                 continue
             seen_edges.add(edge_key)
-            name = line.get("name", line.get("uid", "?"))
+            name = _elem_name(line)
             x = line.get("reactance", "")
             tmax = line.get("tmax_ab", line.get("tmax_ba", ""))
             if self.opts.compact:
@@ -1485,7 +1525,7 @@ class TopologyBuilder:
 
     def _batteries(self):
         for bat in self.sys.get("battery_array", []):
-            name = bat.get("name", bat.get("uid", "?"))
+            name = _elem_name(bat)
             emax = _scalar(bat.get("emax") or bat.get("capacity"))
             ein = bat.get("input_efficiency", "")
             eout = bat.get("output_efficiency", "")
@@ -1503,7 +1543,7 @@ class TopologyBuilder:
 
     def _converters(self):
         for conv in self.sys.get("converter_array", []):
-            name = conv.get("name", conv.get("uid", "?"))
+            name = _elem_name(conv)
             cap = _scalar(conv.get("capacity"))
             cid = self._cid(conv)
             lbl = f"{name}" if self.opts.compact else f"{name}\n{cap} MW"
@@ -1556,20 +1596,20 @@ class TopologyBuilder:
 
     def _junctions(self):
         for j in self.sys.get("junction_array", []):
-            name = j.get("name", j.get("uid", "?"))
+            name = _elem_name(j)
             self.model.add_node(
                 Node(
                     node_id=self._jid(j),
                     label=name,
                     kind="junction",
                     cluster="hydro",
-                    tooltip=f"Junction uid={j.get('uid')} name={name}",
+                    tooltip=f"Junction uid={j.get('uid')} name={j.get('name')}",
                 )
             )
 
     def _waterways(self):
         for w in self.sys.get("waterway_array", []):
-            name = w.get("name", w.get("uid", "?"))
+            name = _elem_name(w)
             fmax = _scalar(w.get("fmax"))
             uid = w.get("uid")
             # Skip direct arc when a turbine already represents this waterway
@@ -1591,7 +1631,7 @@ class TopologyBuilder:
 
     def _reservoirs(self):
         for r in self.sys.get("reservoir_array", []):
-            name = r.get("name", r.get("uid", "?"))
+            name = _elem_name(r)
             emax = _scalar(r.get("emax") or r.get("capacity"))
             lbl = str(name) if self.opts.compact else f"{name}\n{emax} dam³"
             self.model.add_node(
@@ -1616,7 +1656,7 @@ class TopologyBuilder:
 
     def _turbines(self):
         for t in self.sys.get("turbine_array", []):
-            name = t.get("name", t.get("uid", "?"))
+            name = _elem_name(t)
             cap = _scalar(t.get("capacity"))
             cr = _scalar(t.get("conversion_rate"))
             tid = self._tid(t)
@@ -1638,7 +1678,7 @@ class TopologyBuilder:
                 jb = self._find_node_id(
                     "junction_array", way.get("junction_b"), self._jid
                 )
-                way_name = way.get("name", way.get("uid", "?"))
+                way_name = _elem_name(way)
                 fmax = _scalar(way.get("fmax"))
                 lbl_w = (
                     str(way_name) if self.opts.compact else f"{way_name}\n≤{fmax} m³/s"
@@ -1697,7 +1737,7 @@ class TopologyBuilder:
 
     def _flows(self):
         for f in self.sys.get("flow_array", []):
-            name = f.get("name", f.get("uid", "?"))
+            name = _elem_name(f)
             disc = _scalar(f.get("discharge"))
             direction = f.get("direction", 1)
             fid = self._fid(f)
@@ -1718,7 +1758,7 @@ class TopologyBuilder:
 
     def _filtrations(self):
         for fi in self.sys.get("filtration_array", []):
-            name = fi.get("name", fi.get("uid", "?"))
+            name = _elem_name(fi)
             fiid = self._filtid(fi)
             lbl = str(name) if self.opts.compact else f"{name}\n(filtration)"
             self.model.add_node(
@@ -1727,7 +1767,7 @@ class TopologyBuilder:
                     label=lbl,
                     kind="filtration",
                     cluster="hydro",
-                    tooltip=f"Filtration uid={fi.get('uid')} name={name}",
+                    tooltip=f"Filtration uid={fi.get('uid')} name={fi.get('name')}",
                 )
             )
             wway = _resolve(self.sys.get("waterway_array", []), fi.get("waterway"))
@@ -2375,6 +2415,61 @@ def _build_planning_html(
 # ---------------------------------------------------------------------------
 # Image viewer helper
 # ---------------------------------------------------------------------------
+
+
+def _mermaid_to_html(mermaid_text: str, title: str = "gtopt Diagram") -> str:
+    """Return a self-contained HTML page that renders *mermaid_text* in a browser.
+
+    The markdown backtick fences (`` ```mermaid`` / `` ``` ``) are stripped
+    automatically so the text may be passed with or without them.
+    """
+    lines = mermaid_text.splitlines()
+    if lines and lines[0].startswith("```"):
+        lines = lines[1:]
+    if lines and lines[-1].startswith("```"):
+        lines = lines[:-1]
+    mmd_inner = "\n".join(lines)
+
+    return textwrap.dedent(f"""\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{title}</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  body {{ font-family: Arial, sans-serif; background: #F4F6F7; margin: 0; padding: 20px; }}
+  h1   {{ color: #1A252F; font-size: 22px; margin-bottom: 16px; }}
+  .card {{ background: white; border: 1px solid #D5D8DC; border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.07); padding: 16px; overflow-x: auto; }}
+  .mermaid {{ text-align: center; }}
+</style>
+</head>
+<body>
+<h1>{title}</h1>
+<div class="card">
+  <div class="mermaid">
+{mmd_inner}
+  </div>
+</div>
+<script>
+  mermaid.initialize({{ startOnLoad: true, theme: 'default',
+    themeVariables: {{ fontSize: '13px' }} }});
+</script>
+</body>
+</html>
+""")
+
+
+def _show_mermaid(mermaid_text: str, title: str = "gtopt Diagram") -> None:
+    """Write *mermaid_text* as a temporary HTML file and open it in a browser."""
+    html = _mermaid_to_html(mermaid_text, title=title)
+    fd, tmp_path = tempfile.mkstemp(suffix=".html", prefix="gtopt_mermaid_")
+    try:
+        os.write(fd, html.encode("utf-8"))
+    finally:
+        os.close(fd)
+    webbrowser.open(Path(tmp_path).as_uri())
 
 
 def display_diagram(path: str, fmt: str) -> None:
@@ -3056,8 +3151,8 @@ Examples:
         default=False,
         help=(
             "Open the output file in a viewer after writing it. "
-            "Uses Pillow (PIL) for PNG; webbrowser for SVG, PDF and HTML. "
-            "Ignored for dot/mermaid formats written to stdout. "
+            "Uses Pillow (PIL) for PNG; webbrowser for SVG, PDF, HTML and Mermaid. "
+            "Ignored for dot format written to stdout. "
             "Enabled automatically when no --output path is given."
         ),
     )
@@ -3097,7 +3192,9 @@ Examples:
             if args.output:
                 Path(out).write_text(result, encoding="utf-8")
                 print(f"Mermaid planning diagram written to {out}", file=sys.stderr)
-            else:
+            if show:
+                _show_mermaid(result, title=f"{case_name} — Planning Structure")
+            elif not args.output:
                 print(result)
             return 0
         if fmt == "html":
@@ -3183,7 +3280,9 @@ Examples:
         if args.output:
             Path(out).write_text(result, encoding="utf-8")
             print(f"Mermaid topology written to {out}", file=sys.stderr)
-        else:
+        if show:
+            _show_mermaid(result, title=model.title)
+        elif not args.output:
             print(result)
         return 0
 
