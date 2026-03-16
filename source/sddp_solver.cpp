@@ -1935,6 +1935,13 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     return std::unexpected(std::move(*err));
   }
 
+  // just_build_lp: the LP matrix is already built (PlanningLP constructor).
+  // Return an empty results vector immediately — no solving, no initialization.
+  if (m_options_.just_build_lp) {
+    SPDLOG_INFO("SDDP: just_build_lp mode — LP built, skipping all solving");
+    return std::vector<SDDPIterationResult> {};
+  }
+
   // Bootstrap LP + initialize α vars, state links, hot-start cuts
   if (auto err = initialize_solver(); !err.has_value()) {
     return std::unexpected(std::move(err.error()));
@@ -1989,18 +1996,6 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     ir.forward_pass_s = fwd->elapsed_s;
     if (fwd->has_feasibility_issue) {
       ir.feasibility_issue = true;
-    }
-
-    // ── just_create: stop after the first forward pass ──
-    // All scene/phase LPs have been built and solved once.  If lp_debug is
-    // also set the LP files were saved inside forward_pass().  There is no
-    // backward pass, no cut generation, and no convergence loop.
-    if (m_options_.just_create) {
-      SPDLOG_INFO(
-          "SDDP: just_create mode — stopping after forward pass (iter {})",
-          iter);
-      results.push_back(ir);
-      break;
     }
 
     // ── Scene weights and bounds ──
@@ -2072,6 +2067,13 @@ auto SDDPPlanningSolver::solve(PlanningLP& planning_lp,
   SPDLOG_INFO(
       "SDDPSolver: starting {} scene(s) × {} phase(s)", num_scenes, num_phases);
 
+  // just_build_lp: LP already built in PlanningLP constructor — skip all
+  // solving.
+  if (m_sddp_opts_.just_build_lp) {
+    SPDLOG_INFO("SDDP: just_build_lp mode — LP built, skipping solve");
+    return 0;
+  }
+
   SDDPSolver sddp(planning_lp, m_sddp_opts_);
   auto results = sddp.solve(opts);
 
@@ -2080,11 +2082,6 @@ auto SDDPPlanningSolver::solve(PlanningLP& planning_lp,
   }
 
   m_last_results_ = std::move(*results);
-
-  // just_create: one forward pass completed successfully — return 0.
-  if (m_sddp_opts_.just_create) {
-    return 0;
-  }
 
   // Return 1 if converged, 0 otherwise
   if (!m_last_results_.empty() && m_last_results_.back().converged) {
