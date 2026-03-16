@@ -270,12 +270,14 @@ public:
   /**
    * @brief Gets the LP compression codec for debug LP files.
    *
-   * Returns the value of `lp_compression` when set.  An empty string means
-   * "let gtopt_compress_lp decide" (auto-cascade).  `"none"` disables
-   * compression entirely.  Any other value is a codec suggestion passed as
+   * Returns the value of `lp_compression` when set.  An empty string (the
+   * default) means "inherit from output_compression" — the caller (e.g.
+   * planning_solver.cpp) falls back to `output_compression()` when this is
+   * empty.  `"none"` or `"uncompressed"` disables LP compression regardless
+   * of `output_compression`.  Any other value is a codec name passed as
    * `--codec <value>` to `gtopt_compress_lp`.
    *
-   * @return Compression codec string (may be empty)
+   * @return Compression codec string (may be empty = inherit)
    */
   [[nodiscard]] constexpr auto lp_compression() const
   {
