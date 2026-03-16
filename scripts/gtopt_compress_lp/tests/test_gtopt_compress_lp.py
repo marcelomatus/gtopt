@@ -111,9 +111,7 @@ def test_run_compressor_missing_binary_returns_none(tmp_path: Path) -> None:
     assert lp.exists()  # original untouched
 
 
-@pytest.mark.skipif(
-    sys.platform == "win32", reason="gzip not guaranteed on Windows"
-)
+@pytest.mark.skipif(sys.platform == "win32", reason="gzip not guaranteed on Windows")
 def test_run_compressor_gzip_quiet(tmp_path: Path) -> None:
     lp = _write_lp(tmp_path)
     result = _run_compressor("gzip", [], lp, quiet=True)
@@ -178,9 +176,7 @@ def test_main_list_tools_returns_0(capsys: pytest.CaptureFixture[str]) -> None:
     assert rc == 0
     out = capsys.readouterr().out
     # Should mention at least one compression tool
-    assert any(
-        tool in out for tool in ("gzip", "zstd", "lz4", "bzip2", "xz")
-    )
+    assert any(tool in out for tool in ("gzip", "zstd", "lz4", "bzip2", "xz"))
 
 
 def test_main_version_exits(capsys: pytest.CaptureFixture[str]) -> None:
