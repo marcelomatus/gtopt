@@ -1263,10 +1263,11 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
               element_name,
               cname);
         } else {
-          // Find the efin state variable for this element in the last phase
+          // Find the efin/vfin state variable for this element in the last phase
           for (const auto& [key, svar] : svar_map) {
             if (key.uid == elem_uid
-                && (key.col_name == "efin" || key.col_name == "soc"))
+                && (key.col_name == "efin" || key.col_name == "soc"
+                    || key.col_name == "vfin"))
             {
               found_col = svar.col();
               break;
@@ -1445,6 +1446,271 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
         .code = ErrorCode::FileIOError,
         .message = std::format(
             "Error loading boundary cuts from {}: {}", filepath, e.what()),
+    });
+  }
+}
+
+// ── Named hot-start cuts (all phases, named state variables) ────────────────
+
+auto SDDPSolver::load_named_cuts(const std::string& filepath)
+    -> std::expected<int, Error>
+{
+  try {
+    std::ifstream ifs(filepath);
+    if (!ifs.is_open()) {
+      return std::unexpected(Error {
+          .code = ErrorCode::FileIOError,
+          .message = std::format(
+              "Cannot open named cuts file for reading: {}", filepath),
+      });
+    }
+
+    // ── Parse header ──────────────────────────────────────────────────────
+    // Format: name,iteration,scene,phase,rhs,StateVar1,StateVar2,...
+    std::string header_line;
+    std::getline(ifs, header_line);
+
+    std::vector<std::string> headers;
+    {
+      std::istringstream hss(header_line);
+      std::string token;
+      while (std::getline(hss, token, ',')) {
+        headers.push_back(token);
+      }
+    }
+
+    // Expect at least: name,iteration,scene,phase,rhs + 1 state var
+    constexpr int kFixedCols = 5;  // name,iteration,scene,phase,rhs
+    if (std::cmp_less(headers.size(), kFixedCols + 1)) {
+      return std::unexpected(Error {
+          .code = ErrorCode::InvalidInput,
+          .message = std::format(
+              "Named cuts CSV must have at least {} columns "
+              "(name,iteration,scene,phase,rhs,<state_vars>); got {}",
+              kFixedCols + 1,
+              headers.size()),
+      });
+    }
+
+    // Verify the phase column header
+    if (headers[3] != "phase") {
+      return std::unexpected(Error {
+          .code = ErrorCode::InvalidInput,
+          .message = std::format(
+              "Named cuts CSV: expected column 4 to be 'phase', got '{}'",
+              headers[3]),
+      });
+    }
+
+    // ── Build element-name → uid lookup from the System ───────────────────
+    const auto& sim = planning_lp().simulation();
+    const auto num_phases = static_cast<Index>(sim.phases().size());
+    const auto num_scenes = static_cast<Index>(sim.scenes().size());
+    const auto& sys = planning_lp().planning().system;
+
+    std::unordered_map<std::string, std::pair<std::string_view, Uid>>
+        name_to_class_uid;
+    for (const auto& junc : sys.junction_array) {
+      name_to_class_uid[junc.name] = {"Junction", junc.uid};
+    }
+    for (const auto& bat : sys.battery_array) {
+      name_to_class_uid[bat.name] = {"Battery", bat.uid};
+    }
+
+    // Build phase UID → PhaseIndex lookup
+    std::unordered_map<int, PhaseIndex> phase_uid_to_index;
+    for (Index pi = 0; pi < num_phases; ++pi) {
+      phase_uid_to_index[static_cast<int>(sim.phases()[pi].uid())] =
+          PhaseIndex {pi};
+    }
+
+    // ── Build per-phase state-variable column maps ────────────────────────
+    // For each phase, map header column index → LP ColIndex
+    const auto num_state_cols =
+        static_cast<int>(headers.size()) - kFixedCols;
+
+    // Cache per-phase column maps (lazy: built on first use)
+    std::unordered_map<Index, std::vector<std::optional<ColIndex>>>
+        phase_col_maps;
+
+    auto get_col_map =
+        [&](PhaseIndex phase) -> const std::vector<std::optional<ColIndex>>&
+    {
+      auto it = phase_col_maps.find(static_cast<Index>(phase));
+      if (it != phase_col_maps.end()) {
+        return it->second;
+      }
+
+      // Build mapping for this phase by scanning state variables
+      const auto& svar_map =
+          sim.state_variables(SceneIndex {0}, phase);
+
+      std::vector<std::optional<ColIndex>> col_map;
+      col_map.reserve(num_state_cols);
+
+      for (int hi = kFixedCols; std::cmp_less(hi, headers.size()); ++hi) {
+        const auto& hdr = headers[hi];
+        std::optional<ColIndex> found_col;
+
+        // Parse "ClassName:ElementName" or plain "ElementName"
+        std::string_view class_filter;
+        std::string element_name;
+        if (const auto colon = hdr.find(':'); colon != std::string::npos) {
+          class_filter = std::string_view(hdr).substr(0, colon);
+          element_name = hdr.substr(colon + 1);
+        } else {
+          element_name = hdr;
+        }
+
+        if (auto nit = name_to_class_uid.find(element_name);
+            nit != name_to_class_uid.end())
+        {
+          const auto& [cname, elem_uid] = nit->second;
+          if (!class_filter.empty() && class_filter != cname) {
+            SPDLOG_WARN(
+                "Named cuts: header '{}' class '{}' != element '{}' "
+                "class '{}'; skipping",
+                hdr,
+                class_filter,
+                element_name,
+                cname);
+          } else {
+            // Find the efin/soc/vfin state variable for this element
+            for (const auto& [key, svar] : svar_map) {
+              if (key.uid == elem_uid
+                  && (key.col_name == "efin" || key.col_name == "soc"
+                      || key.col_name == "vfin"))
+              {
+                found_col = svar.col();
+                break;
+              }
+            }
+          }
+        }
+
+        if (!found_col.has_value()) {
+          SPDLOG_TRACE(
+              "Named cuts: could not find state variable for header '{}' "
+              "in phase {}; column ignored",
+              hdr,
+              static_cast<Index>(phase));
+        }
+        col_map.push_back(found_col);
+      }
+
+      auto [ins_it, _] =
+          phase_col_maps.emplace(static_cast<Index>(phase), std::move(col_map));
+      return ins_it->second;
+    };
+
+    // ── Read all cut rows ─────────────────────────────────────────────────
+    int cuts_loaded = 0;
+    std::string line;
+    while (std::getline(ifs, line)) {
+      if (line.empty()) {
+        continue;
+      }
+
+      std::istringstream iss(line);
+      std::string token;
+
+      // Column 0: name
+      std::getline(iss, token, ',');
+      auto cut_name = token;
+
+      // Column 1: iteration (parsed but not used for filtering yet)
+      std::getline(iss, token, ',');
+      [[maybe_unused]] const auto iteration = std::stoi(token);
+
+      // Column 2: scene UID
+      std::getline(iss, token, ',');
+      [[maybe_unused]] const auto scene_val = std::stoi(token);
+
+      // Column 3: phase UID
+      std::getline(iss, token, ',');
+      const auto phase_val = std::stoi(token);
+
+      // Column 4: rhs
+      std::getline(iss, token, ',');
+      const auto rhs = std::stod(token);
+
+      // Resolve phase UID → PhaseIndex
+      auto pit = phase_uid_to_index.find(phase_val);
+      if (pit == phase_uid_to_index.end()) {
+        SPDLOG_WARN(
+            "Named cuts: unknown phase UID {} in '{}', skipping cut '{}'",
+            phase_val,
+            filepath,
+            cut_name);
+        continue;
+      }
+      const auto phase = pit->second;
+
+      // Ensure alpha variable exists for this phase in all scenes
+      for (Index si = 0; si < num_scenes; ++si) {
+        const auto scene = SceneIndex {si};
+        auto& state = m_scene_phase_states_[scene][phase];
+        if (state.alpha_col == ColIndex {unknown_index}) {
+          auto& li =
+              planning_lp().system(scene, phase).linear_interface();
+          state.alpha_col = li.add_col(
+              sddp_label("sddp", "alpha", "sc", scene, "ph", phase),
+              m_options_.alpha_min,
+              m_options_.alpha_max);
+          li.set_obj_coeff(state.alpha_col, 1.0);
+        }
+      }
+
+      // Get the column map for this phase
+      const auto& col_map = get_col_map(phase);
+
+      // Parse coefficient values and build the cut row
+      std::string remainder;
+      std::getline(iss, remainder);
+
+      for (Index si = 0; si < num_scenes; ++si) {
+        const auto scene = SceneIndex {si};
+        const auto& state = m_scene_phase_states_[scene][phase];
+
+        auto row = SparseRow {
+            .name = as_label("named_hs", cut_name),
+            .lowb = rhs,
+            .uppb = LinearProblem::DblMax,
+        };
+        row[state.alpha_col] = 1.0;
+
+        // Parse coefficient values from the remainder string
+        std::istringstream coeff_ss(remainder);
+        std::string ctok;
+        for (const auto& col_opt : col_map) {
+          if (!std::getline(coeff_ss, ctok, ',')) {
+            break;
+          }
+          if (!col_opt.has_value()) {
+            continue;
+          }
+          const auto coeff = std::stod(ctok);
+          if (coeff != 0.0) {
+            row[*col_opt] = -coeff;
+          }
+        }
+
+        auto& li = planning_lp().system(scene, phase).linear_interface();
+        li.add_row(row);
+      }
+      ++cuts_loaded;
+    }
+
+    SPDLOG_INFO("SDDP: loaded {} named hot-start cuts from {}",
+                cuts_loaded,
+                filepath);
+    return cuts_loaded;
+
+  } catch (const std::exception& e) {
+    return std::unexpected(Error {
+        .code = ErrorCode::FileIOError,
+        .message = std::format(
+            "Error loading named cuts from {}: {}", filepath, e.what()),
     });
   }
 }
@@ -1636,6 +1902,19 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
                   m_options_.boundary_cuts_file);
     } else {
       SPDLOG_WARN("SDDP: could not load boundary cuts: {}",
+                  result.error().message);
+    }
+  }
+
+  // ── Load named hot-start cuts (all phases, named state variables) ─────────
+  if (!m_options_.named_cuts_file.empty()) {
+    auto result = load_named_cuts(m_options_.named_cuts_file);
+    if (result.has_value()) {
+      SPDLOG_INFO("SDDP: loaded {} named hot-start cuts from {}",
+                  *result,
+                  m_options_.named_cuts_file);
+    } else {
+      SPDLOG_WARN("SDDP: could not load named hot-start cuts: {}",
                   result.error().message);
     }
   }

@@ -209,6 +209,11 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options)
         std::string(options.sddp_boundary_cuts_mode());
     sddp_opts.boundary_max_iterations = options.sddp_boundary_max_iterations();
 
+    const auto named_cuts = options.sddp_named_cuts_file();
+    if (!named_cuts.empty()) {
+      sddp_opts.named_cuts_file = std::string(named_cuts);
+    }
+
     // Sentinel: honour the user-configured path when explicitly set.
     const auto sentinel = options.sddp_sentinel_file();
     const auto output_dir = options.output_directory();
