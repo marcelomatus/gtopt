@@ -45,9 +45,11 @@ from __future__ import annotations
 
 import calendar
 import copy
+import functools
 import json
 import logging
 import math
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +60,40 @@ logger = logging.getLogger(__name__)
 
 _INDEX_COLS = {"scenario", "stage", "block"}
 _META_COLS = {"_month", "_hour", "_year", "_dt", "_duration"}
+
+
+# ---------------------------------------------------------------------------
+# Parquet codec probe — done once at module import
+# ---------------------------------------------------------------------------
+
+
+@functools.lru_cache(maxsize=8)
+def _probe_parquet_codec(requested: str) -> str:
+    """Return the best available PyArrow Parquet codec for *requested*.
+
+    Uses ``pyarrow.Codec`` to test whether the codec is compiled into the
+    linked Arrow library.  Falls back to ``"gzip"`` when *requested* is
+    unavailable, printing a warning to *stderr*.  Results are cached via
+    ``lru_cache`` so the probe runs **at most once per unique codec name**.
+    """
+    if not requested or requested in ("none", "uncompressed"):
+        return requested
+    try:
+        import pyarrow as pa  # noqa: PLC0415
+
+        pa.Codec(requested)
+        return requested
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        print(
+            f"Warning: Parquet codec '{requested}' is not available in this "
+            "Arrow build; falling back to gzip",
+            file=sys.stderr,
+        )
+        return "gzip"
+
+
+# Best available codec — probed once at module import time.
+_DEFAULT_COMPRESSION: str = _probe_parquet_codec("zstd")
 
 
 # ---------------------------------------------------------------------------
@@ -935,7 +971,7 @@ def write_schedule(
     df: pd.DataFrame,
     output_path: Path,
     output_format: str = "parquet",
-    compression: str = "gzip",
+    compression: str = _DEFAULT_COMPRESSION,
 ) -> None:
     """Write a projected schedule DataFrame to Parquet or CSV.
 
@@ -955,7 +991,8 @@ def write_schedule(
     output_format:
         ``"parquet"`` *(default)* or ``"csv"``.
     compression:
-        Parquet compression codec (default ``"gzip"``).
+        Parquet compression codec (default: best available, ``"zstd"`` when
+        the linked Arrow library supports it, otherwise ``"gzip"``).
         Pass ``""`` to disable.
 
     Raises
@@ -972,7 +1009,8 @@ def write_schedule(
     )
 
     if output_format == "parquet":
-        comp = compression if compression else None
+        probed = _probe_parquet_codec(compression)
+        comp = probed if probed else None
         write_df.to_parquet(output_path, index=False, compression=comp)
     elif output_format == "csv":
         write_df.to_csv(output_path, index=False)
@@ -1003,7 +1041,7 @@ def convert_timeseries(
     year: int | None = None,
     interval_hours: float | None = None,
     output_format: str = "parquet",
-    compression: str = "gzip",
+    compression: str = _DEFAULT_COMPRESSION,
     output_horizon_path: Path | None = None,
 ) -> dict[str, Path]:
     """Convert a batch of time-series files to gtopt schedule files.
@@ -1037,7 +1075,11 @@ def convert_timeseries(
     output_format:
         ``"parquet"`` *(default)* or ``"csv"``.
     compression:
-        Parquet compression codec; pass ``""`` to disable.
+        Parquet compression codec; pass ``""`` to disable.  Default is the
+        best available codec (``"zstd"`` when the linked Arrow library
+        supports it, otherwise ``"gzip"``).  The value is passed through
+        ``_probe_parquet_codec()`` in :func:`write_schedule` to verify
+        runtime availability.
     output_horizon_path:
         When given, write the duration-updated horizon JSON to this path.
 
@@ -1207,11 +1249,13 @@ def _write_hourly_result(
     result: pd.DataFrame,
     out_path: Path,
     output_format: str,
+    compression: str = _DEFAULT_COMPRESSION,
 ) -> None:
     """Write a reconstructed hourly DataFrame to CSV or Parquet."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if output_format == "parquet":
-        result.to_parquet(out_path, index=False)
+        probed = _probe_parquet_codec(compression)
+        result.to_parquet(out_path, index=False, compression=probed or None)
     else:
         result.to_csv(out_path, index=False)
 
@@ -1221,6 +1265,7 @@ def reconstruct_output_hours(
     hour_block_map: list[dict[str, Any]],
     output_hour_dir: Path | None = None,
     output_format: str = "csv",
+    compression: str = _DEFAULT_COMPRESSION,
 ) -> dict[str, Path]:
     """Expand block-level gtopt output files into hourly time-series.
 
@@ -1248,6 +1293,10 @@ def reconstruct_output_hours(
         ``output_hour``.
     output_format:
         ``"csv"`` *(default)* or ``"parquet"``.
+    compression:
+        Parquet compression codec (default: best available, ``"zstd"`` when
+        the linked Arrow library supports it, otherwise ``"gzip"``).
+        Ignored when *output_format* is ``"csv"``.
 
     Returns
     -------
@@ -1307,7 +1356,7 @@ def reconstruct_output_hours(
             rel = src_path.relative_to(output_dir)
             suffix = ".parquet" if output_format == "parquet" else ".csv"
             out_path = output_hour_dir / rel.with_suffix(suffix)
-            _write_hourly_result(result, out_path, output_format)
+            _write_hourly_result(result, out_path, output_format, compression)
 
             written[str(rel)] = out_path
             logger.info("Reconstructed %d hourly rows -> %s", len(result), out_path)

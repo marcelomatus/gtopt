@@ -13,6 +13,8 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <string>
+#include <unordered_map>
 
 #include <arrow/csv/api.h>
 #include <arrow/io/api.h>
@@ -169,20 +171,16 @@ auto make_table(FieldVector&& field_vector)
                             std::move(arrays));
 }
 
-// Resolve a Parquet compression codec from a string name, checking runtime
-// library support and falling back gracefully with warnings.
+// Translate a pre-validated codec name to a parquet::Compression enum value.
 //
-// Resolution order:
-//   1. Empty / "none" / "uncompressed" → UNCOMPRESSED (no check needed).
-//   2. Known name but not supported at runtime   → warn, try ZSTD, then GZIP.
-//   3. Unknown name                              → warn, try ZSTD, then GZIP.
+// The codec has already been probed for availability by probe_parquet_codec()
+// at program startup and stored in Options::output_compression.  This
+// function only does the name→enum translation; no runtime availability
+// check is needed here.
 [[nodiscard]] auto resolve_parquet_codec(const std::string& zfmt)
 {
   using codec_t = decltype(parquet::Compression::UNCOMPRESSED);
-  static const std::map<std::string, codec_t> codec_map = {
-      // Empty string / explicit "none" / "uncompressed" → no compression.
-      // NOTE: "" is a valid key here; get_optvalue returns a value (not
-      // nullopt) for it, so it never reaches the fallback branches below.
+  static const std::unordered_map<std::string, codec_t> codec_map {
       {"", parquet::Compression::UNCOMPRESSED},
       {"none", parquet::Compression::UNCOMPRESSED},
       {"uncompressed", parquet::Compression::UNCOMPRESSED},
@@ -190,48 +188,9 @@ auto make_table(FieldVector&& field_vector)
       {"zstd", parquet::Compression::ZSTD},
       {"lzo", parquet::Compression::LZO},
   };
-
-  const auto desired_opt = get_optvalue(codec_map, zfmt);
-
-  // Unknown name: not in the map and non-empty.
-  if (!desired_opt.has_value() && !zfmt.empty()) {
-    SPDLOG_WARN(
-        "Parquet compression '{}' is unknown; falling back to zstd/gzip", zfmt);
-    // Prefer zstd, fall back to gzip
-    if (parquet::IsCodecSupported(parquet::Compression::ZSTD)) {
-      return parquet::Compression::ZSTD;
-    }
-    return parquet::Compression::GZIP;
-  }
-
-  const codec_t codec =
-      desired_opt.value_or(parquet::Compression::UNCOMPRESSED);
-
-  // For uncompressed, no library check is needed.
-  if (codec == parquet::Compression::UNCOMPRESSED) {
-    return codec;
-  }
-
-  // Known but not supported at runtime → fall back to zstd, then gzip.
-  if (!parquet::IsCodecSupported(codec)) {
-    // If the unsupported codec is not zstd, try zstd first
-    if (codec != parquet::Compression::ZSTD
-        && parquet::IsCodecSupported(parquet::Compression::ZSTD))
-    {
-      SPDLOG_WARN(
-          "Parquet compression '{}' is not supported by the linked Parquet "
-          "library; falling back to zstd",
-          zfmt);
-      return parquet::Compression::ZSTD;
-    }
-    SPDLOG_WARN(
-        "Parquet compression '{}' is not supported by the linked Parquet "
-        "library; falling back to gzip",
-        zfmt);
-    return parquet::Compression::GZIP;
-  }
-
-  return codec;
+  const auto it = codec_map.find(zfmt);
+  return it != codec_map.end() ? it->second
+                               : parquet::Compression::UNCOMPRESSED;
 }
 
 auto parquet_write_table(const auto& fpath, const auto& table, const auto& zfmt)
@@ -300,28 +259,22 @@ auto csv_write_table_compressed(const auto& fpath,
 
 auto csv_write_table(const auto& fpath, const auto& table, const auto& zfmt)
 {
-  // Default for CSV is no compression when explicitly uncompressed.
+  // The codec has already been validated by probe_parquet_codec() at startup.
   if (zfmt.empty() || zfmt == "none" || zfmt == "uncompressed") {
     return csv_write_table_plain(fpath, table);
   }
-
-  // Zstd: preferred compressed format
   if (zfmt == "zstd") {
     return csv_write_table_compressed(
         fpath, table, arrow::Compression::ZSTD, "zst");
   }
-
-  // Gzip: well-known fallback
   if (zfmt == "gzip") {
     return csv_write_table_compressed(
         fpath, table, arrow::Compression::GZIP, "gz");
   }
-
-  // Unknown format → warn and try zstd, then fall back to gzip.
-  SPDLOG_WARN("CSV compression '{}' is not supported; falling back to zstd",
+  // Unknown codec — should not reach here after probe_parquet_codec().
+  SPDLOG_WARN("CSV compression '{}' is not recognised; writing uncompressed",
               zfmt);
-  return csv_write_table_compressed(
-      fpath, table, arrow::Compression::ZSTD, "zst");
+  return csv_write_table_plain(fpath, table);
 }
 
 auto write_table(std::string_view fmt,
@@ -373,6 +326,61 @@ auto create_tables(auto&& output_directory, auto&& field_vector_map)
 
 namespace gtopt
 {
+
+std::string probe_parquet_codec(std::string_view requested)
+{
+  // Uncompressed / empty / "none": nothing to probe.
+  if (requested.empty() || requested == "none" || requested == "uncompressed") {
+    return std::string(requested);
+  }
+
+  // Map known codec names to Arrow compression types.
+  using Compression = arrow::Compression;
+  static const std::unordered_map<std::string_view, Compression::type>
+      codec_map {
+          {"gzip", Compression::GZIP},
+          {"zstd", Compression::ZSTD},
+          {"lzo", Compression::LZO},
+          {"snappy", Compression::SNAPPY},
+          {"brotli", Compression::BROTLI},
+          {"lz4", Compression::LZ4_FRAME},
+      };
+
+  const auto it = codec_map.find(requested);
+  if (it == codec_map.end()) {
+    SPDLOG_WARN("Output compression '{}' is unknown; falling back to gzip",
+                requested);
+    if (arrow::util::Codec::IsAvailable(Compression::GZIP)) {
+      return "gzip";
+    }
+    return "";
+  }
+
+  // arrow::util::Codec::IsAvailable() is the correct runtime check: it tests
+  // whether the codec was actually compiled into the linked Arrow library,
+  // unlike parquet::IsCodecSupported() which only validates the enum value.
+  if (arrow::util::Codec::IsAvailable(it->second)) {
+    spdlog::info("Output compression codec: {}", requested);
+    return std::string(requested);
+  }
+
+  // Requested codec is absent from this Arrow build — fall back to gzip.
+  SPDLOG_WARN(
+      "Output compression '{}' is not supported by the linked Arrow library "
+      "(codec not compiled in); falling back to gzip",
+      requested);
+  if (it->second != Compression::GZIP
+      && arrow::util::Codec::IsAvailable(Compression::GZIP))
+  {
+    return "gzip";
+  }
+
+  SPDLOG_WARN(
+      "Output compression '{}' and gzip are both unavailable; "
+      "writing uncompressed output",
+      requested);
+  return "";
+}
 
 void OutputContext::write() const
 {

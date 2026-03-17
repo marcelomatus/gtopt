@@ -338,10 +338,10 @@ def main() -> None:
     parser.add_argument(
         "-c",
         "--compression",
-        default="gzip",
+        default="zstd",
         metavar="ALG",
         help=(
-            "Parquet compression algorithm (default: gzip); "
+            "Parquet compression algorithm (default: zstd); "
             "pass '' to disable compression"
         ),
     )

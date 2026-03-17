@@ -68,7 +68,7 @@ def test_indhor_written_to_json(tmp_path):
     ip.parse()
 
     out_dir = tmp_path / "BlockHourMap"
-    writer = IndhorWriter(ip, {"output_format": "parquet", "compression": "gzip"})
+    writer = IndhorWriter(ip, {"output_format": "parquet", "compression": "zstd"})
     rel = writer.to_parquet(out_dir)
     assert rel == "BlockHourMap/block_hour_map"
     assert (out_dir / "block_hour_map.parquet").exists()
