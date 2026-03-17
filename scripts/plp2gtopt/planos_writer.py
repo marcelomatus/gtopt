@@ -113,9 +113,7 @@ def write_hot_start_cuts_csv(
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    header = ["name", "iteration", "scene", "phase", "rhs"] + list(
-        reservoir_names
-    )
+    header = ["name", "iteration", "scene", "phase", "rhs"] + list(reservoir_names)
 
     with open(output_path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.writer(csvfile)
