@@ -280,9 +280,11 @@ inline void apply_cli_options(
     planning.options.input_format = input_format.value();
   }
 
-  // Route CLI solver shortcuts directly into solver_options (canonical path).
-  // The deprecated top-level lp_algorithm/lp_threads/lp_presolve JSON fields
-  // in Options are still applied in gtopt_main() for backward compatibility.
+  // Route all three CLI solver shortcuts (--lp-algorithm, --lp-threads,
+  // --lp-presolve) directly into solver_options — the canonical solver
+  // config path.  The deprecated top-level lp_algorithm / lp_threads /
+  // lp_presolve JSON fields in Options are still applied in gtopt_main()
+  // for backward compatibility with existing JSON planning files.
   if (lp_algorithm) {
     planning.options.solver_options.algorithm =
         static_cast<LPAlgo>(*lp_algorithm);
