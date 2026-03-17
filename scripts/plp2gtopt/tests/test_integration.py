@@ -1873,26 +1873,52 @@ def _run_plp(plp_bin: str, case_dir: Path, timeout: int = 120) -> tuple[int, str
 
 
 def _read_solution_csv(results_dir: Path) -> dict[str, int | float | str]:
-    """Parse gtopt solution.csv (key,value format) into a dict."""
+    """Parse gtopt solution.csv into a dict.
+
+    Supports both the legacy key,value format and the current columnar
+    format (header: scene,phase,status,obj_value,kappa).  For the
+    columnar format the values from the first data row are returned.
+    """
     solution_csv = results_dir / "solution.csv"
     if not solution_csv.exists():
         return {}
+    lines = [
+        ln.strip()
+        for ln in solution_csv.read_text(encoding="utf-8").splitlines()
+        if ln.strip() and not ln.strip().startswith("#")
+    ]
+    if not lines:
+        return {}
     result: dict[str, int | float | str] = {}
-    for line in solution_csv.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        parts = line.split(",", maxsplit=1)
-        if len(parts) == 2:
-            key = parts[0].strip()
-            val = parts[1].strip()
-            try:
-                result[key] = int(val)
-            except ValueError:
+    header_fields = [f.strip() for f in lines[0].split(",")]
+    if "obj_value" in header_fields and len(header_fields) > 2:
+        # Columnar format: use first data row
+        if len(lines) > 1:
+            vals = [v.strip() for v in lines[1].split(",")]
+            for col_name, idx in zip(header_fields, range(len(header_fields))):
+                if idx < len(vals):
+                    raw = vals[idx]
+                    try:
+                        result[col_name] = int(raw)
+                    except ValueError:
+                        try:
+                            result[col_name] = float(raw)
+                        except ValueError:
+                            result[col_name] = raw
+    else:
+        # Legacy key,value format
+        for line in lines:
+            parts = line.split(",", maxsplit=1)
+            if len(parts) == 2:
+                key = parts[0].strip()
+                val = parts[1].strip()
                 try:
-                    result[key] = float(val)
+                    result[key] = int(val)
                 except ValueError:
-                    result[key] = val
+                    try:
+                        result[key] = float(val)
+                    except ValueError:
+                        result[key] = val
     return result
 
 

@@ -155,6 +155,53 @@ def read_gtopt_lmps(output_dir: Path) -> list:
     return [float(row[i]) for i in range(uid_start, len(row))]
 
 
+def _read_solution_csv(sol_file: Path) -> dict[str, float | int | str]:
+    """Parse gtopt solution.csv into a dict.
+
+    Supports both the legacy key,value format and the current columnar
+    format (header: scene,phase,status,obj_value,kappa).  For the
+    columnar format the values from the first data row are returned.
+    """
+    result: dict[str, float | int | str] = {}
+    with open(sol_file, newline="", encoding="utf-8") as fh:
+        lines = [ln.strip() for ln in fh if ln.strip()]
+    if not lines:
+        return result
+    # Detect columnar format: header contains "scene" or "obj_value" as a
+    # column name (not as a key in the legacy key,value sense).
+    header_fields = [f.strip() for f in lines[0].split(",")]
+    if "obj_value" in header_fields and len(header_fields) > 2:
+        # Columnar format: map column names to indices
+        col_idx = {name: i for i, name in enumerate(header_fields)}
+        # Use first data row
+        if len(lines) > 1:
+            vals = [v.strip() for v in lines[1].split(",")]
+            for col_name, idx in col_idx.items():
+                if idx < len(vals):
+                    raw = vals[idx]
+                    try:
+                        result[col_name] = int(raw)
+                    except ValueError:
+                        try:
+                            result[col_name] = float(raw)
+                        except ValueError:
+                            result[col_name] = raw
+    else:
+        # Legacy key,value format
+        for line in lines:
+            key, _, val = line.partition(",")
+            key = key.strip()
+            val = val.strip()
+            try:
+                result[key] = int(val)
+            except ValueError:
+                try:
+                    result[key] = float(val)
+                except ValueError:
+                    result[key] = val
+    return result
+
+
 def read_gtopt_cost(output_dir: Path, scale: float = _SCALE_OBJECTIVE) -> float:
     """Return the objective value from solution.csv, scaled by *scale*.
 
@@ -164,12 +211,10 @@ def read_gtopt_cost(output_dir: Path, scale: float = _SCALE_OBJECTIVE) -> float:
     sol_file = output_dir / "solution.csv"
     if not sol_file.exists():
         raise FileNotFoundError(f"Not found: {sol_file}")
-    with open(sol_file, newline="", encoding="utf-8") as fh:
-        for line in fh:
-            key, _, val = line.strip().partition(",")
-            if key.strip() == "obj_value":
-                return float(val.strip()) * scale
-    raise ValueError("obj_value not found in solution.csv")
+    row = _read_solution_csv(sol_file)
+    if "obj_value" not in row:
+        raise ValueError("obj_value not found in solution.csv")
+    return float(row["obj_value"]) * scale
 
 
 def read_gtopt_battery_dispatch(output_dir: Path) -> tuple:
