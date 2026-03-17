@@ -30,6 +30,10 @@ from .stage_parser import StageParser
 
 _logger = logging.getLogger(__name__)
 
+# UIDs for synthetic "ocean" drain junctions start above this offset so they
+# cannot collide with central UIDs (which are typically in the range 1–999).
+_OCEAN_UID_OFFSET = 10000
+
 
 class Waterway(TypedDict, total=False):
     """Represents a waterway connection between junctions in the hydro system."""
@@ -200,6 +204,7 @@ class JunctionWriter(BaseWriter):
         self.cenfi_parser = cenfi_parser
         self.filemb_parser = filemb_parser
         self._waterway_counter = 0
+        self._ocean_junction_counter = 0
 
     @property
     def central_parser(self) -> CentralParser:
@@ -311,11 +316,28 @@ class JunctionWriter(BaseWriter):
         system: HydroSystemOutput,
         _central_parser: CentralParser,
     ) -> None:
-        """Process a single central central into hydro system elements."""
+        """Process a single central into hydro system elements.
+
+        For ``embalse`` (reservoir) centrals that have an electrical bus but
+        whose PLP ``ser_hid`` field is 0 (generation waterway has no modelled
+        downstream junction — the water discharges directly to the sea /
+        river mouth), a synthetic drain junction is created:
+
+            <central_name>_ocean   uid = _OCEAN_UID_OFFSET + N   drain = True
+
+        The missing generation waterway is completed using this ocean junction
+        as its downstream target, allowing the turbine and efficiency curve to
+        be constructed.
+
+        When ``ser_ver`` is 0 (no spillway downstream junction) the central's
+        own junction is flagged ``drain = True`` so excess water can leave the
+        system without an explicit spillway waterway.
+        """
         central_id = central["number"]
         central_name = central["name"]
+        central_type = central.get("type", "serie")
 
-        # Create waterways
+        # Create waterways from the PLP ser_hid / ser_ver connections.
         gen_waterway = self._create_waterway(
             central_name + "_gen",
             central_id,
@@ -328,6 +350,34 @@ class JunctionWriter(BaseWriter):
             central.get("vert_min", 0.0),
             central.get("vert_max", 0.0),
         )
+
+        # For embalse centrals with bus>0, complete the missing generation
+        # waterway outlet by adding a synthetic "{name}_ocean" drain junction.
+        # This covers plants like RAPEL or CANUTILLAR that discharge directly
+        # to the sea (ser_hid=0 in plpcnfce.dat).
+        # Note: the spillway (ser_ver=0) is handled differently — by enabling
+        # drain=True on the central junction itself (see drain logic below).
+        if central_type == "embalse" and central["bus"] > 0 and gen_waterway is None:
+            self._ocean_junction_counter += 1
+            ocean_uid = _OCEAN_UID_OFFSET + self._ocean_junction_counter
+            ocean_name = f"{central_name}_ocean"
+            ocean_junction: Junction = {
+                "uid": ocean_uid,
+                "name": ocean_name,
+                "drain": True,
+            }
+            system["junction_array"].append(ocean_junction)
+            _logger.debug(
+                "Created ocean drain junction '%s' (uid=%d) for central '%s'.",
+                ocean_name,
+                ocean_uid,
+                central_name,
+            )
+            gen_waterway = self._create_waterway(
+                central_name + "_gen",
+                central_id,
+                ocean_uid,
+            )
 
         # Add waterways if they exist
         if gen_waterway:
@@ -345,8 +395,15 @@ class JunctionWriter(BaseWriter):
         if ver_waterway:
             system["waterway_array"].append(ver_waterway)
 
-        # Create junction
-        drain = not (gen_waterway and ver_waterway) and (central["type"] != "embalse")
+        # Drain logic:
+        #   embalse: drain=True when ver_waterway is None (ser_ver==0), so
+        #            excess water can leave the reservoir without an explicit
+        #            spillway waterway (spillage flows directly to sea).
+        #   others:  drain=True when any outlet waterway is absent.
+        if central_type == "embalse":
+            drain = ver_waterway is None
+        else:
+            drain = not (gen_waterway and ver_waterway)
         junction: Junction = {
             "uid": central_id,
             "name": central_name,
@@ -663,13 +720,34 @@ class JunctionWriter(BaseWriter):
             reservoir_name = entry["reservoir"]
 
             # Resolve turbine uid — only use turbines that were actually
-            # created (centrals with bus <= 0 have no turbine).
+            # created.  A turbine is not created when:
+            #   • bus <= 0 : reservoir-only central, no electrical output.
+            #   • bus > 0 but central not embalse type: serie/pasada with
+            #     ser_hid==0 (no generation waterway).
+            # Note: for embalse centrals with bus>0 the ocean-junction fix in
+            # _process_central ensures a turbine IS always created, so the
+            # missing-turbine path below should not fire for those cases.
             turb_uid = turbine_uid.get(central_name)
             if turb_uid is None:
-                _logger.warning(
-                    "Efficiency central '%s': no matching turbine; skipping.",
-                    central_name,
-                )
+                central_data = self.central_parser.get_central_by_name(central_name)
+                if central_data is not None and central_data.get("bus", 0) <= 0:
+                    # Reservoir-only central (bus <= 0): no turbine is
+                    # expected, so skip silently at DEBUG level.
+                    _logger.debug(
+                        "Efficiency central '%s': reservoir-only central"
+                        " (bus<=0), no turbine; skipping.",
+                        central_name,
+                    )
+                else:
+                    # Unexpected: central has a bus but no turbine was found.
+                    # This should not happen for embalse centrals (the ocean-
+                    # junction fix creates their turbines).  Log a warning for
+                    # investigation.
+                    _logger.warning(
+                        "Efficiency central '%s': no matching turbine found;"
+                        " skipping efficiency entry.",
+                        central_name,
+                    )
                 continue
 
             # Resolve reservoir uid
