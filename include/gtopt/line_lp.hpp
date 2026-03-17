@@ -84,6 +84,18 @@ public:
     return flown_cols.at({scenario.uid(), stage.uid()});
   }
 
+  [[nodiscard]] constexpr const auto& lossp_cols_at(const ScenarioLP& scenario,
+                                                    const StageLP& stage) const
+  {
+    return lossp_cols.at({scenario.uid(), stage.uid()});
+  }
+
+  [[nodiscard]] constexpr const auto& lossn_cols_at(const ScenarioLP& scenario,
+                                                    const StageLP& stage) const
+  {
+    return lossn_cols.at({scenario.uid(), stage.uid()});
+  }
+
 private:
   OptTBRealSched tmax_ba;
   OptTBRealSched tmax_ab;
