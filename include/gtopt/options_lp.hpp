@@ -58,7 +58,7 @@ public:
   /** @brief Default output file format */
   static constexpr auto default_output_format = "parquet";
   /** @brief Default compression codec for output files */
-  static constexpr auto default_output_compression = "gzip";
+  static constexpr auto default_output_compression = "zstd";
   /** @brief Default setting for using LP variable/constraint names */
   static constexpr Bool default_use_lp_names = true;
   /** @brief Default setting for using UIDs in filenames */
