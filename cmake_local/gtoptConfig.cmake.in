@@ -54,6 +54,7 @@ find_dependency(Arrow REQUIRED)
 find_dependency(Parquet REQUIRED)
 find_dependency(Boost REQUIRED COMPONENTS container)
 find_dependency(ZLIB REQUIRED)
+find_dependency(zstd REQUIRED)
 find_dependency(strong_type REQUIRED)
 
 # daw_json_link: used in the public gtopt/json/ headers.

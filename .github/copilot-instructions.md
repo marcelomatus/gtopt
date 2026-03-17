@@ -92,7 +92,7 @@ sudo apt-get install -y --no-install-recommends \
   coinor-libcbc-dev \
   libboost-container-dev libspdlog-dev \
   liblapack-dev libblas-dev \
-  lcov zlib1g-dev ca-certificates lsb-release wget
+  lcov zlib1g-dev libzstd-dev zstd ca-certificates lsb-release wget
 
 # 2. Arrow / Parquet — always via conda-forge in sandbox/agent environments.
 #    Do NOT use APT libarrow-dev: versioned curl symbols conflict at link time.
@@ -1220,7 +1220,7 @@ Scenario (probability)
 | `input_format` | `"parquet"` (default) | Preferred input format; falls back to the other format |
 | `output_directory` | `"output"` (default) | Root directory for solution output files |
 | `output_format` | `"parquet"` (default) | Output file format (`"parquet"` or `"csv"`) |
-| `output_compression` | `"gzip"` (default) | Parquet compression codec (`"gzip"`, `"zstd"`, `"lzo"`, `"uncompressed"`) |
+| `output_compression` | `"zstd"` (default) | Parquet/CSV compression codec (`"zstd"`, `"gzip"`, `"lzo"`, `"uncompressed"`) |
 
 ### Capacity Expansion Fields
 

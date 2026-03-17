@@ -290,12 +290,13 @@ struct Options
    * Controls how LP debug files (`lp_debug=true`) are compressed.
    *
    * - `""` / not set (default): let `gtopt_compress_lp` decide; falls back to
-   *   `gzip` then inline zlib when the script is not available.
+   *   `zstd` (inline libzstd), then `gzip`, then inline zlib when the script
+   *   is not available.
    * - `"none"`: never compress; keep plain `.lp` files.
    * - `"gzip"`, `"zstd"`, `"lz4"`, `"bzip2"`, `"xz"`: request a specific
    *   codec.  The value is passed as `--codec <codec>` to `gtopt_compress_lp`;
    *   if the script or codec is unavailable the named binary is tried directly,
-   *   then `gzip`, then inline zlib.
+   *   then `zstd`, then `gzip`, then inline zlib.
    */
   OptName lp_compression {};
   /** @brief When true, build all scene/phase LP matrices but skip solving.

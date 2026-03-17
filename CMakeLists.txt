@@ -97,6 +97,7 @@ find_package(Arrow REQUIRED)
 find_package(Parquet REQUIRED)
 find_package(Boost REQUIRED COMPONENTS container)
 find_package(ZLIB REQUIRED)
+find_package(zstd REQUIRED)
 
 # ---- Add source files ----
 
@@ -134,6 +135,7 @@ target_link_libraries(
          Parquet::parquet_shared
          Boost::container
          ZLIB::ZLIB
+         $<IF:$<TARGET_EXISTS:zstd::libzstd_shared>,zstd::libzstd_shared,zstd::libzstd_static>
 )
 
 # enable compiler warnings
