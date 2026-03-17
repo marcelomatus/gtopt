@@ -173,13 +173,15 @@ struct CodecInfo
   const char* cmd;
   const char* ext;
 };
-constexpr std::array<CodecInfo, 5> kCodecs {{
-    {.name = "gzip", .cmd = "gzip -f", .ext = ".gz"},
-    {.name = "zstd", .cmd = "zstd --rm -f -q", .ext = ".zst"},
-    {.name = "lz4", .cmd = "lz4 -f --rm -q", .ext = ".lz4"},
-    {.name = "bzip2", .cmd = "bzip2 -f", .ext = ".bz2"},
-    {.name = "xz", .cmd = "xz -f", .ext = ".xz"},
-},};
+constexpr std::array<CodecInfo, 5> kCodecs {
+    {
+        {.name = "gzip", .cmd = "gzip -f", .ext = ".gz"},
+        {.name = "zstd", .cmd = "zstd --rm -f -q", .ext = ".zst"},
+        {.name = "lz4", .cmd = "lz4 -f --rm -q", .ext = ".lz4"},
+        {.name = "bzip2", .cmd = "bzip2 -f", .ext = ".bz2"},
+        {.name = "xz", .cmd = "xz -f", .ext = ".xz"},
+    },
+};
 
 /// Try a named codec directly.  Returns the compressed path on success, or
 /// an empty string when the binary is unavailable or the command fails.
