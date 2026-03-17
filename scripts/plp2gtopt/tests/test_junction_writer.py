@@ -1,5 +1,6 @@
 """Unit tests for JunctionWriter class."""
 
+import logging
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -652,3 +653,226 @@ def test_efficiency_skips_central_without_turbine():
     result = writer.to_json_array()[0]
     # Dam1 has bus=0 so no turbine was created — efficiency entry must be skipped
     assert result["reservoir_efficiency_array"] == []
+
+
+# ── Ocean-junction ("RAPEL_ocean") tests ─────────────────────────────────────
+
+_RAPEL_CENTRAL = {
+    "name": "RAPEL",
+    "number": 63,
+    "type": "embalse",
+    "bus": 177,
+    "pmin": 0,
+    "pmax": 362.0,
+    "vert_min": 0,
+    "vert_max": 6000.0,
+    "efficiency": 0.9,
+    "ser_hid": 0,  # no downstream generation junction → ocean fix required
+    "ser_ver": 0,  # no downstream spillway junction  → ocean fix required
+    "afluent": 0.0,
+    "vol_ini": 285.0326,
+    "vol_fin": 285.0326,
+    "emin": 0.0,
+    "emax": 563.2124,
+}
+
+
+def _rapel_parser() -> MockCentralParser:
+    """Return a MockCentralParser containing only the RAPEL embalse central."""
+    return MockCentralParser([_RAPEL_CENTRAL])
+
+
+def test_embalse_ocean_junction_created():
+    """An embalse with bus>0 and ser_hid/ser_ver==0 gets a '<name>_ocean' drain junction."""
+    writer = JunctionWriter(central_parser=_rapel_parser())
+    result = writer.to_json_array()[0]
+
+    ocean_junctions = [j for j in result["junction_array"] if "ocean" in j["name"]]
+    assert len(ocean_junctions) == 1
+    ocean = ocean_junctions[0]
+    assert ocean["name"] == "RAPEL_ocean"
+    assert ocean["drain"] is True
+    assert ocean["uid"] > 10000  # above _OCEAN_UID_OFFSET
+
+
+def test_embalse_ocean_junction_waterways_created():
+    """Only the generation waterway is created to the ocean junction.
+
+    The spillway (ser_ver=0) is handled by drain=True on the central junction,
+    not by a separate waterway to the ocean junction.
+    """
+    writer = JunctionWriter(central_parser=_rapel_parser())
+    result = writer.to_json_array()[0]
+
+    ocean_uid = next(
+        j["uid"] for j in result["junction_array"] if j["name"] == "RAPEL_ocean"
+    )
+
+    # Only ONE waterway should point to the ocean junction (gen, not ver)
+    to_ocean = [w for w in result["waterway_array"] if w["junction_b"] == ocean_uid]
+    assert len(to_ocean) == 1
+    assert to_ocean[0]["junction_a"] == 63  # RAPEL's uid
+
+    # The RAPEL junction itself must be a drain (handles the missing spillway)
+    rapel_junction = next(j for j in result["junction_array"] if j["name"] == "RAPEL")
+    assert rapel_junction["drain"] is True
+
+
+def test_embalse_ocean_junction_turbine_created():
+    """A turbine is created for the embalse via the generation waterway to ocean."""
+    writer = JunctionWriter(central_parser=_rapel_parser())
+    result = writer.to_json_array()[0]
+
+    assert len(result["turbine_array"]) == 1
+    turbine = result["turbine_array"][0]
+    assert turbine["name"] == "RAPEL"
+    assert turbine["generator"] == 63
+    assert turbine["conversion_rate"] == pytest.approx(0.9)
+    # The turbine's waterway must terminate at the ocean junction
+    ocean_uid = next(
+        j["uid"] for j in result["junction_array"] if j["name"] == "RAPEL_ocean"
+    )
+    ww = next(w for w in result["waterway_array"] if w["uid"] == turbine["waterway"])
+    assert ww["junction_b"] == ocean_uid
+
+
+def test_embalse_ocean_junction_enables_efficiency():
+    """With the ocean junction fix, efficiency curves are applied to RAPEL."""
+    cenre_parser = MockCenreParser(
+        [
+            {
+                "name": "RAPEL",
+                "reservoir": "RAPEL",
+                "mean_efficiency": 1.2,
+                "segments": [
+                    {"volume": 100.0, "slope": 0.001, "constant": 0.9},
+                    {"volume": 300.0, "slope": 0.0005, "constant": 1.1},
+                ],
+            }
+        ]
+    )
+    writer = JunctionWriter(central_parser=_rapel_parser(), cenre_parser=cenre_parser)
+    result = writer.to_json_array()[0]
+
+    # Efficiency IS applied now (not skipped)
+    assert len(result["reservoir_efficiency_array"]) == 1
+    eff = result["reservoir_efficiency_array"][0]
+    assert eff["name"] == "eff_RAPEL"
+    assert eff["mean_efficiency"] == pytest.approx(1.2)
+    assert len(eff["segments"]) == 2
+
+
+def test_embalse_ocean_junction_no_warning(caplog):
+    """No WARNING is emitted for RAPEL after the ocean-junction fix."""
+    cenre_parser = MockCenreParser(
+        [
+            {
+                "name": "RAPEL",
+                "reservoir": "RAPEL",
+                "mean_efficiency": 1.2,
+                "segments": [],
+            }
+        ]
+    )
+    writer = JunctionWriter(central_parser=_rapel_parser(), cenre_parser=cenre_parser)
+    with caplog.at_level(logging.WARNING, logger="plp2gtopt.junction_writer"):
+        writer.to_json_array()
+    rapel_warnings = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "RAPEL" in r.message
+    ]
+    assert rapel_warnings == [], f"Unexpected WARNING for RAPEL: {rapel_warnings}"
+
+
+def test_embalse_with_bus_zero_no_ocean_junction():
+    """Reservoir-only embalse (bus=0) does NOT get an ocean junction."""
+    writer = JunctionWriter(central_parser=_make_hydro_parser())
+    result = writer.to_json_array()[0]
+
+    ocean_junctions = [j for j in result["junction_array"] if "ocean" in j["name"]]
+    assert ocean_junctions == []
+
+
+def test_embalse_no_ver_waterway_junction_is_drain():
+    """Embalse with ser_ver==0 has drain=True on its own junction.
+
+    This covers the case where the spillway has no downstream modelled
+    junction (discharges to sea).  No separate spillway waterway is needed;
+    the central junction itself acts as a drain so the optimiser can spill
+    excess water out of the system.
+    """
+    # RAPEL has ser_ver=0 → its junction must be drain=True
+    writer = JunctionWriter(central_parser=_rapel_parser())
+    result = writer.to_json_array()[0]
+
+    rapel_junction = next(j for j in result["junction_array"] if j["name"] == "RAPEL")
+    assert rapel_junction["drain"] is True
+
+    # No spillway waterway should exist (no ver waterway to ocean)
+    ver_wws = [
+        w
+        for w in result["waterway_array"]
+        if w.get("name", "").endswith("_ver_63_") or "ver" in w.get("name", "")
+    ]
+    assert ver_wws == []
+
+
+def test_embalse_with_ver_waterway_junction_not_drain():
+    """Embalse with a real ser_ver connection is NOT a drain junction."""
+    central = {
+        "name": "CIPRESES",
+        "number": 50,
+        "type": "embalse",
+        "bus": 100,
+        "pmin": 0,
+        "pmax": 200.0,
+        "vert_min": 0,
+        "vert_max": 1000.0,
+        "efficiency": 0.85,
+        "ser_hid": 51,  # has downstream gen junction
+        "ser_ver": 52,  # has downstream spillway junction
+        "afluent": 0.0,
+        "vol_ini": 100.0,
+        "vol_fin": 100.0,
+        "emin": 0.0,
+        "emax": 500.0,
+    }
+    writer = JunctionWriter(central_parser=MockCentralParser([central]))
+    result = writer.to_json_array()[0]
+
+    cipreses_junction = next(
+        j for j in result["junction_array"] if j["name"] == "CIPRESES"
+    )
+    assert cipreses_junction["drain"] is False
+    # No ocean junction should be created (ser_hid != 0)
+    ocean_junctions = [j for j in result["junction_array"] if "ocean" in j["name"]]
+    assert ocean_junctions == []
+
+
+def test_efficiency_debug_for_bus_zero_central(caplog):
+    """DEBUG (not WARNING) is emitted when central has bus<=0 (reservoir-only)."""
+    central_parser = _make_hydro_parser()
+    # Dam1 exists in central_parser with bus=0
+    cenre_parser = MockCenreParser(
+        [
+            {
+                "name": "Dam1",
+                "reservoir": "Dam1",
+                "mean_efficiency": 1.2,
+                "segments": [],
+            }
+        ]
+    )
+    writer = JunctionWriter(central_parser=central_parser, cenre_parser=cenre_parser)
+    with caplog.at_level(logging.DEBUG, logger="plp2gtopt.junction_writer"):
+        writer.to_json_array()
+    # Should be DEBUG, not WARNING
+    warning_records = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "Dam1" in r.message
+    ]
+    assert warning_records == [], (
+        f"Unexpected WARNING for bus<=0 central: {warning_records}"
+    )
