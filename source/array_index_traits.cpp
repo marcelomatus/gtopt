@@ -39,11 +39,42 @@ namespace
   return arrow::io::CompressedInputStream::Make(codec.get(), raw_file);
 }
 
+// Try to open a zstd-compressed file and return a decompressed InputStream.
+[[nodiscard]] auto open_zstd_stream(const std::string& zst_filename)
+    -> arrow::Result<std::shared_ptr<arrow::io::InputStream>>
+{
+  ARROW_ASSIGN_OR_RAISE(auto raw_file,
+                        arrow::io::ReadableFile::Open(zst_filename));
+  ARROW_ASSIGN_OR_RAISE(auto codec,
+                        arrow::util::Codec::Create(arrow::Compression::ZSTD));
+  return arrow::io::CompressedInputStream::Make(codec.get(), raw_file);
+}
+
 // Decompress a gzip file into a random-access buffer (needed for Parquet).
 [[nodiscard]] auto decompress_gzip_to_buffer(const std::string& gz_filename)
     -> arrow::Result<std::shared_ptr<arrow::io::RandomAccessFile>>
 {
   ARROW_ASSIGN_OR_RAISE(auto stream, open_gzip_stream(gz_filename));
+
+  // Read compressed stream in chunks into a buffer builder
+  arrow::BufferBuilder builder;
+  constexpr auto chunk_size = static_cast<int64_t>(1024 * 1024);  // 1 MB chunks
+  while (true) {
+    ARROW_ASSIGN_OR_RAISE(auto chunk, stream->Read(chunk_size));
+    if (chunk->size() == 0) {
+      break;
+    }
+    ARROW_RETURN_NOT_OK(builder.Append(chunk->data(), chunk->size()));
+  }
+  ARROW_ASSIGN_OR_RAISE(auto buffer, builder.Finish());
+  return std::make_shared<arrow::io::BufferReader>(buffer);
+}
+
+// Decompress a zstd file into a random-access buffer (needed for Parquet).
+[[nodiscard]] auto decompress_zstd_to_buffer(const std::string& zst_filename)
+    -> arrow::Result<std::shared_ptr<arrow::io::RandomAccessFile>>
+{
+  ARROW_ASSIGN_OR_RAISE(auto stream, open_zstd_stream(zst_filename));
 
   // Read compressed stream in chunks into a buffer builder
   arrow::BufferBuilder builder;
@@ -66,6 +97,7 @@ namespace
 {
   const auto filename = std::format("{}.csv", fpath.string());
   const auto gz_filename = std::format("{}.csv.gz", fpath.string());
+  const auto zst_filename = std::format("{}.csv.zst", fpath.string());
 
   auto read_options = arrow::csv::ReadOptions::Defaults();
   read_options.autogenerate_column_names = false;
@@ -83,21 +115,25 @@ namespace
 
   const auto& io_context = arrow::io::default_io_context();
 
+  // Helper: try to read a CSV table from an open InputStream.
+  const auto try_read_csv = [&](std::shared_ptr<arrow::io::InputStream> stream)
+      -> arrow::Result<ArrowTable>
+  {
+    ARROW_ASSIGN_OR_RAISE(auto reader,
+                          arrow::csv::TableReader::Make(io_context,
+                                                        std::move(stream),
+                                                        read_options,
+                                                        parse_options,
+                                                        convert_options));
+    return reader->Read();
+  };
+
   // Try plain .csv first
   SPDLOG_DEBUG("csv_read_table: opening file '{}'", filename);
   auto maybe_infile = arrow::io::ReadableFile::Open(filename);
   if (maybe_infile.ok()) {
     SPDLOG_DEBUG("csv_read_table: creating CSV reader for '{}'", filename);
-    auto maybe_table = [&]() -> arrow::Result<ArrowTable>
-    {
-      ARROW_ASSIGN_OR_RAISE(auto reader,
-                            arrow::csv::TableReader::Make(io_context,
-                                                          *maybe_infile,
-                                                          read_options,
-                                                          parse_options,
-                                                          convert_options));
-      return reader->Read();
-    }();
+    auto maybe_table = try_read_csv(*maybe_infile);
     if (maybe_table.ok()) {
       SPDLOG_DEBUG("csv_read_table: successfully read '{}' ({} rows, {} cols)",
                    filename,
@@ -114,28 +150,18 @@ namespace
                  maybe_infile.status().ToString());
   }
 
-  // Try .csv.gz as fallback
+  // Try .csv.gz as first fallback
   SPDLOG_DEBUG("csv_read_table: trying gzip file '{}'", gz_filename);
   auto maybe_gz_stream = open_gzip_stream(gz_filename);
-  if (!maybe_gz_stream.ok()) {
-    SPDLOG_DEBUG("csv_read_table: failed to open '{}': {}",
-                 gz_filename,
-                 maybe_gz_stream.status().ToString());
-    return std::unexpected(
-        std::format("Can't open file {} or {}", filename, gz_filename));
-  }
-
-  auto maybe_table = [&]() -> arrow::Result<ArrowTable>
-  {
-    ARROW_ASSIGN_OR_RAISE(auto reader,
-                          arrow::csv::TableReader::Make(io_context,
-                                                        *maybe_gz_stream,
-                                                        read_options,
-                                                        parse_options,
-                                                        convert_options));
-    return reader->Read();
-  }();
-  if (!maybe_table.ok()) {
+  if (maybe_gz_stream.ok()) {
+    auto maybe_table = try_read_csv(*maybe_gz_stream);
+    if (maybe_table.ok()) {
+      SPDLOG_DEBUG("csv_read_table: successfully read '{}' ({} rows, {} cols)",
+                   gz_filename,
+                   (*maybe_table)->num_rows(),
+                   (*maybe_table)->num_columns());
+      return *maybe_table;
+    }
     SPDLOG_DEBUG("csv_read_table: failed to read '{}': {}",
                  gz_filename,
                  maybe_table.status().ToString());
@@ -143,9 +169,33 @@ namespace
                                        gz_filename,
                                        maybe_table.status().message()));
   }
+  SPDLOG_DEBUG("csv_read_table: failed to open '{}': {}",
+               gz_filename,
+               maybe_gz_stream.status().ToString());
+
+  // Try .csv.zst as second fallback (default output compression is zstd)
+  SPDLOG_DEBUG("csv_read_table: trying zstd file '{}'", zst_filename);
+  auto maybe_zst_stream = open_zstd_stream(zst_filename);
+  if (!maybe_zst_stream.ok()) {
+    SPDLOG_DEBUG("csv_read_table: failed to open '{}': {}",
+                 zst_filename,
+                 maybe_zst_stream.status().ToString());
+    return std::unexpected(std::format(
+        "Can't open file {}, {} or {}", filename, gz_filename, zst_filename));
+  }
+
+  auto maybe_table = try_read_csv(*maybe_zst_stream);
+  if (!maybe_table.ok()) {
+    SPDLOG_DEBUG("csv_read_table: failed to read '{}': {}",
+                 zst_filename,
+                 maybe_table.status().ToString());
+    return std::unexpected(std::format("Can't read CSV table from {}: {}",
+                                       zst_filename,
+                                       maybe_table.status().message()));
+  }
 
   SPDLOG_DEBUG("csv_read_table: successfully read '{}' ({} rows, {} cols)",
-               gz_filename,
+               zst_filename,
                (*maybe_table)->num_rows(),
                (*maybe_table)->num_columns());
   return *maybe_table;
@@ -156,28 +206,56 @@ namespace
 {
   const auto filename = std::format("{}.parquet", fpath.string());
   const auto gz_filename = std::format("{}.parquet.gz", fpath.string());
+  const auto zst_filename = std::format("{}.parquet.zst", fpath.string());
 
   auto* pool = arrow::default_memory_pool();
 
+  // Helper: open a Parquet reader from a random-access file buffer.
+  const auto try_open_parquet =
+      [&](std::shared_ptr<arrow::io::RandomAccessFile> buf,
+          const std::string& path) -> std::expected<ArrowTable, std::string>
+  {
+    std::unique_ptr<parquet::arrow::FileReader> reader;
+#if ARROW_VERSION_MAJOR >= 19
+    auto&& ofile = parquet::arrow::OpenFile(std::move(buf), pool);
+    if (!ofile.ok()) {
+      return std::unexpected(std::format("Arrow can't open file {}", path));
+    }
+    reader = std::move(ofile).ValueUnsafe();
+#else
+    auto st = parquet::arrow::OpenFile(std::move(buf), pool, &reader);
+    if (!st.ok()) {
+      return std::unexpected(std::format("Arrow can't open file {}", path));
+    }
+#endif
+    ArrowTable table;
+    const arrow::Status st = reader->ReadTable(&table);
+    if (!st.ok()) {
+      return std::unexpected(
+          std::format("Can't read Parquet table from {}", path));
+    }
+    SPDLOG_DEBUG(
+        "parquet_read_table: successfully read '{}' ({} rows, {} cols)",
+        path,
+        table->num_rows(),
+        table->num_columns());
+    return table;
+  };
+
   // Try plain .parquet first
   SPDLOG_DEBUG("parquet_read_table: opening file '{}'", filename);
-  std::shared_ptr<arrow::io::RandomAccessFile> input;
   {
     auto&& ofile = arrow::io::ReadableFile::Open(filename);
     if (ofile.ok()) {
-      input = std::move(ofile).ValueUnsafe();
-    }
-  }
-
-  if (input) {
-    std::unique_ptr<parquet::arrow::FileReader> reader;
-    {
+      const std::shared_ptr<arrow::io::RandomAccessFile> input =
+          std::move(ofile).ValueUnsafe();
+      std::unique_ptr<parquet::arrow::FileReader> reader;
       SPDLOG_DEBUG("parquet_read_table: creating Parquet reader for '{}'",
                    filename);
 #if ARROW_VERSION_MAJOR >= 19
-      auto&& ofile = parquet::arrow::OpenFile(input, pool);
-      if (ofile.ok()) {
-        reader = std::move(ofile).ValueUnsafe();
+      auto&& oreader = parquet::arrow::OpenFile(input, pool);
+      if (oreader.ok()) {
+        reader = std::move(oreader).ValueUnsafe();
       }
 #else
       auto st = parquet::arrow::OpenFile(input, pool, &reader);
@@ -185,69 +263,55 @@ namespace
         reader.reset();
       }
 #endif
-    }
-
-    if (reader) {
-      SPDLOG_DEBUG("parquet_read_table: reading table from '{}'", filename);
-      ArrowTable table;
-      const arrow::Status st = reader->ReadTable(&table);
-      if (st.ok()) {
-        SPDLOG_DEBUG(
-            "parquet_read_table: successfully read '{}' ({} rows, {} cols)",
-            filename,
-            table->num_rows(),
-            table->num_columns());
-        return table;
+      if (reader) {
+        SPDLOG_DEBUG("parquet_read_table: reading table from '{}'", filename);
+        ArrowTable table;
+        const arrow::Status st = reader->ReadTable(&table);
+        if (st.ok()) {
+          SPDLOG_DEBUG(
+              "parquet_read_table: successfully read '{}' ({} rows, {} cols)",
+              filename,
+              table->num_rows(),
+              table->num_columns());
+          return table;
+        }
+        SPDLOG_DEBUG("parquet_read_table: failed to read table from '{}': {}",
+                     filename,
+                     st.ToString());
       }
-      SPDLOG_DEBUG("parquet_read_table: failed to read table from '{}': {}",
-                   filename,
-                   st.ToString());
+    } else {
+      SPDLOG_DEBUG("parquet_read_table: failed to open '{}'", filename);
     }
-  } else {
-    SPDLOG_DEBUG("parquet_read_table: failed to open '{}'", filename);
   }
 
-  // Try .parquet.gz as fallback
+  // Try .parquet.gz as first fallback
   SPDLOG_DEBUG("parquet_read_table: trying gzip file '{}'", gz_filename);
-  auto maybe_buffer = decompress_gzip_to_buffer(gz_filename);
-  if (!maybe_buffer.ok()) {
+  {
+    auto maybe_buffer = decompress_gzip_to_buffer(gz_filename);
+    if (maybe_buffer.ok()) {
+      return try_open_parquet(*maybe_buffer, gz_filename);
+    }
     SPDLOG_DEBUG("parquet_read_table: failed to open '{}': {}",
                  gz_filename,
                  maybe_buffer.status().ToString());
-    return std::unexpected(
-        std::format("Arrow can't open file {} or {}", filename, gz_filename));
   }
 
-  std::unique_ptr<parquet::arrow::FileReader> reader;
+  // Try .parquet.zst as second fallback
+  SPDLOG_DEBUG("parquet_read_table: trying zstd file '{}'", zst_filename);
   {
-#if ARROW_VERSION_MAJOR >= 19
-    auto&& ofile = parquet::arrow::OpenFile(*maybe_buffer, pool);
-    if (!ofile.ok()) {
-      return std::unexpected(
-          std::format("Arrow can't open file {}", gz_filename));
+    auto maybe_buffer = decompress_zstd_to_buffer(zst_filename);
+    if (maybe_buffer.ok()) {
+      return try_open_parquet(*maybe_buffer, zst_filename);
     }
-    reader = std::move(ofile).ValueUnsafe();
-#else
-    auto st = parquet::arrow::OpenFile(*maybe_buffer, pool, &reader);
-    if (!st.ok()) {
-      return std::unexpected(
-          std::format("Arrow can't open file {}", gz_filename));
-    }
-#endif
+    SPDLOG_DEBUG("parquet_read_table: failed to open '{}': {}",
+                 zst_filename,
+                 maybe_buffer.status().ToString());
   }
 
-  ArrowTable table;
-  const arrow::Status st = reader->ReadTable(&table);
-  if (!st.ok()) {
-    return std::unexpected(
-        std::format("Can't read Parquet table from {}", gz_filename));
-  }
-
-  SPDLOG_DEBUG("parquet_read_table: successfully read '{}' ({} rows, {} cols)",
-               gz_filename,
-               table->num_rows(),
-               table->num_columns());
-  return table;
+  return std::unexpected(std::format("Arrow can't open file {}, {} or {}",
+                                     filename,
+                                     gz_filename,
+                                     zst_filename));
 }
 
 [[nodiscard]] std::filesystem::path build_table_path(std::string_view input_dir,

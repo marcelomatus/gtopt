@@ -18,6 +18,8 @@
 
 #include <arrow/api.h>
 #include <arrow/io/api.h>
+#include <arrow/io/compressed.h>
+#include <arrow/util/compression.h>
 #include <doctest/doctest.h>
 #include <gtopt/array_index_traits.hpp>
 #include <parquet/arrow/writer.h>
@@ -34,6 +36,23 @@ void write_csv(const std::filesystem::path& path, std::string_view content)
 {
   std::ofstream ofs(path.string() + ".csv");
   ofs << content;
+}
+
+/// Write a zstd-compressed CSV to @p path (no extension) → .csv.zst
+void write_csv_zst(const std::filesystem::path& path, std::string_view content)
+{
+  const auto zst_filename = path.string() + ".csv.zst";
+  auto maybe_file = arrow::io::FileOutputStream::Open(zst_filename);
+  REQUIRE(maybe_file.ok());
+  auto maybe_codec = arrow::util::Codec::Create(arrow::Compression::ZSTD);
+  REQUIRE(maybe_codec.ok());
+  auto maybe_output =
+      arrow::io::CompressedOutputStream::Make(maybe_codec->get(), *maybe_file);
+  REQUIRE(maybe_output.ok());
+  const auto& output = *maybe_output;
+  REQUIRE(
+      output->Write(content.data(), static_cast<int64_t>(content.size())).ok());
+  REQUIRE(output->Close().ok());
 }
 
 /// Write a minimal single-column Parquet file to @p path (no extension).
@@ -56,6 +75,46 @@ void write_parquet(const std::filesystem::path& path)
               *table, arrow::default_memory_pool(), ostream.ValueOrDie(), 1024)
               .ok());
   REQUIRE(ostream.ValueOrDie()->Close().ok());
+}
+
+/// Write a zstd-compressed Parquet file to @p path (no extension) →
+/// .parquet.zst (the parquet content is first written in a buffer, then
+/// compressed with zstd and written to disk as an external wrapper).
+void write_parquet_zst(const std::filesystem::path& path)
+{
+  // Build the parquet data in a memory buffer first.
+  arrow::DoubleBuilder builder;
+  REQUIRE(builder.Append(3.0).ok());
+  REQUIRE(builder.Append(4.0).ok());
+  std::shared_ptr<arrow::Array> arr;
+  REQUIRE(builder.Finish(&arr).ok());
+
+  auto schema = arrow::schema({arrow::field("val", arrow::float64())});
+  auto table = arrow::Table::Make(schema, {arr});
+
+  auto maybe_buf_out = arrow::io::BufferOutputStream::Create();
+  REQUIRE(maybe_buf_out.ok());
+  auto buf_out = *maybe_buf_out;
+  REQUIRE(parquet::arrow::WriteTable(
+              *table, arrow::default_memory_pool(), buf_out, 1024)
+              .ok());
+  auto maybe_buf = buf_out->Finish();
+  REQUIRE(maybe_buf.ok());
+
+  // Compress the parquet buffer with zstd and write to .parquet.zst.
+  const auto zst_filename = path.string() + ".parquet.zst";
+  auto maybe_file = arrow::io::FileOutputStream::Open(zst_filename);
+  REQUIRE(maybe_file.ok());
+  auto maybe_codec = arrow::util::Codec::Create(arrow::Compression::ZSTD);
+  REQUIRE(maybe_codec.ok());
+  auto maybe_out =
+      arrow::io::CompressedOutputStream::Make(maybe_codec->get(), *maybe_file);
+  REQUIRE(maybe_out.ok());
+  const auto buf_sv = (*maybe_buf)->ToString();
+  REQUIRE((*maybe_out)
+              ->Write(buf_sv.data(), static_cast<int64_t>(buf_sv.size()))
+              .ok());
+  REQUIRE((*maybe_out)->Close().ok());
 }
 
 /**
@@ -322,4 +381,84 @@ TEST_CASE("csv_read_table - non-integer scenario value returns error")
   } else {
     CHECK((*result)->num_rows() >= 0);
   }
+}
+
+// ---------------------------------------------------------------------------
+// csv_read_table – zstd-compressed CSV (.csv.zst)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("csv_read_table - zstd compressed csv file")
+{
+  const auto stem = tmp_path("ait_csv_zstd_ok");
+  write_csv_zst(stem, "scenario,stage,block,val\n1,1,1,9.99\n1,1,2,8.88\n");
+
+  auto result = csv_read_table(stem);
+  REQUIRE(result.has_value());
+  CHECK((*result)->num_rows() == 2);
+  CHECK((*result)->num_columns() == 4);
+}
+
+TEST_CASE("csv_read_table - fallback order: plain < gz < zst")
+{
+  // Only the .csv.zst file exists; plain .csv and .csv.gz are absent.
+  // csv_read_table must try all three and succeed on the zst variant.
+  const auto stem = tmp_path("ait_csv_zstd_fallback");
+  write_csv_zst(stem, "val\n7.0\n");
+
+  auto result = csv_read_table(stem);
+  REQUIRE(result.has_value());
+  CHECK((*result)->num_rows() == 1);
+}
+
+// ---------------------------------------------------------------------------
+// parquet_read_table – zstd-compressed Parquet (.parquet.zst)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("parquet_read_table - zstd compressed parquet file")
+{
+  const auto stem = tmp_path("ait_parquet_zstd_ok");
+  write_parquet_zst(stem);
+
+  auto result = parquet_read_table(stem);
+  REQUIRE(result.has_value());
+  CHECK((*result)->num_rows() == 2);
+  CHECK((*result)->num_columns() == 1);
+}
+
+TEST_CASE("parquet_read_table - fallback order: plain < gz < zst")
+{
+  // Only the .parquet.zst file exists; plain .parquet and .parquet.gz absent.
+  // parquet_read_table must fall through to the zst variant and succeed.
+  const auto stem = tmp_path("ait_parquet_zstd_fallback");
+  write_parquet_zst(stem);
+
+  auto result = parquet_read_table(stem);
+  REQUIRE(result.has_value());
+  CHECK((*result)->num_rows() == 2);
+}
+
+// ---------------------------------------------------------------------------
+// try_read_table – zstd variants
+// ---------------------------------------------------------------------------
+
+TEST_CASE("try_read_table - csv format, only zstd csv present")
+{
+  // Only .csv.zst exists; csv_read_table should find it as last fallback.
+  const auto stem = tmp_path("ait_try_csv_zst_only");
+  write_csv_zst(stem, "val\n5.5\n6.6\n");
+
+  auto result = try_read_table(stem, "csv");
+  REQUIRE(result.has_value());
+  CHECK((*result)->num_rows() == 2);
+}
+
+TEST_CASE("try_read_table - parquet format, only zstd parquet present")
+{
+  // Only .parquet.zst exists; parquet_read_table should find it as fallback.
+  const auto stem = tmp_path("ait_try_parquet_zst_only");
+  write_parquet_zst(stem);
+
+  auto result = try_read_table(stem, "parquet");
+  REQUIRE(result.has_value());
+  CHECK((*result)->num_rows() == 2);
 }
