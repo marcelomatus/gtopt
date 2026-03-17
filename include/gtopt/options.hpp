@@ -228,13 +228,15 @@ struct Options
   /** @brief Use element UIDs instead of names in output filenames */
   OptBool use_uid_fname {};
 
-  // ── Solver algorithm settings ──────────────────────────────────────────────
-  /** @brief LP algorithm: 0=auto, 1=primal simplex, 2=dual simplex, 3=barrier
-   */
+  // ── Solver algorithm settings (deprecated: use solver_options instead) ────
+  /** @brief @deprecated Use `solver_options.algorithm` instead.
+   * LP algorithm: 0=auto, 1=primal simplex, 2=dual simplex, 3=barrier */
   OptInt lp_algorithm {};
-  /** @brief Number of solver threads (0=automatic) [dimensionless] */
+  /** @brief @deprecated Use `solver_options.threads` instead.
+   * Number of solver threads (0=automatic) [dimensionless] */
   OptInt lp_threads {};
-  /** @brief Whether to apply the solver's built-in presolve (default: true) */
+  /** @brief @deprecated Use `solver_options.presolve` instead.
+   * Whether to apply the solver's built-in presolve (default: true) */
   OptBool lp_presolve {};
 
   /** @brief Planning solver type: `"monolithic"` (default) or `"sddp"`.
@@ -276,6 +278,11 @@ struct Options
    * assembly — no solving occurs at all.
    * Combine with `lp_debug=true` to save every scene/phase LP file. */
   OptBool just_build_lp {};
+
+  /** @brief LP coefficient ratio threshold for numerical conditioning
+   * diagnostics.  When the global max/min |coefficient| ratio exceeds this
+   * value, a per-scene/phase breakdown is printed.  (default: 1e7) */
+  OptReal lp_coeff_ratio_threshold {};
 
   // ── SDDP-specific options (grouped sub-object) ────────────────────────────
   /** @brief SDDP solver configuration (sub-object with sddp_* fields) */
@@ -336,6 +343,7 @@ struct Options
     merge_opt(lp_debug, opts.lp_debug);
     merge_opt(lp_compression, std::move(opts.lp_compression));
     merge_opt(just_build_lp, opts.just_build_lp);
+    merge_opt(lp_coeff_ratio_threshold, opts.lp_coeff_ratio_threshold);
 
     // Merge SDDP-specific options
     sddp_options.merge(std::move(opts.sddp_options));
