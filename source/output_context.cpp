@@ -389,18 +389,15 @@ void OutputContext::write() const
   auto path_tables =
       create_tables(options().output_directory(), field_vector_map);
 
-  const auto su = static_cast<Uid>(m_scene_uid_);
-  const auto pu = static_cast<Uid>(m_phase_uid_);
-
-  spdlog::info(
-      std::format("  Writing {} output tables to '{}' "
-                  "(scene={}, phase={}, format={}, compression={})",
-                  path_tables.size(),
-                  options().output_directory(),
-                  su,
-                  pu,
-                  fmt,
-                  zfmt));
+  SPDLOG_DEBUG(
+      "  Writing {} output tables to '{}' "
+      "(scene={}, phase={}, format={}, compression={})",
+      path_tables.size(),
+      options().output_directory(),
+      static_cast<Uid>(m_scene_uid_),
+      static_cast<Uid>(m_phase_uid_),
+      fmt,
+      zfmt);
 
   std::vector<std::jthread> tasks;
   tasks.reserve(path_tables.size());
@@ -418,45 +415,6 @@ void OutputContext::write() const
   }
   for (auto&& t : tasks) {
     t.join();
-  }
-
-  const auto out_dir = std::filesystem::path(options().output_directory());
-
-  // Use a per-scene solution file when scene/phase UIDs are known,
-  // and always write a generic "solution.csv" for backward compatibility.
-  const auto sol_path = (su >= 0)
-      ? out_dir / std::format("solution_scene_{}.csv", su)
-      : out_dir / "solution.csv";
-
-  spdlog::info(std::format("  Write solution to '{}' (status={}, obj_value={})",
-                           sol_path.string(),
-                           sol_status,
-                           sol_obj_value));
-
-  auto write_sol = [&](const std::filesystem::path& path)
-  {
-    std::ofstream sol_file(path.string());
-    if (!sol_file) [[unlikely]] {
-      SPDLOG_CRITICAL("Cannot open solution file '{}' for writing",
-                      path.string());
-      return;
-    }
-    sol_file << std::format("{:>12},{}\n{:>12},{}\n{:>12},{}",
-                            "obj_value",
-                            sol_obj_value,
-                            "kappa",
-                            sol_kappa,
-                            "status",
-                            sol_status);
-    sol_file << '\n';
-  };
-
-  write_sol(sol_path);
-
-  // Always write the generic "solution.csv" for backward compatibility
-  const auto generic_path = out_dir / "solution.csv";
-  if (sol_path != generic_path) {
-    write_sol(generic_path);
   }
 }
 

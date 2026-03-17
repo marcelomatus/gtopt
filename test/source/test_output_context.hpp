@@ -81,19 +81,9 @@ TEST_CASE("OutputContext - write output after solve (parquet)")
   // Call write_out which exercises OutputContext
   system_lp.write_out();
 
-  // Check solution.csv was created
-  const auto sol_file = tmpdir / "solution.csv";
-  CHECK(std::filesystem::exists(sol_file));
-
-  // Check solution.csv content
-  if (std::filesystem::exists(sol_file)) {
-    std::ifstream f(sol_file);
-    const std::string content((std::istreambuf_iterator<char>(f)),
-                              std::istreambuf_iterator<char>());
-    CHECK(content.find("obj_value") != std::string::npos);
-    CHECK(content.find("kappa") != std::string::npos);
-    CHECK(content.find("status") != std::string::npos);
-  }
+  // Verify that output tables were written (solution.csv is now written
+  // by PlanningLP::write_out(), not SystemLP::write_out())
+  CHECK(std::filesystem::exists(tmpdir / "Generator"));
 
   // Clean up
   std::filesystem::remove_all(tmpdir);
@@ -121,8 +111,9 @@ TEST_CASE("OutputContext - write output as CSV")
 
   system_lp.write_out();
 
-  const auto sol_file = tmpdir / "solution.csv";
-  CHECK(std::filesystem::exists(sol_file));
+  // Verify output tables were written (solution.csv is written by
+  // PlanningLP::write_out(), not SystemLP::write_out())
+  CHECK(std::filesystem::exists(tmpdir / "Generator"));
 
   // Clean up
   std::filesystem::remove_all(tmpdir);
@@ -200,8 +191,9 @@ TEST_CASE("OutputContext - write output with reserve components")
 
   system_lp.write_out();
 
-  const auto sol_file = tmpdir / "solution.csv";
-  CHECK(std::filesystem::exists(sol_file));
+  // Verify output tables were written (solution.csv is written by
+  // PlanningLP::write_out(), not SystemLP::write_out())
+  CHECK(std::filesystem::exists(tmpdir / "Generator"));
 
   // Clean up
   std::filesystem::remove_all(tmpdir);
@@ -317,8 +309,9 @@ TEST_CASE("OutputContext - write output with hydro and filtration")
 
   system_lp.write_out();
 
-  const auto sol_file = tmpdir / "solution.csv";
-  CHECK(std::filesystem::exists(sol_file));
+  // Verify output tables were written (solution.csv is written by
+  // PlanningLP::write_out(), not SystemLP::write_out())
+  CHECK(std::filesystem::exists(tmpdir / "Generator"));
 
   // Clean up
   std::filesystem::remove_all(tmpdir);
@@ -394,8 +387,9 @@ TEST_CASE("OutputContext - write output with demand and generator profiles")
 
   system_lp.write_out();
 
-  const auto sol_file = tmpdir / "solution.csv";
-  CHECK(std::filesystem::exists(sol_file));
+  // Verify output tables were written (solution.csv is written by
+  // PlanningLP::write_out(), not SystemLP::write_out())
+  CHECK(std::filesystem::exists(tmpdir / "Generator"));
 
   // Clean up
   std::filesystem::remove_all(tmpdir);
@@ -592,7 +586,7 @@ TEST_CASE("OutputContext - CSV gzip compression produces .csv.gz")  // NOLINT
   system_lp.write_out();
 
   // .csv.gz files must exist; no plain *.csv data files (solution.csv is
-  // written separately and is always uncompressed)
+  // written by PlanningLP::write_out(), not SystemLP::write_out())
   bool found_gz = false;
   std::filesystem::path first_gz;
   for (const auto& entry :

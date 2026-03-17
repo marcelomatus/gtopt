@@ -731,28 +731,65 @@ def _run_gtopt(
     return result.returncode, result.stderr
 
 
-def _solution_status(output_dir: pathlib.Path) -> int:
-    """Read the solver status from output/solution.csv (0 = optimal)."""
+def _parse_solution_csv(output_dir: pathlib.Path) -> dict[str, float | int | str]:
+    """Parse solution.csv (columnar or legacy key,value) into a dict.
+
+    For the columnar format (header: scene,phase,status,obj_value,kappa)
+    returns values from the first data row.
+    """
     sol = output_dir / "solution.csv"
     if not sol.exists():
+        return {}
+    lines = [ln.strip() for ln in sol.read_text().splitlines() if ln.strip()]
+    if not lines:
+        return {}
+    header_fields = [f.strip() for f in lines[0].split(",")]
+    result: dict[str, float | int | str] = {}
+    if "obj_value" in header_fields and len(header_fields) > 2:
+        if len(lines) > 1:
+            vals = [v.strip() for v in lines[1].split(",")]
+            for col_name, idx in zip(header_fields, range(len(header_fields))):
+                if idx < len(vals):
+                    raw = vals[idx]
+                    try:
+                        result[col_name] = int(raw)
+                    except ValueError:
+                        try:
+                            result[col_name] = float(raw)
+                        except ValueError:
+                            result[col_name] = raw
+    else:
+        for line in lines:
+            key, _, val = line.partition(",")
+            key = key.strip()
+            val = val.strip()
+            try:
+                result[key] = int(val)
+            except ValueError:
+                try:
+                    result[key] = float(val)
+                except ValueError:
+                    result[key] = val
+    return result
+
+
+def _solution_status(output_dir: pathlib.Path) -> int:
+    """Read the solver status from output/solution.csv (0 = optimal)."""
+    row = _parse_solution_csv(output_dir)
+    val = row.get("status", -1)
+    try:
+        return int(val)
+    except (ValueError, TypeError):
         return -1
-    for line in sol.read_text().splitlines():
-        key, _, val = line.partition(",")
-        if key.strip() == "status":
-            return int(val.strip())
-    return -1
 
 
 def _obj_value(output_dir: pathlib.Path, scale: float = 1000.0) -> float:
     """Read the objective value from output/solution.csv × scale."""
-    sol = output_dir / "solution.csv"
-    if not sol.exists():
+    row = _parse_solution_csv(output_dir)
+    val = row.get("obj_value")
+    if val is None:
         return float("nan")
-    for line in sol.read_text().splitlines():
-        key, _, val = line.partition(",")
-        if key.strip() == "obj_value":
-            return float(val.strip()) * scale
-    return float("nan")
+    return float(val) * scale
 
 
 def _prepare_case(xlsx: pathlib.Path, case_dir: pathlib.Path) -> pathlib.Path:

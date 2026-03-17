@@ -839,27 +839,23 @@ def _read_max_fail_sol(output_dir: Path) -> float:
 def _read_solution_status(output_dir: Path) -> int:
     """Return the solver status from ``output/solution.csv`` (0 = optimal).
 
-    gtopt writes solution.csv as a key-value CSV with leading spaces:
+    Supports the columnar format written by PlanningLP::write_out():
 
     .. code-block:: text
 
-        obj_value,12.4342
-               kappa,1
-              status,0
+        scene,phase,status,obj_value,kappa
+        0,0,0,23.163424133184083,1
 
-    We parse it with ``header=None``, strip whitespace from the first column,
-    and find the row whose key equals ``"status"``.
+    Reads the header to locate the ``status`` column, then returns its
+    value from the first data row.
     """
     sol_path = output_dir / "solution.csv"
     if not sol_path.exists():
         return -1
-    df = pd.read_csv(sol_path, header=None)
-    df.columns = ["key", "value"]
-    df["key"] = df["key"].str.strip()
-    status_rows = df[df["key"] == "status"]
-    if status_rows.empty:
+    df = pd.read_csv(sol_path, header=0)
+    if "status" not in df.columns or df.empty:
         return -1
-    return int(status_rows["value"].iloc[0])
+    return int(df["status"].iloc[0])
 
 
 @pytest.fixture(scope="module")
