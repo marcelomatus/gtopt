@@ -6,7 +6,6 @@
 #include <coin/CoinPackedVector.hpp>
 #include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
-#include <spdlog/spdlog.h>
 
 namespace gtopt
 {
@@ -52,11 +51,8 @@ void LinearInterface::open_log_handler(const int log_level)
     log_file_ptr = log_file_ptr_t(std::fopen(file.c_str(), "ae"));
 
     if (!log_file_ptr) {
-      const auto msg = std::format(
-          "failed to open solver log file {} : errno", log_file, errno);
-
-      SPDLOG_CRITICAL(msg);
-      throw std::runtime_error(msg);
+      throw std::runtime_error(std::format(
+          "failed to open solver log file {} : errno {}", log_file, errno));
     }
   }
 
@@ -98,12 +94,9 @@ LinearInterface LinearInterface::clone() const
   solver_ptr_t cloned_solver(dynamic_cast<SolverInterface*>(raw));
   if (!cloned_solver) {
     // The concrete solver type differs from SolverInterface.
-    // Delete the raw pointer to avoid a leak; log a warning and fall back
-    // to a fresh (empty) solver — the caller should re-load data if needed.
+    // Delete the raw pointer to avoid a leak and fall back to a fresh
+    // (empty) solver — the caller should re-load data if needed.
     delete raw;  // NOLINT(cppcoreguidelines-owning-memory)
-    SPDLOG_WARN(
-        "LinearInterface::clone: dynamic_cast failed, falling back to "
-        "empty solver");
     cloned_solver = std::make_shared<SolverInterface>();
   }
   return {std::move(cloned_solver), log_file};
@@ -227,16 +220,19 @@ void LinearInterface::set_coeff(const RowIndex row,
   auto* clp_solver = dynamic_cast<OsiClpSolverInterface*>(real_solver);
   if (clp_solver != nullptr) {
     clp_solver->modifyCoefficient(r, c, value, false);
-  } else {
-    SPDLOG_WARN(
-        "set_coeff: underlying CBC solver's real solver "
-        "is not OsiClpSolverInterface — cannot modify coefficient");
   }
+  // If the underlying solver is not OsiClpSolverInterface the coefficient
+  // modification is silently skipped; callers bear responsibility for
+  // checking supports_set_coeff() before calling this function.
 #elifdef COIN_USE_CPX
   // OsiCpxSolverInterface provides setCoefficient() which wraps CPXchgcoef
   solver->setCoefficient(r, c, value);
 #else
-  SPDLOG_WARN("set_coeff: not implemented for this solver backend");
+  // Not implemented for this solver backend — silently skip.
+  // Callers should check supports_set_coeff() first.
+  (void)r;
+  (void)c;
+  (void)value;
 #endif
 }
 
@@ -419,16 +415,12 @@ std::expected<int, Error> LinearInterface::initial_solve(
     }
 
     if (!is_optimal()) {
-      std::string message = std::format(
-          "Failed to solve. Solver returned non-optimal for problem: {} "
-          "status: {} ",
-          get_prob_name(),
-          get_status());
-
-      SPDLOG_DEBUG(message);
       return std::unexpected(Error {
           .code = ErrorCode::SolverError,
-          .message = std::move(message),
+          .message = std::format(
+              "Solver returned non-optimal for problem: {} status: {}",
+              get_prob_name(),
+              get_status()),
           .status = get_status(),
       });
     }
@@ -436,12 +428,10 @@ std::expected<int, Error> LinearInterface::initial_solve(
     return get_status();
 
   } catch (const std::exception& e) {
-    auto message =
-        std::format("Unexpected error in initial_solve: {}", e.what());
-    SPDLOG_INFO(message);
     return std::unexpected(Error {
         .code = ErrorCode::InternalError,
-        .message = std::move(message),
+        .message =
+            std::format("Unexpected error in initial_solve: {}", e.what()),
     });
   }
 }
@@ -458,16 +448,12 @@ std::expected<int, Error> LinearInterface::resolve(
     }
 
     if (!is_optimal()) {
-      std::string message = std::format(
-          "Failed to solve. Solver returned non-optimal for problem: {} "
-          "status: {} ",
-          get_prob_name(),
-          get_status());
-
-      SPDLOG_DEBUG(message);
       return std::unexpected(Error {
           .code = ErrorCode::SolverError,
-          .message = std::move(message),
+          .message = std::format(
+              "Solver returned non-optimal for problem: {} status: {}",
+              get_prob_name(),
+              get_status()),
           .status = get_status(),
       });
     }
@@ -475,11 +461,9 @@ std::expected<int, Error> LinearInterface::resolve(
     return get_status();
 
   } catch (const std::exception& e) {
-    auto message = std::format("Unexpected error in resolve: {}", e.what());
-    SPDLOG_INFO(message);
     return std::unexpected(Error {
         .code = ErrorCode::InternalError,
-        .message = std::move(message),
+        .message = std::format("Unexpected error in resolve: {}", e.what()),
     });
   }
 }
