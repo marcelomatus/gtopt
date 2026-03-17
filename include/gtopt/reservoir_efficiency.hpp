@@ -79,7 +79,7 @@ struct EfficiencySegment
 {
   Real volume {0.0};  ///< Volume breakpoint [dam³] (Fortran `Bordes`)
   Real slope {
-      0.0};  ///< Slope at this breakpoint [efficiency/dam³] (`Pendientes`)
+      0.0,};  ///< Slope at this breakpoint [efficiency/dam³] (`Pendientes`)
   Real constant {0.0};  ///< Efficiency at breakpoint [MW·s/m³] (`Constantes`)
 };
 

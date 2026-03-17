@@ -36,7 +36,7 @@ bool command_available(const char* cmd) noexcept
     // "command -v" is POSIX; "which" is not guaranteed but widely available.
     const std::string probe =
         std::string("command -v ") + cmd + " >/dev/null 2>&1";
-    // NOLINTNEXTLINE(concurrency-mt-unsafe,cert-env33-c)
+    // NOLINTNEXTLINE(concurrency-mt-unsafe,cert-env33-c,bugprone-command-processor)
     return std::system(probe.c_str()) == 0;
   } catch (...) {
     return false;
@@ -49,7 +49,7 @@ bool run_external(const char* cmd, const std::string& arg) noexcept
 {
   try {
     const std::string full = std::string(cmd) + " " + arg + " >/dev/null 2>&1";
-    // NOLINTNEXTLINE(concurrency-mt-unsafe,cert-env33-c)
+    // NOLINTNEXTLINE(concurrency-mt-unsafe,cert-env33-c,bugprone-command-processor)
     return std::system(full.c_str()) == 0;
   } catch (...) {
     return false;
@@ -179,7 +179,7 @@ constexpr std::array<CodecInfo, 5> kCodecs {{
     {.name = "lz4", .cmd = "lz4 -f --rm -q", .ext = ".lz4"},
     {.name = "bzip2", .cmd = "bzip2 -f", .ext = ".bz2"},
     {.name = "xz", .cmd = "xz -f", .ext = ".xz"},
-}};
+},};
 
 /// Try a named codec directly.  Returns the compressed path on success, or
 /// an empty string when the binary is unavailable or the command fails.
@@ -248,7 +248,7 @@ std::string try_gtopt_compress_lp(const std::string& src_path,
   }
   cmd += " " + src_path + " >/dev/null 2>&1";
 
-  // NOLINTNEXTLINE(concurrency-mt-unsafe,cert-env33-c)
+  // NOLINTNEXTLINE(concurrency-mt-unsafe,cert-env33-c,bugprone-command-processor)
   if (std::system(cmd.c_str()) != 0) {
     spdlog::debug("LpDebugWriter: gtopt_compress_lp returned non-zero for {}",
                   src_path);
