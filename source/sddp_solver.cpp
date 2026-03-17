@@ -1023,7 +1023,8 @@ auto SDDPSolver::save_cuts(const std::string& filepath) const
           << (cut.rhs * scale_obj);
 
       // Look up the LinearInterface to retrieve column scales.
-      // Use scene 0 as representative (scales are identical across scenes).
+      // Use scene 0 as representative (scales are identical across scenes
+      // because the LP structure is built identically per phase).
       auto pit = phase_map.find(cut.phase);
       if (pit != phase_map.end()) {
         const auto& li = planning_lp()
@@ -1034,7 +1035,13 @@ auto SDDPSolver::save_cuts(const std::string& filepath) const
           ofs << "," << col << ":" << (coeff * scale_obj / scale);
         }
       } else {
-        // Fallback: write LP coefficients scaled by scale_obj only
+        // Phase UID not found — should not happen for well-formed cuts.
+        // Write with scale_obj only (assume col_scale = 1.0).
+        SPDLOG_WARN(
+            "save_cuts: unknown phase UID {} for cut '{}'; "
+            "writing without variable scaling",
+            cut.phase,
+            cut.name);
         for (const auto& [col, coeff] : cut.coefficients) {
           ofs << "," << col << ":" << (coeff * scale_obj);
         }
@@ -1107,7 +1114,12 @@ auto SDDPSolver::save_scene_cuts(SceneIndex scene,
           ofs << "," << col << ":" << (coeff * scale_obj / scale);
         }
       } else {
-        // Fallback: write LP coefficients scaled by scale_obj only
+        // Phase UID not found — should not happen for well-formed cuts.
+        SPDLOG_WARN(
+            "save_scene_cuts: unknown phase UID {} for cut '{}'; "
+            "writing without variable scaling",
+            cut.phase,
+            cut.name);
         for (const auto& [col, coeff] : cut.coefficients) {
           ofs << "," << col << ":" << (coeff * scale_obj);
         }
@@ -1161,12 +1173,13 @@ auto SDDPSolver::load_cuts(const std::string& filepath)
     }
 
     std::string line;
-    // Skip comment and header lines
+    // Skip metadata comments (# ...) and the CSV header line
     while (std::getline(ifs, line)) {
-      if (!line.empty() && !line.starts_with('#') && !line.starts_with("phase"))
-      {
-        break;
+      if (line.empty() || line.starts_with('#')) {
+        continue;
       }
+      // First non-empty, non-comment line is the header — skip it
+      break;
     }
 
     int cuts_loaded = 0;
@@ -1182,10 +1195,8 @@ auto SDDPSolver::load_cuts(const std::string& filepath)
           PhaseIndex {pi};
     }
 
-    // Process lines (the first data line was already read above)
-    bool first_data_line = !line.empty();
-    while (first_data_line || std::getline(ifs, line)) {
-      first_data_line = false;
+    // Process data lines
+    while (std::getline(ifs, line)) {
       if (line.empty() || line.starts_with('#')) {
         continue;
       }
