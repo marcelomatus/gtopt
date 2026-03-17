@@ -1665,6 +1665,36 @@ class TestTopNCoefficients:
                 break
         assert found_detail, "Expected constraint detail line for c_large in report"
 
+    def test_format_report_shows_flagged_var_in_long_constraint(self, tmp_path):
+        """When a constraint is truncated, the flagged variable must still appear."""
+        # Build a long constraint where the large coefficient (for big_var)
+        # is well beyond the 120-char truncation point.
+        filler_terms = " + ".join(f"1.5 filler_variable_{i}" for i in range(20))
+        lp_text = (
+            "Minimize\n"
+            " obj: x1\n"
+            "Subject To\n"
+            f" long_con: {filler_terms} + 9.99e+08 big_var >= 1\n"
+            "Bounds\n"
+            " 0 <= x1 <= 10\n"
+            " 0 <= big_var <= 10\n"
+            "End\n"
+        )
+        lp = _write_lp(tmp_path, "long.lp", lp_text)
+        stats = analyze_lp_file(lp)
+        report = format_static_report(lp, stats)
+        # The largest coefficient is 9.99e+08 for big_var; even though
+        # it's beyond the 120-char point, it must appear in the detail.
+        detail_lines = [
+            line
+            for line in report.splitlines()
+            if line.startswith("        ") and "long_con" in line
+        ]
+        assert detail_lines, "Expected constraint detail for long_con"
+        assert any("big_var" in line for line in detail_lines), (
+            f"big_var not shown in truncated constraint detail: {detail_lines}"
+        )
+
     def test_constraint_detail_deduped_in_report(self, tmp_path):
         """When multiple entries share a constraint, the detail is shown only once."""
         lp_text = (
