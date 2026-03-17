@@ -13,6 +13,8 @@
 #include <gtopt/arrow_types.hpp>
 #include <gtopt/basic_types.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/phase.hpp>
+#include <gtopt/scene.hpp>
 #include <gtopt/single_id.hpp>
 #include <gtopt/system_context.hpp>
 
@@ -44,8 +46,8 @@ public:
 
   explicit OutputContext(const SystemContext& psc,
                          const LinearInterface& linear_interface,
-                         Uid scene_uid = 0,
-                         Uid phase_uid = 0);
+                         SceneUid scene_uid = SceneUid {0},
+                         PhaseUid phase_uid = PhaseUid {0});
 
   [[nodiscard]] auto&& options() const { return sc.get().options(); }
 
@@ -371,8 +373,8 @@ public:
 private:
   std::reference_wrapper<const SystemContext> sc;
 
-  Uid m_scene_uid_;
-  Uid m_phase_uid_;
+  SceneUid m_scene_uid_;
+  PhaseUid m_phase_uid_;
 
   double sol_obj_value;
   double sol_status;

@@ -209,6 +209,17 @@ public:
   }
 
   /**
+   * Gets the physical-to-LP scale factor of a column.
+   * physical_value = LP_value × scale.
+   * @param index Column index
+   * @return Scale factor (1.0 = no scaling)
+   */
+  [[nodiscard]] constexpr auto get_col_scale(ColIndex index) const
+  {
+    return cols.at(index).scale;
+  }
+
+  /**
    * Gets a reference to a row by index
    * @param index Row index
    * @return Reference to the row

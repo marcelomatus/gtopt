@@ -381,12 +381,18 @@ void OutputContext::write() const
   auto path_tables =
       create_tables(options().output_directory(), field_vector_map);
 
-  spdlog::info(std::format(
-      "  Writing {} output tables to '{}' (format={}, compression={})",
-      path_tables.size(),
-      options().output_directory(),
-      fmt,
-      zfmt));
+  const auto su = static_cast<Uid>(m_scene_uid_);
+  const auto pu = static_cast<Uid>(m_phase_uid_);
+
+  spdlog::info(
+      std::format("  Writing {} output tables to '{}' "
+                  "(scene={}, phase={}, format={}, compression={})",
+                  path_tables.size(),
+                  options().output_directory(),
+                  su,
+                  pu,
+                  fmt,
+                  zfmt));
 
   std::vector<std::jthread> tasks;
   tasks.reserve(path_tables.size());
@@ -408,9 +414,11 @@ void OutputContext::write() const
 
   const auto out_dir = std::filesystem::path(options().output_directory());
 
-  // Always write the generic "solution.csv" (last writer wins — backward
-  // compat)
-  const auto sol_path = out_dir / "solution.csv";
+  // Use a per-scene solution file when scene/phase UIDs are known,
+  // and always write a generic "solution.csv" for backward compatibility.
+  const auto sol_path = (su >= 0)
+      ? out_dir / std::format("solution_scene_{}.csv", su)
+      : out_dir / "solution.csv";
 
   spdlog::info(std::format("  Write solution to '{}' (status={}, obj_value={})",
                            sol_path.string(),
@@ -437,21 +445,17 @@ void OutputContext::write() const
 
   write_sol(sol_path);
 
-  // When scene/phase UIDs are known (≥ 0), additionally write a per-phase
-  // solution file so that multi-phase runs don't lose per-phase results.
-  if (m_scene_uid_ >= 0 && m_phase_uid_ >= 0) {
-    const auto per_phase_path =
-        out_dir
-        / std::format(
-            "solution_scene_{}_phase_{}.csv", m_scene_uid_, m_phase_uid_);
-    write_sol(per_phase_path);
+  // Always write the generic "solution.csv" for backward compatibility
+  const auto generic_path = out_dir / "solution.csv";
+  if (sol_path != generic_path) {
+    write_sol(generic_path);
   }
 }
 
 OutputContext::OutputContext(const SystemContext& psc,
                              const LinearInterface& linear_interface,
-                             Uid scene_uid,
-                             Uid phase_uid)
+                             SceneUid scene_uid,
+                             PhaseUid phase_uid)
     : sc(psc)
     , m_scene_uid_(scene_uid)
     , m_phase_uid_(phase_uid)
