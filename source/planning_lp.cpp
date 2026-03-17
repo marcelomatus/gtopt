@@ -12,6 +12,7 @@
 #include <format>
 #include <future>
 #include <ranges>
+#include <string_view>
 
 #include <gtopt/check_lp.hpp>
 #include <gtopt/planning_lp.hpp>
@@ -169,7 +170,14 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
               run_check_lp_diagnostic(lp_file, /*timeout_seconds=*/10, lp_opts);
           !diag.empty())
       {
-        spdlog::error("LP infeasibility diagnostic for {}:\n{}", lp_file, diag);
+        spdlog::error("LP infeasibility diagnostic for {}:", lp_file);
+        for (const auto line : std::views::split(std::string_view {diag}, '\n'))
+        {
+          const std::string_view sv {line.begin(), line.end()};
+          if (!sv.empty()) {
+            spdlog::error("  {}", sv);
+          }
+        }
       }
 
       auto error = std::move(result.error());
