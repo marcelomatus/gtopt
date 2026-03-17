@@ -25,7 +25,7 @@
  *       "sddp_cut_directory": "cuts",
  *       "sddp_api_enabled": true,
  *       "sddp_efficiency_update_skip": 0,
- *       "sddp_elastic_mode": "single-cut",
+ *       "sddp_elastic_mode": "single_cut",
  *       "sddp_multi_cut_threshold": 10
  *     }
  *   }
@@ -88,11 +88,11 @@ struct SddpOptions
   /** @brief Path to a sentinel file; if it exists, the solver stops gracefully
    * after the current iteration (analogous to PLP's userstop) */
   OptName sddp_sentinel_file {};
-  /** @brief Elastic filter mode: `"single-cut"` (default, alias `"cut"`) or
-   *         `"multi-cut"` or `"backpropagate"` */
+  /** @brief Elastic filter mode: `"single_cut"` (default, alias `"cut"`) or
+   *         `"multi_cut"` or `"backpropagate"` */
   OptName sddp_elastic_mode {};
   /** @brief Forward-pass infeasibility count threshold for switching from
-   *         single-cut to multi-cut (default: 10; 0 = never auto-switch) */
+   *         single_cut to multi_cut (default: 10; 0 = never auto-switch) */
   OptInt sddp_multi_cut_threshold {};
   /** @brief Number of apertures (hydrological realisations) for the backward
    *         pass. 0 = disabled (default); -1 = all scenarios; N > 0 = first N

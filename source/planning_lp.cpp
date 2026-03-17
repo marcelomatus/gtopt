@@ -228,11 +228,11 @@ void PlanningLP::write_out() const
                             row.status,
                             row.obj_value,
                             row.kappa);
-    SPDLOG_INFO("  solution.csv: scene={} phase={} status={} obj_value={}",
-                row.scene_uid,
-                row.phase_uid,
-                row.status,
-                row.obj_value);
+    SPDLOG_DEBUG("  solution.csv: scene={} phase={} status={} obj_value={}",
+                 row.scene_uid,
+                 row.phase_uid,
+                 row.status,
+                 row.obj_value);
   }
 }
 
