@@ -135,6 +135,38 @@ double compute_convergence_gap(double upper_bound, double lower_bound) noexcept
 
 // Now implemented in benders_cut.cpp; this file uses them via benders_cut.hpp.
 
+// ── Helper: log multi-line diagnostic output with per-line spdlog prefix ────
+
+namespace
+{
+
+/// Log a multi-line diagnostic string line-by-line so that each line carries
+/// the spdlog prefix (timestamp + level).  The @p level selects spdlog::error
+/// for "error" and spdlog::info otherwise.
+void log_diagnostic_lines(std::string_view level,
+                          std::string_view header,
+                          std::string_view diag)
+{
+  const bool is_error = (level == "error");
+  if (is_error) {
+    spdlog::error("LP infeasibility diagnostic for {}:", header);
+  } else {
+    spdlog::info("LP diagnostic for {}:", header);
+  }
+  for (const auto line : std::views::split(diag, '\n')) {
+    const std::string_view sv {line.begin(), line.end()};
+    if (!sv.empty()) {
+      if (is_error) {
+        spdlog::error("  {}", sv);
+      } else {
+        spdlog::info("  {}", sv);
+      }
+    }
+  }
+}
+
+}  // namespace
+
 // ─── SDDPSolver ─────────────────────────────────────────────────────────────
 
 SDDPSolver::SDDPSolver(PlanningLP& planning_lp, SDDPOptions opts) noexcept
@@ -353,6 +385,11 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
   auto& phase_states = m_scene_phase_states_[scene];
   double total_opex = 0.0;
 
+  SPDLOG_DEBUG("SDDP forward: scene {} iter {} starting ({} phases)",
+               scene_uid(scene),
+               iteration,
+               phases.size());
+
   for (auto&& [phase, _ph] : enumerate<PhaseIndex>(phases)) {
     auto& li = planning_lp().system(scene, phase).linear_interface();
     auto& state = phase_states[phase];
@@ -364,6 +401,13 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
       const auto& prev_sol =
           planning_lp().system(scene, prev).linear_interface().get_col_sol();
       propagate_trial_values(prev_st.outgoing_links, prev_sol, li);
+      SPDLOG_TRACE(
+          "SDDP forward: scene {} phase {} propagated {} state vars from "
+          "phase {}",
+          scene_uid(scene),
+          phase_uid(phase),
+          prev_st.outgoing_links.size(),
+          phase_uid(prev));
     }
 
     // Update volume-dependent coefficients (turbine efficiency, etc.)
@@ -386,6 +430,12 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
         resolve_via_pool(li, opts, make_forward_lp_task_req(iteration, phase));
 
     if (!result.has_value() || !li.is_optimal()) {
+      SPDLOG_INFO(
+          "SDDP forward: scene {} phase {} infeasible (status {}), "
+          "trying elastic solve",
+          scene_uid(scene),
+          phase_uid(phase),
+          li.get_status());
       // Clone the LP, apply elastic filter, and solve the clone.
       // The original LP remains unmodified (PLP clone pattern).
       auto elastic_result = elastic_solve(scene, phase, opts);
@@ -407,11 +457,11 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
         state.forward_objective = obj - alpha_val;
         total_opex += state.forward_objective;
 
-        SPDLOG_TRACE(
-            "SDDP forward: scene {} phase {} obj={:.4f} alpha={:.4f} "
-            "opex={:.4f} [elastic, infeas_count={}]",
-            scene,
-            phase,
+        SPDLOG_INFO(
+            "SDDP forward: scene {} phase {} elastic solve ok, "
+            "obj={:.4f} alpha={:.4f} opex={:.4f} [infeas_count={}]",
+            scene_uid(scene),
+            phase_uid(phase),
             obj,
             alpha_val,
             state.forward_objective,
@@ -434,8 +484,7 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
                   err_file, /*timeout_seconds=*/10, opts);
               !diag.empty())
           {
-            spdlog::error(
-                "LP infeasibility diagnostic for {}.lp:\n{}", err_file, diag);
+            log_diagnostic_lines("error", err_file + ".lp", diag);
           }
         }
         return std::unexpected(Error {
@@ -466,14 +515,18 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
 
       SPDLOG_TRACE(
           "SDDP forward: scene {} phase {} obj={:.4f} alpha={:.4f} opex={:.4f}",
-          scene,
-          phase,
+          scene_uid(scene),
+          phase_uid(phase),
           obj,
           alpha_val,
           state.forward_objective);
     }
   }
 
+  SPDLOG_DEBUG("SDDP forward: scene {} iter {} done, total_opex={:.4f}",
+               scene_uid(scene),
+               iteration,
+               total_opex);
   return total_opex;
 }
 
@@ -692,6 +745,11 @@ auto SDDPSolver::backward_pass(SceneIndex scene,
   auto& phase_states = m_scene_phase_states_[scene];
   int total_cuts = 0;
 
+  SPDLOG_DEBUG("SDDP backward: scene {} iter {} starting ({} phases)",
+               scene_uid(scene),
+               iteration,
+               num_phases);
+
   // Iterate backward from last phase to phase 1 using ranges
   for (const auto pi : std::views::iota(1, num_phases) | std::views::reverse) {
     const auto phase = PhaseIndex {pi};
@@ -718,8 +776,8 @@ auto SDDPSolver::backward_pass(SceneIndex scene,
     ++total_cuts;
 
     SPDLOG_TRACE("SDDP backward: scene {} cut for phase {} rhs={:.4f}",
-                 scene,
-                 src_phase,
+                 scene_uid(scene),
+                 phase_uid(src_phase),
                  cut.lowb);
 
     // Re-solve source and handle iterative feasibility backpropagation.
@@ -729,6 +787,11 @@ auto SDDPSolver::backward_pass(SceneIndex scene,
       auto r = resolve_via_pool(
           src_li, opts, make_backward_lp_task_req(iteration, src_phase));
       if (!r.has_value() || !src_li.is_optimal()) {
+        SPDLOG_INFO(
+            "SDDP backward: scene {} phase {} infeasible after cut, "
+            "starting feasibility backpropagation",
+            scene_uid(scene),
+            phase_uid(src_phase));
         auto bp_result =
             feasibility_backpropagate(scene, pi - 1, total_cuts, opts);
         if (!bp_result.has_value()) {
@@ -739,6 +802,10 @@ auto SDDPSolver::backward_pass(SceneIndex scene,
     }
   }
 
+  SPDLOG_DEBUG("SDDP backward: scene {} iter {} done, {} cuts added",
+               scene_uid(scene),
+               iteration,
+               total_cuts);
   return total_cuts;
 }
 
@@ -1570,28 +1637,18 @@ auto SDDPSolver::validate_inputs() const -> std::optional<Error>
 
 auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
 {
-  // Use MonolithicSolver for the initial phase-by-phase solve to avoid
-  // infinite recursion: calling planning_lp().resolve() when
-  // solver_type == "sddp" would create another SDDPSolver which in
-  // turn calls initialize_solver() again, causing a stack overflow.
-  SPDLOG_INFO("SDDP: running initial forward pass via MonolithicSolver");
-  if (auto r = MonolithicSolver {}.solve(planning_lp(), SolverOptions {});
-      !r.has_value())
-  {
-    return std::unexpected(Error {
-        .code = ErrorCode::SolverError,
-        .message = std::format("Initial PlanningLP solve failed: {}",
-                               r.error().message),
-    });
-  }
-
   if (m_initialized_) {
+    SPDLOG_DEBUG("SDDP: already initialized, skipping re-initialization");
     return {};
   }
+
+  SPDLOG_INFO("SDDP: initializing solver (no initial solve pass)");
 
   const auto& sim = planning_lp().simulation();
   const auto num_scenes = static_cast<Index>(sim.scenes().size());
   const auto num_phases = static_cast<Index>(sim.phases().size());
+
+  SPDLOG_INFO("SDDP: {} scene(s), {} phase(s)", num_scenes, num_phases);
 
   m_scene_phase_states_.resize(num_scenes);
   m_scene_cuts_.resize(num_scenes);
@@ -1600,10 +1657,17 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
     m_infeasibility_counter_[SceneIndex {si}].resize(num_phases, 0);
   }
 
+  SPDLOG_INFO("SDDP: adding alpha variables and collecting state links");
   for (Index si = 0; si < num_scenes; ++si) {
     const auto scene = SceneIndex {si};
     initialize_alpha_variables(scene);
     collect_state_variable_links(scene);
+    SPDLOG_DEBUG("SDDP: scene {} initialized ({} state links)",
+                 scene_uid(scene),
+                 m_scene_phase_states_[scene].empty()
+                     ? 0
+                     : m_scene_phase_states_[scene][PhaseIndex {0}]
+                           .outgoing_links.size());
   }
 
   if (!m_options_.cuts_input_file.empty()) {
@@ -1642,12 +1706,14 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
 
   m_initialized_ = true;
 
+  SPDLOG_INFO("SDDP: updating initial LP coefficients for all phases");
   for (Index si = 0; si < num_scenes; ++si) {
     for (Index pi = 0; pi < num_phases; ++pi) {
       update_coefficients_for_phase(SceneIndex {si}, PhaseIndex {pi}, 0);
     }
   }
 
+  SPDLOG_INFO("SDDP: initialization complete");
   return {};
 }
 
@@ -1984,12 +2050,16 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
       break;
     }
 
+    SPDLOG_INFO(
+        "SDDP: === iteration {} / {} ===", iter, m_options_.max_iterations);
+
     SDDPIterationResult ir {
         .iteration = iter,
     };
     m_benders_cut_.reset_infeasible_cut_count();
 
     // ── Forward pass ──
+    SPDLOG_DEBUG("SDDP: starting forward pass (iter {})", iter);
     auto fwd = run_forward_pass_all_scenes(iter, *sddp_pool, lp_opts);
     if (!fwd.has_value()) {
       monitor.stop();
@@ -1999,7 +2069,9 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     ir.forward_pass_s = fwd->elapsed_s;
     if (fwd->has_feasibility_issue) {
       ir.feasibility_issue = true;
+      SPDLOG_INFO("SDDP: iter {} forward pass has feasibility issues", iter);
     }
+    SPDLOG_DEBUG("SDDP: forward pass done in {:.3f}s", fwd->elapsed_s);
 
     // ── Scene weights and bounds ──
     const auto& scenes = planning_lp().simulation().scenes();
@@ -2007,6 +2079,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     compute_iteration_bounds(ir, fwd->scene_feasible, weights);
 
     // ── Backward pass ──
+    SPDLOG_DEBUG("SDDP: starting backward pass (iter {})", iter);
     const auto cuts_before = m_stored_cuts_.size();
     auto bwd = run_backward_pass_all_scenes(
         fwd->scene_feasible, *sddp_pool, lp_opts, iter);
@@ -2015,10 +2088,14 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     ir.backward_pass_s = bwd.elapsed_s;
     if (bwd.has_feasibility_issue) {
       ir.feasibility_issue = true;
+      SPDLOG_INFO("SDDP: iter {} backward pass has feasibility issues", iter);
     }
     ir.iteration_s = std::chrono::duration<double>(
                          std::chrono::steady_clock::now() - iter_start)
                          .count();
+    SPDLOG_DEBUG("SDDP: backward pass done in {:.3f}s, {} cuts added",
+                 bwd.elapsed_s,
+                 bwd.total_cuts);
 
     // ── Cut sharing ──
     apply_cut_sharing_for_iteration(cuts_before);
@@ -2026,6 +2103,18 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     // ── Convergence + live-query update ──
     finalize_iteration_result(ir, iter);
     results.push_back(ir);
+
+    SPDLOG_INFO(
+        "SDDP: iter {} done in {:.3f}s — UB={:.4f} LB={:.4f} "
+        "gap={:.6f} cuts={} infeas_cuts={} {}",
+        iter,
+        ir.iteration_s,
+        ir.upper_bound,
+        ir.lower_bound,
+        ir.gap,
+        ir.cuts_added,
+        ir.infeasible_cuts_added,
+        ir.converged ? "[CONVERGED]" : "");
 
     // ── Monitoring API and cut persistence ──
     maybe_write_api_status(status_file, results, solve_start, monitor);
@@ -2528,9 +2617,7 @@ auto SDDPSolver::solve_apertures_for_phase(
                         err_stem, /*timeout_seconds=*/10, solver_opts_copy);
                     !diag.empty())
                 {
-                  spdlog::error("LP infeasibility diagnostic for {}.lp:\n{}",
-                                err_stem,
-                                diag);
+                  log_diagnostic_lines("error", err_stem + ".lp", diag);
                 }
                 return std::expected<int, Error>(0);
               },
@@ -2541,8 +2628,7 @@ auto SDDPSolver::solve_apertures_for_phase(
                   err_stem, /*timeout_seconds=*/10, solver_opts_copy);
               !diag.empty())
           {
-            spdlog::error(
-                "LP infeasibility diagnostic for {}.lp:\n{}", err_stem, diag);
+            log_diagnostic_lines("error", err_stem + ".lp", diag);
           }
         }
       }
