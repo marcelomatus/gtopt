@@ -819,15 +819,15 @@ class TestFiltrationReservoirDependency:
 
 
 # ---------------------------------------------------------------------------
-# _elem_name — name(uid) label formatting
+# _elem_name — name:uid label formatting
 # ---------------------------------------------------------------------------
 
 
 class TestElemName:
-    """Verify _elem_name() produces 'NAME(UID)' formatted labels."""
+    """Verify _elem_name() produces 'NAME:UID' formatted labels."""
 
     def test_name_and_uid_combined(self):
-        assert gd._elem_name({"name": "ELTORO", "uid": 2}) == "ELTORO(2)"  # noqa: SLF001
+        assert gd._elem_name({"name": "ELTORO", "uid": 2}) == "ELTORO:2"  # noqa: SLF001
 
     def test_name_equals_uid_no_duplication(self):
         """When name and uid stringify the same, show only name."""
@@ -857,10 +857,10 @@ class TestElemName:
         model = builder.build()
         bus_nodes = [n for n in model.nodes if n.kind == "bus"]
         assert bus_nodes, "No bus node found"
-        assert "ALTO(7)" in bus_nodes[0].label
+        assert "ALTO:7" in bus_nodes[0].label
 
     def test_generator_label_contains_uid(self):
-        """Generator node label must include uid in 'name(uid)' format."""
+        """Generator node label must include uid in 'name:uid' format."""
         fo = gd.FilterOptions(aggregate="none")
         builder = gd.TopologyBuilder(_IEEE9_JSON, opts=fo)
         model = builder.build()
@@ -868,10 +868,10 @@ class TestElemName:
             n for n in model.nodes if n.kind in ("gen", "gen_hydro", "gen_solar")
         ]
         assert gen_nodes, "No generator nodes found"
-        # G1 has uid=1 → label should contain "G1(1)"
+        # G1 has uid=1 → label should contain "G1:1"
         g1 = next((n for n in gen_nodes if "G1" in n.label), None)
         assert g1 is not None, "G1 generator node not found"
-        assert "G1(1)" in g1.label
+        assert "G1:1" in g1.label
 
 
 # ---------------------------------------------------------------------------
