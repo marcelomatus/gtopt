@@ -140,6 +140,14 @@ double compute_convergence_gap(double upper_bound, double lower_bound) noexcept
 namespace
 {
 
+/// Maximum number of diagnostic output lines before truncation.
+/// When the output exceeds this limit, only the last @c kDiagTailLines
+/// lines are shown with a "[truncated]" notice.
+constexpr int kDiagMaxLines = 30;
+
+/// Number of trailing lines to keep when truncating diagnostic output.
+constexpr int kDiagTailLines = 10;
+
 /// Log a multi-line diagnostic string line-by-line so that each line carries
 /// the spdlog prefix (timestamp + level).
 ///
