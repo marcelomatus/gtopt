@@ -148,6 +148,16 @@ public:
     return m_energy_scale_;
   }
 
+  /// Flow variable scale factor used in the LP.
+  ///
+  /// For drain (and extraction/finp/fout in the reservoir case):
+  ///   LP_var = physical / flow_scale.
+  /// Default 1.0 (no scaling; battery default).  Reservoirs use vol_scale.
+  [[nodiscard]] constexpr double flow_scale() const noexcept
+  {
+    return m_flow_scale_;
+  }
+
   /// Convert an LP-unit energy/volume value to physical units.
   [[nodiscard]] constexpr double to_physical(double lp_value) const noexcept
   {

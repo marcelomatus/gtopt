@@ -17,9 +17,10 @@
  * | generator          | generation, cost                              |
  * | demand             | load, fail                                    |
  * | line               | flow, flowp, flown, lossp, lossn              |
- * | battery            | energy, charge, discharge                     |
+ * | battery            | energy, charge, discharge, spill (alias: drain)|
  * | converter          | charge, discharge                             |
- * | reservoir          | volume (alias: energy)                        |
+ * | reservoir          | volume (alias: energy), extraction,            |
+ * |                    | spill (alias: drain)                          |
  * | bus                | theta (alias: angle)                          |
  * | waterway           | flow                                          |
  * | turbine            | generation                                    |
@@ -31,6 +32,23 @@
  * | reserve_zone       | up (aliases: urequirement, up_requirement),   |
  * |                    | dn (aliases: drequirement, dn_requirement,    |
  * |                    |     down)                                     |
+ *
+ * ### Variable scaling
+ *
+ * Some LP variables are internally scaled for numerical conditioning.
+ * User constraints are written in **physical units**; the resolver
+ * automatically applies the correct scale factor to each coefficient so
+ * that the LP constraint is dimensionally correct.
+ *
+ * | Variable             | Scale (physical = LP × scale)            |
+ * |---------------------|------------------------------------------|
+ * | reservoir.volume     | energy_scale (= vol_scale, default 1000) |
+ * | reservoir.extraction | energy_scale (= vol_scale, default 1000) |
+ * | reservoir.spill      | flow_scale   (= vol_scale, default 1000) |
+ * | battery.energy       | energy_scale (default 1.0)               |
+ * | battery.spill        | flow_scale   (default 1.0)               |
+ * | bus.theta            | 1 / scale_theta (default 1/1000)         |
+ * | all others           | 1.0 (no scaling)                         |
  *
  * ### Grammar (pseudo-BNF)
  *
