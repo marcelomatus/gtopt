@@ -650,21 +650,24 @@ class GTOptWriter:
             sddp_opts["sddp_boundary_max_iterations"] = bc_max_iter
 
         # ── Hot-start cuts (intermediate stages) ───────────────────────────
-        if options.get("hot_start_cuts", False):
-            # Non-boundary cuts from plpplem2/plpplaem2
-            non_boundary = [
-                c for c in planos.all_cuts if c["stage"] != planos.boundary_stage
-            ]
-            if non_boundary:
-                hs_path = output_dir / "hot_start_cuts.csv"
-                # Build stage→phase mapping from the planning structure
-                stage_to_phase = self._build_stage_to_phase_map()
-                write_hot_start_cuts_csv(
-                    non_boundary,
-                    planos.reservoir_names,
-                    hs_path,
-                    stage_to_phase=stage_to_phase,
-                )
+        # Always export hot-start cuts when non-boundary cuts exist, so they
+        # are available in the gtopt input directory.  Loading is disabled by
+        # default; pass --hot-start-cuts to enable sddp_named_cuts_file.
+        non_boundary = [
+            c for c in planos.all_cuts if c["stage"] != planos.boundary_stage
+        ]
+        if non_boundary:
+            hs_path = output_dir / "hot_start_cuts.csv"
+            # Build stage→phase mapping from the planning structure
+            stage_to_phase = self._build_stage_to_phase_map()
+            write_hot_start_cuts_csv(
+                non_boundary,
+                planos.reservoir_names,
+                hs_path,
+                stage_to_phase=stage_to_phase,
+            )
+            # Only wire the file into the JSON options if explicitly requested
+            if options.get("hot_start_cuts", False):
                 sddp_opts["sddp_named_cuts_file"] = str(hs_path)
 
     def _build_stage_to_phase_map(self) -> dict[int, int] | None:
