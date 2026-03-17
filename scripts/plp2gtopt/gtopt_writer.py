@@ -11,7 +11,7 @@ from typing import Dict, Any
 from pathlib import Path
 
 from .plp_parser import PLPParser
-from .planos_writer import write_boundary_cuts_csv
+from .planos_writer import write_boundary_cuts_csv, write_hot_start_cuts_csv
 
 from .block_writer import BlockWriter
 from .stage_writer import StageWriter
@@ -615,25 +615,79 @@ class GTOptWriter:
             self.planning["system"]["converter_array"] = result["converter_array"]
 
     def process_boundary_cuts(self, options):
-        """Write boundary-cut CSV from parsed PLP planos data.
+        """Write boundary-cut and hot-start-cut CSVs from parsed PLP planos data.
 
-        If the PLP input contained ``plpplaem1.dat`` and ``plpplaem2.dat``,
-        the parsed boundary cuts are written to a CSV file in the output
-        directory and the ``sddp_boundary_cuts_file`` option is set so that
-        the gtopt SDDP solver loads them as the future-cost approximation
-        for the last planning stage (the ``varphi`` boundary condition).
+        If the PLP input contained plpplaem/plpplem files, the parsed boundary
+        cuts are written to a CSV file in the output directory and the
+        ``sddp_boundary_cuts_file`` option is set so that the SDDP solver
+        loads them.  CLI options control mode, iteration filtering, and
+        whether to export hot-start cuts for intermediate stages.
         """
         planos = self.parser.parsed_data.get("planos_parser")
-        if planos is None or not planos.cuts:
+        if planos is None:
+            return
+
+        # Honour --no-boundary-cuts
+        if options.get("no_boundary_cuts", False):
             return
 
         output_dir = Path(options.get("output_dir", ""))
-        csv_path = output_dir / "boundary_cuts.csv"
-        write_boundary_cuts_csv(planos.cuts, planos.reservoir_names, csv_path)
-
-        # Set the option so the C++ solver picks up the file
         sddp_opts = self.planning["options"].setdefault("sddp_options", {})
-        sddp_opts["sddp_boundary_cuts_file"] = str(csv_path)
+
+        # ── Boundary cuts (last stage) ─────────────────────────────────────
+        if planos.cuts:
+            csv_path = output_dir / "boundary_cuts.csv"
+            write_boundary_cuts_csv(planos.cuts, planos.reservoir_names, csv_path)
+            sddp_opts["sddp_boundary_cuts_file"] = str(csv_path)
+
+        # Wire mode and max-iterations options through to the JSON
+        bc_mode = options.get("boundary_cuts_mode")
+        if bc_mode is not None:
+            sddp_opts["sddp_boundary_cuts_mode"] = bc_mode
+
+        bc_max_iter = options.get("boundary_max_iterations")
+        if bc_max_iter is not None:
+            sddp_opts["sddp_boundary_max_iterations"] = bc_max_iter
+
+        # ── Hot-start cuts (intermediate stages) ───────────────────────────
+        if options.get("hot_start_cuts", False):
+            # Non-boundary cuts from plpplem2/plpplaem2
+            non_boundary = [
+                c for c in planos.all_cuts if c["stage"] != planos.boundary_stage
+            ]
+            if non_boundary:
+                hs_path = output_dir / "hot_start_cuts.csv"
+                # Build stage→phase mapping from the planning structure
+                stage_to_phase = self._build_stage_to_phase_map()
+                write_hot_start_cuts_csv(
+                    non_boundary,
+                    planos.reservoir_names,
+                    hs_path,
+                    stage_to_phase=stage_to_phase,
+                )
+                sddp_opts["sddp_named_cuts_file"] = str(hs_path)
+
+    def _build_stage_to_phase_map(self) -> dict[int, int] | None:
+        """Build a mapping from PLP stage (1-based) to gtopt phase UID.
+
+        Uses the stage_array already set in the planning JSON.
+        Returns ``None`` if no mapping can be built (which makes
+        ``write_hot_start_cuts_csv`` use identity mapping).
+        """
+        raw_stages: Any = self.planning.get("stage_array", [])
+        stage_array: list[dict[str, Any]] = (
+            raw_stages if isinstance(raw_stages, list) else []
+        )
+        if not stage_array:
+            return None
+
+        stage_to_phase: dict[int, int] = {}
+        for stage in stage_array:
+            stage_uid: int = stage.get("uid", 0)
+            phase_uid: int = stage.get("phase_uid", 0)
+            stage_to_phase[stage_uid] = phase_uid
+
+        return stage_to_phase or None
 
     def to_json(self, options=None) -> Dict:
         """Convert parsed data to GTOPT JSON structure."""
