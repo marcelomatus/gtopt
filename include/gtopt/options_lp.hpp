@@ -529,6 +529,12 @@ public:
     return m_options_.sddp_options.sddp_boundary_max_iterations.value_or(0);
   }
 
+  /// CSV file with named-variable cuts for hot-start across all phases.
+  [[nodiscard]] auto sddp_named_cuts_file() const -> Name
+  {
+    return m_options_.sddp_options.sddp_named_cuts_file.value_or(Name {});
+  }
+
 private:
   /** @brief The wrapped Options object */
   Options m_options_;
