@@ -242,8 +242,8 @@ TEST_CASE("UserConstraint constraint_type field — raw")
 
   const auto uc = daw::json::from_json<UserConstraint>(json_data);
   REQUIRE(uc.constraint_type.has_value());
-  CHECK(*uc.constraint_type == "raw");
-  CHECK(parse_constraint_scale_type(*uc.constraint_type)
+  CHECK(uc.constraint_type.value_or("") == "raw");
+  CHECK(parse_constraint_scale_type(uc.constraint_type.value_or(""))
         == ConstraintScaleType::Raw);
 }
 
@@ -260,8 +260,8 @@ TEST_CASE("UserConstraint constraint_type field — unitless")
 
   const auto uc = daw::json::from_json<UserConstraint>(json_data);
   REQUIRE(uc.constraint_type.has_value());
-  CHECK(*uc.constraint_type == "unitless");
-  CHECK(parse_constraint_scale_type(*uc.constraint_type)
+  CHECK(uc.constraint_type.value_or("") == "unitless");
+  CHECK(parse_constraint_scale_type(uc.constraint_type.value_or(""))
         == ConstraintScaleType::Raw);
 }
 
