@@ -398,6 +398,8 @@ class BatteryWriter(BaseWriter):
         """
         import pandas as pd  # pylint: disable=import-outside-toplevel
 
+        compression = self.get_compression()
+
         man_entries = [e for e in entries if e.get("has_maintenance")]
         if not man_entries:
             return
@@ -418,8 +420,12 @@ class BatteryWriter(BaseWriter):
                 emin_data[col] = list(man["emin"])
                 emax_data[col] = list(man["emax"])
         if emin_data["block"]:
-            pd.DataFrame(emin_data).to_parquet(bat_dir / "emin.parquet", index=False)
-            pd.DataFrame(emax_data).to_parquet(bat_dir / "emax.parquet", index=False)
+            pd.DataFrame(emin_data).to_parquet(
+                bat_dir / "emin.parquet", index=False, compression=compression
+            )
+            pd.DataFrame(emax_data).to_parquet(
+                bat_dir / "emax.parquet", index=False, compression=compression
+            )
 
         # --- DC power bounds (ESS only) → Generator/pmax, Demand/lmax ---
         has_dc = any("dcmax" in e.get("man_data", {}) for e in man_entries)
@@ -439,7 +445,9 @@ class BatteryWriter(BaseWriter):
                 pmax_data["block"] = list(block_idx)
                 pmax_data[col] = list(man["dcmax"])
         if pmax_data["block"]:
-            pd.DataFrame(pmax_data).to_parquet(gen_dir / "pmax.parquet", index=False)
+            pd.DataFrame(pmax_data).to_parquet(
+                gen_dir / "pmax.parquet", index=False, compression=compression
+            )
 
         dem_dir = output_dir / "Demand"
         dem_dir.mkdir(parents=True, exist_ok=True)
@@ -454,7 +462,9 @@ class BatteryWriter(BaseWriter):
                 lmax_data["block"] = list(block_idx)
                 lmax_data[col] = list(man["dcmax"])
         if lmax_data["block"]:
-            pd.DataFrame(lmax_data).to_parquet(dem_dir / "lmax.parquet", index=False)
+            pd.DataFrame(lmax_data).to_parquet(
+                dem_dir / "lmax.parquet", index=False, compression=compression
+            )
 
     def process(
         self, existing_gen: List[Dict], existing_dem: List[Dict], output_dir: Path
