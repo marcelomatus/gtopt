@@ -66,11 +66,10 @@ ElasticFilterMode parse_elastic_filter_mode(std::string_view name)
   if (name == "backpropagate") {
     return ElasticFilterMode::BackpropagateBounds;
   }
-  // "multi_cut" is canonical; "multi-cut" kept as backward-compat alias
-  if (name == "multi_cut" || name == "multi-cut") {
+  if (name == "multi_cut") {
     return ElasticFilterMode::MultiCut;
   }
-  // "single_cut" is canonical; "single-cut"/"cut" kept as backward-compat
+  // "single_cut", "cut", or anything else → FeasibilityCut (default)
   return ElasticFilterMode::FeasibilityCut;
 }
 
@@ -716,7 +715,7 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
               scene,
               prev_bp);
         } else {
-          // single-cut or multi-cut mode:
+          // single_cut or multi_cut mode:
           // Always add the regular Benders feasibility cut.
           auto feas_cut =
               build_benders_cut(prev_state.alpha_col,
@@ -735,9 +734,9 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
           prev_li.add_row(feas_cut);
           ++cuts_added;
 
-          // multi-cut: also add one bound-constraint cut per
+          // multi_cut: also add one bound-constraint cut per
           // state variable whose elastic slack was activated.
-          // Auto-switch to multi-cut when:
+          // Auto-switch to multi_cut when:
           //   threshold == 0 (always), OR
           //   threshold > 0 and counter > threshold.
           const bool use_multi_cut =
