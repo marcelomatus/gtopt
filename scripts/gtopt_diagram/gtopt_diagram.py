@@ -575,11 +575,14 @@ def _gen_pmax(gen: dict) -> float:
 
 
 def _elem_name(item: dict) -> str:
-    """Return a display label combining name and uid: ``'NAME(UID)'``.
+    """Return a display label combining name and uid: ``'NAME:UID'``.
+
+    Uses colon separator instead of parentheses to avoid Mermaid flowchart
+    syntax errors (parentheses are reserved for node shapes in Mermaid).
 
     Examples:
-      - ``{"name": "ELTORO", "uid": 2}``  → ``"ELTORO(2)"``
-      - ``{"name": "b1",     "uid": 1}``  → ``"b1(1)"``
+      - ``{"name": "ELTORO", "uid": 2}``  → ``"ELTORO:2"``
+      - ``{"name": "b1",     "uid": 1}``  → ``"b1:1"``
       - ``{"name": "b1"}``                → ``"b1"``
       - ``{"uid": 3}``                    → ``"3"``
       - ``{}``                            → ``"?"``
@@ -587,7 +590,7 @@ def _elem_name(item: dict) -> str:
     name = item.get("name")
     uid = item.get("uid")
     if name is not None and uid is not None and str(name) != str(uid):
-        return f"{name}({uid})"
+        return f"{name}:{uid}"
     if name is not None:
         return str(name)
     if uid is not None:
