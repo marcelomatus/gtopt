@@ -1691,8 +1691,13 @@ class TestTopNCoefficients:
             if line.startswith("        ") and "long_con" in line
         ]
         assert detail_lines, "Expected constraint detail for long_con"
-        assert any("big_var" in line for line in detail_lines), (
+        # Both the variable name and its coefficient must be visible.
+        combined = " ".join(detail_lines)
+        assert "big_var" in combined, (
             f"big_var not shown in truncated constraint detail: {detail_lines}"
+        )
+        assert "9.99e+08" in combined or "999000000" in combined, (
+            f"coefficient for big_var not shown in detail: {detail_lines}"
         )
 
     def test_constraint_detail_deduped_in_report(self, tmp_path):
