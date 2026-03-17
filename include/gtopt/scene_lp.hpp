@@ -128,6 +128,18 @@ public:
   /// @return Index of this scene in parent container
   [[nodiscard]] constexpr auto index() const noexcept { return m_index_; }
 
+  /// @return Accumulated probability factor across all scenarios in this scene.
+  ///         Each scenario contributes its own probability_factor
+  ///         (default 1.0).
+  [[nodiscard]] constexpr auto probability_factor() const noexcept
+  {
+    double total = 0.0;
+    for (const auto& sc : m_scenarios_) {
+      total += sc.probability_factor();
+    }
+    return total;
+  }
+
 private:
   Scene m_scene_;  ///< The underlying scene
   std::vector<ScenarioLP> m_scenarios_;  ///< Span of ScenarioLP elements

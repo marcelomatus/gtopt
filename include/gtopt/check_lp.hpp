@@ -40,7 +40,7 @@ namespace gtopt
 /// Maximum number of diagnostic output lines before truncation.
 /// When diagnostic output exceeds this limit, only the last
 /// @c kDiagTailLines lines are shown to avoid flooding the log.
-constexpr int kDiagMaxLines = 30;
+constexpr int kDiagMaxLines = 10;
 
 /// Number of trailing lines to keep when truncating diagnostic output.
 constexpr int kDiagTailLines = 10;
