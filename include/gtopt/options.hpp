@@ -37,6 +37,7 @@
 
 #include <gtopt/solver_options.hpp>
 #include <gtopt/utils.hpp>
+#include <gtopt/variable_scale.hpp>
 
 namespace gtopt
 {
@@ -328,6 +329,34 @@ struct Options
    */
   SolverOptions solver_options {};
 
+  // ── Variable scaling ──────────────────────────────────────────────────────
+  /** @brief Per-class/variable LP scale overrides.
+   *
+   * Provides a uniform, extensible mechanism for defining LP variable scale
+   * factors via JSON.  Each entry maps a (class, variable, optional UID)
+   * triple to a scale factor where `physical = LP × scale`.
+   *
+   * Per-element fields (`Battery::energy_scale`, `Reservoir::vol_scale`) and
+   * global options (`scale_theta`) take precedence over entries here.
+   *
+   * ### JSON Example
+   * ```json
+   * {
+   *   "options": {
+   *     "variable_scales": [
+   *       {"class_name": "Bus",       "variable": "theta",   "uid": -1,
+   *        "scale": 0.001},
+   *       {"class_name": "Reservoir",  "variable": "volume",  "uid": -1,
+   *        "scale": 1000.0},
+   *       {"class_name": "Battery",    "variable": "energy",  "uid": 1,
+   *        "scale": 10.0}
+   *     ]
+   *   }
+   * }
+   * ```
+   */
+  Array<VariableScale> variable_scales {};
+
   void merge(Options&& opts)
   {
     // Merge input-related options (always moving string values)
@@ -372,6 +401,14 @@ struct Options
     // Merge LP solver options (only optional tolerance fields are merged;
     // non-optional fields in the first file win)
     solver_options.merge(opts.solver_options);
+
+    // Merge variable scales (append incoming entries)
+    if (!opts.variable_scales.empty()) {
+      variable_scales.insert(
+          variable_scales.end(),
+          std::make_move_iterator(opts.variable_scales.begin()),
+          std::make_move_iterator(opts.variable_scales.end()));
+    }
 
     auto _ = std::move(opts);
   }
