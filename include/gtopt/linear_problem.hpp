@@ -63,8 +63,10 @@ struct FlatLinearProblem
   size_t stats_nnz {};  ///< Non-zero count for the constraint matrix A
   size_t stats_zeroed {};  ///< Count of non-zero entries filtered out by eps
   double stats_max_abs {};  ///< Largest  |coefficient| in constraint matrix A
-  double stats_min_abs {///< Smallest |coefficient| in filtered A
-                        std::numeric_limits<double>::max()};
+  double stats_min_abs {
+      ///< Smallest |coefficient| in filtered A
+      std::numeric_limits<double>::max(),
+  };
 
   index_t stats_max_col {-1};  ///< Column index of the largest |coefficient|
   index_t stats_min_col {-1};  ///< Column index of the smallest |coefficient|
