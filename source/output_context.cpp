@@ -11,6 +11,7 @@
 #include <algorithm>  // For std::find
 #include <concepts>
 #include <filesystem>
+#include <format>
 #include <fstream>
 
 #include <arrow/csv/api.h>
@@ -377,33 +378,55 @@ void OutputContext::write() const
     t.join();
   }
 
-  const auto sol_path =
-      std::filesystem::path(options().output_directory()) / "solution.csv";
+  const auto out_dir = std::filesystem::path(options().output_directory());
+
+  // Always write the generic "solution.csv" (last writer wins — backward
+  // compat)
+  const auto sol_path = out_dir / "solution.csv";
 
   spdlog::info(std::format("  Write solution to '{}' (status={}, obj_value={})",
                            sol_path.string(),
                            sol_status,
                            sol_obj_value));
 
-  std::ofstream sol_file(sol_path.string());
-  if (!sol_file) [[unlikely]] {
-    SPDLOG_CRITICAL("Cannot open solution file '{}' for writing",
-                    sol_path.string());
-    return;
+  auto write_sol = [&](const std::filesystem::path& path)
+  {
+    std::ofstream sol_file(path.string());
+    if (!sol_file) [[unlikely]] {
+      SPDLOG_CRITICAL("Cannot open solution file '{}' for writing",
+                      path.string());
+      return;
+    }
+    sol_file << std::format("{:>12},{}\n{:>12},{}\n{:>12},{}",
+                            "obj_value",
+                            sol_obj_value,
+                            "kappa",
+                            sol_kappa,
+                            "status",
+                            sol_status);
+    sol_file << '\n';
+  };
+
+  write_sol(sol_path);
+
+  // When scene/phase UIDs are known (≥ 0), additionally write a per-phase
+  // solution file so that multi-phase runs don't lose per-phase results.
+  if (m_scene_uid_ >= 0 && m_phase_uid_ >= 0) {
+    const auto per_phase_path =
+        out_dir
+        / std::format(
+            "solution_scene_{}_phase_{}.csv", m_scene_uid_, m_phase_uid_);
+    write_sol(per_phase_path);
   }
-  sol_file << std::format("{:>12},{}\n{:>12},{}\n{:>12},{}",
-                          "obj_value",
-                          sol_obj_value,
-                          "kappa",
-                          sol_kappa,
-                          "status",
-                          sol_status);
-  sol_file << '\n';
 }
 
 OutputContext::OutputContext(const SystemContext& psc,
-                             const LinearInterface& linear_interface)
+                             const LinearInterface& linear_interface,
+                             Uid scene_uid,
+                             Uid phase_uid)
     : sc(psc)
+    , m_scene_uid_(scene_uid)
+    , m_phase_uid_(phase_uid)
     , sol_obj_value(linear_interface.get_obj_value())
     , sol_status(linear_interface.get_status())
     , sol_kappa(linear_interface.get_kappa())
