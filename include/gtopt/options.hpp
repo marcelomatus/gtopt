@@ -66,6 +66,8 @@ struct SddpOptions
   // ── Iteration control ──────────────────────────────────────────────────────
   /** @brief Maximum number of forward/backward iterations (default: 100) */
   OptInt sddp_max_iterations {};
+  /** @brief Minimum iterations before declaring convergence (default: 2) */
+  OptInt sddp_min_iterations {};
   /** @brief Relative gap tolerance for convergence (default: 1e-4) */
   OptReal sddp_convergence_tol {};
 
@@ -173,6 +175,7 @@ struct SddpOptions
     merge_opt(sddp_api_enabled, opts.sddp_api_enabled);
     merge_opt(sddp_efficiency_update_skip, opts.sddp_efficiency_update_skip);
     merge_opt(sddp_max_iterations, opts.sddp_max_iterations);
+    merge_opt(sddp_min_iterations, opts.sddp_min_iterations);
     merge_opt(sddp_convergence_tol, opts.sddp_convergence_tol);
     merge_opt(sddp_elastic_penalty, opts.sddp_elastic_penalty);
     merge_opt(sddp_alpha_min, opts.sddp_alpha_min);

@@ -192,6 +192,19 @@ void log_diagnostic_lines(std::string_view level,
   }
 }
 
+/// Format a vector of ints as a comma-separated string.
+[[nodiscard]] std::string join_ints(std::span<const int> values)
+{
+  std::string result;
+  for (std::size_t i = 0; i < values.size(); ++i) {
+    if (i > 0) {
+      result += ", ";
+    }
+    result += std::to_string(values[i]);
+  }
+  return result;
+}
+
 }  // namespace
 
 // ─── SDDPSolver ─────────────────────────────────────────────────────────────
@@ -494,8 +507,17 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
             state.forward_objective,
             m_infeasibility_counter_[scene][phase]);
       } else {
-        // Save the infeasible LP to the log directory for debugging
-        if (!m_options_.log_directory.empty()) {
+        // Save the infeasible LP and run diagnostics only when:
+        //  - it's the first phase (the scene will be declared infeasible), or
+        //  - trace/debug logging is enabled (developer debugging).
+        // During normal SDDP iteration, skip writing/diagnosing error LPs
+        // to avoid I/O overhead.
+        const bool is_first_phase = (phase == PhaseIndex {0});
+        const bool is_trace_debug =
+            (spdlog::get_level() <= spdlog::level::debug);
+        if (!m_options_.log_directory.empty()
+            && (is_first_phase || is_trace_debug))
+        {
           std::filesystem::create_directories(m_options_.log_directory);
           const auto err_file =
               (std::filesystem::path(m_options_.log_directory)
@@ -1857,6 +1879,7 @@ void SDDPSolver::write_api_status(
   json += std::format("  \"gap\": {:.6f},\n", gap);
   json += std::format("  \"converged\": {},\n", conv ? "true" : "false");
   json += std::format("  \"max_iterations\": {},\n", m_options_.max_iterations);
+  json += std::format("  \"min_iterations\": {},\n", m_options_.min_iterations);
 
   // ── Iteration history ──
   json += "  \"history\": [\n";
@@ -2209,7 +2232,10 @@ void SDDPSolver::apply_cut_sharing_for_iteration(std::size_t cuts_before)
 void SDDPSolver::finalize_iteration_result(SDDPIterationResult& ir, int iter)
 {
   ir.gap = compute_convergence_gap(ir.upper_bound, ir.lower_bound);
-  ir.converged = (ir.gap < m_options_.convergence_tol);
+  // Only declare convergence if both the gap tolerance is met AND
+  // we have completed at least min_iterations (default 2).
+  ir.converged = (ir.gap < m_options_.convergence_tol)
+      && (iter >= m_options_.min_iterations);
 
   m_current_iteration_.store(iter);
   m_current_gap_.store(ir.gap);
@@ -2552,6 +2578,9 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
     }
     const auto& base_scenario = scene_scenarios.front();
 
+    // Collect phases where all apertures were infeasible for a single summary
+    std::vector<int> infeasible_phases;
+
     for (const auto pi : std::views::iota(1, num_phases) | std::views::reverse)
     {
       const auto phase = PhaseIndex {pi};
@@ -2571,11 +2600,7 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
                                                     opts);
 
       if (!expected_cut.has_value()) {
-        SPDLOG_WARN(
-            "SDDP aperture: scene {} phase {} — all apertures infeasible, "
-            "falling back to regular Benders cut from forward-pass solution",
-            scene,
-            phase);
+        infeasible_phases.push_back(phase_uid(phase));
 
         // Fallback: build a regular Benders cut from the cached
         // forward-pass reduced costs and objective (same as backward_pass).
@@ -2640,6 +2665,16 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
       }
     }
 
+    // Log a single summary for all phases with infeasible apertures
+    if (!infeasible_phases.empty()) {
+      SPDLOG_WARN(
+          "SDDP aperture: scene {} — all apertures infeasible at {} phase(s) "
+          "[{}], used Benders fallback cuts",
+          scene_uid(scene),
+          infeasible_phases.size(),
+          join_ints(infeasible_phases));
+    }
+
     return total_cuts;
   }
 
@@ -2655,6 +2690,9 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
     return backward_pass(scene, opts, iteration);
   }
   const auto& base_scenario = scene_scenarios.front();
+
+  // Collect phases where all apertures were infeasible for a single summary
+  std::vector<int> infeasible_phases;
 
   // Iterate backward from last phase to phase 1 using ranges
   for (const auto pi : std::views::iota(1, num_phases) | std::views::reverse) {
@@ -2675,11 +2713,7 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
                                                   opts);
 
     if (!expected_cut.has_value()) {
-      SPDLOG_WARN(
-          "SDDP aperture: scene {} phase {} — all apertures infeasible, "
-          "falling back to regular Benders cut from forward-pass solution",
-          scene,
-          phase);
+      infeasible_phases.push_back(phase_uid(phase));
 
       // Fallback: build a regular Benders cut from the cached
       // forward-pass reduced costs and objective (same as backward_pass).
@@ -2741,6 +2775,16 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
             src_phase);
       }
     }
+  }
+
+  // Log a single summary for all phases with infeasible apertures
+  if (!infeasible_phases.empty()) {
+    SPDLOG_WARN(
+        "SDDP aperture: scene {} — all apertures infeasible at {} phase(s) "
+        "[{}], used Benders fallback cuts",
+        scene_uid(scene),
+        infeasible_phases.size(),
+        join_ints(infeasible_phases));
   }
 
   return total_cuts;
@@ -2890,12 +2934,12 @@ auto SDDPSolver::solve_apertures_for_phase(
           ap_uid,
           clone.get_status());
 
-      // Save the infeasible aperture LP for later inspection, but do NOT
-      // run gtopt_check_lp here — the diagnostic is expensive and aperture
-      // infeasibility is expected in some scenarios.  The diagnostic is
-      // only run when the entire problem is infeasible (forward-pass
-      // failure at the first phase).
-      if (!m_options_.log_directory.empty()) {
+      // Save the infeasible aperture LP for later inspection only in
+      // trace/debug mode — aperture infeasibility is expected in some
+      // scenarios and writing LPs during normal SDDP iteration is expensive.
+      if (!m_options_.log_directory.empty()
+          && spdlog::get_level() <= spdlog::level::debug)
+      {
         std::filesystem::create_directories(m_options_.log_directory);
         const auto err_stem = (std::filesystem::path(m_options_.log_directory)
                                / std::format("error_aperture_sc_{}_ph_{}_ap_{}",
