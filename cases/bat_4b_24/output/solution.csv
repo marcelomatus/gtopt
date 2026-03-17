@@ -1,3 +1,2 @@
-   obj_value,44.861999999999995
-       kappa,1
-      status,0
+scene,phase,status,obj_value,kappa
+0,0,0,44.861999999999995,1

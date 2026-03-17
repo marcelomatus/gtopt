@@ -64,10 +64,11 @@ def _write_lmps_csv(tmp_path: Path, values: list) -> Path:
 
 
 def _write_solution_csv(tmp_path: Path, obj_value: float) -> Path:
-    """Write a minimal solution.csv with the given obj_value."""
+    """Write a minimal solution.csv with the given obj_value (new columnar format)."""
     sol_path = tmp_path / "solution.csv"
     with open(sol_path, "w", newline="", encoding="utf-8") as fh:
-        fh.write(f"obj_value,{obj_value}\nstatus,0\n")
+        fh.write("scene,phase,status,obj_value,kappa\n")
+        fh.write(f"0,0,0,{obj_value},1\n")
     return tmp_path
 
 
@@ -144,7 +145,7 @@ class TestReadGtoptCost:
 
     def test_missing_obj_value_raises(self, tmp_path):
         sol_path = tmp_path / "solution.csv"
-        sol_path.write_text("status,0\nkappa,42\n")
+        sol_path.write_text("scene,phase,status,kappa\n0,0,0,42\n")
         with pytest.raises(ValueError, match="obj_value"):
             read_gtopt_cost(tmp_path)
 

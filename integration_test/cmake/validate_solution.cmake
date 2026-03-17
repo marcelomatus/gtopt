@@ -6,8 +6,9 @@ cmake_minimum_required(VERSION 3.14)
 #   cmake -DOUTPUT_DIR=<path> -DEXPECTED_DIR=<path> -P validate_solution.cmake
 #
 # Validates:
-#   1. solution.csv exists and has correct structure (obj_value, kappa, status)
-#   2. Status is 0 (optimal)
+#   1. solution.csv exists and has the consolidated columnar format
+#      (header: scene,phase,status,obj_value,kappa)
+#   2. All data rows have status 0 (optimal)
 #   3. All expected output subdirectories and files exist
 
 if(NOT EXISTS "${OUTPUT_DIR}")
@@ -25,56 +26,87 @@ if(NOT EXISTS "${solution_file}")
 endif()
 
 file(STRINGS "${solution_file}" solution_lines)
+list(LENGTH solution_lines line_count)
 
-# Parse solution.csv - format is "key,value" with possible leading whitespace
-set(found_obj_value FALSE)
-set(found_status FALSE)
+if(line_count LESS 2)
+  message(FATAL_ERROR "solution.csv has no data rows (only ${line_count} line(s))")
+endif()
 
-foreach(line ${solution_lines})
-  string(STRIP "${line}" line)
-  if(line STREQUAL "")
-    continue()
+# Parse header row to find column indices
+list(GET solution_lines 0 header_line)
+string(REPLACE "," ";" header_fields "${header_line}")
+
+set(col_scene -1)
+set(col_phase -1)
+set(col_status -1)
+set(col_obj_value -1)
+set(col_kappa -1)
+
+set(hdr_idx 0)
+foreach(hdr ${header_fields})
+  string(STRIP "${hdr}" hdr)
+  if(hdr STREQUAL "scene")
+    set(col_scene ${hdr_idx})
+  elseif(hdr STREQUAL "phase")
+    set(col_phase ${hdr_idx})
+  elseif(hdr STREQUAL "status")
+    set(col_status ${hdr_idx})
+  elseif(hdr STREQUAL "obj_value")
+    set(col_obj_value ${hdr_idx})
+  elseif(hdr STREQUAL "kappa")
+    set(col_kappa ${hdr_idx})
   endif()
-
-  string(REPLACE "," ";" fields "${line}")
-  list(LENGTH fields field_count)
-  if(field_count LESS 2)
-    continue()
-  endif()
-
-  list(GET fields 0 key)
-  list(GET fields 1 value)
-  string(STRIP "${key}" key)
-  string(STRIP "${value}" value)
-
-  if(key STREQUAL "obj_value")
-    set(found_obj_value TRUE)
-    string(REGEX MATCH "^-?[0-9]+(\\.[0-9]+(e[+-]?[0-9]+)?)?$" is_numeric "${value}")
-    if(NOT is_numeric)
-      message(FATAL_ERROR "obj_value is not a valid number: '${value}'")
-    endif()
-    message(STATUS "  obj_value = ${value}")
-  elseif(key STREQUAL "status")
-    set(found_status TRUE)
-    if(NOT value STREQUAL "0")
-      message(FATAL_ERROR "Solution status is not optimal: status=${value}")
-    endif()
-    message(STATUS "  status = ${value} (optimal)")
-  elseif(key STREQUAL "kappa")
-    message(STATUS "  kappa = ${value}")
-  endif()
+  math(EXPR hdr_idx "${hdr_idx} + 1")
 endforeach()
 
-if(NOT found_obj_value)
-  message(FATAL_ERROR "obj_value not found in solution.csv")
+if(col_obj_value EQUAL -1)
+  message(FATAL_ERROR "obj_value column not found in solution.csv header: ${header_line}")
+endif()
+if(col_status EQUAL -1)
+  message(FATAL_ERROR "status column not found in solution.csv header: ${header_line}")
 endif()
 
-if(NOT found_status)
-  message(FATAL_ERROR "status not found in solution.csv")
-endif()
+# Validate each data row
+math(EXPR last_line "${line_count} - 1")
+foreach(i RANGE 1 ${last_line})
+  list(GET solution_lines ${i} data_line)
+  string(STRIP "${data_line}" data_line)
+  if(data_line STREQUAL "")
+    continue()
+  endif()
+
+  string(REPLACE "," ";" data_fields "${data_line}")
+
+  list(GET data_fields ${col_status} status_val)
+  string(STRIP "${status_val}" status_val)
+  if(NOT status_val STREQUAL "0")
+    message(FATAL_ERROR "Solution row ${i}: status is not optimal (status=${status_val})")
+  endif()
+
+  list(GET data_fields ${col_obj_value} obj_val)
+  string(STRIP "${obj_val}" obj_val)
+  string(REGEX MATCH "^-?[0-9]+(\\.[0-9]+(e[+-]?[0-9]+)?)?$" is_numeric "${obj_val}")
+  if(NOT is_numeric)
+    message(FATAL_ERROR "Solution row ${i}: obj_value is not a valid number: '${obj_val}'")
+  endif()
+
+  if(col_scene GREATER_EQUAL 0)
+    list(GET data_fields ${col_scene} sc_val)
+    string(STRIP "${sc_val}" sc_val)
+  else()
+    set(sc_val "?")
+  endif()
+  if(col_phase GREATER_EQUAL 0)
+    list(GET data_fields ${col_phase} ph_val)
+    string(STRIP "${ph_val}" ph_val)
+  else()
+    set(ph_val "?")
+  endif()
+
+  message(STATUS "  scene=${sc_val} phase=${ph_val} status=${status_val} obj_value=${obj_val}")
+endforeach()
 
 # --- Check expected output structure ---
-# Collect expected CSV files from the expected directory
 file(GLOB_RECURSE expected_files
   RELATIVE "${EXPECTED_DIR}"
   "${EXPECTED_DIR}/*.csv"

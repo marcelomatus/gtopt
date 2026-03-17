@@ -185,6 +185,12 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
                  system_sp.linear_interface().get_numrows());
 
     if (auto result = system_sp.resolve(lp_opts); !result) {
+      // Log the solver error with scene/phase context before writing the LP
+      spdlog::warn("  Scene {} phase {}: {}",
+                   scene_index,
+                   phase_index,
+                   result.error().message);
+
       // On error, write the problematic model to the log directory for
       // debugging
       const auto log_dir = m_options_.log_directory();
