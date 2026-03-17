@@ -1,0 +1,64 @@
+[2026-03-17 01:46:05.790] [info] trace log file: logs/trace_1.log
+[2026-03-17 01:46:05.790] [info]   Parsing input file /home/runner/work/gtopt/gtopt/integration_test/../cases/ieee_9b_ori/ieee_9b_ori.json
+[2026-03-17 01:46:05.791] [info]   Parse all input files time 0.001s
+[2026-03-17 01:46:05.890] [info] === System statistics ===
+[2026-03-17 01:46:05.890] [info]   System name     : ieee_9b_ori
+[2026-03-17 01:46:05.890] [info]   System version  : 
+[2026-03-17 01:46:05.890] [info] === System elements  ===
+[2026-03-17 01:46:05.890] [info]   Buses           : 9
+[2026-03-17 01:46:05.890] [info]   Generators      : 3
+[2026-03-17 01:46:05.890] [info]   Generator profs : 0
+[2026-03-17 01:46:05.890] [info]   Demands         : 3
+[2026-03-17 01:46:05.890] [info]   Demand profs    : 0
+[2026-03-17 01:46:05.890] [info]   Lines           : 9
+[2026-03-17 01:46:05.890] [info]   Batteries       : 0
+[2026-03-17 01:46:05.890] [info]   Converters      : 0
+[2026-03-17 01:46:05.890] [info]   Reserve zones   : 0
+[2026-03-17 01:46:05.890] [info]   Reserve provisions   : 0
+[2026-03-17 01:46:05.890] [info]   Junctions       : 0
+[2026-03-17 01:46:05.890] [info]   Waterways       : 0
+[2026-03-17 01:46:05.890] [info]   Flows           : 0
+[2026-03-17 01:46:05.890] [info]   Reservoirs      : 0
+[2026-03-17 01:46:05.890] [info]   Filtrations     : 0
+[2026-03-17 01:46:05.890] [info]   Turbines        : 0
+[2026-03-17 01:46:05.890] [info] === Simulation statistics ===
+[2026-03-17 01:46:05.890] [info]   Blocks          : 1
+[2026-03-17 01:46:05.890] [info]   Stages          : 1
+[2026-03-17 01:46:05.890] [info]   Scenarios       : 1
+[2026-03-17 01:46:05.890] [info] === Key options ===
+[2026-03-17 01:46:05.890] [info]   use_kirchhoff   : true
+[2026-03-17 01:46:05.890] [info]   use_single_bus  : false
+[2026-03-17 01:46:05.890] [info]   scale_objective : 1000
+[2026-03-17 01:46:05.890] [info]   demand_fail_cost: 1000
+[2026-03-17 01:46:05.890] [info]   input_directory : (default)
+[2026-03-17 01:46:05.890] [info]   output_directory: (default)
+[2026-03-17 01:46:05.890] [info]   output_format   : csv
+[2026-03-17 01:46:05.890] [info] === Building LP model ===
+[2026-03-17 01:46:05.891] [info] [planning_lp.cpp:44]   Building LP: 1 scene(s) × 1 phase(s)
+[2026-03-17 01:46:05.891] [info]   WorkPool initialized with 5 max threads, max CPU threshold: 90%
+[2026-03-17 01:46:05.891] [info]   WorkPool started with 5 max threads
+[2026-03-17 01:46:05.891] [info]   CPU load: 33.45% 
+[2026-03-17 01:46:05.892] [info] [planning_lp.cpp:96]   Building LP done in 0.002s
+[2026-03-17 01:46:05.951] [info]   WorkPool shutdown complete
+[2026-03-17 01:46:05.951] [info]   Build lp time 0.061s
+[2026-03-17 01:46:05.951] [info]   LP coefficient analysis: 1 LP(s), global |coeff| [1.000e+00, 1.700e+02], ratio=1.70e+02 (excellent)
+[2026-03-17 01:46:05.951] [info] === System optimization ===
+[2026-03-17 01:46:05.951] [info]   WorkPool initialized with 5 max threads, max CPU threshold: 90%
+[2026-03-17 01:46:05.951] [info]   WorkPool started with 5 max threads
+[2026-03-17 01:46:05.951] [info] [planning_solver.cpp:40] MonolithicSolver: starting 1 scene(s)
+[2026-03-17 01:46:05.972] [info] [planning_solver.cpp:101] MonolithicSolver: scene 0 done in 0.000s (1/1)
+[2026-03-17 01:46:05.972] [info] [planning_solver.cpp:127] MonolithicSolver: all 1 scene(s) done in 0.021s
+[2026-03-17 01:46:06.493] [info]   WorkPool shutdown complete
+[2026-03-17 01:46:06.493] [info]   Optimization time 0.541s
+[2026-03-17 01:46:06.493] [info] === Solution statistics ===
+[2026-03-17 01:46:06.493] [info]   Status          : optimal
+[2026-03-17 01:46:06.493] [info]   LP variables    : 27
+[2026-03-17 01:46:06.493] [info]   LP constraints  : 21
+[2026-03-17 01:46:06.493] [info]   Obj (scaled)    : 55.1843
+[2026-03-17 01:46:06.493] [info]   Obj (unscaled)  : 55184.3
+[2026-03-17 01:46:06.493] [info]   Solver kappa    : 1
+[2026-03-17 01:46:06.493] [info] === Output writing ===
+[2026-03-17 01:46:06.493] [info] [planning_lp.cpp:128]   Writing output: 1 scene(s) × 1 phase(s)
+[2026-03-17 01:46:06.495] [info]   Writing 13 output tables to '/home/runner/work/gtopt/gtopt/build/integration_test/test_output/ieee_9b_ori' (format=csv, compression=uncompressed)
+[2026-03-17 01:46:06.497] [info]   Write solution to '/home/runner/work/gtopt/gtopt/build/integration_test/test_output/ieee_9b_ori/solution.csv' (status=0, obj_value=55.18433094338392)
+[2026-03-17 01:46:06.497] [info]   Write output time 0.005s

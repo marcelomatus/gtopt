@@ -1,0 +1,64 @@
+[2026-03-17 01:46:06.540] [info] trace log file: logs/trace_1.log
+[2026-03-17 01:46:06.540] [info]   Parsing input file /home/runner/work/gtopt/gtopt/integration_test/../cases/s1b/s1b.json
+[2026-03-17 01:46:06.540] [info]   Parse all input files time 0.001s
+[2026-03-17 01:46:06.637] [info] === System statistics ===
+[2026-03-17 01:46:06.637] [info]   System name     : s1b
+[2026-03-17 01:46:06.637] [info]   System version  : 
+[2026-03-17 01:46:06.637] [info] === System elements  ===
+[2026-03-17 01:46:06.637] [info]   Buses           : 1
+[2026-03-17 01:46:06.637] [info]   Generators      : 2
+[2026-03-17 01:46:06.637] [info]   Generator profs : 0
+[2026-03-17 01:46:06.637] [info]   Demands         : 1
+[2026-03-17 01:46:06.637] [info]   Demand profs    : 0
+[2026-03-17 01:46:06.637] [info]   Lines           : 0
+[2026-03-17 01:46:06.637] [info]   Batteries       : 0
+[2026-03-17 01:46:06.637] [info]   Converters      : 0
+[2026-03-17 01:46:06.637] [info]   Reserve zones   : 0
+[2026-03-17 01:46:06.637] [info]   Reserve provisions   : 0
+[2026-03-17 01:46:06.637] [info]   Junctions       : 0
+[2026-03-17 01:46:06.637] [info]   Waterways       : 0
+[2026-03-17 01:46:06.637] [info]   Flows           : 0
+[2026-03-17 01:46:06.637] [info]   Reservoirs      : 0
+[2026-03-17 01:46:06.637] [info]   Filtrations     : 0
+[2026-03-17 01:46:06.637] [info]   Turbines        : 0
+[2026-03-17 01:46:06.637] [info] === Simulation statistics ===
+[2026-03-17 01:46:06.637] [info]   Blocks          : 1
+[2026-03-17 01:46:06.637] [info]   Stages          : 1
+[2026-03-17 01:46:06.637] [info]   Scenarios       : 1
+[2026-03-17 01:46:06.637] [info] === Key options ===
+[2026-03-17 01:46:06.637] [info]   use_kirchhoff   : false
+[2026-03-17 01:46:06.637] [info]   use_single_bus  : true
+[2026-03-17 01:46:06.637] [info]   scale_objective : 1000
+[2026-03-17 01:46:06.637] [info]   demand_fail_cost: 1000
+[2026-03-17 01:46:06.637] [info]   input_directory : (default)
+[2026-03-17 01:46:06.637] [info]   output_directory: (default)
+[2026-03-17 01:46:06.637] [info]   output_format   : csv
+[2026-03-17 01:46:06.637] [info] === Building LP model ===
+[2026-03-17 01:46:06.637] [info] [planning_lp.cpp:44]   Building LP: 1 scene(s) × 1 phase(s)
+[2026-03-17 01:46:06.637] [info]   WorkPool initialized with 5 max threads, max CPU threshold: 90%
+[2026-03-17 01:46:06.637] [info]   WorkPool started with 5 max threads
+[2026-03-17 01:46:06.638] [info]   CPU load: 33.44% 
+[2026-03-17 01:46:06.638] [info] [planning_lp.cpp:96]   Building LP done in 0.001s
+[2026-03-17 01:46:06.698] [info]   WorkPool shutdown complete
+[2026-03-17 01:46:06.698] [info]   Build lp time 0.061s
+[2026-03-17 01:46:06.698] [info]   LP coefficient analysis: 1 LP(s), global |coeff| [1.000e+00, 1.000e+00], ratio=1.00e+00 (excellent)
+[2026-03-17 01:46:06.698] [info] === System optimization ===
+[2026-03-17 01:46:06.698] [info]   WorkPool initialized with 5 max threads, max CPU threshold: 90%
+[2026-03-17 01:46:06.698] [info]   WorkPool started with 5 max threads
+[2026-03-17 01:46:06.698] [info] [planning_solver.cpp:40] MonolithicSolver: starting 1 scene(s)
+[2026-03-17 01:46:06.718] [info] [planning_solver.cpp:101] MonolithicSolver: scene 0 done in 0.000s (1/1)
+[2026-03-17 01:46:06.718] [info] [planning_solver.cpp:127] MonolithicSolver: all 1 scene(s) done in 0.021s
+[2026-03-17 01:46:07.242] [info]   WorkPool shutdown complete
+[2026-03-17 01:46:07.242] [info]   Optimization time 0.544s
+[2026-03-17 01:46:07.242] [info] === Solution statistics ===
+[2026-03-17 01:46:07.242] [info]   Status          : optimal
+[2026-03-17 01:46:07.242] [info]   LP variables    : 4
+[2026-03-17 01:46:07.242] [info]   LP constraints  : 2
+[2026-03-17 01:46:07.242] [info]   Obj (scaled)    : 6
+[2026-03-17 01:46:07.242] [info]   Obj (unscaled)  : 6000
+[2026-03-17 01:46:07.242] [info]   Solver kappa    : 1
+[2026-03-17 01:46:07.242] [info] === Output writing ===
+[2026-03-17 01:46:07.242] [info] [planning_lp.cpp:128]   Writing output: 1 scene(s) × 1 phase(s)
+[2026-03-17 01:46:07.243] [info]   Writing 8 output tables to '/home/runner/work/gtopt/gtopt/build/integration_test/test_output/s1b' (format=csv, compression=uncompressed)
+[2026-03-17 01:46:07.246] [info]   Write solution to '/home/runner/work/gtopt/gtopt/build/integration_test/test_output/s1b/solution.csv' (status=0, obj_value=6)
+[2026-03-17 01:46:07.246] [info]   Write output time 0.004s

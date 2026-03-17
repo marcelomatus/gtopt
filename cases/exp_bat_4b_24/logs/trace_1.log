@@ -1,0 +1,69 @@
+[2026-03-17 01:46:05.901] [info] trace log file: logs/trace_1.log
+[2026-03-17 01:46:05.901] [info]   Parsing input file /home/runner/work/gtopt/gtopt/integration_test/../cases/exp_bat_4b_24/exp_bat_4b_24.json
+[2026-03-17 01:46:05.903] [info]   Parse all input files time 0.001s
+[2026-03-17 01:46:05.991] [info] === System statistics ===
+[2026-03-17 01:46:05.991] [info]   System name     : exp_bat_4b_24
+[2026-03-17 01:46:05.991] [info]   System version  : 
+[2026-03-17 01:46:05.991] [info] === System elements  ===
+[2026-03-17 01:46:05.991] [info]   Buses           : 4
+[2026-03-17 01:46:05.991] [info]   Generators      : 3
+[2026-03-17 01:46:05.991] [info]   Generator profs : 1
+[2026-03-17 01:46:05.991] [info]   Demands         : 2
+[2026-03-17 01:46:05.991] [info]   Demand profs    : 0
+[2026-03-17 01:46:05.991] [info]   Lines           : 5
+[2026-03-17 01:46:05.991] [info]   Batteries       : 1
+[2026-03-17 01:46:05.991] [info]   Converters      : 0
+[2026-03-17 01:46:05.991] [info]   Reserve zones   : 0
+[2026-03-17 01:46:05.991] [info]   Reserve provisions   : 0
+[2026-03-17 01:46:05.991] [info]   Junctions       : 0
+[2026-03-17 01:46:05.991] [info]   Waterways       : 0
+[2026-03-17 01:46:05.991] [info]   Flows           : 0
+[2026-03-17 01:46:05.991] [info]   Reservoirs      : 0
+[2026-03-17 01:46:05.991] [info]   Filtrations     : 0
+[2026-03-17 01:46:05.991] [info]   Turbines        : 0
+[2026-03-17 01:46:05.991] [info] === Simulation statistics ===
+[2026-03-17 01:46:05.991] [info]   Blocks          : 24
+[2026-03-17 01:46:05.991] [info]   Stages          : 1
+[2026-03-17 01:46:05.991] [info]   Scenarios       : 1
+[2026-03-17 01:46:05.991] [info] === Key options ===
+[2026-03-17 01:46:05.991] [info]   use_kirchhoff   : true
+[2026-03-17 01:46:05.991] [info]   use_single_bus  : false
+[2026-03-17 01:46:05.991] [info]   scale_objective : 1000
+[2026-03-17 01:46:05.991] [info]   demand_fail_cost: 1000
+[2026-03-17 01:46:05.991] [info]   input_directory : (default)
+[2026-03-17 01:46:05.991] [info]   output_directory: (default)
+[2026-03-17 01:46:05.991] [info]   output_format   : csv
+[2026-03-17 01:46:05.991] [info] === Building LP model ===
+[2026-03-17 01:46:05.992] [info] [planning_lp.cpp:44]   Building LP: 1 scene(s) × 1 phase(s)
+[2026-03-17 01:46:05.992] [info]   WorkPool initialized with 5 max threads, max CPU threshold: 90%
+[2026-03-17 01:46:05.992] [info]   WorkPool started with 5 max threads
+[2026-03-17 01:46:05.992] [info]   CPU load: 33.45% 
+[2026-03-17 01:46:06.003] [info] [planning_lp.cpp:96]   Building LP done in 0.011s
+[2026-03-17 01:46:06.052] [info]   WorkPool shutdown complete
+[2026-03-17 01:46:06.052] [info]   Build lp time 0.061s
+[2026-03-17 01:46:06.052] [info]   LP coefficient analysis: 1 LP(s) — global ratio 2.23e+05 exceeds threshold 1e+05, showing details:
+[2026-03-17 01:46:06.052] [info]   scene 0 phase 0              vars=    565 cons=    489 |coeff| [2.000e-02, 4.465e+03] ratio=2.23e+05 (fair)
+[2026-03-17 01:46:06.052] [info]     max |coeff|=4.465e+03  col=146  name=gen_expmod_1_1
+[2026-03-17 01:46:06.052] [info]     min |coeff|=2.000e-02  col=198  name=gen_capainst_3_1
+[2026-03-17 01:46:06.052] [info]   GLOBAL                       vars=    565 cons=    489 |coeff| [2.000e-02, 4.465e+03] ratio=2.23e+05 (fair)
+[2026-03-17 01:46:06.052] [info]     min |coeff|=2.000e-02  col=198  name=gen_capainst_3_1
+[2026-03-17 01:46:06.052] [info] === System optimization ===
+[2026-03-17 01:46:06.052] [info]   WorkPool initialized with 5 max threads, max CPU threshold: 90%
+[2026-03-17 01:46:06.052] [info]   WorkPool started with 5 max threads
+[2026-03-17 01:46:06.052] [info] [planning_solver.cpp:40] MonolithicSolver: starting 1 scene(s)
+[2026-03-17 01:46:06.076] [info] [planning_solver.cpp:101] MonolithicSolver: scene 0 done in 0.004s (1/1)
+[2026-03-17 01:46:06.076] [info] [planning_solver.cpp:127] MonolithicSolver: all 1 scene(s) done in 0.024s
+[2026-03-17 01:46:06.594] [info]   WorkPool shutdown complete
+[2026-03-17 01:46:06.594] [info]   Optimization time 0.542s
+[2026-03-17 01:46:06.594] [info] === Solution statistics ===
+[2026-03-17 01:46:06.594] [info]   Status          : optimal
+[2026-03-17 01:46:06.594] [info]   LP variables    : 565
+[2026-03-17 01:46:06.594] [info]   LP constraints  : 489
+[2026-03-17 01:46:06.594] [info]   Obj (scaled)    : 82.0868
+[2026-03-17 01:46:06.594] [info]   Obj (unscaled)  : 82086.8
+[2026-03-17 01:46:06.594] [info]   Solver kappa    : 1
+[2026-03-17 01:46:06.594] [info] === Output writing ===
+[2026-03-17 01:46:06.594] [info] [planning_lp.cpp:128]   Writing output: 1 scene(s) × 1 phase(s)
+[2026-03-17 01:46:06.598] [info]   Writing 47 output tables to '/home/runner/work/gtopt/gtopt/build/integration_test/test_output/exp_bat_4b_24' (format=csv, compression=uncompressed)
+[2026-03-17 01:46:06.606] [info]   Write solution to '/home/runner/work/gtopt/gtopt/build/integration_test/test_output/exp_bat_4b_24/solution.csv' (status=0, obj_value=82.08681219899064)
+[2026-03-17 01:46:06.606] [info]   Write output time 0.013s

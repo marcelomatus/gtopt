@@ -332,19 +332,56 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
 [[nodiscard]] std::expected<int, std::string> gtopt_main(
     const MainOptions& opts)
 {
-  // ── Set up trace log file if requested ──
-  // When --trace-log is specified, a file sink is added so that all
-  // SPDLOG_TRACE messages are captured for later review.
-  if (opts.trace_log.has_value()) {
+  // ── Set up trace log file ──
+  // Always enable a trace-level file sink so that detailed SPDLOG_TRACE
+  // messages are captured for later review.  When --trace-log is given
+  // explicitly, use that path; otherwise auto-create a numbered file
+  // inside the log directory (e.g. logs/trace_1.log, logs/trace_2.log)
+  // to avoid overwriting previous runs.
+  {
+    const auto log_dir =
+        std::filesystem::path(opts.log_directory.value_or("logs"));
+    std::string trace_path;
+
+    if (opts.trace_log.has_value()) {
+      trace_path = opts.trace_log.value();
+    } else {
+      // Find the next available trace_N.log in log_dir
+      try {
+        std::filesystem::create_directories(log_dir);
+      } catch (const std::filesystem::filesystem_error& fe) {
+        spdlog::warn("could not create log directory '{}': {}",
+                     log_dir.string(),
+                     fe.what());
+      }
+      int n = 1;
+      for (;; ++n) {
+        auto candidate = log_dir / std::format("trace_{}.log", n);
+        if (!std::filesystem::exists(candidate)) {
+          trace_path = candidate.string();
+          break;
+        }
+      }
+    }
+
     try {
+      const auto parent = std::filesystem::path(trace_path).parent_path();
+      if (!parent.empty()) {
+        std::filesystem::create_directories(parent);
+      }
       auto trace_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
-          opts.trace_log.value(), /*truncate=*/true);
+          trace_path, /*truncate=*/true);
       trace_sink->set_level(spdlog::level::trace);
-      spdlog::default_logger()->sinks().push_back(std::move(trace_sink));
+      // Keep console sink at its current level (typically info)
+      auto& sinks = spdlog::default_logger()->sinks();
+      if (!sinks.empty()) {
+        sinks.front()->set_level(spdlog::default_logger()->level());
+      }
+      sinks.push_back(std::move(trace_sink));
       spdlog::set_level(spdlog::level::trace);
-      spdlog::info(std::format("trace log file: {}", opts.trace_log.value()));
+      spdlog::info("trace log file: {}", trace_path);
     } catch (const spdlog::spdlog_ex& ex) {
-      spdlog::warn(std::format("could not open trace log file: {}", ex.what()));
+      spdlog::warn("could not open trace log file: {}", ex.what());
     }
   }
 
