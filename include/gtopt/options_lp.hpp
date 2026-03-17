@@ -334,7 +334,7 @@ public:
   /** @brief Default solver type */
   static constexpr auto default_sddp_solver_type = "monolithic";
   /** @brief Default cut sharing mode for SDDP */
-  static constexpr auto default_sddp_cut_sharing_mode = "max";
+  static constexpr auto default_sddp_cut_sharing_mode = "none";
   /** @brief Default directory for Benders cut files */
   static constexpr auto default_sddp_cut_directory = "cuts";
   /** @brief Default directory for log/trace files */
