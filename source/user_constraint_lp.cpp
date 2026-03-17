@@ -21,9 +21,11 @@
 #include <gtopt/constraint_parser.hpp>
 #include <gtopt/converter_lp.hpp>
 #include <gtopt/demand_lp.hpp>
+#include <gtopt/filtration_lp.hpp>
 #include <gtopt/flow_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/input_context.hpp>
+#include <gtopt/junction_lp.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/reserve_provision_lp.hpp>
@@ -97,13 +99,30 @@ namespace
 
 // ── Per-element column resolution ────────────────────────────────────────────
 
+/// A resolved LP column together with its physical-to-LP scale factor.
+///
+/// The @c scale field satisfies:  physical_value = LP_value × scale.
+///
+/// When assembling a user constraint  `coeff × physical_var [op] RHS`  the
+/// LP-level coefficient is  `coeff × scale`  so that the constraint remains
+/// dimensionally correct regardless of internal LP scaling choices (e.g.
+/// reservoir volume in Gm³, theta in milli-radians, …).
+struct ResolvedCol
+{
+  ColIndex col;
+  double scale {1.0};
+};
+
 /**
  * @brief Try to look up the LP `ColIndex` for one element reference.
  *
  * Returns `std::nullopt` when the element is not found, the block is not
  * active in the requested (scenario, stage), or the attribute is unknown.
+ *
+ * The returned @c ResolvedCol::scale converts the LP variable to physical
+ * units so that the caller can build correctly-scaled constraint rows.
  */
-[[nodiscard]] std::optional<ColIndex> resolve_single_col(
+[[nodiscard]] std::optional<ResolvedCol> resolve_single_col(
     const SystemContext& sc,
     const ScenarioLP& scenario,
     const StageLP& stage,
@@ -120,7 +139,9 @@ namespace
       if (ref.attribute == "generation") {
         const auto& cols = gen.generation_cols_at(scenario, stage);
         if (const auto it = cols.find(buid); it != cols.end()) {
-          return it->second;
+          return ResolvedCol {
+              .col = it->second,
+          };
         }
       }
       return std::nullopt;
@@ -132,12 +153,16 @@ namespace
       if (ref.attribute == "load") {
         const auto& cols = dem.load_cols_at(scenario, stage);
         if (const auto it = cols.find(buid); it != cols.end()) {
-          return it->second;
+          return ResolvedCol {
+              .col = it->second,
+          };
         }
       } else if (ref.attribute == "fail") {
         const auto& cols = dem.fail_cols_at(scenario, stage);
         if (const auto it = cols.find(buid); it != cols.end()) {
-          return it->second;
+          return ResolvedCol {
+              .col = it->second,
+          };
         }
       }
       return std::nullopt;
@@ -150,12 +175,30 @@ namespace
       if (ref.attribute == "flow" || ref.attribute == "flowp") {
         const auto& cols = ln.flowp_cols_at(scenario, stage);
         if (const auto it = cols.find(buid); it != cols.end()) {
-          return it->second;
+          return ResolvedCol {
+              .col = it->second,
+          };
         }
       } else if (ref.attribute == "flown") {
         const auto& cols = ln.flown_cols_at(scenario, stage);
         if (const auto it = cols.find(buid); it != cols.end()) {
-          return it->second;
+          return ResolvedCol {
+              .col = it->second,
+          };
+        }
+      } else if (ref.attribute == "lossp") {
+        const auto& cols = ln.lossp_cols_at(scenario, stage);
+        if (const auto it = cols.find(buid); it != cols.end()) {
+          return ResolvedCol {
+              .col = it->second,
+          };
+        }
+      } else if (ref.attribute == "lossn") {
+        const auto& cols = ln.lossn_cols_at(scenario, stage);
+        if (const auto it = cols.find(buid); it != cols.end()) {
+          return ResolvedCol {
+              .col = it->second,
+          };
         }
       }
       return std::nullopt;
@@ -167,17 +210,32 @@ namespace
       if (ref.attribute == "charge") {
         const auto& cols = bat.finp_cols_at(scenario, stage);
         if (const auto it = cols.find(buid); it != cols.end()) {
-          return it->second;
+          return ResolvedCol {
+              .col = it->second,
+          };
         }
       } else if (ref.attribute == "discharge") {
         const auto& cols = bat.fout_cols_at(scenario, stage);
         if (const auto it = cols.find(buid); it != cols.end()) {
-          return it->second;
+          return ResolvedCol {
+              .col = it->second,
+          };
         }
       } else if (ref.attribute == "energy") {
         const auto& cols = bat.energy_cols_at(scenario, stage);
         if (const auto it = cols.find(buid); it != cols.end()) {
-          return it->second;
+          return ResolvedCol {
+              .col = it->second,
+              .scale = bat.energy_scale(),
+          };
+        }
+      } else if (ref.attribute == "spill" || ref.attribute == "drain") {
+        const auto& cols = bat.drain_cols_at(scenario, stage);
+        if (const auto it = cols.find(buid); it != cols.end()) {
+          return ResolvedCol {
+              .col = it->second,
+              .scale = bat.flow_scale(),
+          };
         }
       }
       return std::nullopt;
@@ -189,7 +247,26 @@ namespace
       if (ref.attribute == "volume" || ref.attribute == "energy") {
         const auto& cols = res.energy_cols_at(scenario, stage);
         if (const auto it = cols.find(buid); it != cols.end()) {
-          return it->second;
+          return ResolvedCol {
+              .col = it->second,
+              .scale = res.energy_scale(),
+          };
+        }
+      } else if (ref.attribute == "spill" || ref.attribute == "drain") {
+        const auto& cols = res.drain_cols_at(scenario, stage);
+        if (const auto it = cols.find(buid); it != cols.end()) {
+          return ResolvedCol {
+              .col = it->second,
+              .scale = res.flow_scale(),
+          };
+        }
+      } else if (ref.attribute == "extraction") {
+        const auto& cols = res.extraction_cols_at(scenario, stage);
+        if (const auto it = cols.find(buid); it != cols.end()) {
+          return ResolvedCol {
+              .col = it->second,
+              .scale = res.flow_scale(),
+          };
         }
       }
       return std::nullopt;
@@ -201,7 +278,9 @@ namespace
       if (ref.attribute == "flow") {
         const auto& cols = ww.flow_cols_at(scenario, stage);
         if (const auto it = cols.find(buid); it != cols.end()) {
-          return it->second;
+          return ResolvedCol {
+              .col = it->second,
+          };
         }
       }
       return std::nullopt;
@@ -214,7 +293,9 @@ namespace
         const auto& gen = sc.get_element(turb.generator_sid());
         const auto& cols = gen.generation_cols_at(scenario, stage);
         if (const auto it = cols.find(buid); it != cols.end()) {
-          return it->second;
+          return ResolvedCol {
+              .col = it->second,
+          };
         }
       }
       return std::nullopt;
@@ -228,13 +309,17 @@ namespace
         const auto& gen = sc.get_element(conv.generator_sid());
         const auto& cols = gen.generation_cols_at(scenario, stage);
         if (const auto it = cols.find(buid); it != cols.end()) {
-          return it->second;
+          return ResolvedCol {
+              .col = it->second,
+          };
         }
       } else if (ref.attribute == "charge") {
         const auto& dem = sc.get_element(conv.demand_sid());
         const auto& cols = dem.load_cols_at(scenario, stage);
         if (const auto it = cols.find(buid); it != cols.end()) {
-          return it->second;
+          return ResolvedCol {
+              .col = it->second,
+          };
         }
       }
       return std::nullopt;
@@ -244,7 +329,59 @@ namespace
     if (ref.element_type == "bus") {
       const auto& bus_lp = sc.get_element(ObjectSingleId<BusLP> {single_id});
       if (ref.attribute == "theta" || ref.attribute == "angle") {
-        return bus_lp.lookup_theta_col(scenario, stage, buid);
+        if (auto col = bus_lp.lookup_theta_col(scenario, stage, buid)) {
+          // theta_LP = theta_physical × scale_theta  ⇒
+          // theta_physical = theta_LP / scale_theta = theta_LP × (1/scale)
+          const double inv_scale = 1.0 / sc.options().scale_theta();
+          return ResolvedCol {
+              .col = *col,
+              .scale = inv_scale,
+          };
+        }
+        return std::nullopt;
+      }
+      return std::nullopt;
+    }
+
+    // ── junction: drain variable ─────────────────────────────────────────
+    if (ref.element_type == "junction") {
+      const auto& jun = sc.get_element(ObjectSingleId<JunctionLP> {single_id});
+      if (ref.attribute == "drain") {
+        const auto& cols = jun.drain_cols_at(scenario, stage);
+        if (const auto it = cols.find(buid); it != cols.end()) {
+          return ResolvedCol {
+              .col = it->second,
+          };
+        }
+      }
+      return std::nullopt;
+    }
+
+    // ── flow: discharge variable ─────────────────────────────────────────
+    if (ref.element_type == "flow") {
+      const auto& flw = sc.get_element(ObjectSingleId<FlowLP> {single_id});
+      if (ref.attribute == "flow" || ref.attribute == "discharge") {
+        const auto& cols = flw.flow_cols_at(scenario, stage);
+        if (const auto it = cols.find(buid); it != cols.end()) {
+          return ResolvedCol {
+              .col = it->second,
+          };
+        }
+      }
+      return std::nullopt;
+    }
+
+    // ── filtration: filtration flow variable ──────────────────────────────
+    if (ref.element_type == "filtration") {
+      const auto& fil =
+          sc.get_element(ObjectSingleId<FiltrationLP> {single_id});
+      if (ref.attribute == "flow" || ref.attribute == "filtration") {
+        const auto& cols = fil.filtration_cols_at(scenario, stage);
+        if (const auto it = cols.find(buid); it != cols.end()) {
+          return ResolvedCol {
+              .col = it->second,
+          };
+        }
       }
       return std::nullopt;
     }
@@ -256,12 +393,22 @@ namespace
       if (ref.attribute == "up" || ref.attribute == "uprovision"
           || ref.attribute == "up_provision")
       {
-        return rp.lookup_up_provision_col(scenario, stage, buid);
+        if (auto col = rp.lookup_up_provision_col(scenario, stage, buid)) {
+          return ResolvedCol {
+              .col = *col,
+          };
+        }
+        return std::nullopt;
       }
       if (ref.attribute == "dn" || ref.attribute == "down"
           || ref.attribute == "dprovision" || ref.attribute == "dn_provision")
       {
-        return rp.lookup_dn_provision_col(scenario, stage, buid);
+        if (auto col = rp.lookup_dn_provision_col(scenario, stage, buid)) {
+          return ResolvedCol {
+              .col = *col,
+          };
+        }
+        return std::nullopt;
       }
       return std::nullopt;
     }
@@ -273,13 +420,23 @@ namespace
       if (ref.attribute == "up" || ref.attribute == "urequirement"
           || ref.attribute == "up_requirement")
       {
-        return rz.lookup_urequirement_col(scenario, stage, buid);
+        if (auto col = rz.lookup_urequirement_col(scenario, stage, buid)) {
+          return ResolvedCol {
+              .col = *col,
+          };
+        }
+        return std::nullopt;
       }
       if (ref.attribute == "dn" || ref.attribute == "down"
           || ref.attribute == "drequirement"
           || ref.attribute == "dn_requirement")
       {
-        return rz.lookup_drequirement_col(scenario, stage, buid);
+        if (auto col = rz.lookup_drequirement_col(scenario, stage, buid)) {
+          return ResolvedCol {
+              .col = *col,
+          };
+        }
+        return std::nullopt;
       }
       return std::nullopt;
     }
@@ -323,8 +480,8 @@ void collect_sum_cols(const SystemContext& sc,
     ref.element_id = eid;
     ref.attribute = sum_ref.attribute;
 
-    if (auto col = resolve_single_col(sc, scenario, stage, block, ref)) {
-      row[*col] += base_coeff;
+    if (auto resolved = resolve_single_col(sc, scenario, stage, block, ref)) {
+      row[resolved->col] += base_coeff * resolved->scale;
     }
   };
 
@@ -416,6 +573,42 @@ void collect_sum_cols(const SystemContext& sc,
       }
       for (const auto& c : sc.elements<ConverterLP>()) {
         add_one(std::to_string(static_cast<int>(c.uid())));
+      }
+    } else if (sum_ref.element_type
+               == "junction") {  // NOLINT(bugprone-branch-clone)
+      if (sum_ref.type_filter) {
+        SPDLOG_WARN(std::format(
+            "user_constraint sum({}): type_filter is not supported for "
+            "element type '{}' — filter ignored",
+            sum_ref.element_type,
+            sum_ref.element_type));
+      }
+      for (const auto& jun : sc.elements<JunctionLP>()) {
+        add_one(std::to_string(static_cast<int>(jun.uid())));
+      }
+    } else if (sum_ref.element_type
+               == "flow") {  // NOLINT(bugprone-branch-clone)
+      if (sum_ref.type_filter) {
+        SPDLOG_WARN(std::format(
+            "user_constraint sum({}): type_filter is not supported for "
+            "element type '{}' — filter ignored",
+            sum_ref.element_type,
+            sum_ref.element_type));
+      }
+      for (const auto& flw : sc.elements<FlowLP>()) {
+        add_one(std::to_string(static_cast<int>(flw.uid())));
+      }
+    } else if (sum_ref.element_type
+               == "filtration") {  // NOLINT(bugprone-branch-clone)
+      if (sum_ref.type_filter) {
+        SPDLOG_WARN(std::format(
+            "user_constraint sum({}): type_filter is not supported for "
+            "element type '{}' — filter ignored",
+            sum_ref.element_type,
+            sum_ref.element_type));
+      }
+      for (const auto& fil : sc.elements<FiltrationLP>()) {
+        add_one(std::to_string(static_cast<int>(fil.uid())));
       }
     } else if (sum_ref.element_type
                == "reserve_provision") {  // NOLINT(bugprone-branch-clone)
@@ -547,10 +740,10 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
     bool has_vars = false;
     for (const auto& term : expr.terms) {
       if (term.element) {
-        if (auto col =
+        if (auto resolved =
                 resolve_single_col(sc, scenario, stage, block, *term.element))
         {
-          row[*col] += term.coefficient;
+          row[resolved->col] += term.coefficient * resolved->scale;
           has_vars = true;
         }
       } else if (term.sum_ref) {
