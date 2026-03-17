@@ -182,7 +182,7 @@ constexpr std::array<CodecInfo, 5> kCodecs {{
 /// Falls back to inline libzstd for "zstd" and inline zlib for "gzip".
 std::string try_codec(const std::string& src_path, const std::string& codec)
 {
-  const auto it = std::ranges::find(kCodecs, codec, &CodecInfo::name);
+  const auto* const it = std::ranges::find(kCodecs, codec, &CodecInfo::name);
   if (it == kCodecs.end()) {
     return {};  // codec not in table
   }
