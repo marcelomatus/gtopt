@@ -189,6 +189,9 @@ template<typename T>
       ("sddp-max-iterations",
        po::value<int>(),
        "maximum SDDP forward/backward iterations (default: 100)")  //
+      ("sddp-min-iterations",
+       po::value<int>(),
+       "minimum SDDP iterations before convergence (default: 2)")  //
       ("sddp-convergence-tol",
        po::value<double>(),
        "SDDP relative convergence tolerance (default: 1e-4)")  //
@@ -373,6 +376,12 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
                     opts.lp_debug,
                     opts.lp_compression,
                     opts.lp_coeff_ratio_threshold);
+
+  // Additional SDDP options not in the positional overload
+  if (opts.sddp_min_iterations) {
+    planning.options.sddp_options.sddp_min_iterations =
+        opts.sddp_min_iterations;
+  }
 }
 
 /**
@@ -441,6 +450,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .cut_directory = get_opt<std::string>(vm, "cut-directory"),
       .log_directory = get_opt<std::string>(vm, "log-directory"),
       .sddp_max_iterations = get_opt<int>(vm, "sddp-max-iterations"),
+      .sddp_min_iterations = get_opt<int>(vm, "sddp-min-iterations"),
       .sddp_convergence_tol = get_opt<double>(vm, "sddp-convergence-tol"),
       .sddp_elastic_penalty = get_opt<double>(vm, "sddp-elastic-penalty"),
       .sddp_elastic_mode = get_opt<std::string>(vm, "sddp-elastic-mode"),

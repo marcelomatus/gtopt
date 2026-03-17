@@ -344,6 +344,8 @@ public:
   static constexpr Int default_sddp_efficiency_update_skip = 0;
   /** @brief Default maximum SDDP iterations */
   static constexpr Int default_sddp_max_iterations = 100;
+  /** @brief Default minimum iterations before declaring convergence */
+  static constexpr Int default_sddp_min_iterations = 2;
   /** @brief Default relative convergence tolerance */
   static constexpr Real default_sddp_convergence_tol = 1e-4;
   /** @brief Default elastic slack penalty */
@@ -428,6 +430,16 @@ public:
   {
     return m_options_.sddp_options.sddp_max_iterations.value_or(
         default_sddp_max_iterations);
+  }
+
+  /**
+   * @brief Gets the minimum SDDP iterations before convergence
+   * @return Minimum iterations before convergence (default: 2)
+   */
+  [[nodiscard]] constexpr auto sddp_min_iterations() const
+  {
+    return m_options_.sddp_options.sddp_min_iterations.value_or(
+        default_sddp_min_iterations);
   }
 
   /**
