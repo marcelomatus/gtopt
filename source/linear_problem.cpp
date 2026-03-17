@@ -122,6 +122,7 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
   std::vector<double> collb(ncols);
   std::vector<double> colub(ncols);
   std::vector<double> objval(ncols);
+  std::vector<double> col_scales(ncols, 1.0);
   std::vector<fp_index_t> colint;
   colint.reserve(colints);
 
@@ -129,6 +130,7 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
     collb[i] = col.lowb;
     colub[i] = col.uppb;
     objval[i] = col.cost;
+    col_scales[i] = col.scale;
 
     if (col.is_integer) [[unlikely]] {
       colint.push_back(static_cast<fp_index_t>(i));
@@ -213,6 +215,7 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
       .rowlb = std::move(rowlb),
       .rowub = std::move(rowub),
       .colint = std::move(colint),
+      .col_scales = std::move(col_scales),
       .colnm = std::move(colnm),
       .rownm = std::move(rownm),
       .colmp = std::move(colmp),
