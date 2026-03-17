@@ -7,6 +7,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -17,6 +18,7 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 #include <zlib.h>
+#include <zstd.h>
 
 namespace  // NOLINT
 {
@@ -422,6 +424,45 @@ std::string gunzip_to_string(const std::filesystem::path& gz_path)
   return result;
 }
 
+// Decompress a zstd file into a string. Returns empty string on failure.
+std::string zstd_decompress_to_string(const std::filesystem::path& zst_path)
+{
+  std::ifstream src(zst_path, std::ios::binary | std::ios::ate);
+  if (!src.is_open()) {
+    return {};
+  }
+  const auto file_size = static_cast<std::size_t>(src.tellg());
+  src.seekg(0, std::ios::beg);
+  std::vector<char> compressed(file_size);
+  if (!src.read(compressed.data(), static_cast<std::streamsize>(file_size))) {
+    return {};
+  }
+  src.close();
+
+  // Use streaming decompression (handles Arrow's streaming zstd output).
+  // RAII wrapper ensures ZSTD_DCtx is freed even on early return.
+  const std::unique_ptr<ZSTD_DCtx, decltype(&ZSTD_freeDCtx)> dctx(
+      ZSTD_createDCtx(), &ZSTD_freeDCtx);
+  if (!dctx) {
+    return {};
+  }
+
+  std::string result;
+  constexpr std::size_t kOutBufSize = 65536;
+  std::vector<char> out_buf(kOutBufSize);
+
+  ZSTD_inBuffer input {compressed.data(), file_size, 0};
+  while (input.pos < input.size) {
+    ZSTD_outBuffer output {out_buf.data(), kOutBufSize, 0};
+    const auto ret = ZSTD_decompressStream(dctx.get(), &output, &input);
+    if (ZSTD_isError(ret) != 0U) {
+      return {};
+    }
+    result.append(out_buf.data(), output.pos);
+  }
+  return result;
+}
+
 auto make_csv_system()
 {
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
@@ -457,17 +498,17 @@ auto make_csv_system()
 }
 }  // namespace
 
-TEST_CASE("OutputContext - CSV gzip compression (default)")  // NOLINT
+TEST_CASE("OutputContext - CSV zstd compression (default)")  // NOLINT
 {
   auto [system, simulation] = make_csv_system();
   const auto tmpdir =
-      std::filesystem::temp_directory_path() / "gtopt_csv_default_gz";
+      std::filesystem::temp_directory_path() / "gtopt_csv_default_zst";
   std::filesystem::create_directories(tmpdir);
 
   Options opts;
   opts.output_directory = tmpdir.string();
   opts.output_format = "csv";
-  // output_compression not set → default "gzip" → produces .csv.gz files
+  // output_compression not set → default "zstd" → produces .csv.zst files
 
   const OptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
@@ -477,16 +518,16 @@ TEST_CASE("OutputContext - CSV gzip compression (default)")  // NOLINT
   REQUIRE(lp.resolve().has_value());
   system_lp.write_out();
 
-  // .csv.gz files must exist (gzip is now the default)
-  bool found_gz = false;
+  // .csv.zst files must exist (zstd is now the default)
+  bool found_zst = false;
   for (const auto& entry :
        std::filesystem::recursive_directory_iterator(tmpdir))
   {
-    if (entry.path().string().ends_with(".csv.gz")) {
-      found_gz = true;
+    if (entry.path().string().ends_with(".csv.zst")) {
+      found_zst = true;
     }
   }
-  CHECK(found_gz);
+  CHECK(found_zst);
 
   std::filesystem::remove_all(tmpdir);
 }
@@ -603,17 +644,16 @@ TEST_CASE("OutputContext - CSV gzip output is readable through csv_read_table")
 }
 
 TEST_CASE(  // NOLINT
-    "OutputContext - CSV unsupported compression falls back to gzip")
+    "OutputContext - CSV zstd compression produces .csv.zst")
 {
   auto [system, simulation] = make_csv_system();
-  const auto tmpdir =
-      std::filesystem::temp_directory_path() / "gtopt_csv_fallback";
+  const auto tmpdir = std::filesystem::temp_directory_path() / "gtopt_csv_zstd";
   std::filesystem::create_directories(tmpdir);
 
   Options opts;
   opts.output_directory = tmpdir.string();
   opts.output_format = "csv";
-  opts.output_compression = "zstd";  // not supported for CSV → falls back
+  opts.output_compression = "zstd";
 
   const OptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
@@ -623,16 +663,26 @@ TEST_CASE(  // NOLINT
   REQUIRE(lp.resolve().has_value());
   system_lp.write_out();
 
-  // Despite requesting "zstd", output must be .csv.gz (gzip fallback)
-  bool found_gz = false;
+  // .csv.zst files must exist (zstd is now natively supported for CSV)
+  bool found_zst = false;
+  std::filesystem::path first_zst;
   for (const auto& entry :
        std::filesystem::recursive_directory_iterator(tmpdir))
   {
-    if (entry.path().string().ends_with(".csv.gz")) {
-      found_gz = true;
+    if (entry.path().string().ends_with(".csv.zst")) {
+      found_zst = true;
+      first_zst = entry.path();
     }
   }
-  CHECK(found_gz);
+  CHECK(found_zst);
+
+  // Decompress the first .csv.zst and verify it contains valid CSV content
+  if (found_zst) {
+    const auto content = zstd_decompress_to_string(first_zst);
+    CHECK_FALSE(content.empty());
+    // CSV must have at least a header row with comma-separated columns
+    CHECK(content.find(',') != std::string::npos);
+  }
 
   std::filesystem::remove_all(tmpdir);
 }
@@ -711,7 +761,7 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "OutputContext - Parquet unsupported codec (lzo) falls back to gzip")
+    "OutputContext - Parquet unsupported codec (lzo) falls back to zstd")
 {
   auto [system, simulation] = make_csv_system();
   const auto tmpdir = std::filesystem::temp_directory_path() / "gtopt_pq_lzo";

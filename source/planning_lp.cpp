@@ -127,13 +127,44 @@ void PlanningLP::write_out() const
   SPDLOG_INFO(
       "  Writing output: {} scene(s) × {} phase(s)", num_scenes, num_phases);
 
-  // Write output for each scene — one write_out() call per scene using the
-  // first phase (phase 0), which carries the expected solution value.
+  // Submit one task per (scene, phase) pair to the work pool so that
+  // output files are written in parallel.  Tasks use Low priority
+  // (non-LP I/O work) to avoid competing with solver tasks.
+  auto pool = make_solver_work_pool();
+
+  std::vector<std::future<void>> futures;
+  futures.reserve(static_cast<std::size_t>(num_scenes)
+                  * static_cast<std::size_t>(std::max(num_phases, 0)));
+
   for (auto&& [scene_num, phase_systems] : std::views::enumerate(m_systems_)) {
-    SPDLOG_DEBUG("  Writing output scene {}/{}", scene_num + 1, num_scenes);
-    if (!phase_systems.empty()) {
-      phase_systems.front().write_out();
+    for (auto&& [phase_num, system] : std::views::enumerate(phase_systems)) {
+      SPDLOG_DEBUG("  Submitting write_out scene {}/{} phase {}/{}",
+                   scene_num + 1,
+                   num_scenes,
+                   phase_num + 1,
+                   num_phases);
+      auto result = pool->submit(
+          [&system] { system.write_out(); },
+          {
+              .priority = TaskPriority::Low,
+              .name = std::format("write_out_s{}_p{}", scene_num, phase_num),
+          });
+      if (result.has_value()) {
+        futures.push_back(std::move(*result));
+      } else {
+        // Fall back to synchronous if the pool rejects the task.
+        SPDLOG_WARN(
+            "Failed to submit write_out task for scene {} phase {},"
+            " running synchronously",
+            scene_num,
+            phase_num);
+        system.write_out();
+      }
     }
+  }
+
+  for (auto& fut : futures) {
+    fut.get();
   }
 }
 

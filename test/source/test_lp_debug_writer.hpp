@@ -39,19 +39,19 @@ std::filesystem::path make_tmp_lp(const std::string& name)
 
 TEST_CASE("LpDebugWriter default-constructed is inactive")  // NOLINT
 {
-  LpDebugWriter writer;
+  const LpDebugWriter writer;
   CHECK_FALSE(writer.is_active());
 }
 
 TEST_CASE("LpDebugWriter with empty directory is inactive")  // NOLINT
 {
-  LpDebugWriter writer("", "gzip");
+  const LpDebugWriter writer("", "gzip");
   CHECK_FALSE(writer.is_active());
 }
 
 TEST_CASE("LpDebugWriter with non-empty directory is active")  // NOLINT
 {
-  LpDebugWriter writer("/tmp/lp_dbg_active_test");
+  const LpDebugWriter writer("/tmp/lp_dbg_active_test");
   CHECK(writer.is_active());
 }
 

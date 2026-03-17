@@ -174,8 +174,8 @@ auto make_table(FieldVector&& field_vector)
 //
 // Resolution order:
 //   1. Empty / "none" / "uncompressed" → UNCOMPRESSED (no check needed).
-//   2. Known name but not supported at runtime   → warn, use GZIP.
-//   3. Unknown name                              → warn, use GZIP.
+//   2. Known name but not supported at runtime   → warn, try ZSTD, then GZIP.
+//   3. Unknown name                              → warn, try ZSTD, then GZIP.
 [[nodiscard]] auto resolve_parquet_codec(const std::string& zfmt)
 {
   using codec_t = decltype(parquet::Compression::UNCOMPRESSED);
@@ -195,8 +195,12 @@ auto make_table(FieldVector&& field_vector)
 
   // Unknown name: not in the map and non-empty.
   if (!desired_opt.has_value() && !zfmt.empty()) {
-    SPDLOG_WARN("Parquet compression '{}' is unknown; falling back to gzip",
-                zfmt);
+    SPDLOG_WARN(
+        "Parquet compression '{}' is unknown; falling back to zstd/gzip", zfmt);
+    // Prefer zstd, fall back to gzip
+    if (parquet::IsCodecSupported(parquet::Compression::ZSTD)) {
+      return parquet::Compression::ZSTD;
+    }
     return parquet::Compression::GZIP;
   }
 
@@ -208,8 +212,18 @@ auto make_table(FieldVector&& field_vector)
     return codec;
   }
 
-  // Known but not supported at runtime → fall back to gzip.
+  // Known but not supported at runtime → fall back to zstd, then gzip.
   if (!parquet::IsCodecSupported(codec)) {
+    // If the unsupported codec is not zstd, try zstd first
+    if (codec != parquet::Compression::ZSTD
+        && parquet::IsCodecSupported(parquet::Compression::ZSTD))
+    {
+      SPDLOG_WARN(
+          "Parquet compression '{}' is not supported by the linked Parquet "
+          "library; falling back to zstd",
+          zfmt);
+      return parquet::Compression::ZSTD;
+    }
     SPDLOG_WARN(
         "Parquet compression '{}' is not supported by the linked Parquet "
         "library; falling back to gzip",
@@ -264,36 +278,50 @@ auto csv_write_table_plain(const auto& fpath, const auto& table)
   return status;
 }
 
-auto csv_write_table_gzip(const auto& fpath, const auto& table)
+auto csv_write_table_compressed(const auto& fpath,
+                                const auto& table,
+                                arrow::Compression::type compression,
+                                const std::string& ext)
 {
-  const auto filename = std::format("{}.csv.gz", fpath.string());
+  const auto filename = std::format("{}.csv.{}", fpath.string(), ext);
   ARROW_ASSIGN_OR_RAISE(auto file_output,
                         arrow::io::FileOutputStream::Open(filename));
-  ARROW_ASSIGN_OR_RAISE(auto codec,
-                        arrow::util::Codec::Create(arrow::Compression::GZIP));
+  ARROW_ASSIGN_OR_RAISE(auto codec, arrow::util::Codec::Create(compression));
   ARROW_ASSIGN_OR_RAISE(
-      auto gzip_output,
+      auto compressed_output,
       arrow::io::CompressedOutputStream::Make(codec.get(), file_output));
 
   const auto write_options = arrow::csv::WriteOptions::Defaults();
-  ARROW_RETURN_NOT_OK(WriteCSV(*table.get(), write_options, gzip_output.get()));
-  ARROW_RETURN_NOT_OK(gzip_output->Close());
+  ARROW_RETURN_NOT_OK(
+      WriteCSV(*table.get(), write_options, compressed_output.get()));
+  ARROW_RETURN_NOT_OK(compressed_output->Close());
   return file_output->Close();
 }
 
 auto csv_write_table(const auto& fpath, const auto& table, const auto& zfmt)
 {
-  // Default for CSV is no compression; only "gzip" is supported.
-  // Any other non-empty format triggers a warning and falls back to gzip.
+  // Default for CSV is no compression when explicitly uncompressed.
   if (zfmt.empty() || zfmt == "none" || zfmt == "uncompressed") {
     return csv_write_table_plain(fpath, table);
   }
 
-  if (zfmt != "gzip") {
-    SPDLOG_WARN("CSV compression '{}' is not supported; falling back to gzip",
-                zfmt);
+  // Zstd: preferred compressed format
+  if (zfmt == "zstd") {
+    return csv_write_table_compressed(
+        fpath, table, arrow::Compression::ZSTD, "zst");
   }
-  return csv_write_table_gzip(fpath, table);
+
+  // Gzip: well-known fallback
+  if (zfmt == "gzip") {
+    return csv_write_table_compressed(
+        fpath, table, arrow::Compression::GZIP, "gz");
+  }
+
+  // Unknown format → warn and try zstd, then fall back to gzip.
+  SPDLOG_WARN("CSV compression '{}' is not supported; falling back to zstd",
+              zfmt);
+  return csv_write_table_compressed(
+      fpath, table, arrow::Compression::ZSTD, "zst");
 }
 
 auto write_table(std::string_view fmt,
