@@ -23,7 +23,7 @@ BatteryLP::BatteryLP(const Battery& pbattery, const InputContext& ic)
     , input_efficiency(
           ic, ClassName, id(), std::move(object().input_efficiency))
     , output_efficiency(
-          ic, ClassName, id(), std::move(object().input_efficiency))
+          ic, ClassName, id(), std::move(object().output_efficiency))
 {
 }
 
@@ -80,11 +80,13 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
     });
   }
   // Add storage-specific constraints (energy balance, SOC limits, etc.)
+  const auto es =
+      battery().energy_scale.value_or(Battery::default_energy_scale);
   const StorageOptions opts {
       .use_state_variable = battery().use_state_variable.value_or(false),
       .daily_cycle = battery().daily_cycle.value_or(true),
-      .energy_scale =
-          battery().energy_scale.value_or(Battery::default_energy_scale),
+      .energy_scale = es,
+      .flow_scale = es,
   };
   if (!StorageBase::add_to_lp(cname,
                               sc,
