@@ -348,6 +348,52 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--boundary-cuts-mode",
+        dest="boundary_cuts_mode",
+        metavar="MODE",
+        default=None,
+        choices=["noload", "separated", "combined"],
+        help=(
+            "Controls how PLP boundary cuts (plpplaem/plpplem files) are "
+            "loaded into the SDDP solver. "
+            "'noload' disables boundary-cut loading; "
+            "'separated' loads each cut into the scene matching its ISimul; "
+            "'combined' broadcasts all cuts to every scene. "
+            "(default: separated)"
+        ),
+    )
+    parser.add_argument(
+        "--boundary-max-iterations",
+        dest="boundary_max_iterations",
+        metavar="N",
+        type=int,
+        default=None,
+        help=(
+            "Keep only boundary cuts from the last N SDDP iterations. "
+            "0 means keep all iterations. "
+            "(default: 0 = all)"
+        ),
+    )
+    parser.add_argument(
+        "--no-boundary-cuts",
+        dest="no_boundary_cuts",
+        action="store_true",
+        default=False,
+        help="Disable boundary-cut export entirely (equivalent to --boundary-cuts-mode=noload).",
+    )
+    parser.add_argument(
+        "--hot-start-cuts",
+        dest="hot_start_cuts",
+        action="store_true",
+        default=False,
+        help=(
+            "Export intermediate-stage cuts from plpplaem/plpplem files "
+            "as a hot-start-cuts CSV (with named state variables and phase "
+            "column).  The file is loaded by the SDDP solver via "
+            "sddp_named_cuts_file to warm-start all phases."
+        ),
+    )
+    parser.add_argument(
         "-g",
         "--stages-phase",
         dest="stages_phase",
@@ -487,6 +533,14 @@ def build_options(args: argparse.Namespace) -> dict:
         opts["reserve_fail_cost"] = args.reserve_fail_cost
     if args.use_line_losses is not None:
         opts["use_line_losses"] = args.use_line_losses
+    if args.boundary_cuts_mode is not None:
+        opts["boundary_cuts_mode"] = args.boundary_cuts_mode
+    if args.boundary_max_iterations is not None:
+        opts["boundary_max_iterations"] = args.boundary_max_iterations
+    if args.no_boundary_cuts:
+        opts["no_boundary_cuts"] = True
+    if args.hot_start_cuts:
+        opts["hot_start_cuts"] = True
     return opts
 
 

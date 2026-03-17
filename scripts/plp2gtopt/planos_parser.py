@@ -1,29 +1,48 @@
-"""Parser for PLP boundary-cuts files (plpplaem1.dat / plpplaem2.dat).
+"""Parser for PLP boundary-cuts files (plpplaem / plpplem).
 
 These files define the "planos de embalse" — external optimality cuts that
 approximate the expected future cost beyond the planning horizon.  In SDDP
 literature these are known as the *future cost function* (FCF) or Benders
 cuts at the last stage boundary.
 
-PLP uses two files (referenced in ``leeplaem.f`` Fortran subroutine):
+PLP uses two files (referenced in ``leeplaem.f`` Fortran subroutine).
+Two naming conventions are supported:
 
-``plpplaem1.dat`` (reservoir-name mapping)
-    Header: ``PLPNCenEmb`` (number of reservoirs in the boundary cuts)
-    Data lines: ``PLPIEmb  'PLPCenNom'``  (1-based index, quoted name)
+* ``plpplaem1.dat`` / ``plpplaem2.dat`` — original naming
+* ``plpplem1.dat``  / ``plpplem2.dat``  — abbreviated naming
 
-``plpplaem2.dat`` (cut data)
-    Header: ``NumEtaCF`` (boundary stage number, 1-based)
-    Data lines: ``IPDNumIte  IEtapa  ISimul  LDPhiPrv  GradX(1)...GradX(N)``
-    Only cuts for ``IEtapa == NumEtaCF`` are retained.
+**File 1** (reservoir-name mapping) — two formats are accepted:
+
+*Simple format* (original)::
+
+    PLPNCenEmb                              ← count header
+    PLPIEmb  'PLPCenNom'                    ← 1-based index, quoted name
+    ...
+
+*CSV format* (extended, used by newer PLP builds)::
+
+    #Numero, Nombre, Tipo, Barra, ...       ← comment header (skipped)
+    1,LMAULE                  ,A,  0, ...   ← index, name, extra fields…
+
+Both formats are read the same way the Fortran ``READ(*, *) PLPIEmb, PLPCenNom``
+would: the first field is the 1-based index, the second is the name, and any
+remaining fields are ignored.
+
+**File 2** (cut data)::
+
+    NumEtaCF                                ← boundary stage number (1-based)
+    IPDNumIte  IEtapa  ISimul  LDPhiPrv  GradX(1)...GradX(N)
+
+Cuts where ``IEtapa == NumEtaCF`` are *boundary cuts* (future-cost function
+for the last stage).  All other cuts are *hot-start cuts* that apply to
+intermediate stages.
 
 The gradient coefficients ``GradX`` correspond to the reservoir volumes
-(state variables) identified by the name mapping in ``plpplaem1.dat``.
+(state variables) identified by the name mapping in file 1.
 
-The resulting ``varphi`` (φ) variable in PLP satisfies:
+The resulting ``varphi`` (φ) variable satisfies::
+
     φ ≥ -LDPhiPrv + Σ_i GradX_i · Vol_i
-
-This parser produces a list of dicts suitable for writing a gtopt-compatible
-boundary-cuts CSV file via :class:`PlanosWriter`.
 """
 
 import logging
@@ -35,19 +54,43 @@ from plp2gtopt.base_parser import BaseParser
 logger = logging.getLogger(__name__)
 
 
+# -- File-discovery helper ---------------------------------------------------
+
+
+def find_planos_files(
+    input_path: Path,
+) -> Optional[tuple[Path, Path]]:
+    """Locate the two planos files under *input_path*.
+
+    Returns ``(file1, file2)`` or ``None`` if they cannot be found.
+    Both the original (``plpplaem*``) and abbreviated (``plpplem*``)
+    naming conventions are tried.
+    """
+    for prefix in ("plpplaem", "plpplem"):
+        f1 = input_path / f"{prefix}1.dat"
+        f2 = input_path / f"{prefix}2.dat"
+        if f1.exists() and f2.exists():
+            return f1, f2
+    return None
+
+
 class PlanosParser(BaseParser):
-    """Parse PLP plpplaem1.dat + plpplaem2.dat boundary-cut files.
+    """Parse PLP plpplaem/plpplem boundary-cut files.
 
     Attributes
     ----------
     reservoir_names : list[str]
-        Ordered reservoir names from plpplaem1.dat.
+        Ordered reservoir names from plpplaem1/plpplem1.
     boundary_stage : int
-        The PLP stage number to which the cuts apply (1-based).
+        The PLP stage number to which boundary cuts apply (1-based).
     cuts : list[dict]
-        Parsed cuts, each with keys ``name``, ``iteration``, ``scene``,
-        ``rhs``, and a ``coefficients`` dict mapping reservoir names to
-        floats.  The ``scene`` value is the scene UID (PLP ISimul).
+        Boundary cuts (``IEtapa == boundary_stage``), each with keys
+        ``name``, ``iteration``, ``scene``, ``rhs``, and
+        ``coefficients`` (dict of reservoir name → float).
+    all_cuts : list[dict]
+        *All* parsed cuts (all stages), each with the same keys as
+        :attr:`cuts` plus ``stage`` (1-based PLP IEtapa).  This is
+        used to generate hot-start cuts for intermediate stages.
     """
 
     def __init__(
@@ -55,20 +98,21 @@ class PlanosParser(BaseParser):
         file_path1: str | Path,
         file_path2: str | Path,
     ) -> None:
-        """Initialise with paths to both plpplaem files."""
+        """Initialise with paths to both plpplaem/plpplem files."""
         super().__init__(file_path1)
         self.file_path1 = Path(file_path1)
         self.file_path2 = Path(file_path2)
         self.reservoir_names: List[str] = []
         self.boundary_stage: int = 0
         self.cuts: List[Dict[str, Any]] = []
+        self.all_cuts: List[Dict[str, Any]] = []
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
     def parse(self, parsers: Optional[dict[str, Any]] = None) -> None:  # noqa: ARG002
-        """Parse both files and populate :attr:`cuts`."""
+        """Parse both files and populate :attr:`cuts` and :attr:`all_cuts`."""
         self._parse_reservoir_map()
         self._parse_cut_data()
 
@@ -77,91 +121,128 @@ class PlanosParser(BaseParser):
     # ------------------------------------------------------------------
 
     def _parse_reservoir_map(self) -> None:
-        """Parse ``plpplaem1.dat`` for reservoir-name mapping."""
+        """Parse file 1 for reservoir-name mapping.
+
+        Supports both the simple format (count header + index/name pairs)
+        and the CSV format (comment header + ``index,name,...`` rows).
+        The Fortran reader ``READ(*, *) PLPIEmb, PLPCenNom`` treats both
+        formats identically because free-format READ splits on whitespace
+        or commas and ignores trailing fields.
+        """
         lines = self._read_lines(self.file_path1)
         if not lines:
-            logger.warning("plpplaem1.dat is empty — no boundary cuts")
+            logger.warning("%s is empty — no boundary cuts", self.file_path1.name)
             return
 
-        idx = 0
-        # First line: number of reservoirs in the boundary cuts
-        num_reservoirs = int(lines[idx].split()[0])
-        idx += 1
+        # Detect format: if the first line is a single integer it is the
+        # "count header" of the simple format.  Otherwise every line is a
+        # data row (CSV / extended format).
+        first_fields = self._split_fields(lines[0])
+        is_simple = len(first_fields) == 1 and first_fields[0].isdigit()
 
-        for _ in range(num_reservoirs):
-            if idx >= len(lines):
-                break
-            parts = lines[idx].split(maxsplit=1)
-            # Format: PLPIEmb  'PLPCenNom'
-            # Index is 1-based but we only care about the name order
-            name = parts[1].strip().strip("'") if len(parts) > 1 else parts[0]
+        if is_simple:
+            num_reservoirs = int(first_fields[0])
+            data_lines = lines[1 : 1 + num_reservoirs]
+        else:
+            # CSV / extended format — every line is a data row
+            data_lines = lines
+            num_reservoirs = len(data_lines)
+
+        for dline in data_lines:
+            fields = self._split_fields(dline)
+            if len(fields) < 2:
+                continue
+            # Field 0: 1-based index (ignored for ordering)
+            # Field 1: reservoir name (may have trailing spaces / quotes)
+            name = fields[1].strip().strip("'\"")
             self.reservoir_names.append(name)
-            idx += 1
 
         logger.info(
-            "plpplaem1.dat: %d reservoir(s) in boundary cuts: %s",
+            "%s: %d reservoir(s) in boundary cuts: %s",
+            self.file_path1.name,
             len(self.reservoir_names),
             ", ".join(self.reservoir_names),
         )
 
     def _parse_cut_data(self) -> None:
-        """Parse ``plpplaem2.dat`` for cut coefficients."""
+        """Parse file 2 for cut coefficients.
+
+        Populates both :attr:`cuts` (boundary only) and :attr:`all_cuts`
+        (all stages).
+        """
         lines = self._read_lines(self.file_path2)
         if not lines:
-            logger.warning("plpplaem2.dat is empty — no boundary cuts")
+            logger.warning("%s is empty — no boundary cuts", self.file_path2.name)
             return
 
         idx = 0
         # First non-empty line: boundary stage number (1-based)
-        self.boundary_stage = int(lines[idx].split()[0])
+        self.boundary_stage = int(self._split_fields(lines[idx])[0])
         idx += 1
 
         num_reservoirs = len(self.reservoir_names)
-        cut_count = 0
+        boundary_count = 0
+        total_count = 0
 
         while idx < len(lines):
-            parts = lines[idx].split()
-            if len(parts) < 4 + num_reservoirs:
+            fields = self._split_fields(lines[idx])
+            if len(fields) < 4 + num_reservoirs:
                 logger.warning(
-                    "plpplaem2.dat line %d: expected %d fields, got %d — skipping",
+                    "%s line %d: expected %d fields, got %d — skipping",
+                    self.file_path2.name,
                     idx,
                     4 + num_reservoirs,
-                    len(parts),
+                    len(fields),
                 )
                 idx += 1
                 continue
 
-            iter_num = int(parts[0])  # IPDNumIte
-            stage = int(parts[1])  # IEtapa (1-based)
-            scenario = int(parts[2])  # ISimul (1-based)
-            ld_phi_prv = float(parts[3])  # LDPhiPrv (intercept, negated)
+            iter_num = int(fields[0])  # IPDNumIte
+            stage = int(fields[1])  # IEtapa (1-based)
+            scenario = int(fields[2])  # ISimul (1-based)
+            ld_phi_prv = float(fields[3])  # LDPhiPrv (intercept, negated)
 
-            # Only keep cuts for the boundary stage
+            coefficients: Dict[str, float] = {}
+            for ri, rname in enumerate(self.reservoir_names):
+                coeff = float(fields[4 + ri])
+                if coeff != 0.0:
+                    coefficients[rname] = coeff
+
+            cut = {
+                "name": f"bc_{iter_num}_{scenario}",
+                "iteration": iter_num,
+                "stage": stage,
+                "scene": scenario,  # PLP ISimul maps to scene UID
+                "rhs": -ld_phi_prv,  # PLP stores negative intercept
+                "coefficients": coefficients,
+            }
+            self.all_cuts.append(cut)
+            total_count += 1
+
             if stage == self.boundary_stage:
-                coefficients: Dict[str, float] = {}
-                for ri, rname in enumerate(self.reservoir_names):
-                    coeff = float(parts[4 + ri])
-                    if coeff != 0.0:
-                        coefficients[rname] = coeff
-
-                self.cuts.append(
-                    {
-                        "name": f"bc_{iter_num}_{scenario}",
-                        "iteration": iter_num,
-                        "scene": scenario,  # PLP ISimul maps to scene UID
-                        "rhs": -ld_phi_prv,  # PLP stores negative intercept
-                        "coefficients": coefficients,
-                    }
-                )
-                cut_count += 1
+                self.cuts.append(cut)
+                boundary_count += 1
 
             idx += 1
 
         logger.info(
-            "plpplaem2.dat: loaded %d boundary cuts for stage %d",
-            cut_count,
+            "%s: loaded %d boundary cuts (stage %d) and %d total cuts",
+            self.file_path2.name,
+            boundary_count,
             self.boundary_stage,
+            total_count,
         )
+
+    # ------------------------------------------------------------------
+    # Utility
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _split_fields(line: str) -> List[str]:
+        """Split a line on commas or whitespace, stripping each token."""
+        if "," in line:
+            return [f.strip() for f in line.split(",") if f.strip()]
+        return line.split()
 
     @staticmethod
     def _read_lines(filepath: Path) -> List[str]:
