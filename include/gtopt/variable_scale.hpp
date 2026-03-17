@@ -29,11 +29,11 @@
 
 #pragma once
 
-#include <map>
+#include <ranges>
 #include <span>
 #include <string_view>
 
-#include <gtopt/basic_types.hpp>
+#include <gtopt/fmap.hpp>
 
 namespace gtopt
 {
@@ -70,12 +70,19 @@ public:
 
   explicit VariableScaleMap(std::span<const VariableScale> scales)
   {
-    for (const auto& vs : scales) {
-      if (vs.uid != unknown_uid) {
-        m_element_scales_[Key {vs.class_name, vs.variable, vs.uid}] = vs.scale;
-      } else {
-        m_class_scales_[ClassKey {vs.class_name, vs.variable}] = vs.scale;
-      }
+    // Partition into per-element and per-class entries using ranges
+    auto element_entries = scales
+        | std::views::filter([](const auto& vs)
+                             { return vs.uid != unknown_uid; });
+    auto class_entries = scales
+        | std::views::filter([](const auto& vs)
+                             { return vs.uid == unknown_uid; });
+
+    for (const auto& vs : element_entries) {
+      m_element_scales_[Key {vs.class_name, vs.variable, vs.uid}] = vs.scale;
+    }
+    for (const auto& vs : class_entries) {
+      m_class_scales_[ClassKey {vs.class_name, vs.variable}] = vs.scale;
     }
   }
 
@@ -87,8 +94,10 @@ public:
   {
     // 1. Per-element match
     if (uid != unknown_uid) {
-      if (const auto it = m_element_scales_.find(
-              Key {Name {class_name}, Name {variable}, uid});
+      if (const auto it =
+              m_element_scales_.find(Key {.class_name = Name {class_name},
+                                          .variable = Name {variable},
+                                          .uid = uid});
           it != m_element_scales_.end())
       {
         return it->second;
@@ -96,8 +105,8 @@ public:
     }
 
     // 2. Per-class match
-    if (const auto it =
-            m_class_scales_.find(ClassKey {Name {class_name}, Name {variable}});
+    if (const auto it = m_class_scales_.find(ClassKey {
+            .class_name = Name {class_name}, .variable = Name {variable}});
         it != m_class_scales_.end())
     {
       return it->second;
@@ -132,8 +141,8 @@ private:
     auto operator<=>(const ClassKey&) const = default;
   };
 
-  std::map<Key, double> m_element_scales_;
-  std::map<ClassKey, double> m_class_scales_;
+  flat_map<Key, double> m_element_scales_;
+  flat_map<ClassKey, double> m_class_scales_;
 };
 
 }  // namespace gtopt
