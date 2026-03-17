@@ -141,8 +141,11 @@ namespace
 {
 
 /// Log a multi-line diagnostic string line-by-line so that each line carries
-/// the spdlog prefix (timestamp + level).  The @p level selects spdlog::error
-/// for "error" and spdlog::info otherwise.
+/// the spdlog prefix (timestamp + level).
+///
+/// @param level   "error" → spdlog::error; any other value → spdlog::info.
+/// @param header  Description for the first line (e.g. the LP file path).
+/// @param diag    Multi-line diagnostic output to log line-by-line.
 void log_diagnostic_lines(std::string_view level,
                           std::string_view header,
                           std::string_view diag)
