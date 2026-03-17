@@ -2,9 +2,10 @@
 """Compression utilities for LP files used by gtopt_check_lp.
 
 Supports reading and decompressing gzip-compressed LP files
-(``.lp.gz`` and ``.lp.gzip``).  All solver back-ends that need a plain file
-path on disk use the :func:`as_plain_lp` context manager, which transparently
-decompresses to a temporary file and cleans up afterward.
+(``.lp.gz`` and ``.lp.gzip``) and zstd-compressed LP files (``.lp.zst``).
+All solver back-ends that need a plain file path on disk use the
+:func:`as_plain_lp` context manager, which transparently decompresses to a
+temporary file and cleans up afterward.
 
 The :func:`sanitize_lp_names` function and :func:`as_sanitized_lp` context
 manager strip illegal ``':'`` characters from variable and constraint names so
@@ -32,10 +33,19 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Optional
 
+try:
+    import zstandard as zstd
+
+    _HAS_ZSTD = True
+except ImportError:
+    _HAS_ZSTD = False
+
 # Recognised compressed-LP extensions (case-insensitive suffix matching).
 # ".gzip" is the canonical form mentioned in the problem statement;
-# ".gz" is the universally used short form.
-_COMPRESSED_SUFFIXES = frozenset({".gz", ".gzip"})
+# ".gz" is the universally used short form; ".zst" is for zstd.
+_GZIP_SUFFIXES = frozenset({".gz", ".gzip"})
+_ZSTD_SUFFIXES = frozenset({".zst"})
+_COMPRESSED_SUFFIXES = _GZIP_SUFFIXES | _ZSTD_SUFFIXES
 
 # ---------------------------------------------------------------------------
 # LP name-sanitisation helpers
@@ -68,21 +78,32 @@ _LP_SECTION_STARTS = frozenset(
 
 
 def is_compressed(path: Path) -> bool:
-    """Return True when *path* has a recognised gzip extension.
+    """Return True when *path* has a recognised compressed extension.
 
-    Recognises ``.gz`` and ``.gzip`` (case-insensitive) as suffixes,
-    covering ``error_0.lp.gz`` and ``error_0.lp.gzip``.
+    Recognises ``.gz``, ``.gzip`` (gzip, case-insensitive) and ``.zst``
+    (zstd, case-insensitive), covering ``error_0.lp.gz``,
+    ``error_0.lp.gzip``, and ``error_0.lp.zst``.
     """
     return path.suffix.lower() in _COMPRESSED_SUFFIXES
 
 
 def read_lp_text(path: Path) -> str:
-    """Return the LP file content as text, decompressing gzip if needed.
+    """Return the LP file content as text, decompressing gzip/zstd if needed.
 
     Raises :class:`OSError` / :class:`gzip.BadGzipFile` on I/O or format
     errors (callers are responsible for catching in quiet mode).
     """
-    if is_compressed(path):
+    if path.suffix.lower() in _ZSTD_SUFFIXES:
+        if not _HAS_ZSTD:
+            raise ImportError(
+                "zstandard package required for reading .zst files; "
+                "install with: pip install zstandard"
+            )
+        dctx = zstd.ZstdDecompressor()
+        with open(path, "rb") as fh:
+            raw = dctx.decompress(fh.read())
+        return raw.decode("utf-8", errors="replace")
+    if path.suffix.lower() in _GZIP_SUFFIXES:
         with gzip.open(path, "rt", encoding="utf-8", errors="replace") as fh:
             return fh.read()
     return path.read_text(encoding="utf-8", errors="replace")
@@ -93,8 +114,9 @@ def as_plain_lp(path: Path) -> Iterator[Path]:
     """Yield a plain (uncompressed) ``.lp`` file path.
 
     If *path* is already uncompressed, the original path is yielded
-    unchanged.  If *path* is compressed, the content is decompressed to a
-    temporary ``.lp`` file which is deleted when the context exits.
+    unchanged.  If *path* is compressed (gzip or zstd), the content is
+    decompressed to a temporary ``.lp`` file which is deleted when the
+    context exits.
 
     Usage example::
 
@@ -123,14 +145,15 @@ def resolve_lp_path(lp_path: Path) -> Optional[Path]:
     Resolution order:
 
     1. *lp_path* as-is (if it exists).
-    2. ``lp_path + ".gz"``  (e.g. ``error_0.lp`` → ``error_0.lp.gz``).
-    3. ``lp_path + ".gzip"`` (e.g. ``error_0.lp`` → ``error_0.lp.gzip``).
+    2. ``lp_path + ".zst"``  (e.g. ``error_0.lp`` → ``error_0.lp.zst``).
+    3. ``lp_path + ".gz"``   (e.g. ``error_0.lp`` → ``error_0.lp.gz``).
+    4. ``lp_path + ".gzip"`` (e.g. ``error_0.lp`` → ``error_0.lp.gzip``).
 
     Returns the first existing path, or ``None`` when none are found.
     """
     if lp_path.exists():
         return lp_path
-    for suffix in (".gz", ".gzip"):
+    for suffix in (".zst", ".gz", ".gzip"):
         candidate = Path(str(lp_path) + suffix)
         if candidate.exists():
             return candidate
@@ -282,8 +305,8 @@ def sanitize_lp_names(text: str) -> str:
 def as_sanitized_lp(path: Path) -> Iterator[Path]:
     """Yield a sanitised, plain (uncompressed) ``.lp`` file path.
 
-    Combines decompression (if the file is gzip-compressed) with LP name
-    sanitisation (see :func:`sanitize_lp_names`).  The temporary file is
+    Combines decompression (if the file is gzip- or zstd-compressed) with LP
+    name sanitisation (see :func:`sanitize_lp_names`).  The temporary file is
     always created and deleted when the context exits.
 
     Usage example::

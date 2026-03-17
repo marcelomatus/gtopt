@@ -105,6 +105,7 @@ sudo apt-get install -y --no-install-recommends \
   libspdlog-dev \
   liblapack-dev libblas-dev \
   zlib1g-dev \
+  libzstd-dev zstd \
   ca-certificates lsb-release wget
 ok "ccache and base packages installed"
 
