@@ -869,10 +869,12 @@ def test_min_reservoir_conversion(tmp_path):
     j_names = {j["name"] for j in junctions}
     assert "Reservoir1" in j_names
     assert "TurbineGen" in j_names
-    # Embalse junction is not a drain
+    # Embalse junction has drain=True because ser_ver=0 (no spillway downstream
+    # junction — excess water leaves via the junction drain flag rather than a
+    # dedicated spillway waterway).
     rsv_j = next(j for j in junctions if j["name"] == "Reservoir1")
-    assert rsv_j["drain"] is False
-    # Serie without downstream is a drain
+    assert rsv_j["drain"] is True
+    # Serie without downstream is also a drain
     turb_j = next(j for j in junctions if j["name"] == "TurbineGen")
     assert turb_j["drain"] is True
 
