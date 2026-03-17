@@ -464,8 +464,8 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
 
       // LP coefficient static analysis: the stats were computed during
       // to_flat() and stored in the LinearInterface of each scene×phase LP.
-      // When the global coefficient ratio is below 1e5 only a one-line
-      // summary is emitted; otherwise per-scene/phase details are shown.
+      // When the global coefficient ratio is below lp_coeff_ratio_threshold
+      // only a one-line summary is emitted; otherwise per-scene/phase details.
       if (do_stats) {
         std::vector<ScenePhaseLPStats> lp_entries;
         for (auto&& [si, phase_systems] :
@@ -489,7 +489,8 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
             });
           }
         }
-        log_lp_stats_summary(lp_entries);
+        log_lp_stats_summary(lp_entries,
+                             planning_lp.options().lp_coeff_ratio_threshold());
       }
 
       // just_build_lp: LP matrix assembly is done (all scene×phase LPs exist
@@ -507,11 +508,14 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
 
         // Build SolverOptions from Planning options (JSON) merged with any
         // CLI overrides already applied via apply_cli_options.
+        // CLI options (--lp-algorithm, --lp-threads, --lp-presolve) are
+        // now written to solver_options directly by apply_cli_options.
+        // The deprecated top-level lp_algorithm/lp_threads/lp_presolve JSON
+        // fields still take precedence over solver_options for backward compat.
         const auto& plp_opts_ref = planning_lp.options();
-        // Start from the solver_options sub-object (which carries any
-        // tolerance values set via JSON "solver_options": {...}).
         SolverOptions solver_opts = plp_opts_ref.solver_options();
-        // Individual top-level fields override the sub-object values.
+        // Backward-compat: deprecated JSON top-level fields override
+        // solver_options.
         if (const auto algo = plp_opts_ref.lp_algorithm()) {
           solver_opts.algorithm = static_cast<LPAlgo>(*algo);
         }
