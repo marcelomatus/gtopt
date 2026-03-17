@@ -48,6 +48,8 @@ struct FlatLinearProblem
   std::vector<double> rowlb;  ///< Lower bounds for constraints
   std::vector<double> rowub;  ///< Upper bounds for constraints
   std::vector<index_t> colint;  ///< Indices of integer variables
+  std::vector<double> col_scales;  ///< Per-column physical-to-LP scale factors
+                                   ///< (physical = LP × scale; default 1.0)
 
   name_vec_t colnm;  ///< Variable names
   name_vec_t rownm;  ///< Constraint names
