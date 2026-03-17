@@ -2202,8 +2202,8 @@ auto SDDPSolver::run_backward_pass_synchronized(
   const auto bwd_start = std::chrono::steady_clock::now();
   BackwardPassOutcome out;
 
-  // Per-scene cut counter to generate unique cut labels across phase steps
-  std::vector<int> scene_cut_offsets(static_cast<std::size_t>(num_scenes), 0);
+  // Per-scene cumulative cut count for unique cut labels across phase steps
+  std::vector<int> per_scene_cut_count(static_cast<std::size_t>(num_scenes), 0);
 
   const bool use_apertures = (m_options_.num_apertures != 0);
 
@@ -2224,7 +2224,7 @@ auto SDDPSolver::run_backward_pass_synchronized(
         continue;
       }
       const auto scene = SceneIndex {si};
-      const int offset = scene_cut_offsets[static_cast<std::size_t>(si)];
+      const int offset = per_scene_cut_count[static_cast<std::size_t>(si)];
 
       auto fut = use_apertures
           ? pool.submit(
@@ -2256,7 +2256,7 @@ auto SDDPSolver::run_backward_pass_synchronized(
         continue;
       }
       out.total_cuts += *step_result;
-      scene_cut_offsets[static_cast<std::size_t>(si)] += *step_result;
+      per_scene_cut_count[static_cast<std::size_t>(si)] += *step_result;
     }
 
     // Share optimality cuts generated in this phase step across all scenes.
