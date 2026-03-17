@@ -134,70 +134,10 @@ double compute_convergence_gap(double upper_bound, double lower_bound) noexcept
 
 // Now implemented in benders_cut.cpp; this file uses them via benders_cut.hpp.
 
-// ── Helper: log multi-line diagnostic output with per-line spdlog prefix ────
+// ── Helper: local utilities ─────────────────────────────────────────────────
 
 namespace
 {
-
-/// Maximum number of diagnostic output lines before truncation.
-/// When the output exceeds this limit, only the last @c kDiagTailLines
-/// lines are shown with a "[truncated]" notice.
-constexpr int kDiagMaxLines = 30;
-
-/// Number of trailing lines to keep when truncating diagnostic output.
-constexpr int kDiagTailLines = 10;
-
-/// Log a multi-line diagnostic string line-by-line so that each line carries
-/// the spdlog prefix (timestamp + level).
-///
-/// When the output exceeds @c kDiagMaxLines, only the last
-/// @c kDiagTailLines lines are printed to avoid flooding the log.
-///
-/// @param level   "error" → spdlog::error; any other value → spdlog::info.
-/// @param header  Description for the first line (e.g. the LP file path).
-/// @param diag    Multi-line diagnostic output to log line-by-line.
-void log_diagnostic_lines(std::string_view level,
-                          std::string_view header,
-                          std::string_view diag)
-{
-  const bool is_error = (level == "error");
-  if (is_error) {
-    spdlog::error("LP infeasibility diagnostic for {}:", header);
-  } else {
-    spdlog::info("LP diagnostic for {}:", header);
-  }
-
-  // Collect non-empty lines
-  std::vector<std::string_view> lines;
-  for (const auto line : std::views::split(diag, '\n')) {
-    const std::string_view sv {line.begin(), line.end()};
-    if (!sv.empty()) {
-      lines.push_back(sv);
-    }
-  }
-
-  const auto total = static_cast<int>(lines.size());
-  const bool truncate = (total > kDiagMaxLines);
-  const int start = truncate ? (total - kDiagTailLines) : 0;
-
-  if (truncate) {
-    if (is_error) {
-      spdlog::error(
-          "  ... ({} lines total, showing last {}) ...", total, kDiagTailLines);
-    } else {
-      spdlog::info(
-          "  ... ({} lines total, showing last {}) ...", total, kDiagTailLines);
-    }
-  }
-
-  for (int i = start; i < total; ++i) {
-    if (is_error) {
-      spdlog::error("  {}", lines[static_cast<std::size_t>(i)]);
-    } else {
-      spdlog::info("  {}", lines[static_cast<std::size_t>(i)]);
-    }
-  }
-}
 
 /// Format a vector of ints as a comma-separated string.
 [[nodiscard]] std::string join_ints(std::span<const int> values)
@@ -1057,11 +997,47 @@ auto SDDPSolver::save_cuts(const std::string& filepath) const
     }
 
     // CSV format: phase,scene,name,rhs[,col_idx:coeff ...]
+    // Both RHS and coefficients are stored in fully physical space so that
+    // cuts are portable across runs with different scale_objective or
+    // variable scaling configurations:
+    //   rhs_csv       = rhs_lp × scale_objective
+    //   coeff_csv     = LP_coeff × scale_objective / col_scale
+    // The alpha/varphi column (col_scale = 1) stores scale_objective as its
+    // physical coefficient; on reload it becomes 1.0 after dividing by the
+    // (possibly different) scale_objective of the new run.
+    const auto scale_obj = planning_lp().options().scale_objective();
+    ofs << "# scale_objective=" << scale_obj << "\n";
     ofs << "phase,scene,name,rhs,coefficients\n";
+
+    // Build phase UID → PhaseIndex lookup for scale retrieval
+    const auto& sim = planning_lp().simulation();
+    const auto num_phases = static_cast<Index>(sim.phases().size());
+    std::unordered_map<int, PhaseIndex> phase_map;
+    for (Index pi = 0; pi < num_phases; ++pi) {
+      phase_map[static_cast<int>(sim.phases()[pi].uid())] = PhaseIndex {pi};
+    }
+
     for (const auto& cut : m_stored_cuts_) {
-      ofs << cut.phase << "," << cut.scene << "," << cut.name << "," << cut.rhs;
-      for (const auto& [col, coeff] : cut.coefficients) {
-        ofs << "," << col << ":" << coeff;
+      // RHS in physical objective units
+      ofs << cut.phase << "," << cut.scene << "," << cut.name << ","
+          << (cut.rhs * scale_obj);
+
+      // Look up the LinearInterface to retrieve column scales.
+      // Use scene 0 as representative (scales are identical across scenes).
+      auto pit = phase_map.find(cut.phase);
+      if (pit != phase_map.end()) {
+        const auto& li = planning_lp()
+                             .system(SceneIndex {0}, pit->second)
+                             .linear_interface();
+        for (const auto& [col, coeff] : cut.coefficients) {
+          const auto scale = li.get_col_scale(ColIndex {col});
+          ofs << "," << col << ":" << (coeff * scale_obj / scale);
+        }
+      } else {
+        // Fallback: write LP coefficients scaled by scale_obj only
+        for (const auto& [col, coeff] : cut.coefficients) {
+          ofs << "," << col << ":" << (coeff * scale_obj);
+        }
       }
       ofs << "\n";
     }
@@ -1101,11 +1077,40 @@ auto SDDPSolver::save_scene_cuts(SceneIndex scene,
       });
     }
 
+    // Both RHS and coefficients are stored in fully physical space:
+    //   rhs_csv   = rhs_lp × scale_objective
+    //   coeff_csv = LP_coeff × scale_objective / col_scale
+    const auto scale_obj = planning_lp().options().scale_objective();
+    ofs << "# scale_objective=" << scale_obj << "\n";
     ofs << "phase,scene,name,rhs,coefficients\n";
+
+    // Build phase UID → PhaseIndex lookup for scale retrieval
+    const auto& sim = planning_lp().simulation();
+    const auto num_phases = static_cast<Index>(sim.phases().size());
+    std::unordered_map<int, PhaseIndex> phase_map;
+    for (Index pi = 0; pi < num_phases; ++pi) {
+      phase_map[static_cast<int>(sim.phases()[pi].uid())] = PhaseIndex {pi};
+    }
+
     for (const auto& cut : cuts) {
-      ofs << cut.phase << "," << cut.scene << "," << cut.name << "," << cut.rhs;
-      for (const auto& [col, coeff] : cut.coefficients) {
-        ofs << "," << col << ":" << coeff;
+      // RHS in physical objective units
+      ofs << cut.phase << "," << cut.scene << "," << cut.name << ","
+          << (cut.rhs * scale_obj);
+
+      // Look up the LinearInterface to retrieve column scales.
+      auto pit = phase_map.find(cut.phase);
+      if (pit != phase_map.end()) {
+        const auto& li =
+            planning_lp().system(scene, pit->second).linear_interface();
+        for (const auto& [col, coeff] : cut.coefficients) {
+          const auto scale = li.get_col_scale(ColIndex {col});
+          ofs << "," << col << ":" << (coeff * scale_obj / scale);
+        }
+      } else {
+        // Fallback: write LP coefficients scaled by scale_obj only
+        for (const auto& [col, coeff] : cut.coefficients) {
+          ofs << "," << col << ":" << (coeff * scale_obj);
+        }
       }
       ofs << "\n";
     }
@@ -1156,12 +1161,19 @@ auto SDDPSolver::load_cuts(const std::string& filepath)
     }
 
     std::string line;
-    std::getline(ifs, line);  // Skip header
+    // Skip comment and header lines
+    while (std::getline(ifs, line)) {
+      if (!line.empty() && !line.starts_with('#') && !line.starts_with("phase"))
+      {
+        break;
+      }
+    }
 
     int cuts_loaded = 0;
     const auto& sim = planning_lp().simulation();
     const auto num_scenes = static_cast<Index>(sim.scenes().size());
     const auto num_phases = static_cast<Index>(sim.phases().size());
+    const auto scale_obj = planning_lp().options().scale_objective();
 
     // Build phase UID → PhaseIndex lookup
     std::unordered_map<int, PhaseIndex> phase_uid_to_index;
@@ -1170,8 +1182,11 @@ auto SDDPSolver::load_cuts(const std::string& filepath)
           PhaseIndex {pi};
     }
 
-    while (std::getline(ifs, line)) {
-      if (line.empty()) {
+    // Process lines (the first data line was already read above)
+    bool first_data_line = !line.empty();
+    while (first_data_line || std::getline(ifs, line)) {
+      first_data_line = false;
+      if (line.empty() || line.starts_with('#')) {
         continue;
       }
 
@@ -1193,18 +1208,21 @@ auto SDDPSolver::load_cuts(const std::string& filepath)
       std::getline(iss, token, ',');
       const auto rhs = std::stod(token);
 
+      // RHS in CSV is in physical objective units; convert to LP space.
       auto row = SparseRow {
           .name = sddp_label("loaded", cut_name),
-          .lowb = rhs,
+          .lowb = rhs / scale_obj,
           .uppb = LinearProblem::DblMax,
       };
 
+      // Collect raw physical-space coefficients (col_index:coeff pairs)
+      std::vector<std::pair<int, double>> raw_coeffs;
       while (std::getline(iss, token, ',')) {
         const auto colon = token.find(':');
         if (colon != std::string::npos) {
           const auto col = std::stoi(token.substr(0, colon));
           const auto coeff = std::stod(token.substr(colon + 1));
-          row[ColIndex {col}] = coeff;
+          raw_coeffs.emplace_back(col, coeff);
         }
       }
 
@@ -1220,11 +1238,18 @@ auto SDDPSolver::load_cuts(const std::string& filepath)
       }
       const auto phase = pit->second;
 
-      // Add the loaded cut to all scenes for this phase
+      // Add the loaded cut to all scenes for this phase.
+      // Coefficients in the CSV are in fully physical space; convert to LP
+      // space: LP_coeff = phys_coeff × col_scale / scale_objective.
       for (Index si = 0; si < num_scenes; ++si) {
         auto& li =
             planning_lp().system(SceneIndex {si}, phase).linear_interface();
-        li.add_row(row);
+        auto scene_row = row;
+        for (const auto& [col, coeff] : raw_coeffs) {
+          const auto scale = li.get_col_scale(ColIndex {col});
+          scene_row[ColIndex {col}] = coeff * scale / scale_obj;
+        }
+        li.add_row(scene_row);
       }
       ++cuts_loaded;
     }
@@ -1533,6 +1558,10 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
     }
 
     // ── Add cuts to the LP ──────────────────────────────────────────────────
+    // Boundary cuts are expressed in fully physical space (PLP convention).
+    // Convert to LP space: rhs_lp = rhs_phys / scale_obj,
+    // LP_coeff = phys_coeff × col_scale / scale_obj.
+    const auto scale_obj = planning_lp().options().scale_objective();
     int cuts_loaded = 0;
     for (const auto& rc : raw_cuts) {
       // Determine which scenes get this cut
@@ -1560,12 +1589,18 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
 
         auto row = SparseRow {
             .name = sddp_label("boundary", rc.name),
-            .lowb = rc.rhs,
+            .lowb = rc.rhs / scale_obj,
             .uppb = LinearProblem::DblMax,
         };
         row[state.alpha_col] = 1.0;
 
-        // Parse coefficient values from the remainder string
+        // Parse coefficient values from the remainder string.
+        // Boundary cuts express coefficients in physical space (e.g. $/dam³).
+        // Convert to LP space: LP_coeff = phys_coeff × col_scale / scale_obj.
+        // The α variable (col_scale=1) gets coefficient 1.0 structurally above;
+        // state-variable columns are adjusted for both variable scale and
+        // objective scale so the cut is correct in LP units.
+        auto& li = planning_lp().system(scene, last_phase).linear_interface();
         std::istringstream coeff_ss(rc.coeff_line);
         std::string token;
         for (const auto& col_opt : header_col_map) {
@@ -1577,11 +1612,11 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
           }
           const auto coeff = std::stod(token);
           if (coeff != 0.0) {
-            row[*col_opt] = -coeff;
+            const auto scale = li.get_col_scale(*col_opt);
+            row[*col_opt] = -coeff * scale / scale_obj;
           }
         }
 
-        auto& li = planning_lp().system(scene, last_phase).linear_interface();
         li.add_row(row);
       }
       ++cuts_loaded;
@@ -1660,6 +1695,8 @@ auto SDDPSolver::load_named_cuts(const std::string& filepath)
     const auto num_phases = static_cast<Index>(sim.phases().size());
     const auto num_scenes = static_cast<Index>(sim.scenes().size());
     const auto& sys = planning_lp().planning().system;
+    // Named cuts are in physical space; divide by scale_obj for LP space.
+    const auto scale_obj = planning_lp().options().scale_objective();
 
     std::unordered_map<std::string, std::pair<std::string_view, Uid>>
         name_to_class_uid;
@@ -1821,12 +1858,15 @@ auto SDDPSolver::load_named_cuts(const std::string& filepath)
 
         auto row = SparseRow {
             .name = sddp_label("named_hs", cut_name),
-            .lowb = rhs,
+            .lowb = rhs / scale_obj,
             .uppb = LinearProblem::DblMax,
         };
         row[state.alpha_col] = 1.0;
 
-        // Parse coefficient values from the remainder string
+        // Parse coefficient values from the remainder string.
+        // Named cuts express coefficients in physical space (e.g. $/dam³).
+        // Convert to LP space: LP_coeff = phys_coeff × col_scale / scale_obj.
+        auto& li = planning_lp().system(scene, phase).linear_interface();
         std::istringstream coeff_ss(remainder);
         std::string ctok;
         for (const auto& col_opt : col_map) {
@@ -1838,11 +1878,11 @@ auto SDDPSolver::load_named_cuts(const std::string& filepath)
           }
           const auto coeff = std::stod(ctok);
           if (coeff != 0.0) {
-            row[*col_opt] = -coeff;
+            const auto scale = li.get_col_scale(*col_opt);
+            row[*col_opt] = -coeff * scale / scale_obj;
           }
         }
 
-        auto& li = planning_lp().system(scene, phase).linear_interface();
         li.add_row(row);
       }
       ++cuts_loaded;
