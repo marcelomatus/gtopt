@@ -13,6 +13,8 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <mutex>
+#include <set>
 #include <string>
 #include <unordered_map>
 
@@ -382,6 +384,18 @@ std::string probe_parquet_codec(std::string_view requested)
   return "";
 }
 
+namespace
+{
+
+/// Per-run mutex protecting concurrent appends to solution.csv.
+std::mutex g_sol_csv_mutex;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+
+/// Tracks output directories whose solution.csv has been initialised
+/// (header written) in this process run.
+std::set<std::string> g_sol_csv_initialized;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+
+}  // namespace
+
 void OutputContext::write() const
 {
   const auto fmt = options().output_format();
@@ -392,15 +406,14 @@ void OutputContext::write() const
   const auto su = static_cast<Uid>(m_scene_uid_);
   const auto pu = static_cast<Uid>(m_phase_uid_);
 
-  spdlog::info(
-      std::format("  Writing {} output tables to '{}' "
-                  "(scene={}, phase={}, format={}, compression={})",
-                  path_tables.size(),
-                  options().output_directory(),
-                  su,
-                  pu,
-                  fmt,
-                  zfmt));
+  SPDLOG_DEBUG("  Writing {} output tables to '{}' "
+               "(scene={}, phase={}, format={}, compression={})",
+               path_tables.size(),
+               options().output_directory(),
+               su,
+               pu,
+               fmt,
+               zfmt);
 
   std::vector<std::jthread> tasks;
   tasks.reserve(path_tables.size());
@@ -421,43 +434,45 @@ void OutputContext::write() const
   }
 
   const auto out_dir = std::filesystem::path(options().output_directory());
+  const auto sol_path = out_dir / "solution.csv";
+  const auto sol_dir = out_dir.string();
 
-  // Use a per-scene solution file when scene/phase UIDs are known,
-  // and always write a generic "solution.csv" for backward compatibility.
-  const auto sol_path = (su >= 0)
-      ? out_dir / std::format("solution_scene_{}.csv", su)
-      : out_dir / "solution.csv";
-
-  spdlog::info(std::format("  Write solution to '{}' (status={}, obj_value={})",
-                           sol_path.string(),
-                           sol_status,
-                           sol_obj_value));
-
-  auto write_sol = [&](const std::filesystem::path& path)
+  // Append one row per (scene, phase) to a single consolidated solution.csv.
+  // The first writer for this output directory writes the CSV header and
+  // truncates any stale file from a previous run.  All subsequent writers
+  // append a data row.  A mutex serialises concurrent writers so the file
+  // is never corrupted by interleaved writes from parallel scene/phase solves.
   {
-    std::ofstream sol_file(path.string());
+    std::lock_guard<std::mutex> lock(g_sol_csv_mutex);
+
+    const bool first_write =
+        (g_sol_csv_initialized.find(sol_dir) == g_sol_csv_initialized.end());
+    const auto open_mode =
+        first_write ? std::ios::out : (std::ios::out | std::ios::app);
+
+    std::ofstream sol_file(sol_path.string(), open_mode);
     if (!sol_file) [[unlikely]] {
       SPDLOG_CRITICAL("Cannot open solution file '{}' for writing",
-                      path.string());
-      return;
+                      sol_path.string());
+    } else {
+      if (first_write) {
+        sol_file << "scene,phase,status,obj_value,kappa\n";
+        g_sol_csv_initialized.insert(sol_dir);
+      }
+      sol_file << std::format("{},{},{},{},{}\n",
+                              su,
+                              pu,
+                              sol_status,
+                              sol_obj_value,
+                              sol_kappa);
     }
-    sol_file << std::format("{:>12},{}\n{:>12},{}\n{:>12},{}",
-                            "obj_value",
-                            sol_obj_value,
-                            "kappa",
-                            sol_kappa,
-                            "status",
-                            sol_status);
-    sol_file << '\n';
-  };
-
-  write_sol(sol_path);
-
-  // Always write the generic "solution.csv" for backward compatibility
-  const auto generic_path = out_dir / "solution.csv";
-  if (sol_path != generic_path) {
-    write_sol(generic_path);
   }
+
+  SPDLOG_INFO("  solution.csv: scene={} phase={} status={} obj_value={}",
+              su,
+              pu,
+              sol_status,
+              sol_obj_value);
 }
 
 OutputContext::OutputContext(const SystemContext& psc,

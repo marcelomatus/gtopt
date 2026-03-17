@@ -420,12 +420,12 @@ std::expected<int, Error> LinearInterface::initial_solve(
 
     if (!is_optimal()) {
       std::string message = std::format(
-          "Failed to resolve. Solver returned non-optimal for problem: {} "
+          "Failed to solve. Solver returned non-optimal for problem: {} "
           "status: {} ",
           get_prob_name(),
           get_status());
 
-      SPDLOG_INFO(message);
+      SPDLOG_DEBUG(message);
       return std::unexpected(Error {
           .code = ErrorCode::SolverError,
           .message = std::move(message),
@@ -459,12 +459,12 @@ std::expected<int, Error> LinearInterface::resolve(
 
     if (!is_optimal()) {
       std::string message = std::format(
-          "Failed to resolve. Solver returned non-optimal for problem: {} "
+          "Failed to solve. Solver returned non-optimal for problem: {} "
           "status: {} ",
           get_prob_name(),
           get_status());
 
-      SPDLOG_INFO(message);
+      SPDLOG_DEBUG(message);
       return std::unexpected(Error {
           .code = ErrorCode::SolverError,
           .message = std::move(message),
