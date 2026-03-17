@@ -667,36 +667,27 @@ class GTOptWriter:
                 )
                 sddp_opts["sddp_named_cuts_file"] = str(hs_path)
 
-    def _build_stage_to_phase_map(self) -> dict[int, int]:
+    def _build_stage_to_phase_map(self) -> dict[int, int] | None:
         """Build a mapping from PLP stage (1-based) to gtopt phase UID.
 
-        Uses the phase_array and stage_array already set in the planning
-        JSON to reconstruct the mapping.
+        Uses the stage_array already set in the planning JSON.
+        Returns ``None`` if no mapping can be built (which makes
+        ``write_hot_start_cuts_csv`` use identity mapping).
         """
-        stage_to_phase: dict[int, int] = {}
-        raw_phases: Any = self.planning.get("phase_array", [])
         raw_stages: Any = self.planning.get("stage_array", [])
-        phase_array: list[dict[str, Any]] = (
-            raw_phases if isinstance(raw_phases, list) else []
-        )
         stage_array: list[dict[str, Any]] = (
             raw_stages if isinstance(raw_stages, list) else []
         )
+        if not stage_array:
+            return None
 
-        # Build a lookup: stage UID → phase UID
+        stage_to_phase: dict[int, int] = {}
         for stage in stage_array:
             stage_uid: int = stage.get("uid", 0)
             phase_uid: int = stage.get("phase_uid", 0)
-            # PLP stages are 1-based and map to gtopt stage UIDs directly
             stage_to_phase[stage_uid] = phase_uid
 
-        if not stage_to_phase and phase_array:
-            # Fallback: identity mapping
-            for phase in phase_array:
-                p_uid: int = phase.get("uid", 0)
-                stage_to_phase[p_uid] = p_uid
-
-        return stage_to_phase
+        return stage_to_phase or None
 
     def to_json(self, options=None) -> Dict:
         """Convert parsed data to GTOPT JSON structure."""
