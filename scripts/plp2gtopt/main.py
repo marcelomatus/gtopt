@@ -344,7 +344,7 @@ def make_parser() -> argparse.ArgumentParser:
             "'accumulate' sums all cuts directly (correct when LP "
             "objectives include probability factors); "
             "'max' shares all cuts from all scenes to all scenes. "
-            "(default: max)"
+            "(default: none)"
         ),
     )
     parser.add_argument(

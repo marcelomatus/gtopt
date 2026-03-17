@@ -86,7 +86,10 @@ namespace gtopt
  *
  * Four modes are supported:
  *
- * - `None`:       No sharing; cuts stay in their originating scene.
+ * - `None`:       No sharing; cuts stay in their originating scene (default).
+ *                 Scenes are solved independently in parallel with no
+ *                 synchronization.  Feasibility cuts are never shared
+ *                 regardless of this setting.
  * - `Expected`:   Probability-weighted average cut across scenes, added to
  *                 all scenes.  Correct when LP objectives do NOT include
  *                 probability factors.
@@ -94,11 +97,15 @@ namespace gtopt
  *                 all scenes.  Correct when LP objectives already include
  *                 probability factors (each cut is pre-weighted).
  *                 Reference: Birge & Louveaux (2011) §5.1.
- * - `Max`:        All cuts from all scenes added to all scenes (default).
+ * - `Max`:        All cuts from all scenes added to all scenes.
+ *
+ * When a sharing mode other than `None` is selected, the backward pass is
+ * synchronized per-phase: all scenes complete a phase before cuts are shared
+ * and the next phase is processed.
  */
 enum class CutSharingMode : uint8_t
 {
-  None = 0,  ///< No sharing; cuts stay in their originating scene
+  None = 0,  ///< No sharing; scenes solved independently (default)
   Expected,  ///< Probability-weighted average cut shared to all scenes
   Accumulate,  ///< Sum all cuts directly (LP objectives pre-weighted)
   Max,  ///< All cuts from all scenes added to all scenes
@@ -189,7 +196,7 @@ struct SDDPOptions
   double elastic_penalty {1e6};  ///< Penalty for elastic slack variables
   double alpha_min {0.0};  ///< Lower bound for future cost variable α ($)
   double alpha_max {1e12};  ///< Upper bound for future cost variable α ($)
-  CutSharingMode cut_sharing {CutSharingMode::Max};  ///< Cut sharing mode
+  CutSharingMode cut_sharing {CutSharingMode::None};  ///< Cut sharing mode
 
   /// Elastic filter mode: how to handle backward-pass infeasibility.
   /// `FeasibilityCut` / "single-cut" (default) adds a single Benders
@@ -779,7 +786,51 @@ private:
       -> std::expected<ForwardPassOutcome, Error>;
 
   /// Run the backward pass for all feasible scenes in parallel.
+  /// When cut_sharing is None, scenes run their full backward pass
+  /// independently.  When cut sharing is enabled, the backward pass is
+  /// synchronized per-phase: all scenes complete a phase before optimality
+  /// cuts are shared and the next phase is processed.
   [[nodiscard]] auto run_backward_pass_all_scenes(
+      std::span<const uint8_t> scene_feasible,
+      SDDPWorkPool& pool,
+      const SolverOptions& opts,
+      int iter) -> BackwardPassOutcome;
+
+  /// Process a single backward-pass phase step (pi → pi-1) for one scene.
+  /// Builds the optimality cut, stores it, adds it to the LP, re-solves,
+  /// and handles feasibility backpropagation.
+  /// @return Number of optimality cuts added during this step.
+  [[nodiscard]] auto backward_pass_single_phase(SceneIndex scene,
+                                                Index pi,
+                                                int cut_offset,
+                                                const SolverOptions& opts,
+                                                int iteration)
+      -> std::expected<int, Error>;
+
+  /// Process a single backward-pass phase step (pi → pi-1) with apertures.
+  /// @return Number of optimality cuts added during this step.
+  [[nodiscard]] auto backward_pass_with_apertures_single_phase(
+      SceneIndex scene,
+      Index pi,
+      int cut_offset,
+      const SolverOptions& opts,
+      int iteration) -> std::expected<int, Error>;
+
+  /// Implementation helper for aperture per-phase backward step.
+  /// Used by backward_pass_with_apertures_single_phase.
+  [[nodiscard]] auto backward_pass_aperture_phase_impl(
+      SceneIndex scene,
+      Index pi,
+      int cut_offset,
+      const ScenarioLP& base_scenario,
+      std::span<const ScenarioLP> all_scenarios,
+      std::span<const Aperture> aperture_defs,
+      const SolverOptions& opts,
+      int iteration) -> std::expected<int, Error>;
+
+  /// Phase-synchronized backward pass: processes phases one at a time,
+  /// sharing optimality cuts between scenes after each phase completes.
+  [[nodiscard]] auto run_backward_pass_synchronized(
       std::span<const uint8_t> scene_feasible,
       SDDPWorkPool& pool,
       const SolverOptions& opts,
