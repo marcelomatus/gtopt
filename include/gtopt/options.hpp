@@ -146,6 +146,25 @@ struct SddpOptions
    */
   OptInt sddp_boundary_max_iterations {};
 
+  /** @brief CSV file with named-variable cuts for hot-start across all phases.
+   *
+   * Unlike boundary cuts (which apply only to the last phase), these cuts
+   * include a `phase` column indicating which phase they belong to.  The
+   * solver resolves named state-variable headers (reservoir / battery / junction)
+   * to LP column indices in the specified phase, then adds each cut as:
+   *
+   *   α_phase ≥ rhs + Σ_i coeff_i · state_var_i[phase]
+   *
+   * Format:
+   * ```
+   * name,iteration,scene,phase,rhs,Reservoir1,Reservoir2,...
+   * hs_1_1_3,1,1,3,-5000.0,0.25,0.75,...
+   * ```
+   *
+   * If empty, no named hot-start cuts are loaded.
+   */
+  OptName sddp_named_cuts_file {};
+
   void merge(SddpOptions&& opts)
   {
     merge_opt(sddp_cut_sharing_mode, std::move(opts.sddp_cut_sharing_mode));
@@ -166,6 +185,7 @@ struct SddpOptions
     merge_opt(sddp_boundary_cuts_file, std::move(opts.sddp_boundary_cuts_file));
     merge_opt(sddp_boundary_cuts_mode, std::move(opts.sddp_boundary_cuts_mode));
     merge_opt(sddp_boundary_max_iterations, opts.sddp_boundary_max_iterations);
+    merge_opt(sddp_named_cuts_file, std::move(opts.sddp_named_cuts_file));
 
     auto _ = std::move(opts);
   }

@@ -306,6 +306,21 @@ struct SDDPOptions
   /// file.  Only cuts from the last N distinct iterations (by the
   /// `iteration` column / PLP IPDNumIte) are retained.  0 = load all.
   int boundary_max_iterations {0};
+
+  /// CSV file with named-variable hot-start cuts for all phases.
+  ///
+  /// Unlike boundary cuts (which apply only to the last phase), these
+  /// cuts include a `phase` column indicating which phase they belong to.
+  /// The solver resolves named state-variable headers (reservoir / battery /
+  /// junction) to LP column indices in the specified phase, then adds each
+  /// cut as a lower-bound constraint on the corresponding α variable:
+  ///   α_phase ≥ rhs + Σ_i coeff_i · state_var_i[phase]
+  ///
+  /// Format:
+  ///   name,iteration,scene,phase,rhs,StateVar1,StateVar2,...
+  ///
+  /// Empty = no named hot-start cuts.
+  std::string named_cuts_file {};
 };
 
 // ─── Iteration result ───────────────────────────────────────────────────────
@@ -605,6 +620,21 @@ public:
   ///
   /// @return Number of cuts loaded, or an error.
   [[nodiscard]] auto load_boundary_cuts(const std::string& filepath)
+      -> std::expected<int, Error>;
+
+  /// Load named-variable cuts from a CSV file with a `phase` column.
+  ///
+  /// Unlike `load_boundary_cuts()` (which loads into the last phase only),
+  /// this method resolves named state-variable headers in each specified
+  /// phase and adds the cuts to the corresponding phase LP.  The CSV
+  /// format is:
+  ///   name,iteration,scene,phase,rhs,StateVar1,StateVar2,...
+  ///
+  /// This is used for hot-start from PLP planos data where cuts span
+  /// multiple stages (mapped to gtopt phases).
+  ///
+  /// @return Number of cuts loaded, or an error.
+  [[nodiscard]] auto load_named_cuts(const std::string& filepath)
       -> std::expected<int, Error>;
 
 private:
