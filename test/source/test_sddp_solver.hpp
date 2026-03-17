@@ -411,15 +411,15 @@ TEST_CASE("parse_cut_sharing_mode")  // NOLINT
 
 TEST_CASE("parse_elastic_filter_mode")  // NOLINT
 {
-  // Canonical names
-  CHECK(parse_elastic_filter_mode("single-cut")
+  // Canonical names (underscore)
+  CHECK(parse_elastic_filter_mode("single_cut")
         == ElasticFilterMode::FeasibilityCut);
-  CHECK(parse_elastic_filter_mode("multi-cut") == ElasticFilterMode::MultiCut);
+  CHECK(parse_elastic_filter_mode("multi_cut") == ElasticFilterMode::MultiCut);
   CHECK(parse_elastic_filter_mode("backpropagate")
         == ElasticFilterMode::BackpropagateBounds);
-  // Backward-compat alias
+  // Backward-compat alias ("cut" falls through to FeasibilityCut default)
   CHECK(parse_elastic_filter_mode("cut") == ElasticFilterMode::FeasibilityCut);
-  // Unknown → default (FeasibilityCut)
+  // Unknown string also falls through to FeasibilityCut
   CHECK(parse_elastic_filter_mode("unknown")
         == ElasticFilterMode::FeasibilityCut);
 }
