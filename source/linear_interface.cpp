@@ -99,7 +99,9 @@ LinearInterface LinearInterface::clone() const
     delete raw;  // NOLINT(cppcoreguidelines-owning-memory)
     cloned_solver = std::make_shared<SolverInterface>();
   }
-  return {std::move(cloned_solver), log_file};
+  auto cloned = LinearInterface {std::move(cloned_solver), log_file};
+  cloned.m_col_scales_ = m_col_scales_;
+  return cloned;
 }
 
 void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
@@ -116,6 +118,9 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
                       flat_lp.objval.data(),
                       flat_lp.rowlb.data(),
                       flat_lp.rowub.data());
+
+  // Preserve per-column scale factors from LinearProblem.
+  m_col_scales_ = flat_lp.col_scales;
 
   // Preserve coefficient statistics computed during to_flat().
   m_stats_nnz_ = flat_lp.stats_nnz;
