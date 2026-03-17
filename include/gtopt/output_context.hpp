@@ -10,6 +10,9 @@
 
 #pragma once
 
+#include <string>
+#include <string_view>
+
 #include <gtopt/arrow_types.hpp>
 #include <gtopt/basic_types.hpp>
 #include <gtopt/linear_interface.hpp>
@@ -20,6 +23,21 @@
 
 namespace gtopt
 {
+
+/// Probe the Arrow/Parquet runtime to determine the best available codec for
+/// the requested name.  Uses `arrow::util::Codec::IsAvailable()` — the
+/// correct runtime check — rather than `parquet::IsCodecSupported()`, which
+/// only validates the enum value and does **not** detect codecs that were
+/// absent when the Arrow library was compiled.
+///
+/// Falls back (with a WARN log) to `"gzip"`, then to `""` (uncompressed) when
+/// the requested codec is unavailable.
+///
+/// **Call once at program startup** (e.g. in `gtopt_main()` after loading
+/// options) and store the result in `planning.options.output_compression` so
+/// that every downstream write uses the same pre-validated codec without
+/// re-probing on each file.
+[[nodiscard]] std::string probe_parquet_codec(std::string_view requested);
 
 class OutputContext
 {
