@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import functools
 import json
 import logging
 import pathlib
@@ -32,6 +33,35 @@ try:
         __version__ = "dev"
 except ImportError:
     __version__ = "dev"
+
+
+@functools.lru_cache(maxsize=8)
+def _probe_parquet_codec(requested: str) -> str:
+    """Return the best available PyArrow Parquet codec for *requested*.
+
+    Uses ``pyarrow.Codec`` to test whether the codec is compiled into the
+    linked Arrow library.  Falls back to ``"gzip"`` when *requested* is
+    unavailable, printing a warning to *stderr*.  Results are cached via
+    ``lru_cache`` so the probe runs **at most once per unique codec name**.
+    """
+    if not requested or requested in ("none", "uncompressed"):
+        return requested
+    try:
+        import pyarrow as pa  # noqa: PLC0415
+
+        pa.Codec(requested)
+        return requested
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        print(
+            f"Warning: Parquet codec '{requested}' is not available in this "
+            "Arrow build; falling back to gzip",
+            file=sys.stderr,
+        )
+        return "gzip"
+
+
+# Best available Parquet codec — probed once at module import time.
+_DEFAULT_COMPRESSION: str = _probe_parquet_codec("zstd")
 
 # Sheets that belong to the ``simulation`` section of the gtopt JSON schema.
 # These must match the fields declared in ``json_simulation.hpp``.
@@ -303,10 +333,11 @@ def df_to_file(df, input_path, cname, fname, input_format, compression):
     if input_format == "csv":
         df.to_csv(input_file, index=False)
     else:
+        probed = _probe_parquet_codec(compression) if compression else ""
         df.to_parquet(
             input_file,
             index=False,
-            compression=compression if compression != "" else None,
+            compression=probed if probed else None,
         )
 
     return input_file
@@ -729,7 +760,7 @@ def main(argv: list[str] | None = None) -> None:
         parser.add_argument(
             "-c",
             "--compression",
-            default="gzip",
+            default="zstd",
             metavar="ALG",
             help=(
                 "compression algorithm for Parquet output files "

@@ -42,6 +42,7 @@
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/json/json_user_constraint.hpp>
 #include <gtopt/lp_stats.hpp>
+#include <gtopt/output_context.hpp>
 #include <gtopt/pampl_parser.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/solver_options.hpp>
@@ -416,6 +417,13 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     // Update the planning options
     //
     apply_cli_options(my_planning, opts);
+
+    // Probe the Arrow/Parquet runtime once to determine the best available
+    // codec for the requested output_compression.  Stores the result back so
+    // every downstream write (parquet + csv, across all scenes/phases) uses
+    // the same pre-validated codec without re-probing on each file.
+    my_planning.options.output_compression = probe_parquet_codec(
+        OptionsLP(my_planning.options).output_compression());
 
     // Propagate just_build_lp into planning options so the SDDP solver
     // also sees it when called via planning_lp.resolve().
