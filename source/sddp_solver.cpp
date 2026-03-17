@@ -1142,6 +1142,18 @@ auto SDDPSolver::load_scene_cuts_from_directory(const std::string& directory)
   return total_loaded;
 }
 
+// ── State-variable name matching helper ─────────────────────────────────────
+namespace
+{
+/// Returns true if *col_name* is a final-state-variable name that can
+/// appear in boundary/hot-start cut CSV headers (efin, soc, vfin).
+[[nodiscard]] constexpr auto is_final_state_col(std::string_view col_name)
+    -> bool
+{
+  return col_name == "efin" || col_name == "soc" || col_name == "vfin";
+}
+}  // namespace
+
 // ── Boundary (future-cost) cuts ─────────────────────────────────────────────
 
 auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
@@ -1266,10 +1278,7 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
           // Find the efin/vfin state variable for this element in the last
           // phase
           for (const auto& [key, svar] : svar_map) {
-            if (key.uid == elem_uid
-                && (key.col_name == "efin" || key.col_name == "soc"
-                    || key.col_name == "vfin"))
-            {
+            if (key.uid == elem_uid && is_final_state_col(key.col_name)) {
               found_col = svar.col();
               break;
             }
@@ -1576,10 +1585,7 @@ auto SDDPSolver::load_named_cuts(const std::string& filepath)
           } else {
             // Find the efin/soc/vfin state variable for this element
             for (const auto& [key, svar] : svar_map) {
-              if (key.uid == elem_uid
-                  && (key.col_name == "efin" || key.col_name == "soc"
-                      || key.col_name == "vfin"))
-              {
+              if (key.uid == elem_uid && is_final_state_col(key.col_name)) {
                 found_col = svar.col();
                 break;
               }

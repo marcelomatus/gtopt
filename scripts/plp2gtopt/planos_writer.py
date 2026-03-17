@@ -121,10 +121,11 @@ def write_hot_start_cuts_csv(
 
         for cut in cuts:
             plp_stage = cut.get("stage", 0)
-            if stage_to_phase is not None:
-                phase_uid = stage_to_phase.get(plp_stage, plp_stage)
-            else:
-                phase_uid = plp_stage
+            phase_uid = (
+                stage_to_phase.get(plp_stage, plp_stage)
+                if stage_to_phase
+                else plp_stage
+            )
 
             row = [
                 cut["name"],
