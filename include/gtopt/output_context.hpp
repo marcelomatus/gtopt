@@ -43,7 +43,9 @@ public:
   using FieldVectorMap = std::map<ClassFieldName, FieldVector<Type>>;
 
   explicit OutputContext(const SystemContext& psc,
-                         const LinearInterface& linear_interface);
+                         const LinearInterface& linear_interface,
+                         Uid scene_uid = 0,
+                         Uid phase_uid = 0);
 
   [[nodiscard]] auto&& options() const { return sc.get().options(); }
 
@@ -368,6 +370,9 @@ public:
 
 private:
   std::reference_wrapper<const SystemContext> sc;
+
+  Uid m_scene_uid_;
+  Uid m_phase_uid_;
 
   double sol_obj_value;
   double sol_status;

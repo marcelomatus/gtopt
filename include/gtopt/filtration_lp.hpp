@@ -77,6 +77,18 @@ public:
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
   /**
+   * @brief Get filtration variable columns for a scenario/stage combination
+   *
+   * Returns the column indices for the filtration flow variables.  These
+   * reference the waterway flow columns associated with this filtration.
+   */
+  [[nodiscard]] const auto& filtration_cols_at(const ScenarioLP& scenario,
+                                               const StageLP& stage) const
+  {
+    return filtration_cols.at({scenario.uid(), stage.uid()});
+  }
+
+  /**
    * @brief Update reservoir-dependent LP coefficients for this filtration.
    *
    * When the Filtration has piecewise-linear segments, selects the active
