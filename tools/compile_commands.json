@@ -325,6 +325,12 @@
 },
 {
   "directory": "/home/runner/work/gtopt/gtopt/build/test",
+  "command": "/usr/bin/clang++ -DBOOST_CONTAINER_DYN_LINK -DBOOST_CONTAINER_NO_LIB -DSPDLOG_COMPILED_LIB -DSPDLOG_USE_STD_FORMAT -D_GLIBCXX_CISO646 -D__cpp_lib_expected=202211L -I/home/runner/work/gtopt/gtopt/include -I/home/runner/work/gtopt/gtopt/build/_deps/gtopt-build/PackageProjectInclude -isystem /home/runner/work/gtopt/gtopt/test -isystem /home/runner/.cache/cpm_modules/doctest/8481 -isystem /usr/share/miniconda/include -isystem /home/runner/.cache/cpm/spdlog/1250/include -isystem /home/runner/.cache/cpm/daw/116a/include -isystem /home/runner/work/gtopt/gtopt/build/_deps/daw_header_libraries-src/include -isystem /home/runner/work/gtopt/gtopt/build/_deps/daw_utf_range-src/include -isystem /home/runner/.cache/cpm/strong_type/e921/include -g -std=c++26 -Wall -Wpedantic -Wextra -Werror -Wno-deprecated-declarations -Wno-invalid-constexpr -o CMakeFiles/gtoptTests.dir/source/test_aperture_all.cpp.o -c /home/runner/work/gtopt/gtopt/test/source/test_aperture_all.cpp",
+  "file": "/home/runner/work/gtopt/gtopt/test/source/test_aperture_all.cpp",
+  "output": "test/CMakeFiles/gtoptTests.dir/source/test_aperture_all.cpp.o"
+},
+{
+  "directory": "/home/runner/work/gtopt/gtopt/build/test",
   "command": "/usr/bin/clang++ -DBOOST_CONTAINER_DYN_LINK -DBOOST_CONTAINER_NO_LIB -DSPDLOG_COMPILED_LIB -DSPDLOG_USE_STD_FORMAT -D_GLIBCXX_CISO646 -D__cpp_lib_expected=202211L -I/home/runner/work/gtopt/gtopt/include -I/home/runner/work/gtopt/gtopt/build/_deps/gtopt-build/PackageProjectInclude -isystem /home/runner/work/gtopt/gtopt/test -isystem /home/runner/.cache/cpm_modules/doctest/8481 -isystem /usr/share/miniconda/include -isystem /home/runner/.cache/cpm/spdlog/1250/include -isystem /home/runner/.cache/cpm/daw/116a/include -isystem /home/runner/work/gtopt/gtopt/build/_deps/daw_header_libraries-src/include -isystem /home/runner/work/gtopt/gtopt/build/_deps/daw_utf_range-src/include -isystem /home/runner/.cache/cpm/strong_type/e921/include -g -std=c++26 -Wall -Wpedantic -Wextra -Werror -Wno-deprecated-declarations -Wno-invalid-constexpr -o CMakeFiles/gtoptTests.dir/source/test_array_all.cpp.o -c /home/runner/work/gtopt/gtopt/test/source/test_array_all.cpp",
   "file": "/home/runner/work/gtopt/gtopt/test/source/test_array_all.cpp",
   "output": "test/CMakeFiles/gtoptTests.dir/source/test_array_all.cpp.o"
