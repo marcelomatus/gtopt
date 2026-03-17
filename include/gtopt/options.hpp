@@ -150,8 +150,9 @@ struct SddpOptions
    *
    * Unlike boundary cuts (which apply only to the last phase), these cuts
    * include a `phase` column indicating which phase they belong to.  The
-   * solver resolves named state-variable headers (reservoir / battery / junction)
-   * to LP column indices in the specified phase, then adds each cut as:
+   * solver resolves named state-variable headers (reservoir / battery /
+   * junction) to LP column indices in the specified phase, then adds each cut
+   * as:
    *
    *   α_phase ≥ rhs + Σ_i coeff_i · state_var_i[phase]
    *

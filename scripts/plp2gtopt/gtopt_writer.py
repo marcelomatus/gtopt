@@ -674,20 +674,26 @@ class GTOptWriter:
         JSON to reconstruct the mapping.
         """
         stage_to_phase: dict[int, int] = {}
-        phase_array = self.planning.get("phase_array", [])
-        stage_array = self.planning.get("stage_array", [])
+        raw_phases: Any = self.planning.get("phase_array", [])
+        raw_stages: Any = self.planning.get("stage_array", [])
+        phase_array: list[dict[str, Any]] = (
+            raw_phases if isinstance(raw_phases, list) else []
+        )
+        stage_array: list[dict[str, Any]] = (
+            raw_stages if isinstance(raw_stages, list) else []
+        )
 
         # Build a lookup: stage UID → phase UID
         for stage in stage_array:
-            stage_uid = stage.get("uid", 0)
-            phase_uid = stage.get("phase_uid", 0)
+            stage_uid: int = stage.get("uid", 0)
+            phase_uid: int = stage.get("phase_uid", 0)
             # PLP stages are 1-based and map to gtopt stage UIDs directly
             stage_to_phase[stage_uid] = phase_uid
 
         if not stage_to_phase and phase_array:
             # Fallback: identity mapping
             for phase in phase_array:
-                p_uid = phase.get("uid", 0)
+                p_uid: int = phase.get("uid", 0)
                 stage_to_phase[p_uid] = p_uid
 
         return stage_to_phase
