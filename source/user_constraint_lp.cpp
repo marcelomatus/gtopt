@@ -21,9 +21,11 @@
 #include <gtopt/constraint_parser.hpp>
 #include <gtopt/converter_lp.hpp>
 #include <gtopt/demand_lp.hpp>
+#include <gtopt/filtration_lp.hpp>
 #include <gtopt/flow_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/input_context.hpp>
+#include <gtopt/junction_lp.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/reserve_provision_lp.hpp>
@@ -157,6 +159,16 @@ namespace
         if (const auto it = cols.find(buid); it != cols.end()) {
           return it->second;
         }
+      } else if (ref.attribute == "lossp") {
+        const auto& cols = ln.lossp_cols_at(scenario, stage);
+        if (const auto it = cols.find(buid); it != cols.end()) {
+          return it->second;
+        }
+      } else if (ref.attribute == "lossn") {
+        const auto& cols = ln.lossn_cols_at(scenario, stage);
+        if (const auto it = cols.find(buid); it != cols.end()) {
+          return it->second;
+        }
       }
       return std::nullopt;
     }
@@ -245,6 +257,43 @@ namespace
       const auto& bus_lp = sc.get_element(ObjectSingleId<BusLP> {single_id});
       if (ref.attribute == "theta" || ref.attribute == "angle") {
         return bus_lp.lookup_theta_col(scenario, stage, buid);
+      }
+      return std::nullopt;
+    }
+
+    // ── junction: drain variable ─────────────────────────────────────────
+    if (ref.element_type == "junction") {
+      const auto& jun = sc.get_element(ObjectSingleId<JunctionLP> {single_id});
+      if (ref.attribute == "drain") {
+        const auto& cols = jun.drain_cols_at(scenario, stage);
+        if (const auto it = cols.find(buid); it != cols.end()) {
+          return it->second;
+        }
+      }
+      return std::nullopt;
+    }
+
+    // ── flow: discharge variable ─────────────────────────────────────────
+    if (ref.element_type == "flow") {
+      const auto& flw = sc.get_element(ObjectSingleId<FlowLP> {single_id});
+      if (ref.attribute == "flow" || ref.attribute == "discharge") {
+        const auto& cols = flw.flow_cols_at(scenario, stage);
+        if (const auto it = cols.find(buid); it != cols.end()) {
+          return it->second;
+        }
+      }
+      return std::nullopt;
+    }
+
+    // ── filtration: filtration flow variable ──────────────────────────────
+    if (ref.element_type == "filtration") {
+      const auto& fil =
+          sc.get_element(ObjectSingleId<FiltrationLP> {single_id});
+      if (ref.attribute == "flow" || ref.attribute == "filtration") {
+        const auto& cols = fil.filtration_cols_at(scenario, stage);
+        if (const auto it = cols.find(buid); it != cols.end()) {
+          return it->second;
+        }
       }
       return std::nullopt;
     }
@@ -416,6 +465,42 @@ void collect_sum_cols(const SystemContext& sc,
       }
       for (const auto& c : sc.elements<ConverterLP>()) {
         add_one(std::to_string(static_cast<int>(c.uid())));
+      }
+    } else if (sum_ref.element_type
+               == "junction") {  // NOLINT(bugprone-branch-clone)
+      if (sum_ref.type_filter) {
+        SPDLOG_WARN(std::format(
+            "user_constraint sum({}): type_filter is not supported for "
+            "element type '{}' — filter ignored",
+            sum_ref.element_type,
+            sum_ref.element_type));
+      }
+      for (const auto& jun : sc.elements<JunctionLP>()) {
+        add_one(std::to_string(static_cast<int>(jun.uid())));
+      }
+    } else if (sum_ref.element_type
+               == "flow") {  // NOLINT(bugprone-branch-clone)
+      if (sum_ref.type_filter) {
+        SPDLOG_WARN(std::format(
+            "user_constraint sum({}): type_filter is not supported for "
+            "element type '{}' — filter ignored",
+            sum_ref.element_type,
+            sum_ref.element_type));
+      }
+      for (const auto& flw : sc.elements<FlowLP>()) {
+        add_one(std::to_string(static_cast<int>(flw.uid())));
+      }
+    } else if (sum_ref.element_type
+               == "filtration") {  // NOLINT(bugprone-branch-clone)
+      if (sum_ref.type_filter) {
+        SPDLOG_WARN(std::format(
+            "user_constraint sum({}): type_filter is not supported for "
+            "element type '{}' — filter ignored",
+            sum_ref.element_type,
+            sum_ref.element_type));
+      }
+      for (const auto& fil : sc.elements<FiltrationLP>()) {
+        add_one(std::to_string(static_cast<int>(fil.uid())));
       }
     } else if (sum_ref.element_type
                == "reserve_provision") {  // NOLINT(bugprone-branch-clone)

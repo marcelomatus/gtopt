@@ -96,15 +96,21 @@ generator('uid:23').generation  -- by UID
 | `demand` | `fail` | Unserved demand / load curtailment (MW) |
 | `line` | `flow` | Active power flow on transmission line (MW) |
 | `line` | `flowp` | Positive-direction power flow (MW) |
+| `line` | `flown` | Negative-direction power flow (MW) |
+| `line` | `lossp` | Positive-direction line losses (MW) |
+| `line` | `lossn` | Negative-direction line losses (MW) |
 | `battery` | `energy` | Battery state of energy (MWh) |
 | `battery` | `charge` | Battery charging power (MW) |
 | `battery` | `discharge` | Battery discharging power (MW) |
 | `converter` | `charge` | Converter charging power (MW) |
 | `converter` | `discharge` | Converter discharging power (MW) |
-| `reservoir` | `volume` | Reservoir water volume (hm³) |
+| `reservoir` | `volume` | Reservoir water volume (hm³); also accepts `energy` |
 | `bus` | `theta` | Voltage angle at bus (radians); also accepts `angle` |
 | `waterway` | `flow` | Water flow through waterway (m³/s) |
 | `turbine` | `generation` | Turbine power output (MW) |
+| `junction` | `drain` | Junction drain/spill variable (m³/s) |
+| `flow` | `flow` | Water discharge into junction (m³/s); also accepts `discharge` |
+| `filtration` | `flow` | Filtration flow variable (m³/s); also accepts `filtration` |
 | `reserve_provision` | `up` | Up-reserve provision variable (MW reserved up); also accepts `uprovision`, `up_provision` |
 | `reserve_provision` | `dn` | Down-reserve provision variable (MW reserved down); also accepts `dprovision`, `dn_provision`, `down` |
 | `reserve_zone` | `up` | Up-reserve requirement variable (MW of up-reserve); also accepts `urequirement`, `up_requirement` |
@@ -610,6 +616,7 @@ element_id     := STRING          -- name: 'G1' or 'uid:3'
 element_type   := 'generator' | 'demand' | 'line' | 'battery'
                |  'converter' | 'reservoir' | 'bus'
                |  'waterway' | 'turbine'
+               |  'junction' | 'flow' | 'filtration'
                |  'reserve_provision' | 'reserve_zone'
 
 comp_op        := '<=' | '>=' | '='
