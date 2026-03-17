@@ -99,13 +99,16 @@ generator('uid:23').generation  -- by UID
 | `line` | `flown` | Negative-direction power flow (MW) |
 | `line` | `lossp` | Positive-direction line losses (MW) |
 | `line` | `lossn` | Negative-direction line losses (MW) |
-| `battery` | `energy` | Battery state of energy (MWh) |
+| `battery` | `energy` | Battery state of energy (MWh); scaled by `energy_scale` |
 | `battery` | `charge` | Battery charging power (MW) |
 | `battery` | `discharge` | Battery discharging power (MW) |
+| `battery` | `spill` | Battery energy spillway / curtailment (MW); also accepts `drain` |
 | `converter` | `charge` | Converter charging power (MW) |
 | `converter` | `discharge` | Converter discharging power (MW) |
-| `reservoir` | `volume` | Reservoir water volume (hm³); also accepts `energy` |
-| `bus` | `theta` | Voltage angle at bus (radians); also accepts `angle` |
+| `reservoir` | `volume` | Reservoir water volume (dam³); also accepts `energy`; scaled by `vol_scale` |
+| `reservoir` | `extraction` | Water extraction from reservoir (m³/s); scaled by `vol_scale` |
+| `reservoir` | `spill` | Reservoir spillway discharge (m³/s); also accepts `drain`; scaled by `vol_scale` |
+| `bus` | `theta` | Voltage angle at bus (radians); also accepts `angle`; scaled by `1/scale_theta` |
 | `waterway` | `flow` | Water flow through waterway (m³/s) |
 | `turbine` | `generation` | Turbine power output (MW) |
 | `junction` | `drain` | Junction drain/spill variable (m³/s) |
@@ -115,6 +118,27 @@ generator('uid:23').generation  -- by UID
 | `reserve_provision` | `dn` | Down-reserve provision variable (MW reserved down); also accepts `dprovision`, `dn_provision`, `down` |
 | `reserve_zone` | `up` | Up-reserve requirement variable (MW of up-reserve); also accepts `urequirement`, `up_requirement` |
 | `reserve_zone` | `dn` | Down-reserve requirement variable (MW of down-reserve); also accepts `drequirement`, `dn_requirement`, `down` |
+
+### Variable Scaling
+
+Some LP variables are internally scaled to improve solver numerical conditioning.
+User constraints are written in **physical units**; the constraint resolver
+automatically applies the appropriate scale factor so that the LP constraint
+is dimensionally correct.
+
+| Variable | Scale factor (physical = LP × scale) | Default |
+|----------|--------------------------------------|---------|
+| `reservoir.volume` / `reservoir.energy` | `energy_scale` (= `vol_scale`) | 1000 |
+| `reservoir.extraction` | `energy_scale` (= `vol_scale`) | 1000 |
+| `reservoir.spill` / `reservoir.drain` | `flow_scale` (= `vol_scale`) | 1000 |
+| `battery.energy` | `energy_scale` | 1.0 |
+| `battery.spill` / `battery.drain` | `flow_scale` | 1.0 |
+| `bus.theta` / `bus.angle` | `1 / scale_theta` | 1/1000 |
+| All other variables | 1.0 (no scaling) | — |
+
+For example, `reservoir("R1").volume >= 5000` (in dam³) is automatically
+translated to the LP constraint `vol_scale × volume_LP ≥ 5000`, accounting
+for the fact that the LP variable stores `volume_physical / vol_scale`.
 
 ---
 

@@ -982,4 +982,81 @@ TEST_SUITE("ConstraintParser")
     CHECK(sr.type_filter.value_or("") == "industrial");
     CHECK(sr.attribute == "load");
   }
+
+  // ── New storage attributes: spill / drain / extraction ────────────────
+
+  TEST_CASE("Parse battery spill attribute")
+  {
+    auto expr = ConstraintParser::parse(R"(battery("B1").spill <= 10)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "battery");
+    CHECK(ref0.element_id == "B1");
+    CHECK(ref0.attribute == "spill");
+  }
+
+  TEST_CASE("Parse battery drain alias")
+  {
+    auto expr = ConstraintParser::parse(R"(battery("B1").drain <= 5)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "battery");
+    CHECK(ref0.attribute == "drain");
+  }
+
+  TEST_CASE("Parse reservoir spill attribute")
+  {
+    auto expr = ConstraintParser::parse(R"(reservoir("RES1").spill <= 100)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "reservoir");
+    CHECK(ref0.element_id == "RES1");
+    CHECK(ref0.attribute == "spill");
+  }
+
+  TEST_CASE("Parse reservoir drain alias")
+  {
+    auto expr = ConstraintParser::parse(R"(reservoir("RES1").drain <= 50)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "reservoir");
+    CHECK(ref0.attribute == "drain");
+  }
+
+  TEST_CASE("Parse reservoir extraction attribute")
+  {
+    auto expr =
+        ConstraintParser::parse(R"(reservoir("RES1").extraction <= 200)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "reservoir");
+    CHECK(ref0.element_id == "RES1");
+    CHECK(ref0.attribute == "extraction");
+  }
+
+  TEST_CASE("Parse cross-element with reservoir extraction and battery spill")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(reservoir("R1").extraction + battery("B1").spill <= 300)");
+
+    REQUIRE(expr.terms.size() == 2);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    REQUIRE(expr.terms[1].element.has_value());
+    const auto& ref1 = expr.terms[1].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "reservoir");
+    CHECK(ref0.attribute == "extraction");
+    CHECK(ref1.element_type == "battery");
+    CHECK(ref1.attribute == "spill");
+  }
 }
