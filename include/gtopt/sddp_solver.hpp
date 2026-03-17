@@ -184,6 +184,7 @@ enum class ElasticFilterMode : uint8_t
 struct SDDPOptions
 {
   int max_iterations {100};  ///< Maximum forward/backward iterations
+  int min_iterations {2};  ///< Minimum iterations before convergence
   double convergence_tol {1e-4};  ///< Relative gap tolerance for convergence
   double elastic_penalty {1e6};  ///< Penalty for elastic slack variables
   double alpha_min {0.0};  ///< Lower bound for future cost variable α ($)
