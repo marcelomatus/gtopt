@@ -294,6 +294,7 @@ public:
           .name = sc.lp_label(scenario, stage, cname, "eini", uid()),
           .lowb = storage().eini.value_or(stage_emin) / energy_scale,
           .uppb = storage().eini.value_or(stage_emax) / energy_scale,
+          .scale = energy_scale,
       });
     } else if (prev_phase == nullptr) {
       // Same phase – the previous stage's efin column serves as eini here
@@ -309,6 +310,7 @@ public:
           .name = sc.lp_label(scenario, stage, cname, "sini", uid()),
           .lowb = lp_emin,
           .uppb = lp_emax,
+          .scale = energy_scale,
       });
       if (effective_usv) {
         // Link as DependentVariable of the previous phase's efin StateVariable
@@ -367,6 +369,7 @@ public:
           .lowb = lp_emin,
           .uppb = lp_emax,
           .cost = stage_ecost,
+          .scale = energy_scale,
       });
 
       ecols[buid] = ec;
@@ -399,6 +402,7 @@ public:
             .uppb = drain_capacity.value_or(LinearProblem::DblMax) / flow_scale,
             .cost = sc.block_ecost(scenario, stage, block, *drain_cost)
                 * flow_scale,
+            .scale = flow_scale,
         });
 
         dcols[buid] = dcol;
@@ -519,21 +523,22 @@ public:
     // m_energy_scale_:  rc_phys = rc_LP / energy_scale.
     // This is the inverse of the primal rescaling, ensuring that the output
     // is invariant to the choice of energy_scale.
+    //
+    // The scale factor is stored in SparseCol::scale at column creation time;
+    // col_scale_sol/cost provide uniform rescaling helpers.
     if (std::abs(m_energy_scale_ - 1.0)
         > std::numeric_limits<double>::epsilon())
     {
-      const auto scale = m_energy_scale_;
-      const auto inv_scale = 1.0 / scale;
-      const auto sol_rescale = [scale](auto v) { return v * scale; };
-      const auto cost_rescale = [inv_scale](auto v) { return v * inv_scale; };
-      out.add_col_sol(cname, "eini", pid, eini_cols, sol_rescale);
-      out.add_col_cost(cname, "eini", pid, eini_cols, cost_rescale);
-      out.add_col_sol(cname, "sini", pid, sini_cols, sol_rescale);
-      out.add_col_cost(cname, "sini", pid, sini_cols, cost_rescale);
-      out.add_col_sol(cname, "efin", pid, efin_cols, sol_rescale);
-      out.add_col_cost(cname, "efin", pid, efin_cols, cost_rescale);
-      out.add_col_sol(cname, "volumen", pid, energy_cols, sol_rescale);
-      out.add_col_cost(cname, "volumen", pid, energy_cols, cost_rescale);
+      const auto sol_r = col_scale_sol(m_energy_scale_);
+      const auto cost_r = col_scale_cost(m_energy_scale_);
+      out.add_col_sol(cname, "eini", pid, eini_cols, sol_r);
+      out.add_col_cost(cname, "eini", pid, eini_cols, cost_r);
+      out.add_col_sol(cname, "sini", pid, sini_cols, sol_r);
+      out.add_col_cost(cname, "sini", pid, sini_cols, cost_r);
+      out.add_col_sol(cname, "efin", pid, efin_cols, sol_r);
+      out.add_col_cost(cname, "efin", pid, efin_cols, cost_r);
+      out.add_col_sol(cname, "volumen", pid, energy_cols, sol_r);
+      out.add_col_cost(cname, "volumen", pid, energy_cols, cost_r);
     } else {
       out.add_col_sol(cname, "eini", pid, eini_cols);
       out.add_col_cost(cname, "eini", pid, eini_cols);
@@ -556,14 +561,13 @@ public:
 
     // Drain LP variable is in physical/m_flow_scale_ units; multiply primal
     // by m_flow_scale_ to recover physical units, divide cost by m_flow_scale_.
+    // Uses col_scale_sol/cost helpers for uniform rescaling.
     if (std::abs(m_flow_scale_ - 1.0) > std::numeric_limits<double>::epsilon())
     {
-      const auto fscale = m_flow_scale_;
-      const auto inv_fscale = 1.0 / fscale;
-      const auto sol_f = [fscale](auto v) { return v * fscale; };
-      const auto cost_f = [inv_fscale](auto v) { return v * inv_fscale; };
-      out.add_col_sol(cname, "drain", pid, drain_cols, sol_f);
-      out.add_col_cost(cname, "drain", pid, drain_cols, cost_f);
+      out.add_col_sol(
+          cname, "drain", pid, drain_cols, col_scale_sol(m_flow_scale_));
+      out.add_col_cost(
+          cname, "drain", pid, drain_cols, col_scale_cost(m_flow_scale_));
     } else {
       out.add_col_sol(cname, "drain", pid, drain_cols);
       out.add_col_cost(cname, "drain", pid, drain_cols);
