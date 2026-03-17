@@ -1866,6 +1866,7 @@ void SDDPSolver::write_api_status(
   json += std::format("  \"gap\": {:.6f},\n", gap);
   json += std::format("  \"converged\": {},\n", conv ? "true" : "false");
   json += std::format("  \"max_iterations\": {},\n", m_options_.max_iterations);
+  json += std::format("  \"min_iterations\": {},\n", m_options_.min_iterations);
 
   // ── Iteration history ──
   json += "  \"history\": [\n";
@@ -2218,7 +2219,10 @@ void SDDPSolver::apply_cut_sharing_for_iteration(std::size_t cuts_before)
 void SDDPSolver::finalize_iteration_result(SDDPIterationResult& ir, int iter)
 {
   ir.gap = compute_convergence_gap(ir.upper_bound, ir.lower_bound);
-  ir.converged = (ir.gap < m_options_.convergence_tol);
+  // Only declare convergence if both the gap tolerance is met AND
+  // we have completed at least min_iterations (default 2).
+  ir.converged = (ir.gap < m_options_.convergence_tol)
+      && (iter >= m_options_.min_iterations);
 
   m_current_iteration_.store(iter);
   m_current_gap_.store(ir.gap);
