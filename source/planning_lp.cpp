@@ -154,7 +154,7 @@ void PlanningLP::write_out() const
       } else {
         // Fall back to synchronous if the pool rejects the task.
         SPDLOG_WARN(
-            "Failed to submit write_out task for scene {} phase {};"
+            "Failed to submit write_out task for scene {} phase {},"
             " running synchronously",
             scene_num,
             phase_num);
