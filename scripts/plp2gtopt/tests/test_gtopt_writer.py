@@ -25,7 +25,7 @@ def _make_opts(tmp_path: Path, case_name: str = "test") -> dict:
         "hydrologies": "1",
         "discount_rate": 0.0,
         "last_stage": -1,
-        "compression": "gzip",
+        "compression": "zstd",
     }
 
 

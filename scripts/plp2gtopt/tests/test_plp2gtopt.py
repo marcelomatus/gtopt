@@ -38,7 +38,7 @@ def _make_opts(input_dir: Path, tmp_path: Path, case_name: str = "test") -> dict
         "hydrologies": "1",
         "last_stage": -1,
         "last_time": -1,
-        "compression": "gzip",
+        "compression": "zstd",
         "probability_factors": None,
         "discount_rate": 0.0,
         "management_factor": 0.0,
@@ -47,7 +47,6 @@ def _make_opts(input_dir: Path, tmp_path: Path, case_name: str = "test") -> dict
 
 # ---------------------------------------------------------------------------
 # convert_plp_case() — happy path
-# ---------------------------------------------------------------------------
 
 
 def test_convert_plp_case_success(tmp_path):
@@ -395,7 +394,7 @@ def test_build_options_defaults():
     assert opts["output_file"] == Path("output.json")
     assert opts["last_stage"] == -1
     assert opts["last_time"] == -1
-    assert opts["compression"] == "gzip"
+    assert opts["compression"] == "zstd"
     assert opts["hydrologies"] == "all"
     assert opts["probability_factors"] is None
     assert opts["discount_rate"] == pytest.approx(0.0)
