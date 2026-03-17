@@ -10,6 +10,7 @@
 #include <chrono>
 #include <filesystem>
 #include <format>
+#include <fstream>
 #include <future>
 #include <ranges>
 #include <string_view>
@@ -166,6 +167,73 @@ void PlanningLP::write_out() const
   for (auto& fut : futures) {
     fut.get();
   }
+
+  // ── Write consolidated solution.csv ─────────────────────────────────────
+  // All parallel write tasks have completed; now collect solution values
+  // from every (scene, phase) system and write solution.csv in scene/phase
+  // order.  This avoids any concurrent file access and guarantees a
+  // deterministic, sorted output regardless of task completion order.
+
+  struct SolutionRow
+  {
+    Uid scene_uid;
+    Uid phase_uid;
+    int status;
+    double obj_value;
+    double kappa;
+  };
+
+  std::vector<SolutionRow> rows;
+  rows.reserve(static_cast<std::size_t>(num_scenes)
+               * static_cast<std::size_t>(std::max(num_phases, 0)));
+
+  for (const auto& phase_systems : m_systems_) {
+    for (const auto& system : phase_systems) {
+      const auto& li = system.linear_interface();
+      rows.push_back({
+          .scene_uid = static_cast<Uid>(system.scene().uid()),
+          .phase_uid = static_cast<Uid>(system.phase().uid()),
+          .status = li.get_status(),
+          .obj_value = li.get_obj_value(),
+          .kappa = li.get_kappa(),
+      });
+    }
+  }
+
+  // Sort rows by (scene_uid, phase_uid) for a deterministic output order.
+  std::ranges::sort(rows,
+                    [](const SolutionRow& a, const SolutionRow& b)
+                    {
+                      if (a.scene_uid != b.scene_uid) {
+                        return a.scene_uid < b.scene_uid;
+                      }
+                      return a.phase_uid < b.phase_uid;
+                    });
+
+  const auto out_dir = std::filesystem::path(m_options_.output_directory());
+  const auto sol_path = out_dir / "solution.csv";
+
+  std::ofstream sol_file(sol_path.string(), std::ios::out);
+  if (!sol_file) [[unlikely]] {
+    SPDLOG_CRITICAL("Cannot open solution file '{}' for writing",
+                    sol_path.string());
+    return;
+  }
+
+  sol_file << "scene,phase,status,obj_value,kappa\n";
+  for (const auto& row : rows) {
+    sol_file << std::format("{},{},{},{},{}\n",
+                            row.scene_uid,
+                            row.phase_uid,
+                            row.status,
+                            row.obj_value,
+                            row.kappa);
+    SPDLOG_INFO("  solution.csv: scene={} phase={} status={} obj_value={}",
+                row.scene_uid,
+                row.phase_uid,
+                row.status,
+                row.obj_value);
+  }
 }
 
 std::expected<void, Error> PlanningLP::resolve_scene_phases(
@@ -185,6 +253,12 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
                  system_sp.linear_interface().get_numrows());
 
     if (auto result = system_sp.resolve(lp_opts); !result) {
+      // Log the solver error with scene/phase context before writing the LP
+      spdlog::warn("  Scene {} phase {}: {}",
+                   scene_index,
+                   phase_index,
+                   result.error().message);
+
       // On error, write the problematic model to the log directory for
       // debugging
       const auto log_dir = m_options_.log_directory();

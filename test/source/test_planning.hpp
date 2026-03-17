@@ -399,7 +399,8 @@ TEST_CASE("PlanningLP - Error handling")
   auto result = planning_lp.resolve();
   REQUIRE(!result);
   CHECK(result.error().code == ErrorCode::SolverError);
-  CHECK(result.error().message.find("Failed to resolve") != std::string::npos);
+  CHECK(result.error().message.find("Solver returned non-optimal")
+        != std::string::npos);
 }
 
 TEST_CASE("PlanningLP - Solver test")

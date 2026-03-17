@@ -188,9 +188,26 @@ if [ ! -f "$SOLUTION_FILE" ]; then
 else
   pass "solution.csv found"
 
-  # Check solution has obj_value and status=0 (optimal)
-  OBJ_VALUE=$(grep "^[[:space:]]*obj_value," "$SOLUTION_FILE" | cut -d',' -f2 | tr -d ' ' || true)
-  SOL_STATUS=$(grep "^[[:space:]]*status," "$SOLUTION_FILE" | cut -d',' -f2 | tr -d ' ' || true)
+  # Parse the columnar CSV format: header is scene,phase,status,obj_value,kappa
+  # Find column indices from header row, then read values from first data row.
+  HEADER=$(head -1 "$SOLUTION_FILE")
+  DATA_ROW=$(sed -n '2p' "$SOLUTION_FILE")
+
+  # Determine column positions (1-based for cut)
+  OBJ_COL=$(echo "$HEADER" | tr ',' '\n' | grep -n "^obj_value$" | cut -d: -f1)
+  STATUS_COL=$(echo "$HEADER" | tr ',' '\n' | grep -n "^status$" | cut -d: -f1)
+
+  if [ -n "$OBJ_COL" ] && [ -n "$DATA_ROW" ]; then
+    OBJ_VALUE=$(echo "$DATA_ROW" | cut -d',' -f"$OBJ_COL" | tr -d ' ')
+  else
+    OBJ_VALUE=""
+  fi
+
+  if [ -n "$STATUS_COL" ] && [ -n "$DATA_ROW" ]; then
+    SOL_STATUS=$(echo "$DATA_ROW" | cut -d',' -f"$STATUS_COL" | tr -d ' ')
+  else
+    SOL_STATUS=""
+  fi
 
   if [ -n "$OBJ_VALUE" ]; then
     pass "solution.csv contains obj_value: $OBJ_VALUE"
