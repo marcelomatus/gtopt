@@ -84,9 +84,9 @@ struct ScenePhaseLPStats
  *
  * @param entries      Per-scene/phase statistics.
  * @param ratio_threshold  Ratio above which the detailed table is shown
- *                         (default 1e5).
+ *                         (default 1e7).
  */
 void log_lp_stats_summary(const std::vector<ScenePhaseLPStats>& entries,
-                          double ratio_threshold = 1e5);
+                          double ratio_threshold = 1e7);
 
 }  // namespace gtopt
