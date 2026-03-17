@@ -537,6 +537,124 @@ TEST_SUITE("ConstraintParser")
     CHECK(ref0.attribute == "generation");
   }
 
+  // ── Hydro elements ────────────────────────────────────────────────────
+
+  TEST_CASE("Parse junction drain element")
+  {
+    auto expr = ConstraintParser::parse(R"(junction("J1").drain <= 1000)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "junction");
+    CHECK(ref0.element_id == "J1");
+    CHECK(ref0.attribute == "drain");
+  }
+
+  TEST_CASE("Parse flow discharge element")
+  {
+    auto expr = ConstraintParser::parse(R"(flow("F1").discharge >= 10)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "flow");
+    CHECK(ref0.element_id == "F1");
+    CHECK(ref0.attribute == "discharge");
+  }
+
+  TEST_CASE("Parse flow element with numeric UID")
+  {
+    auto expr = ConstraintParser::parse(R"(flow(3).flow <= 500)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "flow");
+    CHECK(ref0.element_id == "uid:3");
+    CHECK(ref0.attribute == "flow");
+  }
+
+  TEST_CASE("Parse filtration element")
+  {
+    auto expr = ConstraintParser::parse(R"(filtration("FIL1").flow <= 200)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "filtration");
+    CHECK(ref0.element_id == "FIL1");
+    CHECK(ref0.attribute == "flow");
+  }
+
+  TEST_CASE("Parse reserve_provision element")
+  {
+    auto expr = ConstraintParser::parse(R"(reserve_provision("RP1").up <= 50)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "reserve_provision");
+    CHECK(ref0.element_id == "RP1");
+    CHECK(ref0.attribute == "up");
+  }
+
+  TEST_CASE("Parse reserve_zone element")
+  {
+    auto expr = ConstraintParser::parse(R"(reserve_zone("RZ1").dn >= 10)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "reserve_zone");
+    CHECK(ref0.element_id == "RZ1");
+    CHECK(ref0.attribute == "dn");
+  }
+
+  TEST_CASE("Parse cross-element hydro constraint")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(waterway("WW1").flow + junction("J1").drain <= 500)");
+
+    REQUIRE(expr.terms.size() == 2);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "waterway");
+    CHECK(ref0.attribute == "flow");
+    REQUIRE(expr.terms[1].element.has_value());
+    const auto& ref1 = expr.terms[1].element.value_or(ElementRef {});
+    CHECK(ref1.element_type == "junction");
+    CHECK(ref1.attribute == "drain");
+  }
+
+  TEST_CASE("Parse sum over all flows")
+  {
+    auto expr = ConstraintParser::parse(R"(sum(flow(all).flow) <= 1000)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].sum_ref.has_value());
+    const auto& sref0 = expr.terms[0].sum_ref.value_or(SumElementRef {});
+    CHECK(sref0.element_type == "flow");
+    CHECK(sref0.all_elements);
+    CHECK(sref0.attribute == "flow");
+  }
+
+  TEST_CASE("Parse sum over explicit junctions")
+  {
+    auto expr =
+        ConstraintParser::parse(R"(sum(junction("J1","J2").drain) <= 500)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].sum_ref.has_value());
+    const auto& sref0 = expr.terms[0].sum_ref.value_or(SumElementRef {});
+    CHECK(sref0.element_type == "junction");
+    CHECK_FALSE(sref0.all_elements);
+    REQUIRE(sref0.element_ids.size() == 2);
+    CHECK(sref0.element_ids[0] == "J1");
+    CHECK(sref0.element_ids[1] == "J2");
+    CHECK(sref0.attribute == "drain");
+  }
+
   // ── Extended attributes ───────────────────────────────────────────────
 
   TEST_CASE("Parse line with flowp attribute")
@@ -547,6 +665,26 @@ TEST_SUITE("ConstraintParser")
     const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
     CHECK(ref0.element_type == "line");
     CHECK(ref0.attribute == "flowp");
+  }
+
+  TEST_CASE("Parse line with lossp attribute")
+  {
+    auto expr = ConstraintParser::parse(R"(line("L1").lossp <= 10)");
+
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "line");
+    CHECK(ref0.attribute == "lossp");
+  }
+
+  TEST_CASE("Parse line with lossn attribute")
+  {
+    auto expr = ConstraintParser::parse(R"(line("L1").lossn <= 10)");
+
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "line");
+    CHECK(ref0.attribute == "lossn");
   }
 
   TEST_CASE("Parse battery with charge and discharge attributes")
@@ -843,5 +981,82 @@ TEST_SUITE("ConstraintParser")
     REQUIRE(sr.type_filter.has_value());
     CHECK(sr.type_filter.value_or("") == "industrial");
     CHECK(sr.attribute == "load");
+  }
+
+  // ── New storage attributes: spill / drain / extraction ────────────────
+
+  TEST_CASE("Parse battery spill attribute")
+  {
+    auto expr = ConstraintParser::parse(R"(battery("B1").spill <= 10)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "battery");
+    CHECK(ref0.element_id == "B1");
+    CHECK(ref0.attribute == "spill");
+  }
+
+  TEST_CASE("Parse battery drain alias")
+  {
+    auto expr = ConstraintParser::parse(R"(battery("B1").drain <= 5)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "battery");
+    CHECK(ref0.attribute == "drain");
+  }
+
+  TEST_CASE("Parse reservoir spill attribute")
+  {
+    auto expr = ConstraintParser::parse(R"(reservoir("RES1").spill <= 100)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "reservoir");
+    CHECK(ref0.element_id == "RES1");
+    CHECK(ref0.attribute == "spill");
+  }
+
+  TEST_CASE("Parse reservoir drain alias")
+  {
+    auto expr = ConstraintParser::parse(R"(reservoir("RES1").drain <= 50)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "reservoir");
+    CHECK(ref0.attribute == "drain");
+  }
+
+  TEST_CASE("Parse reservoir extraction attribute")
+  {
+    auto expr =
+        ConstraintParser::parse(R"(reservoir("RES1").extraction <= 200)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "reservoir");
+    CHECK(ref0.element_id == "RES1");
+    CHECK(ref0.attribute == "extraction");
+  }
+
+  TEST_CASE("Parse cross-element with reservoir extraction and battery spill")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(reservoir("R1").extraction + battery("B1").spill <= 300)");
+
+    REQUIRE(expr.terms.size() == 2);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    REQUIRE(expr.terms[1].element.has_value());
+    const auto& ref1 = expr.terms[1].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "reservoir");
+    CHECK(ref0.attribute == "extraction");
+    CHECK(ref1.element_type == "battery");
+    CHECK(ref1.attribute == "spill");
   }
 }

@@ -72,6 +72,16 @@ public:
 
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
+  /// Return the extraction column indices for (scenario, stage).
+  ///
+  /// Extraction columns represent the water extraction flow from the
+  /// reservoir into its connected junction.
+  [[nodiscard]] constexpr const auto& extraction_cols_at(
+      const ScenarioLP& scenario, const StageLP& stage) const
+  {
+    return extraction_cols.at({scenario.uid(), stage.uid()});
+  }
+
 private:
   OptTRealSched capacity;
   STBIndexHolder<ColIndex> extraction_cols;
