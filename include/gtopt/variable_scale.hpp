@@ -79,10 +79,13 @@ public:
                              { return vs.uid == unknown_uid; });
 
     for (const auto& vs : element_entries) {
-      m_element_scales_[Key {vs.class_name, vs.variable, vs.uid}] = vs.scale;
+      m_element_scales_[Key {.class_name = vs.class_name,
+                             .variable = vs.variable,
+                             .uid = vs.uid,}] = vs.scale;
     }
     for (const auto& vs : class_entries) {
-      m_class_scales_[ClassKey {vs.class_name, vs.variable}] = vs.scale;
+      m_class_scales_[ClassKey {.class_name = vs.class_name,
+                                 .variable = vs.variable,}] = vs.scale;
     }
   }
 
@@ -97,7 +100,7 @@ public:
       if (const auto it =
               m_element_scales_.find(Key {.class_name = Name {class_name},
                                           .variable = Name {variable},
-                                          .uid = uid});
+                                          .uid = uid,});
           it != m_element_scales_.end())
       {
         return it->second;
@@ -106,7 +109,7 @@ public:
 
     // 2. Per-class match
     if (const auto it = m_class_scales_.find(ClassKey {
-            .class_name = Name {class_name}, .variable = Name {variable}});
+            .class_name = Name {class_name}, .variable = Name {variable},});
         it != m_class_scales_.end())
     {
       return it->second;
