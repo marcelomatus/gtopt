@@ -69,6 +69,9 @@ int main(int argc, char** argv)
     {
       spdlog::cfg::load_env_levels();
 
+      // Use a clean pattern without source file/line information.
+      spdlog::set_pattern("[%H:%M:%S.%e] %v");
+
       const auto quiet = get_opt<bool>(vm, "quiet");
       spdlog::set_level(spdlog::level::info);
       if (quiet.value_or(false)) {

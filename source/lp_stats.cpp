@@ -112,12 +112,16 @@ void log_lp_stats_summary(const std::vector<ScenePhaseLPStats>& entries,
   }
 
   // Detailed per-scene/phase table.
-  spdlog::info(std::format(
+  auto header = std::format(
       "  LP coefficient analysis: {} LP(s) — "
       "global ratio {:.2e} exceeds threshold {:.0e}, showing details:",
       entries.size(),
       global.coeff_ratio(),
-      ratio_threshold));
+      ratio_threshold);
+  if (global.stats_zeroed > 0) {
+    header += std::format(" zeroed={}", global.stats_zeroed);
+  }
+  spdlog::info(header);
 
   for (const auto& entry : entries) {
     log_stats_line(

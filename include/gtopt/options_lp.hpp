@@ -262,10 +262,9 @@ public:
    * @brief Gets the LP solver options sub-object.
    *
    * Returns the @c SolverOptions sub-object embedded in the planning JSON
-   * @c options block.  Individual top-level fields (@c lp_algorithm,
-   * @c lp_threads, @c lp_presolve) in @c Options take precedence over the
-   * corresponding fields in this sub-object when building the final
-   * @c SolverOptions at solve time (see @c gtopt_main()).
+   * @c options block.  The @c SolverOptions fields are the primary way to
+   * configure the LP solver; the top-level @c lp_algorithm, @c lp_threads,
+   * @c lp_presolve fields in @c Options are deprecated aliases.
    *
    * @return Const reference to the @c SolverOptions from the wrapped Options
    */
@@ -314,6 +313,19 @@ public:
   [[nodiscard]] constexpr auto just_build_lp() const
   {
     return m_options_.just_build_lp.value_or(false);
+  }
+
+  /**
+   * @brief Gets the LP coefficient ratio threshold for conditioning
+   * diagnostics.
+   * @return The threshold above which per-scene/phase LP stats are shown
+   *         (default 1e7).
+   */
+  [[nodiscard]] constexpr auto lp_coeff_ratio_threshold() const
+  {
+    static constexpr double default_lp_coeff_ratio_threshold = 1e7;
+    return m_options_.lp_coeff_ratio_threshold.value_or(
+        default_lp_coeff_ratio_threshold);
   }
 
   // Default values for SDDP solver settings
