@@ -450,7 +450,7 @@ class TestShowOption:
     """Verify --show flag logic without actually opening a viewer."""
 
     def test_show_calls_display_diagram(self, tmp_path):
-        """--show must invoke display_diagram with correct path and format."""
+        """mermaid without --show must NOT invoke display_diagram (text goes to file)."""
         called_with = []
 
         original = gd.display_diagram
@@ -474,25 +474,18 @@ class TestShowOption:
                     "none",
                 ]
             )
-            # mermaid does not call display_diagram (only written to file/stdout)
+            # mermaid without --show does not call display_diagram
             assert rc == 0
             assert not called_with
         finally:
             gd.display_diagram = original
 
-    def test_show_flag_accepted_by_cli(self, tmp_path):
-        """--show must be a recognised CLI argument (no argparse error)."""
+    def test_show_flag_mermaid_calls_show_mermaid(self, tmp_path):
+        """--show with mermaid format must call _show_mermaid (opens browser)."""
         json_path = tmp_path / "mini.json"
         json_path.write_text(json.dumps(_MINI_PLANNING))
-        called_with = []
 
-        original = gd.display_diagram
-
-        def fake_display(path, fmt):
-            called_with.append((path, fmt))
-
-        gd.display_diagram = fake_display
-        try:
+        with mock.patch.object(gd, "_show_mermaid") as mock_show:
             rc = gd.main(
                 [
                     str(json_path),
@@ -503,9 +496,53 @@ class TestShowOption:
                     "--show",
                 ]
             )
-            assert rc == 0
-        finally:
-            gd.display_diagram = original
+        assert rc == 0
+        mock_show.assert_called_once()
+        mermaid_text = mock_show.call_args[0][0]
+        assert "flowchart" in mermaid_text
+
+    def test_show_flag_mermaid_with_output_writes_file_and_shows(self, tmp_path):
+        """--show with --output writes the file AND opens a browser."""
+        json_path = tmp_path / "mini.json"
+        json_path.write_text(json.dumps(_MINI_PLANNING))
+        out_path = tmp_path / "out.md"
+
+        with mock.patch.object(gd, "_show_mermaid") as mock_show:
+            rc = gd.main(
+                [
+                    str(json_path),
+                    "--format",
+                    "mermaid",
+                    "--output",
+                    str(out_path),
+                    "--aggregate",
+                    "none",
+                    "--show",
+                ]
+            )
+        assert rc == 0
+        assert out_path.exists()
+        assert "flowchart" in out_path.read_text()
+        mock_show.assert_called_once()
+
+    def test_mermaid_to_html_wraps_content(self):
+        """_mermaid_to_html must produce HTML that embeds the mermaid source."""
+        mmd = "```mermaid\nflowchart LR\n  A --> B\n```"
+        html = gd._mermaid_to_html(mmd, title="Test Title")
+        assert "<!DOCTYPE html>" in html
+        assert "Test Title" in html
+        assert "flowchart LR" in html
+        assert "mermaid.initialize" in html
+        # backtick fences must be stripped
+        assert "```" not in html
+
+    def test_mermaid_to_html_strips_language_tagged_closing_fence(self):
+        """Closing fence with a language tag (e.g. '```mermaid') must also be stripped."""
+        # Some editors produce a closing fence that echoes the opening language tag.
+        mmd = "```mermaid\nflowchart TD\n  X --> Y\n```mermaid"
+        html = gd._mermaid_to_html(mmd, title="T")
+        assert "flowchart TD" in html
+        assert "```" not in html
 
     def test_display_diagram_uses_webbrowser_for_svg(self, tmp_path):
         """display_diagram must call webbrowser.open for SVG files."""
@@ -720,17 +757,11 @@ class TestDefaultShow:
         assert not called  # mermaid is text-only, never shown
 
     def test_explicit_show_flag_still_works(self, tmp_path):
-        """Explicitly passing --show on a mermaid-to-file path is still ignored."""
+        """--show with mermaid (no --output) must call _show_mermaid, not display_diagram."""
         json_path = tmp_path / "mini.json"
         json_path.write_text(json.dumps(_MINI_PLANNING))
-        called_with = []
-        original = gd.display_diagram
 
-        def fake_display(path, fmt):
-            called_with.append((path, fmt))
-
-        gd.display_diagram = fake_display
-        try:
+        with mock.patch.object(gd, "_show_mermaid") as mock_show:
             rc = gd.main(
                 [
                     str(json_path),
@@ -741,10 +772,9 @@ class TestDefaultShow:
                     "--show",
                 ]
             )
-        finally:
-            gd.display_diagram = original
 
-        assert rc == 0  # exits cleanly regardless
+        assert rc == 0
+        mock_show.assert_called_once()  # browser opened via _show_mermaid
 
 
 # ---------------------------------------------------------------------------
@@ -786,3 +816,102 @@ class TestFiltrationReservoirDependency:
         ]
         assert filt_res_edges
         assert filt_res_edges[0].color == gd._PALETTE["filtration_border"]  # noqa: SLF001
+
+
+# ---------------------------------------------------------------------------
+# _elem_name — name(uid) label formatting
+# ---------------------------------------------------------------------------
+
+
+class TestElemName:
+    """Verify _elem_name() produces 'NAME(UID)' formatted labels."""
+
+    def test_name_and_uid_combined(self):
+        assert gd._elem_name({"name": "ELTORO", "uid": 2}) == "ELTORO(2)"  # noqa: SLF001
+
+    def test_name_equals_uid_no_duplication(self):
+        """When name and uid stringify the same, show only name."""
+        assert gd._elem_name({"name": "2", "uid": 2}) == "2"  # noqa: SLF001
+
+    def test_name_only(self):
+        assert gd._elem_name({"name": "B1"}) == "B1"  # noqa: SLF001
+
+    def test_uid_only(self):
+        assert gd._elem_name({"uid": 3}) == "3"  # noqa: SLF001
+
+    def test_empty_returns_question_mark(self):
+        assert gd._elem_name({}) == "?"  # noqa: SLF001
+
+    def test_bus_label_contains_uid(self):
+        """Bus node label must include uid when name and uid differ."""
+        planning = {
+            "system": {
+                "bus_array": [{"uid": 7, "name": "ALTO"}],
+                "generator_array": [{"uid": 1, "bus": 7, "pmax": 100}],
+                "demand_array": [],
+                "line_array": [],
+            }
+        }
+        fo = gd.FilterOptions(aggregate="none")
+        builder = gd.TopologyBuilder(planning, opts=fo)
+        model = builder.build()
+        bus_nodes = [n for n in model.nodes if n.kind == "bus"]
+        assert bus_nodes, "No bus node found"
+        assert "ALTO(7)" in bus_nodes[0].label
+
+    def test_generator_label_contains_uid(self):
+        """Generator node label must include uid in 'name(uid)' format."""
+        fo = gd.FilterOptions(aggregate="none")
+        builder = gd.TopologyBuilder(_IEEE9_JSON, opts=fo)
+        model = builder.build()
+        gen_nodes = [
+            n for n in model.nodes if n.kind in ("gen", "gen_hydro", "gen_solar")
+        ]
+        assert gen_nodes, "No generator nodes found"
+        # G1 has uid=1 → label should contain "G1(1)"
+        g1 = next((n for n in gen_nodes if "G1" in n.label), None)
+        assert g1 is not None, "G1 generator node not found"
+        assert "G1(1)" in g1.label
+
+
+# ---------------------------------------------------------------------------
+# Edge pruning — dangling edges with missing endpoints are removed
+# ---------------------------------------------------------------------------
+
+
+class TestEdgePruning:
+    """Verify that edges referencing non-existent nodes are removed in build()."""
+
+    def test_hydro_subsystem_no_dangling_generator_edges(self):
+        """subsystem='hydro' must not have turbine→generator edges (no gen nodes)."""
+        fo = gd.FilterOptions(aggregate="none")
+        builder = gd.TopologyBuilder(_HYDRO_PLANNING, subsystem="hydro", opts=fo)
+        model = builder.build()
+
+        node_ids = {n.node_id for n in model.nodes}
+        for e in model.edges:
+            assert e.src in node_ids, f"Edge src '{e.src}' references non-existent node"
+            assert e.dst in node_ids, f"Edge dst '{e.dst}' references non-existent node"
+
+    def test_full_subsystem_retains_turbine_generator_edge(self):
+        """subsystem='full' must keep the turbine→generator edge (gen nodes exist)."""
+        fo = gd.FilterOptions(aggregate="none")
+        builder = gd.TopologyBuilder(_HYDRO_PLANNING, subsystem="full", opts=fo)
+        model = builder.build()
+        pairs = {(e.src, e.dst) for e in model.edges}
+        assert ("turb_1", "gen_1") in pairs
+
+    def test_all_edges_have_valid_endpoints(self):
+        """For any subsystem, every edge endpoint must exist in model.nodes."""
+        for subsystem in ("full", "electrical", "hydro"):
+            fo = gd.FilterOptions(aggregate="none")
+            builder = gd.TopologyBuilder(_HYDRO_PLANNING, subsystem=subsystem, opts=fo)
+            model = builder.build()
+            node_ids = {n.node_id for n in model.nodes}
+            for e in model.edges:
+                assert e.src in node_ids, (
+                    f"[{subsystem}] Edge src '{e.src}' not in nodes"
+                )
+                assert e.dst in node_ids, (
+                    f"[{subsystem}] Edge dst '{e.dst}' not in nodes"
+                )
