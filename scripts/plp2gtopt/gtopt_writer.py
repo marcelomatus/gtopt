@@ -72,7 +72,7 @@ class GTOptWriter:
         discount_rate = options.get("discount_rate", 0.0)
         output_format = options.get("output_format", "parquet")
         input_format = options.get("input_format", output_format)
-        compression = options.get("compression", "gzip")
+        compression = options.get("compression", "zstd")
         solver_type = self._normalize_solver_type(options.get("solver_type", "sddp"))
 
         # Build the nested sddp_options block (all sddp_* fields except solver_type).

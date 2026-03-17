@@ -935,7 +935,7 @@ def write_schedule(
     df: pd.DataFrame,
     output_path: Path,
     output_format: str = "parquet",
-    compression: str = "gzip",
+    compression: str = "zstd",
 ) -> None:
     """Write a projected schedule DataFrame to Parquet or CSV.
 
@@ -955,7 +955,7 @@ def write_schedule(
     output_format:
         ``"parquet"`` *(default)* or ``"csv"``.
     compression:
-        Parquet compression codec (default ``"gzip"``).
+        Parquet compression codec (default ``"zstd"``).
         Pass ``""`` to disable.
 
     Raises
@@ -1003,7 +1003,7 @@ def convert_timeseries(
     year: int | None = None,
     interval_hours: float | None = None,
     output_format: str = "parquet",
-    compression: str = "gzip",
+    compression: str = "zstd",
     output_horizon_path: Path | None = None,
 ) -> dict[str, Path]:
     """Convert a batch of time-series files to gtopt schedule files.

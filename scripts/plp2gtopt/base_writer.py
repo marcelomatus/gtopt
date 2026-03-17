@@ -150,7 +150,7 @@ class BaseWriter(ABC):
         return df
 
     # Supported compression formats for Parquet files
-    VALID_COMPRESSION = ["gzip", "snappy", "brotli", "none", "", "uncompressed"]
+    VALID_COMPRESSION = ["zstd", "gzip", "snappy", "brotli", "none", "", "uncompressed"]
 
     # Codecs that map to uncompressed (no-compression) output
     UNCOMPRESSED_ALIASES = {"none", "", "uncompressed"}
@@ -167,7 +167,7 @@ class BaseWriter(ABC):
         if options is None:
             options = self.options
 
-        compression = options.get("compression", "gzip") if options else "gzip"
+        compression = options.get("compression", "zstd") if options else "zstd"
         if compression in self.UNCOMPRESSED_ALIASES:
             return None
         if compression not in self.VALID_COMPRESSION:
