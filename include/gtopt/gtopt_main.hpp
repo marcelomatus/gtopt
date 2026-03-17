@@ -105,6 +105,8 @@ struct MainOptions
   // ---- SDDP algorithm tuning ----
   /** @brief Maximum SDDP forward/backward iterations (default: 100) */
   std::optional<int> sddp_max_iterations {};
+  /** @brief Minimum SDDP iterations before convergence (default: 2) */
+  std::optional<int> sddp_min_iterations {};
   /** @brief SDDP relative convergence tolerance (default: 1e-4) */
   std::optional<double> sddp_convergence_tol {};
   /** @brief Penalty coefficient for SDDP elastic slack variables (default:

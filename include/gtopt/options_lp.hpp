@@ -14,6 +14,7 @@
 #pragma once
 
 #include <gtopt/options.hpp>
+#include <gtopt/variable_scale.hpp>
 
 namespace gtopt
 {
@@ -70,8 +71,9 @@ public:
    * @brief Constructs an OptionsLP wrapper around an Options object
    * @param poptions The Options object to wrap (defaults to empty Options)
    */
-  explicit constexpr OptionsLP(Options poptions = {})
+  explicit OptionsLP(Options poptions = {})
       : m_options_(std::move(poptions))
+      , m_variable_scale_map_(m_options_.variable_scales)
   {
   }
 
@@ -344,6 +346,8 @@ public:
   static constexpr Int default_sddp_efficiency_update_skip = 0;
   /** @brief Default maximum SDDP iterations */
   static constexpr Int default_sddp_max_iterations = 100;
+  /** @brief Default minimum iterations before declaring convergence */
+  static constexpr Int default_sddp_min_iterations = 2;
   /** @brief Default relative convergence tolerance */
   static constexpr Real default_sddp_convergence_tol = 1e-4;
   /** @brief Default elastic slack penalty */
@@ -428,6 +432,16 @@ public:
   {
     return m_options_.sddp_options.sddp_max_iterations.value_or(
         default_sddp_max_iterations);
+  }
+
+  /**
+   * @brief Gets the minimum SDDP iterations before convergence
+   * @return Minimum iterations before convergence (default: 2)
+   */
+  [[nodiscard]] constexpr auto sddp_min_iterations() const
+  {
+    return m_options_.sddp_options.sddp_min_iterations.value_or(
+        default_sddp_min_iterations);
   }
 
   /**
@@ -547,9 +561,26 @@ public:
     return m_options_.sddp_options.sddp_named_cuts_file.value_or(Name {});
   }
 
+  /**
+   * @brief Gets the variable scale map built from variable_scales entries.
+   *
+   * The map provides `lookup(class_name, variable, uid)` to resolve scale
+   * factors with per-element > per-class > default (1.0) priority.
+   *
+   * Note: per-element fields (`Battery::energy_scale`, `Reservoir::vol_scale`)
+   * and global options (`scale_theta`) take precedence over this map.
+   * Use this for variables not covered by dedicated fields.
+   */
+  [[nodiscard]] const auto& variable_scale_map() const noexcept
+  {
+    return m_variable_scale_map_;
+  }
+
 private:
   /** @brief The wrapped Options object */
   Options m_options_;
+  /** @brief Variable scale map built from Options::variable_scales */
+  VariableScaleMap m_variable_scale_map_;
 };
 
 }  // namespace gtopt
