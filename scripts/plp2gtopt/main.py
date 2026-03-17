@@ -208,7 +208,7 @@ def make_parser() -> argparse.ArgumentParser:
         "--compression",
         dest="compression",
         metavar="ALG",
-        default="gzip",
+        default="zstd",
         help="compression codec for output files (default: %(default)s)",
     )
     parser.add_argument(

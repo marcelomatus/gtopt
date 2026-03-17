@@ -324,4 +324,4 @@ def write_aperture_afluents(
 
         table = pa.table(arrays)
         out_path = afluent_dir / f"{central_name}.parquet"
-        pq.write_table(table, out_path, compression="gzip")
+        pq.write_table(table, out_path, compression="zstd")
