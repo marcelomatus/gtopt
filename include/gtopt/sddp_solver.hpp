@@ -151,18 +151,18 @@ constexpr auto stop_request = "sddp_stop_request.json";
  * When adding a Benders cut to phase k makes it infeasible, the elastic
  * filter can handle the situation in two ways:
  *
- * - `FeasibilityCut` / "single-cut" (default): clone the LP, relax the
+ * - `FeasibilityCut` / "single_cut" (default): clone the LP, relax the
  *   fixed state-variable bounds with penalised slack variables, solve the
  *   clone, and build a single feasibility-like Benders cut for phase k-1
  *   from the elastic clone's reduced costs.  This is the standard NBD
  *   approach.
  *
- * - `MultiCut` / "multi-cut": same as single-cut, but also adds one
+ * - `MultiCut` / "multi_cut": same as single_cut, but also adds one
  *   additional bound-constraint cut per state variable whose slack was
  *   activated (non-zero) in the elastic clone solution.  If the forward
  *   pass has encountered infeasibility at this (scene, phase) more than
  *   `multi_cut_threshold` times, the solver automatically switches from
- *   single-cut to multi-cut.
+ *   single_cut to multi_cut.
  *
  * - `BackpropagateBounds` (PLP mechanism): same clone/relax/solve as above,
  *   but instead of building a cut, propagate the slack-adjusted trial values
@@ -175,15 +175,15 @@ constexpr auto stop_request = "sddp_stop_request.json";
  */
 enum class ElasticFilterMode : uint8_t
 {
-  FeasibilityCut = 0,  ///< Build a single Benders feasibility cut (single-cut)
-  MultiCut,  ///< Build a Benders cut + per-slack bound cuts (multi-cut)
+  FeasibilityCut = 0,  ///< Build a single Benders feasibility cut (single_cut)
+  MultiCut,  ///< Build a Benders cut + per-slack bound cuts (multi_cut)
   BackpropagateBounds,  ///< Update source bounds to elastic trial values (PLP)
 };
 
 /// Parse an elastic filter mode from a string.
-/// Accepts "single-cut" or its backward-compatible alias "cut"
-/// (= FeasibilityCut), "multi-cut" (= MultiCut), and "backpropagate"
-/// (= BackpropagateBounds).
+/// Accepts "single_cut" or its backward-compatible alias "cut"
+/// (= FeasibilityCut, default for any unrecognised string),
+/// "multi_cut" (= MultiCut), and "backpropagate" (= BackpropagateBounds).
 [[nodiscard]] ElasticFilterMode parse_elastic_filter_mode(
     std::string_view name);
 
@@ -199,20 +199,20 @@ struct SDDPOptions
   CutSharingMode cut_sharing {CutSharingMode::None};  ///< Cut sharing mode
 
   /// Elastic filter mode: how to handle backward-pass infeasibility.
-  /// `FeasibilityCut` / "single-cut" (default) adds a single Benders
-  /// feasibility cut to the previous phase.  `MultiCut` / "multi-cut" adds
+  /// `FeasibilityCut` / "single_cut" (default) adds a single Benders
+  /// feasibility cut to the previous phase.  `MultiCut` / "multi_cut" adds
   /// the same cut plus one bound-constraint cut per activated slack variable.
   /// `BackpropagateBounds` updates the source column bounds to match the
   /// elastic-clone solution (PLP mechanism).
   ElasticFilterMode elastic_filter_mode {ElasticFilterMode::FeasibilityCut};
 
   /// Forward-pass infeasibility counter threshold for automatic switching
-  /// from single-cut to multi-cut.  When the forward pass has encountered
+  /// from single_cut to multi_cut.  When the forward pass has encountered
   /// infeasibility at (scene, phase) more than this many times without
-  /// recovery, the backward-pass infeasibility handler switches to multi-cut
+  /// recovery, the backward-pass infeasibility handler switches to multi_cut
   /// mode for that (scene, phase).
-  ///  = 0  always use multi-cut for any infeasibility (force multi-cut).
-  ///  > 0  switch to multi-cut after the counter exceeds this threshold.
+  ///  = 0  always use multi_cut for any infeasibility (force multi_cut).
+  ///  > 0  switch to multi_cut after the counter exceeds this threshold.
   ///  < 0  never auto-switch (disabled; use explicit mode only).
   /// Default: 10.
   int multi_cut_threshold {10};
@@ -897,7 +897,7 @@ private:
   /// Per-(scene, phase) count of consecutive forward-pass infeasibilities.
   /// Incremented when the elastic filter is used in forward_pass at (scene,
   /// phase).  Reset to 0 when the phase is solved normally (no elastic).
-  /// Used by the backward pass to decide single-cut vs multi-cut mode.
+  /// Used by the backward pass to decide single_cut vs multi_cut mode.
   StrongIndexVector<SceneIndex, StrongIndexVector<PhaseIndex, int>>
       m_infeasibility_counter_;
 
