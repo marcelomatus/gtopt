@@ -52,8 +52,8 @@ namespace gtopt
  */
 struct SddpOptions
 {
-  /** @brief Cut sharing mode: `"none"`, `"expected"`, `"accumulate"`,
-   *  or `"max"` (default) */
+  /** @brief Cut sharing mode: `"none"` (default), `"expected"`,
+   *  `"accumulate"`, or `"max"` */
   OptName sddp_cut_sharing_mode {};
   /** @brief Directory for Benders cut files (default: `"cuts"`) */
   OptName sddp_cut_directory {};

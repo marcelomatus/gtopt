@@ -205,9 +205,23 @@ by the `cut_sharing_mode` option:
 
 | Mode | Behaviour |
 |------|----------|
-| `none` | Each scene uses only its own cuts |
-| `expected` | Average cut across all scenes is shared |
+| `none` (default) | Each scene uses only its own cuts; scenes are solved independently in parallel with no synchronization |
+| `expected` | Probability-weighted average cut across all scenes is shared |
+| `accumulate` | Sum of all scene cuts shared (correct when LP objectives include probability factors) |
 | `max` | All cuts from all scenes are shared to all scenes |
+
+**Feasibility cuts** are never shared between scenes regardless of the cut
+sharing mode — they remain local to the originating scene.
+
+When cut sharing is **disabled** (`none`), each scene's backward pass runs
+its full phase sweep independently in parallel, with no waiting or coupling
+between scenes.
+
+When cut sharing is **enabled** (any mode other than `none`), the backward
+pass is **synchronized per-phase**: all scenes complete the backward step
+for a given phase, then optimality cuts are shared across scenes for that
+phase before proceeding to the previous phase.  This allows shared cuts to
+inform earlier phases within the same iteration.
 
 ---
 
