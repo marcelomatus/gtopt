@@ -144,6 +144,8 @@ void command_line_parser::parse_into(variables_map& vm) const
     throw parse_error("no options_description set");
   }
 
+  unrecognized_.clear();
+
   // Collect multi-value tokens per option name
   std::unordered_map<std::string, std::vector<std::string>> multi_tokens;
 
@@ -158,6 +160,7 @@ void command_line_parser::parse_into(variables_map& vm) const
 
       if (def == nullptr) {
         if (allow_unregistered_) {
+          unrecognized_.push_back(tok);
           continue;
         }
         throw parse_error(std::format("unrecognised option '--{}'", name));
@@ -193,6 +196,7 @@ void command_line_parser::parse_into(variables_map& vm) const
       const auto* def = desc_->find_short(sc);
       if (def == nullptr) {
         if (allow_unregistered_) {
+          unrecognized_.push_back(tok);
           continue;
         }
         throw parse_error(

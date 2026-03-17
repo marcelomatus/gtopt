@@ -35,6 +35,11 @@ int main(int argc, char** argv)
                         .positional(pos_desc);
       po::store(parser, vm);
       po::notify(vm);
+
+      // Warn about any unrecognised options
+      for (const auto& opt : parser.unrecognized()) {
+        std::cerr << "WARNING: unknown option '" << opt << "' ignored\n";
+      }
     } catch (po::parse_error& e) {
       std::cout << "ERROR: " << e.what() << "\n";
       std::cout << desc << "\n";
