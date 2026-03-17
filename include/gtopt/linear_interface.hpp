@@ -325,6 +325,36 @@ public:
   }
 
   /**
+   * @brief Gets the physical-to-LP scale factor for a single column.
+   *
+   * physical_value = LP_value × scale.  A scale of 1.0 means no scaling
+   * (LP variable == physical value).  Scale factors are populated during
+   * load_flat() from FlatLinearProblem::col_scales.
+   *
+   * @param index Column index
+   * @return Scale factor (1.0 if col_scales is empty or not populated)
+   */
+  [[nodiscard]] constexpr double get_col_scale(ColIndex index) const noexcept
+  {
+    const auto i = static_cast<size_t>(index);
+    if (i < m_col_scales_.size()) {
+      return m_col_scales_[i];
+    }
+    return 1.0;
+  }
+
+  /**
+   * @brief Gets all column scale factors.
+   * @return Const reference to the column scale vector (empty if not
+   * populated)
+   */
+  [[nodiscard]] constexpr const std::vector<double>& get_col_scales()
+      const noexcept
+  {
+    return m_col_scales_;
+  }
+
+  /**
    * @brief Gets the dual values (shadow prices) for all constraints
    * @return Span view of dual values
    */
@@ -417,6 +447,9 @@ private:
 
   solver_ptr_t solver;
   std::string log_file {};
+
+  std::vector<double> m_col_scales_;  ///< Per-column physical-to-LP scale
+                                      ///< factors (physical = LP × scale)
 
   size_t m_stats_nnz_ {};
   size_t m_stats_zeroed_ {};
