@@ -39,7 +39,7 @@ struct StorageOptions
   /// Energy (volume) scale factor: the LP energy variable is divided by this
   /// value so that the LP works in scaled units (physical_energy /
   /// energy_scale). Default 1.0 = no scaling. For reservoirs the default is
-  /// 100000 (dam³→Gm³) and for batteries 0.1.
+  /// 100000 (dam³→Gm³) and for batteries 0.01.
   double energy_scale {1.0};
 
   /// Flow variable scale factor applied to finp/fout/drain LP variables.
@@ -378,10 +378,9 @@ public:
       erow[ec] = 1;
 
       // Flow coefficients: flow_scale×duration×conversion / energy_scale.
-      // When flow_scale == energy_scale (reservoir case) this simplifies to
-      // flow_conversion_rate × duration — avoiding the ~1e-5 LP coefficients
-      // that arise when energy_scale is large (e.g. 100 000 for reservoirs).
-      // For batteries flow_scale == 1.0 so behaviour is unchanged.
+      // When flow_scale == energy_scale (reservoir and battery cases) this
+      // simplifies to flow_conversion_rate × duration — avoiding LP
+      // coefficients that change with energy_scale.
       const auto fout_col = fout_cols.at(buid);
       const auto finp_col = finp_cols.at(buid);
       erow[fout_col] = +(flow_conversion_rate / fout_efficiency)
