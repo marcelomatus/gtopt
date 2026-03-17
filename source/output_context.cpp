@@ -388,11 +388,13 @@ namespace
 {
 
 /// Per-run mutex protecting concurrent appends to solution.csv.
-std::mutex g_sol_csv_mutex;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+std::mutex
+    g_sol_csv_mutex;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 /// Tracks output directories whose solution.csv has been initialised
 /// (header written) in this process run.
-std::set<std::string> g_sol_csv_initialized;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+std::set<std::string>
+    g_sol_csv_initialized;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 }  // namespace
 
@@ -406,14 +408,15 @@ void OutputContext::write() const
   const auto su = static_cast<Uid>(m_scene_uid_);
   const auto pu = static_cast<Uid>(m_phase_uid_);
 
-  SPDLOG_DEBUG("  Writing {} output tables to '{}' "
-               "(scene={}, phase={}, format={}, compression={})",
-               path_tables.size(),
-               options().output_directory(),
-               su,
-               pu,
-               fmt,
-               zfmt);
+  SPDLOG_DEBUG(
+      "  Writing {} output tables to '{}' "
+      "(scene={}, phase={}, format={}, compression={})",
+      path_tables.size(),
+      options().output_directory(),
+      su,
+      pu,
+      fmt,
+      zfmt);
 
   std::vector<std::jthread> tasks;
   tasks.reserve(path_tables.size());
@@ -459,12 +462,8 @@ void OutputContext::write() const
         sol_file << "scene,phase,status,obj_value,kappa\n";
         g_sol_csv_initialized.insert(sol_dir);
       }
-      sol_file << std::format("{},{},{},{},{}\n",
-                              su,
-                              pu,
-                              sol_status,
-                              sol_obj_value,
-                              sol_kappa);
+      sol_file << std::format(
+          "{},{},{},{},{}\n", su, pu, sol_status, sol_obj_value, sol_kappa);
     }
   }
 
