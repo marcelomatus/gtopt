@@ -192,6 +192,19 @@ void log_diagnostic_lines(std::string_view level,
   }
 }
 
+/// Format a vector of ints as a comma-separated string.
+[[nodiscard]] std::string join_ints(std::span<const int> values)
+{
+  std::string result;
+  for (std::size_t i = 0; i < values.size(); ++i) {
+    if (i > 0) {
+      result += ", ";
+    }
+    result += std::to_string(values[i]);
+  }
+  return result;
+}
+
 }  // namespace
 
 // ─── SDDPSolver ─────────────────────────────────────────────────────────────
@@ -2654,19 +2667,12 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
 
     // Log a single summary for all phases with infeasible apertures
     if (!infeasible_phases.empty()) {
-      std::string phases_str;
-      for (std::size_t i = 0; i < infeasible_phases.size(); ++i) {
-        if (i > 0) {
-          phases_str += ", ";
-        }
-        phases_str += std::to_string(infeasible_phases[i]);
-      }
       SPDLOG_WARN(
           "SDDP aperture: scene {} — all apertures infeasible at {} phase(s) "
           "[{}], used Benders fallback cuts",
           scene_uid(scene),
           infeasible_phases.size(),
-          phases_str);
+          join_ints(infeasible_phases));
     }
 
     return total_cuts;
@@ -2773,19 +2779,12 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
 
   // Log a single summary for all phases with infeasible apertures
   if (!infeasible_phases.empty()) {
-    std::string phases_str;
-    for (std::size_t i = 0; i < infeasible_phases.size(); ++i) {
-      if (i > 0) {
-        phases_str += ", ";
-      }
-      phases_str += std::to_string(infeasible_phases[i]);
-    }
     SPDLOG_WARN(
         "SDDP aperture: scene {} — all apertures infeasible at {} phase(s) "
         "[{}], used Benders fallback cuts",
         scene_uid(scene),
         infeasible_phases.size(),
-        phases_str);
+        join_ints(infeasible_phases));
   }
 
   return total_cuts;
