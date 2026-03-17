@@ -170,8 +170,8 @@ void log_diagnostic_lines(std::string_view level,
 
   // Collect non-empty lines
   std::vector<std::string_view> lines;
-  for (const auto part : std::views::split(diag, '\n')) {
-    const std::string_view sv {part.begin(), part.end()};
+  for (const auto line : std::views::split(diag, '\n')) {
+    const std::string_view sv {line.begin(), line.end()};
     if (!sv.empty()) {
       lines.push_back(sv);
     }

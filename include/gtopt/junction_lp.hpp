@@ -101,6 +101,18 @@ public:
     return balance_rows.at({scenario.uid(), stage.uid()});
   }
 
+  /**
+   * @brief Get drain variable columns for a scenario/stage combination
+   * @param scenario Scenario identifier
+   * @param stage Stage identifier
+   * @return Const reference to the drain variable columns
+   */
+  [[nodiscard]] const auto& drain_cols_at(const ScenarioLP& scenario,
+                                          const StageLP& stage) const
+  {
+    return drain_cols.at({scenario.uid(), stage.uid()});
+  }
+
 private:
   STBIndexHolder<RowIndex> balance_rows;  ///< Balance constraint row indices
   STBIndexHolder<ColIndex> drain_cols;  ///< Drain variable column indices
