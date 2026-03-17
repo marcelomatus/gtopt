@@ -97,6 +97,7 @@ struct json_data_contract<Options>
                        json_bool_null<"lp_debug", OptBool>,
                        json_string_null<"lp_compression", OptName>,
                        json_bool_null<"just_build_lp", OptBool>,
+                       json_number_null<"lp_coeff_ratio_threshold", OptReal>,
 
                        json_class_null<"sddp_options", SddpOptions>,
                        json_class_null<"solver_options", SolverOptions>>;
@@ -131,6 +132,7 @@ struct json_data_contract<Options>
                                  opt.lp_debug,
                                  opt.lp_compression,
                                  opt.just_build_lp,
+                                 opt.lp_coeff_ratio_threshold,
 
                                  opt.sddp_options,
                                  opt.solver_options);
