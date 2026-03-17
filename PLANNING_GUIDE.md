@@ -794,7 +794,7 @@ In summary tables below, ✱ marks required fields.
 | `input_format` | `"parquet"` | Preferred input format (`"parquet"` or `"csv"`) |
 | `output_directory` | `"output"` | Root directory for result files |
 | `output_format` | `"parquet"` | Output file format (`"parquet"` or `"csv"`) |
-| `output_compression` | `"gzip"` | Parquet compression codec |
+| `output_compression` | `"zstd"` | Parquet/CSV compression codec |
 
 ### 8.2 Simulation (time structure)
 

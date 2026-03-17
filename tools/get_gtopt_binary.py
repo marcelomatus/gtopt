@@ -554,6 +554,7 @@ def install_apt_build_deps() -> None:
     * ``libspdlog-dev`` – structured logging
     * ``liblapack-dev``, ``libblas-dev`` – linear algebra (required by COIN-OR)
     * ``zlib1g-dev`` – zlib (required by Arrow/Parquet)
+    * ``libzstd-dev``, ``zstd`` – zstd compression library and CLI tool
     * ``ca-certificates``, ``lsb-release``, ``wget`` – needed for LLVM APT setup
     """
     log.info("Installing apt build dependencies…")
@@ -565,11 +566,13 @@ def install_apt_build_deps() -> None:
             "liblapack-dev",
             "libblas-dev",
             "zlib1g-dev",
+            "libzstd-dev",
+            "zstd",
             "ca-certificates",
             "lsb-release",
             "wget",
         ],
-        "install core build deps (COIN-OR, Boost, spdlog, LAPACK, zlib, wget)",
+        "install core build deps (COIN-OR, Boost, spdlog, LAPACK, zlib, zstd, wget)",
     )
 
 

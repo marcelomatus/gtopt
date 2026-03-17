@@ -85,7 +85,8 @@ sudo apt-get install -y --no-install-recommends \
   coinor-libcbc-dev \
   libboost-container-dev libspdlog-dev \
   liblapack-dev libblas-dev \
-  zlib1g-dev ca-certificates lsb-release wget
+  zlib1g-dev libzstd-dev zstd \
+  ca-certificates lsb-release wget
 
 # 2. Arrow / Parquet — always via conda-forge in sandbox environments.
 #    APT Arrow (packages.apache.org) conflicts with conda Arrow at link time;
@@ -183,7 +184,8 @@ sudo apt-get install -y --no-install-recommends \
   coinor-libcbc-dev \
   libboost-container-dev libspdlog-dev \
   liblapack-dev libblas-dev \
-  zlib1g-dev ca-certificates lsb-release wget
+  zlib1g-dev libzstd-dev zstd \
+  ca-certificates lsb-release wget
 
 # 2. Arrow / Parquet — always via conda-forge in sandbox environments.
 #    Always pass -DCMAKE_PREFIX_PATH="$(conda info --base)" to cmake.
@@ -772,7 +774,7 @@ planning stages, and time blocks.
 | `annual_discount_rate` | 0.1 | 10 % per year for CAPEX discounting |
 | `input_format` | `"parquet"` | Preferred input format (`"parquet"` default; falls back to CSV) |
 | `output_format` | `"parquet"` | Output format (`"parquet"` default; or `"csv"`) |
-| `output_compression` | `"gzip"` | Parquet compression codec (default `"gzip"`) |
+| `output_compression` | `"zstd"` | Parquet/CSV compression codec (default `"zstd"`) |
 
 ### IEEE benchmark cases in `cases/`
 

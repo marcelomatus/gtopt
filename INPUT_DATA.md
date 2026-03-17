@@ -62,12 +62,12 @@ Global settings that control solver behavior and I/O formats.
 | `input_format`         | string   | —            | Format of input files: `"csv"` or `"parquet"` |
 | `output_directory`     | string   | —            | Directory for output files |
 | `output_format`        | string   | —            | Format of output files: `"csv"` or `"parquet"` |
-| `output_compression`   | string   | —            | Compression for output files: `"gzip"`, `"zstd"`, `"uncompressed"` |
+| `output_compression`   | string   | `"zstd"`     | Compression for output files: `"zstd"` (default), `"gzip"`, `"uncompressed"` |
 | `lp_algorithm`        | integer  | —            | LP solver algorithm code (0 = auto) |
 | `lp_threads`          | integer  | —            | Number of LP solver threads (0 = auto) |
 | `lp_presolve`         | boolean  | —            | Enable LP presolve in the solver |
 | `log_directory`       | string   | `"logs"`     | Directory for log and error LP files |
-| `lp_debug`            | boolean  | —            | Save LP debug files to `log_directory` before solving. Monolithic solver: one file per `(scene, phase)`; SDDP solver: one file per `(iteration, scene, phase)`. Files are named `gtopt_lp_<scene>_<phase>.lp` (monolithic) or `gtopt_iter_<iter>_<scene>_<phase>.lp` (SDDP). When `output_compression` is `"gzip"` (or any value other than `"uncompressed"`), files are gzip-compressed and the originals removed. |
+| `lp_debug`            | boolean  | —            | Save LP debug files to `log_directory` before solving. Monolithic solver: one file per `(scene, phase)`; SDDP solver: one file per `(iteration, scene, phase)`. Files are named `gtopt_lp_<scene>_<phase>.lp` (monolithic) or `gtopt_iter_<iter>_<scene>_<phase>.lp` (SDDP). When `output_compression` is set to a codec (default `"zstd"`, or any value other than `"uncompressed"`), files are compressed and the originals removed. |
 
 ### Example
 
