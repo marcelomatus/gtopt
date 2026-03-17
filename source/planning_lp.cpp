@@ -206,6 +206,8 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
         spdlog::error("LP infeasibility diagnostic for {}:", lp_file);
 
         // Collect non-empty lines and truncate when too long
+        constexpr int kMaxLines = 30;
+        constexpr int kTailLines = 10;
         std::vector<std::string_view> lines;
         for (const auto line : std::views::split(std::string_view {diag}, '\n'))
         {
@@ -216,12 +218,11 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
         }
 
         const auto total = static_cast<int>(lines.size());
-        const bool truncate = (total > kDiagMaxLines);
-        const int start = truncate ? (total - kDiagTailLines) : 0;
+        const bool truncate = (total > kMaxLines);
+        const int start = truncate ? (total - kTailLines) : 0;
         if (truncate) {
-          spdlog::error("  ... ({} lines total, showing last {}) ...",
-                        total,
-                        kDiagTailLines);
+          spdlog::error(
+              "  ... ({} lines total, showing last {}) ...", total, kTailLines);
         }
         for (int i = start; i < total; ++i) {
           spdlog::error("  {}", lines[static_cast<std::size_t>(i)]);
