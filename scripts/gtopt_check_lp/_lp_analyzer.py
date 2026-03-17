@@ -502,6 +502,8 @@ def format_static_report(lp_path: Path, stats: LPStats) -> str:
         if var_name and var_name not in text[:_MAX_CON_DISPLAY]:
             term = _find_var_term(text, var_name)
             if term:
+                # 5 = len(" … ") + len(" …") for the two ellipsis markers;
+                # 20 = minimum prefix length so the constraint name is visible.
                 budget = max(_MAX_CON_DISPLAY - len(term) - 5, 20)
                 return f"        {text[:budget]} … {term} …"
 
