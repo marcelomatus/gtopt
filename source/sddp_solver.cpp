@@ -140,14 +140,6 @@ double compute_convergence_gap(double upper_bound, double lower_bound) noexcept
 namespace
 {
 
-/// Maximum number of diagnostic output lines before truncation.
-/// When the output exceeds this limit, only the last @c kDiagTailLines
-/// lines are shown with a "[truncated]" notice.
-constexpr int kDiagMaxLines = 30;
-
-/// Number of trailing lines to keep when truncating diagnostic output.
-constexpr int kDiagTailLines = 10;
-
 /// Log a multi-line diagnostic string line-by-line so that each line carries
 /// the spdlog prefix (timestamp + level).
 ///
@@ -170,8 +162,8 @@ void log_diagnostic_lines(std::string_view level,
 
   // Collect non-empty lines
   std::vector<std::string_view> lines;
-  for (const auto part : std::views::split(diag, '\n')) {
-    const std::string_view sv {part.begin(), part.end()};
+  for (const auto line : std::views::split(diag, '\n')) {
+    const std::string_view sv {line.begin(), line.end()};
     if (!sv.empty()) {
       lines.push_back(sv);
     }
