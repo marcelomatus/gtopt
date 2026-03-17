@@ -18,6 +18,8 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from .base_writer import _DEFAULT_COMPRESSION, _probe_parquet_codec
+
 _LOG = logging.getLogger(__name__)
 
 
@@ -324,4 +326,7 @@ def write_aperture_afluents(
 
         table = pa.table(arrays)
         out_path = afluent_dir / f"{central_name}.parquet"
-        pq.write_table(table, out_path, compression="gzip")
+        comp = _probe_parquet_codec(
+            (options or {}).get("compression", _DEFAULT_COMPRESSION)
+        )
+        pq.write_table(table, out_path, compression=comp if comp else None)

@@ -8,6 +8,7 @@ and writing it to files. Specific writers should inherit from this class and imp
 the required methods for their specific data formats.
 """
 
+import functools
 import json
 import sys
 from abc import ABC
@@ -22,6 +23,45 @@ from .stage_parser import StageParser
 from .base_parser import BaseParser
 
 ParserVar = TypeVar("ParserVar", bound=BaseParser)  # Used in type hints
+
+
+@functools.lru_cache(maxsize=8)
+def _probe_parquet_codec(requested: str) -> str:
+    """Return the best available PyArrow Parquet codec for *requested*.
+
+    Uses ``pyarrow.Codec`` to test whether the codec is compiled into the
+    linked Arrow library.  Falls back to ``"gzip"`` when *requested* is
+    unavailable, logging a warning to *stderr*.  Results are cached via
+    ``lru_cache`` so the probe runs **at most once per unique codec name**
+    across the entire program run.
+
+    Parameters
+    ----------
+    requested:
+        Codec name to probe (e.g. ``"zstd"``, ``"gzip"``).
+        Empty string / ``"none"`` / ``"uncompressed"`` → returns as-is
+        (uncompressed; no probe needed).
+    """
+    if not requested or requested in ("none", "uncompressed"):
+        return requested
+    try:
+        import pyarrow as pa  # noqa: PLC0415 (local import OK inside cached fn)
+
+        pa.Codec(requested)
+        return requested
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        print(
+            f"Warning: Parquet codec '{requested}' is not available in this "
+            "Arrow build; falling back to gzip",
+            file=sys.stderr,
+        )
+        return "gzip"
+
+
+# Best available Parquet codec — probed once at module import time.
+# "zstd" is preferred (matches the C++ default); falls back to "gzip"
+# when the linked Arrow library was built without zstd support.
+_DEFAULT_COMPRESSION: str = _probe_parquet_codec("zstd")
 
 
 class BaseWriter(ABC):
@@ -150,7 +190,7 @@ class BaseWriter(ABC):
         return df
 
     # Supported compression formats for Parquet files
-    VALID_COMPRESSION = ["gzip", "snappy", "brotli", "none", "", "uncompressed"]
+    VALID_COMPRESSION = ["zstd", "gzip", "snappy", "brotli", "none", "", "uncompressed"]
 
     # Codecs that map to uncompressed (no-compression) output
     UNCOMPRESSED_ALIASES = {"none", "", "uncompressed"}
@@ -158,26 +198,24 @@ class BaseWriter(ABC):
     def get_compression(
         self, options: Optional[Dict[str, Any]] = None
     ) -> Optional[str]:
-        """Get and validate compression option from writer options.
+        """Return the best available Parquet codec for this writer.
 
-        Returns the compression codec string for PyArrow ``write_table()``
-        (``None`` disables compression).  Warns and returns ``None``
-        (uncompressed) when an unrecognised codec is supplied.
+        Reads the ``"compression"`` key from *options* (defaulting to
+        ``_DEFAULT_COMPRESSION``), then passes the value through
+        ``_probe_parquet_codec()`` to guarantee the codec is actually
+        compiled into the linked Arrow library.  Returns ``None`` for
+        uncompressed output.
         """
         if options is None:
             options = self.options
 
-        compression = options.get("compression", "gzip") if options else "gzip"
-        if compression in self.UNCOMPRESSED_ALIASES:
-            return None
-        if compression not in self.VALID_COMPRESSION:
-            print(
-                f"Warning: unknown compression codec '{compression}'; "
-                "falling back to uncompressed output.",
-                file=sys.stderr,
-            )
-            return None
-        return compression
+        requested = (
+            options.get("compression", _DEFAULT_COMPRESSION)
+            if options
+            else _DEFAULT_COMPRESSION
+        )
+        codec = _probe_parquet_codec(requested)
+        return None if codec in self.UNCOMPRESSED_ALIASES else codec
 
     def pcol_name(
         self,
