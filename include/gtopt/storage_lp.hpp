@@ -127,6 +127,19 @@ public:
     return energy_cols.at({scenario.uid(), stage.uid()});
   }
 
+  /// Return the drain/spill column indices for (scenario, stage).
+  ///
+  /// Drain columns represent the spillway (for reservoirs) or energy
+  /// curtailment (for batteries).  They are only present when the storage
+  /// object has a non-zero drain cost; if absent for the requested pair,
+  /// `std::out_of_range` is thrown (caught by the user-constraint resolver
+  /// to produce a graceful `std::nullopt`).
+  [[nodiscard]] constexpr const auto& drain_cols_at(const ScenarioLP& scenario,
+                                                    const StageLP& stage) const
+  {
+    return drain_cols.at({scenario.uid(), stage.uid()});
+  }
+
   /// Energy/volume scale factor used in the LP: LP_var = physical / scale.
   /// For batteries this is Battery::energy_scale; for reservoirs it is
   /// Reservoir::vol_scale.  Use to convert between LP and physical units.
