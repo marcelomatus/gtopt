@@ -121,13 +121,20 @@ struct ResolvedCol
  *
  * The returned @c ResolvedCol::scale converts the LP variable to physical
  * units so that the caller can build correctly-scaled constraint rows.
+ *
+ * When a column has a non-unit scale stored in SparseCol::scale (set at
+ * variable creation time), the scale is retrieved via
+ * `lp.get_col_scale(col)` — providing a uniform mechanism that works for
+ * all current and future scaled variables without hardcoding per-element
+ * logic.
  */
 [[nodiscard]] std::optional<ResolvedCol> resolve_single_col(
     const SystemContext& sc,
     const ScenarioLP& scenario,
     const StageLP& stage,
     const BlockLP& block,
-    const ElementRef& ref)
+    const ElementRef& ref,
+    const LinearProblem& lp)
 {
   const auto single_id = parse_element_id(ref.element_id);
   const BlockUid buid = block.uid();
@@ -212,6 +219,7 @@ struct ResolvedCol
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
+              .scale = lp.get_col_scale(it->second),
           };
         }
       } else if (ref.attribute == "discharge") {
@@ -219,6 +227,7 @@ struct ResolvedCol
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
+              .scale = lp.get_col_scale(it->second),
           };
         }
       } else if (ref.attribute == "energy") {
@@ -226,7 +235,7 @@ struct ResolvedCol
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
-              .scale = bat.energy_scale(),
+              .scale = lp.get_col_scale(it->second),
           };
         }
       } else if (ref.attribute == "spill" || ref.attribute == "drain") {
@@ -234,7 +243,7 @@ struct ResolvedCol
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
-              .scale = bat.flow_scale(),
+              .scale = lp.get_col_scale(it->second),
           };
         }
       }
@@ -249,7 +258,7 @@ struct ResolvedCol
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
-              .scale = res.energy_scale(),
+              .scale = lp.get_col_scale(it->second),
           };
         }
       } else if (ref.attribute == "spill" || ref.attribute == "drain") {
@@ -257,7 +266,7 @@ struct ResolvedCol
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
-              .scale = res.flow_scale(),
+              .scale = lp.get_col_scale(it->second),
           };
         }
       } else if (ref.attribute == "extraction") {
@@ -265,7 +274,7 @@ struct ResolvedCol
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
-              .scale = res.flow_scale(),
+              .scale = lp.get_col_scale(it->second),
           };
         }
       }
@@ -330,12 +339,10 @@ struct ResolvedCol
       const auto& bus_lp = sc.get_element(ObjectSingleId<BusLP> {single_id});
       if (ref.attribute == "theta" || ref.attribute == "angle") {
         if (auto col = bus_lp.lookup_theta_col(scenario, stage, buid)) {
-          // theta_LP = theta_physical × scale_theta  ⇒
-          // theta_physical = theta_LP / scale_theta = theta_LP × (1/scale)
-          const double inv_scale = 1.0 / sc.options().scale_theta();
+          // theta scale is stored in SparseCol::scale at column creation.
           return ResolvedCol {
               .col = *col,
-              .scale = inv_scale,
+              .scale = lp.get_col_scale(*col),
           };
         }
         return std::nullopt;
@@ -470,7 +477,8 @@ void collect_sum_cols(const SystemContext& sc,
                       const BlockLP& block,
                       const SumElementRef& sum_ref,
                       double base_coeff,
-                      SparseRow& row)
+                      SparseRow& row,
+                      const LinearProblem& lp)
 {
   // Helper lambda: add one ElementRef to the row
   auto add_one = [&](const std::string& eid)
@@ -480,7 +488,8 @@ void collect_sum_cols(const SystemContext& sc,
     ref.element_id = eid;
     ref.attribute = sum_ref.attribute;
 
-    if (auto resolved = resolve_single_col(sc, scenario, stage, block, ref)) {
+    if (auto resolved = resolve_single_col(sc, scenario, stage, block, ref, lp))
+    {
       row[resolved->col] += base_coeff * resolved->scale;
     }
   };
@@ -740,16 +749,22 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
     bool has_vars = false;
     for (const auto& term : expr.terms) {
       if (term.element) {
-        if (auto resolved =
-                resolve_single_col(sc, scenario, stage, block, *term.element))
+        if (auto resolved = resolve_single_col(
+                sc, scenario, stage, block, *term.element, lp))
         {
           row[resolved->col] += term.coefficient * resolved->scale;
           has_vars = true;
         }
       } else if (term.sum_ref) {
         const std::size_t before = row.size();
-        collect_sum_cols(
-            sc, scenario, stage, block, *term.sum_ref, term.coefficient, row);
+        collect_sum_cols(sc,
+                         scenario,
+                         stage,
+                         block,
+                         *term.sum_ref,
+                         term.coefficient,
+                         row,
+                         lp);
         if (row.size() > before) {
           has_vars = true;
         }

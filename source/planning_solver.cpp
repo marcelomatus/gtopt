@@ -178,6 +178,7 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options)
 
     // Iteration control
     sddp_opts.max_iterations = options.sddp_max_iterations();
+    sddp_opts.min_iterations = options.sddp_min_iterations();
     sddp_opts.convergence_tol = options.sddp_convergence_tol();
 
     // Advanced tuning
