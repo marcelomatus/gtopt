@@ -13,6 +13,8 @@
  * extracting results.
  */
 
+#include <format>
+
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_lp.hpp>
@@ -128,7 +130,9 @@ constexpr auto create_linear_interface(auto& collections,
                                        const SceneLP& scene,
                                        const auto& flat_opts)
 {
-  LinearProblem lp;
+  // Use scene/phase UIDs in the problem name so that CoinLpIO does not
+  // warn about "missing objective function name" when writing .lp files.
+  LinearProblem lp(std::format("gtopt_s{}_p{}", scene.uid(), phase.uid()));
   // Process all active stages in phase
   for (auto&& stage : phase.stages()) {
     // Process all active scenarios in simulation
