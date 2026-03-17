@@ -405,8 +405,8 @@ TEST_CASE("parse_cut_sharing_mode")  // NOLINT
   CHECK(parse_cut_sharing_mode("expected") == CutSharingMode::Expected);
   CHECK(parse_cut_sharing_mode("accumulate") == CutSharingMode::Accumulate);
   CHECK(parse_cut_sharing_mode("max") == CutSharingMode::Max);
-  // Unknown defaults to Max (matching SDDPOptions default)
-  CHECK(parse_cut_sharing_mode("unknown") == CutSharingMode::Max);
+  // Unknown defaults to None (matching SDDPOptions default)
+  CHECK(parse_cut_sharing_mode("unknown") == CutSharingMode::None);
 }
 
 TEST_CASE("parse_elastic_filter_mode")  // NOLINT
@@ -596,7 +596,7 @@ TEST_CASE("Options solver_type defaults")  // NOLINT
 {
   const OptionsLP options_lp;
   CHECK(options_lp.solver_type() == "monolithic");
-  CHECK(options_lp.sddp_cut_sharing_mode() == "max");
+  CHECK(options_lp.sddp_cut_sharing_mode() == "none");
 }
 
 TEST_CASE("Options top-level solver_type")  // NOLINT
