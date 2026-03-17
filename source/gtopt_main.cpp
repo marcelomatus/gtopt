@@ -355,12 +355,21 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
                      fe.what());
       }
       int n = 1;
-      for (;; ++n) {
+      constexpr int max_trace_files = 10000;
+      for (; n <= max_trace_files; ++n) {
         auto candidate = log_dir / std::format("trace_{}.log", n);
         if (!std::filesystem::exists(candidate)) {
           trace_path = candidate.string();
           break;
         }
+      }
+      if (trace_path.empty()) {
+        // All slots used — fall back to timestamp-based name
+        const auto now = std::chrono::system_clock::now();
+        const auto ts = std::chrono::duration_cast<std::chrono::seconds>(
+                            now.time_since_epoch())
+                            .count();
+        trace_path = (log_dir / std::format("trace_{}.log", ts)).string();
       }
     }
 
@@ -372,7 +381,9 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
       auto trace_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
           trace_path, /*truncate=*/true);
       trace_sink->set_level(spdlog::level::trace);
-      // Keep console sink at its current level (typically info)
+      // Keep the first sink (assumed to be the console/stdout sink created by
+      // spdlog's default logger) at its current level so trace messages only
+      // go to the file sink, not the terminal.
       auto& sinks = spdlog::default_logger()->sinks();
       if (!sinks.empty()) {
         sinks.front()->set_level(spdlog::default_logger()->level());
