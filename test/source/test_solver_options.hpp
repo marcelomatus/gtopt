@@ -203,7 +203,7 @@ TEST_CASE("SolverOptions - merge() only applies to optional tolerance fields")
   SUBCASE("merge sets nullopt tolerance from non-null source")
   {
     SolverOptions dest {};
-    SolverOptions src {
+    const SolverOptions src {
         .optimal_eps = 1e-8,
         .feasible_eps = 1e-7,
     };
@@ -219,7 +219,7 @@ TEST_CASE("SolverOptions - merge() only applies to optional tolerance fields")
     SolverOptions dest {
         .optimal_eps = 1e-6,
     };
-    SolverOptions src {
+    const SolverOptions src {
         .optimal_eps = 1e-10,
     };
     dest.merge(src);
@@ -231,7 +231,7 @@ TEST_CASE("SolverOptions - merge() only applies to optional tolerance fields")
   SUBCASE("merge leaves both nullopt when neither is set")
   {
     SolverOptions dest {};
-    SolverOptions src {};
+    const SolverOptions src {};
     dest.merge(src);
 
     CHECK_FALSE(dest.optimal_eps.has_value());
