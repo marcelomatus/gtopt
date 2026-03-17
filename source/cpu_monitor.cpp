@@ -93,10 +93,7 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
                   / static_cast<double>(total_delta)))
                                          : 0.0;
 
-    // Log every 50th call (thread-safe counter)
-    if (call_count.fetch_add(1, std::memory_order_relaxed) % 50 == 0) {
-      spdlog::info(std::format("  CPU load: {:.2f}% ", load));
-    }
+    call_count.fetch_add(1, std::memory_order_relaxed);
 
     return load;
   } catch (...) {

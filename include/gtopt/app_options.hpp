@@ -88,84 +88,104 @@ template<typename T>
  */
 [[nodiscard]] inline po::options_description make_options_description()
 {
-  po::options_description desc("Gtoptp options");
-  desc.add_options()("help,h", "describes arguments")  //
-      ("verbose,v", "activates maximum verbosity")  //
+  po::options_description desc("Gtopt options");
+  desc.add_options()("help,h", "print this help message and exit")  //
+      ("verbose,v", "enable maximum log verbosity (trace level)")  //
       ("quiet,q",
        po::value<bool>().implicit_value(/*v=*/true),
-       "do not log in the stdout")  //
-      ("version,V", "shows program version")  //
+       "suppress all log output to stdout")  //
+      ("version,V", "print program version and exit")  //
       ("system-file,s",
        po::value<std::vector<std::string>>(),
-       "name of the system file")  //
+       "planning JSON input file(s); may be specified positionally")  //
       ("lp-file,l",
        po::value<std::string>(),
-       "name of the lp file to save")  //
+       "write the assembled LP model to this file (stem; .lp extension added)")
+      //
       ("json-file,j",
        po::value<std::string>(),
-       "name of the json file to save")  //
-      ("input-directory,D", po::value<std::string>(), "input directory")  //
-      ("input-format,F", po::value<std::string>(), "input format")  //
-      ("output-directory,d", po::value<std::string>(), "output directory")  //
+       "write the merged planning JSON to this file")  //
+      ("input-directory,D",
+       po::value<std::string>(),
+       "root directory for external Parquet/CSV input files (default: input)")
+      //
+      ("input-format,F",
+       po::value<std::string>(),
+       "preferred input file format: parquet (default) or csv")  //
+      ("output-directory,d",
+       po::value<std::string>(),
+       "root directory for solution output files (default: output)")  //
       ("output-format,f",
        po::value<std::string>(),
-       "output format [parquet, csv]")  //
+       "output file format: parquet (default) or csv")  //
       ("output-compression,C",
        po::value<std::string>(),
-       "compression codec in parquet [uncompressed, gzip, zstd, lzo]")  //
+       "Parquet compression codec: gzip (default), zstd, lzo, uncompressed")
+      //
       ("use-single-bus,b",
        po::value<bool>().implicit_value(/*v=*/true),
-       "use single bus mode")  //
+       "copper-plate (single-bus) mode: ignore all transmission constraints")
+      //
       ("use-kirchhoff,k",
        po::value<bool>().implicit_value(/*v=*/true),
-       "use kirchhoff mode")  //
+       "enforce DC Kirchhoff voltage-law constraints (requires reactance data)")
+      //
       ("use-lp-names,n",
        po::value<int>().implicit_value(1),
-       "use real col/row names in the lp file")  //
+       "write variable/constraint names to LP file: 1=names, 2=names+map")  //
       ("matrix-eps,e",
        po::value<double>(),
-       "eps value to define A matrix non-zero values")  //
+       "epsilon threshold for treating LP matrix coefficients as zero")  //
       ("build-lp,c",
        po::value<bool>().implicit_value(/*v=*/true),
-       "build all scene/phase LP matrices then exit without solving")  //
+       "build all LP matrices then exit without solving (combine with -l to "
+       "save them)")  //
       ("fast-parsing,p",
        po::value<bool>().implicit_value(/*v=*/true),
-       "use fast (non strict) json parsing")  //
+       "use lenient (non-strict) JSON parsing")  //
       ("check-json,J",
        po::value<bool>().implicit_value(/*v=*/true),
        "warn about JSON fields not recognised by the schema")  //
       ("stats,S",
        po::value<bool>().implicit_value(/*v=*/true),
-       "print system statistics before and after solving")  //
+       "print LP coefficient statistics and system stats before/after solving")
+      //
+      ("lp-coeff-ratio",
+       po::value<double>(),
+       "LP coefficient ratio threshold for conditioning diagnostics: when the "
+       "global max/min |coeff| ratio exceeds this value a per-scene/phase "
+       "table is printed (default: 1e7)")  //
       ("lp-debug",
        po::value<bool>().implicit_value(/*v=*/true),
        "save debug LP files to the log directory (one per scene/phase for "
        "monolithic; one per iteration/scene/phase for SDDP)")  //
       ("lp-compression",
        po::value<std::string>(),
-       "compression codec for LP debug files: empty=auto (let "
-       "gtopt_compress_lp decide), none=no compression, or a specific codec "
-       "name (gzip, zstd, lz4, bzip2, xz) passed as --codec suggestion to "
-       "gtopt_compress_lp")(
-          "lp-algorithm,a",
-          po::value<std::string>(),
-          "LP solution algorithm: 0/default, 1/primal, 2/dual, 3/barrier "
-          "[default: barrier]")  //
+       "compression codec for debug LP files: empty=auto, none=uncompressed, "
+       "or gzip/zstd/lz4/bzip2/xz")  //
+      ("lp-algorithm,a",
+       po::value<std::string>(),
+       "LP solver algorithm: 0/default, 1/primal, 2/dual, 3/barrier "
+       "(shorthand for solver_options.algorithm in JSON; default: barrier)")
+      //
       ("lp-threads,t",
        po::value<int>(),
-       "number of solver threads (0=automatic)")  //
+       "number of LP solver threads, 0=auto (shorthand for "
+       "solver_options.threads in JSON)")  //
       ("lp-presolve",
        po::value<bool>().implicit_value(/*v=*/true),
-       "enable/disable LP presolve")  //
+       "enable/disable LP presolve (shorthand for solver_options.presolve "
+       "in JSON; default: true)")  //
       ("trace-log,T",
        po::value<std::string>(),
-       "path to file for trace-level log output (enables SPDLOG_TRACE)")  //
+       "write SPDLOG_TRACE messages to this file (enables trace-level logging)")
+      //
       ("cut-directory",
        po::value<std::string>(),
        "directory for SDDP Benders cut files (default: cuts)")  //
       ("log-directory",
        po::value<std::string>(),
-       "directory for log and trace files (default: logs)")  //
+       "directory for log and error LP files (default: logs)")  //
       ("sddp-max-iterations",
        po::value<int>(),
        "maximum SDDP forward/backward iterations (default: 100)")  //
@@ -174,13 +194,13 @@ template<typename T>
        "SDDP relative convergence tolerance (default: 1e-4)")  //
       ("sddp-elastic-penalty",
        po::value<double>(),
-       "penalty coefficient for SDDP elastic slack variables (default: 1e6)")  //
+       "SDDP elastic slack penalty coefficient (default: 1e6)")  //
       ("sddp-elastic-mode",
        po::value<std::string>(),
-       "SDDP elastic filter mode: 'cut' (default) or 'backpropagate'")  //
+       "SDDP elastic filter mode: cut (default) or backpropagate")  //
       ("sddp-num-apertures",
        po::value<int>(),
-       "SDDP backward-pass apertures: 0=disabled (default), -1=all scenarios, "
+       "SDDP backward-pass aperture count: 0=disabled (default), -1=all, "
        "N=first N scenarios");
   return desc;
 }
@@ -225,7 +245,8 @@ inline void apply_cli_options(
     const std::optional<std::string>& sddp_elastic_mode = {},
     const std::optional<int>& sddp_num_apertures = {},
     const std::optional<bool>& lp_debug = {},
-    const std::optional<std::string>& lp_compression = {})
+    const std::optional<std::string>& lp_compression = {},
+    const std::optional<double>& lp_coeff_ratio_threshold = {})
 {
   if (use_single_bus) {
     planning.options.use_single_bus = use_single_bus;
@@ -259,16 +280,22 @@ inline void apply_cli_options(
     planning.options.input_format = input_format.value();
   }
 
+  // Route all three CLI solver shortcuts (--lp-algorithm, --lp-threads,
+  // --lp-presolve) directly into solver_options — the canonical solver
+  // config path.  The deprecated top-level lp_algorithm / lp_threads /
+  // lp_presolve JSON fields in Options are still applied in gtopt_main()
+  // for backward compatibility with existing JSON planning files.
   if (lp_algorithm) {
-    planning.options.lp_algorithm = lp_algorithm;
+    planning.options.solver_options.algorithm =
+        static_cast<LPAlgo>(*lp_algorithm);
   }
 
   if (lp_threads) {
-    planning.options.lp_threads = lp_threads;
+    planning.options.solver_options.threads = *lp_threads;
   }
 
   if (lp_presolve) {
-    planning.options.lp_presolve = lp_presolve;
+    planning.options.solver_options.presolve = *lp_presolve;
   }
 
   if (cut_directory) {
@@ -306,6 +333,10 @@ inline void apply_cli_options(
   if (lp_compression) {
     planning.options.lp_compression = lp_compression;
   }
+
+  if (lp_coeff_ratio_threshold) {
+    planning.options.lp_coeff_ratio_threshold = lp_coeff_ratio_threshold;
+  }
 }
 
 /**
@@ -340,7 +371,8 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
                     opts.sddp_elastic_mode,
                     opts.sddp_num_apertures,
                     opts.lp_debug,
-                    opts.lp_compression);
+                    opts.lp_compression,
+                    opts.lp_coeff_ratio_threshold);
 }
 
 /**
@@ -404,6 +436,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .print_stats = get_opt<bool>(vm, "stats"),
       .lp_debug = get_opt<bool>(vm, "lp-debug"),
       .lp_compression = get_opt<std::string>(vm, "lp-compression"),
+      .lp_coeff_ratio_threshold = get_opt<double>(vm, "lp-coeff-ratio"),
       .trace_log = get_opt<std::string>(vm, "trace-log"),
       .cut_directory = get_opt<std::string>(vm, "cut-directory"),
       .log_directory = get_opt<std::string>(vm, "log-directory"),

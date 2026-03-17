@@ -85,6 +85,11 @@ struct MainOptions
    * `"gzip"`, `"zstd"`, `"lz4"`, `"bzip2"`, `"xz"` = specific codec. */
   std::optional<std::string> lp_compression {};
 
+  /** @brief LP coefficient ratio threshold for numerical conditioning
+   * diagnostics.  When the global max/min |coefficient| ratio exceeds this
+   * value, a per-scene/phase breakdown is printed.  (default: 1e7) */
+  std::optional<double> lp_coeff_ratio_threshold {};
+
   // ---- tracing / diagnostics ----
   /** @brief Path to a file for SPDLOG_TRACE output (enables trace-level
    * logging).  When set, a dedicated file sink is added to spdlog so that
