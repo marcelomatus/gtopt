@@ -107,6 +107,10 @@ std::string gzip_lp_file_inline(const std::string& src_path)
   return gz_path;
 }
 
+/// Zstd compression level: 3 is the library default, offering a good
+/// balance between speed and ratio for LP debug files.
+constexpr int kZstdCompressionLevel = 3;
+
 /// Inline zstd compression via libzstd — preferred fallback over zlib/gzip.
 /// Returns the .zst path on success, empty string on failure.
 std::string zstd_lp_file_inline(const std::string& src_path)
@@ -134,8 +138,8 @@ std::string zstd_lp_file_inline(const std::string& src_path)
   const auto bound = ZSTD_compressBound(file_size);
   std::vector<char> output(bound);
 
-  const auto compressed_size =
-      ZSTD_compress(output.data(), bound, input.data(), file_size, /*level=*/3);
+  const auto compressed_size = ZSTD_compress(
+      output.data(), bound, input.data(), file_size, kZstdCompressionLevel);
 
   if (ZSTD_isError(compressed_size) != 0U) {
     spdlog::warn("LpDebugWriter: zstd compress error for {}: {}",
