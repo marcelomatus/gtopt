@@ -43,7 +43,7 @@
  * | Variable             | Scale (physical = LP × scale)            |
  * |---------------------|------------------------------------------|
  * | reservoir.volume     | energy_scale (= vol_scale, default 1000) |
- * | reservoir.extraction | energy_scale (= vol_scale, default 1000) |
+ * | reservoir.extraction | flow_scale   (= vol_scale, default 1000) |
  * | reservoir.spill      | flow_scale   (= vol_scale, default 1000) |
  * | battery.energy       | energy_scale (default 1.0)               |
  * | battery.spill        | flow_scale   (default 1.0)               |

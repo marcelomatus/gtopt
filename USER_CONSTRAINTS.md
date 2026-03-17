@@ -129,7 +129,7 @@ is dimensionally correct.
 | Variable | Scale factor (physical = LP × scale) | Default |
 |----------|--------------------------------------|---------|
 | `reservoir.volume` / `reservoir.energy` | `energy_scale` (= `vol_scale`) | 1000 |
-| `reservoir.extraction` | `energy_scale` (= `vol_scale`) | 1000 |
+| `reservoir.extraction` | `flow_scale` (= `vol_scale`) | 1000 |
 | `reservoir.spill` / `reservoir.drain` | `flow_scale` (= `vol_scale`) | 1000 |
 | `battery.energy` | `energy_scale` | 1.0 |
 | `battery.spill` / `battery.drain` | `flow_scale` | 1.0 |

@@ -265,7 +265,7 @@ struct ResolvedCol
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
-              .scale = res.energy_scale(),
+              .scale = res.flow_scale(),
           };
         }
       }
