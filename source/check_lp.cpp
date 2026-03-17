@@ -15,6 +15,7 @@
 #include <array>
 #include <filesystem>
 #include <format>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -364,6 +365,49 @@ std::string run_check_lp_diagnostic(const std::string& lp_file,
                                  timeout_seconds);
 
   return result.output;
+}
+
+void log_diagnostic_lines(std::string_view level,
+                          std::string_view header,
+                          std::string_view diag)
+{
+  const bool is_error = (level == "error");
+  if (is_error) {
+    spdlog::error("LP infeasibility diagnostic for {}:", header);
+  } else {
+    spdlog::info("LP diagnostic for {}:", header);
+  }
+
+  // Collect non-empty lines
+  std::vector<std::string_view> lines;
+  for (const auto line : std::views::split(diag, '\n')) {
+    const std::string_view sv {line.begin(), line.end()};
+    if (!sv.empty()) {
+      lines.push_back(sv);
+    }
+  }
+
+  const auto total = static_cast<int>(lines.size());
+  const bool truncate = (total > kDiagMaxLines);
+  const int start = truncate ? (total - kDiagTailLines) : 0;
+
+  if (truncate) {
+    if (is_error) {
+      spdlog::error(
+          "  ... ({} lines total, showing last {}) ...", total, kDiagTailLines);
+    } else {
+      spdlog::info(
+          "  ... ({} lines total, showing last {}) ...", total, kDiagTailLines);
+    }
+  }
+
+  for (int i = start; i < total; ++i) {
+    if (is_error) {
+      spdlog::error("  {}", lines[static_cast<std::size_t>(i)]);
+    } else {
+      spdlog::info("  {}", lines[static_cast<std::size_t>(i)]);
+    }
+  }
 }
 
 std::string run_check_json_info(const std::vector<std::string>& json_files,

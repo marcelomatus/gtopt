@@ -40,7 +40,7 @@ namespace gtopt
 /// Maximum number of diagnostic output lines before truncation.
 /// When diagnostic output exceeds this limit, only the last
 /// @c kDiagTailLines lines are shown to avoid flooding the log.
-constexpr int kDiagMaxLines = 10;
+constexpr int kDiagMaxLines = 30;
 
 /// Number of trailing lines to keep when truncating diagnostic output.
 constexpr int kDiagTailLines = 10;
@@ -99,5 +99,23 @@ constexpr int kDiagTailLines = 10;
  */
 [[nodiscard]] std::string run_check_json_info(
     const std::vector<std::string>& json_files, int timeout_seconds = 30);
+
+/**
+ * @brief Log a multi-line diagnostic string line-by-line via spdlog.
+ *
+ * Each non-empty line is prefixed with the spdlog timestamp and level so
+ * that external-tool output (gtopt_check_lp, COIN-OR messages, etc.) is
+ * visually consistent with the rest of the log stream.
+ *
+ * When the output exceeds @c kDiagMaxLines, only the last
+ * @c kDiagTailLines lines are printed to avoid flooding the log.
+ *
+ * @param level   "error" → spdlog::error; any other value → spdlog::info.
+ * @param header  Description for the first line (e.g. the LP file path).
+ * @param diag    Multi-line diagnostic output to log line-by-line.
+ */
+void log_diagnostic_lines(std::string_view level,
+                          std::string_view header,
+                          std::string_view diag);
 
 }  // namespace gtopt
