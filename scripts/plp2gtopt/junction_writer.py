@@ -27,7 +27,6 @@ from .manem_parser import ManemParser
 from .manem_writer import ManemWriter
 from .stage_parser import StageParser
 
-
 _logger = logging.getLogger(__name__)
 
 # UIDs for synthetic "ocean" drain junctions start above this offset so they
@@ -498,11 +497,11 @@ class JunctionWriter(BaseWriter):
                 "emin": emin,
                 "emax": emax,
                 "capacity": central["emax"],
-                "fmin": -12000.0,
-                "fmax": +6000.0,
+                "fmin": -10000.0,
+                "fmax": +10000.0,
                 "spillway_cost": 1.0,
                 "spillway_capacity": 6000.0,
-                "annual_loss": 0.02,
+                "annual_loss": 0.0,
                 "flow_conversion_rate": 3.6 / 1000.0,
             }
             system["reservoir_array"].append(reservoir)
