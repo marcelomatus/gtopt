@@ -1263,7 +1263,8 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
               element_name,
               cname);
         } else {
-          // Find the efin/vfin state variable for this element in the last phase
+          // Find the efin/vfin state variable for this element in the last
+          // phase
           for (const auto& [key, svar] : svar_map) {
             if (key.uid == elem_uid
                 && (key.col_name == "efin" || key.col_name == "soc"
@@ -1460,8 +1461,8 @@ auto SDDPSolver::load_named_cuts(const std::string& filepath)
     if (!ifs.is_open()) {
       return std::unexpected(Error {
           .code = ErrorCode::FileIOError,
-          .message = std::format(
-              "Cannot open named cuts file for reading: {}", filepath),
+          .message = std::format("Cannot open named cuts file for reading: {}",
+                                 filepath),
       });
     }
 
@@ -1526,8 +1527,7 @@ auto SDDPSolver::load_named_cuts(const std::string& filepath)
 
     // ── Build per-phase state-variable column maps ────────────────────────
     // For each phase, map header column index → LP ColIndex
-    const auto num_state_cols =
-        static_cast<int>(headers.size()) - kFixedCols;
+    const auto num_state_cols = static_cast<int>(headers.size()) - kFixedCols;
 
     // Cache per-phase column maps (lazy: built on first use)
     std::unordered_map<Index, std::vector<std::optional<ColIndex>>>
@@ -1542,8 +1542,7 @@ auto SDDPSolver::load_named_cuts(const std::string& filepath)
       }
 
       // Build mapping for this phase by scanning state variables
-      const auto& svar_map =
-          sim.state_variables(SceneIndex {0}, phase);
+      const auto& svar_map = sim.state_variables(SceneIndex {0}, phase);
 
       std::vector<std::optional<ColIndex>> col_map;
       col_map.reserve(num_state_cols);
@@ -1651,12 +1650,11 @@ auto SDDPSolver::load_named_cuts(const std::string& filepath)
         const auto scene = SceneIndex {si};
         auto& state = m_scene_phase_states_[scene][phase];
         if (state.alpha_col == ColIndex {unknown_index}) {
-          auto& li =
-              planning_lp().system(scene, phase).linear_interface();
-          state.alpha_col = li.add_col(
-              sddp_label("sddp", "alpha", "sc", scene, "ph", phase),
-              m_options_.alpha_min,
-              m_options_.alpha_max);
+          auto& li = planning_lp().system(scene, phase).linear_interface();
+          state.alpha_col =
+              li.add_col(sddp_label("sddp", "alpha", "sc", scene, "ph", phase),
+                         m_options_.alpha_min,
+                         m_options_.alpha_max);
           li.set_obj_coeff(state.alpha_col, 1.0);
         }
       }
@@ -1701,9 +1699,8 @@ auto SDDPSolver::load_named_cuts(const std::string& filepath)
       ++cuts_loaded;
     }
 
-    SPDLOG_INFO("SDDP: loaded {} named hot-start cuts from {}",
-                cuts_loaded,
-                filepath);
+    SPDLOG_INFO(
+        "SDDP: loaded {} named hot-start cuts from {}", cuts_loaded, filepath);
     return cuts_loaded;
 
   } catch (const std::exception& e) {
