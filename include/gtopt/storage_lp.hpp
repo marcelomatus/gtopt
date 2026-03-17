@@ -438,8 +438,9 @@ public:
       //
       // Named "efin" so it appears as rsv_efin_uid_scen_stage (or
       // bat_soc_efin_uid_scen_stage) in the LP file.
-      if (is_last_block && storage().efin.has_value()) {
-        const double lp_efin = storage().efin.value() / energy_scale;
+      const auto& efin_opt = storage().efin;
+      if (is_last_block && efin_opt.has_value()) {
+        const double lp_efin = *efin_opt / energy_scale;
         auto efin_row =
             SparseRow {
                 .name = sc.lp_label(scenario, stage, cname, "efin", uid()),
