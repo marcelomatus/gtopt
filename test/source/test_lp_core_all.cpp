@@ -22,6 +22,7 @@
 #include <gtopt/solver_options.hpp>
 #include <gtopt/sparse_col.hpp>
 #include <gtopt/sparse_row.hpp>
+#include <gtopt/variable_scale.hpp>
 
 using namespace gtopt;
 
@@ -32,3 +33,4 @@ using namespace gtopt;
 #include "test_pampl_parser.hpp"
 #include "test_sparse_col.hpp"
 #include "test_sparse_row.hpp"
+#include "test_variable_scale.hpp"
