@@ -305,6 +305,13 @@ public:
   /// Parse and fill the supplied variables_map.
   void parse_into(variables_map& vm) const;
 
+  /// Return the list of unrecognised option tokens collected during parsing
+  /// when allow_unregistered() was called.  Empty if all options were known.
+  [[nodiscard]] const std::vector<std::string>& unrecognized() const noexcept
+  {
+    return unrecognized_;
+  }
+
 private:
   static void store_value(
       variables_map& vm,
@@ -316,6 +323,7 @@ private:
   const options_description* desc_ = nullptr;
   const positional_options_description* pos_ = nullptr;
   bool allow_unregistered_ = false;
+  mutable std::vector<std::string> unrecognized_;
 };
 
 // -------------------------------------------------------------------
