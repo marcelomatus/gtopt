@@ -127,10 +127,12 @@ void PlanningLP::write_out() const
   SPDLOG_INFO(
       "  Writing output: {} scene(s) × {} phase(s)", num_scenes, num_phases);
 
+  // Write output for each scene — one write_out() call per scene using the
+  // first phase (phase 0), which carries the expected solution value.
   for (auto&& [scene_num, phase_systems] : std::views::enumerate(m_systems_)) {
     SPDLOG_DEBUG("  Writing output scene {}/{}", scene_num + 1, num_scenes);
-    for (auto&& system : phase_systems) {
-      system.write_out();
+    if (!phase_systems.empty()) {
+      phase_systems.front().write_out();
     }
   }
 }
