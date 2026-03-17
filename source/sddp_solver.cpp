@@ -183,13 +183,11 @@ void log_diagnostic_lines(std::string_view level,
 
   if (truncate) {
     if (is_error) {
-      spdlog::error("  ... ({} lines total, showing last {}) ...",
-                    total,
-                    kDiagTailLines);
+      spdlog::error(
+          "  ... ({} lines total, showing last {}) ...", total, kDiagTailLines);
     } else {
-      spdlog::info("  ... ({} lines total, showing last {}) ...",
-                   total,
-                   kDiagTailLines);
+      spdlog::info(
+          "  ... ({} lines total, showing last {}) ...", total, kDiagTailLines);
     }
   }
 
@@ -2915,8 +2913,7 @@ auto SDDPSolver::solve_apertures_for_phase(
                                   .string();
 
         clone.write_lp(err_stem);
-        SPDLOG_DEBUG(
-            "SDDP aperture: saved infeasible LP to {}.lp", err_stem);
+        SPDLOG_DEBUG("SDDP aperture: saved infeasible LP to {}.lp", err_stem);
       }
 
       continue;
