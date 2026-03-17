@@ -277,6 +277,7 @@ TEST_CASE("Linear problem advanced operations")
         .rowlb = {0, 0},
         .rowub = {25, 35},
         .colint = {1},
+        .col_scales = {1.0, 1.0},
         .colnm = {"col1", "col2"},
         .rownm = {"row1", "row2"},
         .colmp = {{"col1", 0}, {"col2", 1}},
@@ -295,6 +296,7 @@ TEST_CASE("Linear problem advanced operations")
     REQUIRE(flat_lp.rowlb == flat_lp2.rowlb);
     REQUIRE(flat_lp.rowub == flat_lp2.rowub);
     REQUIRE(flat_lp.colint == flat_lp2.colint);
+    REQUIRE(flat_lp.col_scales == flat_lp2.col_scales);
     REQUIRE(flat_lp.colnm == flat_lp2.colnm);
     REQUIRE(flat_lp.rownm == flat_lp2.rownm);
     REQUIRE(flat_lp.colmp == flat_lp2.colmp);
@@ -320,6 +322,7 @@ TEST_CASE("Linear problem advanced operations")
         .rowlb = {0, 0},
         .rowub = {25, 35},
         .colint = {1},
+        .col_scales = {1.0, 1.0},
         .colnm = {},
         .rownm = {},
         .colmp = {},
@@ -338,6 +341,7 @@ TEST_CASE("Linear problem advanced operations")
     REQUIRE(flat_lp.rowlb == flat_lp2.rowlb);
     REQUIRE(flat_lp.rowub == flat_lp2.rowub);
     REQUIRE(flat_lp.colint == flat_lp2.colint);
+    REQUIRE(flat_lp.col_scales == flat_lp2.col_scales);
     REQUIRE(flat_lp.colnm == flat_lp2.colnm);
     REQUIRE(flat_lp.rownm == flat_lp2.rownm);
     REQUIRE(flat_lp.colmp == flat_lp2.colmp);
