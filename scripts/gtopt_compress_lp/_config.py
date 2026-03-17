@@ -46,18 +46,18 @@ _CONFIG_DEFAULTS: dict[str, str] = {
 # recommended_speed: "very fast", "fast", "moderate", "slow"
 _COMPRESSOR_CATALOGUE: list[tuple[str, str, str, str | None, str]] = [
     (
-        "lz4",
-        "LZ4",
-        "very fast",
-        "sudo apt install lz4",
-        "Best for low-latency debug file writing; lowest CPU overhead.",
-    ),
-    (
         "zstd",
         "Zstandard (zstd)",
         "very fast",
         "sudo apt install zstd",
         "Excellent ratio and speed balance — recommended default.",
+    ),
+    (
+        "lz4",
+        "LZ4",
+        "very fast",
+        "sudo apt install lz4",
+        "Best for low-latency debug file writing; lowest CPU overhead.",
     ),
     (
         "gzip",

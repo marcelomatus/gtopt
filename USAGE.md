@@ -63,7 +63,7 @@ Multiple system files can be provided and will be merged.
 | `-F` | `--input-format` | `arg` | Input data format: `parquet`, `csv` |
 | `-d` | `--output-directory` | `arg` | Directory for output files (created if needed) |
 | `-f` | `--output-format` | `arg` | Output format: `parquet`, `csv` |
-| `-C` | `--compression-format` | `arg` | Parquet compression: `uncompressed`, `gzip`, `zstd`, `lzo` |
+| `-C` | `--compression-format` | `arg` | Output compression: `uncompressed`, `zstd` (default), `gzip`, `lzo` |
 | `-b` | `--use-single-bus` | `[=arg]` | Use single-bus mode (ignore network topology) |
 | `-k` | `--use-kirchhoff` | `[=arg]` | Use Kirchhoff (DC power flow) mode |
 | `-n` | `--use-lp-names` | `[=arg]` | Use named rows/columns in LP (0=off, 1=names, 2=names+map) |
@@ -130,18 +130,19 @@ objective values).
 - **SDDP solver**: one file per `(iteration, scene, phase)` →
   `logs/gtopt_iter_<iter>_<scene>_<phase>.lp`
 
-If `output_compression` is `"gzip"` (or any value other than `"uncompressed"`),
-the files are gzip-compressed and the originals are removed.  Compression runs
-asynchronously so it does not add latency to the solve.
+If `output_compression` is set to a codec (e.g. `"zstd"`, `"gzip"`, or any
+value other than `"uncompressed"`), the files are compressed and the originals
+are removed.  The default codec is `"zstd"`.  Compression runs asynchronously
+so it does not add latency to the solve.
 
 Via JSON:
 ```json
-{ "options": { "lp_debug": true, "log_directory": "logs", "output_compression": "gzip" } }
+{ "options": { "lp_debug": true, "log_directory": "logs", "output_compression": "zstd" } }
 ```
 
 Via CLI:
 ```
-gtopt mycase --lp-debug --log-directory logs --output-compression gzip
+gtopt mycase --lp-debug --log-directory logs --output-compression zstd
 ```
 
 ### Simulation
@@ -377,7 +378,7 @@ For large cases, Parquet format is more compact and faster to read:
 
 ```bash
 gtopt system_c0.json --output-format parquet
-gtopt system_c0.json --output-format parquet --compression-format gzip
+gtopt system_c0.json --output-format parquet --compression-format zstd
 ```
 
 ### Export the LP model
