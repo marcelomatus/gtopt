@@ -12,17 +12,25 @@
  *
  * ### Supported element types and attributes
  *
- * | Element type | Attributes                                    |
- * |-------------|-----------------------------------------------|
- * | generator   | generation, cost                              |
- * | demand      | load, fail                                    |
- * | line        | flow, flowp, flown, lossp, lossn              |
- * | battery     | energy, charge, discharge                     |
- * | converter   | charge, discharge                             |
- * | reservoir   | volume                                        |
- * | bus         | theta                                         |
- * | waterway    | flow                                          |
- * | turbine     | generation                                    |
+ * | Element type       | Attributes                                    |
+ * |-------------------|-----------------------------------------------|
+ * | generator          | generation, cost                              |
+ * | demand             | load, fail                                    |
+ * | line               | flow, flowp, flown, lossp, lossn              |
+ * | battery            | energy, charge, discharge                     |
+ * | converter          | charge, discharge                             |
+ * | reservoir          | volume (alias: energy)                        |
+ * | bus                | theta (alias: angle)                          |
+ * | waterway           | flow                                          |
+ * | turbine            | generation                                    |
+ * | junction           | drain                                         |
+ * | flow               | flow (alias: discharge)                       |
+ * | filtration         | flow (alias: filtration)                      |
+ * | reserve_provision  | up (aliases: uprovision, up_provision),       |
+ * |                    | dn (aliases: dprovision, dn_provision, down)  |
+ * | reserve_zone       | up (aliases: urequirement, up_requirement),   |
+ * |                    | dn (aliases: drequirement, dn_requirement,    |
+ * |                    |     down)                                     |
  *
  * ### Grammar (pseudo-BNF)
  *
@@ -49,6 +57,8 @@
  * element_type := 'generator' | 'demand' | 'line' | 'battery'
  *              |  'converter' | 'reservoir' | 'bus'
  *              |  'waterway'  | 'turbine'
+ *              |  'junction'  | 'flow' | 'filtration'
+ *              |  'reserve_provision' | 'reserve_zone'
  *
  * attribute    := IDENT
  *
