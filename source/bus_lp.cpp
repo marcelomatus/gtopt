@@ -56,6 +56,7 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
                 .name = std::move(tname),
                 .lowb = *theta * scale_theta,
                 .uppb = *theta * scale_theta,
+                .scale = 1.0 / scale_theta,
             });
           } else [[likely]] {
             constexpr double theta_bound =
@@ -64,6 +65,7 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
                 .name = std::move(tname),
                 .lowb = -theta_bound * scale_theta,
                 .uppb = +theta_bound * scale_theta,
+                .scale = 1.0 / scale_theta,
             });
           }
         });
@@ -113,23 +115,14 @@ bool BusLP::add_to_output(OutputContext& out) const
 
   // Primal: LP variable theta' = theta_phys * scale_theta, so
   // theta_phys = theta' / scale_theta = theta' * inv_scale_theta.
-  const auto inv_scale_theta = 1.0 / out.options().scale_theta();
-  out.add_col_sol(cname,
-                  "theta",
-                  pid,
-                  theta_cols,
-                  [inv_scale_theta](auto&& value)
-                  { return value * inv_scale_theta; });
-
   // Reduced cost: rc_phys = rc_LP * scale_theta (inverse of primal).
-  // Per unit of physical theta, the cost is rc_LP * scale_theta because
-  // 1 unit of theta_phys = scale_theta units of theta_LP.
-  const auto scale_theta = out.options().scale_theta();
-  out.add_col_cost(cname,
-                   "theta",
-                   pid,
-                   theta_cols,
-                   [scale_theta](auto&& value) { return value * scale_theta; });
+  // The scale (1/scale_theta) is stored in SparseCol::scale at column
+  // creation time; col_scale_sol/cost use it uniformly.
+  const auto inv_scale_theta = 1.0 / out.options().scale_theta();
+  out.add_col_sol(
+      cname, "theta", pid, theta_cols, col_scale_sol(inv_scale_theta));
+  out.add_col_cost(
+      cname, "theta", pid, theta_cols, col_scale_cost(inv_scale_theta));
 
   return true;
 }
