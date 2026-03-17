@@ -171,12 +171,27 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
           !diag.empty())
       {
         spdlog::error("LP infeasibility diagnostic for {}:", lp_file);
+
+        // Collect non-empty lines and truncate when too long
+        std::vector<std::string_view> lines;
         for (const auto line : std::views::split(std::string_view {diag}, '\n'))
         {
           const std::string_view sv {line.begin(), line.end()};
           if (!sv.empty()) {
-            spdlog::error("  {}", sv);
+            lines.push_back(sv);
           }
+        }
+
+        const auto total = static_cast<int>(lines.size());
+        const bool truncate = (total > kDiagMaxLines);
+        const int start = truncate ? (total - kDiagTailLines) : 0;
+        if (truncate) {
+          spdlog::error("  ... ({} lines total, showing last {}) ...",
+                        total,
+                        kDiagTailLines);
+        }
+        for (int i = start; i < total; ++i) {
+          spdlog::error("  {}", lines[static_cast<std::size_t>(i)]);
         }
       }
 

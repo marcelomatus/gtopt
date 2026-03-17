@@ -143,6 +143,9 @@ namespace
 /// Log a multi-line diagnostic string line-by-line so that each line carries
 /// the spdlog prefix (timestamp + level).
 ///
+/// When the output exceeds @c kDiagMaxLines, only the last
+/// @c kDiagTailLines lines are printed to avoid flooding the log.
+///
 /// @param level   "error" → spdlog::error; any other value → spdlog::info.
 /// @param header  Description for the first line (e.g. the LP file path).
 /// @param diag    Multi-line diagnostic output to log line-by-line.
@@ -156,14 +159,35 @@ void log_diagnostic_lines(std::string_view level,
   } else {
     spdlog::info("LP diagnostic for {}:", header);
   }
+
+  // Collect non-empty lines
+  std::vector<std::string_view> lines;
   for (const auto line : std::views::split(diag, '\n')) {
     const std::string_view sv {line.begin(), line.end()};
     if (!sv.empty()) {
-      if (is_error) {
-        spdlog::error("  {}", sv);
-      } else {
-        spdlog::info("  {}", sv);
-      }
+      lines.push_back(sv);
+    }
+  }
+
+  const auto total = static_cast<int>(lines.size());
+  const bool truncate = (total > kDiagMaxLines);
+  const int start = truncate ? (total - kDiagTailLines) : 0;
+
+  if (truncate) {
+    if (is_error) {
+      spdlog::error(
+          "  ... ({} lines total, showing last {}) ...", total, kDiagTailLines);
+    } else {
+      spdlog::info(
+          "  ... ({} lines total, showing last {}) ...", total, kDiagTailLines);
+    }
+  }
+
+  for (int i = start; i < total; ++i) {
+    if (is_error) {
+      spdlog::error("  {}", lines[static_cast<std::size_t>(i)]);
+    } else {
+      spdlog::info("  {}", lines[static_cast<std::size_t>(i)]);
     }
   }
 }
@@ -2799,6 +2823,9 @@ auto SDDPSolver::solve_apertures_for_phase(
     return std::nullopt;
   }
 
+  int n_infeasible = 0;
+  [[maybe_unused]] int n_skipped = 0;
+
   for (const auto& [ap_ref, ap_count] : effective_apertures) {
     const auto& aperture = ap_ref.get();
     const auto ap_uid = aperture.uid;
@@ -2832,6 +2859,7 @@ auto SDDPSolver::solve_apertures_for_phase(
           phase,
           ap_uid,
           aperture.source_scenario);
+      ++n_skipped;
       continue;
     }
 
@@ -2853,6 +2881,7 @@ auto SDDPSolver::solve_apertures_for_phase(
     auto result = resolve_clone_via_pool(
         clone, opts, make_backward_lp_task_req(0, phase));
     if (!result.has_value() || !clone.is_optimal()) {
+      ++n_infeasible;
       SPDLOG_DEBUG(
           "SDDP aperture: scene {} phase {} aperture uid {} infeasible "
           "(status {}), skipping",
@@ -2861,8 +2890,11 @@ auto SDDPSolver::solve_apertures_for_phase(
           ap_uid,
           clone.get_status());
 
-      // Save the infeasible aperture LP and run diagnostics as non-LP
-      // tasks with low priority, submitted to the SDDP work pool.
+      // Save the infeasible aperture LP for later inspection, but do NOT
+      // run gtopt_check_lp here — the diagnostic is expensive and aperture
+      // infeasibility is expected in some scenarios.  The diagnostic is
+      // only run when the entire problem is infeasible (forward-pass
+      // failure at the first phase).
       if (!m_options_.log_directory.empty()) {
         std::filesystem::create_directories(m_options_.log_directory);
         const auto err_stem = (std::filesystem::path(m_options_.log_directory)
@@ -2872,50 +2904,8 @@ auto SDDPSolver::solve_apertures_for_phase(
                                              ap_uid))
                                   .string();
 
-        // Write LP file synchronously (clone will be moved out of scope)
         clone.write_lp(err_stem);
-        spdlog::warn("SDDP aperture: saved infeasible LP to {}.lp", err_stem);
-
-        // Submit gtopt_check_lp diagnostic as a non-LP task with low
-        // priority so it doesn't block LP solves.
-        // Pass the full SolverOptions so the diagnostic uses the same
-        // algorithm and tolerance settings as the gtopt solver.
-        const auto solver_opts_copy = opts;
-        if (m_pool_ != nullptr) {
-          auto diag_req = BasicTaskRequirements<SDDPTaskKey> {
-              .priority_key =
-                  SDDPTaskKey {
-                      0,
-                      kSDDPKeyBackward,
-                      static_cast<int>(phase),
-                      kSDDPKeyIsNonLP,
-                  },
-              .name = std::format("check_lp_aper_sc{}_ph{}_ap{}",
-                                  scene_uid(scene),
-                                  phase_uid(phase),
-                                  ap_uid),
-          };
-          [[maybe_unused]] auto diag_fut = m_pool_->submit(
-              [err_stem, solver_opts_copy]
-              {
-                if (const auto diag = run_check_lp_diagnostic(
-                        err_stem, /*timeout_seconds=*/10, solver_opts_copy);
-                    !diag.empty())
-                {
-                  log_diagnostic_lines("error", err_stem + ".lp", diag);
-                }
-                return std::expected<int, Error>(0);
-              },
-              diag_req);
-        } else {
-          // No pool available — run diagnostic synchronously
-          if (const auto diag = run_check_lp_diagnostic(
-                  err_stem, /*timeout_seconds=*/10, solver_opts_copy);
-              !diag.empty())
-          {
-            log_diagnostic_lines("error", err_stem + ".lp", diag);
-          }
-        }
+        SPDLOG_DEBUG("SDDP aperture: saved infeasible LP to {}.lp", err_stem);
       }
 
       continue;
@@ -2946,6 +2936,23 @@ auto SDDPSolver::solve_apertures_for_phase(
     aperture_cuts.push_back(std::move(cut));
     aperture_weights.push_back(weight);
     total_weight += weight;
+  }
+
+  // Log summary when some apertures were infeasible
+  [[maybe_unused]] const auto n_total =
+      static_cast<int>(effective_apertures.size());
+  [[maybe_unused]] const auto n_feasible =
+      static_cast<int>(aperture_cuts.size());
+  if (n_infeasible > 0) {
+    SPDLOG_TRACE(
+        "SDDP aperture: scene {} phase {} — {}/{} feasible, {} infeasible, "
+        "{} skipped",
+        scene,
+        phase,
+        n_feasible,
+        n_total,
+        n_infeasible,
+        n_skipped);
   }
 
   if (aperture_cuts.empty()) {
