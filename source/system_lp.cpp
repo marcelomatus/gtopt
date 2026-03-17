@@ -245,10 +245,8 @@ SystemLP::SystemLP(const System& system,
 
 void SystemLP::write_out() const
 {
-  OutputContext oc(system_context(),
-                   linear_interface(),
-                   static_cast<Uid>(scene().uid()),
-                   static_cast<Uid>(phase().uid()));
+  OutputContext oc(
+      system_context(), linear_interface(), scene().uid(), phase().uid());
 
   auto count = visit_elements(
       collections(), [&oc](const auto& e) { return e.add_to_output(oc); });
