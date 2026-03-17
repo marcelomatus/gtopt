@@ -224,7 +224,14 @@ else
 fi
 
 # ---- Test 8: Validate solution is optimal ----
-SOL_STATUS=$(grep "^[[:space:]]*status," "$OUTPUT_DIR/solution.csv" 2>/dev/null | cut -d',' -f2 | tr -d ' ' || true)
+SOL_HEADER=$(head -1 "$OUTPUT_DIR/solution.csv" 2>/dev/null || true)
+SOL_DATA=$(sed -n '2p' "$OUTPUT_DIR/solution.csv" 2>/dev/null || true)
+STATUS_COL=$(echo "$SOL_HEADER" | tr ',' '\n' | grep -n "^status$" | cut -d: -f1)
+if [ -n "$STATUS_COL" ] && [ -n "$SOL_DATA" ]; then
+  SOL_STATUS=$(echo "$SOL_DATA" | cut -d',' -f"$STATUS_COL" | tr -d ' ')
+else
+  SOL_STATUS=""
+fi
 if [ "$SOL_STATUS" = "0" ]; then
   pass "Solution status is optimal (0)"
 else
