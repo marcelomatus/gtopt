@@ -176,8 +176,7 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
         constexpr int kMaxLines = 30;
         constexpr int kTailLines = 10;
         std::vector<std::string_view> lines;
-        for (const auto line :
-             std::views::split(std::string_view {diag}, '\n'))
+        for (const auto line : std::views::split(std::string_view {diag}, '\n'))
         {
           const std::string_view sv {line.begin(), line.end()};
           if (!sv.empty()) {
@@ -189,9 +188,8 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
         const bool truncate = (total > kMaxLines);
         const int start = truncate ? (total - kTailLines) : 0;
         if (truncate) {
-          spdlog::error("  ... ({} lines total, showing last {}) ...",
-                        total,
-                        kTailLines);
+          spdlog::error(
+              "  ... ({} lines total, showing last {}) ...", total, kTailLines);
         }
         for (int i = start; i < total; ++i) {
           spdlog::error("  {}", lines[static_cast<std::size_t>(i)]);
