@@ -11,6 +11,7 @@
 #include <daw/json/daw_json_link.h>
 #include <gtopt/json/json_basic_types.hpp>
 #include <gtopt/json/json_solver_options.hpp>
+#include <gtopt/json/json_variable_scale.hpp>
 #include <gtopt/options.hpp>
 
 namespace daw::json
@@ -100,7 +101,10 @@ struct json_data_contract<Options>
                        json_number_null<"lp_coeff_ratio_threshold", OptReal>,
 
                        json_class_null<"sddp_options", SddpOptions>,
-                       json_class_null<"solver_options", SolverOptions>>;
+                       json_class_null<"solver_options", SolverOptions>,
+                       json_array_null<"variable_scales",
+                                       gtopt::Array<VariableScale>,
+                                       VariableScale>>;
 
   constexpr static auto to_json_data(Options const& opt)
   {
@@ -135,7 +139,8 @@ struct json_data_contract<Options>
                                  opt.lp_coeff_ratio_threshold,
 
                                  opt.sddp_options,
-                                 opt.solver_options);
+                                 opt.solver_options,
+                                 opt.variable_scales);
   }
 };
 

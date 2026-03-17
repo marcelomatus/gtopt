@@ -92,6 +92,7 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
         .name = sc.lp_label(scenario, stage, block, cname, "fext", uid()),
         .lowb = fmin * inv_vol_scale,
         .uppb = fmax * inv_vol_scale,
+        .scale = vol_scale,
     });
 
     rcols[buid] = rc;
@@ -154,13 +155,18 @@ bool ReservoirLP::add_to_output(OutputContext& out) const
 
   // rsv_fext LP variable is in physical_flow / energy_scale units; multiply
   // primal by energy_scale to recover m³/s, divide reduced cost accordingly.
+  // Uses col_scale_sol/cost helpers for uniform rescaling.
   if (std::abs(energy_scale() - 1.0) > std::numeric_limits<double>::epsilon()) {
-    const auto scale = energy_scale();
-    const auto inv_scale = 1.0 / scale;
-    const auto sol_r = [scale](auto v) { return v * scale; };
-    const auto cost_r = [inv_scale](auto v) { return v * inv_scale; };
-    out.add_col_sol(cname, "extraction", id(), extraction_cols, sol_r);
-    out.add_col_cost(cname, "extraction", id(), extraction_cols, cost_r);
+    out.add_col_sol(cname,
+                    "extraction",
+                    id(),
+                    extraction_cols,
+                    col_scale_sol(energy_scale()));
+    out.add_col_cost(cname,
+                     "extraction",
+                     id(),
+                     extraction_cols,
+                     col_scale_cost(energy_scale()));
   } else {
     out.add_col_sol(cname, "extraction", id(), extraction_cols);
     out.add_col_cost(cname, "extraction", id(), extraction_cols);
