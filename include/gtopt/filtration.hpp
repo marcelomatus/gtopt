@@ -92,10 +92,10 @@ namespace gtopt
 struct FiltrationSegment
 {
   Real volume {
-      0.0};  ///< Volume breakpoint [dam³] – segment applies when V ≥ volume
+      0.0,};  ///< Volume breakpoint [dam³] – segment applies when V ≥ volume
   Real slope {0.0};  ///< Seepage slope [m³/s / dam³] (Fortran PFiltPend / 1000)
   Real constant {
-      0.0};  ///< Y-intercept [m³/s]: filtration at V=0 for this segment
+      0.0,};  ///< Y-intercept [m³/s]: filtration at V=0 for this segment
 };
 
 /**
