@@ -7,6 +7,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -438,9 +439,11 @@ std::string zstd_decompress_to_string(const std::filesystem::path& zst_path)
   }
   src.close();
 
-  // Use streaming decompression (handles Arrow's streaming zstd output)
-  auto* dctx = ZSTD_createDCtx();
-  if (dctx == nullptr) {
+  // Use streaming decompression (handles Arrow's streaming zstd output).
+  // RAII wrapper ensures ZSTD_DCtx is freed even on early return.
+  std::unique_ptr<ZSTD_DCtx, decltype(&ZSTD_freeDCtx)> dctx(ZSTD_createDCtx(),
+                                                            &ZSTD_freeDCtx);
+  if (!dctx) {
     return {};
   }
 
@@ -451,14 +454,12 @@ std::string zstd_decompress_to_string(const std::filesystem::path& zst_path)
   ZSTD_inBuffer input {compressed.data(), file_size, 0};
   while (input.pos < input.size) {
     ZSTD_outBuffer output {out_buf.data(), kOutBufSize, 0};
-    const auto ret = ZSTD_decompressStream(dctx, &output, &input);
+    const auto ret = ZSTD_decompressStream(dctx.get(), &output, &input);
     if (ZSTD_isError(ret) != 0U) {
-      ZSTD_freeDCtx(dctx);
       return {};
     }
     result.append(out_buf.data(), output.pos);
   }
-  ZSTD_freeDCtx(dctx);
   return result;
 }
 
