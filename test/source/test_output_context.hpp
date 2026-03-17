@@ -441,8 +441,8 @@ std::string zstd_decompress_to_string(const std::filesystem::path& zst_path)
 
   // Use streaming decompression (handles Arrow's streaming zstd output).
   // RAII wrapper ensures ZSTD_DCtx is freed even on early return.
-  std::unique_ptr<ZSTD_DCtx, decltype(&ZSTD_freeDCtx)> dctx(ZSTD_createDCtx(),
-                                                            &ZSTD_freeDCtx);
+  const std::unique_ptr<ZSTD_DCtx, decltype(&ZSTD_freeDCtx)> dctx(
+      ZSTD_createDCtx(), &ZSTD_freeDCtx);
   if (!dctx) {
     return {};
   }
