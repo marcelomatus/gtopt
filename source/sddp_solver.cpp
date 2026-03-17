@@ -66,11 +66,11 @@ ElasticFilterMode parse_elastic_filter_mode(std::string_view name)
   if (name == "backpropagate") {
     return ElasticFilterMode::BackpropagateBounds;
   }
-  if (name == "multi-cut") {
+  // "multi_cut" is canonical; "multi-cut" kept as backward-compat alias
+  if (name == "multi_cut" || name == "multi-cut") {
     return ElasticFilterMode::MultiCut;
   }
-  // "single-cut" is the canonical name; "cut" is kept as a backward-compat
-  // alias
+  // "single_cut" is canonical; "single-cut"/"cut" kept as backward-compat
   return ElasticFilterMode::FeasibilityCut;
 }
 
@@ -478,9 +478,10 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
         resolve_via_pool(li, opts, make_forward_lp_task_req(iteration, phase));
 
     if (!result.has_value() || !li.is_optimal()) {
-      SPDLOG_INFO(
-          "SDDP forward: scene {} phase {} infeasible (status {}), "
+      SPDLOG_WARN(
+          "SDDP forward: iter {} scene {} phase {} non-optimal (status {}), "
           "trying elastic solve",
+          iteration,
           scene_uid(scene),
           phase_uid(phase),
           li.get_status());
@@ -723,7 +724,7 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
                                 elastic_result->clone.get_col_cost(),
                                 elastic_result->clone.get_obj_value(),
                                 sddp_label("sddp",
-                                           "single-cut",
+                                           "single_cut",
                                            "sc",
                                            scene,
                                            "ph",
@@ -751,7 +752,7 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
                 build_multi_cuts(*elastic_result,
                                  prev_state.outgoing_links,
                                  sddp_label("sddp",
-                                            "multi-cut",
+                                            "multi_cut",
                                             "sc",
                                             scene,
                                             "ph",
@@ -816,7 +817,7 @@ auto SDDPSolver::backward_pass_single_phase(SceneIndex scene,
       src_state.outgoing_links,
       target_state.forward_col_cost,
       target_state.forward_full_obj,
-      sddp_label("sddp", "single-cut", "sc", scene, "ph", pi, "n", cut_offset));
+      sddp_label("sddp", "single_cut", "sc", scene, "ph", pi, "n", cut_offset));
 
   store_cut(scene, src_phase, cut);
 
@@ -834,11 +835,13 @@ auto SDDPSolver::backward_pass_single_phase(SceneIndex scene,
     auto r = resolve_via_pool(
         src_li, opts, make_backward_lp_task_req(iteration, src_phase));
     if (!r.has_value() || !src_li.is_optimal()) {
-      SPDLOG_INFO(
-          "SDDP backward: scene {} phase {} infeasible after cut, "
-          "starting feasibility backpropagation",
+      SPDLOG_WARN(
+          "SDDP backward: iter {} scene {} phase {} non-optimal after cut "
+          "(status {}), starting feasibility backpropagation",
+          iteration,
           scene_uid(scene),
-          phase_uid(src_phase));
+          phase_uid(src_phase),
+          src_li.get_status());
       auto bp_result = feasibility_backpropagate(
           scene, pi - 1, cut_offset + cuts_added, opts);
       if (!bp_result.has_value()) {
@@ -1192,7 +1195,7 @@ auto SDDPSolver::load_cuts(const std::string& filepath)
       const auto rhs = std::stod(token);
 
       auto row = SparseRow {
-          .name = as_label("loaded", cut_name),
+          .name = sddp_label("loaded", cut_name),
           .lowb = rhs,
           .uppb = LinearProblem::DblMax,
       };
@@ -1557,7 +1560,7 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
         const auto& state = m_scene_phase_states_[scene][last_phase];
 
         auto row = SparseRow {
-            .name = as_label("boundary", rc.name),
+            .name = sddp_label("boundary", rc.name),
             .lowb = rc.rhs,
             .uppb = LinearProblem::DblMax,
         };
@@ -1818,7 +1821,7 @@ auto SDDPSolver::load_named_cuts(const std::string& filepath)
         const auto& state = m_scene_phase_states_[scene][phase];
 
         auto row = SparseRow {
-            .name = as_label("named_hs", cut_name),
+            .name = sddp_label("named_hs", cut_name),
             .lowb = rhs,
             .uppb = LinearProblem::DblMax,
         };
@@ -2721,7 +2724,7 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
         target_state.forward_col_cost,
         target_state.forward_full_obj,
         sddp_label(
-            "sddp", "fallback-cut", "sc", scene, "ph", pi, "n", cut_offset));
+            "sddp", "fallback_cut", "sc", scene, "ph", pi, "n", cut_offset));
 
     store_cut(scene, src_phase, fallback_cut);
     src_li.add_row(fallback_cut);
@@ -2737,10 +2740,12 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
           src_li, opts, make_backward_lp_task_req(iteration, src_phase));
       if (!r.has_value() || !src_li.is_optimal()) {
         SPDLOG_WARN(
-            "SDDP aperture fallback: scene {} phase {} infeasible after "
-            "adding fallback cut (skipping further backpropagation)",
-            scene,
-            src_phase);
+            "SDDP backward: iter {} scene {} phase {} non-optimal after "
+            "fallback cut (status {}), skipping further backpropagation",
+            iteration,
+            scene_uid(scene),
+            phase_uid(src_phase),
+            src_li.get_status());
       }
     }
 
@@ -2763,10 +2768,12 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
         src_li, opts, make_backward_lp_task_req(iteration, src_phase));
     if (!r.has_value() || !src_li.is_optimal()) {
       SPDLOG_WARN(
-          "SDDP aperture: scene {} phase {} infeasible after adding "
-          "expected cut (skipping further backpropagation)",
-          scene,
-          src_phase);
+          "SDDP backward: iter {} scene {} phase {} non-optimal after "
+          "expected cut (status {}), skipping further backpropagation",
+          iteration,
+          scene_uid(scene),
+          phase_uid(src_phase),
+          src_li.get_status());
     }
   }
 
@@ -2931,7 +2938,7 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
                                               target_state.forward_col_cost,
                                               target_state.forward_full_obj,
                                               sddp_label("sddp",
-                                                         "fallback-cut",
+                                                         "fallback_cut",
                                                          "sc",
                                                          scene,
                                                          "ph",
@@ -2954,10 +2961,12 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
               src_li, opts, make_backward_lp_task_req(iteration, src_phase));
           if (!r.has_value() || !src_li.is_optimal()) {
             SPDLOG_WARN(
-                "SDDP aperture fallback: scene {} phase {} infeasible after "
-                "adding fallback cut (skipping further backpropagation)",
-                scene,
-                src_phase);
+                "SDDP backward: iter {} scene {} phase {} non-optimal after "
+                "fallback cut (status {}), skipping further backpropagation",
+                iteration,
+                scene_uid(scene),
+                phase_uid(src_phase),
+                src_li.get_status());
           }
         }
 
@@ -2978,10 +2987,12 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
             src_li, opts, make_backward_lp_task_req(iteration, src_phase));
         if (!r.has_value() || !src_li.is_optimal()) {
           SPDLOG_WARN(
-              "SDDP aperture: scene {} phase {} infeasible after adding "
-              "expected cut (skipping further backpropagation)",
-              scene,
-              src_phase);
+              "SDDP backward: iter {} scene {} phase {} non-optimal after "
+              "expected cut (status {}), skipping further backpropagation",
+              iteration,
+              scene_uid(scene),
+              phase_uid(src_phase),
+              src_li.get_status());
         }
       }
     }
@@ -3045,7 +3056,7 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
           target_state.forward_col_cost,
           target_state.forward_full_obj,
           sddp_label(
-              "sddp", "fallback-cut", "sc", scene, "ph", pi, "n", total_cuts));
+              "sddp", "fallback_cut", "sc", scene, "ph", pi, "n", total_cuts));
 
       store_cut(scene, src_phase, fallback_cut);
       src_li.add_row(fallback_cut);
@@ -3062,10 +3073,12 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
             src_li, opts, make_backward_lp_task_req(iteration, src_phase));
         if (!r.has_value() || !src_li.is_optimal()) {
           SPDLOG_WARN(
-              "SDDP aperture fallback: scene {} phase {} infeasible after "
-              "adding fallback cut (skipping further backpropagation)",
-              scene,
-              src_phase);
+              "SDDP backward: iter {} scene {} phase {} non-optimal after "
+              "fallback cut (status {}), skipping further backpropagation",
+              iteration,
+              scene_uid(scene),
+              phase_uid(src_phase),
+              src_li.get_status());
         }
       }
 
@@ -3090,10 +3103,12 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
           src_li, opts, make_backward_lp_task_req(iteration, src_phase));
       if (!r.has_value() || !src_li.is_optimal()) {
         SPDLOG_WARN(
-            "SDDP aperture: scene {} phase {} infeasible after adding "
-            "expected cut (skipping further backpropagation)",
-            scene,
-            src_phase);
+            "SDDP backward: iter {} scene {} phase {} non-optimal after "
+            "expected cut (status {}), skipping further backpropagation",
+            iteration,
+            scene_uid(scene),
+            phase_uid(src_phase),
+            src_li.get_status());
       }
     }
   }
@@ -3279,7 +3294,7 @@ auto SDDPSolver::solve_apertures_for_phase(
     // Build a Benders cut from the clone's reduced costs.
     // Use aperture UID (not 0-based index) in user-facing labels.
     const auto cut_name = sddp_label("sddp",
-                                     "aper-cut",
+                                     "aper_cut",
                                      "sc",
                                      scene,
                                      "ph",
@@ -3333,7 +3348,7 @@ auto SDDPSolver::solve_apertures_for_phase(
 
   // Compute the probability-weighted expected cut
   const auto expected_name = sddp_label(
-      "sddp", "expected-aper", "sc", scene, "ph", pi, "n", total_cuts);
+      "sddp", "expected_aper", "sc", scene, "ph", pi, "n", total_cuts);
   return weighted_average_benders_cut(
       aperture_cuts, aperture_weights, expected_name);
 }
