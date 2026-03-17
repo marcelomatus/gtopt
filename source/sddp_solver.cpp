@@ -1431,8 +1431,9 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
 
       if (!found_col.has_value()) {
         SPDLOG_WARN(
-            "Boundary cuts: could not find state variable for header '{}'; "
-            "coefficients in this column will be ignored",
+            "Boundary cuts: state variable '{}' not found in the current "
+            "model (it may have been removed or renamed since the cuts were "
+            "saved); its coefficients will be ignored in the loaded cuts",
             hdr);
       }
       header_col_map.push_back(found_col);
