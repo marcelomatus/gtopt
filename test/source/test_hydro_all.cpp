@@ -9,6 +9,7 @@
  * a single compilation unit to reduce build time.
  */
 
+#include <filesystem>
 #include <vector>
 
 #include <doctest/doctest.h>
