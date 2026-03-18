@@ -2137,7 +2137,9 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
       SPDLOG_WARN("SDDP hot-start: could not load cuts: {}",
                   result.error().message);
     }
-  } else if (!m_options_.cuts_output_file.empty()) {
+  } else if (m_options_.hot_start && !m_options_.cuts_output_file.empty()) {
+    // Implicit hot-start: load previously saved cuts from the cut directory.
+    // Only enabled when sddp_hot_start is explicitly set to true.
     const auto cut_dir =
         std::filesystem::path(m_options_.cuts_output_file).parent_path();
     if (!cut_dir.empty() && std::filesystem::exists(cut_dir)) {

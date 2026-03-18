@@ -82,6 +82,10 @@ struct SddpOptions
   OptReal sddp_alpha_max {};
 
   // ── Cut file management ────────────────────────────────────────────────────
+  /** @brief Enable hot-start from previously saved cuts (default: false).
+   *  When true and no explicit `sddp_cuts_input_file` is given, the solver
+   *  loads cuts from the `sddp_cut_directory`. */
+  OptBool sddp_hot_start {};
   /** @brief File path for loading initial cuts (hot-start; empty = cold start)
    */
   OptName sddp_cuts_input_file {};
@@ -181,6 +185,7 @@ struct SddpOptions
     merge_opt(sddp_elastic_penalty, opts.sddp_elastic_penalty);
     merge_opt(sddp_alpha_min, opts.sddp_alpha_min);
     merge_opt(sddp_alpha_max, opts.sddp_alpha_max);
+    merge_opt(sddp_hot_start, opts.sddp_hot_start);
     merge_opt(sddp_cuts_input_file, std::move(opts.sddp_cuts_input_file));
     merge_opt(sddp_sentinel_file, std::move(opts.sddp_sentinel_file));
     merge_opt(sddp_elastic_mode, std::move(opts.sddp_elastic_mode));
