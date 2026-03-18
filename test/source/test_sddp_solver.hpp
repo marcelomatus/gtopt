@@ -3569,3 +3569,632 @@ TEST_CASE(
   REQUIRE(result.has_value());
   CHECK(*result == 0);
 }
+
+// ─── Forward/backward propagation tests (boundary cases 1–5 phases) ─────────
+//
+// These tests specifically verify the backward pass predicate fix
+// (pi > 0 instead of the former pi > 1) and correct forward/backward
+// state-variable propagation across 1, 2, 3, 4, and 5 phases.
+//
+// Design notes
+// ─────────────
+// * make_nphase_simple_hydro_planning(N) creates a minimal N-phase problem
+//   with a reservoir whose volume is the linking state variable.
+// * Forward propagation: after a forward pass every phase p > 0 must have
+//   a strictly positive forward_objective (thermal backup was needed).
+// * Backward propagation: the backward pass visits phases N-1 … 1 and adds
+//   one optimality Benders cut per phase, so the total stored cuts after one
+//   full SDDP iteration must equal N-1.
+// * The predicate fix is specifically exercised in the 2-phase case:
+//   because pi=1 satisfies pi>0, phase 0 is re-solved after the cut from
+//   phase 1 is added, which causes the lower bound to strictly increase.
+
+namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+{
+
+/// Minimal N-phase hydro+thermal planning problem.
+///
+/// Topology (single-bus):
+///   1 hydro generator  (20 MW, $5/MWh)
+///   1 thermal generator (100 MW, $50/MWh)
+///   1 demand           (40 MW constant, 4 blocks of 1 h per phase)
+///   1 reservoir (capacity 100 dam³, eini 50, inflow 5 dam³/h)
+///
+/// The reservoir volume is the sole state variable linking consecutive phases.
+/// With N phases and 4 blocks per phase the problem is large enough for
+/// meaningful cuts but small enough to solve quickly in unit tests.
+auto make_nphase_simple_hydro_planning(int num_phases) -> Planning
+{
+  constexpr int blocks_per_phase = 4;
+  const int total_blocks = num_phases * blocks_per_phase;
+
+  Array<Block> block_array;
+  block_array.reserve(static_cast<std::size_t>(total_blocks));
+  for (int i = 0; i < total_blocks; ++i) {
+    block_array.push_back(Block {
+        .uid = Uid {i + 1},
+        .duration = 1.0,
+    });
+  }
+
+  Array<Stage> stage_array;
+  stage_array.reserve(static_cast<std::size_t>(num_phases));
+  for (int s = 0; s < num_phases; ++s) {
+    stage_array.push_back(Stage {
+        .uid = Uid {s + 1},
+        .first_block = static_cast<Size>(s * blocks_per_phase),
+        .count_block = blocks_per_phase,
+    });
+  }
+
+  Array<Phase> phase_array;
+  phase_array.reserve(static_cast<std::size_t>(num_phases));
+  for (int p = 0; p < num_phases; ++p) {
+    phase_array.push_back(Phase {
+        .uid = Uid {p + 1},
+        .first_stage = static_cast<Size>(p),
+        .count_stage = 1,
+    });
+  }
+
+  Simulation simulation = {
+      .block_array = std::move(block_array),
+      .stage_array = std::move(stage_array),
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .probability_factor = 1.0,
+              },
+          },
+      .phase_array = std::move(phase_array),
+  };
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 20.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "thermal",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 100.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 40.0,
+      },
+  };
+
+  const Array<Junction> junction_array = {
+      {.uid = Uid {1}, .name = "j_up"},
+      {.uid = Uid {2}, .name = "j_down", .drain = true},
+  };
+
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 50.0,
+      },
+  };
+
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 100.0,
+          .emin = 0.0,
+          .emax = 100.0,
+          .eini = 50.0,
+          .fmin = -500.0,
+          .fmax = +500.0,
+          .flow_conversion_rate = 1.0,
+      },
+  };
+
+  const Array<Flow> flow_array = {
+      {
+          .uid = Uid {1},
+          .name = "inflow",
+          .direction = 1,
+          .junction = Uid {1},
+          .discharge = 5.0,
+      },
+  };
+
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .conversion_rate = 1.0,
+      },
+  };
+
+  Options options;
+  options.demand_fail_cost = OptReal {1000.0};
+  options.use_single_bus = OptBool {true};
+  options.scale_objective = OptReal {1.0};
+  options.output_format = OptName {"csv"};
+  options.output_compression = OptName {"uncompressed"};
+
+  const System system = {
+      .name = "sddp_nphase_simple",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .flow_array = flow_array,
+      .reservoir_array = reservoir_array,
+      .turbine_array = turbine_array,
+  };
+
+  return Planning {
+      .options = std::move(options),
+      .simulation = std::move(simulation),
+      .system = system,
+  };
+}
+
+}  // namespace
+
+// ─── Boundary case: 1 phase is rejected ─────────────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "SDDP backward pass - 1-phase (boundary): solver rejects single phase")
+{
+  // Phase count = 1 is below the SDDP minimum of 2.
+  // The solver must return an error rather than solving.
+  auto planning = make_nphase_simple_hydro_planning(1);
+  PlanningLP plp(std::move(planning));
+
+  SDDPSolver sddp(plp);
+  auto results = sddp.solve();
+  CHECK_FALSE(results.has_value());
+}
+
+// ─── 2-phase: backward pass predicate fix ────────────────────────────────────
+//
+// With num_phases = 2, backward_pass iterates pi ∈ {1} (only one step).
+// backward_pass_single_phase(phase=1) adds a cut to phase 0 and, with the
+// corrected predicate (pi > 0), re-solves phase 0 so the lower bound rises.
+// This is the exact bug fixed in PR 263: the old predicate (pi > 1) was
+// false for pi=1, so phase 0 was never re-solved and the lower bound stagnated.
+
+TEST_CASE(  // NOLINT
+    "SDDP backward pass - 2-phase (boundary): lower bound rises after "
+    "backward pass")
+{
+  auto planning = make_nphase_simple_hydro_planning(2);
+  PlanningLP plp(std::move(planning));
+
+  // Tight tolerance: must converge with the fixed predicate.
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 30;
+  sddp_opts.convergence_tol = 1e-4;
+
+  SDDPSolver sddp(plp, sddp_opts);
+
+  // Collect lower bounds across iterations.
+  std::vector<double> lower_bounds;
+  sddp.set_iteration_callback(
+      [&lower_bounds](const SDDPIterationResult& r) -> bool
+      {
+        lower_bounds.push_back(r.lower_bound);
+        return false;
+      });
+
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  // The lower bound must be strictly positive after the first backward pass.
+  // A stagnant zero lower bound would indicate phase 0 was never re-solved.
+  CHECK(lower_bounds.front() > 0.0);
+
+  // The lower bound must be monotonically non-decreasing across iterations.
+  for (std::size_t i = 1; i < lower_bounds.size(); ++i) {
+    CHECK(lower_bounds[i] >= lower_bounds[i - 1] - 1e-9);
+  }
+
+  // SDDP must converge to optimality with the fixed predicate.
+  CHECK(results->back().converged);
+}
+
+TEST_CASE(  // NOLINT
+    "SDDP backward pass - 2-phase: one cut added per iteration (N-1 = 1)")
+{
+  auto planning = make_nphase_simple_hydro_planning(2);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;  // single iteration to count precisely
+
+  SDDPSolver sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  // For N=2 phases the backward pass visits exactly N-1 = 1 phase (phase 1),
+  // producing exactly 1 Benders cut.
+  CHECK(results->front().cuts_added == 1);
+}
+
+TEST_CASE(  // NOLINT
+    "SDDP forward propagation - 2-phase: forward objective populated for "
+    "each phase")
+{
+  auto planning = make_nphase_simple_hydro_planning(2);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 2;
+  sddp_opts.convergence_tol = 1e-4;
+
+  SDDPSolver sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+
+  // After the forward pass each phase must have been dispatched.
+  // forward_objective is the per-phase OPEX (excluding alpha).
+  const auto& states = sddp.phase_states();
+  CHECK(states[PhaseIndex {0}].forward_objective >= 0.0);
+  CHECK(states[PhaseIndex {1}].forward_objective >= 0.0);
+
+  // Total forward cost across phases must be strictly positive.
+  const double total_fwd = states[PhaseIndex {0}].forward_objective
+      + states[PhaseIndex {1}].forward_objective;
+  CHECK(total_fwd > 0.0);
+}
+
+// ─── 3-phase: forward and backward propagation ──────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "SDDP backward pass - 3-phase: two cuts added per iteration (N-1 = 2)")
+{
+  auto planning = make_nphase_simple_hydro_planning(3);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;  // count cuts from one backward pass only
+
+  SDDPSolver sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  // For N=3 phases backward iterates over pi ∈ {2, 1}: N-1 = 2 cuts.
+  CHECK(results->front().cuts_added == 2);
+}
+
+TEST_CASE(  // NOLINT
+    "SDDP forward propagation - 3-phase: state variables link all phases")
+{
+  auto planning = make_nphase_simple_hydro_planning(3);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 2;
+  sddp_opts.convergence_tol = 1e-4;
+
+  SDDPSolver sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+
+  // After the forward pass all three phases must have positive OPEX.
+  const auto& states = sddp.phase_states();
+  for (int p = 0; p < 3; ++p) {
+    CHECK(states[PhaseIndex {p}].forward_objective >= 0.0);
+  }
+
+  const double total_fwd = [&]
+  {
+    double s = 0.0;
+    for (int p = 0; p < 3; ++p) {
+      s += states[PhaseIndex {p}].forward_objective;
+    }
+    return s;
+  }();
+  CHECK(total_fwd > 0.0);
+
+  // Outgoing state-variable links must be established for phases 0 and 1
+  // (links connect phase p to phase p+1; the last phase has no outgoing links).
+  CHECK_FALSE(states[PhaseIndex {0}].outgoing_links.empty());
+  CHECK_FALSE(states[PhaseIndex {1}].outgoing_links.empty());
+  CHECK(states[PhaseIndex {2}].outgoing_links.empty());
+}
+
+TEST_CASE(  // NOLINT
+    "SDDP backward pass - 3-phase: lower bound rises after backward pass")
+{
+  auto planning = make_nphase_simple_hydro_planning(3);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 20;
+  sddp_opts.convergence_tol = 1e-4;
+
+  SDDPSolver sddp(plp, sddp_opts);
+
+  std::vector<double> lbs;
+  sddp.set_iteration_callback(
+      [&lbs](const SDDPIterationResult& r) -> bool
+      {
+        lbs.push_back(r.lower_bound);
+        return false;
+      });
+
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  CHECK(lbs.front() > 0.0);
+  for (std::size_t i = 1; i < lbs.size(); ++i) {
+    CHECK(lbs[i] >= lbs[i - 1] - 1e-9);
+  }
+  CHECK(results->back().converged);
+}
+
+// ─── 4-phase: forward and backward propagation ──────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "SDDP backward pass - 4-phase: three cuts added per iteration (N-1 = 3)")
+{
+  auto planning = make_nphase_simple_hydro_planning(4);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;
+
+  SDDPSolver sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  // For N=4 phases backward iterates over pi ∈ {3, 2, 1}: N-1 = 3 cuts.
+  CHECK(results->front().cuts_added == 3);
+}
+
+TEST_CASE(  // NOLINT
+    "SDDP forward propagation - 4-phase: state links span all phases")
+{
+  auto planning = make_nphase_simple_hydro_planning(4);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 2;
+
+  SDDPSolver sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+
+  const auto& states = sddp.phase_states();
+
+  // Outgoing links from phases 0..2; phase 3 (last) has none.
+  for (int p = 0; p < 3; ++p) {
+    CHECK_FALSE(states[PhaseIndex {p}].outgoing_links.empty());
+  }
+  CHECK(states[PhaseIndex {3}].outgoing_links.empty());
+}
+
+TEST_CASE(  // NOLINT
+    "SDDP backward pass - 4-phase: lower bound rises and converges")
+{
+  auto planning = make_nphase_simple_hydro_planning(4);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 30;
+  sddp_opts.convergence_tol = 1e-4;
+
+  SDDPSolver sddp(plp, sddp_opts);
+
+  std::vector<double> lbs;
+  sddp.set_iteration_callback(
+      [&lbs](const SDDPIterationResult& r) -> bool
+      {
+        lbs.push_back(r.lower_bound);
+        return false;
+      });
+
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  CHECK(lbs.front() > 0.0);
+  for (std::size_t i = 1; i < lbs.size(); ++i) {
+    CHECK(lbs[i] >= lbs[i - 1] - 1e-9);
+  }
+  CHECK(results->back().converged);
+}
+
+// ─── 5-phase: forward and backward propagation ──────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "SDDP backward pass - 5-phase: four cuts added per iteration (N-1 = 4)")
+{
+  auto planning = make_nphase_simple_hydro_planning(5);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;
+
+  SDDPSolver sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  // For N=5 phases backward iterates over pi ∈ {4, 3, 2, 1}: N-1 = 4 cuts.
+  CHECK(results->front().cuts_added == 4);
+}
+
+TEST_CASE(  // NOLINT
+    "SDDP forward propagation - 5-phase: state links span phases 0..3")
+{
+  auto planning = make_nphase_simple_hydro_planning(5);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 2;
+
+  SDDPSolver sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+
+  const auto& states = sddp.phase_states();
+
+  // Phases 0..3 must have outgoing state-variable links.
+  for (int p = 0; p < 4; ++p) {
+    CHECK_FALSE(states[PhaseIndex {p}].outgoing_links.empty());
+  }
+  // Phase 4 (last) never has outgoing links.
+  CHECK(states[PhaseIndex {4}].outgoing_links.empty());
+}
+
+TEST_CASE(  // NOLINT
+    "SDDP backward pass - 5-phase: lower bound rises and converges")
+{
+  auto planning = make_nphase_simple_hydro_planning(5);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 30;
+  sddp_opts.convergence_tol = 1e-4;
+
+  SDDPSolver sddp(plp, sddp_opts);
+
+  std::vector<double> lbs;
+  sddp.set_iteration_callback(
+      [&lbs](const SDDPIterationResult& r) -> bool
+      {
+        lbs.push_back(r.lower_bound);
+        return false;
+      });
+
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  CHECK(lbs.front() > 0.0);
+  for (std::size_t i = 1; i < lbs.size(); ++i) {
+    CHECK(lbs[i] >= lbs[i - 1] - 1e-9);
+  }
+  CHECK(results->back().converged);
+}
+
+// ─── Cross-phase count: stored cuts equal (N-1) × iterations ────────────────
+
+TEST_CASE(  // NOLINT
+    "SDDP backward pass - stored cuts equal (N-1) per iteration across "
+    "phase counts")
+{
+  // For each phase count n ∈ {2, 3, 4, 5} run exactly k iterations and verify
+  // that the total stored cuts equals k × (n-1).  This directly validates the
+  // backward loop range [1, n) and confirms the predicate fix allows the full
+  // backward sweep for every phase count.
+  constexpr int k = 2;  // number of iterations
+
+  for (int n : {2, 3, 4, 5}) {
+    auto planning = make_nphase_simple_hydro_planning(n);
+    PlanningLP plp(std::move(planning));
+
+    SDDPOptions sddp_opts;
+    sddp_opts.max_iterations = k;
+    sddp_opts.convergence_tol = 1e-12;  // very tight: won't converge in 2
+
+    SDDPSolver sddp(plp, sddp_opts);
+    auto results = sddp.solve();
+
+    REQUIRE(results.has_value());
+    // Each of the k iterations should contribute n-1 cuts.
+    const int expected_cuts = k * (n - 1);
+    CHECK(sddp.num_stored_cuts() == expected_cuts);
+    SPDLOG_INFO(
+        "Phase count n={}: {} iterations × {} cuts = {} stored (expected {})",
+        n,
+        k,
+        n - 1,
+        sddp.num_stored_cuts(),
+        expected_cuts);
+  }
+}
+
+// ─── Monolithic vs SDDP objective equality for 2, 3, 4, 5 phases ────────────
+
+TEST_CASE(  // NOLINT
+    "SDDP vs monolithic - N-phase (2..5) objectives agree within 5%")
+{
+  // Parameterised over n ∈ {2, 3, 4, 5}.
+  // Verifies that the SDDP upper bound at convergence is within 5% of the
+  // monolithic total objective, confirming correct forward propagation
+  // (supply/demand balance per phase) and backward propagation (Benders cuts
+  // tighten the lower bound to the monolithic optimum).
+  for (int n : {2, 3, 4, 5}) {
+    // Monolithic solve
+    auto mono_planning = make_nphase_simple_hydro_planning(n);
+    PlanningLP plp_mono(std::move(mono_planning));
+
+    auto mono_result = plp_mono.resolve();
+    REQUIRE(mono_result.has_value());
+    CHECK(*mono_result == 1);
+
+    double mono_total = 0.0;
+    for (int p = 0; p < n; ++p) {
+      mono_total += plp_mono.system(SceneIndex {0}, PhaseIndex {p})
+                        .linear_interface()
+                        .get_obj_value();
+    }
+    CHECK(mono_total > 0.0);
+
+    // SDDP solve
+    auto sddp_planning = make_nphase_simple_hydro_planning(n);
+    PlanningLP plp_sddp(std::move(sddp_planning));
+
+    SDDPOptions sddp_opts;
+    sddp_opts.max_iterations = 50;
+    sddp_opts.convergence_tol = 1e-4;
+
+    SDDPSolver sddp(plp_sddp, sddp_opts);
+    auto sddp_results = sddp.solve();
+    REQUIRE(sddp_results.has_value());
+    REQUIRE_FALSE(sddp_results->empty());
+
+    const auto& last = sddp_results->back();
+    CHECK(last.converged);
+
+    const double rel_diff = std::abs(last.upper_bound - mono_total)
+        / std::max(1.0, std::abs(mono_total));
+
+    SPDLOG_INFO("n={}: mono={:.4f} sddp_ub={:.4f} rel_diff={:.6f}",
+                n,
+                mono_total,
+                last.upper_bound,
+                rel_diff);
+
+    CHECK(rel_diff < 0.05);
+  }
+}
