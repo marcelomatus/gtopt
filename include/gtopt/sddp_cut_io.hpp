@@ -14,7 +14,6 @@
 #pragma once
 
 #include <expected>
-#include <flat_map>
 #include <span>
 #include <string>
 #include <string_view>
@@ -22,6 +21,7 @@
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/error.hpp>
+#include <gtopt/fmap.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/sddp_solver.hpp>

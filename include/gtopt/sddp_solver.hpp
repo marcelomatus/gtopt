@@ -71,6 +71,7 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_solver.hpp>
 #include <gtopt/reservoir_efficiency_lp.hpp>
+#include <gtopt/sddp_aperture.hpp>
 #include <gtopt/sddp_pool.hpp>
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/solver_options.hpp>
@@ -742,20 +743,10 @@ private:
                                                int iteration)
       -> std::expected<int, Error>;
 
-  /// Solve all apertures for a single phase and return the
-  /// probability-weighted expected cut, or nullopt if all failed.
-  /// When @p phase_apertures is non-empty, only those aperture UIDs are used;
-  /// otherwise all apertures from @p aperture_defs participate.
-  [[nodiscard]] auto solve_apertures_for_phase(
-      SceneIndex scene,
-      PhaseIndex phase,
-      const PhaseStateInfo& src_state,
-      const ScenarioLP& base_scenario,
-      std::span<const ScenarioLP> all_scenarios,
-      std::span<const Aperture> aperture_defs,
-      std::span<const Uid> phase_apertures,
-      int total_cuts,
-      const SolverOptions& opts) -> std::optional<SparseRow>;
+  /// Build the ApertureResolveFunc callback that delegates to
+  /// resolve_clone_via_pool.  Used to bridge the free-function
+  /// solve_apertures_for_phase with the solver's work pool.
+  [[nodiscard]] auto make_aperture_resolve_fn() -> ApertureResolveFunc;
 
   /// Check whether the sentinel file exists (user-requested stop)
   [[nodiscard]] bool check_sentinel_stop() const;
