@@ -380,9 +380,11 @@ auto load_cuts_csv(PlanningLP& planning_lp,
       // convert to LP space:
       //   LP_coeff = phys_coeff * col_scale / scale_objective
       for (Index si = 0; si < num_scenes; ++si) {
-        auto& li =
-            planning_lp.system(SceneIndex {si}, phase).linear_interface();
+        const auto scene = SceneIndex {si};
+        auto& li = planning_lp.system(scene, phase).linear_interface();
         auto scene_row = row;
+        // Include scene index in name to avoid duplicates across scenes
+        scene_row.name = label_maker.lp_label("loaded", cut_name, scene, phase);
         for (const auto& [col, coeff] : raw_coeffs) {
           const auto scale = li.get_col_scale(ColIndex {col});
           scene_row[ColIndex {col}] = coeff * scale / scale_obj;
@@ -719,7 +721,7 @@ auto load_boundary_cuts_csv(
         const auto& state = scene_phase_states[scene][last_phase];
 
         auto row = SparseRow {
-            .name = label_maker.lp_label("bdr", rc.name),
+            .name = label_maker.lp_label("bdr", rc.name, scene, last_phase),
             .lowb = rc.rhs / scale_obj,
             .uppb = LinearProblem::DblMax,
         };
@@ -990,7 +992,7 @@ auto load_named_cuts_csv(
         const auto& state = scene_phase_states[scene][phase];
 
         auto row = SparseRow {
-            .name = label_maker.lp_label("named_hs", cut_name),
+            .name = label_maker.lp_label("named_hs", cut_name, scene, phase),
             .lowb = rhs / scale_obj,
             .uppb = LinearProblem::DblMax,
         };
