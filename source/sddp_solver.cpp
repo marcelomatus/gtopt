@@ -1004,20 +1004,20 @@ auto SDDPSolver::save_all_scene_cuts(const std::string& directory) const
 }
 
 auto SDDPSolver::load_cuts(const std::string& filepath)
-    -> std::expected<int, Error>
+    -> std::expected<CutLoadResult, Error>
 {
   return load_cuts_csv(planning_lp(), filepath, m_label_maker_);
 }
 
 auto SDDPSolver::load_scene_cuts_from_directory(const std::string& directory)
-    -> std::expected<int, Error>
+    -> std::expected<CutLoadResult, Error>
 {
   return gtopt::load_scene_cuts_from_directory(
       planning_lp(), directory, m_label_maker_);
 }
 
 auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
-    -> std::expected<int, Error>
+    -> std::expected<CutLoadResult, Error>
 {
   return load_boundary_cuts_csv(planning_lp(),
                                 filepath,
@@ -1027,7 +1027,7 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
 }
 
 auto SDDPSolver::load_named_cuts(const std::string& filepath)
-    -> std::expected<int, Error>
+    -> std::expected<CutLoadResult, Error>
 {
   return load_named_cuts_csv(planning_lp(),
                              filepath,
@@ -1095,10 +1095,17 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
                            .outgoing_links.size());
   }
 
+  // ── Load hot-start cuts and track max iteration for offset ────────────────
+  m_iteration_offset_ = 0;
+
   if (!m_options_.cuts_input_file.empty()) {
     auto result = load_cuts(m_options_.cuts_input_file);
     if (result.has_value()) {
-      SPDLOG_INFO("SDDP hot-start: loaded {} cuts", *result);
+      m_iteration_offset_ =
+          std::max(m_iteration_offset_, result->max_iteration);
+      SPDLOG_INFO("SDDP hot-start: loaded {} cuts (max_iter={})",
+                  result->count,
+                  result->max_iteration);
     } else {
       SPDLOG_WARN("SDDP hot-start: could not load cuts: {}",
                   result.error().message);
@@ -1108,10 +1115,13 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
         std::filesystem::path(m_options_.cuts_output_file).parent_path();
     if (!cut_dir.empty() && std::filesystem::exists(cut_dir)) {
       auto result = load_scene_cuts_from_directory(cut_dir.string());
-      if (result.has_value() && *result > 0) {
-        SPDLOG_INFO("SDDP hot-start: loaded {} cuts from {}",
-                    *result,
-                    cut_dir.string());
+      if (result.has_value() && result->count > 0) {
+        m_iteration_offset_ =
+            std::max(m_iteration_offset_, result->max_iteration);
+        SPDLOG_INFO("SDDP hot-start: loaded {} cuts from {} (max_iter={})",
+                    result->count,
+                    cut_dir.string(),
+                    result->max_iteration);
       }
     }
   }
@@ -1120,9 +1130,12 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
   if (!m_options_.boundary_cuts_file.empty()) {
     auto result = load_boundary_cuts(m_options_.boundary_cuts_file);
     if (result.has_value()) {
-      SPDLOG_INFO("SDDP: loaded {} boundary cuts from {}",
-                  *result,
-                  m_options_.boundary_cuts_file);
+      m_iteration_offset_ =
+          std::max(m_iteration_offset_, result->max_iteration);
+      SPDLOG_INFO("SDDP: loaded {} boundary cuts from {} (max_iter={})",
+                  result->count,
+                  m_options_.boundary_cuts_file,
+                  result->max_iteration);
     } else {
       SPDLOG_WARN("SDDP: could not load boundary cuts: {}",
                   result.error().message);
@@ -1133,13 +1146,21 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
   if (!m_options_.named_cuts_file.empty()) {
     auto result = load_named_cuts(m_options_.named_cuts_file);
     if (result.has_value()) {
-      SPDLOG_INFO("SDDP: loaded {} named hot-start cuts from {}",
-                  *result,
-                  m_options_.named_cuts_file);
+      m_iteration_offset_ =
+          std::max(m_iteration_offset_, result->max_iteration);
+      SPDLOG_INFO("SDDP: loaded {} named hot-start cuts from {} (max_iter={})",
+                  result->count,
+                  m_options_.named_cuts_file,
+                  result->max_iteration);
     } else {
       SPDLOG_WARN("SDDP: could not load named hot-start cuts: {}",
                   result.error().message);
     }
+  }
+
+  if (m_iteration_offset_ > 0) {
+    SPDLOG_INFO("SDDP: iteration offset set to {} from hot-start cuts",
+                m_iteration_offset_);
   }
 
   m_initialized_ = true;
@@ -1467,7 +1488,7 @@ void SDDPSolver::finalize_iteration_result(SDDPIterationResult& ir, int iter)
   // Only declare convergence if both the gap tolerance is met AND
   // we have completed at least min_iterations (default 2).
   ir.converged = (ir.gap < m_options_.convergence_tol)
-      && (iter >= m_options_.min_iterations);
+      && (iter >= m_iteration_offset_ + m_options_.min_iterations);
 
   m_current_iteration_.store(iter);
   m_current_gap_.store(ir.gap);
@@ -1617,7 +1638,9 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   std::vector<SDDPIterationResult> results;
   results.reserve(m_options_.max_iterations);
 
-  for (int iter = 1; iter <= m_options_.max_iterations; ++iter) {
+  const int iter_start_val = m_iteration_offset_ + 1;
+  const int iter_end_val = m_iteration_offset_ + m_options_.max_iterations;
+  for (int iter = iter_start_val; iter <= iter_end_val; ++iter) {
     const auto iter_start = std::chrono::steady_clock::now();
 
     if (should_stop()) {
@@ -1626,8 +1649,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
       break;
     }
 
-    SPDLOG_INFO(
-        "SDDP: === iteration {} / {} ===", iter, m_options_.max_iterations);
+    SPDLOG_INFO("SDDP: === iteration {} / {} ===", iter, iter_end_val);
 
     SDDPIterationResult ir {
         .iteration = iter,
