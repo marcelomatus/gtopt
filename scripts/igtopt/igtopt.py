@@ -348,10 +348,10 @@ def df_to_opts(df, options):
         opts = dict(zip(df.option, df.value))
         for key, value in options.items():
             opts[key] = value
-        # use_lp_names changed from bool to int (0–3 naming level).
+        # use_lp_names changed from bool to int (0–2 naming level).
         # Convert legacy boolean values for backward compatibility.
         if "use_lp_names" in opts and isinstance(opts["use_lp_names"], bool):
-            opts["use_lp_names"] = 2 if opts["use_lp_names"] else 0
+            opts["use_lp_names"] = 1 if opts["use_lp_names"] else 0
         return opts
 
     logging.error(

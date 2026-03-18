@@ -1071,7 +1071,7 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     ),
     (
         "use_lp_names",
-        "LP naming level: 0=none, 1=names, 2=names+warn, 3=names+error",
+        "LP naming level: 0=none, 1=names+warn, 2=names+error",
         None,
     ),
     (
