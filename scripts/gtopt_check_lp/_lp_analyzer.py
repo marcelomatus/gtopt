@@ -183,6 +183,20 @@ def _parse_coeff_var_pairs(expr: str) -> list[tuple[float, str]]:
     return pairs
 
 
+def _find_var_term(text: str, var_name: str) -> str | None:
+    """Extract the coefficient–variable term for *var_name* from *text*.
+
+    Returns a string like ``"+ 6.613e+06 rsv_vol_63"`` or ``None`` if
+    the variable is not found in the expression.
+    """
+    escaped = re.escape(var_name)
+    pattern = re.compile(r"[+-]?\s*[\d.]+(?:[eE][+-]?\d+)?\s+" + escaped + r"(?=\s|$)")
+    match = pattern.search(text)
+    if match:
+        return match.group().strip()
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -469,14 +483,31 @@ def format_static_report(lp_path: Path, stats: LPStats) -> str:
     # truncated with an ellipsis to keep the report readable.
     _MAX_CON_DISPLAY = 120
 
-    def _constraint_detail(con_name: str) -> str:
-        """Return a formatted constraint detail line for *con_name*."""
+    def _constraint_detail(con_name: str, var_name: str | None = None) -> str:
+        """Return a formatted constraint detail line for *con_name*.
+
+        When *var_name* is given and the full constraint text must be
+        truncated, the coefficient–variable term for *var_name* is
+        guaranteed to appear in the output so the user can always see
+        the flagged value in context.
+        """
         text = stats.constraint_texts.get(con_name, "")
         if not text:
             return ""
-        if len(text) > _MAX_CON_DISPLAY:
-            text = text[:_MAX_CON_DISPLAY] + " …"
-        return f"        {text}"
+        if len(text) <= _MAX_CON_DISPLAY:
+            return f"        {text}"
+
+        # Need truncation.  When var_name is provided and its term is
+        # beyond the truncation point, extract the term and append it.
+        if var_name and var_name not in text[:_MAX_CON_DISPLAY]:
+            term = _find_var_term(text, var_name)
+            if term:
+                # 5 = len(" … ") + len(" …") for the two ellipsis markers;
+                # 20 = minimum prefix length so the constraint name is visible.
+                budget = max(_MAX_CON_DISPLAY - len(term) - 5, 20)
+                return f"        {text[:budget]} … {term} …"
+
+        return f"        {text[:_MAX_CON_DISPLAY]} …"
 
     if stats.top_max_coeffs:
         n = len(stats.top_max_coeffs)
@@ -489,7 +520,7 @@ def format_static_report(lp_path: Path, stats: LPStats) -> str:
                 f"  con={entry.constraint_name}"
             )
             if entry.constraint_name not in seen_cons:
-                detail = _constraint_detail(entry.constraint_name)
+                detail = _constraint_detail(entry.constraint_name, entry.var_name)
                 if detail:
                     lines.append(detail)
                 seen_cons.add(entry.constraint_name)
@@ -505,7 +536,7 @@ def format_static_report(lp_path: Path, stats: LPStats) -> str:
                 f"  con={entry.constraint_name}"
             )
             if entry.constraint_name not in seen_cons_min:
-                detail = _constraint_detail(entry.constraint_name)
+                detail = _constraint_detail(entry.constraint_name, entry.var_name)
                 if detail:
                     lines.append(detail)
                 seen_cons_min.add(entry.constraint_name)
