@@ -88,7 +88,7 @@ struct json_data_contract<Options>
                        json_string_null<"output_directory", OptName>,
                        json_string_null<"output_format", OptName>,
                        json_string_null<"output_compression", OptName>,
-                       json_bool_null<"use_lp_names", OptBool>,
+                       json_number_null<"use_lp_names", OptInt>,
                        json_bool_null<"use_uid_fname", OptBool>,
 
                        json_number_null<"lp_algorithm", OptInt>,
