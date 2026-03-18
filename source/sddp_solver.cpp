@@ -1028,9 +1028,15 @@ auto SDDPSolver::save_cuts(const std::string& filepath) const
         const auto& li = planning_lp()
                              .system(SceneIndex {0}, pit->second)
                              .linear_interface();
+        const auto& idx_to_name = li.col_index_to_name();
         for (const auto& [col, coeff] : cut.coefficients) {
           const auto scale = li.get_col_scale(ColIndex {col});
-          ofs << "," << col << ":" << (coeff * scale_obj / scale);
+          ofs << ",";
+          const auto ucol = static_cast<size_t>(col);
+          if (ucol < idx_to_name.size() && !idx_to_name[ucol].empty()) {
+            ofs << idx_to_name[ucol] << "/";
+          }
+          ofs << col << ":" << (coeff * scale_obj / scale);
         }
       } else {
         // Phase UID not found — should not happen for well-formed cuts.
@@ -1107,9 +1113,15 @@ auto SDDPSolver::save_scene_cuts(SceneIndex scene,
       if (pit != phase_map.end()) {
         const auto& li =
             planning_lp().system(scene, pit->second).linear_interface();
+        const auto& idx_to_name = li.col_index_to_name();
         for (const auto& [col, coeff] : cut.coefficients) {
           const auto scale = li.get_col_scale(ColIndex {col});
-          ofs << "," << col << ":" << (coeff * scale_obj / scale);
+          ofs << ",";
+          const auto ucol = static_cast<size_t>(col);
+          if (ucol < idx_to_name.size() && !idx_to_name[ucol].empty()) {
+            ofs << idx_to_name[ucol] << "/";
+          }
+          ofs << col << ":" << (coeff * scale_obj / scale);
         }
       } else {
         // Phase UID not found — should not happen for well-formed cuts.
@@ -1224,14 +1236,37 @@ auto SDDPSolver::load_cuts(const std::string& filepath)
           .uppb = LinearProblem::DblMax,
       };
 
-      // Collect raw physical-space coefficients (col_index:coeff pairs)
-      std::vector<std::pair<int, double>> raw_coeffs;
+      // Collect raw physical-space coefficients.
+      // Supports two formats:
+      //   name/col_idx:coeff  (named — preferred for portability)
+      //   col_idx:coeff       (legacy — index-only)
+      struct RawCoeff
+      {
+        std::string name {};  // empty if legacy format
+        int col {};
+        double coeff {};
+      };
+      std::vector<RawCoeff> raw_coeffs;
       while (std::getline(iss, token, ',')) {
         const auto colon = token.find(':');
-        if (colon != std::string::npos) {
-          const auto col = std::stoi(token.substr(0, colon));
-          const auto coeff = std::stod(token.substr(colon + 1));
-          raw_coeffs.emplace_back(col, coeff);
+        if (colon == std::string::npos) {
+          continue;
+        }
+        const auto col_part = token.substr(0, colon);
+        const auto coeff = std::stod(token.substr(colon + 1));
+        if (const auto slash = col_part.find('/'); slash != std::string::npos) {
+          // name/col_idx format
+          raw_coeffs.push_back(RawCoeff {
+              .name = col_part.substr(0, slash),
+              .col = std::stoi(col_part.substr(slash + 1)),
+              .coeff = coeff,
+          });
+        } else {
+          // legacy col_idx format
+          raw_coeffs.push_back(RawCoeff {
+              .col = std::stoi(col_part),
+              .coeff = coeff,
+          });
         }
       }
 
@@ -1250,13 +1285,29 @@ auto SDDPSolver::load_cuts(const std::string& filepath)
       // Add the loaded cut to all scenes for this phase.
       // Coefficients in the CSV are in fully physical space; convert to LP
       // space: LP_coeff = phys_coeff × col_scale / scale_objective.
+      // When a column name is available, resolve via name first; if the name
+      // is not found in the current LP, fall back to the stored column index.
       for (Index si = 0; si < num_scenes; ++si) {
         auto& li =
             planning_lp().system(SceneIndex {si}, phase).linear_interface();
+        const auto& name_map = li.col_name_map();
         auto scene_row = row;
-        for (const auto& [col, coeff] : raw_coeffs) {
-          const auto scale = li.get_col_scale(ColIndex {col});
-          scene_row[ColIndex {col}] = coeff * scale / scale_obj;
+        for (const auto& rc : raw_coeffs) {
+          auto resolved_col = rc.col;
+          if (!rc.name.empty()) {
+            if (auto nit = name_map.find(rc.name); nit != name_map.end()) {
+              resolved_col = nit->second;
+            } else {
+              SPDLOG_TRACE(
+                  "SDDP load_cuts: col name '{}' not found in LP, "
+                  "falling back to stored index {}",
+                  rc.name,
+                  rc.col);
+            }
+          }
+          const auto col_idx = ColIndex {resolved_col};
+          const auto scale = li.get_col_scale(col_idx);
+          scene_row[col_idx] = rc.coeff * scale / scale_obj;
         }
         li.add_row(scene_row);
       }
