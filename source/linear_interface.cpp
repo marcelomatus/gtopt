@@ -6,9 +6,39 @@
 #include <coin/CoinPackedVector.hpp>
 #include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <spdlog/spdlog.h>
 
 namespace gtopt
 {
+
+namespace
+{
+/// Check name uniqueness via map insertion (try_emplace pattern).
+/// Returns true if the name is a duplicate.
+inline bool check_name_unique(LinearInterface::name_index_map_t& name_map,
+                              const std::string& name,
+                              int32_t index,
+                              std::string_view entity_type,
+                              int level)
+{
+  if (level < 2 || name.empty()) {
+    return false;
+  }
+
+  auto [it, inserted] = name_map.try_emplace(name, index);
+  if (!inserted) {
+    if (level >= 3) {
+      SPDLOG_ERROR("Duplicate LP {} name: {}", entity_type, name);
+      throw std::runtime_error(
+          std::format("Duplicate LP {} name: {}", entity_type, name));
+    }
+    SPDLOG_WARN("Duplicate LP {} name: {}", entity_type, name);
+    return true;
+  }
+  return false;
+}
+
+}  // namespace
 
 void LinearInterface::set_prob_name(const std::string& pname)
 {
@@ -137,11 +167,19 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   }
 
   for (int i = 0; auto&& name : flat_lp.colnm) {
-    solver->setColName(i++, name);
+    solver->setColName(i, name);
+    if (m_lp_names_level_ >= 2 && !name.empty()) {
+      m_col_names_.try_emplace(name, i);
+    }
+    ++i;
   }
 
   for (int i = 0; auto&& name : flat_lp.rownm) {
-    solver->setRowName(i++, name);
+    solver->setRowName(i, name);
+    if (m_lp_names_level_ >= 2 && !name.empty()) {
+      m_row_names_.try_emplace(name, i);
+    }
+    ++i;
   }
 }
 
@@ -159,6 +197,7 @@ ColIndex LinearInterface::add_col(const std::string& name,
                                   double colub)
 {
   const auto index = solver->getNumCols();
+  check_name_unique(m_col_names_, name, index, "column", m_lp_names_level_);
 
   const CoinPackedVector vec;
   const double obj = 0;
@@ -190,6 +229,7 @@ RowIndex LinearInterface::add_row(const std::string& name,
                                   const double rowub)
 {
   const auto index = solver->getNumRows();
+  check_name_unique(m_row_names_, name, index, "row", m_lp_names_level_);
 
   solver->addRow(static_cast<int>(numberElements),
                  columns.data(),

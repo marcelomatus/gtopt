@@ -60,7 +60,7 @@ TEST_CASE("Options - Construction with values")
       .output_directory = "output_dir",
       .output_format = "csv",
       .output_compression = "zip",
-      .use_lp_names = true,
+      .use_lp_names = 2,
       .use_uid_fname = false,
   };
 
@@ -105,7 +105,7 @@ TEST_CASE("Options - Construction with values")
   CHECK(*options.output_compression == "zip");
 
   REQUIRE(options.use_lp_names.has_value());
-  CHECK(*options.use_lp_names == true);
+  CHECK(*options.use_lp_names == 2);
 
   REQUIRE(options.use_uid_fname.has_value());
   CHECK(*options.use_uid_fname == false);
@@ -416,7 +416,7 @@ TEST_CASE("OptionsLP - Test all accessor methods")
       .output_directory = "test_output",
       .output_format = "json",
       .output_compression = "bzip2",
-      .use_lp_names = true,
+      .use_lp_names = 2,
       .use_uid_fname = true,
   };
 
@@ -445,7 +445,7 @@ TEST_CASE("OptionsLP - Test all accessor methods")
   CHECK(options_lp.output_directory() == "test_output");
   CHECK(options_lp.output_format() == "json");
   CHECK(options_lp.output_compression() == "bzip2");
-  CHECK(options_lp.use_lp_names() == true);
+  CHECK(options_lp.use_lp_names() == 2);
   CHECK(options_lp.use_uid_fname() == true);
   CHECK(options_lp.annual_discount_rate() == doctest::Approx(0.07));
 }
