@@ -60,8 +60,8 @@ public:
   static constexpr auto default_output_format = "parquet";
   /** @brief Default compression codec for output files */
   static constexpr auto default_output_compression = "zstd";
-  /** @brief Default setting for using LP variable/constraint names */
-  static constexpr Bool default_use_lp_names = true;
+  /** @brief Default LP naming level (1 = names + warn on duplicates) */
+  static constexpr Int default_use_lp_names = 1;
   /** @brief Default setting for using UIDs in filenames */
   static constexpr Bool default_use_uid_fname = true;
   /** @brief Default annual discount rate for multi-year planning */
@@ -178,8 +178,9 @@ public:
   }
 
   /**
-   * @brief Gets the LP names usage flag, using default if not set
-   * @return Whether to use descriptive names in the LP model
+   * @brief Gets the LP naming level, using default if not set
+   * @return LP naming level: 0=none, 1=names+warn-on-dup,
+   *         2=names+error-on-dup
    */
   [[nodiscard]] constexpr auto use_lp_names() const
   {
