@@ -122,15 +122,14 @@ log "Installing Arrow/Parquet via conda-forge..."
 # package (ImportError: cannot import name 'where') or a libmamba solver
 # that cannot load.  Fix both before proceeding.
 if command -v conda &>/dev/null; then
-  CONDA_PY_DIR="$(dirname "$(command -v conda)")/../lib"
-  # Fix certifi if broken: reinstall into conda's own site-packages
+  # Fix certifi if broken: reinstall so conda can reach PyPI/conda-forge
   if ! python3 -c "import certifi; certifi.where()" &>/dev/null; then
     warn "certifi is broken in conda's Python — reinstalling..."
-    CONDA_SITE="$(python3 -c 'import site; print(site.getsitepackages()[0])' 2>/dev/null || echo "")"
-    if [[ -n "$CONDA_SITE" ]]; then
-      pip install certifi --target="$CONDA_SITE" --force-reinstall --upgrade --quiet 2>/dev/null || true
-    fi
     pip install certifi --force-reinstall --upgrade --quiet 2>/dev/null || true
+    # Verify the fix worked
+    if ! python3 -c "import certifi; certifi.where()" &>/dev/null; then
+      warn "certifi still broken after reinstall — conda operations may fail"
+    fi
   fi
   # Force classic solver if libmamba is broken
   if ! conda info --base &>/dev/null 2>&1; then
