@@ -579,12 +579,12 @@ TEST_CASE("LinearInterface - duplicate name detection level 0 (disabled)")
   CHECK(li.row_name_map().empty());
 }
 
-TEST_CASE("LinearInterface - duplicate name detection level 2 (warn)")
+TEST_CASE("LinearInterface - duplicate name detection level 1 (warn)")
 {
   using namespace gtopt;
 
   LinearInterface li;
-  li.set_lp_names_level(2);
+  li.set_lp_names_level(1);
 
   // First insertions populate the name maps
   const auto c1 = li.add_col("x", 0.0, 1.0);
@@ -627,17 +627,17 @@ TEST_CASE("LinearInterface - duplicate name detection level 2 (warn)")
   CHECK(r1 != r2);
 }
 
-TEST_CASE("LinearInterface - duplicate name detection level 3 (error)")
+TEST_CASE("LinearInterface - duplicate name detection level 2 (error)")
 {
   using namespace gtopt;
 
   LinearInterface li;
-  li.set_lp_names_level(3);
+  li.set_lp_names_level(2);
 
   li.add_col("x", 0.0, 1.0);
   CHECK(li.col_name_map().size() == 1);
 
-  // Duplicate column name at level 3 throws
+  // Duplicate column name at level 2 throws
   CHECK_THROWS_AS(li.add_col("x", 0.0, 1.0), std::runtime_error);
 
   // Different name is fine

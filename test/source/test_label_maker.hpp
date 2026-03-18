@@ -9,7 +9,7 @@ TEST_CASE("LabelMaker basic functionality")
 {
   using namespace gtopt;
   Options options;
-  options.use_lp_names = 2;
+  options.use_lp_names = 1;
   const OptionsLP options_lp(options);
   const LabelMaker maker(options_lp);
 
@@ -35,7 +35,7 @@ TEST_CASE("LabelMaker basic functionality")
 TEST_CASE("LabelMaker with StageLP")
 {
   Options options;
-  options.use_lp_names = 2;
+  options.use_lp_names = 1;
   const OptionsLP options_lp(options);
   const LabelMaker maker(options_lp);
 
@@ -54,7 +54,7 @@ TEST_CASE("LabelMaker with StageLP")
 TEST_CASE("LabelMaker with ScenarioLP and StageLP")
 {
   Options options;
-  options.use_lp_names = 2;
+  options.use_lp_names = 1;
   const OptionsLP options_lp(options);
   const LabelMaker maker(options_lp);
 
@@ -80,7 +80,7 @@ TEST_CASE("LabelMaker with ScenarioLP and StageLP")
 TEST_CASE("LabelMaker with BlockLP")
 {
   Options options;
-  options.use_lp_names = 2;
+  options.use_lp_names = 1;
   const OptionsLP options_lp(options);
   const LabelMaker maker(options_lp);
 
@@ -101,7 +101,7 @@ TEST_CASE("LabelMaker with BlockLP")
 TEST_CASE("LabelMaker edge cases")
 {
   Options options;
-  options.use_lp_names = 2;
+  options.use_lp_names = 1;
   const OptionsLP options_lp(options);
   const LabelMaker maker(options_lp);
 

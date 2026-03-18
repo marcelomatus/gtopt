@@ -21,13 +21,13 @@ inline bool check_name_unique(LinearInterface::name_index_map_t& name_map,
                               std::string_view entity_type,
                               int level)
 {
-  if (level < 2 || name.empty()) {
+  if (level < 1 || name.empty()) {
     return false;
   }
 
   auto [it, inserted] = name_map.try_emplace(name, index);
   if (!inserted) {
-    if (level >= 3) {
+    if (level >= 2) {
       SPDLOG_ERROR("Duplicate LP {} name: {}", entity_type, name);
       throw std::runtime_error(
           std::format("Duplicate LP {} name: {}", entity_type, name));
@@ -168,7 +168,7 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
 
   for (int i = 0; auto&& name : flat_lp.colnm) {
     solver->setColName(i, name);
-    if (m_lp_names_level_ >= 2 && !name.empty()) {
+    if (m_lp_names_level_ >= 1 && !name.empty()) {
       m_col_names_.try_emplace(name, i);
     }
     ++i;
@@ -176,7 +176,7 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
 
   for (int i = 0; auto&& name : flat_lp.rownm) {
     solver->setRowName(i, name);
-    if (m_lp_names_level_ >= 2 && !name.empty()) {
+    if (m_lp_names_level_ >= 1 && !name.empty()) {
       m_row_names_.try_emplace(name, i);
     }
     ++i;
