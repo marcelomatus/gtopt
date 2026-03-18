@@ -412,6 +412,14 @@ public:
   {
     return m_col_names_;
   }
+
+  /// Column index → name vector (empty string for unnamed columns).
+  /// Populated alongside col_name_map when lp_names_level >= 1.
+  [[nodiscard]] constexpr const std::vector<std::string>& col_index_to_name()
+      const noexcept
+  {
+    return m_col_index_to_name_;
+  }
   /// @}
 
   /// @name LP coefficient statistics (populated during load_flat from
@@ -495,6 +503,7 @@ private:
   /// Populated when lp_names_level >= 1.
   name_index_map_t m_row_names_;  ///< Row (constraint) name → row index
   name_index_map_t m_col_names_;  ///< Column (variable) name → col index
+  std::vector<std::string> m_col_index_to_name_;  ///< Col index → name
 
   std::vector<double> m_col_scales_;  ///< Per-column physical-to-LP scale
                                       ///< factors (physical = LP × scale)

@@ -486,6 +486,14 @@ public:
   }
 
   /**
+   * @brief Whether to hot-start from previously saved cuts (default: false)
+   */
+  [[nodiscard]] constexpr auto sddp_hot_start() const
+  {
+    return m_options_.sddp_options.sddp_hot_start.value_or(false);
+  }
+
+  /**
    * @brief Gets the input cut file for SDDP hot-start
    * @return Cut file path or empty string for cold start
    */

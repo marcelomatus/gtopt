@@ -193,10 +193,18 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options)
     // Cut sharing and files
     sddp_opts.cut_sharing =
         parse_cut_sharing_mode(options.sddp_cut_sharing_mode());
-    const auto cut_dir = options.sddp_cut_directory();
+    // Place the cuts directory inside the output directory so that all
+    // solver output is self-contained.
+    const auto output_dir_sv = options.output_directory();
+    const auto cut_dir =
+        (std::filesystem::path(
+             output_dir_sv.empty() ? "output" : std::string(output_dir_sv))
+         / options.sddp_cut_directory())
+            .string();
     sddp_opts.cuts_output_file =
         (std::filesystem::path(cut_dir) / sddp_file::combined_cuts).string();
 
+    sddp_opts.hot_start = options.sddp_hot_start();
     const auto cuts_input = options.sddp_cuts_input_file();
     if (!cuts_input.empty()) {
       sddp_opts.cuts_input_file = cuts_input;
