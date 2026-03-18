@@ -6,6 +6,7 @@
 #include <coin/CoinPackedVector.hpp>
 #include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -170,21 +171,19 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
     m_col_index_to_name_.resize(static_cast<size_t>(flat_lp.ncols),
                                 std::string {});
   }
-  for (int i = 0; auto&& name : flat_lp.colnm) {
+  for (auto [i, name] : enumerate<int>(flat_lp.colnm)) {
     solver->setColName(i, name);
     if (m_lp_names_level_ >= 1 && !name.empty()) {
       m_col_names_.try_emplace(name, i);
       m_col_index_to_name_[static_cast<size_t>(i)] = name;
     }
-    ++i;
   }
 
-  for (int i = 0; auto&& name : flat_lp.rownm) {
+  for (auto [i, name] : enumerate<int>(flat_lp.rownm)) {
     solver->setRowName(i, name);
     if (m_lp_names_level_ >= 1 && !name.empty()) {
       m_row_names_.try_emplace(name, i);
     }
-    ++i;
   }
 }
 
