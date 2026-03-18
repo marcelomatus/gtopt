@@ -757,8 +757,7 @@ auto SDDPSolver::backward_pass_single_phase(SceneIndex scene,
 
   // Re-solve source and handle iterative feasibility backpropagation.
   // Feasibility cuts are never shared between scenes — they stay local.
-  // TODO(first_pi): Check if pi>1 or pi>0
-  if (pi > 1) {
+  if (pi > 0) {
     auto r = resolve_via_pool(
         src_li, opts, make_backward_lp_task_req(iteration, prev_phase));
     if (!r.has_value() || !src_li.is_optimal()) {
