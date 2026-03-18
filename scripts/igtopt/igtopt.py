@@ -72,6 +72,7 @@ _SIMULATION_SHEETS = frozenset(
         "scenario_array",
         "phase_array",
         "scene_array",
+        "aperture_array",
     }
 )
 
@@ -476,6 +477,7 @@ def log_conversion_stats(
     logging.info("  Scenarios       : %d", counts.get("scenario_array", 0))
     logging.info("  Phases          : %d", counts.get("phase_array", 0))
     logging.info("  Scenes          : %d", counts.get("scene_array", 0))
+    logging.info("  Apertures       : %d", counts.get("aperture_array", 0))
     logging.info("=== Key options ===")
     logging.info("  use_single_bus  : %s", options.get("use_single_bus", False))
     logging.info("  scale_objective : %s", options.get("scale_objective", 1000))
