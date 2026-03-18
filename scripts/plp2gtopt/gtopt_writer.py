@@ -107,7 +107,7 @@ class GTOptWriter:
             "output_directory": "results",
             "output_format": output_format,
             "output_compression": compression,
-            "use_lp_names": 2,
+            "use_lp_names": 1,
             "use_single_bus": options.get("use_single_bus", False),
             "use_kirchhoff": options.get("use_kirchhoff", False),
             "demand_fail_cost": options.get("demand_fail_cost", 1000),

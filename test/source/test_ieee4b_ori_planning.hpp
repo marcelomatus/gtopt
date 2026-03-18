@@ -27,7 +27,7 @@
 static constexpr std::string_view ieee4b_ori_json = R"({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 2,
+    "use_lp_names": 1,
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": false,

@@ -229,7 +229,7 @@ TEST_CASE("apply_cli_options - all options applied")
   apply_cli_options(planning,
                     true,
                     false,
-                    std::optional<int>(2),
+                    std::optional<int>(1),
                     std::optional<std::string>("/input"),
                     std::optional<std::string>("parquet"),
                     std::optional<std::string>("/output"),
@@ -245,7 +245,7 @@ TEST_CASE("apply_cli_options - all options applied")
          && *planning.options.use_kirchhoff == false));
 
   REQUIRE(planning.options.use_lp_names.has_value());
-  CHECK((planning.options.use_lp_names && *planning.options.use_lp_names == 2));
+  CHECK((planning.options.use_lp_names && *planning.options.use_lp_names == 1));
 
   REQUIRE(planning.options.input_directory.has_value());
   CHECK((planning.options.input_directory
@@ -368,7 +368,7 @@ TEST_CASE("apply_cli_options(MainOptions) - all options applied")
                         .output_compression = "gzip",
                         .use_single_bus = true,
                         .use_kirchhoff = false,
-                        .use_lp_names = 2,
+                        .use_lp_names = 1,
                     });
 
   REQUIRE(planning.options.use_single_bus.has_value());
@@ -438,7 +438,7 @@ TEST_CASE("make_flat_options - defaults when both nullopt")
   CHECK(opts.row_with_name_map == true);
   CHECK(opts.reserve_matrix == false);
   CHECK(opts.reserve_factor == doctest::Approx(2.0));
-  CHECK(opts.lp_names_level == 2);
+  CHECK(opts.lp_names_level == 1);
 }
 
 TEST_CASE("make_flat_options - lp_names level 0 disables names")
@@ -451,17 +451,17 @@ TEST_CASE("make_flat_options - lp_names level 0 disables names")
   CHECK(opts.row_with_name_map == false);
 }
 
-TEST_CASE("make_flat_options - lp_names level 1 enables names only")
+TEST_CASE("make_flat_options - lp_names level 1 enables names and warns")
 {
   auto opts = make_flat_options(std::optional<int>(1), std::nullopt);
 
   CHECK(opts.col_with_names == true);
   CHECK(opts.row_with_names == true);
-  CHECK(opts.col_with_name_map == false);
-  CHECK(opts.row_with_name_map == false);
+  CHECK(opts.col_with_name_map == true);
+  CHECK(opts.row_with_name_map == true);
 }
 
-TEST_CASE("make_flat_options - lp_names level 2 enables names and maps")
+TEST_CASE("make_flat_options - lp_names level 2 enables names and errors")
 {
   auto opts = make_flat_options(std::optional<int>(2), std::nullopt);
 
