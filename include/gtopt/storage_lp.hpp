@@ -217,7 +217,7 @@ public:
         opts.daily_cycle ? false : opts.use_state_variable;
 
     // Energy scale factor: LP variable = physical_energy / energy_scale.
-    // Default 1.0 = no scaling.  Reservoir default: 100000, Battery: 0.1.
+    // Default 1.0 = no scaling.  Both Battery and Reservoir default to 1.0.
     const double energy_scale =
         opts.energy_scale > 0.0 ? opts.energy_scale : 1.0;
     m_energy_scale_ = energy_scale;

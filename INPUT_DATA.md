@@ -18,8 +18,8 @@ contain three top-level sections:
 
 | Section        | Description |
 |----------------|-------------|
-| `options`      | Global solver and I/O settings |
-| `simulation`   | Time structure: blocks, stages, scenarios |
+| `options`      | Global solver and I/O settings (includes `solver_options` and `variable_scales`) |
+| `simulation`   | Time structure: blocks, stages, scenarios, phases, scenes, apertures |
 | `system`       | Physical system: buses, generators, demands, lines, etc. |
 
 The JSON file may reference **external data files** (CSV or Parquet) for
@@ -87,11 +87,108 @@ Global settings that control solver behavior and I/O formats.
 }
 ```
 
+### 1.1 SolverOptions
+
+LP solver configuration exposed as a sub-object under `options`.
+Individual top-level fields (`lp_algorithm`, `lp_threads`, `lp_presolve`)
+are still respected for backward compatibility and take precedence
+over the corresponding `solver_options` sub-fields.
+
+| Field          | Type    | Default     | Description |
+|----------------|---------|-------------|-------------|
+| `algorithm`    | integer | `3` (barrier) | LP algorithm: 0 = auto, 1 = primal simplex, 2 = dual simplex, 3 = barrier |
+| `threads`      | integer | `0`         | Number of solver threads (0 = automatic) |
+| `presolve`     | boolean | `true`      | Enable LP presolve optimizations |
+| `optimal_eps`  | number  | solver default | Optimality tolerance (omit to keep solver default) |
+| `feasible_eps` | number  | solver default | Feasibility tolerance (omit to keep solver default) |
+| `barrier_eps`  | number  | solver default | Barrier convergence tolerance (omit to keep solver default) |
+| `log_level`    | integer | `0`         | Solver output verbosity (0 = silent) |
+
+**Example:**
+
+```json
+{
+  "options": {
+    "solver_options": {
+      "algorithm": 3,
+      "threads": 4,
+      "presolve": true,
+      "optimal_eps": 1e-8,
+      "feasible_eps": 1e-8,
+      "log_level": 1
+    }
+  }
+}
+```
+
+### 1.2 VariableScale
+
+Per-class or per-element LP variable scaling factors. Convention:
+`physical_value = LP_value * scale`. Defined as an array under
+`options.variable_scales`.
+
+Resolution priority when the solver looks up a scale:
+
+1. Per-element entry matching `(class_name, variable, uid)`
+2. Per-class entry matching `(class_name, variable)` with `uid = -1`
+3. Fallback: `1.0` (no scaling)
+
+> **Note:** Per-element fields (`Battery::energy_scale`,
+> `Reservoir::vol_scale`) and global options (`scale_theta`) take
+> precedence over entries in `variable_scales`.
+
+| Field        | Type    | Default | Description |
+|--------------|---------|---------|-------------|
+| `class_name` | string  | —       | Element class (e.g. `"Bus"`, `"Reservoir"`, `"Battery"`) |
+| `variable`   | string  | —       | Variable name (e.g. `"theta"`, `"volume"`, `"energy"`) |
+| `uid`        | integer | `-1`    | Element UID (`-1` = apply to all elements of this class) |
+| `scale`      | number  | `1.0`   | Scale factor: `physical = LP * scale` |
+
+**Example:**
+
+```json
+{
+  "options": {
+    "variable_scales": [
+      {"class_name": "Bus", "variable": "theta",
+       "uid": -1, "scale": 0.001},
+      {"class_name": "Reservoir", "variable": "volume",
+       "uid": -1, "scale": 1000.0},
+      {"class_name": "Battery", "variable": "energy",
+       "uid": 1, "scale": 10.0}
+    ]
+  }
+}
+```
+
 ---
 
 ## 2. Simulation
 
-Defines the temporal structure of the optimization.
+Defines the temporal structure of the optimization. The `simulation`
+object contains arrays of time-structure elements organized in a
+hierarchy:
+
+```
+Scenario  (probability_factor)
+  └─ Phase
+       └─ Stage  (discount_factor, first_block, count_block)
+            └─ Block  (duration [h])
+```
+
+Scenes group scenarios; Apertures define SDDP backward-pass openings.
+
+| Array              | Element   | Required | Description |
+|--------------------|-----------|----------|-------------|
+| `block_array`      | Block     | Yes      | Indivisible time units |
+| `stage_array`      | Stage     | Yes      | Planning/investment periods |
+| `scenario_array`   | Scenario  | Yes      | Stochastic realisations |
+| `phase_array`      | Phase     | No       | Groups of consecutive stages |
+| `scene_array`      | Scene     | No       | Groups of scenarios |
+| `aperture_array`   | Aperture  | No       | SDDP backward-pass openings |
+
+When `phase_array` or `scene_array` are empty, a single default
+Phase / Scene covering all stages / scenarios is created automatically.
 
 ### 2.1 Block
 
@@ -127,6 +224,62 @@ A scenario represents a possible future realization (hydrology, demand level, et
 | `probability_factor`| number  | p.u.  | No       | Probability weight (values are normalised to sum to 1) |
 | `active`            | boolean | —     | No       | Whether the scenario is active |
 
+### 2.4 Phase
+
+A phase groups consecutive planning stages into a higher-level period.
+This allows modelling distinct investment or operational windows
+(e.g. a 5-year construction phase followed by a 20-year operational
+phase). When only one phase is needed (the common case), it is created
+automatically with defaults covering all stages.
+
+| Field          | Type    | Units | Required | Description |
+|----------------|---------|-------|----------|-------------|
+| `uid`          | integer | —     | Yes      | Unique identifier |
+| `name`         | string  | —     | No       | Optional name |
+| `active`       | boolean | —     | No       | Whether the phase is active |
+| `first_stage`  | integer | —     | Yes      | 0-based index of the first stage in this phase |
+| `count_stage`  | integer | —     | No       | Number of stages (`-1` or omit = all remaining) |
+| `aperture_set` | array   | —     | No       | Array of aperture UIDs for this phase's SDDP backward pass (empty = use all) |
+
+### 2.5 Scene
+
+A scene groups consecutive scenarios into a logical set. Scenes are
+used by the solver to partition scenarios when building LP sub-problems
+(one LP per scene/phase combination). When no `scene_array` is
+provided, a single default scene covering all scenarios is created.
+
+| Field            | Type    | Units | Required | Description |
+|------------------|---------|-------|----------|-------------|
+| `uid`            | integer | —     | Yes      | Unique identifier |
+| `name`           | string  | —     | No       | Optional name |
+| `active`         | boolean | —     | No       | Whether the scene is active |
+| `first_scenario` | integer | —     | Yes      | 0-based index of the first scenario in this scene |
+| `count_scenario` | integer | —     | No       | Number of scenarios (`-1` or omit = all remaining) |
+
+### 2.6 Aperture
+
+An aperture represents one hydrological (or stochastic) realisation
+used in the SDDP backward pass. Each aperture references a **source
+scenario** whose affluent data (flow bounds) are applied to the cloned
+phase LP before solving. Apertures allow the backward pass to sample
+a different set of scenarios than the forward pass.
+
+When no `aperture_array` is provided, the SDDP solver falls back to
+the legacy behaviour controlled by `sddp_num_apertures` (first N
+scenarios or all scenarios).
+
+| Field                | Type    | Units | Required | Description |
+|----------------------|---------|-------|----------|-------------|
+| `uid`                | integer | —     | Yes      | Unique identifier |
+| `name`               | string  | —     | No       | Optional name |
+| `active`             | boolean | —     | No       | Whether the aperture is active |
+| `source_scenario`    | integer | —     | Yes      | UID of the scenario whose affluent data to use |
+| `probability_factor` | number  | p.u.  | No       | Probability weight (normalised to sum 1 across active apertures; default: 1) |
+
+> **Note:** When `sddp_aperture_directory` is set in `sddp_options`,
+> the source scenario is first looked up in that directory; if not
+> found there, it falls back to the regular `input_directory`.
+
 ### Example
 
 ```json
@@ -142,6 +295,16 @@ A scenario represents a possible future realization (hydrology, demand level, et
     ],
     "scenario_array": [
       {"uid": 1, "probability_factor": 1}
+    ],
+    "phase_array": [
+      {"uid": 1, "first_stage": 0, "count_stage": 2}
+    ],
+    "scene_array": [
+      {"uid": 1, "first_scenario": 0, "count_scenario": 1}
+    ],
+    "aperture_array": [
+      {"uid": 1, "source_scenario": 1, "probability_factor": 0.5},
+      {"uid": 2, "source_scenario": 2, "probability_factor": 0.5}
     ]
   }
 }
@@ -701,7 +864,56 @@ Output files use the same tabular format as input files, with
 
 ---
 
-## 6. Complete Example
+## 6. Planning (Root Container)
+
+The `Planning` object is the root of the gtopt input data model.
+A JSON configuration file represents a single `Planning` instance
+with three top-level sections:
+
+| Field        | Type       | Required | Description |
+|--------------|------------|----------|-------------|
+| `options`    | Options    | No       | Global solver and I/O settings (see [Section 1](#1-options)) |
+| `simulation` | Simulation | Yes      | Time structure: blocks, stages, scenarios, phases, scenes, apertures (see [Section 2](#2-simulation)) |
+| `system`     | System     | Yes      | Physical network components (see [Section 3](#3-system)) |
+
+Multiple JSON files can be merged with `Planning::merge()`, allowing
+the configuration to be split across files (e.g. time structure in
+one file, network elements in another). The merge uses first-value
+semantics for scalar options and concatenation for arrays.
+
+**Example (minimal single-file):**
+
+```json
+{
+  "options": {
+    "demand_fail_cost": 1000,
+    "use_single_bus": true,
+    "input_directory": "input",
+    "output_directory": "output"
+  },
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 1}],
+    "stage_array": [
+      {"uid": 1, "first_block": 0, "count_block": 1}
+    ],
+    "scenario_array": [{"uid": 1, "probability_factor": 1}]
+  },
+  "system": {
+    "bus_array": [{"uid": 1, "name": "bus1"}],
+    "generator_array": [
+      {"uid": 1, "name": "gen1", "bus": 1, "pmax": 100,
+       "gcost": 20}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "dem1", "bus": 1, "lmax": 50}
+    ]
+  }
+}
+```
+
+---
+
+## 7. Complete Example
 
 See `cases/c0/system_c0.json` for a minimal working example with:
 - 1 bus, 1 generator, 1 demand
