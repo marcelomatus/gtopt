@@ -35,9 +35,9 @@ class PlanningLP;
 // ─── Phase UID lookup helper ────────────────────────────────────────────────
 
 /// Build a phase UID (int) -> PhaseIndex lookup from a SimulationLP.
-/// Uses std::flat_map for cache-friendly sorted lookup.
+/// Uses flat_map for cache-friendly sorted lookup.
 [[nodiscard]] auto build_phase_uid_map(const PlanningLP& planning_lp)
-    -> std::flat_map<int, PhaseIndex>;
+    -> flat_map<int, PhaseIndex>;
 
 // ─── Save functions ─────────────────────────────────────────────────────────
 
