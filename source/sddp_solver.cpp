@@ -609,9 +609,9 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
   int cuts_added = 0;
 
   // Iterate backward from start_phase to phase 0
+  const auto end_phase = static_cast<Index>(start_phase) + 1;
   for (const auto back_pi :
-       std::views::iota(Index {0}, static_cast<Index>(start_phase) + 1)
-           | std::views::reverse)
+       std::views::iota(Index {0}, end_phase) | std::views::reverse)
   {
     const auto back_phase = PhaseIndex {back_pi};
 
