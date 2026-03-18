@@ -18,9 +18,12 @@
 #include <doctest/doctest.h>
 #include <gtopt/basic_types.hpp>
 #include <gtopt/field_sched.hpp>
+#include <gtopt/json/json_aperture.hpp>
 #include <gtopt/json/json_basic_types.hpp>
 #include <gtopt/json/json_battery.hpp>
+#include <gtopt/json/json_block.hpp>
 #include <gtopt/json/json_bus.hpp>
+#include <gtopt/json/json_converter.hpp>
 #include <gtopt/json/json_demand.hpp>
 #include <gtopt/json/json_demand_profile.hpp>
 #include <gtopt/json/json_field_sched.hpp>
@@ -36,18 +39,25 @@
 #include <gtopt/json/json_reserve_zone.hpp>
 #include <gtopt/json/json_reservoir.hpp>
 #include <gtopt/json/json_reservoir_efficiency.hpp>
+#include <gtopt/json/json_scene.hpp>
 #include <gtopt/json/json_simulation.hpp>
+#include <gtopt/json/json_solver_options.hpp>
+#include <gtopt/json/json_stage.hpp>
 #include <gtopt/json/json_system.hpp>
 #include <gtopt/json/json_turbine.hpp>
+#include <gtopt/json/json_variable_scale.hpp>
 #include <gtopt/json/json_waterway.hpp>
 #include <gtopt/object.hpp>
 #include <gtopt/reservoir.hpp>
 
 using namespace gtopt;
 
+#include "test_aperture_json.hpp"
 #include "test_basic_types_json.hpp"
 #include "test_battery_json.hpp"
+#include "test_block_json.hpp"
 #include "test_bus_json.hpp"
+#include "test_converter_json.hpp"
 #include "test_demand_json.hpp"
 #include "test_demand_profile_json.hpp"
 #include "test_filtration_json.hpp"
@@ -64,8 +74,13 @@ using namespace gtopt;
 #include "test_reserve_zone_json.hpp"
 #include "test_reservoir_efficiency_json.hpp"
 #include "test_reservoir_json.hpp"
+#include "test_scenario_json.hpp"
+#include "test_scene_json.hpp"
 #include "test_simulation_json.hpp"
+#include "test_solver_options_json.hpp"
+#include "test_stage_json.hpp"
 #include "test_system_json.hpp"
 #include "test_turbine_json.hpp"
 #include "test_user_constraint_json.hpp"
+#include "test_variable_scale_json.hpp"
 #include "test_waterway_json.hpp"
