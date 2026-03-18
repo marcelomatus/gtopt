@@ -23,7 +23,7 @@ TEST_CASE("json_options - Deserialization of Options from JSON")
     "output_directory": "output_dir",
     "output_format": "csv",
     "output_compression": "gzip",
-    "use_lp_names": true,
+    "use_lp_names": 2,
     "use_uid_fname": false,
     "annual_discount_rate": 0.05
   })";
@@ -99,7 +99,7 @@ TEST_CASE("json_options - Deserialization of Options from JSON")
 
   REQUIRE(options.use_lp_names.has_value());
   if (options.use_lp_names) {
-    CHECK(*options.use_lp_names == true);
+    CHECK(*options.use_lp_names == 2);
   }
 
   REQUIRE(options.use_uid_fname.has_value());
@@ -171,7 +171,7 @@ TEST_CASE("json_options - Round-trip serialization and deserialization")
       .use_kirchhoff = true,
       .scale_objective = 100.0,
       .output_directory = "output_dir",
-      .use_lp_names = false,
+      .use_lp_names = 0,
   };
 
   // Serialize to JSON

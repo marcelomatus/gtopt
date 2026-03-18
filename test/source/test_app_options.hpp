@@ -245,8 +245,7 @@ TEST_CASE("apply_cli_options - all options applied")
          && *planning.options.use_kirchhoff == false));
 
   REQUIRE(planning.options.use_lp_names.has_value());
-  CHECK((planning.options.use_lp_names
-         && *planning.options.use_lp_names == true));
+  CHECK((planning.options.use_lp_names && *planning.options.use_lp_names == 2));
 
   REQUIRE(planning.options.input_directory.has_value());
   CHECK((planning.options.input_directory
@@ -435,10 +434,11 @@ TEST_CASE("make_flat_options - defaults when both nullopt")
   CHECK(opts.eps == doctest::Approx(0.0));
   CHECK(opts.col_with_names == true);
   CHECK(opts.row_with_names == true);
-  CHECK(opts.col_with_name_map == false);
-  CHECK(opts.row_with_name_map == false);
+  CHECK(opts.col_with_name_map == true);
+  CHECK(opts.row_with_name_map == true);
   CHECK(opts.reserve_matrix == false);
   CHECK(opts.reserve_factor == doctest::Approx(2.0));
+  CHECK(opts.lp_names_level == 2);
 }
 
 TEST_CASE("make_flat_options - lp_names level 0 disables names")

@@ -143,7 +143,9 @@ constexpr auto create_linear_interface(auto& collections,
 
   // Convert and store the flattened LP representation
 
-  return LinearInterface {lp.to_flat(flat_opts)};
+  auto li = LinearInterface {lp.to_flat(flat_opts)};
+  li.set_lp_names_level(flat_opts.lp_names_level);
+  return li;
 }
 
 void create_collections(const auto& system_context,
