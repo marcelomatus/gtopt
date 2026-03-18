@@ -133,6 +133,28 @@ class BatteryWriter(BaseWriter):
             if c.get("type") == "bateria"
         }
 
+    @staticmethod
+    def _resolve_energy_scale(
+        battery_name: str,
+        emax_value: float,
+        options: Optional[Dict[str, Any]],
+    ) -> Optional[float]:
+        """Determine the energy_scale for a battery from CLI options.
+
+        Priority (highest first):
+        1. Explicit ``--energy-scale name:value`` entry for this battery.
+        2. ``--auto-energy-scale`` flag: ``max(1.0, emax / 100.0)``.
+        3. ``None`` — omit the field (C++ default = 1.0).
+        """
+        if options is None:
+            return None
+        explicit: dict = options.get("energy_scale", {})
+        if battery_name in explicit:
+            return explicit[battery_name]
+        if options.get("auto_energy_scale", False):
+            return max(1.0, emax_value / 100.0)
+        return None
+
     def _all_centrals_by_name(self) -> Dict[str, Dict[str, Any]]:
         """Return ALL centrals from plpcnfce.dat keyed by name (for injection lookup)."""
         if not self.central_parser:
@@ -299,6 +321,12 @@ class BatteryWriter(BaseWriter):
                 source_gen = entry.get("source_generator")
                 if source_gen:
                     bat["source_generator"] = source_gen
+
+            # Apply energy_scale from CLI options
+            e_scale = self._resolve_energy_scale(entry["name"], emax, self.options)
+            if e_scale is not None:
+                bat["energy_scale"] = e_scale
+
             batteries.append(bat)
         return batteries
 

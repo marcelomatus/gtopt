@@ -73,9 +73,48 @@ examples:
   # Apply a 10% annual discount rate
   plp2gtopt -i input/ -d 0.10
 
+  # Set reservoir volume scaling for better LP numerics
+  plp2gtopt -i input/ --vol-scale 'RAPEL:500,COLBUN:15000'
+
+  # Auto-calculate vol_scale from reservoir emax (vol_scale = emax / 100)
+  plp2gtopt -i input/ --auto-vol-scale
+
+  # Set battery energy scaling
+  plp2gtopt -i input/ --energy-scale 'BESS1:100'
+
+  # Auto-calculate energy_scale from battery emax
+  plp2gtopt -i input/ --auto-energy-scale
+
   # Show verbose debug output
   plp2gtopt -i input/ -l DEBUG
 """
+
+
+def _parse_name_value_pairs(spec: str) -> dict[str, float]:
+    """Parse a comma-separated 'name:value' specification into a dict.
+
+    Example: ``"RAPEL:500,COLBUN:15000"`` returns
+    ``{"RAPEL": 500.0, "COLBUN": 15000.0}``.
+
+    Raises:
+        ValueError: If a token cannot be parsed as ``name:number``.
+    """
+    result: dict[str, float] = {}
+    for token in spec.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if ":" not in token:
+            raise ValueError(
+                f"Invalid name:value pair '{token}'; expected 'name:number'"
+            )
+        name, val_str = token.split(":", maxsplit=1)
+        name = name.strip()
+        try:
+            result[name] = float(val_str.strip())
+        except ValueError as exc:
+            raise ValueError(f"Invalid numeric value in '{token}': {exc}") from exc
+    return result
 
 
 def signal_handler(sig, _frame):
@@ -472,6 +511,56 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--vol-scale",
+        dest="vol_scale",
+        metavar="SPEC",
+        default=None,
+        help=(
+            "Set reservoir vol_scale values as comma-separated name:value pairs. "
+            "Example: --vol-scale 'RAPEL:500,COLBUN:15000'. "
+            "The vol_scale divides the LP volume variable for numerical conditioning. "
+            "(default: not set — reservoirs use vol_scale=1.0)"
+        ),
+    )
+    parser.add_argument(
+        "--auto-vol-scale",
+        dest="auto_vol_scale",
+        action="store_true",
+        default=False,
+        help=(
+            "Automatically calculate vol_scale for each reservoir from its emax "
+            "capacity: vol_scale = max(1.0, emax / 100.0). This scales the LP "
+            "volume variable to ~100 units for better solver numerics. "
+            "Explicit --vol-scale entries override auto-calculated values. "
+            "(default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--energy-scale",
+        dest="energy_scale",
+        metavar="SPEC",
+        default=None,
+        help=(
+            "Set battery energy_scale values as comma-separated name:value pairs. "
+            "Example: --energy-scale 'BESS1:0.01,BESS2:100'. "
+            "The energy_scale divides the LP energy variable for numerical "
+            "conditioning. (default: not set — batteries use energy_scale=1.0)"
+        ),
+    )
+    parser.add_argument(
+        "--auto-energy-scale",
+        dest="auto_energy_scale",
+        action="store_true",
+        default=False,
+        help=(
+            "Automatically calculate energy_scale for each battery from its emax "
+            "capacity: energy_scale = max(1.0, emax / 100.0). This scales the LP "
+            "energy variable to ~100 units for better solver numerics. "
+            "Explicit --energy-scale entries override auto-calculated values. "
+            "(default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
         "-V",
         "--version",
         action="version",
@@ -541,6 +630,14 @@ def build_options(args: argparse.Namespace) -> dict:
         opts["no_boundary_cuts"] = True
     if args.hot_start_cuts:
         opts["hot_start_cuts"] = True
+    if args.vol_scale is not None:
+        opts["vol_scale"] = _parse_name_value_pairs(args.vol_scale)
+    if args.auto_vol_scale:
+        opts["auto_vol_scale"] = True
+    if args.energy_scale is not None:
+        opts["energy_scale"] = _parse_name_value_pairs(args.energy_scale)
+    if args.auto_energy_scale:
+        opts["auto_energy_scale"] = True
     return opts
 
 

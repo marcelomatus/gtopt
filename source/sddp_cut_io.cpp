@@ -166,15 +166,18 @@ auto save_cuts_csv(std::span<const StoredCut> cuts,
 
     const auto scale_obj = planning_lp.options().scale_objective();
     ofs << "# scale_objective=" << scale_obj << "\n";
-    ofs << "phase,scene,name,rhs,coefficients\n";
+    ofs << "type,phase,scene,name,rhs,coefficients\n";
 
     // Build phase UID -> PhaseIndex lookup
     const auto phase_map = build_phase_uid_map(planning_lp);
 
     for (const auto& cut : cuts) {
+      // Type column: 'o' = optimality, 'f' = feasibility
+      const char type_char = (cut.type == CutType::Feasibility) ? 'f' : 'o';
+
       // RHS in physical objective units
-      ofs << cut.phase << "," << cut.scene << "," << cut.name << ","
-          << (cut.rhs * scale_obj);
+      ofs << type_char << "," << cut.phase << "," << cut.scene << ","
+          << cut.name << "," << (cut.rhs * scale_obj);
 
       // Look up the LinearInterface to retrieve column scales.
       // Use scene 0 as representative (scales are identical
@@ -234,15 +237,18 @@ auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
 
     const auto scale_obj = planning_lp.options().scale_objective();
     ofs << "# scale_objective=" << scale_obj << "\n";
-    ofs << "phase,scene,name,rhs,coefficients\n";
+    ofs << "type,phase,scene,name,rhs,coefficients\n";
 
     // Build phase UID -> PhaseIndex lookup
     const auto phase_map = build_phase_uid_map(planning_lp);
 
     for (const auto& cut : cuts) {
+      // Type column: 'o' = optimality, 'f' = feasibility
+      const char type_char = (cut.type == CutType::Feasibility) ? 'f' : 'o';
+
       // RHS in physical objective units
-      ofs << cut.phase << "," << cut.scene << "," << cut.name << ","
-          << (cut.rhs * scale_obj);
+      ofs << type_char << "," << cut.phase << "," << cut.scene << ","
+          << cut.name << "," << (cut.rhs * scale_obj);
 
       auto pit = phase_map.find(cut.phase);
       if (pit != phase_map.end()) {
@@ -295,12 +301,16 @@ auto load_cuts_csv(PlanningLP& planning_lp,
     }
 
     std::string line;
-    // Skip metadata comments (# ...) and the CSV header line
+    // Skip metadata comments (# ...) and find the CSV header line
+    bool has_type_col = false;
     while (std::getline(ifs, line)) {
       if (line.empty() || line.starts_with('#')) {
         continue;
       }
-      // First non-empty, non-comment line is the header -- skip
+      // First non-empty, non-comment line is the header.
+      // Detect new format with type column: "type,phase,..."
+      // vs legacy format: "phase,scene,..."
+      has_type_col = line.starts_with("type,");
       break;
     }
 
@@ -323,9 +333,20 @@ auto load_cuts_csv(PlanningLP& planning_lp,
         continue;
       }
 
-      // Parse CSV: phase,scene,name,rhs,col1:coeff1,...
+      // Parse CSV: [type,]phase,scene,name,rhs,col1:coeff1,...
       std::istringstream iss(line);
       std::string token;
+
+      // Parse optional type column (backward compatible).
+      // The type is tracked for future use but currently loaded cuts
+      // are added to the LP directly regardless of type.
+      [[maybe_unused]] CutType cut_type = CutType::Optimality;
+      if (has_type_col) {
+        std::getline(iss, token, ',');
+        if (token == "f") {
+          cut_type = CutType::Feasibility;
+        }
+      }
 
       std::getline(iss, token, ',');
       const auto phase_val = std::stoi(token);
