@@ -8,12 +8,17 @@
  * into a single compilation unit to reduce build time.
  */
 
+#include <filesystem>
+
 #include <doctest/doctest.h>
 #include <gtopt/block.hpp>
+#include <gtopt/collection.hpp>
 #include <gtopt/field_sched.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/reserve_provision.hpp>
+#include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/reserve_zone.hpp>
+#include <gtopt/reserve_zone_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/stage.hpp>
 #include <gtopt/system_lp.hpp>
