@@ -216,7 +216,7 @@ template<typename T>
  * @param planning The Planning object to update
  * @param use_single_bus Optional single-bus mode flag
  * @param use_kirchhoff Optional Kirchhoff mode flag
- * @param use_lp_names Optional LP names level (0=none, 1=names, 2=names+map)
+ * @param use_lp_names Optional LP names level (0=none, 1=warn, 2=error)
  * @param input_directory Optional input directory path
  * @param input_format Optional input format string
  * @param output_directory Optional output directory path
@@ -387,7 +387,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 /**
  * @brief Build FlatOptions from command-line parameters
  *
- * @param use_lp_names Optional LP names level (0=none, 1=names, 2=names+map)
+ * @param use_lp_names Optional LP names level (0=none, 1=warn, 2=error)
  * @param matrix_eps Optional epsilon tolerance for matrix coefficients
  * @return FlatOptions configured according to the parameters
  */
@@ -397,17 +397,18 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     bool compute_stats = false)
 {
   const auto eps = matrix_eps.value_or(0);
-  const auto lp_names = use_lp_names.value_or(true);
+  const auto lp_names = use_lp_names.value_or(1);
 
   FlatOptions flat_opts;
   flat_opts.eps = eps;
   flat_opts.col_with_names = lp_names > 0;
   flat_opts.row_with_names = lp_names > 0;
-  flat_opts.col_with_name_map = lp_names > 1;
-  flat_opts.row_with_name_map = lp_names > 1;
+  flat_opts.col_with_name_map = lp_names > 0;
+  flat_opts.row_with_name_map = lp_names > 0;
   flat_opts.reserve_matrix = false;
   flat_opts.reserve_factor = 2;
   flat_opts.compute_stats = compute_stats;
+  flat_opts.lp_names_level = lp_names;
 
   return flat_opts;
 }

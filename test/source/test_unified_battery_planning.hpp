@@ -28,7 +28,7 @@
 static constexpr std::string_view unified_battery_json = R"({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": true,
+    "use_lp_names": 1,
     "output_compression": "uncompressed",
     "use_single_bus": true,
     "demand_fail_cost": 1000,
@@ -143,7 +143,7 @@ TEST_CASE("Unified battery solution correctness")  // NOLINT
 static constexpr std::string_view traditional_battery_json = R"({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": true,
+    "use_lp_names": 1,
     "output_compression": "uncompressed",
     "use_single_bus": true,
     "demand_fail_cost": 1000,

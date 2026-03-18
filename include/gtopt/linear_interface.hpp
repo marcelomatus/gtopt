@@ -17,6 +17,7 @@
 #include <memory>
 
 #include <gtopt/error.hpp>
+#include <gtopt/fmap.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/osi_solver.hpp>
 #include <gtopt/solver_options.hpp>
@@ -372,6 +373,47 @@ public:
   void set_prob_name(const std::string& pname);
   [[nodiscard]] std::string get_prob_name() const;
 
+  /**
+   * @brief Sets the LP name uniqueness-check level.
+   *
+   * Controls duplicate detection for add_row()/add_col() names:
+   *   - 0: no names, no tracking
+   *   - 1: names + warn on duplicate names via spdlog
+   *   - 2: names + throw std::runtime_error on duplicate names
+   *
+   * At levels >= 1, name-to-index maps are populated via try_emplace.
+   * The overhead is a single map insert per add_row/add_col call.
+   *
+   * @param level The LP name check level (matches use_lp_names semantics)
+   */
+  void set_lp_names_level(int level) noexcept { m_lp_names_level_ = level; }
+
+  /**
+   * @brief Gets the current LP name uniqueness-check level.
+   * @return 0-2 level (see set_lp_names_level)
+   */
+  [[nodiscard]] constexpr int lp_names_level() const noexcept
+  {
+    return m_lp_names_level_;
+  }
+
+  /// @name Name-to-index maps (populated when lp_names_level >= 1)
+  /// @{
+
+  /// Row (constraint) name → row index map.
+  using name_index_map_t = flat_map<std::string, int32_t>;
+
+  [[nodiscard]] constexpr const name_index_map_t& row_name_map() const noexcept
+  {
+    return m_row_names_;
+  }
+
+  [[nodiscard]] constexpr const name_index_map_t& col_name_map() const noexcept
+  {
+    return m_col_names_;
+  }
+  /// @}
+
   /// @name LP coefficient statistics (populated during load_flat from
   ///       FlatLinearProblem::stats_* fields, which are computed in
   ///       LinearProblem::to_flat when FlatOptions::compute_stats is true).
@@ -447,6 +489,12 @@ private:
 
   solver_ptr_t solver;
   std::string log_file {};
+  int m_lp_names_level_ {};  ///< LP name uniqueness-check level (0–2)
+
+  /// Name-to-index maps for duplicate detection and later lookup.
+  /// Populated when lp_names_level >= 1.
+  name_index_map_t m_row_names_;  ///< Row (constraint) name → row index
+  name_index_map_t m_col_names_;  ///< Column (variable) name → col index
 
   std::vector<double> m_col_scales_;  ///< Per-column physical-to-LP scale
                                       ///< factors (physical = LP × scale)

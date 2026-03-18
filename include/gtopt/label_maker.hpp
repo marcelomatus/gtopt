@@ -23,7 +23,7 @@ class LabelMaker
 {
 public:
   explicit constexpr LabelMaker(const OptionsLP& options) noexcept
-      : m_dont_use_lp_names_(!options.use_lp_names())
+      : m_dont_use_lp_names_(options.use_lp_names() <= 0)
   {
   }
 
