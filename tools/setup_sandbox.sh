@@ -118,6 +118,27 @@ ok "ccache and base packages installed"
 # Conda gives a self-consistent Arrow+Parquet+Boost set that always matches.
 log "Installing Arrow/Parquet via conda-forge..."
 
+# Ensure conda itself works.  Some sandbox images ship a broken certifi
+# package (ImportError: cannot import name 'where') or a libmamba solver
+# that cannot load.  Fix both before proceeding.
+if command -v conda &>/dev/null; then
+  CONDA_PY_DIR="$(dirname "$(command -v conda)")/../lib"
+  # Fix certifi if broken: reinstall into conda's own site-packages
+  if ! python3 -c "import certifi; certifi.where()" &>/dev/null; then
+    warn "certifi is broken in conda's Python — reinstalling..."
+    CONDA_SITE="$(python3 -c 'import site; print(site.getsitepackages()[0])' 2>/dev/null || echo "")"
+    if [[ -n "$CONDA_SITE" ]]; then
+      pip install certifi --target="$CONDA_SITE" --force-reinstall --upgrade --quiet 2>/dev/null || true
+    fi
+    pip install certifi --force-reinstall --upgrade --quiet 2>/dev/null || true
+  fi
+  # Force classic solver if libmamba is broken
+  if ! conda info --base &>/dev/null 2>&1; then
+    warn "conda default solver is broken — switching to classic solver"
+    conda config --set solver classic 2>/dev/null || true
+  fi
+fi
+
 ARROW_INSTALLED_VIA="conda"
 # Check that the *real* Arrow library is installed (not just the dummy
 # arrow-cpp transitional package v0.2.post).  The definitive test is whether
@@ -140,7 +161,11 @@ else
   # the real libarrow + libparquet packages from conda-forge.
   log "Installing real Arrow/Parquet libraries via conda-forge..."
   conda remove -y --force arrow-cpp parquet-cpp 2>/dev/null || true
-  conda install -y -c conda-forge libarrow libparquet boost-cpp
+  # Try default solver first; fall back to classic if it fails (e.g. broken libmamba)
+  if ! conda install -y -c conda-forge libarrow libparquet boost-cpp 2>/dev/null; then
+    warn "conda install failed with default solver — retrying with classic solver..."
+    conda install -y --solver=classic -c conda-forge libarrow libparquet boost-cpp
+  fi
   ok "Arrow/Parquet installed via conda-forge"
 fi
 
