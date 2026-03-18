@@ -34,6 +34,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <format>
 #include <iterator>
 #include <string>
@@ -59,6 +60,29 @@ namespace detail
 // Improved concept for string-like types
 template<typename T>
 concept string_like = std::is_convertible_v<const T&, std::string_view>;
+
+// Concept for types that are integral or implicitly convertible to an integral
+// type (e.g. strong::type<int, ...> with implicitly_convertible_to<int>).
+// This enables the fast std::to_chars path instead of std::format.
+template<typename T>
+concept integral_convertible = std::integral<T>
+    || (std::is_convertible_v<T, std::int64_t> && !std::is_floating_point_v<T>
+        && !string_like<T> && !std::is_same_v<std::remove_cvref_t<T>, bool>);
+
+// Maximum chars needed for a 64-bit signed integer: "-9223372036854775808"
+inline constexpr std::size_t int_buf_size = 21;
+
+// Convert an integral value to a string using std::to_chars (no format string
+// parsing overhead).  Returns a std::string owning the converted text.
+template<integral_convertible T>
+[[nodiscard]] inline std::string int_to_string(const T& value)
+{
+  std::array<char, int_buf_size> buf {};
+  const auto ival = static_cast<std::int64_t>(value);
+  const auto [ptr, ec] =
+      std::to_chars(buf.data(), buf.data() + buf.size(), ival);
+  return std::string(buf.data(), ptr);
+}
 
 // Simplified string holder using C++23 features
 class string_holder
@@ -97,9 +121,19 @@ public:
   {
   }
 
-  // For non-string types
+  // Fast path for integral and integral-convertible types (strong int types).
+  // Uses std::to_chars instead of std::format to avoid format string parsing.
   template<typename T>
-    requires(!string_like<T>)
+    requires(!string_like<T> && integral_convertible<T>)
+  explicit string_holder(const T& value)
+      : storage(int_to_string(value))
+  {
+  }
+
+  // Fallback for non-string, non-integral types (floating point, custom
+  // formatters)
+  template<typename T>
+    requires(!string_like<T> && !integral_convertible<T>)
   explicit string_holder(const T& value)
       : storage(std::format("{}", value))
   {

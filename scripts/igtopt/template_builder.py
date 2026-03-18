@@ -1015,6 +1015,145 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
     ],
+    # ------------------------------------------------------------------
+    # System — user constraints
+    # ------------------------------------------------------------------
+    "user_constraint_array": [
+        ("uid", _J_INT, True, "Unique constraint identifier", 1),
+        ("name", _J_STR, True, "Human-readable constraint name", "uc1"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        (
+            "expression",
+            _J_STR,
+            True,
+            "Constraint expression in AMPL-inspired syntax "
+            "(e.g. 'generator(\"g1\").generation <= 300')",
+            'generator("g1").generation <= 300',
+        ),
+        (
+            "description",
+            _J_STR,
+            False,
+            "Optional free-text description of the constraint",
+            None,
+        ),
+        (
+            "constraint_type",
+            _J_STR,
+            False,
+            "Dual scaling hint: 'power' (default), 'energy', 'raw', or 'unitless'",
+            None,
+        ),
+    ],
+    # ------------------------------------------------------------------
+    # Simulation — apertures (SDDP backward-pass scenario sampling)
+    # ------------------------------------------------------------------
+    "aperture_array": [
+        ("uid", _J_INT, True, "Unique aperture identifier", 1),
+        ("name", _J_STR, False, "Optional human-readable label", "ap1"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        (
+            "source_scenario",
+            _J_INT,
+            True,
+            "UID of the scenario whose affluent data to use",
+            1,
+        ),
+        (
+            "probability_factor",
+            _J_NUM,
+            False,
+            "Probability weight of this aperture [p.u.] (default: 1.0)",
+            1.0,
+        ),
+    ],
+    # ------------------------------------------------------------------
+    # Options — variable scales
+    # ------------------------------------------------------------------
+    "variable_scales": [
+        (
+            "class_name",
+            _J_STR,
+            True,
+            'Element class (e.g. "Bus", "Reservoir", "Battery")',
+            "Reservoir",
+        ),
+        (
+            "variable",
+            _J_STR,
+            True,
+            'Variable name (e.g. "theta", "volume", "energy")',
+            "volume",
+        ),
+        (
+            "uid",
+            _J_INT,
+            False,
+            "Element UID (-1 or omit = all elements of the class)",
+            None,
+        ),
+        (
+            "scale",
+            _J_NUM,
+            True,
+            "Scale factor: physical_value = LP_value * scale (default: 1.0)",
+            1000.0,
+        ),
+    ],
+    # ------------------------------------------------------------------
+    # Options — solver options
+    # ------------------------------------------------------------------
+    "solver_options": [
+        (
+            "algorithm",
+            _J_INT,
+            False,
+            "LP algorithm: 0=default, 1=primal, 2=dual, 3=barrier (default: 3)",
+            3,
+        ),
+        (
+            "threads",
+            _J_INT,
+            False,
+            "Number of parallel threads (0 = automatic, default: 0)",
+            0,
+        ),
+        (
+            "presolve",
+            _J_BOOL,
+            False,
+            "Apply presolve optimizations (default: true)",
+            True,
+        ),
+        (
+            "optimal_eps",
+            _J_NUM,
+            False,
+            "Optimality tolerance (nullopt = use solver default)",
+            None,
+        ),
+        (
+            "feasible_eps",
+            _J_NUM,
+            False,
+            "Feasibility tolerance (nullopt = use solver default)",
+            None,
+        ),
+        (
+            "barrier_eps",
+            _J_NUM,
+            False,
+            "Barrier convergence tolerance (nullopt = use solver default)",
+            None,
+        ),
+        (
+            "log_level",
+            _J_INT,
+            False,
+            "Solver output verbosity (0 = none, default: 0)",
+            0,
+        ),
+    ],
 }
 
 # ------------------------------------------------------------------
@@ -1152,6 +1291,7 @@ _TEMPLATE_SIMULATION_SHEETS = [
     "scenario_array",
     "phase_array",
     "scene_array",
+    "aperture_array",
 ]
 
 _TEMPLATE_SYSTEM_SHEETS = [
@@ -1172,6 +1312,7 @@ _TEMPLATE_SYSTEM_SHEETS = [
     "filtration_array",
     "turbine_array",
     "reservoir_efficiency_array",
+    "user_constraint_array",
 ]
 
 # ------------------------------------------------------------------
@@ -1222,6 +1363,12 @@ _INTRO_LINES = [
         "scene_array",
         "Simulation",
         "SDDP scenes (groups of scenarios) — leave empty for monolithic",
+        "TABLE",
+    ),
+    (
+        "aperture_array",
+        "Simulation",
+        "SDDP backward-pass apertures (scenario sampling) — leave empty for default",
         "TABLE",
     ),
     ("bus_array", "System", "Electrical busbars (nodes)", "TABLE"),
@@ -1299,6 +1446,12 @@ _INTRO_LINES = [
         "reservoir_efficiency_array",
         "System",
         "Volume-dependent turbine productivity curves",
+        "TABLE",
+    ),
+    (
+        "user_constraint_array",
+        "System",
+        "User-defined linear constraints (AMPL-inspired syntax)",
         "TABLE",
     ),
     ("", ""),
