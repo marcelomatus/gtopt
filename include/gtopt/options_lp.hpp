@@ -494,6 +494,14 @@ public:
   }
 
   /**
+   * @brief Whether to save cuts after each iteration (default: true)
+   */
+  [[nodiscard]] constexpr auto sddp_save_per_iteration() const
+  {
+    return m_options_.sddp_options.sddp_save_per_iteration.value_or(true);
+  }
+
+  /**
    * @brief Gets the input cut file for SDDP hot-start
    * @return Cut file path or empty string for cold start
    */

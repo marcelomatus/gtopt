@@ -140,7 +140,7 @@ TEST_CASE("save_cuts_csv writes a valid CSV file")  // NOLINT
   std::getline(ifs, line);  // metadata comment
   CHECK(line.starts_with("# scale_objective="));
   std::getline(ifs, line);  // CSV header
-  CHECK(line == "phase,scene,name,rhs,coefficients");
+  CHECK(line == "type,phase,scene,name,rhs,coefficients");
 
   // Should have at least one data line
   std::getline(ifs, line);
@@ -171,7 +171,7 @@ TEST_CASE("save_cuts_csv with empty cuts vector writes header only")  // NOLINT
   std::getline(ifs, line);  // metadata
   CHECK(line.starts_with("# scale_objective="));
   std::getline(ifs, line);  // header
-  CHECK(line == "phase,scene,name,rhs,coefficients");
+  CHECK(line == "type,phase,scene,name,rhs,coefficients");
 
   // No more data lines
   CHECK_FALSE(std::getline(ifs, line));
@@ -216,8 +216,8 @@ TEST_CASE(
   std::getline(ifs, line);  // header
   std::getline(ifs, line);  // data line
 
-  // The line should contain "999,1,bad_phase_cut" and coefficient data
-  CHECK(line.starts_with("999,1,bad_phase_cut,"));
+  // The line should contain "o,999,1,bad_phase_cut" and coefficient data
+  CHECK(line.starts_with("o,999,1,bad_phase_cut,"));
 
   std::filesystem::remove(cuts_file);
 }
@@ -448,7 +448,7 @@ TEST_CASE("save_scene_cuts_csv creates per-scene file")  // NOLINT
   std::getline(ifs, line);
   CHECK(line.starts_with("# scale_objective="));
   std::getline(ifs, line);
-  CHECK(line == "phase,scene,name,rhs,coefficients");
+  CHECK(line == "type,phase,scene,name,rhs,coefficients");
 
   // Clean up
   std::filesystem::remove_all(tmp_dir);

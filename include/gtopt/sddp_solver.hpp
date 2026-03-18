@@ -225,6 +225,10 @@ struct SDDPOptions
   /// Default: 10.
   int multi_cut_threshold {10};
 
+  /// Save cuts to CSV after each iteration (default: true).
+  /// When false, cuts are only saved at the end of the solve or on stop.
+  bool save_per_iteration {true};
+
   /// File path for saving cuts (empty = no save)
   std::string cuts_output_file {};
   /// File path for loading initial cuts (empty = no load / cold start)
@@ -421,9 +425,17 @@ struct PhaseStateInfo
 
 // ─── Stored cut for persistence ─────────────────────────────────────────────
 
+/// Type of Benders cut: optimality (standard) or feasibility (elastic filter)
+enum class CutType : uint8_t
+{
+  Optimality = 0,  ///< Standard Benders optimality cut
+  Feasibility,  ///< Feasibility cut from elastic filter
+};
+
 /// A serialisable representation of a Benders cut
 struct StoredCut
 {
+  CutType type {CutType::Optimality};  ///< Cut type (optimality or feasibility)
   int phase {};  ///< Phase UID this cut was added to
   int scene {};  ///< Scene UID that generated this cut (-1 = shared)
   std::string name {};  ///< Cut name
@@ -722,7 +734,10 @@ private:
 
   /// Store a cut for sharing and persistence (thread-safe).
   /// Writes to both per-scene storage and shared storage.
-  void store_cut(SceneIndex scene, PhaseIndex src_phase, const SparseRow& cut);
+  void store_cut(SceneIndex scene,
+                 PhaseIndex src_phase,
+                 const SparseRow& cut,
+                 CutType type = CutType::Optimality);
 
   /// Resolve an LP via the SDDP work pool.  Falls back to direct resolve if
   /// the pool is not available.  Avoids naked direct resolve() calls.

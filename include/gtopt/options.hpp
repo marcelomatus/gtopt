@@ -86,6 +86,9 @@ struct SddpOptions
    *  When true and no explicit `sddp_cuts_input_file` is given, the solver
    *  loads cuts from the `sddp_cut_directory`. */
   OptBool sddp_hot_start {};
+  /** @brief Save cuts to CSV after each iteration (default: true).
+   *  When false, cuts are only saved at the end of the solve or on stop. */
+  OptBool sddp_save_per_iteration {};
   /** @brief File path for loading initial cuts (hot-start; empty = cold start)
    */
   OptName sddp_cuts_input_file {};
@@ -186,6 +189,7 @@ struct SddpOptions
     merge_opt(sddp_alpha_min, opts.sddp_alpha_min);
     merge_opt(sddp_alpha_max, opts.sddp_alpha_max);
     merge_opt(sddp_hot_start, opts.sddp_hot_start);
+    merge_opt(sddp_save_per_iteration, opts.sddp_save_per_iteration);
     merge_opt(sddp_cuts_input_file, std::move(opts.sddp_cuts_input_file));
     merge_opt(sddp_sentinel_file, std::move(opts.sddp_sentinel_file));
     merge_opt(sddp_elastic_mode, std::move(opts.sddp_elastic_mode));
