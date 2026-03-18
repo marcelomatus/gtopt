@@ -71,6 +71,7 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_solver.hpp>
 #include <gtopt/reservoir_efficiency_lp.hpp>
+#include <gtopt/sddp_aperture.hpp>
 #include <gtopt/sddp_pool.hpp>
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/solver_options.hpp>
@@ -78,6 +79,13 @@
 
 namespace gtopt
 {
+
+/// Result of a cut load operation.
+struct CutLoadResult
+{
+  int count {};  ///< Number of unique cuts loaded
+  int max_iteration {};  ///< Highest iteration index found among loaded cuts
+};
 
 // ─── Cut sharing mode ───────────────────────────────────────────────────────
 
@@ -221,6 +229,9 @@ struct SDDPOptions
   std::string cuts_output_file {};
   /// File path for loading initial cuts (empty = no load / cold start)
   std::string cuts_input_file {};
+  /// Enable hot-start from previously saved cuts (default: false).
+  /// When true and cuts_input_file is empty, load from the cut directory.
+  bool hot_start {false};
 
   /// Path to a sentinel file: if the file exists, the solver stops
   /// gracefully after the current iteration (analogous to PLP's userstop).
@@ -610,14 +621,14 @@ public:
   /// since loaded cuts serve as warm-start approximations for the entire
   /// problem (analogous to PLP's cut sharing across scenarios).
   [[nodiscard]] auto load_cuts(const std::string& filepath)
-      -> std::expected<int, Error>;
+      -> std::expected<CutLoadResult, Error>;
 
   /// Load all per-scene cut files from a directory.
   /// Files matching `scene_<N>.csv` are loaded; files with the `error_`
   /// prefix (from infeasible scenes in a previous run) are skipped to
   /// prevent loading invalid cuts during hot-start.
   [[nodiscard]] auto load_scene_cuts_from_directory(
-      const std::string& directory) -> std::expected<int, Error>;
+      const std::string& directory) -> std::expected<CutLoadResult, Error>;
 
   /// Load boundary (future-cost) cuts from a named-variable CSV file.
   ///
@@ -626,9 +637,9 @@ public:
   /// Cuts are added only to the last phase, with an alpha column created
   /// if needed.  This is analogous to PLP's "planos de embalse".
   ///
-  /// @return Number of cuts loaded, or an error.
+  /// @return CutLoadResult with count and max iteration, or an error.
   [[nodiscard]] auto load_boundary_cuts(const std::string& filepath)
-      -> std::expected<int, Error>;
+      -> std::expected<CutLoadResult, Error>;
 
   /// Load named-variable cuts from a CSV file with a `phase` column.
   ///
@@ -641,9 +652,9 @@ public:
   /// This is used for hot-start from PLP planos data where cuts span
   /// multiple stages (mapped to gtopt phases).
   ///
-  /// @return Number of cuts loaded, or an error.
+  /// @return CutLoadResult with count and max iteration, or an error.
   [[nodiscard]] auto load_named_cuts(const std::string& filepath)
-      -> std::expected<int, Error>;
+      -> std::expected<CutLoadResult, Error>;
 
 private:
   using scene_phase_states_t =
@@ -739,20 +750,10 @@ private:
                                                int iteration)
       -> std::expected<int, Error>;
 
-  /// Solve all apertures for a single phase and return the
-  /// probability-weighted expected cut, or nullopt if all failed.
-  /// When @p phase_apertures is non-empty, only those aperture UIDs are used;
-  /// otherwise all apertures from @p aperture_defs participate.
-  [[nodiscard]] auto solve_apertures_for_phase(
-      SceneIndex scene,
-      PhaseIndex phase,
-      const PhaseStateInfo& src_state,
-      const ScenarioLP& base_scenario,
-      std::span<const ScenarioLP> all_scenarios,
-      std::span<const Aperture> aperture_defs,
-      std::span<const Uid> phase_apertures,
-      int total_cuts,
-      const SolverOptions& opts) -> std::optional<SparseRow>;
+  /// Build the ApertureResolveFunc callback that delegates to
+  /// resolve_clone_via_pool.  Used to bridge the free-function
+  /// solve_apertures_for_phase with the solver's work pool.
+  [[nodiscard]] auto make_aperture_resolve_fn() -> ApertureResolveFunc;
 
   /// Check whether the sentinel file exists (user-requested stop)
   [[nodiscard]] bool check_sentinel_stop() const;
@@ -905,6 +906,12 @@ private:
 
   bool m_initialized_ {false};
 
+  /// Iteration offset from hot-start cuts.  When cuts from a previous
+  /// run are loaded, the solver starts numbering new iterations after
+  /// the highest iteration found in the loaded cuts, avoiding name
+  /// collisions.
+  int m_iteration_offset_ {0};
+
   // ── Stop / callback machinery ──
   SDDPIterationCallback m_iteration_callback_ {};
   std::atomic<bool> m_stop_requested_ {false};
@@ -942,14 +949,6 @@ private:
   /// Write a JSON status file for the monitoring API.
   /// Called after each iteration.
   /// @param status_file  Path to write the JSON file.
-  /// @param results      Iteration results accumulated so far.
-  /// @param elapsed_s    Seconds elapsed since solve() started.
-  /// @param monitor      The SolverMonitor whose history to include.
-  void write_api_status(const std::string& status_file,
-                        const std::vector<SDDPIterationResult>& results,
-                        double elapsed_s,
-                        const SolverMonitor& monitor) const;
-
   /// Generate an LP name only when use_lp_names is enabled.
   template<typename... Args>
   [[nodiscard]] auto sddp_label(Args&&... args) const -> std::string
