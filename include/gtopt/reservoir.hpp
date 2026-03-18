@@ -66,7 +66,7 @@ struct Reservoir
   static constexpr Real default_spillway_capacity = 6'000.0;  ///< [m³/s]
   static constexpr Real default_fmin = -10'000.0;  ///< [m³/s]
   static constexpr Real default_fmax = +10'000.0;  ///< [m³/s]
-  static constexpr Real default_vol_scale = 1'000.0;  ///< [dimensionless]
+  static constexpr Real default_vol_scale = 1.0;  ///< [dimensionless]
   static constexpr Real default_flow_conversion_rate =
       0.0036;  ///< [dam³/(m³/s·h)]
   /// @}
