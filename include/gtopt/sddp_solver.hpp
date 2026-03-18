@@ -80,6 +80,13 @@
 namespace gtopt
 {
 
+/// Result of a cut load operation.
+struct CutLoadResult
+{
+  int count {};  ///< Number of unique cuts loaded
+  int max_iteration {};  ///< Highest iteration index found among loaded cuts
+};
+
 // ─── Cut sharing mode ───────────────────────────────────────────────────────
 
 /**
@@ -614,14 +621,14 @@ public:
   /// since loaded cuts serve as warm-start approximations for the entire
   /// problem (analogous to PLP's cut sharing across scenarios).
   [[nodiscard]] auto load_cuts(const std::string& filepath)
-      -> std::expected<int, Error>;
+      -> std::expected<CutLoadResult, Error>;
 
   /// Load all per-scene cut files from a directory.
   /// Files matching `scene_<N>.csv` are loaded; files with the `error_`
   /// prefix (from infeasible scenes in a previous run) are skipped to
   /// prevent loading invalid cuts during hot-start.
   [[nodiscard]] auto load_scene_cuts_from_directory(
-      const std::string& directory) -> std::expected<int, Error>;
+      const std::string& directory) -> std::expected<CutLoadResult, Error>;
 
   /// Load boundary (future-cost) cuts from a named-variable CSV file.
   ///
@@ -630,9 +637,9 @@ public:
   /// Cuts are added only to the last phase, with an alpha column created
   /// if needed.  This is analogous to PLP's "planos de embalse".
   ///
-  /// @return Number of cuts loaded, or an error.
+  /// @return CutLoadResult with count and max iteration, or an error.
   [[nodiscard]] auto load_boundary_cuts(const std::string& filepath)
-      -> std::expected<int, Error>;
+      -> std::expected<CutLoadResult, Error>;
 
   /// Load named-variable cuts from a CSV file with a `phase` column.
   ///
@@ -645,9 +652,9 @@ public:
   /// This is used for hot-start from PLP planos data where cuts span
   /// multiple stages (mapped to gtopt phases).
   ///
-  /// @return Number of cuts loaded, or an error.
+  /// @return CutLoadResult with count and max iteration, or an error.
   [[nodiscard]] auto load_named_cuts(const std::string& filepath)
-      -> std::expected<int, Error>;
+      -> std::expected<CutLoadResult, Error>;
 
 private:
   using scene_phase_states_t =
@@ -898,6 +905,12 @@ private:
       m_infeasibility_counter_;
 
   bool m_initialized_ {false};
+
+  /// Iteration offset from hot-start cuts.  When cuts from a previous
+  /// run are loaded, the solver starts numbering new iterations after
+  /// the highest iteration found in the loaded cuts, avoiding name
+  /// collisions.
+  int m_iteration_offset_ {0};
 
   // ── Stop / callback machinery ──
   SDDPIterationCallback m_iteration_callback_ {};
