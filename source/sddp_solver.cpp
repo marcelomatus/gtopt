@@ -948,26 +948,28 @@ void SDDPSolver::share_cuts_for_phase(
         total_prob);
 
   } else if (m_options_.cut_sharing == CutSharingMode::Max) {
-    // Max mode: add ALL cuts from ALL scenes to ALL scenes for this phase
-    std::vector<SparseRow> all_cuts;
-    for (auto&& [si, cuts] : enumerate<SceneIndex>(scene_cuts)) {
-      all_cuts.insert(all_cuts.end(), cuts.begin(), cuts.end());
-    }
-
-    if (all_cuts.empty()) {
-      return;
-    }
-
+    // Max mode: add cuts from other scenes to each scene for this phase.
+    // Each scene already has its own cuts from the backward pass, so only
+    // cross-scene cuts are added to avoid duplicate row names.
     for (Index si = 0; si < num_scenes; ++si) {
       auto& li =
           planning_lp().system(SceneIndex {si}, phase).linear_interface();
-      for (const auto& cut : all_cuts) {
-        li.add_row(cut);
+      for (auto&& [src_si, cuts] : enumerate<SceneIndex>(scene_cuts)) {
+        if (src_si == SceneIndex {si}) {
+          continue;  // skip — already added by the backward pass
+        }
+        for (const auto& cut : cuts) {
+          li.add_row(cut);
+        }
       }
     }
 
+    [[maybe_unused]] std::size_t total_cut_count = 0;
+    for (const auto& cuts : scene_cuts) {
+      total_cut_count += cuts.size();
+    }
     SPDLOG_TRACE("SDDP sharing: added {} cuts to phase {} for all {} scenes",
-                 all_cuts.size(),
+                 total_cut_count,
                  phase,
                  num_scenes);
   }
