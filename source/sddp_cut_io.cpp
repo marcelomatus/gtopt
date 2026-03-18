@@ -38,12 +38,12 @@ namespace gtopt
 // ─── Phase UID lookup helper ────────────────────────────────────────────────
 
 auto build_phase_uid_map(const PlanningLP& planning_lp)
-    -> std::flat_map<int, PhaseIndex>
+    -> flat_map<int, PhaseIndex>
 {
   const auto& sim = planning_lp.simulation();
   const auto num_phases = static_cast<Index>(sim.phases().size());
 
-  std::flat_map<int, PhaseIndex> phase_map;
+  flat_map<int, PhaseIndex> phase_map;
 
   for (Index pi = 0; pi < num_phases; ++pi) {
     phase_map.emplace(static_cast<int>(sim.phases()[pi].uid()),
