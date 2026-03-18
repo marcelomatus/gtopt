@@ -68,6 +68,7 @@ namespace
 
 /// Write a single cut's coefficients to an output stream.
 ///
+/// Format: col_name=coeff (name-based, portable across LP changes).
 /// Coefficients are in fully physical space:
 ///   coeff_csv = LP_coeff * scale_obj / col_scale
 void write_cut_coefficients(std::ostream& ofs,
@@ -75,9 +76,18 @@ void write_cut_coefficients(std::ostream& ofs,
                             const LinearInterface& li,
                             double scale_obj)
 {
+  const auto& names = li.col_index_to_name();
   for (const auto& [col, coeff] : cut.coefficients) {
     const auto scale = li.get_col_scale(ColIndex {col});
-    ofs << "," << col << ":" << (coeff * scale_obj / scale);
+    const auto idx = static_cast<size_t>(col);
+    const bool has_name = idx < names.size() && !names[idx].empty();
+    if (has_name) {
+      // Name-based format (portable across LP structure changes)
+      ofs << "," << names[idx] << "=" << (coeff * scale_obj / scale);
+    } else {
+      // Fallback to index-based format for unnamed columns
+      ofs << "," << col << ":" << (coeff * scale_obj / scale);
+    }
   }
 }
 
@@ -350,18 +360,6 @@ auto load_cuts_csv(PlanningLP& planning_lp,
           .uppb = LinearProblem::DblMax,
       };
 
-      // Collect raw physical-space coefficients
-      // (col_index:coeff pairs)
-      std::vector<std::pair<int, double>> raw_coeffs;
-      while (std::getline(iss, token, ',')) {
-        const auto colon = token.find(':');
-        if (colon != std::string::npos) {
-          const auto col = std::stoi(token.substr(0, colon));
-          const auto coeff = std::stod(token.substr(colon + 1));
-          raw_coeffs.emplace_back(col, coeff);
-        }
-      }
-
       // Resolve the phase UID to a PhaseIndex
       auto pit = phase_uid_to_index.find(phase_val);
       if (pit == phase_uid_to_index.end()) {
@@ -375,7 +373,92 @@ auto load_cuts_csv(PlanningLP& planning_lp,
       }
       const auto phase = pit->second;
 
-      // Add the loaded cut to all scenes for this phase.
+      // Use scene 0 as representative for column name resolution
+      // (LP structure is identical across scenes).
+      auto& li_ref =
+          planning_lp.system(SceneIndex {0}, phase).linear_interface();
+
+      // Collect coefficients from CSV.  Two formats are supported:
+      //   name=coeff   (name-based, preferred — resolve by column name)
+      //   index:coeff  (legacy — validate index against current LP)
+      struct ResolvedCoeff
+      {
+        ColIndex col;
+        double coeff;
+      };
+      std::vector<ResolvedCoeff> resolved_coeffs;
+      bool cut_valid = true;
+
+      while (std::getline(iss, token, ',')) {
+        // Try name-based format first (name=coeff)
+        if (const auto eq = token.find('='); eq != std::string::npos) {
+          const auto col_name = token.substr(0, eq);
+          const auto coeff = std::stod(token.substr(eq + 1));
+          const auto& name_map = li_ref.col_name_map();
+          auto it = name_map.find(col_name);
+          if (it != name_map.end()) {
+            resolved_coeffs.push_back({
+                .col = ColIndex {it->second},
+                .coeff = coeff,
+            });
+          } else {
+            // Name not found in LP name map — warn and skip this
+            // coefficient (the LP structure may have changed since
+            // the cuts were saved).
+            SPDLOG_WARN(
+                "SDDP load_cuts: column '{}' not found in "
+                "current LP for cut '{}'; ignoring coefficient",
+                col_name,
+                cut_name);
+          }
+        }
+        // Legacy format (index:coeff)
+        else if (const auto colon = token.find(':'); colon != std::string::npos)
+        {
+          const auto file_col = std::stoi(token.substr(0, colon));
+          const auto coeff = std::stod(token.substr(colon + 1));
+
+          // Validate the column index against the current LP
+          if (file_col < 0
+              || static_cast<size_t>(file_col)
+                  >= static_cast<size_t>(li_ref.get_numcols()))
+          {
+            SPDLOG_WARN(
+                "SDDP load_cuts: column index {} out of range "
+                "(LP has {} cols) in cut '{}'; skipping cut",
+                file_col,
+                li_ref.get_numcols(),
+                cut_name);
+            cut_valid = false;
+            break;
+          }
+
+          // Warn if the LP structure may have changed (column name
+          // available but index-based format was used)
+          const auto& idx_names = li_ref.col_index_to_name();
+          if (static_cast<size_t>(file_col) < idx_names.size()
+              && !idx_names[static_cast<size_t>(file_col)].empty())
+          {
+            SPDLOG_DEBUG(
+                "SDDP load_cuts: legacy index-based coefficient "
+                "col={} (name='{}') in cut '{}'; consider "
+                "re-saving cuts with named format",
+                file_col,
+                idx_names[static_cast<size_t>(file_col)],
+                cut_name);
+          }
+          resolved_coeffs.push_back({
+              .col = ColIndex {file_col},
+              .coeff = coeff,
+          });
+        }
+      }
+
+      if (!cut_valid) {
+        continue;
+      }
+
+      // Add the resolved cut to all scenes for this phase.
       // Coefficients in the CSV are in fully physical space;
       // convert to LP space:
       //   LP_coeff = phys_coeff * col_scale / scale_objective
@@ -385,9 +468,9 @@ auto load_cuts_csv(PlanningLP& planning_lp,
         auto scene_row = row;
         // Include scene index in name to avoid duplicates across scenes
         scene_row.name = label_maker.lp_label("loaded", cut_name, scene, phase);
-        for (const auto& [col, coeff] : raw_coeffs) {
-          const auto scale = li.get_col_scale(ColIndex {col});
-          scene_row[ColIndex {col}] = coeff * scale / scale_obj;
+        for (const auto& [col, coeff] : resolved_coeffs) {
+          const auto scale = li.get_col_scale(col);
+          scene_row[col] = coeff * scale / scale_obj;
         }
         li.add_row(scene_row);
       }
