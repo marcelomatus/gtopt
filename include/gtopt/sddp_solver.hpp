@@ -801,7 +801,7 @@ private:
   /// and handles feasibility backpropagation.
   /// @return Number of optimality cuts added during this step.
   [[nodiscard]] auto backward_pass_single_phase(SceneIndex scene,
-                                                Index pi,
+                                                PhaseIndex phase,
                                                 int cut_offset,
                                                 const SolverOptions& opts,
                                                 int iteration)
@@ -811,7 +811,7 @@ private:
   /// @return Number of optimality cuts added during this step.
   [[nodiscard]] auto backward_pass_with_apertures_single_phase(
       SceneIndex scene,
-      Index pi,
+      PhaseIndex phase,
       int cut_offset,
       const SolverOptions& opts,
       int iteration) -> std::expected<int, Error>;
@@ -820,7 +820,7 @@ private:
   /// Used by backward_pass_with_apertures_single_phase.
   [[nodiscard]] auto backward_pass_aperture_phase_impl(
       SceneIndex scene,
-      Index pi,
+      PhaseIndex phase,
       int cut_offset,
       const ScenarioLP& base_scenario,
       std::span<const ScenarioLP> all_scenarios,
