@@ -166,10 +166,15 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
     solver->setInteger(i);
   }
 
+  if (m_lp_names_level_ >= 1) {
+    m_col_index_to_name_.resize(static_cast<size_t>(flat_lp.ncols),
+                                std::string {});
+  }
   for (int i = 0; auto&& name : flat_lp.colnm) {
     solver->setColName(i, name);
     if (m_lp_names_level_ >= 1 && !name.empty()) {
       m_col_names_.try_emplace(name, i);
+      m_col_index_to_name_[static_cast<size_t>(i)] = name;
     }
     ++i;
   }
@@ -203,6 +208,14 @@ ColIndex LinearInterface::add_col(const std::string& name,
   const double obj = 0;
 
   solver->addCol(vec, collb, colub, obj, name);
+
+  // Keep inverse map in sync
+  if (m_lp_names_level_ >= 1 && !name.empty()) {
+    if (m_col_index_to_name_.size() <= static_cast<size_t>(index)) {
+      m_col_index_to_name_.resize(static_cast<size_t>(index) + 1);
+    }
+    m_col_index_to_name_[static_cast<size_t>(index)] = name;
+  }
 
   return ColIndex {index};
 }
