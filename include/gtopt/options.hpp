@@ -248,8 +248,17 @@ struct Options
   /** @brief Compression codec for Parquet output: `"gzip"` (default), `"zstd"`,
    * `"uncompressed"` */
   OptName output_compression {};
-  /** @brief Use descriptive variable names in the LP model (aids debugging) */
-  OptBool use_lp_names {};
+  /** @brief LP naming level: 0=none, 1=names+warn (default),
+   * 2=names+error.
+   *
+   * Level 0 disables LP names entirely (smallest memory footprint).
+   * Level 1 assigns names, populates name-to-index maps, and warns on
+   *   duplicate row/column names.
+   * Level 2 assigns names, populates maps, and throws on duplicates.
+   *
+   * Backward-compatible: JSON `true` maps to 1, `false` to 0.
+   */
+  OptInt use_lp_names {};
   /** @brief Use element UIDs instead of names in output filenames */
   OptBool use_uid_fname {};
 

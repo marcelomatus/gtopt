@@ -111,6 +111,8 @@ struct FlatOptions
   bool reserve_matrix {false};  ///< Pre-reserve matrix memory
   double reserve_factor {default_reserve_factor};  ///< Reserve factor
   bool compute_stats {false};  ///< Compute coefficient min/max/ratio
+  int lp_names_level {0};  ///< LP name uniqueness-check level (0–2)
+                           ///< 0=no names, 1=warn, 2=error
 };
 
 /**
