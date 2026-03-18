@@ -1207,6 +1207,11 @@ auto SDDPSolver::load_cuts(const std::string& filepath)
           PhaseIndex {pi};
     }
 
+    // Track loaded cut names to skip duplicates.  The CSV stores one
+    // entry per scene for each cut, but load_cuts broadcasts every cut
+    // to all scenes — only the first occurrence needs to be loaded.
+    std::set<std::pair<int, std::string>> seen_cuts;
+
     // Process data lines
     while (std::getline(ifs, line)) {
       if (line.empty() || line.starts_with('#')) {
@@ -1227,6 +1232,11 @@ auto SDDPSolver::load_cuts(const std::string& filepath)
 
       std::getline(iss, token, ',');
       const auto cut_name = token;
+
+      // Skip duplicate cuts (same phase + name from different scenes)
+      if (!seen_cuts.emplace(phase_val, cut_name).second) {
+        continue;
+      }
 
       std::getline(iss, token, ',');
       const auto rhs = std::stod(token);
