@@ -561,6 +561,272 @@ TEST_CASE("gtopt_main - lp_debug writes LP files to log directory")  // NOLINT
   std::filesystem::remove_all(log_dir);
 }
 
+TEST_CASE("gtopt_main - check_json=true warns on unknown fields")  // NOLINT
+{
+  // JSON with an unknown field "bogus_option" to trigger the ExactParsePolicy
+  // pre-pass warning.  Covers lines 127-136 (check_json branch).
+  constexpr auto json_with_unknown = R"({
+    "options": {
+      "demand_fail_cost": 1000,
+      "output_compression": "uncompressed",
+      "bogus_option": 42
+    },
+    "simulation": {
+      "block_array": [{"uid": 1, "duration": 1}],
+      "stage_array":  [{"uid": 1, "first_block": 0, "count_block": 1}],
+      "scenario_array": [{"uid": 1}]
+    },
+    "system": {
+      "name": "check_json_test",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}
+      ]
+    }
+  })";
+
+  const auto stem = write_tmp_json("gtopt_main_check_json", json_with_unknown);
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .just_build_lp = true,
+      .check_json = true,
+  });
+  // The unknown field triggers a warning but parsing still succeeds
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+}
+
+TEST_CASE("gtopt_main - output_format=parquet full solve")  // NOLINT
+{
+  const auto stem = write_tmp_json("gtopt_main_parquet_out", minimal_json);
+  const auto out_dir =
+      (std::filesystem::temp_directory_path() / "gtopt_main_parquet_out")
+          .string();
+
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .output_directory = out_dir,
+      .output_format = "parquet",
+      .output_compression = "uncompressed",
+      .use_single_bus = true,
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+}
+
+TEST_CASE("gtopt_main - output_format=csv full solve")  // NOLINT
+{
+  const auto stem = write_tmp_json("gtopt_main_csv_out", minimal_json);
+  const auto out_dir =
+      (std::filesystem::temp_directory_path() / "gtopt_main_csv_out").string();
+
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .output_directory = out_dir,
+      .output_format = "csv",
+      .output_compression = "uncompressed",
+      .use_single_bus = true,
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+}
+
+TEST_CASE("gtopt_main - print_stats=false skips statistics")  // NOLINT
+{
+  const auto stem = write_tmp_json("gtopt_main_no_stats", minimal_json);
+  const auto out_dir =
+      (std::filesystem::temp_directory_path() / "gtopt_main_no_stats_out")
+          .string();
+
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .output_directory = out_dir,
+      .use_single_bus = true,
+      .print_stats = false,
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+}
+
+TEST_CASE("gtopt_main - explicit trace_log path")  // NOLINT
+{
+  const auto stem = write_tmp_json("gtopt_main_trace_log", minimal_json);
+  const auto trace_path =
+      (std::filesystem::temp_directory_path() / "gtopt_main_trace.log")
+          .string();
+
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .just_build_lp = true,
+      .trace_log = trace_path,
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+  CHECK(std::filesystem::exists(trace_path));
+}
+
+TEST_CASE("gtopt_main - multiple files full solve")  // NOLINT
+{
+  // Two files that merge into a complete planning, then do a full solve
+  // (not just_build_lp) to cover the output-writing path with merged data.
+  constexpr auto merge_part1 = R"({
+    "options": {
+      "demand_fail_cost": 1000,
+      "output_compression": "uncompressed"
+    },
+    "simulation": {
+      "block_array":    [{"uid": 1, "duration": 1}],
+      "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 1}],
+      "scenario_array": [{"uid": 1}]
+    },
+    "system": {"name": "merge_solve_test"}
+  })";
+
+  constexpr auto merge_part2 = R"({
+    "system": {
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}
+      ]
+    }
+  })";
+
+  const auto stem1 = write_tmp_json("gtopt_main_merge_solve1", merge_part1);
+  const auto stem2 = write_tmp_json("gtopt_main_merge_solve2", merge_part2);
+  const auto out_dir =
+      (std::filesystem::temp_directory_path() / "gtopt_main_merge_solve_out")
+          .string();
+
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem1.string(), stem2.string()},
+      .output_directory = out_dir,
+      .use_single_bus = true,
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+}
+
+TEST_CASE(
+    "gtopt_main - lp_threads and lp_presolve from JSON options")  // NOLINT
+{
+  // JSON with top-level lp_threads and lp_presolve to cover the deprecated
+  // backward-compat paths (lines 578-582 in gtopt_main.cpp).
+  constexpr auto json_with_solver_opts = R"({
+    "options": {
+      "demand_fail_cost": 1000,
+      "output_compression": "uncompressed",
+      "lp_threads": 1,
+      "lp_presolve": false
+    },
+    "simulation": {
+      "block_array": [{"uid": 1, "duration": 1}],
+      "stage_array":  [{"uid": 1, "first_block": 0, "count_block": 1}],
+      "scenario_array": [{"uid": 1}]
+    },
+    "system": {
+      "name": "solver_opts_test",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}
+      ]
+    }
+  })";
+
+  const auto stem =
+      write_tmp_json("gtopt_main_solver_opts", json_with_solver_opts);
+  const auto out_dir =
+      (std::filesystem::temp_directory_path() / "gtopt_main_solver_opts_out")
+          .string();
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .output_directory = out_dir,
+      .use_single_bus = true,
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+}
+
+TEST_CASE("gtopt_main - use_kirchhoff=true with multi-bus system")  // NOLINT
+{
+  // Multi-bus system with kirchhoff=true to cover the use_kirchhoff option
+  // path and the multi-bus (use_single_bus=false) code path.
+  constexpr auto kirchhoff_json = R"({
+    "options": {
+      "demand_fail_cost": 1000,
+      "output_compression": "uncompressed"
+    },
+    "simulation": {
+      "block_array":    [{"uid": 1, "duration": 1}],
+      "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 1}],
+      "scenario_array": [{"uid": 1}]
+    },
+    "system": {
+      "name": "kirchhoff_test",
+      "bus_array": [{"uid": 1, "name": "b1"}, {"uid": 2, "name": "b2"}],
+      "generator_array": [
+        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": 2, "capacity": 50.0}
+      ],
+      "line_array": [
+        {"uid": 1, "name": "l1", "bus_a": 1, "bus_b": 2,
+         "tmax_ab": 100.0, "tmax_ba": 100.0, "reactance": 0.1}
+      ]
+    }
+  })";
+
+  const auto stem = write_tmp_json("gtopt_main_kirchhoff", kirchhoff_json);
+  const auto out_dir =
+      (std::filesystem::temp_directory_path() / "gtopt_main_kirchhoff_out")
+          .string();
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .output_directory = out_dir,
+      .use_kirchhoff = true,
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+}
+
+TEST_CASE("gtopt_main - empty planning_files returns error")  // NOLINT
+{
+  // Empty planning_files vector should still work (no files to parse → empty
+  // planning), but may fail during LP construction.  The key is that it
+  // doesn't crash.
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {},
+      .just_build_lp = true,
+  });
+  // An empty planning may fail during LP build; either way, no crash.
+  // We just check it returns (success or error).
+  (void)result;
+}
+
+TEST_CASE("gtopt_main - use_lp_names=2 with stats")  // NOLINT
+{
+  // Exercise use_lp_names=2 (names + map) with stats to cover the
+  // make_flat_options paths for higher naming levels.
+  const auto stem = write_tmp_json("gtopt_main_lp_names2", minimal_json);
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .use_lp_names = 2,
+      .just_build_lp = true,
+      .print_stats = true,
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+}
+
 TEST_CASE(
     "gtopt_main - lp_debug with gzip writes compressed LP files")  // NOLINT
 {

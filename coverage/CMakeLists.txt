@@ -112,6 +112,10 @@ set(COVERAGE_OUTPUT_DIR
 
 option(COVERAGE_PYTHON "Run Python pytest coverage in addition to C++" ON)
 
+option(COVERAGE_INTEGRATION_TESTS
+       "Include integration tests (e2e cases) in the coverage run" ON
+)
+
 set(COVERAGE_CMAKE_PREFIX_PATH
     ""
     CACHE PATH
@@ -191,6 +195,7 @@ message(STATUS "  lcov:         ${LCOV_EXECUTABLE}")
 message(STATUS "  genhtml:      ${GENHTML_EXECUTABLE}")
 message(STATUS "  python3:      ${PYTHON3_EXECUTABLE}")
 message(STATUS "  pytest:       ${PYTEST_EXECUTABLE}")
+message(STATUS "  Integration:  ${COVERAGE_INTEGRATION_TESTS}")
 message(STATUS "  Output dir:   ${COVERAGE_OUTPUT_DIR}")
 message(STATUS "  Build dir:    ${_coverage_build_dir}")
 if(NOT PYTHON3_EXECUTABLE OR NOT PYTEST_EXECUTABLE)
@@ -209,6 +214,12 @@ set(_configure_args
   -DCMAKE_C_COMPILER_LAUNCHER=ccache
   -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 )
+if(COVERAGE_INTEGRATION_TESTS)
+  list(APPEND _configure_args
+    -DGTOPT_BUILD_INTEGRATION_TESTS=ON
+    -DGTOPT_BUILD_STANDALONE=ON
+  )
+endif()
 if(COVERAGE_CMAKE_PREFIX_PATH)
   list(APPEND _configure_args "-DCMAKE_PREFIX_PATH=${COVERAGE_CMAKE_PREFIX_PATH}")
 endif()
