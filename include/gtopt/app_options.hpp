@@ -397,7 +397,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     bool compute_stats = false)
 {
   const auto eps = matrix_eps.value_or(0);
-  const auto lp_names = use_lp_names.value_or(true);
+  const auto lp_names = use_lp_names.value_or(2);
 
   FlatOptions flat_opts;
   flat_opts.eps = eps;
@@ -408,6 +408,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   flat_opts.reserve_matrix = false;
   flat_opts.reserve_factor = 2;
   flat_opts.compute_stats = compute_stats;
+  flat_opts.lp_names_level = lp_names;
 
   return flat_opts;
 }

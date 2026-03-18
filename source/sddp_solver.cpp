@@ -599,9 +599,10 @@ auto SDDPSolver::resolve_clone_via_pool(
 // ── Helper: iterative feasibility backpropagation ───────────────────────────
 
 auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
-                                           Index start_phase,
+                                           PhaseIndex start_phase,
                                            int total_cuts,
-                                           const SolverOptions& opts)
+                                           const SolverOptions& opts,
+                                           int iteration)
     -> std::expected<int, Error>
 {
   auto& phase_states = m_scene_phase_states_[scene];
@@ -609,7 +610,8 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
 
   // Iterate backward from start_phase to phase 0
   for (const auto back_pi :
-       std::views::iota(0, start_phase + 1) | std::views::reverse)
+       std::views::iota(Index {0}, static_cast<Index>(start_phase) + 1)
+           | std::views::reverse)
   {
     const auto back_phase = PhaseIndex {back_pi};
 
@@ -656,13 +658,17 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
         } else {
           // single_cut or multi_cut mode:
           // Always add the regular Benders feasibility cut.
-          auto feas_cut = build_benders_cut(
-              prev_state.alpha_col,
-              prev_state.outgoing_links,
-              elastic_result->clone.get_col_cost(),
-              elastic_result->clone.get_obj_value(),
-              sddp_label(
-                  "sddp", "scut", scene, back_pi, total_cuts + cuts_added));
+          auto feas_cut =
+              build_benders_cut(prev_state.alpha_col,
+                                prev_state.outgoing_links,
+                                elastic_result->clone.get_col_cost(),
+                                elastic_result->clone.get_obj_value(),
+                                sddp_label("sddp",
+                                           "scut",
+                                           scene,
+                                           back_pi,
+                                           iteration,
+                                           total_cuts + cuts_added));
 
           prev_li.add_row(feas_cut);
           ++cuts_added;
@@ -680,11 +686,15 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
                       > m_options_.multi_cut_threshold);
 
           if (use_multi_cut) {
-            auto mc_cuts = build_multi_cuts(
-                *elastic_result,
-                prev_state.outgoing_links,
-                sddp_label(
-                    "sddp", "mcut", scene, back_pi, total_cuts + cuts_added));
+            auto mc_cuts =
+                build_multi_cuts(*elastic_result,
+                                 prev_state.outgoing_links,
+                                 sddp_label("sddp",
+                                            "mcut",
+                                            scene,
+                                            back_pi,
+                                            iteration,
+                                            total_cuts + cuts_added));
 
             for (auto& mc : mc_cuts) {
               prev_li.add_row(mc);
@@ -738,12 +748,12 @@ auto SDDPSolver::backward_pass_single_phase(SceneIndex scene,
   // Use cached forward-pass solution for cut generation.
   const auto& target_state = phase_states[phase];
 
-  auto cut =
-      build_benders_cut(src_state.alpha_col,
-                        src_state.outgoing_links,
-                        target_state.forward_col_cost,
-                        target_state.forward_full_obj,
-                        sddp_label("sddp", "scut", scene, phase, cut_offset));
+  auto cut = build_benders_cut(
+      src_state.alpha_col,
+      src_state.outgoing_links,
+      target_state.forward_col_cost,
+      target_state.forward_full_obj,
+      sddp_label("sddp", "scut", scene, phase, iteration, cut_offset));
 
   store_cut(scene, prev_phase, cut);
 
@@ -770,7 +780,7 @@ auto SDDPSolver::backward_pass_single_phase(SceneIndex scene,
           phase_uid(prev_phase),
           src_li.get_status());
       auto bp_result = feasibility_backpropagate(
-          scene, prev_phase, cut_offset + cuts_added, opts);
+          scene, prev_phase, cut_offset + cuts_added, opts, iteration);
       if (!bp_result.has_value()) {
         return std::unexpected(std::move(bp_result.error()));
       }
@@ -817,7 +827,8 @@ auto SDDPSolver::backward_pass(SceneIndex scene,
 
 void SDDPSolver::share_cuts_for_phase(
     PhaseIndex phase,
-    const StrongIndexVector<SceneIndex, std::vector<SparseRow>>& scene_cuts)
+    const StrongIndexVector<SceneIndex, std::vector<SparseRow>>& scene_cuts,
+    int iteration)
 {
   const auto num_scenes =
       static_cast<Index>(planning_lp().simulation().scenes().size());
@@ -845,8 +856,8 @@ void SDDPSolver::share_cuts_for_phase(
     }
 
     // Sum all cuts into one accumulated cut
-    const auto accumulated =
-        accumulate_benders_cuts(all_cuts, sddp_label("sddp", "accum", phase));
+    const auto accumulated = accumulate_benders_cuts(
+        all_cuts, sddp_label("sddp", "accum", phase, iteration));
 
     // Add the accumulated cut to all scenes
     for (Index si = 0; si < num_scenes; ++si) {
@@ -910,8 +921,8 @@ void SDDPSolver::share_cuts_for_phase(
       if (w <= 0.0) {
         continue;
       }
-      scene_avg_cuts.push_back(
-          average_benders_cut(cuts, sddp_label("sddp", "tmp", phase)));
+      scene_avg_cuts.push_back(average_benders_cut(
+          cuts, sddp_label("sddp", "tmp", phase, iteration)));
       weights.push_back(w);
     }
 
@@ -921,7 +932,7 @@ void SDDPSolver::share_cuts_for_phase(
 
     // Compute probability-weighted average cut
     const auto avg = weighted_average_benders_cut(
-        scene_avg_cuts, weights, sddp_label("sddp", "avg", phase));
+        scene_avg_cuts, weights, sddp_label("sddp", "avg", phase, iteration));
 
     // Add the average cut to all scenes
     for (Index si = 0; si < num_scenes; ++si) {
@@ -2339,7 +2350,7 @@ auto SDDPSolver::run_backward_pass_synchronized(
       }
     }
 
-    share_cuts_for_phase(src_phase, scene_cuts);
+    share_cuts_for_phase(src_phase, scene_cuts, iter);
 
     SPDLOG_TRACE(
         "SDDP backward synchronized: phase {} cuts shared across {} scenes",
@@ -2384,7 +2395,8 @@ void SDDPSolver::compute_iteration_bounds(
   ir.lower_bound = weighted_lower;
 }
 
-void SDDPSolver::apply_cut_sharing_for_iteration(std::size_t cuts_before)
+void SDDPSolver::apply_cut_sharing_for_iteration(std::size_t cuts_before,
+                                                 int iteration)
 {
   const auto num_scenes =
       static_cast<Index>(planning_lp().simulation().scenes().size());
@@ -2417,7 +2429,7 @@ void SDDPSolver::apply_cut_sharing_for_iteration(std::size_t cuts_before)
       }
     }
 
-    share_cuts_for_phase(PhaseIndex {pi}, scene_cuts);
+    share_cuts_for_phase(PhaseIndex {pi}, scene_cuts, iteration);
   }
 }
 
@@ -2631,7 +2643,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     // which is a no-op anyway since apply_cut_sharing_for_iteration returns
     // early for None.  This guard prevents double-sharing of cuts.
     if (m_options_.cut_sharing == CutSharingMode::None) {
-      apply_cut_sharing_for_iteration(cuts_before);
+      apply_cut_sharing_for_iteration(cuts_before, iter);
     }
 
     // ── Convergence + live-query update ──
@@ -2727,7 +2739,7 @@ auto SDDPPlanningSolver::solve(PlanningLP& planning_lp,
 
 auto SDDPSolver::backward_pass_aperture_phase_impl(
     SceneIndex scene,
-    PhaseIndex pi,
+    PhaseIndex phase,
     int cut_offset,
     const ScenarioLP& base_scenario,
     std::span<const ScenarioLP> all_scenarios,
@@ -2738,7 +2750,7 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
   auto& phase_states = m_scene_phase_states_[scene];
   int cuts_added = 0;
 
-  const auto phase = PhaseIndex {pi};
+  const auto pi = static_cast<Index>(phase);
   const auto src_phase = PhaseIndex {pi - 1};
   auto& src_li = planning_lp().system(scene, src_phase).linear_interface();
   const auto& src_state = phase_states[src_phase];
@@ -2763,8 +2775,7 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
         src_state.outgoing_links,
         target_state.forward_col_cost,
         target_state.forward_full_obj,
-        sddp_label(
-            "sddp", "fallback_cut", "sc", scene, "ph", pi, "n", cut_offset));
+        sddp_label("sddp", "fcut", scene, pi, iteration, cut_offset));
 
     store_cut(scene, src_phase, fallback_cut);
     src_li.add_row(fallback_cut);
@@ -2976,18 +2987,12 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
         // Fallback: build a regular Benders cut from the cached
         // forward-pass reduced costs and objective (same as backward_pass).
         const auto& target_state = phase_states[phase];
-        auto fallback_cut = build_benders_cut(src_state.alpha_col,
-                                              src_state.outgoing_links,
-                                              target_state.forward_col_cost,
-                                              target_state.forward_full_obj,
-                                              sddp_label("sddp",
-                                                         "fallback_cut",
-                                                         "sc",
-                                                         scene,
-                                                         "ph",
-                                                         pi,
-                                                         "n",
-                                                         total_cuts));
+        auto fallback_cut = build_benders_cut(
+            src_state.alpha_col,
+            src_state.outgoing_links,
+            target_state.forward_col_cost,
+            target_state.forward_full_obj,
+            sddp_label("sddp", "fcut", scene, pi, iteration, total_cuts));
 
         store_cut(scene, src_phase, fallback_cut);
         src_li.add_row(fallback_cut);
@@ -3098,8 +3103,7 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
           src_state.outgoing_links,
           target_state.forward_col_cost,
           target_state.forward_full_obj,
-          sddp_label(
-              "sddp", "fallback_cut", "sc", scene, "ph", pi, "n", total_cuts));
+          sddp_label("sddp", "fcut", scene, pi, iteration, total_cuts));
 
       store_cut(scene, src_phase, fallback_cut);
       src_li.add_row(fallback_cut);
@@ -3382,8 +3386,7 @@ auto SDDPSolver::solve_apertures_for_phase(
   }
 
   // Compute the probability-weighted expected cut
-  const auto expected_name = sddp_label(
-      "sddp", "expected_aper", "sc", scene, "ph", pi, "n", total_cuts);
+  const auto expected_name = sddp_label("sddp", "ecut", scene, pi, total_cuts);
   return weighted_average_benders_cut(
       aperture_cuts, aperture_weights, expected_name);
 }

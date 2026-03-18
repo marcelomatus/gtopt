@@ -733,9 +733,10 @@ private:
   /// backward to phase 0 using elastic filter and cuts.
   /// Returns the number of additional cuts added.
   [[nodiscard]] auto feasibility_backpropagate(SceneIndex scene,
-                                               Index start_phase,
+                                               PhaseIndex start_phase,
                                                int total_cuts,
-                                               const SolverOptions& opts)
+                                               const SolverOptions& opts,
+                                               int iteration)
       -> std::expected<int, Error>;
 
   /// Solve all apertures for a single phase and return the
@@ -766,7 +767,8 @@ private:
   /// Apply cut sharing across scenes for a given phase
   void share_cuts_for_phase(
       PhaseIndex phase,
-      const StrongIndexVector<SceneIndex, std::vector<SparseRow>>& scene_cuts);
+      const StrongIndexVector<SceneIndex, std::vector<SparseRow>>& scene_cuts,
+      int iteration);
 
   /// Validate that the simulation has ≥2 phases and ≥1 scene.
   [[nodiscard]] auto validate_inputs() const -> std::optional<Error>;
@@ -844,7 +846,7 @@ private:
   /// Apply cut-sharing across scenes for all phases generated in this
   /// iteration.  @param cuts_before is m_stored_cuts_.size() BEFORE this
   /// iteration's backward pass.
-  void apply_cut_sharing_for_iteration(std::size_t cuts_before);
+  void apply_cut_sharing_for_iteration(std::size_t cuts_before, int iteration);
 
   /// Compute gap, update convergence flag, update live-query atomics, log.
   void finalize_iteration_result(SDDPIterationResult& ir, int iter);

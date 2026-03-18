@@ -561,3 +561,104 @@ TEST_CASE("LinearInterface - time limit")
   auto result = interface.resolve();
   REQUIRE(result.has_value());
 }
+
+TEST_CASE("LinearInterface - duplicate name detection level 0 (disabled)")
+{
+  using namespace gtopt;
+
+  LinearInterface li;
+  li.set_lp_names_level(0);
+
+  // Duplicate names are silently accepted (no tracking)
+  const auto c1 = li.add_col("x", 0.0, 1.0);
+  const auto c2 = li.add_col("x", 0.0, 1.0);
+  CHECK(c1 != c2);
+
+  // Name maps stay empty at level 0
+  CHECK(li.col_name_map().empty());
+  CHECK(li.row_name_map().empty());
+}
+
+TEST_CASE("LinearInterface - duplicate name detection level 2 (warn)")
+{
+  using namespace gtopt;
+
+  LinearInterface li;
+  li.set_lp_names_level(2);
+
+  // First insertions populate the name maps
+  const auto c1 = li.add_col("x", 0.0, 1.0);
+  const auto c2 = li.add_col("y", 0.0, 1.0);
+  CHECK(li.col_name_map().size() == 2);
+
+  // Duplicate column name: warns but still adds the column
+  const auto c3 = li.add_col("x", 0.0, 1.0);
+  CHECK(li.get_numcols() == 3);
+  // Map still has 2 entries (first "x" wins)
+  CHECK(li.col_name_map().size() == 2);
+  CHECK(li.col_name_map().at("x") == static_cast<int32_t>(c1));
+
+  // Rows: same behavior
+  li.set_obj_coeff(c1, 1.0);
+  li.set_obj_coeff(c2, 1.0);
+  li.set_obj_coeff(c3, 1.0);
+
+  SparseRow row_a {
+      .name = "cons_a",
+      .lowb = 0.0,
+      .uppb = 1.0,
+  };
+  row_a[c1] = 1.0;
+  const auto r1 = li.add_row(row_a);
+  CHECK(li.row_name_map().size() == 1);
+  CHECK(li.row_name_map().at("cons_a") == static_cast<int32_t>(r1));
+
+  // Duplicate row name: warns but still adds the row
+  SparseRow row_a2 {
+      .name = "cons_a",
+      .lowb = 0.0,
+      .uppb = 1.0,
+  };
+  row_a2[c2] = 1.0;
+  const auto r2 = li.add_row(row_a2);
+  CHECK(li.get_numrows() == 2);
+  CHECK(li.row_name_map().size() == 1);
+  CHECK(li.row_name_map().at("cons_a") == static_cast<int32_t>(r1));
+  CHECK(r1 != r2);
+}
+
+TEST_CASE("LinearInterface - duplicate name detection level 3 (error)")
+{
+  using namespace gtopt;
+
+  LinearInterface li;
+  li.set_lp_names_level(3);
+
+  li.add_col("x", 0.0, 1.0);
+  CHECK(li.col_name_map().size() == 1);
+
+  // Duplicate column name at level 3 throws
+  CHECK_THROWS_AS(li.add_col("x", 0.0, 1.0), std::runtime_error);
+
+  // Different name is fine
+  li.add_col("y", 0.0, 1.0);
+  CHECK(li.col_name_map().size() == 2);
+
+  // Same for rows
+  SparseRow row1 {
+      .name = "r1",
+      .lowb = 0.0,
+      .uppb = 1.0,
+  };
+  row1[ColIndex {0}] = 1.0;
+  li.add_row(row1);
+  CHECK(li.row_name_map().size() == 1);
+
+  SparseRow row1_dup {
+      .name = "r1",
+      .lowb = 0.0,
+      .uppb = 1.0,
+  };
+  row1_dup[ColIndex {0}] = 1.0;
+  CHECK_THROWS_AS(li.add_row(row1_dup), std::runtime_error);
+}
