@@ -64,7 +64,7 @@ class PlanningLP;
 /// @param directory    Output directory (file: scene_<UID>.csv)
 [[nodiscard]] auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
                                        SceneIndex scene,
-                                       int scene_uid,
+                                       int scene_uid_val,
                                        const PlanningLP& planning_lp,
                                        const std::string& directory)
     -> std::expected<void, Error>;
@@ -80,11 +80,11 @@ class PlanningLP;
 /// @param planning_lp   The PlanningLP to add cuts to
 /// @param filepath      Input CSV file path
 /// @param label_maker   Label maker for LP row names
-/// @return Number of unique cuts loaded, or an error
+/// @return CutLoadResult with count and max iteration, or an error
 [[nodiscard]] auto load_cuts_csv(PlanningLP& planning_lp,
                                  const std::string& filepath,
                                  const LabelMaker& label_maker)
-    -> std::expected<int, Error>;
+    -> std::expected<CutLoadResult, Error>;
 
 /// Load all per-scene cut files from a directory.
 ///
@@ -95,11 +95,11 @@ class PlanningLP;
 /// @param planning_lp   The PlanningLP to add cuts to
 /// @param directory     Directory containing cut CSV files
 /// @param label_maker   Label maker for LP row names
-/// @return Total number of cuts loaded, or an error
+/// @return CutLoadResult with total count and max iteration, or an error
 [[nodiscard]] auto load_scene_cuts_from_directory(PlanningLP& planning_lp,
                                                   const std::string& directory,
                                                   const LabelMaker& label_maker)
-    -> std::expected<int, Error>;
+    -> std::expected<CutLoadResult, Error>;
 
 /// Load boundary (future-cost) cuts from a named-variable CSV file.
 ///
@@ -114,7 +114,7 @@ class PlanningLP;
 /// @param options             SDDP options (boundary mode, max iters)
 /// @param label_maker         Label maker for LP row names
 /// @param scene_phase_states  Per-scene phase state (for alpha columns)
-/// @return Number of cuts loaded, or an error
+/// @return CutLoadResult with count and max iteration, or an error
 [[nodiscard]] auto load_boundary_cuts_csv(
     PlanningLP& planning_lp,
     const std::string& filepath,
@@ -122,7 +122,7 @@ class PlanningLP;
     const LabelMaker& label_maker,
     StrongIndexVector<SceneIndex,
                       StrongIndexVector<PhaseIndex, PhaseStateInfo>>&
-        scene_phase_states) -> std::expected<int, Error>;
+        scene_phase_states) -> std::expected<CutLoadResult, Error>;
 
 /// Load named-variable cuts from a CSV file with a `phase` column.
 ///
@@ -136,7 +136,7 @@ class PlanningLP;
 /// @param options             SDDP options (for alpha bounds)
 /// @param label_maker         Label maker for LP row names
 /// @param scene_phase_states  Per-scene phase state (for alpha columns)
-/// @return Number of cuts loaded, or an error
+/// @return CutLoadResult with count and max iteration, or an error
 [[nodiscard]] auto load_named_cuts_csv(
     PlanningLP& planning_lp,
     const std::string& filepath,
@@ -144,6 +144,6 @@ class PlanningLP;
     const LabelMaker& label_maker,
     StrongIndexVector<SceneIndex,
                       StrongIndexVector<PhaseIndex, PhaseStateInfo>>&
-        scene_phase_states) -> std::expected<int, Error>;
+        scene_phase_states) -> std::expected<CutLoadResult, Error>;
 
 }  // namespace gtopt
