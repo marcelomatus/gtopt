@@ -128,7 +128,7 @@ struct Battery
 {
   /// @name Default physical constants
   /// @{
-  static constexpr Real default_energy_scale = 0.01;  ///< [dimensionless]
+  static constexpr Real default_energy_scale = 1.0;  ///< [dimensionless]
   /// @}
 
   Uid uid {unknown_uid};  ///< Unique identifier
