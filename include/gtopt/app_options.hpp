@@ -382,6 +382,9 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     planning.options.sddp_options.sddp_min_iterations =
         opts.sddp_min_iterations;
   }
+  if (opts.sddp_hot_start) {
+    planning.options.sddp_options.sddp_hot_start = opts.sddp_hot_start;
+  }
 }
 
 /**

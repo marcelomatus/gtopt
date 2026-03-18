@@ -71,6 +71,7 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_solver.hpp>
 #include <gtopt/reservoir_efficiency_lp.hpp>
+#include <gtopt/sddp_aperture.hpp>
 #include <gtopt/sddp_pool.hpp>
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/solver_options.hpp>
@@ -221,6 +222,9 @@ struct SDDPOptions
   std::string cuts_output_file {};
   /// File path for loading initial cuts (empty = no load / cold start)
   std::string cuts_input_file {};
+  /// Enable hot-start from previously saved cuts (default: false).
+  /// When true and cuts_input_file is empty, load from the cut directory.
+  bool hot_start {false};
 
   /// Path to a sentinel file: if the file exists, the solver stops
   /// gracefully after the current iteration (analogous to PLP's userstop).
@@ -739,20 +743,10 @@ private:
                                                int iteration)
       -> std::expected<int, Error>;
 
-  /// Solve all apertures for a single phase and return the
-  /// probability-weighted expected cut, or nullopt if all failed.
-  /// When @p phase_apertures is non-empty, only those aperture UIDs are used;
-  /// otherwise all apertures from @p aperture_defs participate.
-  [[nodiscard]] auto solve_apertures_for_phase(
-      SceneIndex scene,
-      PhaseIndex phase,
-      const PhaseStateInfo& src_state,
-      const ScenarioLP& base_scenario,
-      std::span<const ScenarioLP> all_scenarios,
-      std::span<const Aperture> aperture_defs,
-      std::span<const Uid> phase_apertures,
-      int total_cuts,
-      const SolverOptions& opts) -> std::optional<SparseRow>;
+  /// Build the ApertureResolveFunc callback that delegates to
+  /// resolve_clone_via_pool.  Used to bridge the free-function
+  /// solve_apertures_for_phase with the solver's work pool.
+  [[nodiscard]] auto make_aperture_resolve_fn() -> ApertureResolveFunc;
 
   /// Check whether the sentinel file exists (user-requested stop)
   [[nodiscard]] bool check_sentinel_stop() const;
@@ -942,14 +936,6 @@ private:
   /// Write a JSON status file for the monitoring API.
   /// Called after each iteration.
   /// @param status_file  Path to write the JSON file.
-  /// @param results      Iteration results accumulated so far.
-  /// @param elapsed_s    Seconds elapsed since solve() started.
-  /// @param monitor      The SolverMonitor whose history to include.
-  void write_api_status(const std::string& status_file,
-                        const std::vector<SDDPIterationResult>& results,
-                        double elapsed_s,
-                        const SolverMonitor& monitor) const;
-
   /// Generate an LP name only when use_lp_names is enabled.
   template<typename... Args>
   [[nodiscard]] auto sddp_label(Args&&... args) const -> std::string

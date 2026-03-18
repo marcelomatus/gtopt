@@ -116,6 +116,8 @@ struct MainOptions
   std::optional<std::string> sddp_elastic_mode {};
   /** @brief Number of SDDP backward-pass apertures (0=disabled, -1=all) */
   std::optional<int> sddp_num_apertures {};
+  /** @brief Enable SDDP hot-start from previously saved cuts */
+  std::optional<bool> sddp_hot_start {};
 
   // ---- solver algorithm ----
   /** @brief LP solution algorithm override (0=default, 1=primal, 2=dual,
