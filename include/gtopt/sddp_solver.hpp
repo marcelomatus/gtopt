@@ -945,14 +945,6 @@ private:
   /// Write a JSON status file for the monitoring API.
   /// Called after each iteration.
   /// @param status_file  Path to write the JSON file.
-  /// @param results      Iteration results accumulated so far.
-  /// @param elapsed_s    Seconds elapsed since solve() started.
-  /// @param monitor      The SolverMonitor whose history to include.
-  void write_api_status(const std::string& status_file,
-                        const std::vector<SDDPIterationResult>& results,
-                        double elapsed_s,
-                        const SolverMonitor& monitor) const;
-
   /// Generate an LP name only when use_lp_names is enabled.
   template<typename... Args>
   [[nodiscard]] auto sddp_label(Args&&... args) const -> std::string
