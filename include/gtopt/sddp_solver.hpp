@@ -221,6 +221,9 @@ struct SDDPOptions
   std::string cuts_output_file {};
   /// File path for loading initial cuts (empty = no load / cold start)
   std::string cuts_input_file {};
+  /// Enable hot-start from previously saved cuts (default: false).
+  /// When true and cuts_input_file is empty, load from the cut directory.
+  bool hot_start {false};
 
   /// Path to a sentinel file: if the file exists, the solver stops
   /// gracefully after the current iteration (analogous to PLP's userstop).
