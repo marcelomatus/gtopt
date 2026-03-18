@@ -1071,7 +1071,7 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     ),
     (
         "use_lp_names",
-        "Write variable/constraint names to the LP file (true/false)",
+        "LP naming level: 0=none, 1=names+warn, 2=names+error",
         None,
     ),
     (
