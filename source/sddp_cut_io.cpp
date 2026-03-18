@@ -12,6 +12,7 @@
  */
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <filesystem>
 #include <format>
@@ -89,6 +90,44 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
   for (const auto& [col, coeff] : cut.coefficients) {
     ofs << "," << col << ":" << (coeff * scale_obj);
   }
+}
+
+/// Extract the iteration number from a cut name.
+///
+/// Cut name formats:
+///   sddp_scut_{scene}_{phase}_{iteration}_{offset}  → field [4]
+///   sddp_fcut_{scene}_{phase}_{iteration}_{offset}  → field [4]
+///   sddp_ecut_{scene}_{phase}_{total_cuts}           → no iteration
+///
+/// Returns 0 if the iteration cannot be determined.
+[[nodiscard]] auto extract_iteration_from_name(std::string_view name) -> int
+{
+  // Only scut and fcut encode the iteration
+  if (!name.starts_with("sddp_scut_") && !name.starts_with("sddp_fcut_")) {
+    return 0;
+  }
+  // Split by '_' and take the 5th field (index 4)
+  int field = 0;
+  std::string_view::size_type pos = 0;
+  while (pos < name.size() && field < 4) {
+    pos = name.find('_', pos);
+    if (pos == std::string_view::npos) {
+      return 0;
+    }
+    ++pos;
+    ++field;
+  }
+  if (field != 4 || pos >= name.size()) {
+    return 0;
+  }
+  const auto end = name.find('_', pos);
+  const auto token = name.substr(pos, end - pos);
+  int result = 0;
+  const auto* const first = token.data();
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  const auto* const last = first + token.size();
+  auto [ptr, ec] = std::from_chars(first, last, result);
+  return (ec == std::errc {}) ? result : 0;
 }
 
 }  // namespace
@@ -232,7 +271,8 @@ auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
 
 auto load_cuts_csv(PlanningLP& planning_lp,
                    const std::string& filepath,
-                   const LabelMaker& label_maker) -> std::expected<int, Error>
+                   const LabelMaker& label_maker)
+    -> std::expected<CutLoadResult, Error>
 {
   try {
     std::ifstream ifs(filepath);
@@ -254,13 +294,18 @@ auto load_cuts_csv(PlanningLP& planning_lp,
       break;
     }
 
-    int cuts_loaded = 0;
+    CutLoadResult result {};
     const auto& sim = planning_lp.simulation();
     const auto num_scenes = static_cast<Index>(sim.scenes().size());
     const auto scale_obj = planning_lp.options().scale_objective();
 
     // Build phase UID -> PhaseIndex lookup
     const auto phase_uid_to_index = build_phase_uid_map(planning_lp);
+
+    // Track (phase_uid, cut_name) pairs already loaded.
+    // Cuts are broadcast to all scenes, so if the CSV contains
+    // the same cut for multiple scenes we must load it only once.
+    std::set<std::pair<int, std::string>> loaded_keys;
 
     // Process data lines
     while (std::getline(ifs, line)) {
@@ -282,6 +327,17 @@ auto load_cuts_csv(PlanningLP& planning_lp,
 
       std::getline(iss, token, ',');
       const auto cut_name = token;
+
+      // Skip duplicate (phase, name) pairs — these arise when
+      // the CSV was saved with per-scene rows but loading
+      // broadcasts each cut to every scene.
+      if (!loaded_keys.emplace(phase_val, cut_name).second) {
+        continue;
+      }
+
+      // Track the highest iteration found for iteration offset
+      result.max_iteration =
+          std::max(result.max_iteration, extract_iteration_from_name(cut_name));
 
       std::getline(iss, token, ',');
       const auto rhs = std::stod(token);
@@ -333,11 +389,11 @@ auto load_cuts_csv(PlanningLP& planning_lp,
         }
         li.add_row(scene_row);
       }
-      ++cuts_loaded;
+      ++result.count;
     }
 
-    SPDLOG_TRACE("SDDP: loaded {} cuts from {}", cuts_loaded, filepath);
-    return cuts_loaded;
+    SPDLOG_TRACE("SDDP: loaded {} cuts from {}", result.count, filepath);
+    return result;
 
   } catch (const std::exception& e) {
     return std::unexpected(Error {
@@ -351,12 +407,12 @@ auto load_cuts_csv(PlanningLP& planning_lp,
 auto load_scene_cuts_from_directory(PlanningLP& planning_lp,
                                     const std::string& directory,
                                     const LabelMaker& label_maker)
-    -> std::expected<int, Error>
+    -> std::expected<CutLoadResult, Error>
 {
-  int total_loaded = 0;
+  CutLoadResult total {};
 
   if (!std::filesystem::exists(directory)) {
-    return 0;  // No directory = no cuts to load (not an error)
+    return total;  // No directory = no cuts to load (not an error)
   }
 
   for (const auto& entry : std::filesystem::directory_iterator(directory)) {
@@ -383,8 +439,11 @@ auto load_scene_cuts_from_directory(PlanningLP& planning_lp,
     auto result =
         load_cuts_csv(planning_lp, entry.path().string(), label_maker);
     if (result.has_value()) {
-      total_loaded += *result;
-      SPDLOG_TRACE("SDDP hot-start: loaded {} cuts from {}", *result, filename);
+      total.count += result->count;
+      total.max_iteration =
+          std::max(total.max_iteration, result->max_iteration);
+      SPDLOG_TRACE(
+          "SDDP hot-start: loaded {} cuts from {}", result->count, filename);
     } else {
       SPDLOG_WARN("SDDP hot-start: could not load {}: {}",
                   filename,
@@ -392,7 +451,7 @@ auto load_scene_cuts_from_directory(PlanningLP& planning_lp,
     }
   }
 
-  return total_loaded;
+  return total;
 }
 
 // ─── Boundary (future-cost) cuts ────────────────────────────────────────────
@@ -404,13 +463,13 @@ auto load_boundary_cuts_csv(
     const LabelMaker& label_maker,
     StrongIndexVector<SceneIndex,
                       StrongIndexVector<PhaseIndex, PhaseStateInfo>>&
-        scene_phase_states) -> std::expected<int, Error>
+        scene_phase_states) -> std::expected<CutLoadResult, Error>
 {
   // ── Mode check ────────────────────────────────────────────────
   const auto& mode = options.boundary_cuts_mode;
   if (mode == "noload") {
     SPDLOG_INFO("SDDP: boundary cuts mode is 'noload' -- skipping");
-    return 0;
+    return CutLoadResult {};
   }
 
   const bool separated = (mode == "separated");
@@ -628,6 +687,12 @@ auto load_boundary_cuts_csv(
       }
     }
 
+    // ── Compute max iteration from loaded raw cuts ────────────────
+    int max_iteration = 0;
+    for (const auto& rc : raw_cuts) {
+      max_iteration = std::max(max_iteration, rc.iteration);
+    }
+
     // ── Add cuts to the LP ──────────────────────────────────────
     const auto scale_obj = planning_lp.options().scale_objective();
     int cuts_loaded = 0;
@@ -689,7 +754,10 @@ auto load_boundary_cuts_csv(
         filepath,
         mode,
         max_iters);
-    return cuts_loaded;
+    return CutLoadResult {
+        .count = cuts_loaded,
+        .max_iteration = max_iteration,
+    };
 
   } catch (const std::exception& e) {
     return std::unexpected(Error {
@@ -709,7 +777,7 @@ auto load_named_cuts_csv(
     const LabelMaker& label_maker,
     StrongIndexVector<SceneIndex,
                       StrongIndexVector<PhaseIndex, PhaseStateInfo>>&
-        scene_phase_states) -> std::expected<int, Error>
+        scene_phase_states) -> std::expected<CutLoadResult, Error>
 {
   try {
     std::ifstream ifs(filepath);
@@ -851,7 +919,7 @@ auto load_named_cuts_csv(
     };
 
     // ── Read all cut rows ───────────────────────────────────────
-    int cuts_loaded = 0;
+    CutLoadResult result {};
     std::string line;
     while (std::getline(ifs, line)) {
       if (line.empty()) {
@@ -867,7 +935,8 @@ auto load_named_cuts_csv(
 
       // Column 1: iteration
       std::getline(iss, token, ',');
-      [[maybe_unused]] const auto iteration = std::stoi(token);
+      const auto iteration = std::stoi(token);
+      result.max_iteration = std::max(result.max_iteration, iteration);
 
       // Column 2: scene UID
       std::getline(iss, token, ',');
@@ -946,12 +1015,12 @@ auto load_named_cuts_csv(
 
         li.add_row(row);
       }
-      ++cuts_loaded;
+      ++result.count;
     }
 
     SPDLOG_INFO(
-        "SDDP: loaded {} named hot-start cuts from {}", cuts_loaded, filepath);
-    return cuts_loaded;
+        "SDDP: loaded {} named hot-start cuts from {}", result.count, filepath);
+    return result;
 
   } catch (const std::exception& e) {
     return std::unexpected(Error {
