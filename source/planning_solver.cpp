@@ -205,6 +205,7 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options)
         (std::filesystem::path(cut_dir) / sddp_file::combined_cuts).string();
 
     sddp_opts.hot_start = options.sddp_hot_start();
+    sddp_opts.save_per_iteration = options.sddp_save_per_iteration();
     const auto cuts_input = options.sddp_cuts_input_file();
     if (!cuts_input.empty()) {
       sddp_opts.cuts_input_file = cuts_input;

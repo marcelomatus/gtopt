@@ -529,9 +529,11 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
 
 void SDDPSolver::store_cut(SceneIndex scene,
                            PhaseIndex src_phase,
-                           const SparseRow& cut)
+                           const SparseRow& cut,
+                           CutType type)
 {
   StoredCut stored {
+      .type = type,
       .phase = phase_uid(src_phase),
       .scene = scene_uid(scene),
       .name = cut.name,
@@ -663,12 +665,13 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
                                 elastic_result->clone.get_col_cost(),
                                 elastic_result->clone.get_obj_value(),
                                 sddp_label("sddp",
-                                           "scut",
+                                           "fcut",
                                            scene,
                                            back_pi,
                                            iteration,
                                            total_cuts + cuts_added));
 
+          store_cut(scene, prev_bp, feas_cut, CutType::Feasibility);
           prev_li.add_row(feas_cut);
           ++cuts_added;
 
@@ -696,6 +699,7 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
                                             total_cuts + cuts_added));
 
             for (auto& mc : mc_cuts) {
+              store_cut(scene, prev_bp, mc, CutType::Feasibility);
               prev_li.add_row(mc);
               ++cuts_added;
             }
@@ -1371,7 +1375,7 @@ auto SDDPSolver::run_backward_pass_synchronized(
     }
 
     // Share optimality cuts generated in this phase step across all scenes.
-    // Feasibility cuts are not stored via store_cut() and thus are not shared.
+    // Feasibility cuts are stored but only optimality cuts are shared.
     const auto src_phase = PhaseIndex {pi - 1};
 
     StrongIndexVector<SceneIndex, std::vector<SparseRow>> scene_cuts;
@@ -1382,6 +1386,10 @@ auto SDDPSolver::run_backward_pass_synchronized(
       for (std::size_t ci = cuts_before_step; ci < m_stored_cuts_.size(); ++ci)
       {
         const auto& sc = m_stored_cuts_[ci];
+        // Only share optimality cuts; feasibility cuts stay local
+        if (sc.type != CutType::Optimality) {
+          continue;
+        }
         if (sc.phase != static_cast<int>(src_phase)) {
           continue;
         }
@@ -1462,6 +1470,10 @@ void SDDPSolver::apply_cut_sharing_for_iteration(std::size_t cuts_before,
 
     for (std::size_t ci = cuts_before; ci < m_stored_cuts_.size(); ++ci) {
       const auto& sc = m_stored_cuts_[ci];
+      // Only share optimality cuts; feasibility cuts stay local
+      if (sc.type != CutType::Optimality) {
+        continue;
+      }
       if (sc.phase != static_cast<int>(pi)) {
         continue;
       }
@@ -1723,7 +1735,9 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
 
     // ── Monitoring API and cut persistence ──
     maybe_write_api_status(status_file, results, solve_start, monitor);
-    save_cuts_for_iteration(iter, fwd->scene_feasible);
+    if (m_options_.save_per_iteration) {
+      save_cuts_for_iteration(iter, fwd->scene_feasible);
+    }
 
     // ── Iteration callback ──
     if (m_iteration_callback_ && m_iteration_callback_(ir)) {
@@ -1734,6 +1748,17 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     if (ir.converged) {
       break;
     }
+  }
+
+  // Final cut save — always save at the end of the solve, regardless of
+  // save_per_iteration.  This ensures cuts are persisted on convergence,
+  // user-stop, or max-iterations even when per-iteration saving is disabled.
+  if (!m_options_.cuts_output_file.empty() && !results.empty()) {
+    const auto num_scenes_final =
+        static_cast<Index>(planning_lp().simulation().scenes().size());
+    std::vector<uint8_t> final_feasible(
+        static_cast<std::size_t>(num_scenes_final), 1U);
+    save_cuts_for_iteration(results.back().iteration, final_feasible);
   }
 
   monitor.stop();
