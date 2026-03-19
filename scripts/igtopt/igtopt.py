@@ -457,36 +457,73 @@ def log_conversion_stats(
     options: dict[str, Any],
     elapsed: float,
 ) -> None:
-    """Log conversion statistics similar to plp2gtopt."""
-    logging.info("=== System statistics ===")
-    logging.info("  Buses           : %d", counts.get("bus_array", 0))
-    logging.info("  Generators      : %d", counts.get("generator_array", 0))
-    logging.info("  Generator profs : %d", counts.get("generator_profile_array", 0))
-    logging.info("  Demands         : %d", counts.get("demand_array", 0))
-    logging.info("  Lines           : %d", counts.get("line_array", 0))
-    logging.info("  Batteries       : %d", counts.get("battery_array", 0))
-    logging.info("  Converters      : %d", counts.get("converter_array", 0))
-    logging.info("  Junctions       : %d", counts.get("junction_array", 0))
-    logging.info("  Waterways       : %d", counts.get("waterway_array", 0))
-    logging.info("  Reservoirs      : %d", counts.get("reservoir_array", 0))
-    logging.info("  Turbines        : %d", counts.get("turbine_array", 0))
-    logging.info("  Filtrations     : %d", counts.get("filtration_array", 0))
-    logging.info("  Res. effics     : %d", counts.get("reservoir_efficiency_array", 0))
-    logging.info("  User constraints: %d", counts.get("user_constraint_array", 0))
-    logging.info("=== Simulation statistics ===")
-    logging.info("  Blocks          : %d", counts.get("block_array", 0))
-    logging.info("  Stages          : %d", counts.get("stage_array", 0))
-    logging.info("  Scenarios       : %d", counts.get("scenario_array", 0))
-    logging.info("  Phases          : %d", counts.get("phase_array", 0))
-    logging.info("  Scenes          : %d", counts.get("scene_array", 0))
-    logging.info("  Apertures       : %d", counts.get("aperture_array", 0))
-    logging.info("=== Key options ===")
-    logging.info("  use_single_bus  : %s", options.get("use_single_bus", False))
-    logging.info("  scale_objective : %s", options.get("scale_objective", 1000))
-    logging.info("  demand_fail_cost: %s", options.get("demand_fail_cost", 1000))
-    logging.info("  input_directory : %s", options.get("input_directory", ""))
-    logging.info("=== Conversion time ===")
-    logging.info("  Elapsed         : %.3fs", elapsed)
+    """Print conversion statistics using styled terminal tables."""
+    try:
+        from gtopt_check_json._terminal import (  # noqa: PLC0415
+            print_kv_table,
+            print_section,
+        )
+
+        print_section("Conversion Results")
+
+        # Element counts (skip zero for cleaner output)
+        all_elems = [
+            ("Buses", counts.get("bus_array", 0)),
+            ("Generators", counts.get("generator_array", 0)),
+            ("Generator profiles", counts.get("generator_profile_array", 0)),
+            ("Demands", counts.get("demand_array", 0)),
+            ("Lines", counts.get("line_array", 0)),
+            ("Batteries", counts.get("battery_array", 0)),
+            ("Converters", counts.get("converter_array", 0)),
+            ("Junctions", counts.get("junction_array", 0)),
+            ("Waterways", counts.get("waterway_array", 0)),
+            ("Reservoirs", counts.get("reservoir_array", 0)),
+            ("Turbines", counts.get("turbine_array", 0)),
+            ("Filtrations", counts.get("filtration_array", 0)),
+            ("Res. efficiencies", counts.get("reservoir_efficiency_array", 0)),
+            ("User constraints", counts.get("user_constraint_array", 0)),
+        ]
+        elem_pairs = [(k, str(v)) for k, v in all_elems if v > 0]
+        if not elem_pairs:
+            elem_pairs = [(k, str(v)) for k, v in all_elems]
+        print_kv_table(elem_pairs, title="System Elements")
+
+        print_kv_table(
+            [
+                ("Blocks", str(counts.get("block_array", 0))),
+                ("Stages", str(counts.get("stage_array", 0))),
+                ("Scenarios", str(counts.get("scenario_array", 0))),
+                ("Phases", str(counts.get("phase_array", 0))),
+                ("Scenes", str(counts.get("scene_array", 0))),
+                ("Apertures", str(counts.get("aperture_array", 0))),
+            ],
+            title="Simulation",
+        )
+
+        print_kv_table(
+            [
+                ("use_single_bus", str(options.get("use_single_bus", False))),
+                ("scale_objective", str(options.get("scale_objective", 1000))),
+                ("demand_fail_cost", str(options.get("demand_fail_cost", 1000))),
+                ("input_directory", str(options.get("input_directory", ""))),
+            ],
+            title="Key Options",
+        )
+
+        print_kv_table([("Elapsed", f"{elapsed:.3f}s")], title="Conversion Time")
+
+    except ImportError:
+        # Fallback: plain logger output when _terminal is not available
+        logging.info("=== System statistics ===")
+        for label, key in [
+            ("Buses", "bus_array"),
+            ("Generators", "generator_array"),
+            ("Demands", "demand_array"),
+            ("Lines", "line_array"),
+        ]:
+            logging.info("  %-18s: %d", label, counts.get(key, 0))
+        logging.info("=== Conversion time ===")
+        logging.info("  Elapsed         : %.3fs", elapsed)
 
 
 # ---------------------------------------------------------------------------
@@ -930,6 +967,16 @@ def main(argv: list[str] | None = None) -> None:
             level=getattr(logging, args.log_level),
             format="%(asctime)s %(levelname)s %(message)s",
         )
+
+        # Use clean formatter for non-DEBUG levels
+        try:
+            from gtopt_check_json._terminal import CleanFormatter  # noqa: PLC0415
+
+            if args.log_level != "DEBUG":
+                for handler in logging.getLogger().handlers:
+                    handler.setFormatter(CleanFormatter())
+        except ImportError:
+            pass
 
         # --make-template mode: generate the Excel template and exit
         if args.make_template or args.list_sheets:

@@ -8,7 +8,8 @@ The main entry point is :func:`gtopt_check_json.gtopt_check_json.main`
 
 Sub-modules
 -----------
-:mod:`._checks`  — Library of validation checks
-:mod:`._config`  — Config I/O and check enable/disable
-:mod:`._info`    — System / simulation statistics
+:mod:`._checks`   — Library of validation checks
+:mod:`._config`   — Config I/O and check enable/disable
+:mod:`._info`     — System / simulation statistics
+:mod:`._terminal` — Shared terminal formatting helpers (rich-based)
 """

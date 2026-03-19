@@ -1,5 +1,9 @@
 # SPDX-License-Identifier: BSD-3-Clause
-"""ANSI colour helpers for gtopt_check_json terminal output."""
+"""ANSI colour helpers for gtopt_check_json terminal output.
+
+This module is kept for backward compatibility.  New code should
+import from :mod:`gtopt_check_json._terminal` instead.
+"""
 
 BOLD = "\033[1m"
 RED = "\033[31m"
@@ -18,8 +22,13 @@ def c(code: str, text: str) -> str:
 
 
 def header(title: str) -> str:
-    """Return a boxed section header string."""
-    line = "─" * (len(title) + 4)
-    return (
-        f"\n{c(BOLD, f'┌{line}┐')}\n{c(BOLD, f'│  {title}  │')}\n{c(BOLD, f'└{line}┘')}"
-    )
+    """Return a styled section header string."""
+    if USE_COLOR:
+        line = "━" * (len(title) + 4)
+        return (
+            f"\n{c(BOLD, f'  {line}')}\n"
+            f"{c(BOLD, f'   {title}')}\n"
+            f"{c(BOLD, f'  {line}')}"
+        )
+    line = "=" * (len(title) + 4)
+    return f"\n  {line}\n   {title}\n  {line}"

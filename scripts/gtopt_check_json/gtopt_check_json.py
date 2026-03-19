@@ -31,7 +31,14 @@ from gtopt_check_json._config import (
     load_config,
     run_interactive_setup,
 )
-from gtopt_check_json._info import format_info
+from gtopt_check_json._info import print_info
+from gtopt_check_json._terminal import (
+    init as _init_terminal,
+    print_finding as _print_finding,
+    print_section,
+    print_status,
+    print_summary,
+)
 
 # Use AiOptions from gtopt_check_lp when available; fall back to a minimal
 # implementation so that gtopt_check_json works even if gtopt_check_lp is not
@@ -131,7 +138,7 @@ def check_json(
     planning, _case_dir = _load_planning(json_paths)
 
     if info_only:
-        print(format_info(planning))
+        print_info(planning, base_dir=_case_dir)
         return 0
 
     # Determine enabled checks
@@ -154,7 +161,7 @@ def check_json(
         )
 
     # Run checks
-    print(col.header("gtopt_check_json"))
+    print_section("gtopt_check_json")
     print(f"  Case: {', '.join(json_paths)}")
     print(f"  Checks enabled: {sorted(enabled)}")
     print()
@@ -168,24 +175,19 @@ def check_json(
     # Report
     has_critical = False
     for finding in findings:
-        print(_format_finding(finding))
+        sev_name = finding.severity.name
+        _print_finding(sev_name, finding.check_id, finding.message)
         if finding.severity == Severity.CRITICAL:
             has_critical = True
 
     if not findings:
-        print(f"  {col.c(col.GREEN, '✓')} All checks passed — no issues found.")
+        print_status("All checks passed — no issues found.", ok=True)
 
     # Summary
     critical_count = sum(1 for f in findings if f.severity == Severity.CRITICAL)
     warning_count = sum(1 for f in findings if f.severity == Severity.WARNING)
     note_count = sum(1 for f in findings if f.severity == Severity.NOTE)
-    print()
-    print(
-        f"  Summary: "
-        f"{col.c(col.RED, str(critical_count))} critical, "
-        f"{col.c(col.YELLOW, str(warning_count))} warnings, "
-        f"{col.c(col.CYAN, str(note_count))} notes"
-    )
+    print_summary(critical_count, warning_count, note_count)
 
     return 1 if has_critical else 0
 
@@ -235,8 +237,11 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
 
     # Colour control
-    if args.no_color:
+    no_color = args.no_color
+    if no_color:
         col.USE_COLOR = False
+
+    _init_terminal(force_color=False if no_color else None)
 
     config_path = args.config or default_config_path()
 
