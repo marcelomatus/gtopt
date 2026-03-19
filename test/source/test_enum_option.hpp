@@ -162,6 +162,21 @@ TEST_CASE("elastic_filter_mode_from_name")  // NOLINT
   CHECK_FALSE(elastic_filter_mode_from_name("unknown").has_value());
 }
 
+// ─── HotStartMode ───────────────────────────────────────────────────────────
+
+TEST_CASE("hot_start_mode_from_name")  // NOLINT
+{
+  CHECK(hot_start_mode_from_name("none").value_or(HotStartMode::replace)
+        == HotStartMode::none);
+  CHECK(hot_start_mode_from_name("keep").value_or(HotStartMode::none)
+        == HotStartMode::keep);
+  CHECK(hot_start_mode_from_name("append").value_or(HotStartMode::none)
+        == HotStartMode::append);
+  CHECK(hot_start_mode_from_name("replace").value_or(HotStartMode::none)
+        == HotStartMode::replace);
+  CHECK_FALSE(hot_start_mode_from_name("bad").has_value());
+}
+
 // ─── OptionsLP enum accessors ────────────────────────────────────────────────
 
 TEST_CASE("OptionsLP enum accessors return correct defaults")  // NOLINT
@@ -203,6 +218,11 @@ TEST_CASE("OptionsLP enum accessors return correct defaults")  // NOLINT
     CHECK(opts.sddp_boundary_cuts_mode_enum() == BoundaryCutsMode::separated);
   }
 
+  SUBCASE("sddp_hot_start_mode_enum defaults to none")
+  {
+    CHECK(opts.sddp_hot_start_mode_enum() == HotStartMode::none);
+  }
+
   SUBCASE("monolithic_solve_mode_enum defaults to monolithic")
   {
     CHECK(opts.monolithic_solve_mode_enum() == SolveMode::monolithic);
@@ -225,6 +245,7 @@ TEST_CASE("OptionsLP enum accessors parse explicit values")  // NOLINT
   raw.sddp_options.cut_sharing_mode = "expected";
   raw.sddp_options.elastic_mode = "multi_cut";
   raw.sddp_options.boundary_cuts_mode = "combined";
+  raw.sddp_options.hot_start_mode = "append";
   raw.monolithic_options.solve_mode = "sequential";
   raw.monolithic_options.boundary_cuts_mode = "noload";
 
@@ -237,6 +258,88 @@ TEST_CASE("OptionsLP enum accessors parse explicit values")  // NOLINT
   CHECK(opts.sddp_cut_sharing_mode_enum() == CutSharingMode::expected);
   CHECK(opts.sddp_elastic_mode_enum() == ElasticFilterMode::multi_cut);
   CHECK(opts.sddp_boundary_cuts_mode_enum() == BoundaryCutsMode::combined);
+  CHECK(opts.sddp_hot_start_mode_enum() == HotStartMode::append);
   CHECK(opts.monolithic_solve_mode_enum() == SolveMode::sequential);
   CHECK(opts.monolithic_boundary_cuts_mode_enum() == BoundaryCutsMode::noload);
+}
+
+// ─── validate_enum_options ──────────────────────────────────────────────────
+
+TEST_CASE("validate_enum_options returns empty for valid defaults")  // NOLINT
+{
+  const OptionsLP opts;
+  const auto warnings = opts.validate_enum_options();
+  CHECK(warnings.empty());
+}
+
+TEST_CASE("validate_enum_options returns empty for valid explicit values")
+// NOLINT
+{
+  Options raw;
+  raw.solver_type = "sddp";
+  raw.input_format = "csv";
+  raw.output_format = "parquet";
+  raw.output_compression = "gzip";
+  raw.sddp_options.cut_sharing_mode = "expected";
+  raw.sddp_options.elastic_mode = "multi_cut";
+  raw.sddp_options.boundary_cuts_mode = "combined";
+  raw.sddp_options.hot_start_mode = "replace";
+  raw.monolithic_options.solve_mode = "sequential";
+  raw.monolithic_options.boundary_cuts_mode = "noload";
+
+  const OptionsLP opts(std::move(raw));
+  const auto warnings = opts.validate_enum_options();
+  CHECK(warnings.empty());
+}
+
+TEST_CASE("validate_enum_options warns about unknown solver_type")  // NOLINT
+{
+  Options raw;
+  raw.solver_type = "bogus_solver";
+  const OptionsLP opts(std::move(raw));
+  const auto warnings = opts.validate_enum_options();
+  REQUIRE(warnings.size() == 1);
+  CHECK(warnings[0].find("solver_type") != std::string::npos);
+  CHECK(warnings[0].find("bogus_solver") != std::string::npos);
+}
+
+TEST_CASE(
+    "validate_enum_options warns about multiple unknown "
+    "values")  // NOLINT
+{
+  Options raw;
+  raw.solver_type = "bad";
+  raw.input_format = "xml";
+  raw.sddp_options.cut_sharing_mode = "invalid";
+  const OptionsLP opts(std::move(raw));
+  const auto warnings = opts.validate_enum_options();
+  CHECK(warnings.size() == 3);
+}
+
+TEST_CASE("sddp_hot_start_mode backward compat: bool hot_start")  // NOLINT
+{
+  SUBCASE("hot_start=true maps to replace")
+  {
+    Options raw;
+    raw.sddp_options.hot_start = true;
+    const OptionsLP opts(std::move(raw));
+    CHECK(opts.sddp_hot_start_mode_enum() == HotStartMode::replace);
+  }
+
+  SUBCASE("hot_start=false maps to none")
+  {
+    Options raw;
+    raw.sddp_options.hot_start = false;
+    const OptionsLP opts(std::move(raw));
+    CHECK(opts.sddp_hot_start_mode_enum() == HotStartMode::none);
+  }
+
+  SUBCASE("hot_start_mode takes precedence over hot_start")
+  {
+    Options raw;
+    raw.sddp_options.hot_start = true;
+    raw.sddp_options.hot_start_mode = "keep";
+    const OptionsLP opts(std::move(raw));
+    CHECK(opts.sddp_hot_start_mode_enum() == HotStartMode::keep);
+  }
 }

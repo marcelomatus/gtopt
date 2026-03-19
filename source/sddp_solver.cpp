@@ -1148,7 +1148,9 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
       SPDLOG_WARN("SDDP hot-start: could not load cuts: {}",
                   result.error().message);
     }
-  } else if (m_options_.hot_start && !m_options_.cuts_output_file.empty()) {
+  } else if (m_options_.hot_start_mode != HotStartMode::none
+             && !m_options_.cuts_output_file.empty())
+  {
     const auto cut_dir =
         std::filesystem::path(m_options_.cuts_output_file).parent_path();
     if (!cut_dir.empty() && std::filesystem::exists(cut_dir)) {
@@ -1594,30 +1596,39 @@ void SDDPSolver::save_cuts_for_iteration(
     return;
   }
 
-  auto result = save_cuts(m_options_.cuts_output_file);
-  if (!result.has_value()) {
-    SPDLOG_WARN("SDDP: could not save cuts at iter {}: {}",
-                iter,
-                result.error().message);
-  }
-
   const auto cut_dir =
       std::filesystem::path(m_options_.cuts_output_file).parent_path();
-  if (cut_dir.empty()) {
-    return;
+
+  // Save to a versioned file: sddp_cuts_<iter>.csv
+  if (!cut_dir.empty()) {
+    const auto versioned_file =
+        (cut_dir / std::format(sddp_file::versioned_cuts_fmt, iter)).string();
+    auto result = save_cuts(versioned_file);
+    if (!result.has_value()) {
+      SPDLOG_WARN("SDDP: could not save versioned cuts at iter {}: {}",
+                  iter,
+                  result.error().message);
+    }
   }
 
-  auto scene_result = save_all_scene_cuts(cut_dir.string());
-  if (!scene_result.has_value()) {
-    SPDLOG_WARN("SDDP: could not save per-scene cuts at iter {}: {}",
-                iter,
-                scene_result.error().message);
+  // Save per-scene cuts
+  if (!cut_dir.empty()) {
+    auto scene_result = save_all_scene_cuts(cut_dir.string());
+    if (!scene_result.has_value()) {
+      SPDLOG_WARN("SDDP: could not save per-scene cuts at iter {}: {}",
+                  iter,
+                  scene_result.error().message);
+    }
   }
 
+  // Rename cut files for infeasible scenes
   const auto num_scenes =
       static_cast<Index>(planning_lp().simulation().scenes().size());
   for (Index si = 0; si < num_scenes; ++si) {
     if (scene_feasible[static_cast<std::size_t>(si)] != 0U) {
+      continue;
+    }
+    if (cut_dir.empty()) {
       continue;
     }
     const auto suid = scene_uid(SceneIndex {si});
@@ -1793,6 +1804,34 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     std::vector<uint8_t> final_feasible(
         static_cast<std::size_t>(num_scenes_final), 1U);
     save_cuts_for_iteration(results.back().iteration, final_feasible);
+
+    // Write the combined output file based on hot_start_mode:
+    //  - none/replace: write all cuts to the combined file
+    //  - keep:         do not modify the combined file
+    //  - append:       append new cuts to the existing file
+    const auto mode = m_options_.hot_start_mode;
+    if (mode == HotStartMode::append) {
+      // Append mode: add newly generated cuts to the existing file.
+      // m_stored_cuts_ contains only cuts from this run (loaded cuts
+      // went directly to the LP, not into storage).
+      auto result = save_cuts_csv(m_stored_cuts_,
+                                  planning_lp(),
+                                  m_options_.cuts_output_file,
+                                  /*append_mode=*/true);
+      if (!result.has_value()) {
+        SPDLOG_WARN("SDDP: could not append cuts to combined file: {}",
+                    result.error().message);
+      }
+    } else if (mode != HotStartMode::keep) {
+      // none or replace: overwrite the combined file with all cuts
+      auto result = save_cuts(m_options_.cuts_output_file);
+      if (!result.has_value()) {
+        SPDLOG_WARN("SDDP: could not save combined cuts: {}",
+                    result.error().message);
+      }
+    } else {
+      SPDLOG_INFO("SDDP: hot_start_mode=keep — combined file not modified");
+    }
   }
 
   monitor.stop();
