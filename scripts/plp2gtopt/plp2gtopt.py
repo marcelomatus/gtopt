@@ -124,6 +124,9 @@ def _plp_indicators(parser: PLPParser) -> dict[str, float]:
     pd = parser.parsed_data
     indicators: dict[str, float] = {}
 
+    # Threshold for excluding PLP failure generators.
+    failure_threshold = 9000.0
+
     # --- Total generation capacity from plpcnfce.dat ---
     central_parser = pd.get("central_parser")
     total_cap = 0.0
@@ -133,7 +136,7 @@ def _plp_indicators(parser: PLPParser) -> dict[str, float]:
             if ctype == "falla":
                 continue
             pmax = central.get("pmax", 0.0)
-            if isinstance(pmax, (int, float)) and pmax < 9000.0:
+            if isinstance(pmax, (int, float)) and pmax < failure_threshold:
                 total_cap += float(pmax)
     indicators["total_gen_capacity_mw"] = total_cap
 
@@ -155,6 +158,8 @@ def _plp_indicators(parser: PLPParser) -> dict[str, float]:
             values = dem.get("values")
             if blocks is not None and values is not None:
                 for i, blk_num in enumerate(blocks):
+                    if i >= len(values):
+                        break
                     idx = int(blk_num) - 1  # block numbers are 1-based
                     if 0 <= idx < num_blocks:
                         block_totals[idx] += float(values[i])
@@ -198,11 +203,12 @@ def _gtopt_indicators(planning: dict[str, Any]) -> dict[str, float]:
         }
     except ImportError:
         # Fallback: compute locally
+        failure_threshold = 9000.0
         sys_data = planning.get("system", {})
         total_cap = 0.0
         for gen in sys_data.get("generator_array", []):
             cap = gen.get("capacity", gen.get("pmax", 0))
-            if isinstance(cap, (int, float)) and cap < 9000.0:
+            if isinstance(cap, (int, float)) and cap < failure_threshold:
                 total_cap += float(cap)
         return {
             "total_gen_capacity_mw": total_cap,

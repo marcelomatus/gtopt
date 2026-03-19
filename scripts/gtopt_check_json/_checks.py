@@ -890,7 +890,10 @@ def check_capacity_adequacy(planning: dict[str, Any]) -> list[Finding]:
       15 % is a common planning threshold).
     * ``NOTE`` otherwise, reporting the computed adequacy ratio.
     """
-    from gtopt_check_json._info import compute_indicators  # noqa: PLC0415
+    from gtopt_check_json._info import (  # noqa: PLC0415
+        _CAPACITY_MARGIN_THRESHOLD,
+        compute_indicators,
+    )
 
     findings: list[Finding] = []
     ind = compute_indicators(planning)
@@ -913,7 +916,7 @@ def check_capacity_adequacy(planning: dict[str, Any]) -> list[Finding]:
                 ),
             )
         )
-    elif ratio < 1.15:
+    elif ratio < _CAPACITY_MARGIN_THRESHOLD:
         findings.append(
             Finding(
                 check_id="capacity_adequacy",
