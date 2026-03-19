@@ -146,7 +146,8 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
 
 auto save_cuts_csv(std::span<const StoredCut> cuts,
                    const PlanningLP& planning_lp,
-                   const std::string& filepath) -> std::expected<void, Error>
+                   const std::string& filepath,
+                   bool append_mode) -> std::expected<void, Error>
 {
   try {
     // Ensure parent directory exists before writing
@@ -155,7 +156,9 @@ auto save_cuts_csv(std::span<const StoredCut> cuts,
       std::filesystem::create_directories(parent);
     }
 
-    std::ofstream ofs(filepath);
+    const auto open_mode =
+        append_mode ? (std::ios::out | std::ios::app) : std::ios::out;
+    std::ofstream ofs(filepath, open_mode);
     if (!ofs.is_open()) {
       return std::unexpected(Error {
           .code = ErrorCode::FileIOError,
@@ -165,8 +168,10 @@ auto save_cuts_csv(std::span<const StoredCut> cuts,
     }
 
     const auto scale_obj = planning_lp.options().scale_objective();
-    ofs << "# scale_objective=" << scale_obj << "\n";
-    ofs << "type,phase,scene,name,rhs,coefficients\n";
+    if (!append_mode) {
+      ofs << "# scale_objective=" << scale_obj << "\n";
+      ofs << "type,phase,scene,name,rhs,coefficients\n";
+    }
 
     // Build phase UID -> PhaseIndex lookup
     const auto phase_map = build_phase_uid_map(planning_lp);
