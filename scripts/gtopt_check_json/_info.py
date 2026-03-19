@@ -423,6 +423,8 @@ def compute_indicators(
 def format_indicators(
     planning: dict[str, Any],
     base_dir: str | None = None,
+    *,
+    colr: bool = False,
 ) -> str:
     """Return a multi-line string with global system indicators.
 
@@ -432,37 +434,42 @@ def format_indicators(
         A planning dict as loaded from a gtopt JSON file.
     base_dir
         Optional case directory for resolving FieldSched file references.
+    colr
+        Whether to include ANSI colour codes in the output.
 
     Returns
     -------
     str
         Human-readable indicator summary.
     """
+    from gtopt_check_json._terminal import (  # noqa: PLC0415
+        cc,
+        kv_table,
+        BOLD,
+        CYAN,
+        DIM,
+    )
+
     ind = compute_indicators(planning, base_dir=base_dir)
 
-    lines: list[str] = []
-    lines.append("=== Global indicators ===")
-    lines.append(
-        f"  Total gen capacity  : {ind.total_gen_capacity_mw:,.1f} MW"
-        f"  ({ind.num_generators} generators)"
-    )
-    lines.append(f"  First block demand  : {ind.first_block_demand_mw:,.1f} MW")
-    lines.append(f"  Last block demand   : {ind.last_block_demand_mw:,.1f} MW")
-    lines.append(
-        f"  Peak demand         : {ind.peak_demand_mw:,.1f} MW"
-        f"  (block {ind.peak_demand_block})"
-    )
-    lines.append(f"  Min demand          : {ind.min_demand_mw:,.1f} MW")
-    lines.append(f"  Total energy        : {ind.total_energy_mwh:,.1f} MWh")
-    lines.append(f"  Capacity adequacy   : {ind.capacity_adequacy_ratio:.3f}")
+    pairs: list[tuple[str, str]] = [
+        ("Total gen capacity", f"{ind.total_gen_capacity_mw:,.1f} MW  ({ind.num_generators} generators)"),
+        ("First block demand", f"{ind.first_block_demand_mw:,.1f} MW"),
+        ("Last block demand", f"{ind.last_block_demand_mw:,.1f} MW"),
+        ("Peak demand", f"{ind.peak_demand_mw:,.1f} MW  (block {ind.peak_demand_block})"),
+        ("Min demand", f"{ind.min_demand_mw:,.1f} MW"),
+        ("Total energy", f"{ind.total_energy_mwh:,.1f} MWh"),
+        ("Capacity adequacy", f"{ind.capacity_adequacy_ratio:.3f}"),
+    ]
     if ind.num_flows > 0:
-        lines.append(
-            f"  First block affluent: {ind.first_block_affluent_avg:,.1f} m³/s"
-            f"  ({ind.num_flows} flows)"
+        pairs.append(
+            ("First block affluent", f"{ind.first_block_affluent_avg:,.1f} m³/s  ({ind.num_flows} flows)")
         )
-        lines.append(f"  Last block affluent : {ind.last_block_affluent_avg:,.1f} m³/s")
+        pairs.append(
+            ("Last block affluent", f"{ind.last_block_affluent_avg:,.1f} m³/s")
+        )
 
-    return "\n".join(lines)
+    return kv_table(pairs, colr=colr, title="Global Indicators")
 
 
 # ---------------------------------------------------------------------------
@@ -473,12 +480,13 @@ def format_indicators(
 def format_info(
     planning: dict[str, Any],
     base_dir: str | None = None,
+    *,
+    colr: bool = False,
 ) -> str:
     """Return a multi-line string with system, simulation, and option stats.
 
-    The output matches the format previously produced by the C++
-    ``log_pre_solve_stats`` function in ``source/gtopt_main.cpp``,
-    followed by the global system indicators.
+    The output is presented as styled tables when ``colr=True``, or as
+    plain-text tables suitable for logging.
 
     Parameters
     ----------
@@ -486,57 +494,75 @@ def format_info(
         A planning dict as loaded from a gtopt JSON file.
     base_dir
         Optional case directory for resolving FieldSched file references.
+    colr
+        Whether to include ANSI colour codes in the output.
     """
+    from gtopt_check_json._terminal import (  # noqa: PLC0415
+        build_table,
+        kv_table,
+    )
+
     sys_data = planning.get("system", {})
     sim = planning.get("simulation", {})
     opts = planning.get("options", {})
 
     lines: list[str] = []
 
-    lines.append("=== System statistics ===")
-    lines.append(f"  System name     : {sys_data.get('name', '(unnamed)')}")
-    lines.append(f"  System version  : {sys_data.get('version', '')}")
+    # -- System info --
+    sys_pairs: list[tuple[str, str]] = [
+        ("System name", sys_data.get("name", "(unnamed)")),
+        ("System version", sys_data.get("version", "")),
+    ]
+    lines.append(kv_table(sys_pairs, colr=colr, title="System"))
 
-    lines.append("=== System elements  ===")
-    lines.append(f"  Buses           : {len(sys_data.get('bus_array', []))}")
-    lines.append(f"  Generators      : {len(sys_data.get('generator_array', []))}")
-    lines.append(
-        f"  Generator profs : {len(sys_data.get('generator_profile_array', []))}"
-    )
-    lines.append(f"  Demands         : {len(sys_data.get('demand_array', []))}")
-    lines.append(f"  Demand profs    : {len(sys_data.get('demand_profile_array', []))}")
-    lines.append(f"  Lines           : {len(sys_data.get('line_array', []))}")
-    lines.append(f"  Batteries       : {len(sys_data.get('battery_array', []))}")
-    lines.append(f"  Converters      : {len(sys_data.get('converter_array', []))}")
-    lines.append(f"  Reserve zones   : {len(sys_data.get('reserve_zone_array', []))}")
-    lines.append(
-        f"  Reserve provisions   : {len(sys_data.get('reserve_provision_array', []))}"
-    )
-    lines.append(f"  Junctions       : {len(sys_data.get('junction_array', []))}")
-    lines.append(f"  Waterways       : {len(sys_data.get('waterway_array', []))}")
-    lines.append(f"  Flows           : {len(sys_data.get('flow_array', []))}")
-    lines.append(f"  Reservoirs      : {len(sys_data.get('reservoir_array', []))}")
-    lines.append(f"  Filtrations     : {len(sys_data.get('filtration_array', []))}")
-    lines.append(f"  Turbines        : {len(sys_data.get('turbine_array', []))}")
+    # -- Element counts --
+    elem_rows: list[tuple[str, str]] = [
+        ("Buses", str(len(sys_data.get("bus_array", [])))),
+        ("Generators", str(len(sys_data.get("generator_array", [])))),
+        ("Generator profiles", str(len(sys_data.get("generator_profile_array", [])))),
+        ("Demands", str(len(sys_data.get("demand_array", [])))),
+        ("Demand profiles", str(len(sys_data.get("demand_profile_array", [])))),
+        ("Lines", str(len(sys_data.get("line_array", [])))),
+        ("Batteries", str(len(sys_data.get("battery_array", [])))),
+        ("Converters", str(len(sys_data.get("converter_array", [])))),
+        ("Reserve zones", str(len(sys_data.get("reserve_zone_array", [])))),
+        ("Reserve provisions", str(len(sys_data.get("reserve_provision_array", [])))),
+        ("Junctions", str(len(sys_data.get("junction_array", [])))),
+        ("Waterways", str(len(sys_data.get("waterway_array", [])))),
+        ("Flows", str(len(sys_data.get("flow_array", [])))),
+        ("Reservoirs", str(len(sys_data.get("reservoir_array", [])))),
+        ("Filtrations", str(len(sys_data.get("filtration_array", [])))),
+        ("Turbines", str(len(sys_data.get("turbine_array", [])))),
+    ]
+    # Filter out zero-count elements for cleaner output
+    elem_rows_filtered = [(k, v) for k, v in elem_rows if v != "0"]
+    if not elem_rows_filtered:
+        elem_rows_filtered = elem_rows
+    lines.append(kv_table(elem_rows_filtered, colr=colr, title="Elements"))
 
-    lines.append("=== Simulation statistics ===")
-    lines.append(f"  Blocks          : {len(sim.get('block_array', []))}")
-    lines.append(f"  Stages          : {len(sim.get('stage_array', []))}")
-    lines.append(f"  Scenarios       : {len(sim.get('scenario_array', []))}")
+    # -- Simulation --
+    sim_pairs: list[tuple[str, str]] = [
+        ("Blocks", str(len(sim.get("block_array", [])))),
+        ("Stages", str(len(sim.get("stage_array", [])))),
+        ("Scenarios", str(len(sim.get("scenario_array", [])))),
+    ]
+    lines.append(kv_table(sim_pairs, colr=colr, title="Simulation"))
 
-    lines.append("=== Key options ===")
+    # -- Key options --
     use_kirch = opts.get("use_kirchhoff", False)
-    lines.append(f"  use_kirchhoff   : {'true' if use_kirch else 'false'}")
     use_sb = opts.get("use_single_bus", False)
-    lines.append(f"  use_single_bus  : {'true' if use_sb else 'false'}")
-    lines.append(f"  scale_objective : {opts.get('scale_objective', 1000.0)}")
-    lines.append(f"  demand_fail_cost: {opts.get('demand_fail_cost', 0.0)}")
-    lines.append(f"  input_directory : {opts.get('input_directory', '(default)')}")
-    lines.append(f"  output_directory: {opts.get('output_directory', '(default)')}")
-    lines.append(f"  output_format   : {opts.get('output_format', 'csv')}")
+    opt_pairs: list[tuple[str, str]] = [
+        ("use_kirchhoff", "true" if use_kirch else "false"),
+        ("use_single_bus", "true" if use_sb else "false"),
+        ("scale_objective", str(opts.get("scale_objective", 1000.0))),
+        ("demand_fail_cost", str(opts.get("demand_fail_cost", 0.0))),
+        ("input_directory", str(opts.get("input_directory", "(default)"))),
+        ("output_directory", str(opts.get("output_directory", "(default)"))),
+        ("output_format", str(opts.get("output_format", "csv"))),
+    ]
+    lines.append(kv_table(opt_pairs, colr=colr, title="Options"))
 
-    # Append global indicators
-    lines.append("")
-    lines.append(format_indicators(planning, base_dir=base_dir))
+    # -- Global indicators --
+    lines.append(format_indicators(planning, base_dir=base_dir, colr=colr))
 
     return "\n".join(lines)
