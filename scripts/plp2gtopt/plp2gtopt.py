@@ -248,8 +248,15 @@ def _plp_indicators(
     pd = parser.parsed_data
     indicators: dict[str, float] = {}
 
-    # --- Total generation capacity from plpcnfce.dat ---
+    # --- Build set of central names with bus > 0 for filtering ---
     central_parser = pd.get("central_parser")
+    _bus_gt0_names: set[str] = set()
+    if central_parser:
+        for central in central_parser.centrals:
+            if central.get("bus", 0) > 0:
+                _bus_gt0_names.add(str(central.get("name", "")))
+
+    # --- Total generation capacity from plpcnfce.dat (bus > 0 only) ---
     total_cap = 0.0
     hydro_cap = 0.0
     thermal_cap = 0.0
@@ -258,6 +265,8 @@ def _plp_indicators(
         for central in central_parser.centrals:
             ctype = str(central.get("type", "")).lower()
             if ctype == "falla":
+                continue
+            if central.get("bus", 0) <= 0:
                 continue
             pmax = central.get("pmax", 0.0)
             if isinstance(pmax, (int, float)):
@@ -289,6 +298,7 @@ def _plp_indicators(
     block_parser = pd.get("block_parser")
 
     total_energy = 0.0
+    total_hours = 0.0
     has_demand = False
     block_totals: list[float] = []
 
@@ -309,25 +319,42 @@ def _plp_indicators(
                         has_demand = True
 
         if has_demand and num_blocks > 0:
-            # Compute total energy
+            # Compute total energy and total hours
             for b_idx in range(num_blocks):
                 blk = block_parser.get_item_by_number(b_idx + 1)
                 duration = blk.get("duration", 1.0) if blk else 1.0
                 total_energy += block_totals[b_idx] * duration
+                total_hours += duration
 
     first_blk_dem = block_totals[0] if block_totals else 0.0
     last_blk_dem = block_totals[-1] if block_totals else 0.0
 
+    # Avg annual energy: total_energy × 8760 / total_hours
+    _HOURS_PER_YEAR = 8760.0
+    avg_annual_energy = (
+        total_energy * _HOURS_PER_YEAR / total_hours if total_hours > 0 else 0.0
+    )
+
     indicators["first_block_demand_mw"] = first_blk_dem
     indicators["last_block_demand_mw"] = last_blk_dem
     indicators["total_energy_mwh"] = total_energy
+    indicators["avg_annual_energy_mwh"] = avg_annual_energy
 
-    # --- Accumulated affluent from plpaflce.dat ---
+    # --- Accumulated affluent from plpaflce.dat (bus > 0 only) ---
+    # Conversion factor: 1 m³/s flowing for 1 h = 0.0036 Hm³
+    _M3S_TO_HM3_PER_H = 0.0036
     aflce_parser = pd.get("aflce_parser")
     first_afl = 0.0
     last_afl = 0.0
-    if aflce_parser:
+    total_water_vol_hm3 = 0.0
+    num_active_flows = 0
+    if aflce_parser and block_parser:
+        num_blocks_bp = getattr(block_parser, "num_blocks", 0)
         for flow in aflce_parser.flows:
+            # Skip flows for centrals with bus <= 0
+            flow_name = str(flow.get("name", ""))
+            if flow_name and flow_name not in _bus_gt0_names:
+                continue
             flow_data = flow.get("flow")  # numpy array (num_blocks, num_hydro)
             block_arr = flow.get("block")  # numpy array of block numbers
             if flow_data is None or block_arr is None or len(block_arr) == 0:
@@ -335,19 +362,37 @@ def _plp_indicators(
             num_hydro = flow.get("num_hydrologies", 1)
             if num_hydro <= 0:
                 continue
-            if hydrology_indices is not None:
-                # Average across only the selected hydrology columns
-                cols = [c for c in hydrology_indices if 0 <= c < num_hydro]
-                if cols:
-                    first_afl += float(flow_data[0, cols].mean())
-                    last_afl += float(flow_data[-1, cols].mean())
-            else:
-                # Average across all hydrologies
-                first_afl += float(flow_data[0].mean())
-                last_afl += float(flow_data[-1].mean())
+            num_active_flows += 1
+            for b_idx in range(len(block_arr)):
+                blk_num = int(block_arr[b_idx])
+                blk = block_parser.get_item_by_number(blk_num)
+                duration = blk.get("duration", 1.0) if blk else 1.0
+                if hydrology_indices is not None:
+                    cols = [c for c in hydrology_indices if 0 <= c < num_hydro]
+                    if not cols:
+                        continue
+                    avg_flow_val = float(flow_data[b_idx, cols].mean())
+                else:
+                    avg_flow_val = float(flow_data[b_idx].mean())
+                total_water_vol_hm3 += avg_flow_val * duration * _M3S_TO_HM3_PER_H
+                if b_idx == 0:
+                    first_afl += avg_flow_val
+                if b_idx == len(block_arr) - 1:
+                    last_afl += avg_flow_val
+
+    # Average flow per affluent (m³/s) = total_volume / total_time / num_flows
+    avg_flow_m3s = (
+        total_water_vol_hm3
+        / (total_hours * _M3S_TO_HM3_PER_H)
+        / num_active_flows
+        if total_hours > 0 and num_active_flows > 0
+        else 0.0
+    )
 
     indicators["first_block_affluent_avg"] = first_afl
     indicators["last_block_affluent_avg"] = last_afl
+    indicators["total_water_volume_hm3"] = total_water_vol_hm3
+    indicators["avg_flow_m3s"] = avg_flow_m3s
 
     return indicators
 
@@ -382,8 +427,11 @@ def _gtopt_indicators(
         "first_block_demand_mw": ind.first_block_demand_mw,
         "last_block_demand_mw": ind.last_block_demand_mw,
         "total_energy_mwh": ind.total_energy_mwh,
+        "avg_annual_energy_mwh": ind.avg_annual_energy_mwh,
         "first_block_affluent_avg": ind.first_block_affluent_avg,
         "last_block_affluent_avg": ind.last_block_affluent_avg,
+        "total_water_volume_hm3": ind.total_water_volume_hm3,
+        "avg_flow_m3s": ind.avg_flow_m3s,
     }
 
 
