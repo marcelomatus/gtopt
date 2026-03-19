@@ -1612,54 +1612,202 @@ def test_plp_case_2y_global_indicators(tmp_path):
     # ==================================================================
     # Global indicator assertions
     # ==================================================================
+    # Full conversion (all stages, all scenarios/apertures) means that
+    # demand, capacity, energy, and flow indicators should match exactly
+    # between PLP and gtopt (only numerical tolerance allowed).
 
-    # --- Demand indicators ---
-    # First block demand must match exactly (same PLP data, same block)
+    # --- Demand indicators (must match exactly) ---
     assert plp_ind["first_block_demand_mw"] > 1000.0, "First demand suspiciously low"
     assert plp_ind["first_block_demand_mw"] == pytest.approx(
         gtopt_ind["first_block_demand_mw"], rel=1e-6
     ), "First block demand mismatch"
 
-    # Last block demand must also match (full conversion, all stages)
     assert plp_ind["last_block_demand_mw"] == pytest.approx(
         gtopt_ind["last_block_demand_mw"], rel=1e-6
     ), "Last block demand mismatch"
 
-    # Total energy must match (same blocks, same durations)
+    # --- Total and avg annual energy (must match exactly) ---
     assert plp_ind["total_energy_mwh"] > 1e6, "Total energy too low"
     assert plp_ind["total_energy_mwh"] == pytest.approx(
         gtopt_ind["total_energy_mwh"], rel=1e-6
     ), "Total energy mismatch"
 
-    # --- Thermal capacity must match (no bus<=0 thermals expected) ---
+    assert plp_ind["avg_annual_energy_mwh"] > 0.0
+    assert plp_ind["avg_annual_energy_mwh"] == pytest.approx(
+        gtopt_ind["avg_annual_energy_mwh"], rel=1e-6
+    ), "Avg annual energy mismatch"
+
+    # --- Capacity indicators (must match exactly, both filter bus<=0) ---
+    assert plp_ind["total_gen_capacity_mw"] > 1000.0, "Gen capacity too low"
+    assert plp_ind["total_gen_capacity_mw"] == pytest.approx(
+        gtopt_ind["total_gen_capacity_mw"], rel=1e-6
+    ), "Gen capacity mismatch (both PLP and gtopt exclude bus<=0)"
+
     assert plp_ind["thermal_capacity_mw"] > 0.0, "Thermal capacity should be > 0"
     assert plp_ind["thermal_capacity_mw"] == pytest.approx(
         gtopt_ind["thermal_capacity_mw"], rel=1e-6
     ), "Thermal capacity mismatch"
 
-    # --- Generation capacity: PLP includes bus<=0 centrals, gtopt excludes them ---
-    assert plp_ind["total_gen_capacity_mw"] > 1000.0, "Gen capacity too low"
-    assert gtopt_ind["total_gen_capacity_mw"] > 1000.0
-    assert plp_ind["total_gen_capacity_mw"] >= gtopt_ind["total_gen_capacity_mw"], (
-        "PLP gen capacity should >= gtopt (bus<=0 centrals excluded in gtopt)"
-    )
-
-    # --- Hydro capacity: PLP includes bus<=0 hydro centrals ---
     assert plp_ind["hydro_capacity_mw"] > 0.0, "Hydro capacity should be > 0"
-    assert gtopt_ind["hydro_capacity_mw"] > 0.0
-    assert plp_ind["hydro_capacity_mw"] >= gtopt_ind["hydro_capacity_mw"], (
-        "PLP hydro capacity should >= gtopt (bus<=0 hydro centrals excluded)"
+    assert plp_ind["hydro_capacity_mw"] == pytest.approx(
+        gtopt_ind["hydro_capacity_mw"], rel=1e-6
+    ), "Hydro capacity mismatch (both PLP and gtopt exclude bus<=0)"
+
+    # --- Line capacity (must match exactly) ---
+    assert plp_ind["total_line_capacity_mw"] > 0.0, "Line capacity should be > 0"
+    assert plp_ind["total_line_capacity_mw"] == pytest.approx(
+        gtopt_ind["total_line_capacity_mw"], rel=1e-6
+    ), "Line capacity mismatch"
+
+    # --- Flow/affluent indicators ---
+    # PLP affluents (plpaflce.dat) are per-central; gtopt flows are per-junction.
+    # The mapping is not 1:1 (junctions aggregate multiple centrals), so we
+    # only verify both sides are positive.  The comparison table shows Δ% for
+    # manual inspection.
+    assert plp_ind["first_block_affluent_avg"] > 0.0, "PLP first flow should be > 0"
+    assert gtopt_ind["first_block_affluent_avg"] > 0.0, "gtopt first flow should be > 0"
+    assert plp_ind["last_block_affluent_avg"] > 0.0, "PLP last flow should be > 0"
+    assert gtopt_ind["last_block_affluent_avg"] > 0.0, "gtopt last flow should be > 0"
+    assert plp_ind["total_water_volume_hm3"] > 0.0, "PLP water volume should be > 0"
+    assert gtopt_ind["total_water_volume_hm3"] > 0.0, "gtopt water volume should be > 0"
+    assert plp_ind["avg_flow_m3s"] > 0.0, "PLP avg flow should be > 0"
+    assert gtopt_ind["avg_flow_m3s"] > 0.0, "gtopt avg flow should be > 0"
+
+
+@pytest.mark.integration
+def test_plp_case_2y_4h_partial_hydrology(tmp_path):
+    """plp_case_2y with 4 hydrologies: demand matches, flows may differ.
+
+    Converts only a subset of hydrologies (1,2,3,4 out of 16).  Demand
+    indicators must still match exactly because demand does not depend on
+    hydrology.  Flow/affluent indicators are computed over the selected
+    hydrologies only, so they will generally differ from the full-case
+    PLP indicators.
+    """
+    from plp2gtopt.plp2gtopt import (  # noqa: PLC0415
+        _gtopt_element_counts,
+        _gtopt_indicators,
+        _plp_element_counts,
+        _plp_indicators,
     )
 
-    # --- Line capacity: PLP counts all lines ---
-    assert plp_ind["total_line_capacity_mw"] > 0.0, "Line capacity should be > 0"
-    assert gtopt_ind["total_line_capacity_mw"] > 0.0
+    opts = _make_opts_2y(tmp_path, "gtopt_case_2y_4h")
+    opts["hydrologies"] = "1,2,3,4"
+    convert_plp_case(opts)
 
-    # --- Affluent: PLP includes all centrals, gtopt only bus>0 ---
-    assert plp_ind["first_block_affluent_avg"] > 0.0, "First affluent should be > 0"
-    assert gtopt_ind["first_block_affluent_avg"] > 0.0, "gtopt affluent should be > 0"
-    assert plp_ind["last_block_affluent_avg"] > 0.0, "Last affluent should be > 0"
-    assert gtopt_ind["last_block_affluent_avg"] > 0.0
+    # PLP side
+    parser = PLPParser({"input_dir": _PLPCase2Y})
+    parser.parse_all()
+
+    # The active hydrology indices after conversion are from the opts
+    data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
+    scenarios = data["simulation"]["scenario_array"]
+    assert len(scenarios) == 4, "Expected 4 scenarios for hydrologies 1,2,3,4"
+
+    # PLP indicators with the 4 selected hydrologies (0-based: 0,1,2,3)
+    hydro_4 = sorted(s["hydrology"] for s in scenarios)
+    plp_counts = _plp_element_counts(parser)
+    plp_ind = _plp_indicators(parser, hydrology_indices=hydro_4)
+
+    # gtopt side
+    gtopt_counts = _gtopt_element_counts(data)
+    base_dir = str(opts["output_dir"])
+    gtopt_ind = _gtopt_indicators(data, base_dir=base_dir)
+
+    # Element counts: topology unchanged
+    assert plp_counts["buses"] == gtopt_counts["buses"]
+    assert plp_counts["lines"] == gtopt_counts["lines"]
+    assert plp_counts["blocks"] == gtopt_counts["blocks"]
+    assert plp_counts["stages"] == gtopt_counts["stages"]
+    assert gtopt_counts["scenarios"] == 4
+
+    # Demand does NOT depend on hydrology — must match exactly
+    assert plp_ind["first_block_demand_mw"] == pytest.approx(
+        gtopt_ind["first_block_demand_mw"], rel=1e-6
+    ), "Demand must match regardless of hydrology subset"
+    assert plp_ind["last_block_demand_mw"] == pytest.approx(
+        gtopt_ind["last_block_demand_mw"], rel=1e-6
+    ), "Last block demand must match regardless of hydrology subset"
+    assert plp_ind["total_energy_mwh"] == pytest.approx(
+        gtopt_ind["total_energy_mwh"], rel=1e-6
+    ), "Total energy must match regardless of hydrology subset"
+
+    # Capacity does NOT depend on hydrology — must match exactly
+    assert plp_ind["total_gen_capacity_mw"] == pytest.approx(
+        gtopt_ind["total_gen_capacity_mw"], rel=1e-6
+    ), "Gen capacity must match regardless of hydrology subset"
+
+    # Flow/affluent indicators are averaged over 4 hydrologies only,
+    # so PLP and gtopt should still match each other (both use same subset)
+    assert plp_ind["first_block_affluent_avg"] == pytest.approx(
+        gtopt_ind["first_block_affluent_avg"], rel=1e-6
+    ), "First block flow should match (same 4 hydrologies)"
+    assert plp_ind["total_water_volume_hm3"] == pytest.approx(
+        gtopt_ind["total_water_volume_hm3"], rel=1e-6
+    ), "Total water volume should match (same 4 hydrologies)"
+
+
+@pytest.mark.integration
+def test_plp_case_2y_4h_4s_partial_stages(tmp_path):
+    """plp_case_2y with 4 hydrologies and 4 stages: energy and last block differ.
+
+    Converts only 4 stages (instead of 51) and 4 hydrologies.  First-block
+    demand and capacity indicators still match.  Total energy and last-block
+    demand will differ because the conversion only includes the first 4 stages.
+    """
+    from plp2gtopt.plp2gtopt import (  # noqa: PLC0415
+        _gtopt_element_counts,
+        _gtopt_indicators,
+        _plp_element_counts,
+        _plp_indicators,
+    )
+
+    opts = _make_opts_2y(tmp_path, "gtopt_case_2y_4h_4s")
+    opts["hydrologies"] = "1,2,3,4"
+    opts["last_stage"] = 4
+    convert_plp_case(opts)
+
+    # PLP side — full parse
+    parser = PLPParser({"input_dir": _PLPCase2Y})
+    parser.parse_all()
+
+    data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
+    scenarios = data["simulation"]["scenario_array"]
+    hydro_4 = sorted(s["hydrology"] for s in scenarios)
+    plp_counts = _plp_element_counts(parser)
+    plp_ind = _plp_indicators(parser, hydrology_indices=hydro_4)
+
+    gtopt_counts = _gtopt_element_counts(data)
+    base_dir = str(opts["output_dir"])
+    gtopt_ind = _gtopt_indicators(data, base_dir=base_dir)
+
+    # Topology unchanged
+    assert plp_counts["buses"] == gtopt_counts["buses"]
+    assert plp_counts["lines"] == gtopt_counts["lines"]
+    assert gtopt_counts["scenarios"] == 4
+
+    # Stages differ: gtopt has only 4, PLP parser sees all 51
+    assert gtopt_counts["stages"] == 4
+    assert plp_counts["stages"] > 4
+
+    # gtopt blocks = 4 stages × blocks_per_stage; PLP has all 51 stages
+    assert gtopt_counts["blocks"] < plp_counts["blocks"]
+
+    # First-block demand and capacity still match (same data)
+    assert plp_ind["first_block_demand_mw"] == pytest.approx(
+        gtopt_ind["first_block_demand_mw"], rel=1e-6
+    ), "First block demand must match even with truncated stages"
+    assert plp_ind["total_gen_capacity_mw"] == pytest.approx(
+        gtopt_ind["total_gen_capacity_mw"], rel=1e-6
+    ), "Gen capacity must match even with truncated stages"
+
+    # Total energy and last-block demand DIFFER because fewer stages
+    assert plp_ind["total_energy_mwh"] > gtopt_ind["total_energy_mwh"], (
+        "PLP total energy (all stages) should exceed gtopt (4 stages)"
+    )
+    assert plp_ind["last_block_demand_mw"] != pytest.approx(
+        gtopt_ind["last_block_demand_mw"], rel=1e-3
+    ), "Last block demand should differ with truncated stages"
 
 
 # ---------------------------------------------------------------------------
