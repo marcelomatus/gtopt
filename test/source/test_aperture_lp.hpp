@@ -1088,7 +1088,7 @@ TEST_CASE("OptionsLP sddp_aperture_directory accessor")  // NOLINT
   {
     Options opts;
     opts.sddp_options = SddpOptions {
-        .sddp_aperture_directory = OptName {"/data/apertures"},
+        .aperture_directory = OptName {"/data/apertures"},
     };
     const OptionsLP options(opts);
     CHECK(options.sddp_aperture_directory() == "/data/apertures");

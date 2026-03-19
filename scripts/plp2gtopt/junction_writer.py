@@ -63,8 +63,8 @@ class Flow(TypedDict):
     discharge: float | str
 
 
-class Reservoir(TypedDict):
-    """Represents a storage node in the hydro system."""
+class _ReservoirRequired(TypedDict):
+    """Required fields for Reservoir (always present)."""
 
     uid: int
     name: str
@@ -80,6 +80,17 @@ class Reservoir(TypedDict):
     spillway_cost: float
     spillway_capacity: float
     annual_loss: float
+
+
+class Reservoir(_ReservoirRequired, total=False):
+    """Represents a storage node in the hydro system.
+
+    ``use_state_variable`` is optional: when set to ``False`` the reservoir
+    state (energy level) is not linked across blocks, which models small /
+    independent hydro reservoirs (PLP ``Hid_Indep='T'``).
+    """
+
+    use_state_variable: bool
 
 
 class Turbine(TypedDict):
@@ -504,6 +515,12 @@ class JunctionWriter(BaseWriter):
                 "annual_loss": 0.0,
                 "flow_conversion_rate": 3.6 / 1000.0,
             }
+
+            # Small / independent reservoirs (PLP Hid_Indep='T') do not
+            # carry state across blocks — disable the state variable.
+            if central.get("hid_indep", False):
+                reservoir["use_state_variable"] = False
+
             system["reservoir_array"].append(reservoir)
 
     def _process_filtrations(

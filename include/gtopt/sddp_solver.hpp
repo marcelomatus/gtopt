@@ -64,6 +64,7 @@
 #include <gtopt/aperture.hpp>
 #include <gtopt/basic_types.hpp>
 #include <gtopt/benders_cut.hpp>
+#include <gtopt/enum_option.hpp>
 #include <gtopt/error.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -88,38 +89,11 @@ struct CutLoadResult
 };
 
 // ─── Cut sharing mode ───────────────────────────────────────────────────────
+// CutSharingMode is now defined in <gtopt/enum_option.hpp>.
+// The constexpr lookup function cut_sharing_mode_from_name() replaces the
+// old parse_cut_sharing_mode() free function.
 
-/**
- * @brief How optimality cuts are shared between scenes at the same phase
- *
- * Four modes are supported:
- *
- * - `None`:       No sharing; cuts stay in their originating scene (default).
- *                 Scenes are solved independently in parallel with no
- *                 synchronization.  Feasibility cuts are never shared
- *                 regardless of this setting.
- * - `Expected`:   Probability-weighted average cut across scenes, added to
- *                 all scenes.  Correct when LP objectives do NOT include
- *                 probability factors.
- * - `Accumulate`: Sum all scenario cuts into one accumulated cut, added to
- *                 all scenes.  Correct when LP objectives already include
- *                 probability factors (each cut is pre-weighted).
- *                 Reference: Birge & Louveaux (2011) §5.1.
- * - `Max`:        All cuts from all scenes added to all scenes.
- *
- * When a sharing mode other than `None` is selected, the backward pass is
- * synchronized per-phase: all scenes complete a phase before cuts are shared
- * and the next phase is processed.
- */
-enum class CutSharingMode : uint8_t
-{
-  None = 0,  ///< No sharing; scenes solved independently (default)
-  Expected,  ///< Probability-weighted average cut shared to all scenes
-  Accumulate,  ///< Sum all cuts directly (LP objectives pre-weighted)
-  Max,  ///< All cuts from all scenes added to all scenes
-};
-
-/// Parse a cut-sharing mode from a string
+/// Parse a cut-sharing mode from a string (backward-compatible wrapper).
 /// ("none", "expected", "accumulate", "max")
 [[nodiscard]] CutSharingMode parse_cut_sharing_mode(std::string_view name);
 
@@ -152,51 +126,18 @@ constexpr auto stop_request = "sddp_stop_request.json";
 }  // namespace sddp_file
 
 // ─── Elastic filter mode ────────────────────────────────────────────────────
+// ElasticFilterMode is now defined in <gtopt/enum_option.hpp>.
+// The constexpr lookup function elastic_filter_mode_from_name() replaces the
+// old parse_elastic_filter_mode() free function.
 
-/**
- * @brief How the elastic filter handles feasibility issues in the backward pass
- *
- * When adding a Benders cut to phase k makes it infeasible, the elastic
- * filter can handle the situation in two ways:
- *
- * - `FeasibilityCut` / "single_cut" (default): clone the LP, relax the
- *   fixed state-variable bounds with penalised slack variables, solve the
- *   clone, and build a single feasibility-like Benders cut for phase k-1
- *   from the elastic clone's reduced costs.  This is the standard NBD
- *   approach.
- *
- * - `MultiCut` / "multi_cut": same as single_cut, but also adds one
- *   additional bound-constraint cut per state variable whose slack was
- *   activated (non-zero) in the elastic clone solution.  If the forward
- *   pass has encountered infeasibility at this (scene, phase) more than
- *   `multi_cut_threshold` times, the solver automatically switches from
- *   single_cut to multi_cut.
- *
- * - `BackpropagateBounds` (PLP mechanism): same clone/relax/solve as above,
- *   but instead of building a cut, propagate the slack-adjusted trial values
- *   back as updated bounds on the source state variables in phase k-1.
- *   Concretely, the source column in phase k-1 is tightened so that its
- *   upper and lower bounds equal the elastic-clone solution value for the
- *   dependent column.  This forces phase k-1 to produce a trial point that
- *   is known to be feasible for phase k, avoiding further infeasibility.
- *   This is the approach used in PLP (`osicallsc.cpp`).
- */
-enum class ElasticFilterMode : uint8_t
-{
-  FeasibilityCut = 0,  ///< Build a single Benders feasibility cut (single_cut)
-  MultiCut,  ///< Build a Benders cut + per-slack bound cuts (multi_cut)
-  BackpropagateBounds,  ///< Update source bounds to elastic trial values (PLP)
-};
-
-/// Parse an elastic filter mode from a string.
-/// Accepts "single_cut" or its backward-compatible alias "cut"
-/// (= FeasibilityCut, default for any unrecognised string),
-/// "multi_cut" (= MultiCut), and "backpropagate" (= BackpropagateBounds).
+/// Parse an elastic filter mode from a string (backward-compatible wrapper).
+/// Accepts "single_cut" / "cut" (= single_cut), "multi_cut",
+/// "backpropagate".
 [[nodiscard]] ElasticFilterMode parse_elastic_filter_mode(
     std::string_view name);
 
 /// Configuration options for the SDDP iterative solver
-struct SDDPOptions
+struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
 {
   int max_iterations {100};  ///< Maximum forward/backward iterations
   int min_iterations {2};  ///< Minimum iterations before convergence
@@ -204,15 +145,15 @@ struct SDDPOptions
   double elastic_penalty {1e6};  ///< Penalty for elastic slack variables
   double alpha_min {0.0};  ///< Lower bound for future cost variable α ($)
   double alpha_max {1e12};  ///< Upper bound for future cost variable α ($)
-  CutSharingMode cut_sharing {CutSharingMode::None};  ///< Cut sharing mode
+  CutSharingMode cut_sharing {CutSharingMode::none};  ///< Cut sharing mode
 
   /// Elastic filter mode: how to handle backward-pass infeasibility.
-  /// `FeasibilityCut` / "single_cut" (default) adds a single Benders
-  /// feasibility cut to the previous phase.  `MultiCut` / "multi_cut" adds
-  /// the same cut plus one bound-constraint cut per activated slack variable.
-  /// `BackpropagateBounds` updates the source column bounds to match the
+  /// `single_cut` (default) adds a single Benders feasibility cut to the
+  /// previous phase.  `multi_cut` adds the same cut plus one
+  /// bound-constraint cut per activated slack variable.
+  /// `backpropagate` updates the source column bounds to match the
   /// elastic-clone solution (PLP mechanism).
-  ElasticFilterMode elastic_filter_mode {ElasticFilterMode::FeasibilityCut};
+  ElasticFilterMode elastic_filter_mode {ElasticFilterMode::single_cut};
 
   /// Forward-pass infeasibility counter threshold for automatic switching
   /// from single_cut to multi_cut.  When the forward pass has encountered
@@ -224,6 +165,16 @@ struct SDDPOptions
   ///  < 0  never auto-switch (disabled; use explicit mode only).
   /// Default: 10.
   int multi_cut_threshold {10};
+
+  /// Save cuts to CSV after each iteration (default: true).
+  /// When false, cuts are only saved at the end of the solve or on stop.
+  bool save_per_iteration {true};
+
+  /// Global solve timeout in seconds (0 = no timeout).
+  /// When non-zero, each forward-pass LP solve is given this time limit;
+  /// if exceeded, the LP is saved to a debug file, a CRITICAL message is
+  /// logged, and the scene is marked as failed.
+  double solve_timeout {0.0};
 
   /// File path for saving cuts (empty = no save)
   std::string cuts_output_file {};
@@ -299,6 +250,12 @@ struct SDDPOptions
   /// updated.  State variable bounds remain fixed at the forward-pass
   /// trial values.
   int num_apertures {0};
+
+  /// Timeout in seconds for individual aperture LP solves in the backward
+  /// pass.  When an aperture LP exceeds this time, it is treated as
+  /// infeasible (skipped), a WARNING is logged, and the solver continues
+  /// with the remaining apertures.  0 = no timeout (default).
+  double aperture_timeout {0.0};
 
   /// CSV file with boundary (future-cost) cuts for the last phase.
   ///
@@ -421,9 +378,17 @@ struct PhaseStateInfo
 
 // ─── Stored cut for persistence ─────────────────────────────────────────────
 
+/// Type of Benders cut: optimality (standard) or feasibility (elastic filter)
+enum class CutType : uint8_t
+{
+  Optimality = 0,  ///< Standard Benders optimality cut
+  Feasibility,  ///< Feasibility cut from elastic filter
+};
+
 /// A serialisable representation of a Benders cut
 struct StoredCut
 {
+  CutType type {CutType::Optimality};  ///< Cut type (optimality or feasibility)
   int phase {};  ///< Phase UID this cut was added to
   int scene {};  ///< Scene UID that generated this cut (-1 = shared)
   std::string name {};  ///< Cut name
@@ -722,7 +687,10 @@ private:
 
   /// Store a cut for sharing and persistence (thread-safe).
   /// Writes to both per-scene storage and shared storage.
-  void store_cut(SceneIndex scene, PhaseIndex src_phase, const SparseRow& cut);
+  void store_cut(SceneIndex scene,
+                 PhaseIndex src_phase,
+                 const SparseRow& cut,
+                 CutType type = CutType::Optimality);
 
   /// Resolve an LP via the SDDP work pool.  Falls back to direct resolve if
   /// the pool is not available.  Avoids naked direct resolve() calls.

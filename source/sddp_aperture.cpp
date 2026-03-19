@@ -119,11 +119,18 @@ auto solve_apertures_for_phase(SceneIndex scene,
                                const std::string& log_directory,
                                int scene_uid,
                                int phase_uid,
-                               const ApertureResolveFunc& resolve_fn)
+                               const ApertureResolveFunc& resolve_fn,
+                               double aperture_timeout)
     -> std::optional<SparseRow>
 {
   const auto pi = static_cast<Index>(phase);
   const auto& phase_li = sys.linear_interface();
+
+  // Apply aperture timeout to solver options if configured
+  auto aperture_opts = opts;
+  if (aperture_timeout > 0.0) {
+    aperture_opts.time_limit = aperture_timeout;
+  }
 
   std::vector<SparseRow> aperture_cuts;
   std::vector<double> aperture_weights;
@@ -188,9 +195,26 @@ auto solve_apertures_for_phase(SceneIndex scene,
       }
     }
 
-    // Solve the clone via the resolve callback
-    auto result = resolve_fn(clone, opts, phase);
+    // Solve the clone via the resolve callback (with aperture timeout)
+    auto result = resolve_fn(clone, aperture_opts, phase);
     if (!result.has_value() || !clone.is_optimal()) {
+      const auto status = clone.get_status();
+
+      // Check for aperture timeout: status 1 (abandoned) or 3 (other)
+      // when a time limit was set indicates a timeout
+      if (aperture_timeout > 0.0 && (status == 1 || status == 3)) {
+        ++n_infeasible;
+        spdlog::warn(
+            "SDDP aperture: scene {} phase {} aperture uid {} timed out "
+            "({:.1f}s, status {}), treating as infeasible",
+            scene_uid,
+            phase_uid,
+            ap_uid,
+            aperture_timeout,
+            status);
+        continue;
+      }
+
       ++n_infeasible;
       SPDLOG_DEBUG(
           "SDDP aperture: scene {} phase {} aperture uid {} infeasible "
@@ -198,7 +222,7 @@ auto solve_apertures_for_phase(SceneIndex scene,
           scene,
           phase,
           ap_uid,
-          clone.get_status());
+          status);
 
       // Save the infeasible aperture LP for later inspection only in
       // trace/debug mode — aperture infeasibility is expected in some

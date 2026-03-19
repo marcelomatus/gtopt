@@ -68,6 +68,7 @@ namespace
 
 /// Write a single cut's coefficients to an output stream.
 ///
+/// Format: col_name=coeff (name-based, portable across LP changes).
 /// Coefficients are in fully physical space:
 ///   coeff_csv = LP_coeff * scale_obj / col_scale
 void write_cut_coefficients(std::ostream& ofs,
@@ -75,9 +76,18 @@ void write_cut_coefficients(std::ostream& ofs,
                             const LinearInterface& li,
                             double scale_obj)
 {
+  const auto& names = li.col_index_to_name();
   for (const auto& [col, coeff] : cut.coefficients) {
     const auto scale = li.get_col_scale(ColIndex {col});
-    ofs << "," << col << ":" << (coeff * scale_obj / scale);
+    const auto idx = static_cast<size_t>(col);
+    const bool has_name = idx < names.size() && !names[idx].empty();
+    if (has_name) {
+      // Name-based format (portable across LP structure changes)
+      ofs << "," << names[idx] << "=" << (coeff * scale_obj / scale);
+    } else {
+      // Fallback to index-based format for unnamed columns
+      ofs << "," << col << ":" << (coeff * scale_obj / scale);
+    }
   }
 }
 
@@ -156,15 +166,18 @@ auto save_cuts_csv(std::span<const StoredCut> cuts,
 
     const auto scale_obj = planning_lp.options().scale_objective();
     ofs << "# scale_objective=" << scale_obj << "\n";
-    ofs << "phase,scene,name,rhs,coefficients\n";
+    ofs << "type,phase,scene,name,rhs,coefficients\n";
 
     // Build phase UID -> PhaseIndex lookup
     const auto phase_map = build_phase_uid_map(planning_lp);
 
     for (const auto& cut : cuts) {
+      // Type column: 'o' = optimality, 'f' = feasibility
+      const char type_char = (cut.type == CutType::Feasibility) ? 'f' : 'o';
+
       // RHS in physical objective units
-      ofs << cut.phase << "," << cut.scene << "," << cut.name << ","
-          << (cut.rhs * scale_obj);
+      ofs << type_char << "," << cut.phase << "," << cut.scene << ","
+          << cut.name << "," << (cut.rhs * scale_obj);
 
       // Look up the LinearInterface to retrieve column scales.
       // Use scene 0 as representative (scales are identical
@@ -224,15 +237,18 @@ auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
 
     const auto scale_obj = planning_lp.options().scale_objective();
     ofs << "# scale_objective=" << scale_obj << "\n";
-    ofs << "phase,scene,name,rhs,coefficients\n";
+    ofs << "type,phase,scene,name,rhs,coefficients\n";
 
     // Build phase UID -> PhaseIndex lookup
     const auto phase_map = build_phase_uid_map(planning_lp);
 
     for (const auto& cut : cuts) {
+      // Type column: 'o' = optimality, 'f' = feasibility
+      const char type_char = (cut.type == CutType::Feasibility) ? 'f' : 'o';
+
       // RHS in physical objective units
-      ofs << cut.phase << "," << cut.scene << "," << cut.name << ","
-          << (cut.rhs * scale_obj);
+      ofs << type_char << "," << cut.phase << "," << cut.scene << ","
+          << cut.name << "," << (cut.rhs * scale_obj);
 
       auto pit = phase_map.find(cut.phase);
       if (pit != phase_map.end()) {
@@ -285,12 +301,16 @@ auto load_cuts_csv(PlanningLP& planning_lp,
     }
 
     std::string line;
-    // Skip metadata comments (# ...) and the CSV header line
+    // Skip metadata comments (# ...) and find the CSV header line
+    bool has_type_col = false;
     while (std::getline(ifs, line)) {
       if (line.empty() || line.starts_with('#')) {
         continue;
       }
-      // First non-empty, non-comment line is the header -- skip
+      // First non-empty, non-comment line is the header.
+      // Detect new format with type column: "type,phase,..."
+      // vs legacy format: "phase,scene,..."
+      has_type_col = line.starts_with("type,");
       break;
     }
 
@@ -313,9 +333,20 @@ auto load_cuts_csv(PlanningLP& planning_lp,
         continue;
       }
 
-      // Parse CSV: phase,scene,name,rhs,col1:coeff1,...
+      // Parse CSV: [type,]phase,scene,name,rhs,col1:coeff1,...
       std::istringstream iss(line);
       std::string token;
+
+      // Parse optional type column (backward compatible).
+      // The type is tracked for future use but currently loaded cuts
+      // are added to the LP directly regardless of type.
+      [[maybe_unused]] CutType cut_type = CutType::Optimality;
+      if (has_type_col) {
+        std::getline(iss, token, ',');
+        if (token == "f") {
+          cut_type = CutType::Feasibility;
+        }
+      }
 
       std::getline(iss, token, ',');
       const auto phase_val = std::stoi(token);
@@ -350,18 +381,6 @@ auto load_cuts_csv(PlanningLP& planning_lp,
           .uppb = LinearProblem::DblMax,
       };
 
-      // Collect raw physical-space coefficients
-      // (col_index:coeff pairs)
-      std::vector<std::pair<int, double>> raw_coeffs;
-      while (std::getline(iss, token, ',')) {
-        const auto colon = token.find(':');
-        if (colon != std::string::npos) {
-          const auto col = std::stoi(token.substr(0, colon));
-          const auto coeff = std::stod(token.substr(colon + 1));
-          raw_coeffs.emplace_back(col, coeff);
-        }
-      }
-
       // Resolve the phase UID to a PhaseIndex
       auto pit = phase_uid_to_index.find(phase_val);
       if (pit == phase_uid_to_index.end()) {
@@ -375,17 +394,103 @@ auto load_cuts_csv(PlanningLP& planning_lp,
       }
       const auto phase = pit->second;
 
-      // Add the loaded cut to all scenes for this phase.
+      // Use scene 0 as representative for column name resolution
+      // (LP structure is identical across scenes).
+      auto& li_ref =
+          planning_lp.system(SceneIndex {0}, phase).linear_interface();
+
+      // Collect coefficients from CSV.  Two formats are supported:
+      //   name=coeff   (name-based, preferred — resolve by column name)
+      //   index:coeff  (legacy — validate index against current LP)
+      struct ResolvedCoeff
+      {
+        ColIndex col;
+        double coeff;
+      };
+      std::vector<ResolvedCoeff> resolved_coeffs;
+      bool cut_valid = true;
+
+      while (std::getline(iss, token, ',')) {
+        // Try name-based format first (name=coeff)
+        if (const auto eq = token.find('='); eq != std::string::npos) {
+          const auto col_name = token.substr(0, eq);
+          const auto coeff = std::stod(token.substr(eq + 1));
+          const auto& name_map = li_ref.col_name_map();
+          auto it = name_map.find(col_name);
+          if (it != name_map.end()) {
+            resolved_coeffs.push_back({
+                .col = ColIndex {it->second},
+                .coeff = coeff,
+            });
+          } else {
+            // Name not found in LP name map — warn and skip this
+            // coefficient (the LP structure may have changed since
+            // the cuts were saved).
+            SPDLOG_WARN(
+                "SDDP load_cuts: column '{}' not found in "
+                "current LP for cut '{}'; ignoring coefficient",
+                col_name,
+                cut_name);
+          }
+        }
+        // Legacy format (index:coeff)
+        else if (const auto colon = token.find(':'); colon != std::string::npos)
+        {
+          const auto file_col = std::stoi(token.substr(0, colon));
+          const auto coeff = std::stod(token.substr(colon + 1));
+
+          // Validate the column index against the current LP
+          if (file_col < 0
+              || static_cast<size_t>(file_col) >= li_ref.get_numcols())
+          {
+            SPDLOG_WARN(
+                "SDDP load_cuts: column index {} out of range "
+                "(LP has {} cols) in cut '{}'; skipping cut",
+                file_col,
+                li_ref.get_numcols(),
+                cut_name);
+            cut_valid = false;
+            break;
+          }
+
+          // Warn if the LP structure may have changed (column name
+          // available but index-based format was used)
+          const auto& idx_names = li_ref.col_index_to_name();
+          if (static_cast<size_t>(file_col) < idx_names.size()
+              && !idx_names[static_cast<size_t>(file_col)].empty())
+          {
+            SPDLOG_DEBUG(
+                "SDDP load_cuts: legacy index-based coefficient "
+                "col={} (name='{}') in cut '{}'; consider "
+                "re-saving cuts with named format",
+                file_col,
+                idx_names[static_cast<size_t>(file_col)],
+                cut_name);
+          }
+          resolved_coeffs.push_back({
+              .col = ColIndex {file_col},
+              .coeff = coeff,
+          });
+        }
+      }
+
+      if (!cut_valid) {
+        continue;
+      }
+
+      // Add the resolved cut to all scenes for this phase.
       // Coefficients in the CSV are in fully physical space;
       // convert to LP space:
       //   LP_coeff = phys_coeff * col_scale / scale_objective
       for (Index si = 0; si < num_scenes; ++si) {
-        auto& li =
-            planning_lp.system(SceneIndex {si}, phase).linear_interface();
+        const auto scene = SceneIndex {si};
+        auto& li = planning_lp.system(scene, phase).linear_interface();
         auto scene_row = row;
-        for (const auto& [col, coeff] : raw_coeffs) {
-          const auto scale = li.get_col_scale(ColIndex {col});
-          scene_row[ColIndex {col}] = coeff * scale / scale_obj;
+        // Include scene index in name to avoid duplicates across scenes
+        scene_row.name = label_maker.lp_label("loaded", cut_name, scene, phase);
+        for (const auto& [col, coeff] : resolved_coeffs) {
+          const auto scale = li.get_col_scale(col);
+          scene_row[col] = coeff * scale / scale_obj;
         }
         li.add_row(scene_row);
       }
@@ -719,7 +824,7 @@ auto load_boundary_cuts_csv(
         const auto& state = scene_phase_states[scene][last_phase];
 
         auto row = SparseRow {
-            .name = label_maker.lp_label("bdr", rc.name),
+            .name = label_maker.lp_label("bdr", rc.name, scene, last_phase),
             .lowb = rc.rhs / scale_obj,
             .uppb = LinearProblem::DblMax,
         };
@@ -990,7 +1095,7 @@ auto load_named_cuts_csv(
         const auto& state = scene_phase_states[scene][phase];
 
         auto row = SparseRow {
-            .name = label_maker.lp_label("named_hs", cut_name),
+            .name = label_maker.lp_label("named_hs", cut_name, scene, phase),
             .lowb = rhs / scale_obj,
             .uppb = LinearProblem::DblMax,
         };

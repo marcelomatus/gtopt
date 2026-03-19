@@ -1159,8 +1159,63 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
 # ------------------------------------------------------------------
 # Options sheet metadata
 # (field, description, default_value_or_None)
+#
+# The flat Excel sheet uses a single "options" tab.  igtopt.py
+# partitions these keys into top-level, sddp_options, and
+# monolithic_options sub-objects when writing the JSON output.
+# Keys in SDDP_OPTION_KEYS go into "sddp_options".
+# Keys prefixed with "monolithic_" go into "monolithic_options"
+# (with the prefix stripped).
 # ------------------------------------------------------------------
+
+# Keys that belong inside the ``sddp_options`` JSON sub-object.
+# Must match the fields in ``json_data_contract<SddpOptions>`` in
+# ``include/gtopt/json/json_options.hpp``.
+SDDP_OPTION_KEYS: frozenset[str] = frozenset(
+    {
+        "cut_sharing_mode",
+        "cut_directory",
+        "api_enabled",
+        "efficiency_update_skip",
+        "max_iterations",
+        "min_iterations",
+        "convergence_tol",
+        "elastic_penalty",
+        "alpha_min",
+        "alpha_max",
+        "hot_start",
+        "save_per_iteration",
+        "cuts_input_file",
+        "sentinel_file",
+        "elastic_mode",
+        "multi_cut_threshold",
+        "num_apertures",
+        "aperture_directory",
+        "boundary_cuts_file",
+        "boundary_cuts_mode",
+        "boundary_max_iterations",
+        "named_cuts_file",
+    }
+)
+
+# Keys that belong inside the ``monolithic_options`` JSON sub-object.
+# Must match the fields in ``json_data_contract<MonolithicOptions>``.
+# In the flat Excel sheet these are prefixed with ``monolithic_`` to
+# distinguish them from the identically-named SDDP fields (e.g.
+# ``monolithic_boundary_cuts_file`` → ``boundary_cuts_file``).
+MONOLITHIC_OPTION_KEYS: frozenset[str] = frozenset(
+    {
+        "solve_mode",
+        "boundary_cuts_file",
+        "boundary_cuts_mode",
+        "boundary_max_iterations",
+    }
+)
+
 _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
+    # ------------------------------------------------------------------
+    # Top-level options (stay at root of "options" JSON object)
+    # ------------------------------------------------------------------
     ("input_directory", "Directory for input time-series files", "input"),
     (
         "input_format",
@@ -1221,63 +1276,145 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     ("lp_algorithm", "LP solver algorithm code (0=auto)", None),
     ("lp_threads", "Number of LP solver threads (0=auto)", None),
     ("lp_presolve", "Enable LP presolve (true/false)", None),
+    (
+        "solver_type",
+        "Planning solver type: 'monolithic' (default) or 'sddp'",
+        None,
+    ),
     ("log_directory", "Directory for solver log files", "logs"),
     (
         "lp_debug",
         "Save debug LP files to log directory (true/false)",
         None,
     ),
-    # SDDP options
     (
-        "solver_type",
-        "Planning solver type: 'monolithic' (default) or 'sddp'",
+        "lp_compression",
+        "Compression codec for debug LP files (e.g. 'gzip')",
+        None,
+    ),
+    ("just_build_lp", "Build LP without solving (true/false)", None),
+    (
+        "lp_coeff_ratio_threshold",
+        "Warn when LP coefficient ratio exceeds this value",
+        None,
+    ),
+    # ------------------------------------------------------------------
+    # SDDP options (nested into "sddp_options" in JSON output)
+    # ------------------------------------------------------------------
+    (
+        "cut_sharing_mode",
+        "[sddp] How Benders cuts are shared: 'none', 'expected', or 'max'",
         None,
     ),
     (
-        "sddp_cut_sharing_mode",
-        "How Benders cuts are shared: 'none', 'expected', or 'max'",
-        None,
-    ),
-    (
-        "sddp_cut_directory",
-        "Directory for SDDP Benders cut files",
+        "cut_directory",
+        "[sddp] Directory for SDDP Benders cut files",
         "cuts",
     ),
-    ("sddp_api_enabled", "Write SDDP status JSON for monitoring (true/false)", None),
     (
-        "sddp_efficiency_update_skip",
-        "SDDP iterations between reservoir efficiency updates",
-        None,
-    ),
-    ("sddp_max_iterations", "Maximum SDDP outer iterations", None),
-    (
-        "sddp_convergence_tol",
-        "SDDP convergence tolerance (gap between bounds)",
-        None,
-    ),
-    ("sddp_elastic_penalty", "Penalty for elastic constraint relaxation", None),
-    ("sddp_alpha_min", "Minimum alpha (future cost) lower bound", None),
-    ("sddp_alpha_max", "Maximum alpha (future cost) upper bound", None),
-    ("sddp_cuts_input_file", "Path to pre-computed Benders cuts file", None),
-    (
-        "sddp_boundary_cuts_file",
-        "Path to boundary (future-cost) cuts CSV for last stage (varphi)",
+        "api_enabled",
+        "[sddp] Write SDDP status JSON for monitoring (true/false)",
         None,
     ),
     (
-        "sddp_boundary_cuts_mode",
-        "Boundary cuts load mode: 'noload', 'separated' (default), 'combined'",
+        "efficiency_update_skip",
+        "[sddp] SDDP iterations between reservoir efficiency updates",
+        None,
+    ),
+    ("max_iterations", "[sddp] Maximum SDDP outer iterations", None),
+    ("min_iterations", "[sddp] Minimum SDDP outer iterations", None),
+    (
+        "convergence_tol",
+        "[sddp] SDDP convergence tolerance (gap between bounds)",
+        None,
+    ),
+    (
+        "elastic_penalty",
+        "[sddp] Penalty for elastic constraint relaxation",
+        None,
+    ),
+    ("alpha_min", "[sddp] Minimum alpha (future cost) lower bound", None),
+    ("alpha_max", "[sddp] Maximum alpha (future cost) upper bound", None),
+    ("hot_start", "[sddp] Resume SDDP from existing cuts (true/false)", None),
+    (
+        "save_per_iteration",
+        "[sddp] Save cuts after every iteration (true/false)",
+        None,
+    ),
+    (
+        "cuts_input_file",
+        "[sddp] Path to pre-computed Benders cuts file",
+        None,
+    ),
+    (
+        "sentinel_file",
+        "[sddp] Path to sentinel file that stops SDDP early",
+        None,
+    ),
+    (
+        "elastic_mode",
+        "[sddp] Elastic constraint mode: 'none', 'feasibility', or 'cost'",
+        None,
+    ),
+    (
+        "multi_cut_threshold",
+        "[sddp] Threshold for multi-cut aggregation",
+        None,
+    ),
+    (
+        "num_apertures",
+        "[sddp] Number of backward-pass apertures",
+        None,
+    ),
+    (
+        "aperture_directory",
+        "[sddp] Directory for aperture definition files",
+        None,
+    ),
+    (
+        "boundary_cuts_file",
+        "[sddp] Path to boundary (future-cost) cuts CSV for last stage",
+        None,
+    ),
+    (
+        "boundary_cuts_mode",
+        "[sddp] Boundary cuts load mode: 'noload', 'separated', 'combined'",
         "separated",
     ),
     (
-        "sddp_boundary_max_iterations",
-        "Max SDDP iterations to load from boundary cuts (0=all)",
+        "boundary_max_iterations",
+        "[sddp] Max SDDP iterations to load from boundary cuts (0=all)",
         0,
     ),
-    ("sddp_sentinel_file", "Path to sentinel file that stops SDDP early", None),
     (
-        "sddp_elastic_mode",
-        "Elastic constraint mode: 'none', 'feasibility', or 'cost'",
+        "named_cuts_file",
+        "[sddp] Path to named cuts file for warm-starting SDDP",
+        None,
+    ),
+    # ------------------------------------------------------------------
+    # Monolithic options (nested into "monolithic_options" in JSON output)
+    # In the flat Excel sheet these use a "monolithic_" prefix to avoid
+    # name collisions with the SDDP options above.  The prefix is
+    # stripped when writing the JSON sub-object.
+    # ------------------------------------------------------------------
+    (
+        "monolithic_solve_mode",
+        "[monolithic] Solve mode: 'monolithic' or 'relaxed'",
+        None,
+    ),
+    (
+        "monolithic_boundary_cuts_file",
+        "[monolithic] Path to boundary cuts CSV for monolithic solver",
+        None,
+    ),
+    (
+        "monolithic_boundary_cuts_mode",
+        "[monolithic] Boundary cuts mode: 'noload', 'separated', 'combined'",
+        None,
+    ),
+    (
+        "monolithic_boundary_max_iterations",
+        "[monolithic] Max iterations to load from boundary cuts (0=all)",
         None,
     ),
 ]

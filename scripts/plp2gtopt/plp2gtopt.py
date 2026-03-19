@@ -4,9 +4,12 @@ Handles:
 - Coordinating all parser modules
 - Validating input data consistency
 - Managing conversion process
+- Post-conversion validation via gtopt_check_json
 """
 
+import json
 import logging
+import sys
 import time
 import zipfile
 from pathlib import Path
@@ -64,6 +67,161 @@ def _log_stats(planning: dict, elapsed: float) -> None:
     logger.info("  Elapsed         : %.3fs", elapsed)
 
 
+def _plp_element_counts(parser: PLPParser) -> dict[str, int]:
+    """Extract PLP element counts from the parser for comparison."""
+    pd = parser.parsed_data
+    counts: dict[str, int] = {}
+
+    bus_parser = pd.get("bus_parser")
+    if bus_parser:
+        counts["buses"] = getattr(bus_parser, "num_buses", 0)
+
+    central_parser = pd.get("central_parser")
+    if central_parser:
+        counts["centrals"] = getattr(central_parser, "num_centrals", 0)
+        for ctype, clist in central_parser.centrals_of_type.items():
+            counts[f"  {ctype}"] = len(clist)
+
+    demand_parser = pd.get("dem_parser")
+    if demand_parser:
+        counts["demands"] = getattr(demand_parser, "num_demands", 0)
+
+    line_parser = pd.get("line_parser")
+    if line_parser:
+        counts["lines"] = getattr(line_parser, "num_lines", 0)
+
+    battery_parser = pd.get("battery_parser")
+    if battery_parser:
+        counts["batteries (plpcenbat)"] = len(getattr(battery_parser, "batteries", []))
+
+    ess_parser = pd.get("ess_parser")
+    if ess_parser:
+        counts["ESS (plpess)"] = len(getattr(ess_parser, "items", []))
+
+    block_parser = pd.get("block_parser")
+    if block_parser:
+        counts["blocks"] = getattr(block_parser, "num_blocks", 0)
+
+    stage_parser = pd.get("stage_parser")
+    if stage_parser:
+        counts["stages"] = getattr(stage_parser, "num_stages", 0)
+
+    return counts
+
+
+def _gtopt_element_counts(planning: dict[str, Any]) -> dict[str, int]:
+    """Extract gtopt element counts from the planning dict."""
+    sys = planning.get("system", {})
+    sim = planning.get("simulation", {})
+    return {
+        "buses": len(sys.get("bus_array", [])),
+        "generators": len(sys.get("generator_array", [])),
+        "generator_profiles": len(sys.get("generator_profile_array", [])),
+        "demands": len(sys.get("demand_array", [])),
+        "demand_profiles": len(sys.get("demand_profile_array", [])),
+        "lines": len(sys.get("line_array", [])),
+        "batteries": len(sys.get("battery_array", [])),
+        "converters": len(sys.get("converter_array", [])),
+        "junctions": len(sys.get("junction_array", [])),
+        "waterways": len(sys.get("waterway_array", [])),
+        "flows": len(sys.get("flow_array", [])),
+        "reservoirs": len(sys.get("reservoir_array", [])),
+        "filtrations": len(sys.get("filtration_array", [])),
+        "turbines": len(sys.get("turbine_array", [])),
+        "blocks": len(sim.get("block_array", [])),
+        "stages": len(sim.get("stage_array", [])),
+        "scenarios": len(sim.get("scenario_array", [])),
+    }
+
+
+def _log_comparison(
+    plp_counts: dict[str, int],
+    gtopt_counts: dict[str, int],
+) -> None:
+    """Log a side-by-side comparison of PLP vs gtopt element counts."""
+    logger.info("=== PLP vs gtopt element comparison ===")
+    logger.info("  %-25s %8s %8s", "Element", "PLP", "gtopt")
+    logger.info("  %-25s %8s %8s", "-" * 25, "-" * 8, "-" * 8)
+
+    # PLP counts
+    for key, val in plp_counts.items():
+        logger.info("  %-25s %8d %8s", key, val, "")
+
+    logger.info("  %-25s %8s %8s", "", "", "")
+
+    # gtopt counts (skip zero counts for cleanliness)
+    for key, val in gtopt_counts.items():
+        if val > 0:
+            logger.info("  %-25s %8s %8d", key, "", val)
+
+
+def run_post_check(
+    planning: dict[str, Any],
+    parser: PLPParser,
+) -> None:
+    """Run gtopt_check_json validation on the generated planning dict.
+
+    Prints system statistics, a PLP-vs-gtopt element comparison, and
+    runs basic validation checks.  Skips gracefully if gtopt_check_json
+    is not importable.
+
+    Parameters
+    ----------
+    planning
+        The planning dict produced by GTOptWriter.
+    parser
+        The PLPParser instance with parsed PLP data.
+    """
+    # --- PLP vs gtopt comparison (always available) ---
+    plp_counts = _plp_element_counts(parser)
+    gtopt_counts = _gtopt_element_counts(planning)
+    _log_comparison(plp_counts, gtopt_counts)
+
+    # --- gtopt_check_json integration (optional) ---
+    try:
+        from gtopt_check_json._info import format_info  # noqa: PLC0415
+        from gtopt_check_json._checks import (  # noqa: PLC0415
+            run_all_checks,
+            Severity,
+        )
+    except ImportError:
+        logger.debug("gtopt_check_json not available; skipping JSON validation checks")
+        return
+
+    # Print system statistics
+    logger.info("=== gtopt_check_json: system info ===")
+    for line in format_info(planning).splitlines():
+        logger.info("  %s", line)
+
+    # Run validation checks (all non-AI checks)
+    findings = run_all_checks(planning, enabled_checks=None, ai_options=None)
+
+    if not findings:
+        logger.info("gtopt_check_json: all checks passed — no issues found.")
+        return
+
+    critical_count = 0
+    warning_count = 0
+    note_count = 0
+    for finding in findings:
+        if finding.severity == Severity.CRITICAL:
+            logger.error("[CRITICAL] (%s) %s", finding.check_id, finding.message)
+            critical_count += 1
+        elif finding.severity == Severity.WARNING:
+            logger.warning("[WARNING] (%s) %s", finding.check_id, finding.message)
+            warning_count += 1
+        else:
+            logger.info("[NOTE] (%s) %s", finding.check_id, finding.message)
+            note_count += 1
+
+    logger.info(
+        "gtopt_check_json summary: %d critical, %d warnings, %d notes",
+        critical_count,
+        warning_count,
+        note_count,
+    )
+
+
 def create_zip_output(output_file: Path, output_dir: Path, zip_path: Path) -> None:
     """Create a ZIP archive containing the JSON file and all data files.
 
@@ -99,6 +257,40 @@ def create_zip_output(output_file: Path, output_dir: Path, zip_path: Path) -> No
     )
 
 
+def validate_plp_case(options: dict[str, Any]) -> bool:
+    """Validate PLP input files without writing any output.
+
+    Parses all PLP files, builds the planning dict in memory, and reports
+    element counts.  Returns True if the case is valid, False if errors
+    were encountered.
+
+    Args:
+        options: Conversion options dict (same keys as convert_plp_case).
+
+    Returns:
+        True if the PLP case is valid, False otherwise.
+    """
+    input_dir = Path(options.get("input_dir", "input"))
+    if not input_dir.exists():
+        logger.error("Input directory does not exist: '%s'", input_dir)
+        return False
+
+    try:
+        logger.info("Validating PLP input files from: %s", input_dir)
+        parser = PLPParser(options)
+        parser.parse_all()
+
+        writer = GTOptWriter(parser)
+        planning = writer.to_json(options)
+
+        _log_stats(planning, 0.0)
+        logger.info("Validation passed.")
+        return True
+    except (RuntimeError, FileNotFoundError, ValueError, OSError) as exc:
+        logger.error("Validation failed: %s", exc)
+        return False
+
+
 def convert_plp_case(options: dict[str, Any]) -> None:
     """Convert PLP input files to GTOPT format.
 
@@ -108,7 +300,9 @@ def convert_plp_case(options: dict[str, Any]) -> None:
             compression, hydrologies, probability_factors, discount_rate,
             management_factor, zip_output (optional, default False),
             excel_output (optional, default False),
-            excel_file (optional, defaults to output_file with .xlsx suffix).
+            excel_file (optional, defaults to output_file with .xlsx suffix),
+            run_check (optional, default True) — run post-conversion
+            validation via gtopt_check_json.
 
     Raises:
         RuntimeError: If any step of the conversion fails.
@@ -121,6 +315,7 @@ def convert_plp_case(options: dict[str, Any]) -> None:
         )
 
     excel_output = options.get("excel_output", False)
+    do_check = options.get("run_check", True)
 
     try:
         t0 = time.monotonic()
@@ -175,6 +370,10 @@ def convert_plp_case(options: dict[str, Any]) -> None:
                 create_zip_output(output_file, output_dir, zip_path)
                 print(f"ZIP archive created: {zip_path}")
 
+        # Post-conversion validation
+        if do_check:
+            run_post_check(writer.planning, parser)
+
     except RuntimeError:
         raise
     except FileNotFoundError as e:
@@ -187,3 +386,121 @@ def convert_plp_case(options: dict[str, Any]) -> None:
         ) from e
     except Exception as e:
         raise RuntimeError(f"PLP to GTOPT conversion failed. Details: {e}") from e
+
+
+def generate_variable_scales_template(options: dict[str, Any]) -> str:
+    """Generate a pre-computed variable_scales JSON template from PLP case data.
+
+    Parses the PLP case (same initial steps as convert_plp_case) and builds
+    a JSON array of VariableScale objects for reservoirs and batteries.
+
+    For each reservoir, the volume scale is computed from FEscala
+    (``10^(FEscala - 6)``), falling back to the Escala field from
+    plpcnfce.dat if FEscala is not available.
+
+    For each battery/ESS, energy_scale defaults to 0.01.
+
+    Informational fields prefixed with ``_`` (``_name``, ``_fescala``) are
+    included as comments; gtopt ignores unknown fields starting with ``_``.
+
+    Args:
+        options: Conversion options dict (same keys as convert_plp_case).
+
+    Returns:
+        Pretty-printed JSON string of the variable_scales array.
+
+    Raises:
+        RuntimeError: If parsing or conversion fails.
+    """
+    input_dir = Path(options.get("input_dir", "input"))
+    if not input_dir.exists():
+        raise RuntimeError(f"Input directory does not exist: '{input_dir}'")
+
+    # Parse PLP files
+    parser = PLPParser(options)
+    parser.parse_all()
+
+    # Build planning dict to get reservoir/battery arrays with UIDs
+    writer = GTOptWriter(parser)
+    planning = writer.to_json(options)
+
+    scales: list[dict[str, Any]] = []
+
+    # --- Reservoir volume scales ---
+    planos = parser.parsed_data.get("planos_parser")
+    fescala_map: dict[str, int] = {}
+    if planos is not None:
+        fescala_map = planos.reservoir_fescala
+
+    central_parser = parser.parsed_data.get("central_parser")
+    central_vol_scale: dict[str, float] = {}
+    if central_parser is not None:
+        for central in central_parser.centrals:
+            if central.get("type") == "embalse" and "vol_scale" in central:
+                central_vol_scale[str(central["name"])] = central["vol_scale"]
+
+    reservoirs = planning.get("system", {}).get("reservoir_array", [])
+    for rsv in reservoirs:
+        name = rsv["name"]
+        uid = rsv["uid"]
+        scale: float | None = None
+        fescala_val: int | None = None
+
+        # Priority 1: FEscala from plpplem1.dat
+        fescala = fescala_map.get(name)
+        if fescala is not None:
+            scale = 10.0 ** (fescala - 6)
+            fescala_val = fescala
+        else:
+            # Fallback: Escala from plpcnfce.dat (already divided by 1e6)
+            cvs = central_vol_scale.get(name)
+            if cvs is not None:
+                scale = cvs
+
+        entry: dict[str, Any] = {
+            "class_name": "Reservoir",
+            "variable": "volume",
+            "uid": uid,
+            "scale": scale if scale is not None else 1.0,
+            "_name": name,
+        }
+        if fescala_val is not None:
+            entry["_fescala"] = fescala_val
+        scales.append(entry)
+
+    # --- Battery energy scales ---
+    batteries = planning.get("system", {}).get("battery_array", [])
+    for bat in batteries:
+        name = bat["name"]
+        uid = bat["uid"]
+        scales.append(
+            {
+                "class_name": "Battery",
+                "variable": "energy",
+                "uid": uid,
+                "scale": 0.01,
+                "_name": name,
+            }
+        )
+
+    return json.dumps(scales, indent=2, ensure_ascii=False)
+
+
+def print_variable_scales_template(options: dict[str, Any]) -> int:
+    """Print a pre-computed variable_scales JSON template to stdout.
+
+    Calls :func:`generate_variable_scales_template` and prints the result.
+
+    Args:
+        options: Conversion options dict (same keys as convert_plp_case).
+
+    Returns:
+        0 on success, 1 on error.
+    """
+    try:
+        output = generate_variable_scales_template(options)
+        print(output)
+        return 0
+    except (RuntimeError, FileNotFoundError, ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1

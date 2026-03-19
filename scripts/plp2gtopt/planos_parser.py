@@ -53,6 +53,13 @@ from plp2gtopt.base_parser import BaseParser
 
 logger = logging.getLogger(__name__)
 
+# FEscala field index (0-based) in the CSV-format plpplem1.dat / plpplaem1.dat.
+# The CSV row layout is:
+#   Numero, Nombre, Tipo, Barra, N/A, VolMin, VolMax, VolMinNECF, VolMaxNECF,
+#   FEscala, FactRendim
+# so FEscala is at index 9.
+_FESCALA_IDX = 9
+
 
 # -- File-discovery helper ---------------------------------------------------
 
@@ -81,6 +88,10 @@ class PlanosParser(BaseParser):
     ----------
     reservoir_names : list[str]
         Ordered reservoir names from plpplaem1/plpplem1.
+    reservoir_fescala : dict[str, int]
+        Mapping from reservoir name to FEscala exponent (from the CSV
+        format of plpplem1.dat, field index 9).  Empty when the simple
+        format is used or the FEscala column is absent.
     boundary_stage : int
         The PLP stage number to which boundary cuts apply (1-based).
     cuts : list[dict]
@@ -103,6 +114,7 @@ class PlanosParser(BaseParser):
         self.file_path1 = Path(file_path1)
         self.file_path2 = Path(file_path2)
         self.reservoir_names: List[str] = []
+        self.reservoir_fescala: Dict[str, int] = {}
         self.boundary_stage: int = 0
         self.cuts: List[Dict[str, Any]] = []
         self.all_cuts: List[Dict[str, Any]] = []
@@ -121,13 +133,18 @@ class PlanosParser(BaseParser):
     # ------------------------------------------------------------------
 
     def _parse_reservoir_map(self) -> None:
-        """Parse file 1 for reservoir-name mapping.
+        """Parse file 1 for reservoir-name mapping and optional FEscala.
 
         Supports both the simple format (count header + index/name pairs)
         and the CSV format (comment header + ``index,name,...`` rows).
         The Fortran reader ``READ(*, *) PLPIEmb, PLPCenNom`` treats both
         formats identically because free-format READ splits on whitespace
         or commas and ignores trailing fields.
+
+        In the CSV format, field index 9 (0-based) contains ``FEscala``
+        — a logarithmic volume-scale exponent.  The LP volume scale is
+        ``10^(FEscala - 6)`` (e.g. FEscala=9 → 1000, FEscala=8 → 100).
+        When present, these values are stored in :attr:`reservoir_fescala`.
         """
         lines = self._read_lines(self.file_path1)
         if not lines:
@@ -156,6 +173,15 @@ class PlanosParser(BaseParser):
             # Field 1: reservoir name (may have trailing spaces / quotes)
             name = fields[1].strip().strip("'\"")
             self.reservoir_names.append(name)
+
+            # Extract FEscala when present (CSV extended format only)
+            # FEscala field index in the CSV format (0-based): field 9.
+            if len(fields) > _FESCALA_IDX:
+                try:
+                    fescala = int(fields[_FESCALA_IDX].strip())
+                    self.reservoir_fescala[name] = fescala
+                except (ValueError, IndexError):
+                    pass  # Not a valid integer — skip silently
 
         logger.info(
             "%s: %d reservoir(s) in boundary cuts: %s",

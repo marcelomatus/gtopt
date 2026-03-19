@@ -13,6 +13,10 @@
 
 #pragma once
 
+#include <filesystem>
+#include <string>
+
+#include <gtopt/enum_option.hpp>
 #include <gtopt/options.hpp>
 #include <gtopt/variable_scale.hpp>
 
@@ -331,6 +335,64 @@ public:
         default_lp_coeff_ratio_threshold);
   }
 
+  /**
+   * @brief Gets the global solve timeout in seconds (0 = no timeout).
+   *
+   * Applies to both monolithic and SDDP forward-pass LP solves.
+   * When non-zero, LP solves exceeding this time trigger a CRITICAL log
+   * and an error return.
+   *
+   * @return SDDP solve timeout (default 180s = 3 min)
+   */
+  [[nodiscard]] constexpr auto sddp_solve_timeout() const
+  {
+    return m_options_.sddp_options.solve_timeout.value_or(180.0);
+  }
+
+  /** @brief Aperture LP timeout in seconds.
+   * @return Aperture timeout (default 15s)
+   */
+  [[nodiscard]] constexpr auto sddp_aperture_timeout() const
+  {
+    return m_options_.sddp_options.aperture_timeout.value_or(15.0);
+  }
+
+  /** @brief Monolithic LP solve timeout in seconds.
+   * @return Monolithic solve timeout (default 18000s = 300 min)
+   */
+  [[nodiscard]] constexpr auto monolithic_solve_timeout() const
+  {
+    return m_options_.monolithic_options.solve_timeout.value_or(18000.0);
+  }
+
+  // ── Monolithic solver accessors ─────────────────────────────────────────
+
+  /// Monolithic solve mode: "monolithic" (default) or "sequential".
+  [[nodiscard]] auto monolithic_solve_mode() const -> Name
+  {
+    return m_options_.monolithic_options.solve_mode.value_or(
+        Name {"monolithic"});
+  }
+
+  /// CSV file with boundary cuts for the monolithic solver (empty = none).
+  [[nodiscard]] auto monolithic_boundary_cuts_file() const -> Name
+  {
+    return m_options_.monolithic_options.boundary_cuts_file.value_or(Name {});
+  }
+
+  /// Boundary cuts load mode: "noload", "separated" (default), "combined".
+  [[nodiscard]] auto monolithic_boundary_cuts_mode() const -> Name
+  {
+    return m_options_.monolithic_options.boundary_cuts_mode.value_or(
+        Name {"separated"});
+  }
+
+  /// Maximum boundary cut iterations to load (0 = all).
+  [[nodiscard]] auto monolithic_boundary_max_iterations() const -> int
+  {
+    return m_options_.monolithic_options.boundary_max_iterations.value_or(0);
+  }
+
   // Default values for SDDP solver settings
   /** @brief Default solver type */
   static constexpr auto default_sddp_solver_type = "monolithic";
@@ -382,7 +444,7 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_cut_sharing_mode() const
   {
-    return m_options_.sddp_options.sddp_cut_sharing_mode.value_or(
+    return m_options_.sddp_options.cut_sharing_mode.value_or(
         default_sddp_cut_sharing_mode);
   }
 
@@ -392,17 +454,26 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_cut_directory() const
   {
-    return m_options_.sddp_options.sddp_cut_directory.value_or(
+    return m_options_.sddp_options.cut_directory.value_or(
         default_sddp_cut_directory);
   }
 
   /**
-   * @brief Gets the log directory for log/trace files, using default if not set
+   * @brief Gets the log directory for log/trace files.
+   *
+   * When `log_directory` is explicitly set in the JSON / CLI, that value is
+   * used as-is.  Otherwise the default is `output_directory + "/logs"` so
+   * that all solver output (results, cuts, logs) is consolidated under a
+   * single root directory.
+   *
    * @return The log directory path (global — used by both monolithic and SDDP)
    */
-  [[nodiscard]] constexpr auto log_directory() const
+  [[nodiscard]] auto log_directory() const -> std::string
   {
-    return m_options_.log_directory.value_or(default_log_directory);
+    if (m_options_.log_directory.has_value()) {
+      return m_options_.log_directory.value();
+    }
+    return (std::filesystem::path(output_directory()) / "logs").string();
   }
 
   /**
@@ -411,7 +482,7 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_api_enabled() const
   {
-    return m_options_.sddp_options.sddp_api_enabled.value_or(
+    return m_options_.sddp_options.api_enabled.value_or(
         default_sddp_api_enabled);
   }
 
@@ -421,7 +492,7 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_efficiency_update_skip() const
   {
-    return m_options_.sddp_options.sddp_efficiency_update_skip.value_or(
+    return m_options_.sddp_options.efficiency_update_skip.value_or(
         default_sddp_efficiency_update_skip);
   }
 
@@ -431,7 +502,7 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_max_iterations() const
   {
-    return m_options_.sddp_options.sddp_max_iterations.value_or(
+    return m_options_.sddp_options.max_iterations.value_or(
         default_sddp_max_iterations);
   }
 
@@ -441,7 +512,7 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_min_iterations() const
   {
-    return m_options_.sddp_options.sddp_min_iterations.value_or(
+    return m_options_.sddp_options.min_iterations.value_or(
         default_sddp_min_iterations);
   }
 
@@ -451,7 +522,7 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_convergence_tol() const
   {
-    return m_options_.sddp_options.sddp_convergence_tol.value_or(
+    return m_options_.sddp_options.convergence_tol.value_or(
         default_sddp_convergence_tol);
   }
 
@@ -461,7 +532,7 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_elastic_penalty() const
   {
-    return m_options_.sddp_options.sddp_elastic_penalty.value_or(
+    return m_options_.sddp_options.elastic_penalty.value_or(
         default_sddp_elastic_penalty);
   }
 
@@ -471,8 +542,7 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_alpha_min() const
   {
-    return m_options_.sddp_options.sddp_alpha_min.value_or(
-        default_sddp_alpha_min);
+    return m_options_.sddp_options.alpha_min.value_or(default_sddp_alpha_min);
   }
 
   /**
@@ -481,8 +551,7 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_alpha_max() const
   {
-    return m_options_.sddp_options.sddp_alpha_max.value_or(
-        default_sddp_alpha_max);
+    return m_options_.sddp_options.alpha_max.value_or(default_sddp_alpha_max);
   }
 
   /**
@@ -490,7 +559,15 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_hot_start() const
   {
-    return m_options_.sddp_options.sddp_hot_start.value_or(false);
+    return m_options_.sddp_options.hot_start.value_or(false);
+  }
+
+  /**
+   * @brief Whether to save cuts after each iteration (default: true)
+   */
+  [[nodiscard]] constexpr auto sddp_save_per_iteration() const
+  {
+    return m_options_.sddp_options.save_per_iteration.value_or(true);
   }
 
   /**
@@ -499,7 +576,7 @@ public:
    */
   [[nodiscard]] auto sddp_cuts_input_file() const -> Name
   {
-    return m_options_.sddp_options.sddp_cuts_input_file.value_or("");
+    return m_options_.sddp_options.cuts_input_file.value_or("");
   }
 
   /**
@@ -508,7 +585,7 @@ public:
    */
   [[nodiscard]] auto sddp_sentinel_file() const -> Name
   {
-    return m_options_.sddp_options.sddp_sentinel_file.value_or("");
+    return m_options_.sddp_options.sentinel_file.value_or("");
   }
 
   /**
@@ -517,7 +594,7 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_elastic_mode() const
   {
-    return m_options_.sddp_options.sddp_elastic_mode.value_or(
+    return m_options_.sddp_options.elastic_mode.value_or(
         default_sddp_elastic_mode);
   }
 
@@ -528,46 +605,130 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_multi_cut_threshold() const
   {
-    return m_options_.sddp_options.sddp_multi_cut_threshold.value_or(
+    return m_options_.sddp_options.multi_cut_threshold.value_or(
         default_sddp_multi_cut_threshold);
   }
 
   [[nodiscard]] constexpr auto sddp_num_apertures() const
   {
-    return m_options_.sddp_options.sddp_num_apertures.value_or(0);
+    return m_options_.sddp_options.num_apertures.value_or(0);
   }
 
   /// Directory for aperture-specific scenario data (empty = use
   /// input_directory)
   [[nodiscard]] auto sddp_aperture_directory() const -> Name
   {
-    return m_options_.sddp_options.sddp_aperture_directory.value_or(Name {});
+    return m_options_.sddp_options.aperture_directory.value_or(Name {});
   }
 
   /// CSV file with boundary (future-cost) cuts for the last phase.
   /// Empty = no boundary cuts.
   [[nodiscard]] auto sddp_boundary_cuts_file() const -> Name
   {
-    return m_options_.sddp_options.sddp_boundary_cuts_file.value_or(Name {});
+    return m_options_.sddp_options.boundary_cuts_file.value_or(Name {});
   }
 
   /// Boundary cuts load mode: "noload", "separated" (default), or "combined".
   [[nodiscard]] auto sddp_boundary_cuts_mode() const -> Name
   {
-    return m_options_.sddp_options.sddp_boundary_cuts_mode.value_or(
+    return m_options_.sddp_options.boundary_cuts_mode.value_or(
         Name {"separated"});
   }
 
   /// Maximum boundary cut iterations to load (0 = all).
   [[nodiscard]] auto sddp_boundary_max_iterations() const -> int
   {
-    return m_options_.sddp_options.sddp_boundary_max_iterations.value_or(0);
+    return m_options_.sddp_options.boundary_max_iterations.value_or(0);
   }
 
   /// CSV file with named-variable cuts for hot-start across all phases.
   [[nodiscard]] auto sddp_named_cuts_file() const -> Name
   {
-    return m_options_.sddp_options.sddp_named_cuts_file.value_or(Name {});
+    return m_options_.sddp_options.named_cuts_file.value_or(Name {});
+  }
+
+  // ── Enum-typed accessors ──────────────────────────────────────────────────
+  // These return proper enum types, converting from the underlying OptName
+  // string fields.  Use these in preference to the string-returning
+  // accessors above for type-safe comparisons.
+
+  /// Solver type as an enum (SolverType::monolithic or SolverType::sddp).
+  [[nodiscard]] auto solver_type_enum() const -> SolverType
+  {
+    return solver_type_from_name(
+               m_options_.solver_type.value_or(default_sddp_solver_type))
+        .value_or(SolverType::monolithic);
+  }
+
+  /// Input data format as an enum (DataFormat::parquet or DataFormat::csv).
+  [[nodiscard]] constexpr auto input_format_enum() const -> DataFormat
+  {
+    return data_format_from_name(
+               m_options_.input_format.value_or(default_input_format))
+        .value_or(DataFormat::parquet);
+  }
+
+  /// Output data format as an enum (DataFormat::parquet or DataFormat::csv).
+  [[nodiscard]] constexpr auto output_format_enum() const -> DataFormat
+  {
+    return data_format_from_name(
+               m_options_.output_format.value_or(default_output_format))
+        .value_or(DataFormat::parquet);
+  }
+
+  /// Output compression codec as an enum.
+  [[nodiscard]] constexpr auto output_compression_enum() const
+      -> CompressionCodec
+  {
+    return compression_codec_from_name(m_options_.output_compression.value_or(
+                                           default_output_compression))
+        .value_or(CompressionCodec::zstd);
+  }
+
+  /// SDDP cut sharing mode as an enum.
+  [[nodiscard]] constexpr auto sddp_cut_sharing_mode_enum() const
+      -> CutSharingMode
+  {
+    return cut_sharing_mode_from_name(
+               m_options_.sddp_options.cut_sharing_mode.value_or(
+                   default_sddp_cut_sharing_mode))
+        .value_or(CutSharingMode::none);
+  }
+
+  /// SDDP elastic filter mode as an enum.
+  [[nodiscard]] constexpr auto sddp_elastic_mode_enum() const
+      -> ElasticFilterMode
+  {
+    return elastic_filter_mode_from_name(
+               m_options_.sddp_options.elastic_mode.value_or(
+                   default_sddp_elastic_mode))
+        .value_or(ElasticFilterMode::single_cut);
+  }
+
+  /// SDDP boundary cuts mode as an enum.
+  [[nodiscard]] auto sddp_boundary_cuts_mode_enum() const -> BoundaryCutsMode
+  {
+    return boundary_cuts_mode_from_name(
+               m_options_.sddp_options.boundary_cuts_mode.value_or("separated"))
+        .value_or(BoundaryCutsMode::separated);
+  }
+
+  /// Monolithic solve mode as an enum.
+  [[nodiscard]] auto monolithic_solve_mode_enum() const -> SolveMode
+  {
+    return solve_mode_from_name(
+               m_options_.monolithic_options.solve_mode.value_or("monolithic"))
+        .value_or(SolveMode::monolithic);
+  }
+
+  /// Monolithic boundary cuts mode as an enum.
+  [[nodiscard]] auto monolithic_boundary_cuts_mode_enum() const
+      -> BoundaryCutsMode
+  {
+    return boundary_cuts_mode_from_name(
+               m_options_.monolithic_options.boundary_cuts_mode.value_or(
+                   "separated"))
+        .value_or(BoundaryCutsMode::separated);
   }
 
   /**

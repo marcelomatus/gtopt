@@ -105,6 +105,18 @@ public:
   /// Compression format for LP debug files ("gzip" / "uncompressed" / "").
   /// Empty or "uncompressed" means no compression; any other value uses gzip.
   std::string lp_debug_compression {};
+  /// Monolithic solve mode: "monolithic" (default) or "sequential".
+  std::string solve_mode {"monolithic"};
+  /// CSV file with boundary (future-cost) cuts (empty = none).
+  std::string boundary_cuts_file {};
+  /// Boundary cuts load mode: "noload", "separated" (default), "combined".
+  std::string boundary_cuts_mode {"separated"};
+  /// Maximum iterations to load from boundary cuts file (0 = all).
+  int boundary_max_iterations {0};
+  /// Global solve timeout in seconds (0 = no timeout).
+  /// When non-zero, each LP solve is given this time limit; if exceeded,
+  /// the LP is saved to a debug file and a CRITICAL message is logged.
+  double solve_timeout {0.0};
 
   [[nodiscard]] auto solve(PlanningLP& planning_lp, const SolverOptions& opts)
       -> std::expected<int, Error> override;
@@ -117,9 +129,11 @@ class OptionsLP;
 /**
  * @brief Create a solver instance based on options
  * @param options The OptionsLP with all resolved SDDP configuration
+ * @param num_phases Number of phases in the simulation (used to validate
+ *        SDDP requirements; falls back to monolithic when < 2)
  * @return Unique pointer to the selected solver
  */
 [[nodiscard]] std::unique_ptr<PlanningSolver> make_planning_solver(
-    const OptionsLP& options);
+    const OptionsLP& options, size_t num_phases = 0);
 
 }  // namespace gtopt
