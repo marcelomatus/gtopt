@@ -93,7 +93,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
       .use_state_variable = battery().use_state_variable.value_or(false),
       .daily_cycle = battery().daily_cycle.value_or(true),
       .energy_scale = es,
-      .flow_scale = es,
+      .flow_scale = 1.0,  // finp/fout columns are unscaled (physical MW)
   };
   if (!StorageBase::add_to_lp(cname,
                               sc,
