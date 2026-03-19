@@ -65,15 +65,6 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   const auto fmin = reservoir().fmin.value_or(-LinearProblem::DblMax);
   const auto fmax = reservoir().fmax.value_or(+LinearProblem::DblMax);
 
-  // vol_scale is used both as the energy (volume) scale and as the flow
-  // variable scale so that the energy-balance (rsv_vol) row coefficients
-  // become flow_conversion_rate × duration — O(1) — instead of the tiny
-  // values (~1e-5) that arise when vol_scale is large (e.g. 100 000).
-  //
-  // Trade-off: the junction-balance (jct_bal) coefficient for rsv_fext
-  // becomes vol_scale (instead of 1). In practice a single large coefficient
-  // in an otherwise ±1 matrix is handled well by LP solvers, whereas many
-  // energy-balance rows with 1e-5 coefficients degrade convergence.
   // Resolve vol_scale: per-element field > VariableScaleMap > default.
   const double vol_scale = [&]
   {
@@ -84,7 +75,18 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
         sc.options().variable_scale_map().lookup("Reservoir", "volume", uid());
     return (vs != 1.0) ? vs : Reservoir::default_vol_scale;
   }();
-  const double inv_vol_scale = 1.0 / vol_scale;
+
+  // Resolve flow_scale independently from vol_scale.
+  // Default 1.0: extraction flow fext stays in physical m³/s.
+  // Setting flow_scale = vol_scale (legacy) keeps energy-balance
+  // coefficients O(1) but couples two different physical quantities.
+  const double flow_scale = [&]
+  {
+    const auto fs =
+        sc.options().variable_scale_map().lookup("Reservoir", "flow", uid());
+    return (fs != 1.0) ? fs : 1.0;
+  }();
+  const double inv_flow_scale = 1.0 / flow_scale;
 
   BIndexHolder<ColIndex> rcols;
   BIndexHolder<ColIndex> scols;
@@ -94,29 +96,29 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   for (auto&& block : blocks) {
     const auto buid = block.uid();
 
-    // rsv_fext LP variable = physical_flow [m³/s] / vol_scale.
+    // rsv_fext LP variable = physical_flow [m³/s] / flow_scale.
     // Bounds are scaled accordingly.
     const auto rc = lp.add_col(SparseCol {
         .name = sc.lp_label(scenario, stage, block, cname, "fext", uid()),
-        .lowb = fmin * inv_vol_scale,
-        .uppb = fmax * inv_vol_scale,
-        .scale = vol_scale,
+        .lowb = fmin * inv_flow_scale,
+        .uppb = fmax * inv_flow_scale,
+        .scale = flow_scale,
     });
 
     rcols[buid] = rc;
 
     // The extraction adds flow to the junction balance (in m³/s).
-    // Since rsv_fext_LP = fext_m3s / vol_scale, restore the physical unit by
-    // using vol_scale as the coefficient: fext_m3s = rsv_fext_LP × vol_scale.
+    // Since rsv_fext_LP = fext_m3s / flow_scale, restore the physical unit
+    // by using flow_scale as the coefficient.
     auto& brow = lp.row_at(balance_rows.at(buid));
-    brow[rc] = vol_scale;
+    brow[rc] = flow_scale;
   }
 
   const StorageOptions opts {
       .use_state_variable = reservoir().use_state_variable.value_or(true),
       .daily_cycle = reservoir().daily_cycle.value_or(false),
       .energy_scale = vol_scale,
-      .flow_scale = vol_scale,
+      .flow_scale = flow_scale,
   };
   if (!StorageBase::add_to_lp(cname,
                               sc,
