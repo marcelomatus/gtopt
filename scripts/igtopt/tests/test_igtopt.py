@@ -132,8 +132,8 @@ def test_df_to_str_independent_of_globals():
 # ---------------------------------------------------------------------------
 
 
-def test_log_conversion_stats_runs_without_error(caplog):
-    """log_conversion_stats must not raise and must produce INFO messages."""
+def test_log_conversion_stats_runs_without_error(capsys):
+    """log_conversion_stats must not raise and must produce styled output."""
     counts = {
         "bus_array": 4,
         "generator_array": 3,
@@ -150,18 +150,20 @@ def test_log_conversion_stats_runs_without_error(caplog):
         "demand_fail_cost": 1000,
         "input_directory": "/tmp/x",
     }
-    with caplog.at_level(logging.INFO):
-        log_conversion_stats(counts, opts, elapsed=0.5)
-    assert any("Buses" in r.message for r in caplog.records)
-    assert any("Generators" in r.message for r in caplog.records)
-    assert any("Elapsed" in r.message for r in caplog.records)
+    log_conversion_stats(counts, opts, elapsed=0.5)
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert "Buses" in combined
+    assert "Generators" in combined
+    assert "Elapsed" in combined
 
 
-def test_log_conversion_stats_empty_counts(caplog):
+def test_log_conversion_stats_empty_counts(capsys):
     """log_conversion_stats must handle all-zero counts gracefully."""
-    with caplog.at_level(logging.INFO):
-        log_conversion_stats({}, {}, elapsed=0.0)
-    assert any("Buses" in r.message for r in caplog.records)
+    log_conversion_stats({}, {}, elapsed=0.0)
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert "Buses" in combined
 
 
 # ---------------------------------------------------------------------------

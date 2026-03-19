@@ -31,7 +31,7 @@ from gtopt_check_json._config import (
     load_config,
     run_interactive_setup,
 )
-from gtopt_check_json._info import format_info, print_info
+from gtopt_check_json._info import print_info
 from gtopt_check_json._terminal import (
     init as _init_terminal,
     print_finding as _print_finding,
