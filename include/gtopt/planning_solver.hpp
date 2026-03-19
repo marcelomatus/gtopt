@@ -117,9 +117,11 @@ class OptionsLP;
 /**
  * @brief Create a solver instance based on options
  * @param options The OptionsLP with all resolved SDDP configuration
+ * @param num_phases Number of phases in the simulation (used to validate
+ *        SDDP requirements; falls back to monolithic when < 2)
  * @return Unique pointer to the selected solver
  */
 [[nodiscard]] std::unique_ptr<PlanningSolver> make_planning_solver(
-    const OptionsLP& options);
+    const OptionsLP& options, size_t num_phases = 0);
 
 }  // namespace gtopt

@@ -171,87 +171,97 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
 
 // ─── Factory ────────────────────────────────────────────────────────────────
 
-std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options)
+std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options,
+                                                     size_t num_phases)
 {
   if (options.solver_type() == "sddp") {
-    SDDPOptions sddp_opts;
+    // SDDP requires at least 2 phases; fall back to monolithic for 0 or 1.
+    if (num_phases > 0 && num_phases < 2) {
+      SPDLOG_INFO(
+          "SDDP requested but only {} phase(s); using monolithic solver",
+          num_phases);
+    } else {
+      SDDPOptions sddp_opts;
 
-    // Iteration control
-    sddp_opts.max_iterations = options.sddp_max_iterations();
-    sddp_opts.min_iterations = options.sddp_min_iterations();
-    sddp_opts.convergence_tol = options.sddp_convergence_tol();
+      // Iteration control
+      sddp_opts.max_iterations = options.sddp_max_iterations();
+      sddp_opts.min_iterations = options.sddp_min_iterations();
+      sddp_opts.convergence_tol = options.sddp_convergence_tol();
 
-    // Advanced tuning
-    sddp_opts.elastic_penalty = options.sddp_elastic_penalty();
-    sddp_opts.elastic_filter_mode =
-        parse_elastic_filter_mode(options.sddp_elastic_mode());
-    sddp_opts.multi_cut_threshold = options.sddp_multi_cut_threshold();
-    sddp_opts.num_apertures = options.sddp_num_apertures();
-    sddp_opts.alpha_min = options.sddp_alpha_min();
-    sddp_opts.alpha_max = options.sddp_alpha_max();
+      // Advanced tuning
+      sddp_opts.elastic_penalty = options.sddp_elastic_penalty();
+      sddp_opts.elastic_filter_mode =
+          parse_elastic_filter_mode(options.sddp_elastic_mode());
+      sddp_opts.multi_cut_threshold = options.sddp_multi_cut_threshold();
+      sddp_opts.num_apertures = options.sddp_num_apertures();
+      sddp_opts.alpha_min = options.sddp_alpha_min();
+      sddp_opts.alpha_max = options.sddp_alpha_max();
 
-    // Cut sharing and files
-    sddp_opts.cut_sharing =
-        parse_cut_sharing_mode(options.sddp_cut_sharing_mode());
-    // Place the cuts directory inside the output directory so that all
-    // solver output is self-contained.
-    const auto output_dir_sv = options.output_directory();
-    const auto cut_dir =
-        (std::filesystem::path(
-             output_dir_sv.empty() ? "output" : std::string(output_dir_sv))
-         / options.sddp_cut_directory())
-            .string();
-    sddp_opts.cuts_output_file =
-        (std::filesystem::path(cut_dir) / sddp_file::combined_cuts).string();
-
-    sddp_opts.hot_start = options.sddp_hot_start();
-    sddp_opts.save_per_iteration = options.sddp_save_per_iteration();
-    const auto cuts_input = options.sddp_cuts_input_file();
-    if (!cuts_input.empty()) {
-      sddp_opts.cuts_input_file = cuts_input;
-    }
-
-    const auto boundary_cuts = options.sddp_boundary_cuts_file();
-    if (!boundary_cuts.empty()) {
-      sddp_opts.boundary_cuts_file = std::string(boundary_cuts);
-    }
-    sddp_opts.boundary_cuts_mode =
-        std::string(options.sddp_boundary_cuts_mode());
-    sddp_opts.boundary_max_iterations = options.sddp_boundary_max_iterations();
-
-    const auto named_cuts = options.sddp_named_cuts_file();
-    if (!named_cuts.empty()) {
-      sddp_opts.named_cuts_file = std::string(named_cuts);
-    }
-
-    // Sentinel: honour the user-configured path when explicitly set.
-    const auto sentinel = options.sddp_sentinel_file();
-    const auto output_dir = options.output_directory();
-    if (!sentinel.empty()) {
-      sddp_opts.sentinel_file = sentinel;
-    }
-
-    // Logging and API
-    sddp_opts.log_directory = std::string(options.log_directory());
-    sddp_opts.lp_debug = options.lp_debug();
-    sddp_opts.just_build_lp = options.just_build_lp();
-    sddp_opts.lp_debug_compression = std::string(options.lp_compression());
-    sddp_opts.enable_api = options.sddp_api_enabled();
-    if (!output_dir.empty()) {
-      sddp_opts.api_status_file =
-          (std::filesystem::path(output_dir) / "sddp_status.json").string();
-      // The monitoring API stop-request file lets the webservice (or any
-      // external tool) trigger a graceful stop without using the raw sentinel
-      // file.  The solver checks: sentinel_file exists || stop_request exists.
-      sddp_opts.api_stop_request_file =
-          (std::filesystem::path(output_dir) / sddp_file::stop_request)
+      // Cut sharing and files
+      sddp_opts.cut_sharing =
+          parse_cut_sharing_mode(options.sddp_cut_sharing_mode());
+      // Place the cuts directory inside the output directory so that all
+      // solver output is self-contained.
+      const auto output_dir_sv = options.output_directory();
+      const auto cut_dir =
+          (std::filesystem::path(
+               output_dir_sv.empty() ? "output" : std::string(output_dir_sv))
+           / options.sddp_cut_directory())
               .string();
-    }
+      sddp_opts.cuts_output_file =
+          (std::filesystem::path(cut_dir) / sddp_file::combined_cuts).string();
 
-    return std::make_unique<SDDPPlanningSolver>(std::move(sddp_opts));
-  }
+      sddp_opts.hot_start = options.sddp_hot_start();
+      sddp_opts.save_per_iteration = options.sddp_save_per_iteration();
+      const auto cuts_input = options.sddp_cuts_input_file();
+      if (!cuts_input.empty()) {
+        sddp_opts.cuts_input_file = cuts_input;
+      }
 
-  // Default: monolithic
+      const auto boundary_cuts = options.sddp_boundary_cuts_file();
+      if (!boundary_cuts.empty()) {
+        sddp_opts.boundary_cuts_file = std::string(boundary_cuts);
+      }
+      sddp_opts.boundary_cuts_mode =
+          std::string(options.sddp_boundary_cuts_mode());
+      sddp_opts.boundary_max_iterations =
+          options.sddp_boundary_max_iterations();
+
+      const auto named_cuts = options.sddp_named_cuts_file();
+      if (!named_cuts.empty()) {
+        sddp_opts.named_cuts_file = std::string(named_cuts);
+      }
+
+      // Sentinel: honour the user-configured path when explicitly set.
+      const auto sentinel = options.sddp_sentinel_file();
+      const auto output_dir = options.output_directory();
+      if (!sentinel.empty()) {
+        sddp_opts.sentinel_file = sentinel;
+      }
+
+      // Logging and API
+      sddp_opts.log_directory = std::string(options.log_directory());
+      sddp_opts.lp_debug = options.lp_debug();
+      sddp_opts.just_build_lp = options.just_build_lp();
+      sddp_opts.lp_debug_compression = std::string(options.lp_compression());
+      sddp_opts.enable_api = options.sddp_api_enabled();
+      if (!output_dir.empty()) {
+        sddp_opts.api_status_file =
+            (std::filesystem::path(output_dir) / "sddp_status.json").string();
+        // The monitoring API stop-request file lets the webservice (or any
+        // external tool) trigger a graceful stop without using the raw sentinel
+        // file.  The solver checks: sentinel_file exists || stop_request
+        // exists.
+        sddp_opts.api_stop_request_file =
+            (std::filesystem::path(output_dir) / sddp_file::stop_request)
+                .string();
+      }
+
+      return std::make_unique<SDDPPlanningSolver>(std::move(sddp_opts));
+    }  // else (num_phases >= 2)
+  }  // solver_type == "sddp"
+
+  // Default: monolithic (also used as fallback for single-phase SDDP)
   auto solver = std::make_unique<MonolithicSolver>();
   const auto output_dir_m = options.output_directory();
   if (options.sddp_api_enabled() && !output_dir_m.empty()) {
