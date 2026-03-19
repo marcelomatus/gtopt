@@ -441,8 +441,7 @@ auto load_cuts_csv(PlanningLP& planning_lp,
 
           // Validate the column index against the current LP
           if (file_col < 0
-              || static_cast<size_t>(file_col)
-                  >= static_cast<size_t>(li_ref.get_numcols()))
+              || static_cast<size_t>(file_col) >= li_ref.get_numcols())
           {
             SPDLOG_WARN(
                 "SDDP load_cuts: column index {} out of range "
