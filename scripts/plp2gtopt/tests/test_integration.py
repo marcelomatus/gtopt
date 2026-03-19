@@ -1592,13 +1592,15 @@ def test_plp_case_2y_global_indicators(tmp_path):
     assert plp_counts["stateless_reservoirs"] > 0, (
         "plp_case_2y should have at least one stateless reservoir"
     )
-    assert (
-        plp_counts["stateless_reservoirs"] == gtopt_counts["stateless_reservoirs"]
-    ), "Stateless reservoir counts should match between PLP and gtopt"
+    assert plp_counts["stateless_reservoirs"] == gtopt_counts["stateless_reservoirs"], (
+        "Stateless reservoir counts should match between PLP and gtopt"
+    )
 
     # Filtrations and reservoir efficiencies must match
     assert plp_counts["filtrations"] == gtopt_counts["filtrations"]
-    assert plp_counts["reservoir_efficiencies"] == gtopt_counts["reservoir_efficiencies"]
+    assert (
+        plp_counts["reservoir_efficiencies"] == gtopt_counts["reservoir_efficiencies"]
+    )
 
     # Generator profiles == pasada count
     assert gtopt_counts["generator_profiles"] == plp_counts.get("sub_pasada", 0)
