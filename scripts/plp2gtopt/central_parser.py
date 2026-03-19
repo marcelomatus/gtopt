@@ -148,17 +148,36 @@ class CentralParser(BaseParser):
             self.num_centrales = sys.maxsize
 
     def _parse_central_header(self, parts: List[str], gen_idx: int) -> Dict[str, Any]:
-        """Parse a central header line."""
+        """Parse a central header line.
+
+        The header line format after ``split()`` is::
+
+            parts[0] = number
+            parts[1] = 'NAME'  (quoted)
+            parts[2] = IPot
+            parts[3] = MinTec  (T/F)
+            parts[4] = Inter   (T/F)
+            parts[5] = FCAD    (T/F)
+            parts[6] = Cen_MTTdHrz (T/F)
+            parts[7] = Hid_Indep   (T/F)
+            parts[8] = Cen_NEtaArr (int)
+            parts[9] = Cen_NEtaDet (int)
+        """
         if len(parts) < 2:
             raise ValueError("Invalid central header - expected at least 2 parts")
 
         try:
-            # First try parsing as float then convert to int
-            return {
+            result: Dict[str, Any] = {
                 "number": self._parse_int(parts[0]),
                 "name": parts[1].strip("'"),
                 "type": self._central_type(gen_idx),
             }
+
+            # Extract Hid_Indep flag (position 7 after split) when available
+            if len(parts) > 7:
+                result["hid_indep"] = parts[7].strip().upper() == "T"
+
+            return result
         except (ValueError, IndexError) as e:
             raise ValueError(f"Invalid central header: {str(e)}") from e
 

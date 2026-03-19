@@ -18,21 +18,22 @@ external time-series data.
 4. [Example 2 – Multi-bus DC power flow (IEEE 9-bus)](#4-example-2--multi-bus-dc-power-flow-ieee-9-bus)
 5. [Example 3 – Multi-stage capacity expansion](#5-example-3--multi-stage-capacity-expansion)
 6. [Example 4 – Battery storage (4-bus, 4 blocks)](#6-example-4--battery-storage-4-bus-4-blocks)
-7. [Working with time-series schedules](#7-working-with-time-series-schedules)
-   - [Inline schedules in JSON](#71-inline-schedules-in-json)
-   - [External CSV files](#72-external-csv-files)
-   - [External Parquet files](#73-external-parquet-files)
-   - [Directory layout and file-field naming convention](#74-directory-layout-and-file-field-naming-convention)
-8. [Complete JSON element reference](#8-complete-json-element-reference)
-   - [Options](#81-options)
-   - [Simulation (time structure)](#82-simulation-time-structure)
-   - [System – Electrical network](#83-system--electrical-network)
-   - [System – Profiles](#84-system--profiles)
-   - [System – Energy storage](#85-system--energy-storage)
-   - [System – Reserves](#86-system--reserves)
-   - [System – Hydro cascade](#87-system--hydro-cascade)
-9. [Field reference and auto-generated docs](#9-field-reference-and-auto-generated-docs)
-10. [Output files](#10-output-files)
+7. [Example 5 – Simple hydro cascade (2-bus, 2 stages)](#7-example-5--simple-hydro-cascade-2-bus-2-stages)
+8. [Working with time-series schedules](#8-working-with-time-series-schedules)
+   - [Inline schedules in JSON](#81-inline-schedules-in-json)
+   - [External CSV files](#82-external-csv-files)
+   - [External Parquet files](#83-external-parquet-files)
+   - [Directory layout and file-field naming convention](#84-directory-layout-and-file-field-naming-convention)
+9. [Complete JSON element reference](#9-complete-json-element-reference)
+   - [Options](#91-options)
+   - [Simulation (time structure)](#92-simulation-time-structure)
+   - [System – Electrical network](#93-system--electrical-network)
+   - [System – Profiles](#94-system--profiles)
+   - [System – Energy storage](#95-system--energy-storage)
+   - [System – Reserves](#96-system--reserves)
+   - [System – Hydro cascade](#97-system--hydro-cascade)
+10. [Field reference and auto-generated docs](#10-field-reference-and-auto-generated-docs)
+11. [Output files](#11-output-files)
 
 ---
 
@@ -554,7 +555,189 @@ cat output/Battery/storage_sol.csv
 
 ---
 
-## 7. Working with time-series schedules
+## 7. Example 5 – Simple hydro cascade (2-bus, 2 stages)
+
+This example introduces **hydro generation** with a reservoir, junctions,
+a waterway, a turbine, and an exogenous inflow. It models the dispatch of
+a hydro plant alongside a thermal backup over two stages of four hourly
+blocks each.
+
+### Network diagram
+
+```mermaid
+flowchart LR
+    subgraph Hydro
+        flow["💧 inflow\n10 m³/s"] --> j1["⊕ j1"]
+        j1 --> |"ww1"| j2["⊕ j2 (drain)"]
+        rsv1["🏞️ rsv1\n0–1000 dam³"] --- j1
+        tur1["⚙️ tur1"] --- j1
+    end
+    gen_hydro[/"⚡ gen_hydro\n100 MW · $5/MWh"\] --> bus1["🔌 bus1"]
+    gen_thermal[/"⚡ gen_thermal\n200 MW · $50/MWh"\] --> bus2["🔌 bus2"]
+    bus1 --- |"l1 (100 MW)"| bus2
+    dem_1[\"📊 d1\n80 MW load"/] --- bus2
+
+    classDef cls_bus fill:#D6EAF8,stroke:#1A5276,color:#1C2833
+    classDef cls_gen fill:#FEF9E7,stroke:#E67E22,color:#1C2833
+    classDef cls_demand fill:#FADBD8,stroke:#C0392B,color:#1C2833
+    classDef cls_hydro fill:#D5F5E3,stroke:#1E8449,color:#1C2833
+    class bus1,bus2 cls_bus
+    class gen_hydro,gen_thermal cls_gen
+    class dem_1 cls_demand
+    class j1,j2,rsv1,tur1,flow cls_hydro
+```
+
+### JSON
+
+```json
+{
+  "options": {
+    "use_single_bus": false,
+    "use_kirchhoff": true,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1000,
+    "output_format": "csv",
+    "output_compression": "uncompressed"
+  },
+  "simulation": {
+    "block_array": [
+      {"uid": 1, "duration": 1},
+      {"uid": 2, "duration": 1},
+      {"uid": 3, "duration": 1},
+      {"uid": 4, "duration": 1},
+      {"uid": 5, "duration": 1},
+      {"uid": 6, "duration": 1},
+      {"uid": 7, "duration": 1},
+      {"uid": 8, "duration": 1}
+    ],
+    "stage_array": [
+      {"uid": 1, "first_block": 0, "count_block": 4},
+      {"uid": 2, "first_block": 4, "count_block": 4}
+    ],
+    "scenario_array": [
+      {"uid": 1, "probability_factor": 1}
+    ]
+  },
+  "system": {
+    "name": "hydro_cascade",
+    "bus_array": [
+      {"uid": 1, "name": "bus1"},
+      {"uid": 2, "name": "bus2"}
+    ],
+    "generator_array": [
+      {
+        "uid": 1, "name": "gen_hydro", "bus": "bus1",
+        "pmax": 100, "gcost": 5, "capacity": 100
+      },
+      {
+        "uid": 2, "name": "gen_thermal", "bus": "bus2",
+        "pmax": 200, "gcost": 50, "capacity": 200
+      }
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": "bus2", "lmax": 80}
+    ],
+    "line_array": [
+      {
+        "uid": 1, "name": "l1",
+        "bus_a": "bus1", "bus_b": "bus2",
+        "reactance": 0.02,
+        "tmax_ab": 100, "tmax_ba": 100
+      }
+    ],
+    "junction_array": [
+      {"uid": 1, "name": "j1"},
+      {"uid": 2, "name": "j2", "drain": true}
+    ],
+    "waterway_array": [
+      {
+        "uid": 1, "name": "ww1",
+        "junction_a": 1, "junction_b": 2,
+        "fmin": 0, "fmax": 100
+      }
+    ],
+    "reservoir_array": [
+      {
+        "uid": 1, "name": "rsv1",
+        "junction": 1,
+        "emin": 0, "emax": 1000,
+        "eini": 500,
+        "capacity": 1000
+      }
+    ],
+    "flow_array": [
+      {
+        "uid": 1, "name": "inflow",
+        "direction": 1,
+        "junction": 1,
+        "discharge": 10
+      }
+    ],
+    "turbine_array": [
+      {
+        "uid": 1, "name": "tur1",
+        "waterway": 1,
+        "generator": 1,
+        "conversion_rate": 1.0
+      }
+    ]
+  }
+}
+```
+
+### How the hydro cascade works
+
+The **hydro cascade** elements interact as follows:
+
+1. **Junctions** (`j1`, `j2`) are hydraulic nodes where water balance is
+   enforced. Junction `j2` has `drain: true`, meaning water leaving it exits
+   the system (e.g., flows to the sea).
+
+2. **Waterway** (`ww1`) connects `j1` to `j2`. Water flows through it at a
+   rate bounded by `[fmin, fmax]` in m3/s.
+
+3. **Reservoir** (`rsv1`) is attached to junction `j1`. It stores water
+   (volume in dam3) between `emin` and `emax`. The initial volume `eini` is
+   500 dam3. The reservoir volume evolves over blocks according to the water
+   balance: `volume[b] = volume[b-1] + (inflows - outflows) * duration`.
+
+4. **Flow** (`inflow`) adds 10 m3/s of exogenous water to junction `j1` in
+   every block (e.g., river inflow).
+
+5. **Turbine** (`tur1`) converts water flowing through the waterway into
+   electricity via `gen_hydro`. The `conversion_rate` (MW per m3/s)
+   determines how much power is generated per unit of water flow.
+
+### Expected dispatch
+
+- Hydro generation (`gen_hydro`, $5/MWh) is much cheaper than thermal
+  (`gen_thermal`, $50/MWh), so the optimizer dispatches hydro first.
+- The 80 MW demand at `bus2` is served via the transmission line `l1`
+  (100 MW capacity), which is sufficient.
+- Thermal generation only activates if hydro capacity or reservoir volume
+  is insufficient to meet demand.
+- The reservoir volume decreases as water is turbined and increases with
+  the 10 m3/s inflow.
+
+### Checking results
+
+```bash
+# Generator dispatch — hydro should serve most/all load
+cat output/Generator/generation_sol.csv
+
+# Reservoir volume evolution over blocks
+cat output/Reservoir/volume_sol.csv
+
+# Waterway flow (turbine water usage)
+cat output/Waterway/flow_sol.csv
+
+# Verify no load shedding
+cat output/Demand/fail_sol.csv
+```
+
+---
+
+## 8. Working with time-series schedules
 
 Many fields — `pmax`, `lmax`, `gcost`, `profile`, `discharge` — can hold:
 
@@ -565,7 +748,7 @@ Many fields — `pmax`, `lmax`, `gcost`, `profile`, `discharge` — can hold:
 | `[[[70, 80, 90], [60, 70, 80]]]` | Per-`[scenario][stage][block]` values |
 | `"lmax"` (string) | Filename in `input_directory/<ClassName>/` |
 
-### 7.1 Inline schedules in JSON
+### 8.1 Inline schedules in JSON
 
 The array dimensions depend on the field type:
 
@@ -591,7 +774,7 @@ The array dimensions depend on the field type:
 > Inline arrays are fine for tens of blocks. For hundreds or thousands of
 > time steps, use external files.
 
-### 7.2 External CSV files
+### 8.2 External CSV files
 
 A CSV schedule file uses these columns:
 
@@ -637,7 +820,7 @@ When `lmax = "lmax"`, gtopt reads
 cvs2parquet input/Demand/lmax.csv input/Demand/lmax.parquet
 ```
 
-### 7.3 External Parquet files
+### 8.3 External Parquet files
 
 Parquet is the preferred format (faster reading, smaller files, typed columns).
 The schema is identical to CSV: columns `scenario`, `stage`, `block`, and
@@ -685,7 +868,7 @@ cvs2parquet input/Demand/lmax.csv input/Demand/lmax.parquet
 cvs2parquet --schema input/Generator/pmax.csv input/Generator/pmax.parquet
 ```
 
-### 7.4 Directory layout and file-field naming convention
+### 8.4 Directory layout and file-field naming convention
 
 When a JSON field value is a **string** it is treated as a filename (without
 extension).  The file is looked up in:
@@ -763,7 +946,7 @@ This tells gtopt: read `input/Demand/lmax.parquet`, column `uid:1`.
 
 ---
 
-## 8. Complete JSON element reference
+## 9. Complete JSON element reference
 
 > **Full reference**: See **[INPUT_DATA.md](INPUT_DATA.md)** for the complete
 > field-by-field documentation of every JSON element. This section provides a
@@ -780,7 +963,7 @@ Values can be specified as:
 
 In summary tables below, ✱ marks required fields.
 
-### 8.1 Options (key fields)
+### 9.1 Options (key fields)
 
 | Field | Default | Description |
 |-------|---------|-------------|
@@ -796,7 +979,7 @@ In summary tables below, ✱ marks required fields.
 | `output_format` | `"parquet"` | Output file format (`"parquet"` or `"csv"`) |
 | `output_compression` | `"zstd"` | Parquet/CSV compression codec |
 
-### 8.2 Simulation (time structure)
+### 9.2 Simulation (time structure)
 
 | Element | Key fields | Description |
 |---------|-----------|-------------|
@@ -806,7 +989,7 @@ In summary tables below, ✱ marks required fields.
 | **Phase** | `uid`✱, `first_stage`, `count_stage` | Groups consecutive stages (advanced) |
 | **Scene** | `uid`✱, `first_scenario`, `count_scenario` | Cross-products scenarios with phases |
 
-### 8.3 System – Electrical network
+### 9.3 System – Electrical network
 
 | Element | Key fields | Description |
 |---------|-----------|-------------|
@@ -815,14 +998,14 @@ In summary tables below, ✱ marks required fields.
 | **Demand** | `uid`✱, `name`✱, `bus`✱, `lmax`, `capacity`, `expcap`, `expmod`, `annual_capcost` | Electrical load |
 | **Line** | `uid`✱, `name`✱, `bus_a`✱, `bus_b`✱, `reactance`, `tmax_ab`, `tmax_ba`, `expcap`, `expmod` | Transmission branch |
 
-### 8.4 System – Profiles
+### 9.4 System – Profiles
 
 | Element | Key fields | Description |
 |---------|-----------|-------------|
 | **GeneratorProfile** | `uid`✱, `name`✱, `generator`✱, `profile`✱ (p.u.) | Time-varying capacity factor (solar/wind) |
 | **DemandProfile** | `uid`✱, `name`✱, `demand`✱, `profile`✱ (p.u.) | Time-varying load scaling |
 
-### 8.5 System – Energy storage
+### 9.5 System – Energy storage
 
 **Battery** (unified recommended): set `bus` to auto-generate discharge Generator,
 charge Demand, and Converter automatically.
@@ -837,14 +1020,14 @@ charge Demand, and Converter automatically.
 
 **Converter** (traditional definition only): links `battery`, `generator`, `demand`.
 
-### 8.6 System – Reserves
+### 9.6 System – Reserves
 
 | Element | Key fields | Description |
 |---------|-----------|-------------|
 | **ReserveZone** | `uid`✱, `name`✱, `urreq`, `drreq` (MW) | Spinning-reserve requirement |
 | **ReserveProvision** | `uid`✱, `name`✱, `generator`✱, `reserve_zones`✱, `urmax`, `drmax` | Links generator to reserve zone |
 
-### 8.7 System – Hydro cascade
+### 9.7 System – Hydro cascade
 
 | Element | Key fields | Description |
 |---------|-----------|-------------|
@@ -869,7 +1052,7 @@ for the update mechanism.
 
 ---
 
-## 9. Field reference and auto-generated docs
+## 10. Field reference and auto-generated docs
 
 The `scripts/gtopt_field_extractor.py` utility parses the C++ header files and
 generates documentation tables directly from the source code. This ensures the
@@ -916,7 +1099,7 @@ The generated HTML includes:
 
 ---
 
-## 10. Output files
+## 11. Output files
 
 After a successful run, gtopt writes result files in `output_directory`
 (default: `output/`) using the same tabular format as input files.
@@ -964,6 +1147,65 @@ cat output/Bus/balance_dual.csv
 # Verify no load shedding
 grep -v "^scenario" output/Demand/fail_sol.csv | awk -F, '{print $NF}' | sort -n | tail -5
 ```
+
+---
+
+## Quickstart: Your First Solve
+
+Run the simplest bundled case (`ieee_4b_ori`) end-to-end in three steps.
+
+### 1. Get the binary
+
+Build from source (see [BUILDING.md](BUILDING.md)) or download a CI
+artifact:
+
+```bash
+# Option A: build from source (requires dependencies)
+cmake -S all -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
+export PATH=$PWD/build/standalone:$PATH
+
+# Option B: download CI artifact via helper script
+export GTOPT_BIN=$(python tools/get_gtopt_binary.py)
+```
+
+### 2. Run
+
+```bash
+cd cases/ieee_4b_ori
+gtopt ieee_4b_ori.json
+```
+
+Expected log output:
+
+```
+[info] starting gtopt ...
+[info] parsing input file ieee_4b_ori.json
+[info] creating lp ...
+[info] planning ...
+[info] writing output ...
+```
+
+### 3. Check and interpret results
+
+```bash
+# Solver status: status=0 means optimal
+cat output/solution.csv
+
+# Generator dispatch (MW) — g1 ($20) serves most load
+cat output/Generator/generation_sol.csv
+
+# Locational Marginal Prices ($/MWh) at each bus
+cat output/Bus/balance_dual.csv
+
+# Verify no load shedding (all values should be zero)
+cat output/Demand/fail_sol.csv
+```
+
+**What to expect**: generator g1 ($20/MWh, 300 MW) is cheaper than g2
+($35/MWh, 200 MW), so g1 dispatches most of the 250 MW total load.
+The LMP at each bus reflects the marginal cost of serving one additional
+MW there, accounting for transmission constraints.
 
 ---
 

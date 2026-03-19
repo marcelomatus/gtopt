@@ -11,7 +11,7 @@ Modules:
 
 __version__ = "1.0.0"
 
-from .plp2gtopt import convert_plp_case
+from .plp2gtopt import convert_plp_case, validate_plp_case
 from .main import main
 from .demand_parser import DemandParser
 from .stage_parser import StageParser
@@ -28,6 +28,7 @@ from .planos_writer import write_boundary_cuts_csv, write_hot_start_cuts_csv
 
 __all__ = [
     "convert_plp_case",
+    "validate_plp_case",
     "main",
     "DemandParser",
     "StageParser",

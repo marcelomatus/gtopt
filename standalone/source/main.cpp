@@ -64,8 +64,8 @@ int main(int argc, char** argv)
     if (vm.contains("system-file")) {
       system_files = vm["system-file"].as<std::vector<std::string>>();
     } else {
-      std::cerr << "a system file is needed, use --help" << '\n';
-      return 0;
+      std::cerr << "ERROR: a system file is needed, use --help" << '\n';
+      return 2;  // input error
     }
 
     //
@@ -77,12 +77,14 @@ int main(int argc, char** argv)
       // Use a clean pattern without source file/line information.
       spdlog::set_pattern("[%H:%M:%S.%e] %v");
 
+      // Default: info.  --verbose: trace.  --quiet: off.
       const auto quiet = get_opt<bool>(vm, "quiet");
-      spdlog::set_level(spdlog::level::info);
       if (quiet.value_or(false)) {
         spdlog::set_level(spdlog::level::off);
-      } else if (!vm.contains("verbose")) {
+      } else if (vm.contains("verbose")) {
         spdlog::set_level(spdlog::level::trace);
+      } else {
+        spdlog::set_level(spdlog::level::info);
       }
 
       spdlog::cfg::load_argv_levels(argc, argv);
@@ -91,27 +93,39 @@ int main(int argc, char** argv)
     }
 
     //
+    // Exit codes:
+    //   0 = success (optimal solution)
+    //   1 = non-optimal solution (infeasible/abandoned but no critical error)
+    //   2 = input error (missing file, invalid JSON, bad options)
+    //   3 = internal error (unexpected exception, solver crash)
+    //
     // dispatch the real main function
     //
-    int result_value = 0;
-    if (auto result =
-            gtopt::gtopt_main(parse_main_options(vm, std::move(system_files))))
-    {
-      result_value = *result;
-    } else {
-      spdlog::critical(result.error());
-      result_value = 1;
+    auto result =
+        gtopt::gtopt_main(parse_main_options(vm, std::move(system_files)));
+    if (result.has_value()) {
+      return *result;  // 0 = optimal, 1 = non-optimal
     }
-    return result_value;
+    spdlog::critical(result.error());
+    // Classify the error string for exit code selection.
+    // Input-related errors contain recognizable keywords.
+    const auto& err = result.error();
+    if (err.contains("not found") || err.contains("not exist")
+        || err.contains("Cannot open") || err.contains("parse")
+        || err.contains("Invalid") || err.contains("JSON"))
+    {
+      return 2;  // input error
+    }
+    return 3;  // internal/solver error
   } catch (const std::exception& ex) {
     try {
       spdlog::critical(std::format("Exception: {}", ex.what()));
     } catch (...) {
       spdlog::critical(ex.what());
     }
-    return 1;
+    return 3;  // internal error
   } catch (...) {
     spdlog::critical("Unknown exception");
-    return 1;
+    return 3;  // internal error
   }
 }

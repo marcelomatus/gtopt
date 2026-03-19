@@ -41,6 +41,7 @@
 
 using namespace gtopt;
 
+#include "test_input_traits.hpp"
 #include "test_output_context.hpp"
 #include "test_parquet.hpp"
 #include "test_schedule.hpp"

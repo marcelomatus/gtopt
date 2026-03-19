@@ -355,3 +355,57 @@ def test_central_properties(valid_gen_file: Path) -> None:
     assert len(parser.centrals) == parser.num_centrals
     assert isinstance(parser.centrals, list)
     assert all(isinstance(c, dict) for c in parser.centrals)
+
+
+def test_hid_indep_false(valid_gen_file: Path) -> None:
+    """Test that hid_indep is parsed as False when the field is 'F'."""
+    parser = CentralParser(valid_gen_file)
+    parser.parse()
+
+    # All centrals in the valid_gen_file fixture have Hid_Indep = F
+    for central in parser.centrals:
+        assert central.get("hid_indep") is False, (
+            f"Expected hid_indep=False for central '{central['name']}'"
+        )
+
+
+def test_hid_indep_true(tmp_path: Path) -> None:
+    """Test that hid_indep is parsed as True when the field is 'T'."""
+    file_path = tmp_path / "hid_indep.dat"
+    content = """# plpcnfce.dat with Hid_Indep=T
+# Num.Centrales  Num.Embalses Num.Serie Num.Fallas Num.Pas.Pur. Num.BAT
+     2            2           0         0          0            0
+# Interm Min.Tec. Cos.Arr.Det. FFaseSinMT EtapaCambioFase
+  F      F        F            F          00
+# Centrales de Embalse
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+    1 'EMB_NORMAL'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  100.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.           Volumen    Volumen    Volumen    Volumen  Factor
+          CosVar  Rendi  Barra Genera Vertim    t<0  Afluen    Inicial      Final     Minimo     Maximo  Escala EmbCFUE
+             0.0  1.000      0      2      0    0.0  0012.0  0.6570569  1.2934600  0.0000000  1.4534093  1.0E+9       T
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+    2 'EMB_INDEP'                                       1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0   50.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.           Volumen    Volumen    Volumen    Volumen  Factor
+          CosVar  Rendi  Barra Genera Vertim    t<0  Afluen    Inicial      Final     Minimo     Maximo  Escala EmbCFUE
+             0.0  2.000      1      0      0    0.0  0005.0  0.5000000  0.5000000  0.0000000  1.0000000  1.0E+9       T
+"""
+    file_path.write_text(content)
+
+    parser = CentralParser(file_path)
+    parser.parse()
+
+    assert len(parser.centrals) == 2
+
+    emb_normal = parser.get_central_by_name("EMB_NORMAL")
+    assert emb_normal is not None
+    assert emb_normal["hid_indep"] is False
+
+    emb_indep = parser.get_central_by_name("EMB_INDEP")
+    assert emb_indep is not None
+    assert emb_indep["hid_indep"] is True

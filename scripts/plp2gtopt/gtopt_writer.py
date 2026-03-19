@@ -6,6 +6,7 @@ Handles conversion of parsed PLP data to GTOPT JSON format.
 """
 
 import json
+import logging
 from typing import Dict, Any
 
 from pathlib import Path
@@ -86,23 +87,33 @@ class GTOptWriter:
                     # Try as a plain integer first (handles "0", "5", etc.)
                     n = int(spec_str)
                     if n >= 0:
-                        sddp_opts["sddp_num_apertures"] = n
+                        sddp_opts["num_apertures"] = n
                     # negative (e.g. -2) treated as "all" → not set
                 except ValueError:
                     # Not a plain integer → treat as range or comma list
                     try:
                         indices = parse_index_range(num_apertures)
-                        sddp_opts["sddp_num_apertures"] = len(indices)
+                        sddp_opts["num_apertures"] = len(indices)
                     except (ValueError, TypeError):
                         pass  # Ignore invalid spec; process_apertures auto-detects
 
         cut_sharing_mode = options.get("cut_sharing_mode")
         if cut_sharing_mode is not None:
-            sddp_opts["sddp_cut_sharing_mode"] = cut_sharing_mode
+            sddp_opts["cut_sharing_mode"] = cut_sharing_mode
+
+        # When the JSON file lives inside the output directory (the default),
+        # input_directory is "." so paths are relative to the JSON location.
+        # When -f places the JSON elsewhere, use the full output_dir path.
+        output_dir = Path(options.get("output_dir", ""))
+        output_file = Path(options.get("output_file", ""))
+        if output_file.parent == output_dir:
+            input_dir_val = "."
+        else:
+            input_dir_val = str(output_dir)
 
         planning_opts = {
             "solver_type": solver_type,
-            "input_directory": str(options.get("output_dir", "")),
+            "input_directory": input_dir_val,
             "input_format": input_format,
             "output_directory": "results",
             "output_format": output_format,
@@ -402,13 +413,13 @@ class GTOptWriter:
 
             # Set aperture_directory in sddp_options
             sddp_opts = self.planning["options"].get("sddp_options", {})
-            sddp_opts["sddp_aperture_directory"] = str(aperture_dir)
+            sddp_opts["aperture_directory"] = str(aperture_dir)
             self.planning["options"]["sddp_options"] = sddp_opts
 
         # Auto-set num_apertures from PLP data when not explicitly configured
         sddp_opts = self.planning["options"].get("sddp_options", {})
-        if "sddp_num_apertures" not in sddp_opts:
-            sddp_opts["sddp_num_apertures"] = len(aperture_array)
+        if "num_apertures" not in sddp_opts:
+            sddp_opts["num_apertures"] = len(aperture_array)
             self.planning["options"]["sddp_options"] = sddp_opts
 
         # Populate per-phase aperture_set from stage-indexed PLP data
@@ -638,21 +649,21 @@ class GTOptWriter:
         if planos.cuts:
             csv_path = output_dir / "boundary_cuts.csv"
             write_boundary_cuts_csv(planos.cuts, planos.reservoir_names, csv_path)
-            sddp_opts["sddp_boundary_cuts_file"] = str(csv_path)
+            sddp_opts["boundary_cuts_file"] = str(csv_path)
 
         # Wire mode and max-iterations options through to the JSON
         bc_mode = options.get("boundary_cuts_mode")
         if bc_mode is not None:
-            sddp_opts["sddp_boundary_cuts_mode"] = bc_mode
+            sddp_opts["boundary_cuts_mode"] = bc_mode
 
         bc_max_iter = options.get("boundary_max_iterations")
         if bc_max_iter is not None:
-            sddp_opts["sddp_boundary_max_iterations"] = bc_max_iter
+            sddp_opts["boundary_max_iterations"] = bc_max_iter
 
         # ── Hot-start cuts (intermediate stages) ───────────────────────────
         # Always export hot-start cuts when non-boundary cuts exist, so they
         # are available in the gtopt input directory.  Loading is disabled by
-        # default; pass --hot-start-cuts to enable sddp_named_cuts_file.
+        # default; pass --hot-start-cuts to enable named_cuts_file.
         non_boundary = [
             c for c in planos.all_cuts if c["stage"] != planos.boundary_stage
         ]
@@ -668,7 +679,7 @@ class GTOptWriter:
             )
             # Only wire the file into the JSON options if explicitly requested
             if options.get("hot_start_cuts", False):
-                sddp_opts["sddp_named_cuts_file"] = str(hs_path)
+                sddp_opts["named_cuts_file"] = str(hs_path)
 
     def _build_stage_to_phase_map(self) -> dict[int, int] | None:
         """Build a mapping from PLP stage (1-based) to gtopt phase UID.
@@ -692,6 +703,178 @@ class GTOptWriter:
 
         return stage_to_phase or None
 
+    @staticmethod
+    def _load_variable_scales_file(file_path: Path) -> list[dict]:
+        """Load variable scales from a JSON file.
+
+        The file must contain a JSON array of objects, each with keys:
+        ``class_name``, ``variable``, ``uid``, ``scale``.
+
+        Returns an empty list on any read/parse error (with a warning log).
+        """
+        logger = logging.getLogger(__name__)
+        try:
+            with open(file_path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            if not isinstance(data, list):
+                logger.warning(
+                    "variable-scales-file %s: expected a JSON array, got %s",
+                    file_path,
+                    type(data).__name__,
+                )
+                return []
+            required_keys = {"class_name", "variable", "uid", "scale"}
+            result: list[dict] = []
+            for entry in data:
+                if not isinstance(entry, dict) or not required_keys <= entry.keys():
+                    logger.warning(
+                        "variable-scales-file %s: skipping invalid entry %r "
+                        "(expected keys: %s)",
+                        file_path,
+                        entry,
+                        ", ".join(sorted(required_keys)),
+                    )
+                    continue
+                result.append(entry)
+            return result
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning(
+                "variable-scales-file %s: failed to load: %s", file_path, exc
+            )
+            return []
+
+    def process_variable_scales(self, options):
+        """Build ``variable_scales`` entries in the options section.
+
+        Generates VariableScale JSON entries for reservoir volume scaling
+        and battery energy scaling, using the ``variable_scales`` mechanism
+        in ``Options`` rather than per-element fields.
+
+        Scale priority (highest to lowest):
+        1. Explicit ``--vol-scale`` / ``--energy-scale`` name:value entries.
+        2. ``--auto-vol-scale`` / ``--auto-energy-scale`` (ON by default).
+        3. ``--variable-scales-file`` entries (lowest priority).
+
+        Auto-scaling is enabled by default.  Use ``--no-auto-vol-scale``
+        and/or ``--no-auto-energy-scale`` to disable.
+        """
+        if not options:
+            return
+
+        has_vol = "vol_scale" in options or options.get("auto_vol_scale", False)
+        has_energy = "energy_scale" in options or options.get(
+            "auto_energy_scale", False
+        )
+        has_file = "variable_scales_file" in options
+
+        if not has_vol and not has_energy and not has_file:
+            return
+
+        # --- Load file-based scales first (lowest priority) ---
+        file_scales: list[dict] = []
+        if has_file:
+            file_path = options["variable_scales_file"]
+            file_scales = self._load_variable_scales_file(Path(file_path))
+
+        # Build a lookup of (class_name, variable, uid) → scale from the file
+        # so we can skip file entries that are overridden by auto/explicit.
+        file_scale_map: dict[tuple[str, str, int], float] = {}
+        for entry in file_scales:
+            key = (entry["class_name"], entry["variable"], entry["uid"])
+            file_scale_map[key] = entry["scale"]
+
+        # Track which (class_name, variable, uid) are set by auto/explicit
+        computed_keys: set[tuple[str, str, int]] = set()
+
+        scales: list[dict] = []
+
+        # --- Reservoir volume scales ---
+        if has_vol:
+            explicit_vol: dict = options.get("vol_scale", {})
+            auto_vol = options.get("auto_vol_scale", False)
+
+            # Collect FEscala data from planos parser (plpplem1.dat)
+            planos = self.parser.parsed_data.get("planos_parser")
+            fescala_map: dict = {}
+            if planos is not None:
+                fescala_map = planos.reservoir_fescala
+
+            # Collect central_parser vol_scale as fallback for auto mode
+            central_parser = self.parser.parsed_data.get("central_parser")
+            central_vol_scale: dict = {}
+            if central_parser is not None:
+                for central in central_parser.centrals:
+                    if central.get("type") == "embalse" and "vol_scale" in central:
+                        central_vol_scale[str(central["name"])] = central["vol_scale"]
+
+            reservoirs = self.planning["system"].get("reservoir_array", [])
+            for rsv in reservoirs:
+                name = rsv["name"]
+                uid = rsv["uid"]
+                scale = None
+
+                # Priority 1: explicit --vol-scale
+                if name in explicit_vol:
+                    scale = explicit_vol[name]
+                # Priority 2: auto-vol-scale
+                elif auto_vol:
+                    # Try FEscala from plpplem1.dat first
+                    fescala = fescala_map.get(name)
+                    if fescala is not None:
+                        scale = 10.0 ** (fescala - 6)
+                    else:
+                        # Fallback: central_parser's vol_scale (Escala/1e6)
+                        scale = central_vol_scale.get(name)
+
+                if scale is not None and scale != 1.0:
+                    scales.append(
+                        {
+                            "class_name": "Reservoir",
+                            "variable": "volume",
+                            "uid": uid,
+                            "scale": scale,
+                        }
+                    )
+                    computed_keys.add(("Reservoir", "volume", uid))
+
+        # --- Battery energy scales ---
+        if has_energy:
+            explicit_energy: dict = options.get("energy_scale", {})
+            auto_energy = options.get("auto_energy_scale", False)
+
+            batteries = self.planning["system"].get("battery_array", [])
+            for bat in batteries:
+                name = bat["name"]
+                uid = bat["uid"]
+                scale = None
+
+                # Priority 1: explicit --energy-scale
+                if name in explicit_energy:
+                    scale = explicit_energy[name]
+                # Priority 2: auto-energy-scale → 0.01 for all PLP batteries
+                elif auto_energy:
+                    scale = 0.01
+
+                if scale is not None and scale != 1.0:
+                    scales.append(
+                        {
+                            "class_name": "Battery",
+                            "variable": "energy",
+                            "uid": uid,
+                            "scale": scale,
+                        }
+                    )
+                    computed_keys.add(("Battery", "energy", uid))
+
+        # --- Merge file-based scales (lowest priority) ---
+        for entry in file_scales:
+            key = (entry["class_name"], entry["variable"], entry["uid"])
+            if key not in computed_keys and entry["scale"] != 1.0:
+                scales.append(entry)
+
+        if scales:
+            self.planning["options"]["variable_scales"] = scales
+
     def to_json(self, options=None) -> Dict:
         """Convert parsed data to GTOPT JSON structure."""
         if options is None:
@@ -711,6 +894,7 @@ class GTOptWriter:
         self.process_junctions(options)
         self.process_battery(options)
         self.process_boundary_cuts(options)
+        self.process_variable_scales(options)
 
         # Organize into planning structure
         name = options.get("name", "plp2gtopt") if options else "plp2gtopt"

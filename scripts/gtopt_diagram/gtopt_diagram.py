@@ -97,6 +97,7 @@ import argparse
 import base64
 import hashlib
 import json
+import logging
 import os
 import sys
 import tempfile
@@ -106,6 +107,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # SVG icon definitions — power systems standard iconography  48x48px
@@ -3037,7 +3040,7 @@ Examples:
     )
     parser.add_argument(
         "--layout",
-        "-l",
+        "-L",
         choices=["dot", "neato", "fdp", "sfdp", "circo", "twopi"],
         default=None,
         help="Graphviz layout engine (auto-selected if omitted)",
@@ -3126,7 +3129,6 @@ Examples:
     )
     red.add_argument(
         "--voltage-threshold",
-        "-V",
         type=float,
         default=0.0,
         metavar="KV",
@@ -3159,7 +3161,29 @@ Examples:
             "Enabled automatically when no --output path is given."
         ),
     )
+    parser.add_argument(
+        "-l",
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        metavar="LEVEL",
+        help=(
+            "logging verbosity: DEBUG, INFO, WARNING, ERROR, CRITICAL "
+            "(default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "-V",
+        "--version",
+        action="version",
+        version="%(prog)s (gtopt-scripts)",
+    )
     args = parser.parse_args(argv)
+
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
 
     # ── Load JSON ────────────────────────────────────────────────────────────
     planning: dict = {}
@@ -3167,7 +3191,7 @@ Examples:
     if args.json_file:
         jp = Path(args.json_file)
         if not jp.exists():
-            print(f"Error: file not found: {jp}", file=sys.stderr)
+            logger.error("File not found: %s", jp)
             return 1
         with jp.open(encoding="utf-8") as fh:
             planning = json.load(fh)
@@ -3194,7 +3218,7 @@ Examples:
             result = _build_planning_mermaid(planning)
             if args.output:
                 Path(out).write_text(result, encoding="utf-8")
-                print(f"Mermaid planning diagram written to {out}", file=sys.stderr)
+                logger.info("Mermaid planning diagram written to %s", out)
             if show:
                 _show_mermaid(result, title=f"{case_name} — Planning Structure")
             elif not args.output:
@@ -3209,7 +3233,7 @@ Examples:
             Path(out).write_text(
                 _build_planning_html(planning, title=ttl), encoding="utf-8"
             )
-            print(f"Planning HTML written to {out}", file=sys.stderr)
+            logger.info("Planning HTML written to %s", out)
             if show:
                 display_diagram(out, fmt)
             return 0
@@ -3229,12 +3253,10 @@ Examples:
                 else:
                     Path(out).write_text(svg_src, encoding="utf-8")
             except ImportError:
-                print(
-                    "Warning: cairosvg not found; writing SVG instead", file=sys.stderr
-                )
+                logger.warning("cairosvg not found; writing SVG instead")
                 out = out.rsplit(".", 1)[0] + ".svg"
                 Path(out).write_text(svg_src, encoding="utf-8")
-        print(f"Planning diagram written to {out}", file=sys.stderr)
+        logger.info("Planning diagram written to %s", out)
         if show:
             display_diagram(out, fmt)
         return 0
@@ -3258,10 +3280,7 @@ Examples:
     n_nodes = len(model.nodes)
     n_edges = len(model.edges)
     if n_nodes == 0:
-        print(
-            "Warning: no elements found for the requested subsystem / filters.",
-            file=sys.stderr,
-        )
+        logger.warning("No elements found for the requested subsystem / filters.")
     else:
         agg_used = builder.eff_agg
         vt_used = builder.eff_vthresh
@@ -3276,13 +3295,13 @@ Examples:
             n_total, _, _ = builder.auto_info
             flags.append(f"auto({n_total} elements)")
         suffix = ("  [" + ", ".join(flags) + "]") if flags else ""
-        print(f"Diagram: {n_nodes} nodes, {n_edges} edges{suffix}", file=sys.stderr)
+        logger.info("Diagram: %d nodes, %d edges%s", n_nodes, n_edges, suffix)
 
     if fmt == "mermaid":
         result = render_mermaid(model, direction=args.direction)
         if args.output:
             Path(out).write_text(result, encoding="utf-8")
-            print(f"Mermaid topology written to {out}", file=sys.stderr)
+            logger.info("Mermaid topology written to %s", out)
         if show:
             _show_mermaid(result, title=model.title)
         elif not args.output:
@@ -3291,7 +3310,7 @@ Examples:
 
     if fmt == "html":
         render_html(model, output_path=out)
-        print(f"Interactive HTML written to {out}", file=sys.stderr)
+        logger.info("Interactive HTML written to %s", out)
         if show:
             display_diagram(out, fmt)
         return 0
@@ -3303,7 +3322,7 @@ Examples:
         src = render_graphviz(model, fmt="dot", layout=layout, use_clusters=clusters)
         if args.output:
             Path(out).write_text(src, encoding="utf-8")
-            print(f"DOT source written to {out}", file=sys.stderr)
+            logger.info("DOT source written to %s", out)
         else:
             print(src)
         return 0
@@ -3311,7 +3330,7 @@ Examples:
     rendered = render_graphviz(
         model, fmt=fmt, output_path=out, layout=layout, use_clusters=clusters
     )
-    print(f"Diagram written to {rendered}", file=sys.stderr)
+    logger.info("Diagram written to %s", rendered)
     if show:
         display_diagram(rendered, fmt)
     return 0

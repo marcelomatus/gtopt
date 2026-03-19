@@ -373,8 +373,10 @@ The hook is designed to be extended with additional update types:
 | First (1)   | `eini` from reservoir | `eini` from reservoir |
 | Subsequent  | `eini` from reservoir | Previous phase efin (via state variable) |
 
-**Skip count**: the `sddp_efficiency_update_skip` option (per-element or
-global) controls how often the update is applied.  A skip of $N$ means
+**Skip count**: the `efficiency_update_skip` option (per-element
+`sddp_efficiency_update_skip` on `ReservoirEfficiency`, or global
+`efficiency_update_skip` in `sddp_options`) controls how often the update
+is applied.  A skip of $N$ means
 "update every $N{+}1$ iterations".  This reduces computational overhead
 when the efficiency curve is nearly flat.
 
@@ -392,12 +394,80 @@ cuts.  This is analogous to PLP's `userstop` mechanism.
 
 ### 4.9 Incremental Cut Saving
 
-Cuts are saved to the output file after **every iteration** (not just at
-the end).  This ensures that if the solver is interrupted — whether by the
-sentinel file, a time limit, or an external signal — the accumulated cuts
-are available for a subsequent hot-start run.
+By default (`save_per_iteration: true`), cuts are saved to the output file
+after **every iteration** (not just at the end).  This ensures that if the
+solver is interrupted --- whether by the sentinel file, a time limit, or an
+external signal --- the accumulated cuts are available for a subsequent
+hot-start run.
 
-### 4.10 Solver API for Monitoring and Control
+Set `save_per_iteration: false` to defer all cut saving until the solve
+completes or is stopped.  This reduces I/O overhead when saving is not
+needed between iterations.
+
+### 4.10 Cut Types
+
+The SDDP solver generates two types of Benders cuts:
+
+**Optimality cuts** (`CutType::Optimality`, CSV marker `o`) are the
+standard Benders cuts that approximate the future cost function.  They
+are generated during the backward pass from the reduced costs of the
+solved phase LPs (see S2.3).
+
+**Feasibility cuts** (`CutType::Feasibility`, CSV marker `f`) are
+generated when the elastic filter is activated due to an infeasible
+forward-pass trial point.  The dual information from the elastic-clone LP
+produces a cut that tightens the previous phase's feasible region,
+preventing the same infeasible trial point from reappearing.
+
+Both cut types are now **stored and saved** to the cut CSV files.
+Previously, feasibility cuts were transient (applied to the LP but not
+persisted).  Saving them ensures that hot-start runs can benefit from
+previously discovered feasibility information.
+
+In the cut CSV files, the `type` column distinguishes the two kinds:
+
+| Marker | CutType | Description |
+|--------|---------|-------------|
+| `o` | Optimality | Standard Benders optimality cut |
+| `f` | Feasibility | Feasibility cut from elastic filter |
+
+### 4.11 Solve Timeouts
+
+Two timeout settings protect against runaway LP solves:
+
+**`solve_timeout`** (default: 180 seconds / 3 minutes) applies to each
+forward-pass LP solve.  When a forward-pass phase LP exceeds this time,
+the solver writes the LP to a debug file in `log_directory`, logs a
+CRITICAL message, and marks the scene as failed.  The remaining scenes
+continue solving.
+
+**`aperture_timeout`** (default: 15 seconds) applies to individual
+aperture LP solves in the backward pass.  When an aperture LP exceeds
+this time, it is treated as infeasible (skipped), a WARNING is logged,
+and the solver continues with the remaining apertures for that phase.
+
+Set either timeout to `0` to disable the corresponding time limit.
+
+```json
+{
+  "options": {
+    "sddp_options": {
+      "solve_timeout": 300,
+      "aperture_timeout": 30
+    }
+  }
+}
+```
+
+### 4.12 Single-Phase Fallback
+
+When `solver_type: "sddp"` is requested but only **1 phase** exists in
+the planning model, the solver factory automatically falls back to the
+monolithic solver with an informational log message.  This prevents the
+SDDP "requires at least 2 phases" error and allows the same JSON
+configuration to work for both single-phase and multi-phase models.
+
+### 4.13 Solver API for Monitoring and Control
 
 The `SDDPSolver` exposes a thread-safe API designed for GUI integration,
 external monitoring tools, and programmatic control of the solve process:
@@ -441,7 +511,7 @@ atomic accessors.  These are safe to call from any thread during solve:
 per-phase state is available via `phase_states(scene)`, and all stored
 cuts via `stored_cuts()`.
 
-### 4.11 Boundary Cuts (Future-Cost Approximation)
+### 4.14 Boundary Cuts (Future-Cost Approximation)
 
 Boundary cuts approximate the expected future cost beyond the planning
 horizon.  They are the SDDP analogue of PLP's "planos de embalse"
@@ -453,7 +523,7 @@ where $\alpha$ is the future-cost variable added to the last phase,
 $x_i$ are the state variables (reservoir volumes, battery SoC), $\rho_i$
 are gradient coefficients, and $\beta_0$ is the intercept (RHS).
 
-**CSV format** (`sddp_boundary_cuts_file`):
+**CSV format** (`boundary_cuts_file` in `sddp_options`):
 
 ```
 name,iteration,scene,rhs,Reservoir1,Reservoir2,...
@@ -470,7 +540,7 @@ bc_2_1,2,1,-5100.0,0.26,0.74,...
 | `rhs` | Intercept $\beta_0$ (PLP: $-$`LDPhiPrv`) |
 | *State columns* | Gradient coefficients $\rho_i$ per state variable |
 
-**Load modes** (`sddp_boundary_cuts_mode`):
+**Load modes** (`boundary_cuts_mode` in `sddp_options`):
 
 | Mode | Description |
 |------|-------------|
@@ -478,21 +548,62 @@ bc_2_1,2,1,-5100.0,0.26,0.74,...
 | `"separated"` (default) | Each cut is assigned to the scene matching its `scene` UID |
 | `"combined"` | All cuts are broadcast to all scenes |
 
-**Iteration filtering** (`sddp_boundary_max_iterations`):
+**Iteration filtering** (`boundary_max_iterations` in `sddp_options`):
 
 When set to a positive integer $N$, only cuts from the last $N$ distinct
 SDDP iterations (by the `iteration` column) are loaded.  This is useful
 for PLP cases where many iterations of cuts are available but only the
 most recent ones are relevant.  Set to `0` to load all cuts (default).
 
-**Example** — load the last 3 iterations of cuts, per-scene:
+**Example** --- load the last 3 iterations of cuts, per-scene:
 
 ```json
 {
   "options": {
-    "sddp_boundary_cuts_file": "boundary_cuts.csv",
-    "sddp_boundary_cuts_mode": "separated",
-    "sddp_boundary_max_iterations": 3
+    "sddp_options": {
+      "boundary_cuts_file": "boundary_cuts.csv",
+      "boundary_cuts_mode": "separated",
+      "boundary_max_iterations": 3
+    }
+  }
+}
+```
+
+### 4.15 Named Cuts (Multi-Phase Hot-Start)
+
+Named cuts extend boundary cuts to **all phases** (not just the last).
+Each row includes a `phase` column indicating which phase the cut belongs
+to.  The solver resolves named state-variable headers (reservoir, battery,
+junction) to LP column indices in the specified phase, then adds each cut
+as a lower-bound constraint on the corresponding future-cost variable:
+
+$$\alpha_{\text{phase}} \;\ge\; \text{rhs} \;+\; \sum_{i} \rho_i \cdot x_i[\text{phase}]$$
+
+**CSV format** (`named_cuts_file` in `sddp_options`):
+
+```
+name,iteration,scene,phase,rhs,Reservoir1,Reservoir2,...
+hs_1_1_3,1,1,3,-5000.0,0.25,0.75,...
+hs_2_1_4,2,1,4,-4800.0,0.30,0.60,...
+```
+
+| Column | Description |
+|--------|-------------|
+| `name` | Cut identifier |
+| `iteration` | SDDP iteration number |
+| `scene` | Scene UID |
+| `phase` | Phase UID (determines which phase LP receives the cut) |
+| `rhs` | Intercept $\beta_0$ |
+| *State columns* | Gradient coefficients per state variable (by name) |
+
+**Example**:
+
+```json
+{
+  "options": {
+    "sddp_options": {
+      "named_cuts_file": "planos_cuts.csv"
+    }
   }
 }
 ```
@@ -506,22 +617,34 @@ most recent ones are relevant.  Set to `0` to load all cuts (default).
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `max_iterations` | int | 100 | Maximum SDDP iterations |
+| `min_iterations` | int | 2 | Minimum iterations before declaring convergence |
 | `convergence_tol` | double | 1e-4 | Relative gap tolerance |
 | `elastic_penalty` | double | 1e6 | Penalty cost for elastic slack variables |
-| `elastic_filter_mode` | ElasticFilterMode | FeasibilityCut | Elastic filter strategy (see §5.4) |
+| `elastic_filter_mode` | ElasticFilterMode | single_cut | Elastic filter strategy (see S5.4) |
+| `multi_cut_threshold` | int | 10 | Infeasibility count before auto-switching to multi_cut (0 = always multi_cut, <0 = disabled) |
 | `alpha_min` | double | 0.0 | Lower bound for α variables |
 | `alpha_max` | double | 1e12 | Upper bound for α variables |
-| `cut_sharing` | CutSharingMode | None | Cut sharing strategy between scenes |
+| `cut_sharing` | CutSharingMode | none | Cut sharing strategy between scenes |
+| `save_per_iteration` | bool | true | Save cuts to CSV after each iteration |
+| `hot_start` | bool | false | Load previously saved cuts on startup |
+| `solve_timeout` | double | 180.0 | Forward-pass LP solve timeout in seconds (0 = no timeout) |
+| `aperture_timeout` | double | 15.0 | Aperture LP solve timeout in seconds (0 = no timeout) |
 | `sentinel_file` | string | "" | Path to sentinel file for graceful stop |
 | `cuts_output_file` | string | "" | Path for saving cuts (CSV format) |
 | `cuts_input_file` | string | "" | Path for loading cuts (hot-start) |
 | `log_directory` | string | "logs" | Directory for log and error LP files |
+| `lp_debug` | bool | false | Save debug LP file for every (iter, scene, phase) |
+| `just_build_lp` | bool | false | Build LP matrices and exit without solving |
+| `lp_debug_compression` | string | "" | Compression for LP debug files (`"gzip"` / `""`) |
 | `enable_api` | bool | true | Enable monitoring API (JSON status file) |
 | `api_status_file` | string | "" | Path for the JSON status file |
+| `api_stop_request_file` | string | "" | Path for monitoring API stop-request file |
 | `api_update_interval` | ms | 500 | Interval between monitoring samples |
-| `boundary_cuts_file` | string | "" | CSV file with boundary cuts (§4.11) |
+| `num_apertures` | int | 0 | Apertures per backward-pass phase (0 = disabled, -1 = all scenarios) |
+| `boundary_cuts_file` | string | "" | CSV file with boundary cuts (S4.14) |
 | `boundary_cuts_mode` | string | "separated" | Load mode: `"noload"`, `"separated"`, `"combined"` |
 | `boundary_max_iterations` | int | 0 | Max iterations to load (0 = all) |
+| `named_cuts_file` | string | "" | CSV file with named multi-phase cuts (S4.15) |
 
 ### 5.2 Options (JSON)
 
@@ -534,41 +657,57 @@ the JSON planning file.
     "solver_type": "sddp",
     "log_directory": "logs",
     "sddp_options": {
-      "sddp_cut_sharing_mode": "expected",
-      "sddp_cut_directory": "cuts",
-      "sddp_max_iterations": 200,
-      "sddp_convergence_tol": 1e-5,
-      "sddp_elastic_penalty": 1e7,
-      "sddp_elastic_mode": "backpropagate"
+      "cut_sharing_mode": "expected",
+      "cut_directory": "cuts",
+      "max_iterations": 200,
+      "convergence_tol": 1e-5,
+      "elastic_penalty": 1e7,
+      "elastic_mode": "backpropagate",
+      "hot_start": true,
+      "solve_timeout": 300,
+      "aperture_timeout": 30
     }
   }
 }
 ```
 
-The top-level `solver_type` field selects the planning solver.  All
-`sddp_`-prefixed options live in the nested `sddp_options` sub-object.
+The top-level `solver_type` field selects the planning solver.  SDDP-specific
+options live in the nested `sddp_options` sub-object (without the `sddp_`
+prefix, since the section name already provides the namespace).
 
 **Top-level `options` fields:**
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `solver_type` | string | `"monolithic"` | Solver: `"monolithic"` or `"sddp"` (recommended shorthand) |
-| `log_directory` | string | `"logs"` | Directory for log and trace files |
+| `log_directory` | string | `"<output_directory>/logs"` | Directory for log and trace files |
 
 **`sddp_options` sub-object fields:**
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `sddp_solver_type` | string | — | Alternative to top-level `solver_type` (lower precedence) |
-| `sddp_cut_sharing_mode` | string | `"max"` | Cut sharing: `"none"`, `"expected"`, `"accumulate"`, or `"max"` |
-| `sddp_cut_directory` | string | `"cuts"` | Directory for Benders cut files |
-| `sddp_max_iterations` | int | 100 | Maximum SDDP iterations |
-| `sddp_convergence_tol` | double | 1e-4 | Relative gap convergence tolerance |
-| `sddp_elastic_penalty` | double | 1e6 | Penalty for elastic slack variables |
-| `sddp_elastic_mode` | string | `"cut"` | Elastic filter mode: `"cut"` or `"backpropagate"` |
-| `sddp_boundary_cuts_file` | string | `""` | CSV file with boundary cuts for the last phase (§4.11) |
-| `sddp_boundary_cuts_mode` | string | `"separated"` | Load mode: `"noload"`, `"separated"`, `"combined"` |
-| `sddp_boundary_max_iterations` | int | 0 | Max SDDP iterations to load from boundary cuts (0 = all) |
+| `cut_sharing_mode` | string | `"none"` | Cut sharing: `"none"`, `"expected"`, `"accumulate"`, or `"max"` |
+| `cut_directory` | string | `"cuts"` | Directory for Benders cut files |
+| `max_iterations` | int | 100 | Maximum SDDP iterations |
+| `min_iterations` | int | 2 | Minimum iterations before declaring convergence |
+| `convergence_tol` | double | 1e-4 | Relative gap convergence tolerance |
+| `elastic_penalty` | double | 1e6 | Penalty for elastic slack variables |
+| `elastic_mode` | string | `"single_cut"` | Elastic filter mode: `"single_cut"` (alias `"cut"`), `"multi_cut"`, or `"backpropagate"` |
+| `multi_cut_threshold` | int | 10 | Auto-switch to multi_cut after N consecutive infeasibilities |
+| `alpha_min` | double | 0.0 | Lower bound for future cost variable α |
+| `alpha_max` | double | 1e12 | Upper bound for future cost variable α |
+| `hot_start` | bool | false | Load previously saved cuts on startup (from `cut_directory`) |
+| `save_per_iteration` | bool | true | Save cuts to CSV after each iteration |
+| `solve_timeout` | double | 180.0 | Forward-pass LP solve timeout in seconds (0 = no timeout) |
+| `aperture_timeout` | double | 15.0 | Aperture LP solve timeout in seconds (0 = no timeout) |
+| `num_apertures` | int | 0 | Apertures per backward-pass phase (0 = disabled, -1 = all) |
+| `aperture_directory` | string | `""` | Directory for aperture-specific scenario data |
+| `api_enabled` | bool | true | Enable SDDP monitoring API (JSON status file) |
+| `efficiency_update_skip` | int | 0 | Iterations to skip between efficiency coefficient updates |
+| `boundary_cuts_file` | string | `""` | CSV file with boundary cuts for the last phase (S4.14) |
+| `boundary_cuts_mode` | string | `"separated"` | Load mode: `"noload"`, `"separated"`, `"combined"` |
+| `boundary_max_iterations` | int | 0 | Max SDDP iterations to load from boundary cuts (0 = all) |
+| `named_cuts_file` | string | `""` | CSV file with named multi-phase cuts (S4.15) |
 
 ### 5.3 CLI
 
@@ -605,12 +744,12 @@ providing detailed iteration-by-iteration data including:
 When a backward-pass phase is infeasible due to the fixed trial values of
 state variables from the forward pass, the elastic filter handles the
 infeasibility by temporarily relaxing the state-variable bounds using
-penalised slack variables.  Two modes are available:
+penalised slack variables.  Three modes are available:
 
-#### Mode 1: `"cut"` (FeasibilityCut — default)
+#### Mode 1: `"single_cut"` (default, alias `"cut"`)
 
 This is the standard Nested Benders Decomposition approach.  When the
-elastic clone is solved, its dual information is used to build a
+elastic clone is solved, its dual information is used to build a single
 **feasibility cut** for the previous phase.  The feasibility cut is added
 to the previous phase's LP and the phase is re-solved.  This tightens the
 previous phase's feasible region and prevents the same infeasible trial
@@ -620,7 +759,20 @@ point from reappearing.
 remain strictly feasible after each iteration and cuts accurately capture
 the future cost.
 
-#### Mode 2: `"backpropagate"` (BackpropagateBounds — PLP mechanism)
+#### Mode 2: `"multi_cut"`
+
+Like `single_cut`, this mode adds a feasibility cut, but also adds one
+additional bound-constraint cut per activated slack variable.  This
+provides stronger information to the previous phase's LP, potentially
+reducing the number of iterations needed to achieve feasibility.
+
+The solver can **auto-switch** from `single_cut` to `multi_cut` when a
+specific (scene, phase) pair has been infeasible for more than
+`multi_cut_threshold` consecutive forward passes (default: 10).  Set the
+threshold to `0` to always use `multi_cut` for any infeasibility, or to
+a negative value to disable auto-switching entirely.
+
+#### Mode 3: `"backpropagate"` (BackpropagateBounds --- PLP mechanism)
 
 This is based on the PLP hydrothermal scheduler mechanism in
 `osicallsc.cpp`.  Instead of adding a cut, the solver propagates the
@@ -639,15 +791,49 @@ bounds, but may produce a different (non-cut-based) convergence path.
 
 **Comparison:**
 
-| Aspect | `cut` | `backpropagate` |
-|--------|-------|-----------------|
-| Adds cut rows | Yes | No |
-| Modifies previous phase bounds | No | Yes |
-| Convergence guarantee | Standard NBD | Heuristic |
-| Best for | General SDDP | Hydrothermal with tight bounds |
-| PLP origin | No | Yes (`osicallsc.cpp`) |
+| Aspect | `single_cut` | `multi_cut` | `backpropagate` |
+|--------|-------------|-------------|-----------------|
+| Adds cut rows | 1 | 1 + per-slack | No |
+| Modifies previous phase bounds | No | No | Yes |
+| Convergence guarantee | Standard NBD | Standard NBD | Heuristic |
+| Best for | General SDDP | Persistent infeasibility | Hydrothermal with tight bounds |
+| PLP origin | No | No | Yes (`osicallsc.cpp`) |
 
-### 5.5 Per-Scene Cut Files
+### 5.5 Cut CSV Format
+
+Cut files use a CSV format with a header line and one row per cut.  The
+format includes a `type` column and uses **name-based coefficients** for
+portability across LP structure changes:
+
+```
+# scale_objective=1000
+type,phase,scene,name,rhs,coefficients
+o,1,1,sddp_scut_1_1_3_0,-5000.0,Res1_efin=0.25,Res2_efin=0.75
+f,1,1,sddp_fcut_1_1_3_1,-4800.0,Res1_efin=0.30
+o,2,1,sddp_scut_1_2_4_0,-5100.0,Res1_efin=0.26
+```
+
+| Column | Description |
+|--------|-------------|
+| `type` | Cut type: `o` = optimality, `f` = feasibility |
+| `phase` | Phase UID this cut was added to |
+| `scene` | Scene UID that generated this cut |
+| `name` | Cut identifier (encodes scene, phase, iteration, offset) |
+| `rhs` | Right-hand side in physical objective units |
+| `coefficients` | Variable-coefficient pairs (see below) |
+
+**Coefficient format**: coefficients are written as comma-separated
+`col_name=coeff` pairs using LP column names (e.g.,
+`Reservoir1_efin=0.25`).  This name-based format is portable across runs
+where the LP column order may change.  Values are stored in fully physical
+space (scaled by `scale_objective` and inverse column scales).
+
+**Backward-compatible loading**: the loader also accepts the legacy
+`col_index:coeff` format (e.g., `42:0.25`), where `col_index` is a
+0-based LP column index.  If a named column is not found in the current
+LP (due to structural changes), the coefficient is skipped with a warning.
+
+### 5.6 Per-Scene Cut Files
 
 When `cuts_output_file` is set, the solver saves both a combined cut file
 and per-scene files to avoid write contention during parallel backward
@@ -661,16 +847,16 @@ cuts/
 └── ...
 ```
 
-Each per-scene file has the same CSV format as the combined file. This
+Each per-scene file has the same CSV format as the combined file.  This
 allows concurrent scene processing to write independently without
-locking. Cut files for infeasible scenes are automatically renamed
+locking.  Cut files for infeasible scenes are automatically renamed
 with an `error_` prefix (e.g. `error_scene_2.csv`).
 
 The `phase` and `scene` columns in cut CSV files contain **UIDs**
 (matching the `uid` field in `phase_array` and `scene_array`), not
 0-based C++ indices.
 
-### 5.6 Infeasible Scene Handling
+### 5.7 Infeasible Scene Handling
 
 When one or more scenes are infeasible during the forward pass:
 
@@ -686,12 +872,15 @@ When one or more scenes are infeasible during the forward pass:
 5. **Error**: if **all** scenes are infeasible, the solver returns an error
    and `gtopt_main` exits with a non-zero exit code.
 
-### 5.7 Hot-Start and Error File Filtering
+### 5.8 Hot-Start and Error File Filtering
 
-On hot-start, the solver loads cuts from the cut directory to warm-start
-the Benders approximation.  Files with the `error_` prefix (from
-infeasible scenes in previous runs) are automatically **skipped** to
-prevent loading invalid cuts:
+Hot-start requires setting `hot_start: true` explicitly in `sddp_options`.
+When enabled, the solver loads cuts from the cut directory to warm-start
+the Benders approximation.  If `cuts_input_file` is also set, it takes
+precedence as the source of hot-start cuts.
+
+Files with the `error_` prefix (from infeasible scenes in previous runs)
+are automatically **skipped** to prevent loading invalid cuts:
 
 ```
 cuts/
@@ -1029,11 +1218,13 @@ DOI: [10.1109/KPEC54747.2022.9814758](https://doi.org/10.1109/KPEC54747.2022.981
 
 ## 10. See Also
 
-- [MATHEMATICAL_FORMULATION.md](formulation/MATHEMATICAL_FORMULATION.md) —
+- [MONOLITHIC_SOLVER.md](MONOLITHIC_SOLVER.md) --- monolithic solver
+  documentation (default solver, boundary cuts, solve timeout)
+- [MATHEMATICAL_FORMULATION.md](formulation/MATHEMATICAL_FORMULATION.md) ---
   full LP/MIP formulation for gtopt
-- [PLANNING_GUIDE.md](../PLANNING_GUIDE.md) — worked examples and time
+- [PLANNING_GUIDE.md](../PLANNING_GUIDE.md) --- worked examples and time
   structure concepts
-- [INPUT_DATA.md](../INPUT_DATA.md) — JSON/Parquet input format
+- [INPUT_DATA.md](../INPUT_DATA.md) --- JSON/Parquet input format
   specification
-- [USAGE.md](../USAGE.md) — CLI reference including `--trace-log`
-- [CONTRIBUTING.md](../CONTRIBUTING.md) — code style and testing guidelines
+- [USAGE.md](../USAGE.md) --- CLI reference including `--trace-log`
+- [CONTRIBUTING.md](../CONTRIBUTING.md) --- code style and testing guidelines
