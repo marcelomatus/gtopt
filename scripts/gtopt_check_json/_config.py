@@ -21,6 +21,7 @@ CHECK_DEFAULTS: dict[str, str] = {
     "element_references": "true",
     "bus_connectivity": "true",
     "unreferenced_elements": "true",
+    "capacity_adequacy": "true",
     "ai_system_analysis": "false",
 }
 
