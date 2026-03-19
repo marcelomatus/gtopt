@@ -1353,7 +1353,7 @@ def test_plp_case_2y_single_stage_all_scenarios(tmp_path):
     With plpidsim.dat present, '-y all' expands to all 16 simulations and
     maps each to its actual hydrology column (51-66).  '-s 1' limits to
     stage 1 only.  For stage 1, all aperture hydros (51-66) are already in
-    the forward set, so no extra Afluent files are needed.
+    the forward set, so no extra Flow files are needed.
     """
     opts = _make_opts_2y(tmp_path)
     opts["last_stage"] = 1
@@ -1399,30 +1399,30 @@ def test_plp_case_2y_single_stage_all_scenarios(tmp_path):
         "Stage-1 apertures all map to forward scenarios, no extra UIDs expected"
     )
 
-    # No aperture Afluent directory (all hydros already in forward set)
-    aperture_afluent = Path(opts["output_dir"]) / "apertures" / "Afluent"
-    assert not aperture_afluent.exists(), (
-        "No extra Afluent files needed when all aperture hydros are in forward set"
+    # No aperture Flow directory (all hydros already in forward set)
+    aperture_flow = Path(opts["output_dir"]) / "apertures" / "Flow"
+    assert not aperture_flow.exists(), (
+        "No extra Flow files needed when all aperture hydros are in forward set"
     )
 
-    # Main Afluent directory has parquet files for the 16 forward scenarios.
-    # afluent.parquet format: rows = (scenario × block), columns = scenario +
+    # Main Flow directory has parquet files for the 16 forward scenarios.
+    # discharge.parquet format: rows = (scenario × block), columns = scenario +
     # stage + block + one uid:N per hydro-capable central (not per scenario).
-    afluent_dir = Path(opts["output_dir"]) / "Afluent"
-    parquet_files = list(afluent_dir.glob("*.parquet"))
-    assert len(parquet_files) > 0, "Main Afluent/*.parquet files should be written"
+    flow_dir = Path(opts["output_dir"]) / "Flow"
+    parquet_files = list(flow_dir.glob("*.parquet"))
+    assert len(parquet_files) > 0, "Main Flow/*.parquet files should be written"
     df = pd.read_parquet(parquet_files[0])
     # The file must have a 'scenario' column with 16 unique scenario UIDs (1-16)
-    assert "scenario" in df.columns, "afluent.parquet should have a 'scenario' column"
+    assert "scenario" in df.columns, "discharge.parquet should have a 'scenario' column"
     unique_scen = sorted(df["scenario"].unique())
     assert len(unique_scen) == 16, (
-        f"Expected 16 unique scenario values in afluent.parquet, got {len(unique_scen)}"
+        f"Expected 16 unique scenario values in discharge.parquet, got {len(unique_scen)}"
     )
     assert unique_scen == list(range(1, 17)), "Scenario UIDs should be 1-16"
     # uid:N columns represent hydro-capable centrals (there are many in this case)
     central_cols = [c for c in df.columns if c.startswith("uid:")]
     assert len(central_cols) > 0, (
-        "afluent.parquet must have at least one uid:N central column"
+        "discharge.parquet must have at least one uid:N central column"
     )
 
     # num_apertures auto-set to 16 (one per aperture in aperture_array)
@@ -1440,7 +1440,7 @@ def test_plp_case_2y_all_stages_extra_hydros(tmp_path):
     - Stages 40-51: 16 apertures {1-2, 53-66}  (hydro 2 also appears)
     Union = {1,2,51,52,...,66} = 18 unique hydro classes.
     Hydros 1 and 2 are NOT in the active forward set (51-66), so extra
-    Afluent parquet files are required in apertures/Afluent/.
+    Flow parquet files are required in apertures/Flow/.
     """
     opts = _make_opts_2y(tmp_path, "gtopt_case_2y_all")
     # All 51 stages
@@ -1458,12 +1458,12 @@ def test_plp_case_2y_all_stages_extra_hydros(tmp_path):
         f"Expected 18 apertures (union of all 51 stages), got {len(aps)}"
     )
 
-    # Extra hydros (Fortran 1-based 1 and 2) need their own Afluent files
-    aperture_afluent = Path(opts["output_dir"]) / "apertures" / "Afluent"
-    assert aperture_afluent.exists(), "apertures/Afluent/ should be created"
+    # Extra hydros (Fortran 1-based 1 and 2) need their own Flow files
+    aperture_flow = Path(opts["output_dir"]) / "apertures" / "Flow"
+    assert aperture_flow.exists(), "apertures/Flow/ should be created"
 
-    pfiles = list(aperture_afluent.glob("*.parquet"))
-    assert len(pfiles) > 0, "Extra hydro Afluent parquet files should be written"
+    pfiles = list(aperture_flow.glob("*.parquet"))
+    assert len(pfiles) > 0, "Extra hydro Flow parquet files should be written"
 
     # Each file must have uid:1 and uid:2 (extra hydro scenario UIDs = 1-based hydro index)
     df = pd.read_parquet(pfiles[0])
@@ -1478,10 +1478,10 @@ def test_plp_case_2y_all_stages_extra_hydros(tmp_path):
     sddp = data["options"]["sddp_options"]
     assert sddp.get("num_apertures") == 18
 
-    # Forward afluent files for the 16 scenarios (hydros 51-66)
-    afluent_dir = Path(opts["output_dir"]) / "Afluent"
-    assert afluent_dir.exists()
-    fwd_files = list(afluent_dir.glob("*.parquet"))
+    # Forward discharge files for the 16 scenarios (hydros 51-66)
+    flow_dir = Path(opts["output_dir"]) / "Flow"
+    assert flow_dir.exists()
+    fwd_files = list(flow_dir.glob("*.parquet"))
     assert len(fwd_files) > 0
 
 
@@ -1709,14 +1709,14 @@ def test_hydro_4b_mono_conversion(tmp_path):
 
 @pytest.mark.integration
 def test_hydro_4b_afluent_parquet(tmp_path):
-    """plp_hydro_4b: Afluent/afluent.parquet has 3 scenarios × 9 blocks."""
+    """plp_hydro_4b: Flow/discharge.parquet has 3 scenarios × 9 blocks."""
     opts = _make_opts_hydro_4b(tmp_path)
     convert_plp_case(opts)
 
-    afluent_path = Path(opts["output_dir"]) / "Afluent" / "afluent.parquet"
-    assert afluent_path.exists(), "Afluent/afluent.parquet not written"
+    discharge_path = Path(opts["output_dir"]) / "Flow" / "discharge.parquet"
+    assert discharge_path.exists(), "Flow/discharge.parquet not written"
 
-    df = pd.read_parquet(afluent_path)
+    df = pd.read_parquet(discharge_path)
     assert "scenario" in df.columns
     assert "block" in df.columns
     assert "uid:1" in df.columns  # LakeA uid=1
