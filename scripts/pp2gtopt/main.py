@@ -2,10 +2,14 @@
 """Main entry point for pandapower to gtopt conversion."""
 
 import argparse
+import logging
 import sys
 from pathlib import Path
+from typing import Any
 
 from .convert import _SUPPORTED_FORMATS, convert, load_network
+
+logger = logging.getLogger(__name__)
 
 try:
     from importlib.metadata import PackageNotFoundError
@@ -76,6 +80,78 @@ def _list_networks_and_exit() -> None:
     sys.exit(0)
 
 
+def _log_element_counts(planning: dict[str, Any]) -> None:
+    """Log element counts from the generated gtopt planning dict."""
+    sys_data = planning.get("system", {})
+    sim = planning.get("simulation", {})
+
+    logger.info("=== Generated gtopt element counts ===")
+    logger.info("  System name     : %s", sys_data.get("name", "(unnamed)"))
+    logger.info("  Buses           : %d", len(sys_data.get("bus_array", [])))
+    logger.info("  Generators      : %d", len(sys_data.get("generator_array", [])))
+    logger.info("  Demands         : %d", len(sys_data.get("demand_array", [])))
+    logger.info("  Lines           : %d", len(sys_data.get("line_array", [])))
+    logger.info("  Blocks          : %d", len(sim.get("block_array", [])))
+    logger.info("  Stages          : %d", len(sim.get("stage_array", [])))
+    logger.info("  Scenarios       : %d", len(sim.get("scenario_array", [])))
+
+
+def run_post_check(planning: dict[str, Any]) -> None:
+    """Run gtopt_check_json validation on the generated planning dict.
+
+    Logs element counts from the generated JSON, and if gtopt_check_json
+    is available, runs format_info() and run_all_checks().  Skips
+    gracefully if gtopt_check_json is not installed.
+
+    Parameters
+    ----------
+    planning
+        The planning dict produced by convert().
+    """
+    _log_element_counts(planning)
+
+    try:
+        from gtopt_check_json._info import format_info  # noqa: PLC0415
+        from gtopt_check_json._checks import (  # noqa: PLC0415
+            run_all_checks,
+            Severity,
+        )
+    except ImportError:
+        logger.debug("gtopt_check_json not available; skipping JSON validation checks")
+        return
+
+    logger.info("=== gtopt_check_json: system info ===")
+    for line in format_info(planning).splitlines():
+        logger.info("  %s", line)
+
+    findings = run_all_checks(planning, enabled_checks=None, ai_options=None)
+
+    if not findings:
+        logger.info("gtopt_check_json: all checks passed — no issues found.")
+        return
+
+    critical_count = 0
+    warning_count = 0
+    note_count = 0
+    for finding in findings:
+        if finding.severity == Severity.CRITICAL:
+            logger.error("[CRITICAL] (%s) %s", finding.check_id, finding.message)
+            critical_count += 1
+        elif finding.severity == Severity.WARNING:
+            logger.warning("[WARNING] (%s) %s", finding.check_id, finding.message)
+            warning_count += 1
+        else:
+            logger.info("[NOTE] (%s) %s", finding.check_id, finding.message)
+            note_count += 1
+
+    logger.info(
+        "gtopt_check_json summary: %d critical, %d warnings, %d notes",
+        critical_count,
+        warning_count,
+        note_count,
+    )
+
+
 def make_parser() -> argparse.ArgumentParser:
     """Build and return the argument parser for pp2gtopt."""
     parser = argparse.ArgumentParser(
@@ -120,6 +196,17 @@ def make_parser() -> argparse.ArgumentParser:
         help="list all available built-in pandapower test networks and exit",
     )
     parser.add_argument(
+        "--check",
+        dest="run_check",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "run post-conversion validation via gtopt_check_json: prints "
+            "element counts and basic consistency checks. "
+            "Use --no-check to disable. (default: enabled)"
+        ),
+    )
+    parser.add_argument(
         "-V",
         "--version",
         action="version",
@@ -130,6 +217,8 @@ def make_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """Parse arguments and run the conversion."""
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
     parser = make_parser()
     args = parser.parse_args()
 
@@ -148,7 +237,10 @@ def main() -> None:
         name = network
 
     output = args.output if args.output is not None else Path(f"{name}.json")
-    convert(output, net=net, name=name)
+    planning = convert(output, net=net, name=name)
+
+    if args.run_check:
+        run_post_check(planning)
 
 
 if __name__ == "__main__":

@@ -311,7 +311,7 @@ def convert(
     output_path: Path | None = None,
     net: pp.pandapowerNet | None = None,
     name: str | None = None,
-) -> None:
+) -> dict[str, Any]:
     """Load a pandapower network and write the gtopt JSON file.
 
     Parameters
@@ -324,12 +324,17 @@ def convert(
         is loaded automatically.
     name:
         System name to embed in the JSON.  Defaults to ``"ieee30b"``.
+
+    Returns
+    -------
+    dict[str, Any]
+        The generated gtopt planning dictionary.
     """
     if net is None:
         net = pn.case_ieee30()
     if name is None:
         name = "ieee30b"
-    data = {
+    data: dict[str, Any] = {
         "options": {
             "annual_discount_rate": 0.0,
             "use_lp_names": 1,
@@ -362,3 +367,4 @@ def convert(
     with open(output_path, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
     print(f"Written: {output_path}")
+    return data
