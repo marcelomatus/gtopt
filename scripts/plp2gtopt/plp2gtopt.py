@@ -109,7 +109,7 @@ def _plp_element_counts(parser: PLPParser) -> dict[str, int]:
         for ctype, clist in central_parser.centrals_of_type.items():
             counts[f"sub_{ctype}"] = len(clist)
 
-    demand_parser = pd.get("demand_parser")
+    demand_parser = pdata.get("demand_parser")
     if demand_parser:
         counts["demands"] = getattr(demand_parser, "num_demands", 0)
 
