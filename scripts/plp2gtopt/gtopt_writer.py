@@ -755,12 +755,12 @@ class GTOptWriter:
                 # Priority 2: auto-vol-scale
                 elif auto_vol:
                     # Try FEscala from plpplem1.dat first
-                    if name in fescala_map:
-                        fescala = fescala_map[name]
+                    fescala = fescala_map.get(name)
+                    if fescala is not None:
                         scale = 10.0 ** (fescala - 6)
-                    # Fallback: central_parser's vol_scale (Escala/1e6)
-                    elif name in central_vol_scale:
-                        scale = central_vol_scale[name]
+                    else:
+                        # Fallback: central_parser's vol_scale (Escala/1e6)
+                        scale = central_vol_scale.get(name)
 
                 if scale is not None and scale != 1.0:
                     scales.append(
