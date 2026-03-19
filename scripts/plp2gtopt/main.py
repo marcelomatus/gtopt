@@ -76,13 +76,13 @@ examples:
   # Set reservoir volume scaling for better LP numerics
   plp2gtopt -i input/ --vol-scale 'RAPEL:500,COLBUN:15000'
 
-  # Auto-calculate vol_scale from reservoir emax (vol_scale = emax / 100)
+  # Auto-calculate vol_scale from PLP FEscala (plpplem1.dat / plpcnfce.dat)
   plp2gtopt -i input/ --auto-vol-scale
 
   # Set battery energy scaling
   plp2gtopt -i input/ --energy-scale 'BESS1:100'
 
-  # Auto-calculate energy_scale from battery emax
+  # Auto-set energy_scale=0.01 for all PLP batteries
   plp2gtopt -i input/ --auto-energy-scale
 
   # Show verbose debug output
@@ -516,10 +516,11 @@ def make_parser() -> argparse.ArgumentParser:
         metavar="SPEC",
         default=None,
         help=(
-            "Set reservoir vol_scale values as comma-separated name:value pairs. "
+            "Set reservoir volume scale values as comma-separated name:value pairs. "
             "Example: --vol-scale 'RAPEL:500,COLBUN:15000'. "
-            "The vol_scale divides the LP volume variable for numerical conditioning. "
-            "(default: not set — reservoirs use vol_scale=1.0)"
+            "Emitted as variable_scales entries in the options section. "
+            "The scale divides the LP volume variable for numerical conditioning. "
+            "(default: not set — reservoirs use scale=1.0)"
         ),
     )
     parser.add_argument(
@@ -528,10 +529,12 @@ def make_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help=(
-            "Automatically calculate vol_scale for each reservoir from its emax "
-            "capacity: vol_scale = max(1.0, emax / 100.0). This scales the LP "
-            "volume variable to ~100 units for better solver numerics. "
+            "Automatically calculate vol_scale for each reservoir from the PLP "
+            "FEscala field: vol_scale = 10^(FEscala - 6). "
+            "FEscala is read from plpplem1.dat (CSV format, field 9) when available; "
+            "otherwise falls back to plpcnfce.dat Escala (Escala / 1e6). "
             "Explicit --vol-scale entries override auto-calculated values. "
+            "Scales are emitted as variable_scales entries in the options section. "
             "(default: %(default)s)"
         ),
     )
@@ -541,10 +544,11 @@ def make_parser() -> argparse.ArgumentParser:
         metavar="SPEC",
         default=None,
         help=(
-            "Set battery energy_scale values as comma-separated name:value pairs. "
+            "Set battery energy scale values as comma-separated name:value pairs. "
             "Example: --energy-scale 'BESS1:0.01,BESS2:100'. "
-            "The energy_scale divides the LP energy variable for numerical "
-            "conditioning. (default: not set — batteries use energy_scale=1.0)"
+            "Emitted as variable_scales entries in the options section. "
+            "The scale divides the LP energy variable for numerical conditioning. "
+            "(default: not set — batteries use scale=1.0)"
         ),
     )
     parser.add_argument(
@@ -553,10 +557,10 @@ def make_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help=(
-            "Automatically calculate energy_scale for each battery from its emax "
-            "capacity: energy_scale = max(1.0, emax / 100.0). This scales the LP "
-            "energy variable to ~100 units for better solver numerics. "
-            "Explicit --energy-scale entries override auto-calculated values. "
+            "Set energy_scale=0.01 for all PLP batteries. This scales the LP "
+            "energy variable for better solver numerics. "
+            "Explicit --energy-scale entries override this default. "
+            "Scales are emitted as variable_scales entries in the options section. "
             "(default: %(default)s)"
         ),
     )

@@ -63,8 +63,8 @@ class Flow(TypedDict):
     discharge: float | str
 
 
-class _ReservoirRequired(TypedDict):
-    """Required fields for Reservoir (always present)."""
+class Reservoir(TypedDict):
+    """Represents a storage node in the hydro system."""
 
     uid: int
     name: str
@@ -80,16 +80,6 @@ class _ReservoirRequired(TypedDict):
     spillway_cost: float
     spillway_capacity: float
     annual_loss: float
-
-
-class Reservoir(_ReservoirRequired, total=False):
-    """Represents a storage node in the hydro system.
-
-    The ``vol_scale`` field is optional; when present it sets the LP volume
-    scaling factor (physical_volume / vol_scale) for better solver numerics.
-    """
-
-    vol_scale: float
 
 
 class Turbine(TypedDict):
@@ -482,28 +472,6 @@ class JunctionWriter(BaseWriter):
             if waterway:
                 system["waterway_array"].append(waterway)
 
-    @staticmethod
-    def _resolve_vol_scale(
-        central_name: str,
-        emax_value: float,
-        options: Optional[Dict[str, Any]],
-    ) -> Optional[float]:
-        """Determine the vol_scale for a reservoir from CLI options.
-
-        Priority (highest first):
-        1. Explicit ``--vol-scale name:value`` entry for this reservoir.
-        2. ``--auto-vol-scale`` flag: ``max(1.0, emax / 100.0)``.
-        3. ``None`` — omit the field (C++ default = 1.0).
-        """
-        if options is None:
-            return None
-        explicit: dict = options.get("vol_scale", {})
-        if central_name in explicit:
-            return explicit[central_name]
-        if options.get("auto_vol_scale", False):
-            return max(1.0, emax_value / 100.0)
-        return None
-
     def _process_reservoirs(
         self,
         system: HydroSystemOutput,
@@ -536,12 +504,6 @@ class JunctionWriter(BaseWriter):
                 "annual_loss": 0.0,
                 "flow_conversion_rate": 3.6 / 1000.0,
             }
-
-            vol_scale = self._resolve_vol_scale(
-                central_name, central["emax"], self.options
-            )
-            if vol_scale is not None:
-                reservoir["vol_scale"] = vol_scale
 
             system["reservoir_array"].append(reservoir)
 
