@@ -44,32 +44,13 @@ namespace gtopt
 
 CutSharingMode parse_cut_sharing_mode(std::string_view name)
 {
-  if (name == "expected") {
-    return CutSharingMode::Expected;
-  }
-  if (name == "accumulate") {
-    return CutSharingMode::Accumulate;
-  }
-  if (name == "max") {
-    return CutSharingMode::Max;
-  }
-  if (name == "none") {
-    return CutSharingMode::None;
-  }
-  // Default to None when unrecognised (matches SDDPOptions default)
-  return CutSharingMode::None;
+  return cut_sharing_mode_from_name(name).value_or(CutSharingMode::none);
 }
 
 ElasticFilterMode parse_elastic_filter_mode(std::string_view name)
 {
-  if (name == "backpropagate") {
-    return ElasticFilterMode::BackpropagateBounds;
-  }
-  if (name == "multi_cut") {
-    return ElasticFilterMode::MultiCut;
-  }
-  // "single_cut", "cut", or anything else → FeasibilityCut (default)
-  return ElasticFilterMode::FeasibilityCut;
+  return elastic_filter_mode_from_name(name).value_or(
+      ElasticFilterMode::single_cut);
 }
 
 // ─── Free utility functions ──────────────────────────────────────────────────
@@ -635,8 +616,7 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
         auto& prev_li = planning_lp().system(scene, prev_bp).linear_interface();
         const auto& prev_state = phase_states[prev_bp];
 
-        if (m_options_.elastic_filter_mode
-            == ElasticFilterMode::BackpropagateBounds)
+        if (m_options_.elastic_filter_mode == ElasticFilterMode::backpropagate)
         {
           // PLP mechanism: instead of building a feasibility cut,
           // propagate the elastic-clone dependent-column solution
@@ -681,7 +661,7 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
           //   threshold == 0 (always), OR
           //   threshold > 0 and counter > threshold.
           const bool use_multi_cut =
-              (m_options_.elastic_filter_mode == ElasticFilterMode::MultiCut)
+              (m_options_.elastic_filter_mode == ElasticFilterMode::multi_cut)
               || (m_options_.multi_cut_threshold == 0)
               || (m_options_.multi_cut_threshold > 0
                   && m_infeasibility_counter_[scene][back_phase]
@@ -835,11 +815,11 @@ void SDDPSolver::share_cuts_for_phase(
   const auto num_scenes =
       static_cast<Index>(planning_lp().simulation().scenes().size());
 
-  if (num_scenes <= 1 || m_options_.cut_sharing == CutSharingMode::None) {
+  if (num_scenes <= 1 || m_options_.cut_sharing == CutSharingMode::none) {
     return;
   }
 
-  if (m_options_.cut_sharing == CutSharingMode::Accumulate) {
+  if (m_options_.cut_sharing == CutSharingMode::accumulate) {
     // Accumulate mode: when LP objectives already include probability
     // factors, the correct expected cut is the sum of all individual
     // scene cuts (no averaging needed).  Each cut's coefficients and RHS
@@ -874,7 +854,7 @@ void SDDPSolver::share_cuts_for_phase(
         phase,
         all_cuts.size());
 
-  } else if (m_options_.cut_sharing == CutSharingMode::Expected) {
+  } else if (m_options_.cut_sharing == CutSharingMode::expected) {
     // Expected mode: compute probability-weighted average cut.
     // Correct when LP objectives do NOT include probability factors.
 
@@ -950,7 +930,7 @@ void SDDPSolver::share_cuts_for_phase(
         scene_avg_cuts.size(),
         total_prob);
 
-  } else if (m_options_.cut_sharing == CutSharingMode::Max) {
+  } else if (m_options_.cut_sharing == CutSharingMode::max) {
     // Max mode: add ALL cuts from ALL scenes to ALL scenes for this phase
     std::vector<SparseRow> all_cuts;
     for (auto&& [si, cuts] : enumerate<SceneIndex>(scene_cuts)) {
@@ -1252,7 +1232,7 @@ auto SDDPSolver::run_backward_pass_all_scenes(
   // all scenes complete a phase before cuts are shared and the next phase
   // is processed.  When sharing is disabled (None), scenes run their full
   // backward pass independently in parallel with no synchronization.
-  if (m_options_.cut_sharing != CutSharingMode::None) {
+  if (m_options_.cut_sharing != CutSharingMode::none) {
     return run_backward_pass_synchronized(scene_feasible, pool, opts, iter);
   }
 
@@ -1460,7 +1440,7 @@ void SDDPSolver::apply_cut_sharing_for_iteration(std::size_t cuts_before,
   const auto num_phases =
       static_cast<Index>(planning_lp().simulation().phases().size());
 
-  if (m_options_.cut_sharing == CutSharingMode::None || num_scenes <= 1) {
+  if (m_options_.cut_sharing == CutSharingMode::none || num_scenes <= 1) {
     return;
   }
 
@@ -1713,7 +1693,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     // Only apply post-hoc sharing when scenes ran independently (None mode),
     // which is a no-op anyway since apply_cut_sharing_for_iteration returns
     // early for None.  This guard prevents double-sharing of cuts.
-    if (m_options_.cut_sharing == CutSharingMode::None) {
+    if (m_options_.cut_sharing == CutSharingMode::none) {
       apply_cut_sharing_for_iteration(cuts_before, iter);
     }
 

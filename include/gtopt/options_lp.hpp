@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include <gtopt/enum_option.hpp>
 #include <gtopt/options.hpp>
 #include <gtopt/variable_scale.hpp>
 
@@ -602,6 +603,90 @@ public:
   [[nodiscard]] auto sddp_named_cuts_file() const -> Name
   {
     return m_options_.sddp_options.named_cuts_file.value_or(Name {});
+  }
+
+  // ── Enum-typed accessors ──────────────────────────────────────────────────
+  // These return proper enum types, converting from the underlying OptName
+  // string fields.  Use these in preference to the string-returning
+  // accessors above for type-safe comparisons.
+
+  /// Solver type as an enum (SolverType::monolithic or SolverType::sddp).
+  [[nodiscard]] auto solver_type_enum() const -> SolverType
+  {
+    return solver_type_from_name(
+               m_options_.solver_type.value_or(default_sddp_solver_type))
+        .value_or(SolverType::monolithic);
+  }
+
+  /// Input data format as an enum (DataFormat::parquet or DataFormat::csv).
+  [[nodiscard]] constexpr auto input_format_enum() const -> DataFormat
+  {
+    return data_format_from_name(
+               m_options_.input_format.value_or(default_input_format))
+        .value_or(DataFormat::parquet);
+  }
+
+  /// Output data format as an enum (DataFormat::parquet or DataFormat::csv).
+  [[nodiscard]] constexpr auto output_format_enum() const -> DataFormat
+  {
+    return data_format_from_name(
+               m_options_.output_format.value_or(default_output_format))
+        .value_or(DataFormat::parquet);
+  }
+
+  /// Output compression codec as an enum.
+  [[nodiscard]] constexpr auto output_compression_enum() const
+      -> CompressionCodec
+  {
+    return compression_codec_from_name(m_options_.output_compression.value_or(
+                                           default_output_compression))
+        .value_or(CompressionCodec::zstd);
+  }
+
+  /// SDDP cut sharing mode as an enum.
+  [[nodiscard]] constexpr auto sddp_cut_sharing_mode_enum() const
+      -> CutSharingMode
+  {
+    return cut_sharing_mode_from_name(
+               m_options_.sddp_options.cut_sharing_mode.value_or(
+                   default_sddp_cut_sharing_mode))
+        .value_or(CutSharingMode::none);
+  }
+
+  /// SDDP elastic filter mode as an enum.
+  [[nodiscard]] constexpr auto sddp_elastic_mode_enum() const
+      -> ElasticFilterMode
+  {
+    return elastic_filter_mode_from_name(
+               m_options_.sddp_options.elastic_mode.value_or(
+                   default_sddp_elastic_mode))
+        .value_or(ElasticFilterMode::single_cut);
+  }
+
+  /// SDDP boundary cuts mode as an enum.
+  [[nodiscard]] auto sddp_boundary_cuts_mode_enum() const -> BoundaryCutsMode
+  {
+    return boundary_cuts_mode_from_name(
+               m_options_.sddp_options.boundary_cuts_mode.value_or("separated"))
+        .value_or(BoundaryCutsMode::separated);
+  }
+
+  /// Monolithic solve mode as an enum.
+  [[nodiscard]] auto monolithic_solve_mode_enum() const -> SolveMode
+  {
+    return solve_mode_from_name(
+               m_options_.monolithic_options.solve_mode.value_or("monolithic"))
+        .value_or(SolveMode::monolithic);
+  }
+
+  /// Monolithic boundary cuts mode as an enum.
+  [[nodiscard]] auto monolithic_boundary_cuts_mode_enum() const
+      -> BoundaryCutsMode
+  {
+    return boundary_cuts_mode_from_name(
+               m_options_.monolithic_options.boundary_cuts_mode.value_or(
+                   "separated"))
+        .value_or(BoundaryCutsMode::separated);
   }
 
   /**
