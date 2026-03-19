@@ -328,7 +328,9 @@ auto load_cuts_csv(PlanningLP& planning_lp,
     std::set<std::pair<int, std::string>> loaded_keys;
 
     // Process data lines
+    int line_num = 1;  // header was line 1
     while (std::getline(ifs, line)) {
+      ++line_num;
       if (line.empty() || line.starts_with('#')) {
         continue;
       }
@@ -348,15 +350,58 @@ auto load_cuts_csv(PlanningLP& planning_lp,
         }
       }
 
-      std::getline(iss, token, ',');
-      const auto phase_val = std::stoi(token);
+      if (!std::getline(iss, token, ',') || token.empty()) {
+        SPDLOG_WARN(
+            "SDDP load_cuts: malformed line {} in {}: "
+            "missing phase column; skipping",
+            line_num,
+            filepath);
+        continue;
+      }
+      int phase_val = 0;
+      try {
+        phase_val = std::stoi(token);
+      } catch (const std::exception&) {
+        SPDLOG_WARN(
+            "SDDP load_cuts: malformed line {} in {}: "
+            "invalid phase '{}'; skipping",
+            line_num,
+            filepath,
+            token);
+        continue;
+      }
 
-      std::getline(iss, token, ',');
+      if (!std::getline(iss, token, ',')) {
+        SPDLOG_WARN(
+            "SDDP load_cuts: malformed line {} in {}: "
+            "missing scene column; skipping",
+            line_num,
+            filepath);
+        continue;
+      }
       // scene is parsed but intentionally ignored: loaded cuts
       // are broadcast to all scenes as warm-start approximations.
-      [[maybe_unused]] const auto scene_val = std::stoi(token);
+      [[maybe_unused]] int scene_val = 0;
+      try {
+        scene_val = std::stoi(token);
+      } catch (const std::exception&) {
+        SPDLOG_WARN(
+            "SDDP load_cuts: malformed line {} in {}: "
+            "invalid scene '{}'; skipping",
+            line_num,
+            filepath,
+            token);
+        continue;
+      }
 
-      std::getline(iss, token, ',');
+      if (!std::getline(iss, token, ',') || token.empty()) {
+        SPDLOG_WARN(
+            "SDDP load_cuts: malformed line {} in {}: "
+            "missing name column; skipping",
+            line_num,
+            filepath);
+        continue;
+      }
       const auto cut_name = token;
 
       // Skip duplicate (phase, name) pairs — these arise when
@@ -370,8 +415,28 @@ auto load_cuts_csv(PlanningLP& planning_lp,
       result.max_iteration =
           std::max(result.max_iteration, extract_iteration_from_name(cut_name));
 
-      std::getline(iss, token, ',');
-      const auto rhs = std::stod(token);
+      if (!std::getline(iss, token, ',') || token.empty()) {
+        SPDLOG_WARN(
+            "SDDP load_cuts: malformed line {} in {}: "
+            "missing rhs for cut '{}'; skipping",
+            line_num,
+            filepath,
+            cut_name);
+        continue;
+      }
+      double rhs = 0.0;
+      try {
+        rhs = std::stod(token);
+      } catch (const std::exception&) {
+        SPDLOG_WARN(
+            "SDDP load_cuts: malformed line {} in {}: "
+            "invalid rhs '{}' for cut '{}'; skipping",
+            line_num,
+            filepath,
+            token,
+            cut_name);
+        continue;
+      }
 
       // RHS in CSV is in physical objective units; convert to LP
       // space.
@@ -571,13 +636,13 @@ auto load_boundary_cuts_csv(
         scene_phase_states) -> std::expected<CutLoadResult, Error>
 {
   // ── Mode check ────────────────────────────────────────────────
-  const auto& mode = options.boundary_cuts_mode;
-  if (mode == "noload") {
+  const auto mode = options.boundary_cuts_mode;
+  if (mode == BoundaryCutsMode::noload) {
     SPDLOG_INFO("SDDP: boundary cuts mode is 'noload' -- skipping");
     return CutLoadResult {};
   }
 
-  const bool separated = (mode == "separated");
+  const bool separated = (mode == BoundaryCutsMode::separated);
 
   try {
     std::ifstream ifs(filepath);
@@ -857,7 +922,7 @@ auto load_boundary_cuts_csv(
         "max_iters={})",
         cuts_loaded,
         filepath,
-        mode,
+        boundary_cuts_mode_name(mode),
         max_iters);
     return CutLoadResult {
         .count = cuts_loaded,
