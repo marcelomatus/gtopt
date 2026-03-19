@@ -148,6 +148,25 @@ def test_gtopt_element_counts_populated() -> None:
     assert counts["reservoir_efficiencies"] == 1
 
 
+def test_gtopt_element_counts_missing_type() -> None:
+    """Generators with missing type attribute are counted as 'unknown'."""
+    planning = {
+        "system": {
+            "generator_array": [
+                {"uid": 1, "type": "termica"},
+                {"uid": 2},  # no type attribute
+                {"uid": 3, "type": ""},  # empty string type
+            ],
+        },
+        "simulation": {},
+    }
+    counts = _gtopt_element_counts(planning)
+    assert counts["generators"] == 3
+    assert counts["gen_termica"] == 1
+    assert counts["gen_unknown"] == 1
+    assert counts.get("gen_", 0) == 1  # empty string lowered
+
+
 # ---------------------------------------------------------------------------
 # _log_comparison — integration test via log capture
 # ---------------------------------------------------------------------------
