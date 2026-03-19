@@ -879,7 +879,7 @@ def check_capacity_adequacy(planning: dict[str, Any]) -> list[Finding]:
 
     * **Total generation capacity** — sum of the ``capacity`` (or
       ``pmax``) field of every generator, excluding failure generators
-      (pmax ≥ 9 000 MW, a PLP modelling convention).
+      (``type == "falla"``).
     * **Peak system demand** — maximum of the per-block total demand
       (sum of all ``lmax`` values at each block).
 
