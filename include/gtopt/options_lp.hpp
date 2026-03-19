@@ -14,7 +14,9 @@
 #pragma once
 
 #include <filesystem>
+#include <format>
 #include <string>
+#include <vector>
 
 #include <gtopt/enum_option.hpp>
 #include <gtopt/options.hpp>
@@ -556,10 +558,30 @@ public:
 
   /**
    * @brief Whether to hot-start from previously saved cuts (default: false)
+   * @deprecated Use sddp_hot_start_mode_enum() for finer control.
    */
   [[nodiscard]] constexpr auto sddp_hot_start() const
   {
     return m_options_.sddp_options.hot_start.value_or(false);
+  }
+
+  /**
+   * @brief Gets the hot-start mode string.
+   *
+   * Returns the `hot_start_mode` option.  When not set, falls back to
+   * the boolean `hot_start` field for backward compatibility:
+   *  - `hot_start = true`  → `"replace"` (original hot-start behavior)
+   *  - `hot_start = false` → `"none"` (cold start)
+   *
+   * @return "none", "keep", "append", or "replace"
+   */
+  [[nodiscard]] auto sddp_hot_start_mode() const -> Name
+  {
+    if (m_options_.sddp_options.hot_start_mode.has_value()) {
+      return m_options_.sddp_options.hot_start_mode.value();
+    }
+    // Backward compat: bool hot_start → "replace" or "none"
+    return Name {sddp_hot_start() ? "replace" : "none"};
   }
 
   /**
@@ -713,6 +735,13 @@ public:
         .value_or(BoundaryCutsMode::separated);
   }
 
+  /// SDDP hot-start mode as an enum.
+  [[nodiscard]] auto sddp_hot_start_mode_enum() const -> HotStartMode
+  {
+    return hot_start_mode_from_name(sddp_hot_start_mode())
+        .value_or(HotStartMode::none);
+  }
+
   /// Monolithic solve mode as an enum.
   [[nodiscard]] auto monolithic_solve_mode_enum() const -> SolveMode
   {
@@ -729,6 +758,99 @@ public:
                m_options_.monolithic_options.boundary_cuts_mode.value_or(
                    "separated"))
         .value_or(BoundaryCutsMode::separated);
+  }
+
+  /// Validate all enum-typed option strings and return a list of warnings
+  /// for values that do not match any known enumerator.  Callers should log
+  /// these at an appropriate level (typically WARN).
+  [[nodiscard]] auto validate_enum_options() const -> std::vector<std::string>
+  {
+    std::vector<std::string> warnings;
+
+    auto check = [&]<typename E>(std::string_view field,
+                                 std::string_view value,
+                                 std::optional<E> parsed,
+                                 std::string_view fallback_name)
+    {
+      if (!parsed.has_value()) {
+        warnings.push_back(std::format("unknown {} '{}'; falling back to '{}'",
+                                       field,
+                                       value,
+                                       fallback_name));
+      }
+    };
+
+    // solver_type
+    {
+      const auto v = m_options_.solver_type.value_or(default_sddp_solver_type);
+      check("solver_type", v, solver_type_from_name(v), "monolithic");
+    }
+    // input_format
+    {
+      const auto v = m_options_.input_format.value_or(default_input_format);
+      check("input_format", v, data_format_from_name(v), "parquet");
+    }
+    // output_format
+    {
+      const auto v = m_options_.output_format.value_or(default_output_format);
+      check("output_format", v, data_format_from_name(v), "parquet");
+    }
+    // output_compression
+    {
+      const auto v =
+          m_options_.output_compression.value_or(default_output_compression);
+      check("output_compression", v, compression_codec_from_name(v), "zstd");
+    }
+    // sddp cut_sharing_mode
+    if (m_options_.sddp_options.cut_sharing_mode.has_value()) {
+      const auto v = m_options_.sddp_options.cut_sharing_mode.value();
+      check("sddp_options.cut_sharing_mode",
+            v,
+            cut_sharing_mode_from_name(v),
+            "none");
+    }
+    // sddp elastic_mode
+    if (m_options_.sddp_options.elastic_mode.has_value()) {
+      const auto v = m_options_.sddp_options.elastic_mode.value();
+      check("sddp_options.elastic_mode",
+            v,
+            elastic_filter_mode_from_name(v),
+            "single_cut");
+    }
+    // sddp hot_start_mode
+    if (m_options_.sddp_options.hot_start_mode.has_value()) {
+      const auto v = m_options_.sddp_options.hot_start_mode.value();
+      check("sddp_options.hot_start_mode",
+            v,
+            hot_start_mode_from_name(v),
+            "none");
+    }
+    // sddp boundary_cuts_mode
+    if (m_options_.sddp_options.boundary_cuts_mode.has_value()) {
+      const auto v = m_options_.sddp_options.boundary_cuts_mode.value();
+      check("sddp_options.boundary_cuts_mode",
+            v,
+            boundary_cuts_mode_from_name(v),
+            "separated");
+    }
+    // monolithic solve_mode
+    if (m_options_.monolithic_options.solve_mode.has_value()) {
+      const auto v = m_options_.monolithic_options.solve_mode.value();
+      check("monolithic_options.solve_mode",
+            v,
+            solve_mode_from_name(v),
+            "monolithic");
+    }
+    // monolithic boundary_cuts_mode
+    if (m_options_.monolithic_options.boundary_cuts_mode.has_value()) {
+      const auto v = m_options_.monolithic_options.boundary_cuts_mode.value();
+      check("monolithic_options.boundary_cuts_mode",
+            v,
+            boundary_cuts_mode_from_name(v),
+            "separated");
+    }
+
+    return warnings;
   }
 
   /**
