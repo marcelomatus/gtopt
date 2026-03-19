@@ -133,6 +133,24 @@ def _plp_element_counts(parser: PLPParser) -> dict[str, int]:
     if stage_parser:
         counts["stages"] = getattr(stage_parser, "num_stages", 0)
 
+    # Hydrology count (number of raw hydrology columns in plpaflce.dat)
+    aflce_parser = pdata.get("aflce_parser")
+    if aflce_parser and aflce_parser.items:
+        counts["hydrologies"] = aflce_parser.items[0].get("num_hydrologies", 0)
+
+    # Filtrations from plpfilemb.dat (primary) or plpcenfi.dat (legacy)
+    filemb_parser = pdata.get("filemb_parser")
+    cenfi_parser = pdata.get("cenfi_parser")
+    if filemb_parser:
+        counts["filtrations"] = getattr(filemb_parser, "num_filtrations", 0)
+    elif cenfi_parser:
+        counts["filtrations"] = getattr(cenfi_parser, "num_filtrations", 0)
+
+    # Reservoir efficiencies from plpcenre.dat
+    cenre_parser = pdata.get("cenre_parser")
+    if cenre_parser:
+        counts["reservoir_efficiencies"] = getattr(cenre_parser, "num_efficiencies", 0)
+
     return counts
 
 
@@ -281,9 +299,11 @@ def _gtopt_element_counts(planning: dict[str, Any]) -> dict[str, int]:
     """Extract gtopt element counts from the planning dict."""
     psys = planning.get("system", {})
     sim = planning.get("simulation", {})
-    return {
+
+    generators = psys.get("generator_array", [])
+    counts: dict[str, int] = {
         "buses": len(psys.get("bus_array", [])),
-        "generators": len(psys.get("generator_array", [])),
+        "generators": len(generators),
         "generator_profiles": len(psys.get("generator_profile_array", [])),
         "demands": len(psys.get("demand_array", [])),
         "demand_profiles": len(psys.get("demand_profile_array", [])),
@@ -294,12 +314,23 @@ def _gtopt_element_counts(planning: dict[str, Any]) -> dict[str, int]:
         "waterways": len(psys.get("waterway_array", [])),
         "flows": len(psys.get("flow_array", [])),
         "reservoirs": len(psys.get("reservoir_array", [])),
+        "reservoir_efficiencies": len(psys.get("reservoir_efficiency_array", [])),
         "filtrations": len(psys.get("filtration_array", [])),
         "turbines": len(psys.get("turbine_array", [])),
         "blocks": len(sim.get("block_array", [])),
         "stages": len(sim.get("stage_array", [])),
         "scenarios": len(sim.get("scenario_array", [])),
     }
+
+    # Generator count by type attribute
+    type_counts: dict[str, int] = {}
+    for gen in generators:
+        gtype = str(gen.get("type", "unknown")).lower()
+        type_counts[gtype] = type_counts.get(gtype, 0) + 1
+    for gtype, gcount in type_counts.items():
+        counts[f"gen_{gtype}"] = gcount
+
+    return counts
 
 
 # ---------------------------------------------------------------------------
@@ -341,9 +372,11 @@ def _log_comparison(
 ) -> None:
     """Log a formatted side-by-side PLP vs gtopt element comparison.
 
-    The table is grouped by category (network, generation, hydro, storage,
-    loads, simulation) and includes derived analysis rows such as *generators
-    excluding falla+batería* and *hydro centrals (embalse+serie) vs turbines*.
+    The table is grouped by category (network & generation, hydro, storage,
+    loads, simulation, global indicators) and includes derived analysis rows
+    such as *generators excluding falla+batería*, gtopt generators by type,
+    and per-block demand/affluent indicators.
+
     ANSI colours are used when stderr is connected to a terminal.
     """
     colr = _use_color()
@@ -363,6 +396,9 @@ def _log_comparison(
     p_ess = plp_counts.get("ess", 0)
     p_blocks = plp_counts.get("blocks", 0)
     p_stages = plp_counts.get("stages", 0)
+    p_hydrologies = plp_counts.get("hydrologies", 0)
+    p_filtrations = plp_counts.get("filtrations", 0)
+    p_res_eff = plp_counts.get("reservoir_efficiencies", 0)
 
     # derived
     p_gen_excl = p_centrals - p_falla - p_bateria
@@ -379,11 +415,18 @@ def _log_comparison(
     g_waterways = gtopt_counts.get("waterways", 0)
     g_flows = gtopt_counts.get("flows", 0)
     g_reservoirs = gtopt_counts.get("reservoirs", 0)
+    g_res_eff = gtopt_counts.get("reservoir_efficiencies", 0)
     g_filtrations = gtopt_counts.get("filtrations", 0)
     g_turbines = gtopt_counts.get("turbines", 0)
     g_blocks = gtopt_counts.get("blocks", 0)
     g_stages = gtopt_counts.get("stages", 0)
     g_scenarios = gtopt_counts.get("scenarios", 0)
+
+    # gtopt generator type breakdown
+    g_gen_embalse = gtopt_counts.get("gen_embalse", 0)
+    g_gen_serie = gtopt_counts.get("gen_serie", 0)
+    g_gen_pasada = gtopt_counts.get("gen_pasada", 0)
+    g_gen_termica = gtopt_counts.get("gen_termica", 0)
 
     # --- row helper ---
     def _val(val: int | None) -> str:
@@ -430,20 +473,21 @@ def _log_comparison(
     logger.info("%s", _cc(_BOLD, hdr, colr))
     logger.info("  %s %s %s %s  %s", "─" * 26, "─" * 8, "─" * 8, "─" * 6, "─" * 24)
 
-    # -- Network --
-    _section("Network")
+    # -- Network & Generation --
+    _section("Network & Generation")
     _row("buses", p_buses, g_buses)
     _row("lines", p_lines, g_lines)
-    _blank()
-
-    # -- Generation --
-    _section("Generation")
     _row("centrals (total)", p_centrals)
-    _row("embalse", p_embalse, note="→ turbines + generators", indent=1)
-    _row("serie", p_serie, note="→ turbines + generators", indent=1)
-    _row("pasada", p_pasada, note="→ generators + profiles", indent=1)
-    _row("termica", p_termica, note="→ generators", indent=1)
-    _row("bateria", p_bateria, note="→ batteries", indent=1)
+    _row("embalse", p_embalse, g_gen_embalse or None, indent=1)
+    _row("serie", p_serie, g_gen_serie or None, indent=1)
+    _row("pasada", p_pasada, g_gen_pasada or None, indent=1)
+    _row("termica", p_termica, g_gen_termica or None, indent=1)
+    _row(
+        "bateria",
+        p_bateria,
+        note="→ batteries",
+        indent=1,
+    )
     _row(
         "falla",
         p_falla,
@@ -459,10 +503,17 @@ def _log_comparison(
         )
     _row(
         "generator profiles",
-        None,
+        p_pasada,
         g_gen_profiles,
         note=(f"= pasada count ({p_pasada}) ✓" if g_gen_profiles == p_pasada else ""),
     )
+    _row("demands", p_demands, g_demands)
+    dem_delta = g_demands - p_demands
+    if dem_delta != 0:
+        _row(
+            "",
+            note=f"delta {dem_delta:+d} demands with bus=0 or empty excluded",
+        )
     _blank()
 
     # -- Hydro System --
@@ -483,7 +534,8 @@ def _log_comparison(
         g_reservoirs,
         note=(f"= embalse count ({p_embalse}) ✓" if g_reservoirs == p_embalse else ""),
     )
-    _row("filtrations", None, g_filtrations)
+    _row("reservoir efficiencies", p_res_eff, g_res_eff)
+    _row("filtrations", p_filtrations, g_filtrations)
     _blank()
 
     # -- Storage --
@@ -493,53 +545,104 @@ def _log_comparison(
         _row("ESS (plpess)", p_ess)
     _blank()
 
-    # -- Loads --
-    _section("Loads")
-    _row("demands", p_demands, g_demands)
-    _blank()
-
     # -- Simulation --
     _section("Simulation")
     _row("blocks", p_blocks, g_blocks)
     _row("stages", p_stages, g_stages)
-    _row("scenarios", None, g_scenarios)
+    _row("hydrologies / scenarios", p_hydrologies, g_scenarios)
     _blank()
 
     # --- Global indicators side-by-side ---
     if plp_ind and gtopt_ind:
-        logger.info("")
-        logger.info("=== PLP vs gtopt global indicators ===")
-        logger.info("  %-25s %12s %12s", "Indicator", "PLP", "gtopt")
-        logger.info("  %-25s %12s %12s", "-" * 25, "-" * 12, "-" * 12)
+        _section("Global Indicators")
+        logger.info(
+            "  %-26s %8s %8s %6s",
+            "Indicator",
+            "PLP",
+            "gtopt",
+            "Δ%",
+        )
+        logger.info(
+            "  %s %s %s %s",
+            "─" * 26,
+            "─" * 8,
+            "─" * 8,
+            "─" * 6,
+        )
 
-        for key in (
-            "total_gen_capacity_mw",
-            "first_block_demand_mw",
-            "last_block_demand_mw",
-            "total_energy_mwh",
-            "first_block_affluent_avg",
-            "last_block_affluent_avg",
-        ):
-            plp_val = plp_ind.get(key, 0.0)
-            gtopt_val = gtopt_ind.get(key, 0.0)
-            label = (
-                key.replace("_", " ")
-                .replace(" mw", " (MW)")
-                .replace(" mwh", " (MWh)")
-                .replace(" avg", " avg (m³/s)")
+        def _ind_row(
+            label: str,
+            plp_val: float,
+            gtopt_val: float,
+            fmt: str = ".1f",
+        ) -> None:
+            if plp_val > 0:
+                pct = (gtopt_val - plp_val) / plp_val * 100.0
+                pct_str = f"{pct:+.0f}%"
+                if abs(pct) < 0.5:
+                    pct_str = _cc(_GREEN, f"{'✓':>6s}", colr)
+                else:
+                    pct_str = _cc(
+                        _YELLOW if abs(pct) > 5 else _DIM,
+                        f"{pct_str:>6s}",
+                        colr,
+                    )
+            elif gtopt_val == 0.0:
+                pct_str = _cc(_GREEN, f"{'✓':>6s}", colr)
+            else:
+                pct_str = " " * 6
+            logger.info(
+                "  %-26s %8s %8s %s",
+                label,
+                f"{plp_val:{fmt}}",
+                f"{gtopt_val:{fmt}}",
+                pct_str,
             )
-            logger.info("  %-25s %12.1f %12.1f", label, plp_val, gtopt_val)
 
-        # Capacity adequacy ratio (using first block demand)
+        _ind_row(
+            "gen capacity (MW)",
+            plp_ind.get("total_gen_capacity_mw", 0.0),
+            gtopt_ind.get("total_gen_capacity_mw", 0.0),
+        )
+        _ind_row(
+            "first block demand (MW)",
+            plp_ind.get("first_block_demand_mw", 0.0),
+            gtopt_ind.get("first_block_demand_mw", 0.0),
+        )
+        _ind_row(
+            "last block demand (MW)",
+            plp_ind.get("last_block_demand_mw", 0.0),
+            gtopt_ind.get("last_block_demand_mw", 0.0),
+        )
+        _ind_row(
+            "total energy (MWh)",
+            plp_ind.get("total_energy_mwh", 0.0),
+            gtopt_ind.get("total_energy_mwh", 0.0),
+        )
+        _ind_row(
+            "first block affluent",
+            plp_ind.get("first_block_affluent_avg", 0.0),
+            gtopt_ind.get("first_block_affluent_avg", 0.0),
+        )
+        _ind_row(
+            "last block affluent",
+            plp_ind.get("last_block_affluent_avg", 0.0),
+            gtopt_ind.get("last_block_affluent_avg", 0.0),
+        )
+
         plp_dem1 = plp_ind.get("first_block_demand_mw", 0.0)
         gtopt_dem1 = gtopt_ind.get("first_block_demand_mw", 0.0)
         plp_cap = plp_ind.get("total_gen_capacity_mw", 0.0)
         gtopt_cap = gtopt_ind.get("total_gen_capacity_mw", 0.0)
         plp_ratio = plp_cap / plp_dem1 if plp_dem1 > 0 else float("inf")
         gtopt_ratio = gtopt_cap / gtopt_dem1 if gtopt_dem1 > 0 else float("inf")
-        logger.info(
-            "  %-25s %12.3f %12.3f", "capacity adequacy ratio", plp_ratio, gtopt_ratio
+        _ind_row(
+            "capacity adequacy",
+            plp_ratio,
+            gtopt_ratio,
+            fmt=".3f",
         )
+        _blank()
 
 
 def run_post_check(
@@ -575,7 +678,6 @@ def run_post_check(
 
     # --- gtopt_check_json integration (optional) ---
     try:
-        from gtopt_check_json._info import format_info  # noqa: PLC0415
         from gtopt_check_json._checks import (  # noqa: PLC0415
             run_all_checks,
             Severity,
@@ -583,11 +685,6 @@ def run_post_check(
     except ImportError:
         logger.debug("gtopt_check_json not available; skipping JSON validation checks")
         return
-
-    # Print system statistics
-    logger.info("=== gtopt_check_json: system info ===")
-    for line in format_info(planning, base_dir=base_dir).splitlines():
-        logger.info("  %s", line)
 
     # Run validation checks (all non-AI checks)
     findings = run_all_checks(planning, enabled_checks=None, ai_options=None)
