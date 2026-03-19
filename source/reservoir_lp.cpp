@@ -74,8 +74,16 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   // becomes vol_scale (instead of 1). In practice a single large coefficient
   // in an otherwise ±1 matrix is handled well by LP solvers, whereas many
   // energy-balance rows with 1e-5 coefficients degrade convergence.
-  const double vol_scale =
-      reservoir().vol_scale.value_or(Reservoir::default_vol_scale);
+  // Resolve vol_scale: per-element field > VariableScaleMap > default.
+  const double vol_scale = [&]
+  {
+    if (reservoir().vol_scale.has_value()) {
+      return *reservoir().vol_scale;
+    }
+    const auto vs =
+        sc.options().variable_scale_map().lookup("Reservoir", "volume", uid());
+    return (vs != 1.0) ? vs : Reservoir::default_vol_scale;
+  }();
   const double inv_vol_scale = 1.0 / vol_scale;
 
   BIndexHolder<ColIndex> rcols;
