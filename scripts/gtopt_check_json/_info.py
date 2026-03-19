@@ -46,6 +46,12 @@ class SystemIndicators:
         Sum of ``capacity`` (or ``pmax``) across all non-failure generators
         (MW).  A generator is considered a failure generator when its
         ``type`` attribute equals ``"falla"``.
+    hydro_capacity_mw : float
+        Sum of capacity for hydro-type generators (embalse, serie, pasada).
+    thermal_capacity_mw : float
+        Sum of capacity for thermal-type generators (termica).
+    total_line_capacity_mw : float
+        Sum of ``tmax_ab + tmax_ba`` across all lines (MW).
     first_block_demand_mw : float
         Total system demand at the first block (MW).
     last_block_demand_mw : float
@@ -84,6 +90,9 @@ class SystemIndicators:
     """
 
     total_gen_capacity_mw: float = 0.0
+    hydro_capacity_mw: float = 0.0
+    thermal_capacity_mw: float = 0.0
+    total_line_capacity_mw: float = 0.0
     first_block_demand_mw: float = 0.0
     last_block_demand_mw: float = 0.0
     peak_demand_mw: float = 0.0
@@ -91,6 +100,8 @@ class SystemIndicators:
     peak_demand_block: int = -1
     total_demand_by_block: list[float] = field(default_factory=list)
     total_energy_mwh: float = 0.0
+    avg_annual_energy_mwh: float = 0.0
+    total_hours: float = 0.0
     capacity_adequacy_ratio: float = float("inf")
     first_block_affluent_avg: float = 0.0
     last_block_affluent_avg: float = 0.0
@@ -290,12 +301,16 @@ def compute_indicators(
     generators = sys_data.get("generator_array", [])
     demands = sys_data.get("demand_array", [])
     flows = sys_data.get("flow_array", [])
+    lines_arr = sys_data.get("line_array", [])
     blocks = sim.get("block_array", [])
     num_blocks = len(blocks)
     block_uids = [b.get("uid", i + 1) for i, b in enumerate(blocks)]
 
     # --- Total generation capacity (MW) ---
+    _hydro_types = {"embalse", "serie", "pasada"}
     total_gen_cap = 0.0
+    hydro_cap = 0.0
+    thermal_cap = 0.0
     num_gen = 0
     for gen in generators:
         if _is_failure_generator(gen):
@@ -306,6 +321,19 @@ def compute_indicators(
         if cap is not None:
             total_gen_cap += cap
             num_gen += 1
+            gtype = str(gen.get("type", "")).lower()
+            if gtype in _hydro_types:
+                hydro_cap += cap
+            elif gtype == "termica":
+                thermal_cap += cap
+
+    # --- Total line capacity (MW) ---
+    total_line_cap = 0.0
+    for line in lines_arr:
+        for key in ("tmax_ab", "tmax_ba"):
+            val = _first_scalar(line.get(key))
+            if val is not None:
+                total_line_cap += val
 
     # --- Total demand per block (MW) ---
     demand_by_block: list[float] = [0.0] * num_blocks if num_blocks > 0 else []
@@ -403,6 +431,9 @@ def compute_indicators(
 
     return SystemIndicators(
         total_gen_capacity_mw=total_gen_cap,
+        hydro_capacity_mw=hydro_cap,
+        thermal_capacity_mw=thermal_cap,
+        total_line_capacity_mw=total_line_cap,
         first_block_demand_mw=first_block_demand,
         last_block_demand_mw=last_block_demand,
         peak_demand_mw=peak_demand,
@@ -452,6 +483,9 @@ def format_indicators(
             "Total gen capacity",
             f"{ind.total_gen_capacity_mw:,.1f} MW  ({ind.num_generators} generators)",
         ),
+        ("  Hydro capacity", f"{ind.hydro_capacity_mw:,.1f} MW"),
+        ("  Thermal capacity", f"{ind.thermal_capacity_mw:,.1f} MW"),
+        ("Line capacity", f"{ind.total_line_capacity_mw:,.1f} MW"),
         ("First block demand", f"{ind.first_block_demand_mw:,.1f} MW"),
         ("Last block demand", f"{ind.last_block_demand_mw:,.1f} MW"),
         (
@@ -490,6 +524,9 @@ def print_indicators(
             "Total gen capacity",
             f"{ind.total_gen_capacity_mw:,.1f} MW  ({ind.num_generators} generators)",
         ),
+        ("  Hydro capacity", f"{ind.hydro_capacity_mw:,.1f} MW"),
+        ("  Thermal capacity", f"{ind.thermal_capacity_mw:,.1f} MW"),
+        ("Line capacity", f"{ind.total_line_capacity_mw:,.1f} MW"),
         ("First block demand", f"{ind.first_block_demand_mw:,.1f} MW"),
         ("Last block demand", f"{ind.last_block_demand_mw:,.1f} MW"),
         (

@@ -172,6 +172,13 @@ def _plp_element_counts(parser: PLPParser) -> dict[str, int]:
     if cenre_parser:
         counts["reservoir_efficiencies"] = getattr(cenre_parser, "num_efficiencies", 0)
 
+    # Stateless reservoirs: embalse centrals with hid_indep=True
+    if central_parser:
+        embalses = central_parser.centrals_of_type.get("embalse", [])
+        counts["stateless_reservoirs"] = sum(
+            1 for c in embalses if c.get("hid_indep", False)
+        )
+
     return counts
 
 
@@ -244,15 +251,38 @@ def _plp_indicators(
     # --- Total generation capacity from plpcnfce.dat ---
     central_parser = pd.get("central_parser")
     total_cap = 0.0
+    hydro_cap = 0.0
+    thermal_cap = 0.0
     if central_parser:
+        hydro_types = {"embalse", "serie", "pasada"}
         for central in central_parser.centrals:
             ctype = str(central.get("type", "")).lower()
             if ctype == "falla":
                 continue
             pmax = central.get("pmax", 0.0)
             if isinstance(pmax, (int, float)):
-                total_cap += float(pmax)
+                pmw = float(pmax)
+                total_cap += pmw
+                if ctype in hydro_types:
+                    hydro_cap += pmw
+                elif ctype == "termica":
+                    thermal_cap += pmw
     indicators["total_gen_capacity_mw"] = total_cap
+    indicators["hydro_capacity_mw"] = hydro_cap
+    indicators["thermal_capacity_mw"] = thermal_cap
+
+    # --- Total line capacity from plplin.dat ---
+    line_parser = pd.get("line_parser")
+    total_line_cap = 0.0
+    if line_parser:
+        for line in getattr(line_parser, "lines", []):
+            tmax_ab = line.get("tmax_ab", 0.0)
+            tmax_ba = line.get("tmax_ba", 0.0)
+            if isinstance(tmax_ab, (int, float)):
+                total_line_cap += float(tmax_ab)
+            if isinstance(tmax_ba, (int, float)):
+                total_line_cap += float(tmax_ba)
+    indicators["total_line_capacity_mw"] = total_line_cap
 
     # --- Total demand per block from plpdem.dat ---
     demand_parser = pd.get("demand_parser")
@@ -328,8 +358,9 @@ def _gtopt_indicators(
 ) -> dict[str, float]:
     """Compute aggregate gtopt indicators from the planning dict.
 
-    Uses :func:`gtopt_check_json._info.compute_indicators` when available,
-    otherwise falls back to a simplified local computation.
+    Delegates to :func:`gtopt_check_json._info.compute_indicators` which
+    computes all indicators (capacity, demand, energy, affluent, capacity
+    breakdown by type, line capacity) from the gtopt planning dict.
 
     Parameters
     ----------
@@ -340,36 +371,20 @@ def _gtopt_indicators(
         file references (e.g. ``"lmax"``) can be resolved from
         Parquet/CSV files on disk.
     """
-    try:
-        from gtopt_check_json._info import compute_indicators  # noqa: PLC0415
+    from gtopt_check_json._info import compute_indicators  # noqa: PLC0415
 
-        ind = compute_indicators(planning, base_dir=base_dir)
-        return {
-            "total_gen_capacity_mw": ind.total_gen_capacity_mw,
-            "first_block_demand_mw": ind.first_block_demand_mw,
-            "last_block_demand_mw": ind.last_block_demand_mw,
-            "total_energy_mwh": ind.total_energy_mwh,
-            "first_block_affluent_avg": ind.first_block_affluent_avg,
-            "last_block_affluent_avg": ind.last_block_affluent_avg,
-        }
-    except ImportError:
-        # Fallback: compute locally using type attribute
-        sys_data = planning.get("system", {})
-        total_cap = 0.0
-        for gen in sys_data.get("generator_array", []):
-            if str(gen.get("type", "")).lower() == "falla":
-                continue
-            cap = gen.get("capacity", gen.get("pmax", 0))
-            if isinstance(cap, (int, float)):
-                total_cap += float(cap)
-        return {
-            "total_gen_capacity_mw": total_cap,
-            "first_block_demand_mw": 0.0,
-            "last_block_demand_mw": 0.0,
-            "total_energy_mwh": 0.0,
-            "first_block_affluent_avg": 0.0,
-            "last_block_affluent_avg": 0.0,
-        }
+    ind = compute_indicators(planning, base_dir=base_dir)
+    return {
+        "total_gen_capacity_mw": ind.total_gen_capacity_mw,
+        "hydro_capacity_mw": ind.hydro_capacity_mw,
+        "thermal_capacity_mw": ind.thermal_capacity_mw,
+        "total_line_capacity_mw": ind.total_line_capacity_mw,
+        "first_block_demand_mw": ind.first_block_demand_mw,
+        "last_block_demand_mw": ind.last_block_demand_mw,
+        "total_energy_mwh": ind.total_energy_mwh,
+        "first_block_affluent_avg": ind.first_block_affluent_avg,
+        "last_block_affluent_avg": ind.last_block_affluent_avg,
+    }
 
 
 def _gtopt_element_counts(planning: dict[str, Any]) -> dict[str, int]:
@@ -406,6 +421,12 @@ def _gtopt_element_counts(planning: dict[str, Any]) -> dict[str, int]:
         type_counts[gtype] = type_counts.get(gtype, 0) + 1
     for gtype, gcount in type_counts.items():
         counts[f"gen_{gtype}"] = gcount
+
+    # Stateless reservoirs: use_state_variable == False
+    reservoirs = psys.get("reservoir_array", [])
+    counts["stateless_reservoirs"] = sum(
+        1 for r in reservoirs if r.get("use_state_variable") is False
+    )
 
     return counts
 
@@ -485,6 +506,7 @@ def _log_comparison(
     p_hydrologies = plp_counts.get("hydrologies", 0)
     p_filtrations = plp_counts.get("filtrations", 0)
     p_res_eff = plp_counts.get("reservoir_efficiencies", 0)
+    p_stateless_res = plp_counts.get("stateless_reservoirs", 0)
 
     # derived
     p_gen_excl = p_centrals - p_falla - p_bateria
@@ -507,6 +529,7 @@ def _log_comparison(
     g_blocks = gtopt_counts.get("blocks", 0)
     g_stages = gtopt_counts.get("stages", 0)
     g_scenarios = gtopt_counts.get("scenarios", 0)
+    g_stateless_res = gtopt_counts.get("stateless_reservoirs", 0)
 
     # gtopt generator type breakdown
     g_gen_embalse = gtopt_counts.get("gen_embalse", 0)
@@ -612,6 +635,13 @@ def _log_comparison(
         g_reservoirs,
         note=(f"= embalse count ({p_embalse}) ✓" if g_reservoirs == p_embalse else ""),
     )
+    _row(
+        "stateless reservoirs",
+        p_stateless_res,
+        g_stateless_res,
+        note="hid_indep=T → use_state_variable=False",
+        indent=1,
+    )
     _row("reservoir efficiencies", p_res_eff, g_res_eff)
     _row("filtrations", p_filtrations, g_filtrations)
     table.add_row("", "", "", "", "")
@@ -669,6 +699,21 @@ def _log_comparison(
             "gen capacity (MW)",
             plp_ind.get("total_gen_capacity_mw", 0.0),
             gtopt_ind.get("total_gen_capacity_mw", 0.0),
+        )
+        _ind_row(
+            "  hydro capacity (MW)",
+            plp_ind.get("hydro_capacity_mw", 0.0),
+            gtopt_ind.get("hydro_capacity_mw", 0.0),
+        )
+        _ind_row(
+            "  thermal capacity (MW)",
+            plp_ind.get("thermal_capacity_mw", 0.0),
+            gtopt_ind.get("thermal_capacity_mw", 0.0),
+        )
+        _ind_row(
+            "line capacity (MW)",
+            plp_ind.get("total_line_capacity_mw", 0.0),
+            gtopt_ind.get("total_line_capacity_mw", 0.0),
         )
         _ind_row(
             "first block demand (MW)",
