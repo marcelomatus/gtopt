@@ -369,14 +369,12 @@ def compute_indicators(
 
     # Collect unique file references for flows
     _file_flow_done: set[str] = set()
-    has_file_flow = False
 
     for fl in flows:
         discharge = fl.get("discharge")
         if discharge is None:
             continue
         if isinstance(discharge, str):
-            has_file_flow = True
             if base_dir and discharge not in _file_flow_done:
                 _file_flow_done.add(discharge)
                 totals = _resolve_block_totals_from_file(
