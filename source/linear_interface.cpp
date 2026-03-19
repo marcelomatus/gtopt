@@ -412,6 +412,11 @@ void LinearInterface::set_solver_opts(const SolverOptions& solver_options)
   }
 #endif
 
+  // Apply time limit if specified (must be set before algorithm hints)
+  if (const auto tl = solver_options.time_limit; tl && *tl > 0.0) {
+    set_time_limit(*tl);
+  }
+
   const auto presolve = solver_options.presolve;
   solver->setHintParam(OsiDoPresolveInInitial, presolve, OsiHintDo);
 

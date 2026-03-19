@@ -28,13 +28,21 @@
    - [5.9 Reserve Constraints](#59-reserve-constraints)
    - [5.10 Hydro Cascade Constraints](#510-hydro-cascade-constraints)
    - [5.11 Capacity Expansion Constraints](#511-capacity-expansion-constraints)
+   - [5.12 User Constraints](#512-user-constraints)
 6. [Scaling and Solver Options](#6-scaling-and-solver-options)
    - [6.1 Objective Scaling](#61-objective-scaling)
    - [6.2 Voltage Angle Scaling](#62-voltage-angle-scaling)
-   - [6.3 Key Options Affecting the Formulation](#63-key-options-affecting-the-formulation)
-   - [6.4 Modeling Modes Summary](#64-modeling-modes-summary)
-   - [6.5 Stochastic Dual Dynamic Programming (SDDP)](#65-stochastic-dual-dynamic-programming-sddp)
-   - [6.6 Apertures — Backward-Pass Scenario Sampling](#66-apertures--backward-pass-scenario-sampling)
+   - [6.3 Variable Scaling](#63-variable-scaling)
+   - [6.4 Key Options Affecting the Formulation](#64-key-options-affecting-the-formulation)
+   - [6.5 Modeling Modes Summary](#65-modeling-modes-summary)
+   - [6.6 Stochastic Dual Dynamic Programming (SDDP)](#66-stochastic-dual-dynamic-programming-sddp)
+   - [6.7 Apertures — Backward-Pass Scenario Sampling](#67-apertures--backward-pass-scenario-sampling)
+   - [6.8 SDDP Benders Cuts](#68-sddp-benders-cuts)
+   - [6.9 Boundary Cuts and Future Cost](#69-boundary-cuts-and-future-cost)
+   - [6.10 Hot Start](#610-hot-start)
+   - [6.11 Solver Timeouts](#611-solver-timeouts)
+   - [6.12 Monolithic vs SDDP Equivalence](#612-monolithic-vs-sddp-equivalence)
+   - [6.13 Elastic Filter and Feasibility](#613-elastic-filter-and-feasibility)
 7. [Mapping: JSON Fields → Mathematical Symbols](#7-mapping-json-fields--mathematical-symbols)
 8. [Cross-References](#8-cross-references)
 9. [References](#9-references)
@@ -230,6 +238,7 @@ subject to:
 | (C11) | Junction water balance | $j, s, t, b$ |
 | (C12) | Reservoir volume balance | $r, s, t, b$ |
 | (C13) | Turbine power conversion | $u, s, t, b$ |
+| (C14) | User constraints (optional) | varies |
 
 ---
 
@@ -278,7 +287,7 @@ $$
 Additional OPEX terms may include:
 
 - **Reserve failure cost**: $\sum_{z} c_z^{\text{rfail}} (q_{z,s,t,b}^{\text{up}} + q_{z,s,t,b}^{\text{dn}})$
-- **Reserve provision cost**: $\sum_{p} c_{p,t}^{\text{ur}} \; r_{p,s,t,b}^{\text{up}} + c_{p,t}^{\text{dr}} \; r_{p,s,t,b}^{\text{dn}}$
+- **Reserve provision cost**: $\sum_{p} \bigl( c_{p,t}^{\text{ur}} \; r_{p,s,t,b}^{\text{up}} + c_{p,t}^{\text{dr}} \; r_{p,s,t,b}^{\text{dn}} \bigr)$
 - **Spillway cost**: $\sum_{r} c_{r,t}^{\text{spill}} \; \text{spill}_{r,s,t,b}$
 - **Generator profile spillover cost**: $\sum_{g} c_{g,t}^{\text{spill}} \; \text{spill}_{g,s,t,b}$
 
@@ -688,17 +697,17 @@ For each reserve zone $z$, the total up-reserve provided must meet the
 requirement:
 
 $$
-\sum_{p \in \mathcal{P}_z} \alpha_{p,t} \; r_{p,s,t,b}^{\text{up}} + q_{z,s,t,b}^{\text{up}} \;\geq\; \overline{R}_{z,t,b}^{\text{up}}
+\sum_{p \in \mathcal{P}_z} \gamma_{p,t} \; r_{p,s,t,b}^{\text{up}} + q_{z,s,t,b}^{\text{up}} \;\geq\; \overline{R}_{z,t,b}^{\text{up}}
 \qquad \forall \; z, s, t, b
 $$
 
 $$
-\sum_{p \in \mathcal{P}_z} \alpha_{p,t} \; r_{p,s,t,b}^{\text{dn}} + q_{z,s,t,b}^{\text{dn}} \;\geq\; \overline{R}_{z,t,b}^{\text{dn}}
+\sum_{p \in \mathcal{P}_z} \gamma_{p,t} \; r_{p,s,t,b}^{\text{dn}} + q_{z,s,t,b}^{\text{dn}} \;\geq\; \overline{R}_{z,t,b}^{\text{dn}}
 \qquad \forall \; z, s, t, b
 $$
 
 where:
-- $\alpha_{p,t}$ is the provision factor at stage $t$ (typically 1.0)
+- $\gamma_{p,t}$ is the provision factor at stage $t$ (typically 1.0)
 - $q_z^{\text{up}}, q_z^{\text{dn}} \geq 0$ are reserve shortage
   (curtailment) variables
 - $\overline{R}_{z,t,b}^{\text{up/dn}}$ is the reserve requirement (MW)
@@ -721,10 +730,12 @@ $$
 
 #### Reserve Costs
 
-- **Reserve provision cost**: $c_{p,t}^{\text{ur}} \cdot \omega_{s,t,b}$
+- **Up-reserve provision cost**: $c_{p,t}^{\text{ur}} \cdot \omega_{s,t,b}$
   per MW of up-reserve provided
+- **Down-reserve provision cost**: $c_{p,t}^{\text{dr}} \cdot \omega_{s,t,b}$
+  per MW of down-reserve provided
 - **Reserve failure cost**: $c_z^{\text{rfail}} \cdot \omega_{s,t,b}$
-  per MW of unserved reserve
+  per MW of unserved reserve (applies to both up and down shortages)
 
 ### 5.10 Hydro Cascade Constraints
 
@@ -831,7 +842,7 @@ LP matrix coefficients in-place.
 **SDDP integration**: during the forward pass, the solver evaluates
 $\kappa_u(v_{r}^{(k)})$ using the reservoir volume $v_{r}^{(k)}$ from
 iteration $k$ and updates the LP matrix coefficient via
-`set_coeff(row, col, -\kappa_u)`.  For the **first iteration**
+`set_coeff(row, col, -kappa_u)` (i.e., $-\kappa_u$).  For the **first iteration**
 ($k{=}1$), the initial volume $v_{\text{ini}}$ is used for all phases
 and scenes.
 
@@ -865,7 +876,7 @@ condition).  The LP constraint is then updated directly in the LP matrix:
 
 To minimise overhead, `set_coeff` / `set_rhs` calls are dispatched only when
 the new values differ from the previously applied ones.  This mechanism is
-analogous to the piecewise-linear efficiency update for turbines (§5.9).
+analogous to the piecewise-linear efficiency update for turbines (§5.10).
 
 The primary PLP source for this model is `plpfilemb.dat` (Fortran subroutine
 `LeeFilEmb` in `leefilemb.f`), parsed by `FilembParser` in
@@ -934,6 +945,27 @@ By default, $m_{g,t}$ is a **continuous** variable (LP relaxation). When
 `colint` is set on the component, $m_{g,t}$ becomes an **integer** variable
 (MIP formulation).
 
+### 5.12 User Constraints
+
+In addition to the built-in constraints above, gtopt supports
+**user-defined linear constraints** that allow arbitrary linear
+relationships between LP variables. User constraints are specified via
+the `user_constraint_array` (inline) or `user_constraint_file`
+(external JSON) fields in the planning input.
+
+Each user constraint defines:
+- A **sense** (`<=`, `>=`, or `=`)
+- A **right-hand side** value
+- A set of **coefficient entries** mapping (component class, element
+  UID, variable name) triples to scalar coefficients
+
+User constraints are added to the LP after all built-in constraints and
+can reference any LP variable (generator output, line flow, battery SoC,
+etc.).
+
+> **See also**: [`INPUT_DATA.md`](../../INPUT_DATA.md) for the JSON
+> format specification of user constraints.
+
 ---
 
 ## 6. Scaling and Solver Options
@@ -956,7 +988,72 @@ Voltage angles are scaled by `scale_theta` ($\sigma_\theta$, default 1000)
 to keep angle variables and susceptance coefficients in a numerically
 well-conditioned range.
 
-### 6.3 Key Options Affecting the Formulation
+### 6.3 Variable Scaling
+
+Beyond the global objective and angle scaling factors, gtopt supports
+**per-variable scale factors** that improve LP solver numerics when
+physical quantities span very different magnitudes (e.g., reservoir
+volumes in dam$^3$ vs. power flows in MW).
+
+#### Convention
+
+All variable scales follow a single convention:
+
+$$
+x_{\text{physical}} = x_{\text{LP}} \times \sigma_x
+$$
+
+where $\sigma_x$ is the scale factor and $x_{\text{LP}}$ is the LP
+decision variable. Bounds, coefficients, and right-hand sides are
+adjusted consistently so that the **optimal physical solution is
+invariant to the choice of scale**.
+
+#### Component-Specific Scales
+
+| Component | Field | Symbol | Default | Effect |
+|-----------|-------|--------|---------|--------|
+| Battery | `energy_scale` | $\sigma_E$ | 1.0 | SoC variable: $E_{\text{phys}} = E_{\text{LP}} \times \sigma_E$ |
+| Reservoir | `vol_scale` | $\sigma_V$ | 1.0 | Volume variable: $V_{\text{phys}} = V_{\text{LP}} \times \sigma_V$ |
+| Bus | `scale_theta` | $\sigma_\theta$ | 1000 | Angle variable: $\theta_{\text{phys}} = \theta_{\text{LP}} / \sigma_\theta$ |
+
+When a scale factor $\sigma_x$ is applied to a storage variable, the LP
+formulation adjusts:
+
+- **Variable bounds**: $x_{\text{LP}} \in [\underline{x}/\sigma_x,\; \overline{x}/\sigma_x]$
+- **Objective coefficients**: multiplied by $\sigma_x$ so that
+  $c \cdot x_{\text{LP}} \cdot \sigma_x = c \cdot x_{\text{phys}}$
+- **Constraint coefficients**: adjusted so that physical-unit
+  relationships are preserved (e.g., the SoC balance row coefficients
+  absorb the ratio $\sigma_{\text{flow}} / \sigma_E$)
+
+#### Generic Variable Scales (`variable_scales`)
+
+The `options.variable_scales` array provides a uniform mechanism for
+scaling any LP variable by element class, variable name, and optional
+element UID:
+
+```json
+{
+  "options": {
+    "variable_scales": [
+      {"class_name": "Reservoir", "variable": "volume", "scale": 1000.0},
+      {"class_name": "Battery", "variable": "energy", "uid": 3, "scale": 10.0}
+    ]
+  }
+}
+```
+
+Resolution priority:
+
+1. Per-element override (matching class + variable + UID)
+2. Per-class default (matching class + variable, no UID)
+3. Fallback: 1.0 (no scaling)
+
+Per-element fields (`Battery.energy_scale`, `Reservoir.vol_scale`) and
+global options (`scale_theta`) take precedence over entries in
+`variable_scales`.
+
+### 6.4 Key Options Affecting the Formulation
 
 | Option | JSON field | Default | Effect on formulation |
 |--------|-----------|---------|----------------------|
@@ -971,9 +1068,9 @@ well-conditioned range.
 | Reserve fail cost | `reserve_fail_cost` | *(none)* | Enables reserve shortage variables |
 | Input format | `input_format` | `"parquet"` | Time-series input format |
 | Output format | `output_format` | `"parquet"` | Solution output format |
-| Output compression | `output_compression` | `"gzip"` | Parquet compression codec |
+| Output compression | `output_compression` | `"zstd"` | Parquet compression codec |
 
-### 6.4 Modeling Modes Summary
+### 6.5 Modeling Modes Summary
 
 The three network modeling modes correspond to standard formulations in the
 power systems literature [[11]](#ref11) [[12]](#ref12):
@@ -984,7 +1081,7 @@ power systems literature [[11]](#ref11) [[12]](#ref12):
 | **Transport model** | `use_kirchhoff = false`, multi-bus | $p, \ell, q, f$ | Bus balance + line capacity |
 | **DC OPF** | `use_kirchhoff = true`, multi-bus | $p, \ell, q, f, \theta$ | Bus balance + Kirchhoff VL + line capacity |
 
-### 6.5 Stochastic Dual Dynamic Programming (SDDP)
+### 6.6 Stochastic Dual Dynamic Programming (SDDP)
 
 When solving multi-stage problems with many scenarios, gtopt supports the
 **Stochastic Dual Dynamic Programming (SDDP)** algorithm
@@ -1049,7 +1146,7 @@ convergence. Three modes are supported:
 | `expected` | Compute probability-weighted average cut; share to all scenes |
 | `max` | Share every cut from every scene to all other scenes |
 
-### 6.6 Apertures — Backward-Pass Scenario Sampling
+### 6.7 Apertures — Backward-Pass Scenario Sampling
 
 An **aperture** (from the Portuguese *abertura hidrológica* in PLP) is a
 hydrological or stochastic realisation used during the SDDP backward pass
@@ -1116,7 +1213,9 @@ horizon** — i.e. the value function at the terminal stage.  They are
 analogous to PLP's "planos de embalse" (reservoir future-cost function).
 Each cut constrains the future-cost variable $\alpha$ at the last phase:
 
-$$\alpha_{T} \;\ge\; \beta_0^{(k)} \;+\; \sum_{i} \rho_i^{(k)} \cdot x_{i,T}$$
+$$
+\alpha_{T} \;\ge\; \beta_0^{(k)} \;+\; \sum_{i} \rho_i^{(k)} \cdot x_{i,T}
+$$
 
 where $x_{i,T}$ are the state variables (reservoir volumes, battery SoC)
 at the last phase $T$, $\rho_i^{(k)}$ are gradient coefficients, and
@@ -1142,6 +1241,225 @@ CSV, corresponding to PLP's `IPDNumIte`).
 > complete SDDP algorithm description, convergence criteria, and
 > implementation notes.
 
+### 6.8 SDDP Benders Cuts
+
+The SDDP algorithm builds a piecewise-linear outer approximation of the
+future cost function $\alpha_t$ by accumulating **Benders cuts** across
+iterations. Each cut is a linear inequality added to the LP of phase
+$t{-}1$.
+
+#### Optimality Cuts
+
+An **optimality cut** is generated from the dual solution of a feasible
+phase-$t$ LP. At iteration $k$:
+
+$$
+\alpha_{t-1} \;\ge\; z_t^{(k)} + \sum_{i \in \mathcal{S}_t}
+\text{rc}_i^{(k)} \cdot \bigl( x_{t-1,i} - \hat{v}_i^{(k)} \bigr)
+\qquad \forall \; k \in \mathcal{K}_{\text{opt}}
+$$
+
+where:
+- $z_t^{(k)}$ is the optimal objective of the phase-$t$ LP (including
+  its own $\alpha_t$ term)
+- $\mathcal{S}_t$ is the set of state-variable links between phases
+  $t{-}1$ and $t$
+- $\text{rc}_i^{(k)}$ is the reduced cost of the dependent column for
+  state variable $i$ in phase $t$
+- $x_{t-1,i}$ is the source column (decision variable) in phase $t{-}1$
+- $\hat{v}_i^{(k)}$ is the trial value from the forward pass
+
+Expanding and rearranging, the cut takes the canonical LP row form:
+
+$$
+\alpha_{t-1} - \sum_{i} \text{rc}_i^{(k)} \cdot x_{t-1,i}
+\;\ge\; z_t^{(k)} - \sum_{i} \text{rc}_i^{(k)} \cdot \hat{v}_i^{(k)}
+$$
+
+The right-hand side is stored as the cut's `rhs` field and the
+coefficients $\text{rc}_i^{(k)}$ are stored as `(column_index, coefficient)`
+pairs in the `StoredCut` structure.
+
+#### Feasibility Cuts
+
+When the forward-pass subproblem at phase $t$ is **infeasible** (the
+trial values from phase $t{-}1$ violate constraints), the solver applies
+an elastic filter (see [Section 6.13](#613-elastic-filter-and-feasibility))
+to obtain dual information. The resulting **feasibility cut** has the
+same algebraic form as an optimality cut but is derived from the
+elastic-clone's dual solution rather than the original LP.
+
+In gtopt, the `CutType` enum distinguishes the two:
+
+| `CutType` | Origin | Shared across scenes? |
+|-----------|--------|----------------------|
+| `Optimality` | Feasible backward-pass solve | Yes (per `cut_sharing_mode`) |
+| `Feasibility` | Elastic filter clone | Never |
+
+### 6.9 Boundary Cuts and Future Cost
+
+Boundary cuts approximate the expected future cost **beyond the planning
+horizon** $T$ -- the terminal value function $\alpha_T$. They are
+loaded from an external CSV file and added to the last phase of each
+scene's LP before solving begins.
+
+Each boundary cut $k$ constrains the future-cost variable at the last
+phase:
+
+$$
+\alpha_T \;\ge\; \beta_0^{(k)} + \sum_{i} \rho_i^{(k)} \cdot x_{i,T}
+\qquad \forall \; k \in \mathcal{K}_{\text{boundary}}
+$$
+
+where $x_{i,T}$ are the state variables (reservoir volumes, battery SoC)
+at phase $T$, $\rho_i^{(k)}$ are gradient coefficients, and
+$\beta_0^{(k)}$ is the intercept (RHS).
+
+Boundary cuts are analogous to PLP's "planos de embalse" (reservoir
+future-cost function). They are supported by both the SDDP and
+monolithic solvers. When used with the monolithic solver, an $\alpha$
+variable is added to the last phase and the cuts are applied identically.
+
+> **See also**: [`docs/SDDP_SOLVER.md`](../SDDP_SOLVER.md) Section 4.11
+> for the CSV format specification, load modes, and iteration filtering.
+
+### 6.10 Hot Start
+
+The SDDP solver supports **hot-starting** from previously saved cuts to
+accelerate convergence. When `hot_start` is enabled:
+
+1. The solver loads all valid cut files from the cut directory
+   (files matching `scene_<N>.csv` or `sddp_cuts.csv`)
+2. Error files (prefixed with `error_`) from infeasible scenes in
+   previous runs are automatically **skipped**
+3. Loaded cuts are injected into the per-phase LPs before the first
+   forward pass, providing an initial outer approximation of the
+   future cost function
+4. The SDDP iterations then refine this approximation further
+
+Hot start is particularly useful for:
+- **Interrupted runs**: if the solver was stopped (sentinel file, time
+  limit, or external signal), the saved cuts allow resumption without
+  losing progress
+- **Parameter sensitivity**: re-solving with slightly modified parameters
+  while retaining the bulk of the cut approximation
+- **Incremental refinement**: running additional iterations on top of a
+  previous solution
+
+Configuration:
+```json
+{
+  "options": {
+    "sddp_options": {
+      "hot_start": true,
+      "cut_directory": "cuts"
+    }
+  }
+}
+```
+
+### 6.11 Solver Timeouts
+
+LP subproblem solves have configurable time limits to prevent the solver
+from stalling on difficult instances.
+
+| Option | Scope | Default | Description |
+|--------|-------|---------|-------------|
+| `solve_timeout` | SDDP forward pass | 0 (none) | Time limit per LP solve (seconds) |
+| `aperture_timeout` | SDDP backward pass | 0 (none) | Time limit per aperture LP solve (seconds) |
+| `monolithic_solve_timeout` | Monolithic solver | 0 (none) | Time limit per scene LP solve (seconds) |
+
+When a timeout is exceeded:
+- The LP is saved to a debug file in `log_directory`
+- A CRITICAL message is logged with the phase, scene, and elapsed time
+- For SDDP: the scene is marked as failed for that iteration
+- For apertures: the timed-out aperture is skipped and the solver
+  continues with remaining apertures
+
+### 6.12 Monolithic vs SDDP Equivalence
+
+Under specific conditions, the monolithic and SDDP solvers produce
+**identical optimal solutions**.
+
+**Theorem (Finite convergence).**
+For a deterministic problem (single scenario $|\mathcal{S}| = 1$) with
+$T$ phases, linear cost-to-go functions, and no integer variables, the
+SDDP algorithm converges finitely to the exact monolithic optimum
+[[3]](#ref3)[[4]](#ref4).
+
+**Formal statement.** Let $z^*_{\text{mono}}$ be the monolithic optimal
+value:
+
+$$
+z^*_{\text{mono}} = \min \sum_{t=1}^{T} c_t^\top x_t
+\quad \text{s.t.} \quad A_t x_t + B_t x_{t-1} \ge b_t,\;
+x_t \ge 0 \;\; \forall \; t
+$$
+
+and let $z^{(k)}_{\text{SDDP}}$ be the SDDP lower bound at iteration
+$k$. Then $z^{(k)}_{\text{SDDP}} \to z^*_{\text{mono}}$ in a finite
+number of iterations, provided:
+
+1. **Single scenario** (or all scenarios evaluated) -- the backward
+   pass sees the same data as the forward pass
+2. **No aperture sampling** -- apertures use the full scenario set
+3. **No cut sharing** (`cut_sharing_mode = "none"`) -- cuts are not
+   broadcast across scenes
+4. **Convergence achieved** -- the gap
+   $(UB - LB) / \max(1, |UB|) < \varepsilon$
+
+When any of these conditions is violated, the SDDP solution may differ
+from the monolithic optimum (typically providing a lower bound).
+
+> **See also**: [`docs/MONOLITHIC_SOLVER.md`](../MONOLITHIC_SOLVER.md)
+> Section 3 for additional details on equivalence conditions.
+
+### 6.13 Elastic Filter and Feasibility
+
+When a forward-pass subproblem at phase $t$ is infeasible (the trial
+values $\hat{v}_i$ from phase $t{-}1$ violate the current phase's
+constraints), the SDDP solver applies an **elastic filter** to recover
+dual information for cut generation.
+
+The elastic filter procedure:
+
+1. **Clone** the phase-$t$ LP (deep copy via `OsiSolverInterface::clone()`)
+2. **Relax** fixed state-variable columns to their physical bounds
+3. **Add penalized slack variables** $s_i^+, s_i^-$ for each state
+   variable link:
+
+$$
+x_i + s_i^+ - s_i^- = \hat{v}_i, \qquad s_i^+, s_i^- \ge 0
+$$
+
+4. **Modify the objective** to include elastic penalties:
+
+$$
+\min \quad c^\top x + M \sum_i (s_i^+ + s_i^-)
+$$
+
+   where $M$ is the `elastic_penalty` parameter (default $10^6$)
+
+5. **Solve** the cloned LP with the elastic objective
+6. **Extract** dual information from the clone for cut generation
+7. **Discard** the clone -- the original LP is never modified
+
+Two elastic filter modes control what happens with the extracted
+information:
+
+| Mode | JSON value | Behavior |
+|------|-----------|----------|
+| Feasibility cut | `"cut"` | Add a Benders feasibility cut to phase $t{-}1$ |
+| Backpropagate bounds | `"backpropagate"` | Tighten source column bounds in phase $t{-}1$ to the elastic-clone solution values |
+
+The `"cut"` mode is the standard Nested Benders Decomposition approach
+with theoretical convergence guarantees. The `"backpropagate"` mode is
+a heuristic from the PLP hydrothermal scheduler that can converge faster
+in practice for problems with tight physical bounds.
+
+> **See also**: [`docs/SDDP_SOLVER.md`](../SDDP_SOLVER.md) Section 5.4
+> for a detailed comparison of elastic filter modes.
+
 ---
 
 ## 7. Mapping: JSON Fields → Mathematical Symbols
@@ -1162,9 +1480,14 @@ mathematical symbols used in this formulation.
 | `options.demand_fail_cost` | $c^{\text{fail}}_d$ | Curtailment penalty |
 | `options.reserve_fail_cost` | $c^{\text{rfail}}$ | Reserve penalty |
 | `options.solver_type` | — | Solver: `"monolithic"` or `"sddp"` |
-| `options.sddp_options.boundary_cuts_file` | — | CSV with boundary cuts for last phase (§6.5) |
+| `options.variable_scales` | $\sigma_x$ | Per-variable scale factors (Section 6.3) |
+| `options.sddp_options.boundary_cuts_file` | — | CSV with boundary cuts for last phase (Section 6.9) |
 | `options.sddp_options.boundary_cuts_mode` | — | Load mode: `"noload"`, `"separated"`, `"combined"` |
 | `options.sddp_options.boundary_max_iterations` | — | Max iterations to load from boundary cuts |
+| `options.sddp_options.hot_start` | — | Enable hot-start from saved cuts (Section 6.10) |
+| `options.sddp_options.save_per_iteration` | — | Save cuts after each iteration (default: true) |
+| `options.sddp_options.solve_timeout` | — | LP solve time limit in seconds (Section 6.11) |
+| `options.sddp_options.aperture_timeout` | — | Aperture LP time limit in seconds (Section 6.11) |
 
 ### Simulation Structure
 
@@ -1217,6 +1540,7 @@ mathematical symbols used in this formulation.
 | `battery_array[].input_efficiency` | $\eta_e^{\text{in}}$ | Charge efficiency |
 | `battery_array[].output_efficiency` | $\eta_e^{\text{out}}$ | Discharge efficiency |
 | `battery_array[].annual_loss` | $\mu_e$ | Annual self-discharge |
+| `battery_array[].energy_scale` | $\sigma_E$ | Energy variable scale factor (Section 6.3) |
 
 ### Converter
 
@@ -1237,6 +1561,9 @@ mathematical symbols used in this formulation.
 |-----------|--------|-------------|
 | `reserve_provision_array[].urmax` | — | Max up-reserve (MW) |
 | `reserve_provision_array[].urcost` | $c_p^{\text{ur}}$ | Up-reserve cost |
+| `reserve_provision_array[].drmax` | — | Max down-reserve (MW) |
+| `reserve_provision_array[].drcost` | $c_p^{\text{dr}}$ | Down-reserve cost |
+| `reserve_provision_array[].factor` | $\gamma_{p,t}$ | Provision factor |
 
 ### Hydro Components
 
@@ -1247,6 +1574,7 @@ mathematical symbols used in this formulation.
 | `waterway_array[].lossfactor` | $\lambda_w$ | Transport loss |
 | `reservoir_array[].vmin` | $\underline{V}_r$ | Min volume (hm³) |
 | `reservoir_array[].vmax` | $\overline{V}_r$ | Max volume (hm³) |
+| `reservoir_array[].vol_scale` | $\sigma_V$ | Volume variable scale factor (Section 6.3) |
 | `turbine_array[].conversion_rate` | $\kappa_u$ | Water-to-power factor |
 | `turbine_array[].main_reservoir` | — | Reservoir for efficiency lookup |
 | `reservoir_efficiency_array[].mean_efficiency` | $\bar{\kappa}_u$ | Fallback efficiency |
@@ -1275,6 +1603,10 @@ mathematical symbols used in this formulation.
   dependencies, and troubleshooting.
 - **[Scripts Guide](../../SCRIPTS.md)** — Python conversion utilities
   (plp2gtopt, igtopt, pp2gtopt, ts2gtopt, cvs2parquet).
+- **[SDDP Solver](../SDDP_SOLVER.md)** — Complete SDDP algorithm
+  description, convergence criteria, cut sharing, and configuration.
+- **[Monolithic Solver](../MONOLITHIC_SOLVER.md)** — Default solver
+  description, boundary cuts, and equivalence with SDDP.
 
 ---
 
