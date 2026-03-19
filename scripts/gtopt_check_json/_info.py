@@ -65,8 +65,15 @@ class SystemIndicators:
     total_demand_by_block : list[float]
         Sum of all demands per block (MW).  Length equals ``num_blocks``.
     total_energy_mwh : float
-        Total annual energy demand = Σ (demand × duration) across all blocks
+        Total energy demand = Σ (demand × duration) across all blocks
         and all demands (MWh).
+    avg_annual_energy_mwh : float
+        Average annual energy = total_energy_mwh × 8760 / total_hours.
+        Normalises total energy to a single year regardless of the
+        number of stages or blocks in the simulation.
+    total_hours : float
+        Sum of all block durations (hours).  Used to compute
+        ``avg_annual_energy_mwh``.
     capacity_adequacy_ratio : float
         ``total_gen_capacity_mw / peak_demand_mw`` if peak > 0, else ``inf``.
         A ratio < 1.0 signals capacity deficit; > 1.0 signals surplus.
@@ -79,6 +86,13 @@ class SystemIndicators:
     last_block_affluent_avg : float
         Average (across scenarios) total discharge at the last block (m³/s).
         Computed from ``Flow.discharge`` fields in ``flow_array``.
+    total_water_volume_hm3 : float
+        Total water volume across all flows and blocks (Hm³).
+        Computed as Σ (flow_m³/s × duration_h × 0.0036) where 0.0036 is
+        the conversion factor m³/s → Hm³/h.
+    avg_flow_m3s : float
+        Duration-weighted average flow per affluent (m³/s).
+        ``total_water_volume_hm3 / (total_hours × 0.0036) / num_flows``.
     num_generators : int
         Count of generators used in the capacity sum.
     num_demands : int
@@ -105,6 +119,8 @@ class SystemIndicators:
     capacity_adequacy_ratio: float = float("inf")
     first_block_affluent_avg: float = 0.0
     last_block_affluent_avg: float = 0.0
+    total_water_volume_hm3: float = 0.0
+    avg_flow_m3s: float = 0.0
     num_generators: int = 0
     num_demands: int = 0
     num_blocks: int = 0
@@ -384,13 +400,24 @@ def compute_indicators(
 
     # --- Total energy (MWh) = Σ demand × duration ---
     total_energy = 0.0
+    total_hours = 0.0
     for b_idx in range(min(num_blocks, len(demand_by_block))):
         duration = blocks[b_idx].get("duration", 1.0) if b_idx < num_blocks else 1.0
         total_energy += demand_by_block[b_idx] * duration
+        total_hours += duration
 
-    # --- Accumulated affluent (hydro inflow) at first and last block ---
+    # Avg annual energy: total_energy / (total_hours / 8760)
+    _HOURS_PER_YEAR = 8760.0
+    avg_annual_energy = (
+        total_energy * _HOURS_PER_YEAR / total_hours if total_hours > 0 else 0.0
+    )
+
+    # --- Accumulated affluent (hydro inflow) and total water volume ---
+    # Conversion factor: 1 m³/s flowing for 1 h = 0.0036 Hm³
+    _M3S_TO_HM3_PER_H = 0.0036
     first_block_afl = 0.0
     last_block_afl = 0.0
+    total_water_vol_hm3 = 0.0
     num_flow = len(flows)
 
     # Collect unique file references for flows
@@ -413,6 +440,13 @@ def compute_indicators(
                 if totals and len(totals) > 0:
                     first_block_afl += totals[0]
                     last_block_afl += totals[-1]
+                    for b_idx in range(min(len(totals), num_blocks)):
+                        dur = (
+                            blocks[b_idx].get("duration", 1.0)
+                            if b_idx < num_blocks
+                            else 1.0
+                        )
+                        total_water_vol_hm3 += totals[b_idx] * dur * _M3S_TO_HM3_PER_H
             continue
         first_val = _first_scalar(discharge)
         if first_val is not None:
@@ -425,6 +459,23 @@ def compute_indicators(
                 last_block_afl += first_val or 0.0
         elif isinstance(discharge, (int, float)):
             last_block_afl += float(discharge)
+        # Accumulate water volume for inline discharge values
+        for b_idx in range(num_blocks):
+            val = _scalar_at_block(discharge, b_idx)
+            if val is not None:
+                dur = (
+                    blocks[b_idx].get("duration", 1.0)
+                    if b_idx < num_blocks
+                    else 1.0
+                )
+                total_water_vol_hm3 += val * dur * _M3S_TO_HM3_PER_H
+
+    # Average flow per affluent (m³/s) = total_volume / total_time / num_flows
+    avg_flow = (
+        total_water_vol_hm3 / (total_hours * _M3S_TO_HM3_PER_H) / num_flow
+        if total_hours > 0 and num_flow > 0
+        else 0.0
+    )
 
     # --- Capacity adequacy ratio ---
     adequacy = total_gen_cap / peak_demand if peak_demand > 0 else float("inf")
@@ -441,9 +492,13 @@ def compute_indicators(
         peak_demand_block=peak_block,
         total_demand_by_block=demand_by_block,
         total_energy_mwh=total_energy,
+        avg_annual_energy_mwh=avg_annual_energy,
+        total_hours=total_hours,
         capacity_adequacy_ratio=adequacy,
         first_block_affluent_avg=first_block_afl,
         last_block_affluent_avg=last_block_afl,
+        total_water_volume_hm3=total_water_vol_hm3,
+        avg_flow_m3s=avg_flow,
         num_generators=num_gen,
         num_demands=num_dem,
         num_blocks=num_blocks if num_blocks > 0 else len(demand_by_block),
@@ -494,17 +549,21 @@ def format_indicators(
         ),
         ("Min demand", f"{ind.min_demand_mw:,.1f} MW"),
         ("Total energy", f"{ind.total_energy_mwh:,.1f} MWh"),
+        ("Avg annual energy", f"{ind.avg_annual_energy_mwh:,.1f} MWh"),
         ("Capacity adequacy", f"{ind.capacity_adequacy_ratio:.3f}"),
     ]
     if ind.num_flows > 0:
-        pairs.append(
-            (
-                "First block affluent",
-                f"{ind.first_block_affluent_avg:,.1f} m³/s  ({ind.num_flows} flows)",
-            )
-        )
-        pairs.append(
-            ("Last block affluent", f"{ind.last_block_affluent_avg:,.1f} m³/s")
+        pairs.extend(
+            [
+                (
+                    "First block flow",
+                    f"{ind.first_block_affluent_avg:,.1f} m³/s"
+                    f"  ({ind.num_flows} flows)",
+                ),
+                ("Last block flow", f"{ind.last_block_affluent_avg:,.1f} m³/s"),
+                ("Total water volume", f"{ind.total_water_volume_hm3:,.1f} Hm³"),
+                ("Avg flow per affluent", f"{ind.avg_flow_m3s:,.1f} m³/s"),
+            ]
         )
 
     return render_kv_table(pairs, title="Global Indicators")
@@ -535,17 +594,21 @@ def print_indicators(
         ),
         ("Min demand", f"{ind.min_demand_mw:,.1f} MW"),
         ("Total energy", f"{ind.total_energy_mwh:,.1f} MWh"),
+        ("Avg annual energy", f"{ind.avg_annual_energy_mwh:,.1f} MWh"),
         ("Capacity adequacy", f"{ind.capacity_adequacy_ratio:.3f}"),
     ]
     if ind.num_flows > 0:
-        pairs.append(
-            (
-                "First block affluent",
-                f"{ind.first_block_affluent_avg:,.1f} m³/s  ({ind.num_flows} flows)",
-            )
-        )
-        pairs.append(
-            ("Last block affluent", f"{ind.last_block_affluent_avg:,.1f} m³/s")
+        pairs.extend(
+            [
+                (
+                    "First block flow",
+                    f"{ind.first_block_affluent_avg:,.1f} m³/s"
+                    f"  ({ind.num_flows} flows)",
+                ),
+                ("Last block flow", f"{ind.last_block_affluent_avg:,.1f} m³/s"),
+                ("Total water volume", f"{ind.total_water_volume_hm3:,.1f} Hm³"),
+                ("Avg flow per affluent", f"{ind.avg_flow_m3s:,.1f} m³/s"),
+            ]
         )
 
     print_kv_table(pairs, title="Global Indicators")
