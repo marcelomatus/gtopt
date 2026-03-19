@@ -349,7 +349,6 @@ def _plp_indicators(
     total_water_vol_hm3 = 0.0
     num_active_flows = 0
     if aflce_parser and block_parser:
-        num_blocks_bp = getattr(block_parser, "num_blocks", 0)
         for flow in aflce_parser.flows:
             # Skip flows for centrals with bus <= 0
             flow_name = str(flow.get("name", ""))
@@ -363,8 +362,8 @@ def _plp_indicators(
             if num_hydro <= 0:
                 continue
             num_active_flows += 1
-            for b_idx in range(len(block_arr)):
-                blk_num = int(block_arr[b_idx])
+            for b_idx, blk_num_raw in enumerate(block_arr):
+                blk_num = int(blk_num_raw)
                 blk = block_parser.get_item_by_number(blk_num)
                 duration = blk.get("duration", 1.0) if blk else 1.0
                 if hydrology_indices is not None:
@@ -382,9 +381,7 @@ def _plp_indicators(
 
     # Average flow per affluent (m³/s) = total_volume / total_time / num_flows
     avg_flow_m3s = (
-        total_water_vol_hm3
-        / (total_hours * _M3S_TO_HM3_PER_H)
-        / num_active_flows
+        total_water_vol_hm3 / (total_hours * _M3S_TO_HM3_PER_H) / num_active_flows
         if total_hours > 0 and num_active_flows > 0
         else 0.0
     )
@@ -782,6 +779,12 @@ def _log_comparison(
             gtopt_ind.get("total_energy_mwh", 0.0) * _MWH_TO_TWH,
             fmt=".3f",
         )
+        _ind_row(
+            "avg annual energy (TWh)",
+            plp_ind.get("avg_annual_energy_mwh", 0.0) * _MWH_TO_TWH,
+            gtopt_ind.get("avg_annual_energy_mwh", 0.0) * _MWH_TO_TWH,
+            fmt=".3f",
+        )
 
         # Capacity adequacy: gen capacity / first block demand
         plp_dem1 = plp_ind.get("first_block_demand_mw", 0.0)
@@ -793,14 +796,26 @@ def _log_comparison(
         _ind_row("capacity adequacy", plp_ratio, gtopt_ratio, fmt=".3f")
 
         _ind_row(
-            "first block affluent",
+            "first block flow (m³/s)",
             plp_ind.get("first_block_affluent_avg", 0.0),
             gtopt_ind.get("first_block_affluent_avg", 0.0),
         )
         _ind_row(
-            "last block affluent",
+            "last block flow (m³/s)",
             plp_ind.get("last_block_affluent_avg", 0.0),
             gtopt_ind.get("last_block_affluent_avg", 0.0),
+        )
+        _ind_row(
+            "total water vol (Hm³)",
+            plp_ind.get("total_water_volume_hm3", 0.0),
+            gtopt_ind.get("total_water_volume_hm3", 0.0),
+            fmt=".1f",
+        )
+        _ind_row(
+            "avg flow/affluent (m³/s)",
+            plp_ind.get("avg_flow_m3s", 0.0),
+            gtopt_ind.get("avg_flow_m3s", 0.0),
+            fmt=".2f",
         )
 
         con.print(ind_table)
