@@ -353,16 +353,19 @@ class TestCLI:
         p.write_text(json.dumps(_VALID_CASE), encoding="utf-8")
         rc = main(["--info", "--no-color", str(p)])
         assert rc == 0
-        out = capsys.readouterr().out
-        assert "test_valid" in out
+        captured = capsys.readouterr()
+        # Rich writes to stderr; check both streams
+        combined = captured.out + captured.err
+        assert "test_valid" in combined
 
     def test_check_valid(self, tmp_path: Path, capsys: Any) -> None:
         p = tmp_path / "test.json"
         p.write_text(json.dumps(_VALID_CASE), encoding="utf-8")
         rc = main(["--no-color", str(p)])
         assert rc == 0
-        out = capsys.readouterr().out
-        assert "passed" in out.lower() or "0 critical" in out.lower()
+        captured = capsys.readouterr()
+        combined = captured.out + captured.err
+        assert "passed" in combined.lower() or "0 critical" in combined.lower()
 
     def test_check_critical(self, tmp_path: Path, capsys: Any) -> None:
         case = json.loads(json.dumps(_VALID_CASE))
@@ -572,6 +575,108 @@ class TestComputeIndicators:
         assert ind.first_block_affluent_avg == 0.0
         assert ind.last_block_affluent_avg == 0.0
         assert ind.num_flows == 0
+
+    def test_file_ref_demand_resolved_with_base_dir(self, tmp_path: Path) -> None:
+        """Demand lmax as a file reference is resolved when base_dir given."""
+        import pandas as pd  # pylint: disable=import-outside-toplevel
+
+        # Write a Demand/lmax.parquet with 3 blocks and 2 demands
+        dem_dir = tmp_path / "Demand"
+        dem_dir.mkdir()
+        df = pd.DataFrame(
+            {
+                "block": [1, 2, 3],
+                "uid:1": [100.0, 120.0, 80.0],
+                "uid:2": [50.0, 60.0, 40.0],
+            }
+        )
+        df.to_parquet(dem_dir / "lmax.parquet", index=False)
+
+        case: dict[str, Any] = {
+            "options": {"input_directory": "."},
+            "simulation": {
+                "block_array": [
+                    {"uid": 1, "duration": 2},
+                    {"uid": 2, "duration": 3},
+                    {"uid": 3, "duration": 5},
+                ],
+            },
+            "system": {
+                "generator_array": [
+                    {"uid": 1, "name": "g1", "bus": 1, "capacity": 200},
+                ],
+                "demand_array": [
+                    {"uid": 1, "name": "d1", "bus": 1, "lmax": "lmax"},
+                    {"uid": 2, "name": "d2", "bus": 2, "lmax": "lmax"},
+                ],
+                "flow_array": [],
+            },
+        }
+
+        # Without base_dir → file ref is skipped → demand = 0
+        ind_no = compute_indicators(case)
+        assert ind_no.first_block_demand_mw == pytest.approx(0.0)
+
+        # With base_dir → file ref is resolved
+        ind = compute_indicators(case, base_dir=str(tmp_path))
+        # Block 0: 100 + 50 = 150
+        assert ind.first_block_demand_mw == pytest.approx(150.0)
+        # Block 1: 120 + 60 = 180
+        assert ind.peak_demand_mw == pytest.approx(180.0)
+        # Block 2: 80 + 40 = 120
+        assert ind.last_block_demand_mw == pytest.approx(120.0)
+        # Energy: 150*2 + 180*3 + 120*5 = 300+540+600 = 1440
+        assert ind.total_energy_mwh == pytest.approx(1440.0)
+        # Adequacy: 200 / 180
+        assert ind.capacity_adequacy_ratio == pytest.approx(200.0 / 180.0)
+
+    def test_file_ref_flow_resolved_with_base_dir(self, tmp_path: Path) -> None:
+        """Flow discharge as a file reference is resolved when base_dir given."""
+        import pandas as pd  # pylint: disable=import-outside-toplevel
+
+        # Write a Flow/discharge.parquet with scenario column
+        flow_dir = tmp_path / "Flow"
+        flow_dir.mkdir()
+        df = pd.DataFrame(
+            {
+                "scenario": [1, 1, 1, 2, 2, 2],
+                "stage": [1, 1, 1, 1, 1, 1],
+                "block": [1, 2, 3, 1, 2, 3],
+                "uid:1": [10.0, 20.0, 30.0, 20.0, 30.0, 40.0],
+                "uid:2": [5.0, 6.0, 7.0, 15.0, 16.0, 17.0],
+            }
+        )
+        df.to_parquet(flow_dir / "discharge.parquet", index=False)
+
+        case: dict[str, Any] = {
+            "options": {"input_directory": "."},
+            "simulation": {
+                "block_array": [
+                    {"uid": 1, "duration": 1},
+                    {"uid": 2, "duration": 1},
+                    {"uid": 3, "duration": 1},
+                ],
+            },
+            "system": {
+                "generator_array": [],
+                "demand_array": [],
+                "flow_array": [
+                    {"uid": 1, "name": "f1", "junction": 1, "discharge": "discharge"},
+                    {"uid": 2, "name": "f2", "junction": 2, "discharge": "discharge"},
+                ],
+            },
+        }
+
+        # Without base_dir → 0
+        ind_no = compute_indicators(case)
+        assert ind_no.first_block_affluent_avg == pytest.approx(0.0)
+
+        # With base_dir → resolved and averaged across scenarios
+        ind = compute_indicators(case, base_dir=str(tmp_path))
+        # Block 1 avg: uid:1=(10+20)/2=15, uid:2=(5+15)/2=10 → total=25
+        assert ind.first_block_affluent_avg == pytest.approx(25.0)
+        # Block 3 avg: uid:1=(30+40)/2=35, uid:2=(7+17)/2=12 → total=47
+        assert ind.last_block_affluent_avg == pytest.approx(47.0)
 
 
 class TestFormatIndicators:
