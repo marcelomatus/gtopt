@@ -558,10 +558,30 @@ public:
 
   /**
    * @brief Whether to hot-start from previously saved cuts (default: false)
+   * @deprecated Use sddp_hot_start_mode_enum() for finer control.
    */
   [[nodiscard]] constexpr auto sddp_hot_start() const
   {
     return m_options_.sddp_options.hot_start.value_or(false);
+  }
+
+  /**
+   * @brief Gets the hot-start mode string.
+   *
+   * Returns the `hot_start_mode` option.  When not set, falls back to
+   * the boolean `hot_start` field for backward compatibility:
+   *  - `hot_start = true`  → `"replace"` (original hot-start behavior)
+   *  - `hot_start = false` → `"none"` (cold start)
+   *
+   * @return "none", "keep", "append", or "replace"
+   */
+  [[nodiscard]] auto sddp_hot_start_mode() const -> Name
+  {
+    if (m_options_.sddp_options.hot_start_mode.has_value()) {
+      return m_options_.sddp_options.hot_start_mode.value();
+    }
+    // Backward compat: bool hot_start → "replace" or "none"
+    return Name {sddp_hot_start() ? "replace" : "none"};
   }
 
   /**
@@ -715,6 +735,13 @@ public:
         .value_or(BoundaryCutsMode::separated);
   }
 
+  /// SDDP hot-start mode as an enum.
+  [[nodiscard]] auto sddp_hot_start_mode_enum() const -> HotStartMode
+  {
+    return hot_start_mode_from_name(sddp_hot_start_mode())
+        .value_or(HotStartMode::none);
+  }
+
   /// Monolithic solve mode as an enum.
   [[nodiscard]] auto monolithic_solve_mode_enum() const -> SolveMode
   {
@@ -789,6 +816,14 @@ public:
             v,
             elastic_filter_mode_from_name(v),
             "single_cut");
+    }
+    // sddp hot_start_mode
+    if (m_options_.sddp_options.hot_start_mode.has_value()) {
+      const auto v = m_options_.sddp_options.hot_start_mode.value();
+      check("sddp_options.hot_start_mode",
+            v,
+            hot_start_mode_from_name(v),
+            "none");
     }
     // sddp boundary_cuts_mode
     if (m_options_.sddp_options.boundary_cuts_mode.has_value()) {
