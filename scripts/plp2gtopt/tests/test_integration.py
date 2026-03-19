@@ -1519,6 +1519,147 @@ def test_plp_case_2y_info(capsys):
     assert "-a all" in out
 
 
+@pytest.mark.integration
+def test_plp_case_2y_global_indicators(tmp_path):
+    """plp_case_2y: PLP and gtopt global indicators and element counts match.
+
+    Runs a full conversion of the entire plp_case_2y (all 51 stages, all
+    16 scenarios) and then computes PLP indicators directly from PLPParser
+    data (never from the generated gtopt JSON) and gtopt indicators from
+    the converted planning dict via
+    ``gtopt_check_json._info.compute_indicators``.
+
+    PLP indicators are computed from the raw PLP parser data only.
+    gtopt indicators are computed from the planning dict by the
+    ``gtopt_check_json`` module.
+    """
+    from plp2gtopt.plp2gtopt import (  # noqa: PLC0415
+        _gtopt_element_counts,
+        _gtopt_indicators,
+        _plp_active_hydrology_indices,
+        _plp_element_counts,
+        _plp_indicators,
+    )
+
+    # --- Run full conversion (all stages, all scenarios) ---
+    opts = _make_opts_2y(tmp_path, "gtopt_case_2y_ind")
+    convert_plp_case(opts)
+
+    # --- PLP side: read indicators directly from parsed PLP data ---
+    parser = PLPParser({"input_dir": _PLPCase2Y})
+    parser.parse_all()
+
+    hydrology_indices = _plp_active_hydrology_indices(parser)
+    assert hydrology_indices is not None, "plpidsim.dat should provide hydro indices"
+    assert len(hydrology_indices) == 16, "Expected 16 active hydrologies from idsim"
+
+    plp_counts = _plp_element_counts(parser)
+    plp_ind = _plp_indicators(parser, hydrology_indices=hydrology_indices)
+
+    # --- gtopt side: read from the converted planning dict ---
+    data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
+    gtopt_counts = _gtopt_element_counts(data)
+    base_dir = str(opts["output_dir"])
+    gtopt_ind = _gtopt_indicators(data, base_dir=base_dir)
+
+    # ---- Cross-check: PLP hydrology indices == gtopt scenario hydrologies ----
+    scenarios = data["simulation"]["scenario_array"]
+    gtopt_hydros = sorted(s["hydrology"] for s in scenarios)
+    plp_hydros = sorted(hydrology_indices)
+    assert gtopt_hydros == plp_hydros, (
+        f"PLP hydro indices {plp_hydros} != gtopt scenario hydrologies {gtopt_hydros}"
+    )
+
+    # ==================================================================
+    # Element count assertions
+    # ==================================================================
+
+    # Buses and lines are topology — must match exactly
+    assert plp_counts["buses"] == gtopt_counts["buses"]
+    assert plp_counts["lines"] == gtopt_counts["lines"]
+
+    # Blocks and stages must match (full conversion)
+    assert plp_counts["blocks"] == gtopt_counts["blocks"]
+    assert plp_counts["stages"] == gtopt_counts["stages"]
+
+    # Scenarios: 16 (one per simulation from plpidsim.dat)
+    assert gtopt_counts["scenarios"] == 16
+
+    # Reservoirs == embalse count
+    assert gtopt_counts["reservoirs"] == plp_counts.get("sub_embalse", 0)
+
+    # Stateless reservoirs match (hid_indep=T → use_state_variable=False)
+    assert plp_counts["stateless_reservoirs"] > 0, (
+        "plp_case_2y should have at least one stateless reservoir"
+    )
+    assert (
+        plp_counts["stateless_reservoirs"] == gtopt_counts["stateless_reservoirs"]
+    ), "Stateless reservoir counts should match between PLP and gtopt"
+
+    # Filtrations and reservoir efficiencies must match
+    assert plp_counts["filtrations"] == gtopt_counts["filtrations"]
+    assert plp_counts["reservoir_efficiencies"] == gtopt_counts["reservoir_efficiencies"]
+
+    # Generator profiles == pasada count
+    assert gtopt_counts["generator_profiles"] == plp_counts.get("sub_pasada", 0)
+
+    # Batteries match (plpcenbat + plpess)
+    p_batteries = plp_counts.get("batteries", 0) + plp_counts.get("ess", 0)
+    assert gtopt_counts["batteries"] == p_batteries
+
+    # ==================================================================
+    # Global indicator assertions
+    # ==================================================================
+
+    # --- Demand indicators ---
+    # First block demand must match exactly (same PLP data, same block)
+    assert plp_ind["first_block_demand_mw"] > 1000.0, "First demand suspiciously low"
+    assert plp_ind["first_block_demand_mw"] == pytest.approx(
+        gtopt_ind["first_block_demand_mw"], rel=1e-6
+    ), "First block demand mismatch"
+
+    # Last block demand must also match (full conversion, all stages)
+    assert plp_ind["last_block_demand_mw"] == pytest.approx(
+        gtopt_ind["last_block_demand_mw"], rel=1e-6
+    ), "Last block demand mismatch"
+
+    # Total energy must match (same blocks, same durations)
+    assert plp_ind["total_energy_mwh"] > 1e6, "Total energy too low"
+    assert plp_ind["total_energy_mwh"] == pytest.approx(
+        gtopt_ind["total_energy_mwh"], rel=1e-6
+    ), "Total energy mismatch"
+
+    # --- Thermal capacity must match (no bus<=0 thermals expected) ---
+    assert plp_ind["thermal_capacity_mw"] > 0.0, "Thermal capacity should be > 0"
+    assert plp_ind["thermal_capacity_mw"] == pytest.approx(
+        gtopt_ind["thermal_capacity_mw"], rel=1e-6
+    ), "Thermal capacity mismatch"
+
+    # --- Generation capacity: PLP includes bus<=0 centrals, gtopt excludes them ---
+    assert plp_ind["total_gen_capacity_mw"] > 1000.0, "Gen capacity too low"
+    assert gtopt_ind["total_gen_capacity_mw"] > 1000.0
+    assert plp_ind["total_gen_capacity_mw"] >= gtopt_ind["total_gen_capacity_mw"], (
+        "PLP gen capacity should >= gtopt (bus<=0 centrals excluded in gtopt)"
+    )
+
+    # --- Hydro capacity: PLP includes bus<=0 hydro centrals ---
+    assert plp_ind["hydro_capacity_mw"] > 0.0, "Hydro capacity should be > 0"
+    assert gtopt_ind["hydro_capacity_mw"] > 0.0
+    assert plp_ind["hydro_capacity_mw"] >= gtopt_ind["hydro_capacity_mw"], (
+        "PLP hydro capacity should >= gtopt (bus<=0 hydro centrals excluded)"
+    )
+
+    # --- Line capacity: PLP counts all lines ---
+    assert plp_ind["total_line_capacity_mw"] > 0.0, "Line capacity should be > 0"
+    assert gtopt_ind["total_line_capacity_mw"] > 0.0
+
+    # --- Affluent: PLP includes all centrals, gtopt only bus>0 ---
+    assert plp_ind["first_block_affluent_avg"] > 0.0, "First affluent should be > 0"
+    assert gtopt_ind["first_block_affluent_avg"] > 0.0, "gtopt affluent should be > 0"
+    assert plp_ind["last_block_affluent_avg"] > 0.0, "Last affluent should be > 0"
+    assert gtopt_ind["last_block_affluent_avg"] > 0.0
+
+
 # ---------------------------------------------------------------------------
 # plp_hydro_4b — 4-bus hydrothermal system with reservoir, 3 stages,
 # 3 blocks/stage, 3 hydrologies, and apertures.  Combines the 4-bus
