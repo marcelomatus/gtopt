@@ -23,7 +23,7 @@ from plp2gtopt.plp_parser import PLPParser
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# ANSI colour helpers for the comparison table
+# ANSI colour helpers (kept for _log_comparison backward compat + tests)
 # ---------------------------------------------------------------------------
 _BOLD = "\033[1m"
 _DIM = "\033[2m"
@@ -36,12 +36,8 @@ _RESET = "\033[0m"
 
 
 def _use_color() -> bool:
-    """Return True when the root logger streams to an interactive terminal."""
-    for handler in logging.getLogger().handlers:
-        stream = getattr(handler, "stream", None)
-        if stream is not None and hasattr(stream, "isatty") and stream.isatty():
-            return True
-    return False
+    """Return True when stderr is connected to an interactive terminal."""
+    return hasattr(sys.stderr, "isatty") and sys.stderr.isatty()
 
 
 def _vis_len(text: str) -> int:
@@ -50,48 +46,73 @@ def _vis_len(text: str) -> int:
 
 
 def _log_stats(planning: dict, elapsed: float) -> None:
-    """Log conversion statistics similar to gtopt_main log_pre_solve_stats."""
-    sys = planning.get("system", {})
+    """Print conversion statistics using styled terminal tables."""
+    from gtopt_check_json._terminal import (  # noqa: PLC0415
+        print_kv_table,
+        print_section,
+    )
+
+    sys_data = planning.get("system", {})
     sim = planning.get("simulation", {})
     opts = planning.get("options", {})
 
-    logger.info("=== System statistics ===")
-    logger.info("  System name     : %s", sys.get("name", "(unnamed)"))
-    logger.info("  System version  : %s", sys.get("version", ""))
-    logger.info("=== System elements  ===")
-    logger.info("  Buses           : %d", len(sys.get("bus_array", [])))
-    logger.info("  Generators      : %d", len(sys.get("generator_array", [])))
-    logger.info("  Generator profs : %d", len(sys.get("generator_profile_array", [])))
-    logger.info("  Demands         : %d", len(sys.get("demand_array", [])))
-    logger.info("  Demand profs    : %d", len(sys.get("demand_profile_array", [])))
-    logger.info("  Lines           : %d", len(sys.get("line_array", [])))
-    logger.info("  Batteries       : %d", len(sys.get("battery_array", [])))
-    logger.info("  Converters      : %d", len(sys.get("converter_array", [])))
-    logger.info("  Reserve zones   : %d", len(sys.get("reserve_zone_array", [])))
-    logger.info(
-        "  Reserve provisions   : %d",
-        len(sys.get("reserve_provision_array", [])),
+    print_section("Conversion Results")
+
+    print_kv_table(
+        [
+            ("System name", sys_data.get("name", "(unnamed)")),
+            ("System version", sys_data.get("version", "")),
+        ],
+        title="System",
     )
-    logger.info("  Junctions       : %d", len(sys.get("junction_array", [])))
-    logger.info("  Waterways       : %d", len(sys.get("waterway_array", [])))
-    logger.info("  Flows           : %d", len(sys.get("flow_array", [])))
-    logger.info("  Reservoirs      : %d", len(sys.get("reservoir_array", [])))
-    logger.info("  Filtrations     : %d", len(sys.get("filtration_array", [])))
-    logger.info("  Turbines        : %d", len(sys.get("turbine_array", [])))
-    logger.info("=== Simulation statistics ===")
-    logger.info("  Blocks          : %d", len(sim.get("block_array", [])))
-    logger.info("  Stages          : %d", len(sim.get("stage_array", [])))
-    logger.info("  Scenarios       : %d", len(sim.get("scenario_array", [])))
-    logger.info("=== Key options ===")
-    logger.info("  use_kirchhoff   : %s", opts.get("use_kirchhoff", False))
-    logger.info("  use_single_bus  : %s", opts.get("use_single_bus", False))
-    logger.info("  scale_objective : %s", opts.get("scale_objective", 1000))
-    logger.info("  demand_fail_cost: %s", opts.get("demand_fail_cost", 0))
-    logger.info("  input_directory : %s", opts.get("input_directory", "(default)"))
-    logger.info("  output_directory: %s", opts.get("output_directory", "(default)"))
-    logger.info("  output_format   : %s", opts.get("output_format", "csv"))
-    logger.info("=== Conversion time ===")
-    logger.info("  Elapsed         : %.3fs", elapsed)
+
+    # Element counts (skip zero-count for cleaner output)
+    all_elems = [
+        ("Buses", len(sys_data.get("bus_array", []))),
+        ("Generators", len(sys_data.get("generator_array", []))),
+        ("Generator profiles", len(sys_data.get("generator_profile_array", []))),
+        ("Demands", len(sys_data.get("demand_array", []))),
+        ("Demand profiles", len(sys_data.get("demand_profile_array", []))),
+        ("Lines", len(sys_data.get("line_array", []))),
+        ("Batteries", len(sys_data.get("battery_array", []))),
+        ("Converters", len(sys_data.get("converter_array", []))),
+        ("Reserve zones", len(sys_data.get("reserve_zone_array", []))),
+        ("Reserve provisions", len(sys_data.get("reserve_provision_array", []))),
+        ("Junctions", len(sys_data.get("junction_array", []))),
+        ("Waterways", len(sys_data.get("waterway_array", []))),
+        ("Flows", len(sys_data.get("flow_array", []))),
+        ("Reservoirs", len(sys_data.get("reservoir_array", []))),
+        ("Filtrations", len(sys_data.get("filtration_array", []))),
+        ("Turbines", len(sys_data.get("turbine_array", []))),
+    ]
+    elem_pairs = [(k, str(v)) for k, v in all_elems if v > 0]
+    if not elem_pairs:
+        elem_pairs = [(k, str(v)) for k, v in all_elems]
+    print_kv_table(elem_pairs, title="Elements")
+
+    print_kv_table(
+        [
+            ("Blocks", str(len(sim.get("block_array", [])))),
+            ("Stages", str(len(sim.get("stage_array", [])))),
+            ("Scenarios", str(len(sim.get("scenario_array", [])))),
+        ],
+        title="Simulation",
+    )
+
+    print_kv_table(
+        [
+            ("use_kirchhoff", str(opts.get("use_kirchhoff", False))),
+            ("use_single_bus", str(opts.get("use_single_bus", False))),
+            ("scale_objective", str(opts.get("scale_objective", 1000))),
+            ("demand_fail_cost", str(opts.get("demand_fail_cost", 0))),
+            ("input_directory", str(opts.get("input_directory", "(default)"))),
+            ("output_directory", str(opts.get("output_directory", "(default)"))),
+            ("output_format", str(opts.get("output_format", "csv"))),
+        ],
+        title="Options",
+    )
+
+    print_kv_table([("Elapsed", f"{elapsed:.3f}s")], title="Conversion Time")
 
 
 def _plp_element_counts(parser: PLPParser) -> dict[str, int]:
@@ -370,16 +391,25 @@ def _log_comparison(
     plp_ind: dict[str, float] | None = None,
     gtopt_ind: dict[str, float] | None = None,
 ) -> None:
-    """Log a formatted side-by-side PLP vs gtopt element comparison.
+    """Print a formatted side-by-side PLP vs gtopt element comparison.
 
     The table is grouped by category (network & generation, hydro, storage,
     loads, simulation, global indicators) and includes derived analysis rows
     such as *generators excluding falla+batería*, gtopt generators by type,
     and per-block demand/affluent indicators.
 
-    ANSI colours are used when stderr is connected to a terminal.
+    Output goes to stderr via :mod:`rich` with automatic colour and
+    Unicode/ASCII detection.
     """
-    colr = _use_color()
+    from gtopt_check_json._terminal import (  # noqa: PLC0415
+        console,
+        print_section,
+    )
+    from rich.table import Table  # noqa: PLC0415
+    from rich.box import ASCII, ROUNDED  # noqa: PLC0415
+
+    con = console()
+    colr = con.is_terminal
 
     # --- extract PLP values ---
     p_buses = plp_counts.get("buses", 0)
@@ -428,9 +458,37 @@ def _log_comparison(
     g_gen_pasada = gtopt_counts.get("gen_pasada", 0)
     g_gen_termica = gtopt_counts.get("gen_termica", 0)
 
-    # --- row helper ---
-    def _val(val: int | None) -> str:
-        return f"{val:>8d}" if val is not None else " " * 8
+    # --- helpers ---
+    def _v(val: int | None) -> str:
+        return str(val) if val is not None else ""
+
+    def _delta(plp: int | None, gtopt: int | None) -> str:
+        if plp is None or gtopt is None:
+            return ""
+        diff = gtopt - plp
+        if diff == 0:
+            return "[bold green]✓[/bold green]" if colr else "ok"
+        sign = "+" if diff > 0 else ""
+        style = "[bold yellow]" if diff < 0 else "[bold cyan]"
+        end = "[/bold yellow]" if diff < 0 else "[/bold cyan]"
+        return f"{style}{sign}{diff}{end}" if colr else f"{sign}{diff}"
+
+    box_style = ROUNDED if con.is_terminal else ASCII
+
+    # --- Build the comparison table ---
+    print_section("PLP vs gtopt Element Comparison")
+
+    table = Table(
+        box=box_style,
+        show_lines=False,
+        padding=(0, 1),
+        title_justify="left",
+    )
+    table.add_column("Element", no_wrap=True, min_width=26)
+    table.add_column("PLP", justify="right", min_width=6)
+    table.add_column("gtopt", justify="right", min_width=6)
+    table.add_column("Δ", justify="right", min_width=4)
+    table.add_column("Notes", no_wrap=True, style="dim")
 
     def _row(
         label: str,
@@ -439,42 +497,16 @@ def _log_comparison(
         note: str = "",
         *,
         indent: int = 0,
+        section: bool = False,
     ) -> None:
-        prefix = "  " + "  " * indent
-        lbl_width = 26 - 2 * indent
-        delta = _delta_str(plp, gtopt, colr)
-        note_part = f"  {_cc(_DIM, note, colr)}" if note else ""
-        logger.info(
-            "%s%-*s %s %s %s%s",
-            prefix,
-            lbl_width,
-            label,
-            _val(plp),
-            _val(gtopt),
-            delta,
-            note_part,
-        )
-
-    def _section(title: str) -> None:
-        logger.info("  %s", _cc(_BOLD, title, colr))
-
-    def _blank() -> None:
-        logger.info("")
-
-    # --- render table ---
-    _blank()
-    logger.info(
-        "%s",
-        _cc(_BOLD + _CYAN, "═══ PLP vs gtopt Element Comparison ═══", colr),
-    )
-    _blank()
-
-    hdr = f"  {'Element':<26s} {'PLP':>8s} {'gtopt':>8s} {'Δ':>6s}  Notes"
-    logger.info("%s", _cc(_BOLD, hdr, colr))
-    logger.info("  %s %s %s %s  %s", "─" * 26, "─" * 8, "─" * 8, "─" * 6, "─" * 24)
+        lbl = ("  " * indent) + label
+        if section:
+            table.add_row(f"[bold]{lbl}[/bold]" if colr else lbl, "", "", "", "")
+        else:
+            table.add_row(lbl, _v(plp), _v(gtopt), _delta(plp, gtopt), note)
 
     # -- Network & Generation --
-    _section("Network & Generation")
+    _row("Network & Generation", section=True)
     _row("buses", p_buses, g_buses)
     _row("lines", p_lines, g_lines)
     _row("centrals (total)", p_centrals)
@@ -482,25 +514,12 @@ def _log_comparison(
     _row("serie", p_serie, g_gen_serie or None, indent=1)
     _row("pasada", p_pasada, g_gen_pasada or None, indent=1)
     _row("termica", p_termica, g_gen_termica or None, indent=1)
-    _row(
-        "bateria",
-        p_bateria,
-        note="→ batteries",
-        indent=1,
-    )
-    _row(
-        "falla",
-        p_falla,
-        note="excluded from gtopt",
-        indent=1,
-    )
+    _row("bateria", p_bateria, note="→ batteries", indent=1)
+    _row("falla", p_falla, note="excluded from gtopt", indent=1)
     _row("gen (excl falla+bat)", p_gen_excl, g_generators)
     gen_delta = g_generators - p_gen_excl
     if gen_delta != 0:
-        _row(
-            "",
-            note=f"delta {gen_delta:+d} centrals with bus<=0 excluded",
-        )
+        _row("", note=f"delta {gen_delta:+d} centrals with bus<=0 excluded")
     _row(
         "generator profiles",
         p_pasada,
@@ -510,21 +529,15 @@ def _log_comparison(
     _row("demands", p_demands, g_demands)
     dem_delta = g_demands - p_demands
     if dem_delta != 0:
-        _row(
-            "",
-            note=f"delta {dem_delta:+d} demands with bus=0 or empty excluded",
-        )
-    _blank()
+        _row("", note=f"delta {dem_delta:+d} demands with bus=0 or empty excluded")
+
+    # separator row
+    table.add_row("", "", "", "", "")
 
     # -- Hydro System --
-    _section("Hydro System")
+    _row("Hydro System", section=True)
     _row("hydro centrals (emb+ser)", p_hydro)
-    _row(
-        "turbines",
-        p_hydro,
-        g_turbines,
-        note="only bus>0 with waterway",
-    )
+    _row("turbines", p_hydro, g_turbines, note="only bus>0 with waterway")
     _row("junctions", None, g_junctions)
     _row("waterways", None, g_waterways)
     _row("flows", None, g_flows)
@@ -536,39 +549,36 @@ def _log_comparison(
     )
     _row("reservoir efficiencies", p_res_eff, g_res_eff)
     _row("filtrations", p_filtrations, g_filtrations)
-    _blank()
+    table.add_row("", "", "", "", "")
 
     # -- Storage --
-    _section("Storage")
+    _row("Storage", section=True)
     _row("batteries (plpcenbat)", p_batteries, g_batteries)
     if p_ess > 0:
         _row("ESS (plpess)", p_ess)
-    _blank()
+    table.add_row("", "", "", "", "")
 
     # -- Simulation --
-    _section("Simulation")
+    _row("Simulation", section=True)
     _row("blocks", p_blocks, g_blocks)
     _row("stages", p_stages, g_stages)
     _row("hydrologies / scenarios", p_hydrologies, g_scenarios)
-    _blank()
+
+    con.print(table)
 
     # --- Global indicators side-by-side ---
     if plp_ind and gtopt_ind:
-        _section("Global Indicators")
-        logger.info(
-            "  %-26s %8s %8s %6s",
-            "Indicator",
-            "PLP",
-            "gtopt",
-            "Δ%",
+        ind_table = Table(
+            box=box_style,
+            show_lines=False,
+            padding=(0, 1),
+            title="[title]Global Indicators[/title]" if colr else "Global Indicators",
+            title_justify="left",
         )
-        logger.info(
-            "  %s %s %s %s",
-            "─" * 26,
-            "─" * 8,
-            "─" * 8,
-            "─" * 6,
-        )
+        ind_table.add_column("Indicator", no_wrap=True, min_width=26)
+        ind_table.add_column("PLP", justify="right", min_width=8)
+        ind_table.add_column("gtopt", justify="right", min_width=8)
+        ind_table.add_column("Δ%", justify="right", min_width=6)
 
         def _ind_row(
             label: str,
@@ -578,26 +588,17 @@ def _log_comparison(
         ) -> None:
             if plp_val > 0:
                 pct = (gtopt_val - plp_val) / plp_val * 100.0
-                pct_str = f"{pct:+.0f}%"
                 if abs(pct) < 0.5:
-                    pct_str = _cc(_GREEN, f"{'✓':>6s}", colr)
+                    pct_s = "[bold green]✓[/bold green]" if colr else "ok"
                 else:
-                    pct_str = _cc(
-                        _YELLOW if abs(pct) > 5 else _DIM,
-                        f"{pct_str:>6s}",
-                        colr,
-                    )
+                    tag = "bold yellow" if abs(pct) > 5 else "dim"
+                    raw = f"{pct:+.0f}%"
+                    pct_s = f"[{tag}]{raw}[/{tag}]" if colr else raw
             elif gtopt_val == 0.0:
-                pct_str = _cc(_GREEN, f"{'✓':>6s}", colr)
+                pct_s = "[bold green]✓[/bold green]" if colr else "ok"
             else:
-                pct_str = " " * 6
-            logger.info(
-                "  %-26s %8s %8s %s",
-                label,
-                f"{plp_val:{fmt}}",
-                f"{gtopt_val:{fmt}}",
-                pct_str,
-            )
+                pct_s = ""
+            ind_table.add_row(label, f"{plp_val:{fmt}}", f"{gtopt_val:{fmt}}", pct_s)
 
         _ind_row(
             "gen capacity (MW)",
@@ -636,13 +637,9 @@ def _log_comparison(
         gtopt_cap = gtopt_ind.get("total_gen_capacity_mw", 0.0)
         plp_ratio = plp_cap / plp_dem1 if plp_dem1 > 0 else float("inf")
         gtopt_ratio = gtopt_cap / gtopt_dem1 if gtopt_dem1 > 0 else float("inf")
-        _ind_row(
-            "capacity adequacy",
-            plp_ratio,
-            gtopt_ratio,
-            fmt=".3f",
-        )
-        _blank()
+        _ind_row("capacity adequacy", plp_ratio, gtopt_ratio, fmt=".3f")
+
+        con.print(ind_table)
 
 
 def run_post_check(
@@ -682,6 +679,11 @@ def run_post_check(
             run_all_checks,
             Severity,
         )
+        from gtopt_check_json._terminal import (  # noqa: PLC0415
+            print_finding as _pf,
+            print_status,
+            print_summary,
+        )
     except ImportError:
         logger.debug("gtopt_check_json not available; skipping JSON validation checks")
         return
@@ -690,29 +692,22 @@ def run_post_check(
     findings = run_all_checks(planning, enabled_checks=None, ai_options=None)
 
     if not findings:
-        logger.info("gtopt_check_json: all checks passed — no issues found.")
+        print_status("All checks passed — no issues found.", ok=True)
         return
 
     critical_count = 0
     warning_count = 0
     note_count = 0
     for finding in findings:
+        _pf(finding.severity.name, finding.check_id, finding.message)
         if finding.severity == Severity.CRITICAL:
-            logger.error("[CRITICAL] (%s) %s", finding.check_id, finding.message)
             critical_count += 1
         elif finding.severity == Severity.WARNING:
-            logger.warning("[WARNING] (%s) %s", finding.check_id, finding.message)
             warning_count += 1
         else:
-            logger.info("[NOTE] (%s) %s", finding.check_id, finding.message)
             note_count += 1
 
-    logger.info(
-        "gtopt_check_json summary: %d critical, %d warnings, %d notes",
-        critical_count,
-        warning_count,
-        note_count,
-    )
+    print_summary(critical_count, warning_count, note_count)
 
 
 def create_zip_output(output_file: Path, output_dir: Path, zip_path: Path) -> None:
