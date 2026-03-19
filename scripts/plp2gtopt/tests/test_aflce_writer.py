@@ -197,7 +197,7 @@ def test_to_dataframe_with_scenarios(tmp_path):
 
 
 def test_to_parquet_with_scenarios(tmp_path):
-    """Test to_parquet writes afluent.parquet when scenarios are provided."""
+    """Test to_parquet writes discharge.parquet when scenarios are provided."""
 
     aflce_f = tmp_path / "plpaflce.dat"
     # Format: Mes Block flow_hyd1  (3 fields per line for 1 hydrology)
@@ -226,8 +226,8 @@ def test_to_parquet_with_scenarios(tmp_path):
     out_dir = tmp_path / "aflce_out"
     cols = writer.to_parquet(out_dir)
 
-    assert (out_dir / "afluent.parquet").exists()
-    assert len(cols["afluent"]) > 0
+    assert (out_dir / "discharge.parquet").exists()
+    assert len(cols["discharge"]) > 0
 
 
 def test_to_dataframe_no_scenarios(tmp_path):
