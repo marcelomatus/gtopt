@@ -344,6 +344,17 @@ def compute_indicators(
                 thermal_cap += cap
 
     # --- Total line capacity (MW) ---
+    # Also include battery discharge capacity (pmax_discharge) as generation
+    # capacity.  In PLP, batteries are centrals of type "bateria" counted in
+    # the generation total.  In gtopt, they live in battery_array and get
+    # auto-created auxiliary generators at LP time, so we must add them here.
+    batteries = sys_data.get("battery_array", [])
+    for bat in batteries:
+        pmax_d = _first_scalar(bat.get("pmax_discharge"))
+        if pmax_d is not None:
+            total_gen_cap += pmax_d
+            num_gen += 1
+
     total_line_cap = 0.0
     for line in lines_arr:
         for key in ("tmax_ab", "tmax_ba"):
