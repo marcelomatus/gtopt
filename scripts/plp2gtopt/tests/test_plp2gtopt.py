@@ -718,7 +718,7 @@ class TestPlpIndicators:
         )
 
     def test_plp_vs_gtopt_demand_match(self, tmp_path: Path):
-        """PLP and gtopt first/last block demand: when lmax is a file ref, gtopt=0."""
+        """PLP and gtopt first/last block demand should match when base_dir given."""
         from plp2gtopt.plp2gtopt import (  # noqa: PLC0415
             _gtopt_indicators,
             _plp_indicators,
@@ -731,12 +731,40 @@ class TestPlpIndicators:
         planning = writer.to_json(opts)
 
         plp_ind = _plp_indicators(parser)
-        gtopt_ind = _gtopt_indicators(planning)
 
-        # PLP has demand data directly (80 MW), gtopt stores it as a Parquet
-        # file reference ("lmax") so in-JSON indicator is 0.
+        # Without base_dir, gtopt indicators cannot resolve file references
+        gtopt_ind_no_dir = _gtopt_indicators(planning)
+        assert gtopt_ind_no_dir["first_block_demand_mw"] == pytest.approx(0.0)
+
+        # With base_dir pointing at the output_dir, file references are resolved
+        base_dir = str(opts["output_dir"])
+        gtopt_ind = _gtopt_indicators(planning, base_dir=base_dir)
+
         assert plp_ind["first_block_demand_mw"] == pytest.approx(80.0)
-        assert gtopt_ind["first_block_demand_mw"] == pytest.approx(0.0)
+        assert gtopt_ind["first_block_demand_mw"] == pytest.approx(
+            plp_ind["first_block_demand_mw"]
+        )
+        assert gtopt_ind["last_block_demand_mw"] == pytest.approx(
+            plp_ind["last_block_demand_mw"]
+        )
+
+    def test_gtopt_indicators_demand_with_base_dir(self, tmp_path: Path):
+        """_gtopt_indicators resolves demand from Parquet when base_dir given."""
+        from plp2gtopt.plp2gtopt import _gtopt_indicators  # noqa: PLC0415
+
+        opts = _make_opts(_PLPMin1Bus, tmp_path, "gind_dem")
+        parser = PLPParser(opts)
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        planning = writer.to_json(opts)
+
+        base_dir = str(opts["output_dir"])
+        ind = _gtopt_indicators(planning, base_dir=base_dir)
+
+        # plp_min_1bus has 80 MW demand in 1 block
+        assert ind["first_block_demand_mw"] == pytest.approx(80.0)
+        assert ind["last_block_demand_mw"] == pytest.approx(80.0)
+        assert ind["total_energy_mwh"] == pytest.approx(80.0)
 
     def test_log_comparison_with_indicators(self, tmp_path: Path):
         """_log_comparison should accept and log indicator dicts."""

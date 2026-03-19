@@ -9,10 +9,20 @@ indicators (total generation capacity, first/last block demand and affluent,
 capacity adequacy ratio) directly from the in-memory planning dict.  These
 indicators are useful for quick sanity checks and for comparing PLP and gtopt
 cases.
+
+When a ``base_dir`` is supplied, file-referenced FieldSched values (e.g.
+``"lmax"`` pointing to ``Demand/lmax.parquet``) are resolved by reading
+the corresponding Parquet/CSV files from disk.
 """
 
+from __future__ import annotations
+
+import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -138,11 +148,101 @@ def _scalar_at_block(val: Any, block_idx: int) -> float | None:
 
 
 # ---------------------------------------------------------------------------
+# File-reference resolution helpers
+# ---------------------------------------------------------------------------
+
+
+def _resolve_block_totals_from_file(
+    base_dir: str,
+    input_dir: str,
+    class_name: str,
+    field_name: str,
+    block_uids: list[int],
+) -> list[float] | None:
+    """Read a FieldSched Parquet/CSV file and return per-block totals.
+
+    Sums all ``uid:*`` value columns at each block position.  When a
+    ``scenario`` column is present (e.g. ``Flow/discharge.parquet``), the
+    values are averaged across scenarios first.
+
+    Parameters
+    ----------
+    base_dir
+        Absolute directory where the case JSON lives.
+    input_dir
+        The ``options.input_directory`` value (often ``"."``).
+    class_name
+        Element class directory name (e.g. ``"Demand"``, ``"Flow"``).
+    field_name
+        FieldSched file reference string (e.g. ``"lmax"``, ``"discharge"``).
+    block_uids
+        Ordered list of block UIDs from the simulation ``block_array``.
+
+    Returns
+    -------
+    list[float] | None
+        Per-block totals (same length as *block_uids*), or ``None`` if
+        the file cannot be read.
+    """
+    try:
+        from ._file_reader import build_table_path, try_read_table  # noqa: PLC0415
+    except ImportError:
+        return None
+
+    root = str(Path(base_dir) / input_dir) if input_dir != "." else base_dir
+    table_base = build_table_path(root, class_name, field_name)
+    df = try_read_table(table_base)
+    if df is None:
+        return None
+
+    # Identify value columns (uid:N pattern)
+    uid_cols = [c for c in df.columns if c.startswith("uid:")]
+    if not uid_cols:
+        return None
+
+    # When a scenario column exists, average across scenarios first.
+    if "scenario" in df.columns and "block" in df.columns:
+        df = df.groupby("block", as_index=False)[uid_cols].mean()
+
+    num_blocks = len(block_uids)
+    result = [0.0] * num_blocks
+
+    if "block" not in df.columns:
+        # No block column — treat whole file as a single block
+        if num_blocks > 0:
+            result[0] = float(df[uid_cols].sum().sum())
+        return result
+
+    # Build block_uid → position map
+    uid_to_idx: dict[int, int] = {}
+    for idx, buid in enumerate(block_uids):
+        uid_to_idx[buid] = idx
+
+    for _, row in df.iterrows():
+        blk_uid = int(row["block"])
+        pos = uid_to_idx.get(blk_uid)
+        if pos is None:
+            continue
+        for col in uid_cols:
+            val = row[col]
+            try:
+                fval = float(val)
+            except (TypeError, ValueError):
+                continue
+            result[pos] += fval
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Indicator computation
 # ---------------------------------------------------------------------------
 
 
-def compute_indicators(planning: dict[str, Any]) -> SystemIndicators:
+def compute_indicators(
+    planning: dict[str, Any],
+    base_dir: str | None = None,
+) -> SystemIndicators:
     """Compute aggregate system indicators from a gtopt planning dict.
 
     The function extracts generation capacity and demand values directly
@@ -162,11 +262,22 @@ def compute_indicators(planning: dict[str, Any]) -> SystemIndicators:
     ``Flow.discharge`` values at the first and last block, averaged
     across scenarios when the discharge is given per-scenario.
 
+    When *base_dir* is provided, FieldSched string references (e.g.
+    ``"lmax"`` → ``Demand/lmax.parquet``) are resolved by reading
+    the Parquet/CSV files from disk.  Without *base_dir*, file
+    references are silently skipped (demand / affluent values will
+    be zero).
+
     Parameters
     ----------
     planning
         A planning dict as loaded from a gtopt JSON file (or built by
         ``GTOptWriter.to_json``).
+    base_dir
+        Absolute path to the directory that contains the case JSON file.
+        Used to locate FieldSched Parquet/CSV files via
+        ``options.input_directory``.  Pass ``None`` to skip file
+        resolution (backward-compatible default).
 
     Returns
     -------
@@ -175,12 +286,15 @@ def compute_indicators(planning: dict[str, Any]) -> SystemIndicators:
     """
     sys_data = planning.get("system", {})
     sim = planning.get("simulation", {})
+    opts = planning.get("options", {})
+    input_dir = opts.get("input_directory", ".")
 
     generators = sys_data.get("generator_array", [])
     demands = sys_data.get("demand_array", [])
     flows = sys_data.get("flow_array", [])
     blocks = sim.get("block_array", [])
     num_blocks = len(blocks)
+    block_uids = [b.get("uid", i + 1) for i, b in enumerate(blocks)]
 
     # --- Total generation capacity (MW) ---
     total_gen_cap = 0.0
@@ -199,14 +313,32 @@ def compute_indicators(planning: dict[str, Any]) -> SystemIndicators:
     demand_by_block: list[float] = [0.0] * num_blocks if num_blocks > 0 else []
     num_dem = len(demands)
 
+    # Collect unique file references to read each Parquet file at most once.
+    _file_demand_done: set[str] = set()
+
     for dem in demands:
         lmax = dem.get("lmax")
         if lmax is None:
             continue
-        for b_idx in range(num_blocks):
-            val = _scalar_at_block(lmax, b_idx)
-            if val is not None:
-                demand_by_block[b_idx] += val
+        if isinstance(lmax, str):
+            # File reference — resolve from Parquet/CSV when base_dir given
+            if base_dir and lmax not in _file_demand_done:
+                _file_demand_done.add(lmax)
+                totals = _resolve_block_totals_from_file(
+                    base_dir,
+                    input_dir,
+                    "Demand",
+                    lmax,
+                    block_uids,
+                )
+                if totals:
+                    for b_idx in range(min(len(totals), len(demand_by_block))):
+                        demand_by_block[b_idx] += totals[b_idx]
+        else:
+            for b_idx in range(num_blocks):
+                val = _scalar_at_block(lmax, b_idx)
+                if val is not None:
+                    demand_by_block[b_idx] += val
 
     # If there are no blocks but demands have scalar lmax, treat as 1 block
     if num_blocks == 0 and demands:
@@ -234,9 +366,29 @@ def compute_indicators(planning: dict[str, Any]) -> SystemIndicators:
     first_block_afl = 0.0
     last_block_afl = 0.0
     num_flow = len(flows)
+
+    # Collect unique file references for flows
+    _file_flow_done: set[str] = set()
+    has_file_flow = False
+
     for fl in flows:
         discharge = fl.get("discharge")
-        if discharge is None or isinstance(discharge, str):
+        if discharge is None:
+            continue
+        if isinstance(discharge, str):
+            has_file_flow = True
+            if base_dir and discharge not in _file_flow_done:
+                _file_flow_done.add(discharge)
+                totals = _resolve_block_totals_from_file(
+                    base_dir,
+                    input_dir,
+                    "Flow",
+                    discharge,
+                    block_uids,
+                )
+                if totals and len(totals) > 0:
+                    first_block_afl += totals[0]
+                    last_block_afl += totals[-1]
             continue
         first_val = _first_scalar(discharge)
         if first_val is not None:
@@ -272,20 +424,25 @@ def compute_indicators(planning: dict[str, Any]) -> SystemIndicators:
     )
 
 
-def format_indicators(planning: dict[str, Any]) -> str:
+def format_indicators(
+    planning: dict[str, Any],
+    base_dir: str | None = None,
+) -> str:
     """Return a multi-line string with global system indicators.
 
     Parameters
     ----------
     planning
         A planning dict as loaded from a gtopt JSON file.
+    base_dir
+        Optional case directory for resolving FieldSched file references.
 
     Returns
     -------
     str
         Human-readable indicator summary.
     """
-    ind = compute_indicators(planning)
+    ind = compute_indicators(planning, base_dir=base_dir)
 
     lines: list[str] = []
     lines.append("=== Global indicators ===")
@@ -317,12 +474,22 @@ def format_indicators(planning: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def format_info(planning: dict[str, Any]) -> str:
+def format_info(
+    planning: dict[str, Any],
+    base_dir: str | None = None,
+) -> str:
     """Return a multi-line string with system, simulation, and option stats.
 
     The output matches the format previously produced by the C++
     ``log_pre_solve_stats`` function in ``source/gtopt_main.cpp``,
     followed by the global system indicators.
+
+    Parameters
+    ----------
+    planning
+        A planning dict as loaded from a gtopt JSON file.
+    base_dir
+        Optional case directory for resolving FieldSched file references.
     """
     sys_data = planning.get("system", {})
     sim = planning.get("simulation", {})
@@ -374,6 +541,6 @@ def format_info(planning: dict[str, Any]) -> str:
 
     # Append global indicators
     lines.append("")
-    lines.append(format_indicators(planning))
+    lines.append(format_indicators(planning, base_dir=base_dir))
 
     return "\n".join(lines)
