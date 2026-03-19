@@ -593,21 +593,21 @@ def test_min_hydro_json_structure(tmp_path):
     assert len(profiles) == 1
     assert profiles[0]["name"] == "HydroGen"
     assert profiles[0]["generator"] == 1
-    assert profiles[0]["profile"] == "Afluent@afluent"
+    assert profiles[0]["profile"] == "Flow@discharge"
 
 
 @pytest.mark.integration
 def test_min_hydro_afluent_parquet(tmp_path):
-    """plp_min_hydro: Afluent/afluent.parquet contains normalised per-scenario flows."""
+    """plp_min_hydro: Flow/discharge.parquet contains normalised per-scenario flows."""
 
     opts = _make_opts(_PLPMinHydro, tmp_path, "plp_min_hydro")
     opts["hydrologies"] = "1,2"
     convert_plp_case(opts)
 
-    afluent_path = Path(opts["output_dir"]) / "Afluent" / "afluent.parquet"
-    assert afluent_path.exists(), "Afluent/afluent.parquet not written"
+    discharge_path = Path(opts["output_dir"]) / "Flow" / "discharge.parquet"
+    assert discharge_path.exists(), "Flow/discharge.parquet not written"
 
-    df = pd.read_parquet(afluent_path)
+    df = pd.read_parquet(discharge_path)
     assert "scenario" in df.columns
     assert "block" in df.columns
     assert "uid:1" in df.columns  # HydroGen uid=1
@@ -891,11 +891,11 @@ def test_min_reservoir_conversion(tmp_path):
     assert turbines[0]["generator"] == 1  # Reservoir1 uid
     assert turbines[0]["waterway"] == ww["uid"]
 
-    # Flow (afluent) is a parquet reference
+    # Flow (discharge) is a parquet reference
     flows = sys_data.get("flow_array", [])
     assert len(flows) == 1
     assert flows[0]["junction"] == 1
-    assert flows[0]["discharge"] == "Afluent@afluent"
+    assert flows[0]["discharge"] == "discharge"
 
     # Generators: embalse + serie (no falla)
     gens = sys_data.get("generator_array", [])
@@ -914,14 +914,14 @@ def test_min_reservoir_conversion(tmp_path):
 
 @pytest.mark.integration
 def test_min_reservoir_afluent_parquet(tmp_path):
-    """plp_min_reservoir: Afluent/afluent.parquet contains reservoir inflows."""
+    """plp_min_reservoir: Flow/discharge.parquet contains reservoir inflows."""
     opts = _make_opts(_PLPMinReservoir, tmp_path, "plp_min_reservoir")
     convert_plp_case(opts)
 
-    afluent_path = Path(opts["output_dir"]) / "Afluent" / "afluent.parquet"
-    assert afluent_path.exists(), "Afluent/afluent.parquet not written"
+    discharge_path = Path(opts["output_dir"]) / "Flow" / "discharge.parquet"
+    assert discharge_path.exists(), "Flow/discharge.parquet not written"
 
-    df = pd.read_parquet(afluent_path)
+    df = pd.read_parquet(discharge_path)
     assert "block" in df.columns
     assert "uid:1" in df.columns  # Reservoir1 uid=1
 
@@ -1137,15 +1137,15 @@ def test_min_hydro_ms_scene_phase_structure(tmp_path):
 
 @pytest.mark.integration
 def test_min_hydro_ms_afluent_parquet(tmp_path):
-    """plp_min_hydro_ms: afluent parquet has unique scenario UIDs across 3 stages."""
+    """plp_min_hydro_ms: discharge parquet has unique scenario UIDs across 3 stages."""
     opts = _make_opts(_PLPMinHydroMs, tmp_path, "plp_min_hydro_ms")
     opts["hydrologies"] = "1,2"
     convert_plp_case(opts)
 
-    afluent_path = Path(opts["output_dir"]) / "Afluent" / "afluent.parquet"
-    assert afluent_path.exists(), "Afluent/afluent.parquet not written"
+    discharge_path = Path(opts["output_dir"]) / "Flow" / "discharge.parquet"
+    assert discharge_path.exists(), "Flow/discharge.parquet not written"
 
-    df = pd.read_parquet(afluent_path)
+    df = pd.read_parquet(discharge_path)
     assert "scenario" in df.columns
     assert "stage" in df.columns
     assert "block" in df.columns
@@ -1278,7 +1278,7 @@ def test_min_hydro_ms_no_apertures_by_default(tmp_path):
 # plpidap2.dat (16 apertures per stage, with hydros 1 and 2 appearing in
 # the last 3 stages, wrapping around the 66-hydrology plpaflce.dat).
 # This is the reference case for testing idsim-based scenario mapping,
-# stage-indexed aperture handling, and the aperture Afluent writer.
+# stage-indexed aperture handling, and the aperture Flow discharge writer.
 # ---------------------------------------------------------------------------
 
 
