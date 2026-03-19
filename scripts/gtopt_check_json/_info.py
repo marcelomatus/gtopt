@@ -218,18 +218,16 @@ def _resolve_block_totals_from_file(
     for idx, buid in enumerate(block_uids):
         uid_to_idx[buid] = idx
 
-    for _, row in df.iterrows():
-        blk_uid = int(row["block"])
-        pos = uid_to_idx.get(blk_uid)
-        if pos is None:
-            continue
-        for col in uid_cols:
-            val = row[col]
-            try:
-                fval = float(val)
-            except (TypeError, ValueError):
-                continue
-            result[pos] += fval
+    # Vectorized: filter to valid blocks and compute row totals
+    df_filtered = df[df["block"].isin(uid_to_idx)]
+    if df_filtered.empty:
+        return result
+
+    row_totals = df_filtered[uid_cols].sum(axis=1)
+    for blk_uid, total in zip(df_filtered["block"], row_totals):
+        pos = uid_to_idx.get(int(blk_uid))
+        if pos is not None:
+            result[pos] += float(total)
 
     return result
 
