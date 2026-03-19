@@ -79,9 +79,16 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
         .name = sc.lp_label(scenario, stage, block, cname, "fout", uid()),
     });
   }
-  // Add storage-specific constraints (energy balance, SOC limits, etc.)
-  const auto es =
-      battery().energy_scale.value_or(Battery::default_energy_scale);
+  // Resolve energy_scale: per-element field > VariableScaleMap > default.
+  const auto es = [&]
+  {
+    if (battery().energy_scale.has_value()) {
+      return *battery().energy_scale;
+    }
+    const auto vs =
+        sc.options().variable_scale_map().lookup("Battery", "energy", uid());
+    return (vs != 1.0) ? vs : Battery::default_energy_scale;
+  }();
   const StorageOptions opts {
       .use_state_variable = battery().use_state_variable.value_or(false),
       .daily_cycle = battery().daily_cycle.value_or(true),
