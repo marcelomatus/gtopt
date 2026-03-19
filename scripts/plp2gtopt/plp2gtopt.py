@@ -99,6 +99,40 @@ def create_zip_output(output_file: Path, output_dir: Path, zip_path: Path) -> No
     )
 
 
+def validate_plp_case(options: dict[str, Any]) -> bool:
+    """Validate PLP input files without writing any output.
+
+    Parses all PLP files, builds the planning dict in memory, and reports
+    element counts.  Returns True if the case is valid, False if errors
+    were encountered.
+
+    Args:
+        options: Conversion options dict (same keys as convert_plp_case).
+
+    Returns:
+        True if the PLP case is valid, False otherwise.
+    """
+    input_dir = Path(options.get("input_dir", "input"))
+    if not input_dir.exists():
+        logger.error("Input directory does not exist: '%s'", input_dir)
+        return False
+
+    try:
+        logger.info("Validating PLP input files from: %s", input_dir)
+        parser = PLPParser(options)
+        parser.parse_all()
+
+        writer = GTOptWriter(parser)
+        planning = writer.to_json(options)
+
+        _log_stats(planning, 0.0)
+        logger.info("Validation passed.")
+        return True
+    except (RuntimeError, FileNotFoundError, ValueError, OSError) as exc:
+        logger.error("Validation failed: %s", exc)
+        return False
+
+
 def convert_plp_case(options: dict[str, Any]) -> None:
     """Convert PLP input files to GTOPT format.
 

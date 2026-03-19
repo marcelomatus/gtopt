@@ -64,7 +64,7 @@ Multiple system files can be provided and will be merged.
 | `-F` | `--input-format` | `arg` | Input data format: `parquet`, `csv` |
 | `-d` | `--output-directory` | `arg` | Directory for output files (created if needed) |
 | `-f` | `--output-format` | `arg` | Output format: `parquet`, `csv` |
-| `-C` | `--compression-format` | `arg` | Output compression: `uncompressed`, `zstd` (default), `gzip`, `lzo` |
+| `-C` | `--output-compression` | `arg` | Output compression: `uncompressed`, `zstd` (default), `gzip`, `lzo` |
 | `-b` | `--use-single-bus` | `[=arg]` | Use single-bus mode (ignore network topology) |
 | `-k` | `--use-kirchhoff` | `[=arg]` | Use Kirchhoff (DC power flow) mode |
 | `-n` | `--use-lp-names` | `[=arg]` | Use named rows/columns in LP (0=off, 1=names, 2=names+map) |
@@ -379,7 +379,7 @@ For large cases, Parquet format is more compact and faster to read:
 
 ```bash
 gtopt system_c0.json --output-format parquet
-gtopt system_c0.json --output-format parquet --compression-format zstd
+gtopt system_c0.json --output-format parquet --output-compression zstd
 ```
 
 ### Export the LP model

@@ -21,6 +21,8 @@ This project includes comprehensive documentation for different use cases:
 - **[SCRIPTS.md](SCRIPTS.md)** - Python conversion utilities ([igtopt](docs/scripts/igtopt.md), [plp2gtopt](docs/scripts/plp2gtopt.md), [pp2gtopt](docs/scripts/pp2gtopt.md), [ts2gtopt](docs/scripts/ts2gtopt.md), [cvs2parquet](docs/scripts/cvs2parquet.md), [gtopt_diagram](docs/scripts/gtopt_diagram.md))
 - **[TOOL_COMPARISON.md](docs/TOOL_COMPARISON.md)** - Detailed comparison of gtopt vs PLP, pandapower, and other tools (elements, parameters, units, methodology)
 - **[SDDP_SOLVER.md](docs/SDDP_SOLVER.md)** - SDDP solver: theory, options, monitoring API, elastic filter modes, and JSON configuration
+- **[MONOLITHIC_SOLVER.md](docs/MONOLITHIC_SOLVER.md)** - Default monolithic solver, boundary cuts, and sequential mode
+- **[CHANGELOG.md](CHANGELOG.md)** - Release history and notable changes
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution guidelines, code style, and testing
 - **[webservice/INSTALL.md](webservice/INSTALL.md)** - Web service installation, deployment, and API reference
 - **[guiservice/INSTALL.md](guiservice/INSTALL.md)** - GUI service installation, deployment, and usage guide
@@ -112,7 +114,10 @@ gtopt system_c0.json
 
 The solver produces output files organized by component type in the `output/` directory. A status of `0` in `solution.csv` indicates an optimal solution was found.
 
-For detailed output file descriptions, system file format, and advanced examples, see **[USAGE.md](USAGE.md#running-the-sample-case)**.
+For a step-by-step walkthrough of running and interpreting the simplest case
+(`ieee_4b_ori`), see the **[Quickstart: Your First Solve](PLANNING_GUIDE.md#quickstart-your-first-solve)**
+section in the Planning Guide. For detailed output file descriptions, system
+file format, and advanced examples, see **[USAGE.md](USAGE.md#running-the-sample-case)**.
 
 ## Python Scripts
 
