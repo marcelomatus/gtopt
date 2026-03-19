@@ -575,6 +575,18 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--check",
+        dest="run_check",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "run post-conversion validation via gtopt_check_json: prints "
+            "system statistics, a PLP-vs-gtopt element comparison, and "
+            "basic consistency checks. Use --no-check to disable. "
+            "(default: enabled)"
+        ),
+    )
+    parser.add_argument(
         "-V",
         "--version",
         action="version",
@@ -652,6 +664,7 @@ def build_options(args: argparse.Namespace) -> dict:
         opts["energy_scale"] = _parse_name_value_pairs(args.energy_scale)
     if args.auto_energy_scale:
         opts["auto_energy_scale"] = True
+    opts["run_check"] = args.run_check
     return opts
 
 
