@@ -104,6 +104,8 @@ namespace sddp_file
 {
 /// Combined cut file name
 constexpr auto combined_cuts = "sddp_cuts.csv";
+/// Versioned cut file pattern: format with iteration number
+constexpr auto versioned_cuts_fmt = "sddp_cuts_{}.csv";
 /// Per-scene cut file pattern: format with scene UID
 constexpr auto scene_cuts_fmt = "scene_{}.csv";
 /// Error-prefixed cut file pattern for infeasible scenes (scene UID)
@@ -180,9 +182,12 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   std::string cuts_output_file {};
   /// File path for loading initial cuts (empty = no load / cold start)
   std::string cuts_input_file {};
-  /// Enable hot-start from previously saved cuts (default: false).
-  /// When true and cuts_input_file is empty, load from the cut directory.
-  bool hot_start {false};
+  /// Hot-start mode: controls both cut loading and output file handling.
+  /// - `none`:    cold start — no cuts loaded (default)
+  /// - `keep`:    load cuts; keep original output file unchanged
+  /// - `append`:  load cuts; append new cuts to original file
+  /// - `replace`: load cuts; replace original file with all cuts
+  HotStartMode hot_start_mode {HotStartMode::none};
 
   /// Path to a sentinel file: if the file exists, the solver stops
   /// gracefully after the current iteration (analogous to PLP's userstop).
@@ -276,7 +281,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   ///                 column (scene UID); unmatched UIDs are skipped
   /// - "combined"  — broadcast all cuts to all scenes
   /// Default: "separated".
-  std::string boundary_cuts_mode {"separated"};
+  BoundaryCutsMode boundary_cuts_mode {BoundaryCutsMode::separated};
 
   /// Maximum number of SDDP iterations to load from the boundary cuts
   /// file.  Only cuts from the last N distinct iterations (by the

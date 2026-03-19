@@ -351,4 +351,55 @@ inline constexpr auto elastic_filter_mode_entries =
   return enum_name(std::span {elastic_filter_mode_entries}, value);
 }
 
+// ─── HotStartMode ───────────────────────────────────────────────────────────
+
+/**
+ * @brief How the SDDP solver handles hot-start and the output cut file.
+ *
+ * Controls both whether to load cuts from a previous run and how to
+ * handle the combined output file (`sddp_cuts.csv`) at the end of
+ * the solve.
+ *
+ * - `none`:    Cold start — no cuts loaded.  Write the combined file
+ *              normally on completion.
+ * - `keep`:    Load cuts from the previous run.  Do NOT modify the
+ *              original combined file on completion (only per-iteration
+ *              versioned files are written).
+ * - `append`:  Load cuts from the previous run.  Append newly generated
+ *              cuts to the existing combined file on completion.
+ * - `replace`: Load cuts from the previous run.  Replace the combined
+ *              file with all cuts (loaded + new) on completion.
+ */
+enum class HotStartMode : uint8_t
+{
+  none = 0,  ///< Cold start — no cuts loaded (default)
+  keep = 1,  ///< Hot-start; keep original output file unchanged
+  append = 2,  ///< Hot-start; append new cuts to original file
+  replace = 3,  ///< Hot-start; replace original file with all cuts
+};
+
+/// Name-value table for HotStartMode
+inline constexpr auto hot_start_mode_entries =
+    std::to_array<EnumEntry<HotStartMode>>({
+        {.name = "none", .value = HotStartMode::none},
+        {.name = "keep", .value = HotStartMode::keep},
+        {.name = "append", .value = HotStartMode::append},
+        {.name = "replace", .value = HotStartMode::replace},
+    });
+
+/// Parse a HotStartMode from a string
+/// ("none", "keep", "append", "replace")
+[[nodiscard]] constexpr auto hot_start_mode_from_name(
+    std::string_view name) noexcept -> std::optional<HotStartMode>
+{
+  return enum_from_name(std::span {hot_start_mode_entries}, name);
+}
+
+/// Return the canonical name of a HotStartMode
+[[nodiscard]] constexpr auto hot_start_mode_name(HotStartMode value) noexcept
+    -> std::string_view
+{
+  return enum_name(std::span {hot_start_mode_entries}, value);
+}
+
 }  // namespace gtopt

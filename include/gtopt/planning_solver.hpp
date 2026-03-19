@@ -26,6 +26,7 @@
 #include <string>
 #include <string_view>
 
+#include <gtopt/enum_option.hpp>
 #include <gtopt/error.hpp>
 #include <gtopt/solver_options.hpp>
 
@@ -105,12 +106,12 @@ public:
   /// Compression format for LP debug files ("gzip" / "uncompressed" / "").
   /// Empty or "uncompressed" means no compression; any other value uses gzip.
   std::string lp_debug_compression {};
-  /// Monolithic solve mode: "monolithic" (default) or "sequential".
-  std::string solve_mode {"monolithic"};
+  /// Monolithic solve mode.
+  SolveMode solve_mode {SolveMode::monolithic};
   /// CSV file with boundary (future-cost) cuts (empty = none).
   std::string boundary_cuts_file {};
-  /// Boundary cuts load mode: "noload", "separated" (default), "combined".
-  std::string boundary_cuts_mode {"separated"};
+  /// Boundary cuts load mode.
+  BoundaryCutsMode boundary_cuts_mode {BoundaryCutsMode::separated};
   /// Maximum iterations to load from boundary cuts file (0 = all).
   int boundary_max_iterations {0};
   /// Global solve timeout in seconds (0 = no timeout).
