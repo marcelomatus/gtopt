@@ -391,7 +391,7 @@ def test_build_options_defaults():
 
     assert opts["input_dir"] == Path("input")
     assert opts["output_dir"] == Path("output")
-    assert opts["output_file"] == Path("output.json")
+    assert opts["output_file"] == Path("output/output.json")
     assert opts["last_stage"] == -1
     assert opts["last_time"] == -1
     assert opts["compression"] == "zstd"
@@ -419,7 +419,7 @@ def test_build_options_output_file_derived_from_output_dir():
     opts = build_options(args)
 
     assert opts["output_dir"] == Path("gtopt_case_2y")
-    assert opts["output_file"] == Path("gtopt_case_2y.json")
+    assert opts["output_file"] == Path("gtopt_case_2y/gtopt_case_2y.json")
 
 
 def test_build_options_discount_rate():

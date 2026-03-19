@@ -55,10 +55,14 @@ Exit codes:
 
 import argparse
 import csv
+import logging
 import math
 import sys
+import textwrap
 from collections.abc import Callable
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 _SCALE_OBJECTIVE = 1000.0  # gtopt scale_objective used in all supported cases
 
@@ -1380,6 +1384,14 @@ def main() -> None:
         prog="gtopt_compare",
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=textwrap.dedent("""\
+examples:
+  gtopt_compare --case ieee_4b_ori --gtopt-output output/
+  gtopt_compare --case s1b --save-pandapower-file net.json
+  gtopt_compare --case ieee30b --tol 1e-3
+  gtopt_compare --case plp --gtopt-output output/ --plp-output plp_output/
+  gtopt_compare --case bat_4b_24 --gtopt-output output/ -l DEBUG
+        """),
     )
     parser.add_argument(
         "--case",
@@ -1446,14 +1458,30 @@ def main() -> None:
         metavar="$/MWh",
         help="Bus LMP tolerance in $/MWh (default: 0.1).",
     )
+    parser.add_argument(
+        "-l",
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        metavar="LEVEL",
+        help=(
+            "logging verbosity: DEBUG, INFO, WARNING, ERROR, CRITICAL "
+            "(default: %(default)s)"
+        ),
+    )
     args = parser.parse_args()
+
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
 
     # --save-pandapower-file: build the network and write to JSON, then exit.
     if args.save_pandapower_file is not None:
         if args.case not in _NET_BUILDERS:
-            print(
-                f"ERROR: --save-pandapower-file is not supported for case '{args.case}'",
-                file=sys.stderr,
+            logger.error(
+                "--save-pandapower-file is not supported for case '%s'",
+                args.case,
             )
             sys.exit(2)
         try:
@@ -1461,7 +1489,7 @@ def main() -> None:
             save_pandapower_net(net, args.save_pandapower_file)
             print(f"Saved pandapower network to: {args.save_pandapower_file}")
         except Exception as exc:  # pylint: disable=broad-except
-            print(f"ERROR saving pandapower network: {exc}", file=sys.stderr)
+            logger.error("Error saving pandapower network: %s", exc)
             sys.exit(2)
         # If --gtopt-output was not given, exit after saving.
         if args.gtopt_output is None:
@@ -1482,10 +1510,10 @@ def main() -> None:
             plp_output=args.plp_output,
         )
     except FileNotFoundError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        logger.error("%s", exc)
         sys.exit(2)
     except ValueError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        logger.error("%s", exc)
         sys.exit(2)
 
     if ok:

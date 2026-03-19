@@ -79,9 +79,11 @@ template<integral_convertible T>
 {
   std::array<char, int_buf_size> buf {};
   const auto ival = static_cast<std::int64_t>(value);
-  const auto [ptr, ec] =
-      std::to_chars(buf.data(), buf.data() + buf.size(), ival);
-  return std::string(buf.data(), ptr);
+  auto* const begin = buf.data();
+  auto* const end = begin
+      + buf.size();  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  const auto [ptr, ec] = std::to_chars(begin, end, ival);
+  return {begin, ptr};
 }
 
 // Simplified string holder using C++23 features

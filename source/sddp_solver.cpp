@@ -44,32 +44,13 @@ namespace gtopt
 
 CutSharingMode parse_cut_sharing_mode(std::string_view name)
 {
-  if (name == "expected") {
-    return CutSharingMode::Expected;
-  }
-  if (name == "accumulate") {
-    return CutSharingMode::Accumulate;
-  }
-  if (name == "max") {
-    return CutSharingMode::Max;
-  }
-  if (name == "none") {
-    return CutSharingMode::None;
-  }
-  // Default to None when unrecognised (matches SDDPOptions default)
-  return CutSharingMode::None;
+  return cut_sharing_mode_from_name(name).value_or(CutSharingMode::none);
 }
 
 ElasticFilterMode parse_elastic_filter_mode(std::string_view name)
 {
-  if (name == "backpropagate") {
-    return ElasticFilterMode::BackpropagateBounds;
-  }
-  if (name == "multi_cut") {
-    return ElasticFilterMode::MultiCut;
-  }
-  // "single_cut", "cut", or anything else → FeasibilityCut (default)
-  return ElasticFilterMode::FeasibilityCut;
+  return elastic_filter_mode_from_name(name).value_or(
+      ElasticFilterMode::single_cut);
 }
 
 // ─── Free utility functions ──────────────────────────────────────────────────
@@ -370,6 +351,12 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
   auto& phase_states = m_scene_phase_states_[scene];
   double total_opex = 0.0;
 
+  // Apply solve_timeout to the solver options if configured
+  auto effective_opts = opts;
+  if (m_options_.solve_timeout > 0.0) {
+    effective_opts.time_limit = m_options_.solve_timeout;
+  }
+
   SPDLOG_DEBUG("SDDP forward: scene {} iter {} starting ({} phases)",
                scene_uid(scene),
                iteration,
@@ -411,10 +398,58 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
     }
 
     // Solve this phase via the work pool with forward-pass priority
-    auto result =
-        resolve_via_pool(li, opts, make_forward_lp_task_req(iteration, phase));
+    auto result = resolve_via_pool(
+        li, effective_opts, make_forward_lp_task_req(iteration, phase));
 
     if (!result.has_value() || !li.is_optimal()) {
+      // Check for solve timeout: status 1 (abandoned) or 3 (other)
+      // when a time limit was set indicates a timeout
+      const auto status = li.get_status();
+      if (m_options_.solve_timeout > 0.0 && (status == 1 || status == 3)) {
+        // Write the timed-out LP for debugging
+        if (!m_options_.log_directory.empty()) {
+          std::filesystem::create_directories(m_options_.log_directory);
+          const auto timeout_stem =
+              (std::filesystem::path(m_options_.log_directory)
+               / std::format("timeout_scene_{}_phase_{}_iter_{}",
+                             scene_uid(scene),
+                             phase_uid(phase),
+                             iteration))
+                  .string();
+          li.write_lp(timeout_stem);
+          spdlog::critical(
+              "SDDP forward: solve timeout ({:.1f}s) at iter {} scene {} "
+              "phase {} (status {}), LP saved to {}.lp",
+              m_options_.solve_timeout,
+              iteration,
+              scene_uid(scene),
+              phase_uid(phase),
+              status,
+              timeout_stem);
+        } else {
+          spdlog::critical(
+              "SDDP forward: solve timeout ({:.1f}s) at iter {} scene {} "
+              "phase {} (status {})",
+              m_options_.solve_timeout,
+              iteration,
+              scene_uid(scene),
+              phase_uid(phase),
+              status);
+        }
+        return std::unexpected(Error {
+            .code = ErrorCode::SolverError,
+            .message = std::format(
+                "SDDP forward: solve timeout ({:.1f}s) at iter {} scene {} "
+                "phase {} (status {})",
+                m_options_.solve_timeout,
+                iteration,
+                scene,
+                phase,
+                status),
+            .status = status,
+        });
+      }
+
       SPDLOG_WARN(
           "SDDP forward: iter {} scene {} phase {} non-optimal (status {}), "
           "trying elastic solve",
@@ -529,9 +564,11 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
 
 void SDDPSolver::store_cut(SceneIndex scene,
                            PhaseIndex src_phase,
-                           const SparseRow& cut)
+                           const SparseRow& cut,
+                           CutType type)
 {
   StoredCut stored {
+      .type = type,
       .phase = phase_uid(src_phase),
       .scene = scene_uid(scene),
       .name = cut.name,
@@ -633,8 +670,7 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
         auto& prev_li = planning_lp().system(scene, prev_bp).linear_interface();
         const auto& prev_state = phase_states[prev_bp];
 
-        if (m_options_.elastic_filter_mode
-            == ElasticFilterMode::BackpropagateBounds)
+        if (m_options_.elastic_filter_mode == ElasticFilterMode::backpropagate)
         {
           // PLP mechanism: instead of building a feasibility cut,
           // propagate the elastic-clone dependent-column solution
@@ -663,12 +699,13 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
                                 elastic_result->clone.get_col_cost(),
                                 elastic_result->clone.get_obj_value(),
                                 sddp_label("sddp",
-                                           "scut",
+                                           "fcut",
                                            scene,
                                            back_pi,
                                            iteration,
                                            total_cuts + cuts_added));
 
+          store_cut(scene, prev_bp, feas_cut, CutType::Feasibility);
           prev_li.add_row(feas_cut);
           ++cuts_added;
 
@@ -678,7 +715,7 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
           //   threshold == 0 (always), OR
           //   threshold > 0 and counter > threshold.
           const bool use_multi_cut =
-              (m_options_.elastic_filter_mode == ElasticFilterMode::MultiCut)
+              (m_options_.elastic_filter_mode == ElasticFilterMode::multi_cut)
               || (m_options_.multi_cut_threshold == 0)
               || (m_options_.multi_cut_threshold > 0
                   && m_infeasibility_counter_[scene][back_phase]
@@ -696,6 +733,7 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
                                             total_cuts + cuts_added));
 
             for (auto& mc : mc_cuts) {
+              store_cut(scene, prev_bp, mc, CutType::Feasibility);
               prev_li.add_row(mc);
               ++cuts_added;
             }
@@ -831,11 +869,11 @@ void SDDPSolver::share_cuts_for_phase(
   const auto num_scenes =
       static_cast<Index>(planning_lp().simulation().scenes().size());
 
-  if (num_scenes <= 1 || m_options_.cut_sharing == CutSharingMode::None) {
+  if (num_scenes <= 1 || m_options_.cut_sharing == CutSharingMode::none) {
     return;
   }
 
-  if (m_options_.cut_sharing == CutSharingMode::Accumulate) {
+  if (m_options_.cut_sharing == CutSharingMode::accumulate) {
     // Accumulate mode: when LP objectives already include probability
     // factors, the correct expected cut is the sum of all individual
     // scene cuts (no averaging needed).  Each cut's coefficients and RHS
@@ -870,7 +908,7 @@ void SDDPSolver::share_cuts_for_phase(
         phase,
         all_cuts.size());
 
-  } else if (m_options_.cut_sharing == CutSharingMode::Expected) {
+  } else if (m_options_.cut_sharing == CutSharingMode::expected) {
     // Expected mode: compute probability-weighted average cut.
     // Correct when LP objectives do NOT include probability factors.
 
@@ -946,7 +984,7 @@ void SDDPSolver::share_cuts_for_phase(
         scene_avg_cuts.size(),
         total_prob);
 
-  } else if (m_options_.cut_sharing == CutSharingMode::Max) {
+  } else if (m_options_.cut_sharing == CutSharingMode::max) {
     // Max mode: add ALL cuts from ALL scenes to ALL scenes for this phase
     std::vector<SparseRow> all_cuts;
     for (auto&& [si, cuts] : enumerate<SceneIndex>(scene_cuts)) {
@@ -1248,7 +1286,7 @@ auto SDDPSolver::run_backward_pass_all_scenes(
   // all scenes complete a phase before cuts are shared and the next phase
   // is processed.  When sharing is disabled (None), scenes run their full
   // backward pass independently in parallel with no synchronization.
-  if (m_options_.cut_sharing != CutSharingMode::None) {
+  if (m_options_.cut_sharing != CutSharingMode::none) {
     return run_backward_pass_synchronized(scene_feasible, pool, opts, iter);
   }
 
@@ -1371,7 +1409,7 @@ auto SDDPSolver::run_backward_pass_synchronized(
     }
 
     // Share optimality cuts generated in this phase step across all scenes.
-    // Feasibility cuts are not stored via store_cut() and thus are not shared.
+    // Feasibility cuts are stored but only optimality cuts are shared.
     const auto src_phase = PhaseIndex {pi - 1};
 
     StrongIndexVector<SceneIndex, std::vector<SparseRow>> scene_cuts;
@@ -1382,6 +1420,10 @@ auto SDDPSolver::run_backward_pass_synchronized(
       for (std::size_t ci = cuts_before_step; ci < m_stored_cuts_.size(); ++ci)
       {
         const auto& sc = m_stored_cuts_[ci];
+        // Only share optimality cuts; feasibility cuts stay local
+        if (sc.type != CutType::Optimality) {
+          continue;
+        }
         if (sc.phase != static_cast<int>(src_phase)) {
           continue;
         }
@@ -1452,7 +1494,7 @@ void SDDPSolver::apply_cut_sharing_for_iteration(std::size_t cuts_before,
   const auto num_phases =
       static_cast<Index>(planning_lp().simulation().phases().size());
 
-  if (m_options_.cut_sharing == CutSharingMode::None || num_scenes <= 1) {
+  if (m_options_.cut_sharing == CutSharingMode::none || num_scenes <= 1) {
     return;
   }
 
@@ -1462,6 +1504,10 @@ void SDDPSolver::apply_cut_sharing_for_iteration(std::size_t cuts_before,
 
     for (std::size_t ci = cuts_before; ci < m_stored_cuts_.size(); ++ci) {
       const auto& sc = m_stored_cuts_[ci];
+      // Only share optimality cuts; feasibility cuts stay local
+      if (sc.type != CutType::Optimality) {
+        continue;
+      }
       if (sc.phase != static_cast<int>(pi)) {
         continue;
       }
@@ -1701,7 +1747,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     // Only apply post-hoc sharing when scenes ran independently (None mode),
     // which is a no-op anyway since apply_cut_sharing_for_iteration returns
     // early for None.  This guard prevents double-sharing of cuts.
-    if (m_options_.cut_sharing == CutSharingMode::None) {
+    if (m_options_.cut_sharing == CutSharingMode::none) {
       apply_cut_sharing_for_iteration(cuts_before, iter);
     }
 
@@ -1723,7 +1769,9 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
 
     // ── Monitoring API and cut persistence ──
     maybe_write_api_status(status_file, results, solve_start, monitor);
-    save_cuts_for_iteration(iter, fwd->scene_feasible);
+    if (m_options_.save_per_iteration) {
+      save_cuts_for_iteration(iter, fwd->scene_feasible);
+    }
 
     // ── Iteration callback ──
     if (m_iteration_callback_ && m_iteration_callback_(ir)) {
@@ -1734,6 +1782,17 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     if (ir.converged) {
       break;
     }
+  }
+
+  // Final cut save — always save at the end of the solve, regardless of
+  // save_per_iteration.  This ensures cuts are persisted on convergence,
+  // user-stop, or max-iterations even when per-iteration saving is disabled.
+  if (!m_options_.cuts_output_file.empty() && !results.empty()) {
+    const auto num_scenes_final =
+        static_cast<Index>(planning_lp().simulation().scenes().size());
+    std::vector<uint8_t> final_feasible(
+        static_cast<std::size_t>(num_scenes_final), 1U);
+    save_cuts_for_iteration(results.back().iteration, final_feasible);
   }
 
   monitor.stop();
@@ -1844,7 +1903,8 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
                                 m_options_.log_directory,
                                 scene_uid(scene),
                                 phase_uid(phase),
-                                make_aperture_resolve_fn());
+                                make_aperture_resolve_fn(),
+                                m_options_.aperture_timeout);
 
   if (!expected_cut.has_value()) {
     // Fallback: build a regular Benders cut from the cached

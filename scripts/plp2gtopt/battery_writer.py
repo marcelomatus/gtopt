@@ -299,6 +299,7 @@ class BatteryWriter(BaseWriter):
                 source_gen = entry.get("source_generator")
                 if source_gen:
                     bat["source_generator"] = source_gen
+
             batteries.append(bat)
         return batteries
 

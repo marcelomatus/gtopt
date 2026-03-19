@@ -46,6 +46,7 @@
 #include <gtopt/pampl_parser.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/solver_options.hpp>
+#include <gtopt/validate_planning.hpp>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
@@ -90,7 +91,8 @@ constexpr auto ExactParsePolicy = daw::json::options::parse_flags<
 [[nodiscard]] std::expected<Planning, std::string> parse_planning_files(
     const std::vector<std::string>& planning_files,
     bool strict_parsing,
-    bool check_json)
+    bool check_json,
+    const std::optional<std::string>& input_directory = {})
 {
   const spdlog::stopwatch sw;
   Planning my_planning;
@@ -102,7 +104,18 @@ constexpr auto ExactParsePolicy = daw::json::options::parse_flags<
 
       // Check existence before calling daw::read_file, which is noexcept
       // and would call std::terminate via std::filesystem::file_size if
-      // the file is missing.
+      // the file is missing.  If the file is not found in the current
+      // directory, try the input_directory as a fallback.
+      if (!std::filesystem::exists(fpath) && input_directory.has_value()) {
+        auto alt =
+            std::filesystem::path(input_directory.value()) / fpath.filename();
+        if (std::filesystem::exists(alt)) {
+          spdlog::info("  Found '{}' in input_directory '{}'",
+                       fpath.filename().string(),
+                       input_directory.value());
+          fpath = std::move(alt);
+        }
+      }
       if (!std::filesystem::exists(fpath)) {
         return std::unexpected(
             std::format("Input file '{}' does not exist", fpath.string()));
@@ -340,8 +353,14 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
   // inside the log directory (e.g. logs/trace_1.log, logs/trace_2.log)
   // to avoid overwriting previous runs.
   {
-    const auto log_dir =
-        std::filesystem::path(opts.log_directory.value_or("logs"));
+    // When log_directory is not explicitly set, default to
+    // output_directory/logs so all output is consolidated.
+    const auto log_dir = std::filesystem::path(
+        opts.log_directory.has_value()
+            ? opts.log_directory.value()
+            : (std::filesystem::path(opts.output_directory.value_or("output"))
+               / "logs")
+                  .string());
     std::string trace_path;
 
     if (opts.trace_log.has_value()) {
@@ -406,8 +425,10 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     //
     // Parse planning JSON files
     //
-    auto parse_result = parse_planning_files(
-        opts.planning_files, strict_parsing, opts.check_json.value_or(false));
+    auto parse_result = parse_planning_files(opts.planning_files,
+                                             strict_parsing,
+                                             opts.check_json.value_or(false),
+                                             opts.input_directory);
     if (!parse_result) {
       return std::unexpected(std::move(parse_result.error()));
     }
@@ -481,6 +502,30 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
             std::format("Error loading user_constraint_file '{}': {}",
                         filepath.string(),
                         ex.what()));
+      }
+    }
+
+    //
+    // Warn when demand_fail_cost is 0 or not set
+    //
+    {
+      const auto dfc = my_planning.options.demand_fail_cost.value_or(0.0);
+      if (dfc == 0.0) {
+        spdlog::warn(
+            "demand_fail_cost is 0: unserved load has no penalty. "
+            "Set demand_fail_cost > 0 to penalize load shedding.");
+      }
+    }
+
+    //
+    // Validate planning (referential integrity, ranges, completeness)
+    //
+    {
+      const auto vresult = validate_planning(my_planning);
+      if (!vresult.ok()) {
+        return std::unexpected(std::format(
+            "Planning validation failed with {} error(s)",  // NOLINT
+            vresult.errors.size()));
       }
     }
 

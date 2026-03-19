@@ -136,11 +136,18 @@ struct SolverOptions
   /** @brief Verbosity level for solver output (0 = none) */
   int log_level {0};
 
+  /** @brief Time limit for individual LP solves in seconds.
+   *  0 = no limit (solver default).  When non-zero, the solver will abort
+   *  the current solve if the wall-clock time exceeds this value.
+   *  The caller should check `is_optimal()` after solve to detect timeouts.
+   */
+  std::optional<double> time_limit {};
+
   /**
    * @brief Merge another SolverOptions into this one (first-value-wins for
    * optional fields).
    *
-   * Only the three optional tolerance fields are merged; the non-optional
+   * Only the optional tolerance / limit fields are merged; the non-optional
    * fields (algorithm, threads, presolve, log_level) are not changed by
    * merge — they keep their already-set values.
    */
@@ -154,6 +161,9 @@ struct SolverOptions
     }
     if (!barrier_eps && other.barrier_eps) {
       barrier_eps = other.barrier_eps;
+    }
+    if (!time_limit && other.time_limit) {
+      time_limit = other.time_limit;
     }
   }
 };

@@ -219,12 +219,33 @@ void PlanningLP::write_out() const
     return;
   }
 
-  sol_file << "scene,phase,status,obj_value,kappa\n";
+  // Status names: CLP convention (0=optimal, 1=primal infeasible,
+  // 2=dual infeasible/unbounded, 3=iteration limit, 4=error, 5=not solved)
+  static constexpr auto status_name = [](int s) constexpr -> std::string_view
+  {
+    switch (s) {
+      case 0:
+        return "optimal";
+      case 1:
+        return "infeasible";
+      case 2:
+        return "unbounded";
+      case 3:
+        return "iteration_limit";
+      case 4:
+        return "error";
+      default:
+        return "unknown";
+    }
+  };
+
+  sol_file << "scene,phase,status,status_name,obj_value,kappa\n";
   for (const auto& row : rows) {
-    sol_file << std::format("{},{},{},{},{}\n",
+    sol_file << std::format("{},{},{},{},{},{}\n",
                             row.scene_uid,
                             row.phase_uid,
                             row.status,
+                            status_name(row.status),
                             row.obj_value,
                             row.kappa);
     SPDLOG_DEBUG("  solution.csv: scene={} phase={} status={} obj_value={}",
@@ -311,7 +332,8 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
 auto PlanningLP::resolve(const SolverOptions& lp_opts)
     -> std::expected<int, Error>
 {
-  auto solver = make_planning_solver(m_options_);
+  const auto num_phases = simulation().phases().size();
+  auto solver = make_planning_solver(m_options_, num_phases);
   return solver->solve(*this, lp_opts);
 }
 

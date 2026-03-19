@@ -7,7 +7,11 @@ import signal
 import sys
 from pathlib import Path
 
-from .plp2gtopt import convert_plp_case
+from .plp2gtopt import (
+    convert_plp_case,
+    print_variable_scales_template,
+    validate_plp_case,
+)
 from .info_display import display_plp_info
 
 try:
@@ -73,9 +77,57 @@ examples:
   # Apply a 10% annual discount rate
   plp2gtopt -i input/ -d 0.10
 
+  # Auto-scaling is ON by default for both volume and energy.
+  # Override specific reservoirs with --vol-scale:
+  plp2gtopt -i input/ --vol-scale 'RAPEL:500,COLBUN:15000'
+
+  # Override specific battery energy scales:
+  plp2gtopt -i input/ --energy-scale 'BESS1:100'
+
+  # Disable auto-scaling entirely:
+  plp2gtopt -i input/ --no-auto-vol-scale --no-auto-energy-scale
+
+  # Load additional variable scales from a JSON file (lowest priority):
+  plp2gtopt -i input/ --variable-scales-file scales.json
+
+  # Generate a variable_scales template, edit, and re-use:
+  plp2gtopt -i input/ --variable-scales-template > scales.json
+  # Edit scales.json to adjust specific scales...
+  plp2gtopt -i input/ --variable-scales-file scales.json
+
   # Show verbose debug output
   plp2gtopt -i input/ -l DEBUG
+
+  # Validate a PLP case without writing output files
+  plp2gtopt --validate -i plp_case_2y
 """
+
+
+def _parse_name_value_pairs(spec: str) -> dict[str, float]:
+    """Parse a comma-separated 'name:value' specification into a dict.
+
+    Example: ``"RAPEL:500,COLBUN:15000"`` returns
+    ``{"RAPEL": 500.0, "COLBUN": 15000.0}``.
+
+    Raises:
+        ValueError: If a token cannot be parsed as ``name:number``.
+    """
+    result: dict[str, float] = {}
+    for token in spec.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if ":" not in token:
+            raise ValueError(
+                f"Invalid name:value pair '{token}'; expected 'name:number'"
+            )
+        name, val_str = token.split(":", maxsplit=1)
+        name = name.strip()
+        try:
+            result[name] = float(val_str.strip())
+        except ValueError as exc:
+            raise ValueError(f"Invalid numeric value in '{token}': {exc}") from exc
+    return result
 
 
 def signal_handler(sig, _frame):
@@ -123,10 +175,7 @@ def make_parser() -> argparse.ArgumentParser:
         type=Path,
         metavar="FILE",
         default=None,
-        help=(
-            "output JSON file path "
-            "(default: <output-dir-name>.json in the current directory)"
-        ),
+        help=("output JSON file path (default: <output-dir>/<output-dir-name>.json)"),
     )
     parser.add_argument(
         "-s",
@@ -390,7 +439,7 @@ def make_parser() -> argparse.ArgumentParser:
             "Export intermediate-stage cuts from plpplaem/plpplem files "
             "as a hot-start-cuts CSV (with named state variables and phase "
             "column).  The file is loaded by the SDDP solver via "
-            "sddp_named_cuts_file to warm-start all phases."
+            "named_cuts_file to warm-start all phases."
         ),
     )
     parser.add_argument(
@@ -472,6 +521,117 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--vol-scale",
+        dest="vol_scale",
+        metavar="SPEC",
+        default=None,
+        help=(
+            "Override reservoir volume scale for specific reservoirs as "
+            "comma-separated name:value pairs. "
+            "Example: --vol-scale 'RAPEL:500,COLBUN:15000'. "
+            "These explicit values override auto-calculated scales. "
+            "Emitted as variable_scales entries in the options section. "
+            "(default: not set — auto-scaling is used unless disabled)"
+        ),
+    )
+    parser.add_argument(
+        "--auto-vol-scale",
+        dest="auto_vol_scale",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Automatically calculate vol_scale for each reservoir from the PLP "
+            "FEscala field: vol_scale = 10^(FEscala - 6). "
+            "FEscala is read from plpplem1.dat (CSV format, field 9) when available; "
+            "otherwise falls back to plpcnfce.dat Escala (Escala / 1e6). "
+            "Explicit --vol-scale entries override auto-calculated values. "
+            "Scales are emitted as variable_scales entries in the options section. "
+            "Use --no-auto-vol-scale to disable. "
+            "(default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--energy-scale",
+        dest="energy_scale",
+        metavar="SPEC",
+        default=None,
+        help=(
+            "Override battery energy scale for specific batteries as "
+            "comma-separated name:value pairs. "
+            "Example: --energy-scale 'BESS1:0.01,BESS2:100'. "
+            "These explicit values override auto-calculated scales. "
+            "Emitted as variable_scales entries in the options section. "
+            "(default: not set — auto-scaling is used unless disabled)"
+        ),
+    )
+    parser.add_argument(
+        "--auto-energy-scale",
+        dest="auto_energy_scale",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Set energy_scale=0.01 for all PLP batteries. This scales the LP "
+            "energy variable for better solver numerics. "
+            "Explicit --energy-scale entries override this default. "
+            "Scales are emitted as variable_scales entries in the options section. "
+            "Use --no-auto-energy-scale to disable. "
+            "(default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "-X",
+        "--variable-scales-file",
+        dest="variable_scales_file",
+        type=Path,
+        metavar="FILE",
+        default=None,
+        help=(
+            "JSON file containing an array of VariableScale objects to merge "
+            "into the variable_scales option. Each object must have: "
+            "class_name, variable, uid, scale. "
+            "File entries have LOWEST priority: auto-calculated and "
+            "--vol-scale/--energy-scale values override them. "
+            "(default: not set)"
+        ),
+    )
+    parser.add_argument(
+        "--validate",
+        action="store_true",
+        default=False,
+        help=(
+            "parse all PLP files and report element counts and any errors, "
+            "without writing any output files; exits with code 0 if valid, "
+            "1 if errors are found"
+        ),
+    )
+    parser.add_argument(
+        "--variable-scales-template",
+        action="store_true",
+        default=False,
+        help=(
+            "print a JSON template of variable_scales entries computed from "
+            "the PLP case (FEscala for reservoirs, 0.01 for batteries). "
+            "The template includes _name and _fescala comment fields. "
+            "Edit the output and pass it back via --variable-scales-file. "
+            "Example workflow:\n"
+            "  plp2gtopt -i plp_case --variable-scales-template > scales.json\n"
+            "  # edit scales.json to adjust specific scales\n"
+            "  plp2gtopt -i plp_case --variable-scales-file scales.json"
+        ),
+    )
+    parser.add_argument(
+        "--check",
+        dest="run_check",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "run post-conversion validation via gtopt_check_json: prints "
+            "system statistics, a PLP-vs-gtopt element comparison, and "
+            "basic consistency checks. Use --no-check to disable. "
+            "(default: enabled)"
+        ),
+    )
+    parser.add_argument(
         "-V",
         "--version",
         action="version",
@@ -497,7 +657,7 @@ def build_options(args: argparse.Namespace) -> dict:
     input_dir = _resolve_input_dir(args)
     output_file = args.output_file
     if output_file is None:
-        output_file = Path(args.output_dir.name).with_suffix(".json")
+        output_file = args.output_dir / Path(args.output_dir.name).with_suffix(".json")
     name = args.name if args.name is not None else Path(output_file).stem
     input_format = args.input_format if args.input_format else args.output_format
     opts = {
@@ -541,6 +701,15 @@ def build_options(args: argparse.Namespace) -> dict:
         opts["no_boundary_cuts"] = True
     if args.hot_start_cuts:
         opts["hot_start_cuts"] = True
+    if args.vol_scale is not None:
+        opts["vol_scale"] = _parse_name_value_pairs(args.vol_scale)
+    opts["auto_vol_scale"] = args.auto_vol_scale
+    if args.energy_scale is not None:
+        opts["energy_scale"] = _parse_name_value_pairs(args.energy_scale)
+    opts["auto_energy_scale"] = args.auto_energy_scale
+    if args.variable_scales_file is not None:
+        opts["variable_scales_file"] = args.variable_scales_file
+    opts["run_check"] = args.run_check
     return opts
 
 
@@ -580,6 +749,13 @@ def main():
             )
             sys.exit(1)
         return
+
+    if args.validate:
+        valid = validate_plp_case(build_options(args))
+        sys.exit(0 if valid else 1)
+
+    if args.variable_scales_template:
+        sys.exit(print_variable_scales_template(build_options(args)))
 
     try:
         convert_plp_case(build_options(args))

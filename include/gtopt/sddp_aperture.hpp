@@ -126,6 +126,9 @@ using ApertureResolveFunc = std::function<std::expected<int, Error>(
 /// @param scene_uid        Scene UID integer (for logging)
 /// @param phase_uid        Phase UID integer (for logging)
 /// @param resolve_fn       Callback to resolve a cloned LP
+/// @param aperture_timeout Timeout in seconds for each aperture LP solve;
+///                         0 = no timeout.  When exceeded, the aperture is
+///                         treated as infeasible and skipped.
 [[nodiscard]] auto solve_apertures_for_phase(
     SceneIndex scene,
     PhaseIndex phase,
@@ -142,6 +145,7 @@ using ApertureResolveFunc = std::function<std::expected<int, Error>(
     const std::string& log_directory,
     int scene_uid,
     int phase_uid,
-    const ApertureResolveFunc& resolve_fn) -> std::optional<SparseRow>;
+    const ApertureResolveFunc& resolve_fn,
+    double aperture_timeout = 0.0) -> std::optional<SparseRow>;
 
 }  // namespace gtopt

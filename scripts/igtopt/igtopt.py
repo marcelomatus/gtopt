@@ -20,6 +20,8 @@ from igtopt.template_builder import (
     _find_repo_root,
     _build_workbook,
     _list_sheets,
+    SDDP_OPTION_KEYS,
+    MONOLITHIC_OPTION_KEYS,
 )
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -305,7 +307,7 @@ def _write_boundary_cuts_csv(df, input_path):
     name).
 
     The CSV is written to ``<input_path>/boundary_cuts.csv`` and the
-    returned path should be stored in the ``sddp_boundary_cuts_file``
+    returned path should be stored in the ``boundary_cuts_file``
     option so the C++ solver can load it.
     """
     out_dir = pathlib.Path(input_path)
@@ -488,6 +490,57 @@ def log_conversion_stats(
 
 
 # ---------------------------------------------------------------------------
+# Option nesting helpers
+# ---------------------------------------------------------------------------
+
+# Monolithic option keys use a ``monolithic_`` prefix in the flat Excel sheet
+# to distinguish them from the identically-named SDDP options (e.g.
+# ``boundary_cuts_file``).  The prefix is stripped when the key is placed
+# inside the ``monolithic_options`` sub-object.
+_MONOLITHIC_PREFIX = "monolithic_"
+
+
+def _nest_sub_options(flat: dict[str, Any]) -> dict[str, Any]:
+    """Partition flat options into top-level, sddp_options, and monolithic_options.
+
+    Keys listed in :data:`SDDP_OPTION_KEYS` are moved into a nested
+    ``sddp_options`` dict.  Keys whose name starts with ``monolithic_`` are
+    moved into a nested ``monolithic_options`` dict with the prefix stripped.
+    All remaining keys stay at the top level.
+
+    If the flat dict already contains a ``sddp_options`` or
+    ``monolithic_options`` sub-dict (e.g. injected by the boundary_cuts sheet
+    handler), its contents are merged with the keys extracted here.
+    """
+    top: dict[str, Any] = {}
+    sddp: dict[str, Any] = {}
+    mono: dict[str, Any] = {}
+
+    for key, value in flat.items():
+        if key == "sddp_options" and isinstance(value, dict):
+            # Already-nested sub-dict (e.g. from boundary_cuts handler)
+            sddp.update(value)
+        elif key == "monolithic_options" and isinstance(value, dict):
+            mono.update(value)
+        elif key in SDDP_OPTION_KEYS:
+            sddp[key] = value
+        elif key.startswith(_MONOLITHIC_PREFIX) and key != _MONOLITHIC_PREFIX:
+            # Strip the ``monolithic_`` prefix for the nested key name.
+            inner_key = key[len(_MONOLITHIC_PREFIX) :]
+            mono[inner_key] = value
+        elif key in MONOLITHIC_OPTION_KEYS:
+            mono[key] = value
+        else:
+            top[key] = value
+
+    if sddp:
+        top["sddp_options"] = sddp
+    if mono:
+        top["monolithic_options"] = mono
+    return top
+
+
+# ---------------------------------------------------------------------------
 # Template generation (igtopt --make-template)
 # ---------------------------------------------------------------------------
 
@@ -619,12 +672,12 @@ def _run(args) -> int:
                 try:
                     csv_path = _write_boundary_cuts_csv(df, args.input_directory)
                     # Place inside sddp_options so the C++ parser maps it
-                    # to Options::sddp_options::sddp_boundary_cuts_file.
+                    # to Options::sddp_options::boundary_cuts_file.
                     # setdefault always returns a dict here; the explicit
                     # type guard is only for safety if options["sddp_options"]
                     # was pre-populated with a non-dict value by the user.
                     sddp_opts = options.setdefault("sddp_options", {})
-                    sddp_opts["sddp_boundary_cuts_file"] = str(csv_path)
+                    sddp_opts["boundary_cuts_file"] = str(csv_path)
                     logging.info(
                         "boundary_cuts sheet → %s (%d cuts)", csv_path, len(df)
                     )
@@ -682,7 +735,7 @@ def _run(args) -> int:
     has_data = len(simulation) > 0 or len(system) > 1  # system always has "name"
     if has_data:
         planning: dict[str, Any] = {}
-        planning["options"] = options
+        planning["options"] = _nest_sub_options(options)
         if simulation:
             planning["simulation"] = simulation
         planning["system"] = system

@@ -16,57 +16,86 @@
 
 namespace daw::json
 {
+using gtopt::MonolithicOptions;
 using gtopt::Options;
 using gtopt::SddpOptions;
 using gtopt::SolverOptions;
 
 template<>
+struct json_data_contract<MonolithicOptions>
+{
+  using type =
+      json_member_list<json_string_null<"solve_mode", OptName>,
+                       json_string_null<"boundary_cuts_file", OptName>,
+                       json_string_null<"boundary_cuts_mode", OptName>,
+                       json_number_null<"boundary_max_iterations", OptInt>,
+                       json_number_null<"solve_timeout", OptReal>>;
+
+  constexpr static auto to_json_data(MonolithicOptions const& opt)
+  {
+    return std::forward_as_tuple(opt.solve_mode,
+                                 opt.boundary_cuts_file,
+                                 opt.boundary_cuts_mode,
+                                 opt.boundary_max_iterations,
+                                 opt.solve_timeout);
+  }
+};
+
+template<>
 struct json_data_contract<SddpOptions>
 {
-  using type = json_member_list<
-      json_string_null<"sddp_cut_sharing_mode", OptName>,
-      json_string_null<"sddp_cut_directory", OptName>,
-      json_bool_null<"sddp_api_enabled", OptBool>,
-      json_number_null<"sddp_efficiency_update_skip", OptInt>,
-      json_number_null<"sddp_max_iterations", OptInt>,
-      json_number_null<"sddp_min_iterations", OptInt>,
-      json_number_null<"sddp_convergence_tol", OptReal>,
-      json_number_null<"sddp_elastic_penalty", OptReal>,
-      json_number_null<"sddp_alpha_min", OptReal>,
-      json_number_null<"sddp_alpha_max", OptReal>,
-      json_bool_null<"sddp_hot_start", OptBool>,
-      json_string_null<"sddp_cuts_input_file", OptName>,
-      json_string_null<"sddp_sentinel_file", OptName>,
-      json_string_null<"sddp_elastic_mode", OptName>,
-      json_number_null<"sddp_multi_cut_threshold", OptInt>,
-      json_number_null<"sddp_num_apertures", OptInt>,
-      json_string_null<"sddp_aperture_directory", OptName>,
-      json_string_null<"sddp_boundary_cuts_file", OptName>,
-      json_string_null<"sddp_boundary_cuts_mode", OptName>,
-      json_number_null<"sddp_boundary_max_iterations", OptInt>>;
+  using type =
+      json_member_list<json_string_null<"cut_sharing_mode", OptName>,
+                       json_string_null<"cut_directory", OptName>,
+                       json_bool_null<"api_enabled", OptBool>,
+                       json_number_null<"efficiency_update_skip", OptInt>,
+                       json_number_null<"max_iterations", OptInt>,
+                       json_number_null<"min_iterations", OptInt>,
+                       json_number_null<"convergence_tol", OptReal>,
+                       json_number_null<"elastic_penalty", OptReal>,
+                       json_number_null<"alpha_min", OptReal>,
+                       json_number_null<"alpha_max", OptReal>,
+                       json_bool_null<"hot_start", OptBool>,
+                       json_bool_null<"save_per_iteration", OptBool>,
+                       json_string_null<"cuts_input_file", OptName>,
+                       json_string_null<"sentinel_file", OptName>,
+                       json_string_null<"elastic_mode", OptName>,
+                       json_number_null<"multi_cut_threshold", OptInt>,
+                       json_number_null<"num_apertures", OptInt>,
+                       json_string_null<"aperture_directory", OptName>,
+                       json_number_null<"aperture_timeout", OptReal>,
+                       json_number_null<"solve_timeout", OptReal>,
+                       json_string_null<"boundary_cuts_file", OptName>,
+                       json_string_null<"boundary_cuts_mode", OptName>,
+                       json_number_null<"boundary_max_iterations", OptInt>,
+                       json_string_null<"named_cuts_file", OptName>>;
 
   constexpr static auto to_json_data(SddpOptions const& opt)
   {
-    return std::forward_as_tuple(opt.sddp_cut_sharing_mode,
-                                 opt.sddp_cut_directory,
-                                 opt.sddp_api_enabled,
-                                 opt.sddp_efficiency_update_skip,
-                                 opt.sddp_max_iterations,
-                                 opt.sddp_min_iterations,
-                                 opt.sddp_convergence_tol,
-                                 opt.sddp_elastic_penalty,
-                                 opt.sddp_alpha_min,
-                                 opt.sddp_alpha_max,
-                                 opt.sddp_hot_start,
-                                 opt.sddp_cuts_input_file,
-                                 opt.sddp_sentinel_file,
-                                 opt.sddp_elastic_mode,
-                                 opt.sddp_multi_cut_threshold,
-                                 opt.sddp_num_apertures,
-                                 opt.sddp_aperture_directory,
-                                 opt.sddp_boundary_cuts_file,
-                                 opt.sddp_boundary_cuts_mode,
-                                 opt.sddp_boundary_max_iterations);
+    return std::forward_as_tuple(opt.cut_sharing_mode,
+                                 opt.cut_directory,
+                                 opt.api_enabled,
+                                 opt.efficiency_update_skip,
+                                 opt.max_iterations,
+                                 opt.min_iterations,
+                                 opt.convergence_tol,
+                                 opt.elastic_penalty,
+                                 opt.alpha_min,
+                                 opt.alpha_max,
+                                 opt.hot_start,
+                                 opt.save_per_iteration,
+                                 opt.cuts_input_file,
+                                 opt.sentinel_file,
+                                 opt.elastic_mode,
+                                 opt.multi_cut_threshold,
+                                 opt.num_apertures,
+                                 opt.aperture_directory,
+                                 opt.aperture_timeout,
+                                 opt.solve_timeout,
+                                 opt.boundary_cuts_file,
+                                 opt.boundary_cuts_mode,
+                                 opt.boundary_max_iterations,
+                                 opt.named_cuts_file);
   }
 };
 
@@ -104,6 +133,7 @@ struct json_data_contract<Options>
                        json_bool_null<"just_build_lp", OptBool>,
                        json_number_null<"lp_coeff_ratio_threshold", OptReal>,
 
+                       json_class_null<"monolithic_options", MonolithicOptions>,
                        json_class_null<"sddp_options", SddpOptions>,
                        json_class_null<"solver_options", SolverOptions>,
                        json_array_null<"variable_scales",
@@ -142,6 +172,7 @@ struct json_data_contract<Options>
                                  opt.just_build_lp,
                                  opt.lp_coeff_ratio_threshold,
 
+                                 opt.monolithic_options,
                                  opt.sddp_options,
                                  opt.solver_options,
                                  opt.variable_scales);

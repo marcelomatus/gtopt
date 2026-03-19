@@ -401,27 +401,26 @@ TEST_CASE("average_benders_cut computes correct average")  // NOLINT
 
 TEST_CASE("parse_cut_sharing_mode")  // NOLINT
 {
-  CHECK(parse_cut_sharing_mode("none") == CutSharingMode::None);
-  CHECK(parse_cut_sharing_mode("expected") == CutSharingMode::Expected);
-  CHECK(parse_cut_sharing_mode("accumulate") == CutSharingMode::Accumulate);
-  CHECK(parse_cut_sharing_mode("max") == CutSharingMode::Max);
-  // Unknown defaults to None (matching SDDPOptions default)
-  CHECK(parse_cut_sharing_mode("unknown") == CutSharingMode::None);
+  CHECK(parse_cut_sharing_mode("none") == CutSharingMode::none);
+  CHECK(parse_cut_sharing_mode("expected") == CutSharingMode::expected);
+  CHECK(parse_cut_sharing_mode("accumulate") == CutSharingMode::accumulate);
+  CHECK(parse_cut_sharing_mode("max") == CutSharingMode::max);
+  // Unknown defaults to none (matching SDDPOptions default)
+  CHECK(parse_cut_sharing_mode("unknown") == CutSharingMode::none);
 }
 
 TEST_CASE("parse_elastic_filter_mode")  // NOLINT
 {
   // Canonical names (underscore)
   CHECK(parse_elastic_filter_mode("single_cut")
-        == ElasticFilterMode::FeasibilityCut);
-  CHECK(parse_elastic_filter_mode("multi_cut") == ElasticFilterMode::MultiCut);
+        == ElasticFilterMode::single_cut);
+  CHECK(parse_elastic_filter_mode("multi_cut") == ElasticFilterMode::multi_cut);
   CHECK(parse_elastic_filter_mode("backpropagate")
-        == ElasticFilterMode::BackpropagateBounds);
-  // Backward-compat alias ("cut" falls through to FeasibilityCut default)
-  CHECK(parse_elastic_filter_mode("cut") == ElasticFilterMode::FeasibilityCut);
-  // Unknown string also falls through to FeasibilityCut
-  CHECK(parse_elastic_filter_mode("unknown")
-        == ElasticFilterMode::FeasibilityCut);
+        == ElasticFilterMode::backpropagate);
+  // Backward-compat alias ("cut" falls through to single_cut default)
+  CHECK(parse_elastic_filter_mode("cut") == ElasticFilterMode::single_cut);
+  // Unknown string also falls through to single_cut
+  CHECK(parse_elastic_filter_mode("unknown") == ElasticFilterMode::single_cut);
 }
 
 TEST_CASE("relax_fixed_state_variable returns slack column indices")  // NOLINT
@@ -585,7 +584,7 @@ TEST_CASE("Options solver_type and sddp_cut_sharing_mode")  // NOLINT
 {
   Options opts;
   opts.solver_type = OptName {"sddp"};
-  opts.sddp_options.sddp_cut_sharing_mode = OptName {"expected"};
+  opts.sddp_options.cut_sharing_mode = OptName {"expected"};
 
   const OptionsLP options_lp(std::move(opts));
   CHECK(options_lp.solver_type() == "sddp");
@@ -2032,7 +2031,7 @@ TEST_CASE("SDDPSolver 2-scene - probability-weighted bounds")  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 20;
   sddp_opts.convergence_tol = 1e-4;
-  sddp_opts.cut_sharing = CutSharingMode::None;
+  sddp_opts.cut_sharing = CutSharingMode::none;
 
   SDDPSolver sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();
@@ -2102,7 +2101,7 @@ TEST_CASE(
     SDDPOptions sddp_opts;
     sddp_opts.max_iterations = 30;
     sddp_opts.convergence_tol = 1e-4;
-    sddp_opts.cut_sharing = CutSharingMode::Expected;
+    sddp_opts.cut_sharing = CutSharingMode::expected;
 
     SDDPSolver sddp(planning_lp, sddp_opts);
     auto results = sddp.solve();
@@ -2119,7 +2118,7 @@ TEST_CASE(
     SDDPOptions sddp_opts;
     sddp_opts.max_iterations = 30;
     sddp_opts.convergence_tol = 1e-4;
-    sddp_opts.cut_sharing = CutSharingMode::Expected;
+    sddp_opts.cut_sharing = CutSharingMode::expected;
 
     SDDPSolver sddp(planning_lp, sddp_opts);
     auto results = sddp.solve();
