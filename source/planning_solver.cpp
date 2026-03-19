@@ -221,7 +221,7 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
 std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options,
                                                      size_t num_phases)
 {
-  if (options.solver_type() == "sddp") {
+  if (options.solver_type_enum() == SolverType::sddp) {
     // SDDP requires at least 2 phases; fall back to monolithic for 0 or 1.
     if (num_phases > 0 && num_phases < 2) {
       SPDLOG_INFO(
