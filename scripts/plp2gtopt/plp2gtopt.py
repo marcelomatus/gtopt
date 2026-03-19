@@ -220,6 +220,7 @@ def _plp_active_hydrology_indices(parser: PLPParser) -> list[int] | None:
 def _plp_indicators(
     parser: PLPParser,
     hydrology_indices: list[int] | None = None,
+    flow_central_names: set[str] | None = None,
 ) -> dict[str, float]:
     """Compute aggregate PLP indicators from parsed data for comparison.
 
@@ -244,6 +245,12 @@ def _plp_indicators(
         across when computing affluent indicators.  When ``None``, all
         hydrologies in ``plpaflce.dat`` are used.  Pass the selected
         scenario hydrology indices to match the gtopt conversion.
+    flow_central_names
+        Optional set of PLP central names whose affluents were actually
+        converted to gtopt flows (from ``flow_array[].plp_central``).
+        When provided, only PLP affluents matching these names are
+        included in the flow indicators, enabling exact comparison.
+        When ``None``, all bus>0 affluents are included.
     """
     pd = parser.parsed_data
     indicators: dict[str, float] = {}
@@ -343,7 +350,11 @@ def _plp_indicators(
     indicators["total_energy_mwh"] = total_energy
     indicators["avg_annual_energy_mwh"] = avg_annual_energy
 
-    # --- Accumulated affluent from plpaflce.dat (bus > 0 only) ---
+    # --- Accumulated affluent from plpaflce.dat ---
+    # When flow_central_names is given, only include PLP affluents whose
+    # central name appears in the set (i.e. those that plp2gtopt actually
+    # converted to gtopt Flow entries).  Otherwise fall back to the legacy
+    # bus > 0 filter.
     # Conversion factor: 1 m³/s flowing for 1 h = 0.0036 Hm³
     _M3S_TO_HM3_PER_H = 0.0036
     aflce_parser = pd.get("aflce_parser")
@@ -353,10 +364,15 @@ def _plp_indicators(
     num_active_flows = 0
     if aflce_parser and block_parser:
         for flow in aflce_parser.flows:
-            # Skip flows for centrals with bus <= 0
             flow_name = str(flow.get("name", ""))
-            if flow_name and flow_name not in _bus_gt0_names:
-                continue
+            if flow_central_names is not None:
+                # Exact filter: only include affluents that became gtopt flows
+                if flow_name not in flow_central_names:
+                    continue
+            else:
+                # Legacy filter: skip flows for centrals with bus <= 0
+                if flow_name and flow_name not in _bus_gt0_names:
+                    continue
             flow_data = flow.get("flow")  # numpy array (num_blocks, num_hydro)
             block_arr = flow.get("block")  # numpy array of block numbers
             if flow_data is None or block_arr is None or len(block_arr) == 0:
@@ -512,6 +528,78 @@ def _delta_str(
     if diff < 0:
         return _cc(_YELLOW, padded, use_color)
     return _cc(_CYAN, padded, use_color)
+
+
+def _extract_flow_central_names(planning: dict[str, Any]) -> set[str] | None:
+    """Extract the set of PLP central names from gtopt ``flow_array``.
+
+    Each flow created by :class:`JunctionWriter` stores the original PLP
+    central name in the ``plp_central`` field.  Returning this set allows
+    :func:`_plp_indicators` to filter PLP affluents to exactly those that
+    became gtopt flows, enabling precise comparison.
+
+    Returns ``None`` when no ``plp_central`` field is found (e.g. hand-
+    written JSON that predates the field), so the caller falls back to
+    the legacy bus>0 filter.
+    """
+    flows = planning.get("system", {}).get("flow_array", [])
+    if not flows:
+        return None
+    names: set[str] = set()
+    for fl in flows:
+        pc = fl.get("plp_central")
+        if isinstance(pc, str) and pc:
+            names.add(pc)
+    # Only return the set if at least one flow had plp_central
+    return names if names else None
+
+
+def compute_comparison_indicators(
+    parser: PLPParser,
+    planning: dict[str, Any],
+    base_dir: str | None = None,
+) -> tuple[dict[str, float], dict[str, float]]:
+    """Compute matched PLP and gtopt indicators for comparison.
+
+    Extracts hydrology indices from the planning dict's
+    ``scenario_array`` and ``plp_central`` names from ``flow_array``
+    to ensure the PLP indicators are computed over exactly the same
+    subset of data that was converted to gtopt.
+
+    Parameters
+    ----------
+    parser
+        The PLPParser instance with parsed PLP data.
+    planning
+        The planning dict produced by the conversion.
+    base_dir
+        Absolute path to the case output directory so that FieldSched
+        file references can be resolved from Parquet/CSV files on disk.
+
+    Returns
+    -------
+    tuple[dict[str, float], dict[str, float]]
+        ``(plp_indicators, gtopt_indicators)`` — both dicts use the
+        same key names for direct comparison.
+    """
+    # Hydrology indices from the converted scenarios
+    sim = planning.get("simulation", {})
+    scenarios = sim.get("scenario_array", [])
+    hydrology_indices: list[int] | None = (
+        sorted(s["hydrology"] for s in scenarios if s.get("hydrology") is not None)
+        or None
+    )
+
+    # Flow central names from flow_array for exact affluent matching
+    flow_central_names = _extract_flow_central_names(planning)
+
+    plp_ind = _plp_indicators(
+        parser,
+        hydrology_indices=hydrology_indices,
+        flow_central_names=flow_central_names,
+    )
+    gtopt_ind = _gtopt_indicators(planning, base_dir=base_dir)
+    return plp_ind, gtopt_ind
 
 
 def _log_comparison(
@@ -875,8 +963,9 @@ def run_post_check(
     # --- PLP vs gtopt comparison (always available) ---
     plp_counts = _plp_element_counts(parser)
     gtopt_counts = _gtopt_element_counts(planning)
-    plp_ind = _plp_indicators(parser, hydrology_indices=hydrology_indices)
-    gtopt_ind = _gtopt_indicators(planning, base_dir=base_dir)
+    plp_ind, gtopt_ind = compute_comparison_indicators(
+        parser, planning, base_dir=base_dir
+    )
     _log_comparison(plp_counts, gtopt_counts, plp_ind, gtopt_ind)
 
     # --- gtopt_check_json integration (optional) ---
