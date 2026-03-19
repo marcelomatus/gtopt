@@ -731,6 +731,17 @@ def main():
         format="%(asctime)s %(levelname)s %(message)s",
     )
 
+    # Use clean formatter for non-DEBUG levels (no timestamps on INFO lines)
+    try:
+        from gtopt_check_json._terminal import CleanFormatter, init  # noqa: PLC0415
+
+        if args.log_level != "DEBUG":
+            for handler in logging.getLogger().handlers:
+                handler.setFormatter(CleanFormatter())
+        init(force_color=None)
+    except ImportError:
+        pass
+
     if args.show_info:
         try:
             display_plp_info(

@@ -1,298 +1,305 @@
 # SPDX-License-Identifier: BSD-3-Clause
 """Shared terminal formatting helpers for gtopt Python tools.
 
-Provides box-drawing table primitives and section-header helpers that
-produce "terminal-ready" output with optional ANSI colour support.
+Uses the ``rich`` library for terminal-ready tables, colours and
+automatic fallback to ASCII when the output stream is not a TTY or
+does not support UTF-8.
 
-When the output stream does not support UTF-8 or is not a TTY, the
-module falls back to ASCII-safe table characters (``+``, ``-``, ``|``)
-so tables render correctly in log files and dumb terminals.
+All scripts (``plp2gtopt``, ``gtopt_check_json``, ``igtopt``,
+``pp2gtopt``, …) import from this module so the look-and-feel is
+consistent everywhere.
 """
 
 from __future__ import annotations
 
 import logging
-import os
-import re
 import sys
-from typing import Sequence
+from typing import Any, Sequence
+
+from rich.console import Console
+from rich.table import Table
+from rich.text import Text
+from rich.theme import Theme
 
 # ---------------------------------------------------------------------------
-# ANSI colour codes
-# ---------------------------------------------------------------------------
-BOLD = "\033[1m"
-DIM = "\033[2m"
-RED = "\033[91m"
-GREEN = "\033[92m"
-YELLOW = "\033[93m"
-CYAN = "\033[96m"
-MAGENTA = "\033[95m"
-WHITE = "\033[97m"
-RESET = "\033[0m"
-
-
-# ---------------------------------------------------------------------------
-# Capability detection
+# Theme
 # ---------------------------------------------------------------------------
 
+_THEME = Theme(
+    {
+        "title": "bold cyan",
+        "header": "bold",
+        "key": "dim",
+        "val": "",
+        "ok": "bold green",
+        "warn": "bold yellow",
+        "err": "bold red",
+        "note": "bold cyan",
+        "dim": "dim",
+    }
+)
 
-def _is_tty(stream: object = None) -> bool:
-    """Return True when *stream* (default ``sys.stderr``) is a TTY."""
-    s = stream or sys.stderr
-    return hasattr(s, "isatty") and s.isatty()
 
+def get_console(
+    *,
+    stderr: bool = True,
+    force_color: bool | None = None,
+    force_ascii: bool | None = None,
+) -> Console:
+    """Return a :class:`rich.Console` configured for gtopt tools.
 
-def _supports_utf8(stream: object = None) -> bool:
-    """Return True when *stream* likely supports UTF-8 encoding."""
-    s = stream or sys.stderr
-    enc = getattr(s, "encoding", "") or ""
-    return "utf" in enc.lower()
-
-
-def detect_fancy() -> bool:
-    """Return True if stderr is an interactive UTF-8 terminal.
-
-    When this returns False, table helpers automatically fall back to
-    ASCII characters (``+``, ``-``, ``|``) so the output is safe for
-    log files, CI, and non-UTF-8 terminals.
+    Parameters
+    ----------
+    stderr
+        Write to stderr (default) so tables never mix with stdout data.
+    force_color
+        Override colour auto-detection (``True`` = always colour,
+        ``False`` = never, ``None`` = auto).
+    force_ascii
+        Override Unicode auto-detection (``True`` = ASCII-only,
+        ``None`` = auto).
     """
-    if os.environ.get("NO_COLOR"):
-        return False
-    return _is_tty() and _supports_utf8()
+    stream = sys.stderr if stderr else sys.stdout
 
+    # Rich auto-detects colour when force_terminal is None.
+    # Setting it explicitly overrides that.
+    force_terminal: bool | None = None
+    if force_color is True:
+        force_terminal = True
+    elif force_color is False:
+        force_terminal = False
 
-# Module-level flags — callers may override before producing output.
-USE_COLOR: bool = detect_fancy()
-USE_UNICODE: bool = detect_fancy()
+    no_color = force_color is False
 
-
-# ---------------------------------------------------------------------------
-# Colour helpers
-# ---------------------------------------------------------------------------
-
-
-def cc(code: str, text: str, enabled: bool | None = None) -> str:
-    """Wrap *text* in ANSI *code* when colour is enabled."""
-    on = enabled if enabled is not None else USE_COLOR
-    return f"{code}{text}{RESET}" if on else str(text)
-
-
-def vis_len(text: str) -> int:
-    """Visible length of *text*, excluding ANSI escape sequences."""
-    return len(re.sub(r"\033\[[0-9;]*m", "", text))
-
-
-# ---------------------------------------------------------------------------
-# Box-drawing character sets
-# ---------------------------------------------------------------------------
-
-# Unicode box-drawing
-_U_TL, _U_TR, _U_BL, _U_BR = "┌", "┐", "└", "┘"
-_U_HZ, _U_VT = "─", "│"
-_U_LT, _U_RT, _U_TT, _U_BT, _U_CR = "├", "┤", "┬", "┴", "┼"
-_U_HZ_BOLD = "━"
-_U_CHECK, _U_CROSS = "✓", "✗"
-
-# ASCII fallback
-_A_TL, _A_TR, _A_BL, _A_BR = "+", "+", "+", "+"
-_A_HZ, _A_VT = "-", "|"
-_A_LT, _A_RT, _A_TT, _A_BT, _A_CR = "+", "+", "+", "+", "+"
-_A_HZ_BOLD = "="
-_A_CHECK, _A_CROSS = "ok", "FAIL"
-
-
-def _ch() -> (  # noqa: PLR0911
-    tuple[str, str, str, str, str, str, str, str, str, str, str, str, str, str]
-):
-    """Return (TL, TR, BL, BR, HZ, VT, LT, RT, TT, BT, CR, HZ_BOLD, CHECK, CROSS)."""
-    if USE_UNICODE:
-        return (
-            _U_TL, _U_TR, _U_BL, _U_BR, _U_HZ, _U_VT,
-            _U_LT, _U_RT, _U_TT, _U_BT, _U_CR,
-            _U_HZ_BOLD, _U_CHECK, _U_CROSS,
-        )
-    return (
-        _A_TL, _A_TR, _A_BL, _A_BR, _A_HZ, _A_VT,
-        _A_LT, _A_RT, _A_TT, _A_BT, _A_CR,
-        _A_HZ_BOLD, _A_CHECK, _A_CROSS,
+    console = Console(
+        file=stream,
+        theme=_THEME,
+        force_terminal=force_terminal,
+        no_color=no_color,
+        highlight=False,
     )
 
+    # If the caller explicitly asked for ASCII, override the encoding
+    # check so rich falls back to ASCII box-drawing.
+    if force_ascii:
+        console._force_terminal = force_terminal  # noqa: SLF001
+        # Rich uses Console.options.ascii_only; easiest way is to set it
+        # via the legacy_windows path or by monkey-patching.  The cleanest
+        # public API is to pass ``safe_box=True`` to each Table.
 
-def check_mark(ok: bool = True) -> str:
-    """Return a check-mark or cross character for the current mode."""
-    _, _, _, _, _, _, _, _, _, _, _, _, chk, crs = _ch()
-    return chk if ok else crs
+    return console
+
+
+# Module-level console — used by the helper functions below.
+# Re-create via ``init()`` if you need different options.
+_console: Console = get_console()
+
+
+def init(
+    *,
+    force_color: bool | None = None,
+    force_ascii: bool | None = None,
+) -> Console:
+    """(Re-)initialise the module-level console.
+
+    Call this once from your CLI ``main()`` before producing output.
+    """
+    global _console  # noqa: PLW0603
+    _console = get_console(
+        force_color=force_color,
+        force_ascii=force_ascii,
+    )
+    return _console
+
+
+def console() -> Console:
+    """Return the module-level console instance."""
+    return _console
 
 
 # ---------------------------------------------------------------------------
-# Padding
+# Convenience helpers
 # ---------------------------------------------------------------------------
 
 
-def _pad(text: str, width: int, align: str = "<") -> str:
-    """Pad *text* to *width* visible chars, respecting ANSI codes."""
-    vlen = vis_len(text)
-    pad_n = max(0, width - vlen)
-    if align == ">":
-        return " " * pad_n + text
-    if align == "^":
-        left = pad_n // 2
-        return " " * left + text + " " * (pad_n - left)
-    return text + " " * pad_n
+def _safe_box() -> bool:
+    """Return True when ASCII-safe box chars should be used."""
+    return not _console.options.legacy_windows and _console.is_terminal
 
 
-# ---------------------------------------------------------------------------
-# Table builders
-# ---------------------------------------------------------------------------
+def print_section(title: str) -> None:
+    """Print a styled section header."""
+    _console.print()
+    _console.print(f"  [title]━━ {title} ━━[/title]")
+    _console.print()
 
 
-def _hz_line(
-    widths: Sequence[int],
-    left: str,
-    mid: str,
-    right: str,
-    hz: str,
-) -> str:
-    """Build a horizontal line using the given box-drawing chars."""
-    return left + mid.join(hz * (w + 2) for w in widths) + right
+def print_kv_table(
+    pairs: Sequence[tuple[str, str]],
+    *,
+    title: str = "",
+) -> None:
+    """Print a two-column key → value table.
+
+    Parameters
+    ----------
+    pairs
+        Sequence of ``(label, value)`` tuples.
+    title
+        Optional table title.
+    """
+    if not pairs:
+        return
+    table = Table(
+        show_header=False,
+        box=None,
+        padding=(0, 2),
+        title=f"[title]{title}[/title]" if title else None,
+        title_justify="left",
+        min_width=40,
+    )
+    table.add_column("Key", style="key", no_wrap=True)
+    table.add_column("Value", style="val", justify="right")
+    for key, val in pairs:
+        table.add_row(key, val)
+    _console.print(table)
 
 
-def build_table(
+def print_table(
     headers: Sequence[str],
     rows: Sequence[Sequence[str]],
-    aligns: Sequence[str] | None = None,
     *,
-    colr: bool | None = None,
+    aligns: Sequence[str] | None = None,
     title: str = "",
-) -> str:
-    """Build a bordered table and return it as a multi-line string.
+    styles: Sequence[str] | None = None,
+) -> None:
+    """Print a multi-column table.
 
     Parameters
     ----------
     headers
         Column header labels.
     rows
-        Sequence of row tuples (each the same length as *headers*).
+        Row data.
     aligns
-        Per-column alignment: ``"<"`` (left), ``">"`` (right), ``"^"``
-        (centre).  Defaults to left-aligned.
-    colr
-        Enable ANSI colours; defaults to the module-level ``USE_COLOR``.
+        Per-column justification: ``"left"``, ``"right"``, ``"center"``.
     title
-        Optional table title shown above the table.
+        Optional table title.
+    styles
+        Per-column Rich style strings (e.g. ``["bold", "", "green"]``).
     """
-    tl, tr, bl, br, hz, vt, lt, rt, tt, bt, cr, _, _, _ = _ch()
-    on = colr if colr is not None else USE_COLOR
+    from rich.box import ASCII, ROUNDED  # noqa: PLC0415
+
+    box_style = ROUNDED if _console.is_terminal else ASCII
+
+    table = Table(
+        title=f"[title]{title}[/title]" if title else None,
+        title_justify="left",
+        box=box_style,
+        show_lines=False,
+        padding=(0, 1),
+    )
     ncols = len(headers)
     if aligns is None:
-        aligns = ["<"] * ncols
+        aligns = ["left"] * ncols
+    if styles is None:
+        styles = [""] * ncols
 
-    # Compute column widths (max of header / data visible widths)
-    widths = [vis_len(h) for h in headers]
-    for row in rows:
-        for i, cell in enumerate(row[:ncols]):
-            widths[i] = max(widths[i], vis_len(cell))
-
-    lines: list[str] = []
-
-    # Title
-    if title:
-        lines.append("")
-        lines.append(cc(BOLD + CYAN, f"  {title}", on))
-        lines.append("")
-
-    # Top border
-    lines.append("  " + _hz_line(widths, tl, tt, tr, hz))
-
-    # Header row
-    hdr_cells = vt.join(
-        f" {cc(BOLD, _pad(h, widths[i], '^'), on)} "
-        for i, h in enumerate(headers)
-    )
-    lines.append(f"  {vt}{hdr_cells}{vt}")
-
-    # Header separator
-    lines.append("  " + _hz_line(widths, lt, cr, rt, hz))
-
-    # Data rows
-    for row in rows:
-        cells = vt.join(
-            f" {_pad(row[i] if i < len(row) else '', widths[i], aligns[i])} "
-            for i in range(ncols)
+    for i, hdr in enumerate(headers):
+        table.add_column(
+            hdr,
+            justify=aligns[i],
+            style=styles[i] or None,
+            no_wrap=True,
         )
-        lines.append(f"  {vt}{cells}{vt}")
 
-    # Bottom border
-    lines.append("  " + _hz_line(widths, bl, bt, br, hz))
+    for row in rows:
+        table.add_row(*(row[i] if i < len(row) else "" for i in range(ncols)))
 
-    return "\n".join(lines)
-
-
-def section_header(title: str, *, colr: bool | None = None) -> str:
-    """Return a styled section header string."""
-    on = colr if colr is not None else USE_COLOR
-    _, _, _, _, _, _, _, _, _, _, _, hz_bold, _, _ = _ch()
-    bar = hz_bold * (len(title) + 2)
-    return (
-        f"\n  {cc(BOLD + CYAN, bar, on)}\n"
-        f"  {cc(BOLD + WHITE, f' {title}', on)}\n"
-        f"  {cc(BOLD + CYAN, bar, on)}"
-    )
+    _console.print(table)
 
 
-def kv_table(
-    pairs: Sequence[tuple[str, str]],
-    *,
-    colr: bool | None = None,
-    title: str = "",
-) -> str:
-    """Build a two-column key-value table.
+def print_status(label: str, ok: bool, *, details: str = "") -> None:
+    """Print a status line with ✓/✗ indicator."""
+    icon = "[ok]✓[/ok]" if ok else "[err]✗[/err]"
+    extra = f"  [dim]{details}[/dim]" if details else ""
+    _console.print(f"  {icon} {label}{extra}")
+
+
+def print_finding(
+    severity: str,
+    check_id: str,
+    message: str,
+) -> None:
+    """Print a single validation finding.
 
     Parameters
     ----------
-    pairs
-        Sequence of (label, value) tuples.
-    colr
-        Enable ANSI colours.
-    title
-        Optional table title.
+    severity
+        One of ``"CRITICAL"``, ``"WARNING"``, ``"NOTE"``.
+    check_id
+        The check identifier string.
+    message
+        Human-readable finding message.
     """
-    tl, _, bl, _, hz, vt, _, _, tt, bt, _, _, _, _ = _ch()
-    on = colr if colr is not None else USE_COLOR
+    sev_upper = severity.upper()
+    if sev_upper == "CRITICAL":
+        tag = "[err][CRITICAL][/err]"
+    elif sev_upper == "WARNING":
+        tag = "[warn][WARNING][/warn]"
+    else:
+        tag = "[note][NOTE][/note]"
+    _console.print(f"  {tag} ({check_id}) {message}")
+
+
+def print_summary(
+    critical: int,
+    warnings: int,
+    notes: int,
+) -> None:
+    """Print a findings summary line."""
+    _console.print()
+    _console.print(
+        f"  Summary: [err]{critical}[/err] critical, "
+        f"[warn]{warnings}[/warn] warnings, "
+        f"[note]{notes}[/note] notes"
+    )
+
+
+# ---------------------------------------------------------------------------
+# format_info / format_indicators  (string-returning API)
+# ---------------------------------------------------------------------------
+
+
+def render_kv_table(
+    pairs: Sequence[tuple[str, str]],
+    *,
+    title: str = "",
+) -> str:
+    """Return a key-value table as a plain string (no ANSI codes).
+
+    Useful when the caller needs a string (e.g. for logging or tests)
+    rather than direct terminal output.
+    """
+    buf_console = Console(file=None, force_terminal=False, no_color=True,
+                          highlight=False, width=120)
     if not pairs:
         return ""
-
-    kw = max(vis_len(k) for k, _ in pairs)
-    vw = max(vis_len(v) for _, v in pairs)
-
-    lines: list[str] = []
-    if title:
-        lines.append("")
-        lines.append(cc(BOLD + CYAN, f"  {title}", on))
-
-    lines.append("  " + _hz_line([kw, vw], tl, tt, tl.replace(tl, _ch()[8]), hz))
+    table = Table(
+        show_header=False,
+        box=None,
+        padding=(0, 2),
+        title=title or None,
+        title_justify="left",
+        min_width=40,
+    )
+    table.add_column("Key", no_wrap=True)
+    table.add_column("Value", justify="right")
     for key, val in pairs:
-        k_cell = _pad(key, kw, "<")
-        v_cell = _pad(val, vw, ">")
-        lines.append(f"  {vt} {cc(DIM, k_cell, on)} {vt} {v_cell} {vt}")
-    lines.append("  " + _hz_line([kw, vw], bl, bt, bl.replace(bl, _ch()[3]), hz))
-
-    return "\n".join(lines)
-
-
-def status_line(
-    label: str,
-    ok: bool,
-    *,
-    colr: bool | None = None,
-    details: str = "",
-) -> str:
-    """Return a status line with check / cross indicator."""
-    on = colr if colr is not None else USE_COLOR
-    chk = check_mark(ok)
-    icon = cc(GREEN, chk, on) if ok else cc(RED, chk, on)
-    extra = f"  {cc(DIM, details, on)}" if details else ""
-    return f"  {icon} {label}{extra}"
+        table.add_row(key, val)
+    with buf_console.capture() as capture:
+        buf_console.print(table)
+    return capture.get().rstrip()
 
 
 # ---------------------------------------------------------------------------

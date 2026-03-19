@@ -81,27 +81,32 @@ def _list_networks_and_exit() -> None:
 
 
 def _log_element_counts(planning: dict[str, Any]) -> None:
-    """Log element counts from the generated gtopt planning dict."""
-    sys_data = planning.get("system", {})
-    sim = planning.get("simulation", {})
+    """Print element counts from the generated gtopt planning dict."""
+    try:
+        from gtopt_check_json._info import print_info  # noqa: PLC0415
 
-    logger.info("=== Generated gtopt element counts ===")
-    logger.info("  System name     : %s", sys_data.get("name", "(unnamed)"))
-    logger.info("  Buses           : %d", len(sys_data.get("bus_array", [])))
-    logger.info("  Generators      : %d", len(sys_data.get("generator_array", [])))
-    logger.info("  Demands         : %d", len(sys_data.get("demand_array", [])))
-    logger.info("  Lines           : %d", len(sys_data.get("line_array", [])))
-    logger.info("  Blocks          : %d", len(sim.get("block_array", [])))
-    logger.info("  Stages          : %d", len(sim.get("stage_array", [])))
-    logger.info("  Scenarios       : %d", len(sim.get("scenario_array", [])))
+        print_info(planning)
+    except ImportError:
+        # Fallback: plain logger output when _terminal is not available
+        sys_data = planning.get("system", {})
+        sim = planning.get("simulation", {})
+        logger.info("=== Generated gtopt element counts ===")
+        logger.info("  System name     : %s", sys_data.get("name", "(unnamed)"))
+        logger.info("  Buses           : %d", len(sys_data.get("bus_array", [])))
+        logger.info("  Generators      : %d", len(sys_data.get("generator_array", [])))
+        logger.info("  Demands         : %d", len(sys_data.get("demand_array", [])))
+        logger.info("  Lines           : %d", len(sys_data.get("line_array", [])))
+        logger.info("  Blocks          : %d", len(sim.get("block_array", [])))
+        logger.info("  Stages          : %d", len(sim.get("stage_array", [])))
+        logger.info("  Scenarios       : %d", len(sim.get("scenario_array", [])))
 
 
 def run_post_check(planning: dict[str, Any]) -> None:
     """Run gtopt_check_json validation on the generated planning dict.
 
-    Logs element counts from the generated JSON, and if gtopt_check_json
-    is available, runs format_info() and run_all_checks().  Skips
-    gracefully if gtopt_check_json is not installed.
+    Prints styled element counts and system info, and if gtopt_check_json
+    is available, runs run_all_checks().  Skips gracefully if
+    gtopt_check_json is not installed.
 
     Parameters
     ----------
@@ -111,45 +116,38 @@ def run_post_check(planning: dict[str, Any]) -> None:
     _log_element_counts(planning)
 
     try:
-        from gtopt_check_json._info import format_info  # noqa: PLC0415
         from gtopt_check_json._checks import (  # noqa: PLC0415
             run_all_checks,
             Severity,
+        )
+        from gtopt_check_json._terminal import (  # noqa: PLC0415
+            print_finding as _pf,
+            print_status,
+            print_summary,
         )
     except ImportError:
         logger.debug("gtopt_check_json not available; skipping JSON validation checks")
         return
 
-    logger.info("=== gtopt_check_json: system info ===")
-    for line in format_info(planning).splitlines():
-        logger.info("  %s", line)
-
     findings = run_all_checks(planning, enabled_checks=None, ai_options=None)
 
     if not findings:
-        logger.info("gtopt_check_json: all checks passed — no issues found.")
+        print_status("All checks passed — no issues found.", ok=True)
         return
 
     critical_count = 0
     warning_count = 0
     note_count = 0
     for finding in findings:
+        _pf(finding.severity.name, finding.check_id, finding.message)
         if finding.severity == Severity.CRITICAL:
-            logger.error("[CRITICAL] (%s) %s", finding.check_id, finding.message)
             critical_count += 1
         elif finding.severity == Severity.WARNING:
-            logger.warning("[WARNING] (%s) %s", finding.check_id, finding.message)
             warning_count += 1
         else:
-            logger.info("[NOTE] (%s) %s", finding.check_id, finding.message)
             note_count += 1
 
-    logger.info(
-        "gtopt_check_json summary: %d critical, %d warnings, %d notes",
-        critical_count,
-        warning_count,
-        note_count,
-    )
+    print_summary(critical_count, warning_count, note_count)
 
 
 def make_parser() -> argparse.ArgumentParser:
@@ -218,6 +216,15 @@ def make_parser() -> argparse.ArgumentParser:
 def main() -> None:
     """Parse arguments and run the conversion."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+    # Use clean formatter for non-DEBUG levels
+    try:
+        from gtopt_check_json._terminal import CleanFormatter  # noqa: PLC0415
+
+        for handler in logging.getLogger().handlers:
+            handler.setFormatter(CleanFormatter())
+    except ImportError:
+        pass
 
     parser = make_parser()
     args = parser.parse_args()
