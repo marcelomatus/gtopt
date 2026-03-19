@@ -9,6 +9,7 @@ Handles:
 
 import json
 import logging
+import re
 import sys
 import time
 import zipfile
@@ -20,6 +21,32 @@ from plp2gtopt.gtopt_writer import GTOptWriter
 from plp2gtopt.plp_parser import PLPParser
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# ANSI colour helpers for the comparison table
+# ---------------------------------------------------------------------------
+_BOLD = "\033[1m"
+_DIM = "\033[2m"
+_RED = "\033[91m"
+_GREEN = "\033[92m"
+_YELLOW = "\033[93m"
+_CYAN = "\033[96m"
+_MAGENTA = "\033[95m"
+_RESET = "\033[0m"
+
+
+def _use_color() -> bool:
+    """Return True when the root logger streams to an interactive terminal."""
+    for handler in logging.getLogger().handlers:
+        stream = getattr(handler, "stream", None)
+        if stream is not None and hasattr(stream, "isatty") and stream.isatty():
+            return True
+    return False
+
+
+def _vis_len(text: str) -> int:
+    """Visible length of *text*, excluding ANSI escape sequences."""
+    return len(re.sub(r"\033\[[0-9;]*m", "", text))
 
 
 def _log_stats(planning: dict, elapsed: float) -> None:
@@ -69,40 +96,40 @@ def _log_stats(planning: dict, elapsed: float) -> None:
 
 def _plp_element_counts(parser: PLPParser) -> dict[str, int]:
     """Extract PLP element counts from the parser for comparison."""
-    pd = parser.parsed_data
+    pdata = parser.parsed_data
     counts: dict[str, int] = {}
 
-    bus_parser = pd.get("bus_parser")
+    bus_parser = pdata.get("bus_parser")
     if bus_parser:
         counts["buses"] = getattr(bus_parser, "num_buses", 0)
 
-    central_parser = pd.get("central_parser")
+    central_parser = pdata.get("central_parser")
     if central_parser:
         counts["centrals"] = getattr(central_parser, "num_centrals", 0)
         for ctype, clist in central_parser.centrals_of_type.items():
-            counts[f"  {ctype}"] = len(clist)
+            counts[f"sub_{ctype}"] = len(clist)
 
     demand_parser = pd.get("demand_parser")
     if demand_parser:
         counts["demands"] = getattr(demand_parser, "num_demands", 0)
 
-    line_parser = pd.get("line_parser")
+    line_parser = pdata.get("line_parser")
     if line_parser:
         counts["lines"] = getattr(line_parser, "num_lines", 0)
 
-    battery_parser = pd.get("battery_parser")
+    battery_parser = pdata.get("battery_parser")
     if battery_parser:
-        counts["batteries (plpcenbat)"] = len(getattr(battery_parser, "batteries", []))
+        counts["batteries"] = len(getattr(battery_parser, "batteries", []))
 
-    ess_parser = pd.get("ess_parser")
+    ess_parser = pdata.get("ess_parser")
     if ess_parser:
-        counts["ESS (plpess)"] = len(getattr(ess_parser, "items", []))
+        counts["ess"] = len(getattr(ess_parser, "items", []))
 
-    block_parser = pd.get("block_parser")
+    block_parser = pdata.get("block_parser")
     if block_parser:
         counts["blocks"] = getattr(block_parser, "num_blocks", 0)
 
-    stage_parser = pd.get("stage_parser")
+    stage_parser = pdata.get("stage_parser")
     if stage_parser:
         counts["stages"] = getattr(stage_parser, "num_stages", 0)
 
@@ -240,27 +267,58 @@ def _gtopt_indicators(planning: dict[str, Any]) -> dict[str, float]:
 
 def _gtopt_element_counts(planning: dict[str, Any]) -> dict[str, int]:
     """Extract gtopt element counts from the planning dict."""
-    sys = planning.get("system", {})
+    psys = planning.get("system", {})
     sim = planning.get("simulation", {})
     return {
-        "buses": len(sys.get("bus_array", [])),
-        "generators": len(sys.get("generator_array", [])),
-        "generator_profiles": len(sys.get("generator_profile_array", [])),
-        "demands": len(sys.get("demand_array", [])),
-        "demand_profiles": len(sys.get("demand_profile_array", [])),
-        "lines": len(sys.get("line_array", [])),
-        "batteries": len(sys.get("battery_array", [])),
-        "converters": len(sys.get("converter_array", [])),
-        "junctions": len(sys.get("junction_array", [])),
-        "waterways": len(sys.get("waterway_array", [])),
-        "flows": len(sys.get("flow_array", [])),
-        "reservoirs": len(sys.get("reservoir_array", [])),
-        "filtrations": len(sys.get("filtration_array", [])),
-        "turbines": len(sys.get("turbine_array", [])),
+        "buses": len(psys.get("bus_array", [])),
+        "generators": len(psys.get("generator_array", [])),
+        "generator_profiles": len(psys.get("generator_profile_array", [])),
+        "demands": len(psys.get("demand_array", [])),
+        "demand_profiles": len(psys.get("demand_profile_array", [])),
+        "lines": len(psys.get("line_array", [])),
+        "batteries": len(psys.get("battery_array", [])),
+        "converters": len(psys.get("converter_array", [])),
+        "junctions": len(psys.get("junction_array", [])),
+        "waterways": len(psys.get("waterway_array", [])),
+        "flows": len(psys.get("flow_array", [])),
+        "reservoirs": len(psys.get("reservoir_array", [])),
+        "filtrations": len(psys.get("filtration_array", [])),
+        "turbines": len(psys.get("turbine_array", [])),
         "blocks": len(sim.get("block_array", [])),
         "stages": len(sim.get("stage_array", [])),
         "scenarios": len(sim.get("scenario_array", [])),
     }
+
+
+# ---------------------------------------------------------------------------
+# Formatted comparison table
+# ---------------------------------------------------------------------------
+
+
+def _cc(code: str, text: str, use_color: bool) -> str:
+    """Wrap *text* in ANSI *code* when colour is enabled."""
+    return f"{code}{text}{_RESET}" if use_color else str(text)
+
+
+def _delta_str(
+    plp_val: int | None,
+    gtopt_val: int | None,
+    use_color: bool,
+) -> str:
+    """Return a 6-char right-aligned delta string with optional colour."""
+    if plp_val is None or gtopt_val is None:
+        return " " * 6
+    diff = gtopt_val - plp_val
+    if diff == 0:
+        raw = "✓"
+    else:
+        raw = f"{diff:+d}"
+    padded = f"{raw:>6s}"
+    if diff == 0:
+        return _cc(_GREEN, padded, use_color)
+    if diff < 0:
+        return _cc(_YELLOW, padded, use_color)
+    return _cc(_CYAN, padded, use_color)
 
 
 def _log_comparison(
@@ -269,21 +327,171 @@ def _log_comparison(
     plp_ind: dict[str, float] | None = None,
     gtopt_ind: dict[str, float] | None = None,
 ) -> None:
-    """Log a side-by-side comparison of PLP vs gtopt element counts and indicators."""
-    logger.info("=== PLP vs gtopt element comparison ===")
-    logger.info("  %-25s %8s %8s", "Element", "PLP", "gtopt")
-    logger.info("  %-25s %8s %8s", "-" * 25, "-" * 8, "-" * 8)
+    """Log a formatted side-by-side PLP vs gtopt element comparison.
 
-    # PLP counts
-    for key, val in plp_counts.items():
-        logger.info("  %-25s %8d %8s", key, val, "")
+    The table is grouped by category (network, generation, hydro, storage,
+    loads, simulation) and includes derived analysis rows such as *generators
+    excluding falla+batería* and *hydro centrals (embalse+serie) vs turbines*.
+    ANSI colours are used when stderr is connected to a terminal.
+    """
+    colr = _use_color()
 
-    logger.info("  %-25s %8s %8s", "", "", "")
+    # --- extract PLP values ---
+    p_buses = plp_counts.get("buses", 0)
+    p_lines = plp_counts.get("lines", 0)
+    p_centrals = plp_counts.get("centrals", 0)
+    p_embalse = plp_counts.get("sub_embalse", 0)
+    p_serie = plp_counts.get("sub_serie", 0)
+    p_pasada = plp_counts.get("sub_pasada", 0)
+    p_termica = plp_counts.get("sub_termica", 0)
+    p_bateria = plp_counts.get("sub_bateria", 0)
+    p_falla = plp_counts.get("sub_falla", 0)
+    p_demands = plp_counts.get("demands", 0)
+    p_batteries = plp_counts.get("batteries", 0)
+    p_ess = plp_counts.get("ess", 0)
+    p_blocks = plp_counts.get("blocks", 0)
+    p_stages = plp_counts.get("stages", 0)
 
-    # gtopt counts (skip zero counts for cleanliness)
-    for key, val in gtopt_counts.items():
-        if val > 0:
-            logger.info("  %-25s %8s %8d", key, "", val)
+    # derived
+    p_gen_excl = p_centrals - p_falla - p_bateria
+    p_hydro = p_embalse + p_serie
+
+    # --- extract gtopt values ---
+    g_buses = gtopt_counts.get("buses", 0)
+    g_generators = gtopt_counts.get("generators", 0)
+    g_gen_profiles = gtopt_counts.get("generator_profiles", 0)
+    g_demands = gtopt_counts.get("demands", 0)
+    g_lines = gtopt_counts.get("lines", 0)
+    g_batteries = gtopt_counts.get("batteries", 0)
+    g_junctions = gtopt_counts.get("junctions", 0)
+    g_waterways = gtopt_counts.get("waterways", 0)
+    g_flows = gtopt_counts.get("flows", 0)
+    g_reservoirs = gtopt_counts.get("reservoirs", 0)
+    g_filtrations = gtopt_counts.get("filtrations", 0)
+    g_turbines = gtopt_counts.get("turbines", 0)
+    g_blocks = gtopt_counts.get("blocks", 0)
+    g_stages = gtopt_counts.get("stages", 0)
+    g_scenarios = gtopt_counts.get("scenarios", 0)
+
+    # --- row helper ---
+    def _val(val: int | None) -> str:
+        return f"{val:>8d}" if val is not None else " " * 8
+
+    def _row(
+        label: str,
+        plp: int | None = None,
+        gtopt: int | None = None,
+        note: str = "",
+        *,
+        indent: int = 0,
+    ) -> None:
+        prefix = "  " + "  " * indent
+        lbl_width = 26 - 2 * indent
+        delta = _delta_str(plp, gtopt, colr)
+        note_part = f"  {_cc(_DIM, note, colr)}" if note else ""
+        logger.info(
+            "%s%-*s %s %s %s%s",
+            prefix,
+            lbl_width,
+            label,
+            _val(plp),
+            _val(gtopt),
+            delta,
+            note_part,
+        )
+
+    def _section(title: str) -> None:
+        logger.info("  %s", _cc(_BOLD, title, colr))
+
+    def _blank() -> None:
+        logger.info("")
+
+    # --- render table ---
+    _blank()
+    logger.info(
+        "%s",
+        _cc(_BOLD + _CYAN, "═══ PLP vs gtopt Element Comparison ═══", colr),
+    )
+    _blank()
+
+    hdr = f"  {'Element':<26s} {'PLP':>8s} {'gtopt':>8s} {'Δ':>6s}  Notes"
+    logger.info("%s", _cc(_BOLD, hdr, colr))
+    logger.info("  %s %s %s %s  %s", "─" * 26, "─" * 8, "─" * 8, "─" * 6, "─" * 24)
+
+    # -- Network --
+    _section("Network")
+    _row("buses", p_buses, g_buses)
+    _row("lines", p_lines, g_lines)
+    _blank()
+
+    # -- Generation --
+    _section("Generation")
+    _row("centrals (total)", p_centrals)
+    _row("embalse", p_embalse, note="→ turbines + generators", indent=1)
+    _row("serie", p_serie, note="→ turbines + generators", indent=1)
+    _row("pasada", p_pasada, note="→ generators + profiles", indent=1)
+    _row("termica", p_termica, note="→ generators", indent=1)
+    _row("bateria", p_bateria, note="→ batteries", indent=1)
+    _row(
+        "falla",
+        p_falla,
+        note="excluded from gtopt",
+        indent=1,
+    )
+    _row("gen (excl falla+bat)", p_gen_excl, g_generators)
+    gen_delta = g_generators - p_gen_excl
+    if gen_delta != 0:
+        _row(
+            "",
+            note=f"delta {gen_delta:+d} centrals with bus<=0 excluded",
+        )
+    _row(
+        "generator profiles",
+        None,
+        g_gen_profiles,
+        note=(f"= pasada count ({p_pasada}) ✓" if g_gen_profiles == p_pasada else ""),
+    )
+    _blank()
+
+    # -- Hydro System --
+    _section("Hydro System")
+    _row("hydro centrals (emb+ser)", p_hydro)
+    _row(
+        "turbines",
+        p_hydro,
+        g_turbines,
+        note="only bus>0 with waterway",
+    )
+    _row("junctions", None, g_junctions)
+    _row("waterways", None, g_waterways)
+    _row("flows", None, g_flows)
+    _row(
+        "reservoirs",
+        p_embalse,
+        g_reservoirs,
+        note=(f"= embalse count ({p_embalse}) ✓" if g_reservoirs == p_embalse else ""),
+    )
+    _row("filtrations", None, g_filtrations)
+    _blank()
+
+    # -- Storage --
+    _section("Storage")
+    _row("batteries (plpcenbat)", p_batteries, g_batteries)
+    if p_ess > 0:
+        _row("ESS (plpess)", p_ess)
+    _blank()
+
+    # -- Loads --
+    _section("Loads")
+    _row("demands", p_demands, g_demands)
+    _blank()
+
+    # -- Simulation --
+    _section("Simulation")
+    _row("blocks", p_blocks, g_blocks)
+    _row("stages", p_stages, g_stages)
+    _row("scenarios", None, g_scenarios)
+    _blank()
 
     # --- Global indicators side-by-side ---
     if plp_ind and gtopt_ind:
