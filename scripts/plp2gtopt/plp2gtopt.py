@@ -227,16 +227,28 @@ def _plp_indicators(parser: PLPParser) -> dict[str, float]:
     return indicators
 
 
-def _gtopt_indicators(planning: dict[str, Any]) -> dict[str, float]:
+def _gtopt_indicators(
+    planning: dict[str, Any],
+    base_dir: str | None = None,
+) -> dict[str, float]:
     """Compute aggregate gtopt indicators from the planning dict.
 
     Uses :func:`gtopt_check_json._info.compute_indicators` when available,
     otherwise falls back to a simplified local computation.
+
+    Parameters
+    ----------
+    planning
+        The planning dict produced by GTOptWriter.
+    base_dir
+        Absolute path to the case output directory so that FieldSched
+        file references (e.g. ``"lmax"``) can be resolved from
+        Parquet/CSV files on disk.
     """
     try:
         from gtopt_check_json._info import compute_indicators  # noqa: PLC0415
 
-        ind = compute_indicators(planning)
+        ind = compute_indicators(planning, base_dir=base_dir)
         return {
             "total_gen_capacity_mw": ind.total_gen_capacity_mw,
             "first_block_demand_mw": ind.first_block_demand_mw,
@@ -533,6 +545,7 @@ def _log_comparison(
 def run_post_check(
     planning: dict[str, Any],
     parser: PLPParser,
+    output_dir: str | Path | None = None,
 ) -> None:
     """Run gtopt_check_json validation on the generated planning dict.
 
@@ -546,12 +559,18 @@ def run_post_check(
         The planning dict produced by GTOptWriter.
     parser
         The PLPParser instance with parsed PLP data.
+    output_dir
+        Absolute path to the case output directory.  Passed through to
+        :func:`_gtopt_indicators` so that FieldSched file references
+        can be resolved from Parquet/CSV files on disk.
     """
+    base_dir = str(output_dir) if output_dir is not None else None
+
     # --- PLP vs gtopt comparison (always available) ---
     plp_counts = _plp_element_counts(parser)
     gtopt_counts = _gtopt_element_counts(planning)
     plp_ind = _plp_indicators(parser)
-    gtopt_ind = _gtopt_indicators(planning)
+    gtopt_ind = _gtopt_indicators(planning, base_dir=base_dir)
     _log_comparison(plp_counts, gtopt_counts, plp_ind, gtopt_ind)
 
     # --- gtopt_check_json integration (optional) ---
@@ -567,7 +586,7 @@ def run_post_check(
 
     # Print system statistics
     logger.info("=== gtopt_check_json: system info ===")
-    for line in format_info(planning).splitlines():
+    for line in format_info(planning, base_dir=base_dir).splitlines():
         logger.info("  %s", line)
 
     # Run validation checks (all non-AI checks)
@@ -749,7 +768,7 @@ def convert_plp_case(options: dict[str, Any]) -> None:
 
         # Post-conversion validation
         if do_check:
-            run_post_check(writer.planning, parser)
+            run_post_check(writer.planning, parser, output_dir=output_dir)
 
     except RuntimeError:
         raise
