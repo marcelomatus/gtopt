@@ -14,12 +14,14 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Any, Sequence
+from typing import Literal, Sequence
 
 from rich.console import Console
 from rich.table import Table
-from rich.text import Text
 from rich.theme import Theme
+
+# Type alias for Rich column justification.
+JustifyMethod = Literal["default", "left", "center", "right", "full"]
 
 # ---------------------------------------------------------------------------
 # Theme
@@ -77,6 +79,7 @@ def get_console(
         force_terminal=force_terminal,
         no_color=no_color,
         highlight=False,
+        width=120,
     )
 
     # If the caller explicitly asked for ASCII, override the encoding
@@ -90,9 +93,11 @@ def get_console(
     return console
 
 
-# Module-level console — used by the helper functions below.
+# Module-level console — lazily created on first use.
 # Re-create via ``init()`` if you need different options.
-_console: Console = get_console()
+_console: Console | None = None
+_force_color: bool | None = None
+_force_ascii: bool | None = None
 
 
 def init(
@@ -104,7 +109,9 @@ def init(
 
     Call this once from your CLI ``main()`` before producing output.
     """
-    global _console  # noqa: PLW0603
+    global _console, _force_color, _force_ascii  # noqa: PLW0603
+    _force_color = force_color
+    _force_ascii = force_ascii
     _console = get_console(
         force_color=force_color,
         force_ascii=force_ascii,
@@ -113,7 +120,18 @@ def init(
 
 
 def console() -> Console:
-    """Return the module-level console instance."""
+    """Return a console that writes to the *current* ``sys.stderr``.
+
+    The console is recreated whenever ``sys.stderr`` has changed (e.g.
+    during pytest ``capsys`` capturing) so output always goes to the
+    right stream.
+    """
+    global _console  # noqa: PLW0603
+    if _console is None or _console.file is not sys.stderr:
+        _console = get_console(
+            force_color=_force_color,
+            force_ascii=_force_ascii,
+        )
     return _console
 
 
@@ -124,14 +142,16 @@ def console() -> Console:
 
 def _safe_box() -> bool:
     """Return True when ASCII-safe box chars should be used."""
-    return not _console.options.legacy_windows and _console.is_terminal
+    con = console()
+    return not con.options.legacy_windows and con.is_terminal
 
 
 def print_section(title: str) -> None:
     """Print a styled section header."""
-    _console.print()
-    _console.print(f"  [title]━━ {title} ━━[/title]")
-    _console.print()
+    con = console()
+    con.print()
+    con.print(f"  [title]━━ {title} ━━[/title]")
+    con.print()
 
 
 def print_kv_table(
@@ -162,14 +182,14 @@ def print_kv_table(
     table.add_column("Value", style="val", justify="right")
     for key, val in pairs:
         table.add_row(key, val)
-    _console.print(table)
+    console().print(table)
 
 
 def print_table(
     headers: Sequence[str],
     rows: Sequence[Sequence[str]],
     *,
-    aligns: Sequence[str] | None = None,
+    aligns: Sequence[JustifyMethod] | None = None,
     title: str = "",
     styles: Sequence[str] | None = None,
 ) -> None:
@@ -190,7 +210,8 @@ def print_table(
     """
     from rich.box import ASCII, ROUNDED  # noqa: PLC0415
 
-    box_style = ROUNDED if _console.is_terminal else ASCII
+    con = console()
+    box_style = ROUNDED if con.is_terminal else ASCII
 
     table = Table(
         title=f"[title]{title}[/title]" if title else None,
@@ -200,15 +221,16 @@ def print_table(
         padding=(0, 1),
     )
     ncols = len(headers)
-    if aligns is None:
-        aligns = ["left"] * ncols
+    _aligns: Sequence[JustifyMethod] = (
+        aligns if aligns is not None else (["left"] * ncols)
+    )
     if styles is None:
         styles = [""] * ncols
 
     for i, hdr in enumerate(headers):
         table.add_column(
             hdr,
-            justify=aligns[i],
+            justify=_aligns[i],
             style=styles[i] or None,
             no_wrap=True,
         )
@@ -216,14 +238,14 @@ def print_table(
     for row in rows:
         table.add_row(*(row[i] if i < len(row) else "" for i in range(ncols)))
 
-    _console.print(table)
+    con.print(table)
 
 
 def print_status(label: str, ok: bool, *, details: str = "") -> None:
     """Print a status line with ✓/✗ indicator."""
     icon = "[ok]✓[/ok]" if ok else "[err]✗[/err]"
     extra = f"  [dim]{details}[/dim]" if details else ""
-    _console.print(f"  {icon} {label}{extra}")
+    console().print(f"  {icon} {label}{extra}")
 
 
 def print_finding(
@@ -249,7 +271,7 @@ def print_finding(
         tag = "[warn][WARNING][/warn]"
     else:
         tag = "[note][NOTE][/note]"
-    _console.print(f"  {tag} ({check_id}) {message}")
+    console().print(f"  {tag} ({check_id}) {message}")
 
 
 def print_summary(
@@ -258,8 +280,9 @@ def print_summary(
     notes: int,
 ) -> None:
     """Print a findings summary line."""
-    _console.print()
-    _console.print(
+    con = console()
+    con.print()
+    con.print(
         f"  Summary: [err]{critical}[/err] critical, "
         f"[warn]{warnings}[/warn] warnings, "
         f"[note]{notes}[/note] notes"
@@ -281,8 +304,9 @@ def render_kv_table(
     Useful when the caller needs a string (e.g. for logging or tests)
     rather than direct terminal output.
     """
-    buf_console = Console(file=None, force_terminal=False, no_color=True,
-                          highlight=False, width=120)
+    buf_console = Console(
+        file=None, force_terminal=False, no_color=True, highlight=False, width=120
+    )
     if not pairs:
         return ""
     table = Table(

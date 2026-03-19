@@ -516,8 +516,10 @@ def log_conversion_stats(
         # Fallback: plain logger output when _terminal is not available
         logging.info("=== System statistics ===")
         for label, key in [
-            ("Buses", "bus_array"), ("Generators", "generator_array"),
-            ("Demands", "demand_array"), ("Lines", "line_array"),
+            ("Buses", "bus_array"),
+            ("Generators", "generator_array"),
+            ("Demands", "demand_array"),
+            ("Lines", "line_array"),
         ]:
             logging.info("  %-18s: %d", label, counts.get(key, 0))
         logging.info("=== Conversion time ===")
