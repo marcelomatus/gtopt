@@ -220,7 +220,6 @@ def _plp_active_hydrology_indices(parser: PLPParser) -> list[int] | None:
 def _plp_indicators(
     parser: PLPParser,
     hydrology_indices: list[int] | None = None,
-    flow_central_names: set[str] | None = None,
 ) -> dict[str, float]:
     """Compute aggregate PLP indicators from parsed data for comparison.
 
@@ -245,12 +244,6 @@ def _plp_indicators(
         across when computing affluent indicators.  When ``None``, all
         hydrologies in ``plpaflce.dat`` are used.  Pass the selected
         scenario hydrology indices to match the gtopt conversion.
-    flow_central_names
-        Optional set of PLP central names whose affluents were actually
-        converted to gtopt flows (from ``flow_array[].plp_central``).
-        When provided, only PLP affluents matching these names are
-        included in the flow indicators, enabling exact comparison.
-        When ``None``, all bus>0 affluents are included.
     """
     pd = parser.parsed_data
     indicators: dict[str, float] = {}
@@ -291,10 +284,29 @@ def _plp_indicators(
     indicators["thermal_capacity_mw"] = thermal_cap
 
     # --- Total line capacity from plplin.dat ---
+    # Only include lines whose both endpoints are bus > 0 (matching
+    # line_writer filtering) AND that do NOT have maintenance schedules
+    # (plpmanli.dat).  Lines with maintenance become FieldSched file
+    # references in the gtopt JSON; compute_indicators skips those
+    # string values, so we must exclude them here too for a fair match.
     line_parser = pd.get("line_parser")
+    manli_parser = pd.get("manli_parser")
+    _manli_names: set[str] = set()
+    if manli_parser:
+        for m in getattr(manli_parser, "manlis", []):
+            mname = m.get("name", "")
+            if mname:
+                _manli_names.add(mname)
     total_line_cap = 0.0
     if line_parser:
         for line in getattr(line_parser, "lines", []):
+            bus_a = line.get("bus_a", 0)
+            bus_b = line.get("bus_b", 0)
+            if bus_a <= 0 or bus_b <= 0 or bus_a == bus_b:
+                continue
+            line_name = line.get("name", "")
+            if line_name in _manli_names:
+                continue  # maintenance → Parquet ref; skipped by compute_indicators
             tmax_ab = line.get("tmax_ab", 0.0)
             tmax_ba = line.get("tmax_ba", 0.0)
             if isinstance(tmax_ab, (int, float)):
@@ -351,10 +363,11 @@ def _plp_indicators(
     indicators["avg_annual_energy_mwh"] = avg_annual_energy
 
     # --- Accumulated affluent from plpaflce.dat ---
-    # When flow_central_names is given, only include PLP affluents whose
-    # central name appears in the set (i.e. those that plp2gtopt actually
-    # converted to gtopt Flow entries).  Otherwise fall back to the legacy
-    # bus > 0 filter.
+    # Include ALL centrals from aflce_parser (no bus>0 filter) to match
+    # the gtopt side: AflceWriter writes all centrals to discharge.parquet,
+    # and compute_indicators sums all uid columns.  The fill-value
+    # skipping in BaseWriter may exclude 1-2 centrals with constant flow
+    # equal to their default afluent value — this is a negligible difference.
     # Conversion factor: 1 m³/s flowing for 1 h = 0.0036 Hm³
     _M3S_TO_HM3_PER_H = 0.0036
     aflce_parser = pd.get("aflce_parser")
@@ -364,15 +377,6 @@ def _plp_indicators(
     num_active_flows = 0
     if aflce_parser and block_parser:
         for flow in aflce_parser.flows:
-            flow_name = str(flow.get("name", ""))
-            if flow_central_names is not None:
-                # Exact filter: only include affluents that became gtopt flows
-                if flow_name not in flow_central_names:
-                    continue
-            else:
-                # Legacy filter: skip flows for centrals with bus <= 0
-                if flow_name and flow_name not in _bus_gt0_names:
-                    continue
             flow_data = flow.get("flow")  # numpy array (num_blocks, num_hydro)
             block_arr = flow.get("block")  # numpy array of block numbers
             if flow_data is None or block_arr is None or len(block_arr) == 0:
@@ -590,13 +594,14 @@ def compute_comparison_indicators(
         or None
     )
 
-    # Flow central names from flow_array for exact affluent matching
-    flow_central_names = _extract_flow_central_names(planning)
-
+    # NOTE: flow_central_names is NOT passed to _plp_indicators because the
+    # gtopt-side discharge.parquet (written by AflceWriter) contains ALL
+    # aflce centrals, not just the 36 that became gtopt Flow entries.
+    # Using _bus_gt0_names (legacy filter) on the PLP side better matches
+    # what the Parquet contains.
     plp_ind = _plp_indicators(
         parser,
         hydrology_indices=hydrology_indices,
-        flow_central_names=flow_central_names,
     )
     gtopt_ind = _gtopt_indicators(planning, base_dir=base_dir)
     return plp_ind, gtopt_ind
