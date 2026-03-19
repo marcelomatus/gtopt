@@ -136,14 +136,19 @@ class AflceWriter(BaseWriter):
         return pd.concat(dfs, ignore_index=True)
 
     def to_parquet(self, output_dir: Path, items=None) -> Dict[str, List[str]]:
-        """Write flow data to Parquet files (one per hydrology)."""
-        cols: Dict[str, List[str]] = {"afluent": []}
+        """Write flow data to Parquet files (one per hydrology).
+
+        The output file is named ``discharge.parquet`` to match the C++
+        ``Flow.discharge`` field name.  The containing directory should be
+        ``Flow/`` (matching the C++ ``FlowLP::ClassName``).
+        """
+        cols: Dict[str, List[str]] = {"discharge": []}
         df = self.to_dataframe(items)
         if not isinstance(df, pd.DataFrame) or df.empty:
             return cols
 
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_file = output_dir / "afluent.parquet"
+        output_file = output_dir / "discharge.parquet"
 
         df.to_parquet(
             output_file,
@@ -151,5 +156,5 @@ class AflceWriter(BaseWriter):
             compression=self.get_compression(),
         )
 
-        cols["afluent"] = df.columns.tolist()
+        cols["discharge"] = df.columns.tolist()
         return cols

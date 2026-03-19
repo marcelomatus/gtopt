@@ -652,3 +652,122 @@ def test_info_empty_dir(tmp_path: Path):
         with patch("sys.argv", ["plp2gtopt", "--info", str(empty_dir)]):
             main()
     assert exc_info.value.code == 1
+
+
+# ---------------------------------------------------------------------------
+# PLP/gtopt indicator tests
+# ---------------------------------------------------------------------------
+
+
+class TestPlpIndicators:
+    """Test _plp_indicators and _gtopt_indicators functions."""
+
+    def test_plp_indicators_min_1bus(self, tmp_path: Path):
+        """Test PLP indicator extraction from plp_min_1bus case."""
+        from plp2gtopt.plp2gtopt import _plp_indicators  # noqa: PLC0415
+
+        opts = _make_opts(_PLPMin1Bus, tmp_path, "ind_1bus")
+        parser = PLPParser(opts)
+        parser.parse_all()
+
+        ind = _plp_indicators(parser)
+
+        # plp_min_1bus has Thermal1 with pmax=100 and Falla1 (excluded by type)
+        assert ind["total_gen_capacity_mw"] == pytest.approx(100.0)
+
+        # plpdem.dat has 1 demand of 80 MW in 1 block (first == last)
+        assert ind["first_block_demand_mw"] == pytest.approx(80.0)
+        assert ind["last_block_demand_mw"] == pytest.approx(80.0)
+
+        # 1 block × 1 hour × 80 MW = 80 MWh
+        assert ind["total_energy_mwh"] == pytest.approx(80.0)
+
+    def test_gtopt_indicators_min_1bus(self, tmp_path: Path):
+        """Test gtopt indicator extraction from converted plp_min_1bus case."""
+        from plp2gtopt.plp2gtopt import _gtopt_indicators  # noqa: PLC0415
+
+        opts = _make_opts(_PLPMin1Bus, tmp_path, "gind_1bus")
+        parser = PLPParser(opts)
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        planning = writer.to_json(opts)
+
+        ind = _gtopt_indicators(planning)
+
+        # Should match PLP indicators (excluding falla)
+        assert ind["total_gen_capacity_mw"] == pytest.approx(100.0)
+
+    def test_plp_vs_gtopt_capacity_match(self, tmp_path: Path):
+        """PLP and gtopt total generation capacity should match."""
+        from plp2gtopt.plp2gtopt import (  # noqa: PLC0415
+            _gtopt_indicators,
+            _plp_indicators,
+        )
+
+        opts = _make_opts(_PLPMin1Bus, tmp_path, "cmp_1bus")
+        parser = PLPParser(opts)
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        planning = writer.to_json(opts)
+
+        plp_ind = _plp_indicators(parser)
+        gtopt_ind = _gtopt_indicators(planning)
+
+        assert plp_ind["total_gen_capacity_mw"] == pytest.approx(
+            gtopt_ind["total_gen_capacity_mw"]
+        )
+
+    def test_plp_vs_gtopt_demand_match(self, tmp_path: Path):
+        """PLP and gtopt first/last block demand: when lmax is a file ref, gtopt=0."""
+        from plp2gtopt.plp2gtopt import (  # noqa: PLC0415
+            _gtopt_indicators,
+            _plp_indicators,
+        )
+
+        opts = _make_opts(_PLPMin1Bus, tmp_path, "cmp_dem")
+        parser = PLPParser(opts)
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        planning = writer.to_json(opts)
+
+        plp_ind = _plp_indicators(parser)
+        gtopt_ind = _gtopt_indicators(planning)
+
+        # PLP has demand data directly (80 MW), gtopt stores it as a Parquet
+        # file reference ("lmax") so in-JSON indicator is 0.
+        assert plp_ind["first_block_demand_mw"] == pytest.approx(80.0)
+        assert gtopt_ind["first_block_demand_mw"] == pytest.approx(0.0)
+
+    def test_log_comparison_with_indicators(self, tmp_path: Path):
+        """_log_comparison should accept and log indicator dicts."""
+        from plp2gtopt.plp2gtopt import _log_comparison  # noqa: PLC0415
+
+        plp_counts = {"buses": 1, "centrals": 2}
+        gtopt_counts = {"buses": 1, "generators": 1}
+        plp_ind = {
+            "total_gen_capacity_mw": 100.0,
+            "first_block_demand_mw": 80.0,
+            "last_block_demand_mw": 80.0,
+            "total_energy_mwh": 80.0,
+            "first_block_affluent_avg": 0.0,
+            "last_block_affluent_avg": 0.0,
+        }
+        gtopt_ind = {
+            "total_gen_capacity_mw": 100.0,
+            "first_block_demand_mw": 80.0,
+            "last_block_demand_mw": 80.0,
+            "total_energy_mwh": 80.0,
+            "first_block_affluent_avg": 0.0,
+            "last_block_affluent_avg": 0.0,
+        }
+        # Should not raise
+        _log_comparison(plp_counts, gtopt_counts, plp_ind, gtopt_ind)
+
+    def test_log_comparison_without_indicators(self):
+        """_log_comparison should work without indicator dicts (backward compat)."""
+        from plp2gtopt.plp2gtopt import _log_comparison  # noqa: PLC0415
+
+        plp_counts = {"buses": 1}
+        gtopt_counts = {"buses": 1}
+        # Should not raise
+        _log_comparison(plp_counts, gtopt_counts)

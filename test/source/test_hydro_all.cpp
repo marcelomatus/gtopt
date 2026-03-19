@@ -27,6 +27,7 @@
 using namespace gtopt;
 
 #include "test_filtration.hpp"
+#include "test_flow_discharge_lp.hpp"
 #include "test_hydro_data.hpp"
 #include "test_hydro_lp.hpp"
 #include "test_reservoir_efficiency.hpp"

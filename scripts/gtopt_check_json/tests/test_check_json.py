@@ -11,6 +11,7 @@ from gtopt_check_json._checks import (
     Severity,
     check_affluent_nonneg,
     check_bus_connectivity,
+    check_capacity_adequacy,
     check_demand_lmax_nonneg,
     check_element_references,
     check_name_uniqueness,
@@ -24,7 +25,11 @@ from gtopt_check_json._config import (
     load_config,
     save_config,
 )
-from gtopt_check_json._info import format_info
+from gtopt_check_json._info import (
+    compute_indicators,
+    format_indicators,
+    format_info,
+)
 from gtopt_check_json.gtopt_check_json import check_json, main
 
 
@@ -380,3 +385,267 @@ class TestCLI:
         p.write_text(json.dumps(_VALID_CASE), encoding="utf-8")
         rc = main(["--info", "--no-color", str(tmp_path / "case")])
         assert rc == 0
+
+
+# ── Indicators ───────────────────────────────────────────────────────────────
+
+
+# A multi-block case with two generators and two demands for indicator tests.
+_INDICATOR_CASE: dict = {
+    "options": {
+        "use_kirchhoff": True,
+        "use_single_bus": False,
+        "demand_fail_cost": 1000,
+        "scale_objective": 1000,
+    },
+    "simulation": {
+        "block_array": [
+            {"uid": 1, "duration": 2},
+            {"uid": 2, "duration": 3},
+            {"uid": 3, "duration": 5},
+        ],
+        "stage_array": [
+            {"uid": 1, "first_block": 0, "count_block": 3},
+        ],
+        "scenario_array": [{"uid": 1, "probability_factor": 1}],
+    },
+    "system": {
+        "name": "indicator_test",
+        "bus_array": [
+            {"uid": 1, "name": "b1", "reference_theta": 0},
+            {"uid": 2, "name": "b2"},
+        ],
+        "generator_array": [
+            {
+                "uid": 1,
+                "name": "g1",
+                "bus": 1,
+                "pmax": 200,
+                "capacity": 200,
+                "gcost": 20,
+            },
+            {
+                "uid": 2,
+                "name": "g2",
+                "bus": 2,
+                "pmax": 150,
+                "capacity": 150,
+                "gcost": 35,
+            },
+        ],
+        "demand_array": [
+            {"uid": 1, "name": "d1", "bus": 1, "lmax": [100, 120, 80]},
+            {"uid": 2, "name": "d2", "bus": 2, "lmax": [50, 60, 40]},
+        ],
+        "line_array": [
+            {"uid": 1, "name": "l1_2", "bus_a": 1, "bus_b": 2, "reactance": 0.05},
+        ],
+        "flow_array": [
+            {"uid": 1, "name": "f1", "junction": 1, "discharge": [10.0, 20.0, 30.0]},
+            {"uid": 2, "name": "f2", "junction": 2, "discharge": 5.0},
+        ],
+        "junction_array": [
+            {"uid": 1, "name": "j1"},
+            {"uid": 2, "name": "j2"},
+        ],
+    },
+}
+
+
+class TestComputeIndicators:
+    """Test compute_indicators function."""
+
+    def test_total_gen_capacity(self) -> None:
+        ind = compute_indicators(_INDICATOR_CASE)
+        # g1(200) + g2(150) = 350
+        assert ind.total_gen_capacity_mw == pytest.approx(350.0)
+
+    def test_peak_demand(self) -> None:
+        ind = compute_indicators(_INDICATOR_CASE)
+        # Block 1: d1(120) + d2(60) = 180
+        assert ind.peak_demand_mw == pytest.approx(180.0)
+
+    def test_min_demand(self) -> None:
+        ind = compute_indicators(_INDICATOR_CASE)
+        # Block 2: d1(80) + d2(40) = 120
+        assert ind.min_demand_mw == pytest.approx(120.0)
+
+    def test_first_block_demand(self) -> None:
+        ind = compute_indicators(_INDICATOR_CASE)
+        # Block 0: d1(100) + d2(50) = 150
+        assert ind.first_block_demand_mw == pytest.approx(150.0)
+
+    def test_last_block_demand(self) -> None:
+        ind = compute_indicators(_INDICATOR_CASE)
+        # Block 2: d1(80) + d2(40) = 120
+        assert ind.last_block_demand_mw == pytest.approx(120.0)
+
+    def test_peak_demand_block(self) -> None:
+        ind = compute_indicators(_INDICATOR_CASE)
+        assert ind.peak_demand_block == 1  # 0-indexed
+
+    def test_total_demand_by_block(self) -> None:
+        ind = compute_indicators(_INDICATOR_CASE)
+        assert len(ind.total_demand_by_block) == 3
+        assert ind.total_demand_by_block[0] == pytest.approx(150.0)
+        assert ind.total_demand_by_block[1] == pytest.approx(180.0)
+        assert ind.total_demand_by_block[2] == pytest.approx(120.0)
+
+    def test_total_energy(self) -> None:
+        ind = compute_indicators(_INDICATOR_CASE)
+        # 150*2 + 180*3 + 120*5 = 300 + 540 + 600 = 1440
+        assert ind.total_energy_mwh == pytest.approx(1440.0)
+
+    def test_capacity_adequacy_ratio(self) -> None:
+        ind = compute_indicators(_INDICATOR_CASE)
+        # 350 / 180 ≈ 1.944
+        assert ind.capacity_adequacy_ratio == pytest.approx(350.0 / 180.0)
+
+    def test_num_counts(self) -> None:
+        ind = compute_indicators(_INDICATOR_CASE)
+        assert ind.num_generators == 2
+        assert ind.num_demands == 2
+        assert ind.num_blocks == 3
+        assert ind.num_flows == 2
+
+    def test_scalar_lmax(self) -> None:
+        """Scalar lmax should be treated as constant across all blocks."""
+        case = json.loads(json.dumps(_VALID_CASE))
+        ind = compute_indicators(case)
+        # d1 has lmax=50 (scalar), 2 blocks
+        assert ind.peak_demand_mw == pytest.approx(50.0)
+        assert ind.total_demand_by_block == [50.0, 50.0]
+
+    def test_failure_gen_excluded_by_type(self) -> None:
+        """Generators with type='falla' should be excluded regardless of pmax."""
+        case = json.loads(json.dumps(_INDICATOR_CASE))
+        case["system"]["generator_array"].append(
+            {
+                "uid": 99,
+                "name": "failure",
+                "bus": 1,
+                "pmax": 9999,
+                "gcost": 9999,
+                "type": "falla",
+            }
+        )
+        ind = compute_indicators(case)
+        # Should still be 350, not 350 + 9999
+        assert ind.total_gen_capacity_mw == pytest.approx(350.0)
+        assert ind.num_generators == 2  # failure gen not counted
+
+    def test_high_pmax_included_without_falla_type(self) -> None:
+        """A generator with high pmax but no type='falla' should be included."""
+        case = json.loads(json.dumps(_INDICATOR_CASE))
+        case["system"]["generator_array"].append(
+            {"uid": 99, "name": "big", "bus": 1, "pmax": 9999, "gcost": 10}
+        )
+        ind = compute_indicators(case)
+        # 350 + 9999 = 10349 — included because type is not falla
+        assert ind.total_gen_capacity_mw == pytest.approx(10349.0)
+        assert ind.num_generators == 3
+
+    def test_empty_case(self) -> None:
+        """Empty planning dict should produce zero indicators."""
+        ind = compute_indicators({})
+        assert ind.total_gen_capacity_mw == 0.0
+        assert ind.peak_demand_mw == 0.0
+        assert ind.capacity_adequacy_ratio == float("inf")
+
+    def test_first_block_affluent(self) -> None:
+        """First block affluent should sum discharge at block 0."""
+        ind = compute_indicators(_INDICATOR_CASE)
+        # f1 discharge=[10,20,30] → first=10; f2 discharge=5.0 → first=5
+        assert ind.first_block_affluent_avg == pytest.approx(15.0)
+
+    def test_last_block_affluent(self) -> None:
+        """Last block affluent should sum discharge at last block."""
+        ind = compute_indicators(_INDICATOR_CASE)
+        # f1 discharge=[10,20,30] → last=30; f2 discharge=5.0 → last=5
+        assert ind.last_block_affluent_avg == pytest.approx(35.0)
+
+    def test_no_flows_zero_affluent(self) -> None:
+        """When there are no flows, affluent should be zero."""
+        case = json.loads(json.dumps(_INDICATOR_CASE))
+        case["system"]["flow_array"] = []
+        ind = compute_indicators(case)
+        assert ind.first_block_affluent_avg == 0.0
+        assert ind.last_block_affluent_avg == 0.0
+        assert ind.num_flows == 0
+
+
+class TestFormatIndicators:
+    """Test format_indicators function."""
+
+    def test_contains_capacity(self) -> None:
+        text = format_indicators(_INDICATOR_CASE)
+        assert "350.0 MW" in text
+        assert "gen capacity" in text.lower()
+
+    def test_contains_first_block_demand(self) -> None:
+        text = format_indicators(_INDICATOR_CASE)
+        assert "first block demand" in text.lower()
+        assert "150.0 MW" in text
+
+    def test_contains_last_block_demand(self) -> None:
+        text = format_indicators(_INDICATOR_CASE)
+        assert "last block demand" in text.lower()
+
+    def test_contains_energy(self) -> None:
+        text = format_indicators(_INDICATOR_CASE)
+        assert "1,440.0 MWh" in text
+
+    def test_contains_adequacy(self) -> None:
+        text = format_indicators(_INDICATOR_CASE)
+        assert "adequacy" in text.lower()
+
+    def test_contains_affluent(self) -> None:
+        text = format_indicators(_INDICATOR_CASE)
+        assert "affluent" in text.lower()
+
+
+class TestCheckCapacityAdequacy:
+    """Test check_capacity_adequacy check."""
+
+    def test_adequate_no_findings(self) -> None:
+        # 350 MW gen vs 180 MW demand → ratio ~1.94 → no findings
+        findings = check_capacity_adequacy(_INDICATOR_CASE)
+        assert not findings
+
+    def test_deficit_critical(self) -> None:
+        """Capacity deficit should produce a CRITICAL finding."""
+        case = json.loads(json.dumps(_INDICATOR_CASE))
+        # Set generators to tiny capacity
+        case["system"]["generator_array"] = [
+            {"uid": 1, "name": "g1", "bus": 1, "pmax": 10, "capacity": 10, "gcost": 20},
+        ]
+        findings = check_capacity_adequacy(case)
+        assert len(findings) == 1
+        assert findings[0].severity == Severity.CRITICAL
+        assert "deficit" in findings[0].message.lower()
+
+    def test_thin_margin_warning(self) -> None:
+        """Thin reserve margin (< 15%) should produce a WARNING."""
+        case = json.loads(json.dumps(_INDICATOR_CASE))
+        # Peak demand is 180; capacity needs to be < 1.15*180=207 but >= 180
+        case["system"]["generator_array"] = [
+            {
+                "uid": 1,
+                "name": "g1",
+                "bus": 1,
+                "pmax": 190,
+                "capacity": 190,
+                "gcost": 20,
+            },
+        ]
+        findings = check_capacity_adequacy(case)
+        assert len(findings) == 1
+        assert findings[0].severity == Severity.WARNING
+        assert "margin" in findings[0].message.lower()
+
+    def test_no_demand_no_findings(self) -> None:
+        """No demand should produce no findings."""
+        case = json.loads(json.dumps(_INDICATOR_CASE))
+        case["system"]["demand_array"] = []
+        findings = check_capacity_adequacy(case)
+        assert not findings
