@@ -41,7 +41,9 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
   SPDLOG_INFO("MonolithicSolver: starting {} scene(s)", num_scenes);
 
   // ── Boundary cuts ──
-  if (!boundary_cuts_file.empty() && boundary_cuts_mode != "noload") {
+  if (!boundary_cuts_file.empty()
+      && boundary_cuts_mode != BoundaryCutsMode::noload)
+  {
     SPDLOG_INFO("MonolithicSolver: loading boundary cuts from '{}'",
                 boundary_cuts_file);
 
@@ -221,6 +223,11 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
 std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options,
                                                      size_t num_phases)
 {
+  // Validate enum option strings and warn about unknown values
+  for (const auto& w : options.validate_enum_options()) {
+    SPDLOG_WARN("Options: {}", w);
+  }
+
   if (options.solver_type_enum() == SolverType::sddp) {
     // SDDP requires at least 2 phases; fall back to monolithic for 0 or 1.
     if (num_phases > 0 && num_phases < 2) {
@@ -271,8 +278,7 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options,
       if (!boundary_cuts.empty()) {
         sddp_opts.boundary_cuts_file = std::string(boundary_cuts);
       }
-      sddp_opts.boundary_cuts_mode =
-          std::string(options.sddp_boundary_cuts_mode());
+      sddp_opts.boundary_cuts_mode = options.sddp_boundary_cuts_mode_enum();
       sddp_opts.boundary_max_iterations =
           options.sddp_boundary_max_iterations();
 
@@ -323,11 +329,10 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options,
   solver->lp_debug_directory = std::string(options.log_directory());
   solver->lp_debug_compression = std::string(options.lp_compression());
   solver->solve_timeout = options.monolithic_solve_timeout();
-  solver->solve_mode = std::string(options.monolithic_solve_mode());
+  solver->solve_mode = options.monolithic_solve_mode_enum();
   solver->boundary_cuts_file =
       std::string(options.monolithic_boundary_cuts_file());
-  solver->boundary_cuts_mode =
-      std::string(options.monolithic_boundary_cuts_mode());
+  solver->boundary_cuts_mode = options.monolithic_boundary_cuts_mode_enum();
   solver->boundary_max_iterations =
       options.monolithic_boundary_max_iterations();
   return solver;

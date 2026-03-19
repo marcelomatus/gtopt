@@ -276,7 +276,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   ///                 column (scene UID); unmatched UIDs are skipped
   /// - "combined"  — broadcast all cuts to all scenes
   /// Default: "separated".
-  std::string boundary_cuts_mode {"separated"};
+  BoundaryCutsMode boundary_cuts_mode {BoundaryCutsMode::separated};
 
   /// Maximum number of SDDP iterations to load from the boundary cuts
   /// file.  Only cuts from the last N distinct iterations (by the
