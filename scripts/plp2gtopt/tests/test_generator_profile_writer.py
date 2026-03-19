@@ -68,7 +68,7 @@ def test_empty_writer():
 
 
 def test_pasada_with_aflce():
-    """Pasada pura central with aflce data produces Afluent@afluent profile."""
+    """Pasada pura central with aflce data produces Flow@discharge profile."""
     centrals = [
         {
             "number": 1,
@@ -93,7 +93,7 @@ def test_pasada_with_aflce():
     assert result[0]["uid"] == 1
     assert result[0]["name"] == "HydroGen"
     assert result[0]["generator"] == 1
-    assert result[0]["profile"] == "Afluent@afluent"
+    assert result[0]["profile"] == "Flow@discharge"
 
 
 def test_pasada_without_aflce_uses_afluent():

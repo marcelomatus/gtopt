@@ -409,7 +409,7 @@ def test_get_plant_flow_with_aflce(sample_aflce_parser):
 
     assert len(result["flow_array"]) == 1
     flow = result["flow_array"][0]
-    assert flow["discharge"] == "Afluent@afluent"
+    assert flow["discharge"] == "discharge"
 
 
 def test_multiple_plants_and_interactions(sample_central_parser, sample_extrac_parser):

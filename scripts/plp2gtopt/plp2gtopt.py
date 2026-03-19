@@ -109,7 +109,7 @@ def _plp_element_counts(parser: PLPParser) -> dict[str, int]:
         for ctype, clist in central_parser.centrals_of_type.items():
             counts[f"sub_{ctype}"] = len(clist)
 
-    demand_parser = pdata.get("dem_parser")
+    demand_parser = pdata.get("demand_parser")
     if demand_parser:
         counts["demands"] = getattr(demand_parser, "num_demands", 0)
 
@@ -134,6 +134,135 @@ def _plp_element_counts(parser: PLPParser) -> dict[str, int]:
         counts["stages"] = getattr(stage_parser, "num_stages", 0)
 
     return counts
+
+
+def _plp_indicators(parser: PLPParser) -> dict[str, float]:
+    """Compute aggregate PLP indicators from parsed data for comparison.
+
+    Returns a dict with keys matching those from :func:`_gtopt_indicators`:
+
+    * ``total_gen_capacity_mw`` — sum of ``pmax`` across all non-failure
+      centrals in ``plpcnfce.dat``.  Failure centrals are identified by
+      ``type == "falla"``.
+    * ``first_block_demand_mw`` — total system demand at the first block.
+    * ``last_block_demand_mw`` — total system demand at the last block.
+    * ``total_energy_mwh`` — Σ (demand × duration) across all blocks.
+    * ``first_block_affluent_avg`` — average (across hydrologies) total
+      affluent at the first block from ``plpaflce.dat``.
+    * ``last_block_affluent_avg`` — same for the last block.
+    """
+    pd = parser.parsed_data
+    indicators: dict[str, float] = {}
+
+    # --- Total generation capacity from plpcnfce.dat ---
+    central_parser = pd.get("central_parser")
+    total_cap = 0.0
+    if central_parser:
+        for central in central_parser.centrals:
+            ctype = str(central.get("type", "")).lower()
+            if ctype == "falla":
+                continue
+            pmax = central.get("pmax", 0.0)
+            if isinstance(pmax, (int, float)):
+                total_cap += float(pmax)
+    indicators["total_gen_capacity_mw"] = total_cap
+
+    # --- Total demand per block from plpdem.dat ---
+    demand_parser = pd.get("demand_parser")
+    block_parser = pd.get("block_parser")
+
+    total_energy = 0.0
+    has_demand = False
+    block_totals: list[float] = []
+
+    if demand_parser and block_parser:
+        num_blocks = getattr(block_parser, "num_blocks", 0)
+        block_totals = [0.0] * num_blocks
+
+        for dem in demand_parser.demands:
+            blocks = dem.get("blocks")
+            values = dem.get("values")
+            if blocks is not None and values is not None:
+                for i, blk_num in enumerate(blocks):
+                    if i >= len(values):
+                        break
+                    idx = int(blk_num) - 1  # block numbers are 1-based
+                    if 0 <= idx < num_blocks:
+                        block_totals[idx] += float(values[i])
+                        has_demand = True
+
+        if has_demand and num_blocks > 0:
+            # Compute total energy
+            for b_idx in range(num_blocks):
+                blk = block_parser.get_item_by_number(b_idx + 1)
+                duration = blk.get("duration", 1.0) if blk else 1.0
+                total_energy += block_totals[b_idx] * duration
+
+    first_blk_dem = block_totals[0] if block_totals else 0.0
+    last_blk_dem = block_totals[-1] if block_totals else 0.0
+
+    indicators["first_block_demand_mw"] = first_blk_dem
+    indicators["last_block_demand_mw"] = last_blk_dem
+    indicators["total_energy_mwh"] = total_energy
+
+    # --- Accumulated affluent from plpaflce.dat ---
+    aflce_parser = pd.get("aflce_parser")
+    first_afl = 0.0
+    last_afl = 0.0
+    if aflce_parser:
+        for flow in aflce_parser.flows:
+            flow_data = flow.get("flow")  # numpy array (num_blocks, num_hydro)
+            block_arr = flow.get("block")  # numpy array of block numbers
+            if flow_data is None or block_arr is None or len(block_arr) == 0:
+                continue
+            num_hydro = flow.get("num_hydrologies", 1)
+            # First block: mean across hydrologies
+            first_afl += float(flow_data[0].mean()) if num_hydro > 0 else 0.0
+            # Last block: mean across hydrologies
+            last_afl += float(flow_data[-1].mean()) if num_hydro > 0 else 0.0
+
+    indicators["first_block_affluent_avg"] = first_afl
+    indicators["last_block_affluent_avg"] = last_afl
+
+    return indicators
+
+
+def _gtopt_indicators(planning: dict[str, Any]) -> dict[str, float]:
+    """Compute aggregate gtopt indicators from the planning dict.
+
+    Uses :func:`gtopt_check_json._info.compute_indicators` when available,
+    otherwise falls back to a simplified local computation.
+    """
+    try:
+        from gtopt_check_json._info import compute_indicators  # noqa: PLC0415
+
+        ind = compute_indicators(planning)
+        return {
+            "total_gen_capacity_mw": ind.total_gen_capacity_mw,
+            "first_block_demand_mw": ind.first_block_demand_mw,
+            "last_block_demand_mw": ind.last_block_demand_mw,
+            "total_energy_mwh": ind.total_energy_mwh,
+            "first_block_affluent_avg": ind.first_block_affluent_avg,
+            "last_block_affluent_avg": ind.last_block_affluent_avg,
+        }
+    except ImportError:
+        # Fallback: compute locally using type attribute
+        sys_data = planning.get("system", {})
+        total_cap = 0.0
+        for gen in sys_data.get("generator_array", []):
+            if str(gen.get("type", "")).lower() == "falla":
+                continue
+            cap = gen.get("capacity", gen.get("pmax", 0))
+            if isinstance(cap, (int, float)):
+                total_cap += float(cap)
+        return {
+            "total_gen_capacity_mw": total_cap,
+            "first_block_demand_mw": 0.0,
+            "last_block_demand_mw": 0.0,
+            "total_energy_mwh": 0.0,
+            "first_block_affluent_avg": 0.0,
+            "last_block_affluent_avg": 0.0,
+        }
 
 
 def _gtopt_element_counts(planning: dict[str, Any]) -> dict[str, int]:
@@ -195,6 +324,8 @@ def _delta_str(
 def _log_comparison(
     plp_counts: dict[str, int],
     gtopt_counts: dict[str, int],
+    plp_ind: dict[str, float] | None = None,
+    gtopt_ind: dict[str, float] | None = None,
 ) -> None:
     """Log a formatted side-by-side PLP vs gtopt element comparison.
 
@@ -362,6 +493,42 @@ def _log_comparison(
     _row("scenarios", None, g_scenarios)
     _blank()
 
+    # --- Global indicators side-by-side ---
+    if plp_ind and gtopt_ind:
+        logger.info("")
+        logger.info("=== PLP vs gtopt global indicators ===")
+        logger.info("  %-25s %12s %12s", "Indicator", "PLP", "gtopt")
+        logger.info("  %-25s %12s %12s", "-" * 25, "-" * 12, "-" * 12)
+
+        for key in (
+            "total_gen_capacity_mw",
+            "first_block_demand_mw",
+            "last_block_demand_mw",
+            "total_energy_mwh",
+            "first_block_affluent_avg",
+            "last_block_affluent_avg",
+        ):
+            plp_val = plp_ind.get(key, 0.0)
+            gtopt_val = gtopt_ind.get(key, 0.0)
+            label = (
+                key.replace("_", " ")
+                .replace(" mw", " (MW)")
+                .replace(" mwh", " (MWh)")
+                .replace(" avg", " avg (m³/s)")
+            )
+            logger.info("  %-25s %12.1f %12.1f", label, plp_val, gtopt_val)
+
+        # Capacity adequacy ratio (using first block demand)
+        plp_dem1 = plp_ind.get("first_block_demand_mw", 0.0)
+        gtopt_dem1 = gtopt_ind.get("first_block_demand_mw", 0.0)
+        plp_cap = plp_ind.get("total_gen_capacity_mw", 0.0)
+        gtopt_cap = gtopt_ind.get("total_gen_capacity_mw", 0.0)
+        plp_ratio = plp_cap / plp_dem1 if plp_dem1 > 0 else float("inf")
+        gtopt_ratio = gtopt_cap / gtopt_dem1 if gtopt_dem1 > 0 else float("inf")
+        logger.info(
+            "  %-25s %12.3f %12.3f", "capacity adequacy ratio", plp_ratio, gtopt_ratio
+        )
+
 
 def run_post_check(
     planning: dict[str, Any],
@@ -383,7 +550,9 @@ def run_post_check(
     # --- PLP vs gtopt comparison (always available) ---
     plp_counts = _plp_element_counts(parser)
     gtopt_counts = _gtopt_element_counts(planning)
-    _log_comparison(plp_counts, gtopt_counts)
+    plp_ind = _plp_indicators(parser)
+    gtopt_ind = _gtopt_indicators(planning)
+    _log_comparison(plp_counts, gtopt_counts, plp_ind, gtopt_ind)
 
     # --- gtopt_check_json integration (optional) ---
     try:

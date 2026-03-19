@@ -226,12 +226,12 @@ def display_plp_info(options: Dict[str, Any]) -> None:
                     f"  Extra hydros (not in active forward set): {_compact_range(extra)}"
                 )
                 print(
-                    f"  → {len(extra)} extra Afluent file(s) will be written"
-                    " to apertures/Afluent/"
+                    f"  → {len(extra)} extra Flow discharge file(s) will be written"
+                    " to apertures/Flow/"
                 )
             else:
                 print("  All aperture hydros are in the active forward set")
-                print("  → no extra Afluent files needed")
+                print("  → no extra Flow discharge files needed")
 
         if idape is not None:
             print(
