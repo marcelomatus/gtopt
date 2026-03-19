@@ -311,7 +311,8 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
 auto PlanningLP::resolve(const SolverOptions& lp_opts)
     -> std::expected<int, Error>
 {
-  auto solver = make_planning_solver(m_options_);
+  const auto num_phases = simulation().phases().size();
+  auto solver = make_planning_solver(m_options_, num_phases);
   return solver->solve(*this, lp_opts);
 }
 
