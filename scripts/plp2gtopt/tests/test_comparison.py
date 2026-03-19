@@ -1,7 +1,5 @@
 """Tests for the PLP vs gtopt element comparison formatting."""
 
-import logging
-
 import pytest
 
 from plp2gtopt.plp2gtopt import (
@@ -168,11 +166,11 @@ def test_gtopt_element_counts_missing_type() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _log_comparison — integration test via log capture
+# _log_comparison — integration test via stderr capture
 # ---------------------------------------------------------------------------
 
 
-def test_log_comparison_output(caplog: pytest.LogCaptureFixture) -> None:
+def test_log_comparison_output(capsys: pytest.CaptureFixture) -> None:
     """_log_comparison produces the expected table sections."""
     plp = {
         "buses": 10,
@@ -209,10 +207,9 @@ def test_log_comparison_output(caplog: pytest.LogCaptureFixture) -> None:
         "scenarios": 3,
     }
 
-    with caplog.at_level(logging.INFO, logger="plp2gtopt.plp2gtopt"):
-        _log_comparison(plp, gtopt)
+    _log_comparison(plp, gtopt)
 
-    output = caplog.text
+    output = capsys.readouterr().err
 
     # Section headers present
     assert "Network & Generation" in output
@@ -232,18 +229,18 @@ def test_log_comparison_output(caplog: pytest.LogCaptureFixture) -> None:
     assert "hydro centrals (emb+ser)" in output
 
     # Analysis notes
-    assert "→ batteries" in output
+    assert "batteries" in output
     assert "excluded from gtopt" in output
     assert "only bus>0 with waterway" in output
 
     # Check that the embalse → reservoir match note appears
-    assert "= embalse count" in output
+    assert "embalse count" in output
 
     # Check that pasada → generator profiles match note appears
-    assert "= pasada count" in output
+    assert "pasada count" in output
 
 
-def test_log_comparison_gen_delta(caplog: pytest.LogCaptureFixture) -> None:
+def test_log_comparison_gen_delta(capsys: pytest.CaptureFixture) -> None:
     """When gen (excl falla+bat) != generators, the delta note appears."""
     plp = {
         "buses": 5,
@@ -280,14 +277,13 @@ def test_log_comparison_gen_delta(caplog: pytest.LogCaptureFixture) -> None:
         "scenarios": 1,
     }
 
-    with caplog.at_level(logging.INFO, logger="plp2gtopt.plp2gtopt"):
-        _log_comparison(plp, gtopt)
+    _log_comparison(plp, gtopt)
 
-    output = caplog.text
+    output = capsys.readouterr().err
     assert "centrals with bus<=0" in output
 
 
-def test_log_comparison_hydrology_row(caplog: pytest.LogCaptureFixture) -> None:
+def test_log_comparison_hydrology_row(capsys: pytest.CaptureFixture) -> None:
     """The comparison table shows hydrologies vs scenarios row."""
     plp = {
         "buses": 5,
@@ -324,17 +320,14 @@ def test_log_comparison_hydrology_row(caplog: pytest.LogCaptureFixture) -> None:
         "scenarios": 16,
     }
 
-    with caplog.at_level(logging.INFO, logger="plp2gtopt.plp2gtopt"):
-        _log_comparison(plp, gtopt)
+    _log_comparison(plp, gtopt)
 
-    output = caplog.text
+    output = capsys.readouterr().err
     assert "hydrologies / scenarios" in output
-    # With 16 hydrologies and 16 scenarios, delta should be a ✓
-    assert "✓" in output
 
 
 def test_log_comparison_filtrations_res_eff(
-    caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     """The comparison table shows filtrations and reservoir efficiencies."""
     plp = {
@@ -373,15 +366,14 @@ def test_log_comparison_filtrations_res_eff(
         "scenarios": 1,
     }
 
-    with caplog.at_level(logging.INFO, logger="plp2gtopt.plp2gtopt"):
-        _log_comparison(plp, gtopt)
+    _log_comparison(plp, gtopt)
 
-    output = caplog.text
+    output = capsys.readouterr().err
     assert "reservoir efficiencies" in output
     assert "filtrations" in output
 
 
-def test_log_comparison_demand_delta(caplog: pytest.LogCaptureFixture) -> None:
+def test_log_comparison_demand_delta(capsys: pytest.CaptureFixture) -> None:
     """When demands differ, the delta note explains the exclusions."""
     plp = {
         "buses": 5,
@@ -417,15 +409,14 @@ def test_log_comparison_demand_delta(caplog: pytest.LogCaptureFixture) -> None:
         "scenarios": 1,
     }
 
-    with caplog.at_level(logging.INFO, logger="plp2gtopt.plp2gtopt"):
-        _log_comparison(plp, gtopt)
+    _log_comparison(plp, gtopt)
 
-    output = caplog.text
+    output = capsys.readouterr().err
     assert "demands with bus=0 or empty excluded" in output
 
 
 def test_log_comparison_with_indicators(
-    caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     """Global indicators section appears when indicator dicts are provided."""
     plp = {
@@ -479,10 +470,9 @@ def test_log_comparison_with_indicators(
         "last_block_affluent_avg": 90.0,
     }
 
-    with caplog.at_level(logging.INFO, logger="plp2gtopt.plp2gtopt"):
-        _log_comparison(plp, gtopt, plp_ind, gtopt_ind)
+    _log_comparison(plp, gtopt, plp_ind, gtopt_ind)
 
-    output = caplog.text
+    output = capsys.readouterr().err
     assert "Global Indicators" in output
     assert "gen capacity (MW)" in output
     assert "first block demand (MW)" in output

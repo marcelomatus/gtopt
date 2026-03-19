@@ -353,16 +353,19 @@ class TestCLI:
         p.write_text(json.dumps(_VALID_CASE), encoding="utf-8")
         rc = main(["--info", "--no-color", str(p)])
         assert rc == 0
-        out = capsys.readouterr().out
-        assert "test_valid" in out
+        captured = capsys.readouterr()
+        # Rich writes to stderr; check both streams
+        combined = captured.out + captured.err
+        assert "test_valid" in combined
 
     def test_check_valid(self, tmp_path: Path, capsys: Any) -> None:
         p = tmp_path / "test.json"
         p.write_text(json.dumps(_VALID_CASE), encoding="utf-8")
         rc = main(["--no-color", str(p)])
         assert rc == 0
-        out = capsys.readouterr().out
-        assert "passed" in out.lower() or "0 critical" in out.lower()
+        captured = capsys.readouterr()
+        combined = captured.out + captured.err
+        assert "passed" in combined.lower() or "0 critical" in combined.lower()
 
     def test_check_critical(self, tmp_path: Path, capsys: Any) -> None:
         case = json.loads(json.dumps(_VALID_CASE))

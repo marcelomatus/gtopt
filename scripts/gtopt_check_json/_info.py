@@ -448,17 +448,26 @@ def format_indicators(
     ind = compute_indicators(planning, base_dir=base_dir)
 
     pairs: list[tuple[str, str]] = [
-        ("Total gen capacity", f"{ind.total_gen_capacity_mw:,.1f} MW  ({ind.num_generators} generators)"),
+        (
+            "Total gen capacity",
+            f"{ind.total_gen_capacity_mw:,.1f} MW  ({ind.num_generators} generators)",
+        ),
         ("First block demand", f"{ind.first_block_demand_mw:,.1f} MW"),
         ("Last block demand", f"{ind.last_block_demand_mw:,.1f} MW"),
-        ("Peak demand", f"{ind.peak_demand_mw:,.1f} MW  (block {ind.peak_demand_block})"),
+        (
+            "Peak demand",
+            f"{ind.peak_demand_mw:,.1f} MW  (block {ind.peak_demand_block})",
+        ),
         ("Min demand", f"{ind.min_demand_mw:,.1f} MW"),
         ("Total energy", f"{ind.total_energy_mwh:,.1f} MWh"),
         ("Capacity adequacy", f"{ind.capacity_adequacy_ratio:.3f}"),
     ]
     if ind.num_flows > 0:
         pairs.append(
-            ("First block affluent", f"{ind.first_block_affluent_avg:,.1f} m³/s  ({ind.num_flows} flows)")
+            (
+                "First block affluent",
+                f"{ind.first_block_affluent_avg:,.1f} m³/s  ({ind.num_flows} flows)",
+            )
         )
         pairs.append(
             ("Last block affluent", f"{ind.last_block_affluent_avg:,.1f} m³/s")
@@ -477,17 +486,26 @@ def print_indicators(
     ind = compute_indicators(planning, base_dir=base_dir)
 
     pairs: list[tuple[str, str]] = [
-        ("Total gen capacity", f"{ind.total_gen_capacity_mw:,.1f} MW  ({ind.num_generators} generators)"),
+        (
+            "Total gen capacity",
+            f"{ind.total_gen_capacity_mw:,.1f} MW  ({ind.num_generators} generators)",
+        ),
         ("First block demand", f"{ind.first_block_demand_mw:,.1f} MW"),
         ("Last block demand", f"{ind.last_block_demand_mw:,.1f} MW"),
-        ("Peak demand", f"{ind.peak_demand_mw:,.1f} MW  (block {ind.peak_demand_block})"),
+        (
+            "Peak demand",
+            f"{ind.peak_demand_mw:,.1f} MW  (block {ind.peak_demand_block})",
+        ),
         ("Min demand", f"{ind.min_demand_mw:,.1f} MW"),
         ("Total energy", f"{ind.total_energy_mwh:,.1f} MWh"),
         ("Capacity adequacy", f"{ind.capacity_adequacy_ratio:.3f}"),
     ]
     if ind.num_flows > 0:
         pairs.append(
-            ("First block affluent", f"{ind.first_block_affluent_avg:,.1f} m³/s  ({ind.num_flows} flows)")
+            (
+                "First block affluent",
+                f"{ind.first_block_affluent_avg:,.1f} m³/s  ({ind.num_flows} flows)",
+            )
         )
         pairs.append(
             ("Last block affluent", f"{ind.last_block_affluent_avg:,.1f} m³/s")
@@ -600,7 +618,6 @@ def print_info(
     """
     from gtopt_check_json._terminal import (  # noqa: PLC0415
         print_kv_table,
-        print_indicators,
     )
 
     sys_data = planning.get("system", {})
