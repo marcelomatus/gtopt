@@ -463,11 +463,7 @@ def compute_indicators(
         for b_idx in range(num_blocks):
             val = _scalar_at_block(discharge, b_idx)
             if val is not None:
-                dur = (
-                    blocks[b_idx].get("duration", 1.0)
-                    if b_idx < num_blocks
-                    else 1.0
-                )
+                dur = blocks[b_idx].get("duration", 1.0) if b_idx < num_blocks else 1.0
                 total_water_vol_hm3 += val * dur * _M3S_TO_HM3_PER_H
 
     # Average flow per affluent (m³/s) = total_volume / total_time / num_flows
