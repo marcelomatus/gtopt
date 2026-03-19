@@ -257,6 +257,9 @@ def _plp_indicators(
                 _bus_gt0_names.add(str(central.get("name", "")))
 
     # --- Total generation capacity from plpcnfce.dat (bus > 0 only) ---
+    # Exclude "falla" (failure generators) to match gtopt.  Batteries
+    # (type "bateria") are included because gtopt counts their discharge
+    # capacity via battery_array.pmax_discharge.
     total_cap = 0.0
     hydro_cap = 0.0
     thermal_cap = 0.0
@@ -362,15 +365,19 @@ def _plp_indicators(
             if num_hydro <= 0:
                 continue
             num_active_flows += 1
+            # Pre-compute valid hydrology columns outside the block loop
+            if hydrology_indices is not None:
+                valid_cols = [c for c in hydrology_indices if 0 <= c < num_hydro]
+                if not valid_cols:
+                    continue
+            else:
+                valid_cols = None
             for b_idx, blk_num_raw in enumerate(block_arr):
                 blk_num = int(blk_num_raw)
                 blk = block_parser.get_item_by_number(blk_num)
                 duration = blk.get("duration", 1.0) if blk else 1.0
-                if hydrology_indices is not None:
-                    cols = [c for c in hydrology_indices if 0 <= c < num_hydro]
-                    if not cols:
-                        continue
-                    avg_flow_val = float(flow_data[b_idx, cols].mean())
+                if valid_cols is not None:
+                    avg_flow_val = float(flow_data[b_idx, valid_cols].mean())
                 else:
                     avg_flow_val = float(flow_data[b_idx].mean())
                 total_water_vol_hm3 += avg_flow_val * duration * _M3S_TO_HM3_PER_H
