@@ -585,7 +585,7 @@ TEST_CASE("Options solver_type and sddp_cut_sharing_mode")  // NOLINT
 {
   Options opts;
   opts.solver_type = OptName {"sddp"};
-  opts.sddp_options.sddp_cut_sharing_mode = OptName {"expected"};
+  opts.sddp_options.cut_sharing_mode = OptName {"expected"};
 
   const OptionsLP options_lp(std::move(opts));
   CHECK(options_lp.solver_type() == "sddp");

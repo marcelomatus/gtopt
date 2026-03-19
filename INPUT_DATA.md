@@ -276,7 +276,7 @@ scenarios or all scenarios).
 | `source_scenario`    | integer | —     | Yes      | UID of the scenario whose affluent data to use |
 | `probability_factor` | number  | p.u.  | No       | Probability weight (normalised to sum 1 across active apertures; default: 1) |
 
-> **Note:** When `sddp_aperture_directory` is set in `sddp_options`,
+> **Note:** When `aperture_directory` is set in `sddp_options`,
 > the source scenario is first looked up in that directory; if not
 > found there, it falls back to the regular `input_directory`.
 

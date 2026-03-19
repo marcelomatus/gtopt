@@ -1162,9 +1162,9 @@ mathematical symbols used in this formulation.
 | `options.demand_fail_cost` | $c^{\text{fail}}_d$ | Curtailment penalty |
 | `options.reserve_fail_cost` | $c^{\text{rfail}}$ | Reserve penalty |
 | `options.solver_type` | — | Solver: `"monolithic"` or `"sddp"` |
-| `options.sddp_boundary_cuts_file` | — | CSV with boundary cuts for last phase (§6.5) |
-| `options.sddp_boundary_cuts_mode` | — | Load mode: `"noload"`, `"separated"`, `"combined"` |
-| `options.sddp_boundary_max_iterations` | — | Max iterations to load from boundary cuts |
+| `options.sddp_options.boundary_cuts_file` | — | CSV with boundary cuts for last phase (§6.5) |
+| `options.sddp_options.boundary_cuts_mode` | — | Load mode: `"noload"`, `"separated"`, `"combined"` |
+| `options.sddp_options.boundary_max_iterations` | — | Max iterations to load from boundary cuts |
 
 ### Simulation Structure
 

@@ -305,7 +305,7 @@ def _write_boundary_cuts_csv(df, input_path):
     name).
 
     The CSV is written to ``<input_path>/boundary_cuts.csv`` and the
-    returned path should be stored in the ``sddp_boundary_cuts_file``
+    returned path should be stored in the ``boundary_cuts_file``
     option so the C++ solver can load it.
     """
     out_dir = pathlib.Path(input_path)
@@ -619,12 +619,12 @@ def _run(args) -> int:
                 try:
                     csv_path = _write_boundary_cuts_csv(df, args.input_directory)
                     # Place inside sddp_options so the C++ parser maps it
-                    # to Options::sddp_options::sddp_boundary_cuts_file.
+                    # to Options::sddp_options::boundary_cuts_file.
                     # setdefault always returns a dict here; the explicit
                     # type guard is only for safety if options["sddp_options"]
                     # was pre-populated with a non-dict value by the user.
                     sddp_opts = options.setdefault("sddp_options", {})
-                    sddp_opts["sddp_boundary_cuts_file"] = str(csv_path)
+                    sddp_opts["boundary_cuts_file"] = str(csv_path)
                     logging.info(
                         "boundary_cuts sheet → %s (%d cuts)", csv_path, len(df)
                     )

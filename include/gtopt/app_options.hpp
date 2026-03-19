@@ -302,7 +302,7 @@ inline void apply_cli_options(
   }
 
   if (cut_directory) {
-    planning.options.sddp_options.sddp_cut_directory = cut_directory.value();
+    planning.options.sddp_options.cut_directory = cut_directory.value();
   }
 
   if (log_directory) {
@@ -310,23 +310,23 @@ inline void apply_cli_options(
   }
 
   if (sddp_max_iterations) {
-    planning.options.sddp_options.sddp_max_iterations = sddp_max_iterations;
+    planning.options.sddp_options.max_iterations = sddp_max_iterations;
   }
 
   if (sddp_convergence_tol) {
-    planning.options.sddp_options.sddp_convergence_tol = sddp_convergence_tol;
+    planning.options.sddp_options.convergence_tol = sddp_convergence_tol;
   }
 
   if (sddp_elastic_penalty) {
-    planning.options.sddp_options.sddp_elastic_penalty = sddp_elastic_penalty;
+    planning.options.sddp_options.elastic_penalty = sddp_elastic_penalty;
   }
 
   if (sddp_elastic_mode) {
-    planning.options.sddp_options.sddp_elastic_mode = sddp_elastic_mode.value();
+    planning.options.sddp_options.elastic_mode = sddp_elastic_mode.value();
   }
 
   if (sddp_num_apertures) {
-    planning.options.sddp_options.sddp_num_apertures = sddp_num_apertures;
+    planning.options.sddp_options.num_apertures = sddp_num_apertures;
   }
 
   if (lp_debug) {
@@ -379,11 +379,10 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 
   // Additional SDDP options not in the positional overload
   if (opts.sddp_min_iterations) {
-    planning.options.sddp_options.sddp_min_iterations =
-        opts.sddp_min_iterations;
+    planning.options.sddp_options.min_iterations = opts.sddp_min_iterations;
   }
   if (opts.sddp_hot_start) {
-    planning.options.sddp_options.sddp_hot_start = opts.sddp_hot_start;
+    planning.options.sddp_options.hot_start = opts.sddp_hot_start;
   }
 }
 
