@@ -240,3 +240,55 @@ TEST_CASE("OptionsLP enum accessors parse explicit values")  // NOLINT
   CHECK(opts.monolithic_solve_mode_enum() == SolveMode::sequential);
   CHECK(opts.monolithic_boundary_cuts_mode_enum() == BoundaryCutsMode::noload);
 }
+
+// ─── validate_enum_options ──────────────────────────────────────────────────
+
+TEST_CASE("validate_enum_options returns empty for valid defaults")  // NOLINT
+{
+  const OptionsLP opts;
+  const auto warnings = opts.validate_enum_options();
+  CHECK(warnings.empty());
+}
+
+TEST_CASE("validate_enum_options returns empty for valid explicit values")
+// NOLINT
+{
+  Options raw;
+  raw.solver_type = "sddp";
+  raw.input_format = "csv";
+  raw.output_format = "parquet";
+  raw.output_compression = "gzip";
+  raw.sddp_options.cut_sharing_mode = "expected";
+  raw.sddp_options.elastic_mode = "multi_cut";
+  raw.sddp_options.boundary_cuts_mode = "combined";
+  raw.monolithic_options.solve_mode = "sequential";
+  raw.monolithic_options.boundary_cuts_mode = "noload";
+
+  const OptionsLP opts(std::move(raw));
+  const auto warnings = opts.validate_enum_options();
+  CHECK(warnings.empty());
+}
+
+TEST_CASE("validate_enum_options warns about unknown solver_type")  // NOLINT
+{
+  Options raw;
+  raw.solver_type = "bogus_solver";
+  const OptionsLP opts(std::move(raw));
+  const auto warnings = opts.validate_enum_options();
+  REQUIRE(warnings.size() == 1);
+  CHECK(warnings[0].find("solver_type") != std::string::npos);
+  CHECK(warnings[0].find("bogus_solver") != std::string::npos);
+}
+
+TEST_CASE(
+    "validate_enum_options warns about multiple unknown "
+    "values")  // NOLINT
+{
+  Options raw;
+  raw.solver_type = "bad";
+  raw.input_format = "xml";
+  raw.sddp_options.cut_sharing_mode = "invalid";
+  const OptionsLP opts(std::move(raw));
+  const auto warnings = opts.validate_enum_options();
+  CHECK(warnings.size() == 3);
+}

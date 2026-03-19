@@ -411,6 +411,42 @@ TEST_CASE(
   std::filesystem::remove(tmp_file);
 }
 
+TEST_CASE(
+    "load_cuts_csv skips malformed lines and loads valid "
+    "ones")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  const auto tmp_file = (std::filesystem::temp_directory_path()
+                         / "gtopt_test_cut_io_malformed.csv")
+                            .string();
+
+  {
+    std::ofstream ofs(tmp_file);
+    ofs << "# scale_objective=1\n";
+    ofs << "phase,scene,name,rhs,coefficients\n";
+    // Valid line
+    ofs << "1,1,good_cut,50.0,0:1.5\n";
+    // Malformed: non-numeric phase
+    ofs << "abc,1,bad_phase,10.0\n";
+    // Malformed: missing rhs
+    ofs << "1,1,no_rhs\n";
+    // Malformed: non-numeric rhs
+    ofs << "1,1,bad_rhs,xyz\n";
+    // Another valid line
+    ofs << "2,1,good_cut2,30.0,0:0.5\n";
+  }
+
+  const LabelMaker label_maker(planning_lp.options());
+  auto result = load_cuts_csv(planning_lp, tmp_file, label_maker);
+  REQUIRE(result.has_value());
+  // Only the 2 valid lines should be loaded
+  CHECK(result->count == 2);
+
+  std::filesystem::remove(tmp_file);
+}
+
 // ─── save_scene_cuts_csv tests ──────────────────────────────────────────────
 
 TEST_CASE("save_scene_cuts_csv creates per-scene file")  // NOLINT
@@ -613,7 +649,7 @@ TEST_CASE("load_boundary_cuts_csv noload mode returns 0")  // NOLINT
   PlanningLP planning_lp(std::move(planning));
 
   SDDPOptions opts;
-  opts.boundary_cuts_mode = "noload";
+  opts.boundary_cuts_mode = BoundaryCutsMode::noload;
 
   const LabelMaker label_maker(planning_lp.options());
   auto states = make_scene_phase_states(planning_lp);
@@ -632,7 +668,7 @@ TEST_CASE(
   PlanningLP planning_lp(std::move(planning));
 
   SDDPOptions opts;
-  opts.boundary_cuts_mode = "separated";
+  opts.boundary_cuts_mode = BoundaryCutsMode::separated;
 
   const LabelMaker label_maker(planning_lp.options());
   auto states = make_scene_phase_states(planning_lp);
@@ -665,7 +701,7 @@ TEST_CASE(
   }
 
   SDDPOptions opts;
-  opts.boundary_cuts_mode = "separated";
+  opts.boundary_cuts_mode = BoundaryCutsMode::separated;
 
   const LabelMaker label_maker(planning_lp.options());
   auto states = make_scene_phase_states(planning_lp);
@@ -703,7 +739,7 @@ TEST_CASE(
   }
 
   SDDPOptions opts;
-  opts.boundary_cuts_mode = "separated";
+  opts.boundary_cuts_mode = BoundaryCutsMode::separated;
   opts.boundary_max_iterations = 0;  // no filtering
 
   const LabelMaker label_maker(planning_lp.options());
@@ -736,7 +772,7 @@ TEST_CASE(
   }
 
   SDDPOptions opts;
-  opts.boundary_cuts_mode = "shared";
+  opts.boundary_cuts_mode = BoundaryCutsMode::combined;
 
   const LabelMaker label_maker(planning_lp.options());
   auto states = make_scene_phase_states(planning_lp);
@@ -768,7 +804,7 @@ TEST_CASE(
   }
 
   SDDPOptions opts;
-  opts.boundary_cuts_mode = "separated";
+  opts.boundary_cuts_mode = BoundaryCutsMode::separated;
 
   const LabelMaker label_maker(planning_lp.options());
   auto states = make_scene_phase_states(planning_lp);
@@ -801,7 +837,7 @@ TEST_CASE("load_boundary_cuts_csv filters by max_iterations")  // NOLINT
   }
 
   SDDPOptions opts;
-  opts.boundary_cuts_mode = "separated";
+  opts.boundary_cuts_mode = BoundaryCutsMode::separated;
   // Keep only the last 2 iterations (iterations 2 and 3)
   opts.boundary_max_iterations = 2;
 
@@ -838,7 +874,7 @@ TEST_CASE(
   }
 
   SDDPOptions opts;
-  opts.boundary_cuts_mode = "separated";
+  opts.boundary_cuts_mode = BoundaryCutsMode::separated;
 
   const LabelMaker label_maker(planning_lp.options());
   auto states = make_scene_phase_states(planning_lp);
@@ -871,7 +907,7 @@ TEST_CASE(
   }
 
   SDDPOptions opts;
-  opts.boundary_cuts_mode = "shared";
+  opts.boundary_cuts_mode = BoundaryCutsMode::combined;
 
   const LabelMaker label_maker(planning_lp.options());
   auto states = make_scene_phase_states(planning_lp);
@@ -905,7 +941,7 @@ TEST_CASE(
   }
 
   SDDPOptions opts;
-  opts.boundary_cuts_mode = "shared";
+  opts.boundary_cuts_mode = BoundaryCutsMode::combined;
 
   const LabelMaker label_maker(planning_lp.options());
   auto states = make_scene_phase_states(planning_lp);
@@ -937,7 +973,7 @@ TEST_CASE(
   }
 
   SDDPOptions opts;
-  opts.boundary_cuts_mode = "shared";
+  opts.boundary_cuts_mode = BoundaryCutsMode::combined;
 
   const LabelMaker label_maker(planning_lp.options());
   auto states = make_scene_phase_states(planning_lp);
@@ -970,7 +1006,7 @@ TEST_CASE(
   }
 
   SDDPOptions opts;
-  opts.boundary_cuts_mode = "shared";
+  opts.boundary_cuts_mode = BoundaryCutsMode::combined;
 
   const LabelMaker label_maker(planning_lp.options());
   auto states = make_scene_phase_states(planning_lp);
@@ -1001,7 +1037,7 @@ TEST_CASE(
   }
 
   SDDPOptions opts;
-  opts.boundary_cuts_mode = "shared";
+  opts.boundary_cuts_mode = BoundaryCutsMode::combined;
   opts.alpha_min = -1e9;
   opts.alpha_max = 1e9;
 
@@ -1044,7 +1080,7 @@ TEST_CASE(
   }
 
   SDDPOptions opts;
-  opts.boundary_cuts_mode = "shared";
+  opts.boundary_cuts_mode = BoundaryCutsMode::combined;
 
   const LabelMaker label_maker(planning_lp.options());
   auto states = make_scene_phase_states(planning_lp);
