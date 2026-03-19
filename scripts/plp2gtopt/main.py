@@ -7,7 +7,11 @@ import signal
 import sys
 from pathlib import Path
 
-from .plp2gtopt import convert_plp_case, validate_plp_case
+from .plp2gtopt import (
+    convert_plp_case,
+    print_variable_scales_template,
+    validate_plp_case,
+)
 from .info_display import display_plp_info
 
 try:
@@ -73,17 +77,23 @@ examples:
   # Apply a 10% annual discount rate
   plp2gtopt -i input/ -d 0.10
 
-  # Set reservoir volume scaling for better LP numerics
+  # Auto-scaling is ON by default for both volume and energy.
+  # Override specific reservoirs with --vol-scale:
   plp2gtopt -i input/ --vol-scale 'RAPEL:500,COLBUN:15000'
 
-  # Auto-calculate vol_scale from PLP FEscala (plpplem1.dat / plpcnfce.dat)
-  plp2gtopt -i input/ --auto-vol-scale
-
-  # Set battery energy scaling
+  # Override specific battery energy scales:
   plp2gtopt -i input/ --energy-scale 'BESS1:100'
 
-  # Auto-set energy_scale=0.01 for all PLP batteries
-  plp2gtopt -i input/ --auto-energy-scale
+  # Disable auto-scaling entirely:
+  plp2gtopt -i input/ --no-auto-vol-scale --no-auto-energy-scale
+
+  # Load additional variable scales from a JSON file (lowest priority):
+  plp2gtopt -i input/ --variable-scales-file scales.json
+
+  # Generate a variable_scales template, edit, and re-use:
+  plp2gtopt -i input/ --variable-scales-template > scales.json
+  # Edit scales.json to adjust specific scales...
+  plp2gtopt -i input/ --variable-scales-file scales.json
 
   # Show verbose debug output
   plp2gtopt -i input/ -l DEBUG
@@ -516,18 +526,19 @@ def make_parser() -> argparse.ArgumentParser:
         metavar="SPEC",
         default=None,
         help=(
-            "Set reservoir volume scale values as comma-separated name:value pairs. "
+            "Override reservoir volume scale for specific reservoirs as "
+            "comma-separated name:value pairs. "
             "Example: --vol-scale 'RAPEL:500,COLBUN:15000'. "
+            "These explicit values override auto-calculated scales. "
             "Emitted as variable_scales entries in the options section. "
-            "The scale divides the LP volume variable for numerical conditioning. "
-            "(default: not set — reservoirs use scale=1.0)"
+            "(default: not set — auto-scaling is used unless disabled)"
         ),
     )
     parser.add_argument(
         "--auto-vol-scale",
         dest="auto_vol_scale",
-        action="store_true",
-        default=False,
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help=(
             "Automatically calculate vol_scale for each reservoir from the PLP "
             "FEscala field: vol_scale = 10^(FEscala - 6). "
@@ -535,6 +546,7 @@ def make_parser() -> argparse.ArgumentParser:
             "otherwise falls back to plpcnfce.dat Escala (Escala / 1e6). "
             "Explicit --vol-scale entries override auto-calculated values. "
             "Scales are emitted as variable_scales entries in the options section. "
+            "Use --no-auto-vol-scale to disable. "
             "(default: %(default)s)"
         ),
     )
@@ -544,24 +556,42 @@ def make_parser() -> argparse.ArgumentParser:
         metavar="SPEC",
         default=None,
         help=(
-            "Set battery energy scale values as comma-separated name:value pairs. "
+            "Override battery energy scale for specific batteries as "
+            "comma-separated name:value pairs. "
             "Example: --energy-scale 'BESS1:0.01,BESS2:100'. "
+            "These explicit values override auto-calculated scales. "
             "Emitted as variable_scales entries in the options section. "
-            "The scale divides the LP energy variable for numerical conditioning. "
-            "(default: not set — batteries use scale=1.0)"
+            "(default: not set — auto-scaling is used unless disabled)"
         ),
     )
     parser.add_argument(
         "--auto-energy-scale",
         dest="auto_energy_scale",
-        action="store_true",
-        default=False,
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help=(
             "Set energy_scale=0.01 for all PLP batteries. This scales the LP "
             "energy variable for better solver numerics. "
             "Explicit --energy-scale entries override this default. "
             "Scales are emitted as variable_scales entries in the options section. "
+            "Use --no-auto-energy-scale to disable. "
             "(default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "-X",
+        "--variable-scales-file",
+        dest="variable_scales_file",
+        type=Path,
+        metavar="FILE",
+        default=None,
+        help=(
+            "JSON file containing an array of VariableScale objects to merge "
+            "into the variable_scales option. Each object must have: "
+            "class_name, variable, uid, scale. "
+            "File entries have LOWEST priority: auto-calculated and "
+            "--vol-scale/--energy-scale values override them. "
+            "(default: not set)"
         ),
     )
     parser.add_argument(
@@ -572,6 +602,21 @@ def make_parser() -> argparse.ArgumentParser:
             "parse all PLP files and report element counts and any errors, "
             "without writing any output files; exits with code 0 if valid, "
             "1 if errors are found"
+        ),
+    )
+    parser.add_argument(
+        "--variable-scales-template",
+        action="store_true",
+        default=False,
+        help=(
+            "print a JSON template of variable_scales entries computed from "
+            "the PLP case (FEscala for reservoirs, 0.01 for batteries). "
+            "The template includes _name and _fescala comment fields. "
+            "Edit the output and pass it back via --variable-scales-file. "
+            "Example workflow:\n"
+            "  plp2gtopt -i plp_case --variable-scales-template > scales.json\n"
+            "  # edit scales.json to adjust specific scales\n"
+            "  plp2gtopt -i plp_case --variable-scales-file scales.json"
         ),
     )
     parser.add_argument(
@@ -658,12 +703,12 @@ def build_options(args: argparse.Namespace) -> dict:
         opts["hot_start_cuts"] = True
     if args.vol_scale is not None:
         opts["vol_scale"] = _parse_name_value_pairs(args.vol_scale)
-    if args.auto_vol_scale:
-        opts["auto_vol_scale"] = True
+    opts["auto_vol_scale"] = args.auto_vol_scale
     if args.energy_scale is not None:
         opts["energy_scale"] = _parse_name_value_pairs(args.energy_scale)
-    if args.auto_energy_scale:
-        opts["auto_energy_scale"] = True
+    opts["auto_energy_scale"] = args.auto_energy_scale
+    if args.variable_scales_file is not None:
+        opts["variable_scales_file"] = args.variable_scales_file
     opts["run_check"] = args.run_check
     return opts
 
@@ -708,6 +753,9 @@ def main():
     if args.validate:
         valid = validate_plp_case(build_options(args))
         sys.exit(0 if valid else 1)
+
+    if args.variable_scales_template:
+        sys.exit(print_variable_scales_template(build_options(args)))
 
     try:
         convert_plp_case(build_options(args))
