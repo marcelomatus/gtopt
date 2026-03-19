@@ -13,6 +13,7 @@ Detailed usage instructions, examples, and reference for the gtopt solver.
 - [Running the Sample Case](#running-the-sample-case)
 - [Output Files](#output-files)
 - [Advanced Usage](#advanced-usage)
+- [Troubleshooting Solver Issues](#troubleshooting-solver-issues)
 - [Batch Execution](#batch-execution)
 
 ## Basic Usage
@@ -451,6 +452,187 @@ gtopt system.json --quiet
 SPDLOG_LEVEL=debug gtopt system.json
 ```
 
+## Troubleshooting Solver Issues
+
+This section covers common solver problems, their causes, and diagnostic
+steps.
+
+### Exit codes
+
+gtopt uses the following exit codes:
+
+| Exit code | Meaning |
+|-----------|---------|
+| `0` | Optimal solution found |
+| `1` | Non-optimal solution (infeasible or abandoned, but no critical error) |
+| `2` | Input error (missing file, invalid JSON, bad options) |
+| `3` | Internal error (unexpected exception, solver crash) |
+
+Check `solution.csv` (or `solution.parquet`) for the solver `status` field:
+`0` = optimal, `1` = infeasible, `2` = unbounded.
+
+### Infeasible model (status=1)
+
+An infeasible model means no feasible solution exists given the constraints.
+
+**Common causes:**
+
+- **Demand exceeds generation capacity**: total demand in a block exceeds the
+  sum of all available generation plus imports.  Check that generator
+  `capacity` and `pmax` values are sufficient.
+- **Missing bus connection**: a demand bus has no generator or line connecting
+  it to the rest of the network.  Verify that every demand bus has at least
+  one generator or transmission line.
+- **Over-constrained reserves**: spinning reserve requirements that exceed
+  available headroom.  Try reducing the reserve requirement or increasing
+  `reserve_fail_cost` to allow some unserved reserve.
+- **Tight physical bounds on state variables**: reservoir volume or battery
+  SoC bounds that are inconsistent across phases (e.g., initial volume
+  outside the `[emin, emax]` range).
+
+**Diagnostic steps:**
+
+1. Check `output/Demand/fail_sol.csv` -- if all values are zero but the model
+   is infeasible, the issue is likely in network constraints rather than
+   generation adequacy.
+2. Set `demand_fail_cost` to a high value (e.g., 10000) to allow load
+   shedding.  If the model becomes feasible, the infeasibility was caused by
+   insufficient generation.
+3. Enable LP debug files to inspect the LP formulation:
+   ```json
+   { "options": { "lp_debug": true, "log_directory": "logs" } }
+   ```
+4. Try `use_single_bus: true` to eliminate network constraints.  If the model
+   becomes feasible, the issue is in the transmission network (missing lines,
+   insufficient capacity).
+5. For SDDP, check the `logs/` directory for `error_scene_*_phase_*.lp`
+   files which indicate which scene/phase is infeasible.
+
+### Unbounded model (status=2)
+
+An unbounded model is rare and typically indicates missing variable bounds.
+
+**Common causes:**
+
+- A generator with negative `gcost` and no `pmax` upper bound.
+- Missing bounds on voltage angle variables (`scale_theta` set to 0).
+- Incorrect `scale_objective` value (e.g., 0 or negative).
+
+**Diagnostic steps:**
+
+1. Enable `lp_debug: true` and inspect the LP file for variables with
+   infinite bounds and negative objective coefficients.
+2. Verify that all generators have a finite `capacity` or `pmax`.
+3. Check that `scale_objective` and `scale_theta` are positive numbers.
+
+### Slow convergence (SDDP)
+
+When the SDDP gap does not close within the expected number of iterations:
+
+**Suggestions:**
+
+- **Increase `max_iterations`**: the default of 100 may be insufficient for
+  large problems.  Try 200--500.
+- **Adjust `elastic_penalty`**: if the elastic filter activates frequently,
+  try increasing the penalty (e.g., `1e8`) to discourage elastic slack.
+- **Try `cut_sharing_mode: "expected"`**: sharing cuts across scenes can
+  accelerate convergence for stochastic problems.
+- **Check variable scaling**: poorly scaled variables (e.g., reservoir volumes
+  in m3 vs dam3) can cause numerical issues.  Use `variable_scales` to
+  normalize large-valued state variables.
+- **Try `elastic_mode: "multi_cut"`**: when `single_cut` mode produces
+  weak cuts, the `multi_cut` mode adds per-slack bound cuts that can
+  tighten the approximation faster.
+- **Lower `convergence_tol`**: if the gap oscillates near the tolerance,
+  try a slightly larger tolerance (e.g., `1e-3` instead of `1e-4`).
+- **Check boundary cuts**: for problems where the planning horizon is too
+  short, loading `boundary_cuts_file` can provide a better terminal
+  approximation and speed convergence.
+- **Monitor progress**: use the SDDP monitoring API (`api_enabled: true`)
+  and the `sddp_monitor.py` script to visualize the convergence trajectory.
+
+### Out of memory
+
+When the LP is too large to fit in memory:
+
+**Suggestions:**
+
+- **Reduce the number of blocks/stages**: aggregate time periods or use
+  representative days instead of hourly resolution.
+- **Use SDDP decomposition**: set `solver_type: "sddp"` to decompose the
+  problem into smaller per-phase LPs instead of one large monolithic LP.
+- **Reduce the number of scenes**: fewer scenarios in each scene means
+  smaller per-scene LPs.
+- **Reduce reserve zones**: spinning reserve constraints add rows per bus
+  per block; consolidating reserve zones reduces LP size.
+- **Disable LP names**: set `use_lp_names: 0` to reduce memory overhead from
+  name storage and lookup maps.
+
+### File not found errors
+
+**Common causes and solutions:**
+
+- **Relative path resolution**: `input_directory` is resolved relative to the
+  directory containing the JSON file, not the current working directory.
+  If the JSON file is at `cases/c0/system.json` and `input_directory` is
+  `"system_c0"`, the data files are expected at `cases/c0/system_c0/`.
+- **Missing component subdirectory**: data files must be in a subdirectory
+  named after the component type (e.g., `Demand/lmax.parquet`,
+  `Generator/pmax.parquet`).
+- **Format mismatch**: if `input_format: "parquet"` but only CSV files exist
+  (or vice versa), the solver will fail to find the data.  gtopt tries the
+  preferred format first, then falls back to the other format.
+- **Case sensitivity**: file names and component type subdirectories are
+  case-sensitive on Linux (e.g., `Demand/` not `demand/`).
+- **CLI override**: use `--input-directory <path>` to override the directory
+  specified in the JSON file.
+
+### LP debug files
+
+Enable LP debug output to inspect the mathematical formulation:
+
+```json
+{
+  "options": {
+    "lp_debug": true,
+    "log_directory": "logs",
+    "lp_compression": "none"
+  }
+}
+```
+
+**File locations:**
+
+- **Monolithic solver**: `logs/gtopt_lp_<scene>_<phase>.lp`
+- **SDDP solver**: `logs/gtopt_iter_<iter>_<scene>_<phase>.lp`
+
+When `lp_compression` is not set to `"none"`, files are compressed
+(default: `zstd`).  Decompress with `zstd -d <file>.lp.zst`.
+
+**Inspecting LP files:**
+
+The `.lp` format is a standard text format readable by most LP solvers.
+You can:
+
+- Open the file in a text editor to inspect variable names, constraints,
+  and objective coefficients.
+- Load it into an external solver (e.g., GLPK, Gurobi, CPLEX) for
+  independent verification.
+- Use `grep` to search for specific variable or constraint names (enabled
+  when `use_lp_names` is 1 or 2).
+
+**Additional debug options:**
+
+- `just_build_lp: true` builds all LP matrices without solving, useful for
+  inspecting the formulation without waiting for the solve.
+- `lp_coeff_ratio_threshold` (default: `1e7`) controls when per-scene/phase
+  coefficient ratio diagnostics are printed.  Lower the threshold to detect
+  numerical conditioning issues.
+- `use_lp_names: 2` assigns names and throws on duplicate row/column names,
+  useful for catching formulation bugs.
+
+---
+
 ## Batch Execution
 
 ### Shell script
@@ -502,5 +684,9 @@ if __name__ == "__main__":
 - **[PLANNING_GUIDE.md](PLANNING_GUIDE.md)** — Step-by-step planning guide
   with worked examples
 - **[INPUT_DATA.md](INPUT_DATA.md)** — Input data structure and file format
-  reference
+  reference (complete options reference)
+- **[SDDP Solver](docs/SDDP_SOLVER.md)** — SDDP decomposition algorithm,
+  configuration, and convergence details
+- **[Monolithic Solver](docs/MONOLITHIC_SOLVER.md)** — Default monolithic
+  solver, boundary cuts, and sequential mode
 - **[SCRIPTS.md](SCRIPTS.md)** — Python conversion utilities

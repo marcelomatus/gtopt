@@ -28,14 +28,16 @@ struct json_data_contract<MonolithicOptions>
       json_member_list<json_string_null<"solve_mode", OptName>,
                        json_string_null<"boundary_cuts_file", OptName>,
                        json_string_null<"boundary_cuts_mode", OptName>,
-                       json_number_null<"boundary_max_iterations", OptInt>>;
+                       json_number_null<"boundary_max_iterations", OptInt>,
+                       json_number_null<"solve_timeout", OptReal>>;
 
   constexpr static auto to_json_data(MonolithicOptions const& opt)
   {
     return std::forward_as_tuple(opt.solve_mode,
                                  opt.boundary_cuts_file,
                                  opt.boundary_cuts_mode,
-                                 opt.boundary_max_iterations);
+                                 opt.boundary_max_iterations,
+                                 opt.solve_timeout);
   }
 };
 
@@ -61,6 +63,8 @@ struct json_data_contract<SddpOptions>
                        json_number_null<"multi_cut_threshold", OptInt>,
                        json_number_null<"num_apertures", OptInt>,
                        json_string_null<"aperture_directory", OptName>,
+                       json_number_null<"aperture_timeout", OptReal>,
+                       json_number_null<"solve_timeout", OptReal>,
                        json_string_null<"boundary_cuts_file", OptName>,
                        json_string_null<"boundary_cuts_mode", OptName>,
                        json_number_null<"boundary_max_iterations", OptInt>,
@@ -86,6 +90,8 @@ struct json_data_contract<SddpOptions>
                                  opt.multi_cut_threshold,
                                  opt.num_apertures,
                                  opt.aperture_directory,
+                                 opt.aperture_timeout,
+                                 opt.solve_timeout,
                                  opt.boundary_cuts_file,
                                  opt.boundary_cuts_mode,
                                  opt.boundary_max_iterations,

@@ -115,6 +115,23 @@ struct SddpOptions
    */
   OptName aperture_directory {};
 
+  /** @brief Timeout in seconds for individual aperture LP solves in the
+   *  SDDP backward pass.
+   *
+   * When an aperture LP exceeds this time, it is treated as infeasible
+   * (skipped), a WARNING is logged, and the solver continues with the
+   * remaining apertures.  Default 15 seconds.  0 = no timeout.
+   */
+  OptReal aperture_timeout {};
+
+  /** @brief Timeout in seconds for each forward-pass LP solve.
+   *
+   * When a forward-pass LP exceeds this time, the solver writes the
+   * LP to a debug file and treats the scene as failed.
+   * Default 180 seconds (3 minutes).  0 = no timeout.
+   */
+  OptReal solve_timeout {};
+
   /** @brief CSV file with boundary (future-cost) cuts for the last phase.
    *
    * These are analogous to PLP's "planos de embalse" — external optimality
@@ -197,6 +214,8 @@ struct SddpOptions
     merge_opt(multi_cut_threshold, opts.multi_cut_threshold);
     merge_opt(num_apertures, opts.num_apertures);
     merge_opt(aperture_directory, std::move(opts.aperture_directory));
+    merge_opt(aperture_timeout, opts.aperture_timeout);
+    merge_opt(solve_timeout, opts.solve_timeout);
     merge_opt(boundary_cuts_file, std::move(opts.boundary_cuts_file));
     merge_opt(boundary_cuts_mode, std::move(opts.boundary_cuts_mode));
     merge_opt(boundary_max_iterations, opts.boundary_max_iterations);
@@ -227,6 +246,13 @@ struct MonolithicOptions
   /** @brief Boundary cuts load mode: `"noload"`, `"separated"` (default),
    * or `"combined"` */
   OptName boundary_cuts_mode {};
+
+  /** @brief Timeout in seconds for each LP solve.
+   *
+   * Default 18000 seconds (300 minutes).  0 = no timeout.
+   * When exceeded, the solver writes the LP to a debug file and exits.
+   */
+  OptReal solve_timeout {};
   /** @brief Maximum iterations to load from boundary cuts file (0 = all) */
   OptInt boundary_max_iterations {};
 
@@ -235,6 +261,7 @@ struct MonolithicOptions
     merge_opt(solve_mode, std::move(opts.solve_mode));
     merge_opt(boundary_cuts_file, std::move(opts.boundary_cuts_file));
     merge_opt(boundary_cuts_mode, std::move(opts.boundary_cuts_mode));
+    merge_opt(solve_timeout, opts.solve_timeout);
     merge_opt(boundary_max_iterations, opts.boundary_max_iterations);
 
     auto _ = std::move(opts);
@@ -364,6 +391,9 @@ struct Options
    * value, a per-scene/phase breakdown is printed.  (default: 1e7) */
   OptReal lp_coeff_ratio_threshold {};
 
+  // Note: solve_timeout is per-solver (sddp_options and monolithic_options)
+  // with different defaults: 180s for SDDP, 18000s for monolithic.
+
   // ── Monolithic-specific options (grouped sub-object)
   // ────────────────────────
   /** @brief Monolithic solver configuration (sub-object) */
@@ -457,6 +487,7 @@ struct Options
     merge_opt(lp_compression, std::move(opts.lp_compression));
     merge_opt(just_build_lp, opts.just_build_lp);
     merge_opt(lp_coeff_ratio_threshold, opts.lp_coeff_ratio_threshold);
+    // solve_timeout is per-solver (sddp_options, monolithic_options)
 
     // Merge monolithic-specific options
     monolithic_options.merge(std::move(opts.monolithic_options));

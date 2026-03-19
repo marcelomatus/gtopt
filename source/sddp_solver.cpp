@@ -351,6 +351,12 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
   auto& phase_states = m_scene_phase_states_[scene];
   double total_opex = 0.0;
 
+  // Apply solve_timeout to the solver options if configured
+  auto effective_opts = opts;
+  if (m_options_.solve_timeout > 0.0) {
+    effective_opts.time_limit = m_options_.solve_timeout;
+  }
+
   SPDLOG_DEBUG("SDDP forward: scene {} iter {} starting ({} phases)",
                scene_uid(scene),
                iteration,
@@ -392,10 +398,58 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
     }
 
     // Solve this phase via the work pool with forward-pass priority
-    auto result =
-        resolve_via_pool(li, opts, make_forward_lp_task_req(iteration, phase));
+    auto result = resolve_via_pool(
+        li, effective_opts, make_forward_lp_task_req(iteration, phase));
 
     if (!result.has_value() || !li.is_optimal()) {
+      // Check for solve timeout: status 1 (abandoned) or 3 (other)
+      // when a time limit was set indicates a timeout
+      const auto status = li.get_status();
+      if (m_options_.solve_timeout > 0.0 && (status == 1 || status == 3)) {
+        // Write the timed-out LP for debugging
+        if (!m_options_.log_directory.empty()) {
+          std::filesystem::create_directories(m_options_.log_directory);
+          const auto timeout_stem =
+              (std::filesystem::path(m_options_.log_directory)
+               / std::format("timeout_scene_{}_phase_{}_iter_{}",
+                             scene_uid(scene),
+                             phase_uid(phase),
+                             iteration))
+                  .string();
+          li.write_lp(timeout_stem);
+          spdlog::critical(
+              "SDDP forward: solve timeout ({:.1f}s) at iter {} scene {} "
+              "phase {} (status {}), LP saved to {}.lp",
+              m_options_.solve_timeout,
+              iteration,
+              scene_uid(scene),
+              phase_uid(phase),
+              status,
+              timeout_stem);
+        } else {
+          spdlog::critical(
+              "SDDP forward: solve timeout ({:.1f}s) at iter {} scene {} "
+              "phase {} (status {})",
+              m_options_.solve_timeout,
+              iteration,
+              scene_uid(scene),
+              phase_uid(phase),
+              status);
+        }
+        return std::unexpected(Error {
+            .code = ErrorCode::SolverError,
+            .message = std::format(
+                "SDDP forward: solve timeout ({:.1f}s) at iter {} scene {} "
+                "phase {} (status {})",
+                m_options_.solve_timeout,
+                iteration,
+                scene,
+                phase,
+                status),
+            .status = status,
+        });
+      }
+
       SPDLOG_WARN(
           "SDDP forward: iter {} scene {} phase {} non-optimal (status {}), "
           "trying elastic solve",
@@ -1849,7 +1903,8 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
                                 m_options_.log_directory,
                                 scene_uid(scene),
                                 phase_uid(phase),
-                                make_aperture_resolve_fn());
+                                make_aperture_resolve_fn(),
+                                m_options_.aperture_timeout);
 
   if (!expected_cut.has_value()) {
     // Fallback: build a regular Benders cut from the cached

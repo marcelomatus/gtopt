@@ -79,6 +79,13 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
     }
   }
 
+  // Apply solve_timeout to the solver options if configured
+  auto effective_opts = opts;
+  if (solve_timeout > 0.0) {
+    effective_opts.time_limit = solve_timeout;
+    SPDLOG_INFO("MonolithicSolver: solve_timeout={:.1f}s", solve_timeout);
+  }
+
   std::atomic<int> scenes_done {0};
   std::mutex times_mutex;
   std::vector<double> scene_times(num_scenes, 0.0);
@@ -124,7 +131,7 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
             SPDLOG_TRACE("MonolithicSolver: scene {} starting", scene_index);
             const auto t_scene = std::chrono::steady_clock::now();
             auto r = planning_lp.resolve_scene_phases(
-                scene_index, phase_systems, opts);
+                scene_index, phase_systems, effective_opts);
             const double elapsed =
                 std::chrono::duration<double>(std::chrono::steady_clock::now()
                                               - t_scene)
@@ -234,6 +241,8 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options,
           parse_elastic_filter_mode(options.sddp_elastic_mode());
       sddp_opts.multi_cut_threshold = options.sddp_multi_cut_threshold();
       sddp_opts.num_apertures = options.sddp_num_apertures();
+      sddp_opts.aperture_timeout = options.sddp_aperture_timeout();
+      sddp_opts.solve_timeout = options.sddp_solve_timeout();
       sddp_opts.alpha_min = options.sddp_alpha_min();
       sddp_opts.alpha_max = options.sddp_alpha_max();
 
@@ -313,6 +322,7 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options,
   solver->lp_debug = options.lp_debug();
   solver->lp_debug_directory = std::string(options.log_directory());
   solver->lp_debug_compression = std::string(options.lp_compression());
+  solver->solve_timeout = options.monolithic_solve_timeout();
   solver->solve_mode = std::string(options.monolithic_solve_mode());
   solver->boundary_cuts_file =
       std::string(options.monolithic_boundary_cuts_file());
