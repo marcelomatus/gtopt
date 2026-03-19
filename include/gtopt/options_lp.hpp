@@ -13,6 +13,9 @@
 
 #pragma once
 
+#include <filesystem>
+#include <string>
+
 #include <gtopt/enum_option.hpp>
 #include <gtopt/options.hpp>
 #include <gtopt/variable_scale.hpp>
@@ -456,12 +459,21 @@ public:
   }
 
   /**
-   * @brief Gets the log directory for log/trace files, using default if not set
+   * @brief Gets the log directory for log/trace files.
+   *
+   * When `log_directory` is explicitly set in the JSON / CLI, that value is
+   * used as-is.  Otherwise the default is `output_directory + "/logs"` so
+   * that all solver output (results, cuts, logs) is consolidated under a
+   * single root directory.
+   *
    * @return The log directory path (global — used by both monolithic and SDDP)
    */
-  [[nodiscard]] constexpr auto log_directory() const
+  [[nodiscard]] auto log_directory() const -> std::string
   {
-    return m_options_.log_directory.value_or(default_log_directory);
+    if (m_options_.log_directory.has_value()) {
+      return m_options_.log_directory.value();
+    }
+    return (std::filesystem::path(output_directory()) / "logs").string();
   }
 
   /**

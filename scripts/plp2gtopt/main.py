@@ -7,7 +7,7 @@ import signal
 import sys
 from pathlib import Path
 
-from .plp2gtopt import convert_plp_case
+from .plp2gtopt import convert_plp_case, validate_plp_case
 from .info_display import display_plp_info
 
 try:
@@ -87,6 +87,9 @@ examples:
 
   # Show verbose debug output
   plp2gtopt -i input/ -l DEBUG
+
+  # Validate a PLP case without writing output files
+  plp2gtopt --validate -i plp_case_2y
 """
 
 
@@ -162,10 +165,7 @@ def make_parser() -> argparse.ArgumentParser:
         type=Path,
         metavar="FILE",
         default=None,
-        help=(
-            "output JSON file path "
-            "(default: <output-dir-name>.json in the current directory)"
-        ),
+        help=("output JSON file path (default: <output-dir>/<output-dir-name>.json)"),
     )
     parser.add_argument(
         "-s",
@@ -565,6 +565,16 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--validate",
+        action="store_true",
+        default=False,
+        help=(
+            "parse all PLP files and report element counts and any errors, "
+            "without writing any output files; exits with code 0 if valid, "
+            "1 if errors are found"
+        ),
+    )
+    parser.add_argument(
         "-V",
         "--version",
         action="version",
@@ -590,7 +600,7 @@ def build_options(args: argparse.Namespace) -> dict:
     input_dir = _resolve_input_dir(args)
     output_file = args.output_file
     if output_file is None:
-        output_file = Path(args.output_dir.name).with_suffix(".json")
+        output_file = args.output_dir / Path(args.output_dir.name).with_suffix(".json")
     name = args.name if args.name is not None else Path(output_file).stem
     input_format = args.input_format if args.input_format else args.output_format
     opts = {
@@ -681,6 +691,10 @@ def main():
             )
             sys.exit(1)
         return
+
+    if args.validate:
+        valid = validate_plp_case(build_options(args))
+        sys.exit(0 if valid else 1)
 
     try:
         convert_plp_case(build_options(args))

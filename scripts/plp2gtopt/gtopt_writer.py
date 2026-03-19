@@ -100,9 +100,19 @@ class GTOptWriter:
         if cut_sharing_mode is not None:
             sddp_opts["cut_sharing_mode"] = cut_sharing_mode
 
+        # When the JSON file lives inside the output directory (the default),
+        # input_directory is "." so paths are relative to the JSON location.
+        # When -f places the JSON elsewhere, use the full output_dir path.
+        output_dir = Path(options.get("output_dir", ""))
+        output_file = Path(options.get("output_file", ""))
+        if output_file.parent == output_dir:
+            input_dir_val = "."
+        else:
+            input_dir_val = str(output_dir)
+
         planning_opts = {
             "solver_type": solver_type,
-            "input_directory": str(options.get("output_dir", "")),
+            "input_directory": input_dir_val,
             "input_format": input_format,
             "output_directory": "results",
             "output_format": output_format,
