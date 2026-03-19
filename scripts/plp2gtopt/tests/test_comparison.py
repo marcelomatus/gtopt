@@ -1,7 +1,5 @@
 """Tests for the PLP vs gtopt element comparison formatting."""
 
-import logging
-
 import pytest
 
 from plp2gtopt.plp2gtopt import (
@@ -108,7 +106,11 @@ def test_gtopt_element_counts_populated() -> None:
     planning = {
         "system": {
             "bus_array": [{"uid": 1}, {"uid": 2}],
-            "generator_array": [{"uid": 1}],
+            "generator_array": [
+                {"uid": 1, "type": "termica"},
+                {"uid": 2, "type": "embalse"},
+                {"uid": 3, "type": "termica"},
+            ],
             "generator_profile_array": [],
             "demand_array": [{"uid": 1}, {"uid": 2}, {"uid": 3}],
             "demand_profile_array": [],
@@ -119,6 +121,7 @@ def test_gtopt_element_counts_populated() -> None:
             "waterway_array": [],
             "flow_array": [],
             "reservoir_array": [],
+            "reservoir_efficiency_array": [{"uid": 1}],
             "filtration_array": [],
             "turbine_array": [{"uid": 1}, {"uid": 2}],
         },
@@ -130,20 +133,44 @@ def test_gtopt_element_counts_populated() -> None:
     }
     counts = _gtopt_element_counts(planning)
     assert counts["buses"] == 2
-    assert counts["generators"] == 1
+    assert counts["generators"] == 3
     assert counts["demands"] == 3
     assert counts["batteries"] == 1
     assert counts["turbines"] == 2
     assert counts["blocks"] == 24
     assert counts["scenarios"] == 3
+    # Generator type breakdown
+    assert counts["gen_termica"] == 2
+    assert counts["gen_embalse"] == 1
+    # Reservoir efficiencies
+    assert counts["reservoir_efficiencies"] == 1
+
+
+def test_gtopt_element_counts_missing_type() -> None:
+    """Generators with missing type attribute are counted as 'unknown'."""
+    planning = {
+        "system": {
+            "generator_array": [
+                {"uid": 1, "type": "termica"},
+                {"uid": 2},  # no type attribute
+                {"uid": 3, "type": ""},  # empty string type
+            ],
+        },
+        "simulation": {},
+    }
+    counts = _gtopt_element_counts(planning)
+    assert counts["generators"] == 3
+    assert counts["gen_termica"] == 1
+    assert counts["gen_unknown"] == 1
+    assert counts.get("gen_", 0) == 1  # empty string lowered
 
 
 # ---------------------------------------------------------------------------
-# _log_comparison — integration test via log capture
+# _log_comparison — integration test via stderr capture
 # ---------------------------------------------------------------------------
 
 
-def test_log_comparison_output(caplog: pytest.LogCaptureFixture) -> None:
+def test_log_comparison_output(capsys: pytest.CaptureFixture) -> None:
     """_log_comparison produces the expected table sections."""
     plp = {
         "buses": 10,
@@ -180,18 +207,18 @@ def test_log_comparison_output(caplog: pytest.LogCaptureFixture) -> None:
         "scenarios": 3,
     }
 
-    with caplog.at_level(logging.INFO, logger="plp2gtopt.plp2gtopt"):
-        _log_comparison(plp, gtopt)
+    _log_comparison(plp, gtopt)
 
-    output = caplog.text
+    output = capsys.readouterr().err
 
     # Section headers present
-    assert "Network" in output
-    assert "Generation" in output
+    assert "Network & Generation" in output
     assert "Hydro System" in output
     assert "Storage" in output
-    assert "Loads" in output
     assert "Simulation" in output
+
+    # Demands are now under "Network & Generation", not a separate "Loads"
+    assert "demands" in output
 
     # Key comparison header
     assert "PLP" in output
@@ -202,20 +229,18 @@ def test_log_comparison_output(caplog: pytest.LogCaptureFixture) -> None:
     assert "hydro centrals (emb+ser)" in output
 
     # Analysis notes
-    assert "→ turbines + generators" in output
-    assert "→ generators + profiles" in output
-    assert "→ batteries" in output
+    assert "batteries" in output
     assert "excluded from gtopt" in output
     assert "only bus>0 with waterway" in output
 
     # Check that the embalse → reservoir match note appears
-    assert "= embalse count" in output
+    assert "embalse count" in output
 
     # Check that pasada → generator profiles match note appears
-    assert "= pasada count" in output
+    assert "pasada count" in output
 
 
-def test_log_comparison_gen_delta(caplog: pytest.LogCaptureFixture) -> None:
+def test_log_comparison_gen_delta(capsys: pytest.CaptureFixture) -> None:
     """When gen (excl falla+bat) != generators, the delta note appears."""
     plp = {
         "buses": 5,
@@ -252,8 +277,203 @@ def test_log_comparison_gen_delta(caplog: pytest.LogCaptureFixture) -> None:
         "scenarios": 1,
     }
 
-    with caplog.at_level(logging.INFO, logger="plp2gtopt.plp2gtopt"):
-        _log_comparison(plp, gtopt)
+    _log_comparison(plp, gtopt)
 
-    output = caplog.text
+    output = capsys.readouterr().err
     assert "centrals with bus<=0" in output
+
+
+def test_log_comparison_hydrology_row(capsys: pytest.CaptureFixture) -> None:
+    """The comparison table shows hydrologies vs scenarios row."""
+    plp = {
+        "buses": 5,
+        "lines": 3,
+        "centrals": 10,
+        "sub_embalse": 0,
+        "sub_serie": 0,
+        "sub_pasada": 0,
+        "sub_termica": 8,
+        "sub_bateria": 0,
+        "sub_falla": 2,
+        "demands": 5,
+        "batteries": 0,
+        "blocks": 10,
+        "stages": 1,
+        "hydrologies": 16,
+    }
+    gtopt = {
+        "buses": 5,
+        "generators": 8,
+        "generator_profiles": 0,
+        "demands": 5,
+        "lines": 3,
+        "batteries": 0,
+        "junctions": 0,
+        "waterways": 0,
+        "flows": 0,
+        "reservoirs": 0,
+        "reservoir_efficiencies": 0,
+        "filtrations": 0,
+        "turbines": 0,
+        "blocks": 10,
+        "stages": 1,
+        "scenarios": 16,
+    }
+
+    _log_comparison(plp, gtopt)
+
+    output = capsys.readouterr().err
+    assert "hydrologies / scenarios" in output
+
+
+def test_log_comparison_filtrations_res_eff(
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """The comparison table shows filtrations and reservoir efficiencies."""
+    plp = {
+        "buses": 3,
+        "lines": 2,
+        "centrals": 5,
+        "sub_embalse": 2,
+        "sub_serie": 1,
+        "sub_pasada": 0,
+        "sub_termica": 2,
+        "sub_bateria": 0,
+        "sub_falla": 0,
+        "demands": 3,
+        "batteries": 0,
+        "blocks": 10,
+        "stages": 1,
+        "filtrations": 3,
+        "reservoir_efficiencies": 2,
+    }
+    gtopt = {
+        "buses": 3,
+        "generators": 5,
+        "generator_profiles": 0,
+        "demands": 3,
+        "lines": 2,
+        "batteries": 0,
+        "junctions": 3,
+        "waterways": 5,
+        "flows": 2,
+        "reservoirs": 2,
+        "reservoir_efficiencies": 2,
+        "filtrations": 3,
+        "turbines": 3,
+        "blocks": 10,
+        "stages": 1,
+        "scenarios": 1,
+    }
+
+    _log_comparison(plp, gtopt)
+
+    output = capsys.readouterr().err
+    assert "reservoir efficiencies" in output
+    assert "filtrations" in output
+
+
+def test_log_comparison_demand_delta(capsys: pytest.CaptureFixture) -> None:
+    """When demands differ, the delta note explains the exclusions."""
+    plp = {
+        "buses": 5,
+        "lines": 2,
+        "centrals": 3,
+        "sub_embalse": 0,
+        "sub_serie": 0,
+        "sub_pasada": 0,
+        "sub_termica": 3,
+        "sub_bateria": 0,
+        "sub_falla": 0,
+        "demands": 10,
+        "batteries": 0,
+        "blocks": 5,
+        "stages": 1,
+    }
+    gtopt = {
+        "buses": 5,
+        "generators": 3,
+        "generator_profiles": 0,
+        "demands": 7,
+        "lines": 2,
+        "batteries": 0,
+        "junctions": 0,
+        "waterways": 0,
+        "flows": 0,
+        "reservoirs": 0,
+        "reservoir_efficiencies": 0,
+        "filtrations": 0,
+        "turbines": 0,
+        "blocks": 5,
+        "stages": 1,
+        "scenarios": 1,
+    }
+
+    _log_comparison(plp, gtopt)
+
+    output = capsys.readouterr().err
+    assert "demands with bus=0 or empty excluded" in output
+
+
+def test_log_comparison_with_indicators(
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """Global indicators section appears when indicator dicts are provided."""
+    plp = {
+        "buses": 5,
+        "lines": 2,
+        "centrals": 5,
+        "sub_embalse": 0,
+        "sub_serie": 0,
+        "sub_pasada": 0,
+        "sub_termica": 5,
+        "sub_bateria": 0,
+        "sub_falla": 0,
+        "demands": 5,
+        "batteries": 0,
+        "blocks": 5,
+        "stages": 1,
+    }
+    gtopt = {
+        "buses": 5,
+        "generators": 5,
+        "generator_profiles": 0,
+        "demands": 5,
+        "lines": 2,
+        "batteries": 0,
+        "junctions": 0,
+        "waterways": 0,
+        "flows": 0,
+        "reservoirs": 0,
+        "reservoir_efficiencies": 0,
+        "filtrations": 0,
+        "turbines": 0,
+        "blocks": 5,
+        "stages": 1,
+        "scenarios": 1,
+    }
+
+    plp_ind = {
+        "total_gen_capacity_mw": 500.0,
+        "first_block_demand_mw": 200.0,
+        "last_block_demand_mw": 180.0,
+        "total_energy_mwh": 5000.0,
+        "first_block_affluent_avg": 100.0,
+        "last_block_affluent_avg": 90.0,
+    }
+    gtopt_ind = {
+        "total_gen_capacity_mw": 500.0,
+        "first_block_demand_mw": 200.0,
+        "last_block_demand_mw": 180.0,
+        "total_energy_mwh": 5000.0,
+        "first_block_affluent_avg": 100.0,
+        "last_block_affluent_avg": 90.0,
+    }
+
+    _log_comparison(plp, gtopt, plp_ind, gtopt_ind)
+
+    output = capsys.readouterr().err
+    assert "Global Indicators" in output
+    assert "gen capacity (MW)" in output
+    assert "first block demand (MW)" in output
+    assert "capacity adequacy" in output
