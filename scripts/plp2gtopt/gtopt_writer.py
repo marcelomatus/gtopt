@@ -6,6 +6,7 @@ Handles conversion of parsed PLP data to GTOPT JSON format.
 """
 
 import json
+import logging
 from typing import Dict, Any
 
 from pathlib import Path
@@ -702,6 +703,46 @@ class GTOptWriter:
 
         return stage_to_phase or None
 
+    @staticmethod
+    def _load_variable_scales_file(file_path: Path) -> list[dict]:
+        """Load variable scales from a JSON file.
+
+        The file must contain a JSON array of objects, each with keys:
+        ``class_name``, ``variable``, ``uid``, ``scale``.
+
+        Returns an empty list on any read/parse error (with a warning log).
+        """
+        logger = logging.getLogger(__name__)
+        try:
+            with open(file_path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            if not isinstance(data, list):
+                logger.warning(
+                    "variable-scales-file %s: expected a JSON array, got %s",
+                    file_path,
+                    type(data).__name__,
+                )
+                return []
+            required_keys = {"class_name", "variable", "uid", "scale"}
+            result: list[dict] = []
+            for entry in data:
+                if not isinstance(entry, dict) or not required_keys <= entry.keys():
+                    logger.warning(
+                        "variable-scales-file %s: skipping invalid entry %r "
+                        "(expected keys: %s)",
+                        file_path,
+                        entry,
+                        ", ".join(sorted(required_keys)),
+                    )
+                    continue
+                result.append(entry)
+            return result
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning(
+                "variable-scales-file %s: failed to load: %s", file_path, exc
+            )
+            return []
+
     def process_variable_scales(self, options):
         """Build ``variable_scales`` entries in the options section.
 
@@ -709,18 +750,13 @@ class GTOptWriter:
         and battery energy scaling, using the ``variable_scales`` mechanism
         in ``Options`` rather than per-element fields.
 
-        Scale sources (in priority order for reservoirs):
-        1. Explicit ``--vol-scale name:value`` entries.
-        2. ``--auto-vol-scale``: uses FEscala from plpplem1.dat when
-           available (``vol_scale = 10^(FEscala - 6)``), otherwise falls
-           back to the central_parser's vol_scale (``Escala / 1e6``).
+        Scale priority (highest to lowest):
+        1. Explicit ``--vol-scale`` / ``--energy-scale`` name:value entries.
+        2. ``--auto-vol-scale`` / ``--auto-energy-scale`` (ON by default).
+        3. ``--variable-scales-file`` entries (lowest priority).
 
-        Scale sources for batteries:
-        1. Explicit ``--energy-scale name:value`` entries.
-        2. ``--auto-energy-scale``: uses 0.01 for all batteries.
-
-        When no scale options are set, no ``variable_scales`` entries are
-        generated (preserving backward compatibility).
+        Auto-scaling is enabled by default.  Use ``--no-auto-vol-scale``
+        and/or ``--no-auto-energy-scale`` to disable.
         """
         if not options:
             return
@@ -729,10 +765,28 @@ class GTOptWriter:
         has_energy = "energy_scale" in options or options.get(
             "auto_energy_scale", False
         )
-        if not has_vol and not has_energy:
+        has_file = "variable_scales_file" in options
+
+        if not has_vol and not has_energy and not has_file:
             return
 
-        scales: list = []
+        # --- Load file-based scales first (lowest priority) ---
+        file_scales: list[dict] = []
+        if has_file:
+            file_path = options["variable_scales_file"]
+            file_scales = self._load_variable_scales_file(Path(file_path))
+
+        # Build a lookup of (class_name, variable, uid) → scale from the file
+        # so we can skip file entries that are overridden by auto/explicit.
+        file_scale_map: dict[tuple[str, str, int], float] = {}
+        for entry in file_scales:
+            key = (entry["class_name"], entry["variable"], entry["uid"])
+            file_scale_map[key] = entry["scale"]
+
+        # Track which (class_name, variable, uid) are set by auto/explicit
+        computed_keys: set[tuple[str, str, int]] = set()
+
+        scales: list[dict] = []
 
         # --- Reservoir volume scales ---
         if has_vol:
@@ -781,6 +835,7 @@ class GTOptWriter:
                             "scale": scale,
                         }
                     )
+                    computed_keys.add(("Reservoir", "volume", uid))
 
         # --- Battery energy scales ---
         if has_energy:
@@ -809,6 +864,13 @@ class GTOptWriter:
                             "scale": scale,
                         }
                     )
+                    computed_keys.add(("Battery", "energy", uid))
+
+        # --- Merge file-based scales (lowest priority) ---
+        for entry in file_scales:
+            key = (entry["class_name"], entry["variable"], entry["uid"])
+            if key not in computed_keys and entry["scale"] != 1.0:
+                scales.append(entry)
 
         if scales:
             self.planning["options"]["variable_scales"] = scales
