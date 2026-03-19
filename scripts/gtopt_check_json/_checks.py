@@ -862,6 +862,76 @@ def check_ai_system_analysis(
 
 
 # ---------------------------------------------------------------------------
+# Capacity adequacy
+# ---------------------------------------------------------------------------
+
+
+def check_capacity_adequacy(planning: dict[str, Any]) -> list[Finding]:
+    """Check that total generation capacity exceeds peak system demand.
+
+    This implements a basic *capacity adequacy* check — a standard
+    reliability indicator in generation expansion planning (see NERC
+    *Probabilistic Adequacy and Measures* reports, IEA *World Energy
+    Outlook* methodology, and Billinton & Allan, *Reliability Evaluation
+    of Power Systems*).
+
+    The check computes:
+
+    * **Total generation capacity** — sum of the ``capacity`` (or
+      ``pmax``) field of every generator, excluding failure generators
+      (pmax ≥ 9 000 MW, a PLP modelling convention).
+    * **Peak system demand** — maximum of the per-block total demand
+      (sum of all ``lmax`` values at each block).
+
+    Findings:
+
+    * ``CRITICAL`` if capacity < peak demand (capacity deficit).
+    * ``WARNING`` if capacity < 1.15 × peak demand (thin reserve margin;
+      15 % is a common planning threshold).
+    * ``NOTE`` otherwise, reporting the computed adequacy ratio.
+    """
+    from gtopt_check_json._info import compute_indicators  # noqa: PLC0415
+
+    findings: list[Finding] = []
+    ind = compute_indicators(planning)
+
+    if ind.peak_demand_mw <= 0:
+        return findings  # no demand → nothing to check
+
+    ratio = ind.capacity_adequacy_ratio
+
+    if ratio < 1.0:
+        findings.append(
+            Finding(
+                check_id="capacity_adequacy",
+                severity=Severity.CRITICAL,
+                message=(
+                    f"Capacity deficit: total generation capacity "
+                    f"({ind.total_gen_capacity_mw:,.1f} MW) is less than "
+                    f"peak demand ({ind.peak_demand_mw:,.1f} MW). "
+                    f"Adequacy ratio = {ratio:.3f}"
+                ),
+            )
+        )
+    elif ratio < 1.15:
+        findings.append(
+            Finding(
+                check_id="capacity_adequacy",
+                severity=Severity.WARNING,
+                message=(
+                    f"Thin reserve margin: total generation capacity "
+                    f"({ind.total_gen_capacity_mw:,.1f} MW) is only "
+                    f"{ratio:.1%} of peak demand "
+                    f"({ind.peak_demand_mw:,.1f} MW). "
+                    f"A margin ≥ 15 % is recommended."
+                ),
+            )
+        )
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
 # Registry and runner
 # ---------------------------------------------------------------------------
 
@@ -874,6 +944,7 @@ _CHECK_REGISTRY: list[tuple[str, Any, bool]] = [
     ("element_references", check_element_references, False),
     ("bus_connectivity", check_bus_connectivity, False),
     ("unreferenced_elements", check_unreferenced_elements, False),
+    ("capacity_adequacy", check_capacity_adequacy, False),
     ("ai_system_analysis", check_ai_system_analysis, True),
 ]
 
