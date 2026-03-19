@@ -58,9 +58,11 @@ class SystemIndicators:
         planning literature (see e.g. NERC *Probabilistic Adequacy and
         Measures* reports and IEA *World Energy Outlook* methodology).
     first_block_affluent_avg : float
-        Average (across scenarios) total affluent at the first block (m³/s).
+        Average (across scenarios) total discharge at the first block (m³/s).
+        Computed from ``Flow.discharge`` fields in ``flow_array``.
     last_block_affluent_avg : float
-        Average (across scenarios) total affluent at the last block (m³/s).
+        Average (across scenarios) total discharge at the last block (m³/s).
+        Computed from ``Flow.discharge`` fields in ``flow_array``.
     num_generators : int
         Count of generators used in the capacity sum.
     num_demands : int
@@ -68,7 +70,7 @@ class SystemIndicators:
     num_blocks : int
         Number of blocks in the simulation.
     num_flows : int
-        Number of flow (affluent) elements.
+        Number of Flow elements in ``flow_array``.
     """
 
     total_gen_capacity_mw: float = 0.0

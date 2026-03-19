@@ -437,11 +437,17 @@ class JunctionWriter(BaseWriter):
     def _get_central_flow(
         self, central_name: str, central: Dict[str, Any]
     ) -> float | str:
-        """Get flow value for central, checking aflce parser if available."""
+        """Get flow value for central, checking aflce parser if available.
+
+        When the aflce parser has data for this central, returns the string
+        ``"discharge"`` which tells the C++ ``FlowLP`` (with
+        ``ClassName = {"Flow", "flw"}``) to read from
+        ``{input_directory}/Flow/discharge.parquet``.
+        """
         if self.aflce_parser:
             aflce = self.aflce_parser.get_item_by_name(central_name)
             if aflce is not None:
-                return "Afluent@afluent"
+                return "discharge"
         return central.get("afluent", 0.0)
 
     def _process_extractions(

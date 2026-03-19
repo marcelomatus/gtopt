@@ -224,11 +224,11 @@ def write_aperture_afluents(
     output_dir: Path,
     options: Optional[Dict[str, Any]] = None,
 ) -> None:
-    """Write affluent Parquet files for aperture-only hydrology classes.
+    """Write discharge Parquet files for aperture-only hydrology classes.
 
     Only hydrologies that are NOT in the forward-scenario set need separate
     files in the aperture directory.  The output format matches the standard
-    gtopt ``Afluent/<central_name>.parquet`` layout so the solver can load
+    gtopt ``Flow/discharge.parquet`` layout so the solver can load
     them using the same reader.
 
     Parameters
@@ -253,8 +253,8 @@ def write_aperture_afluents(
     if not extra_hydros:
         return
 
-    afluent_dir = output_dir / "Afluent"
-    afluent_dir.mkdir(parents=True, exist_ok=True)
+    flow_dir = output_dir / "Flow"
+    flow_dir.mkdir(parents=True, exist_ok=True)
 
     if aflce_parser is None or central_parser is None or block_parser is None:
         return
@@ -325,7 +325,7 @@ def write_aperture_afluents(
             arrays[f"uid:{scen_uid}"] = pa.array(values, type=pa.float64())
 
         table = pa.table(arrays)
-        out_path = afluent_dir / f"{central_name}.parquet"
+        out_path = flow_dir / f"{central_name}.parquet"
         comp = _probe_parquet_codec(
             (options or {}).get("compression", _DEFAULT_COMPRESSION)
         )
