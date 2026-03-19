@@ -435,20 +435,15 @@ def format_indicators(
     base_dir
         Optional case directory for resolving FieldSched file references.
     colr
-        Whether to include ANSI colour codes in the output.
+        Ignored (kept for API compatibility).  Output is always plain
+        text; use :func:`print_indicators` for styled terminal output.
 
     Returns
     -------
     str
         Human-readable indicator summary.
     """
-    from gtopt_check_json._terminal import (  # noqa: PLC0415
-        cc,
-        kv_table,
-        BOLD,
-        CYAN,
-        DIM,
-    )
+    from gtopt_check_json._terminal import render_kv_table  # noqa: PLC0415
 
     ind = compute_indicators(planning, base_dir=base_dir)
 
@@ -469,7 +464,36 @@ def format_indicators(
             ("Last block affluent", f"{ind.last_block_affluent_avg:,.1f} m³/s")
         )
 
-    return kv_table(pairs, colr=colr, title="Global Indicators")
+    return render_kv_table(pairs, title="Global Indicators")
+
+
+def print_indicators(
+    planning: dict[str, Any],
+    base_dir: str | None = None,
+) -> None:
+    """Print styled global indicators directly to the terminal."""
+    from gtopt_check_json._terminal import print_kv_table  # noqa: PLC0415
+
+    ind = compute_indicators(planning, base_dir=base_dir)
+
+    pairs: list[tuple[str, str]] = [
+        ("Total gen capacity", f"{ind.total_gen_capacity_mw:,.1f} MW  ({ind.num_generators} generators)"),
+        ("First block demand", f"{ind.first_block_demand_mw:,.1f} MW"),
+        ("Last block demand", f"{ind.last_block_demand_mw:,.1f} MW"),
+        ("Peak demand", f"{ind.peak_demand_mw:,.1f} MW  (block {ind.peak_demand_block})"),
+        ("Min demand", f"{ind.min_demand_mw:,.1f} MW"),
+        ("Total energy", f"{ind.total_energy_mwh:,.1f} MWh"),
+        ("Capacity adequacy", f"{ind.capacity_adequacy_ratio:.3f}"),
+    ]
+    if ind.num_flows > 0:
+        pairs.append(
+            ("First block affluent", f"{ind.first_block_affluent_avg:,.1f} m³/s  ({ind.num_flows} flows)")
+        )
+        pairs.append(
+            ("Last block affluent", f"{ind.last_block_affluent_avg:,.1f} m³/s")
+        )
+
+    print_kv_table(pairs, title="Global Indicators")
 
 
 # ---------------------------------------------------------------------------
@@ -485,8 +509,9 @@ def format_info(
 ) -> str:
     """Return a multi-line string with system, simulation, and option stats.
 
-    The output is presented as styled tables when ``colr=True``, or as
-    plain-text tables suitable for logging.
+    The output is presented as compact plain-text tables suitable for
+    logging and piping to files.  For styled terminal output use
+    :func:`print_info` instead.
 
     Parameters
     ----------
@@ -495,12 +520,9 @@ def format_info(
     base_dir
         Optional case directory for resolving FieldSched file references.
     colr
-        Whether to include ANSI colour codes in the output.
+        Ignored (kept for API compatibility).
     """
-    from gtopt_check_json._terminal import (  # noqa: PLC0415
-        build_table,
-        kv_table,
-    )
+    from gtopt_check_json._terminal import render_kv_table  # noqa: PLC0415
 
     sys_data = planning.get("system", {})
     sim = planning.get("simulation", {})
@@ -513,32 +535,31 @@ def format_info(
         ("System name", sys_data.get("name", "(unnamed)")),
         ("System version", sys_data.get("version", "")),
     ]
-    lines.append(kv_table(sys_pairs, colr=colr, title="System"))
+    lines.append(render_kv_table(sys_pairs, title="System"))
 
-    # -- Element counts --
-    elem_rows: list[tuple[str, str]] = [
-        ("Buses", str(len(sys_data.get("bus_array", [])))),
-        ("Generators", str(len(sys_data.get("generator_array", [])))),
-        ("Generator profiles", str(len(sys_data.get("generator_profile_array", [])))),
-        ("Demands", str(len(sys_data.get("demand_array", [])))),
-        ("Demand profiles", str(len(sys_data.get("demand_profile_array", [])))),
-        ("Lines", str(len(sys_data.get("line_array", [])))),
-        ("Batteries", str(len(sys_data.get("battery_array", [])))),
-        ("Converters", str(len(sys_data.get("converter_array", [])))),
-        ("Reserve zones", str(len(sys_data.get("reserve_zone_array", [])))),
-        ("Reserve provisions", str(len(sys_data.get("reserve_provision_array", [])))),
-        ("Junctions", str(len(sys_data.get("junction_array", [])))),
-        ("Waterways", str(len(sys_data.get("waterway_array", [])))),
-        ("Flows", str(len(sys_data.get("flow_array", [])))),
-        ("Reservoirs", str(len(sys_data.get("reservoir_array", [])))),
-        ("Filtrations", str(len(sys_data.get("filtration_array", [])))),
-        ("Turbines", str(len(sys_data.get("turbine_array", [])))),
+    # -- Element counts (skip zero-count entries) --
+    all_elems = [
+        ("Buses", len(sys_data.get("bus_array", []))),
+        ("Generators", len(sys_data.get("generator_array", []))),
+        ("Generator profiles", len(sys_data.get("generator_profile_array", []))),
+        ("Demands", len(sys_data.get("demand_array", []))),
+        ("Demand profiles", len(sys_data.get("demand_profile_array", []))),
+        ("Lines", len(sys_data.get("line_array", []))),
+        ("Batteries", len(sys_data.get("battery_array", []))),
+        ("Converters", len(sys_data.get("converter_array", []))),
+        ("Reserve zones", len(sys_data.get("reserve_zone_array", []))),
+        ("Reserve provisions", len(sys_data.get("reserve_provision_array", []))),
+        ("Junctions", len(sys_data.get("junction_array", []))),
+        ("Waterways", len(sys_data.get("waterway_array", []))),
+        ("Flows", len(sys_data.get("flow_array", []))),
+        ("Reservoirs", len(sys_data.get("reservoir_array", []))),
+        ("Filtrations", len(sys_data.get("filtration_array", []))),
+        ("Turbines", len(sys_data.get("turbine_array", []))),
     ]
-    # Filter out zero-count elements for cleaner output
-    elem_rows_filtered = [(k, v) for k, v in elem_rows if v != "0"]
-    if not elem_rows_filtered:
-        elem_rows_filtered = elem_rows
-    lines.append(kv_table(elem_rows_filtered, colr=colr, title="Elements"))
+    elem_pairs = [(k, str(v)) for k, v in all_elems if v > 0]
+    if not elem_pairs:
+        elem_pairs = [(k, str(v)) for k, v in all_elems]
+    lines.append(render_kv_table(elem_pairs, title="Elements"))
 
     # -- Simulation --
     sim_pairs: list[tuple[str, str]] = [
@@ -546,7 +567,7 @@ def format_info(
         ("Stages", str(len(sim.get("stage_array", [])))),
         ("Scenarios", str(len(sim.get("scenario_array", [])))),
     ]
-    lines.append(kv_table(sim_pairs, colr=colr, title="Simulation"))
+    lines.append(render_kv_table(sim_pairs, title="Simulation"))
 
     # -- Key options --
     use_kirch = opts.get("use_kirchhoff", False)
@@ -560,9 +581,90 @@ def format_info(
         ("output_directory", str(opts.get("output_directory", "(default)"))),
         ("output_format", str(opts.get("output_format", "csv"))),
     ]
-    lines.append(kv_table(opt_pairs, colr=colr, title="Options"))
+    lines.append(render_kv_table(opt_pairs, title="Options"))
 
     # -- Global indicators --
-    lines.append(format_indicators(planning, base_dir=base_dir, colr=colr))
+    lines.append(format_indicators(planning, base_dir=base_dir))
 
     return "\n".join(lines)
+
+
+def print_info(
+    planning: dict[str, Any],
+    base_dir: str | None = None,
+) -> None:
+    """Print styled system info directly to the terminal.
+
+    Uses :mod:`rich` via :mod:`gtopt_check_json._terminal` for styled
+    tables with automatic colour and Unicode detection.
+    """
+    from gtopt_check_json._terminal import (  # noqa: PLC0415
+        print_kv_table,
+        print_indicators,
+    )
+
+    sys_data = planning.get("system", {})
+    sim = planning.get("simulation", {})
+    opts = planning.get("options", {})
+
+    # -- System info --
+    print_kv_table(
+        [
+            ("System name", sys_data.get("name", "(unnamed)")),
+            ("System version", sys_data.get("version", "")),
+        ],
+        title="System",
+    )
+
+    # -- Element counts --
+    all_elems = [
+        ("Buses", len(sys_data.get("bus_array", []))),
+        ("Generators", len(sys_data.get("generator_array", []))),
+        ("Generator profiles", len(sys_data.get("generator_profile_array", []))),
+        ("Demands", len(sys_data.get("demand_array", []))),
+        ("Demand profiles", len(sys_data.get("demand_profile_array", []))),
+        ("Lines", len(sys_data.get("line_array", []))),
+        ("Batteries", len(sys_data.get("battery_array", []))),
+        ("Converters", len(sys_data.get("converter_array", []))),
+        ("Reserve zones", len(sys_data.get("reserve_zone_array", []))),
+        ("Reserve provisions", len(sys_data.get("reserve_provision_array", []))),
+        ("Junctions", len(sys_data.get("junction_array", []))),
+        ("Waterways", len(sys_data.get("waterway_array", []))),
+        ("Flows", len(sys_data.get("flow_array", []))),
+        ("Reservoirs", len(sys_data.get("reservoir_array", []))),
+        ("Filtrations", len(sys_data.get("filtration_array", []))),
+        ("Turbines", len(sys_data.get("turbine_array", []))),
+    ]
+    elem_pairs = [(k, str(v)) for k, v in all_elems if v > 0]
+    if not elem_pairs:
+        elem_pairs = [(k, str(v)) for k, v in all_elems]
+    print_kv_table(elem_pairs, title="Elements")
+
+    # -- Simulation --
+    print_kv_table(
+        [
+            ("Blocks", str(len(sim.get("block_array", [])))),
+            ("Stages", str(len(sim.get("stage_array", [])))),
+            ("Scenarios", str(len(sim.get("scenario_array", [])))),
+        ],
+        title="Simulation",
+    )
+
+    # -- Key options --
+    use_kirch = opts.get("use_kirchhoff", False)
+    use_sb = opts.get("use_single_bus", False)
+    print_kv_table(
+        [
+            ("use_kirchhoff", "true" if use_kirch else "false"),
+            ("use_single_bus", "true" if use_sb else "false"),
+            ("scale_objective", str(opts.get("scale_objective", 1000.0))),
+            ("demand_fail_cost", str(opts.get("demand_fail_cost", 0.0))),
+            ("input_directory", str(opts.get("input_directory", "(default)"))),
+            ("output_directory", str(opts.get("output_directory", "(default)"))),
+            ("output_format", str(opts.get("output_format", "csv"))),
+        ],
+        title="Options",
+    )
+
+    # -- Global indicators --
+    print_indicators(planning, base_dir=base_dir)
