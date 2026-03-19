@@ -538,13 +538,12 @@ def _extract_flow_central_names(planning: dict[str, Any]) -> set[str] | None:
     """Extract the set of PLP central names from gtopt ``flow_array``.
 
     Each flow created by :class:`JunctionWriter` stores the original PLP
-    central name in the ``plp_central`` field.  Returning this set allows
-    :func:`_plp_indicators` to filter PLP affluents to exactly those that
-    became gtopt flows, enabling precise comparison.
+    central name in the ``plp_central`` field.  This function is used by
+    integration tests to verify that ``plp_central`` traceability is
+    present on every flow.
 
     Returns ``None`` when no ``plp_central`` field is found (e.g. hand-
-    written JSON that predates the field), so the caller falls back to
-    the legacy bus>0 filter.
+    written JSON that predates the field).
     """
     flows = planning.get("system", {}).get("flow_array", [])
     if not flows:
@@ -594,11 +593,10 @@ def compute_comparison_indicators(
         or None
     )
 
-    # NOTE: flow_central_names is NOT passed to _plp_indicators because the
-    # gtopt-side discharge.parquet (written by AflceWriter) contains ALL
-    # aflce centrals, not just the 36 that became gtopt Flow entries.
-    # Using _bus_gt0_names (legacy filter) on the PLP side better matches
-    # what the Parquet contains.
+    # NOTE: _plp_indicators now includes ALL centrals from aflce_parser
+    # (no bus>0 or flow_central_names filtering) because AflceWriter writes
+    # all aflce centrals to discharge.parquet, and compute_indicators sums
+    # all uid columns from that Parquet file.
     plp_ind = _plp_indicators(
         parser,
         hydrology_indices=hydrology_indices,
