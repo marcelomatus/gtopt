@@ -230,7 +230,7 @@ def test_log_comparison_output(capsys: pytest.CaptureFixture) -> None:
 
     # Analysis notes
     assert "batteries" in output
-    assert "excluded from gtopt" in output
+    assert "gtopt demands (unserved energy)" in output
     assert "only bus>0 with waterway" in output
 
     # Check that the embalse → reservoir match note appears
@@ -413,6 +413,7 @@ def test_log_comparison_demand_delta(capsys: pytest.CaptureFixture) -> None:
 
     output = capsys.readouterr().err
     assert "demands with bus=0 or empty excluded" in output
+    assert "PLP falla (unserved energy)" in output
 
 
 def test_log_comparison_with_indicators(
@@ -476,4 +477,10 @@ def test_log_comparison_with_indicators(
     assert "Global Indicators" in output
     assert "gen capacity (MW)" in output
     assert "first block demand (MW)" in output
+    assert "total energy (TWh)" in output
     assert "capacity adequacy" in output
+    # Verify capacity adequacy appears before affluent (moved next to energy)
+    adequacy_pos = output.index("capacity adequacy")
+    if "first block affluent" in output:
+        affluent_pos = output.index("first block affluent")
+        assert adequacy_pos < affluent_pos
