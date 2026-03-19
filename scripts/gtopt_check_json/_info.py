@@ -5,9 +5,10 @@ Replicates the C++ ``log_pre_solve_stats`` output so the gtopt binary can
 delegate statistics printing to this script.
 
 Also provides :func:`compute_indicators` which derives aggregate power-system
-indicators (total generation capacity, peak demand, annual energy, capacity
-adequacy ratio) directly from the in-memory planning dict.  These indicators
-are useful for quick sanity checks and for comparing PLP and gtopt cases.
+indicators (total generation capacity, first/last block demand and affluent,
+capacity adequacy ratio) directly from the in-memory planning dict.  These
+indicators are useful for quick sanity checks and for comparing PLP and gtopt
+cases.
 """
 
 from dataclasses import dataclass, field
@@ -18,6 +19,12 @@ from typing import Any
 # Global indicator data model
 # ---------------------------------------------------------------------------
 
+# Type value that marks a PLP failure (modelling artefact) generator.
+_FAILURE_GEN_TYPE = "falla"
+
+# Minimum capacity adequacy ratio to avoid a thin-margin warning (15%).
+_CAPACITY_MARGIN_THRESHOLD = 1.15
+
 
 @dataclass
 class SystemIndicators:
@@ -26,7 +33,13 @@ class SystemIndicators:
     Attributes
     ----------
     total_gen_capacity_mw : float
-        Sum of ``capacity`` (or ``pmax``) across all generators (MW).
+        Sum of ``capacity`` (or ``pmax``) across all non-failure generators
+        (MW).  A generator is considered a failure generator when its
+        ``type`` attribute equals ``"falla"``.
+    first_block_demand_mw : float
+        Total system demand at the first block (MW).
+    last_block_demand_mw : float
+        Total system demand at the last block (MW).
     peak_demand_mw : float
         Maximum total system demand across all blocks (MW).
     min_demand_mw : float
@@ -44,29 +57,48 @@ class SystemIndicators:
         This is a standard reliability indicator in generation expansion
         planning literature (see e.g. NERC *Probabilistic Adequacy and
         Measures* reports and IEA *World Energy Outlook* methodology).
+    first_block_affluent_avg : float
+        Average (across scenarios) total affluent at the first block (m³/s).
+    last_block_affluent_avg : float
+        Average (across scenarios) total affluent at the last block (m³/s).
     num_generators : int
         Count of generators used in the capacity sum.
     num_demands : int
         Count of demands used in the demand sum.
     num_blocks : int
         Number of blocks in the simulation.
+    num_flows : int
+        Number of flow (affluent) elements.
     """
 
     total_gen_capacity_mw: float = 0.0
+    first_block_demand_mw: float = 0.0
+    last_block_demand_mw: float = 0.0
     peak_demand_mw: float = 0.0
     min_demand_mw: float = 0.0
     peak_demand_block: int = -1
     total_demand_by_block: list[float] = field(default_factory=list)
     total_energy_mwh: float = 0.0
     capacity_adequacy_ratio: float = float("inf")
+    first_block_affluent_avg: float = 0.0
+    last_block_affluent_avg: float = 0.0
     num_generators: int = 0
     num_demands: int = 0
     num_blocks: int = 0
+    num_flows: int = 0
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _is_failure_generator(gen: dict[str, Any]) -> bool:
+    """Return True if *gen* is a PLP failure (``"falla"``) generator.
+
+    Detection is purely by ``type`` attribute, **not** by pmax magnitude.
+    """
+    return str(gen.get("type", "")).lower() == _FAILURE_GEN_TYPE
 
 
 def _first_scalar(val: Any) -> float | None:
@@ -103,13 +135,6 @@ def _scalar_at_block(val: Any, block_idx: int) -> float | None:
     return None
 
 
-# Threshold for excluding PLP failure generators (pmax ≥ this value).
-_FAILURE_GEN_THRESHOLD = 9000.0
-
-# Minimum capacity adequacy ratio to avoid a thin-margin warning (15%).
-_CAPACITY_MARGIN_THRESHOLD = 1.15
-
-
 # ---------------------------------------------------------------------------
 # Indicator computation
 # ---------------------------------------------------------------------------
@@ -123,6 +148,17 @@ def compute_indicators(planning: dict[str, Any]) -> SystemIndicators:
     ``capacity`` is given as a file reference (string), only the
     ``capacity`` scalar is used (which is always present in plp2gtopt
     output).
+
+    Failure generators are identified by ``type == "falla"`` (not by
+    pmax magnitude).
+
+    The demand comparison uses first and last block totals rather than
+    global peak/min, which gives a clearer picture when comparing PLP
+    and gtopt representations of the same case.
+
+    An affluent (hydro inflow) indicator is computed as the sum of all
+    ``Flow.discharge`` values at the first and last block, averaged
+    across scenarios when the discharge is given per-scenario.
 
     Parameters
     ----------
@@ -140,6 +176,7 @@ def compute_indicators(planning: dict[str, Any]) -> SystemIndicators:
 
     generators = sys_data.get("generator_array", [])
     demands = sys_data.get("demand_array", [])
+    flows = sys_data.get("flow_array", [])
     blocks = sim.get("block_array", [])
     num_blocks = len(blocks)
 
@@ -147,11 +184,12 @@ def compute_indicators(planning: dict[str, Any]) -> SystemIndicators:
     total_gen_cap = 0.0
     num_gen = 0
     for gen in generators:
+        if _is_failure_generator(gen):
+            continue
         cap = _first_scalar(gen.get("capacity"))
         if cap is None:
             cap = _first_scalar(gen.get("pmax"))
-        if cap is not None and cap < _FAILURE_GEN_THRESHOLD:
-            # Exclude failure generators (pmax >= 9000 is a PLP convention)
+        if cap is not None:
             total_gen_cap += cap
             num_gen += 1
 
@@ -181,6 +219,8 @@ def compute_indicators(planning: dict[str, Any]) -> SystemIndicators:
     peak_demand = max(demand_by_block) if demand_by_block else 0.0
     min_demand = min(demand_by_block) if demand_by_block else 0.0
     peak_block = demand_by_block.index(peak_demand) if demand_by_block else -1
+    first_block_demand = demand_by_block[0] if demand_by_block else 0.0
+    last_block_demand = demand_by_block[-1] if demand_by_block else 0.0
 
     # --- Total energy (MWh) = Σ demand × duration ---
     total_energy = 0.0
@@ -188,20 +228,45 @@ def compute_indicators(planning: dict[str, Any]) -> SystemIndicators:
         duration = blocks[b_idx].get("duration", 1.0) if b_idx < num_blocks else 1.0
         total_energy += demand_by_block[b_idx] * duration
 
+    # --- Accumulated affluent (hydro inflow) at first and last block ---
+    first_block_afl = 0.0
+    last_block_afl = 0.0
+    num_flow = len(flows)
+    for fl in flows:
+        discharge = fl.get("discharge")
+        if discharge is None or isinstance(discharge, str):
+            continue
+        first_val = _first_scalar(discharge)
+        if first_val is not None:
+            first_block_afl += first_val
+        if isinstance(discharge, list) and discharge:
+            last_vals = discharge[-1]
+            if isinstance(last_vals, (int, float)):
+                last_block_afl += float(last_vals)
+            else:
+                last_block_afl += first_val or 0.0
+        elif isinstance(discharge, (int, float)):
+            last_block_afl += float(discharge)
+
     # --- Capacity adequacy ratio ---
     adequacy = total_gen_cap / peak_demand if peak_demand > 0 else float("inf")
 
     return SystemIndicators(
         total_gen_capacity_mw=total_gen_cap,
+        first_block_demand_mw=first_block_demand,
+        last_block_demand_mw=last_block_demand,
         peak_demand_mw=peak_demand,
         min_demand_mw=min_demand,
         peak_demand_block=peak_block,
         total_demand_by_block=demand_by_block,
         total_energy_mwh=total_energy,
         capacity_adequacy_ratio=adequacy,
+        first_block_affluent_avg=first_block_afl,
+        last_block_affluent_avg=last_block_afl,
         num_generators=num_gen,
         num_demands=num_dem,
         num_blocks=num_blocks if num_blocks > 0 else len(demand_by_block),
+        num_flows=num_flow,
     )
 
 
@@ -226,6 +291,8 @@ def format_indicators(planning: dict[str, Any]) -> str:
         f"  Total gen capacity  : {ind.total_gen_capacity_mw:,.1f} MW"
         f"  ({ind.num_generators} generators)"
     )
+    lines.append(f"  First block demand  : {ind.first_block_demand_mw:,.1f} MW")
+    lines.append(f"  Last block demand   : {ind.last_block_demand_mw:,.1f} MW")
     lines.append(
         f"  Peak demand         : {ind.peak_demand_mw:,.1f} MW"
         f"  (block {ind.peak_demand_block})"
@@ -233,6 +300,12 @@ def format_indicators(planning: dict[str, Any]) -> str:
     lines.append(f"  Min demand          : {ind.min_demand_mw:,.1f} MW")
     lines.append(f"  Total energy        : {ind.total_energy_mwh:,.1f} MWh")
     lines.append(f"  Capacity adequacy   : {ind.capacity_adequacy_ratio:.3f}")
+    if ind.num_flows > 0:
+        lines.append(
+            f"  First block affluent: {ind.first_block_affluent_avg:,.1f} m³/s"
+            f"  ({ind.num_flows} flows)"
+        )
+        lines.append(f"  Last block affluent : {ind.last_block_affluent_avg:,.1f} m³/s")
 
     return "\n".join(lines)
 
