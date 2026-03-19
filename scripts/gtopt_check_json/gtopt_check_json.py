@@ -131,7 +131,7 @@ def check_json(
     planning, _case_dir = _load_planning(json_paths)
 
     if info_only:
-        print(format_info(planning, base_dir=_case_dir))
+        print(format_info(planning, base_dir=_case_dir, colr=col.USE_COLOR))
         return 0
 
     # Determine enabled checks
