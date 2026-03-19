@@ -692,6 +692,117 @@ class GTOptWriter:
 
         return stage_to_phase or None
 
+    def process_variable_scales(self, options):
+        """Build ``variable_scales`` entries in the options section.
+
+        Generates VariableScale JSON entries for reservoir volume scaling
+        and battery energy scaling, using the ``variable_scales`` mechanism
+        in ``Options`` rather than per-element fields.
+
+        Scale sources (in priority order for reservoirs):
+        1. Explicit ``--vol-scale name:value`` entries.
+        2. ``--auto-vol-scale``: uses FEscala from plpplem1.dat when
+           available (``vol_scale = 10^(FEscala - 6)``), otherwise falls
+           back to the central_parser's vol_scale (``Escala / 1e6``).
+
+        Scale sources for batteries:
+        1. Explicit ``--energy-scale name:value`` entries.
+        2. ``--auto-energy-scale``: uses 0.01 for all batteries.
+
+        When no scale options are set, no ``variable_scales`` entries are
+        generated (preserving backward compatibility).
+        """
+        if not options:
+            return
+
+        has_vol = "vol_scale" in options or options.get("auto_vol_scale", False)
+        has_energy = "energy_scale" in options or options.get(
+            "auto_energy_scale", False
+        )
+        if not has_vol and not has_energy:
+            return
+
+        scales: list = []
+
+        # --- Reservoir volume scales ---
+        if has_vol:
+            explicit_vol: dict = options.get("vol_scale", {})
+            auto_vol = options.get("auto_vol_scale", False)
+
+            # Collect FEscala data from planos parser (plpplem1.dat)
+            planos = self.parser.parsed_data.get("planos_parser")
+            fescala_map: dict = {}
+            if planos is not None:
+                fescala_map = planos.reservoir_fescala
+
+            # Collect central_parser vol_scale as fallback for auto mode
+            central_parser = self.parser.parsed_data.get("central_parser")
+            central_vol_scale: dict = {}
+            if central_parser is not None:
+                for central in central_parser.centrals:
+                    if central.get("type") == "embalse" and "vol_scale" in central:
+                        central_vol_scale[str(central["name"])] = central["vol_scale"]
+
+            reservoirs = self.planning["system"].get("reservoir_array", [])
+            for rsv in reservoirs:
+                name = rsv["name"]
+                uid = rsv["uid"]
+                scale = None
+
+                # Priority 1: explicit --vol-scale
+                if name in explicit_vol:
+                    scale = explicit_vol[name]
+                # Priority 2: auto-vol-scale
+                elif auto_vol:
+                    # Try FEscala from plpplem1.dat first
+                    if name in fescala_map:
+                        fescala = fescala_map[name]
+                        scale = 10.0 ** (fescala - 6)
+                    # Fallback: central_parser's vol_scale (Escala/1e6)
+                    elif name in central_vol_scale:
+                        scale = central_vol_scale[name]
+
+                if scale is not None and scale != 1.0:
+                    scales.append(
+                        {
+                            "class_name": "Reservoir",
+                            "variable": "volume",
+                            "uid": uid,
+                            "scale": scale,
+                        }
+                    )
+
+        # --- Battery energy scales ---
+        if has_energy:
+            explicit_energy: dict = options.get("energy_scale", {})
+            auto_energy = options.get("auto_energy_scale", False)
+
+            batteries = self.planning["system"].get("battery_array", [])
+            for bat in batteries:
+                name = bat["name"]
+                uid = bat["uid"]
+                scale = None
+
+                # Priority 1: explicit --energy-scale
+                if name in explicit_energy:
+                    scale = explicit_energy[name]
+                # Priority 2: auto-energy-scale → 0.01 for all PLP batteries
+                elif auto_energy:
+                    scale = 0.01
+
+                if scale is not None and scale != 1.0:
+                    scales.append(
+                        {
+                            "class_name": "Battery",
+                            "variable": "energy",
+                            "uid": uid,
+                            "scale": scale,
+                        }
+                    )
+
+        if scales:
+            self.planning["options"]["variable_scales"] = scales
+
     def to_json(self, options=None) -> Dict:
         """Convert parsed data to GTOPT JSON structure."""
         if options is None:
@@ -711,6 +822,7 @@ class GTOptWriter:
         self.process_junctions(options)
         self.process_battery(options)
         self.process_boundary_cuts(options)
+        self.process_variable_scales(options)
 
         # Organize into planning structure
         name = options.get("name", "plp2gtopt") if options else "plp2gtopt"
