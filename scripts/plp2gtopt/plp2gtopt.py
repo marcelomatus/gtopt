@@ -195,10 +195,10 @@ def _plp_active_hydrology_indices(parser: PLPParser) -> list[int] | None:
         indices_0based: list[int] = []
         seen: set[int] = set()
         for sim_idx in range(idsim_parser.num_simulations):
-            h = idsim_parser.get_index(sim_idx, 1)  # 1-based hydrology
-            if h is not None and h not in seen:
-                seen.add(h)
-                indices_0based.append(h - 1)  # convert to 0-based
+            hydro_idx = idsim_parser.get_index(sim_idx, 1)  # 1-based hydrology
+            if hydro_idx is not None and hydro_idx not in seen:
+                seen.add(hydro_idx)
+                indices_0based.append(hydro_idx - 1)  # convert to 0-based
         return indices_0based if indices_0based else None
 
     aflce_parser = pd.get("aflce_parser")
@@ -746,15 +746,15 @@ def run_post_check(
     sim = planning.get("simulation", {})
     scenarios = sim.get("scenario_array", [])
     if hydrology_indices is not None and scenarios:
-        gtopt_hydro = sorted(
+        gtopt_hydrology_indices = sorted(
             s.get("hydrology") for s in scenarios if s.get("hydrology") is not None
         )
-        plp_hydro = sorted(hydrology_indices)
-        if gtopt_hydro != plp_hydro:
+        plp_hydrology_indices = sorted(hydrology_indices)
+        if gtopt_hydrology_indices != plp_hydrology_indices:
             logger.warning(
                 "PLP active hydrologies %s differ from gtopt scenarios %s",
-                plp_hydro,
-                gtopt_hydro,
+                plp_hydrology_indices,
+                gtopt_hydrology_indices,
             )
 
     # --- PLP vs gtopt comparison (always available) ---
