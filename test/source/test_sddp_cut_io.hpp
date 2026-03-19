@@ -280,7 +280,7 @@ TEST_CASE("save and load cuts round-trip via SDDPSolver")  // NOLINT
     load_opts.max_iterations = 1;
     load_opts.convergence_tol = 1e-6;
     load_opts.cuts_input_file = cuts_file;
-    load_opts.hot_start = true;
+    load_opts.hot_start_mode = HotStartMode::replace;
 
     // Solve with hot-start — should converge faster or at least not crash
     SDDPSolver sddp2(planning_lp2, load_opts);
