@@ -1239,7 +1239,7 @@ def test_min_hydro_ms_num_apertures(tmp_path):
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
     sddp = data["options"]["sddp_options"]
     assert data["options"]["solver_type"] == "sddp"
-    assert sddp["sddp_num_apertures"] == 2
+    assert sddp["num_apertures"] == 2
 
 
 @pytest.mark.integration
@@ -1249,18 +1249,18 @@ def test_min_hydro_ms_num_apertures_all(tmp_path):
     opts["hydrologies"] = "1,2"
     opts["solver_type"] = "sddp"
     # "all" (or legacy -1) means auto-detect from aperture files.
-    # plp_min_hydro_ms has no plpidap2.dat, so no sddp_num_apertures is set.
+    # plp_min_hydro_ms has no plpidap2.dat, so no num_apertures is set.
     opts["num_apertures"] = "-1"
     convert_plp_case(opts)
 
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
     sddp = data["options"].get("sddp_options", {})
-    assert "sddp_num_apertures" not in sddp
+    assert "num_apertures" not in sddp
 
 
 @pytest.mark.integration
 def test_min_hydro_ms_no_apertures_by_default(tmp_path):
-    """plp_min_hydro_ms without --num-apertures: sddp_num_apertures absent in output."""
+    """plp_min_hydro_ms without --num-apertures: num_apertures absent in output."""
     opts = _make_opts(_PLPMinHydroMs, tmp_path, "plp_min_hydro_ms_no_apertures")
     opts["hydrologies"] = "1,2"
     opts["solver_type"] = "sddp"
@@ -1268,7 +1268,7 @@ def test_min_hydro_ms_no_apertures_by_default(tmp_path):
 
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
     sddp = data["options"].get("sddp_options", {})
-    assert "sddp_num_apertures" not in sddp
+    assert "num_apertures" not in sddp
 
 
 # ---------------------------------------------------------------------------
@@ -1425,9 +1425,9 @@ def test_plp_case_2y_single_stage_all_scenarios(tmp_path):
         "afluent.parquet must have at least one uid:N central column"
     )
 
-    # sddp_num_apertures auto-set to 16 (one per aperture in aperture_array)
+    # num_apertures auto-set to 16 (one per aperture in aperture_array)
     sddp = data["options"]["sddp_options"]
-    assert sddp.get("sddp_num_apertures") == 16
+    assert sddp.get("num_apertures") == 16
 
 
 @pytest.mark.integration
@@ -1474,9 +1474,9 @@ def test_plp_case_2y_all_stages_extra_hydros(tmp_path):
     assert np.isfinite(df["uid:1"].values).all()
     assert np.isfinite(df["uid:2"].values).all()
 
-    # sddp_num_apertures auto-set to 18 (total unique apertures)
+    # num_apertures auto-set to 18 (total unique apertures)
     sddp = data["options"]["sddp_options"]
-    assert sddp.get("sddp_num_apertures") == 18
+    assert sddp.get("num_apertures") == 18
 
     # Forward afluent files for the 16 scenarios (hydros 51-66)
     afluent_dir = Path(opts["output_dir"]) / "Afluent"
@@ -1673,7 +1673,7 @@ def test_hydro_4b_sddp_conversion(tmp_path):
     # SDDP options
     sddp_opts = data["options"]["sddp_options"]
     assert data["options"]["solver_type"] == "sddp"
-    assert sddp_opts["sddp_num_apertures"] == 3
+    assert sddp_opts["num_apertures"] == 3
 
 
 @pytest.mark.integration

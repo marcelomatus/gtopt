@@ -331,6 +331,34 @@ public:
         default_lp_coeff_ratio_threshold);
   }
 
+  // ── Monolithic solver accessors ─────────────────────────────────────────
+
+  /// Monolithic solve mode: "monolithic" (default) or "sequential".
+  [[nodiscard]] auto monolithic_solve_mode() const -> Name
+  {
+    return m_options_.monolithic_options.solve_mode.value_or(
+        Name {"monolithic"});
+  }
+
+  /// CSV file with boundary cuts for the monolithic solver (empty = none).
+  [[nodiscard]] auto monolithic_boundary_cuts_file() const -> Name
+  {
+    return m_options_.monolithic_options.boundary_cuts_file.value_or(Name {});
+  }
+
+  /// Boundary cuts load mode: "noload", "separated" (default), "combined".
+  [[nodiscard]] auto monolithic_boundary_cuts_mode() const -> Name
+  {
+    return m_options_.monolithic_options.boundary_cuts_mode.value_or(
+        Name {"separated"});
+  }
+
+  /// Maximum boundary cut iterations to load (0 = all).
+  [[nodiscard]] auto monolithic_boundary_max_iterations() const -> int
+  {
+    return m_options_.monolithic_options.boundary_max_iterations.value_or(0);
+  }
+
   // Default values for SDDP solver settings
   /** @brief Default solver type */
   static constexpr auto default_sddp_solver_type = "monolithic";
@@ -382,7 +410,7 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_cut_sharing_mode() const
   {
-    return m_options_.sddp_options.sddp_cut_sharing_mode.value_or(
+    return m_options_.sddp_options.cut_sharing_mode.value_or(
         default_sddp_cut_sharing_mode);
   }
 
@@ -392,7 +420,7 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_cut_directory() const
   {
-    return m_options_.sddp_options.sddp_cut_directory.value_or(
+    return m_options_.sddp_options.cut_directory.value_or(
         default_sddp_cut_directory);
   }
 
@@ -411,7 +439,7 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_api_enabled() const
   {
-    return m_options_.sddp_options.sddp_api_enabled.value_or(
+    return m_options_.sddp_options.api_enabled.value_or(
         default_sddp_api_enabled);
   }
 
@@ -421,7 +449,7 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_efficiency_update_skip() const
   {
-    return m_options_.sddp_options.sddp_efficiency_update_skip.value_or(
+    return m_options_.sddp_options.efficiency_update_skip.value_or(
         default_sddp_efficiency_update_skip);
   }
 
@@ -431,7 +459,7 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_max_iterations() const
   {
-    return m_options_.sddp_options.sddp_max_iterations.value_or(
+    return m_options_.sddp_options.max_iterations.value_or(
         default_sddp_max_iterations);
   }
 
@@ -441,7 +469,7 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_min_iterations() const
   {
-    return m_options_.sddp_options.sddp_min_iterations.value_or(
+    return m_options_.sddp_options.min_iterations.value_or(
         default_sddp_min_iterations);
   }
 
@@ -451,7 +479,7 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_convergence_tol() const
   {
-    return m_options_.sddp_options.sddp_convergence_tol.value_or(
+    return m_options_.sddp_options.convergence_tol.value_or(
         default_sddp_convergence_tol);
   }
 
@@ -461,7 +489,7 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_elastic_penalty() const
   {
-    return m_options_.sddp_options.sddp_elastic_penalty.value_or(
+    return m_options_.sddp_options.elastic_penalty.value_or(
         default_sddp_elastic_penalty);
   }
 
@@ -471,8 +499,7 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_alpha_min() const
   {
-    return m_options_.sddp_options.sddp_alpha_min.value_or(
-        default_sddp_alpha_min);
+    return m_options_.sddp_options.alpha_min.value_or(default_sddp_alpha_min);
   }
 
   /**
@@ -481,8 +508,7 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_alpha_max() const
   {
-    return m_options_.sddp_options.sddp_alpha_max.value_or(
-        default_sddp_alpha_max);
+    return m_options_.sddp_options.alpha_max.value_or(default_sddp_alpha_max);
   }
 
   /**
@@ -490,7 +516,7 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_hot_start() const
   {
-    return m_options_.sddp_options.sddp_hot_start.value_or(false);
+    return m_options_.sddp_options.hot_start.value_or(false);
   }
 
   /**
@@ -498,7 +524,7 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_save_per_iteration() const
   {
-    return m_options_.sddp_options.sddp_save_per_iteration.value_or(true);
+    return m_options_.sddp_options.save_per_iteration.value_or(true);
   }
 
   /**
@@ -507,7 +533,7 @@ public:
    */
   [[nodiscard]] auto sddp_cuts_input_file() const -> Name
   {
-    return m_options_.sddp_options.sddp_cuts_input_file.value_or("");
+    return m_options_.sddp_options.cuts_input_file.value_or("");
   }
 
   /**
@@ -516,7 +542,7 @@ public:
    */
   [[nodiscard]] auto sddp_sentinel_file() const -> Name
   {
-    return m_options_.sddp_options.sddp_sentinel_file.value_or("");
+    return m_options_.sddp_options.sentinel_file.value_or("");
   }
 
   /**
@@ -525,7 +551,7 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_elastic_mode() const
   {
-    return m_options_.sddp_options.sddp_elastic_mode.value_or(
+    return m_options_.sddp_options.elastic_mode.value_or(
         default_sddp_elastic_mode);
   }
 
@@ -536,46 +562,46 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_multi_cut_threshold() const
   {
-    return m_options_.sddp_options.sddp_multi_cut_threshold.value_or(
+    return m_options_.sddp_options.multi_cut_threshold.value_or(
         default_sddp_multi_cut_threshold);
   }
 
   [[nodiscard]] constexpr auto sddp_num_apertures() const
   {
-    return m_options_.sddp_options.sddp_num_apertures.value_or(0);
+    return m_options_.sddp_options.num_apertures.value_or(0);
   }
 
   /// Directory for aperture-specific scenario data (empty = use
   /// input_directory)
   [[nodiscard]] auto sddp_aperture_directory() const -> Name
   {
-    return m_options_.sddp_options.sddp_aperture_directory.value_or(Name {});
+    return m_options_.sddp_options.aperture_directory.value_or(Name {});
   }
 
   /// CSV file with boundary (future-cost) cuts for the last phase.
   /// Empty = no boundary cuts.
   [[nodiscard]] auto sddp_boundary_cuts_file() const -> Name
   {
-    return m_options_.sddp_options.sddp_boundary_cuts_file.value_or(Name {});
+    return m_options_.sddp_options.boundary_cuts_file.value_or(Name {});
   }
 
   /// Boundary cuts load mode: "noload", "separated" (default), or "combined".
   [[nodiscard]] auto sddp_boundary_cuts_mode() const -> Name
   {
-    return m_options_.sddp_options.sddp_boundary_cuts_mode.value_or(
+    return m_options_.sddp_options.boundary_cuts_mode.value_or(
         Name {"separated"});
   }
 
   /// Maximum boundary cut iterations to load (0 = all).
   [[nodiscard]] auto sddp_boundary_max_iterations() const -> int
   {
-    return m_options_.sddp_options.sddp_boundary_max_iterations.value_or(0);
+    return m_options_.sddp_options.boundary_max_iterations.value_or(0);
   }
 
   /// CSV file with named-variable cuts for hot-start across all phases.
   [[nodiscard]] auto sddp_named_cuts_file() const -> Name
   {
-    return m_options_.sddp_options.sddp_named_cuts_file.value_or(Name {});
+    return m_options_.sddp_options.named_cuts_file.value_or(Name {});
   }
 
   /**

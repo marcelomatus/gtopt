@@ -18,6 +18,7 @@
 #include <gtopt/options_lp.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_solver.hpp>
+#include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_solver.hpp>
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/work_pool.hpp>
@@ -38,6 +39,45 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
   const auto num_scenes = static_cast<int>(planning_lp.systems().size());
 
   SPDLOG_INFO("MonolithicSolver: starting {} scene(s)", num_scenes);
+
+  // ── Boundary cuts ──
+  if (!boundary_cuts_file.empty() && boundary_cuts_mode != "noload") {
+    SPDLOG_INFO("MonolithicSolver: loading boundary cuts from '{}'",
+                boundary_cuts_file);
+
+    // Build temporary SDDPOptions with boundary cut settings
+    SDDPOptions bc_opts;
+    bc_opts.boundary_cuts_file = boundary_cuts_file;
+    bc_opts.boundary_cuts_mode = boundary_cuts_mode;
+    bc_opts.boundary_max_iterations = boundary_max_iterations;
+
+    // Build per-scene phase state info (alpha columns + outgoing links)
+    const auto num_phases_bc = planning_lp.systems().empty()
+        ? 0UZ
+        : planning_lp.systems().front().size();
+    StrongIndexVector<SceneIndex, StrongIndexVector<PhaseIndex, PhaseStateInfo>>
+        scene_phase_states;
+    scene_phase_states.resize(
+        static_cast<std::size_t>(num_scenes),
+        StrongIndexVector<PhaseIndex, PhaseStateInfo>(num_phases_bc));
+
+    const LabelMaker label_maker(planning_lp.options());
+
+    auto bc_result = load_boundary_cuts_csv(planning_lp,
+                                            boundary_cuts_file,
+                                            bc_opts,
+                                            label_maker,
+                                            scene_phase_states);
+    if (bc_result) {
+      SPDLOG_INFO(
+          "MonolithicSolver: loaded {} boundary cuts (max iteration {})",
+          bc_result->count,
+          bc_result->max_iteration);
+    } else {
+      SPDLOG_WARN("MonolithicSolver: failed to load boundary cuts: {}",
+                  bc_result.error().message);
+    }
+  }
 
   std::atomic<int> scenes_done {0};
   std::mutex times_mutex;
@@ -273,6 +313,13 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options,
   solver->lp_debug = options.lp_debug();
   solver->lp_debug_directory = std::string(options.log_directory());
   solver->lp_debug_compression = std::string(options.lp_compression());
+  solver->solve_mode = std::string(options.monolithic_solve_mode());
+  solver->boundary_cuts_file =
+      std::string(options.monolithic_boundary_cuts_file());
+  solver->boundary_cuts_mode =
+      std::string(options.monolithic_boundary_cuts_mode());
+  solver->boundary_max_iterations =
+      options.monolithic_boundary_max_iterations();
   return solver;
 }
 

@@ -429,7 +429,7 @@ def make_parser() -> argparse.ArgumentParser:
             "Export intermediate-stage cuts from plpplaem/plpplem files "
             "as a hot-start-cuts CSV (with named state variables and phase "
             "column).  The file is loaded by the SDDP solver via "
-            "sddp_named_cuts_file to warm-start all phases."
+            "named_cuts_file to warm-start all phases."
         ),
     )
     parser.add_argument(
