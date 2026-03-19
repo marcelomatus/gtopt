@@ -1534,18 +1534,18 @@ def test_plp_case_2y_global_indicators(tmp_path):
     ``gtopt_check_json`` module.
     """
     from plp2gtopt.plp2gtopt import (  # noqa: PLC0415
+        _extract_flow_central_names,
         _gtopt_element_counts,
-        _gtopt_indicators,
         _plp_active_hydrology_indices,
         _plp_element_counts,
-        _plp_indicators,
+        compute_comparison_indicators,
     )
 
     # --- Run full conversion (all stages, all scenarios) ---
     opts = _make_opts_2y(tmp_path, "gtopt_case_2y_ind")
     convert_plp_case(opts)
 
-    # --- PLP side: read indicators directly from parsed PLP data ---
+    # --- PLP side: parse PLP data ---
     parser = PLPParser({"input_dir": _PLPCase2Y})
     parser.parse_all()
 
@@ -1553,14 +1553,21 @@ def test_plp_case_2y_global_indicators(tmp_path):
     assert hydrology_indices is not None, "plpidsim.dat should provide hydro indices"
     assert len(hydrology_indices) == 16, "Expected 16 active hydrologies from idsim"
 
-    plp_counts = _plp_element_counts(parser)
-    plp_ind = _plp_indicators(parser, hydrology_indices=hydrology_indices)
-
-    # --- gtopt side: read from the converted planning dict ---
+    # --- Read converted planning dict ---
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
-    gtopt_counts = _gtopt_element_counts(data)
     base_dir = str(opts["output_dir"])
-    gtopt_ind = _gtopt_indicators(data, base_dir=base_dir)
+
+    # Verify plp_central traceability exists
+    flow_central_names = _extract_flow_central_names(data)
+    assert flow_central_names is not None, "flow_array should have plp_central fields"
+    assert len(flow_central_names) > 0, (
+        "At least one flow should reference a PLP central"
+    )
+
+    # --- Compute matched indicators (all logic in plp2gtopt) ---
+    plp_ind, gtopt_ind = compute_comparison_indicators(parser, data, base_dir=base_dir)
+    plp_counts = _plp_element_counts(parser)
+    gtopt_counts = _gtopt_element_counts(data)
 
     # ---- Cross-check: PLP hydrology indices == gtopt scenario hydrologies ----
     scenarios = data["simulation"]["scenario_array"]
@@ -1659,60 +1666,64 @@ def test_plp_case_2y_global_indicators(tmp_path):
         gtopt_ind["total_line_capacity_mw"], rel=1e-6
     ), "Line capacity mismatch"
 
-    # --- Flow/affluent indicators ---
-    # PLP affluents (plpaflce.dat) are per-central; gtopt flows are per-junction.
-    # The mapping is not 1:1 (junctions aggregate multiple centrals), so we
-    # only verify both sides are positive.  The comparison table shows Δ% for
-    # manual inspection.
+    # --- Flow/affluent indicators (must match exactly via plp_central) ---
+    # plp_central field on each Flow ensures we compare exactly the same
+    # set of PLP affluents that were converted to gtopt flows.
     assert plp_ind["first_block_affluent_avg"] > 0.0, "PLP first flow should be > 0"
-    assert gtopt_ind["first_block_affluent_avg"] > 0.0, "gtopt first flow should be > 0"
+    assert plp_ind["first_block_affluent_avg"] == pytest.approx(
+        gtopt_ind["first_block_affluent_avg"], rel=1e-6
+    ), "First block flow mismatch (plp_central filtering)"
     assert plp_ind["last_block_affluent_avg"] > 0.0, "PLP last flow should be > 0"
-    assert gtopt_ind["last_block_affluent_avg"] > 0.0, "gtopt last flow should be > 0"
+    assert plp_ind["last_block_affluent_avg"] == pytest.approx(
+        gtopt_ind["last_block_affluent_avg"], rel=1e-6
+    ), "Last block flow mismatch (plp_central filtering)"
     assert plp_ind["total_water_volume_hm3"] > 0.0, "PLP water volume should be > 0"
-    assert gtopt_ind["total_water_volume_hm3"] > 0.0, "gtopt water volume should be > 0"
+    assert plp_ind["total_water_volume_hm3"] == pytest.approx(
+        gtopt_ind["total_water_volume_hm3"], rel=1e-6
+    ), "Total water volume mismatch (plp_central filtering)"
     assert plp_ind["avg_flow_m3s"] > 0.0, "PLP avg flow should be > 0"
-    assert gtopt_ind["avg_flow_m3s"] > 0.0, "gtopt avg flow should be > 0"
+    assert plp_ind["avg_flow_m3s"] == pytest.approx(
+        gtopt_ind["avg_flow_m3s"], rel=1e-6
+    ), "Avg flow mismatch (plp_central filtering)"
 
 
 @pytest.mark.integration
 def test_plp_case_2y_4h_partial_hydrology(tmp_path):
-    """plp_case_2y with 4 hydrologies: demand matches, flows may differ.
+    """plp_case_2y with 4 hydrologies: demand matches, flows match via plp_central.
 
     Converts only a subset of hydrologies (1,2,3,4 out of 16).  Demand
     indicators must still match exactly because demand does not depend on
-    hydrology.  Flow/affluent indicators are computed over the selected
-    hydrologies only, so they will generally differ from the full-case
-    PLP indicators.
+    hydrology.  Flow/affluent indicators are averaged over the selected
+    hydrologies only, but with plp_central filtering they match exactly
+    between PLP and gtopt.
     """
     from plp2gtopt.plp2gtopt import (  # noqa: PLC0415
+        _extract_flow_central_names,
         _gtopt_element_counts,
-        _gtopt_indicators,
         _plp_element_counts,
-        _plp_indicators,
+        compute_comparison_indicators,
     )
 
     opts = _make_opts_2y(tmp_path, "gtopt_case_2y_4h")
     opts["hydrologies"] = "1,2,3,4"
     convert_plp_case(opts)
 
-    # PLP side
     parser = PLPParser({"input_dir": _PLPCase2Y})
     parser.parse_all()
 
-    # The active hydrology indices after conversion are from the opts
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
     scenarios = data["simulation"]["scenario_array"]
     assert len(scenarios) == 4, "Expected 4 scenarios for hydrologies 1,2,3,4"
 
-    # PLP indicators with the 4 selected hydrologies (0-based: 0,1,2,3)
-    hydro_4 = sorted(s["hydrology"] for s in scenarios)
-    plp_counts = _plp_element_counts(parser)
-    plp_ind = _plp_indicators(parser, hydrology_indices=hydro_4)
+    # Verify plp_central traceability exists
+    flow_central_names = _extract_flow_central_names(data)
+    assert flow_central_names is not None, "flow_array should have plp_central fields"
 
-    # gtopt side
-    gtopt_counts = _gtopt_element_counts(data)
+    # --- Compute matched indicators (all logic in plp2gtopt) ---
     base_dir = str(opts["output_dir"])
-    gtopt_ind = _gtopt_indicators(data, base_dir=base_dir)
+    plp_ind, gtopt_ind = compute_comparison_indicators(parser, data, base_dir=base_dir)
+    plp_counts = _plp_element_counts(parser)
+    gtopt_counts = _gtopt_element_counts(data)
 
     # Element counts: topology unchanged
     assert plp_counts["buses"] == gtopt_counts["buses"]
@@ -1757,9 +1768,8 @@ def test_plp_case_2y_4h_4s_partial_stages(tmp_path):
     """
     from plp2gtopt.plp2gtopt import (  # noqa: PLC0415
         _gtopt_element_counts,
-        _gtopt_indicators,
         _plp_element_counts,
-        _plp_indicators,
+        compute_comparison_indicators,
     )
 
     opts = _make_opts_2y(tmp_path, "gtopt_case_2y_4h_4s")
@@ -1767,19 +1777,16 @@ def test_plp_case_2y_4h_4s_partial_stages(tmp_path):
     opts["last_stage"] = 4
     convert_plp_case(opts)
 
-    # PLP side — full parse
     parser = PLPParser({"input_dir": _PLPCase2Y})
     parser.parse_all()
 
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
-    scenarios = data["simulation"]["scenario_array"]
-    hydro_4 = sorted(s["hydrology"] for s in scenarios)
-    plp_counts = _plp_element_counts(parser)
-    plp_ind = _plp_indicators(parser, hydrology_indices=hydro_4)
 
-    gtopt_counts = _gtopt_element_counts(data)
+    # --- Compute matched indicators (all logic in plp2gtopt) ---
     base_dir = str(opts["output_dir"])
-    gtopt_ind = _gtopt_indicators(data, base_dir=base_dir)
+    plp_ind, gtopt_ind = compute_comparison_indicators(parser, data, base_dir=base_dir)
+    plp_counts = _plp_element_counts(parser)
+    gtopt_counts = _gtopt_element_counts(data)
 
     # Topology unchanged
     assert plp_counts["buses"] == gtopt_counts["buses"]
