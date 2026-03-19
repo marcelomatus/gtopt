@@ -7,7 +7,9 @@ Handles:
 - Post-conversion validation via gtopt_check_json
 """
 
+import json
 import logging
+import sys
 import time
 import zipfile
 from pathlib import Path
@@ -384,3 +386,121 @@ def convert_plp_case(options: dict[str, Any]) -> None:
         ) from e
     except Exception as e:
         raise RuntimeError(f"PLP to GTOPT conversion failed. Details: {e}") from e
+
+
+def generate_variable_scales_template(options: dict[str, Any]) -> str:
+    """Generate a pre-computed variable_scales JSON template from PLP case data.
+
+    Parses the PLP case (same initial steps as convert_plp_case) and builds
+    a JSON array of VariableScale objects for reservoirs and batteries.
+
+    For each reservoir, the volume scale is computed from FEscala
+    (``10^(FEscala - 6)``), falling back to the Escala field from
+    plpcnfce.dat if FEscala is not available.
+
+    For each battery/ESS, energy_scale defaults to 0.01.
+
+    Informational fields prefixed with ``_`` (``_name``, ``_fescala``) are
+    included as comments; gtopt ignores unknown fields starting with ``_``.
+
+    Args:
+        options: Conversion options dict (same keys as convert_plp_case).
+
+    Returns:
+        Pretty-printed JSON string of the variable_scales array.
+
+    Raises:
+        RuntimeError: If parsing or conversion fails.
+    """
+    input_dir = Path(options.get("input_dir", "input"))
+    if not input_dir.exists():
+        raise RuntimeError(f"Input directory does not exist: '{input_dir}'")
+
+    # Parse PLP files
+    parser = PLPParser(options)
+    parser.parse_all()
+
+    # Build planning dict to get reservoir/battery arrays with UIDs
+    writer = GTOptWriter(parser)
+    planning = writer.to_json(options)
+
+    scales: list[dict[str, Any]] = []
+
+    # --- Reservoir volume scales ---
+    planos = parser.parsed_data.get("planos_parser")
+    fescala_map: dict[str, int] = {}
+    if planos is not None:
+        fescala_map = planos.reservoir_fescala
+
+    central_parser = parser.parsed_data.get("central_parser")
+    central_vol_scale: dict[str, float] = {}
+    if central_parser is not None:
+        for central in central_parser.centrals:
+            if central.get("type") == "embalse" and "vol_scale" in central:
+                central_vol_scale[str(central["name"])] = central["vol_scale"]
+
+    reservoirs = planning.get("system", {}).get("reservoir_array", [])
+    for rsv in reservoirs:
+        name = rsv["name"]
+        uid = rsv["uid"]
+        scale: float | None = None
+        fescala_val: int | None = None
+
+        # Priority 1: FEscala from plpplem1.dat
+        fescala = fescala_map.get(name)
+        if fescala is not None:
+            scale = 10.0 ** (fescala - 6)
+            fescala_val = fescala
+        else:
+            # Fallback: Escala from plpcnfce.dat (already divided by 1e6)
+            cvs = central_vol_scale.get(name)
+            if cvs is not None:
+                scale = cvs
+
+        entry: dict[str, Any] = {
+            "class_name": "Reservoir",
+            "variable": "volume",
+            "uid": uid,
+            "scale": scale if scale is not None else 1.0,
+            "_name": name,
+        }
+        if fescala_val is not None:
+            entry["_fescala"] = fescala_val
+        scales.append(entry)
+
+    # --- Battery energy scales ---
+    batteries = planning.get("system", {}).get("battery_array", [])
+    for bat in batteries:
+        name = bat["name"]
+        uid = bat["uid"]
+        scales.append(
+            {
+                "class_name": "Battery",
+                "variable": "energy",
+                "uid": uid,
+                "scale": 0.01,
+                "_name": name,
+            }
+        )
+
+    return json.dumps(scales, indent=2, ensure_ascii=False)
+
+
+def print_variable_scales_template(options: dict[str, Any]) -> int:
+    """Print a pre-computed variable_scales JSON template to stdout.
+
+    Calls :func:`generate_variable_scales_template` and prints the result.
+
+    Args:
+        options: Conversion options dict (same keys as convert_plp_case).
+
+    Returns:
+        0 on success, 1 on error.
+    """
+    try:
+        output = generate_variable_scales_template(options)
+        print(output)
+        return 0
+    except (RuntimeError, FileNotFoundError, ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
