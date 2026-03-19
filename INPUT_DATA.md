@@ -43,31 +43,67 @@ case_name/
 
 ## 1. Options
 
-Global settings that control solver behavior and I/O formats.
+Global settings that control solver behavior and I/O formats.  All fields are
+optional -- when absent, the solver applies built-in defaults (shown below).
 
-| Field                  | Type     | Units        | Description |
-|------------------------|----------|--------------|-------------|
-| `annual_discount_rate` | number   | p.u./year    | Annual discount rate for cost calculations |
-| `demand_fail_cost`     | number   | $/MWh        | Penalty cost for unserved demand (value of lost load) |
-| `reserve_fail_cost`    | number   | $/MWh        | Penalty cost for unserved spinning reserve |
-| `scale_objective`      | number   | dimensionless| Divide objective by this value for numerical stability |
-| `scale_theta`          | number   | dimensionless| Scaling factor for voltage-angle variables |
-| `kirchhoff_threshold`  | number   | kV           | Minimum bus voltage for Kirchhoff constraint application |
-| `use_line_losses`      | boolean  | —            | Enable line loss modeling |
-| `use_kirchhoff`        | boolean  | —            | Enable Kirchhoff's voltage law constraints |
-| `use_single_bus`       | boolean  | —            | Collapse system to single bus (copper-plate) |
-| `use_lp_names`         | boolean  | —            | Use human-readable LP variable names |
-| `use_uid_fname`        | boolean  | —            | Use UID-based file names |
-| `input_directory`      | string   | —            | Directory for external data files |
-| `input_format`         | string   | —            | Format of input files: `"csv"` or `"parquet"` |
-| `output_directory`     | string   | —            | Directory for output files |
-| `output_format`        | string   | —            | Format of output files: `"csv"` or `"parquet"` |
-| `output_compression`   | string   | `"zstd"`     | Compression for output files: `"zstd"` (default), `"gzip"`, `"uncompressed"` |
-| `lp_algorithm`        | integer  | —            | LP solver algorithm code (0 = auto) |
-| `lp_threads`          | integer  | —            | Number of LP solver threads (0 = auto) |
-| `lp_presolve`         | boolean  | —            | Enable LP presolve in the solver |
-| `log_directory`       | string   | `"logs"`     | Directory for log and error LP files |
-| `lp_debug`            | boolean  | —            | Save LP debug files to `log_directory` before solving. Monolithic solver: one file per `(scene, phase)`; SDDP solver: one file per `(iteration, scene, phase)`. Files are named `gtopt_lp_<scene>_<phase>.lp` (monolithic) or `gtopt_iter_<iter>_<scene>_<phase>.lp` (SDDP). When `output_compression` is set to a codec (default `"zstd"`, or any value other than `"uncompressed"`), files are compressed and the originals removed. |
+#### Input settings
+
+| Field              | Type   | Default      | Description |
+|--------------------|--------|--------------|-------------|
+| `input_directory`  | string | `"input"`    | Root directory for external data files (resolved relative to JSON file) |
+| `input_format`     | string | `"parquet"`  | Preferred input format: `"parquet"` or `"csv"` |
+
+#### Model parameters
+
+| Field                  | Type    | Default   | Units         | Description |
+|------------------------|---------|-----------|---------------|-------------|
+| `demand_fail_cost`     | number  | *(none)*  | $/MWh         | Penalty cost for unserved demand (value of lost load) |
+| `reserve_fail_cost`    | number  | *(none)*  | $/MWh         | Penalty cost for unserved spinning reserve |
+| `use_line_losses`      | boolean | `true`    | --            | Enable resistive line loss modeling |
+| `loss_segments`        | integer | `1`       | --            | Number of piecewise-linear segments for quadratic line losses (1 = linear) |
+| `use_kirchhoff`        | boolean | `true`    | --            | Enable DC Kirchhoff voltage-law constraints |
+| `use_single_bus`       | boolean | `false`   | --            | Collapse network to a single bus (copper-plate model) |
+| `kirchhoff_threshold`  | number  | `0`       | kV            | Minimum bus voltage below which Kirchhoff is not applied |
+| `scale_objective`      | number  | `1000`    | dimensionless | Divisor applied to all objective coefficients for numerical stability |
+| `scale_theta`          | number  | `1000`    | dimensionless | Scaling factor for voltage-angle variables |
+| `annual_discount_rate` | number  | `0.0`     | p.u./year     | Annual discount rate for multi-stage CAPEX discounting |
+
+#### Output settings
+
+| Field                | Type    | Default      | Description |
+|----------------------|---------|--------------|-------------|
+| `output_directory`   | string  | `"output"`   | Root directory for output result files |
+| `output_format`      | string  | `"parquet"`  | Output format: `"parquet"` or `"csv"` |
+| `output_compression` | string  | `"zstd"`     | Compression codec: `"uncompressed"`, `"gzip"`, `"zstd"`, `"lz4"`, `"bzip2"`, `"xz"` |
+| `use_lp_names`       | integer | `1`          | LP naming level: 0=none, 1=names+warn on duplicates, 2=names+error on duplicates. JSON `true` maps to 1, `false` to 0 |
+| `use_uid_fname`      | boolean | `true`       | Use element UIDs instead of names in output filenames |
+
+#### Solver selection
+
+| Field         | Type   | Default        | Description |
+|---------------|--------|----------------|-------------|
+| `solver_type` | string | `"monolithic"` | Planning solver: `"monolithic"` (default) or `"sddp"`. See [SDDP Solver](docs/SDDP_SOLVER.md) and [Monolithic Solver](docs/MONOLITHIC_SOLVER.md) |
+
+#### Logging and debugging
+
+| Field                       | Type    | Default  | Description |
+|-----------------------------|---------|----------|-------------|
+| `log_directory`             | string  | `"logs"` | Directory for log, trace, and error LP files |
+| `lp_debug`                  | boolean | `false`  | Save LP debug files to `log_directory` before solving. Monolithic: one file per `(scene, phase)` named `gtopt_lp_<scene>_<phase>.lp`. SDDP: one file per `(iteration, scene, phase)` named `gtopt_iter_<iter>_<scene>_<phase>.lp` |
+| `lp_compression`            | string  | `""`     | Compression codec for LP debug files: `""` (inherit from output), `"none"` (no compression), or a codec name (`"zstd"`, `"gzip"`, `"lz4"`, `"bzip2"`, `"xz"`) |
+| `just_build_lp`             | boolean | `false`  | Build all LP matrices but skip solving entirely. Combine with `lp_debug: true` to export every scene/phase LP |
+| `lp_coeff_ratio_threshold`  | number  | `1e7`    | When the global max/min coefficient ratio exceeds this value, per-scene/phase breakdown is printed |
+
+#### Deprecated LP solver fields
+
+These fields are still accepted for backward compatibility but are superseded
+by the `solver_options` sub-object (see Section 1.1).
+
+| Field          | Type    | Default | Description |
+|----------------|---------|---------|-------------|
+| `lp_algorithm` | integer | --      | LP algorithm: 0=auto, 1=primal, 2=dual, 3=barrier |
+| `lp_threads`   | integer | --      | Solver threads (0=auto) |
+| `lp_presolve`  | boolean | --      | Enable LP presolve |
 
 ### Example
 
@@ -82,7 +118,12 @@ Global settings that control solver behavior and I/O formats.
     "scale_objective": 1000,
     "use_kirchhoff": true,
     "input_directory": "system_c0",
-    "input_format": "parquet"
+    "input_format": "parquet",
+    "solver_type": "monolithic",
+    "solver_options": {
+      "algorithm": 3,
+      "presolve": true
+    }
   }
 }
 ```
@@ -157,6 +198,117 @@ Resolution priority when the solver looks up a scale:
       {"class_name": "Battery", "variable": "energy",
        "uid": 1, "scale": 10.0}
     ]
+  }
+}
+```
+
+### 1.3 SDDPOptions
+
+SDDP-specific solver configuration, specified as a sub-object under
+`options.sddp_options`.  Field names omit the `sddp_` prefix since the
+section name already provides the namespace.  All fields are optional.
+
+For full algorithmic details, see [SDDP Solver](docs/SDDP_SOLVER.md).
+
+#### Iteration control
+
+| Field              | Type    | Default  | Description |
+|--------------------|---------|----------|-------------|
+| `max_iterations`   | integer | `100`    | Maximum number of forward/backward iterations |
+| `min_iterations`   | integer | `2`      | Minimum iterations before declaring convergence |
+| `convergence_tol`  | number  | `1e-4`   | Relative gap tolerance for convergence |
+
+#### Advanced tuning
+
+| Field                | Type    | Default        | Description |
+|----------------------|---------|----------------|-------------|
+| `elastic_penalty`    | number  | `1e6`          | Penalty for elastic slack variables in feasibility |
+| `elastic_mode`       | string  | `"single_cut"` | Elastic filter mode: `"single_cut"` (alias `"cut"`), `"multi_cut"`, or `"backpropagate"` |
+| `multi_cut_threshold`| integer | `10`           | Forward-pass infeasibility count before auto-switching from single_cut to multi_cut (0 = never) |
+| `alpha_min`          | number  | `0.0`          | Lower bound for future cost variable alpha |
+| `alpha_max`          | number  | `1e12`         | Upper bound for future cost variable alpha |
+| `cut_sharing_mode`   | string  | `"none"`       | Cut sharing across scenes: `"none"`, `"expected"`, `"accumulate"`, or `"max"` |
+| `efficiency_update_skip` | integer | `0`        | Iterations to skip between efficiency coefficient updates (0 = every iteration) |
+
+#### Cut file management
+
+| Field                | Type    | Default  | Description |
+|----------------------|---------|----------|-------------|
+| `cut_directory`      | string  | `"cuts"` | Directory for Benders cut files |
+| `hot_start`          | boolean | `false`  | Enable hot-start from previously saved cuts |
+| `save_per_iteration` | boolean | `true`   | Save cuts to CSV after each iteration (vs. only at end) |
+| `cuts_input_file`    | string  | `""`     | File path for loading initial cuts (empty = cold start) |
+| `named_cuts_file`    | string  | `""`     | CSV file with named-variable cuts for hot-start across all phases |
+| `sentinel_file`      | string  | `""`     | Path to a sentinel file; if it exists, the solver stops gracefully |
+
+#### Boundary cuts
+
+| Field                      | Type    | Default       | Description |
+|----------------------------|---------|---------------|-------------|
+| `boundary_cuts_file`       | string  | `""`          | CSV file with boundary (future-cost) cuts for the last phase |
+| `boundary_cuts_mode`       | string  | `"separated"` | Load mode: `"noload"`, `"separated"` (per-scene), or `"combined"` (broadcast) |
+| `boundary_max_iterations`  | integer | `0`           | Max SDDP iterations to load from boundary file (0 = all) |
+
+#### Apertures
+
+| Field                 | Type    | Default | Description |
+|-----------------------|---------|---------|-------------|
+| `num_apertures`       | integer | `0`     | Number of hydrological apertures for backward pass. 0 = disabled, -1 = all scenarios, N > 0 = first N |
+| `aperture_directory`  | string  | `""`    | Directory for aperture-specific scenario data (empty = use `input_directory`) |
+
+#### Monitoring API
+
+| Field         | Type    | Default | Description |
+|---------------|---------|---------|-------------|
+| `api_enabled` | boolean | `true`  | Enable the SDDP monitoring API (writes JSON status file each iteration) |
+
+**Example:**
+
+```json
+{
+  "options": {
+    "solver_type": "sddp",
+    "sddp_options": {
+      "max_iterations": 200,
+      "convergence_tol": 1e-5,
+      "cut_sharing_mode": "expected",
+      "cut_directory": "cuts",
+      "elastic_mode": "single_cut",
+      "elastic_penalty": 1e7,
+      "hot_start": true,
+      "boundary_cuts_file": "boundary_cuts.csv",
+      "boundary_cuts_mode": "separated",
+      "num_apertures": 0
+    }
+  }
+}
+```
+
+### 1.4 MonolithicOptions
+
+Monolithic-solver-specific configuration, specified as a sub-object under
+`options.monolithic_options`.  All fields are optional.
+
+For full details, see [Monolithic Solver](docs/MONOLITHIC_SOLVER.md).
+
+| Field                      | Type    | Default       | Description |
+|----------------------------|---------|---------------|-------------|
+| `solve_mode`               | string  | `"monolithic"`| Solve mode: `"monolithic"` (all phases in one LP) or `"sequential"` (phase-by-phase) |
+| `boundary_cuts_file`       | string  | `""`          | CSV file with boundary (future-cost) cuts for the last phase |
+| `boundary_cuts_mode`       | string  | `"separated"` | Load mode: `"noload"`, `"separated"` (per-scene), or `"combined"` (broadcast) |
+| `boundary_max_iterations`  | integer | `0`           | Max iterations to load from boundary file (0 = all) |
+
+**Example:**
+
+```json
+{
+  "options": {
+    "solver_type": "monolithic",
+    "monolithic_options": {
+      "solve_mode": "monolithic",
+      "boundary_cuts_file": "boundary_cuts.csv",
+      "boundary_cuts_mode": "separated"
+    }
   }
 }
 ```

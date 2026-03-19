@@ -170,6 +170,12 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// When false, cuts are only saved at the end of the solve or on stop.
   bool save_per_iteration {true};
 
+  /// Global solve timeout in seconds (0 = no timeout).
+  /// When non-zero, each forward-pass LP solve is given this time limit;
+  /// if exceeded, the LP is saved to a debug file, a CRITICAL message is
+  /// logged, and the scene is marked as failed.
+  double solve_timeout {0.0};
+
   /// File path for saving cuts (empty = no save)
   std::string cuts_output_file {};
   /// File path for loading initial cuts (empty = no load / cold start)
@@ -244,6 +250,12 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// updated.  State variable bounds remain fixed at the forward-pass
   /// trial values.
   int num_apertures {0};
+
+  /// Timeout in seconds for individual aperture LP solves in the backward
+  /// pass.  When an aperture LP exceeds this time, it is treated as
+  /// infeasible (skipped), a WARNING is logged, and the solver continues
+  /// with the remaining apertures.  0 = no timeout (default).
+  double aperture_timeout {0.0};
 
   /// CSV file with boundary (future-cost) cuts for the last phase.
   ///

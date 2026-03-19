@@ -332,6 +332,36 @@ public:
         default_lp_coeff_ratio_threshold);
   }
 
+  /**
+   * @brief Gets the global solve timeout in seconds (0 = no timeout).
+   *
+   * Applies to both monolithic and SDDP forward-pass LP solves.
+   * When non-zero, LP solves exceeding this time trigger a CRITICAL log
+   * and an error return.
+   *
+   * @return SDDP solve timeout (default 180s = 3 min)
+   */
+  [[nodiscard]] constexpr auto sddp_solve_timeout() const
+  {
+    return m_options_.sddp_options.solve_timeout.value_or(180.0);
+  }
+
+  /** @brief Aperture LP timeout in seconds.
+   * @return Aperture timeout (default 15s)
+   */
+  [[nodiscard]] constexpr auto sddp_aperture_timeout() const
+  {
+    return m_options_.sddp_options.aperture_timeout.value_or(15.0);
+  }
+
+  /** @brief Monolithic LP solve timeout in seconds.
+   * @return Monolithic solve timeout (default 18000s = 300 min)
+   */
+  [[nodiscard]] constexpr auto monolithic_solve_timeout() const
+  {
+    return m_options_.monolithic_options.solve_timeout.value_or(18000.0);
+  }
+
   // ── Monolithic solver accessors ─────────────────────────────────────────
 
   /// Monolithic solve mode: "monolithic" (default) or "sequential".
