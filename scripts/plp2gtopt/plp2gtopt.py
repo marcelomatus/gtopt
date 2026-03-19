@@ -175,7 +175,45 @@ def _plp_element_counts(parser: PLPParser) -> dict[str, int]:
     return counts
 
 
-def _plp_indicators(parser: PLPParser) -> dict[str, float]:
+def _plp_active_hydrology_indices(parser: PLPParser) -> list[int] | None:
+    """Return the 0-based hydrology column indices that PLP uses to run.
+
+    The selection mirrors the logic in
+    :meth:`~.gtopt_writer.GTOptWriter.process_scenarios` with ``spec="all"``:
+
+    * When ``plpidsim.dat`` is present, collects the unique hydrology
+      classes from the stage-1 mappings (preserving simulation order).
+    * When absent, uses all hydrology columns ``0..N-1`` from
+      ``plpaflce.dat``.
+    * Returns ``None`` when neither data source is available (no
+      filtering needed).
+    """
+    pd = parser.parsed_data
+
+    idsim_parser = pd.get("idsim_parser")
+    if idsim_parser is not None and idsim_parser.num_simulations > 0:
+        indices_0based: list[int] = []
+        seen: set[int] = set()
+        for sim_idx in range(idsim_parser.num_simulations):
+            h = idsim_parser.get_index(sim_idx, 1)  # 1-based hydrology
+            if h is not None and h not in seen:
+                seen.add(h)
+                indices_0based.append(h - 1)  # convert to 0-based
+        return indices_0based if indices_0based else None
+
+    aflce_parser = pd.get("aflce_parser")
+    if aflce_parser and aflce_parser.items:
+        num_hydro = aflce_parser.items[0].get("num_hydrologies", 0)
+        if num_hydro > 0:
+            return list(range(num_hydro))
+
+    return None
+
+
+def _plp_indicators(
+    parser: PLPParser,
+    hydrology_indices: list[int] | None = None,
+) -> dict[str, float]:
     """Compute aggregate PLP indicators from parsed data for comparison.
 
     Returns a dict with keys matching those from :func:`_gtopt_indicators`:
@@ -186,9 +224,19 @@ def _plp_indicators(parser: PLPParser) -> dict[str, float]:
     * ``first_block_demand_mw`` — total system demand at the first block.
     * ``last_block_demand_mw`` — total system demand at the last block.
     * ``total_energy_mwh`` — Σ (demand × duration) across all blocks.
-    * ``first_block_affluent_avg`` — average (across hydrologies) total
-      affluent at the first block from ``plpaflce.dat``.
+    * ``first_block_affluent_avg`` — average (across selected hydrologies)
+      total affluent at the first block from ``plpaflce.dat``.
     * ``last_block_affluent_avg`` — same for the last block.
+
+    Parameters
+    ----------
+    parser
+        The PLPParser instance with parsed PLP data.
+    hydrology_indices
+        Optional list of 0-based hydrology column indices to average
+        across when computing affluent indicators.  When ``None``, all
+        hydrologies in ``plpaflce.dat`` are used.  Pass the selected
+        scenario hydrology indices to match the gtopt conversion.
     """
     pd = parser.parsed_data
     indicators: dict[str, float] = {}
@@ -255,10 +303,18 @@ def _plp_indicators(parser: PLPParser) -> dict[str, float]:
             if flow_data is None or block_arr is None or len(block_arr) == 0:
                 continue
             num_hydro = flow.get("num_hydrologies", 1)
-            # First block: mean across hydrologies
-            first_afl += float(flow_data[0].mean()) if num_hydro > 0 else 0.0
-            # Last block: mean across hydrologies
-            last_afl += float(flow_data[-1].mean()) if num_hydro > 0 else 0.0
+            if num_hydro <= 0:
+                continue
+            if hydrology_indices is not None:
+                # Average across only the selected hydrology columns
+                cols = [c for c in hydrology_indices if 0 <= c < num_hydro]
+                if cols:
+                    first_afl += float(flow_data[0, cols].mean())
+                    last_afl += float(flow_data[-1, cols].mean())
+            else:
+                # Average across all hydrologies
+                first_afl += float(flow_data[0].mean())
+                last_afl += float(flow_data[-1].mean())
 
     indicators["first_block_affluent_avg"] = first_afl
     indicators["last_block_affluent_avg"] = last_afl
@@ -515,18 +571,27 @@ def _log_comparison(
     _row("pasada", p_pasada, g_gen_pasada or None, indent=1)
     _row("termica", p_termica, g_gen_termica or None, indent=1)
     _row("bateria", p_bateria, note="→ batteries", indent=1)
-    _row("falla", p_falla, note="excluded from gtopt", indent=1)
-    _row("gen (excl falla+bat)", p_gen_excl, g_generators)
-    gen_delta = g_generators - p_gen_excl
+    _row(
+        "falla", p_falla, g_demands, note="→ gtopt demands (unserved energy)", indent=1
+    )
+    # gtopt auto-creates 1 auxiliary generator per battery (via converter)
+    g_gen_with_bat_aux = g_generators + g_batteries
+    _row("gen (excl falla+bat)", p_gen_excl, g_gen_with_bat_aux)
+    gen_delta = g_gen_with_bat_aux - p_gen_excl
     if gen_delta != 0:
         _row("", note=f"delta {gen_delta:+d} centrals with bus<=0 excluded")
+    if g_batteries > 0:
+        _row(
+            "",
+            note=f"gtopt incl. {g_batteries} battery aux gen (auto-created)",
+        )
     _row(
         "generator profiles",
         p_pasada,
         g_gen_profiles,
         note=(f"= pasada count ({p_pasada}) ✓" if g_gen_profiles == p_pasada else ""),
     )
-    _row("demands", p_demands, g_demands)
+    _row("demands", p_demands, g_demands, note="≈ PLP falla (unserved energy)")
     dem_delta = g_demands - p_demands
     if dem_delta != 0:
         _row("", note=f"delta {dem_delta:+d} demands with bus=0 or empty excluded")
@@ -615,11 +680,25 @@ def _log_comparison(
             plp_ind.get("last_block_demand_mw", 0.0),
             gtopt_ind.get("last_block_demand_mw", 0.0),
         )
+
+        # Convert MWh to TWh (÷ 1e6) for display
+        _MWH_TO_TWH = 1e-6
         _ind_row(
-            "total energy (MWh)",
-            plp_ind.get("total_energy_mwh", 0.0),
-            gtopt_ind.get("total_energy_mwh", 0.0),
+            "total energy (TWh)",
+            plp_ind.get("total_energy_mwh", 0.0) * _MWH_TO_TWH,
+            gtopt_ind.get("total_energy_mwh", 0.0) * _MWH_TO_TWH,
+            fmt=".3f",
         )
+
+        # Capacity adequacy: gen capacity / first block demand
+        plp_dem1 = plp_ind.get("first_block_demand_mw", 0.0)
+        gtopt_dem1 = gtopt_ind.get("first_block_demand_mw", 0.0)
+        plp_cap = plp_ind.get("total_gen_capacity_mw", 0.0)
+        gtopt_cap = gtopt_ind.get("total_gen_capacity_mw", 0.0)
+        plp_ratio = plp_cap / plp_dem1 if plp_dem1 > 0 else float("inf")
+        gtopt_ratio = gtopt_cap / gtopt_dem1 if gtopt_dem1 > 0 else float("inf")
+        _ind_row("capacity adequacy", plp_ratio, gtopt_ratio, fmt=".3f")
+
         _ind_row(
             "first block affluent",
             plp_ind.get("first_block_affluent_avg", 0.0),
@@ -630,14 +709,6 @@ def _log_comparison(
             plp_ind.get("last_block_affluent_avg", 0.0),
             gtopt_ind.get("last_block_affluent_avg", 0.0),
         )
-
-        plp_dem1 = plp_ind.get("first_block_demand_mw", 0.0)
-        gtopt_dem1 = gtopt_ind.get("first_block_demand_mw", 0.0)
-        plp_cap = plp_ind.get("total_gen_capacity_mw", 0.0)
-        gtopt_cap = gtopt_ind.get("total_gen_capacity_mw", 0.0)
-        plp_ratio = plp_cap / plp_dem1 if plp_dem1 > 0 else float("inf")
-        gtopt_ratio = gtopt_cap / gtopt_dem1 if gtopt_dem1 > 0 else float("inf")
-        _ind_row("capacity adequacy", plp_ratio, gtopt_ratio, fmt=".3f")
 
         con.print(ind_table)
 
@@ -666,10 +737,30 @@ def run_post_check(
     """
     base_dir = str(output_dir) if output_dir is not None else None
 
+    # Derive the active hydrology indices from the PLP case data directly
+    # (idsim_parser or aflce_parser), then verify consistency with what
+    # the gtopt conversion selected as scenarios.
+    hydrology_indices = _plp_active_hydrology_indices(parser)
+
+    # Cross-check: the gtopt scenario_array should reference the same set
+    sim = planning.get("simulation", {})
+    scenarios = sim.get("scenario_array", [])
+    if hydrology_indices is not None and scenarios:
+        gtopt_hydro = sorted(
+            s.get("hydrology") for s in scenarios if s.get("hydrology") is not None
+        )
+        plp_hydro = sorted(hydrology_indices)
+        if gtopt_hydro != plp_hydro:
+            logger.warning(
+                "PLP active hydrologies %s differ from gtopt scenarios %s",
+                plp_hydro,
+                gtopt_hydro,
+            )
+
     # --- PLP vs gtopt comparison (always available) ---
     plp_counts = _plp_element_counts(parser)
     gtopt_counts = _gtopt_element_counts(planning)
-    plp_ind = _plp_indicators(parser)
+    plp_ind = _plp_indicators(parser, hydrology_indices=hydrology_indices)
     gtopt_ind = _gtopt_indicators(planning, base_dir=base_dir)
     _log_comparison(plp_counts, gtopt_counts, plp_ind, gtopt_ind)
 
