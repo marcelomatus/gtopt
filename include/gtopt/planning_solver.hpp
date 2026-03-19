@@ -113,6 +113,10 @@ public:
   std::string boundary_cuts_mode {"separated"};
   /// Maximum iterations to load from boundary cuts file (0 = all).
   int boundary_max_iterations {0};
+  /// Global solve timeout in seconds (0 = no timeout).
+  /// When non-zero, each LP solve is given this time limit; if exceeded,
+  /// the LP is saved to a debug file and a CRITICAL message is logged.
+  double solve_timeout {0.0};
 
   [[nodiscard]] auto solve(PlanningLP& planning_lp, const SolverOptions& opts)
       -> std::expected<int, Error> override;
