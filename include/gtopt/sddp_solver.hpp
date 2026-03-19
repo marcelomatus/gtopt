@@ -196,7 +196,7 @@ enum class ElasticFilterMode : uint8_t
     std::string_view name);
 
 /// Configuration options for the SDDP iterative solver
-struct SDDPOptions
+struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
 {
   int max_iterations {100};  ///< Maximum forward/backward iterations
   int min_iterations {2};  ///< Minimum iterations before convergence
