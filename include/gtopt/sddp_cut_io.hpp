@@ -50,9 +50,12 @@ class PlanningLP;
 /// @param cuts         All stored cuts to save
 /// @param planning_lp  The PlanningLP (for scale and column names)
 /// @param filepath     Output CSV file path
+/// @param append_mode  When true, append rows without header
+///                     (file must already exist with correct header)
 [[nodiscard]] auto save_cuts_csv(std::span<const StoredCut> cuts,
                                  const PlanningLP& planning_lp,
-                                 const std::string& filepath)
+                                 const std::string& filepath,
+                                 bool append_mode = false)
     -> std::expected<void, Error>;
 
 /// Save cuts for a single scene to a per-scene CSV file.

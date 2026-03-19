@@ -85,8 +85,14 @@ struct SddpOptions
   // ── Cut file management ────────────────────────────────────────────────────
   /** @brief Enable hot-start from previously saved cuts (default: false).
    *  When true and no explicit `cuts_input_file` is given, the solver
-   *  loads cuts from the `cut_directory`. */
+   *  loads cuts from the `cut_directory`.
+   *  @deprecated Use `hot_start_mode` instead for finer control. */
   OptBool hot_start {};
+  /** @brief Hot-start mode: `"none"` (default), `"keep"`, `"append"`,
+   *  or `"replace"`.  Controls both whether to load cuts from a previous
+   *  run and how to handle the combined output file on completion.
+   *  Takes precedence over the boolean `hot_start` field. */
+  OptName hot_start_mode {};
   /** @brief Save cuts to CSV after each iteration (default: true).
    *  When false, cuts are only saved at the end of the solve or on stop. */
   OptBool save_per_iteration {};
@@ -207,6 +213,7 @@ struct SddpOptions
     merge_opt(alpha_min, opts.alpha_min);
     merge_opt(alpha_max, opts.alpha_max);
     merge_opt(hot_start, opts.hot_start);
+    merge_opt(hot_start_mode, std::move(opts.hot_start_mode));
     merge_opt(save_per_iteration, opts.save_per_iteration);
     merge_opt(cuts_input_file, std::move(opts.cuts_input_file));
     merge_opt(sentinel_file, std::move(opts.sentinel_file));
