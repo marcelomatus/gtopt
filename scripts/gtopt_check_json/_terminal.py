@@ -82,14 +82,6 @@ def get_console(
         width=120,
     )
 
-    # If the caller explicitly asked for ASCII, override the encoding
-    # check so rich falls back to ASCII box-drawing.
-    if force_ascii:
-        console._force_terminal = force_terminal  # noqa: SLF001
-        # Rich uses Console.options.ascii_only; easiest way is to set it
-        # via the legacy_windows path or by monkey-patching.  The cleanest
-        # public API is to pass ``safe_box=True`` to each Table.
-
     return console
 
 
@@ -138,12 +130,6 @@ def console() -> Console:
 # ---------------------------------------------------------------------------
 # Convenience helpers
 # ---------------------------------------------------------------------------
-
-
-def _safe_box() -> bool:
-    """Return True when ASCII-safe box chars should be used."""
-    con = console()
-    return not con.options.legacy_windows and con.is_terminal
 
 
 def print_section(title: str) -> None:
