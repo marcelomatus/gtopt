@@ -482,7 +482,7 @@ class GTOptWriter:
         scenarios = self.planning["simulation"]["scenario_array"]
 
         output_dir = Path(options["output_dir"]) if options else Path("results")
-        output_dir = output_dir / "Afluent"
+        output_dir = output_dir / "Flow"
         output_dir.mkdir(parents=True, exist_ok=True)
 
         aflce_writer = AflceWriter(

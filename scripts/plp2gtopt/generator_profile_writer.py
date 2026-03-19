@@ -83,9 +83,7 @@ class GeneratorProfileWriter(BaseWriter):
                 if self.aflce_parser
                 else None
             )
-            afluent = (
-                central.get("afluent", 0.0) if aflce is None else "Afluent@afluent"
-            )
+            afluent = central.get("afluent", 0.0) if aflce is None else "Flow@discharge"
 
             if isinstance(afluent, float) and afluent <= 0.0:
                 continue
