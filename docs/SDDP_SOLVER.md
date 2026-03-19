@@ -373,8 +373,10 @@ The hook is designed to be extended with additional update types:
 | First (1)   | `eini` from reservoir | `eini` from reservoir |
 | Subsequent  | `eini` from reservoir | Previous phase efin (via state variable) |
 
-**Skip count**: the `sddp_efficiency_update_skip` option (per-element or
-global) controls how often the update is applied.  A skip of $N$ means
+**Skip count**: the `efficiency_update_skip` option (per-element
+`sddp_efficiency_update_skip` on `ReservoirEfficiency`, or global
+`efficiency_update_skip` in `sddp_options`) controls how often the update
+is applied.  A skip of $N$ means
 "update every $N{+}1$ iterations".  This reduces computational overhead
 when the efficiency curve is nearly flat.
 
@@ -453,7 +455,7 @@ where $\alpha$ is the future-cost variable added to the last phase,
 $x_i$ are the state variables (reservoir volumes, battery SoC), $\rho_i$
 are gradient coefficients, and $\beta_0$ is the intercept (RHS).
 
-**CSV format** (`sddp_boundary_cuts_file`):
+**CSV format** (`boundary_cuts_file` in `sddp_options`):
 
 ```
 name,iteration,scene,rhs,Reservoir1,Reservoir2,...
@@ -470,7 +472,7 @@ bc_2_1,2,1,-5100.0,0.26,0.74,...
 | `rhs` | Intercept $\beta_0$ (PLP: $-$`LDPhiPrv`) |
 | *State columns* | Gradient coefficients $\rho_i$ per state variable |
 
-**Load modes** (`sddp_boundary_cuts_mode`):
+**Load modes** (`boundary_cuts_mode` in `sddp_options`):
 
 | Mode | Description |
 |------|-------------|
@@ -478,7 +480,7 @@ bc_2_1,2,1,-5100.0,0.26,0.74,...
 | `"separated"` (default) | Each cut is assigned to the scene matching its `scene` UID |
 | `"combined"` | All cuts are broadcast to all scenes |
 
-**Iteration filtering** (`sddp_boundary_max_iterations`):
+**Iteration filtering** (`boundary_max_iterations` in `sddp_options`):
 
 When set to a positive integer $N$, only cuts from the last $N$ distinct
 SDDP iterations (by the `iteration` column) are loaded.  This is useful
@@ -490,9 +492,11 @@ most recent ones are relevant.  Set to `0` to load all cuts (default).
 ```json
 {
   "options": {
-    "sddp_boundary_cuts_file": "boundary_cuts.csv",
-    "sddp_boundary_cuts_mode": "separated",
-    "sddp_boundary_max_iterations": 3
+    "sddp_options": {
+      "boundary_cuts_file": "boundary_cuts.csv",
+      "boundary_cuts_mode": "separated",
+      "boundary_max_iterations": 3
+    }
   }
 }
 ```
@@ -534,19 +538,20 @@ the JSON planning file.
     "solver_type": "sddp",
     "log_directory": "logs",
     "sddp_options": {
-      "sddp_cut_sharing_mode": "expected",
-      "sddp_cut_directory": "cuts",
-      "sddp_max_iterations": 200,
-      "sddp_convergence_tol": 1e-5,
-      "sddp_elastic_penalty": 1e7,
-      "sddp_elastic_mode": "backpropagate"
+      "cut_sharing_mode": "expected",
+      "cut_directory": "cuts",
+      "max_iterations": 200,
+      "convergence_tol": 1e-5,
+      "elastic_penalty": 1e7,
+      "elastic_mode": "backpropagate"
     }
   }
 }
 ```
 
-The top-level `solver_type` field selects the planning solver.  All
-`sddp_`-prefixed options live in the nested `sddp_options` sub-object.
+The top-level `solver_type` field selects the planning solver.  SDDP-specific
+options live in the nested `sddp_options` sub-object (without the `sddp_`
+prefix, since the section name already provides the namespace).
 
 **Top-level `options` fields:**
 
@@ -559,16 +564,15 @@ The top-level `solver_type` field selects the planning solver.  All
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `sddp_solver_type` | string | — | Alternative to top-level `solver_type` (lower precedence) |
-| `sddp_cut_sharing_mode` | string | `"max"` | Cut sharing: `"none"`, `"expected"`, `"accumulate"`, or `"max"` |
-| `sddp_cut_directory` | string | `"cuts"` | Directory for Benders cut files |
-| `sddp_max_iterations` | int | 100 | Maximum SDDP iterations |
-| `sddp_convergence_tol` | double | 1e-4 | Relative gap convergence tolerance |
-| `sddp_elastic_penalty` | double | 1e6 | Penalty for elastic slack variables |
-| `sddp_elastic_mode` | string | `"cut"` | Elastic filter mode: `"cut"` or `"backpropagate"` |
-| `sddp_boundary_cuts_file` | string | `""` | CSV file with boundary cuts for the last phase (§4.11) |
-| `sddp_boundary_cuts_mode` | string | `"separated"` | Load mode: `"noload"`, `"separated"`, `"combined"` |
-| `sddp_boundary_max_iterations` | int | 0 | Max SDDP iterations to load from boundary cuts (0 = all) |
+| `cut_sharing_mode` | string | `"max"` | Cut sharing: `"none"`, `"expected"`, `"accumulate"`, or `"max"` |
+| `cut_directory` | string | `"cuts"` | Directory for Benders cut files |
+| `max_iterations` | int | 100 | Maximum SDDP iterations |
+| `convergence_tol` | double | 1e-4 | Relative gap convergence tolerance |
+| `elastic_penalty` | double | 1e6 | Penalty for elastic slack variables |
+| `elastic_mode` | string | `"cut"` | Elastic filter mode: `"cut"` or `"backpropagate"` |
+| `boundary_cuts_file` | string | `""` | CSV file with boundary cuts for the last phase (§4.11) |
+| `boundary_cuts_mode` | string | `"separated"` | Load mode: `"noload"`, `"separated"`, `"combined"` |
+| `boundary_max_iterations` | int | 0 | Max SDDP iterations to load from boundary cuts (0 = all) |
 
 ### 5.3 CLI
 

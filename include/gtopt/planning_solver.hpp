@@ -105,6 +105,14 @@ public:
   /// Compression format for LP debug files ("gzip" / "uncompressed" / "").
   /// Empty or "uncompressed" means no compression; any other value uses gzip.
   std::string lp_debug_compression {};
+  /// Monolithic solve mode: "monolithic" (default) or "sequential".
+  std::string solve_mode {"monolithic"};
+  /// CSV file with boundary (future-cost) cuts (empty = none).
+  std::string boundary_cuts_file {};
+  /// Boundary cuts load mode: "noload", "separated" (default), "combined".
+  std::string boundary_cuts_mode {"separated"};
+  /// Maximum iterations to load from boundary cuts file (0 = all).
+  int boundary_max_iterations {0};
 
   [[nodiscard]] auto solve(PlanningLP& planning_lp, const SolverOptions& opts)
       -> std::expected<int, Error> override;

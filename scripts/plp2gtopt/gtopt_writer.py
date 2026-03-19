@@ -86,19 +86,19 @@ class GTOptWriter:
                     # Try as a plain integer first (handles "0", "5", etc.)
                     n = int(spec_str)
                     if n >= 0:
-                        sddp_opts["sddp_num_apertures"] = n
+                        sddp_opts["num_apertures"] = n
                     # negative (e.g. -2) treated as "all" → not set
                 except ValueError:
                     # Not a plain integer → treat as range or comma list
                     try:
                         indices = parse_index_range(num_apertures)
-                        sddp_opts["sddp_num_apertures"] = len(indices)
+                        sddp_opts["num_apertures"] = len(indices)
                     except (ValueError, TypeError):
                         pass  # Ignore invalid spec; process_apertures auto-detects
 
         cut_sharing_mode = options.get("cut_sharing_mode")
         if cut_sharing_mode is not None:
-            sddp_opts["sddp_cut_sharing_mode"] = cut_sharing_mode
+            sddp_opts["cut_sharing_mode"] = cut_sharing_mode
 
         planning_opts = {
             "solver_type": solver_type,
@@ -402,13 +402,13 @@ class GTOptWriter:
 
             # Set aperture_directory in sddp_options
             sddp_opts = self.planning["options"].get("sddp_options", {})
-            sddp_opts["sddp_aperture_directory"] = str(aperture_dir)
+            sddp_opts["aperture_directory"] = str(aperture_dir)
             self.planning["options"]["sddp_options"] = sddp_opts
 
         # Auto-set num_apertures from PLP data when not explicitly configured
         sddp_opts = self.planning["options"].get("sddp_options", {})
-        if "sddp_num_apertures" not in sddp_opts:
-            sddp_opts["sddp_num_apertures"] = len(aperture_array)
+        if "num_apertures" not in sddp_opts:
+            sddp_opts["num_apertures"] = len(aperture_array)
             self.planning["options"]["sddp_options"] = sddp_opts
 
         # Populate per-phase aperture_set from stage-indexed PLP data
@@ -638,21 +638,21 @@ class GTOptWriter:
         if planos.cuts:
             csv_path = output_dir / "boundary_cuts.csv"
             write_boundary_cuts_csv(planos.cuts, planos.reservoir_names, csv_path)
-            sddp_opts["sddp_boundary_cuts_file"] = str(csv_path)
+            sddp_opts["boundary_cuts_file"] = str(csv_path)
 
         # Wire mode and max-iterations options through to the JSON
         bc_mode = options.get("boundary_cuts_mode")
         if bc_mode is not None:
-            sddp_opts["sddp_boundary_cuts_mode"] = bc_mode
+            sddp_opts["boundary_cuts_mode"] = bc_mode
 
         bc_max_iter = options.get("boundary_max_iterations")
         if bc_max_iter is not None:
-            sddp_opts["sddp_boundary_max_iterations"] = bc_max_iter
+            sddp_opts["boundary_max_iterations"] = bc_max_iter
 
         # ── Hot-start cuts (intermediate stages) ───────────────────────────
         # Always export hot-start cuts when non-boundary cuts exist, so they
         # are available in the gtopt input directory.  Loading is disabled by
-        # default; pass --hot-start-cuts to enable sddp_named_cuts_file.
+        # default; pass --hot-start-cuts to enable named_cuts_file.
         non_boundary = [
             c for c in planos.all_cuts if c["stage"] != planos.boundary_stage
         ]
@@ -668,7 +668,7 @@ class GTOptWriter:
             )
             # Only wire the file into the JSON options if explicitly requested
             if options.get("hot_start_cuts", False):
-                sddp_opts["sddp_named_cuts_file"] = str(hs_path)
+                sddp_opts["named_cuts_file"] = str(hs_path)
 
     def _build_stage_to_phase_map(self) -> dict[int, int] | None:
         """Build a mapping from PLP stage (1-based) to gtopt phase UID.

@@ -62,12 +62,12 @@ def test_flatten_options_nested():
     """_flatten_options flattens nested dicts (like sddp_options)."""
     opts = {
         "input_directory": "input",
-        "sddp_options": {"sddp_solver_type": "sddp", "sddp_max_iterations": 10},
+        "sddp_options": {"solver_type": "sddp", "max_iterations": 10},
     }
     pairs = dict(_flatten_options(opts))
     assert pairs["input_directory"] == "input"
-    assert pairs["sddp_solver_type"] == "sddp"
-    assert pairs["sddp_max_iterations"] == 10
+    assert pairs["solver_type"] == "sddp"
+    assert pairs["max_iterations"] == 10
 
 
 def test_flatten_options_skips_none():
