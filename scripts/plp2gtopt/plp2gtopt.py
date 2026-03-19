@@ -304,7 +304,7 @@ def _log_comparison(
     _row(
         "falla",
         p_falla,
-        note=_cc(_DIM, "excluded from gtopt", colr),
+        note="excluded from gtopt",
         indent=1,
     )
     _row("gen (excl falla+bat)", p_gen_excl, g_generators)
@@ -312,7 +312,7 @@ def _log_comparison(
     if gen_delta != 0:
         _row(
             "",
-            note=f"Δ {gen_delta:+d} centrals with bus≤0 excluded",
+            note=f"delta {gen_delta:+d} centrals with bus<=0 excluded",
         )
     _row(
         "generator profiles",
