@@ -2,6 +2,8 @@
 
 import logging
 
+import pytest
+
 from plp2gtopt.plp2gtopt import (
     _cc,
     _delta_str,
@@ -141,7 +143,7 @@ def test_gtopt_element_counts_populated() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_log_comparison_output(caplog: logging.LogRecord) -> None:
+def test_log_comparison_output(caplog: pytest.LogCaptureFixture) -> None:
     """_log_comparison produces the expected table sections."""
     plp = {
         "buses": 10,
@@ -213,7 +215,7 @@ def test_log_comparison_output(caplog: logging.LogRecord) -> None:
     assert "= pasada count" in output
 
 
-def test_log_comparison_gen_delta(caplog: logging.LogRecord) -> None:
+def test_log_comparison_gen_delta(caplog: pytest.LogCaptureFixture) -> None:
     """When gen (excl falla+bat) != generators, the delta note appears."""
     plp = {
         "buses": 5,
@@ -254,4 +256,4 @@ def test_log_comparison_gen_delta(caplog: logging.LogRecord) -> None:
         _log_comparison(plp, gtopt)
 
     output = caplog.text
-    assert "centrals with bus" in output
+    assert "centrals with bus<=0" in output
