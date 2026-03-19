@@ -97,10 +97,17 @@ def _scalar_at_block(val: Any, block_idx: int) -> float | None:
     if isinstance(val, list):
         if block_idx < len(val) and isinstance(val[block_idx], (int, float)):
             return float(val[block_idx])
-        # If the list is shorter, return the last available value
-        if val and isinstance(val[-1], (int, float)):
+        # If the block index exceeds the list, return the last available value
+        if block_idx >= len(val) and val and isinstance(val[-1], (int, float)):
             return float(val[-1])
     return None
+
+
+# Threshold for excluding PLP failure generators (pmax ≥ this value).
+_FAILURE_GEN_THRESHOLD = 9000.0
+
+# Minimum capacity adequacy ratio to avoid a thin-margin warning (15%).
+_CAPACITY_MARGIN_THRESHOLD = 1.15
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +150,7 @@ def compute_indicators(planning: dict[str, Any]) -> SystemIndicators:
         cap = _first_scalar(gen.get("capacity"))
         if cap is None:
             cap = _first_scalar(gen.get("pmax"))
-        if cap is not None and cap < 9000.0:
+        if cap is not None and cap < _FAILURE_GEN_THRESHOLD:
             # Exclude failure generators (pmax >= 9000 is a PLP convention)
             total_gen_cap += cap
             num_gen += 1
