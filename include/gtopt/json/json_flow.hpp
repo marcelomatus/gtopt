@@ -33,7 +33,7 @@ struct json_data_contract<Flow>
       json_string<"name", Name>,
       json_variant_null<"active", OptActive, jvtl_Active>,
       json_number_null<"direction", OptInt>,
-      json_variant<"junction", SingleId>,
+      json_variant_null<"junction", OptSingleId, jvtl_SingleId>,
       json_variant<"discharge", STBRealFieldSched, jvtl_STBRealFieldSched>>;
 
   constexpr static auto to_json_data(Flow const& flow)

@@ -37,12 +37,15 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  const auto& junction = sc.element<JunctionLP>(junction_sid());
-  if (!junction.is_active(stage)) {
-    return true;
+  // Junction is optional: flow-turbine mode has no junction.
+  const JunctionLP* junction_ptr = nullptr;
+  if (has_junction()) {
+    junction_ptr = &sc.element<JunctionLP>(junction_sid());
+    if (!junction_ptr->is_active(stage)) {
+      return true;
+    }
   }
 
-  const auto& balance_rows = junction.balance_rows_at(scenario, stage);
   const auto& blocks = stage.blocks();
 
   BIndexHolder<ColIndex> fcols;
@@ -63,9 +66,12 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
     });
     fcols[buid] = fcol;
 
-    // adding flow to the junction balances
-    auto& brow = lp.row_at(balance_rows.at(buid));
-    brow[fcol] = is_input() ? 1 : -1;
+    // adding flow to the junction balances (only when junction exists)
+    if (junction_ptr) {
+      const auto& balance_rows = junction_ptr->balance_rows_at(scenario, stage);
+      auto& brow = lp.row_at(balance_rows.at(buid));
+      brow[fcol] = is_input() ? 1 : -1;
+    }
   }
 
   // storing the indices for this scenario and stage
