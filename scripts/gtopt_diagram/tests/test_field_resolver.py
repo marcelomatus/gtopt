@@ -49,7 +49,9 @@ class TestResolveBasics:
         """resolve() returns fallback when uid column is absent from the file."""
         gen_dir = tmp_path / "Generator"
         gen_dir.mkdir()
-        df = pd.DataFrame({"scenario": [1], "stage": [1], "block": [1], "uid:99": [42.0]})
+        df = pd.DataFrame(
+            {"scenario": [1], "stage": [1], "block": [1], "uid:99": [42.0]}
+        )
         table = pa.Table.from_pandas(df)
         pq.write_table(table, gen_dir / "pmax.parquet")
 
@@ -189,9 +191,7 @@ class TestExtractRow:
     """Verify _extract_row() filters by scenario/stage/block correctly."""
 
     def _make_resolver(self, tmp_path, scenario=1, stage=1, block=1):
-        return FieldSchedResolver(
-            tmp_path, scenario=scenario, stage=stage, block=block
-        )
+        return FieldSchedResolver(tmp_path, scenario=scenario, stage=stage, block=block)
 
     def test_filters_by_scenario(self, tmp_path):
         """Rows with matching scenario are selected."""
