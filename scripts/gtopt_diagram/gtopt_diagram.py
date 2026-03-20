@@ -1224,7 +1224,7 @@ class TopologyBuilder:
             )
             bus_id = self._bus_node_id(gen.get("bus"))
             if bus_id:
-                self.model.add_edge(Edge(nid, bus_id, color=_PALETTE[f"{kind}_border"]))
+                self.model.add_edge(Edge(nid, bus_id, color=_PALETTE["bus_border"]))
 
     def _gen_agg_bus(self, gens):
         by_bus = defaultdict(list)
@@ -1257,7 +1257,7 @@ class TopologyBuilder:
                     tooltip=f"Agg. generators at {bname}: {len(grp)} units, {total:.0f} MW",
                 )
             )
-            self.model.add_edge(Edge(nid, bus_id, color=_PALETTE[f"{kind}_border"]))
+            self.model.add_edge(Edge(nid, bus_id, color=_PALETTE["bus_border"]))
 
     def _gen_agg_type(self, gens):
         by_bus_type = defaultdict(list)
@@ -1292,7 +1292,7 @@ class TopologyBuilder:
                 )
             )
             border = _PALETTE.get(f"{palette_key}_border", _PALETTE["gen_border"])
-            self.model.add_edge(Edge(nid, bus_id, color=border))
+            self.model.add_edge(Edge(nid, bus_id, color=_PALETTE["bus_border"]))
 
     def _gen_agg_global(self, gens):
         by_type = defaultdict(list)
@@ -1323,7 +1323,7 @@ class TopologyBuilder:
                     border = _PALETTE.get(
                         f"{palette_key}_border", _PALETTE["gen_border"]
                     )
-                    self.model.add_edge(Edge(nid, bus_id, color=border))
+                    self.model.add_edge(Edge(nid, bus_id, color=_PALETTE["bus_border"]))
 
     def _demands(self):
         for dem in self.sys.get("demand_array", []):
@@ -2934,7 +2934,7 @@ def model_to_visjs(model: GraphModel) -> dict:
                 "dashes": edge.style in ("dashed", "dotted"),
                 "arrows": "to" if edge.directed else "",
                 "color": {"color": edge.color or "#2C3E50", "opacity": 0.8},
-                "width": max(1.0, min(4.0, 1.0 + edge.weight / 100)),
+                "width": max(1.0, min(6.0, edge.weight)),
                 # Short edges (weight < 1) get a shorter spring length
                 "length": 50 if edge.weight < 1.0 else 160,
             }
