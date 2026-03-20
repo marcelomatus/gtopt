@@ -61,43 +61,71 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
   const auto& generator = sc.element<GeneratorLP>(generator_sid());
   const auto& gen_cols = generator.generation_cols_at(scenario, stage);
 
-  const auto& waterway = sc.element<WaterwayLP>(waterway_sid());
-  const auto& flow_cols = waterway.flow_cols_at(scenario, stage);
-
   BIndexHolder<RowIndex> rrows;
   BIndexHolder<RowIndex> crows;
   map_reserve(rrows, blocks.size());
   map_reserve(crows, blocks.size());
 
-  const auto use_drain = drain();
-  for (auto&& block : blocks) {
-    const auto buid = block.uid();
-    const auto fcol = flow_cols.at(buid);
-    const auto gcol = gen_cols.at(buid);
+  if (uses_flow()) {
+    // ── Flow-connected turbine ─────────────────────────────────────
+    // Use the FlowLP's column variable directly.  The flow column has
+    // lowb == uppb == discharge[block], so the constraint:
+    //   gen_power <= conversion_rate × flow_col
+    // automatically adapts when FlowLP::update_aperture_lp changes
+    // the flow column bounds — no separate aperture update needed.
+    const auto& flow_lp = sc.element<FlowLP>(flow_sid());
+    const auto& discharge_cols = flow_lp.flow_cols_at(scenario, stage);
 
-    auto rrow = SparseRow {
-        .name = sc.lp_label(scenario, stage, block, cname, "conv", uid()),
-    };
-    rrow[fcol] = -stage_conversion_rate;
-    rrow[gcol] = 1;
+    for (auto&& block : blocks) {
+      const auto buid = block.uid();
+      const auto gcol = gen_cols.at(buid);
+      const auto dcol = discharge_cols.at(buid);
 
-    rrows[buid] =
-        lp.add_row(std::move(use_drain ? rrow.less_equal(0) : rrow.equal(0)));
+      auto rrow = SparseRow {
+          .name = sc.lp_label(scenario, stage, block, cname, "fconv", uid()),
+      };
+      rrow[gcol] = 1;
+      rrow[dcol] = -stage_conversion_rate;
 
-    if (stage_capacity) {
-      // Add capacity constraint if capacity is defined
-      auto crow =
-          SparseRow {
-              .name = sc.lp_label(scenario, stage, block, cname, "fcap", uid()),
-          }
-              .less_equal(*stage_capacity);
-      crow[fcol] = 1;
-
-      crows[buid] = lp.add_row(std::move(crow));
+      rrows[buid] = lp.add_row(std::move(rrow.less_equal(0)));
     }
+  } else if (turbine().waterway.has_value()) {
+    // ── Waterway-connected turbine (traditional) ───────────────────
+    const auto& waterway = sc.element<WaterwayLP>(waterway_sid());
+    const auto& flow_cols = waterway.flow_cols_at(scenario, stage);
+
+    const auto use_drain = drain();
+    for (auto&& block : blocks) {
+      const auto buid = block.uid();
+      const auto fcol = flow_cols.at(buid);
+      const auto gcol = gen_cols.at(buid);
+
+      auto rrow = SparseRow {
+          .name = sc.lp_label(scenario, stage, block, cname, "conv", uid()),
+      };
+      rrow[fcol] = -stage_conversion_rate;
+      rrow[gcol] = 1;
+
+      rrows[buid] =
+          lp.add_row(std::move(use_drain ? rrow.less_equal(0) : rrow.equal(0)));
+
+      if (stage_capacity) {
+        auto crow =
+            SparseRow {
+                .name =
+                    sc.lp_label(scenario, stage, block, cname, "fcap", uid()),
+            }
+                .less_equal(*stage_capacity);
+        crow[fcol] = 1;
+
+        crows[buid] = lp.add_row(std::move(crow));
+      }
+    }
+  } else {
+    SPDLOG_WARN("Turbine uid={}: no waterway or flow reference", uid());
+    return false;
   }
 
-  // storing the indices for this scenario and stage
   const auto st_key = std::pair {scenario.uid(), stage.uid()};
   conversion_rows[st_key] = std::move(rrows);
   capacity_rows[st_key] = std::move(crows);

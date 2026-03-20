@@ -43,10 +43,17 @@ bool ReservoirEfficiencyLP::add_to_lp(const SystemContext& sc,
   }
   const auto& turbine = *turbine_ptr;
 
+  if (!turbine.turbine().waterway.has_value()) {
+    SPDLOG_WARN(
+        "ReservoirEfficiency uid={}: turbine has no waterway (flow mode); "
+        "skipping.",
+        uid());
+    return true;
+  }
   const WaterwayLP* waterway_ptr = nullptr;
   try {
-    waterway_ptr =
-        &sc.element<WaterwayLP>(WaterwayLPSId {turbine.turbine().waterway});
+    waterway_ptr = &sc.element<WaterwayLP>(
+        WaterwayLPSId {turbine.turbine().waterway.value()});
   } catch (const std::exception&) {
     SPDLOG_WARN(
         "ReservoirEfficiency uid={}: waterway not found in LP; skipping.",

@@ -20,6 +20,9 @@
 namespace gtopt
 {
 
+/// Single-ID alias for referencing a FlowLP in other LP elements
+using FlowLPSId = ObjectSingleId<class FlowLP>;
+
 class FlowLP : public ObjectLP<Flow>
 {
 public:

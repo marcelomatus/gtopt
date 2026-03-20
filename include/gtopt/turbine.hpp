@@ -21,7 +21,21 @@
  * element.  During SDDP forward iterations the conversion-rate LP
  * coefficient is updated based on the current reservoir volume.
  *
- * ### JSON Example
+ * ### Connection modes
+ *
+ * A turbine connects to the water system via **one** of:
+ * - `waterway` — traditional mode: reads water flow from a waterway
+ *   variable in the junction balance LP.
+ * - `flow` — simplified mode: reads discharge directly from a Flow
+ *   element's fixed schedule.  No junctions or waterways needed.
+ *   Useful for simple run-of-river (pasada) units.
+ *
+ * When `flow` is set, `waterway` is ignored.  The turbine's power
+ * constraint becomes: `power ≤ discharge[block] × conversion_rate`.
+ * Aperture updates automatically change the flow discharge, so the
+ * turbine power bound varies correctly across scenarios.
+ *
+ * ### JSON Example (waterway mode)
  * ```json
  * {
  *   "uid": 1,
@@ -31,6 +45,17 @@
  *   "conversion_rate": 0.0025,
  *   "capacity": 100,
  *   "main_reservoir": "res1"
+ * }
+ * ```
+ *
+ * ### JSON Example (flow mode — pasada)
+ * ```json
+ * {
+ *   "uid": 2,
+ *   "name": "t_pasada",
+ *   "flow": "f_river",
+ *   "generator": "g_pasada",
+ *   "conversion_rate": 1.0
  * }
  * ```
  *
@@ -72,7 +97,9 @@ struct Turbine
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Activation status (default: active)
 
-  SingleId waterway {unknown_uid};  ///< ID of the connected waterway
+  OptSingleId
+      waterway {};  ///< ID of the connected waterway (optional if flow set)
+  OptSingleId flow {};  ///< ID of the connected flow (alternative to waterway)
   SingleId generator {
       unknown_uid};  ///< ID of the connected electrical generator
 

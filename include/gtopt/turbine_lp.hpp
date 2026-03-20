@@ -11,6 +11,7 @@
  */
 #pragma once
 
+#include <gtopt/flow_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/reservoir_lp.hpp>
 #include <gtopt/turbine.hpp>
@@ -52,9 +53,20 @@ public:
     return self.object();
   }
 
-  [[nodiscard]] constexpr auto waterway_sid() const noexcept
+  /// @return Whether this turbine uses a flow reference (not a waterway)
+  [[nodiscard]] constexpr bool uses_flow() const noexcept
   {
-    return WaterwayLPSId {turbine().waterway};
+    return turbine().flow.has_value();
+  }
+
+  [[nodiscard]] auto waterway_sid() const -> WaterwayLPSId
+  {
+    return WaterwayLPSId {turbine().waterway.value()};
+  }
+
+  [[nodiscard]] auto flow_sid() const -> FlowLPSId
+  {
+    return FlowLPSId {turbine().flow.value()};
   }
 
   [[nodiscard]] constexpr auto generator_sid() const noexcept
