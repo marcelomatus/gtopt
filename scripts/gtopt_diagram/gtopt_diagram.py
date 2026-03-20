@@ -1565,6 +1565,7 @@ class TopologyBuilder:
                         dst=jb,
                         label=lbl,
                         color=_PALETTE["waterway_edge"],
+                        directed=False,
                         weight=1.5,
                     )
                 )
@@ -1642,6 +1643,7 @@ class TopologyBuilder:
                             tid,
                             label="discharge",
                             color=_PALETTE["waterway_edge"],
+                            directed=False,
                             weight=0.3,
                         )
                     )
@@ -1663,6 +1665,7 @@ class TopologyBuilder:
                                 tid,
                                 label=lbl_w,
                                 color=_PALETTE["waterway_edge"],
+                                directed=False,
                             )
                         )
                     if jb:
@@ -1671,6 +1674,7 @@ class TopologyBuilder:
                                 tid,
                                 jb,
                                 color=_PALETTE["waterway_edge"],
+                                directed=False,
                             )
                         )
             gen_ref = t.get("generator")
@@ -1794,7 +1798,13 @@ class TopologyBuilder:
                 src, dst = (fid, junc_id) if direction >= 0 else (junc_id, fid)
                 # Short edge: keep flow nodes close to their junction
                 self.model.add_edge(
-                    Edge(src, dst, color=_PALETTE["waterway_edge"], weight=0.3)
+                    Edge(
+                        src,
+                        dst,
+                        color=_PALETTE["waterway_edge"],
+                        directed=False,
+                        weight=0.3,
+                    )
                 )
 
     def _filtrations(self):
