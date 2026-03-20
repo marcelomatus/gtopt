@@ -144,10 +144,13 @@ struct ElasticSolveResult
 /// @param opts     Solver options for the clone solve
 /// @return Solved elastic clone and per-link slack info, or nullopt if
 ///         no columns were fixed or the clone solve failed.
-[[nodiscard]] auto elastic_filter_solve(const LinearInterface& li,
-                                        std::span<const StateVarLink> links,
-                                        double penalty,
-                                        const SolverOptions& opts)
+[[nodiscard]] auto elastic_filter_solve(
+    const LinearInterface& li,
+    std::span<const StateVarLink> links,
+    double penalty,
+    const SolverOptions& opts,
+    std::span<const double> forward_col_sol = {},
+    std::span<const double> forward_row_dual = {})
     -> std::optional<ElasticSolveResult>;
 
 /// Build a Benders feasibility cut from a solved elastic clone.
@@ -315,10 +318,13 @@ public:
   ///
   /// @return Solved elastic clone and per-link slack info, or nullopt if no
   ///         columns were fixed or the clone solve failed.
-  [[nodiscard]] auto elastic_filter_solve(const LinearInterface& li,
-                                          std::span<const StateVarLink> links,
-                                          double penalty,
-                                          const SolverOptions& opts)
+  [[nodiscard]] auto elastic_filter_solve(
+      const LinearInterface& li,
+      std::span<const StateVarLink> links,
+      double penalty,
+      const SolverOptions& opts,
+      std::span<const double> forward_col_sol = {},
+      std::span<const double> forward_row_dual = {})
       -> std::optional<ElasticSolveResult>;
 
   /// Build a Benders feasibility cut using this object's elastic_filter_solve.

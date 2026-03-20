@@ -1,12 +1,18 @@
+#include <algorithm>
 #include <cerrno>
 #include <expected>
 #include <memory>
+#include <ranges>
 
 #include <coin/CoinPackedMatrix.hpp>
 #include <coin/CoinPackedVector.hpp>
 #include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <spdlog/spdlog.h>
+
+#ifdef COIN_USE_CLP
+#  include <coin/ClpSimplex.hpp>
+#endif
 
 namespace gtopt
 {
@@ -132,6 +138,36 @@ LinearInterface LinearInterface::clone() const
   auto cloned = LinearInterface {std::move(cloned_solver), log_file};
   cloned.m_col_scales_ = m_col_scales_;
   return cloned;
+}
+
+void LinearInterface::set_warm_start_solution(
+    const std::span<const double> col_sol,
+    const std::span<const double> row_dual)
+{
+  if (!col_sol.empty()) {
+    const auto ncols = static_cast<std::size_t>(get_numcols());
+    if (col_sol.size() == ncols) {
+      set_col_sol(col_sol);
+    } else if (col_sol.size() < ncols) {
+      // Saved solution has fewer columns (e.g. elastic slacks added later).
+      std::vector<double> padded(ncols, 0.0);
+      std::ranges::copy(col_sol, padded.begin());
+      set_col_sol(padded);
+    }
+    // col_sol.size() > ncols → stale snapshot, silently skip.
+  }
+  if (!row_dual.empty()) {
+    const auto nrows = static_cast<std::size_t>(get_numrows());
+    if (row_dual.size() == nrows) {
+      set_row_dual(row_dual);
+    } else if (row_dual.size() < nrows) {
+      // Saved dual has fewer rows (e.g. Benders cuts added later).
+      std::vector<double> padded(nrows, 0.0);
+      std::ranges::copy(row_dual, padded.begin());
+      set_row_dual(padded);
+    }
+    // row_dual.size() > nrows → stale snapshot, silently skip.
+  }
 }
 
 void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
@@ -415,6 +451,41 @@ void LinearInterface::set_solver_opts(const SolverOptions& solver_options)
   // Apply time limit if specified (must be set before algorithm hints)
   if (const auto tl = solver_options.time_limit; tl && *tl > 0.0) {
     set_time_limit(*tl);
+  }
+
+  // ── Warm-start override ──
+  // When warm_start is true the LP is a clone that already carries a basis
+  // (or crossover basis from barrier).  Force dual simplex and disable
+  // presolve so the solver pivots from the existing basis rather than
+  // restarting.  This is the primary optimisation for aperture/elastic
+  // resolves when the original solve used barrier.
+  if (solver_options.warm_start) {
+    solver->setHintParam(OsiDoPresolveInInitial, false, OsiHintDo);
+    solver->setHintParam(OsiDoPresolveInResolve, false, OsiHintDo);
+    solver->setHintParam(OsiDoDualInInitial, true, OsiHintDo);
+    solver->setHintParam(OsiDoDualInResolve, true, OsiHintDo);
+
+    // Ensure barrier is disabled so the solver uses dual simplex.
+    // The OsiDoBarrier hints require OSI_EXTENDED; without it, call the
+    // underlying solver directly to force dual simplex.
+#ifdef OSI_EXTENDED
+    solver->setHintParam(OsiDoBarrierInInitial, false, OsiHintIgnore);
+    solver->setHintParam(OsiDoBarrierInResolve, false, OsiHintIgnore);
+#elifdef COIN_USE_CLP
+    // ClpSolve algorithm 1 = dual simplex (avoids barrier)
+    auto* clp_model = solver->getModelPtr();
+    if (clp_model != nullptr) {
+      clp_model->setAlgorithm(1);  // 1 = dual simplex
+      // Bit 1: keep factorization (avoid re-factorising the basis)
+      // Bit 8: keep work areas (avoid re-allocating internal arrays)
+      constexpr int keep_factorization = 1;
+      constexpr int keep_work_areas = 8;
+      clp_model->setSpecialOptions(clp_model->specialOptions()
+                                   | keep_factorization | keep_work_areas);
+    }
+#endif
+
+    return;
   }
 
   const auto presolve = solver_options.presolve;

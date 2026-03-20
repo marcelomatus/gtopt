@@ -119,10 +119,12 @@ RelaxedVarInfo relax_fixed_state_variable(LinearInterface& li,
 auto elastic_filter_solve(const LinearInterface& li,
                           std::span<const StateVarLink> links,
                           double penalty,
-                          const SolverOptions& opts)
+                          const SolverOptions& opts,
+                          std::span<const double> forward_col_sol,
+                          std::span<const double> forward_row_dual)
     -> std::optional<ElasticSolveResult>
 {
-  // Clone the LP – modifications to the clone don't touch the original
+  // Clone the LP – modifications to the clone don't touch the original.
   auto cloned = li.clone();
 
   ElasticSolveResult result;
@@ -138,6 +140,12 @@ auto elastic_filter_solve(const LinearInterface& li,
 
   if (!modified) {
     return std::nullopt;
+  }
+
+  // Apply forward-pass solution as warm-start hint.  The clone now has
+  // extra columns (elastic slacks) — the helper pads with zeros.
+  if (opts.warm_start) {
+    cloned.set_warm_start_solution(forward_col_sol, forward_row_dual);
   }
 
   // Solve the clone with elastic slack variables
@@ -367,12 +375,15 @@ auto accumulate_benders_cuts(const std::vector<SparseRow>& cuts,
 auto BendersCut::elastic_filter_solve(const LinearInterface& li,
                                       std::span<const StateVarLink> links,
                                       double penalty,
-                                      const SolverOptions& opts)
+                                      const SolverOptions& opts,
+                                      std::span<const double> forward_col_sol,
+                                      std::span<const double> forward_row_dual)
     -> std::optional<ElasticSolveResult>
 {
   if (m_pool_ == nullptr) {
     // No pool available: delegate directly to the free function.
-    auto result = gtopt::elastic_filter_solve(li, links, penalty, opts);
+    auto result = gtopt::elastic_filter_solve(
+        li, links, penalty, opts, forward_col_sol, forward_row_dual);
     if (result.has_value()) {
       m_infeasible_cut_count_.fetch_add(1, std::memory_order_relaxed);
     }
@@ -395,6 +406,11 @@ auto BendersCut::elastic_filter_solve(const LinearInterface& li,
 
   if (!modified) {
     return std::nullopt;
+  }
+
+  // Apply forward-pass solution as warm-start hint (pads extra cols/rows)
+  if (opts.warm_start) {
+    cloned.set_warm_start_solution(forward_col_sol, forward_row_dual);
   }
 
   // Transfer ownership of the cloned LP to a shared_ptr captured by value

@@ -662,3 +662,323 @@ TEST_CASE("LinearInterface - duplicate name detection level 2 (error)")
   row1_dup[ColIndex {0}] = 1.0;
   CHECK_THROWS_AS(li.add_row(row1_dup), std::runtime_error);
 }
+
+// ─── Warm-start clone tests ────────────────────────────────────────────────
+
+TEST_CASE("LinearInterface - clone preserves solution")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Build a simple LP:  min 2x1 + 3x2  s.t.  x1 + x2 >= 5,  x1,x2 in [0,10]
+  LinearInterface li;
+  const auto x1 = li.add_col("x1", 0.0, 10.0);
+  const auto x2 = li.add_col("x2", 0.0, 10.0);
+  li.set_obj_coeff(x1, 2.0);
+  li.set_obj_coeff(x2, 3.0);
+
+  SparseRow row("c1");
+  row[x1] = 1.0;
+  row[x2] = 1.0;
+  row.lowb = 5.0;
+  row.uppb = LinearProblem::DblMax;
+  li.add_row(row);
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+  REQUIRE(li.is_optimal());
+  const double orig_obj = li.get_obj_value();
+
+  SUBCASE("clone produces same objective")
+  {
+    auto cloned = li.clone();
+    auto r = cloned.resolve();
+    REQUIRE(r.has_value());
+    CHECK(cloned.get_obj_value() == doctest::Approx(orig_obj));
+  }
+}
+
+TEST_CASE("LinearInterface - warm-start clone resolves after bound change")
+// NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // LP: min 2x1 + x2  s.t.  x1 + x2 >= 10,  x1 in [0,20], x2 in [0,20]
+  // Optimal: x1=0, x2=10 → obj=10
+  LinearInterface li;
+  const auto x1 = li.add_col("x1", 0.0, 20.0);
+  const auto x2 = li.add_col("x2", 0.0, 20.0);
+  li.set_obj_coeff(x1, 2.0);
+  li.set_obj_coeff(x2, 1.0);
+
+  SparseRow row("sum");
+  row[x1] = 1.0;
+  row[x2] = 1.0;
+  row.lowb = 10.0;
+  row.uppb = LinearProblem::DblMax;
+  li.add_row(row);
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+  CHECK(li.get_obj_value() == doctest::Approx(10.0));
+
+  // Clone with warm-start, tighten x1 >= 6, re-solve
+  auto cloned = li.clone();
+  cloned.set_col_low(x1, 6.0);
+
+  SolverOptions ws_opts;
+  ws_opts.warm_start = true;
+  auto r = cloned.resolve(ws_opts);
+  REQUIRE(r.has_value());
+  REQUIRE(cloned.is_optimal());
+
+  // Optimal: x1=6, x2=4 → obj=12+4=16
+  CHECK(cloned.get_obj_value() == doctest::Approx(16.0));
+  CHECK(cloned.get_col_sol()[x1] == doctest::Approx(6.0));
+  CHECK(cloned.get_col_sol()[x2] == doctest::Approx(4.0));
+
+  // Original is unmodified
+  CHECK(li.get_col_low()[x1] == doctest::Approx(0.0));
+}
+
+TEST_CASE(
+    "LinearInterface - warm-start clone works after barrier initial solve")
+// NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // LP: min 3x1 + 2x2  s.t.  x1 + x2 >= 8,  x1 in [0,10], x2 in [0,10]
+  LinearInterface li;
+  const auto x1 = li.add_col("x1", 0.0, 10.0);
+  const auto x2 = li.add_col("x2", 0.0, 10.0);
+  li.set_obj_coeff(x1, 3.0);
+  li.set_obj_coeff(x2, 2.0);
+
+  SparseRow row("sum");
+  row[x1] = 1.0;
+  row[x2] = 1.0;
+  row.lowb = 8.0;
+  row.uppb = LinearProblem::DblMax;
+  li.add_row(row);
+
+  // Solve with barrier (the default algorithm)
+  SolverOptions barrier_opts;
+  barrier_opts.algorithm = LPAlgo::barrier;
+  auto res = li.initial_solve(barrier_opts);
+  REQUIRE(res.has_value());
+  const double orig_obj = li.get_obj_value();
+  // Optimal: x1=0, x2=8 → obj=16
+  CHECK(orig_obj == doctest::Approx(16.0));
+
+  // Clone with warm-start and resolve with dual simplex (the warm-start path)
+  auto cloned = li.clone();
+
+  // Tighten x1 >= 3, re-solve with warm-start
+  cloned.set_col_low(x1, 3.0);
+
+  SolverOptions ws_opts;
+  ws_opts.warm_start = true;
+  auto r = cloned.resolve(ws_opts);
+  REQUIRE(r.has_value());
+  REQUIRE(cloned.is_optimal());
+
+  // Optimal: x1=3, x2=5 → obj=9+10=19
+  CHECK(cloned.get_obj_value() == doctest::Approx(19.0));
+  CHECK(cloned.get_col_sol()[x1] == doctest::Approx(3.0));
+  CHECK(cloned.get_col_sol()[x2] == doctest::Approx(5.0));
+}
+
+TEST_CASE("LinearInterface - set_warm_start_solution exact dimensions")
+// NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // LP: min 2x1 + x2  s.t.  x1 + x2 >= 10
+  LinearInterface li;
+  const auto x1 = li.add_col("x1", 0.0, 20.0);
+  const auto x2 = li.add_col("x2", 0.0, 20.0);
+  li.set_obj_coeff(x1, 2.0);
+  li.set_obj_coeff(x2, 1.0);
+
+  SparseRow row("sum");
+  row[x1] = 1.0;
+  row[x2] = 1.0;
+  row.lowb = 10.0;
+  row.uppb = LinearProblem::DblMax;
+  li.add_row(row);
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+
+  // Save primal and dual solution
+  const auto sol = li.get_col_sol();
+  const auto dual = li.get_row_dual();
+  std::vector<double> saved_sol(sol.begin(), sol.end());
+  std::vector<double> saved_dual(dual.begin(), dual.end());
+
+  // Clone, modify bounds, apply saved solution, resolve with warm-start
+  auto cloned = li.clone();
+  cloned.set_col_low(x1, 5.0);
+  cloned.set_warm_start_solution(saved_sol, saved_dual);
+
+  SolverOptions ws_opts;
+  ws_opts.warm_start = true;
+  auto r = cloned.resolve(ws_opts);
+  REQUIRE(r.has_value());
+  REQUIRE(cloned.is_optimal());
+
+  // Optimal: x1=5, x2=5 → obj=10+5=15
+  CHECK(cloned.get_obj_value() == doctest::Approx(15.0));
+  CHECK(cloned.get_col_sol()[x1] == doctest::Approx(5.0));
+  CHECK(cloned.get_col_sol()[x2] == doctest::Approx(5.0));
+}
+
+TEST_CASE("LinearInterface - set_warm_start_solution pads extra rows")
+// NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // LP: min 2x1 + x2  s.t.  x1 + x2 >= 10
+  LinearInterface li;
+  const auto x1 = li.add_col("x1", 0.0, 20.0);
+  const auto x2 = li.add_col("x2", 0.0, 20.0);
+  li.set_obj_coeff(x1, 2.0);
+  li.set_obj_coeff(x2, 1.0);
+
+  SparseRow row("sum");
+  row[x1] = 1.0;
+  row[x2] = 1.0;
+  row.lowb = 10.0;
+  row.uppb = LinearProblem::DblMax;
+  li.add_row(row);
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+
+  // Save solution (1 row)
+  const auto sol = li.get_col_sol();
+  const auto dual = li.get_row_dual();
+  std::vector<double> saved_sol(sol.begin(), sol.end());
+  std::vector<double> saved_dual(dual.begin(), dual.end());
+  CHECK(saved_dual.size() == 1);
+
+  // Add a new row (simulating a Benders cut), then apply saved solution
+  SparseRow cut("cut");
+  cut[x1] = 1.0;
+  cut.lowb = 2.0;
+  cut.uppb = LinearProblem::DblMax;
+  li.add_row(cut);
+  CHECK(li.get_numrows() == 2);
+
+  // Saved dual has 1 entry, LP has 2 rows — should pad with zero
+  li.set_warm_start_solution(saved_sol, saved_dual);
+
+  SolverOptions ws_opts;
+  ws_opts.warm_start = true;
+  auto r = li.resolve(ws_opts);
+  REQUIRE(r.has_value());
+  REQUIRE(li.is_optimal());
+
+  // Optimal: x1=2, x2=8 → obj=4+8=12 (cut x1>=2 is binding)
+  CHECK(li.get_obj_value() == doctest::Approx(12.0));
+}
+
+TEST_CASE("LinearInterface - set_warm_start_solution pads extra columns")
+// NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // LP: min 2x1 + x2  s.t.  x1 + x2 >= 10
+  LinearInterface li;
+  const auto x1 = li.add_col("x1", 0.0, 20.0);
+  const auto x2 = li.add_col("x2", 0.0, 20.0);
+  li.set_obj_coeff(x1, 2.0);
+  li.set_obj_coeff(x2, 1.0);
+
+  SparseRow row("sum");
+  row[x1] = 1.0;
+  row[x2] = 1.0;
+  row.lowb = 10.0;
+  row.uppb = LinearProblem::DblMax;
+  li.add_row(row);
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+
+  // Save solution (2 cols)
+  const auto sol = li.get_col_sol();
+  std::vector<double> saved_sol(sol.begin(), sol.end());
+  CHECK(saved_sol.size() == 2);
+
+  // Add a slack column (simulating elastic filter), then apply saved solution
+  [[maybe_unused]] const auto slack = li.add_col("slack", 0.0, 100.0);
+  li.set_obj_coeff(slack, 1000.0);
+  CHECK(li.get_numcols() == 3);
+
+  // Saved sol has 2 entries, LP has 3 cols — should pad with zero
+  li.set_warm_start_solution(saved_sol, {});
+
+  SolverOptions ws_opts;
+  ws_opts.warm_start = true;
+  auto r = li.resolve(ws_opts);
+  REQUIRE(r.has_value());
+  REQUIRE(li.is_optimal());
+
+  // Slack is free (0..100) with high cost → optimal: slack=0
+  CHECK(li.get_col_sol()[slack] == doctest::Approx(0.0));
+}
+
+TEST_CASE("LinearInterface - set_warm_start_solution ignores stale snapshot")
+// NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // LP: min x1  s.t.  x1 >= 5
+  LinearInterface li;
+  const auto x1 = li.add_col("x1", 0.0, 20.0);
+  li.set_obj_coeff(x1, 1.0);
+
+  SparseRow row("lb");
+  row[x1] = 1.0;
+  row.lowb = 5.0;
+  row.uppb = LinearProblem::DblMax;
+  li.add_row(row);
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+
+  // A stale snapshot with more entries than the LP has — should be skipped
+  std::vector<double> oversized_sol = {1.0, 2.0, 3.0};
+  std::vector<double> oversized_dual = {1.0, 2.0};
+  li.set_warm_start_solution(oversized_sol, oversized_dual);
+
+  // Resolve should still work (stale vectors were ignored)
+  auto r = li.resolve();
+  REQUIRE(r.has_value());
+  CHECK(li.get_obj_value() == doctest::Approx(5.0));
+}
+
+TEST_CASE("LinearInterface - set_warm_start_solution with empty spans is no-op")
+// NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  LinearInterface li;
+  const auto x1 = li.add_col("x1", 0.0, 10.0);
+  li.set_obj_coeff(x1, 1.0);
+
+  SparseRow row("lb");
+  row[x1] = 1.0;
+  row.lowb = 3.0;
+  row.uppb = LinearProblem::DblMax;
+  li.add_row(row);
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+
+  // Empty spans — no-op, should not crash
+  li.set_warm_start_solution({}, {});
+
+  auto r = li.resolve();
+  REQUIRE(r.has_value());
+  CHECK(li.get_obj_value() == doctest::Approx(3.0));
+}
