@@ -143,6 +143,20 @@ struct SolverOptions
    */
   std::optional<double> time_limit {};
 
+  /** @brief Enable warm-start optimizations for resolve on cloned LPs.
+   *
+   *  When true, set_solver_opts() overrides the algorithm to dual simplex
+   *  and disables presolve — both critical for warm-started resolves.
+   *  This is especially important when the original LP was solved with
+   *  barrier: barrier solutions carry no simplex basis, so resolving
+   *  a clone with barrier would restart from scratch, whereas dual simplex
+   *  can pivot from the crossover basis in a few iterations.
+   *
+   *  On CLP, additional specialOptions bits are set to retain the
+   *  factorization and work arrays from the cloned LP.
+   */
+  bool warm_start {false};
+
   /**
    * @brief Merge another SolverOptions into this one (first-value-wins for
    * optional fields).

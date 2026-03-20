@@ -18,7 +18,8 @@ TEST_CASE("SolverOptions JSON basic parsing")
     "algorithm": 3,
     "threads": 4,
     "presolve": true,
-    "log_level": 1
+    "log_level": 1,
+    "warm_start": false
   })";
 
   const SolverOptions opts = daw::json::from_json<SolverOptions>(json_data);
@@ -41,7 +42,8 @@ TEST_CASE("SolverOptions JSON with tolerances")
     "optimal_eps": 1e-8,
     "feasible_eps": 1e-7,
     "barrier_eps": 1e-10,
-    "log_level": 0
+    "log_level": 0,
+    "warm_start": false
   })";
 
   const SolverOptions opts = daw::json::from_json<SolverOptions>(json_data);
