@@ -1484,7 +1484,9 @@ class TestPasadaFullChain:
     def test_full_no_duplicate_ids(self):
         _, model = self._pairs("full")
         ids = [n.node_id for n in model.nodes]
-        assert len(ids) == len(set(ids)), f"Duplicate IDs: {[x for x in ids if ids.count(x) > 1]}"
+        assert len(ids) == len(set(ids)), (
+            f"Duplicate IDs: {[x for x in ids if ids.count(x) > 1]}"
+        )
 
     def test_hydro_complete_chain(self):
         """In hydro mode, auto-created generators still connect to bus."""
