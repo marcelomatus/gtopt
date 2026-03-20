@@ -58,7 +58,7 @@ class IndhorParser:
                     self.file_path,
                     encoding=enc,
                     header=0,
-                    names=["year", "month", "day", "hour", "block"]
+                    names=["year", "month", "day", "hour", "block"],
                 )
                 break
             except UnicodeDecodeError:
@@ -68,7 +68,9 @@ class IndhorParser:
                 continue
             except ValueError as e:
                 # Catches mismatched column counts if the file format is unexpected
-                raise ValueError(f"Error parsing {self.file_path} with encoding {enc}: {e}")
+                raise ValueError(
+                    f"Error parsing {self.file_path} with encoding {enc}: {e}"
+                )
 
         if df is None:
             raise ValueError(
