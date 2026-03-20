@@ -1426,10 +1426,25 @@ class TopologyBuilder:
                             color=_PALETTE["waterway_edge"],
                         )
                     )
-            gen_id = self._find_node_id(
-                "generator_array", t.get("generator"), self._gid
-            )
+            gen_ref = t.get("generator")
+            gen_id = self._find_node_id("generator_array", gen_ref, self._gid)
             if gen_id:
+                # In hydro subsystem the generator node may not exist yet;
+                # add it so the turbine → generator "power out" edge renders.
+                if gen_id not in {n.node_id for n in self.model.nodes}:
+                    gen = _resolve(self.sys.get("generator_array", []), gen_ref)
+                    if gen:
+                        gname = _elem_name(gen)
+                        pmax = _scalar(gen.get("pmax") or gen.get("capacity"))
+                        self.model.add_node(
+                            Node(
+                                node_id=gen_id,
+                                label=f"{gname}\n{pmax} MW",
+                                kind="gen_hydro",
+                                cluster="hydro",
+                                tooltip=f"Generator uid={gen.get('uid')} pmax={pmax}",
+                            )
+                        )
                 self.model.add_edge(
                     Edge(
                         tid,
