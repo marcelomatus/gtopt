@@ -231,7 +231,7 @@ def test_log_comparison_output(capsys: pytest.CaptureFixture) -> None:
     # Analysis notes
     assert "batteries" in output
     assert "gtopt demands (unserved energy)" in output
-    assert "only bus>0 with waterway" in output
+    assert "only bus>0 with generation waterway" in output
 
     # Check that the embalse → reservoir match note appears
     assert "embalse count" in output

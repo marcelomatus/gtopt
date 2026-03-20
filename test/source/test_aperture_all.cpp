@@ -4,7 +4,7 @@
  * @date      2026-03-17
  * @copyright BSD-3-Clause
  *
- * Tests FlowLP::update_aperture_bounds, Aperture struct/JSON, and the
+ * Tests FlowLP::update_aperture_lp, Aperture struct/JSON, and the
  * aperture scenario file mechanism used in the SDDP backward pass.
  */
 

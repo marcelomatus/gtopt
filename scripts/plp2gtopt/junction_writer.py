@@ -294,6 +294,11 @@ class JunctionWriter(BaseWriter):
                 central_parser.centrals_of_type.get("embalse", [])
                 + central_parser.centrals_of_type.get("serie", [])
             ) or []
+            # In hydro mode, pasada centrals also get a full hydro topology
+            if self.options.get("pasada_hydro", False):
+                items = items + (
+                    central_parser.centrals_of_type.get("pasada", []) or []
+                )
 
         if not items:
             return []
@@ -340,16 +345,16 @@ class JunctionWriter(BaseWriter):
     ) -> None:
         """Process a single central into hydro system elements.
 
-        For ``embalse`` (reservoir) centrals that have an electrical bus but
-        whose PLP ``ser_hid`` field is 0 (generation waterway has no modelled
-        downstream junction — the water discharges directly to the sea /
-        river mouth), a synthetic drain junction is created:
+        For ``embalse`` centrals whose PLP ``ser_hid`` field is 0 (generation
+        waterway has no modelled downstream junction — the water discharges
+        directly to the sea / river mouth), a synthetic drain junction is
+        created regardless of ``bus``:
 
             <central_name>_ocean   uid = _OCEAN_UID_OFFSET + N   drain = True
 
-        The missing generation waterway is completed using this ocean junction
-        as its downstream target, allowing the turbine and efficiency curve to
-        be constructed.
+        This ensures the hydro topology (junction, waterway, reservoir, flow)
+        is always complete for every embalse.  An embalse with ``bus <= 0``
+        operates as a hydro dam only — no turbine or generator is created.
 
         When ``ser_ver`` is 0 (no spillway downstream junction) the central's
         own junction is flagged ``drain = True`` so excess water can leave the
@@ -373,13 +378,14 @@ class JunctionWriter(BaseWriter):
             central.get("vert_max", 0.0),
         )
 
-        # For embalse centrals with bus>0, complete the missing generation
-        # waterway outlet by adding a synthetic "{name}_ocean" drain junction.
-        # This covers plants like RAPEL or CANUTILLAR that discharge directly
-        # to the sea (ser_hid=0 in plpcnfce.dat).
+        # For embalse/serie/pasada centrals with ser_hid=0, complete the
+        # missing generation waterway outlet by adding a synthetic
+        # "{name}_ocean" drain junction.  This covers plants that discharge
+        # directly to the sea.  The ocean junction is created regardless of
+        # bus so the hydro topology is always complete.
         # Note: the spillway (ser_ver=0) is handled differently — by enabling
         # drain=True on the central junction itself (see drain logic below).
-        if central_type == "embalse" and central["bus"] > 0 and gen_waterway is None:
+        if central_type in ("embalse", "serie", "pasada") and gen_waterway is None:
             self._ocean_junction_counter += 1
             ocean_uid = _OCEAN_UID_OFFSET + self._ocean_junction_counter
             ocean_name = f"{central_name}_ocean"
@@ -756,12 +762,12 @@ class JunctionWriter(BaseWriter):
 
             # Resolve turbine uid — only use turbines that were actually
             # created.  A turbine is not created when:
-            #   • bus <= 0 : reservoir-only central, no electrical output.
-            #   • bus > 0 but central not embalse type: serie/pasada with
-            #     ser_hid==0 (no generation waterway).
-            # Note: for embalse centrals with bus>0 the ocean-junction fix in
-            # _process_central ensures a turbine IS always created, so the
-            # missing-turbine path below should not fire for those cases.
+            #   • bus <= 0 : hydro dam only, no electrical output.
+            #   • bus > 0 but serie/pasada with ser_hid==0 (no generation
+            #     waterway).
+            # Note: for embalse centrals the ocean-junction fix in
+            # _process_central ensures the hydro topology is always complete,
+            # but a turbine is only created when bus > 0.
             turb_uid = turbine_uid.get(central_name)
             if turb_uid is None:
                 central_data = self.central_parser.get_central_by_name(central_name)
