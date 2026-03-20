@@ -130,6 +130,17 @@ struct SddpOptions
    */
   OptReal aperture_timeout {};
 
+  /** @brief Enable warm-start optimizations for aperture and elastic clone
+   *  resolves.
+   *
+   * When true (default), SDDP resolves use dual simplex with presolve
+   * disabled, pivoting from the saved forward-pass solution instead of
+   * restarting.  CLP specialOptions are tuned for factorization and
+   * work-area reuse.  This is especially important when the original
+   * solve used barrier.
+   */
+  OptBool warm_start {};
+
   /** @brief Timeout in seconds for each forward-pass LP solve.
    *
    * When a forward-pass LP exceeds this time, the solver writes the
@@ -222,6 +233,7 @@ struct SddpOptions
     merge_opt(num_apertures, opts.num_apertures);
     merge_opt(aperture_directory, std::move(opts.aperture_directory));
     merge_opt(aperture_timeout, opts.aperture_timeout);
+    merge_opt(warm_start, opts.warm_start);
     merge_opt(solve_timeout, opts.solve_timeout);
     merge_opt(boundary_cuts_file, std::move(opts.boundary_cuts_file));
     merge_opt(boundary_cuts_mode, std::move(opts.boundary_cuts_mode));

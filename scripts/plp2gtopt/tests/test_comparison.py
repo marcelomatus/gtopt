@@ -521,7 +521,7 @@ class TestPlpElementCounts:
         """Empty parsed_data returns an empty counts dict."""
         parser = _make_parser({})
         counts = _plp_element_counts(parser)
-        assert counts == {}
+        assert not counts
 
     def test_bus_count(self) -> None:
         """Bus parser contributes buses count."""
@@ -642,11 +642,11 @@ class TestPlpElementCounts:
             },
             centrals=[],
         )
-        central_p.get_central_by_name = lambda name: {
+        central_p.get_central_by_name = {
             "hydro_a": {"type": "embalse"},
             "hydro_b": {"type": "serie"},
             "non_hydro": {"type": "termica"},
-        }.get(name)
+        }.get
 
         aflce_p = SimpleNamespace(
             items=[{"num_hydrologies": 10}],

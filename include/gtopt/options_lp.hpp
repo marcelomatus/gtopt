@@ -359,6 +359,26 @@ public:
     return m_options_.sddp_options.aperture_timeout.value_or(15.0);
   }
 
+  /** @brief Whether SDDP resolves use warm-start optimizations.
+   *
+   * Default: true when the solver algorithm is barrier (the default),
+   * false otherwise.  Barrier solutions carry no simplex basis, so
+   * warm-start (switching to dual simplex for re-solves) is essential
+   * to avoid restarting from scratch.  For simplex algorithms the
+   * existing basis is already reused implicitly, so warm-start is
+   * less critical — but explicitly enabled by default for barrier.
+   *
+   * @return true to enable warm-start optimizations
+   */
+  [[nodiscard]] constexpr auto sddp_warm_start() const
+  {
+    if (m_options_.sddp_options.warm_start.has_value()) {
+      return *m_options_.sddp_options.warm_start;
+    }
+    // Auto-enable warm-start when barrier is the algorithm
+    return m_options_.solver_options.algorithm == LPAlgo::barrier;
+  }
+
   /** @brief Monolithic LP solve timeout in seconds.
    * @return Monolithic solve timeout (default 18000s = 300 min)
    */
