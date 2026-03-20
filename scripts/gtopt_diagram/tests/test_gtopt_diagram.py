@@ -387,63 +387,63 @@ class TestHydroTopology:
         """junction_a → turbine edge must exist."""
         model = self._build()
         pairs = self._edge_pairs(model)
-        assert ("junc_1", "turb_1") in pairs
+        assert ("J1_1", "T1_1") in pairs
 
     def test_turbine_has_water_out_edge(self):
         """turbine → junction_b edge must exist (was missing before fix)."""
         model = self._build()
         pairs = self._edge_pairs(model)
-        assert ("turb_1", "junc_2") in pairs
+        assert ("T1_1", "J2_2") in pairs
 
     def test_waterway_direct_arc_suppressed_when_turbine_present(self):
         """Direct junction_a → junction_b arc must be suppressed for W1 (turbine)."""
         model = self._build()
         pairs = self._edge_pairs(model)
         # W1 has a turbine → direct arc must not appear
-        assert ("junc_1", "junc_2") not in pairs
+        assert ("J1_1", "J2_2") not in pairs
 
     def test_waterway_without_turbine_draws_direct_arc(self):
         """W2 has no turbine → direct junction_a → junction_b arc must appear."""
         model = self._build()
         pairs = self._edge_pairs(model)
-        assert ("junc_2", "junc_3") in pairs
+        assert ("J2_2", "J3_3") in pairs
 
     def test_turbine_power_out_edge_to_generator(self):
         """turbine → generator (power out, dashed) edge must exist."""
         model = self._build(subsystem="full")
         pairs = self._edge_pairs(model)
-        assert ("turb_1", "gen_1") in pairs
+        assert ("T1_1", "G_hydro_1") in pairs
 
     def test_filtration_is_a_node(self):
         """Filtration must be rendered as a node, not only as an edge."""
         model = self._build()
         node_ids = {n.node_id for n in model.nodes}
-        assert "filt_1" in node_ids
+        assert "Filt1_1" in node_ids
 
     def test_filtration_has_waterway_junction_edge(self):
         """junction_a of filtration's waterway → filtration node edge must exist."""
         model = self._build()
         pairs = self._edge_pairs(model)
-        assert ("junc_2", "filt_1") in pairs
+        assert ("J2_2", "Filt1_1") in pairs
 
     def test_filtration_has_reservoir_edge(self):
         """filtration node → reservoir edge must exist."""
         model = self._build()
         pairs = self._edge_pairs(model)
-        assert ("filt_1", "res_1") in pairs
+        assert ("Filt1_1", "Res1_1") in pairs
 
     def test_flow_edge_to_junction(self):
         """Flow node must be connected to its junction."""
         model = self._build()
         pairs = self._edge_pairs(model)
-        flow_edges = {(s, d) for s, d in pairs if "flow_" in s or "flow_" in d}
+        flow_edges = {(s, d) for s, d in pairs if "F1_1" in s or "F1_1" in d}
         assert flow_edges, "Expected at least one flow edge"
 
     def test_reservoir_connected_to_junction(self):
         """Reservoir must be connected to its junction."""
         model = self._build()
         pairs = self._edge_pairs(model)
-        assert ("res_1", "junc_1") in pairs
+        assert ("Res1_1", "J1_1") in pairs
 
 
 class TestShowOption:
@@ -644,12 +644,12 @@ class TestReservoirEfficiency:
         """reservoir_efficiency_array must produce a reservoir → turbine edge."""
         model = self._build(_HYDRO_WITH_EFFICIENCY)
         pairs = self._edge_pairs(model)
-        assert ("res_1", "turb_1") in pairs
+        assert ("Res1_1", "T1_1") in pairs
 
     def test_reservoir_efficiency_suppresses_main_reservoir_fallback(self):
         """main_reservoir edge must not duplicate when efficiency array covers it."""
         model = self._build(_HYDRO_WITH_EFFICIENCY)
-        eff_edges = [e for e in model.edges if e.src == "res_1" and e.dst == "turb_1"]
+        eff_edges = [e for e in model.edges if e.src == "Res1_1" and e.dst == "T1_1"]
         # Exactly one edge (from reservoir_efficiency_array, not main_reservoir)
         assert len(eff_edges) == 1
 
@@ -658,12 +658,12 @@ class TestReservoirEfficiency:
         no reservoir_efficiency_array entry exists for that turbine."""
         model = self._build(_HYDRO_WITH_MAIN_RES_ONLY)
         pairs = self._edge_pairs(model)
-        assert ("res_1", "turb_1") in pairs
+        assert ("Res1_1", "T1_1") in pairs
 
     def test_efficiency_edge_color_distinct(self):
         """The efficiency edge must use the efficiency_edge palette colour."""
         model = self._build(_HYDRO_WITH_EFFICIENCY)
-        eff_edges = [e for e in model.edges if e.src == "res_1" and e.dst == "turb_1"]
+        eff_edges = [e for e in model.edges if e.src == "Res1_1" and e.dst == "T1_1"]
         assert eff_edges
         assert eff_edges[0].color == gd._PALETTE["efficiency_edge"]  # noqa: SLF001
 
@@ -791,7 +791,7 @@ class TestFiltrationReservoirDependency:
         builder = gd.TopologyBuilder(_HYDRO_PLANNING, subsystem="hydro", opts=fo)
         model = builder.build()
         pairs = {(e.src, e.dst) for e in model.edges}
-        assert ("filt_1", "res_1") in pairs, (
+        assert ("Filt1_1", "Res1_1") in pairs, (
             "filtration → reservoir dependency edge missing"
         )
 
@@ -801,7 +801,7 @@ class TestFiltrationReservoirDependency:
         builder = gd.TopologyBuilder(_HYDRO_PLANNING, subsystem="hydro", opts=fo)
         model = builder.build()
         filt_res_edges = [
-            e for e in model.edges if e.src == "filt_1" and e.dst == "res_1"
+            e for e in model.edges if e.src == "Filt1_1" and e.dst == "Res1_1"
         ]
         assert filt_res_edges, "filtration → reservoir edge not found"
         assert filt_res_edges[0].style == "dotted"
@@ -812,7 +812,7 @@ class TestFiltrationReservoirDependency:
         builder = gd.TopologyBuilder(_HYDRO_PLANNING, subsystem="hydro", opts=fo)
         model = builder.build()
         filt_res_edges = [
-            e for e in model.edges if e.src == "filt_1" and e.dst == "res_1"
+            e for e in model.edges if e.src == "Filt1_1" and e.dst == "Res1_1"
         ]
         assert filt_res_edges
         assert filt_res_edges[0].color == gd._PALETTE["filtration_border"]  # noqa: SLF001
@@ -899,7 +899,7 @@ class TestEdgePruning:
         builder = gd.TopologyBuilder(_HYDRO_PLANNING, subsystem="full", opts=fo)
         model = builder.build()
         pairs = {(e.src, e.dst) for e in model.edges}
-        assert ("turb_1", "gen_1") in pairs
+        assert ("T1_1", "G_hydro_1") in pairs
 
     def test_all_edges_have_valid_endpoints(self):
         """For any subsystem, every edge endpoint must exist in model.nodes."""
