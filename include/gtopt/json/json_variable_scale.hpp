@@ -22,11 +22,13 @@ struct json_data_contract<VariableScale>
   using type = json_member_list<json_string<"class_name", gtopt::Name>,
                                 json_string<"variable", gtopt::Name>,
                                 json_number<"uid", gtopt::Uid>,
-                                json_number<"scale", gtopt::Real>>;
+                                json_number<"scale", gtopt::Real>,
+                                json_string_null<"name", gtopt::Name>>;
 
   constexpr static auto to_json_data(VariableScale const& vs)
   {
-    return std::forward_as_tuple(vs.class_name, vs.variable, vs.uid, vs.scale);
+    return std::forward_as_tuple(
+        vs.class_name, vs.variable, vs.uid, vs.scale, vs.name);
   }
 };
 

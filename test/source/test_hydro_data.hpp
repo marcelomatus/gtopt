@@ -235,9 +235,7 @@ TEST_CASE("Reservoir construction and default values")
   CHECK(reservoir.fmax.value_or(0.0)
         == doctest::Approx(Reservoir::default_fmax));
 
-  REQUIRE(reservoir.vol_scale.has_value());
-  CHECK(reservoir.vol_scale.value_or(0.0)
-        == doctest::Approx(Reservoir::default_vol_scale));
+  CHECK_FALSE(reservoir.vol_scale.has_value());
 
   REQUIRE(reservoir.flow_conversion_rate.has_value());
   CHECK(reservoir.flow_conversion_rate.value_or(0.0)
