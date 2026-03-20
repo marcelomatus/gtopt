@@ -115,6 +115,14 @@ def _log_stats(planning: dict, elapsed: float) -> None:
         title="Options",
     )
 
+    # Report isolated centrals that were skipped
+    skipped = planning.get("_skipped_isolated", [])
+    if skipped:
+        print_kv_table(
+            [(name, "isolated (bus<=0, no waterways)") for name in sorted(skipped)],
+            title=f"Skipped Centrals ({len(skipped)})",
+        )
+
     print_kv_table([("Elapsed", f"{elapsed:.3f}s")], title="Conversion Time")
 
 

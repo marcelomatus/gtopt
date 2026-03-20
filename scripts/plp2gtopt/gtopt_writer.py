@@ -525,7 +525,7 @@ class GTOptWriter:
         cenre = self.parser.parsed_data.get("cenre_parser", None)
         cenfi = self.parser.parsed_data.get("cenfi_parser", None)
         filemb = self.parser.parsed_data.get("filemb_parser", None)
-        json_junctions = JunctionWriter(
+        jw = JunctionWriter(
             central_parser=centrals,
             stage_parser=stages,
             aflce_parser=aflces,
@@ -535,7 +535,12 @@ class GTOptWriter:
             cenfi_parser=cenfi,
             filemb_parser=filemb,
             options=options,
-        ).to_json_array()
+        )
+        json_junctions = jw.to_json_array()
+        # Store names of isolated centrals that were skipped (for reporting)
+        skipped = getattr(jw, "_skipped_isolated", [])
+        if skipped:
+            self.planning["_skipped_isolated"] = skipped
 
         if not json_junctions:
             return
