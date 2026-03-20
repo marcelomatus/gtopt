@@ -32,8 +32,8 @@ class TestFilterOptions:
         assert fo.aggregate == "auto"
         assert fo.no_generators is False
         assert fo.top_gens == 0
-        assert fo.filter_types == []
-        assert fo.focus_buses == []
+        assert not fo.filter_types
+        assert not fo.focus_buses
         assert fo.focus_hops == 2
         assert fo.max_nodes == 0
         assert fo.hide_isolated is False
@@ -69,14 +69,14 @@ class TestFilterOptions:
         fo1 = FilterOptions()
         fo2 = FilterOptions()
         fo1.filter_types.append("hydro")
-        assert fo2.filter_types == []
+        assert not fo2.filter_types
 
     def test_focus_buses_independent_per_instance(self):
         """Mutable default (list) must not be shared between instances."""
         fo1 = FilterOptions()
         fo2 = FilterOptions()
         fo1.focus_buses.append("B1")
-        assert fo2.focus_buses == []
+        assert not fo2.focus_buses
 
 
 # ---------------------------------------------------------------------------
@@ -173,8 +173,8 @@ class TestGraphModel:
     def test_default_title(self):
         gm = GraphModel()
         assert gm.title == "gtopt Network"
-        assert gm.nodes == []
-        assert gm.edges == []
+        assert not gm.nodes
+        assert not gm.edges
 
     def test_custom_title(self):
         gm = GraphModel(title="My Network")
