@@ -747,44 +747,58 @@ class TopologyBuilder:
         return self._auto_info
 
     @staticmethod
+    def _make_id(prefix: str, item: dict) -> str:
+        """Build a graph node ID from element name and uid.
+
+        Uses ``NAME_uid`` format for readability in raw Mermaid/DOT output.
+        Falls back to ``prefix_uid`` when name is missing.
+        """
+        name = item.get("name")
+        uid = item.get("uid")
+        if name is not None:
+            safe = str(name).replace(" ", "_").replace("-", "_")
+            return f"{safe}_{uid}" if uid is not None else safe
+        return f"{prefix}_{uid}" if uid is not None else f"{prefix}_?"
+
+    @staticmethod
     def _bid(b):
-        return f"bus_{b.get('uid', b.get('name', '?'))}"
+        return TopologyBuilder._make_id("bus", b)
 
     @staticmethod
     def _gid(g):
-        return f"gen_{g.get('uid', g.get('name', '?'))}"
+        return TopologyBuilder._make_id("gen", g)
 
     @staticmethod
     def _did(d):
-        return f"dem_{d.get('uid', d.get('name', '?'))}"
+        return TopologyBuilder._make_id("dem", d)
 
     @staticmethod
     def _batid(b):
-        return f"bat_{b.get('uid', b.get('name', '?'))}"
+        return TopologyBuilder._make_id("bat", b)
 
     @staticmethod
     def _cid(c):
-        return f"conv_{c.get('uid', c.get('name', '?'))}"
+        return TopologyBuilder._make_id("conv", c)
 
     @staticmethod
     def _jid(j):
-        return f"junc_{j.get('uid', j.get('name', '?'))}"
+        return TopologyBuilder._make_id("junc", j)
 
     @staticmethod
     def _rid(r):
-        return f"res_{r.get('uid', r.get('name', '?'))}"
+        return TopologyBuilder._make_id("res", r)
 
     @staticmethod
     def _tid(t):
-        return f"turb_{t.get('uid', t.get('name', '?'))}"
+        return TopologyBuilder._make_id("turb", t)
 
     @staticmethod
     def _fid(f):
-        return f"flow_{f.get('uid', f.get('name', '?'))}"
+        return TopologyBuilder._make_id("flow", f)
 
     @staticmethod
     def _filtid(fi):
-        return f"filt_{fi.get('uid', fi.get('name', '?'))}"
+        return TopologyBuilder._make_id("filt", fi)
 
     def _find(self, arr_key, ref):
         return _resolve(self.sys.get(arr_key, []), ref)
