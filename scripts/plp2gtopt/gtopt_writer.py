@@ -833,6 +833,7 @@ class GTOptWriter:
                             "variable": "volume",
                             "uid": uid,
                             "scale": scale,
+                            "name": name,
                         }
                     )
                     computed_keys.add(("Reservoir", "volume", uid))
@@ -862,6 +863,7 @@ class GTOptWriter:
                             "variable": "energy",
                             "uid": uid,
                             "scale": scale,
+                            "name": name,
                         }
                     )
                     computed_keys.add(("Battery", "energy", uid))
