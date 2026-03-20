@@ -16,7 +16,14 @@ from plp2gtopt.demand_parser import DemandParser
 from plp2gtopt.gtopt_writer import GTOptWriter
 from plp2gtopt.line_parser import LineParser
 from plp2gtopt.main import _resolve_input_dir, build_options, main, make_parser
-from plp2gtopt.plp2gtopt import convert_plp_case, create_zip_output
+from plp2gtopt.plp2gtopt import (
+    convert_plp_case,
+    create_zip_output,
+    generate_variable_scales_template,
+    print_variable_scales_template,
+    run_post_check,
+    validate_plp_case,
+)
 from plp2gtopt.plp_parser import PLPParser
 from plp2gtopt.stage_parser import StageParser
 
@@ -799,3 +806,335 @@ class TestPlpIndicators:
         gtopt_counts = {"buses": 1}
         # Should not raise
         _log_comparison(plp_counts, gtopt_counts)
+
+
+# ---------------------------------------------------------------------------
+# validate_plp_case()
+# ---------------------------------------------------------------------------
+
+
+def test_validate_plp_case_success(tmp_path):
+    """validate_plp_case returns True for a valid PLP case."""
+    opts = _make_opts(_PLPMin1Bus, tmp_path, "validate_ok")
+    assert validate_plp_case(opts) is True
+
+
+def test_validate_plp_case_missing_input_dir(tmp_path):
+    """validate_plp_case returns False when input_dir does not exist."""
+    opts = _make_opts(_PLPMin1Bus, tmp_path, "validate_nodir")
+    opts["input_dir"] = tmp_path / "nonexistent"
+    assert validate_plp_case(opts) is False
+
+
+def test_validate_plp_case_parse_error(tmp_path):
+    """validate_plp_case returns False when parsing raises an error."""
+    empty_dir = tmp_path / "empty_case"
+    empty_dir.mkdir()
+    opts = _make_opts(empty_dir, tmp_path, "validate_err")
+    opts["input_dir"] = empty_dir
+    assert validate_plp_case(opts) is False
+
+
+# ---------------------------------------------------------------------------
+# convert_plp_case() — error wrapping paths
+# ---------------------------------------------------------------------------
+
+
+def test_convert_plp_case_file_not_found_wraps(tmp_path):
+    """convert_plp_case wraps FileNotFoundError with hint message."""
+    opts = _make_opts(_PLPMin1Bus, tmp_path, "fnf_wrap")
+    with patch("plp2gtopt.plp2gtopt.PLPParser") as mock_cls:
+        mock_parser = MagicMock()
+        mock_parser.parse_all.side_effect = FileNotFoundError("plpdem.dat")
+        mock_cls.return_value = mock_parser
+        with pytest.raises(RuntimeError, match="Required file not found"):
+            convert_plp_case(opts)
+
+
+def test_convert_plp_case_value_error_wraps(tmp_path):
+    """convert_plp_case wraps ValueError with hint message."""
+    opts = _make_opts(_PLPMin1Bus, tmp_path, "val_wrap")
+    with patch("plp2gtopt.plp2gtopt.PLPParser") as mock_cls:
+        mock_parser = MagicMock()
+        mock_parser.parse_all.side_effect = ValueError("bad format")
+        mock_cls.return_value = mock_parser
+        with pytest.raises(RuntimeError, match="Invalid data format"):
+            convert_plp_case(opts)
+
+
+def test_convert_plp_case_generic_exception_wraps(tmp_path):
+    """convert_plp_case wraps generic Exception as RuntimeError."""
+    opts = _make_opts(_PLPMin1Bus, tmp_path, "gen_wrap")
+    with patch("plp2gtopt.plp2gtopt.PLPParser") as mock_cls:
+        mock_parser = MagicMock()
+        mock_parser.parse_all.side_effect = TypeError("unexpected")
+        mock_cls.return_value = mock_parser
+        with pytest.raises(RuntimeError, match="PLP to GTOPT conversion failed"):
+            convert_plp_case(opts)
+
+
+def test_convert_plp_case_runtime_error_passthrough(tmp_path):
+    """convert_plp_case re-raises RuntimeError without wrapping."""
+    opts = _make_opts(_PLPMin1Bus, tmp_path, "rt_pass")
+    with patch("plp2gtopt.plp2gtopt.PLPParser") as mock_cls:
+        mock_parser = MagicMock()
+        mock_parser.parse_all.side_effect = RuntimeError("original error")
+        mock_cls.return_value = mock_parser
+        with pytest.raises(RuntimeError, match="original error"):
+            convert_plp_case(opts)
+
+
+# ---------------------------------------------------------------------------
+# run_post_check() — error handling paths
+# ---------------------------------------------------------------------------
+
+
+def test_run_post_check_import_error(tmp_path):
+    """run_post_check returns gracefully when gtopt_check_json is not importable."""
+    opts = _make_opts(_PLPMin1Bus, tmp_path, "postchk_imp")
+    parser = PLPParser(opts)
+    parser.parse_all()
+    writer = GTOptWriter(parser)
+    planning = writer.to_json(opts)
+
+    with patch.dict("sys.modules", {"gtopt_check_json._checks": None}):
+        # Should not raise; just returns
+        run_post_check(planning, parser, output_dir=opts["output_dir"])
+
+
+def test_run_post_check_with_findings(tmp_path):
+    """run_post_check prints findings when checks return issues."""
+    from gtopt_check_json._checks import Severity  # noqa: PLC0415
+
+    opts = _make_opts(_PLPMin1Bus, tmp_path, "postchk_find")
+    parser = PLPParser(opts)
+    parser.parse_all()
+    writer = GTOptWriter(parser)
+    planning = writer.to_json(opts)
+
+    # Create mock findings with real Severity values
+    finding_crit = MagicMock()
+    finding_crit.severity = Severity.CRITICAL
+    finding_crit.check_id = "CHK001"
+    finding_crit.message = "Critical issue"
+
+    finding_warn = MagicMock()
+    finding_warn.severity = Severity.WARNING
+    finding_warn.check_id = "CHK002"
+    finding_warn.message = "Warning issue"
+
+    finding_note = MagicMock()
+    finding_note.severity = Severity.NOTE
+    finding_note.check_id = "CHK003"
+    finding_note.message = "A note"
+
+    with patch(
+        "gtopt_check_json._checks.run_all_checks",
+        return_value=[finding_crit, finding_warn, finding_note],
+    ), patch(
+        "gtopt_check_json._terminal.print_finding",
+    ), patch(
+        "gtopt_check_json._terminal.print_status",
+    ), patch(
+        "gtopt_check_json._terminal.print_summary",
+    ) as mock_summary:
+        run_post_check(planning, parser, output_dir=opts["output_dir"])
+        mock_summary.assert_called_once_with(1, 1, 1)
+
+
+# ---------------------------------------------------------------------------
+# create_zip_output() — additional edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_create_zip_output_empty_dir(tmp_path):
+    """create_zip_output works when output_dir has no data files."""
+    output_dir = tmp_path / "emptycase"
+    output_dir.mkdir()
+
+    output_file = tmp_path / "emptycase.json"
+    output_file.write_text('{"options":{}}')
+
+    zip_path = tmp_path / "emptycase.zip"
+    create_zip_output(output_file, output_dir, zip_path)
+
+    assert zip_path.exists()
+    with zipfile.ZipFile(zip_path) as zf:
+        names = zf.namelist()
+
+    # Only the JSON file should be in the archive
+    assert names == ["emptycase.json"]
+
+
+def test_create_zip_output_nested_subdirs(tmp_path):
+    """create_zip_output preserves deeply nested subdirectory structure."""
+    output_dir = tmp_path / "deep"
+    output_dir.mkdir()
+    (output_dir / "a" / "b").mkdir(parents=True)
+    (output_dir / "a" / "b" / "data.parquet").write_bytes(b"nested")
+
+    output_file = tmp_path / "deep.json"
+    output_file.write_text("{}")
+
+    zip_path = tmp_path / "deep.zip"
+    create_zip_output(output_file, output_dir, zip_path)
+
+    with zipfile.ZipFile(zip_path) as zf:
+        names = zf.namelist()
+
+    assert "deep/a/b/data.parquet" in names
+
+
+# ---------------------------------------------------------------------------
+# generate_variable_scales_template() / print_variable_scales_template()
+# ---------------------------------------------------------------------------
+
+
+def test_generate_variable_scales_template_missing_input_dir(tmp_path):
+    """generate_variable_scales_template raises RuntimeError for missing dir."""
+    opts = {"input_dir": str(tmp_path / "nonexistent")}
+    with pytest.raises(RuntimeError, match="Input directory does not exist"):
+        generate_variable_scales_template(opts)
+
+
+def test_generate_variable_scales_template_basic(tmp_path):
+    """generate_variable_scales_template returns valid JSON for a simple case."""
+    opts = _make_opts(_PLPMin1Bus, tmp_path, "vscale")
+    result = generate_variable_scales_template(opts)
+    parsed = json.loads(result)
+    assert isinstance(parsed, list)
+
+
+def test_generate_variable_scales_template_with_reservoirs(tmp_path):
+    """generate_variable_scales_template includes reservoir entries with scale."""
+    opts = _make_opts(_PLPMin1Bus, tmp_path, "vscale_rsv")
+
+    # Mock a parser that has reservoir data
+    mock_planning = {
+        "system": {
+            "reservoir_array": [
+                {"name": "Rsv1", "uid": 1},
+                {"name": "Rsv2", "uid": 2},
+            ],
+            "battery_array": [
+                {"name": "Bat1", "uid": 10},
+            ],
+        },
+    }
+    mock_planos = MagicMock()
+    mock_planos.reservoir_fescala = {"Rsv1": 3}  # scale = 10^(3-6) = 0.001
+
+    mock_central_parser = MagicMock()
+    mock_central = {"name": "Rsv2", "type": "embalse", "vol_scale": 0.5}
+    mock_central_parser.centrals = [mock_central]
+
+    mock_parser = MagicMock()
+    mock_parser.parsed_data = {
+        "planos_parser": mock_planos,
+        "central_parser": mock_central_parser,
+    }
+
+    with patch("plp2gtopt.plp2gtopt.PLPParser") as mock_cls, patch(
+        "plp2gtopt.plp2gtopt.GTOptWriter"
+    ) as mock_writer_cls:
+        mock_cls.return_value = mock_parser
+        mock_writer_inst = MagicMock()
+        mock_writer_inst.to_json.return_value = mock_planning
+        mock_writer_cls.return_value = mock_writer_inst
+
+        result = generate_variable_scales_template(opts)
+
+    parsed = json.loads(result)
+    assert len(parsed) == 3
+
+    # Rsv1: fescala=3 -> scale = 10^(3-6) = 0.001
+    rsv1 = [e for e in parsed if e["_name"] == "Rsv1"][0]
+    assert rsv1["class_name"] == "Reservoir"
+    assert rsv1["variable"] == "volume"
+    assert rsv1["scale"] == pytest.approx(0.001)
+    assert rsv1["_fescala"] == 3
+
+    # Rsv2: fallback to central vol_scale = 0.5
+    rsv2 = [e for e in parsed if e["_name"] == "Rsv2"][0]
+    assert rsv2["scale"] == pytest.approx(0.5)
+    assert "_fescala" not in rsv2
+
+    # Bat1: default battery scale = 0.01
+    bat1 = [e for e in parsed if e["_name"] == "Bat1"][0]
+    assert bat1["class_name"] == "Battery"
+    assert bat1["variable"] == "energy"
+    assert bat1["scale"] == pytest.approx(0.01)
+
+
+def test_generate_variable_scales_template_no_fescala(tmp_path):
+    """generate_variable_scales_template uses default scale=1.0 when no source."""
+    opts = _make_opts(_PLPMin1Bus, tmp_path, "vscale_def")
+
+    mock_planning = {
+        "system": {
+            "reservoir_array": [{"name": "RsvNoScale", "uid": 99}],
+            "battery_array": [],
+        },
+    }
+    mock_parser = MagicMock()
+    mock_parser.parsed_data = {
+        "planos_parser": None,
+        "central_parser": None,
+    }
+
+    with patch("plp2gtopt.plp2gtopt.PLPParser") as mock_cls, patch(
+        "plp2gtopt.plp2gtopt.GTOptWriter"
+    ) as mock_writer_cls:
+        mock_cls.return_value = mock_parser
+        mock_writer_inst = MagicMock()
+        mock_writer_inst.to_json.return_value = mock_planning
+        mock_writer_cls.return_value = mock_writer_inst
+
+        result = generate_variable_scales_template(opts)
+
+    parsed = json.loads(result)
+    assert len(parsed) == 1
+    assert parsed[0]["scale"] == pytest.approx(1.0)
+    assert "_fescala" not in parsed[0]
+
+
+def test_print_variable_scales_template_success(tmp_path, capsys):
+    """print_variable_scales_template prints JSON and returns 0 on success."""
+    opts = _make_opts(_PLPMin1Bus, tmp_path, "pvscale_ok")
+
+    with patch(
+        "plp2gtopt.plp2gtopt.generate_variable_scales_template",
+        return_value='[{"class_name": "Reservoir"}]',
+    ):
+        ret = print_variable_scales_template(opts)
+
+    assert ret == 0
+    captured = capsys.readouterr()
+    assert "Reservoir" in captured.out
+
+
+def test_print_variable_scales_template_error(tmp_path, capsys):
+    """print_variable_scales_template prints error to stderr and returns 1."""
+    opts = {"input_dir": str(tmp_path / "nonexistent")}
+    ret = print_variable_scales_template(opts)
+    assert ret == 1
+    captured = capsys.readouterr()
+    assert "error:" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# _log_stats() — edge case: all element counts zero
+# ---------------------------------------------------------------------------
+
+
+def test_log_stats_all_zero_elements():
+    """_log_stats handles planning with all zero element counts (line 93)."""
+    from plp2gtopt.plp2gtopt import _log_stats  # noqa: PLC0415
+
+    planning = {
+        "system": {"name": "empty", "version": "1.0"},
+        "simulation": {"block_array": [], "stage_array": [], "scenario_array": []},
+        "options": {},
+    }
+    # Should not raise; exercises the fallback when no elements > 0
+    _log_stats(planning, 0.0)
