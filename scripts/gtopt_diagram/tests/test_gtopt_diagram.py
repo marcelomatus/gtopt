@@ -1290,6 +1290,97 @@ class TestSingleBatteryWithConverter:
         _assert_no_dangling_edges(model)
 
 
+class TestBatteryDirectBus:
+    """Battery with bus field but no converter — direct bus connection."""
+
+    _PLANNING = {
+        "system": {
+            "bus_array": [{"uid": 1, "name": "B1"}],
+            "generator_array": [],
+            "battery_array": [
+                {
+                    "uid": 10,
+                    "name": "BESS1",
+                    "bus": 1,
+                    "emax": 100,
+                    "pmax_charge": 50,
+                    "pmax_discharge": 50,
+                },
+            ],
+        }
+    }
+
+    def test_battery_node_exists(self):
+        model = _build_model(self._PLANNING)
+        bat_nodes = [n for n in model.nodes if n.kind == "battery"]
+        assert len(bat_nodes) == 1
+
+    def test_battery_to_bus_edge(self):
+        """Battery connects directly to bus when no converter exists."""
+        model = _build_model(self._PLANNING)
+        pairs = {(e.src, e.dst) for e in model.edges}
+        assert ("bat_BESS1_10", "bus_B1_1") in pairs
+
+    def test_no_converter_node(self):
+        model = _build_model(self._PLANNING)
+        conv_nodes = [n for n in model.nodes if n.kind == "converter"]
+        assert not conv_nodes
+
+    def test_no_dangling_edges(self):
+        model = _build_model(self._PLANNING)
+        _assert_no_dangling_edges(model)
+
+
+class TestBatteryWithConverter:
+    """Battery with converter — converter handles bus connection."""
+
+    _PLANNING = {
+        "system": {
+            "bus_array": [{"uid": 1, "name": "B1"}],
+            "generator_array": [
+                {"uid": 20, "name": "G_dis", "bus": 1, "pmax": 50},
+            ],
+            "demand_array": [
+                {"uid": 20, "name": "D_chg", "bus": 1, "lmax": 50},
+            ],
+            "battery_array": [
+                {
+                    "uid": 10,
+                    "name": "BESS2",
+                    "bus": 1,
+                    "emax": 200,
+                },
+            ],
+            "converter_array": [
+                {
+                    "uid": 10,
+                    "name": "Conv_BESS2",
+                    "battery": 10,
+                    "generator": 20,
+                    "demand": 20,
+                },
+            ],
+        }
+    }
+
+    def test_no_direct_bus_edge(self):
+        """Battery does NOT connect directly to bus when converter exists."""
+        model = _build_model(self._PLANNING)
+        pairs = {(e.src, e.dst) for e in model.edges}
+        assert ("bat_BESS2_10", "bus_B1_1") not in pairs
+
+    def test_converter_edges_exist(self):
+        """Converter handles the battery-generator-demand connections."""
+        model = _build_model(self._PLANNING)
+        pairs = {(e.src, e.dst) for e in model.edges}
+        assert ("bat_BESS2_10", "conv_Conv_BESS2_10") in pairs
+        assert ("conv_Conv_BESS2_10", "gen_G_dis_20") in pairs
+
+    def test_no_dangling_edges(self):
+        model = _build_model(self._PLANNING)
+        _assert_no_dangling_edges(model)
+
+
 class TestHydroPassthrough:
     """Pasada-style hydro: junction -> waterway -> turbine -> generator -> bus."""
 
@@ -1778,9 +1869,7 @@ class TestReserveZoneListFormat:
     def test_list_format_creates_edge(self):
         """reserve_zones given as a list [1] produces an edge."""
         fo = gd.FilterOptions(aggregate="none")
-        builder = gd.TopologyBuilder(
-            _RESERVE_LIST_PLANNING, subsystem="full", opts=fo
-        )
+        builder = gd.TopologyBuilder(_RESERVE_LIST_PLANNING, subsystem="full", opts=fo)
         model = builder.build()
         pairs = {(e.src, e.dst) for e in model.edges}
         assert ("gen_G1_1", "rzone_RZ1_1") in pairs
