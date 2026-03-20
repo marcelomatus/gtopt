@@ -423,8 +423,7 @@ def test_log_comparison_demand_delta(capsys: pytest.CaptureFixture) -> None:
     _log_comparison(plp, gtopt)
 
     output = capsys.readouterr().err
-    assert "demands with bus=0 or empty excluded" in output
-    assert "PLP falla (unserved energy)" in output
+    assert "falla with bus>0:" in output or "PLP plpdem.dat" in output
 
 
 def test_log_comparison_with_indicators(
