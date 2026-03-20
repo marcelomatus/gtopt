@@ -1519,13 +1519,18 @@ class TopologyBuilder:
     def _junctions(self):
         for j in self.sys.get("junction_array", []):
             name = _elem_name(j)
+            uid = j.get("uid")
+            is_drain = j.get("drain", False)
+            drain_lbl = " [drain]" if is_drain and not self.opts.compact else ""
             self.model.add_node(
                 Node(
                     node_id=self._jid(j),
-                    label=name,
+                    label=f"{name}{drain_lbl}",
                     kind="junction",
                     cluster="hydro",
-                    tooltip=f"Junction uid={j.get('uid')} name={j.get('name')}",
+                    tooltip=(
+                        f"Junction uid={uid} name={j.get('name')} drain={is_drain}"
+                    ),
                 )
             )
 
