@@ -1455,6 +1455,35 @@ class TopologyBuilder:
                                 tooltip=f"Generator uid={gen.get('uid')} type={gtype} pmax={pmax}",
                             )
                         )
+                        # Connect generator to its bus (auto-create bus
+                        # node if needed, e.g. in hydro-only subsystem)
+                        bus_ref = gen.get("bus")
+                        if bus_ref is not None:
+                            bus = self._find("bus_array", bus_ref)
+                            if bus:
+                                bid = self._bid(bus)
+                                if bid not in {n.node_id for n in self.model.nodes}:
+                                    bname = _elem_name(bus)
+                                    bv = (
+                                        f"\n{bus['voltage']} kV"
+                                        if "voltage" in bus
+                                        else ""
+                                    )
+                                    self.model.add_node(
+                                        Node(
+                                            node_id=bid,
+                                            label=f"{bname}{bv}",
+                                            kind="bus",
+                                            cluster="electrical",
+                                        )
+                                    )
+                                self.model.add_edge(
+                                    Edge(
+                                        gen_id,
+                                        bid,
+                                        color=_PALETTE["gen_hydro_border"],
+                                    )
+                                )
                 self.model.add_edge(
                     Edge(
                         tid,
