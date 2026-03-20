@@ -77,6 +77,7 @@ class Node:
     kind: str
     tooltip: str = ""
     cluster: str = ""  # "electrical" or "hydro"
+    size: float = 0.0  # 0 = use default from _PYVIS_SIZE_MAP
 
 
 @dataclass
