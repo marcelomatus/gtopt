@@ -296,7 +296,7 @@ resulting cuts:
 for phase = T-1 down to 1:
     for ap = 0 to num_apertures-1:
         clone the phase LP
-        update flow bounds for aperture scenario ap
+        update scenario-dependent bounds for aperture ap
         solve clone via work pool
         if optimal:
             build Benders cut from clone's reduced costs
@@ -313,6 +313,20 @@ for phase = T-1 down to 1:
         re-solve phase-1 LP via work pool
 ```
 
+**Aperture data updates**: When switching to an aperture scenario, the solver
+updates all scenario-dependent LP elements via `update_aperture_lp()`:
+
+| Element | What is updated | Mechanism |
+|---------|----------------|-----------|
+| `FlowLP` | Discharge column bounds (m³/s) | `set_col_low` / `set_col_upp` |
+| `GeneratorProfileLP` | Profile constraint (capacity factor) | Row coefficient or RHS |
+| `DemandProfileLP` | Profile constraint (demand factor) | Row coefficient or RHS |
+
+This ensures that hydro inflows, solar/wind capacity factors, and demand
+forecast uncertainty are all varied across aperture scenarios during the
+backward pass.  State variable bounds remain fixed at the forward-pass
+trial values.
+
 **Configuration**:
 - `num_apertures = 0` — disabled (default, uses standard backward pass)
 - `num_apertures = -1` — use all available scenarios as apertures
@@ -322,12 +336,8 @@ for phase = T-1 down to 1:
 called "aberturas hidrologicas" (hydrological openings).  PLP iterates over
 all hydrological realizations for each stage, solves each one, and computes
 the expected cut weighted by scenario probabilities.  The gtopt implementation
-follows the same pattern: clone the LP, update flow bounds, solve, collect
-cuts, and compute the probability-weighted average.
-
-**Note**: Apertures only update flow column bounds (affluent/inflow values).
-Other stochastic parameters (demand, generator profiles) are not updated.
-State variable bounds remain fixed at the forward-pass trial values.
+follows the same pattern: clone the LP, update scenario-dependent bounds,
+solve, collect cuts, and compute the probability-weighted average.
 
 ### 4.5 Convergence Check
 

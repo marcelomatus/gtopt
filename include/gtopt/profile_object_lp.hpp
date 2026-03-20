@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/object_lp.hpp>
 #include <gtopt/output_context.hpp>
@@ -115,6 +116,10 @@ public:
     const auto st_key = std::pair {scenario.uid(), stage.uid()};
     spillover_cols[st_key] = std::move(scols);
     spillover_rows[st_key] = std::move(srows);
+    capacity_info[st_key] = CapacityInfo {
+        capacity_col,
+        stage_capacity,
+    };
 
     return true;
   }
@@ -138,11 +143,72 @@ public:
     return true;
   }
 
+  /**
+   * @brief Update profile constraint for aperture scenario
+   *
+   * Re-reads the profile value for the aperture scenario and updates
+   * the constraint row accordingly.  When a capacity column was used
+   * during LP construction, updates the coefficient; otherwise updates
+   * the row RHS.  Uses the capacity info stored during add_profile_to_lp.
+   *
+   * @param li                Cloned LinearInterface to modify in-place.
+   * @param base_scenario     Original scenario (identifies stored rows).
+   * @param aperture_scenario Scenario whose profile values to apply.
+   * @param stage             Stage to update.
+   * @return true on success.
+   */
+  [[nodiscard]] bool update_aperture_lp(LinearInterface& li,
+                                        const ScenarioLP& base_scenario,
+                                        const ScenarioLP& aperture_scenario,
+                                        const StageLP& stage) const
+  {
+    if (!is_active(stage)) {
+      return true;
+    }
+
+    const auto st_key = std::pair {base_scenario.uid(), stage.uid()};
+    const auto row_it = spillover_rows.find(st_key);
+    if (row_it == spillover_rows.end()) {
+      return true;  // no rows registered for this (scenario, stage)
+    }
+
+    const auto cap_it = capacity_info.find(st_key);
+    if (cap_it == capacity_info.end()) {
+      return true;  // no capacity info (should not happen)
+    }
+
+    const auto& [cap_col, stage_cap] = cap_it->second;
+
+    for (const auto& [block_uid, row] : row_it->second) {
+      const auto new_profile =
+          profile.at(aperture_scenario.uid(), stage.uid(), block_uid);
+      if (cap_col) {
+        // Row: spillover + element - profile * capacity = 0
+        li.set_coeff(row, *cap_col, -new_profile);
+      } else {
+        // Row: spillover + element = capacity * profile
+        const auto new_rhs = stage_cap * new_profile;
+        li.set_row_low(row, new_rhs);
+        li.set_row_upp(row, new_rhs);
+      }
+    }
+    return true;
+  }
+
 private:
+  /// Capacity info stored during LP construction for aperture updates
+  struct CapacityInfo
+  {
+    std::optional<ColIndex> cap_col {};
+    double stage_capacity {0.0};
+  };
+
   /// Spillover column indices (scenario × stage × block)
   STBIndexHolder<ColIndex> spillover_cols;
   /// Spillover row indices (scenario × stage × block)
   STBIndexHolder<RowIndex> spillover_rows;
+  /// Capacity info per (scenario, stage) for aperture updates
+  STIndexHolder<CapacityInfo> capacity_info;
 
   /// Profile schedule data
   STBRealSched profile;

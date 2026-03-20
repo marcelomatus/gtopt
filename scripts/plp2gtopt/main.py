@@ -38,6 +38,13 @@ writes either:
 """
 
 _EPILOG = """
+Quick start:
+  plp2gtopt plp_dir                      Convert with default settings
+  plp2gtopt plp_dir -y 1-16              Select 16 hydrologies
+  plp2gtopt plp_dir -S sddp -a all       SDDP mode with all apertures
+  plp2gtopt --info plp_dir               Inspect PLP case structure
+  plp2gtopt --validate plp_dir           Validate PLP data only
+
 examples:
   # Convert plp_case_2y using all simulations/apertures, stage 1 only
   plp2gtopt -i plp_case_2y -o gtopt_case_2y -s 1
@@ -632,6 +639,17 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--pasada-hydro",
+        dest="pasada_hydro",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "model pasada (run-of-river) centrals as full hydro topology "
+            "(junction, waterway, turbine, flow). Use --no-pasada-hydro "
+            "for the legacy generator-profile mode. (default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
         "-V",
         "--version",
         action="version",
@@ -710,6 +728,7 @@ def build_options(args: argparse.Namespace) -> dict:
     if args.variable_scales_file is not None:
         opts["variable_scales_file"] = args.variable_scales_file
     opts["run_check"] = args.run_check
+    opts["pasada_hydro"] = args.pasada_hydro
     return opts
 
 

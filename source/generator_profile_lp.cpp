@@ -13,6 +13,7 @@
  */
 
 #include <gtopt/generator_profile_lp.hpp>
+#include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
@@ -62,6 +63,15 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
 bool GeneratorProfileLP::add_to_output(OutputContext& out) const
 {
   return add_profile_to_output(ClassName.full_name(), out, "spillover");
+}
+
+bool GeneratorProfileLP::update_aperture_lp(LinearInterface& li,
+                                            const ScenarioLP& base_scenario,
+                                            const ScenarioLP& aperture_scenario,
+                                            const StageLP& stage) const
+{
+  return ProfileObjectLP::update_aperture_lp(
+      li, base_scenario, aperture_scenario, stage);
 }
 
 }  // namespace gtopt

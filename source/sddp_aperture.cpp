@@ -15,7 +15,7 @@
 #include <ranges>
 #include <utility>
 
-#include <gtopt/flow_lp.hpp>
+#include <gtopt/collection.hpp>
 #include <gtopt/phase_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/sddp_aperture.hpp>
@@ -186,14 +186,27 @@ auto solve_apertures_for_phase(SceneIndex scene,
     // Clone the phase LP (state variables already fixed from forward pass)
     auto clone = phase_li.clone();
 
-    // Update flow column bounds for this aperture's scenario
-    auto& flow_collection = std::get<Collection<FlowLP>>(sys.collections());
-    for (auto& flow_lp : flow_collection.elements()) {
-      for (const auto& stage : phase_lp.stages()) {
-        [[maybe_unused]] const auto ok = flow_lp.update_aperture_bounds(
-            clone, base_scenario, aperture_scenario, stage);
+    // Update scenario-dependent bounds for this aperture.
+    // Elements with update_aperture_lp (FlowLP, GeneratorProfileLP,
+    // DemandProfileLP) get their per-block values replaced with the
+    // aperture scenario data.  Other element types are silently skipped.
+    auto aperture_visitor = [&](auto& e) -> bool
+    {
+      if constexpr (requires {
+                      e.update_aperture_lp(clone,
+                                           base_scenario,
+                                           aperture_scenario,
+                                           std::declval<const StageLP&>());
+                    })
+      {
+        for (const auto& stage : phase_lp.stages()) {
+          [[maybe_unused]] const auto ok = e.update_aperture_lp(
+              clone, base_scenario, aperture_scenario, stage);
+        }
       }
-    }
+      return true;
+    };
+    visit_elements(sys.collections(), aperture_visitor);
 
     // Solve the clone via the resolve callback (with aperture timeout)
     auto result = resolve_fn(clone, aperture_opts, phase);

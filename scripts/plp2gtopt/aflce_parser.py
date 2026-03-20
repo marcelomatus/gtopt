@@ -96,8 +96,16 @@ class AflceParser(BaseParser):
                         self._parse_float(v) for v in parts[2 : 2 + num_hydrologies]
                     ]
 
-                # scale flows if central is of type 'pasada'
-                if central and central["type"] == "pasada":
+                # In profile mode (default), scale pasada flows by pmax to
+                # produce normalised capacity factors.  In hydro mode
+                # (pasada_hydro=True) the raw values are kept as-is because
+                # they feed a Flow object, not a GeneratorProfile.
+                pasada_hydro = (
+                    parsers.get("_options", {}).get("pasada_hydro", False)
+                    if parsers
+                    else False
+                )
+                if central and central["type"] == "pasada" and not pasada_hydro:
                     central_pmax = central.get("pmax", 0.0)
                     central_pmax = max(central_pmax, np.max(flows))
                     central["pmax"] = central_pmax

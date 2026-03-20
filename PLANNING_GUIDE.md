@@ -34,6 +34,11 @@ external time-series data.
    - [System – Hydro cascade](#97-system--hydro-cascade)
 10. [Field reference and auto-generated docs](#10-field-reference-and-auto-generated-docs)
 11. [Output files](#11-output-files)
+12. [Working with Stochastic Scenarios](#12-working-with-stochastic-scenarios)
+    - [Scenario-dependent data](#121-scenario-dependent-data)
+    - [Example: Solar plant with stochastic production](#122-example-solar-plant-with-stochastic-production)
+    - [Pasada hydro mode](#123-pasada-hydro-mode)
+    - [SDDP apertures](#124-sddp-apertures)
 
 ---
 
@@ -1219,6 +1224,296 @@ MW there, accounting for transmission constraints.
 6. ☐ Check `output/solution.csv` for `status=0`
 7. ☐ Inspect `output/Generator/generation_sol.csv` and
    `output/Demand/fail_sol.csv`
+
+---
+
+## 12. Working with Stochastic Scenarios
+
+gtopt supports **stochastic optimization** where uncertain inputs vary across
+scenarios. Each scenario represents one realization of the uncertainty (e.g., a
+hydrological year, a weather pattern, or a demand forecast). The solver
+minimizes expected cost across all scenarios, weighted by their
+`probability_factor`.
+
+### 12.1 Scenario-dependent data
+
+Three element types support scenario-dependent schedules:
+
+| Element | Field | Typical use case |
+|---------|-------|------------------|
+| **Flow** | `discharge` | River inflows that differ per hydrology year |
+| **GeneratorProfile** | `profile` | Solar/wind capacity factors per weather scenario |
+| **DemandProfile** | `profile` | Load forecast uncertainty per scenario |
+
+When a field references an **external file** (Parquet or CSV), the file
+contains rows for every `(scenario, stage, block)` combination. The column
+layout is:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `scenario` | int32 | Scenario UID |
+| `stage` | int32 | Stage UID |
+| `block` | int32 | Block UID |
+| `uid:N` | float64 | Value for element with UID = N |
+
+When a field uses an **inline JSON array**, the outermost dimension is the
+scenario index:
+
+```json
+"profile": [
+  [[0.0, 0.85, 0.40]],
+  [[0.0, 0.55, 0.20]],
+  [[0.0, 0.25, 0.10]]
+]
+```
+
+Here, the three outer arrays correspond to scenarios 1, 2, and 3 respectively.
+Each inner `[[...]]` contains the `[stage][block]` values.
+
+> **Tip**: For large cases (hundreds of blocks, many scenarios), always use
+> external Parquet files instead of inline arrays. See
+> [Section 8](#8-working-with-time-series-schedules) for file format details.
+
+### 12.2 Example: Solar plant with stochastic production
+
+This example models a 100 MW solar generator with three weather scenarios over
+24 hourly blocks. The scenarios represent:
+
+| Scenario | Description | Probability | Peak capacity factor |
+|----------|-------------|-------------|---------------------|
+| 1 | Clear sky | 0.40 | 0.85 |
+| 2 | Partly cloudy | 0.35 | 0.55 |
+| 3 | Overcast | 0.25 | 0.25 |
+
+**Step 1 -- Define the simulation with three scenarios:**
+
+```json
+{
+  "simulation": {
+    "block_array": [
+      {"uid":  1, "duration": 1}, {"uid":  2, "duration": 1},
+      {"uid":  3, "duration": 1}, {"uid":  4, "duration": 1},
+      {"uid":  5, "duration": 1}, {"uid":  6, "duration": 1},
+      {"uid":  7, "duration": 1}, {"uid":  8, "duration": 1},
+      {"uid":  9, "duration": 1}, {"uid": 10, "duration": 1},
+      {"uid": 11, "duration": 1}, {"uid": 12, "duration": 1},
+      {"uid": 13, "duration": 1}, {"uid": 14, "duration": 1},
+      {"uid": 15, "duration": 1}, {"uid": 16, "duration": 1},
+      {"uid": 17, "duration": 1}, {"uid": 18, "duration": 1},
+      {"uid": 19, "duration": 1}, {"uid": 20, "duration": 1},
+      {"uid": 21, "duration": 1}, {"uid": 22, "duration": 1},
+      {"uid": 23, "duration": 1}, {"uid": 24, "duration": 1}
+    ],
+    "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 24}],
+    "scenario_array": [
+      {"uid": 1, "probability_factor": 0.40},
+      {"uid": 2, "probability_factor": 0.35},
+      {"uid": 3, "probability_factor": 0.25}
+    ]
+  }
+}
+```
+
+**Step 2 -- Define the generator and its profile:**
+
+```json
+{
+  "system": {
+    "generator_array": [
+      {
+        "uid": 1, "name": "g_solar", "bus": "b1",
+        "pmax": 100, "gcost": 0, "capacity": 100
+      }
+    ],
+    "generator_profile_array": [
+      {
+        "uid": 1, "name": "gp_solar",
+        "generator": "g_solar",
+        "profile": "solar_profile"
+      }
+    ]
+  }
+}
+```
+
+The `"solar_profile"` string tells gtopt to read
+`input/GeneratorProfile/solar_profile.parquet` (or `.csv`).
+
+**Step 3 -- Create the profile data file:**
+
+The Parquet file `input/GeneratorProfile/solar_profile.parquet` has the
+following structure (72 rows = 3 scenarios x 1 stage x 24 blocks):
+
+| scenario | stage | block | uid:1 |
+|----------|-------|-------|-------|
+| 1 | 1 | 1 | 0.00 |
+| 1 | 1 | 2 | 0.00 |
+| 1 | 1 | 3 | 0.00 |
+| 1 | 1 | 4 | 0.00 |
+| 1 | 1 | 5 | 0.00 |
+| 1 | 1 | 6 | 0.00 |
+| 1 | 1 | 7 | 0.10 |
+| 1 | 1 | 8 | 0.35 |
+| 1 | 1 | 9 | 0.60 |
+| 1 | 1 | 10 | 0.78 |
+| 1 | 1 | 11 | 0.83 |
+| 1 | 1 | 12 | 0.85 |
+| 1 | 1 | 13 | 0.83 |
+| 1 | 1 | 14 | 0.78 |
+| 1 | 1 | 15 | 0.65 |
+| 1 | 1 | 16 | 0.45 |
+| 1 | 1 | 17 | 0.20 |
+| 1 | 1 | 18 | 0.05 |
+| 1 | 1 | 19 | 0.00 |
+| ... | ... | ... | ... |
+| 2 | 1 | 7 | 0.05 |
+| 2 | 1 | 8 | 0.20 |
+| 2 | 1 | 9 | 0.38 |
+| 2 | 1 | 10 | 0.48 |
+| 2 | 1 | 11 | 0.53 |
+| 2 | 1 | 12 | 0.55 |
+| 2 | 1 | 13 | 0.52 |
+| 2 | 1 | 14 | 0.45 |
+| 2 | 1 | 15 | 0.35 |
+| 2 | 1 | 16 | 0.22 |
+| 2 | 1 | 17 | 0.10 |
+| 2 | 1 | 18 | 0.02 |
+| ... | ... | ... | ... |
+| 3 | 1 | 7 | 0.02 |
+| 3 | 1 | 8 | 0.08 |
+| 3 | 1 | 9 | 0.15 |
+| 3 | 1 | 10 | 0.20 |
+| 3 | 1 | 11 | 0.23 |
+| 3 | 1 | 12 | 0.25 |
+| 3 | 1 | 13 | 0.23 |
+| 3 | 1 | 14 | 0.20 |
+| 3 | 1 | 15 | 0.15 |
+| 3 | 1 | 16 | 0.08 |
+| 3 | 1 | 17 | 0.03 |
+| 3 | 1 | 18 | 0.00 |
+| ... | ... | ... | ... |
+
+Night hours (blocks 1--6 and 19--24) are 0.00 for all three scenarios.
+
+**Create the file with Python:**
+
+```python
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+# Hourly capacity factors [blocks 1..24] for each scenario
+clear_sky = [
+    0.00, 0.00, 0.00, 0.00, 0.00, 0.00,  # blocks 1-6 (night)
+    0.10, 0.35, 0.60, 0.78, 0.83, 0.85,  # blocks 7-12 (morning)
+    0.83, 0.78, 0.65, 0.45, 0.20, 0.05,  # blocks 13-18 (afternoon)
+    0.00, 0.00, 0.00, 0.00, 0.00, 0.00,  # blocks 19-24 (night)
+]
+partly_cloudy = [
+    0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
+    0.05, 0.20, 0.38, 0.48, 0.53, 0.55,
+    0.52, 0.45, 0.35, 0.22, 0.10, 0.02,
+    0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
+]
+overcast = [
+    0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
+    0.02, 0.08, 0.15, 0.20, 0.23, 0.25,
+    0.23, 0.20, 0.15, 0.08, 0.03, 0.00,
+    0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
+]
+
+rows = []
+for scen_uid, factors in [(1, clear_sky), (2, partly_cloudy), (3, overcast)]:
+    for blk in range(1, 25):
+        rows.append({
+            "scenario": scen_uid, "stage": 1, "block": blk,
+            "uid:1": factors[blk - 1],
+        })
+
+df = pd.DataFrame(rows)
+for col in ("scenario", "stage", "block"):
+    df[col] = df[col].astype("int32")
+
+pq.write_table(pa.Table.from_pandas(df),
+               "input/GeneratorProfile/solar_profile.parquet")
+```
+
+**Step 4 -- Understand the dispatch:**
+
+The effective power output of the solar generator in each scenario and block is:
+
+```
+power_output[scenario][block] = pmax * profile[scenario][block]
+```
+
+For example, at block 12 (solar noon):
+- Scenario 1 (clear sky): `100 MW * 0.85 = 85 MW`
+- Scenario 2 (partly cloudy): `100 MW * 0.55 = 55 MW`
+- Scenario 3 (overcast): `100 MW * 0.25 = 25 MW`
+
+The optimizer dispatches thermal backup (if present) to cover the remaining
+demand in each scenario. The total objective is the probability-weighted sum
+of all scenario costs.
+
+### 12.3 Pasada hydro mode
+
+Run-of-river (pasada) hydro plants can be modelled in two ways:
+
+1. **Generator profiles** -- Use a `GeneratorProfile` with normalized capacity
+   factors (0.0 to 1.0), just like a solar or wind plant. The effective output
+   is `pmax * profile[scenario][block]`. This is the simpler approach and works
+   well when the hydro plant has no upstream reservoir or complex water balance.
+
+2. **Full hydro topology** -- Use the hydro cascade elements (`Junction`,
+   `Waterway`, `Flow`, `Turbine`) with raw discharge values in m3/s. The
+   `plp2gtopt` converter supports `--pasada-hydro` mode, which creates the
+   full hydraulic topology from PLP pasada central definitions. This approach
+   models physical water balance and is required when the plant participates
+   in a cascade with reservoirs upstream or downstream.
+
+> See [Example 5](#7-example-5--simple-hydro-cascade-2-bus-2-stages) for the
+> hydro cascade data model. See [SCRIPTS.md](SCRIPTS.md) for `plp2gtopt`
+> usage.
+
+### 12.4 SDDP apertures
+
+In **SDDP** (Stochastic Dual Dynamic Programming) mode, gtopt uses
+**apertures** to sample additional hydrology and scenario combinations during
+the backward pass. Apertures provide a richer sampling of uncertainty when
+building Benders optimality cuts, improving the quality of the value function
+approximation.
+
+The `aperture_array` in the simulation block maps each aperture UID to a
+source scenario:
+
+```json
+{
+  "simulation": {
+    "scenario_array": [
+      {"uid": 1, "probability_factor": 0.5},
+      {"uid": 2, "probability_factor": 0.5}
+    ],
+    "aperture_array": [
+      {"uid": 1, "scenario": 1},
+      {"uid": 2, "scenario": 2},
+      {"uid": 3, "scenario": 1},
+      {"uid": 4, "scenario": 2}
+    ]
+  }
+}
+```
+
+When the SDDP solver switches to an aperture during the backward pass, all
+scenario-dependent data -- `Flow.discharge`, `GeneratorProfile.profile`, and
+`DemandProfile.profile` -- is updated to use the values from the aperture's
+source scenario. This allows the backward pass to evaluate costs under
+different realizations of uncertainty without increasing the number of forward
+scenarios.
+
+> **Key distinction**: Scenarios define the forward-pass trajectories and
+> contribute to the expected-cost objective. Apertures are used only in the
+> backward pass to improve cut quality. A typical configuration uses 2--5
+> forward scenarios with 10--50 apertures sampling from those scenarios.
 
 ---
 
