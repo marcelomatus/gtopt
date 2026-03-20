@@ -53,12 +53,12 @@ class TestBuildVoltageMap:
     def test_zero_threshold_returns_empty(self):
         buses = [{"uid": 1, "name": "B1", "voltage": 33}]
         lines = []
-        assert build_voltage_map(buses, lines, 0.0) == {}
+        assert not build_voltage_map(buses, lines, 0.0)
 
     def test_negative_threshold_returns_empty(self):
         buses = [{"uid": 1, "name": "B1", "voltage": 33}]
         lines = []
-        assert build_voltage_map(buses, lines, -10.0) == {}
+        assert not build_voltage_map(buses, lines, -10.0)
 
     def test_all_hv_buses_map_to_themselves(self):
         buses = [
@@ -128,7 +128,7 @@ class TestBuildVoltageMap:
         assert vmap.get("LV") == 1
 
     def test_empty_buses_returns_empty(self):
-        assert build_voltage_map([], [], 100.0) == {}
+        assert not build_voltage_map([], [], 100.0)
 
     def test_mixed_voltage_system(self):
         """System with 3 voltage levels: 345kV, 110kV, 33kV; threshold=100."""

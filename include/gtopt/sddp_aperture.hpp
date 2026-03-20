@@ -129,6 +129,10 @@ using ApertureResolveFunc = std::function<std::expected<int, Error>(
 /// @param aperture_timeout Timeout in seconds for each aperture LP solve;
 ///                         0 = no timeout.  When exceeded, the aperture is
 ///                         treated as infeasible and skipped.
+/// @param forward_col_sol  Forward-pass primal solution (warm-start hint for
+///                         aperture clones).  Applied after update_aperture_lp.
+/// @param forward_row_dual Forward-pass dual solution (warm-start hint for
+///                         aperture clones).  Applied after update_aperture_lp.
 [[nodiscard]] auto solve_apertures_for_phase(
     SceneIndex scene,
     PhaseIndex phase,
@@ -146,6 +150,8 @@ using ApertureResolveFunc = std::function<std::expected<int, Error>(
     int scene_uid,
     int phase_uid,
     const ApertureResolveFunc& resolve_fn,
-    double aperture_timeout = 0.0) -> std::optional<SparseRow>;
+    double aperture_timeout = 0.0,
+    std::span<const double> forward_col_sol = {},
+    std::span<const double> forward_row_dual = {}) -> std::optional<SparseRow>;
 
 }  // namespace gtopt

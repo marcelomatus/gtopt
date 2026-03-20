@@ -120,7 +120,9 @@ auto solve_apertures_for_phase(SceneIndex scene,
                                int scene_uid,
                                int phase_uid,
                                const ApertureResolveFunc& resolve_fn,
-                               double aperture_timeout)
+                               double aperture_timeout,
+                               std::span<const double> forward_col_sol,
+                               std::span<const double> forward_row_dual)
     -> std::optional<SparseRow>
 {
   const auto pi = static_cast<Index>(phase);
@@ -183,7 +185,7 @@ auto solve_apertures_for_phase(SceneIndex scene,
 
     const auto& aperture_scenario = *scen_it;
 
-    // Clone the phase LP (state variables already fixed from forward pass)
+    // Clone the phase LP (state variables already fixed from forward pass).
     auto clone = phase_li.clone();
 
     // Update scenario-dependent bounds for this aperture.
@@ -207,6 +209,12 @@ auto solve_apertures_for_phase(SceneIndex scene,
       return true;
     };
     visit_elements(sys.collections(), aperture_visitor);
+
+    // Apply the saved forward-pass solution as warm-start hint.
+    // Dimension mismatches (new cut rows) are handled internally.
+    if (aperture_opts.warm_start) {
+      clone.set_warm_start_solution(forward_col_sol, forward_row_dual);
+    }
 
     // Solve the clone via the resolve callback (with aperture timeout)
     auto result = resolve_fn(clone, aperture_opts, phase);

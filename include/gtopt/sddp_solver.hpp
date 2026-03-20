@@ -262,6 +262,13 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// with the remaining apertures.  0 = no timeout (default).
   double aperture_timeout {0.0};
 
+  /// Enable warm-start optimizations for SDDP resolves (forward pass,
+  /// backward pass, apertures, elastic filter).  When true, resolves use
+  /// dual simplex + no presolve, pivoting from the saved forward-pass
+  /// solution.  Especially important when the initial solve uses barrier
+  /// (the default).
+  bool warm_start {true};
+
   /// CSV file with boundary (future-cost) cuts for the last phase.
   ///
   /// These cuts approximate the expected future cost beyond the planning
@@ -379,6 +386,10 @@ struct PhaseStateInfo
   double forward_full_obj {0.0};
   /// Reduced costs from last forward solve (cached for backward pass).
   std::vector<double> forward_col_cost {};
+  /// Primal solution from last forward solve (warm-start for apertures).
+  std::vector<double> forward_col_sol {};
+  /// Dual solution from last forward solve (warm-start for apertures).
+  std::vector<double> forward_row_dual {};
 };
 
 // ─── Stored cut for persistence ─────────────────────────────────────────────

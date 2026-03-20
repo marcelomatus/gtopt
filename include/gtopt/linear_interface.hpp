@@ -77,6 +77,21 @@ public:
   [[nodiscard]] LinearInterface clone() const;
 
   /**
+   * @brief Apply a saved solution as warm-start hint for the next resolve.
+   *
+   * Handles dimension mismatches gracefully: if the LP has gained extra
+   * columns (e.g. elastic slack variables) or extra rows (e.g. Benders cuts)
+   * since the solution was captured, the vectors are zero-padded to match.
+   * If the saved vector is larger than the current LP dimension it is
+   * silently ignored (stale snapshot).
+   *
+   * @param col_sol  Primal solution to set (empty = skip)
+   * @param row_dual Dual solution to set (empty = skip)
+   */
+  void set_warm_start_solution(std::span<const double> col_sol,
+                               std::span<const double> row_dual);
+
+  /**
    * @brief Loads a flattened linear problem into the solver
    * @param flat_lp The flattened problem representation
    * @throws std::runtime_error if the problem cannot be loaded

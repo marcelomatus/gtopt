@@ -225,9 +225,19 @@ std::optional<SDDPSolver::ElasticResult> SDDPSolver::elastic_solve(
   const auto prev = PhaseIndex {static_cast<Index>(phase) - 1};
   const auto& prev_state = m_scene_phase_states_[scene][prev];
 
-  // Delegate to BendersCut member (uses work pool when set)
-  auto result = m_benders_cut_.elastic_filter_solve(
-      li, prev_state.outgoing_links, m_options_.elastic_penalty, opts);
+  // Delegate to BendersCut member (uses work pool when set).
+  // Enable warm-start on the clone resolve when configured.
+  // Use the previous iteration's forward-pass solution (if any) as hint.
+  auto elastic_opts = opts;
+  elastic_opts.warm_start = m_options_.warm_start;
+  const auto& cur_state = m_scene_phase_states_[scene][phase];
+
+  auto result = m_benders_cut_.elastic_filter_solve(li,
+                                                    prev_state.outgoing_links,
+                                                    m_options_.elastic_penalty,
+                                                    elastic_opts,
+                                                    cur_state.forward_col_sol,
+                                                    cur_state.forward_row_dual);
 
   if (result.has_value()) {
     SPDLOG_TRACE(
@@ -356,6 +366,14 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
   if (m_options_.solve_timeout > 0.0) {
     effective_opts.time_limit = m_options_.solve_timeout;
   }
+  // After the first iteration the LP already carries a valid basis from the
+  // previous solve.  Enable warm-start (dual simplex + no presolve) so the
+  // solver pivots from that basis instead of re-solving from scratch with
+  // barrier.  This is especially important when barrier is the default algo:
+  // barrier ignores the existing basis entirely.
+  if (iteration > 1 && m_options_.warm_start) {
+    effective_opts.warm_start = true;
+  }
 
   SPDLOG_DEBUG("SDDP forward: scene {} iter {} starting ({} phases)",
                scene_uid(scene),
@@ -395,6 +413,13 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
                                            phase_uid(phase)))
                                 .string();
       m_lp_debug_writer_.write(li, dbg_stem);
+    }
+
+    // Apply saved forward-pass solution from the previous iteration as
+    // warm-start hint.  Dimension mismatches (new cut rows) are handled
+    // by set_warm_start_solution() via zero-padding.
+    if (effective_opts.warm_start) {
+      li.set_warm_start_solution(state.forward_col_sol, state.forward_row_dual);
     }
 
     // Solve this phase via the work pool with forward-pass priority
@@ -472,6 +497,12 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
         const auto rc = solved_li.get_col_cost();
         state.forward_col_cost.assign(rc.begin(), rc.end());
 
+        // Save primal/dual solution for aperture warm-start
+        const auto sol = solved_li.get_col_sol();
+        state.forward_col_sol.assign(sol.begin(), sol.end());
+        const auto dual = solved_li.get_row_dual();
+        state.forward_row_dual.assign(dual.begin(), dual.end());
+
         const auto alpha_val = (state.alpha_col != ColIndex {unknown_index})
             ? solved_li.get_col_sol()[state.alpha_col]
             : 0.0;
@@ -536,6 +567,12 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
 
       const auto rc = li.get_col_cost();
       state.forward_col_cost.assign(rc.begin(), rc.end());
+
+      // Save primal/dual solution for aperture warm-start
+      const auto sol = li.get_col_sol();
+      state.forward_col_sol.assign(sol.begin(), sol.end());
+      const auto dual = li.get_row_dual();
+      state.forward_row_dual.assign(dual.begin(), dual.end());
 
       const auto alpha_val = (state.alpha_col != ColIndex {unknown_index})
           ? li.get_col_sol()[state.alpha_col]
@@ -1284,12 +1321,21 @@ auto SDDPSolver::run_backward_pass_all_scenes(
     const SolverOptions& opts,
     int iter) -> BackwardPassOutcome
 {
+  // Enable warm-start for backward pass LP re-solves.  After adding a single
+  // cut row, the previous basis is still near-optimal — dual simplex handles
+  // this in very few pivots.  This is especially important when barrier is the
+  // default algorithm, since barrier would ignore the basis entirely.
+  auto bwd_opts = opts;
+  if (m_options_.warm_start) {
+    bwd_opts.warm_start = true;
+  }
+
   // When cut sharing is enabled, use the phase-synchronized backward pass:
   // all scenes complete a phase before cuts are shared and the next phase
   // is processed.  When sharing is disabled (None), scenes run their full
   // backward pass independently in parallel with no synchronization.
   if (m_options_.cut_sharing != CutSharingMode::none) {
-    return run_backward_pass_synchronized(scene_feasible, pool, opts, iter);
+    return run_backward_pass_synchronized(scene_feasible, pool, bwd_opts, iter);
   }
 
   const auto num_scenes =
@@ -1310,11 +1356,11 @@ auto SDDPSolver::run_backward_pass_all_scenes(
     const auto scene = SceneIndex {si};
     auto fut = (m_options_.num_apertures != 0)
         ? pool.submit(
-              [this, scene, &opts, iter]
-              { return backward_pass_with_apertures(scene, opts, iter); },
+              [this, scene, &bwd_opts, iter]
+              { return backward_pass_with_apertures(scene, bwd_opts, iter); },
               bwd_req)
-        : pool.submit([this, scene, &opts, iter]
-                      { return backward_pass(scene, opts, iter); },
+        : pool.submit([this, scene, &bwd_opts, iter]
+                      { return backward_pass(scene, bwd_opts, iter); },
                       bwd_req);
     futures.push_back(std::move(fut.value()));
   }
@@ -1926,6 +1972,13 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
   const auto& src_state = phase_states[src_phase];
   const auto& plp = planning_lp().simulation().phases()[phase];
 
+  // Enable warm-start on aperture clone resolves when configured.
+  auto aperture_solve_opts = opts;
+  aperture_solve_opts.warm_start = m_options_.warm_start;
+
+  // Forward-pass solution for the target phase — used as warm-start hint
+  const auto& target_state = phase_states[phase];
+
   auto expected_cut =
       solve_apertures_for_phase(scene,
                                 phase,
@@ -1937,13 +1990,15 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
                                 cut_offset,
                                 planning_lp().system(scene, phase),
                                 plp,
-                                opts,
+                                aperture_solve_opts,
                                 m_label_maker_,
                                 m_options_.log_directory,
                                 scene_uid(scene),
                                 phase_uid(phase),
                                 make_aperture_resolve_fn(),
-                                m_options_.aperture_timeout);
+                                m_options_.aperture_timeout,
+                                target_state.forward_col_sol,
+                                target_state.forward_row_dual);
 
   if (!expected_cut.has_value()) {
     // Fallback: build a regular Benders cut from the cached
@@ -2131,6 +2186,13 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
     const auto& src_state = phase_states[src_phase];
     const auto& plp = phases[phase];
 
+    // Enable warm-start on aperture clone resolves when configured.
+    auto ws_opts = opts;
+    ws_opts.warm_start = m_options_.warm_start;
+
+    // Forward-pass solution for the target phase — warm-start hint
+    const auto& target_state = phase_states[phase];
+
     auto expected_cut =
         solve_apertures_for_phase(scene,
                                   phase,
@@ -2142,19 +2204,18 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
                                   total_cuts,
                                   planning_lp().system(scene, phase),
                                   plp,
-                                  opts,
+                                  ws_opts,
                                   m_label_maker_,
                                   m_options_.log_directory,
                                   scene_uid(scene),
                                   phase_uid(phase),
-                                  resolve_fn);
+                                  resolve_fn,
+                                  0.0,
+                                  target_state.forward_col_sol,
+                                  target_state.forward_row_dual);
 
     if (!expected_cut.has_value()) {
       infeasible_phases.push_back(phase_uid(phase));
-
-      // Fallback: build a regular Benders cut from the cached
-      // forward-pass reduced costs and objective.
-      const auto& target_state = phase_states[phase];
       auto fallback_cut = build_benders_cut(
           src_state.alpha_col,
           src_state.outgoing_links,
