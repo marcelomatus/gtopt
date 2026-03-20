@@ -1291,7 +1291,6 @@ class TopologyBuilder:
                     tooltip=f"{label} at {bname}: {len(grp)} units, {total:.0f} MW",
                 )
             )
-            border = _PALETTE.get(f"{palette_key}_border", _PALETTE["gen_border"])
             self.model.add_edge(Edge(nid, bus_id, color=_PALETTE["bus_border"]))
 
     def _gen_agg_global(self, gens):
@@ -1320,9 +1319,6 @@ class TopologyBuilder:
                 bus_id = self._bus_node_id(gen.get("bus"))
                 if bus_id and bus_id not in seen_buses:
                     seen_buses.add(bus_id)
-                    border = _PALETTE.get(
-                        f"{palette_key}_border", _PALETTE["gen_border"]
-                    )
                     self.model.add_edge(Edge(nid, bus_id, color=_PALETTE["bus_border"]))
 
     def _demands(self):
@@ -3060,7 +3056,7 @@ def render_html(model: GraphModel, output_path: str) -> str:
         "smooth": {"type": "curvedCW", "roundness": 0.12},
         "font": {"size": 10, "face": "Arial",
                  "background": "rgba(255,255,255,0.8)"},
-        "scaling": {"min": 1, "max": 4}
+        "scaling": {"min": 1, "max": 8}
       },
       "nodes": {
         "font": {"face": "Arial", "size": 12},
@@ -3075,7 +3071,6 @@ def render_html(model: GraphModel, output_path: str) -> str:
     }""")
 
     for node in model.nodes:
-        icon_path = _icon_png_path(node.kind)
         color = dict(
             _PYVIS_COLORS.get(node.kind, {"background": "#FFF", "border": "#333"})
         )
