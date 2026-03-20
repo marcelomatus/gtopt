@@ -368,6 +368,23 @@ class JunctionWriter(BaseWriter):
         central_name = central["name"]
         central_type = central.get("type", "serie")
 
+        # Skip isolated serie/pasada centrals: bus<=0 with no real waterway
+        # connections (ser_hid=0 AND ser_ver=0).  These would produce only
+        # a junction + ocean drain with no turbine, no generator, and no
+        # connection to any other hydro element.
+        if central_type in ("serie", "pasada"):
+            if (
+                central.get("bus", 0) <= 0
+                and central.get("ser_hid", 0) == 0
+                and central.get("ser_ver", 0) == 0
+            ):
+                _logger.debug(
+                    "Skipping isolated %s central '%s' (bus<=0, no waterways)",
+                    central_type,
+                    central_name,
+                )
+                return
+
         # Create waterways from the PLP ser_hid / ser_ver connections.
         gen_waterway = self._create_waterway(
             central_name + "_gen",
