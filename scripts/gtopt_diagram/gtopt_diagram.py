@@ -443,10 +443,18 @@ _PALETTE_COLORBLIND: dict[str, str] = {
     "flow_border": "#0277BD",
     "filtration": "#ECEFF1",
     "filtration_border": "#546E7A",
+    "reserve_zone": "#FFF8E1",
+    "reserve_zone_border": "#F57F17",
+    "gen_profile": "#F3E5F5",
+    "gen_profile_border": "#7B1FA2",
+    "dem_profile": "#FCE4EC",
+    "dem_profile_border": "#AD1457",
     "line_edge": "#37474F",
     "waterway_edge": "#0277BD",
     "bat_link_edge": "#4A148C",
     "efficiency_edge": "#BF360C",
+    "reserve_edge": "#F57F17",
+    "profile_edge": "#95A5A6",
 }
 
 # Human-readable labels for each node kind (used in SVG and HTML legends)
@@ -463,6 +471,9 @@ _LEGEND_LABELS: dict[str, str] = {
     "turbine": "Turbine",
     "flow": "Flow",
     "filtration": "Filtration",
+    "reserve_zone": "Reserve zone",
+    "gen_profile": "Generator profile",
+    "dem_profile": "Demand profile",
 }
 
 _MM_SHAPES: dict[str, tuple[str, str]] = {
@@ -529,6 +540,9 @@ _PYVIS_COLORS: dict[str, dict] = {
     "turbine": {"background": "#D1F2EB", "border": "#1E8449"},
     "flow": {"background": "#EAF2FF", "border": "#2980B9"},
     "filtration": {"background": "#EAECEE", "border": "#717D7E"},
+    "reserve_zone": {"background": "#FFF8E1", "border": "#F57F17"},
+    "gen_profile": {"background": "#F3E5F5", "border": "#7B1FA2"},
+    "dem_profile": {"background": "#FCE4EC", "border": "#AD1457"},
 }
 
 _PYVIS_SHAPE_MAP: dict[str, str] = {
@@ -544,6 +558,9 @@ _PYVIS_SHAPE_MAP: dict[str, str] = {
     "turbine": "diamond",
     "flow": "dot",
     "filtration": "dot",
+    "reserve_zone": "star",
+    "gen_profile": "dot",
+    "dem_profile": "dot",
 }
 
 _PYVIS_SIZE_MAP: dict[str, int] = {
@@ -848,6 +865,22 @@ class TopologyBuilder:
     def _filtid(fi):
         return TopologyBuilder._make_id("filt", fi)
 
+    @staticmethod
+    def _rzid(rz):
+        return TopologyBuilder._make_id("rzone", rz)
+
+    @staticmethod
+    def _rpid(rp):
+        return TopologyBuilder._make_id("rprov", rp)
+
+    @staticmethod
+    def _gpid(gp):
+        return TopologyBuilder._make_id("gprof", gp)
+
+    @staticmethod
+    def _dpid(dp):
+        return TopologyBuilder._make_id("dprof", dp)
+
     def _find(self, arr_key, ref):
         return _resolve(self.sys.get(arr_key, []), ref)
 
@@ -969,6 +1002,8 @@ class TopologyBuilder:
             self._lines()
             self._batteries()
             self._converters()
+            self._generator_profiles()
+            self._demand_profiles()
         if s in ("full", "hydro"):
             self._junctions()
             self._waterways()
@@ -977,6 +1012,9 @@ class TopologyBuilder:
             self._flows()
             self._filtrations()
             self._reservoir_efficiencies()
+        if s == "full":
+            self._reserve_zones()
+            self._reserve_provisions()
         # Remove edges that reference nodes absent from the model (e.g. when
         # subsystem="hydro" skips _generators(), turbine→generator edges would
         # otherwise reference non-existent node IDs and crash pyvis/render_html).
@@ -1318,6 +1356,66 @@ class TopologyBuilder:
                     )
                 )
 
+    def _generator_profiles(self):
+        """Draw generator profile nodes linked to their generators."""
+        for gp in self.sys.get("generator_profile_array", []):
+            name = _elem_name(gp)
+            gpid = self._gpid(gp)
+            profile = gp.get("profile", "")
+            plbl = str(profile)[:20] if isinstance(profile, str) else "inline"
+            lbl = str(name) if self.opts.compact else f"[GenProfile] {name}\n{plbl}"
+            self.model.add_node(
+                Node(
+                    node_id=gpid,
+                    label=lbl,
+                    kind="gen_profile",
+                    cluster="electrical",
+                    tooltip=f"GeneratorProfile uid={gp.get('uid')} profile={plbl}",
+                )
+            )
+            gen_id = self._find_node_id(
+                "generator_array", gp.get("generator"), self._gid
+            )
+            if gen_id:
+                self.model.add_edge(
+                    Edge(
+                        gpid,
+                        gen_id,
+                        label="profile",
+                        style="dotted",
+                        color=_PALETTE.get("profile_edge", "#95A5A6"),
+                    )
+                )
+
+    def _demand_profiles(self):
+        """Draw demand profile nodes linked to their demands."""
+        for dp in self.sys.get("demand_profile_array", []):
+            name = _elem_name(dp)
+            dpid = self._dpid(dp)
+            profile = dp.get("profile", "")
+            plbl = str(profile)[:20] if isinstance(profile, str) else "inline"
+            lbl = str(name) if self.opts.compact else f"[DemProfile] {name}\n{plbl}"
+            self.model.add_node(
+                Node(
+                    node_id=dpid,
+                    label=lbl,
+                    kind="dem_profile",
+                    cluster="electrical",
+                    tooltip=f"DemandProfile uid={dp.get('uid')} profile={plbl}",
+                )
+            )
+            dem_id = self._find_node_id("demand_array", dp.get("demand"), self._did)
+            if dem_id:
+                self.model.add_edge(
+                    Edge(
+                        dpid,
+                        dem_id,
+                        label="profile",
+                        style="dotted",
+                        color=_PALETTE.get("profile_edge", "#95A5A6"),
+                    )
+                )
+
     def _junctions(self):
         for j in self.sys.get("junction_array", []):
             name = _elem_name(j)
@@ -1599,6 +1697,64 @@ class TopologyBuilder:
                         color=_PALETTE["efficiency_edge"],
                     )
                 )
+
+    def _reserve_zones(self):
+        """Draw reserve zone nodes as dotted-outline clusters."""
+        for rz in self.sys.get("reserve_zone_array", []):
+            name = _elem_name(rz)
+            rzid = self._rzid(rz)
+            lbl = str(name) if self.opts.compact else f"[Reserve Zone] {name}"
+            self.model.add_node(
+                Node(
+                    node_id=rzid,
+                    label=lbl,
+                    kind="reserve_zone",
+                    cluster="electrical",
+                    tooltip=f"ReserveZone uid={rz.get('uid')} name={rz.get('name')}",
+                )
+            )
+
+    def _reserve_provisions(self):
+        """Draw reserve provision edges: generator → reserve_zone."""
+        for rp in self.sys.get("reserve_provision_array", []):
+            gen_id = self._find_node_id(
+                "generator_array", rp.get("generator"), self._gid
+            )
+            # reserve_zones is a colon-separated string of zone refs
+            rz_str = rp.get("reserve_zones", "")
+            if isinstance(rz_str, str) and rz_str:
+                for rz_ref in rz_str.split(":"):
+                    rz_ref = rz_ref.strip()
+                    if not rz_ref:
+                        continue
+                    rz_id = self._find_node_id("reserve_zone_array", rz_ref, self._rzid)
+                    if gen_id and rz_id:
+                        self.model.add_edge(
+                            Edge(
+                                gen_id,
+                                rz_id,
+                                label="reserve",
+                                style="dotted",
+                                color=_PALETTE.get(
+                                    "reserve_edge", _PALETTE["gen_border"]
+                                ),
+                            )
+                        )
+            elif isinstance(rz_str, (list, tuple)):
+                for rz_ref in rz_str:
+                    rz_id = self._find_node_id("reserve_zone_array", rz_ref, self._rzid)
+                    if gen_id and rz_id:
+                        self.model.add_edge(
+                            Edge(
+                                gen_id,
+                                rz_id,
+                                label="reserve",
+                                style="dotted",
+                                color=_PALETTE.get(
+                                    "reserve_edge", _PALETTE["gen_border"]
+                                ),
+                            )
+                        )
 
 
 # ---------------------------------------------------------------------------
@@ -2575,6 +2731,9 @@ def _legend_html(model: GraphModel) -> str:
         "turbine": "Hydraulic turbine",
         "flow": "Inflow / outflow",
         "filtration": "Filtration / seepage",
+        "reserve_zone": "Reserve zone",
+        "gen_profile": "Generator profile",
+        "dem_profile": "Demand profile",
     }
     # SVG path snippets that approximate vis.js node shapes
     _shape_svg = {
@@ -2589,6 +2748,7 @@ def _legend_html(model: GraphModel) -> str:
         '<ellipse cx="8" cy="12" rx="7" ry="3"/>',
         "ellipse": '<ellipse cx="8" cy="8" rx="7" ry="6"/>',
         "dot": '<circle cx="8" cy="8" r="6"/>',
+        "star": '<polygon points="8,1 10,6 15,6 11,10 13,15 8,12 3,15 5,10 1,6 6,6"/>',
     }
     entries = []
     for kind, lbl in labels.items():
