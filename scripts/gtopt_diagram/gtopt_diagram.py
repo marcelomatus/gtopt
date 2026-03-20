@@ -531,9 +531,15 @@ _MM_SHAPES: dict[str, tuple[str, str]] = {
     "converter": ("([", "])"),
     "junction": ("{{", "}}"),
     "reservoir": ("[/", "/]"),
+    "reservoir_sm": ("[/", "/]"),
+    "reservoir_md": ("[/", "/]"),
+    "reservoir_lg": ("[/", "/]"),
     "turbine": ("{", "}"),
-    "flow": ("[", "]"),
-    "filtration": ("[", "]"),
+    "flow": ("((", "))"),
+    "filtration": ("((", "))"),
+    "reserve_zone": (">", "]"),
+    "gen_profile": ("[", "]"),
+    "dem_profile": ("[", "]"),
 }
 
 _MM_STYLES: dict[str, str] = {
@@ -546,9 +552,15 @@ _MM_STYLES: dict[str, str] = {
     "converter": "fill:#D6EAF8,stroke:#1F618D,color:#1C2833",
     "junction": "fill:#EAFAF1,stroke:#1E8449,color:#1C2833",
     "reservoir": "fill:#EBF5FB,stroke:#1A5276,color:#1C2833",
+    "reservoir_sm": "fill:#E1F5FE,stroke:#4FC3F7,color:#1C2833",
+    "reservoir_md": "fill:#81D4FA,stroke:#0288D1,color:#1C2833",
+    "reservoir_lg": "fill:#039BE5,stroke:#01579B,color:#FFF",
     "turbine": "fill:#D1F2EB,stroke:#1E8449,color:#1C2833",
     "flow": "fill:#EAF2FF,stroke:#2980B9,color:#1C2833",
     "filtration": "fill:#EAECEE,stroke:#717D7E,color:#1C2833",
+    "reserve_zone": "fill:#FFF8E1,stroke:#F57F17,color:#1C2833",
+    "gen_profile": "fill:#F3E5F5,stroke:#7B1FA2,color:#1C2833",
+    "dem_profile": "fill:#FCE4EC,stroke:#AD1457,color:#1C2833",
 }
 
 _MM_ICONS: dict[str, str] = {
@@ -980,9 +992,14 @@ class TopologyBuilder:
         vthresh = self.opts.voltage_threshold
 
         # ── Auto mode: choose strategy from element count ──────────────────
+        # When focus_buses is set, the user has already narrowed the view,
+        # so skip aggressive auto-reduction (no voltage threshold).
         if agg == "auto":
             n_total = self._count_elements()
-            if n_total < _AUTO_NONE_THRESHOLD:
+            if self.opts.focus_buses:
+                # Focused view: use "none" for small systems, "bus" otherwise
+                agg = "none" if n_total < _AUTO_BUS_THRESHOLD else "bus"
+            elif n_total < _AUTO_NONE_THRESHOLD:
                 agg = "none"
             elif n_total < _AUTO_BUS_THRESHOLD:
                 agg = "bus"
