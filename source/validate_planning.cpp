@@ -101,15 +101,17 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
         result, line.bus_b, sys.bus_array, "Line", line.name, "bus_b", "Bus");
   }
 
-  // Turbine.waterway -> Waterway, Turbine.generator -> Generator
+  // Turbine.waterway -> Waterway (optional), Turbine.generator -> Generator
   for (const auto& turb : sys.turbine_array) {
-    check_ref(result,
-              turb.waterway,
-              sys.waterway_array,
-              "Turbine",
-              turb.name,
-              "waterway",
-              "Waterway");
+    if (turb.waterway.has_value()) {
+      check_ref(result,
+                turb.waterway.value(),
+                sys.waterway_array,
+                "Turbine",
+                turb.name,
+                "waterway",
+                "Waterway");
+    }
     check_ref(result,
               turb.generator,
               sys.generator_array,
