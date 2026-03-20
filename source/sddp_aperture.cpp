@@ -112,6 +112,7 @@ auto solve_apertures_for_phase(SceneIndex scene,
                                std::span<const Aperture> aperture_defs,
                                std::span<const Uid> phase_apertures,
                                int total_cuts,
+                               int iteration,
                                SystemLP& sys,
                                const PhaseLP& phase_lp,
                                const SolverOptions& opts,
@@ -315,7 +316,7 @@ auto solve_apertures_for_phase(SceneIndex scene,
 
   // Compute the probability-weighted expected cut
   const auto expected_name =
-      label_maker.lp_label("sddp", "ecut", scene, pi, total_cuts);
+      label_maker.lp_label("sddp", "ecut", scene, pi, iteration, total_cuts);
   return weighted_average_benders_cut(
       aperture_cuts, aperture_weights, expected_name);
 }
