@@ -2950,7 +2950,14 @@ def model_to_visjs(model: GraphModel) -> dict:
 
 def _legend_html(model: GraphModel) -> str:
     """Build an HTML legend that matches the actual vis.js node shapes and colors."""
-    kinds = {n.kind for n in model.nodes}
+    raw_kinds = {n.kind for n in model.nodes}
+    # Normalize variant kinds (reservoir_sm -> reservoir) so a single
+    # legend entry covers all intensity variants.
+    kinds: set[str] = set()
+    for k in raw_kinds:
+        kinds.add(k)
+        if k.startswith("reservoir_"):
+            kinds.add("reservoir")
     labels = {
         "bus": "Bus (electrical node)",
         "gen": "Generator (thermal)",
