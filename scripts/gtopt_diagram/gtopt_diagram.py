@@ -1537,7 +1537,6 @@ class TopologyBuilder:
     def _waterways(self):
         for w in self.sys.get("waterway_array", []):
             name = _elem_name(w)
-            fmax = self._resolve_field("Waterway", w, "fmax")
             uid = w.get("uid")
             # Skip direct arc when a turbine already represents this waterway
             if uid in self._turb_way_refs or name in self._turb_way_refs:
@@ -1545,7 +1544,7 @@ class TopologyBuilder:
             ja = self._find_node_id("junction_array", w.get("junction_a"), self._jid)
             jb = self._find_node_id("junction_array", w.get("junction_b"), self._jid)
             if ja and jb:
-                lbl = str(name) if self.opts.compact else f"{name}\n≤{fmax} m³/s"
+                lbl = str(name)
                 self.model.add_edge(
                     Edge(
                         src=ja,
@@ -1642,12 +1641,7 @@ class TopologyBuilder:
                         "junction_array", way.get("junction_b"), self._jid
                     )
                     way_name = _elem_name(way)
-                    fmax = _scalar(way.get("fmax"))
-                    lbl_w = (
-                        str(way_name)
-                        if self.opts.compact
-                        else f"{way_name}\n\u2264{fmax} m\u00b3/s"
-                    )
+                    lbl_w = str(way_name)
                     if ja:
                         self.model.add_edge(
                             Edge(
