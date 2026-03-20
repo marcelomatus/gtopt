@@ -326,7 +326,6 @@ _LAYOUT_NEATO_THRESHOLD = 40  # neato: spring-model, fast for ≤40 nodes
 _LAYOUT_FDP_THRESHOLD = 150  # fdp:   force-directed, ≤150 nodes
 
 # Maximum BFS depth — imported from _data_utils for backward compatibility
-from gtopt_diagram._data_utils import VOLTAGE_BFS_MAX_DEPTH as _VOLTAGE_BFS_MAX_DEPTH
 
 
 def _icon_cache_dir() -> str:
@@ -416,6 +415,54 @@ _PALETTE: dict[str, str] = {
     "waterway_edge": "#2980B9",
     "bat_link_edge": "#7D3C98",
     "efficiency_edge": "#A04000",
+}
+
+# Colorblind-safe palette (Wong 2011), selected via --palette colorblind
+_PALETTE_COLORBLIND: dict[str, str] = {
+    "bus": "#E1F5FE",
+    "bus_border": "#01579B",
+    "gen": "#FFF3E0",
+    "gen_border": "#E65100",
+    "gen_solar": "#FFFDE7",
+    "gen_solar_border": "#F57F17",
+    "gen_hydro": "#E8F5E9",
+    "gen_hydro_border": "#1B5E20",
+    "demand": "#FCE4EC",
+    "demand_border": "#880E4F",
+    "battery": "#F3E5F5",
+    "battery_border": "#4A148C",
+    "converter": "#E0F7FA",
+    "converter_border": "#006064",
+    "junction": "#E8F5E9",
+    "junction_border": "#1B5E20",
+    "reservoir": "#E1F5FE",
+    "reservoir_border": "#01579B",
+    "turbine": "#E8F5E9",
+    "turbine_border": "#1B5E20",
+    "flow": "#E1F5FE",
+    "flow_border": "#0277BD",
+    "filtration": "#ECEFF1",
+    "filtration_border": "#546E7A",
+    "line_edge": "#37474F",
+    "waterway_edge": "#0277BD",
+    "bat_link_edge": "#4A148C",
+    "efficiency_edge": "#BF360C",
+}
+
+# Human-readable labels for each node kind (used in SVG and HTML legends)
+_LEGEND_LABELS: dict[str, str] = {
+    "bus": "Bus",
+    "gen": "Generator (thermal)",
+    "gen_solar": "Solar/Wind",
+    "gen_hydro": "Hydro generator",
+    "demand": "Demand",
+    "battery": "Battery",
+    "converter": "Converter",
+    "junction": "Junction",
+    "reservoir": "Reservoir",
+    "turbine": "Turbine",
+    "flow": "Flow",
+    "filtration": "Filtration",
 }
 
 _MM_SHAPES: dict[str, tuple[str, str]] = {
@@ -891,6 +938,27 @@ class TopologyBuilder:
             self._bus_node_ids = set()  # reset; will be repopulated by _buses()
 
         self._focus_nids = self._compute_focus_set() if self.opts.focus_buses else None
+
+        # Auto-hide hydro subsystem when no hydro elements exist
+        if self.subsystem == "full":
+            sys = self.sys
+            has_hydro = any(
+                sys.get(k)
+                for k in (
+                    "junction_array",
+                    "waterway_array",
+                    "reservoir_array",
+                    "turbine_array",
+                    "flow_array",
+                    "filtration_array",
+                )
+            )
+            if not has_hydro:
+                self.subsystem = "electrical"
+                logger.debug(
+                    "No hydro elements found; switching to electrical subsystem"
+                )
+
         s = self.subsystem
         if s in ("full", "electrical"):
             self._buses()
@@ -2272,6 +2340,34 @@ def render_graphviz(
             attrs["penwidth"] = str(max(1.5, min(4.0, 1.0 + e.weight / 100)))
         dot.edge(e.src, e.dst, **attrs)
 
+    # Add legend as a subgraph when multiple node kinds are present
+    kinds_in_model = {n.kind for n in model.nodes}
+    if len(kinds_in_model) > 1:
+        with dot.subgraph(name="cluster_legend") as legend:
+            legend.attr(
+                label="Legend",
+                style="rounded",
+                color="#CCCCCC",
+                fontsize="10",
+                fontname="Arial",
+            )
+            for kind in sorted(kinds_in_model):
+                label_text = _LEGEND_LABELS.get(kind, kind)
+                fill = _PALETTE.get(kind, "#FFFFFF")
+                border = _PALETTE.get(f"{kind}_border", "#333333")
+                legend.node(
+                    f"legend_{kind}",
+                    label=label_text,
+                    shape="box",
+                    style="filled",
+                    fillcolor=fill,
+                    color=border,
+                    fontsize="8",
+                    fontname="Arial",
+                    width="0.1",
+                    height="0.1",
+                )
+
     if fmt == "dot":
         return dot.source
 
@@ -2763,6 +2859,21 @@ Examples:
         help="Show only elements reachable from these bus names",
     )
     red.add_argument(
+        "--focus-generator",
+        nargs="+",
+        default=[],
+        metavar="GEN",
+        dest="focus_generators",
+        help="Focus on the bus(es) connected to these generators (by name or uid)",
+    )
+    red.add_argument(
+        "--focus-area",
+        type=float,
+        default=0.0,
+        metavar="KV",
+        help="Focus on buses at or above this voltage level (kV)",
+    )
+    red.add_argument(
         "--focus-hops",
         type=int,
         default=2,
@@ -2809,6 +2920,12 @@ Examples:
             "Ignored for dot format written to stdout. "
             "Enabled automatically when no --output path is given."
         ),
+    )
+    parser.add_argument(
+        "--palette",
+        choices=["default", "colorblind"],
+        default="default",
+        help="Color palette for diagram elements (default: %(default)s)",
     )
     parser.add_argument(
         "-l",
@@ -2911,12 +3028,69 @@ Examples:
         return 0
 
     # ── Topology diagram ─────────────────────────────────────────────────────
+
+    # Resolve --focus-generator to bus names
+    extra_focus_buses: list[str] = list(args.focus_buses)
+    sys_data = planning.get("system", {})
+    if args.focus_generators:
+        gen_array = sys_data.get("generator_array", [])
+        gen_lookup: dict[str, dict] = {}
+        for g in gen_array:
+            gname = g.get("name")
+            gid = g.get("uid")
+            if gname is not None:
+                gen_lookup[str(gname)] = g
+            if gid is not None:
+                gen_lookup[str(gid)] = g
+        for gen_ref in args.focus_generators:
+            g = gen_lookup.get(gen_ref)
+            if g is None:
+                logger.warning("--focus-generator: generator %r not found", gen_ref)
+                continue
+            bus_ref = g.get("bus")
+            if bus_ref is not None:
+                # Resolve bus uid to bus name
+                bus_name = str(bus_ref)
+                for bus in sys_data.get("bus_array", []):
+                    if bus.get("uid") == bus_ref or str(bus.get("name")) == str(
+                        bus_ref
+                    ):
+                        bus_name = str(bus.get("name", bus_ref))
+                        break
+                extra_focus_buses.append(bus_name)
+
+    # Resolve --focus-area to bus names (buses at or above the given kV)
+    if args.focus_area > 0:
+        for bus in sys_data.get("bus_array", []):
+            kv = bus.get("kv") or bus.get("voltage") or 0
+            if float(kv) >= args.focus_area:
+                bname = bus.get("name")
+                if bname is not None:
+                    extra_focus_buses.append(str(bname))
+
+    # Apply --palette selection
+    if args.palette == "colorblind":
+        # Swap the module-level _PALETTE with colorblind variant
+        _PALETTE.update(_PALETTE_COLORBLIND)
+
+    # Print summary statistics if gtopt_check_json is available
+    try:
+        from gtopt_check_json._info import format_indicators  # noqa: PLC0415
+
+        stats = format_indicators(
+            planning,
+            base_dir=str(Path(args.json_file).parent) if args.json_file else None,
+        )
+        print(stats, file=sys.stderr)
+    except ImportError:
+        pass
+
     opts = FilterOptions(
         aggregate=args.aggregate,
         no_generators=args.no_generators,
         top_gens=args.top_gens,
         filter_types=[t.lower() for t in args.filter_types],
-        focus_buses=args.focus_buses,
+        focus_buses=extra_focus_buses,
         focus_hops=args.focus_hops,
         max_nodes=args.max_nodes,
         voltage_threshold=args.voltage_threshold,
