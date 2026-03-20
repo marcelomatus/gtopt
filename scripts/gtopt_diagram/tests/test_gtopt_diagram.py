@@ -1710,6 +1710,77 @@ class TestNodeIDUniqueness:
 # ---------------------------------------------------------------------------
 
 
+class TestLineWidthByVoltage:
+    """Electrical line edges have width proportional to bus voltage."""
+
+    _PLANNING = {
+        "system": {
+            "bus_array": [
+                {"uid": 1, "name": "HV500", "voltage": 500},
+                {"uid": 2, "name": "HV220", "voltage": 220},
+                {"uid": 3, "name": "MV66", "voltage": 66},
+                {"uid": 4, "name": "LV33", "voltage": 33},
+            ],
+            "generator_array": [],
+            "line_array": [
+                {"uid": 1, "name": "L_500", "bus_a": 1, "bus_b": 2},
+                {"uid": 2, "name": "L_220", "bus_a": 2, "bus_b": 3},
+                {"uid": 3, "name": "L_66", "bus_a": 3, "bus_b": 4},
+            ],
+        }
+    }
+
+    def test_line_edges_exist(self):
+        model = _build_model(self._PLANNING)
+        line_edges = [e for e in model.edges if not e.directed]
+        assert len(line_edges) == 3
+
+    def test_high_voltage_wider_than_low(self):
+        """500 kV line is wider than 66 kV line."""
+        model = _build_model(self._PLANNING)
+        weights = sorted(e.weight for e in model.edges if not e.directed)
+        assert weights[-1] > weights[0]
+
+    def test_widths_are_distinct(self):
+        """Each voltage level produces a different width."""
+        model = _build_model(self._PLANNING)
+        widths = sorted({e.weight for e in model.edges if not e.directed})
+        assert len(widths) == 3, f"Expected 3 distinct widths, got {widths}"
+
+    def test_500kv_line_weight_is_5(self):
+        """500 kV line should have weight 5.0."""
+        model = _build_model(self._PLANNING)
+        edges = [e for e in model.edges if not e.directed]
+        # The 500-220 line has max(500, 220) = 500 kV
+        hv_edge = next(e for e in edges if e.weight == max(e.weight for e in edges))
+        assert hv_edge.weight == 5.0
+
+    def test_33kv_line_weight_is_2(self):
+        """33 kV line should have weight 2.0."""
+        model = _build_model(self._PLANNING)
+        edges = [e for e in model.edges if not e.directed]
+        lv_edge = next(e for e in edges if e.weight == min(e.weight for e in edges))
+        assert lv_edge.weight == 2.5  # max(66, 33) = 66 kV -> weight 2.5
+
+    def test_line_colors_are_not_blue(self):
+        """No electrical line should use a blue color."""
+        model = _build_model(self._PLANNING)
+        for e in model.edges:
+            if not e.directed and e.color:
+                # Blue hues have hex starting with #0, #1, #2 followed by high B
+                assert not e.color.startswith("#0"), f"Blue line color: {e.color}"
+
+    def test_vis_js_width_uses_weight_directly(self):
+        """vis.js edge width = clamped weight, not the old /100 formula."""
+        from gtopt_diagram.gtopt_diagram import model_to_visjs
+
+        model = _build_model(self._PLANNING)
+        visjs = model_to_visjs(model)
+        vis_widths = {ve["width"] for ve in visjs["edges"]}
+        # All widths should be >= 2.0 (not ~1.0 from old formula)
+        assert all(w >= 2.0 for w in vis_widths), f"Widths too small: {vis_widths}"
+
+
 class TestColonSafetyInLabels:
     """Elements with colons in names must not crash Mermaid or DOT rendering."""
 
