@@ -24,3 +24,4 @@ using namespace gtopt;
 #include "test_ieee9b_ori_planning.hpp"
 #include "test_unified_battery_planning.hpp"
 #include "test_user_constraint_planning.hpp"
+#include "test_validate_planning.hpp"

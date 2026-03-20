@@ -39,6 +39,7 @@ class PLPParser:
         """Initialize PLPParser with input directory."""
         self.input_path: Path = Path(options.get("input_dir", ""))
         self.parsed_data: dict[str, Any] = {}
+        self._options = options
 
         self._validate_input_dir()
 
@@ -48,6 +49,9 @@ class PLPParser:
 
     def parse_all(self):
         """Parse all PLP input files."""
+        # Store conversion options so downstream parsers can read them
+        self.parsed_data["_options"] = self._options
+
         parsers = [
             ("block_parser", BlockParser, "plpblo.dat"),
             ("stage_parser", StageParser, "plpeta.dat"),

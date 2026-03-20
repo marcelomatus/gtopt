@@ -288,11 +288,17 @@ def test_drain_junction():
     writer = JunctionWriter(central_parser=central_parser)
     result = writer.to_json_array()[0]
 
-    assert len(result["junction_array"]) == 1
-    junction = result["junction_array"][0]
-    assert junction["uid"] == 5
-    assert junction["drain"] is True
-    assert len(result["waterway_array"]) == 0
+    # Serie with ser_hid=0 gets ocean junction for hydro topology
+    assert len(result["junction_array"]) == 2
+    plant_junction = next(
+        j for j in result["junction_array"] if j["name"] == "PlantDrain"
+    )
+    assert plant_junction["uid"] == 5
+    assert plant_junction["drain"] is True
+    ocean_junction = next(j for j in result["junction_array"] if "ocean" in j["name"])
+    assert ocean_junction["drain"] is True
+    # Gen waterway to ocean should exist
+    assert len(result["waterway_array"]) == 1
 
 
 def test_no_turbine_creation():
@@ -419,14 +425,16 @@ def test_multiple_plants_and_interactions(sample_central_parser, sample_extrac_p
     )
     result = writer.to_json_array()[0]
 
-    # 3 junctions from central parser
-    assert len(result["junction_array"]) == 3
+    # 3 plant junctions + 2 ocean junctions (PlantB ser_hid=0 + PlantC ser_hid=0)
+    assert len(result["junction_array"]) == 5
 
-    # 2 waterways from PlantA, 1 from PlantB, 1 from extraction
-    assert len(result["waterway_array"]) == 4
+    # PlantA: gen+ver waterways (2), PlantB: gen(ocean)+ver (2),
+    # PlantC: gen(ocean) (1), extraction (1) = 6
+    assert len(result["waterway_array"]) == 6
 
-    # 1 turbine for PlantA (PlantB has no generation waterway)
-    assert len(result["turbine_array"]) == 1
+    # PlantA (bus=101, ser_hid=2) + PlantB (bus=102, ocean gen) = 2 turbines
+    # PlantC has bus=0 → no turbine
+    assert len(result["turbine_array"]) == 2
 
     # 2 flows for PlantA and PlantC
     assert len(result["flow_array"]) == 2
@@ -785,13 +793,26 @@ def test_embalse_ocean_junction_no_warning(caplog):
     assert rapel_warnings == [], f"Unexpected WARNING for RAPEL: {rapel_warnings}"
 
 
-def test_embalse_with_bus_zero_no_ocean_junction():
-    """Reservoir-only embalse (bus=0) does NOT get an ocean junction."""
+def test_embalse_with_bus_zero_has_ocean_junction_but_no_turbine():
+    """Reservoir-only embalse (bus=0) gets ocean junction for hydro topology
+    but no turbine (no electrical output)."""
     writer = JunctionWriter(central_parser=_make_hydro_parser())
     result = writer.to_json_array()[0]
 
+    # Dam1 has bus=0 and ser_hid=0 → ocean junction created for hydro topology
     ocean_junctions = [j for j in result["junction_array"] if "ocean" in j["name"]]
-    assert ocean_junctions == []
+    assert len(ocean_junctions) == 1
+    assert ocean_junctions[0]["drain"] is True
+
+    # Generation waterway to ocean should exist
+    dam1_gen_ww = [
+        w for w in result["waterway_array"] if w["name"].startswith("Dam1_gen")
+    ]
+    assert len(dam1_gen_ww) == 1
+
+    # No turbine for Dam1 (bus<=0)
+    dam1_turbines = [t for t in result["turbine_array"] if t["name"] == "Dam1"]
+    assert dam1_turbines == []
 
 
 def test_embalse_no_ver_waterway_junction_is_drain():
