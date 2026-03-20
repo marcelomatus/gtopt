@@ -460,7 +460,7 @@ def generate_variable_scales_template(options: dict[str, Any]) -> str:
             "variable": "volume",
             "uid": uid,
             "scale": scale if scale is not None else 1.0,
-            "_name": name,
+            "name": name,
         }
         if fescala_val is not None:
             entry["_fescala"] = fescala_val
@@ -477,7 +477,7 @@ def generate_variable_scales_template(options: dict[str, Any]) -> str:
                 "variable": "energy",
                 "uid": uid,
                 "scale": 0.01,
-                "_name": name,
+                "name": name,
             }
         )
 

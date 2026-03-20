@@ -206,7 +206,7 @@ struct Battery
   /// that the LP works in scaled units (physical_energy / energy_scale).
   /// Default is 1.0 (no scaling).  Output values are rescaled back to
   /// physical units so results are invariant to the choice of energy_scale.
-  OptReal energy_scale {default_energy_scale};
+  OptReal energy_scale {};
 };
 
 }  // namespace gtopt

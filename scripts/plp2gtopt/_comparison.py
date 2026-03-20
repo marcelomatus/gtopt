@@ -725,7 +725,7 @@ def _log_comparison(
         "demands",
         p_demands,
         g_demands,
-        note=f"PLP plpdem.dat; gtopt from falla (bus>0)",
+        note="PLP plpdem.dat; gtopt from falla (bus>0)",
     )
     if g_demands != p_falla and p_falla > 0:
         _row("", note=f"falla with bus>0: {g_demands} of {p_falla}")
