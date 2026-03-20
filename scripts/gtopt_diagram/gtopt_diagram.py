@@ -795,16 +795,17 @@ class TopologyBuilder:
 
     @staticmethod
     def _make_id(prefix: str, item: dict) -> str:
-        """Build a graph node ID from element name and uid.
+        """Build a graph node ID from prefix, element name, and uid.
 
-        Uses ``NAME_uid`` format for readability in raw Mermaid/DOT output.
-        Falls back to ``prefix_uid`` when name is missing.
+        Uses ``prefix_NAME_uid`` format to guarantee uniqueness across
+        element types that may share the same name/uid (e.g. a turbine
+        and its linked generator often share the same uid and name).
         """
         name = item.get("name")
         uid = item.get("uid")
         if name is not None:
             safe = str(name).replace(" ", "_").replace("-", "_")
-            return f"{safe}_{uid}" if uid is not None else safe
+            return f"{prefix}_{safe}_{uid}" if uid is not None else f"{prefix}_{safe}"
         return f"{prefix}_{uid}" if uid is not None else f"{prefix}_?"
 
     @staticmethod
