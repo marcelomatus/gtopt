@@ -837,11 +837,12 @@ _dominant_kind = _dominant_kind_impl
 class TopologyBuilder:
     """Build a GraphModel from a gtopt JSON planning structure."""
 
-    def __init__(self, planning, subsystem="full", opts=None):
+    def __init__(self, planning, subsystem="full", opts=None, resolver=None):
         self.sys = planning.get("system", {})
         self.subsystem = subsystem
         self.opts = opts or FilterOptions()
         self.model = GraphModel(title=self.sys.get("name", "gtopt Network"))
+        self._resolver = resolver  # FieldSchedResolver or None
         self._turb_refs = _turbine_gen_refs(self.sys)
         self._turb_way_refs = _turbine_waterway_refs(self.sys)
         self._eff_turb_refs = _efficiency_turbine_pairs(self.sys)
@@ -943,6 +944,28 @@ class TopologyBuilder:
     @staticmethod
     def _dpid(dp):
         return TopologyBuilder._make_id("dprof", dp)
+
+    def _resolve_field(
+        self, class_name: str, elem: dict, field: str, fallback: str = "—"
+    ) -> str:
+        """Resolve a field value, reading from Parquet if it's a file reference.
+
+        Returns a formatted string suitable for display in labels.
+        """
+        val = elem.get(field)
+        if val is None:
+            return fallback
+        if isinstance(val, (int, float)):
+            return f"{val:,.1f}" if isinstance(val, float) else str(val)
+        if isinstance(val, str) and self._resolver is not None:
+            resolved = self._resolver.resolve(
+                class_name, val, elem.get("uid"), fallback=None
+            )
+            if resolved is not None:
+                return f"{resolved:,.1f}"
+        if isinstance(val, str):
+            return fallback  # unresolved file reference
+        return _scalar(val)
 
     def _find(self, arr_key, ref):
         return _resolve(self.sys.get(arr_key, []), ref)
@@ -1165,16 +1188,14 @@ class TopologyBuilder:
 
     def _gen_individual(self, gens):
         for gen in gens:
-            pmax = _scalar(gen.get("pmax") or gen.get("capacity"))
-            gcost = _scalar(gen.get("gcost", "\u2014"))
+            # Capacity first, pmax as fallback
+            cap = self._resolve_field("Generator", gen, "capacity", fallback=None)
+            if cap is None:
+                cap = self._resolve_field("Generator", gen, "pmax", fallback="—")
             gt = _classify_gen(gen, self._turb_refs)
             kind = self._gen_kind(gen)
             name = _elem_name(gen)
-            lbl = (
-                f"{name}\n{pmax} MW"
-                if self.opts.compact
-                else f"{name}\n{pmax} MW  {gcost} $/MWh"
-            )
+            lbl = f"{name}\n{cap} MW" if self.opts.compact else f"{name}\n{cap} MW"
             nid = self._gid(gen)
             self.model.add_node(
                 Node(
@@ -1182,7 +1203,7 @@ class TopologyBuilder:
                     label=lbl,
                     kind=kind,
                     cluster="electrical",
-                    tooltip=f"Generator uid={gen.get('uid')} type={gt} pmax={pmax} gcost={gcost}",
+                    tooltip=f"Generator uid={gen.get('uid')} type={gt} capacity={cap}",
                 )
             )
             bus_id = self._bus_node_id(gen.get("bus"))
@@ -1291,7 +1312,7 @@ class TopologyBuilder:
     def _demands(self):
         for dem in self.sys.get("demand_array", []):
             name = _elem_name(dem)
-            lmax = _scalar(dem.get("lmax"))
+            lmax = self._resolve_field("Demand", dem, "lmax")
             nid = self._did(dem)
             lbl = f"{name}" if self.opts.compact else f"{name}\n{lmax} MW"
             self.model.add_node(
@@ -1331,8 +1352,9 @@ class TopologyBuilder:
                 continue
             seen_edges.add(edge_key)
             name = _elem_name(line)
-            x = line.get("reactance", "")
-            tmax = line.get("tmax_ab", line.get("tmax_ba", ""))
+            tmax = self._resolve_field("Line", line, "tmax_ab", fallback=None)
+            if tmax is None:
+                tmax = self._resolve_field("Line", line, "tmax_ba", fallback="—")
 
             # Derive voltage from connected buses for color/width
             va = ba.get("voltage", 0) if ba else 0
@@ -1345,8 +1367,8 @@ class TopologyBuilder:
                 parts = [str(name)]
                 if line_kv > 0:
                     parts.append(f"{line_kv:.0f} kV")
-                if tmax:
-                    parts.append(f"{_scalar(tmax)} MW")
+                if tmax and tmax != "—":
+                    parts.append(f"{tmax} MW")
                 lbl = "\n".join(parts)
 
             color, width = _line_color_width(line_kv)
@@ -3290,6 +3312,27 @@ Examples:
         help="Color palette for diagram elements (default: %(default)s)",
     )
     parser.add_argument(
+        "--scenario",
+        type=int,
+        default=1,
+        metavar="UID",
+        help="Scenario UID for resolving file-referenced values (default: 1)",
+    )
+    parser.add_argument(
+        "--stage",
+        type=int,
+        default=1,
+        metavar="UID",
+        help="Stage UID for resolving file-referenced values (default: 1)",
+    )
+    parser.add_argument(
+        "--block",
+        type=int,
+        default=1,
+        metavar="UID",
+        help="Block UID for resolving file-referenced values (default: 1)",
+    )
+    parser.add_argument(
         "-l",
         "--log-level",
         default="INFO",
@@ -3459,7 +3502,30 @@ Examples:
         hide_isolated=args.hide_isolated,
         compact=args.compact,
     )
-    builder = TopologyBuilder(planning, subsystem=args.subsystem, opts=opts)
+    # Create resolver for file-referenced field values (pmax, lmax, etc.)
+    resolver = None
+    input_path = getattr(args, "input", None)
+    if input_path:
+        base_dir = str(Path(input_path).parent)
+        input_dir = planning.get("options", {}).get("input_directory", ".")
+        try:
+            from gtopt_diagram._field_resolver import (  # noqa: PLC0415
+                FieldSchedResolver,
+            )
+
+            resolver = FieldSchedResolver(
+                base_dir=base_dir,
+                input_dir=input_dir,
+                scenario=getattr(args, "scenario", 1),
+                stage=getattr(args, "stage", 1),
+                block=getattr(args, "block", 1),
+            )
+        except Exception:  # pylint: disable=broad-except
+            logger.debug("FieldSchedResolver not available; file references unresolved")
+
+    builder = TopologyBuilder(
+        planning, subsystem=args.subsystem, opts=opts, resolver=resolver
+    )
     model = builder.build()
 
     n_nodes = len(model.nodes)
