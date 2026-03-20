@@ -1393,15 +1393,29 @@ class TopologyBuilder:
             eout = self._resolve_field("Battery", bat, "output_efficiency", fallback="")
             eff = f"\n\u03b7={ein}/{eout}" if ein else ""
             lbl = f"{name}" if self.opts.compact else f"{name}\n{emax} MWh{eff}"
+            nid = self._batid(bat)
             self.model.add_node(
                 Node(
-                    node_id=self._batid(bat),
+                    node_id=nid,
                     label=lbl,
                     kind="battery",
                     cluster="electrical",
                     tooltip=f"Battery uid={bat.get('uid')} emax={emax}",
                 )
             )
+            # Connect battery to bus: use converter if defined, otherwise
+            # connect directly to bus (C++ expand_batteries auto-creates
+            # the converter/gen/demand at LP construction time).
+            has_converter = any(
+                c.get("battery") in (bat.get("uid"), bat.get("name"))
+                for c in self.sys.get("converter_array", [])
+            )
+            if not has_converter:
+                bus_id = self._bus_node_id(bat.get("bus"))
+                if bus_id:
+                    self.model.add_edge(
+                        Edge(nid, bus_id, color=_PALETTE["battery_border"])
+                    )
 
     def _converters(self):
         for conv in self.sys.get("converter_array", []):
