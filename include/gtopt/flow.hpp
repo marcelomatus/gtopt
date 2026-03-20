@@ -53,7 +53,8 @@ struct Flow
   OptInt direction {
       1};  ///< Flow direction: +1 = inflow, −1 = outflow [dimensionless]
 
-  SingleId junction {unknown_uid};  ///< ID of the connected junction
+  OptSingleId junction {};  ///< ID of the connected junction (optional for
+                            ///< flow-turbine mode)
   STBRealFieldSched discharge {};  ///< Water discharge schedule [m³/s]
 
   /// @return true if flow is directed into the junction (inflow)
