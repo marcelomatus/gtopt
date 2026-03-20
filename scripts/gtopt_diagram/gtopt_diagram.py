@@ -1644,12 +1644,19 @@ class TopologyBuilder:
                         )
                     )
             gen_ref = t.get("generator")
-            gen_id = self._find_node_id("generator_array", gen_ref, self._gid)
+            gen = _resolve(self.sys.get("generator_array", []), gen_ref)
+            if gen is None:
+                logger.warning(
+                    "Turbine %s references generator %r which is not in "
+                    "generator_array; skipping turbine-generator edge.",
+                    _elem_name(t),
+                    gen_ref,
+                )
+            gen_id = self._gid(gen) if gen else None
             if gen_id:
                 # In hydro subsystem the generator node may not exist yet;
                 # add it so the turbine → generator "power out" edge renders.
                 if gen_id not in {n.node_id for n in self.model.nodes}:
-                    gen = _resolve(self.sys.get("generator_array", []), gen_ref)
                     if gen:
                         gname = _elem_name(gen)
                         cap = self._resolve_field(
