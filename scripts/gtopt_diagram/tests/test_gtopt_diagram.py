@@ -1365,6 +1365,159 @@ class TestHydroPassthrough:
         _assert_no_dangling_edges(model)
 
 
+class TestPasadaFullChain:
+    """Verify complete pasada topology: flow -> junction -> turbine -> gen -> bus.
+
+    Uses two pasada centrals on different buses to verify all connections
+    independently. Each pasada has the isolated hydro topology:
+    flow -> junction_a -> [turbine via waterway] -> junction_b(ocean) + gen -> bus.
+    """
+
+    _PLANNING = {
+        "system": {
+            "name": "pasada_chain_test",
+            "bus_array": [
+                {"uid": 1, "name": "BusA", "voltage": 220},
+                {"uid": 2, "name": "BusB", "voltage": 110},
+            ],
+            "generator_array": [
+                {"uid": 10, "name": "Pasada1", "bus": 1, "pmax": 30, "type": "pasada"},
+                {"uid": 20, "name": "Pasada2", "bus": 2, "pmax": 60, "type": "pasada"},
+            ],
+            "junction_array": [
+                {"uid": 10, "name": "J_P1"},
+                {"uid": 11, "name": "J_P1_ocean"},
+                {"uid": 20, "name": "J_P2"},
+                {"uid": 21, "name": "J_P2_ocean"},
+            ],
+            "waterway_array": [
+                {
+                    "uid": 10,
+                    "name": "W_P1",
+                    "junction_a": 10,
+                    "junction_b": 11,
+                    "fmax": 50,
+                },
+                {
+                    "uid": 20,
+                    "name": "W_P2",
+                    "junction_a": 20,
+                    "junction_b": 21,
+                    "fmax": 80,
+                },
+            ],
+            "turbine_array": [
+                {
+                    "uid": 10,
+                    "name": "Pasada1",
+                    "waterway": 10,
+                    "generator": 10,
+                    "conversion_rate": 1.0,
+                },
+                {
+                    "uid": 20,
+                    "name": "Pasada2",
+                    "waterway": 20,
+                    "generator": 20,
+                    "conversion_rate": 1.0,
+                },
+            ],
+            "flow_array": [
+                {"uid": 10, "name": "Flow_P1", "junction": 10, "discharge": 25},
+                {"uid": 20, "name": "Flow_P2", "junction": 20, "discharge": 50},
+            ],
+        }
+    }
+
+    def _pairs(self, subsystem):
+        model = _build_model(self._PLANNING, subsystem=subsystem)
+        return {(e.src, e.dst) for e in model.edges}, model
+
+    def test_full_flow_to_junction(self):
+        """Flow nodes connect to their junctions."""
+        pairs, _ = self._pairs("full")
+        assert ("flow_Flow_P1_10", "junc_J_P1_10") in pairs
+        assert ("flow_Flow_P2_20", "junc_J_P2_20") in pairs
+
+    def test_full_junction_to_turbine(self):
+        """Junction_a -> turbine (water-in)."""
+        pairs, _ = self._pairs("full")
+        assert ("junc_J_P1_10", "turb_Pasada1_10") in pairs
+        assert ("junc_J_P2_20", "turb_Pasada2_20") in pairs
+
+    def test_full_turbine_to_ocean(self):
+        """Turbine -> junction_b (water-out to ocean)."""
+        pairs, _ = self._pairs("full")
+        assert ("turb_Pasada1_10", "junc_J_P1_ocean_11") in pairs
+        assert ("turb_Pasada2_20", "junc_J_P2_ocean_21") in pairs
+
+    def test_full_turbine_to_generator(self):
+        """Turbine -> generator (power out)."""
+        pairs, _ = self._pairs("full")
+        assert ("turb_Pasada1_10", "gen_Pasada1_10") in pairs
+        assert ("turb_Pasada2_20", "gen_Pasada2_20") in pairs
+
+    def test_full_generator_to_bus(self):
+        """Generator -> bus (electrical connection)."""
+        pairs, _ = self._pairs("full")
+        assert ("gen_Pasada1_10", "bus_BusA_1") in pairs
+        assert ("gen_Pasada2_20", "bus_BusB_2") in pairs
+
+    def test_full_complete_chain(self):
+        """Complete chain: flow -> junc -> turb -> gen -> bus for each pasada."""
+        pairs, _ = self._pairs("full")
+        # Pasada1 chain
+        assert ("flow_Flow_P1_10", "junc_J_P1_10") in pairs
+        assert ("junc_J_P1_10", "turb_Pasada1_10") in pairs
+        assert ("turb_Pasada1_10", "gen_Pasada1_10") in pairs
+        assert ("gen_Pasada1_10", "bus_BusA_1") in pairs
+        # Pasada2 chain
+        assert ("flow_Flow_P2_20", "junc_J_P2_20") in pairs
+        assert ("junc_J_P2_20", "turb_Pasada2_20") in pairs
+        assert ("turb_Pasada2_20", "gen_Pasada2_20") in pairs
+        assert ("gen_Pasada2_20", "bus_BusB_2") in pairs
+
+    def test_full_no_dangling(self):
+        _, model = self._pairs("full")
+        _assert_no_dangling_edges(model)
+
+    def test_full_no_duplicate_ids(self):
+        _, model = self._pairs("full")
+        ids = [n.node_id for n in model.nodes]
+        assert len(ids) == len(set(ids)), f"Duplicate IDs: {[x for x in ids if ids.count(x) > 1]}"
+
+    def test_hydro_complete_chain(self):
+        """In hydro mode, auto-created generators still connect to bus."""
+        pairs, model = self._pairs("hydro")
+        # Generators and buses auto-created
+        node_ids = {n.node_id for n in model.nodes}
+        assert "gen_Pasada1_10" in node_ids
+        assert "gen_Pasada2_20" in node_ids
+        assert "bus_BusA_1" in node_ids
+        assert "bus_BusB_2" in node_ids
+        # Full chain works
+        assert ("turb_Pasada1_10", "gen_Pasada1_10") in pairs
+        assert ("gen_Pasada1_10", "bus_BusA_1") in pairs
+        assert ("turb_Pasada2_20", "gen_Pasada2_20") in pairs
+        assert ("gen_Pasada2_20", "bus_BusB_2") in pairs
+
+    def test_hydro_no_dangling(self):
+        _, model = self._pairs("hydro")
+        _assert_no_dangling_edges(model)
+
+    def test_hydro_gen_kind_is_hydro(self):
+        """Auto-created generators in hydro mode have gen_hydro kind."""
+        _, model = self._pairs("hydro")
+        gen_nodes = [n for n in model.nodes if n.node_id.startswith("gen_")]
+        assert all(n.kind == "gen_hydro" for n in gen_nodes)
+
+    def test_hydro_bus_voltage_preserved(self):
+        """Auto-created buses in hydro mode preserve voltage in label."""
+        _, model = self._pairs("hydro")
+        bus_a = next(n for n in model.nodes if n.node_id == "bus_BusA_1")
+        assert "220" in bus_a.label
+
+
 class TestEmptySystem:
     """Empty system: builds without error, 0 nodes."""
 
