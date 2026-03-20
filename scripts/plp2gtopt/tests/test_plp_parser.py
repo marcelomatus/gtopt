@@ -78,7 +78,7 @@ def test_parse_all_success(sample_input_dir):
         parser = PLPParser({"input_dir": sample_input_dir})
         parser.parse_all()
 
-        assert len(parser.parsed_data) == 12
+        assert len(parser.parsed_data) == 13  # 12 parsers + _options
         for name in [
             "block_parser",
             "stage_parser",

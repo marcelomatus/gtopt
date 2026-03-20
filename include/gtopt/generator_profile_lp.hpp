@@ -54,6 +54,12 @@ public:
                                LinearProblem& lp);
 
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
+
+  /// Update profile constraints for an aperture scenario.
+  [[nodiscard]] bool update_aperture_lp(LinearInterface& li,
+                                        const ScenarioLP& base_scenario,
+                                        const ScenarioLP& aperture_scenario,
+                                        const StageLP& stage) const;
 };
 
 }  // namespace gtopt
