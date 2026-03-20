@@ -3033,13 +3033,14 @@ def render_html(model: GraphModel, output_path: str) -> str:
         color["highlight"] = {"background": color["background"], "border": "#E74C3C"}
         size = int(node.size) if node.size > 0 else _PYVIS_SIZE_MAP.get(node.kind, 20)
 
-        if icon_path:
+        icon_uri = _icon_b64_uri(node.kind)
+        if icon_uri:
             net.add_node(
                 node.node_id,
                 label=node.label,
                 title=node.tooltip or node.label,
                 shape="image",
-                image=f"file://{icon_path}",
+                image=icon_uri,
                 size=size + 8,
                 font={"size": 11, "face": "Arial"},
                 color=color,
