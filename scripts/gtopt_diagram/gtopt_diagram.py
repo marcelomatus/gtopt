@@ -341,8 +341,11 @@ def _icon_png_path(kind: str) -> Optional[str]:
     falls back to the generator-type specific icons (``_GEN_TYPE_ICON_SVG``).
     Returns *None* when *cairosvg* is not installed.
     """
-    # Determine the SVG source — prefer element icons, fall back to gen-type icons
+    # Determine the SVG source — prefer element icons, fall back to base kind,
+    # then gen-type icons
     svg_src = _ICON_SVG.get(kind)
+    if svg_src is None and "_" in kind:
+        svg_src = _ICON_SVG.get(kind.rsplit("_", 1)[0])
     if svg_src is None:
         gt = _PALETTE_TO_GEN_TYPE.get(kind)
         if gt:
@@ -370,8 +373,16 @@ def _icon_png_path(kind: str) -> Optional[str]:
 
 
 def _icon_b64_uri(kind: str) -> str:
-    """Return a base64 data URI for the best SVG icon for *kind*."""
+    """Return a base64 data URI for the best SVG icon for *kind*.
+
+    Falls back to the base kind (e.g. reservoir_sm -> reservoir)
+    and then to generator-type icons.
+    """
     svg = _ICON_SVG.get(kind)
+    # Fallback: strip intensity/variant suffix (e.g. reservoir_lg -> reservoir)
+    if svg is None and "_" in kind:
+        base = kind.rsplit("_", 1)[0]
+        svg = _ICON_SVG.get(base)
     if svg is None:
         gt = _PALETTE_TO_GEN_TYPE.get(kind)
         svg = _GEN_TYPE_ICON_SVG.get(gt, "") if gt else ""
