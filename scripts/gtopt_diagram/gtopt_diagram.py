@@ -1552,7 +1552,7 @@ class TopologyBuilder:
                         dst=jb,
                         label=lbl,
                         color=_PALETTE["waterway_edge"],
-                        weight=float(w["fmax"]) if w.get("fmax") else 1.0,
+                        weight=1.5,
                     )
                 )
 
