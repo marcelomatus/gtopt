@@ -724,12 +724,12 @@ def _log_comparison(
             note=f"gtopt incl. {g_batteries} battery aux gen (auto-created)",
         )
     if g_gen_profiles == p_pasada:
-        gp_note = f"= pasada count ({p_pasada}) {_check}"
+        gp_note = f"from {p_pasada} pasada centrals"
     elif g_gen_profiles == 0 and p_pasada > 0:
-        gp_note = f"pasada {_arrow} hydro topology (flows+turbines)"
+        gp_note = f"pasada {_arrow} flows+turbines (not profiles)"
     else:
         gp_note = ""
-    _row("generator profiles", p_pasada, g_gen_profiles, note=gp_note)
+    _row("generator profiles", None, g_gen_profiles, note=gp_note)
     _row(
         "demands",
         p_demands,

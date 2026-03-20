@@ -247,8 +247,8 @@ def test_log_comparison_output(capsys: pytest.CaptureFixture) -> None:
     # Check that the embalse → reservoir match note appears
     assert "embalse count" in output
 
-    # Check that pasada → generator profiles match note appears
-    assert "pasada count" in output
+    # Check that pasada → generator profiles note appears
+    assert "pasada" in output
 
 
 def test_log_comparison_gen_delta(capsys: pytest.CaptureFixture) -> None:
