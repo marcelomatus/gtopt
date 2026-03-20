@@ -424,8 +424,9 @@ _PALETTE: dict[str, str] = {
     "flow_border": "#0277BD",
     "filtration": "#E0E0E0",
     "filtration_border": "#616161",
-    "line_edge": "#2C3E50",
-    "waterway_edge": "#2980B9",
+    "line_edge": "#4CAF50",
+    "power_edge": "#66BB6A",
+    "waterway_edge": "#0277BD",
     "bat_link_edge": "#7D3C98",
     "efficiency_edge": "#A04000",
 }
@@ -468,7 +469,8 @@ _PALETTE_COLORBLIND: dict[str, str] = {
     "gen_profile_border": "#7B1FA2",
     "dem_profile": "#FCE4EC",
     "dem_profile_border": "#AD1457",
-    "line_edge": "#37474F",
+    "line_edge": "#4CAF50",
+    "power_edge": "#66BB6A",
     "waterway_edge": "#0277BD",
     "bat_link_edge": "#4A148C",
     "efficiency_edge": "#BF360C",
@@ -477,17 +479,18 @@ _PALETTE_COLORBLIND: dict[str, str] = {
 }
 
 # Voltage-based line coloring: maps voltage ranges to (color, width).
-# Higher voltages get darker colors and wider lines.
+# Higher voltages get warmer/darker colors and wider lines.
+# Scale: green (low kV) -> orange/brown (high kV). Never blue.
 _LINE_VOLTAGE_BANDS: list[tuple[float, str, float]] = [
     # (min_kv, color, width)
-    (500.0, "#1A237E", 4.0),  # 500+ kV: dark indigo, extra wide
-    (345.0, "#283593", 3.5),  # 345 kV: indigo
-    (220.0, "#1565C0", 3.0),  # 220 kV: dark blue
-    (154.0, "#1976D2", 2.5),  # 154 kV: blue
-    (110.0, "#1E88E5", 2.0),  # 110 kV: medium blue
-    (66.0, "#42A5F5", 1.5),  # 66 kV: light blue
-    (33.0, "#64B5F6", 1.2),  # 33 kV: pale blue
-    (0.0, "#90A4AE", 1.0),  # unknown/LV: gray, thin
+    (500.0, "#BF360C", 5.0),  # 500+ kV: dark orange-red, extra wide
+    (345.0, "#E65100", 4.5),  # 345 kV: deep orange
+    (220.0, "#F57F17", 4.0),  # 220 kV: amber
+    (154.0, "#F9A825", 3.5),  # 154 kV: yellow-amber
+    (110.0, "#9E9D24", 3.0),  # 110 kV: olive
+    (66.0, "#689F38", 2.5),  # 66 kV: light green
+    (33.0, "#7CB342", 2.0),  # 33 kV: green
+    (0.0, "#AED581", 1.5),  # unknown/LV: pale green
 ]
 
 
@@ -1765,7 +1768,7 @@ class TopologyBuilder:
                         tid,
                         gen_id,
                         label="power out",
-                        color=_PALETTE["gen_hydro_border"],
+                        color=_PALETTE["power_edge"],
                         style="dashed",
                     )
                 )
