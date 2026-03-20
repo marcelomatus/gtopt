@@ -1,16 +1,16 @@
 /**
  * @file      test_aperture_lp.hpp
  * @brief     Unit tests for aperture LP update process (FlowLP::
- *            update_aperture_bounds and aperture scenario file mechanism)
+ *            update_aperture_lp and aperture scenario file mechanism)
  * @date      2026-03-17
  * @copyright BSD-3-Clause
  *
  * Tests:
  *  1. Aperture struct construction, defaults, and is_active
  *  2. Aperture JSON parsing and round-trip
- *  3. FlowLP::update_aperture_bounds – bound updates per-block
- *  4. update_aperture_bounds – inactive flow returns true (no-op)
- *  5. update_aperture_bounds – missing scenario/stage returns true
+ *  3. FlowLP::update_aperture_lp – bound updates per-block
+ *  4. update_aperture_lp – inactive flow returns true (no-op)
+ *  5. update_aperture_lp – missing scenario/stage returns true
  *  6. OptionsLP::sddp_aperture_directory accessor
  *  7. End-to-end aperture LP update with multi-scenario hydro system
  *  8. Explicit aperture_array in SDDP planning
@@ -168,14 +168,14 @@ TEST_CASE("Aperture JSON parsing")  // NOLINT
   }
 }
 
-// ─── 3. FlowLP::update_aperture_bounds with multi-scenario system ───────────
+// ─── 3. FlowLP::update_aperture_lp with multi-scenario system ───────────
 
-TEST_CASE("FlowLP update_aperture_bounds updates bounds correctly")  // NOLINT
+TEST_CASE("FlowLP update_aperture_lp updates bounds correctly")  // NOLINT
 {
   // Build a hydro system with 2 scenarios and different discharge per scenario.
   // Scenario 1: discharge = 10 m³/s, Scenario 2: discharge = 30 m³/s.
   // After building the LP for scenario 1 (base), calling
-  // update_aperture_bounds with scenario 2 should change the flow column
+  // update_aperture_lp with scenario 2 should change the flow column
   // bounds to 30.
 
   const Array<Bus> bus_array = {
@@ -359,12 +359,12 @@ TEST_CASE("FlowLP update_aperture_bounds updates bounds correctly")  // NOLINT
     }
   }
 
-  SUBCASE("update_aperture_bounds changes bounds to aperture scenario values")
+  SUBCASE("update_aperture_lp changes bounds to aperture scenario values")
   {
     // Clone the LP and update bounds for scenario 2
     auto clone = li.clone();
 
-    const auto ok = flow_lp.update_aperture_bounds(
+    const auto ok = flow_lp.update_aperture_lp(
         clone, base_scenario, aperture_scenario, stage);
     CHECK(ok);
 
@@ -386,7 +386,7 @@ TEST_CASE("FlowLP update_aperture_bounds updates bounds correctly")  // NOLINT
     // return the new values.
     auto clone = li.clone();
 
-    const auto ok = flow_lp.update_aperture_bounds(
+    const auto ok = flow_lp.update_aperture_lp(
         clone, base_scenario, aperture_scenario, stage);
     REQUIRE(ok);
 
@@ -414,7 +414,7 @@ TEST_CASE("FlowLP update_aperture_bounds updates bounds correctly")  // NOLINT
   SUBCASE("cloned LP solves after aperture update")
   {
     auto clone = li.clone();
-    const auto ok = flow_lp.update_aperture_bounds(
+    const auto ok = flow_lp.update_aperture_lp(
         clone, base_scenario, aperture_scenario, stage);
     CHECK(ok);
 
@@ -429,7 +429,7 @@ TEST_CASE("FlowLP update_aperture_bounds updates bounds correctly")  // NOLINT
   {
     // FlowLP::add_to_lp creates columns with scale = 1.0 (default).
     // That means LP variable == physical value (m³/s).  Verify that the
-    // bounds set by update_aperture_bounds are the raw discharge values
+    // bounds set by update_aperture_lp are the raw discharge values
     // without any scaling factor applied.  This is important because other
     // LP components (e.g. ReservoirLP with vol_scale, BusLP with
     // scale_theta) DO apply scaling — FlowLP intentionally does not.
@@ -453,7 +453,7 @@ TEST_CASE("FlowLP update_aperture_bounds updates bounds correctly")  // NOLINT
 
     // After aperture update, bounds should be the raw aperture discharge
     auto clone = li.clone();
-    const auto ok = flow_lp.update_aperture_bounds(
+    const auto ok = flow_lp.update_aperture_lp(
         clone, base_scenario, aperture_scenario, stage);
     REQUIRE(ok);
 
@@ -483,7 +483,7 @@ TEST_CASE("FlowLP update_aperture_bounds updates bounds correctly")  // NOLINT
   SUBCASE("original LP bounds unchanged after aperture update on clone")
   {
     auto clone = li.clone();
-    [[maybe_unused]] const auto ok = flow_lp.update_aperture_bounds(
+    [[maybe_unused]] const auto ok = flow_lp.update_aperture_lp(
         clone, base_scenario, aperture_scenario, stage);
 
     // Original LP should still have scenario 1 bounds
@@ -699,7 +699,7 @@ TEST_CASE(
   SUBCASE("clone updated to normal scenario — bounds retrievable as 20")
   {
     auto clone = li.clone();
-    const auto ok = flow_lp.update_aperture_bounds(
+    const auto ok = flow_lp.update_aperture_lp(
         clone, base_scenario, normal_scenario, stage);
     REQUIRE(ok);
 
@@ -714,8 +714,8 @@ TEST_CASE(
   SUBCASE("clone updated to wet scenario — bounds retrievable as 50")
   {
     auto clone = li.clone();
-    const auto ok = flow_lp.update_aperture_bounds(
-        clone, base_scenario, wet_scenario, stage);
+    const auto ok =
+        flow_lp.update_aperture_lp(clone, base_scenario, wet_scenario, stage);
     REQUIRE(ok);
 
     const auto low = clone.get_col_low();
@@ -731,9 +731,9 @@ TEST_CASE(
     auto clone_normal = li.clone();
     auto clone_wet = li.clone();
 
-    const auto ok_normal = flow_lp.update_aperture_bounds(
+    const auto ok_normal = flow_lp.update_aperture_lp(
         clone_normal, base_scenario, normal_scenario, stage);
-    const auto ok_wet = flow_lp.update_aperture_bounds(
+    const auto ok_wet = flow_lp.update_aperture_lp(
         clone_wet, base_scenario, wet_scenario, stage);
     REQUIRE(ok_normal);
     REQUIRE(ok_wet);
@@ -763,9 +763,9 @@ TEST_CASE(
     auto clone_normal = li.clone();
     auto clone_wet = li.clone();
 
-    [[maybe_unused]] const auto ok1 = flow_lp.update_aperture_bounds(
+    [[maybe_unused]] const auto ok1 = flow_lp.update_aperture_lp(
         clone_normal, base_scenario, normal_scenario, stage);
-    [[maybe_unused]] const auto ok2 = flow_lp.update_aperture_bounds(
+    [[maybe_unused]] const auto ok2 = flow_lp.update_aperture_lp(
         clone_wet, base_scenario, wet_scenario, stage);
 
     auto res_normal = clone_normal.resolve();
@@ -781,8 +781,8 @@ TEST_CASE(
     // After solving the clone, re-read the bounds to verify they are still
     // the aperture values (the solver does not modify column bounds).
     auto clone = li.clone();
-    const auto ok = flow_lp.update_aperture_bounds(
-        clone, base_scenario, wet_scenario, stage);
+    const auto ok =
+        flow_lp.update_aperture_lp(clone, base_scenario, wet_scenario, stage);
     REQUIRE(ok);
 
     auto res = clone.resolve();
@@ -798,9 +798,9 @@ TEST_CASE(
   }
 }
 
-// ─── 4. update_aperture_bounds edge cases ───────────────────────────────────
+// ─── 4. update_aperture_lp edge cases ───────────────────────────────────
 
-TEST_CASE("FlowLP update_aperture_bounds with inactive flow")  // NOLINT
+TEST_CASE("FlowLP update_aperture_lp with inactive flow")  // NOLINT
 {
   // An inactive flow should return true immediately (no-op).
   const Array<Bus> bus_array = {
@@ -923,20 +923,19 @@ TEST_CASE("FlowLP update_aperture_bounds with inactive flow")  // NOLINT
 
   const auto& flow_lp = sys_lp.elements<FlowLP>()[0];
 
-  // update_aperture_bounds on inactive flow should return true (no-op)
+  // update_aperture_lp on inactive flow should return true (no-op)
   auto clone = li.clone();
-  const auto ok = flow_lp.update_aperture_bounds(
-      clone, base_scenario, base_scenario, stage);
+  const auto ok =
+      flow_lp.update_aperture_lp(clone, base_scenario, base_scenario, stage);
   CHECK(ok);
 }
 
-// ─── 5. update_aperture_bounds with non-matching scenario ───────────────────
+// ─── 5. update_aperture_lp with non-matching scenario ───────────────────
 
-TEST_CASE(
-    "FlowLP update_aperture_bounds with non-matching scenario key")  // NOLINT
+TEST_CASE("FlowLP update_aperture_lp with non-matching scenario key")  // NOLINT
 {
   // When the base_scenario UID doesn't match any registered flow_cols key,
-  // update_aperture_bounds should return true (no columns to update).
+  // update_aperture_lp should return true (no columns to update).
 
   const Array<Bus> bus_array = {
       {
@@ -1070,7 +1069,7 @@ TEST_CASE(
   auto clone = li.clone();
   // Should return true because no columns are registered for scenario 999
   const auto ok =
-      flow_lp.update_aperture_bounds(clone, fake_base, fake_aperture, stage);
+      flow_lp.update_aperture_lp(clone, fake_base, fake_aperture, stage);
   CHECK(ok);
 }
 
@@ -1267,7 +1266,7 @@ TEST_CASE("FlowLP aperture bound update affects LP objective value")  // NOLINT
 
   // Clone and update to high inflow scenario
   auto clone = li.clone();
-  const auto ok = flow_lp.update_aperture_bounds(
+  const auto ok = flow_lp.update_aperture_lp(
       clone, base_scenario, high_inflow_scenario, stage);
   CHECK(ok);
 
@@ -1587,7 +1586,7 @@ TEST_CASE("Aperture clone LP feasibility diagnostics")  // NOLINT
 {
   // Verify that aperture-updated clones are feasible by construction.
   // The LP is built with columns for ALL scenarios (each scenario has its own
-  // flow columns in the junction balance).  update_aperture_bounds only
+  // flow columns in the junction balance).  update_aperture_lp only
   // changes the base scenario's flow column bounds — the other scenario
   // columns are unchanged.  The clone must remain feasible after the update,
   // because:
@@ -1771,7 +1770,7 @@ TEST_CASE("Aperture clone LP feasibility diagnostics")  // NOLINT
   SUBCASE("clone remains feasible after update to normal scenario")
   {
     auto clone = li.clone();
-    const auto ok = flow_lp.update_aperture_bounds(clone, base, normal, stage);
+    const auto ok = flow_lp.update_aperture_lp(clone, base, normal, stage);
     REQUIRE(ok);
 
     auto res = clone.resolve();
@@ -1782,7 +1781,7 @@ TEST_CASE("Aperture clone LP feasibility diagnostics")  // NOLINT
   SUBCASE("clone remains feasible after update to wet scenario")
   {
     auto clone = li.clone();
-    const auto ok = flow_lp.update_aperture_bounds(clone, base, wet, stage);
+    const auto ok = flow_lp.update_aperture_lp(clone, base, wet, stage);
     REQUIRE(ok);
 
     auto res = clone.resolve();
@@ -1826,7 +1825,7 @@ TEST_CASE("Aperture clone LP feasibility diagnostics")  // NOLINT
     const auto& fcols_wet = flow_lp.flow_cols_at(wet, stage);
 
     // Update base scenario columns to wet discharge
-    const auto ok = flow_lp.update_aperture_bounds(clone, base, wet, stage);
+    const auto ok = flow_lp.update_aperture_lp(clone, base, wet, stage);
     REQUIRE(ok);
 
     // Base scenario columns should be updated to 150.0

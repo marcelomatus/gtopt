@@ -85,10 +85,10 @@ bool FlowLP::add_to_output(OutputContext& out) const
   return true;
 }
 
-bool FlowLP::update_aperture_bounds(LinearInterface& li,
-                                    const ScenarioLP& base_scenario,
-                                    const ScenarioLP& aperture_scenario,
-                                    const StageLP& stage) const
+bool FlowLP::update_aperture_lp(LinearInterface& li,
+                                const ScenarioLP& base_scenario,
+                                const ScenarioLP& aperture_scenario,
+                                const StageLP& stage) const
 {
   if (!is_active(stage)) {
     return true;

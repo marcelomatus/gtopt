@@ -50,7 +50,15 @@ class GeneratorProfileWriter(BaseWriter):
     def to_json_array(
         self, items: Optional[List[Dict[str, Any]]] = None
     ) -> List[Dict[str, Any]]:
-        """Convert central data to JSON array format."""
+        """Convert central data to JSON array format.
+
+        In hydro mode (``pasada_hydro=True``), pasada centrals are handled
+        by JunctionWriter as full hydro topology, so no profiles are created.
+        """
+        # In hydro mode, pasada centrals become flows+turbines, not profiles
+        if self.options and self.options.get("pasada_hydro", False):
+            return []
+
         if items is None:
             items = (
                 self.central_parser.centrals_of_type.get("pasada", [])

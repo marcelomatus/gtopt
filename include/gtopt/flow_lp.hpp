@@ -72,10 +72,10 @@ public:
    * @return true on success; false if no columns are registered for the
    *         (base_scenario, stage) pair (element inactive for that stage).
    */
-  [[nodiscard]] bool update_aperture_bounds(LinearInterface& li,
-                                            const ScenarioLP& base_scenario,
-                                            const ScenarioLP& aperture_scenario,
-                                            const StageLP& stage) const;
+  [[nodiscard]] bool update_aperture_lp(LinearInterface& li,
+                                        const ScenarioLP& base_scenario,
+                                        const ScenarioLP& aperture_scenario,
+                                        const StageLP& stage) const;
 
 private:
   STBRealSched discharge;

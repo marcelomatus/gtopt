@@ -301,6 +301,17 @@ plp2gtopt -i input/ --stages-phase '1:4,5,6,7,8,9,10,...'
 plp2gtopt -i input/ --stages-phase '1:12,13:24'
 ```
 
+### Pasada (run-of-river) hydro modeling (`--pasada-hydro`)
+
+By default (`--pasada-hydro`, enabled), PLP *pasada* (run-of-river) centrals
+are converted into the full gtopt hydro topology: a junction, waterway,
+turbine, and flow element for each central.  This preserves hydrological
+connectivity and allows the solver to model water balance constraints.
+
+Use `--no-pasada-hydro` to revert to the legacy behavior, where pasada
+centrals are modeled as generators with time-series profiles containing
+normalized capacity factors derived from the PLP afluent data.
+
 ### Block-to-hour map (`indhor.csv`)
 
 When the PLP input directory contains `indhor.csv`, `plp2gtopt` reads it and
@@ -397,6 +408,7 @@ Use `-l DEBUG` to also see which individual `.dat` files are being parsed.
 | `-p, --probability-factors P1[,P2,…]` | equal | Probability weights per scenario |
 | `--stages-phase SPEC` | (solver default) | Explicit phase layout; comma-separated stage indices/ranges with optional `...` wildcard |
 | `--solver TYPE` | `sddp` | Simulation structure: `sddp` (one phase/scene per stage/scenario) or `mono`/`monolithic` (single phase and scene) |
+| `--pasada-hydro / --no-pasada-hydro` | enabled | Model *pasada* (run-of-river) centrals as full hydro topology (junction, waterway, turbine, flow) instead of generator profiles. Use `--no-pasada-hydro` for legacy behavior with generator profiles using normalized capacity factors |
 | `-l, --log-level LEVEL` | `INFO` | Verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `-V, --version` | — | Print version and exit |
 

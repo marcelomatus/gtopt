@@ -906,6 +906,17 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     effective_ai_key = args.ai_key if args.ai_key is not None else ""
 
+    # ── Solver startup message ────────────────────────────────────────────────
+    available = detect_local_solvers()
+    config_source = str(config_path) if config_exists else "defaults"
+    if not args.quiet:
+        solvers_str = ", ".join(available) if available else "none"
+        print(
+            f"Solver: {effective_solver} "
+            f"(from {config_source})  "
+            f"[available: {solvers_str}]"
+        )
+
     # ── Resolve LP file ───────────────────────────────────────────────────────
     if args.last:
         lp_path = _find_latest_error_lp()
