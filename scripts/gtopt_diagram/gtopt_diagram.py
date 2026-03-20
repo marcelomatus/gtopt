@@ -2945,20 +2945,30 @@ def _legend_html(model: GraphModel) -> str:
     for kind, lbl in labels.items():
         if kind not in kinds:
             continue
-        colors = _PYVIS_COLORS.get(kind, {"background": "#F0F0F0", "border": "#555"})
-        bg = colors["background"]
-        bd = colors["border"]
-        shape_name = _PYVIS_SHAPE_MAP.get(kind, "dot")
-        svg_inner = _shape_svg.get(shape_name, _shape_svg["dot"])
-        svg = (
-            f'<svg width="16" height="16" viewBox="0 0 16 16"'
-            f' xmlns="http://www.w3.org/2000/svg">'
-            f'<g fill="{bg}" stroke="{bd}" stroke-width="1.5">'
-            f"{svg_inner}</g></svg>"
-        )
+        # Use the same icon as the graph nodes when available
+        icon_uri = _icon_b64_uri(kind)
+        if icon_uri:
+            icon_html = (
+                f'<img src="{icon_uri}" width="20" height="20"'
+                f' style="vertical-align:middle">'
+            )
+        else:
+            colors = _PYVIS_COLORS.get(
+                kind, {"background": "#F0F0F0", "border": "#555"}
+            )
+            bg = colors["background"]
+            bd = colors["border"]
+            shape_name = _PYVIS_SHAPE_MAP.get(kind, "dot")
+            svg_inner = _shape_svg.get(shape_name, _shape_svg["dot"])
+            icon_html = (
+                f'<svg width="16" height="16" viewBox="0 0 16 16"'
+                f' xmlns="http://www.w3.org/2000/svg">'
+                f'<g fill="{bg}" stroke="{bd}" stroke-width="1.5">'
+                f"{svg_inner}</g></svg>"
+            )
         entries.append(
             f'<div style="display:flex;align-items:center;gap:8px;margin:3px 0">'
-            f"{svg}<span>{lbl}</span></div>"
+            f"{icon_html}<span>{lbl}</span></div>"
         )
     return (
         '<div style="position:fixed;bottom:20px;right:20px;'
