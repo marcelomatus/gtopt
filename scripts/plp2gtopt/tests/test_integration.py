@@ -1559,9 +1559,9 @@ def _check_2y_global_indicators(
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
     base_dir = str(opts["output_dir"])
 
-    # Verify plp_central traceability exists
+    # Verify flow names exist
     flow_central_names = _extract_flow_central_names(data)
-    assert flow_central_names is not None, "flow_array should have plp_central fields"
+    assert flow_central_names is not None, "flow_array should have named flows"
     assert len(flow_central_names) > 0, (
         "At least one flow should reference a PLP central"
     )
@@ -1737,9 +1737,9 @@ def test_plp_case_2y_4h_partial_hydrology(tmp_path):
     scenarios = data["simulation"]["scenario_array"]
     assert len(scenarios) == 4, "Expected 4 scenarios for hydrologies 1,2,3,4"
 
-    # Verify plp_central traceability exists
+    # Verify flow names exist
     flow_central_names = _extract_flow_central_names(data)
-    assert flow_central_names is not None, "flow_array should have plp_central fields"
+    assert flow_central_names is not None, "flow_array should have named flows"
 
     # --- Compute matched indicators (all logic in plp2gtopt) ---
     base_dir = str(opts["output_dir"])

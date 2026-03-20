@@ -64,15 +64,7 @@ class _FlowRequired(TypedDict):
 
 
 class Flow(_FlowRequired, total=False):
-    """Represents a water discharge in the hydro system.
-
-    The optional ``plp_central`` field records the name of the PLP central
-    whose affluent data was used to populate this flow's discharge.  This
-    allows exact cross-referencing between gtopt flows and PLP affluents
-    when comparing indicators.
-    """
-
-    plp_central: str
+    """Represents a water discharge in the hydro system."""
 
 
 class _ReservoirRequired(TypedDict):
@@ -489,7 +481,6 @@ class JunctionWriter(BaseWriter):
             "name": central_name,
             "junction": central_id,
             "discharge": afluent,
-            "plp_central": central_name,
         }
         system["flow_array"].append(flow)
 

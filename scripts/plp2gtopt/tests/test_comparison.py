@@ -706,42 +706,29 @@ class TestExtractFlowCentralNames:
         planning: dict[str, Any] = {"system": {"flow_array": []}}
         assert _extract_flow_central_names(planning) is None
 
-    def test_flows_without_plp_central(self) -> None:
-        """Returns None when no flow has a plp_central field."""
+    def test_flows_with_names(self) -> None:
+        """Returns the set of flow names."""
         planning: dict[str, Any] = {
             "system": {
                 "flow_array": [
-                    {"name": "flow_1"},
-                    {"name": "flow_2"},
-                ],
-            },
-        }
-        assert _extract_flow_central_names(planning) is None
-
-    def test_flows_with_plp_central(self) -> None:
-        """Returns the set of plp_central names."""
-        planning: dict[str, Any] = {
-            "system": {
-                "flow_array": [
-                    {"name": "flow_1", "plp_central": "CenA"},
-                    {"name": "flow_2", "plp_central": "CenB"},
-                    {"name": "flow_3", "plp_central": "CenA"},  # duplicate
+                    {"name": "CenA"},
+                    {"name": "CenB"},
+                    {"name": "CenA"},  # duplicate
                 ],
             },
         }
         result = _extract_flow_central_names(planning)
         assert result == {"CenA", "CenB"}
 
-    def test_mixed_plp_central_fields(self) -> None:
-        """Flows with empty/missing plp_central are skipped."""
+    def test_flows_with_empty_names_skipped(self) -> None:
+        """Flows with empty/missing names are skipped."""
         planning: dict[str, Any] = {
             "system": {
                 "flow_array": [
-                    {"name": "f1", "plp_central": "A"},
-                    {"name": "f2", "plp_central": ""},
-                    {"name": "f3"},
-                    {"name": "f4", "plp_central": None},
-                    {"name": "f5", "plp_central": "B"},
+                    {"name": "A"},
+                    {"name": ""},
+                    {"uid": 3},
+                    {"name": "B"},
                 ],
             },
         }
