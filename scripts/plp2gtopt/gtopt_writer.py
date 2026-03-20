@@ -594,7 +594,6 @@ class GTOptWriter:
                     "uid": central_id,
                     "name": central_name,
                     "discharge": afluent,
-                    "plp_central": central_name,
                 }
             )
 

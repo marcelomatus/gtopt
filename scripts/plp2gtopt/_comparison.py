@@ -490,25 +490,20 @@ def _delta_str(
 
 
 def _extract_flow_central_names(planning: dict[str, Any]) -> set[str] | None:
-    """Extract the set of PLP central names from gtopt ``flow_array``.
+    """Extract the set of flow names from gtopt ``flow_array``.
 
-    Each flow created by :class:`JunctionWriter` stores the original PLP
-    central name in the ``plp_central`` field.  This function is used by
-    integration tests to verify that ``plp_central`` traceability is
-    present on every flow.
+    In plp2gtopt output the flow name equals the PLP central name.
 
-    Returns ``None`` when no ``plp_central`` field is found (e.g. hand-
-    written JSON that predates the field).
+    Returns ``None`` when ``flow_array`` is empty.
     """
     flows = planning.get("system", {}).get("flow_array", [])
     if not flows:
         return None
     names: set[str] = set()
     for fl in flows:
-        pc = fl.get("plp_central")
-        if isinstance(pc, str) and pc:
-            names.add(pc)
-    # Only return the set if at least one flow had plp_central
+        name = fl.get("name")
+        if isinstance(name, str) and name:
+            names.add(name)
     return names if names else None
 
 
