@@ -1616,38 +1616,55 @@ class TopologyBuilder:
                     tooltip=f"Turbine uid={t.get('uid')} cap={cap}",
                 )
             )
-            way = _resolve(self.sys.get("waterway_array", []), t.get("waterway"))
-            if way:
-                ja = self._find_node_id(
-                    "junction_array", way.get("junction_a"), self._jid
-                )
-                jb = self._find_node_id(
-                    "junction_array", way.get("junction_b"), self._jid
-                )
-                way_name = _elem_name(way)
-                fmax = _scalar(way.get("fmax"))
-                lbl_w = (
-                    str(way_name) if self.opts.compact else f"{way_name}\n≤{fmax} m³/s"
-                )
-                if ja:
+            # Connect turbine to water source: waterway OR flow
+            flow_ref = t.get("flow")
+            way_ref = t.get("waterway")
+            if flow_ref:
+                # Flow-turbine mode: direct flow → turbine edge
+                flow_id = self._find_node_id("flow_array", flow_ref, self._fid)
+                if flow_id:
                     self.model.add_edge(
                         Edge(
-                            ja,
+                            flow_id,
                             tid,
-                            label=lbl_w,
+                            label="discharge",
                             color=_PALETTE["waterway_edge"],
+                            weight=0.3,
                         )
                     )
-                if jb:
-                    # Water-out edge carries no label: the waterway name
-                    # is already shown on the water-in edge above.
-                    self.model.add_edge(
-                        Edge(
-                            tid,
-                            jb,
-                            color=_PALETTE["waterway_edge"],
-                        )
+            elif way_ref:
+                way = _resolve(self.sys.get("waterway_array", []), way_ref)
+                if way:
+                    ja = self._find_node_id(
+                        "junction_array", way.get("junction_a"), self._jid
                     )
+                    jb = self._find_node_id(
+                        "junction_array", way.get("junction_b"), self._jid
+                    )
+                    way_name = _elem_name(way)
+                    fmax = _scalar(way.get("fmax"))
+                    lbl_w = (
+                        str(way_name)
+                        if self.opts.compact
+                        else f"{way_name}\n\u2264{fmax} m\u00b3/s"
+                    )
+                    if ja:
+                        self.model.add_edge(
+                            Edge(
+                                ja,
+                                tid,
+                                label=lbl_w,
+                                color=_PALETTE["waterway_edge"],
+                            )
+                        )
+                    if jb:
+                        self.model.add_edge(
+                            Edge(
+                                tid,
+                                jb,
+                                color=_PALETTE["waterway_edge"],
+                            )
+                        )
             gen_ref = t.get("generator")
             gen = _resolve(self.sys.get("generator_array", []), gen_ref)
             if gen is None:
