@@ -3111,7 +3111,7 @@ def render_html(model: GraphModel, output_path: str) -> str:
             color={"color": c, "opacity": 0.80},
             dashes=dashes,
             arrows="to" if e.directed else "",
-            width=max(1.0, min(4.0, 1.0 + e.weight / 100)) if not dashes else 1.0,
+            width=max(1.0, min(8.0, e.weight)) if not dashes else 1.5,
         )
 
     net.save_graph(output_path)
