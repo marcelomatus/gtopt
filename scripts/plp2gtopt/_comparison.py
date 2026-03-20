@@ -89,8 +89,12 @@ def _plp_element_counts(parser: PLPParser) -> dict[str, Any]:
             name = flow.get("name", "")
             if central_parser:
                 cdata = central_parser.get_central_by_name(name)
-                if cdata and cdata.get("type", "") in hydro_types:
-                    hydro_affluent_names.append(name)
+                if not cdata or cdata.get("type", "") not in hydro_types:
+                    continue
+                # Skip isolated pasada (bus<=0, no electrical output)
+                if cdata.get("type") == "pasada" and cdata.get("bus", 0) <= 0:
+                    continue
+                hydro_affluent_names.append(name)
             else:
                 hydro_affluent_names.append(name)
         counts["affluents"] = len(hydro_affluent_names)
@@ -315,8 +319,13 @@ def _plp_indicators(
         for flow in aflce_parser.flows:
             # Skip flows that have no central definition in plpcnfce.dat
             flow_name = flow.get("name", "")
-            if central_parser and central_parser.get_central_by_name(flow_name) is None:
-                continue
+            if central_parser:
+                cdata = central_parser.get_central_by_name(flow_name)
+                if cdata is None:
+                    continue
+                # Skip isolated pasada centrals (bus<=0, no electrical output)
+                if cdata.get("type") == "pasada" and cdata.get("bus", 0) <= 0:
+                    continue
             flow_data = flow.get("flow")  # numpy array (num_blocks, num_hydro)
             block_arr = flow.get("block")  # numpy array of block numbers
             if flow_data is None or block_arr is None or len(block_arr) == 0:
