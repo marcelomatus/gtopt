@@ -1386,10 +1386,12 @@ class TopologyBuilder:
     def _batteries(self):
         for bat in self.sys.get("battery_array", []):
             name = _elem_name(bat)
-            emax = _scalar(bat.get("emax") or bat.get("capacity"))
-            ein = bat.get("input_efficiency", "")
-            eout = bat.get("output_efficiency", "")
-            eff = f"\nη={ein}/{eout}" if ein else ""
+            emax = self._resolve_field("Battery", bat, "emax", fallback=None)
+            if emax is None:
+                emax = self._resolve_field("Battery", bat, "capacity", fallback="—")
+            ein = self._resolve_field("Battery", bat, "input_efficiency", fallback="")
+            eout = self._resolve_field("Battery", bat, "output_efficiency", fallback="")
+            eff = f"\n\u03b7={ein}/{eout}" if ein else ""
             lbl = f"{name}" if self.opts.compact else f"{name}\n{emax} MWh{eff}"
             self.model.add_node(
                 Node(
@@ -1530,7 +1532,7 @@ class TopologyBuilder:
     def _waterways(self):
         for w in self.sys.get("waterway_array", []):
             name = _elem_name(w)
-            fmax = _scalar(w.get("fmax"))
+            fmax = self._resolve_field("Waterway", w, "fmax")
             uid = w.get("uid")
             # Skip direct arc when a turbine already represents this waterway
             if uid in self._turb_way_refs or name in self._turb_way_refs:
@@ -1561,8 +1563,10 @@ class TopologyBuilder:
         for r in self.sys.get("reservoir_array", []):
             name = _elem_name(r)
             emax_val = _gen_pmax({"pmax": r.get("emax") or r.get("capacity")})
-            emax = _scalar(r.get("emax") or r.get("capacity"))
-            lbl = str(name) if self.opts.compact else f"{name}\n{emax} dam³"
+            emax = self._resolve_field("Reservoir", r, "emax", fallback=None)
+            if emax is None:
+                emax = self._resolve_field("Reservoir", r, "capacity", fallback="—")
+            lbl = str(name) if self.opts.compact else f"{name}\n{emax} dam\u00b3"
             # Relative size: 0.0 (smallest) to 1.0 (largest)
             rel = emax_val / max_emax if max_emax > 0 else 0.5
             node_size = 20.0 + 30.0 * rel
@@ -1590,8 +1594,8 @@ class TopologyBuilder:
     def _turbines(self):
         for t in self.sys.get("turbine_array", []):
             name = _elem_name(t)
-            cap = _scalar(t.get("capacity"))
-            cr = _scalar(t.get("conversion_rate"))
+            cap = self._resolve_field("Turbine", t, "capacity")
+            cr = self._resolve_field("Turbine", t, "conversion_rate")
             tid = self._tid(t)
             lbl = (
                 str(name)
@@ -1648,7 +1652,16 @@ class TopologyBuilder:
                     gen = _resolve(self.sys.get("generator_array", []), gen_ref)
                     if gen:
                         gname = _elem_name(gen)
-                        pmax = _scalar(gen.get("pmax") or gen.get("capacity"))
+                        cap = self._resolve_field(
+                            "Generator", gen, "capacity", fallback=None
+                        )
+                        pmax = (
+                            cap
+                            if cap is not None
+                            else self._resolve_field(
+                                "Generator", gen, "pmax", fallback="—"
+                            )
+                        )
                         gtype = gen.get("type", "hydro")
                         glbl = (
                             str(gname)
@@ -1725,10 +1738,10 @@ class TopologyBuilder:
     def _flows(self):
         for f in self.sys.get("flow_array", []):
             name = _elem_name(f)
-            disc = _scalar(f.get("discharge"))
+            disc = self._resolve_field("Flow", f, "discharge")
             direction = f.get("direction", 1)
             fid = self._fid(f)
-            lbl = str(name) if self.opts.compact else f"{name}\n{disc} m³/s"
+            lbl = str(name) if self.opts.compact else f"{name}\n{disc} m\u00b3/s"
             self.model.add_node(
                 Node(
                     node_id=fid,
