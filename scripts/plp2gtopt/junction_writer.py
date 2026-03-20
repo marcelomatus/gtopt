@@ -317,6 +317,9 @@ class JunctionWriter(BaseWriter):
             "reservoir_efficiency_array": [],
         }
 
+        # Track isolated centrals that were skipped
+        self._skipped_isolated: list[str] = []
+
         # Build set of junction numbers referenced as downstream targets by
         # other centrals.  A central with ser_hid=0/ser_ver=0 that IS referenced
         # by others acts as a drain/sink junction and must NOT be skipped.
@@ -392,6 +395,7 @@ class JunctionWriter(BaseWriter):
                 and central.get("ser_ver", 0) == 0
                 and central_id not in self._referenced_junctions
             ):
+                self._skipped_isolated.append(central_name)
                 _logger.debug(
                     "Skipping isolated %s central '%s' (bus<=0, no waterways,"
                     " not referenced by others)",
