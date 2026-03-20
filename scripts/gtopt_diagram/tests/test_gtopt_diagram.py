@@ -1662,3 +1662,273 @@ class TestColonSafetyInLabels:
     def test_no_duplicate_node_ids(self):
         model = _build_model(self._PLANNING)
         _assert_no_duplicate_node_ids(model)
+
+
+# ---------------------------------------------------------------------------
+# Reserve zone and reserve provision rendering
+# ---------------------------------------------------------------------------
+
+_RESERVE_PLANNING = {
+    "system": {
+        "name": "reserve_test",
+        "bus_array": [{"uid": 1, "name": "B1"}],
+        "generator_array": [
+            {"uid": 1, "name": "G1", "bus": 1, "pmax": 100},
+            {"uid": 2, "name": "G2", "bus": 1, "pmax": 200},
+        ],
+        "demand_array": [],
+        "line_array": [],
+        # A dummy junction keeps subsystem="full" (otherwise auto-switches to
+        # "electrical" when no hydro elements exist, which skips reserve zones).
+        "junction_array": [{"uid": 1, "name": "J_dummy"}],
+        "reserve_zone_array": [
+            {"uid": 1, "name": "RZ_Norte"},
+            {"uid": 2, "name": "RZ_Sur"},
+        ],
+        "reserve_provision_array": [
+            {"uid": 1, "generator": 1, "reserve_zones": "RZ_Norte:RZ_Sur"},
+            {"uid": 2, "generator": 2, "reserve_zones": "RZ_Norte"},
+        ],
+    }
+}
+
+
+class TestReserveZoneRendering:
+    """Verify reserve zone nodes and reserve provision edges."""
+
+    def _build(self):
+        fo = gd.FilterOptions(aggregate="none")
+        builder = gd.TopologyBuilder(_RESERVE_PLANNING, subsystem="full", opts=fo)
+        return builder.build()
+
+    def test_reserve_zone_nodes_exist(self):
+        """Each reserve_zone_array entry produces a node with kind='reserve_zone'."""
+        model = self._build()
+        rz_nodes = [n for n in model.nodes if n.kind == "reserve_zone"]
+        assert len(rz_nodes) == 2
+
+    def test_reserve_zone_node_ids(self):
+        """Reserve zone node IDs use the rzone_ prefix."""
+        model = self._build()
+        rz_ids = {n.node_id for n in model.nodes if n.kind == "reserve_zone"}
+        assert "rzone_RZ_Norte_1" in rz_ids
+        assert "rzone_RZ_Sur_2" in rz_ids
+
+    def test_reserve_zone_label_contains_name(self):
+        """Reserve zone labels include the zone name."""
+        model = self._build()
+        rz_nodes = [n for n in model.nodes if n.kind == "reserve_zone"]
+        labels = {n.label for n in rz_nodes}
+        assert any("RZ_Norte" in lbl for lbl in labels)
+        assert any("RZ_Sur" in lbl for lbl in labels)
+
+    def test_reserve_provision_edges_gen1_to_both_zones(self):
+        """Generator 1 has reserve provision to zones 1 and 2 (colon-separated)."""
+        model = self._build()
+        pairs = {(e.src, e.dst) for e in model.edges}
+        assert ("gen_G1_1", "rzone_RZ_Norte_1") in pairs
+        assert ("gen_G1_1", "rzone_RZ_Sur_2") in pairs
+
+    def test_reserve_provision_edges_gen2_to_zone1(self):
+        """Generator 2 has reserve provision to zone 1 only."""
+        model = self._build()
+        pairs = {(e.src, e.dst) for e in model.edges}
+        assert ("gen_G2_2", "rzone_RZ_Norte_1") in pairs
+
+    def test_reserve_provision_edge_style(self):
+        """Reserve provision edges use dotted style."""
+        model = self._build()
+        rp_edges = [e for e in model.edges if e.label == "reserve"]
+        assert rp_edges
+        for e in rp_edges:
+            assert e.style == "dotted"
+
+    def test_no_dangling_edges(self):
+        model = self._build()
+        _assert_no_dangling_edges(model)
+
+    def test_no_duplicate_node_ids(self):
+        model = self._build()
+        _assert_no_duplicate_node_ids(model)
+
+
+_RESERVE_LIST_PLANNING = {
+    "system": {
+        "name": "reserve_list_test",
+        "bus_array": [{"uid": 1, "name": "B1"}],
+        "generator_array": [
+            {"uid": 1, "name": "G1", "bus": 1, "pmax": 100},
+        ],
+        "demand_array": [],
+        "line_array": [],
+        "junction_array": [{"uid": 1, "name": "J_dummy"}],
+        "reserve_zone_array": [
+            {"uid": 1, "name": "RZ1"},
+        ],
+        "reserve_provision_array": [
+            {"uid": 1, "generator": 1, "reserve_zones": ["RZ1"]},
+        ],
+    }
+}
+
+
+class TestReserveZoneListFormat:
+    """Verify reserve_zones as list (not just colon-separated string)."""
+
+    def test_list_format_creates_edge(self):
+        """reserve_zones given as a list [1] produces an edge."""
+        fo = gd.FilterOptions(aggregate="none")
+        builder = gd.TopologyBuilder(
+            _RESERVE_LIST_PLANNING, subsystem="full", opts=fo
+        )
+        model = builder.build()
+        pairs = {(e.src, e.dst) for e in model.edges}
+        assert ("gen_G1_1", "rzone_RZ1_1") in pairs
+
+
+# ---------------------------------------------------------------------------
+# Generator profile and demand profile rendering
+# ---------------------------------------------------------------------------
+
+_PROFILE_PLANNING = {
+    "system": {
+        "name": "profile_test",
+        "bus_array": [{"uid": 1, "name": "B1"}],
+        "generator_array": [
+            {"uid": 1, "name": "G1", "bus": 1, "pmax": 100},
+        ],
+        "demand_array": [
+            {"uid": 1, "name": "D1", "bus": 1, "lmax": 80},
+        ],
+        "line_array": [],
+        "generator_profile_array": [
+            {"uid": 1, "name": "GP1", "generator": 1, "profile": "solar_profile.csv"},
+        ],
+        "demand_profile_array": [
+            {"uid": 1, "name": "DP1", "demand": 1, "profile": "load_curve.csv"},
+        ],
+    }
+}
+
+
+class TestGeneratorProfileRendering:
+    """Verify generator profile nodes and edges."""
+
+    def _build(self):
+        fo = gd.FilterOptions(aggregate="none")
+        builder = gd.TopologyBuilder(_PROFILE_PLANNING, subsystem="electrical", opts=fo)
+        return builder.build()
+
+    def test_gen_profile_node_exists(self):
+        """Generator profile produces a node with kind='gen_profile'."""
+        model = self._build()
+        gp_nodes = [n for n in model.nodes if n.kind == "gen_profile"]
+        assert len(gp_nodes) == 1
+
+    def test_gen_profile_node_id(self):
+        """Generator profile node ID uses the gprof_ prefix."""
+        model = self._build()
+        gp_nodes = [n for n in model.nodes if n.kind == "gen_profile"]
+        assert gp_nodes[0].node_id == "gprof_GP1_1"
+
+    def test_gen_profile_edge_to_generator(self):
+        """Generator profile node connects to its generator via dotted edge."""
+        model = self._build()
+        pairs = {(e.src, e.dst) for e in model.edges}
+        assert ("gprof_GP1_1", "gen_G1_1") in pairs
+
+    def test_gen_profile_edge_style_dotted(self):
+        """Profile-to-generator edge uses dotted style."""
+        model = self._build()
+        profile_edges = [
+            e for e in model.edges if e.src == "gprof_GP1_1" and e.dst == "gen_G1_1"
+        ]
+        assert profile_edges
+        assert profile_edges[0].style == "dotted"
+
+    def test_gen_profile_edge_label(self):
+        """Profile-to-generator edge has label 'profile'."""
+        model = self._build()
+        profile_edges = [
+            e for e in model.edges if e.src == "gprof_GP1_1" and e.dst == "gen_G1_1"
+        ]
+        assert profile_edges[0].label == "profile"
+
+    def test_no_dangling_edges(self):
+        model = self._build()
+        _assert_no_dangling_edges(model)
+
+
+class TestDemandProfileRendering:
+    """Verify demand profile nodes and edges."""
+
+    def _build(self):
+        fo = gd.FilterOptions(aggregate="none")
+        builder = gd.TopologyBuilder(_PROFILE_PLANNING, subsystem="electrical", opts=fo)
+        return builder.build()
+
+    def test_dem_profile_node_exists(self):
+        """Demand profile produces a node with kind='dem_profile'."""
+        model = self._build()
+        dp_nodes = [n for n in model.nodes if n.kind == "dem_profile"]
+        assert len(dp_nodes) == 1
+
+    def test_dem_profile_node_id(self):
+        """Demand profile node ID uses the dprof_ prefix."""
+        model = self._build()
+        dp_nodes = [n for n in model.nodes if n.kind == "dem_profile"]
+        assert dp_nodes[0].node_id == "dprof_DP1_1"
+
+    def test_dem_profile_edge_to_demand(self):
+        """Demand profile node connects to its demand via dotted edge."""
+        model = self._build()
+        pairs = {(e.src, e.dst) for e in model.edges}
+        assert ("dprof_DP1_1", "dem_D1_1") in pairs
+
+    def test_dem_profile_edge_style_dotted(self):
+        """Profile-to-demand edge uses dotted style."""
+        model = self._build()
+        profile_edges = [
+            e for e in model.edges if e.src == "dprof_DP1_1" and e.dst == "dem_D1_1"
+        ]
+        assert profile_edges
+        assert profile_edges[0].style == "dotted"
+
+    def test_dem_profile_edge_label(self):
+        """Profile-to-demand edge has label 'profile'."""
+        model = self._build()
+        profile_edges = [
+            e for e in model.edges if e.src == "dprof_DP1_1" and e.dst == "dem_D1_1"
+        ]
+        assert profile_edges[0].label == "profile"
+
+    def test_no_dangling_edges(self):
+        model = self._build()
+        _assert_no_dangling_edges(model)
+
+    def test_no_duplicate_node_ids(self):
+        model = self._build()
+        _assert_no_duplicate_node_ids(model)
+
+
+class TestProfileCompactMode:
+    """Verify profile labels in compact mode are shorter."""
+
+    def test_compact_gen_profile_label(self):
+        """In compact mode, gen profile label is just the name."""
+        fo = gd.FilterOptions(aggregate="none", compact=True)
+        builder = gd.TopologyBuilder(_PROFILE_PLANNING, subsystem="electrical", opts=fo)
+        model = builder.build()
+        gp_nodes = [n for n in model.nodes if n.kind == "gen_profile"]
+        assert gp_nodes
+        # Compact label should be just the name, not prefixed with [GenProfile]
+        assert "[GenProfile]" not in gp_nodes[0].label
+
+    def test_compact_dem_profile_label(self):
+        """In compact mode, demand profile label is just the name."""
+        fo = gd.FilterOptions(aggregate="none", compact=True)
+        builder = gd.TopologyBuilder(_PROFILE_PLANNING, subsystem="electrical", opts=fo)
+        model = builder.build()
+        dp_nodes = [n for n in model.nodes if n.kind == "dem_profile"]
+        assert dp_nodes
+        assert "[DemProfile]" not in dp_nodes[0].label

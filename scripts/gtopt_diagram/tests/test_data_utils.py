@@ -6,6 +6,7 @@ Covers:
 - ``auto_voltage_threshold`` -- automatic threshold selection.
 - ``resolve_bus_ref`` -- bus reference translation through the voltage map.
 - ``VOLTAGE_BFS_MAX_DEPTH`` constant.
+- ``_line_color_width`` -- voltage-based line coloring and width.
 """
 
 from gtopt_diagram._data_utils import (
@@ -14,6 +15,11 @@ from gtopt_diagram._data_utils import (
     build_voltage_map,
     count_visible_buses,
     resolve_bus_ref,
+)
+from gtopt_diagram.gtopt_diagram import (
+    _line_color_width,
+    _LINE_VOLTAGE_BANDS,
+    _PALETTE,
 )
 
 
@@ -248,3 +254,85 @@ class TestConstants:
 
     def test_bfs_max_depth(self):
         assert VOLTAGE_BFS_MAX_DEPTH == 20
+
+
+# ---------------------------------------------------------------------------
+# _line_color_width -- voltage-based line coloring
+# ---------------------------------------------------------------------------
+
+
+class TestLineColorWidth:
+    """Verify _line_color_width returns correct (color, width) tuples
+    based on voltage level bands."""
+
+    def test_500kv_returns_darkest_and_widest(self):
+        """500+ kV lines use the first (darkest, widest) band."""
+        color, width = _line_color_width(500.0)
+        assert color == "#1A237E"
+        assert width == 4.0
+
+    def test_above_500kv(self):
+        """Voltage above 500 kV still matches the 500+ kV band."""
+        color, width = _line_color_width(765.0)
+        assert color == "#1A237E"
+        assert width == 4.0
+
+    def test_220kv_returns_medium(self):
+        """220 kV line uses the 220 kV band (dark blue, width 3.0)."""
+        color, width = _line_color_width(220.0)
+        assert color == "#1565C0"
+        assert width == 3.0
+
+    def test_345kv_band(self):
+        """345 kV line uses the 345 kV band."""
+        color, width = _line_color_width(345.0)
+        assert color == "#283593"
+        assert width == 3.5
+
+    def test_110kv_band(self):
+        """110 kV line uses the 110 kV band."""
+        color, width = _line_color_width(110.0)
+        assert color == "#1E88E5"
+        assert width == 2.0
+
+    def test_66kv_band(self):
+        """66 kV line uses the 66 kV band."""
+        color, width = _line_color_width(66.0)
+        assert color == "#42A5F5"
+        assert width == 1.5
+
+    def test_33kv_band(self):
+        """33 kV line uses the 33 kV band."""
+        color, width = _line_color_width(33.0)
+        assert color == "#64B5F6"
+        assert width == 1.2
+
+    def test_0kv_returns_lowest_band(self):
+        """0 kV matches the (0.0, ...) band -- gray, thin."""
+        color, width = _line_color_width(0.0)
+        assert color == "#90A4AE"
+        assert width == 1.0
+
+    def test_negative_kv_returns_default(self):
+        """Negative kV does not match any band; returns palette default."""
+        color, width = _line_color_width(-10.0)
+        assert color == _PALETTE["line_edge"]
+        assert width == 1.0
+
+    def test_between_bands(self):
+        """A voltage between bands picks the lower matching band."""
+        # 150 kV is >= 110 but < 154, so it should match the 110 kV band
+        color, width = _line_color_width(150.0)
+        assert color == "#1E88E5"
+        assert width == 2.0
+
+    def test_all_band_boundaries(self):
+        """Each band boundary returns its own band."""
+        for min_kv, expected_color, expected_width in _LINE_VOLTAGE_BANDS:
+            color, width = _line_color_width(min_kv)
+            assert color == expected_color, (
+                f"kv={min_kv}: expected color {expected_color}, got {color}"
+            )
+            assert width == expected_width, (
+                f"kv={min_kv}: expected width {expected_width}, got {width}"
+            )
