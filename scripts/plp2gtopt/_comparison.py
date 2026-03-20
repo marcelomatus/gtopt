@@ -714,21 +714,21 @@ def _log_comparison(
             "",
             note=f"gtopt incl. {g_batteries} battery aux gen (auto-created)",
         )
+    if g_gen_profiles == p_pasada:
+        gp_note = f"= pasada count ({p_pasada}) {_check}"
+    elif g_gen_profiles == 0 and p_pasada > 0:
+        gp_note = f"pasada {_arrow} hydro topology (flows+turbines)"
+    else:
+        gp_note = ""
+    _row("generator profiles", p_pasada, g_gen_profiles, note=gp_note)
     _row(
-        "generator profiles",
-        p_pasada,
-        g_gen_profiles,
-        note=(
-            f"= pasada count ({p_pasada}) {_check}"
-            if g_gen_profiles == p_pasada
-            else ""
-        ),
+        "demands",
+        p_demands,
+        g_demands,
+        note=f"PLP plpdem.dat; gtopt from falla (bus>0)",
     )
-    _approx = "\u2248" if colr else "~"
-    _row("demands", p_demands, g_demands, note=f"{_approx} PLP falla (unserved energy)")
-    dem_delta = g_demands - p_demands
-    if dem_delta != 0:
-        _row("", note=f"delta {dem_delta:+d} demands with bus=0 or empty excluded")
+    if g_demands != p_falla and p_falla > 0:
+        _row("", note=f"falla with bus>0: {g_demands} of {p_falla}")
 
     # separator row
     table.add_row("", "", "", "", "")
