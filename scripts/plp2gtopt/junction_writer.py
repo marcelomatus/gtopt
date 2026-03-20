@@ -317,6 +317,18 @@ class JunctionWriter(BaseWriter):
             "reservoir_efficiency_array": [],
         }
 
+        # Build set of junction numbers referenced as downstream targets by
+        # other centrals.  A central with ser_hid=0/ser_ver=0 that IS referenced
+        # by others acts as a drain/sink junction and must NOT be skipped.
+        self._referenced_junctions: set[int] = set()
+        for c in items:
+            hid = c.get("ser_hid", 0)
+            ver = c.get("ser_ver", 0)
+            if hid > 0:
+                self._referenced_junctions.add(hid)
+            if ver > 0:
+                self._referenced_junctions.add(ver)
+
         # Process central plants
         for central in items:
             self._process_central(central, system, central_parser)
@@ -368,18 +380,21 @@ class JunctionWriter(BaseWriter):
         central_name = central["name"]
         central_type = central.get("type", "serie")
 
-        # Skip isolated serie/pasada centrals: bus<=0 with no real waterway
-        # connections (ser_hid=0 AND ser_ver=0).  These would produce only
-        # a junction + ocean drain with no turbine, no generator, and no
-        # connection to any other hydro element.
+        # Skip truly isolated serie/pasada centrals: bus<=0, no outgoing
+        # waterways (ser_hid=0 AND ser_ver=0), AND not referenced as a
+        # downstream target by any other central.  Centrals that ARE
+        # referenced act as drain/sink junctions receiving water from
+        # upstream and must be kept.
         if central_type in ("serie", "pasada"):
             if (
                 central.get("bus", 0) <= 0
                 and central.get("ser_hid", 0) == 0
                 and central.get("ser_ver", 0) == 0
+                and central_id not in self._referenced_junctions
             ):
                 _logger.debug(
-                    "Skipping isolated %s central '%s' (bus<=0, no waterways)",
+                    "Skipping isolated %s central '%s' (bus<=0, no waterways,"
+                    " not referenced by others)",
                     central_type,
                     central_name,
                 )
