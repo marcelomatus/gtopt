@@ -121,15 +121,17 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
               "Generator");
   }
 
-  // Flow.junction -> Junction
+  // Flow.junction -> Junction (optional in flow-turbine mode)
   for (const auto& flow : sys.flow_array) {
-    check_ref(result,
-              flow.junction,
-              sys.junction_array,
-              "Flow",
-              flow.name,
-              "junction",
-              "Junction");
+    if (flow.junction.has_value()) {
+      check_ref(result,
+                flow.junction.value(),
+                sys.junction_array,
+                "Flow",
+                flow.name,
+                "junction",
+                "Junction");
+    }
   }
 
   // Waterway.junction_a, junction_b -> Junction

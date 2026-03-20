@@ -35,9 +35,14 @@ public:
     return self.object();
   }
 
-  [[nodiscard]] constexpr auto junction_sid() const noexcept
+  [[nodiscard]] bool has_junction() const noexcept
   {
-    return JunctionLPSId {flow().junction};
+    return flow().junction.has_value();
+  }
+
+  [[nodiscard]] auto junction_sid() const
+  {
+    return JunctionLPSId {flow().junction.value()};
   }
 
   [[nodiscard]] constexpr bool is_input() const noexcept
