@@ -56,7 +56,7 @@ TEST_CASE("Turbine construction and default values")
   CHECK(turbine.name == Name {});
   CHECK_FALSE(turbine.active.has_value());
 
-  CHECK(turbine.waterway == SingleId {unknown_uid});
+  CHECK_FALSE(turbine.waterway.has_value());
   CHECK(turbine.generator == SingleId {unknown_uid});
 
   CHECK_FALSE(turbine.drain.has_value());
@@ -83,7 +83,7 @@ TEST_CASE("Turbine attribute assignment")
   CHECK(turbine.name == "TestTurbine");
   CHECK(std::get<IntBool>(turbine.active.value()) == 1);
 
-  CHECK(std::get<Uid>(turbine.waterway) == Uid {1001});
+  CHECK(std::get<Uid>(turbine.waterway.value()) == Uid {1001});
   CHECK(std::get<Uid>(turbine.generator) == Uid {2001});
 
   REQUIRE(turbine.drain.has_value());
