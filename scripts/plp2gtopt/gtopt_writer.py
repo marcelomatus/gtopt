@@ -549,6 +549,66 @@ class GTOptWriter:
             for key, val in j.items():
                 self.planning["system"][key] = val
 
+    def process_flow_turbines(self, options):
+        """Create Flow + Turbine(flow=ref) for pasada centrals in flow-turbine mode.
+
+        In flow-turbine mode, each pasada central with bus>0 gets:
+        - A Flow element with discharge data from plpaflce.dat
+        - A Turbine element with ``flow`` field referencing the Flow
+        No junctions or waterways are created.
+        """
+        if options.get("pasada_mode") != "flow-turbine":
+            return
+
+        central_parser = self.parser.parsed_data.get("central_parser")
+        if not central_parser:
+            return
+
+        pasada_centrals = central_parser.centrals_of_type.get("pasada", [])
+        if not pasada_centrals:
+            return
+
+        flows = self.planning["system"].setdefault("flow_array", [])
+        turbines = self.planning["system"].setdefault("turbine_array", [])
+
+        aflce_parser = self.parser.parsed_data.get("aflce_parser")
+
+        for central in pasada_centrals:
+            if central.get("bus", 0) <= 0:
+                continue
+
+            central_id = central["number"]
+            central_name = central["name"]
+
+            # Determine discharge: file ref if aflce data exists, else scalar
+            afluent: float | str = central.get("afluent", 0.0)
+            if aflce_parser and aflce_parser.get_item_by_name(central_name):
+                afluent = "discharge"
+
+            if isinstance(afluent, (int, float)) and afluent == 0.0:
+                continue
+
+            # Create Flow element
+            flows.append(
+                {
+                    "uid": central_id,
+                    "name": central_name,
+                    "discharge": afluent,
+                    "plp_central": central_name,
+                }
+            )
+
+            # Create Turbine with flow reference (not waterway)
+            turbines.append(
+                {
+                    "uid": central_id,
+                    "name": central_name,
+                    "flow": central_name,
+                    "generator": central_name,
+                    "conversion_rate": central.get("efficiency", 1.0),
+                }
+            )
+
     def process_centrals(self, options):
         """Process central data to include block and stage information."""
         centrals = self.parser.parsed_data.get("central_parser", None)
@@ -919,6 +979,7 @@ class GTOptWriter:
         self.process_afluents(options)
         self.process_generator_profiles(options)
         self.process_junctions(options)
+        self.process_flow_turbines(options)
         self.process_battery(options)
         self.process_boundary_cuts(options)
         self.process_variable_scales(options)
