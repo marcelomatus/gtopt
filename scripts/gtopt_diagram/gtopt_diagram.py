@@ -1756,12 +1756,16 @@ class TopologyBuilder:
                     kind="flow",
                     cluster="hydro",
                     tooltip=f"Flow uid={f.get('uid')} discharge={disc}",
+                    size=12.0,
                 )
             )
             junc_id = self._find_node_id("junction_array", f.get("junction"), self._jid)
             if junc_id:
                 src, dst = (fid, junc_id) if direction >= 0 else (junc_id, fid)
-                self.model.add_edge(Edge(src, dst, color=_PALETTE["waterway_edge"]))
+                # Short edge: keep flow nodes close to their junction
+                self.model.add_edge(
+                    Edge(src, dst, color=_PALETTE["waterway_edge"], weight=0.3)
+                )
 
     def _filtrations(self):
         for fi in self.sys.get("filtration_array", []):
@@ -2873,6 +2877,8 @@ def model_to_visjs(model: GraphModel) -> dict:
                 "arrows": "to" if edge.directed else "",
                 "color": {"color": edge.color or "#2C3E50", "opacity": 0.8},
                 "width": max(1.0, min(4.0, 1.0 + edge.weight / 100)),
+                # Short edges (weight < 1) get a shorter spring length
+                "length": 50 if edge.weight < 1.0 else 160,
             }
         )
 
