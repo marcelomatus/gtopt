@@ -863,9 +863,9 @@ def test_min_reservoir_conversion(tmp_path):
     assert rsv["efin"] == pytest.approx(400.0)
     assert rsv["flow_conversion_rate"] == pytest.approx(3.6 / 1000.0)
 
-    # Junctions (embalse + serie)
+    # Junctions (embalse + serie + ocean junctions for ser_hid=0 centrals)
     junctions = sys_data.get("junction_array", [])
-    assert len(junctions) == 2
+    assert len(junctions) == 3  # Reservoir1 + TurbineGen_ocean + TurbineGen
     j_names = {j["name"] for j in junctions}
     assert "Reservoir1" in j_names
     assert "TurbineGen" in j_names
@@ -878,18 +878,18 @@ def test_min_reservoir_conversion(tmp_path):
     turb_j = next(j for j in junctions if j["name"] == "TurbineGen")
     assert turb_j["drain"] is True
 
-    # Waterway connects embalse → serie
+    # Waterways: embalse→serie (ser_hid=2) + serie→ocean (ser_hid=0 fix)
     waterways = sys_data.get("waterway_array", [])
-    assert len(waterways) == 1
-    ww = waterways[0]
-    assert ww["junction_a"] == 1  # Reservoir1
-    assert ww["junction_b"] == 2  # TurbineGen
+    assert len(waterways) == 2
+    # The original waterway from Reservoir1 to TurbineGen
+    ww_res = next(w for w in waterways if w["junction_a"] == 1)
+    assert ww_res["junction_b"] == 2  # TurbineGen
 
-    # Turbine links waterway to generator
+    # Turbines: Reservoir1 (embalse, bus>0) + TurbineGen (serie, bus>0, ocean fix)
     turbines = sys_data.get("turbine_array", [])
-    assert len(turbines) == 1
-    assert turbines[0]["generator"] == 1  # Reservoir1 uid
-    assert turbines[0]["waterway"] == ww["uid"]
+    assert len(turbines) == 2
+    rsv_turb = next(t for t in turbines if t["generator"] == 1)
+    assert rsv_turb["waterway"] == ww_res["uid"]
 
     # Flow (discharge) is a parquet reference
     flows = sys_data.get("flow_array", [])
@@ -1519,20 +1519,13 @@ def test_plp_case_2y_info(capsys):
     assert "-a all" in out
 
 
-@pytest.mark.integration
-def test_plp_case_2y_global_indicators(tmp_path):
-    """plp_case_2y: PLP and gtopt global indicators and element counts match.
-
-    Runs a full conversion of the entire plp_case_2y (all 51 stages, all
-    16 scenarios) and then computes PLP indicators directly from PLPParser
-    data (never from the generated gtopt JSON) and gtopt indicators from
-    the converted planning dict via
-    ``gtopt_check_json._info.compute_indicators``.
-
-    PLP indicators are computed from the raw PLP parser data only.
-    gtopt indicators are computed from the planning dict by the
-    ``gtopt_check_json`` module.
-    """
+def _check_2y_global_indicators(
+    tmp_path: Path,
+    case_name: str,
+    *,
+    pasada_hydro: bool,
+) -> None:
+    """Shared indicator check for plp_case_2y in both pasada modes."""
     from plp2gtopt.plp2gtopt import (  # noqa: PLC0415
         _extract_flow_central_names,
         _gtopt_element_counts,
@@ -1542,11 +1535,12 @@ def test_plp_case_2y_global_indicators(tmp_path):
     )
 
     # --- Run full conversion (all stages, all scenarios) ---
-    opts = _make_opts_2y(tmp_path, "gtopt_case_2y_ind")
+    opts = _make_opts_2y(tmp_path, case_name)
+    opts["pasada_hydro"] = pasada_hydro
     convert_plp_case(opts)
 
     # --- PLP side: parse PLP data ---
-    parser = PLPParser({"input_dir": _PLPCase2Y})
+    parser = PLPParser({"input_dir": _PLPCase2Y, "pasada_hydro": pasada_hydro})
     parser.parse_all()
 
     hydrology_indices = _plp_active_hydrology_indices(parser)
@@ -1609,8 +1603,17 @@ def test_plp_case_2y_global_indicators(tmp_path):
         plp_counts["reservoir_efficiencies"] == gtopt_counts["reservoir_efficiencies"]
     )
 
-    # Generator profiles == pasada count
-    assert gtopt_counts["generator_profiles"] == plp_counts.get("sub_pasada", 0)
+    # Pasada mode-specific assertions
+    p_pasada = plp_counts.get("sub_pasada", 0)
+    if pasada_hydro:
+        # In hydro mode: no generator profiles, pasada become flows+turbines
+        assert gtopt_counts["generator_profiles"] == 0
+        assert gtopt_counts["flows"] > p_pasada, (
+            "Hydro mode should have pasada flows in flow_array"
+        )
+    else:
+        # In profile mode: generator profiles == pasada count
+        assert gtopt_counts["generator_profiles"] == p_pasada
 
     # Batteries match (plpcenbat + plpess)
     p_batteries = plp_counts.get("batteries", 0) + plp_counts.get("ess", 0)
@@ -1619,9 +1622,6 @@ def test_plp_case_2y_global_indicators(tmp_path):
     # ==================================================================
     # Global indicator assertions
     # ==================================================================
-    # Full conversion (all stages, all scenarios/apertures) means that
-    # demand, capacity, energy, and flow indicators should match exactly
-    # between PLP and gtopt (only numerical tolerance allowed).
 
     # --- Demand indicators (must match exactly) ---
     assert plp_ind["first_block_demand_mw"] > 1000.0, "First demand suspiciously low"
@@ -1666,14 +1666,7 @@ def test_plp_case_2y_global_indicators(tmp_path):
         gtopt_ind["total_line_capacity_mw"], rel=1e-6
     ), "Line capacity mismatch"
 
-    # --- Flow/affluent indicators (positivity + order-of-magnitude match) ---
-    # PLP affluent indicators use the legacy bus>0 filter (matching all
-    # centrals in plpaflce.dat with bus > 0).  The gtopt side reads from
-    # Flow/discharge.parquet which was written by AflceWriter for ALL aflce
-    # centrals (with fill-value skipping).  The different data paths —
-    # raw aflce column averaging vs Parquet scenario averaging, plus
-    # fill-value skipping differences — can produce small mismatches (~2-10%).
-    # We verify both sides are positive and within a relaxed tolerance.
+    # --- Flow/affluent indicators (positivity + close match) ---
     assert plp_ind["first_block_affluent_avg"] > 0.0, "PLP first flow should be > 0"
     assert gtopt_ind["first_block_affluent_avg"] > 0.0, "gtopt first flow should be > 0"
     assert plp_ind["last_block_affluent_avg"] > 0.0, "PLP last flow should be > 0"
@@ -1682,10 +1675,22 @@ def test_plp_case_2y_global_indicators(tmp_path):
     assert gtopt_ind["total_water_volume_hm3"] > 0.0, "gtopt water volume should be > 0"
     assert plp_ind["avg_flow_m3s"] > 0.0, "PLP avg flow should be > 0"
     assert gtopt_ind["avg_flow_m3s"] > 0.0, "gtopt avg flow should be > 0"
-    # Order-of-magnitude check: within 15% tolerance
+    # Within 1% tolerance (both sides now filter orphan aflce entries)
     assert plp_ind["total_water_volume_hm3"] == pytest.approx(
-        gtopt_ind["total_water_volume_hm3"], rel=0.15
-    ), "Total water volume too far apart (>15%)"
+        gtopt_ind["total_water_volume_hm3"], rel=0.01
+    ), "Total water volume too far apart (>1%)"
+
+
+@pytest.mark.integration
+def test_plp_case_2y_global_indicators(tmp_path):
+    """plp_case_2y: indicators match in default pasada-hydro mode."""
+    _check_2y_global_indicators(tmp_path, "gtopt_case_2y_hydro", pasada_hydro=True)
+
+
+@pytest.mark.integration
+def test_plp_case_2y_global_indicators_profile_mode(tmp_path):
+    """plp_case_2y: indicators match in legacy pasada-profile mode."""
+    _check_2y_global_indicators(tmp_path, "gtopt_case_2y_profile", pasada_hydro=False)
 
 
 @pytest.mark.integration
@@ -1941,20 +1946,20 @@ def test_hydro_4b_sddp_conversion(tmp_path):
     assert rsv["capacity"] == pytest.approx(1200.0)
     assert rsv["flow_conversion_rate"] == pytest.approx(3.6 / 1000.0)
 
-    # Junctions
+    # Junctions (LakeA + TurbineA_ocean + TurbineA)
     junctions = sys_data.get("junction_array", [])
-    assert len(junctions) == 2
+    assert len(junctions) == 3
     j_names = {j["name"] for j in junctions}
     assert "LakeA" in j_names
     assert "TurbineA" in j_names
 
-    # Waterway connects reservoir → turbine
+    # Waterways: reservoir→turbine (ser_hid) + turbine→ocean (ser_hid=0 fix)
     waterways = sys_data.get("waterway_array", [])
-    assert len(waterways) == 1
+    assert len(waterways) == 2
 
-    # Turbine
+    # Turbines: LakeA (embalse) + TurbineA (serie, bus>0, ocean fix)
     turbines = sys_data.get("turbine_array", [])
-    assert len(turbines) == 1
+    assert len(turbines) == 2
 
     # Flow (afluent)
     flows = sys_data.get("flow_array", [])

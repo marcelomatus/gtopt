@@ -76,6 +76,7 @@ testpaths = [
     "gtopt_compare/tests",
     "cvs2parquet/tests",
     "gtopt_diagram/tests",
+    "gtopt_field_extractor/tests",
     "gtopt_check_lp/tests",
     "gtopt_compress_lp/tests",
     "gtopt_check_json/tests",
@@ -83,6 +84,7 @@ testpaths = [
     "igtopt/tests",
     "plp2gtopt/tests",
     "pp2gtopt/tests",
+    "sddp_monitor/tests",
     "ts2gtopt/tests",
 ]
 addopts = "-v --import-mode=importlib -n 0"
