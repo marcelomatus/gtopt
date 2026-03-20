@@ -667,10 +667,10 @@ def _log_comparison(
         title_justify="left",
     )
     table.add_column("Element", no_wrap=True, min_width=26)
-    table.add_column("PLP", justify="right", min_width=6)
-    table.add_column("gtopt", justify="right", min_width=6)
-    table.add_column("\u0394", justify="right", min_width=4)
-    table.add_column("Notes", no_wrap=True, style="dim")
+    table.add_column("PLP", justify="right", min_width=6, no_wrap=True)
+    table.add_column("gtopt", justify="right", min_width=6, no_wrap=True)
+    table.add_column("\u0394", justify="right", min_width=4, no_wrap=True)
+    table.add_column("Notes", style="dim", max_width=48)
 
     def _row(
         label: str,
