@@ -145,6 +145,29 @@ gtopt_diagram large_case.json --max-nodes 50 -o compact.svg
 gtopt_diagram large_case.json --top-gens 2 -o top2.svg
 ```
 
+### Visual features
+
+- **Voltage-based line coloring**: transmission lines are drawn with color
+  intensity and width proportional to the bus voltage level (higher voltage
+  lines appear darker and wider).
+- **Reservoir sizing**: reservoir nodes are scaled by their storage capacity
+  (`emax`), so larger reservoirs appear visually larger in the diagram.
+- **Reserve zones and provisions**: `reserve_zone_array` entries are rendered
+  as zone nodes connected to the generators that provide reserves via
+  `reserve_provision_array`.
+- **Generator and demand profiles**: `generator_profile_array` and
+  `demand_profile_array` entries are rendered as profile nodes linked to
+  their parent generator or demand.
+- **Colorblind palette**: use `--palette colorblind` to switch all element
+  colors to a palette designed for color-vision deficiency accessibility.
+
+### File-referenced value resolution
+
+When fields like `pmax` or `lmax` are stored as Parquet file references,
+`gtopt_diagram` resolves them using `--scenario`, `--stage`, and `--block`
+(all default to UID 1).  This controls which row of the Parquet file is
+used for sizing and labeling diagram elements.
+
 ### All options
 
 ```
@@ -156,9 +179,13 @@ options:
   -f, --format          dot | png | svg | pdf | mermaid | html  (default: svg)
   -o, --output          output file path
   -s, --subsystem       full | electrical | hydro  (default: full)
-  -l, --layout          dot | neato | fdp | sfdp | circo | twopi
+  -L, --layout          dot | neato | fdp | sfdp | circo | twopi
   -d, --direction       LR | TD | BT | RL  (Mermaid direction, default: LR)
   --clusters            Group in Graphviz sub-clusters
+  --palette             default | colorblind  (default: default)
+  --scenario UID        Scenario UID for resolving file-referenced values (default: 1)
+  --stage UID           Stage UID for resolving file-referenced values (default: 1)
+  --block UID           Block UID for resolving file-referenced values (default: 1)
 
 reduction options:
   -a, --aggregate       auto | none | bus | type | global  (default: auto)
@@ -166,6 +193,8 @@ reduction options:
   -g, --top-gens N      Keep only top-N generators per bus by pmax
   --filter-type TYPE    Show only: hydro solar wind thermal battery
   --focus-bus BUS       Show only elements within N hops of BUS (repeatable)
+  --focus-generator GEN Focus on bus(es) connected to these generators (by name or uid)
+  --focus-area KV       Focus on buses at or above this voltage level (kV)
   --focus-hops N        Hops for --focus-bus (default: 2)
   --max-nodes N         Hard cap; escalate aggregation until ≤ N nodes
   -V, --voltage-threshold KV  Lump buses below KV into HV neighbours
@@ -411,6 +440,14 @@ Use `-l DEBUG` to also see which individual `.dat` files are being parsed.
 | `--pasada-hydro / --no-pasada-hydro` | enabled | Model *pasada* (run-of-river) centrals as full hydro topology (junction, waterway, turbine, flow) instead of generator profiles. Use `--no-pasada-hydro` for legacy behavior with generator profiles using normalized capacity factors |
 | `-l, --log-level LEVEL` | `INFO` | Verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `-V, --version` | — | Print version and exit |
+
+### Isolated centrals
+
+During hydro topology conversion, PLP centrals that have no bus assignment
+(`bus <= 0`), no waterway connections, and are not referenced by any other
+central are considered **isolated** and are silently skipped.  After the
+conversion statistics, a "Skipped Centrals" section lists all isolated
+centrals by name so the user can verify that they are genuinely unused.
 
 ### Error messages
 

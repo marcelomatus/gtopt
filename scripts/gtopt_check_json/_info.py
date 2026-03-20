@@ -704,6 +704,16 @@ def _build_info_sections(
     return sections
 
 
+def _build_skipped_pairs(
+    planning: dict[str, Any],
+) -> list[tuple[str, str]] | None:
+    """Build (name, reason) pairs for skipped isolated centrals, or None."""
+    skipped = planning.get("_skipped_isolated", [])
+    if not skipped:
+        return None
+    return [(name, "isolated (bus<=0, no waterways)") for name in sorted(skipped)]
+
+
 def format_info(
     planning: dict[str, Any],
     base_dir: str | None = None,
@@ -731,6 +741,16 @@ def format_info(
     for title, pairs in _build_info_sections(planning):
         lines.append(render_kv_table(pairs, title=title))
 
+    # -- Skipped isolated centrals (from plp2gtopt) --
+    skipped_pairs = _build_skipped_pairs(planning)
+    if skipped_pairs is not None:
+        lines.append(
+            render_kv_table(
+                skipped_pairs,
+                title=f"Skipped Centrals ({len(skipped_pairs)})",
+            )
+        )
+
     # -- Global indicators --
     lines.append(format_indicators(planning, base_dir=base_dir))
 
@@ -750,6 +770,14 @@ def print_info(
 
     for title, pairs in _build_info_sections(planning):
         print_kv_table(pairs, title=title)
+
+    # -- Skipped isolated centrals (from plp2gtopt) --
+    skipped_pairs = _build_skipped_pairs(planning)
+    if skipped_pairs is not None:
+        print_kv_table(
+            skipped_pairs,
+            title=f"Skipped Centrals ({len(skipped_pairs)})",
+        )
 
     # -- Global indicators --
     print_indicators(planning, base_dir=base_dir)
