@@ -457,6 +457,29 @@ _PALETTE_COLORBLIND: dict[str, str] = {
     "profile_edge": "#95A5A6",
 }
 
+# Voltage-based line coloring: maps voltage ranges to (color, width).
+# Higher voltages get darker colors and wider lines.
+_LINE_VOLTAGE_BANDS: list[tuple[float, str, float]] = [
+    # (min_kv, color, width)
+    (500.0, "#1A237E", 4.0),  # 500+ kV: dark indigo, extra wide
+    (345.0, "#283593", 3.5),  # 345 kV: indigo
+    (220.0, "#1565C0", 3.0),  # 220 kV: dark blue
+    (154.0, "#1976D2", 2.5),  # 154 kV: blue
+    (110.0, "#1E88E5", 2.0),  # 110 kV: medium blue
+    (66.0, "#42A5F5", 1.5),  # 66 kV: light blue
+    (33.0, "#64B5F6", 1.2),  # 33 kV: pale blue
+    (0.0, "#90A4AE", 1.0),  # unknown/LV: gray, thin
+]
+
+
+def _line_color_width(kv: float) -> tuple[str, float]:
+    """Return (color, width) for a line based on its voltage level."""
+    for min_kv, color, width in _LINE_VOLTAGE_BANDS:
+        if kv >= min_kv:
+            return color, width
+    return _PALETTE["line_edge"], 1.0
+
+
 # Human-readable labels for each node kind (used in SVG and HTML legends)
 _LEGEND_LABELS: dict[str, str] = {
     "bus": "Bus",
@@ -1265,23 +1288,31 @@ class TopologyBuilder:
             name = _elem_name(line)
             x = line.get("reactance", "")
             tmax = line.get("tmax_ab", line.get("tmax_ba", ""))
+
+            # Derive voltage from connected buses for color/width
+            va = ba.get("voltage", 0) if ba else 0
+            vb = bb.get("voltage", 0) if bb else 0
+            line_kv = max(float(va or 0), float(vb or 0))
+
             if self.opts.compact:
                 lbl = str(name)
             else:
                 parts = [str(name)]
-                if x:
-                    parts.append(f"x={x} p.u.")
+                if line_kv > 0:
+                    parts.append(f"{line_kv:.0f} kV")
                 if tmax:
                     parts.append(f"{_scalar(tmax)} MW")
                 lbl = "\n".join(parts)
+
+            color, width = _line_color_width(line_kv)
             self.model.add_edge(
                 Edge(
                     src=aid,
                     dst=bid2,
                     label=lbl,
-                    color=_PALETTE["line_edge"],
+                    color=color,
                     directed=False,
-                    weight=float(tmax) if isinstance(tmax, (int, float)) else 1.0,
+                    weight=width,
                 )
             )
 
