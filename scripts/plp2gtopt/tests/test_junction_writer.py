@@ -425,19 +425,20 @@ def test_multiple_plants_and_interactions(sample_central_parser, sample_extrac_p
     )
     result = writer.to_json_array()[0]
 
-    # PlantA (2 junctions via ser_hid/ser_ver) + PlantB (1 junction + 1 ocean)
-    # PlantC (serie, bus=0, ser_hid=0, ser_ver=0) is skipped (isolated)
-    assert len(result["junction_array"]) == 3
+    # PlantA + PlantB + PlantC junctions + 2 ocean junctions
+    # PlantC (serie, bus=0, ser_hid=0, ser_ver=0) is kept because PlantA's
+    # ser_ver=3 references PlantC as a downstream drain junction.
+    assert len(result["junction_array"]) == 5
 
-    # PlantA: gen+ver waterways (2), PlantB: gen(ocean)+ver (2),
-    # extraction (1) = 5 (PlantC skipped)
-    assert len(result["waterway_array"]) == 5
+    # PlantA: gen+ver (2), PlantB: gen(ocean)+ver (2),
+    # PlantC: gen(ocean) (1), extraction (1) = 6
+    assert len(result["waterway_array"]) == 6
 
-    # PlantA (bus=101, ser_hid=2) + PlantB (bus=102, ocean gen) = 2 turbines
+    # PlantA (bus=101) + PlantB (bus=102) = 2 turbines (PlantC bus=0, no turbine)
     assert len(result["turbine_array"]) == 2
 
-    # 1 flow for PlantA only (PlantC skipped)
-    assert len(result["flow_array"]) == 1
+    # 2 flows: PlantA + PlantC (PlantC kept as drain sink)
+    assert len(result["flow_array"]) == 2
 
 
 # ─── Filtration and efficiency tests ────────────────────────────────────────
