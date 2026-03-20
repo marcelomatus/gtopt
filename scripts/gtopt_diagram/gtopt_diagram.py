@@ -104,9 +104,37 @@ import tempfile
 import textwrap
 import webbrowser
 from collections import defaultdict
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+
+from gtopt_diagram._classify import (
+    classify_gen as _classify_gen_impl,
+    dominant_kind as _dominant_kind_impl,
+    efficiency_turbine_pairs as _efficiency_turbine_pairs_impl,
+    elem_name as _elem_name_impl,
+    gen_pmax as _gen_pmax_impl,
+    icon_key_for_type as _icon_key_for_type_impl,
+    resolve as _resolve_impl,
+    scalar as _scalar_impl,
+    turbine_gen_refs as _turbine_gen_refs_impl,
+    turbine_waterway_refs as _turbine_waterway_refs_impl,
+)
+from gtopt_diagram._classify import GEN_TYPE_META as _GEN_TYPE_META
+from gtopt_diagram._data_utils import (
+    auto_voltage_threshold,
+    build_voltage_map as _build_voltage_map_impl,
+    count_visible_buses as _count_visible_buses_impl,
+    resolve_bus_ref as _resolve_bus_ref_impl,
+)
+from gtopt_diagram._graph_model import (
+    AUTO_BUS_THRESHOLD as _AUTO_BUS_THRESHOLD,
+    AUTO_MAX_HV_BUSES as _AUTO_MAX_HV_BUSES,
+    AUTO_NONE_THRESHOLD as _AUTO_NONE_THRESHOLD,
+    Edge,
+    FilterOptions,
+    GraphModel,
+    Node,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -297,9 +325,8 @@ _LAYOUT_DOT_THRESHOLD = 10  # dot:   hierarchical, best for ≤10 nodes
 _LAYOUT_NEATO_THRESHOLD = 40  # neato: spring-model, fast for ≤40 nodes
 _LAYOUT_FDP_THRESHOLD = 150  # fdp:   force-directed, ≤150 nodes
 
-# Maximum BFS depth when searching for the nearest HV bus; prevents infinite
-# loops in pathological cases while being sufficient for any real power network
-_VOLTAGE_BFS_MAX_DEPTH = 20
+# Maximum BFS depth — imported from _data_utils for backward compatibility
+from gtopt_diagram._data_utils import VOLTAGE_BFS_MAX_DEPTH as _VOLTAGE_BFS_MAX_DEPTH
 
 
 def _icon_cache_dir() -> str:
@@ -492,374 +519,32 @@ _PYVIS_SIZE_MAP: dict[str, int] = {
 # Generator-type classification
 # ---------------------------------------------------------------------------
 
-# Map internal type key → (display label, mermaid-icon, palette-key)
-_GEN_TYPE_META: dict[str, tuple[str, str, str]] = {
-    "hydro": ("Hydro", "💧", "gen_hydro"),
-    "solar": ("Solar", "☀️", "gen_solar"),
-    "wind": ("Wind", "🌬️", "gen_solar"),  # reuse solar palette
-    "battery": ("BESS", "🔋", "battery"),
-    "thermal": ("Thermal", "⚡", "gen"),
-}
+# _GEN_TYPE_META is imported from _classify (canonical definition lives there)
 
 
-def _turbine_gen_refs(sys: dict) -> set:
-    """Return the set of generator uid/name references that have a turbine."""
-    refs: set = set()
-    for t in sys.get("turbine_array", []):
-        g = t.get("generator")
-        if g is not None:
-            refs.add(g)
-    return refs
-
-
-def _turbine_waterway_refs(sys: dict) -> set:
-    """Return the set of waterway uid/name references that have a turbine.
-
-    Used by :meth:`TopologyBuilder._waterways` to suppress the direct
-    ``junction_a → junction_b`` edge for waterways that already have a
-    turbine node representing the arc.
-    """
-    refs: set = set()
-    for t in sys.get("turbine_array", []):
-        w = t.get("waterway")
-        if w is not None:
-            refs.add(w)
-    return refs
-
-
-def _efficiency_turbine_pairs(sys: dict) -> set:
-    """Return the set of turbine uid/name references covered by reservoir_efficiency_array.
-
-    Used by :meth:`TopologyBuilder._turbines` to avoid drawing a duplicate
-    ``main_reservoir`` edge when a ``reservoir_efficiency_array`` entry already
-    represents the same turbine-reservoir relationship.
-    """
-    refs: set = set()
-    for e in sys.get("reservoir_efficiency_array", []):
-        t = e.get("turbine")
-        if t is not None:
-            refs.add(t)
-    return refs
-
-
-def _classify_gen(gen: dict, turb_refs: set) -> str:
-    """Classify a generator as 'hydro', 'solar', 'wind', 'battery', or 'thermal'."""
-    uid = gen.get("uid")
-    name_ref = gen.get("name")
-    name = str(name_ref or "").lower()
-    if uid in turb_refs or name_ref in turb_refs:
-        return "hydro"
-    if any(k in name for k in ("solar", "pv", "foto", "fotov", "cspv")):
-        return "solar"
-    if any(k in name for k in ("wind", "eol", "eólico", "eolico", "aerog")):
-        return "wind"
-    if any(k in name for k in ("bat", "bess", "ess", "storage", "almac")):
-        return "battery"
-    return "thermal"
-
-
-def _gen_pmax(gen: dict) -> float:
-    v = gen.get("pmax") or gen.get("capacity")
-    if isinstance(v, (int, float)):
-        return float(v)
-    if isinstance(v, list):
-        flat: list[float] = []
-
-        def _flatten_numeric(x):  # noqa: ANN001
-            if isinstance(x, list):
-                for i in x:
-                    _flatten_numeric(i)
-            elif isinstance(x, (int, float)):
-                flat.append(float(x))
-
-        _flatten_numeric(v)
-        return max(flat) if flat else 0.0
-    return 0.0
-
-
-def _elem_name(item: dict) -> str:
-    """Return a display label combining name and uid: ``'NAME:UID'``.
-
-    Uses colon separator instead of parentheses to avoid Mermaid flowchart
-    syntax errors (parentheses are reserved for node shapes in Mermaid).
-
-    Examples:
-      - ``{"name": "ELTORO", "uid": 2}``  → ``"ELTORO:2"``
-      - ``{"name": "b1",     "uid": 1}``  → ``"b1:1"``
-      - ``{"name": "b1"}``                → ``"b1"``
-      - ``{"uid": 3}``                    → ``"3"``
-      - ``{}``                            → ``"?"``
-    """
-    name = item.get("name")
-    uid = item.get("uid")
-    if name is not None and uid is not None and str(name) != str(uid):
-        return f"{name}:{uid}"
-    if name is not None:
-        return str(name)
-    if uid is not None:
-        return str(uid)
-    return "?"
+# Thin wrappers delegating to _classify module (preserves private-name API)
+_turbine_gen_refs = _turbine_gen_refs_impl
+_turbine_waterway_refs = _turbine_waterway_refs_impl
+_efficiency_turbine_pairs = _efficiency_turbine_pairs_impl
+_classify_gen = _classify_gen_impl
+_gen_pmax = _gen_pmax_impl
+_elem_name = _elem_name_impl
 
 
 # ---------------------------------------------------------------------------
-# FilterOptions — controls diagram reduction for large cases
+# FilterOptions, Node, Edge, GraphModel — imported from _graph_model
 # ---------------------------------------------------------------------------
 
-# Auto-reduction thresholds (element count)
-# When --aggregate auto (default): pick a strategy based on total element count.
-_AUTO_NONE_THRESHOLD = 100  # < 100 elements  → show everything individually
-_AUTO_BUS_THRESHOLD = 1000  # 100–999 elements → aggregate per bus
-# ≥ 1000 elements: aggregate per type + smart voltage threshold (aggressive)
-
-# Smart voltage threshold: target at most this many visible buses after reduction.
-_AUTO_MAX_HV_BUSES = 64  # target bus count for aggressive auto mode
-
-
-@dataclass
-class FilterOptions:
-    """Controls element-reduction strategies for large gtopt diagrams.
-
-    Aggregation modes (``--aggregate``):
-      ``auto``    Automatically choose based on element count (default):
-                    < 100  → ``none``
-                    100–999 → ``bus``
-                    ≥ 1000  → ``type`` + smart voltage threshold that keeps
-                               at most ``_AUTO_MAX_HV_BUSES`` visible buses
-      ``none``    Show every individual element (best for small cases).
-      ``bus``     Collapse all generators at each bus into one summary node.
-      ``type``    Collapse generators by type (hydro/solar/wind/thermal/BESS)
-                  within each bus — one node per (bus, type) pair.
-      ``global``  One node per generator type for the whole system.
-
-    Additional filters:
-      ``no_generators``     If True, omit all generator nodes (topology-only view).
-      ``top_gens``          Keep only the top-N generators by pmax per bus (0 = all).
-      ``filter_types``      List of generator types to include (empty = all).
-      ``focus_buses``       Show only elements reachable within ``focus_hops`` hops
-                            from the named buses.
-      ``max_nodes``         Hard cap: if node count would exceed this, auto-upgrade
-                            to the next aggregation mode.
-      ``hide_isolated``     Remove nodes with no edges.
-      ``compact``           Suppress detail labels (show only name/type/count).
-      ``voltage_threshold`` Lump buses (and their lines) below this voltage [kV]
-                            into their nearest high-voltage neighbour.  Buses
-                            without a ``voltage`` field are never lumped.
-                            0 = disabled (default).
-    """
-
-    aggregate: str = "auto"  # auto | none | bus | type | global
-    no_generators: bool = False  # omit all generator nodes
-    top_gens: int = 0  # 0 = no limit
-    filter_types: list[str] = field(default_factory=list)
-    focus_buses: list[str] = field(default_factory=list)
-    focus_hops: int = 2
-    max_nodes: int = 0  # 0 = no limit
-    hide_isolated: bool = False
-    compact: bool = False
-    voltage_threshold: float = 0.0  # kV; 0 = disabled
-
+# (FilterOptions, Node, Edge, GraphModel imported at top of file)
 
 # ---------------------------------------------------------------------------
-# Voltage-level bus reduction
+# Voltage-level bus reduction — imported from _data_utils
 # ---------------------------------------------------------------------------
 
-
-def _build_voltage_map(
-    buses: list[dict],
-    lines: list[dict],
-    threshold: float,
-) -> dict:
-    """Return a mapping {bus_ref -> representative_hv_bus_ref}.
-
-    Every bus whose ``voltage`` field is set and is **strictly less** than
-    *threshold* [kV] is mapped to the nearest bus with voltage ≥ threshold
-    reachable via the line network.  Buses without a voltage field and buses
-    already at or above the threshold map to themselves.
-
-    The representative bus is chosen by BFS over the adjacency graph built
-    from ``line_array``.  If no high-voltage neighbour is found within 20 hops
-    the low-voltage bus is left unmapped (maps to itself).
-    """
-    if threshold <= 0:
-        return {}
-
-    # Build adjacency using whichever reference type appears in the lines
-    adj: dict = defaultdict(set)
-    for line in lines:
-        a = line.get("bus_a")
-        b = line.get("bus_b")
-        if a is not None and b is not None:
-            adj[a].add(b)
-            adj[b].add(a)
-
-    # Collect voltage per bus reference (uid and name both used as keys)
-    bus_voltage: dict = {}
-    for bus in buses:
-        uid = bus.get("uid")
-        name = bus.get("name")
-        v = bus.get("voltage")
-        try:
-            fv: Optional[float] = float(v) if v is not None else None
-        except (ValueError, TypeError):
-            fv = None
-        for ref in (uid, name):
-            if ref is not None:
-                bus_voltage[ref] = fv
-
-    def _is_hv(ref) -> bool:
-        v = bus_voltage.get(ref)
-        return v is None or v >= threshold  # unknown → treat as HV to avoid
-        # unintended lumping of buses whose
-        # voltage was not provided in the JSON
-
-    result: dict = {}
-    for bus in buses:
-        uid = bus.get("uid")
-        name = bus.get("name")
-        ref = uid if uid is not None else name
-        if ref is None:
-            continue
-        if _is_hv(ref):
-            result[ref] = ref
-            if name is not None and name != ref:
-                result[name] = name
-            continue
-
-        # BFS from this LV bus to find the nearest HV bus
-        visited: set = {uid, name} - {None}
-        queue = list(visited)
-        found = None
-        for _ in range(_VOLTAGE_BFS_MAX_DEPTH):
-            if not queue:
-                break
-            next_q: list = []
-            for curr in queue:
-                for nb in adj.get(curr, set()):
-                    if nb in visited:
-                        continue
-                    if _is_hv(nb):
-                        found = nb
-                        break
-                    visited.add(nb)
-                    next_q.append(nb)
-                if found:
-                    break
-            if found:
-                break
-            queue = next_q
-
-        rep = found if found is not None else ref
-        result[ref] = rep
-        if name is not None and name != ref:
-            result[name] = rep
-
-    return result
-
-
-def _count_visible_buses(buses: list[dict], lines: list[dict], threshold: float) -> int:
-    """Return the number of distinct representative buses after voltage reduction.
-
-    A bus is a representative if at least one other bus (including itself) maps
-    to it after the BFS voltage reduction.  This is the number of *visible* bus
-    nodes that would appear in the diagram at the given threshold.
-    """
-    if threshold <= 0:
-        return len(buses)
-    vmap = _build_voltage_map(buses, lines, threshold)
-    representatives: set[int | str] = set()
-    for bus in buses:
-        uid = bus.get("uid")
-        name = bus.get("name")
-        ref = uid if uid is not None else name
-        if ref is None:
-            continue
-        representatives.add(vmap.get(ref, ref))
-    return len(representatives)
-
-
-def auto_voltage_threshold(
-    buses: list[dict],
-    lines: list[dict],
-    max_buses: int = _AUTO_MAX_HV_BUSES,
-) -> float:
-    """Compute the lowest voltage threshold [kV] that keeps ≤ *max_buses* visible.
-
-    The function iterates over all distinct voltage levels found in the bus
-    array (from highest to lowest) and returns the **smallest** threshold that
-    still produces at most *max_buses* representative buses after reduction.
-
-    If no threshold achieves the target (e.g. all buses have the same voltage
-    level) the highest found voltage level is returned as a fallback so the
-    diagram is at least somewhat reduced.
-
-    Returns 0.0 when the total bus count is already ≤ *max_buses* (no
-    reduction needed).
-    """
-    if len(buses) <= max_buses:
-        return 0.0
-
-    # Collect distinct voltage levels using safe .get() to avoid KeyError
-    levels = sorted(
-        {float(v) for b in buses if (v := b.get("voltage")) is not None},
-    )
-    if not levels:
-        return 0.0
-
-    # Find the smallest threshold (lowest voltage level) that hits the target.
-    # We scan levels from highest to lowest: once we fall below the target,
-    # the previous (higher) level is the answer.
-    chosen = levels[-1]  # fallback: the highest voltage level found
-    for lvl in reversed(levels):
-        n = _count_visible_buses(buses, lines, lvl)
-        if n <= max_buses:
-            chosen = lvl
-        else:
-            # going lower won't help — stop searching downward
-            break
-    return chosen
-
-
-def _resolve_bus_ref(ref, vmap: dict):
-    """Translate a bus reference through the voltage map (identity if absent)."""
-    return vmap.get(ref, ref)
-
-
-# ---------------------------------------------------------------------------
-# Graph model
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class Node:
-    node_id: str
-    label: str
-    kind: str
-    tooltip: str = ""
-    cluster: str = ""  # "electrical" or "hydro"
-
-
-@dataclass
-class Edge:
-    src: str
-    dst: str
-    label: str = ""
-    style: str = "solid"  # solid | dashed | dotted
-    color: str = ""
-    directed: bool = True
-    weight: float = 1.0
-
-
-@dataclass
-class GraphModel:
-    title: str = "gtopt Network"
-    nodes: list[Node] = field(default_factory=list)
-    edges: list[Edge] = field(default_factory=list)
-
-    def add_node(self, n: Node) -> None:
-        self.nodes.append(n)
-
-    def add_edge(self, e: Edge) -> None:
-        self.edges.append(e)
+_build_voltage_map = _build_voltage_map_impl
+_count_visible_buses = _count_visible_buses_impl
+_resolve_bus_ref = _resolve_bus_ref_impl
+# auto_voltage_threshold imported directly at top of file
 
 
 # ---------------------------------------------------------------------------
@@ -867,40 +552,8 @@ class GraphModel:
 # ---------------------------------------------------------------------------
 
 
-def _scalar(v) -> str:
-    if v is None:
-        return "\u2014"
-    if isinstance(v, int):
-        return str(v)
-    if isinstance(v, float):
-        if v == int(v):
-            return str(int(v))
-        return f"{v:.2f}"
-    if isinstance(v, list):
-        flat: list = []
-
-        def _flatten_values(x):  # noqa: ANN001
-            if isinstance(x, list):
-                for i in x:
-                    _flatten_values(i)
-            else:
-                flat.append(x)
-
-        _flatten_values(v)
-        if flat:
-            mn, mx = min(flat), max(flat)
-            return f"{_scalar(mn)}\u2026{_scalar(mx)}" if mn != mx else _scalar(mn)
-        return "\u2014"
-    if isinstance(v, str):
-        return f'"{v}"'
-    return str(v)
-
-
-def _resolve(arr: list[dict], ref) -> Optional[dict]:
-    for item in arr:
-        if item.get("uid") == ref or item.get("name") == ref:
-            return item
-    return None
+_scalar = _scalar_impl
+_resolve = _resolve_impl
 
 
 # ---------------------------------------------------------------------------
@@ -1045,26 +698,8 @@ def _gen_type_icon_svg(gen_type: str) -> str:
     return _GEN_TYPE_ICON_SVG.get(key) or _ICON_SVG.get("gen", "")
 
 
-def _icon_key_for_type(gen_type: str) -> str:
-    return {
-        "hydro": "gen_hydro",
-        "solar": "gen_solar",
-        "wind": "gen_solar",
-        "battery": "battery",
-        "nuclear": "gen",
-        "gas": "gen",
-        "thermal": "gen",
-    }.get(gen_type, "gen")
-
-
-def _dominant_kind(types: list) -> str:
-    counts: dict = {}
-    for t in types:
-        counts[t] = counts.get(t, 0) + 1
-    for p in ["hydro", "solar", "wind", "battery", "thermal"]:
-        if counts.get(p, 0) > 0:
-            return _GEN_TYPE_META.get(p, ("?", "⚡", "gen"))[2]
-    return "gen"
+_icon_key_for_type = _icon_key_for_type_impl
+_dominant_kind = _dominant_kind_impl
 
 
 # ---------------------------------------------------------------------------
