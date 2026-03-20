@@ -639,15 +639,33 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--pasada-hydro",
-        dest="pasada_hydro",
-        action=argparse.BooleanOptionalAction,
-        default=True,
+        "--pasada-mode",
+        dest="pasada_mode",
+        choices=["hydro", "flow-turbine", "profile"],
+        default="flow-turbine",
         help=(
-            "model pasada (run-of-river) centrals as full hydro topology "
-            "(junction, waterway, turbine, flow). Use --no-pasada-hydro "
-            "for the legacy generator-profile mode. (default: %(default)s)"
+            "how to model pasada (run-of-river) centrals: "
+            "'hydro' = full topology (junctions, waterways, turbines, flows); "
+            "'flow-turbine' = simplified (flow + turbine with flow ref, "
+            "no junctions/waterways); "
+            "'profile' = legacy generator profiles with normalized capacity "
+            "factors. (default: %(default)s)"
         ),
+    )
+    # Backward compatibility aliases
+    parser.add_argument(
+        "--pasada-hydro",
+        dest="pasada_mode",
+        action="store_const",
+        const="hydro",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--no-pasada-hydro",
+        dest="pasada_mode",
+        action="store_const",
+        const="profile",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "-V",
@@ -728,7 +746,11 @@ def build_options(args: argparse.Namespace) -> dict:
     if args.variable_scales_file is not None:
         opts["variable_scales_file"] = args.variable_scales_file
     opts["run_check"] = args.run_check
-    opts["pasada_hydro"] = args.pasada_hydro
+    # Pasada mode: "hydro", "flow-turbine", or "profile"
+    pasada_mode = getattr(args, "pasada_mode", "flow-turbine") or "flow-turbine"
+    opts["pasada_mode"] = pasada_mode
+    # Backward compat: pasada_hydro = True when mode is "hydro" or "flow-turbine"
+    opts["pasada_hydro"] = pasada_mode in ("hydro", "flow-turbine")
     return opts
 
 

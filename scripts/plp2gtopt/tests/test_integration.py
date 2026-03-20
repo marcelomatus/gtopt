@@ -1523,9 +1523,10 @@ def _check_2y_global_indicators(
     tmp_path: Path,
     case_name: str,
     *,
-    pasada_hydro: bool,
+    pasada_mode: str = "flow-turbine",
 ) -> None:
-    """Shared indicator check for plp_case_2y in both pasada modes."""
+    """Shared indicator check for plp_case_2y in all pasada modes."""
+    pasada_hydro = pasada_mode in ("hydro", "flow-turbine")
     from plp2gtopt.plp2gtopt import (  # noqa: PLC0415
         _extract_flow_central_names,
         _gtopt_element_counts,
@@ -1537,10 +1538,17 @@ def _check_2y_global_indicators(
     # --- Run full conversion (all stages, all scenarios) ---
     opts = _make_opts_2y(tmp_path, case_name)
     opts["pasada_hydro"] = pasada_hydro
+    opts["pasada_mode"] = pasada_mode
     convert_plp_case(opts)
 
     # --- PLP side: parse PLP data ---
-    parser = PLPParser({"input_dir": _PLPCase2Y, "pasada_hydro": pasada_hydro})
+    parser = PLPParser(
+        {
+            "input_dir": _PLPCase2Y,
+            "pasada_hydro": pasada_hydro,
+            "pasada_mode": pasada_mode,
+        }
+    )
     parser.parse_all()
 
     hydrology_indices = _plp_active_hydrology_indices(parser)
@@ -1605,15 +1613,14 @@ def _check_2y_global_indicators(
 
     # Pasada mode-specific assertions
     p_pasada = plp_counts.get("sub_pasada", 0)
-    if pasada_hydro:
-        # In hydro mode: no generator profiles, pasada become flows+turbines
-        assert gtopt_counts["generator_profiles"] == 0
-        assert gtopt_counts["flows"] > p_pasada, (
-            "Hydro mode should have pasada flows in flow_array"
-        )
-    else:
-        # In profile mode: generator profiles == pasada count
+    if pasada_mode == "profile":
+        # Profile mode: generator profiles == pasada count
         assert gtopt_counts["generator_profiles"] == p_pasada
+    else:
+        # Hydro or flow-turbine mode: no generator profiles
+        assert gtopt_counts["generator_profiles"] == 0
+        # Pasada centrals appear as flows (+ turbines)
+        assert gtopt_counts["flows"] > 0
 
     # Batteries match (plpcenbat + plpess)
     p_batteries = plp_counts.get("batteries", 0) + plp_counts.get("ess", 0)
@@ -1683,14 +1690,24 @@ def _check_2y_global_indicators(
 
 @pytest.mark.integration
 def test_plp_case_2y_global_indicators(tmp_path):
-    """plp_case_2y: indicators match in default pasada-hydro mode."""
-    _check_2y_global_indicators(tmp_path, "gtopt_case_2y_hydro", pasada_hydro=True)
+    """plp_case_2y: indicators match in default flow-turbine mode."""
+    _check_2y_global_indicators(
+        tmp_path, "gtopt_case_2y_ft", pasada_mode="flow-turbine"
+    )
+
+
+@pytest.mark.integration
+def test_plp_case_2y_global_indicators_hydro_mode(tmp_path):
+    """plp_case_2y: indicators match in full hydro topology mode."""
+    _check_2y_global_indicators(tmp_path, "gtopt_case_2y_hydro", pasada_mode="hydro")
 
 
 @pytest.mark.integration
 def test_plp_case_2y_global_indicators_profile_mode(tmp_path):
     """plp_case_2y: indicators match in legacy pasada-profile mode."""
-    _check_2y_global_indicators(tmp_path, "gtopt_case_2y_profile", pasada_hydro=False)
+    _check_2y_global_indicators(
+        tmp_path, "gtopt_case_2y_profile", pasada_mode="profile"
+    )
 
 
 @pytest.mark.integration

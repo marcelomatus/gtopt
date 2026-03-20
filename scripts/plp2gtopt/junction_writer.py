@@ -294,10 +294,10 @@ class JunctionWriter(BaseWriter):
                 central_parser.centrals_of_type.get("embalse", [])
                 + central_parser.centrals_of_type.get("serie", [])
             ) or []
-            # In hydro mode, pasada centrals with bus>0 get a full hydro
-            # topology.  Pasada with bus<=0 are isolated (no turbine, no
-            # generator) and are skipped entirely.
-            if self.options.get("pasada_hydro", False):
+            # In full-hydro mode, pasada centrals get junctions+waterways.
+            # In flow-turbine mode, they're handled separately (no junctions).
+            pasada_mode = self.options.get("pasada_mode", "flow-turbine")
+            if pasada_mode == "hydro":
                 items = items + [
                     c
                     for c in (central_parser.centrals_of_type.get("pasada", []) or [])
