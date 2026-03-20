@@ -2511,32 +2511,70 @@ _GRAPHVIZ_INSTALL_MSG = (
 )
 
 
-def _gv_node_label(node: Node, icon_path: Optional[str]) -> str:
+# Graphviz native shape mapping (distinct shapes for each element type)
+_GV_SHAPE_MAP: dict[str, str] = {
+    "bus": "box",
+    "gen": "invtriangle",
+    "gen_solar": "invtriangle",
+    "gen_hydro": "invtriangle",
+    "demand": "triangle",
+    "battery": "cylinder",
+    "converter": "ellipse",
+    "junction": "hexagon",
+    "reservoir": "box3d",
+    "reservoir_sm": "box3d",
+    "reservoir_md": "box3d",
+    "reservoir_lg": "box3d",
+    "turbine": "diamond",
+    "flow": "circle",
+    "filtration": "circle",
+    "reserve_zone": "star",
+    "gen_profile": "note",
+    "dem_profile": "note",
+}
+
+
+def _gv_node_attrs(node: Node, icon_path: Optional[str]) -> dict[str, str]:
+    """Return Graphviz node attributes with native shapes and filled colors."""
     bg = _PALETTE.get(node.kind, "#FFF")
     border = _PALETTE.get(f"{node.kind}_border", "#333")
-    lbl = (
-        node.label.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("\n", "<BR/>")
-    )
+    lbl = node.label.replace("\n", "\\n")
 
     if icon_path:
-        return (
-            f'<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4"'
-            f' BGCOLOR="{bg}" COLOR="{border}">'
-            f'<TR><TD ALIGN="CENTER"><IMG SRC="{icon_path}"/></TD></TR>'
-            f'<TR><TD ALIGN="CENTER">'
-            f'<FONT FACE="Arial" POINT-SIZE="10">{lbl}</FONT>'
-            f"</TD></TR></TABLE>>"
+        # Use image with HTML label (keeps TABLE for icon support)
+        html_lbl = (
+            node.label.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\n", "<BR/>")
         )
-    return (
-        f'<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="6"'
-        f' BGCOLOR="{bg}" COLOR="{border}">'
-        f'<TR><TD ALIGN="CENTER">'
-        f'<FONT FACE="Arial" POINT-SIZE="10"><B>{lbl}</B></FONT>'
-        f"</TD></TR></TABLE>>"
-    )
+        return {
+            "label": (
+                f'<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="4">'
+                f'<TR><TD ALIGN="CENTER"><IMG SRC="{icon_path}"/></TD></TR>'
+                f'<TR><TD ALIGN="CENTER">'
+                f'<FONT FACE="Arial" POINT-SIZE="9">{html_lbl}</FONT>'
+                f"</TD></TR></TABLE>>"
+            ),
+            "shape": "none",
+        }
+
+    shape = _GV_SHAPE_MAP.get(node.kind, "ellipse")
+    width = str(max(0.5, node.size / 30.0)) if node.size > 0 else ""
+    attrs: dict[str, str] = {
+        "label": lbl,
+        "shape": shape,
+        "style": "filled",
+        "fillcolor": bg,
+        "color": border,
+        "fontname": "Arial",
+        "fontsize": "9",
+        "penwidth": "1.5",
+    }
+    if width:
+        attrs["width"] = width
+        attrs["height"] = width
+    return attrs
 
 
 def render_graphviz(
@@ -2566,7 +2604,7 @@ def render_graphviz(
         nodesep="0.6",
         ranksep="1.0",
     )
-    dot.attr("node", margin="0.05,0.05", shape="none")
+    dot.attr("node", margin="0.05,0.05", fontname="Arial", fontsize="9")
     dot.attr("edge", fontname="Arial", fontsize="9", penwidth="1.5")
 
     elec_nodes = {n.node_id for n in model.nodes if n.cluster == "electrical"}
@@ -2575,11 +2613,9 @@ def render_graphviz(
 
     def add_node(d, node: Node) -> None:
         icon = _icon_png_path(node.kind)
-        d.node(
-            node.node_id,
-            label=_gv_node_label(node, icon),
-            tooltip=node.tooltip or node.label,
-        )
+        attrs = _gv_node_attrs(node, icon)
+        attrs["tooltip"] = node.tooltip or node.label
+        d.node(node.node_id, **attrs)
 
     if has_both and use_clusters:
         with dot.subgraph(name="cluster_elec") as c:
