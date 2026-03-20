@@ -475,11 +475,31 @@ class GTOptWriter:
         ).to_json_array()
 
     def process_afluents(self, options):
-        """Process generator profile data to include block and stage information."""
+        """Write affluent/discharge Parquet files.
+
+        In pasada-hydro mode, pasada centrals with bus<=0 are excluded
+        from the Parquet output (they are isolated hydro nodes with no
+        electrical connection and no turbine).
+        """
         centrals = self.parser.parsed_data.get("central_parser", [])
         blocks = self.parser.parsed_data.get("block_parser", None)
         aflces = self.parser.parsed_data.get("aflce_parser", [])
         scenarios = self.planning["simulation"]["scenario_array"]
+
+        # Filter out pasada bus<=0 affluents in hydro mode
+        if options.get("pasada_hydro", False) and aflces and centrals:
+            excluded: set[str] = set()
+            for c in centrals.centrals_of_type.get("pasada", []):
+                if c.get("bus", 0) <= 0:
+                    excluded.add(c["name"])
+            if excluded:
+                aflces_items = [
+                    f for f in aflces.flows if f.get("name") not in excluded
+                ]
+            else:
+                aflces_items = None  # use default (all)
+        else:
+            aflces_items = None
 
         output_dir = Path(options["output_dir"]) if options else Path("results")
         output_dir = output_dir / "Flow"
@@ -493,7 +513,7 @@ class GTOptWriter:
             options,
         )
 
-        aflce_writer.to_parquet(output_dir)
+        aflce_writer.to_parquet(output_dir, items=aflces_items)
 
     def process_junctions(self, options):
         """Process generator profile data to include block and stage information."""
