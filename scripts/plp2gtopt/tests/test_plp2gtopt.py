@@ -1048,19 +1048,19 @@ def test_generate_variable_scales_template_with_reservoirs(tmp_path):
     assert len(parsed) == 3
 
     # Rsv1: fescala=3 -> scale = 10^(3-6) = 0.001
-    rsv1 = [e for e in parsed if e["_name"] == "Rsv1"][0]
+    rsv1 = [e for e in parsed if e["name"] == "Rsv1"][0]
     assert rsv1["class_name"] == "Reservoir"
     assert rsv1["variable"] == "volume"
     assert rsv1["scale"] == pytest.approx(0.001)
     assert rsv1["_fescala"] == 3
 
     # Rsv2: fallback to central vol_scale = 0.5
-    rsv2 = [e for e in parsed if e["_name"] == "Rsv2"][0]
+    rsv2 = [e for e in parsed if e["name"] == "Rsv2"][0]
     assert rsv2["scale"] == pytest.approx(0.5)
     assert "_fescala" not in rsv2
 
     # Bat1: default battery scale = 0.01
-    bat1 = [e for e in parsed if e["_name"] == "Bat1"][0]
+    bat1 = [e for e in parsed if e["name"] == "Bat1"][0]
     assert bat1["class_name"] == "Battery"
     assert bat1["variable"] == "energy"
     assert bat1["scale"] == pytest.approx(0.01)

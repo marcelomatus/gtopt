@@ -614,3 +614,154 @@ TEST_CASE(  // NOLINT
   CHECK(obj_scale_10 == doctest::Approx(obj_scale_1).epsilon(1e-8));
   CHECK(obj_scale_100 == doctest::Approx(obj_scale_1).epsilon(1e-8));
 }
+
+/// Verify that Options::variable_scales affects the Battery energy scale
+/// the same way as the per-element Battery::energy_scale field.
+/// This confirms the JSON variable_scales mechanism is not ignored by
+/// checking both solution invariance AND that LP column bounds actually change.
+TEST_CASE(  // NOLINT
+    "Battery variable_scales option – invariance and LP coefficient change")
+{
+  struct ScaleResult
+  {
+    double objective;
+    double max_col_upper;  // max upper bound among columns with the scale
+  };
+
+  // Helper: builds and solves a battery LP using Options::variable_scales
+  // (NOT Battery::energy_scale) and returns the objective + max scaled bound.
+  auto solve_with_variable_scales = [](double scale) -> ScaleResult
+  {
+    const Array<Bus> bus_array = {
+        {
+            .uid = Uid {1},
+            .name = "b1",
+        },
+    };
+
+    const Array<Generator> generator_array = {
+        {
+            .uid = Uid {1},
+            .name = "g1",
+            .bus = Uid {1},
+            .gcost = 20.0,
+            .capacity = 200.0,
+        },
+    };
+
+    const Array<Demand> demand_array = {
+        {
+            .uid = Uid {1},
+            .name = "d1",
+            .bus = Uid {1},
+            .lmax = 100.0,
+        },
+    };
+
+    // NOTE: no energy_scale set on the battery — default is used
+    const Array<Battery> battery_array = {
+        {
+            .uid = Uid {1},
+            .name = "bat1",
+            .bus = Uid {1},
+            .input_efficiency = 0.95,
+            .output_efficiency = 0.95,
+            .emin = 0.0,
+            .emax = 200.0,
+            .eini = 50.0,
+            .capacity = 200.0,
+        },
+    };
+
+    const Simulation simulation = {
+        .block_array =
+            {
+                {
+                    .uid = Uid {1},
+                    .duration = 1,
+                },
+                {
+                    .uid = Uid {2},
+                    .duration = 1,
+                },
+            },
+        .stage_array =
+            {
+                {
+                    .uid = Uid {1},
+                    .first_block = 0,
+                    .count_block = 2,
+                },
+            },
+        .scenario_array =
+            {
+                {
+                    .uid = Uid {0},
+                },
+            },
+    };
+
+    const System system = {
+        .name = "VarScaleInvariance",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .battery_array = battery_array,
+    };
+
+    Options opts;
+    opts.demand_fail_cost = 1000.0;
+    // Set energy scale via variable_scales option (not per-element field)
+    opts.variable_scales = {
+        {
+            .class_name = "Battery",
+            .variable = "energy",
+            .uid = Uid {1},
+            .scale = scale,
+            .name = "bat1",
+        },
+    };
+    const OptionsLP options {opts};
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+
+    auto& li = system_lp.linear_interface();
+    const auto result = li.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+
+    // Verify the scale factor is stored in LP column scales.
+    // Energy columns get scale = energy_scale; find the maximum upper
+    // bound among columns with that scale to prove the LP changed.
+    const auto& col_scales = li.get_col_scales();
+    REQUIRE_FALSE(col_scales.empty());
+    const auto col_upp = li.get_col_upp();
+    const auto ncols = static_cast<std::size_t>(li.get_numcols());
+    double max_upp = 0.0;
+    int n_scaled = 0;
+    for (std::size_t i = 0; i < ncols; ++i) {
+      if (col_scales[i] == doctest::Approx(scale).epsilon(1e-12)) {
+        ++n_scaled;
+        max_upp = std::max(max_upp, col_upp[ColIndex {static_cast<Index>(i)}]);
+      }
+    }
+    // Multiple energy columns (eini + per-block) should carry the scale
+    REQUIRE(n_scaled > 0);
+
+    return {.objective = li.get_obj_value(), .max_col_upper = max_upp};
+  };
+
+  // Use scales != 1.0 to distinguish energy columns from unscaled columns
+  const auto [obj_10, max_10] = solve_with_variable_scales(10.0);
+  const auto [obj_100, max_100] = solve_with_variable_scales(100.0);
+
+  // Objective invariance: same physical solution regardless of scale
+  CHECK(obj_100 == doctest::Approx(obj_10).epsilon(1e-8));
+
+  // LP coefficient change: emax=200, so max LP upper bound = 200/scale.
+  // scale=10 → max_upp=20, scale=100 → max_upp=2.
+  // If variable_scales were ignored, both would use default scale=1 → 200.
+  CHECK(max_10 == doctest::Approx(200.0 / 10.0).epsilon(1e-10));
+  CHECK(max_100 == doctest::Approx(200.0 / 100.0).epsilon(1e-10));
+  CHECK(max_10 != doctest::Approx(max_100));  // Proves they differ
+}

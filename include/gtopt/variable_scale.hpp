@@ -52,6 +52,7 @@ struct VariableScale
   Name variable {};  ///< Variable name (e.g. "theta", "volume", "energy")
   Uid uid {unknown_uid};  ///< Element UID (unknown_uid = all elements)
   Real scale {1.0};  ///< physical = LP × scale
+  Name name {};  ///< Element name (informational, not used for lookup)
 };
 
 /**
