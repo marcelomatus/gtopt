@@ -2505,6 +2505,7 @@ def model_to_visjs(model: GraphModel) -> dict:
 
 
 def _legend_html(model: GraphModel) -> str:
+    """Build an HTML legend that matches the actual vis.js node shapes and colors."""
     kinds = {n.kind for n in model.nodes}
     labels = {
         "bus": "Bus (electrical node)",
@@ -2520,19 +2521,38 @@ def _legend_html(model: GraphModel) -> str:
         "flow": "Inflow / outflow",
         "filtration": "Filtration / seepage",
     }
+    # SVG path snippets that approximate vis.js node shapes
+    _shape_svg = {
+        "square": '<rect x="1" y="1" width="14" height="14"/>',
+        "triangle": '<polygon points="8,1 15,15 1,15"/>',
+        "triangleDown": '<polygon points="1,1 15,1 8,15"/>',
+        "diamond": '<polygon points="8,1 15,8 8,15 1,8"/>',
+        "hexagon": '<polygon points="4,1 12,1 15,8 12,15 4,15 1,8"/>',
+        "box": '<rect x="1" y="3" width="14" height="10" rx="2"/>',
+        "database": '<ellipse cx="8" cy="5" rx="7" ry="3"/>'
+        '<rect x="1" y="5" width="14" height="7"/>'
+        '<ellipse cx="8" cy="12" rx="7" ry="3"/>',
+        "ellipse": '<ellipse cx="8" cy="8" rx="7" ry="6"/>',
+        "dot": '<circle cx="8" cy="8" r="6"/>',
+    }
     entries = []
     for kind, lbl in labels.items():
         if kind not in kinds:
             continue
-        icon = _MM_ICONS.get(kind, "\u25cf")
-        bg = _PALETTE.get(kind, "#EEE")
-        bd = _PALETTE.get(f"{kind}_border", "#999")
+        colors = _PYVIS_COLORS.get(kind, {"background": "#F0F0F0", "border": "#555"})
+        bg = colors["background"]
+        bd = colors["border"]
+        shape_name = _PYVIS_SHAPE_MAP.get(kind, "dot")
+        svg_inner = _shape_svg.get(shape_name, _shape_svg["dot"])
+        svg = (
+            f'<svg width="16" height="16" viewBox="0 0 16 16"'
+            f' xmlns="http://www.w3.org/2000/svg">'
+            f'<g fill="{bg}" stroke="{bd}" stroke-width="1.5">'
+            f"{svg_inner}</g></svg>"
+        )
         entries.append(
             f'<div style="display:flex;align-items:center;gap:8px;margin:3px 0">'
-            f'<span style="width:16px;height:16px;background:{bg};border:2px solid {bd};'
-            f"border-radius:3px;display:inline-block;text-align:center;"
-            f'line-height:14px;font-size:11px">{icon}</span>'
-            f"<span>{lbl}</span></div>"
+            f"{svg}<span>{lbl}</span></div>"
         )
     return (
         '<div style="position:fixed;bottom:20px;right:20px;'
