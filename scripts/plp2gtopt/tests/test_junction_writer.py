@@ -425,19 +425,19 @@ def test_multiple_plants_and_interactions(sample_central_parser, sample_extrac_p
     )
     result = writer.to_json_array()[0]
 
-    # 3 plant junctions + 2 ocean junctions (PlantB ser_hid=0 + PlantC ser_hid=0)
-    assert len(result["junction_array"]) == 5
+    # PlantA (2 junctions via ser_hid/ser_ver) + PlantB (1 junction + 1 ocean)
+    # PlantC (serie, bus=0, ser_hid=0, ser_ver=0) is skipped (isolated)
+    assert len(result["junction_array"]) == 3
 
     # PlantA: gen+ver waterways (2), PlantB: gen(ocean)+ver (2),
-    # PlantC: gen(ocean) (1), extraction (1) = 6
-    assert len(result["waterway_array"]) == 6
+    # extraction (1) = 5 (PlantC skipped)
+    assert len(result["waterway_array"]) == 5
 
     # PlantA (bus=101, ser_hid=2) + PlantB (bus=102, ocean gen) = 2 turbines
-    # PlantC has bus=0 → no turbine
     assert len(result["turbine_array"]) == 2
 
-    # 2 flows for PlantA and PlantC
-    assert len(result["flow_array"]) == 2
+    # 1 flow for PlantA only (PlantC skipped)
+    assert len(result["flow_array"]) == 1
 
 
 # ─── Filtration and efficiency tests ────────────────────────────────────────
@@ -897,3 +897,125 @@ def test_efficiency_debug_for_bus_zero_central(caplog):
     assert warning_records == [], (
         f"Unexpected WARNING for bus<=0 central: {warning_records}"
     )
+
+
+# ─── Isolated central tests (bus<=0, ser_hid=0, ser_ver=0) ──────────────
+
+
+def test_isolated_serie_bus_zero_skipped():
+    """Serie central with bus=0, ser_hid=0, ser_ver=0 produces no elements."""
+    central = {
+        "name": "IsolatedSerie",
+        "number": 99,
+        "type": "serie",
+        "bus": 0,
+        "pmin": 0,
+        "pmax": 10,
+        "vert_min": 0,
+        "vert_max": 0,
+        "efficiency": 1.0,
+        "ser_hid": 0,
+        "ser_ver": 0,
+        "afluent": 5.0,
+    }
+    writer = JunctionWriter(central_parser=MockCentralParser([central]))
+    result = writer.to_json_array()[0]
+    assert not result["junction_array"]
+    assert not result["waterway_array"]
+    assert not result["flow_array"]
+    assert not result["turbine_array"]
+
+
+def test_isolated_pasada_bus_zero_skipped():
+    """Pasada central with bus=0 is not included in hydro mode."""
+    central = {
+        "name": "IsolatedPasada",
+        "number": 88,
+        "type": "pasada",
+        "bus": 0,
+        "pmin": 0,
+        "pmax": 5,
+        "vert_min": 0,
+        "vert_max": 0,
+        "efficiency": 1.0,
+        "ser_hid": 0,
+        "ser_ver": 0,
+        "afluent": 3.0,
+    }
+    writer = JunctionWriter(
+        central_parser=MockCentralParser([central]),
+        options={"pasada_hydro": True},
+    )
+    # Pasada bus<=0 filtered in items selection, so no items → empty result
+    result = writer.to_json_array()
+    assert result == []
+
+
+def test_serie_bus_zero_with_ser_hid_not_skipped():
+    """Serie with bus=0 but ser_hid>0 is NOT skipped (part of hydro cascade)."""
+    centrals = [
+        {
+            "name": "CascadeSerie",
+            "number": 70,
+            "type": "serie",
+            "bus": 0,
+            "pmin": 0,
+            "pmax": 50,
+            "vert_min": 0,
+            "vert_max": 0,
+            "efficiency": 0.9,
+            "ser_hid": 71,  # connects to another junction
+            "ser_ver": 72,
+            "afluent": 10.0,
+        },
+        {
+            "name": "DownstreamEmbalse",
+            "number": 71,
+            "type": "embalse",
+            "bus": 100,
+            "pmin": 0,
+            "pmax": 200,
+            "vert_min": 0,
+            "vert_max": 0,
+            "efficiency": 1.5,
+            "ser_hid": 0,
+            "ser_ver": 0,
+            "afluent": 0.0,
+            "vol_ini": 500,
+            "vol_fin": 400,
+            "emin": 100,
+            "emax": 1000,
+        },
+    ]
+    writer = JunctionWriter(central_parser=MockCentralParser(centrals))
+    result = writer.to_json_array()[0]
+    # CascadeSerie should create a junction (not skipped)
+    names = {j["name"] for j in result["junction_array"]}
+    assert "CascadeSerie" in names
+
+
+def test_embalse_bus_zero_never_skipped():
+    """Embalse with bus=0 is never skipped (always creates reservoir)."""
+    central = {
+        "name": "DamOnly",
+        "number": 50,
+        "type": "embalse",
+        "bus": 0,
+        "pmin": 0,
+        "pmax": 0,
+        "vert_min": 0,
+        "vert_max": 0,
+        "efficiency": 0.0,
+        "ser_hid": 0,
+        "ser_ver": 0,
+        "afluent": 0.0,
+        "vol_ini": 100,
+        "vol_fin": 80,
+        "emin": 10,
+        "emax": 200,
+    }
+    writer = JunctionWriter(central_parser=MockCentralParser([central]))
+    result = writer.to_json_array()[0]
+    # Embalse always creates junction + reservoir
+    assert len(result["junction_array"]) >= 1
+    assert len(result["reservoir_array"]) == 1
