@@ -1384,7 +1384,11 @@ class TopologyBuilder:
             cap = _scalar(t.get("capacity"))
             cr = _scalar(t.get("conversion_rate"))
             tid = self._tid(t)
-            lbl = str(name) if self.opts.compact else f"{name}\n{cap} MW  cr={cr}"
+            lbl = (
+                str(name)
+                if self.opts.compact
+                else f"[Turbine] {name}\n{cap} MW  cr={cr}"
+            )
             self.model.add_node(
                 Node(
                     node_id=tid,
@@ -1436,13 +1440,19 @@ class TopologyBuilder:
                     if gen:
                         gname = _elem_name(gen)
                         pmax = _scalar(gen.get("pmax") or gen.get("capacity"))
+                        gtype = gen.get("type", "hydro")
+                        glbl = (
+                            str(gname)
+                            if self.opts.compact
+                            else f"[Gen {gtype}] {gname}\n{pmax} MW"
+                        )
                         self.model.add_node(
                             Node(
                                 node_id=gen_id,
-                                label=f"{gname}\n{pmax} MW",
+                                label=glbl,
                                 kind="gen_hydro",
                                 cluster="hydro",
-                                tooltip=f"Generator uid={gen.get('uid')} pmax={pmax}",
+                                tooltip=f"Generator uid={gen.get('uid')} type={gtype} pmax={pmax}",
                             )
                         )
                 self.model.add_edge(
