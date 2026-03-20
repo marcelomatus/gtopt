@@ -437,6 +437,12 @@ _PALETTE_COLORBLIND: dict[str, str] = {
     "junction_border": "#1B5E20",
     "reservoir": "#E1F5FE",
     "reservoir_border": "#01579B",
+    "reservoir_sm": "#E1F5FE",
+    "reservoir_sm_border": "#4FC3F7",
+    "reservoir_md": "#81D4FA",
+    "reservoir_md_border": "#0288D1",
+    "reservoir_lg": "#039BE5",
+    "reservoir_lg_border": "#01579B",
     "turbine": "#E8F5E9",
     "turbine_border": "#1B5E20",
     "flow": "#E1F5FE",
@@ -472,6 +478,19 @@ _LINE_VOLTAGE_BANDS: list[tuple[float, str, float]] = [
 ]
 
 
+def _reservoir_intensity(rel: float) -> str:
+    """Return an intensity suffix based on relative reservoir capacity.
+
+    The suffix maps to palette entries ``reservoir_sm``, ``reservoir_md``,
+    ``reservoir_lg`` with progressively darker blue fills.
+    """
+    if rel >= 0.66:
+        return "lg"
+    if rel >= 0.33:
+        return "md"
+    return "sm"
+
+
 def _line_color_width(kv: float) -> tuple[str, float]:
     """Return (color, width) for a line based on its voltage level."""
     for min_kv, color, width in _LINE_VOLTAGE_BANDS:
@@ -491,6 +510,9 @@ _LEGEND_LABELS: dict[str, str] = {
     "converter": "Converter",
     "junction": "Junction",
     "reservoir": "Reservoir",
+    "reservoir_sm": "Reservoir (small)",
+    "reservoir_md": "Reservoir (medium)",
+    "reservoir_lg": "Reservoir (large)",
     "turbine": "Turbine",
     "flow": "Flow",
     "filtration": "Filtration",
@@ -560,6 +582,9 @@ _PYVIS_COLORS: dict[str, dict] = {
     "converter": {"background": "#D6EAF8", "border": "#1F618D"},
     "junction": {"background": "#EAFAF1", "border": "#1E8449"},
     "reservoir": {"background": "#EBF5FB", "border": "#1A5276"},
+    "reservoir_sm": {"background": "#E1F5FE", "border": "#4FC3F7"},
+    "reservoir_md": {"background": "#81D4FA", "border": "#0288D1"},
+    "reservoir_lg": {"background": "#039BE5", "border": "#01579B"},
     "turbine": {"background": "#D1F2EB", "border": "#1E8449"},
     "flow": {"background": "#EAF2FF", "border": "#2980B9"},
     "filtration": {"background": "#EAECEE", "border": "#717D7E"},
@@ -578,6 +603,9 @@ _PYVIS_SHAPE_MAP: dict[str, str] = {
     "converter": "ellipse",
     "junction": "hexagon",
     "reservoir": "box",
+    "reservoir_sm": "box",
+    "reservoir_md": "box",
+    "reservoir_lg": "box",
     "turbine": "diamond",
     "flow": "dot",
     "filtration": "dot",
@@ -1483,17 +1511,30 @@ class TopologyBuilder:
                 )
 
     def _reservoirs(self):
+        # Collect all emax values to compute relative sizes and colors
+        all_emax = []
+        for r in self.sys.get("reservoir_array", []):
+            val = _gen_pmax({"pmax": r.get("emax") or r.get("capacity")})
+            if val > 0:
+                all_emax.append(val)
+        max_emax = max(all_emax) if all_emax else 1.0
+
         for r in self.sys.get("reservoir_array", []):
             name = _elem_name(r)
+            emax_val = _gen_pmax({"pmax": r.get("emax") or r.get("capacity")})
             emax = _scalar(r.get("emax") or r.get("capacity"))
             lbl = str(name) if self.opts.compact else f"{name}\n{emax} dam³"
+            # Relative size: 0.0 (smallest) to 1.0 (largest)
+            rel = emax_val / max_emax if max_emax > 0 else 0.5
+            node_size = 20.0 + 30.0 * rel
             self.model.add_node(
                 Node(
                     node_id=self._rid(r),
                     label=lbl,
-                    kind="reservoir",
+                    kind=f"reservoir_{_reservoir_intensity(rel)}",
                     cluster="hydro",
                     tooltip=f"Reservoir uid={r.get('uid')} emax={emax}",
+                    size=node_size,
                 )
             )
             junc_id = self._find_node_id("junction_array", r.get("junction"), self._jid)
@@ -2716,7 +2757,9 @@ def model_to_visjs(model: GraphModel) -> dict:
                 "title": node.tooltip or node.label,
                 "shape": _PYVIS_SHAPE_MAP.get(node.kind, "dot"),
                 "color": colors,
-                "size": _PYVIS_SIZE_MAP.get(node.kind, 20),
+                "size": node.size
+                if node.size > 0
+                else _PYVIS_SIZE_MAP.get(node.kind, 20),
                 "kind": node.kind,
                 "group": node.cluster or node.kind,
             }
@@ -2861,7 +2904,7 @@ def render_html(model: GraphModel, output_path: str) -> str:
             _PYVIS_COLORS.get(node.kind, {"background": "#FFF", "border": "#333"})
         )
         color["highlight"] = {"background": color["background"], "border": "#E74C3C"}
-        size = _PYVIS_SIZE_MAP.get(node.kind, 20)
+        size = int(node.size) if node.size > 0 else _PYVIS_SIZE_MAP.get(node.kind, 20)
 
         if icon_path:
             net.add_node(
