@@ -410,10 +410,11 @@ class GTOptWriter:
 
         self.planning["simulation"]["aperture_array"] = result.aperture_array
 
-        # Add aperture-only scenarios to scenario_array so the C++ solver
-        # can find them when resolving aperture source_scenario UIDs.
-        if result.extra_scenarios:
-            scenarios.extend(result.extra_scenarios)
+        # Do NOT add aperture-only scenarios to scenario_array — the C++
+        # solver builds full LP and output for every scenario in the array.
+        # Aperture-only scenarios are served from the aperture_directory;
+        # the C++ aperture solver skips source_scenarios it can't find
+        # (with an info log) and uses fallback Benders cuts instead.
 
         # Build hydro→uid map for the extra scenarios (used by parquet writer)
         hydro_uid_map: dict[int, int] = {}
