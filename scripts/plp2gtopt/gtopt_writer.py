@@ -274,7 +274,9 @@ class GTOptWriter:
             return list(range(1, num_hydro + 1))
 
         if spec == "0":
-            # List available scenarios and return without creating any
+            # List available scenarios and exit (informational query)
+            import sys  # noqa: PLC0415
+
             all_hydros = _all_hydro_indices()
             source = (
                 "plpidsim.dat"
@@ -294,7 +296,7 @@ class GTOptWriter:
                 "  Use -y <index> or -y <i1>,<i2>,... to select, "
                 "or --first-scenario for the first one"
             )
-            return
+            sys.exit(0)
 
         if spec in ("all", "first"):
             all_hydros = _all_hydro_indices()
