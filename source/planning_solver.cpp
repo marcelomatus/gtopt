@@ -249,6 +249,7 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options,
       sddp_opts.multi_cut_threshold = options.sddp_multi_cut_threshold();
       sddp_opts.num_apertures = options.sddp_num_apertures();
       sddp_opts.aperture_timeout = options.sddp_aperture_timeout();
+      sddp_opts.save_aperture_lp = options.sddp_save_aperture_lp();
       sddp_opts.warm_start = options.sddp_warm_start();
       sddp_opts.solve_timeout = options.sddp_solve_timeout();
       sddp_opts.alpha_min = options.sddp_alpha_min();

@@ -1998,6 +1998,7 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
                                 phase_uid(phase),
                                 make_aperture_resolve_fn(),
                                 m_options_.aperture_timeout,
+                                m_options_.save_aperture_lp,
                                 target_state.forward_col_sol,
                                 target_state.forward_row_dual);
 
@@ -2213,6 +2214,7 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
                                   phase_uid(phase),
                                   resolve_fn,
                                   0.0,
+                                  m_options_.save_aperture_lp,
                                   target_state.forward_col_sol,
                                   target_state.forward_row_dual);
 

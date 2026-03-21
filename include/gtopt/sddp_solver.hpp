@@ -262,6 +262,9 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// with the remaining apertures.  0 = no timeout (default).
   double aperture_timeout {0.0};
 
+  /// Save LP files for infeasible apertures to log_directory (default: false).
+  bool save_aperture_lp {false};
+
   /// Enable warm-start optimizations for SDDP resolves (forward pass,
   /// backward pass, apertures, elastic filter).  When true, resolves use
   /// dual simplex + no presolve, pivoting from the saved forward-pass

@@ -122,6 +122,7 @@ auto solve_apertures_for_phase(SceneIndex scene,
                                int phase_uid,
                                const ApertureResolveFunc& resolve_fn,
                                double aperture_timeout,
+                               bool save_aperture_lp,
                                std::span<const double> forward_col_sol,
                                std::span<const double> forward_row_dual)
     -> std::optional<SparseRow>
@@ -247,12 +248,9 @@ auto solve_apertures_for_phase(SceneIndex scene,
           ap_uid,
           status);
 
-      // Save the infeasible aperture LP for later inspection only in
-      // trace/debug mode — aperture infeasibility is expected in some
-      // scenarios and writing LPs during normal SDDP iteration is
-      // expensive.
-      if (!log_directory.empty() && spdlog::get_level() <= spdlog::level::info)
-      {
+      // Save the infeasible aperture LP when explicitly enabled via
+      // sddp_options.save_aperture_lp (default: false).
+      if (save_aperture_lp && !log_directory.empty()) {
         std::filesystem::create_directories(log_directory);
         const auto err_stem = (std::filesystem::path(log_directory)
                                / std::format("error_aperture_sc_{}_ph_{}_ap_{}",
