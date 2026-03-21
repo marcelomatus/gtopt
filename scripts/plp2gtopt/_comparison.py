@@ -77,12 +77,16 @@ def _plp_element_counts(parser: PLPParser) -> dict[str, Any]:
     if stage_parser:
         counts["stages"] = getattr(stage_parser, "num_stages", 0)
 
-    # Hydrology count (number of raw hydrology columns in plpaflce.dat)
-    # and affluent count/names — only embalse/serie/pasada centrals that
-    # have flow data in plpaflce.dat (excludes termica, falla, bateria)
+    # Hydrology count: use active simulations from plpidsim.dat when
+    # available (matches process_scenarios "all" logic), otherwise fall
+    # back to raw hydrology columns in plpaflce.dat.
     aflce_parser = pdata.get("aflce_parser")
-    if aflce_parser and aflce_parser.items:
+    active_hydros = _plp_active_hydrology_indices(parser)
+    if active_hydros is not None:
+        counts["hydrologies"] = len(active_hydros)
+    elif aflce_parser and aflce_parser.items:
         counts["hydrologies"] = aflce_parser.items[0].get("num_hydrologies", 0)
+    if aflce_parser and aflce_parser.items:
         hydro_types = {"embalse", "serie", "pasada"}
         hydro_affluent_names: list[str] = []
         for flow in aflce_parser.flows:
@@ -798,7 +802,7 @@ def _log_comparison(
     _row("stages", p_stages, g_stages)
     hydro_note = ""
     if p_hydrologies != g_scenarios and g_scenarios > 0:
-        hydro_note = "PLP=raw columns; gtopt=active from plpidsim"
+        hydro_note = "PLP=active from plpidsim; gtopt=selected via -y"
     _row("hydrologies / scenarios", p_hydrologies, g_scenarios, note=hydro_note)
 
     con.print(table)
