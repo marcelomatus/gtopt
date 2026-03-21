@@ -29,21 +29,15 @@
 
 #include <gtopt/aperture.hpp>
 #include <gtopt/aperture_data_cache.hpp>
-#include <gtopt/basic_types.hpp>
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/sddp_common.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/sparse_row.hpp>
 
 namespace gtopt
 {
-
-// Forward declarations
-class ScenarioLP;
-class SystemLP;
-class PhaseLP;
-struct PhaseStateInfo;
 
 // ─── Effective aperture entry ───────────────────────────────────────────────
 
@@ -155,7 +149,7 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
     std::span<const Aperture> aperture_defs,
     std::span<const Uid> phase_apertures,
     int total_cuts,
-    int iteration,
+    IterationIndex iteration,
     SystemLP& sys,
     const PhaseLP& phase_lp,
     const SolverOptions& opts,
