@@ -92,7 +92,7 @@ def test_pasada_with_aflce():
     assert len(result) == 1
     assert result[0]["uid"] == 1
     assert result[0]["name"] == "HydroGen"
-    assert result[0]["generator"] == 1
+    assert result[0]["generator"] == "HydroGen"
     assert result[0]["profile"] == "Flow@discharge"
 
 

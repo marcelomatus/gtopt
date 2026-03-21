@@ -11,6 +11,8 @@ from typing import Dict, Any
 
 from pathlib import Path
 
+_logger = logging.getLogger(__name__)
+
 from .plp_parser import PLPParser
 from .planos_writer import write_boundary_cuts_csv, write_hot_start_cuts_csv
 
@@ -253,25 +255,53 @@ class GTOptWriter:
         hydro_spec = options.get("hydrologies", "all")
         spec = (hydro_spec or "all").strip().lower()
 
-        if spec == "all":
+        # Helper: collect all available hydrology indices from PLP data
+        def _all_hydro_indices() -> list:
             if idsim_parser is not None and idsim_parser.num_simulations > 0:
-                # Collect the active hydrology classes from plpidsim.dat in
-                # simulation order (stage 1).  get_index: 0-based sim, 1-based stage.
-                hydro_indices_1based: list = []
-                seen: set = set()
+                indices: list = []
+                seen_h: set = set()
                 for sim_idx in range(idsim_parser.num_simulations):
                     h = idsim_parser.get_index(sim_idx, 1)
-                    if h is not None and h not in seen:
-                        seen.add(h)
-                        hydro_indices_1based.append(h)
+                    if h is not None and h not in seen_h:
+                        seen_h.add(h)
+                        indices.append(h)
+                return indices
+            aflce = self.parser.parsed_data.get("aflce_parser")
+            if aflce and aflce.items:
+                num_hydro = aflce.items[0].get("num_hydrologies", 1)
             else:
-                # No idsim → all raw hydrology columns in plpaflce.dat
-                aflce = self.parser.parsed_data.get("aflce_parser")
-                if aflce and aflce.items:
-                    num_hydro = aflce.items[0].get("num_hydrologies", 1)
-                else:
-                    num_hydro = 1
-                hydro_indices_1based = list(range(1, num_hydro + 1))
+                num_hydro = 1
+            return list(range(1, num_hydro + 1))
+
+        if spec == "0":
+            # List available scenarios and return without creating any
+            all_hydros = _all_hydro_indices()
+            source = (
+                "plpidsim.dat"
+                if (idsim_parser is not None and idsim_parser.num_simulations > 0)
+                else "plpaflce.dat"
+            )
+            _logger.info(
+                "Available scenarios (from %s): %d hydrologies",
+                source,
+                len(all_hydros),
+            )
+            _logger.info(
+                "  Hydrology indices (Fortran 1-based): %s",
+                ", ".join(str(h) for h in all_hydros),
+            )
+            _logger.info(
+                "  Use -y <index> or -y <i1>,<i2>,... to select, "
+                "or --first-scenario for the first one"
+            )
+            return
+
+        if spec in ("all", "first"):
+            all_hydros = _all_hydro_indices()
+            if spec == "first":
+                hydro_indices_1based = all_hydros[:1]
+            else:
+                hydro_indices_1based = all_hydros
         else:
             # Explicit 1-based raw hydrology column indices (Fortran convention).
             # "-y 55,56" = hydrology classes 55 and 56 from plpaflce.dat.
@@ -290,15 +320,14 @@ class GTOptWriter:
             ]
 
         scenarios = []
-        for i, (hydro_1based, factor) in enumerate(
-            zip(hydro_indices_1based, probability_factors)
-        ):
-            uid = i + 1  # 1-based UID
-            # Store 0-based index for plpaflce.dat column lookup
+        for hydro_1based, factor in zip(hydro_indices_1based, probability_factors):
+            # Scenario UID = Fortran 1-based hydrology index (PLP convention).
+            # This keeps -y values, scenario UIDs, and aperture source_scenario
+            # references all using the same numbering.
             hydro_0based = hydro_1based - 1
             scenarios.append(
                 {
-                    "uid": uid,
+                    "uid": hydro_1based,
                     "probability_factor": factor,
                     "hydrology": hydro_0based,
                 }
@@ -361,40 +390,39 @@ class GTOptWriter:
                 forward_hydros.add(hydro_0based)
 
         num_stages = len(self.planning["simulation"].get("stage_array", []))
+        max_scenario_uid = max((s["uid"] for s in scenarios), default=0)
 
-        aperture_array = build_aperture_array(
+        output_dir = Path(options.get("output_dir", ""))
+        aperture_dir = output_dir / "apertures"
+
+        result = build_aperture_array(
             idap2_parser=idap2_parser,
             scenario_hydro_map=scenario_hydro_map,
             num_stages=num_stages,
+            max_scenario_uid=max_scenario_uid,
+            aperture_directory=str(aperture_dir),
         )
 
-        if not aperture_array:
+        if not result.aperture_array:
             return
 
-        self.planning["simulation"]["aperture_array"] = aperture_array
+        self.planning["simulation"]["aperture_array"] = result.aperture_array
+
+        # Add aperture-only scenarios to scenario_array so the C++ solver
+        # can find them when resolving aperture source_scenario UIDs.
+        if result.extra_scenarios:
+            scenarios.extend(result.extra_scenarios)
+
+        # Build hydro→uid map for the extra scenarios (used by parquet writer)
+        hydro_uid_map: dict[int, int] = {}
+        for es in result.extra_scenarios:
+            hydro_uid_map[es["hydrology"]] = es["uid"]
 
         # Determine which aperture hydros are NOT in the forward set.
-        # Only consider stages that are actually included in the output
-        # (num_stages); plpidap2/plpidape are stage-indexed and the late
-        # stages may reference hydros outside the forward set.
-        aperture_hydros_0based: list = []
-        if idap2_parser is not None:
-            for entry in idap2_parser.items:
-                if 1 <= entry["stage"] <= num_stages:
-                    for h in entry["indices"]:
-                        aperture_hydros_0based.append(h - 1)
-        if idape_parser is not None:
-            for entry in idape_parser.items:
-                if 1 <= entry["stage"] <= num_stages:
-                    for h in entry["indices"]:
-                        aperture_hydros_0based.append(h - 1)
-
-        extra_hydros = set(aperture_hydros_0based) - forward_hydros
+        extra_hydros = set(hydro_uid_map.keys())
 
         # Write aperture-specific affluent data if needed
         if extra_hydros:
-            output_dir = Path(options.get("output_dir", ""))
-            aperture_dir = output_dir / "apertures"
             aperture_dir.mkdir(parents=True, exist_ok=True)
 
             aflce_parser = self.parser.parsed_data.get("aflce_parser", None)
@@ -409,6 +437,7 @@ class GTOptWriter:
                 forward_hydros=forward_hydros,
                 output_dir=aperture_dir,
                 options=options,
+                hydro_uid_map=hydro_uid_map,
             )
 
             # Set aperture_directory in sddp_options
@@ -419,14 +448,14 @@ class GTOptWriter:
         # Auto-set num_apertures from PLP data when not explicitly configured
         sddp_opts = self.planning["options"].get("sddp_options", {})
         if "num_apertures" not in sddp_opts:
-            sddp_opts["num_apertures"] = len(aperture_array)
+            sddp_opts["num_apertures"] = len(result.aperture_array)
             self.planning["options"]["sddp_options"] = sddp_opts
 
         # Populate per-phase aperture_set from stage-indexed PLP data
         phase_array = self.planning["simulation"].get("phase_array", [])
         build_phase_aperture_sets(
             idap2_parser=idap2_parser,
-            aperture_array=aperture_array,
+            aperture_array=result.aperture_array,
             phase_array=phase_array,
             num_stages=num_stages,
         )
@@ -830,28 +859,30 @@ class GTOptWriter:
     def process_variable_scales(self, options):
         """Build ``variable_scales`` entries in the options section.
 
-        Generates VariableScale JSON entries for reservoir volume scaling
+        Generates VariableScale JSON entries for reservoir energy scaling
         and battery energy scaling, using the ``variable_scales`` mechanism
         in ``Options`` rather than per-element fields.
 
         Scale priority (highest to lowest):
-        1. Explicit ``--vol-scale`` / ``--energy-scale`` name:value entries.
-        2. ``--auto-vol-scale`` / ``--auto-energy-scale`` (ON by default).
+        1. Explicit ``--rsv-energy-scale`` / ``--energy-scale`` name:value.
+        2. ``--auto-rsv-energy-scale`` / ``--auto-energy-scale`` (ON default).
         3. ``--variable-scales-file`` entries (lowest priority).
 
-        Auto-scaling is enabled by default.  Use ``--no-auto-vol-scale``
+        Auto-scaling is enabled by default.  Use ``--no-auto-rsv-energy-scale``
         and/or ``--no-auto-energy-scale`` to disable.
         """
         if not options:
             return
 
-        has_vol = "vol_scale" in options or options.get("auto_vol_scale", False)
-        has_energy = "energy_scale" in options or options.get(
-            "auto_energy_scale", False
+        has_rsv = "rsv_energy_scale" in options or options.get(
+            "auto_rsv_energy_scale", False
+        )
+        has_bat = "bat_energy_scale" in options or options.get(
+            "auto_bat_energy_scale", False
         )
         has_file = "variable_scales_file" in options
 
-        if not has_vol and not has_energy and not has_file:
+        if not has_rsv and not has_bat and not has_file:
             return
 
         # --- Load file-based scales first (lowest priority) ---
@@ -872,10 +903,10 @@ class GTOptWriter:
 
         scales: list[dict] = []
 
-        # --- Reservoir volume scales ---
-        if has_vol:
-            explicit_vol: dict = options.get("vol_scale", {})
-            auto_vol = options.get("auto_vol_scale", False)
+        # --- Reservoir energy scales ---
+        if has_rsv:
+            explicit_rsv: dict = options.get("rsv_energy_scale", {})
+            auto_rsv = options.get("auto_rsv_energy_scale", False)
 
             # Collect FEscala data from planos parser (plpplem1.dat)
             planos = self.parser.parsed_data.get("planos_parser")
@@ -883,13 +914,15 @@ class GTOptWriter:
             if planos is not None:
                 fescala_map = planos.reservoir_fescala
 
-            # Collect central_parser vol_scale as fallback for auto mode
+            # Collect central_parser energy_scale as fallback for auto mode
             central_parser = self.parser.parsed_data.get("central_parser")
-            central_vol_scale: dict = {}
+            central_energy_scale: dict = {}
             if central_parser is not None:
                 for central in central_parser.centrals:
-                    if central.get("type") == "embalse" and "vol_scale" in central:
-                        central_vol_scale[str(central["name"])] = central["vol_scale"]
+                    if central.get("type") == "embalse" and "energy_scale" in central:
+                        central_energy_scale[str(central["name"])] = central[
+                            "energy_scale"
+                        ]
 
             reservoirs = self.planning["system"].get("reservoir_array", [])
             for rsv in reservoirs:
@@ -897,35 +930,47 @@ class GTOptWriter:
                 uid = rsv["uid"]
                 scale = None
 
-                # Priority 1: explicit --vol-scale
-                if name in explicit_vol:
-                    scale = explicit_vol[name]
-                # Priority 2: auto-vol-scale
-                elif auto_vol:
+                # Priority 1: explicit --rsv-energy-scale
+                if name in explicit_rsv:
+                    scale = explicit_rsv[name]
+                # Priority 2: auto-rsv-energy-scale
+                elif auto_rsv:
                     # Try FEscala from plpplem1.dat first
                     fescala = fescala_map.get(name)
                     if fescala is not None:
                         scale = 10.0 ** (fescala - 6)
                     else:
-                        # Fallback: central_parser's vol_scale (Escala/1e6)
-                        scale = central_vol_scale.get(name)
+                        # Fallback: central_parser's energy_scale (Escala/1e6)
+                        scale = central_energy_scale.get(name)
 
                 if scale is not None and scale != 1.0:
                     scales.append(
                         {
                             "class_name": "Reservoir",
-                            "variable": "volume",
+                            "variable": "energy",
                             "uid": uid,
                             "scale": scale,
                             "name": name,
                         }
                     )
-                    computed_keys.add(("Reservoir", "volume", uid))
+                    computed_keys.add(("Reservoir", "energy", uid))
+                    # Also scale flow (extraction) variables with the same
+                    # factor so energy-balance coefficients stay O(1).
+                    scales.append(
+                        {
+                            "class_name": "Reservoir",
+                            "variable": "flow",
+                            "uid": uid,
+                            "scale": scale,
+                            "name": name,
+                        }
+                    )
+                    computed_keys.add(("Reservoir", "flow", uid))
 
         # --- Battery energy scales ---
-        if has_energy:
-            explicit_energy: dict = options.get("energy_scale", {})
-            auto_energy = options.get("auto_energy_scale", False)
+        if has_bat:
+            explicit_energy: dict = options.get("bat_energy_scale", {})
+            auto_energy = options.get("auto_bat_energy_scale", False)
 
             batteries = self.planning["system"].get("battery_array", [])
             for bat in batteries:

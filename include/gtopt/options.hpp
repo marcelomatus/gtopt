@@ -448,8 +448,8 @@ struct Options
    * factors via JSON.  Each entry maps a (class, variable, optional UID)
    * triple to a scale factor where `physical = LP × scale`.
    *
-   * Per-element fields (`Battery::energy_scale`, `Reservoir::vol_scale`) and
-   * global options (`scale_theta`) take precedence over entries here.
+   * Per-element fields (`Battery::energy_scale`, `Reservoir::energy_scale`)
+   * and global options (`scale_theta`) take precedence over entries here.
    *
    * ### JSON Example
    * ```json
@@ -458,7 +458,7 @@ struct Options
    *     "variable_scales": [
    *       {"class_name": "Bus",       "variable": "theta",   "uid": -1,
    *        "scale": 0.001},
-   *       {"class_name": "Reservoir",  "variable": "volume",  "uid": -1,
+   *       {"class_name": "Reservoir",  "variable": "energy",  "uid": -1,
    *        "scale": 1000.0},
    *       {"class_name": "Battery",    "variable": "energy",  "uid": 1,
    *        "scale": 10.0}

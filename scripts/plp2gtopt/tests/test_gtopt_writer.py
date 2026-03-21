@@ -193,14 +193,15 @@ class TestGTOptWriterProcessMethods:
     # ---- SDDP (default) scenario/scene tests --------------------------------
 
     def test_process_scenarios_single_hydrology(self):
-        """Single hydrology → probability_factor = 1.0, unique uid=1, one scene."""
+        """Single hydrology → probability_factor = 1.0, uid = Fortran index."""
         writer = GTOptWriter(MagicMock())
         writer.process_scenarios({"hydrologies": "2", "probability_factors": None})
         scenarios = writer.planning["simulation"]["scenario_array"]
         assert len(scenarios) == 1
         assert scenarios[0]["probability_factor"] == pytest.approx(1.0)
         assert scenarios[0]["hydrology"] == 1
-        assert scenarios[0]["uid"] == 1
+        # UID = Fortran 1-based hydrology index (PLP convention)
+        assert scenarios[0]["uid"] == 2
 
         scenes = writer.planning["simulation"]["scene_array"]
         assert len(scenes) == 1
@@ -216,9 +217,9 @@ class TestGTOptWriterProcessMethods:
         assert len(scenarios) == 2
         for s in scenarios:
             assert s["probability_factor"] == pytest.approx(0.5)
-        # UIDs must be unique 1-based
+        # UIDs = Fortran hydrology indices
         assert scenarios[0]["uid"] == 1
-        assert scenarios[1]["uid"] == 2
+        assert scenarios[1]["uid"] == 3
 
         scenes = writer.planning["simulation"]["scene_array"]
         assert len(scenes) == 2
