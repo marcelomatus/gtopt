@@ -1057,9 +1057,9 @@ def test_generate_variable_scales_template_with_reservoirs(tmp_path):
     assert rsv1_energy["_fescala"] == 3
 
     # Rsv1 flow entry uses the same scale
-    rsv1_flow = [
-        e for e in parsed if e["name"] == "Rsv1" and e["variable"] == "flow"
-    ][0]
+    rsv1_flow = [e for e in parsed if e["name"] == "Rsv1" and e["variable"] == "flow"][
+        0
+    ]
     assert rsv1_flow["scale"] == pytest.approx(0.001)
 
     # Rsv2: fallback to central energy_scale = 0.5

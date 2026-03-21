@@ -149,19 +149,23 @@ def show_simulation_summary(planning: dict) -> None:
 
     scen_rows = []
     for s in fwd:
-        scen_rows.append((
-            f"uid={s['uid']}",
-            f"hydrology={s.get('hydrology', '?')} "
-            f"prob={s.get('probability_factor', 1.0):.4f}",
-        ))
+        scen_rows.append(
+            (
+                f"uid={s['uid']}",
+                f"hydrology={s.get('hydrology', '?')} "
+                f"prob={s.get('probability_factor', 1.0):.4f}",
+            )
+        )
     if ap:
         scen_rows.append(("", ""))
         for s in ap[:10]:
-            scen_rows.append((
-                f"uid={s['uid']} (aperture)",
-                f"hydrology={s.get('hydrology', '?')} "
-                f"dir={s.get('input_directory', '')}",
-            ))
+            scen_rows.append(
+                (
+                    f"uid={s['uid']} (aperture)",
+                    f"hydrology={s.get('hydrology', '?')} "
+                    f"dir={s.get('input_directory', '')}",
+                )
+            )
         if len(ap) > 10:
             scen_rows.append(("...", f"({len(ap) - 10} more aperture scenarios)"))
     print_kv_table(
@@ -177,8 +181,14 @@ def show_simulation_summary(planning: dict) -> None:
         print_kv_table(
             [
                 ("Count", str(len(stages))),
-                ("First", f"uid={first.get('uid')} block_start={first.get('first_block')}"),
-                ("Last", f"uid={last.get('uid')} block_start={last.get('first_block')}"),
+                (
+                    "First",
+                    f"uid={first.get('uid')} block_start={first.get('first_block')}",
+                ),
+                (
+                    "Last",
+                    f"uid={last.get('uid')} block_start={last.get('first_block')}",
+                ),
             ],
             title="Stages",
         )
@@ -199,12 +209,14 @@ def show_simulation_summary(planning: dict) -> None:
     if scenes:
         scene_rows = []
         for sc in scenes[:5]:
-            scene_rows.append((
-                f"uid={sc.get('uid')}",
-                f"scenarios={sc.get('first_scenario')}"
-                f"..{sc.get('first_scenario', 0) + sc.get('count_scenario', 1) - 1}"
-                f" (count={sc.get('count_scenario')})",
-            ))
+            scene_rows.append(
+                (
+                    f"uid={sc.get('uid')}",
+                    f"scenarios={sc.get('first_scenario')}"
+                    f"..{sc.get('first_scenario', 0) + sc.get('count_scenario', 1) - 1}"
+                    f" (count={sc.get('count_scenario')})",
+                )
+            )
         if len(scenes) > 5:
             scene_rows.append(("...", f"({len(scenes) - 5} more scenes)"))
         print_kv_table(scene_rows, title=f"Scenes ({len(scenes)})")
@@ -286,9 +298,7 @@ def run_post_check(
     if hydrology_indices is not None and scenarios:
         # Only compare forward scenarios (exclude aperture-only ones that
         # have their own input_directory).
-        forward_scenarios = [
-            s for s in scenarios if "input_directory" not in s
-        ]
+        forward_scenarios = [s for s in scenarios if "input_directory" not in s]
         gtopt_hydrology_indices = sorted(
             s.get("hydrology")
             for s in forward_scenarios

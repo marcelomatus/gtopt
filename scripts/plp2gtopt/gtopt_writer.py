@@ -276,12 +276,15 @@ class GTOptWriter:
         if spec == "0":
             # List available scenarios and return without creating any
             all_hydros = _all_hydro_indices()
-            source = "plpidsim.dat" if (
-                idsim_parser is not None and idsim_parser.num_simulations > 0
-            ) else "plpaflce.dat"
+            source = (
+                "plpidsim.dat"
+                if (idsim_parser is not None and idsim_parser.num_simulations > 0)
+                else "plpaflce.dat"
+            )
             _logger.info(
                 "Available scenarios (from %s): %d hydrologies",
-                source, len(all_hydros),
+                source,
+                len(all_hydros),
             )
             _logger.info(
                 "  Hydrology indices (Fortran 1-based): %s",
@@ -916,10 +919,7 @@ class GTOptWriter:
             central_energy_scale: dict = {}
             if central_parser is not None:
                 for central in central_parser.centrals:
-                    if (
-                        central.get("type") == "embalse"
-                        and "energy_scale" in central
-                    ):
+                    if central.get("type") == "embalse" and "energy_scale" in central:
                         central_energy_scale[str(central["name"])] = central[
                             "energy_scale"
                         ]
