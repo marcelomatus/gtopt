@@ -200,7 +200,7 @@ auto solve_apertures_for_phase(SceneIndex scene,
     } else if (!aperture_cache.empty()) {
       // Scenario not in forward set — use cached aperture data to
       // update flow columns directly from the pre-loaded parquet data.
-      const auto ap_scen_uid = aperture.source_scenario;
+      const ScenarioUid ap_scen_uid {aperture.source_scenario};
       auto cache_visitor = [&](auto& e) -> bool
       {
         if constexpr (requires {

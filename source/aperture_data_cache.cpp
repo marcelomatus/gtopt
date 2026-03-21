@@ -79,12 +79,13 @@ ApertureDataCache::ApertureDataCache(const std::filesystem::path& aperture_dir)
 
         // Parse scenario UID from column name "uid:123"
         const auto uid_str = col_name.substr(4);
-        Uid scen_uid {0};
+        uid_t raw_uid {0};
         auto [ptr, ec] = std::from_chars(
-            uid_str.data(), uid_str.data() + uid_str.size(), scen_uid);
+            uid_str.data(), uid_str.data() + uid_str.size(), raw_uid);
         if (ec != std::errc {}) {
           continue;
         }
+        const ScenarioUid scen_uid {raw_uid};
 
         auto val_col = table->column(c);
         auto val_arr =
@@ -95,8 +96,8 @@ ApertureDataCache::ApertureDataCache(const std::filesystem::path& aperture_dir)
               .class_name = Name {class_name},
               .element_name = Name {element_name},
               .scenario_uid = scen_uid,
-              .stage = stage_arr->Value(row),
-              .block = block_arr->Value(row),
+              .stage_uid = StageUid {stage_arr->Value(row)},
+              .block_uid = BlockUid {block_arr->Value(row)},
           }] = val_arr->Value(row);
         }
       }
@@ -115,16 +116,17 @@ ApertureDataCache::ApertureDataCache(const std::filesystem::path& aperture_dir)
 
 auto ApertureDataCache::lookup(std::string_view class_name,
                                std::string_view element_name,
-                               Uid scenario_uid,
-                               int stage,
-                               int block) const -> std::optional<double>
+                               ScenarioUid scenario_uid,
+                               StageUid stage_uid,
+                               BlockUid block_uid) const
+    -> std::optional<double>
 {
   const auto it = m_data_.find(Key {
       .class_name = Name {class_name},
       .element_name = Name {element_name},
       .scenario_uid = scenario_uid,
-      .stage = stage,
-      .block = block,
+      .stage_uid = stage_uid,
+      .block_uid = block_uid,
   });
   if (it != m_data_.end()) {
     return it->second;
@@ -132,9 +134,9 @@ auto ApertureDataCache::lookup(std::string_view class_name,
   return std::nullopt;
 }
 
-auto ApertureDataCache::scenario_uids() const -> std::vector<Uid>
+auto ApertureDataCache::scenario_uids() const -> std::vector<ScenarioUid>
 {
-  std::set<Uid> uids;
+  std::set<ScenarioUid> uids;
   for (const auto& [key, val] : m_data_) {
     uids.insert(key.scenario_uid);
   }

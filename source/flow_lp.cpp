@@ -120,7 +120,7 @@ bool FlowLP::update_aperture_lp(LinearInterface& li,
 
 bool FlowLP::update_aperture_from_cache(LinearInterface& li,
                                         const ScenarioLP& base_scenario,
-                                        Uid aperture_scenario_uid,
+                                        ScenarioUid aperture_scenario_uid,
                                         const ApertureDataCache& cache,
                                         const StageLP& stage) const
 {
@@ -139,8 +139,8 @@ bool FlowLP::update_aperture_from_cache(LinearInterface& li,
     const auto cached = cache.lookup(ClassName.full_name(),
                                      id().second,
                                      aperture_scenario_uid,
-                                     static_cast<int>(stage.uid()),
-                                     static_cast<int>(block_uid));
+                                     stage.uid(),
+                                     block_uid);
     if (cached.has_value()) {
       li.set_col_low(col, *cached);
       li.set_col_upp(col, *cached);

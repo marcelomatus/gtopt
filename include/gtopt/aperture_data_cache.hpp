@@ -19,7 +19,10 @@
 #include <vector>
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/block.hpp>
 #include <gtopt/fmap.hpp>
+#include <gtopt/scenario.hpp>
+#include <gtopt/stage.hpp>
 
 namespace gtopt
 {
@@ -50,25 +53,25 @@ public:
   /// Returns std::nullopt if any key is not found.
   [[nodiscard]] auto lookup(std::string_view class_name,
                             std::string_view element_name,
-                            Uid scenario_uid,
-                            int stage,
-                            int block) const -> std::optional<double>;
+                            ScenarioUid scenario_uid,
+                            StageUid stage_uid,
+                            BlockUid block_uid) const -> std::optional<double>;
 
   /// Check if any data was loaded.
   [[nodiscard]] bool empty() const noexcept { return m_data_.empty(); }
 
   /// Number of scenario UIDs loaded.
-  [[nodiscard]] auto scenario_uids() const -> std::vector<Uid>;
+  [[nodiscard]] auto scenario_uids() const -> std::vector<ScenarioUid>;
 
 private:
-  /// Key: (class_name, element_name, scenario_uid, stage, block)
+  /// Key: (class_name, element_name, scenario_uid, stage_uid, block_uid)
   struct Key
   {
     Name class_name;
     Name element_name;
-    Uid scenario_uid;
-    int stage;
-    int block;
+    ScenarioUid scenario_uid;
+    StageUid stage_uid;
+    BlockUid block_uid;
 
     auto operator<=>(const Key&) const = default;
   };
