@@ -152,6 +152,7 @@ using ApertureResolveFunc = std::function<std::expected<int, Error>(
     int phase_uid,
     const ApertureResolveFunc& resolve_fn,
     double aperture_timeout = 0.0,
+    bool save_aperture_lp = false,
     std::span<const double> forward_col_sol = {},
     std::span<const double> forward_row_dual = {}) -> std::optional<SparseRow>;
 

@@ -130,6 +130,15 @@ struct SddpOptions
    */
   OptReal aperture_timeout {};
 
+  /** @brief Save LP files for infeasible apertures to the log directory.
+   *
+   * When true, each infeasible aperture clone is written as
+   * ``error_aperture_sc_<scene>_ph_<phase>_ap_<uid>.lp`` in the log
+   * directory.  Useful for debugging but expensive in large cases.
+   * Default: false (disabled).
+   */
+  OptBool save_aperture_lp {};
+
   /** @brief Enable warm-start optimizations for aperture and elastic clone
    *  resolves.
    *
@@ -233,6 +242,7 @@ struct SddpOptions
     merge_opt(num_apertures, opts.num_apertures);
     merge_opt(aperture_directory, std::move(opts.aperture_directory));
     merge_opt(aperture_timeout, opts.aperture_timeout);
+    merge_opt(save_aperture_lp, opts.save_aperture_lp);
     merge_opt(warm_start, opts.warm_start);
     merge_opt(solve_timeout, opts.solve_timeout);
     merge_opt(boundary_cuts_file, std::move(opts.boundary_cuts_file));
