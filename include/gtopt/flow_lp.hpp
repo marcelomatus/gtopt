@@ -17,6 +17,7 @@
 #include <gtopt/flow.hpp>
 #include <gtopt/junction_lp.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/scenario.hpp>
 
 namespace gtopt
 {
@@ -90,11 +91,12 @@ public:
 
   /// Update flow column bounds from the ApertureDataCache when the
   /// aperture scenario is not in the forward set.
-  [[nodiscard]] bool update_aperture_from_cache(LinearInterface& li,
-                                                const ScenarioLP& base_scenario,
-                                                Uid aperture_scenario_uid,
-                                                const ApertureDataCache& cache,
-                                                const StageLP& stage) const;
+  [[nodiscard]] bool update_aperture_from_cache(
+      LinearInterface& li,
+      const ScenarioLP& base_scenario,
+      ScenarioUid aperture_scenario_uid,
+      const ApertureDataCache& cache,
+      const StageLP& stage) const;
 
 private:
   STBRealSched discharge;
