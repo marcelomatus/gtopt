@@ -86,13 +86,13 @@ auto build_effective_apertures(std::span<const Aperture> aperture_defs,
 auto build_synthetic_apertures(std::span<const ScenarioLP> all_scenarios,
                                int n_apertures) -> Array<Aperture>
 {
-  const auto n = std::min(n_apertures, static_cast<int>(all_scenarios.size()));
+  const auto n =
+      std::min(static_cast<std::size_t>(n_apertures), all_scenarios.size());
   Array<Aperture> synthetic;
-  synthetic.reserve(static_cast<size_t>(n));
+  synthetic.reserve(n);
   const double prob = 1.0 / static_cast<double>(n);
-  for (int i = 0; i < n; ++i) {
-    const Uid scen_uid =
-        static_cast<Uid>(all_scenarios[ScenarioIndex {i}].uid());
+  for (std::size_t i = 0; i < n; ++i) {
+    const auto scen_uid = Uid {all_scenarios[ScenarioIndex {i}].uid()};
     synthetic.push_back(Aperture {
         .uid = scen_uid,
         .source_scenario = scen_uid,
@@ -128,7 +128,7 @@ auto solve_apertures_for_phase(SceneIndex scene,
                                std::span<const double> forward_row_dual)
     -> std::optional<SparseRow>
 {
-  const auto pi = static_cast<Index>(phase);
+  const auto pi = Index {phase};
   const auto& phase_li = sys.linear_interface();
 
   // Apply aperture timeout to solver options if configured
@@ -172,7 +172,7 @@ auto solve_apertures_for_phase(SceneIndex scene,
     auto scen_it = std::ranges::find_if(
         all_scenarios,
         [&aperture](const auto& scen)
-        { return static_cast<Uid>(scen.uid()) == aperture.source_scenario; });
+        { return Uid {scen.uid()} == aperture.source_scenario; });
 
     // Clone the phase LP (state variables already fixed from forward pass).
     auto clone = phase_li.clone();
@@ -305,10 +305,8 @@ auto solve_apertures_for_phase(SceneIndex scene,
   }
 
   // Log summary when some apertures were infeasible
-  [[maybe_unused]] const auto n_total =
-      static_cast<int>(effective_apertures.size());
-  [[maybe_unused]] const auto n_feasible =
-      static_cast<int>(aperture_cuts.size());
+  [[maybe_unused]] const auto n_total = effective_apertures.size();
+  [[maybe_unused]] const auto n_feasible = aperture_cuts.size();
   if (n_infeasible > 0 || n_skipped > 0) {
     spdlog::info(
         "SDDP aperture: scene {} phase {} — {}/{} feasible, "
