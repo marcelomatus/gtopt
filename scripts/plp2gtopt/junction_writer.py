@@ -39,8 +39,8 @@ class Waterway(TypedDict, total=False):
 
     uid: int
     name: str
-    junction_a: int
-    junction_b: int
+    junction_a: str
+    junction_b: str
     fmin: float
     fmax: float
     capacity: float
@@ -59,7 +59,7 @@ class _FlowRequired(TypedDict):
 
     uid: int
     name: str
-    junction: int
+    junction: str
     discharge: float | str
 
 
@@ -72,7 +72,7 @@ class _ReservoirRequired(TypedDict):
 
     uid: int
     name: str
-    junction: int
+    junction: str
     eini: float
     efin: float
     emin: float | str
@@ -102,8 +102,8 @@ class Turbine(TypedDict):
 
     uid: int
     name: str
-    generator: int
-    waterway: int
+    generator: str
+    waterway: str
     conversion_rate: float
 
 
@@ -124,8 +124,8 @@ class ReservoirEfficiency(TypedDict):
 
     uid: int
     name: str
-    turbine: int
-    reservoir: int
+    turbine: str
+    reservoir: str
     mean_efficiency: float
     segments: List[EfficiencySegment]
 
@@ -143,8 +143,8 @@ class _FiltrationRequired(TypedDict):
 
     uid: int
     name: str
-    waterway: int
-    reservoir: int
+    waterway: str
+    reservoir: str
     slope: float
     constant: float
 
@@ -236,24 +236,21 @@ class JunctionWriter(BaseWriter):
     ) -> Optional[Waterway]:
         """Create a waterway connection between two junctions.
 
-        Args:
-            source_name: Name of source junction
-            source_id: ID of source junction
-            target_id: ID of target junction (0 means no connection)
-            capacity: Optional maximum flow capacity
-
-        Returns:
-            Waterway dictionary or None if target_id is 0
+        Uses the junction name map (built during to_json_array) to
+        resolve numeric IDs to names. Falls back to the numeric ID
+        for ocean junctions that aren't in the map yet.
         """
         if target_id == 0:
             return None
 
         self._waterway_counter += 1
+        ja_name = self._junction_names.get(source_id, str(source_id))
+        jb_name = self._junction_names.get(target_id, str(target_id))
         waterway: Waterway = {
             "uid": self._waterway_counter,
             "name": f"{source_name}_{source_id}_{target_id}",
-            "junction_a": source_id,
-            "junction_b": target_id,
+            "junction_a": ja_name,
+            "junction_b": jb_name,
             "fmin": fmin,
         }
 
@@ -298,6 +295,12 @@ class JunctionWriter(BaseWriter):
 
         if not items:
             return []
+
+        # Build number→name map for junction name references.
+        # This lets _create_waterway resolve numeric IDs to names.
+        self._junction_names: dict[int, str] = {}
+        for c in items:
+            self._junction_names[c["number"]] = c["name"]
 
         system: HydroSystemOutput = {
             "junction_array": [],
@@ -427,6 +430,7 @@ class JunctionWriter(BaseWriter):
                 "drain": True,
             }
             system["junction_array"].append(ocean_junction)
+            self._junction_names[ocean_uid] = ocean_name
             _logger.debug(
                 "Created ocean drain junction '%s' (uid=%d) for central '%s'.",
                 ocean_name,
@@ -446,8 +450,8 @@ class JunctionWriter(BaseWriter):
                 turbine: Turbine = {
                     "uid": central_id,
                     "name": central_name,
-                    "generator": central_id,
-                    "waterway": gen_waterway["uid"],
+                    "generator": central_name,
+                    "waterway": gen_waterway["name"],
                     "conversion_rate": central["efficiency"],
                 }
                 system["turbine_array"].append(turbine)
@@ -479,7 +483,7 @@ class JunctionWriter(BaseWriter):
         flow: Flow = {
             "uid": central_id,
             "name": central_name,
-            "junction": central_id,
+            "junction": central_name,
             "discharge": afluent,
         }
         system["flow_array"].append(flow)
@@ -558,7 +562,7 @@ class JunctionWriter(BaseWriter):
             reservoir: Reservoir = {
                 "uid": central["number"],
                 "name": central["name"],
-                "junction": central["number"],
+                "junction": central["name"],
                 "eini": central["vol_ini"],
                 "efin": central["vol_fin"],
                 "emin": emin,
@@ -595,14 +599,14 @@ class JunctionWriter(BaseWriter):
         if not self.cenfi_parser:
             return
 
-        # Build a name→waterway uid lookup from the already-created turbines
-        turbine_waterway: Dict[str, int] = {
+        # Build name→waterway name lookup from the already-created turbines
+        turbine_waterway: Dict[str, str] = {
             t["name"]: t["waterway"] for t in system["turbine_array"]
         }
 
-        # Build a name→reservoir uid lookup from the already-created reservoirs
-        reservoir_uid: Dict[str, int] = {
-            r["name"]: r["uid"] for r in system["reservoir_array"]
+        # Build name→reservoir name lookup from the already-created reservoirs
+        reservoir_name_map: Dict[str, str] = {
+            r["name"]: r["name"] for r in system["reservoir_array"]
         }
 
         uid_counter = 1
@@ -622,10 +626,10 @@ class JunctionWriter(BaseWriter):
                     )
                     continue
                 # Fallback: use the central number as waterway uid
-                ww_uid = central["number"]
+                ww_uid = central["name"]
 
-            # Resolve reservoir uid
-            rsv_uid = reservoir_uid.get(reservoir_name)
+            # Resolve reservoir name
+            rsv_uid = reservoir_name_map.get(reservoir_name)
             if rsv_uid is None:
                 central = central_parser.get_central_by_name(reservoir_name)
                 if central is None:
@@ -634,7 +638,7 @@ class JunctionWriter(BaseWriter):
                         reservoir_name,
                     )
                     continue
-                rsv_uid = central["number"]
+                rsv_uid = central["name"]
 
             filtration: Filtration = {
                 "uid": uid_counter,
@@ -685,8 +689,8 @@ class JunctionWriter(BaseWriter):
             return
 
         # Build a name→uid lookup from already-created reservoirs and junctions
-        reservoir_uid: Dict[str, int] = {
-            r["name"]: r["uid"] for r in system["reservoir_array"]
+        reservoir_name_map: Dict[str, str] = {
+            r["name"]: r["name"] for r in system["reservoir_array"]
         }
 
         # Build central name→number lookup for receiving centrals
@@ -700,16 +704,17 @@ class JunctionWriter(BaseWriter):
             receiving_name = entry["central"]
             segments = entry.get("segments", [])
 
-            # Resolve source reservoir uid (NomEmb → gtopt reservoir)
-            rsv_uid = reservoir_uid.get(embalse_name)
-            if rsv_uid is None:
-                embalse_central = central_parser.get_central_by_name(embalse_name)
+            # Resolve source reservoir name and number
+            rsv_name = reservoir_name_map.get(embalse_name)
+            embalse_central = central_parser.get_central_by_name(embalse_name)
+            if rsv_name is None or embalse_central is None:
                 if embalse_central is None:
                     _logger.warning(
                         "Filemb embalse '%s' not found; skipping.", embalse_name
                     )
                     continue
-                rsv_uid = embalse_central["number"]
+                rsv_name = embalse_central["name"]
+            embalse_number = int(embalse_central["number"])
 
             # Resolve receiving central junction id (NomCen → gtopt junction)
             rcv_id = central_number.get(receiving_name)
@@ -724,7 +729,7 @@ class JunctionWriter(BaseWriter):
             # to receiving central's junction (matching PLP GenPDFilAi behaviour)
             filt_waterway = self._create_waterway(
                 f"filt_{embalse_name}",
-                rsv_uid,
+                embalse_number,
                 rcv_id,
             )
             if filt_waterway is None:
@@ -744,8 +749,8 @@ class JunctionWriter(BaseWriter):
             filtration: Filtration = {
                 "uid": uid_counter,
                 "name": f"filt_{embalse_name}_{receiving_name}",
-                "waterway": filt_waterway["uid"],
-                "reservoir": rsv_uid,
+                "waterway": filt_waterway["name"],
+                "reservoir": rsv_name,
                 "slope": default_slope,
                 "constant": default_constant,
             }
@@ -777,13 +782,13 @@ class JunctionWriter(BaseWriter):
             return
 
         # Build turbine name→uid lookup from already-created turbines
-        turbine_uid: Dict[str, int] = {
-            t["name"]: t["uid"] for t in system["turbine_array"]
+        turbine_name_map: Dict[str, str] = {
+            t["name"]: t["name"] for t in system["turbine_array"]
         }
 
         # Build reservoir name→uid lookup from already-created reservoirs
-        reservoir_uid: Dict[str, int] = {
-            r["name"]: r["uid"] for r in system["reservoir_array"]
+        reservoir_name_map: Dict[str, str] = {
+            r["name"]: r["name"] for r in system["reservoir_array"]
         }
 
         uid_counter = 1
@@ -799,7 +804,7 @@ class JunctionWriter(BaseWriter):
             # Note: for embalse centrals the ocean-junction fix in
             # _process_central ensures the hydro topology is always complete,
             # but a turbine is only created when bus > 0.
-            turb_uid = turbine_uid.get(central_name)
+            turb_uid = turbine_name_map.get(central_name)
             if turb_uid is None:
                 central_data = self.central_parser.get_central_by_name(central_name)
                 if central_data is not None and central_data.get("bus", 0) <= 0:
@@ -823,7 +828,7 @@ class JunctionWriter(BaseWriter):
                 continue
 
             # Resolve reservoir uid
-            rsv_uid = reservoir_uid.get(reservoir_name)
+            rsv_uid = reservoir_name_map.get(reservoir_name)
             if rsv_uid is None:
                 _logger.warning(
                     "Efficiency reservoir '%s' not found; skipping.",

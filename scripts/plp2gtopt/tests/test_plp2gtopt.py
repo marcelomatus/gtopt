@@ -1025,7 +1025,7 @@ def test_generate_variable_scales_template_with_reservoirs(tmp_path):
     mock_planos.reservoir_fescala = {"Rsv1": 3}  # scale = 10^(3-6) = 0.001
 
     mock_central_parser = MagicMock()
-    mock_central = {"name": "Rsv2", "type": "embalse", "vol_scale": 0.5}
+    mock_central = {"name": "Rsv2", "type": "embalse", "energy_scale": 0.5}
     mock_central_parser.centrals = [mock_central]
 
     mock_parser = MagicMock()
@@ -1045,19 +1045,29 @@ def test_generate_variable_scales_template_with_reservoirs(tmp_path):
         result = generate_variable_scales_template(opts)
 
     parsed = json.loads(result)
-    assert len(parsed) == 3
+    # 2 reservoirs × 2 (volume + flow) + 1 battery = 5
+    assert len(parsed) == 5
 
     # Rsv1: fescala=3 -> scale = 10^(3-6) = 0.001
-    rsv1 = [e for e in parsed if e["name"] == "Rsv1"][0]
-    assert rsv1["class_name"] == "Reservoir"
-    assert rsv1["variable"] == "volume"
-    assert rsv1["scale"] == pytest.approx(0.001)
-    assert rsv1["_fescala"] == 3
+    rsv1_energy = [
+        e for e in parsed if e["name"] == "Rsv1" and e["variable"] == "energy"
+    ][0]
+    assert rsv1_energy["class_name"] == "Reservoir"
+    assert rsv1_energy["scale"] == pytest.approx(0.001)
+    assert rsv1_energy["_fescala"] == 3
 
-    # Rsv2: fallback to central vol_scale = 0.5
-    rsv2 = [e for e in parsed if e["name"] == "Rsv2"][0]
-    assert rsv2["scale"] == pytest.approx(0.5)
-    assert "_fescala" not in rsv2
+    # Rsv1 flow entry uses the same scale
+    rsv1_flow = [e for e in parsed if e["name"] == "Rsv1" and e["variable"] == "flow"][
+        0
+    ]
+    assert rsv1_flow["scale"] == pytest.approx(0.001)
+
+    # Rsv2: fallback to central energy_scale = 0.5
+    rsv2_energy = [
+        e for e in parsed if e["name"] == "Rsv2" and e["variable"] == "energy"
+    ][0]
+    assert rsv2_energy["scale"] == pytest.approx(0.5)
+    assert "_fescala" not in rsv2_energy
 
     # Bat1: default battery scale = 0.01
     bat1 = [e for e in parsed if e["name"] == "Bat1"][0]
@@ -1093,9 +1103,13 @@ def test_generate_variable_scales_template_no_fescala(tmp_path):
         result = generate_variable_scales_template(opts)
 
     parsed = json.loads(result)
-    assert len(parsed) == 1
-    assert parsed[0]["scale"] == pytest.approx(1.0)
-    assert "_fescala" not in parsed[0]
+    # 1 reservoir × 2 (volume + flow) = 2 entries
+    assert len(parsed) == 2
+    vol_entry = [e for e in parsed if e["variable"] == "energy"][0]
+    assert vol_entry["scale"] == pytest.approx(1.0)
+    assert "_fescala" not in vol_entry
+    flow_entry = [e for e in parsed if e["variable"] == "flow"][0]
+    assert flow_entry["scale"] == pytest.approx(1.0)
 
 
 def test_print_variable_scales_template_success(tmp_path, capsys):

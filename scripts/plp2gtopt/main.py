@@ -84,15 +84,15 @@ examples:
   # Apply a 10% annual discount rate
   plp2gtopt -i input/ -d 0.10
 
-  # Auto-scaling is ON by default for both volume and energy.
-  # Override specific reservoirs with --vol-scale:
-  plp2gtopt -i input/ --vol-scale 'RAPEL:500,COLBUN:15000'
+  # Auto-scaling is ON by default for both reservoir and battery energy.
+  # Override specific reservoirs with --rsv-energy-scale:
+  plp2gtopt -i input/ --rsv-energy-scale 'RAPEL:500,COLBUN:15000'
 
   # Override specific battery energy scales:
-  plp2gtopt -i input/ --energy-scale 'BESS1:100'
+  plp2gtopt -i input/ --bat-energy-scale 'BESS1:100'
 
   # Disable auto-scaling entirely:
-  plp2gtopt -i input/ --no-auto-vol-scale --no-auto-energy-scale
+  plp2gtopt -i input/ --no-auto-rsv-energy-scale --no-auto-bat-energy-scale
 
   # Load additional variable scales from a JSON file (lowest priority):
   plp2gtopt -i input/ --variable-scales-file scales.json
@@ -323,11 +323,33 @@ def make_parser() -> argparse.ArgumentParser:
         default="all",
         help=(
             "Simulation/hydrology scenario selector using 1-based (Fortran) "
-            "indices.  Accepts 'all' (default), a single index, "
-            "comma-separated values, or ranges: '1', '1,2', '1,2,5-10'. "
-            "When plpidsim.dat is present the indices are simulation numbers "
-            "mapped to hydrology columns via plpidsim.dat; otherwise they are "
-            "raw 1-based hydrology column indices.  (default: %(default)s)"
+            "indices.  Accepts 'all' (default), 'first' (first available), "
+            "a single index, comma-separated values, or ranges: "
+            "'51', '51,52', '51,52,55-60'. "
+            "Use '-y 0' to list available scenarios and exit. "
+            "When plpidsim.dat is present the indices are the hydrology "
+            "columns from plpidsim.dat; otherwise raw 1-based hydrology "
+            "column indices from plpaflce.dat.  (default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--first-scenario",
+        action="store_true",
+        default=False,
+        help=(
+            "Select only the first available scenario (equivalent to "
+            "'-y first').  Safe shortcut that works regardless of the "
+            "case's hydrology numbering."
+        ),
+    )
+    parser.add_argument(
+        "--show-simulation",
+        action="store_true",
+        default=False,
+        help=(
+            "After conversion, print a detailed summary of the simulation "
+            "structure: scenarios, stages, phases, apertures, and their "
+            "relationships."
         ),
     )
     parser.add_argument(
@@ -528,60 +550,63 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--vol-scale",
-        dest="vol_scale",
+        "--rsv-energy-scale",
+        dest="rsv_energy_scale",
         metavar="SPEC",
         default=None,
         help=(
-            "Override reservoir volume scale for specific reservoirs as "
+            "Override reservoir energy scale for specific reservoirs as "
             "comma-separated name:value pairs. "
-            "Example: --vol-scale 'RAPEL:500,COLBUN:15000'. "
+            "Example: --rsv-energy-scale 'RAPEL:500,COLBUN:15000'. "
             "These explicit values override auto-calculated scales. "
             "Emitted as variable_scales entries in the options section. "
             "(default: not set — auto-scaling is used unless disabled)"
         ),
     )
     parser.add_argument(
-        "--auto-vol-scale",
-        dest="auto_vol_scale",
+        "--auto-rsv-energy-scale",
+        dest="auto_rsv_energy_scale",
         action=argparse.BooleanOptionalAction,
         default=True,
         help=(
-            "Automatically calculate vol_scale for each reservoir from the PLP "
-            "FEscala field: vol_scale = 10^(FEscala - 6). "
-            "FEscala is read from plpplem1.dat (CSV format, field 9) when available; "
-            "otherwise falls back to plpcnfce.dat Escala (Escala / 1e6). "
-            "Explicit --vol-scale entries override auto-calculated values. "
-            "Scales are emitted as variable_scales entries in the options section. "
-            "Use --no-auto-vol-scale to disable. "
+            "Automatically calculate energy_scale for each reservoir from the "
+            "PLP FEscala field: energy_scale = 10^(FEscala - 6). "
+            "FEscala is read from plpplem1.dat (CSV format, field 9) when "
+            "available; otherwise falls back to plpcnfce.dat Escala / 1e6. "
+            "Explicit --rsv-energy-scale entries override auto-calculated "
+            "values. "
+            "Scales are emitted as variable_scales entries in the options "
+            "section. "
+            "Use --no-auto-rsv-energy-scale to disable. "
             "(default: %(default)s)"
         ),
     )
     parser.add_argument(
-        "--energy-scale",
-        dest="energy_scale",
+        "--bat-energy-scale",
+        dest="bat_energy_scale",
         metavar="SPEC",
         default=None,
         help=(
             "Override battery energy scale for specific batteries as "
             "comma-separated name:value pairs. "
-            "Example: --energy-scale 'BESS1:0.01,BESS2:100'. "
+            "Example: --bat-energy-scale 'BESS1:0.01,BESS2:100'. "
             "These explicit values override auto-calculated scales. "
             "Emitted as variable_scales entries in the options section. "
             "(default: not set — auto-scaling is used unless disabled)"
         ),
     )
     parser.add_argument(
-        "--auto-energy-scale",
-        dest="auto_energy_scale",
+        "--auto-bat-energy-scale",
+        dest="auto_bat_energy_scale",
         action=argparse.BooleanOptionalAction,
         default=True,
         help=(
             "Set energy_scale=0.01 for all PLP batteries. This scales the LP "
             "energy variable for better solver numerics. "
-            "Explicit --energy-scale entries override this default. "
-            "Scales are emitted as variable_scales entries in the options section. "
-            "Use --no-auto-energy-scale to disable. "
+            "Explicit --bat-energy-scale entries override this default. "
+            "Scales are emitted as variable_scales entries in the options "
+            "section. "
+            "Use --no-auto-bat-energy-scale to disable. "
             "(default: %(default)s)"
         ),
     )
@@ -597,7 +622,7 @@ def make_parser() -> argparse.ArgumentParser:
             "into the variable_scales option. Each object must have: "
             "class_name, variable, uid, scale. "
             "File entries have LOWEST priority: auto-calculated and "
-            "--vol-scale/--energy-scale values override them. "
+            "--rsv-energy-scale/--bat-energy-scale values override them. "
             "(default: not set)"
         ),
     )
@@ -705,7 +730,8 @@ def build_options(args: argparse.Namespace) -> dict:
         "compression": args.compression,
         "output_format": args.output_format,
         "input_format": input_format,
-        "hydrologies": args.hydrologies,
+        "hydrologies": "first" if args.first_scenario else args.hydrologies,
+        "show_simulation": args.show_simulation,
         "probability_factors": args.probability_factors,
         "discount_rate": args.discount_rate,
         "management_factor": args.management_factor,
@@ -737,12 +763,12 @@ def build_options(args: argparse.Namespace) -> dict:
         opts["no_boundary_cuts"] = True
     if args.hot_start_cuts:
         opts["hot_start_cuts"] = True
-    if args.vol_scale is not None:
-        opts["vol_scale"] = _parse_name_value_pairs(args.vol_scale)
-    opts["auto_vol_scale"] = args.auto_vol_scale
-    if args.energy_scale is not None:
-        opts["energy_scale"] = _parse_name_value_pairs(args.energy_scale)
-    opts["auto_energy_scale"] = args.auto_energy_scale
+    if args.rsv_energy_scale is not None:
+        opts["rsv_energy_scale"] = _parse_name_value_pairs(args.rsv_energy_scale)
+    opts["auto_rsv_energy_scale"] = args.auto_rsv_energy_scale
+    if args.bat_energy_scale is not None:
+        opts["bat_energy_scale"] = _parse_name_value_pairs(args.bat_energy_scale)
+    opts["auto_bat_energy_scale"] = args.auto_bat_energy_scale
     if args.variable_scales_file is not None:
         opts["variable_scales_file"] = args.variable_scales_file
     opts["run_check"] = args.run_check

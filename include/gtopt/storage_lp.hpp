@@ -142,7 +142,7 @@ public:
 
   /// Energy/volume scale factor used in the LP: LP_var = physical / scale.
   /// For batteries this is Battery::energy_scale; for reservoirs it is
-  /// Reservoir::vol_scale.  Use to convert between LP and physical units.
+  /// Reservoir::energy_scale.  Use to convert between LP and physical units.
   [[nodiscard]] constexpr double energy_scale() const noexcept
   {
     return m_energy_scale_;
@@ -152,7 +152,7 @@ public:
   ///
   /// For drain (and extraction/finp/fout in the reservoir case):
   ///   LP_var = physical / flow_scale.
-  /// Default 1.0 (no scaling; battery default).  Reservoirs use vol_scale.
+  /// Default 1.0 (no scaling; battery default).  Reservoirs use energy_scale.
   [[nodiscard]] constexpr double flow_scale() const noexcept
   {
     return m_flow_scale_;

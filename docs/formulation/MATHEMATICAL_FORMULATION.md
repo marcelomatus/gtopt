@@ -1013,7 +1013,7 @@ invariant to the choice of scale**.
 | Component | Field | Symbol | Default | Effect |
 |-----------|-------|--------|---------|--------|
 | Battery | `energy_scale` | $\sigma_E$ | 1.0 | SoC variable: $E_{\text{phys}} = E_{\text{LP}} \times \sigma_E$ |
-| Reservoir | `vol_scale` | $\sigma_V$ | 1.0 | Volume variable: $V_{\text{phys}} = V_{\text{LP}} \times \sigma_V$ |
+| Reservoir | `energy_scale` | $\sigma_V$ | 1.0 | Volume variable: $V_{\text{phys}} = V_{\text{LP}} \times \sigma_V$ |
 | Bus | `scale_theta` | $\sigma_\theta$ | 1000 | Angle variable: $\theta_{\text{phys}} = \theta_{\text{LP}} / \sigma_\theta$ |
 
 When a scale factor $\sigma_x$ is applied to a storage variable, the LP
@@ -1049,7 +1049,7 @@ Resolution priority:
 2. Per-class default (matching class + variable, no UID)
 3. Fallback: 1.0 (no scaling)
 
-Per-element fields (`Battery.energy_scale`, `Reservoir.vol_scale`) and
+Per-element fields (`Battery.energy_scale`, `Reservoir.energy_scale`) and
 global options (`scale_theta`) take precedence over entries in
 `variable_scales`.
 
@@ -1574,7 +1574,7 @@ mathematical symbols used in this formulation.
 | `waterway_array[].lossfactor` | $\lambda_w$ | Transport loss |
 | `reservoir_array[].vmin` | $\underline{V}_r$ | Min volume (hm³) |
 | `reservoir_array[].vmax` | $\overline{V}_r$ | Max volume (hm³) |
-| `reservoir_array[].vol_scale` | $\sigma_V$ | Volume variable scale factor (Section 6.3) |
+| `reservoir_array[].energy_scale` | $\sigma_V$ | Volume variable scale factor (Section 6.3) |
 | `turbine_array[].conversion_rate` | $\kappa_u$ | Water-to-power factor |
 | `turbine_array[].main_reservoir` | — | Reservoir for efficiency lookup |
 | `reservoir_efficiency_array[].mean_efficiency` | $\bar{\kappa}_u$ | Fallback efficiency |

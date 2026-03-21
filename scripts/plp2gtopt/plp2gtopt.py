@@ -93,14 +93,17 @@ def _log_stats(planning: dict, elapsed: float) -> None:
         elem_pairs = [(k, str(v)) for k, v in all_elems]
     print_kv_table(elem_pairs, title="Elements")
 
-    print_kv_table(
-        [
-            ("Blocks", str(len(sim.get("block_array", [])))),
-            ("Stages", str(len(sim.get("stage_array", [])))),
-            ("Scenarios", str(len(sim.get("scenario_array", [])))),
-        ],
-        title="Simulation",
-    )
+    all_scenarios = sim.get("scenario_array", [])
+    fwd_scenarios = [s for s in all_scenarios if "input_directory" not in s]
+    ap_scenarios = [s for s in all_scenarios if "input_directory" in s]
+    sim_pairs = [
+        ("Blocks", str(len(sim.get("block_array", [])))),
+        ("Stages", str(len(sim.get("stage_array", [])))),
+        ("Scenarios", str(len(fwd_scenarios))),
+    ]
+    if ap_scenarios:
+        sim_pairs.append(("Aperture scenarios", str(len(ap_scenarios))))
+    print_kv_table(sim_pairs, title="Simulation")
 
     print_kv_table(
         [
@@ -124,6 +127,140 @@ def _log_stats(planning: dict, elapsed: float) -> None:
         )
 
     print_kv_table([("Elapsed", f"{elapsed:.3f}s")], title="Conversion Time")
+
+
+def show_simulation_summary(planning: dict) -> None:
+    """Print a detailed summary of the simulation structure."""
+    from gtopt_check_json._terminal import (  # noqa: PLC0415
+        print_kv_table,
+        print_section,
+    )
+
+    sim = planning.get("simulation", {})
+    opts = planning.get("options", {})
+    sddp_opts = opts.get("sddp_options", {})
+
+    print_section("Simulation Structure")
+
+    # --- Scenarios ---
+    scenarios = sim.get("scenario_array", [])
+    fwd = [s for s in scenarios if "input_directory" not in s]
+    ap = [s for s in scenarios if "input_directory" in s]
+
+    scen_rows = []
+    for s in fwd:
+        scen_rows.append(
+            (
+                f"uid={s['uid']}",
+                f"hydrology={s.get('hydrology', '?')} "
+                f"prob={s.get('probability_factor', 1.0):.4f}",
+            )
+        )
+    if ap:
+        scen_rows.append(("", ""))
+        for s in ap[:10]:
+            scen_rows.append(
+                (
+                    f"uid={s['uid']} (aperture)",
+                    f"hydrology={s.get('hydrology', '?')} "
+                    f"dir={s.get('input_directory', '')}",
+                )
+            )
+        if len(ap) > 10:
+            scen_rows.append(("...", f"({len(ap) - 10} more aperture scenarios)"))
+    print_kv_table(
+        scen_rows,
+        title=f"Scenarios ({len(fwd)} forward + {len(ap)} aperture-only)",
+    )
+
+    # --- Stages ---
+    stages = sim.get("stage_array", [])
+    if stages:
+        first = stages[0]
+        last = stages[-1]
+        print_kv_table(
+            [
+                ("Count", str(len(stages))),
+                (
+                    "First",
+                    f"uid={first.get('uid')} block_start={first.get('first_block')}",
+                ),
+                (
+                    "Last",
+                    f"uid={last.get('uid')} block_start={last.get('first_block')}",
+                ),
+            ],
+            title="Stages",
+        )
+
+    # --- Phases ---
+    phases = sim.get("phase_array", [])
+    if phases:
+        print_kv_table(
+            [
+                ("Count", str(len(phases))),
+                ("Stages/phase", str(phases[0].get("count_stage", 1))),
+            ],
+            title="Phases",
+        )
+
+    # --- Scenes ---
+    scenes = sim.get("scene_array", [])
+    if scenes:
+        scene_rows = []
+        for sc in scenes[:5]:
+            scene_rows.append(
+                (
+                    f"uid={sc.get('uid')}",
+                    f"scenarios={sc.get('first_scenario')}"
+                    f"..{sc.get('first_scenario', 0) + sc.get('count_scenario', 1) - 1}"
+                    f" (count={sc.get('count_scenario')})",
+                )
+            )
+        if len(scenes) > 5:
+            scene_rows.append(("...", f"({len(scenes) - 5} more scenes)"))
+        print_kv_table(scene_rows, title=f"Scenes ({len(scenes)})")
+
+    # --- Apertures ---
+    apertures = sim.get("aperture_array", [])
+    if apertures:
+        # Group by source_scenario availability
+        scen_uids = {s["uid"] for s in scenarios}
+        valid = [a for a in apertures if a["source_scenario"] in scen_uids]
+        missing = [a for a in apertures if a["source_scenario"] not in scen_uids]
+        ap_rows = [
+            ("Total apertures", str(len(apertures))),
+            ("Valid (source in scenarios)", str(len(valid))),
+            ("Missing (source not found)", str(len(missing))),
+        ]
+        if sddp_opts.get("num_apertures"):
+            ap_rows.append(("num_apertures", str(sddp_opts["num_apertures"])))
+        if sddp_opts.get("aperture_directory"):
+            ap_rows.append(("aperture_directory", sddp_opts["aperture_directory"]))
+        print_kv_table(ap_rows, title="Apertures")
+
+        # Show per-phase aperture distribution
+        phases_with_ap = [p for p in phases if "aperture_set" in p]
+        if phases_with_ap:
+            ap_set_sizes = [len(p["aperture_set"]) for p in phases_with_ap]
+            print_kv_table(
+                [
+                    ("Phases with aperture_set", str(len(phases_with_ap))),
+                    ("Min apertures/phase", str(min(ap_set_sizes))),
+                    ("Max apertures/phase", str(max(ap_set_sizes))),
+                ],
+                title="Phase Aperture Distribution",
+            )
+
+    # --- SDDP options ---
+    if sddp_opts:
+        sddp_rows = [
+            (k, str(v))
+            for k, v in sddp_opts.items()
+            if k not in ("aperture_directory", "num_apertures")
+        ]
+        if sddp_rows:
+            print_kv_table(sddp_rows, title="SDDP Options")
 
 
 def run_post_check(
@@ -159,8 +296,13 @@ def run_post_check(
     sim = planning.get("simulation", {})
     scenarios = sim.get("scenario_array", [])
     if hydrology_indices is not None and scenarios:
+        # Only compare forward scenarios (exclude aperture-only ones that
+        # have their own input_directory).
+        forward_scenarios = [s for s in scenarios if "input_directory" not in s]
         gtopt_hydrology_indices = sorted(
-            s.get("hydrology") for s in scenarios if s.get("hydrology") is not None
+            s.get("hydrology")
+            for s in forward_scenarios
+            if s.get("hydrology") is not None
         )
         plp_hydrology_indices = sorted(hydrology_indices)
         if gtopt_hydrology_indices != plp_hydrology_indices:
@@ -356,6 +498,10 @@ def convert_plp_case(options: dict[str, Any]) -> None:
         # Log conversion statistics
         _log_stats(writer.planning, elapsed)
 
+        # Detailed simulation summary (--show-simulation)
+        if options.get("show_simulation", False):
+            show_simulation_summary(writer.planning)
+
         if excel_output:
             logger.info(
                 "Conversion successful! Excel workbook written to %s", excel_file
@@ -400,7 +546,7 @@ def generate_variable_scales_template(options: dict[str, Any]) -> str:
     Parses the PLP case (same initial steps as convert_plp_case) and builds
     a JSON array of VariableScale objects for reservoirs and batteries.
 
-    For each reservoir, the volume scale is computed from FEscala
+    For each reservoir, the energy scale is computed from FEscala
     (``10^(FEscala - 6)``), falling back to the Escala field from
     plpcnfce.dat if FEscala is not available.
 
@@ -439,11 +585,11 @@ def generate_variable_scales_template(options: dict[str, Any]) -> str:
         fescala_map = planos.reservoir_fescala
 
     central_parser = parser.parsed_data.get("central_parser")
-    central_vol_scale: dict[str, float] = {}
+    central_energy_scale: dict[str, float] = {}
     if central_parser is not None:
         for central in central_parser.centrals:
-            if central.get("type") == "embalse" and "vol_scale" in central:
-                central_vol_scale[str(central["name"])] = central["vol_scale"]
+            if central.get("type") == "embalse" and "energy_scale" in central:
+                central_energy_scale[str(central["name"])] = central["energy_scale"]
 
     reservoirs = planning.get("system", {}).get("reservoir_array", [])
     for rsv in reservoirs:
@@ -459,20 +605,31 @@ def generate_variable_scales_template(options: dict[str, Any]) -> str:
             fescala_val = fescala
         else:
             # Fallback: Escala from plpcnfce.dat (already divided by 1e6)
-            cvs = central_vol_scale.get(name)
+            cvs = central_energy_scale.get(name)
             if cvs is not None:
                 scale = cvs
 
+        resolved_scale = scale if scale is not None else 1.0
         entry: dict[str, Any] = {
             "class_name": "Reservoir",
-            "variable": "volume",
+            "variable": "energy",
             "uid": uid,
-            "scale": scale if scale is not None else 1.0,
+            "scale": resolved_scale,
             "name": name,
         }
         if fescala_val is not None:
             entry["_fescala"] = fescala_val
         scales.append(entry)
+        # Also scale flow (extraction) variables with the same factor
+        scales.append(
+            {
+                "class_name": "Reservoir",
+                "variable": "flow",
+                "uid": uid,
+                "scale": resolved_scale,
+                "name": name,
+            }
+        )
 
     # --- Battery energy scales ---
     batteries = planning.get("system", {}).get("battery_array", [])
