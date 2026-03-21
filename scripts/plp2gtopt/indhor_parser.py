@@ -19,27 +19,12 @@ import pandas as pd
 class IndhorParser:
     """Parser for indhor.csv files containing the hour-to-block mapping.
 
-    The CSV has columns:
-        Año  – calendar year  (int)
-        Mes  – month 1-12     (int)
-        Dia  – day 1-31       (int)
-        Hora – hour of day 1-24  (int, 1-based PLP convention)
-        Bloque – PLP block number (int, 1-based)
-
     After parsing, ``self.df`` is a :class:`pandas.DataFrame` with
-    column names normalised to lower-case ASCII: ``year``, ``month``,
-    ``day``, ``hour``, ``block`` — all ``int32``.  ``hour`` is kept
-    1-based (1-24) to match PLP convention.
+    column names: ``year``, ``month``, ``day``, ``hour``, ``block`` — all ``int32``.
+    ``hour`` is kept 1-based (1-24) to match PLP convention.
     """
 
     _CSV_ENCODINGS = ("utf-8", "latin-1")
-    _EXPECTED_COLUMNS = {
-        "año": "year",
-        "mes": "month",
-        "dia": "day",
-        "hora": "hour",
-        "bloque": "block",
-    }
 
     def __init__(self, file_path: str | Path) -> None:
         self.file_path = Path(file_path)
@@ -59,7 +44,7 @@ class IndhorParser:
 
         Raises:
             FileNotFoundError: if the file does not exist.
-            ValueError: if required columns are missing.
+            ValueError: if required columns are missing or file cannot be decoded.
         """
         if not self.file_path.exists():
             raise FileNotFoundError(f"indhor.csv not found: {self.file_path}")
@@ -67,39 +52,36 @@ class IndhorParser:
         df: Optional[pd.DataFrame] = None
         for enc in self._CSV_ENCODINGS:
             try:
-                df = pd.read_csv(self.file_path, encoding=enc)
+                # header=0 tells pandas the first row contains headers and should be replaced.
+                # names=[...] explicitly assigns our desired column names.
+                df = pd.read_csv(
+                    self.file_path,
+                    encoding=enc,
+                    header=0,
+                    names=["year", "month", "day", "hour", "block"],
+                )
                 break
             except UnicodeDecodeError:
                 logging.getLogger(__name__).debug(
                     "indhor.csv: encoding '%s' failed, trying next", enc
                 )
                 continue
+            except ValueError as e:
+                # Catches mismatched column counts if the file format is unexpected
+                raise ValueError(
+                    f"Error parsing {self.file_path} with encoding {enc}: {e}"
+                )
+
         if df is None:
             raise ValueError(
                 f"Cannot decode {self.file_path} with any supported encoding"
-            )
-
-        # Normalise column names (strip whitespace, lower-case)
-        df.columns = [c.strip().lower() for c in df.columns]
-
-        # Rename Spanish column names to English
-        rename_map = {
-            k: v for k, v in self._EXPECTED_COLUMNS.items() if k in df.columns
-        }
-        df = df.rename(columns=rename_map)
-
-        missing = set(self._EXPECTED_COLUMNS.values()) - set(df.columns)
-        if missing:
-            raise ValueError(
-                f"indhor.csv is missing columns: {sorted(missing)}. "
-                f"Found: {df.columns.tolist()}"
             )
 
         # Cast to int32 for compact storage
         for col in ("year", "month", "day", "hour", "block"):
             df[col] = df[col].astype("int32")
 
-        self._df = df[["year", "month", "day", "hour", "block"]].reset_index(drop=True)
+        self._df = df.reset_index(drop=True)
 
     def block_hours_map(self) -> Dict[int, List[int]]:
         """Return a dict mapping block_number → sorted list of unique hours-of-day (1-24).
