@@ -548,21 +548,37 @@ def _build_parser() -> argparse.ArgumentParser:
             "numerical range) and optionally finds the IIS using a local\n"
             "solver (CPLEX, HiGHS, COIN-OR CLP/CBC, GLPK) or the NEOS\n"
             "online server.\n\n"
-            "Configuration is stored in ~/.gtopt_check_lp.conf (INI format).\n"
-            "Run --init-config to create or update the configuration."
+            "Configuration file\n"
+            "------------------\n"
+            "User preferences are stored in ~/.gtopt_check_lp.conf (INI format)\n"
+            "under the [gtopt_check_lp] section.  Run --init-config to create or\n"
+            "update the file interactively.  Recognised keys:\n\n"
+            "  email        E-mail for NEOS submissions (default: empty)\n"
+            "  solver       Solver strategy: all, auto, cplex, highs, coinor,\n"
+            "               glpk, neos (default: all)\n"
+            "  timeout      Max seconds to wait for any solver (default: 5)\n"
+            "  neos_url     NEOS XML-RPC endpoint\n"
+            "               (default: https://neos-server.org:3333)\n"
+            "  color        Terminal color: auto, always, never (default: auto)\n"
+            "  ai_enabled   Enable AI diagnostics: true/false (default: true)\n"
+            "  ai_provider  AI provider: claude, openai, deepseek, github\n"
+            "               (default: claude)\n"
+            "  ai_model     Model name override (default: provider-specific)\n"
+            "  ai_prompt    Custom prompt template with {report} placeholder\n\n"
+            "CLI flags override config-file values for the current run."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
             "  gtopt_check_lp error_0.lp\n"
-            "  gtopt_check_lp error_0.lp.gz         # gzip-compressed LP\n"
-            "  gtopt_check_lp error_0.lp.gzip        # alternative gzip extension\n"
+            "  gtopt_check_lp error_0.lp.gz          # gzip-compressed LP\n"
             "  gtopt_check_lp error_0.lp --analyze-only\n"
             "  gtopt_check_lp error_0.lp --quiet\n"
             "  gtopt_check_lp error_0.lp --solver coinor\n"
             "  gtopt_check_lp error_0.lp --solver highs\n"
             "  gtopt_check_lp error_0.lp --solver neos --email user@example.com\n"
             "  gtopt_check_lp error_0.lp --no-neos --solver coinor\n"
+            "  gtopt_check_lp error_0.lp --timeout 120\n"
             "  gtopt_check_lp error_0.lp --output report.txt\n"
             "  gtopt_check_lp --last                  # auto-find latest error*.lp[.gz]\n"
             "  gtopt_check_lp --init-config           # create/update config file\n"
@@ -698,7 +714,10 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         metavar="SECONDS",
-        help="Maximum time to wait for a solver result (default: 5 s).",
+        help=(
+            "Maximum time in seconds to wait for a solver result.\n"
+            "Overrides the 'timeout' value in the config file (default: 5)."
+        ),
     )
     parser.add_argument(
         "--output",

@@ -173,13 +173,14 @@ auto solve_apertures_for_phase(SceneIndex scene,
         { return static_cast<Uid>(scen.uid()) == aperture.source_scenario; });
 
     if (scen_it == all_scenarios.end()) {
-      SPDLOG_DEBUG(
+      spdlog::info(
           "SDDP aperture: scene {} phase {} aperture uid {} — "
-          "source_scenario {} not found, skipping",
-          scene,
-          phase,
+          "source_scenario {} not found in {} scenarios, skipping",
+          scene_uid,
+          phase_uid,
           ap_uid,
-          aperture.source_scenario);
+          aperture.source_scenario,
+          all_scenarios.size());
       ++n_skipped;
       continue;
     }
@@ -238,11 +239,11 @@ auto solve_apertures_for_phase(SceneIndex scene,
       }
 
       ++n_infeasible;
-      SPDLOG_DEBUG(
+      spdlog::info(
           "SDDP aperture: scene {} phase {} aperture uid {} infeasible "
           "(status {}), skipping",
-          scene,
-          phase,
+          scene_uid,
+          phase_uid,
           ap_uid,
           status);
 
@@ -250,7 +251,7 @@ auto solve_apertures_for_phase(SceneIndex scene,
       // trace/debug mode — aperture infeasibility is expected in some
       // scenarios and writing LPs during normal SDDP iteration is
       // expensive.
-      if (!log_directory.empty() && spdlog::get_level() <= spdlog::level::debug)
+      if (!log_directory.empty() && spdlog::get_level() <= spdlog::level::info)
       {
         std::filesystem::create_directories(log_directory);
         const auto err_stem = (std::filesystem::path(log_directory)
@@ -261,7 +262,7 @@ auto solve_apertures_for_phase(SceneIndex scene,
                                   .string();
 
         clone.write_lp(err_stem);
-        SPDLOG_DEBUG("SDDP aperture: saved infeasible LP to {}.lp", err_stem);
+        spdlog::info("SDDP aperture: saved infeasible LP to {}.lp", err_stem);
       }
 
       continue;
@@ -291,12 +292,12 @@ auto solve_apertures_for_phase(SceneIndex scene,
       static_cast<int>(effective_apertures.size());
   [[maybe_unused]] const auto n_feasible =
       static_cast<int>(aperture_cuts.size());
-  if (n_infeasible > 0) {
-    SPDLOG_TRACE(
+  if (n_infeasible > 0 || n_skipped > 0) {
+    spdlog::info(
         "SDDP aperture: scene {} phase {} — {}/{} feasible, "
-        "{} infeasible, {} skipped",
-        scene,
-        phase,
+        "{} infeasible, {} skipped (missing scenario)",
+        scene_uid,
+        phase_uid,
         n_feasible,
         n_total,
         n_infeasible,
