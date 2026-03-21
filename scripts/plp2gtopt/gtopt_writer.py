@@ -445,7 +445,14 @@ class GTOptWriter:
 
             # Set aperture_directory in sddp_options
             sddp_opts = self.planning["options"].get("sddp_options", {})
-            sddp_opts["aperture_directory"] = str(aperture_dir)
+            # Use a path relative to the JSON file location (same as
+            # input_directory convention).  When the JSON is in output_dir,
+            # the aperture directory is just "apertures".
+            output_file = Path(options.get("output_file", ""))
+            if output_file.parent == output_dir:
+                sddp_opts["aperture_directory"] = "apertures"
+            else:
+                sddp_opts["aperture_directory"] = str(aperture_dir)
             self.planning["options"]["sddp_options"] = sddp_opts
 
         # Auto-set num_apertures from PLP data when not explicitly configured
