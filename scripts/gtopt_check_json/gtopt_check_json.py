@@ -53,7 +53,7 @@ except ImportError:  # pragma: no cover
         """Minimal AiOptions shim when gtopt_check_lp is not installed."""
 
         enabled: bool = True
-        provider: str = "github"
+        provider: str = "claude"
         model: str = ""
         prompt: str = ""
         key: str = ""
@@ -229,6 +229,12 @@ def _parse_args(
         default=False,
         help="Disable coloured output.",
     )
+    parser.add_argument(
+        "--show-simulation",
+        action="store_true",
+        default=False,
+        help="Print detailed simulation structure (scenarios, stages, phases, apertures).",
+    )
     return parser.parse_args(argv)
 
 
@@ -256,6 +262,18 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
+
+    # --show-simulation: load JSON and print simulation structure
+    if args.show_simulation:
+        import json  # noqa: PLC0415
+
+        from plp2gtopt.plp2gtopt import show_simulation_summary  # noqa: PLC0415
+
+        for json_file in args.json_files:
+            with open(json_file, encoding="utf-8") as fh:
+                planning = json.load(fh)
+            show_simulation_summary(planning)
+        return 0
 
     return check_json(
         args.json_files,

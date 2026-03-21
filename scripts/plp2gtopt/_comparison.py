@@ -432,7 +432,11 @@ def _gtopt_element_counts(planning: dict[str, Any]) -> dict[str, Any]:
         "turbines": len(psys.get("turbine_array", [])),
         "blocks": len(sim.get("block_array", [])),
         "stages": len(sim.get("stage_array", [])),
-        "scenarios": len(sim.get("scenario_array", [])),
+        "scenarios": sum(
+            1
+            for s in sim.get("scenario_array", [])
+            if "input_directory" not in s
+        ),
     }
 
     # Generator count by type attribute

@@ -43,11 +43,37 @@ def _unique_hydro_indices(
     return indices
 
 
+class ApertureResult:
+    """Result of ``build_aperture_array``.
+
+    Attributes
+    ----------
+    aperture_array : list of dict
+        Aperture definitions for ``simulation.aperture_array``.
+    extra_scenarios : list of dict
+        Aperture-only scenarios to append to ``simulation.scenario_array``.
+        These carry ``input_directory`` pointing to the aperture directory
+        so the C++ reads their flow data from there.
+    """
+
+    __slots__ = ("aperture_array", "extra_scenarios")
+
+    def __init__(
+        self,
+        aperture_array: List[Dict[str, Any]],
+        extra_scenarios: List[Dict[str, Any]],
+    ) -> None:
+        self.aperture_array = aperture_array
+        self.extra_scenarios = extra_scenarios
+
+
 def build_aperture_array(
     idap2_parser: Any,
     scenario_hydro_map: Dict[int, int],
     num_stages: int,
-) -> List[Dict[str, Any]]:
+    max_scenario_uid: int = 0,
+    aperture_directory: str = "",
+) -> ApertureResult:
     """Build the ``aperture_array`` for the simulation JSON block.
 
     Uses ``plpidap2.dat`` (simulation-independent) as the primary source.
@@ -57,9 +83,11 @@ def build_aperture_array(
     first-appearance order so that late-stage wrapping indices (e.g. hydros
     ``01``, ``02`` at the end of a two-year case) are included.
 
-    Each unique hydrology index is mapped to a gtopt scenario UID: an existing
-    forward-scenario UID when the hydrology is in the forward set, or the
-    1-based hydrology index as a new aperture-only scenario UID otherwise.
+    Hydrologies that are in the forward scenario set reuse the existing
+    scenario UID.  Hydrologies that are **not** in the forward set get a
+    new aperture-only scenario UID (starting above ``max_scenario_uid``)
+    and are returned in ``extra_scenarios`` so the caller can append them
+    to ``scenario_array``.
 
     Parameters
     ----------
@@ -69,15 +97,20 @@ def build_aperture_array(
         Maps 0-based hydrology index → gtopt scenario UID.
     num_stages : int
         Number of output stages (only stages 1..num_stages are considered).
+    max_scenario_uid : int
+        Largest existing scenario UID; new aperture-only scenarios start
+        above this value.
+    aperture_directory : str
+        Path to the aperture data directory (used as ``input_directory``
+        for aperture-only scenarios).
 
     Returns
     -------
-    list of dict
-        List of aperture definitions, each with ``uid``, ``source_scenario``,
-        and ``probability_factor``.
+    ApertureResult
+        ``.aperture_array`` and ``.extra_scenarios``.
     """
     if idap2_parser is None:
-        return []
+        return ApertureResult([], [])
 
     # Collect the union of all used stages' aperture indices preserving
     # first-appearance order.  plpidap2.dat is stage-indexed — we must
@@ -99,20 +132,37 @@ def build_aperture_array(
                 unique_hydros.append(h)
 
     if not unique_hydros:
-        return []
+        return ApertureResult([], [])
 
     num_apertures = len(unique_hydros)
     prob = 1.0 / num_apertures
 
+    # Track aperture-only hydrologies — these need extra scenarios in
+    # scenario_array so the C++ solver can find them.  The scenario UID
+    # matches the Fortran 1-based hydrology index (PLP convention).
+    aperture_hydro_seen: set = set()
+
     aperture_array: List[Dict[str, Any]] = []
+    extra_scenarios: List[Dict[str, Any]] = []
+
     for ap_idx, hydro_1based in enumerate(unique_hydros):
         hydro_0based = hydro_1based - 1
         # Look up the gtopt scenario UID for this hydrology
         scenario_uid = scenario_hydro_map.get(hydro_0based)
         if scenario_uid is None:
-            # Not in the forward set → use 1-based hydro index as scenario UID
-            # (served from the aperture_directory)
+            # Not in the forward set → use Fortran 1-based hydro index
+            # as the scenario UID (PLP convention) and create an
+            # aperture-only scenario entry.
             scenario_uid = hydro_1based
+            if hydro_0based not in aperture_hydro_seen:
+                aperture_hydro_seen.add(hydro_0based)
+                extra_scenarios.append(
+                    {
+                        "uid": scenario_uid,
+                        "hydrology": hydro_0based,
+                        "input_directory": aperture_directory,
+                    }
+                )
 
         aperture_array.append(
             {
@@ -122,7 +172,7 @@ def build_aperture_array(
             }
         )
 
-    return aperture_array
+    return ApertureResult(aperture_array, extra_scenarios)
 
 
 def build_phase_aperture_sets(
@@ -223,6 +273,7 @@ def write_aperture_afluents(
     forward_hydros: set,
     output_dir: Path,
     options: Optional[Dict[str, Any]] = None,
+    hydro_uid_map: Optional[Dict[int, int]] = None,
 ) -> None:
     """Write discharge Parquet files for aperture-only hydrology classes.
 
@@ -288,8 +339,13 @@ def write_aperture_afluents(
         block_col: List[int] = []
         value_cols: Dict[int, List[float]] = {}
         for hydro_0based in extra_hydros:
-            # The scenario UID for aperture-only hydros = 1-based hydro index
-            scenario_uid = hydro_0based + 1
+            # Use the assigned scenario UID from the map, or fallback
+            # to 1-based hydrology index for backward compatibility.
+            scenario_uid = (
+                hydro_uid_map[hydro_0based]
+                if hydro_uid_map and hydro_0based in hydro_uid_map
+                else hydro_0based + 1
+            )
             value_cols[scenario_uid] = []
 
         for block in blocks:
@@ -298,7 +354,11 @@ def write_aperture_afluents(
             mat_row: Optional[int] = block_num_to_row.get(block_num)
 
             for hydro_0based in extra_hydros:
-                scenario_uid = hydro_0based + 1
+                scenario_uid = (
+                    hydro_uid_map[hydro_0based]
+                    if hydro_uid_map and hydro_0based in hydro_uid_map
+                    else hydro_0based + 1
+                )
                 if mat_row is not None and hydro_0based < num_hydro_cols:
                     value = float(flow_matrix[mat_row, hydro_0based])
                 else:

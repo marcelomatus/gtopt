@@ -230,7 +230,7 @@ def run_interactive_setup(config_path: Path, use_color: bool = True) -> dict[str
     cfg["solver"] = solver
 
     # ── Timeout ────────────────────────────────────────────────────────────
-    current_timeout = cfg.get("timeout", "120")
+    current_timeout = cfg.get("timeout", "5")
     timeout_str = _prompt("  Default solver timeout in seconds", current_timeout)
     try:
         int(timeout_str)

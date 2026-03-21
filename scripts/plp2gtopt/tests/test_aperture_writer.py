@@ -32,7 +32,8 @@ def test_build_aperture_array_all_in_forward(idap2_parser: IdAp2Parser) -> None:
     """All aperture hydros are in the forward scenario set."""
     # Forward scenarios use hydros 50..53 (0-based) = 51..54 (1-based)
     scenario_hydro_map = {50: 1, 51: 2, 52: 3, 53: 4}
-    result = build_aperture_array(idap2_parser, scenario_hydro_map, 3)
+    res = build_aperture_array(idap2_parser, scenario_hydro_map, 3, max_scenario_uid=4)
+    result = res.aperture_array
 
     assert len(result) == 4
     # Each aperture's source_scenario should reference a forward scenario UID
@@ -42,27 +43,37 @@ def test_build_aperture_array_all_in_forward(idap2_parser: IdAp2Parser) -> None:
     assert result[3]["source_scenario"] == 4  # hydro 54 → uid 4
     # Equal probability
     assert pytest.approx(result[0]["probability_factor"]) == 0.25
+    # No extra scenarios needed — all in forward set
+    assert res.extra_scenarios == []
 
 
 def test_build_aperture_array_extra_hydros(idap2_parser: IdAp2Parser) -> None:
     """Some aperture hydros are NOT in the forward set."""
     # Only hydros 50,51 (0-based) are in forward set → 52,53 are aperture-only
     scenario_hydro_map = {50: 1, 51: 2}
-    result = build_aperture_array(idap2_parser, scenario_hydro_map, 3)
+    res = build_aperture_array(idap2_parser, scenario_hydro_map, 3, max_scenario_uid=2)
+    result = res.aperture_array
 
     assert len(result) == 4
     assert result[0]["source_scenario"] == 1  # hydro 51 (0-based 50) → uid 1
     assert result[1]["source_scenario"] == 2  # hydro 52 (0-based 51) → uid 2
-    # hydro 53 (0-based 52) not in forward → uses hydro_1based=53 as UID
+    # hydro 53 (0-based 52) not in forward → Fortran 1-based = 53
     assert result[2]["source_scenario"] == 53
-    # hydro 54 (0-based 53) not in forward → uses hydro_1based=54 as UID
+    # hydro 54 (0-based 53) not in forward → Fortran 1-based = 54
     assert result[3]["source_scenario"] == 54
+
+    # Extra scenarios created for aperture-only hydros
+    assert len(res.extra_scenarios) == 2
+    assert res.extra_scenarios[0]["uid"] == 53
+    assert res.extra_scenarios[0]["hydrology"] == 52
+    assert res.extra_scenarios[1]["uid"] == 54
+    assert res.extra_scenarios[1]["hydrology"] == 53
 
 
 def test_build_aperture_array_no_parser() -> None:
     """No parser → empty array."""
-    result = build_aperture_array(None, {}, 3)
-    assert not result
+    res = build_aperture_array(None, {}, 3)
+    assert not res.aperture_array
 
 
 def test_build_aperture_array_empty_parser(tmp_path: Path) -> None:
@@ -71,23 +82,23 @@ def test_build_aperture_array_empty_parser(tmp_path: Path) -> None:
     p.write_text("# empty\n")
     parser = IdAp2Parser(p)
     parser.parse()
-    result = build_aperture_array(parser, {}, 3)
-    assert not result
+    res = build_aperture_array(parser, {}, 3)
+    assert not res.aperture_array
 
 
 def test_aperture_uids_are_sequential(idap2_parser: IdAp2Parser) -> None:
     """Aperture UIDs must be sequential starting from 1."""
     scenario_hydro_map = {50: 1, 51: 2, 52: 3, 53: 4}
-    result = build_aperture_array(idap2_parser, scenario_hydro_map, 3)
-    uids = [a["uid"] for a in result]
+    res = build_aperture_array(idap2_parser, scenario_hydro_map, 3, max_scenario_uid=4)
+    uids = [a["uid"] for a in res.aperture_array]
     assert uids == [1, 2, 3, 4]
 
 
 def test_aperture_probabilities_sum_to_one(idap2_parser: IdAp2Parser) -> None:
     """Aperture probabilities must sum to 1."""
     scenario_hydro_map = {50: 1, 51: 2, 52: 3, 53: 4}
-    result = build_aperture_array(idap2_parser, scenario_hydro_map, 3)
-    total = sum(a["probability_factor"] for a in result)
+    res = build_aperture_array(idap2_parser, scenario_hydro_map, 3, max_scenario_uid=4)
+    total = sum(a["probability_factor"] for a in res.aperture_array)
     assert pytest.approx(total) == 1.0
 
 
@@ -123,7 +134,7 @@ def idap2_varying(tmp_path: Path) -> IdAp2Parser:
 def test_phase_aperture_sets_uniform(idap2_parser: IdAp2Parser) -> None:
     """When all stages share the same apertures, no aperture_set is added."""
     scenario_hydro_map = {50: 1, 51: 2, 52: 3, 53: 4}
-    aperture_array = build_aperture_array(idap2_parser, scenario_hydro_map, 3)
+    aperture_array = build_aperture_array(idap2_parser, scenario_hydro_map, 3).aperture_array
     # SDDP: one phase per stage
     phase_array = [
         {"uid": 1, "first_stage": 0, "count_stage": 1},
@@ -139,7 +150,7 @@ def test_phase_aperture_sets_uniform(idap2_parser: IdAp2Parser) -> None:
 def test_phase_aperture_sets_varying(idap2_varying: IdAp2Parser) -> None:
     """When stages have different apertures, per-phase aperture_set is added."""
     scenario_hydro_map = {0: 10, 50: 1, 51: 2, 52: 3}
-    aperture_array = build_aperture_array(idap2_varying, scenario_hydro_map, 3)
+    aperture_array = build_aperture_array(idap2_varying, scenario_hydro_map, 3).aperture_array
     # SDDP: one phase per stage
     phase_array = [
         {"uid": 1, "first_stage": 0, "count_stage": 1},
@@ -186,7 +197,7 @@ def test_phase_aperture_sets_multistage_duplicates(
     solver can weight them correctly by their repetition count.
     """
     scenario_hydro_map = {0: 10, 50: 1, 51: 2, 52: 3}
-    aperture_array = build_aperture_array(idap2_varying, scenario_hydro_map, 3)
+    aperture_array = build_aperture_array(idap2_varying, scenario_hydro_map, 3).aperture_array
     # Phase 1 spans stages 1+2, Phase 2 covers stage 3 only
     phase_array = [
         {"uid": 1, "first_stage": 0, "count_stage": 2},
