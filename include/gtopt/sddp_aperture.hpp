@@ -21,6 +21,7 @@
 #pragma once
 
 #include <functional>
+#include <future>
 #include <optional>
 #include <span>
 #include <string>
@@ -90,15 +91,26 @@ struct ApertureEntry
     std::span<const ScenarioLP> all_scenarios, int n_apertures)
     -> Array<Aperture>;
 
-// ─── Resolve callback type ──────────────────────────────────────────────────
+// ─── Aperture task submission ────────────────────────────────────────────────
 
-/// Callback for resolving a cloned LP.
+/// Result of a single aperture task (clone + update + solve + cut).
+struct ApertureCutResult
+{
+  Uid ap_uid {};
+  double weight {0.0};
+  bool feasible {false};
+  int status {0};
+  std::optional<SparseRow> cut {};
+};
+
+/// Callback for submitting a complete aperture task to the work pool.
 ///
-/// The SDDP solver passes resolve_clone_via_pool wrapped as this callback
-/// so that solve_apertures_for_phase remains a free function without pool
-/// dependencies.  Returns the solver status code on success, or an error.
-using ApertureResolveFunc = std::function<std::expected<int, Error>(
-    LinearInterface& clone, const SolverOptions& opts, PhaseIndex phase)>;
+/// Accepts a task function that returns an ApertureCutResult and submits
+/// it to the SDDP work pool.  Returns a future for the result.
+/// The caller submits all apertures first, then collects all futures,
+/// enabling parallel execution.
+using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
+    std::function<ApertureCutResult()> task)>;
 
 // ─── Core aperture solver ───────────────────────────────────────────────────
 
@@ -151,7 +163,7 @@ using ApertureResolveFunc = std::function<std::expected<int, Error>(
     const std::string& log_directory,
     int scene_uid,
     int phase_uid,
-    const ApertureResolveFunc& resolve_fn,
+    const ApertureSubmitFunc& submit_fn,
     double aperture_timeout = 0.0,
     bool save_aperture_lp = false,
     const ApertureDataCache& aperture_cache = {},
