@@ -62,6 +62,7 @@
 #include <vector>
 
 #include <gtopt/aperture.hpp>
+#include <gtopt/aperture_data_cache.hpp>
 #include <gtopt/basic_types.hpp>
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/enum_option.hpp>
@@ -874,6 +875,7 @@ private:
 
   std::reference_wrapper<PlanningLP> m_planning_lp_;
   SDDPOptions m_options_;
+  ApertureDataCache m_aperture_cache_;
   LabelMaker m_label_maker_;
   scene_phase_states_t m_scene_phase_states_;
   std::vector<StoredCut> m_stored_cuts_ {};

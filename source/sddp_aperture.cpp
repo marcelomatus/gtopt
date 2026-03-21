@@ -123,6 +123,7 @@ auto solve_apertures_for_phase(SceneIndex scene,
                                const ApertureResolveFunc& resolve_fn,
                                double aperture_timeout,
                                bool save_aperture_lp,
+                               const ApertureDataCache& aperture_cache,
                                std::span<const double> forward_col_sol,
                                std::span<const double> forward_row_dual)
     -> std::optional<SparseRow>
@@ -173,45 +174,63 @@ auto solve_apertures_for_phase(SceneIndex scene,
         [&aperture](const auto& scen)
         { return static_cast<Uid>(scen.uid()) == aperture.source_scenario; });
 
-    if (scen_it == all_scenarios.end()) {
-      spdlog::info(
-          "SDDP aperture: scene {} phase {} aperture uid {} — "
-          "source_scenario {} not found in {} scenarios, skipping",
-          scene_uid,
-          phase_uid,
-          ap_uid,
-          aperture.source_scenario,
-          all_scenarios.size());
-      ++n_skipped;
-      continue;
-    }
-
-    const auto& aperture_scenario = *scen_it;
-
     // Clone the phase LP (state variables already fixed from forward pass).
     auto clone = phase_li.clone();
 
-    // Update scenario-dependent bounds for this aperture.
-    // Elements with update_aperture_lp (FlowLP, GeneratorProfileLP,
-    // DemandProfileLP) get their per-block values replaced with the
-    // aperture scenario data.  Other element types are silently skipped.
-    auto aperture_visitor = [&](auto& e) -> bool
-    {
-      if constexpr (requires {
-                      e.update_aperture_lp(clone,
-                                           base_scenario,
-                                           aperture_scenario,
-                                           std::declval<const StageLP&>());
-                    })
+    if (scen_it != all_scenarios.end()) {
+      // Scenario found in forward set — use update_aperture_lp.
+      const auto& aperture_scenario = *scen_it;
+      auto aperture_visitor = [&](auto& e) -> bool
       {
-        for (const auto& stage : phase_lp.stages()) {
-          [[maybe_unused]] const auto ok = e.update_aperture_lp(
-              clone, base_scenario, aperture_scenario, stage);
+        if constexpr (requires {
+                        e.update_aperture_lp(clone,
+                                             base_scenario,
+                                             aperture_scenario,
+                                             std::declval<const StageLP&>());
+                      })
+        {
+          for (const auto& stage : phase_lp.stages()) {
+            [[maybe_unused]] const auto ok = e.update_aperture_lp(
+                clone, base_scenario, aperture_scenario, stage);
+          }
         }
-      }
-      return true;
-    };
-    visit_elements(sys.collections(), aperture_visitor);
+        return true;
+      };
+      visit_elements(sys.collections(), aperture_visitor);
+    } else if (!aperture_cache.empty()) {
+      // Scenario not in forward set — use cached aperture data to
+      // update flow columns directly from the pre-loaded parquet data.
+      const auto ap_scen_uid = aperture.source_scenario;
+      auto cache_visitor = [&](auto& e) -> bool
+      {
+        if constexpr (requires {
+                        e.update_aperture_from_cache(
+                            clone,
+                            base_scenario,
+                            ap_scen_uid,
+                            aperture_cache,
+                            std::declval<const StageLP&>());
+                      })
+        {
+          for (const auto& stage : phase_lp.stages()) {
+            [[maybe_unused]] const auto ok = e.update_aperture_from_cache(
+                clone, base_scenario, ap_scen_uid, aperture_cache, stage);
+          }
+        }
+        return true;
+      };
+      visit_elements(sys.collections(), cache_visitor);
+    } else {
+      spdlog::info(
+          "SDDP aperture: scene {} phase {} aperture uid {} — "
+          "source_scenario {} not found and no aperture cache, skipping",
+          scene_uid,
+          phase_uid,
+          ap_uid,
+          aperture.source_scenario);
+      ++n_skipped;
+      continue;
+    }
 
     // Apply the saved forward-pass solution as warm-start hint.
     // Dimension mismatches (new cut rows) are handled internally.

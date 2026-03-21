@@ -27,6 +27,7 @@
 #include <vector>
 
 #include <gtopt/aperture.hpp>
+#include <gtopt/aperture_data_cache.hpp>
 #include <gtopt/basic_types.hpp>
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/label_maker.hpp>
@@ -153,6 +154,7 @@ using ApertureResolveFunc = std::function<std::expected<int, Error>(
     const ApertureResolveFunc& resolve_fn,
     double aperture_timeout = 0.0,
     bool save_aperture_lp = false,
+    const ApertureDataCache& aperture_cache = {},
     std::span<const double> forward_col_sol = {},
     std::span<const double> forward_row_dual = {}) -> std::optional<SparseRow>;
 
