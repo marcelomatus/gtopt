@@ -65,20 +65,20 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   const auto fmin = reservoir().fmin.value_or(-LinearProblem::DblMax);
   const auto fmax = reservoir().fmax.value_or(+LinearProblem::DblMax);
 
-  // Resolve vol_scale: per-element field > VariableScaleMap > default.
-  const double vol_scale = [&]
+  // Resolve energy_scale: per-element field > VariableScaleMap > default.
+  const double energy_scale = [&]
   {
-    if (reservoir().vol_scale.has_value()) {
-      return *reservoir().vol_scale;
+    if (reservoir().energy_scale.has_value()) {
+      return *reservoir().energy_scale;
     }
     const auto vs =
-        sc.options().variable_scale_map().lookup("Reservoir", "volume", uid());
-    return (vs != 1.0) ? vs : Reservoir::default_vol_scale;
+        sc.options().variable_scale_map().lookup("Reservoir", "energy", uid());
+    return (vs != 1.0) ? vs : Reservoir::default_energy_scale;
   }();
 
-  // Resolve flow_scale independently from vol_scale.
+  // Resolve flow_scale independently from energy_scale.
   // Default 1.0: extraction flow fext stays in physical m³/s.
-  // Setting flow_scale = vol_scale (legacy) keeps energy-balance
+  // Setting flow_scale = energy_scale keeps energy-balance
   // coefficients O(1) but couples two different physical quantities.
   const double flow_scale = [&]
   {
@@ -117,7 +117,7 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   const StorageOptions opts {
       .use_state_variable = reservoir().use_state_variable.value_or(true),
       .daily_cycle = reservoir().daily_cycle.value_or(false),
-      .energy_scale = vol_scale,
+      .energy_scale = energy_scale,
       .flow_scale = flow_scale,
   };
   if (!StorageBase::add_to_lp(cname,

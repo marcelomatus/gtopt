@@ -296,12 +296,12 @@ TEST_CASE("SystemLP with multi-stage hydro system")
 }
 
 /// Verify that the LP solution and output are invariant to the choice of
-/// vol_scale.  Identical reservoir systems with different vol_scale values
-/// must produce the same objective value.
+/// energy_scale.  Identical reservoir systems with different energy_scale
+/// values must produce the same objective value.
 TEST_CASE(  // NOLINT
-    "Reservoir vol_scale invariance – same solution for different scales")
+    "Reservoir energy_scale invariance – same solution for different scales")
 {
-  // Helper lambda: builds and solves a hydro LP with the given vol_scale,
+  // Helper lambda: builds and solves a hydro LP with the given energy_scale,
   // returns the objective value.
   auto solve_with_scale = [](double scale) -> double
   {
@@ -370,7 +370,7 @@ TEST_CASE(  // NOLINT
             .emin = 100.0,
             .emax = 2000.0,
             .eini = 1000.0,
-            .vol_scale = scale,
+            .energy_scale = scale,
         },
     };
 
@@ -471,8 +471,8 @@ TEST_CASE(  // NOLINT
   CHECK(obj_scale_1000 == doctest::Approx(obj_scale_1).epsilon(1e-8));
 }
 
-/// Verify that Options::variable_scales affects the Reservoir volume scale
-/// the same way as the per-element Reservoir::vol_scale field.
+/// Verify that Options::variable_scales affects the Reservoir energy scale
+/// the same way as the per-element Reservoir::energy_scale field.
 /// This confirms the JSON variable_scales mechanism is not ignored by
 /// checking both solution invariance AND that LP column bounds actually change.
 TEST_CASE(  // NOLINT
@@ -485,7 +485,7 @@ TEST_CASE(  // NOLINT
   };
 
   // Helper: builds and solves a hydro LP using Options::variable_scales
-  // (NOT Reservoir::vol_scale) and returns the objective + max scaled bound.
+  // (NOT Reservoir::energy_scale) and returns the objective + max scaled bound.
   auto solve_with_variable_scales = [](double scale) -> ScaleResult
   {
     const Array<Bus> bus_array = {
@@ -544,7 +544,7 @@ TEST_CASE(  // NOLINT
         },
     };
 
-    // NOTE: no vol_scale set on the reservoir — default is used
+    // NOTE: no energy_scale set on the reservoir — default is used
     const Array<Reservoir> reservoir_array = {
         {
             .uid = Uid {1},
@@ -632,11 +632,11 @@ TEST_CASE(  // NOLINT
     };
 
     Options opts;
-    // Set volume scale via variable_scales option (not per-element field)
+    // Set energy scale via variable_scales option (not per-element field)
     opts.variable_scales = {
         {
             .class_name = "Reservoir",
-            .variable = "volume",
+            .variable = "energy",
             .uid = Uid {1},
             .scale = scale,
             .name = "rsv1",
@@ -652,7 +652,7 @@ TEST_CASE(  // NOLINT
     CHECK(result.value() == 0);
 
     // Verify the scale factor is stored in LP column scales.
-    // Volume columns get scale = vol_scale; find the maximum upper
+    // Volume columns get scale = energy_scale; find the maximum upper
     // bound among columns with that scale to prove the LP changed.
     const auto& col_scales = li.get_col_scales();
     REQUIRE_FALSE(col_scales.empty());
@@ -685,4 +685,193 @@ TEST_CASE(  // NOLINT
   CHECK(max_10 == doctest::Approx(2000.0 / 10.0).epsilon(1e-10));
   CHECK(max_1000 == doctest::Approx(2000.0 / 1000.0).epsilon(1e-10));
   CHECK(max_10 != doctest::Approx(max_1000));  // Proves they differ
+}
+
+/// Verify that setting both volume and flow variable_scales for a Reservoir
+/// produces the same objective as volume-only scaling, confirming that
+/// flow_scale is applied to the extraction flow LP columns without breaking
+/// the energy balance.
+TEST_CASE(  // NOLINT
+    "Reservoir flow variable_scale – objective invariance with volume+flow")
+{
+  // Helper: builds and solves a hydro LP with energy_scale and optional
+  // flow_scale via variable_scales, returns the objective value.
+  auto solve_with_scales = [](double energy_scale, double flow_scale) -> double
+  {
+    const Array<Bus> bus_array = {
+        {
+            .uid = Uid {1},
+            .name = "b1",
+        },
+    };
+
+    const Array<Generator> generator_array = {
+        {
+            .uid = Uid {1},
+            .name = "hydro_gen",
+            .bus = Uid {1},
+            .gcost = 5.0,
+            .capacity = 300.0,
+        },
+        {
+            .uid = Uid {2},
+            .name = "thermal_gen",
+            .bus = Uid {1},
+            .gcost = 100.0,
+            .capacity = 200.0,
+        },
+    };
+
+    const Array<Demand> demand_array = {
+        {
+            .uid = Uid {1},
+            .name = "d1",
+            .bus = Uid {1},
+            .capacity = 100.0,
+        },
+    };
+
+    const Array<Junction> junction_array = {
+        {
+            .uid = Uid {1},
+            .name = "j_up",
+        },
+        {
+            .uid = Uid {2},
+            .name = "j_down",
+            .drain = true,
+        },
+    };
+
+    const Array<Waterway> waterway_array = {
+        {
+            .uid = Uid {1},
+            .name = "ww1",
+            .junction_a = Uid {1},
+            .junction_b = Uid {2},
+            .fmin = 0.0,
+            .fmax = 500.0,
+        },
+    };
+
+    const Array<Reservoir> reservoir_array = {
+        {
+            .uid = Uid {1},
+            .name = "rsv1",
+            .junction = Uid {1},
+            .capacity = 2000.0,
+            .emin = 100.0,
+            .emax = 2000.0,
+            .eini = 1000.0,
+        },
+    };
+
+    const Array<Flow> flow_array = {
+        {
+            .uid = Uid {1},
+            .name = "natural_inflow",
+            .direction = 1,
+            .junction = Uid {1},
+            .discharge = 50.0,
+        },
+    };
+
+    const Array<Turbine> turbine_array = {
+        {
+            .uid = Uid {1},
+            .name = "tur1",
+            .waterway = Uid {1},
+            .generator = Uid {1},
+            .conversion_rate = 2.0,
+        },
+    };
+
+    const Simulation simulation = {
+        .block_array =
+            {
+                {
+                    .uid = Uid {1},
+                    .duration = 1,
+                },
+                {
+                    .uid = Uid {2},
+                    .duration = 2,
+                },
+            },
+        .stage_array =
+            {
+                {
+                    .uid = Uid {1},
+                    .first_block = 0,
+                    .count_block = 1,
+                },
+                {
+                    .uid = Uid {2},
+                    .first_block = 1,
+                    .count_block = 1,
+                },
+            },
+        .scenario_array =
+            {
+                {
+                    .uid = Uid {0},
+                },
+            },
+    };
+
+    const System system = {
+        .name = "FlowScaleTest",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .junction_array = junction_array,
+        .waterway_array = waterway_array,
+        .flow_array = flow_array,
+        .reservoir_array = reservoir_array,
+        .turbine_array = turbine_array,
+    };
+
+    Options opts;
+    // Set both energy and flow scales via variable_scales
+    opts.variable_scales = {
+        {
+            .class_name = "Reservoir",
+            .variable = "energy",
+            .uid = Uid {1},
+            .scale = energy_scale,
+            .name = "rsv1",
+        },
+        {
+            .class_name = "Reservoir",
+            .variable = "flow",
+            .uid = Uid {1},
+            .scale = flow_scale,
+            .name = "rsv1",
+        },
+    };
+    const OptionsLP options {opts};
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+
+    auto& li = system_lp.linear_interface();
+    const auto result = li.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+
+    return li.get_obj_value();
+  };
+
+  // Scenario 1: volume and flow scaled together (same value, as plp2gtopt
+  // now emits) — this is the recommended configuration.
+  const double obj_both_100 = solve_with_scales(100.0, 100.0);
+
+  // Scenario 2: different volume scale, flow scale matches volume
+  const double obj_both_1000 = solve_with_scales(1000.0, 1000.0);
+
+  // Scenario 3: volume only (flow_scale=1.0, the default)
+  const double obj_vol_only = solve_with_scales(100.0, 1.0);
+
+  // Objective invariance: all scenarios solve the same physical problem
+  CHECK(obj_both_100 == doctest::Approx(obj_both_1000).epsilon(1e-6));
+  CHECK(obj_both_100 == doctest::Approx(obj_vol_only).epsilon(1e-6));
 }

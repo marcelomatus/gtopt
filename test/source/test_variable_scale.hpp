@@ -145,11 +145,11 @@ TEST_CASE("VariableScale designated initializer")  // NOLINT
 {
   const VariableScale vs {
       .class_name = "Reservoir",
-      .variable = "volume",
+      .variable = "energy",
       .scale = 100000.0,
   };
   CHECK(vs.class_name == "Reservoir");
-  CHECK(vs.variable == "volume");
+  CHECK(vs.variable == "energy");
   CHECK(vs.uid == unknown_uid);
   CHECK(vs.scale == doctest::Approx(100000.0));
 }
@@ -161,7 +161,7 @@ TEST_CASE("VariableScaleMap default lookup returns 1.0")  // NOLINT
   const VariableScaleMap map;
   CHECK(map.empty());
   CHECK(map.lookup("Bus", "theta") == doctest::Approx(1.0));
-  CHECK(map.lookup("Reservoir", "volume", Uid {42}) == doctest::Approx(1.0));
+  CHECK(map.lookup("Reservoir", "energy", Uid {42}) == doctest::Approx(1.0));
 }
 
 TEST_CASE("VariableScaleMap per-class lookup")  // NOLINT
@@ -174,7 +174,7 @@ TEST_CASE("VariableScaleMap per-class lookup")  // NOLINT
       },
       {
           .class_name = "Reservoir",
-          .variable = "volume",
+          .variable = "energy",
           .scale = 100000.0,
       },
   };
@@ -182,7 +182,7 @@ TEST_CASE("VariableScaleMap per-class lookup")  // NOLINT
 
   CHECK_FALSE(map.empty());
   CHECK(map.lookup("Bus", "theta") == doctest::Approx(0.001));
-  CHECK(map.lookup("Reservoir", "volume") == doctest::Approx(100000.0));
+  CHECK(map.lookup("Reservoir", "energy") == doctest::Approx(100000.0));
   CHECK(map.lookup("Generator", "output") == doctest::Approx(1.0));
 }
 
@@ -192,12 +192,12 @@ TEST_CASE(
   const std::vector<VariableScale> scales {
       {
           .class_name = "Reservoir",
-          .variable = "volume",
+          .variable = "energy",
           .scale = 100000.0,
       },
       {
           .class_name = "Reservoir",
-          .variable = "volume",
+          .variable = "energy",
           .uid = Uid {42},
           .scale = 50000.0,
       },
@@ -205,13 +205,13 @@ TEST_CASE(
   const VariableScaleMap map(scales);
 
   // Per-element match wins for UID 42
-  CHECK(map.lookup("Reservoir", "volume", Uid {42})
+  CHECK(map.lookup("Reservoir", "energy", Uid {42})
         == doctest::Approx(50000.0));
   // Per-class match for other UIDs
-  CHECK(map.lookup("Reservoir", "volume", Uid {99})
+  CHECK(map.lookup("Reservoir", "energy", Uid {99})
         == doctest::Approx(100000.0));
   // Per-class match when no UID given
-  CHECK(map.lookup("Reservoir", "volume") == doctest::Approx(100000.0));
+  CHECK(map.lookup("Reservoir", "energy") == doctest::Approx(100000.0));
   // Default for unknown class/variable
   CHECK(map.lookup("Battery", "energy") == doctest::Approx(1.0));
 }
@@ -231,13 +231,13 @@ TEST_CASE("Integration: LP column scale drives output rescaling")  // NOLINT
       .scale = 1.0 / scale_theta,
   });
 
-  // Simulate reservoir volume: LP = physical / 100000, scale = 100000
-  constexpr double vol_scale = 100000.0;
+  // Simulate reservoir energy: LP = physical / 100000, scale = 100000
+  constexpr double energy_scale = 100000.0;
   const auto vol = lp.add_col(SparseCol {
       .name = "vol_r1",
-      .lowb = 500.0 / vol_scale,
-      .uppb = 2000.0 / vol_scale,
-      .scale = vol_scale,
+      .lowb = 500.0 / energy_scale,
+      .uppb = 2000.0 / energy_scale,
+      .scale = energy_scale,
   });
 
   // Retrieve scales

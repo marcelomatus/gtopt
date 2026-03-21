@@ -400,7 +400,7 @@ def generate_variable_scales_template(options: dict[str, Any]) -> str:
     Parses the PLP case (same initial steps as convert_plp_case) and builds
     a JSON array of VariableScale objects for reservoirs and batteries.
 
-    For each reservoir, the volume scale is computed from FEscala
+    For each reservoir, the energy scale is computed from FEscala
     (``10^(FEscala - 6)``), falling back to the Escala field from
     plpcnfce.dat if FEscala is not available.
 
@@ -439,11 +439,11 @@ def generate_variable_scales_template(options: dict[str, Any]) -> str:
         fescala_map = planos.reservoir_fescala
 
     central_parser = parser.parsed_data.get("central_parser")
-    central_vol_scale: dict[str, float] = {}
+    central_energy_scale: dict[str, float] = {}
     if central_parser is not None:
         for central in central_parser.centrals:
-            if central.get("type") == "embalse" and "vol_scale" in central:
-                central_vol_scale[str(central["name"])] = central["vol_scale"]
+            if central.get("type") == "embalse" and "energy_scale" in central:
+                central_energy_scale[str(central["name"])] = central["energy_scale"]
 
     reservoirs = planning.get("system", {}).get("reservoir_array", [])
     for rsv in reservoirs:
@@ -459,20 +459,31 @@ def generate_variable_scales_template(options: dict[str, Any]) -> str:
             fescala_val = fescala
         else:
             # Fallback: Escala from plpcnfce.dat (already divided by 1e6)
-            cvs = central_vol_scale.get(name)
+            cvs = central_energy_scale.get(name)
             if cvs is not None:
                 scale = cvs
 
+        resolved_scale = scale if scale is not None else 1.0
         entry: dict[str, Any] = {
             "class_name": "Reservoir",
-            "variable": "volume",
+            "variable": "energy",
             "uid": uid,
-            "scale": scale if scale is not None else 1.0,
+            "scale": resolved_scale,
             "name": name,
         }
         if fescala_val is not None:
             entry["_fescala"] = fescala_val
         scales.append(entry)
+        # Also scale flow (extraction) variables with the same factor
+        scales.append(
+            {
+                "class_name": "Reservoir",
+                "variable": "flow",
+                "uid": uid,
+                "scale": resolved_scale,
+                "name": name,
+            }
+        )
 
     # --- Battery energy scales ---
     batteries = planning.get("system", {}).get("battery_array", [])

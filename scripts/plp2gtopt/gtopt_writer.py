@@ -830,28 +830,30 @@ class GTOptWriter:
     def process_variable_scales(self, options):
         """Build ``variable_scales`` entries in the options section.
 
-        Generates VariableScale JSON entries for reservoir volume scaling
+        Generates VariableScale JSON entries for reservoir energy scaling
         and battery energy scaling, using the ``variable_scales`` mechanism
         in ``Options`` rather than per-element fields.
 
         Scale priority (highest to lowest):
-        1. Explicit ``--vol-scale`` / ``--energy-scale`` name:value entries.
-        2. ``--auto-vol-scale`` / ``--auto-energy-scale`` (ON by default).
+        1. Explicit ``--rsv-energy-scale`` / ``--energy-scale`` name:value.
+        2. ``--auto-rsv-energy-scale`` / ``--auto-energy-scale`` (ON default).
         3. ``--variable-scales-file`` entries (lowest priority).
 
-        Auto-scaling is enabled by default.  Use ``--no-auto-vol-scale``
+        Auto-scaling is enabled by default.  Use ``--no-auto-rsv-energy-scale``
         and/or ``--no-auto-energy-scale`` to disable.
         """
         if not options:
             return
 
-        has_vol = "vol_scale" in options or options.get("auto_vol_scale", False)
-        has_energy = "energy_scale" in options or options.get(
-            "auto_energy_scale", False
+        has_rsv = "rsv_energy_scale" in options or options.get(
+            "auto_rsv_energy_scale", False
+        )
+        has_bat = "bat_energy_scale" in options or options.get(
+            "auto_bat_energy_scale", False
         )
         has_file = "variable_scales_file" in options
 
-        if not has_vol and not has_energy and not has_file:
+        if not has_rsv and not has_bat and not has_file:
             return
 
         # --- Load file-based scales first (lowest priority) ---
@@ -872,10 +874,10 @@ class GTOptWriter:
 
         scales: list[dict] = []
 
-        # --- Reservoir volume scales ---
-        if has_vol:
-            explicit_vol: dict = options.get("vol_scale", {})
-            auto_vol = options.get("auto_vol_scale", False)
+        # --- Reservoir energy scales ---
+        if has_rsv:
+            explicit_rsv: dict = options.get("rsv_energy_scale", {})
+            auto_rsv = options.get("auto_rsv_energy_scale", False)
 
             # Collect FEscala data from planos parser (plpplem1.dat)
             planos = self.parser.parsed_data.get("planos_parser")
@@ -883,13 +885,18 @@ class GTOptWriter:
             if planos is not None:
                 fescala_map = planos.reservoir_fescala
 
-            # Collect central_parser vol_scale as fallback for auto mode
+            # Collect central_parser energy_scale as fallback for auto mode
             central_parser = self.parser.parsed_data.get("central_parser")
-            central_vol_scale: dict = {}
+            central_energy_scale: dict = {}
             if central_parser is not None:
                 for central in central_parser.centrals:
-                    if central.get("type") == "embalse" and "vol_scale" in central:
-                        central_vol_scale[str(central["name"])] = central["vol_scale"]
+                    if (
+                        central.get("type") == "embalse"
+                        and "energy_scale" in central
+                    ):
+                        central_energy_scale[str(central["name"])] = central[
+                            "energy_scale"
+                        ]
 
             reservoirs = self.planning["system"].get("reservoir_array", [])
             for rsv in reservoirs:
@@ -897,35 +904,47 @@ class GTOptWriter:
                 uid = rsv["uid"]
                 scale = None
 
-                # Priority 1: explicit --vol-scale
-                if name in explicit_vol:
-                    scale = explicit_vol[name]
-                # Priority 2: auto-vol-scale
-                elif auto_vol:
+                # Priority 1: explicit --rsv-energy-scale
+                if name in explicit_rsv:
+                    scale = explicit_rsv[name]
+                # Priority 2: auto-rsv-energy-scale
+                elif auto_rsv:
                     # Try FEscala from plpplem1.dat first
                     fescala = fescala_map.get(name)
                     if fescala is not None:
                         scale = 10.0 ** (fescala - 6)
                     else:
-                        # Fallback: central_parser's vol_scale (Escala/1e6)
-                        scale = central_vol_scale.get(name)
+                        # Fallback: central_parser's energy_scale (Escala/1e6)
+                        scale = central_energy_scale.get(name)
 
                 if scale is not None and scale != 1.0:
                     scales.append(
                         {
                             "class_name": "Reservoir",
-                            "variable": "volume",
+                            "variable": "energy",
                             "uid": uid,
                             "scale": scale,
                             "name": name,
                         }
                     )
-                    computed_keys.add(("Reservoir", "volume", uid))
+                    computed_keys.add(("Reservoir", "energy", uid))
+                    # Also scale flow (extraction) variables with the same
+                    # factor so energy-balance coefficients stay O(1).
+                    scales.append(
+                        {
+                            "class_name": "Reservoir",
+                            "variable": "flow",
+                            "uid": uid,
+                            "scale": scale,
+                            "name": name,
+                        }
+                    )
+                    computed_keys.add(("Reservoir", "flow", uid))
 
         # --- Battery energy scales ---
-        if has_energy:
-            explicit_energy: dict = options.get("energy_scale", {})
-            auto_energy = options.get("auto_energy_scale", False)
+        if has_bat:
+            explicit_energy: dict = options.get("bat_energy_scale", {})
+            auto_energy = options.get("auto_bat_energy_scale", False)
 
             batteries = self.planning["system"].get("battery_array", [])
             for bat in batteries:

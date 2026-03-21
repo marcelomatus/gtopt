@@ -592,7 +592,7 @@ def test_min_hydro_json_structure(tmp_path):
     profiles = sys.get("generator_profile_array", [])
     assert len(profiles) == 1
     assert profiles[0]["name"] == "HydroGen"
-    assert profiles[0]["generator"] == 1
+    assert profiles[0]["generator"] == "HydroGen"
     assert profiles[0]["profile"] == "Flow@discharge"
 
 
@@ -855,7 +855,7 @@ def test_min_reservoir_conversion(tmp_path):
     assert len(reservoirs) == 1
     rsv = reservoirs[0]
     assert rsv["name"] == "Reservoir1"
-    assert rsv["junction"] == 1
+    assert rsv["junction"] == "Reservoir1"
     assert rsv["emin"] == pytest.approx(100.0)
     assert rsv["emax"] == pytest.approx(1000.0)
     assert rsv["capacity"] == pytest.approx(1000.0)
@@ -882,19 +882,19 @@ def test_min_reservoir_conversion(tmp_path):
     waterways = sys_data.get("waterway_array", [])
     assert len(waterways) == 2
     # The original waterway from Reservoir1 to TurbineGen
-    ww_res = next(w for w in waterways if w["junction_a"] == 1)
-    assert ww_res["junction_b"] == 2  # TurbineGen
+    ww_res = next(w for w in waterways if w["junction_a"] == "Reservoir1")
+    assert ww_res["junction_b"] == "TurbineGen"
 
     # Turbines: Reservoir1 (embalse, bus>0) + TurbineGen (serie, bus>0, ocean fix)
     turbines = sys_data.get("turbine_array", [])
     assert len(turbines) == 2
-    rsv_turb = next(t for t in turbines if t["generator"] == 1)
-    assert rsv_turb["waterway"] == ww_res["uid"]
+    rsv_turb = next(t for t in turbines if t["generator"] == "Reservoir1")
+    assert rsv_turb["waterway"] == ww_res["name"]
 
     # Flow (discharge) is a parquet reference
     flows = sys_data.get("flow_array", [])
     assert len(flows) == 1
-    assert flows[0]["junction"] == 1
+    assert flows[0]["junction"] == "Reservoir1"
     assert flows[0]["discharge"] == "discharge"
 
     # Generators: embalse + serie (no falla)
@@ -1981,7 +1981,7 @@ def test_hydro_4b_sddp_conversion(tmp_path):
     # Flow (afluent)
     flows = sys_data.get("flow_array", [])
     assert len(flows) == 1
-    assert flows[0]["junction"] == 1  # LakeA junction
+    assert flows[0]["junction"] == "LakeA"  # LakeA junction
 
     # SDDP structure: 3 scenarios → 3 scenes, 3 stages → 3 phases
     assert len(sim["scenario_array"]) == 3

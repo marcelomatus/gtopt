@@ -245,7 +245,7 @@ class CentralParser(BaseParser):
                 current_gen["vol_fin"] = self._parse_float(parts[8]) * scale
                 current_gen["emin"] = self._parse_float(parts[9]) * scale
                 current_gen["emax"] = self._parse_float(parts[10]) * scale
-                current_gen["vol_scale"] = scale
+                current_gen["energy_scale"] = scale
 
         except (ValueError, IndexError) as e:
             raise ValueError(

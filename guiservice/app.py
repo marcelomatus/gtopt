@@ -268,7 +268,7 @@ ELEMENT_SCHEMAS = {
             {"name": "vfin", "type": "number", "required": False},
             {"name": "fmin", "type": "number", "required": False},
             {"name": "fmax", "type": "number", "required": False},
-            {"name": "vol_scale", "type": "number", "required": False},
+            {"name": "energy_scale", "type": "number", "required": False},
             {"name": "flow_conversion_rate", "type": "number", "required": False},
         ],
     },

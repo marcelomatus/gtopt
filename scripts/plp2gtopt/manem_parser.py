@@ -50,7 +50,7 @@ class ManemParser(BaseParser):
                     central_parser.get_central_by_name(name) if central_parser else None
                 )
 
-                scale = central["vol_scale"] if central else 1.0
+                scale = central["energy_scale"] if central else 1.0
 
                 # Get number of stages and intervals
                 idx = self._next_idx(idx, lines)

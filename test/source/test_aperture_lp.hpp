@@ -431,7 +431,7 @@ TEST_CASE("FlowLP update_aperture_lp updates bounds correctly")  // NOLINT
     // That means LP variable == physical value (m³/s).  Verify that the
     // bounds set by update_aperture_lp are the raw discharge values
     // without any scaling factor applied.  This is important because other
-    // LP components (e.g. ReservoirLP with vol_scale, BusLP with
+    // LP components (e.g. ReservoirLP with energy_scale, BusLP with
     // scale_theta) DO apply scaling — FlowLP intentionally does not.
 
     // Verify flow columns have scale = 1.0 via LinearInterface
@@ -446,7 +446,7 @@ TEST_CASE("FlowLP update_aperture_lp updates bounds correctly")  // NOLINT
 
     for (const auto& [buid, col] : fcols) {
       // Physical discharge for scenario 1 = 10.0 — bounds should match
-      // exactly (no inv_vol_scale, no 1/scale_theta, etc.)
+      // exactly (no inv_energy_scale, no 1/scale_theta, etc.)
       CHECK(base_low[col] == doctest::Approx(10.0));
       CHECK(base_upp[col] == doctest::Approx(10.0));
     }
