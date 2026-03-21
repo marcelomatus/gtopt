@@ -13,12 +13,15 @@
 
 #pragma once
 
+#include <gtopt/basic_types.hpp>
 #include <gtopt/flow.hpp>
 #include <gtopt/junction_lp.hpp>
 #include <gtopt/linear_interface.hpp>
 
 namespace gtopt
 {
+
+class ApertureDataCache;  // forward declaration
 
 /// Single-ID alias for referencing a FlowLP in other LP elements
 using FlowLPSId = ObjectSingleId<class FlowLP>;
@@ -84,6 +87,14 @@ public:
                                         const ScenarioLP& base_scenario,
                                         const ScenarioLP& aperture_scenario,
                                         const StageLP& stage) const;
+
+  /// Update flow column bounds from the ApertureDataCache when the
+  /// aperture scenario is not in the forward set.
+  [[nodiscard]] bool update_aperture_from_cache(LinearInterface& li,
+                                                const ScenarioLP& base_scenario,
+                                                Uid aperture_scenario_uid,
+                                                const ApertureDataCache& cache,
+                                                const StageLP& stage) const;
 
 private:
   STBRealSched discharge;
