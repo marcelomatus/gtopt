@@ -359,6 +359,14 @@ public:
     return m_options_.sddp_options.aperture_timeout.value_or(15.0);
   }
 
+  /** @brief Whether to save LP files for infeasible apertures.
+   * @return false by default (disabled).
+   */
+  [[nodiscard]] constexpr auto sddp_save_aperture_lp() const
+  {
+    return m_options_.sddp_options.save_aperture_lp.value_or(false);
+  }
+
   /** @brief Whether SDDP resolves use warm-start optimizations.
    *
    * Default: true when the solver algorithm is barrier (the default),
