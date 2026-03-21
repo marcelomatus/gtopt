@@ -113,7 +113,7 @@ auto solve_apertures_for_phase(
     std::span<const Aperture> aperture_defs,
     std::span<const Uid> phase_apertures,
     int total_cuts,
-    int iteration,
+    IterationIndex iteration,
     SystemLP& sys,
     const PhaseLP& phase_lp,
     const SolverOptions& opts,
