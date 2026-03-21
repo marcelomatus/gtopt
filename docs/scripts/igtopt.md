@@ -332,7 +332,7 @@ Each row defines a reservoir connected to a hydraulic junction. Key fields:
 | `efin` | number | Target stored volume [dam³] |
 | `fmin` | number | Minimum net inflow [m³/s] |
 | `fmax` | number | Maximum net inflow [m³/s] |
-| `vol_scale` | number | LP scaling factor (default: 1000) |
+| `energy_scale` | number | LP scaling factor (default: 1000) |
 | `flow_conversion_rate` | number | m³/s × hours → dam³ (default: 0.0036) |
 | `use_state_variable` | bool | Enable stage/phase coupling via SDDP (default: false) |
 | `daily_cycle` | bool | Enable daily cycle operation (default: false) |

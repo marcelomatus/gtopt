@@ -179,10 +179,10 @@ def test_converter_array(tmp_path):
     c = convs[0]
     assert c["uid"] == 1
     assert c["name"] == "BESS1"
-    assert c["battery"] == 1
-    # generator/demand uids == battery uid (no offset)
-    assert c["generator"] == 1
-    assert c["demand"] == 1
+    assert c["battery"] == "BESS1"
+    # generator/demand names == battery name
+    assert c["generator"] == "BESS1"
+    assert c["demand"] == "BESS1"
 
 
 # ---------------------------------------------------------------------------

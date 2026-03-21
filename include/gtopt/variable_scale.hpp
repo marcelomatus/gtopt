@@ -10,7 +10,7 @@
  *
  * The `VariableScale` struct defines a single scale entry:
  * ```json
- * {"class_name": "Reservoir", "variable": "volume", "scale": 1000.0}
+ * {"class_name": "Reservoir", "variable": "energy", "scale": 1000.0}
  * ```
  *
  * An array of these entries lives in `Options::variable_scales` and is
@@ -21,7 +21,7 @@
  *   2. Per-class default   (matching class + variable, no UID)
  *   3. Fallback default    (1.0 = no scaling)
  *
- * Per-element fields (`Battery::energy_scale`, `Reservoir::vol_scale`) and
+ * Per-element fields (`Battery::energy_scale`, `Reservoir::energy_scale`) and
  * global options (`Options::scale_theta`) take precedence over entries in
  * `variable_scales` — the array provides a uniform, extensible mechanism
  * for cases not covered by dedicated fields.

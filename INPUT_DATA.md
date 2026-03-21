@@ -175,7 +175,7 @@ Resolution priority when the solver looks up a scale:
 3. Fallback: `1.0` (no scaling)
 
 > **Note:** Per-element fields (`Battery::energy_scale`,
-> `Reservoir::vol_scale`) and global options (`scale_theta`) take
+> `Reservoir::energy_scale`) and global options (`scale_theta`) take
 > precedence over entries in `variable_scales`.
 
 | Field        | Type    | Default | Description |
@@ -709,7 +709,7 @@ A water reservoir connected to a junction.  Volume units: **dam³** (1 dam³ = 1
 | `efin`                 | number              | dam³        | No       | Target final stored volume |
 | `fmin`                 | number              | m³/s        | No       | Minimum net inflow |
 | `fmax`                 | number              | m³/s        | No       | Maximum net inflow |
-| `vol_scale`            | number              | —           | No       | Multiplicative scaling factor for volume |
+| `energy_scale`         | number              | —           | No       | Multiplicative scaling factor for volume |
 | `flow_conversion_rate` | number              | dam³/(m³/s·h)| No     | Converts m³/s × hours to dam³ (default: 0.0036) |
 
 ### 3.10 Turbine

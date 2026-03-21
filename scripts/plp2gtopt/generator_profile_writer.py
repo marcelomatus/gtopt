@@ -99,7 +99,7 @@ class GeneratorProfileWriter(BaseWriter):
             profile: GeneratorProfile = {
                 "uid": central_number,
                 "name": central_name,
-                "generator": central_number,
+                "generator": central_name,
                 "profile": afluent,
             }
             json_profiles.append(profile)

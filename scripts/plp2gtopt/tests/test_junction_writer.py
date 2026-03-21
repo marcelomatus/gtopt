@@ -251,20 +251,20 @@ def test_to_json_array_single_plant():
 
     assert len(result["waterway_array"]) == 2
     ww1, ww2 = result["waterway_array"]
-    assert ww1["junction_a"] == 1 and ww1["junction_b"] == 2
-    assert ww2["junction_a"] == 1 and ww2["junction_b"] == 2
+    assert ww1["junction_a"] == "PlantA" and ww1["junction_b"] == "2"
+    assert ww2["junction_a"] == "PlantA" and ww2["junction_b"] == "2"
 
     assert len(result["turbine_array"]) == 1
     turbine = result["turbine_array"][0]
     assert turbine["uid"] == 1
-    assert turbine["generator"] == 1
-    assert turbine["waterway"] == ww1["uid"]
+    assert turbine["generator"] == "PlantA"
+    assert turbine["waterway"] == ww1["name"]
     assert turbine["conversion_rate"] == 0.9
 
     assert len(result["flow_array"]) == 1
     flow = result["flow_array"][0]
     assert flow["uid"] == 1
-    assert flow["junction"] == 1
+    assert flow["junction"] == "PlantA"
     assert flow["discharge"] == 10.0
 
 
@@ -334,7 +334,7 @@ def test_process_reservoirs(reservoir_parser):
     reservoir = result["reservoir_array"][0]
     assert reservoir["uid"] == 10
     assert reservoir["name"] == "ReservoirA"
-    assert reservoir["junction"] == 10
+    assert reservoir["junction"] == "ReservoirA"
     assert reservoir["eini"] == 100
     assert reservoir["emax"] == 200
     assert reservoir["capacity"] == 200
@@ -380,13 +380,13 @@ def test_process_extractions(sample_extrac_parser):
     # Waterways from centrals
     assert len(result["waterway_array"]) == 5
     waterway = result["waterway_array"][0]
-    assert waterway["junction_a"] == 1
-    assert waterway["junction_b"] == 2
+    assert waterway["junction_a"] == "PlantA"
+    assert waterway["junction_b"] == "PlantB"
     assert waterway["fmin"] == 0.0
 
     waterway = result["waterway_array"][1]
-    assert waterway["junction_a"] == 1
-    assert waterway["junction_b"] == 5
+    assert waterway["junction_a"] == "PlantA"
+    assert waterway["junction_b"] == "5"
     assert waterway["fmin"] == 0.0
     assert waterway["fmax"] == 50.0
 
@@ -505,7 +505,7 @@ def test_filtration_array_populated():
     filt = result["filtration_array"][0]
     assert filt["slope"] == pytest.approx(0.001)
     assert filt["constant"] == pytest.approx(5.0)
-    assert filt["reservoir"] == 1  # Dam1 uid
+    assert filt["reservoir"] == "Dam1"
 
 
 def test_filtration_array_empty_when_no_parser():
@@ -610,7 +610,7 @@ def test_reservoir_efficiency_array_populated():
     assert len(result["reservoir_efficiency_array"]) == 1
     eff = result["reservoir_efficiency_array"][0]
     assert eff["mean_efficiency"] == pytest.approx(1.5)
-    assert eff["reservoir"] == 1  # Dam1 uid
+    assert eff["reservoir"] == "Dam1"
     assert len(eff["segments"]) == 2
     assert eff["segments"][0]["slope"] == pytest.approx(0.0003)
     assert eff["segments"][1]["volume"] == pytest.approx(500.0)
@@ -713,14 +713,12 @@ def test_embalse_ocean_junction_waterways_created():
     writer = JunctionWriter(central_parser=_rapel_parser())
     result = writer.to_json_array()[0]
 
-    ocean_uid = next(
-        j["uid"] for j in result["junction_array"] if j["name"] == "RAPEL_ocean"
-    )
-
     # Only ONE waterway should point to the ocean junction (gen, not ver)
-    to_ocean = [w for w in result["waterway_array"] if w["junction_b"] == ocean_uid]
+    to_ocean = [
+        w for w in result["waterway_array"] if w["junction_b"] == "RAPEL_ocean"
+    ]
     assert len(to_ocean) == 1
-    assert to_ocean[0]["junction_a"] == 63  # RAPEL's uid
+    assert to_ocean[0]["junction_a"] == "RAPEL"
 
     # The RAPEL junction itself must be a drain (handles the missing spillway)
     rapel_junction = next(j for j in result["junction_array"] if j["name"] == "RAPEL")
@@ -735,14 +733,11 @@ def test_embalse_ocean_junction_turbine_created():
     assert len(result["turbine_array"]) == 1
     turbine = result["turbine_array"][0]
     assert turbine["name"] == "RAPEL"
-    assert turbine["generator"] == 63
+    assert turbine["generator"] == "RAPEL"
     assert turbine["conversion_rate"] == pytest.approx(0.9)
     # The turbine's waterway must terminate at the ocean junction
-    ocean_uid = next(
-        j["uid"] for j in result["junction_array"] if j["name"] == "RAPEL_ocean"
-    )
-    ww = next(w for w in result["waterway_array"] if w["uid"] == turbine["waterway"])
-    assert ww["junction_b"] == ocean_uid
+    ww = next(w for w in result["waterway_array"] if w["name"] == turbine["waterway"])
+    assert ww["junction_b"] == "RAPEL_ocean"
 
 
 def test_embalse_ocean_junction_enables_efficiency():

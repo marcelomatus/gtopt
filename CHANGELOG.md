@@ -21,7 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   solver instead of failing.
 - **SDDP hot-start**: `sddp_hot_start` option to load cuts from a previous
   run and resume SDDP iterations.
-- **plp2gtopt scale options**: `--auto-vol-scale` and `--auto-energy-scale`
+- **plp2gtopt scale options**: `--auto-rsv-energy-scale` and `--auto-energy-scale`
   flags for automatic variable scaling during PLP conversion.
 - **Hydro worked example**: Example 5 (simple hydro cascade) added to
   `PLANNING_GUIDE.md`.

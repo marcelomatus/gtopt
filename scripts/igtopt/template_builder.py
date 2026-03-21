@@ -843,10 +843,10 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
-            "vol_scale",
+            "energy_scale",
             _J_NUM,
             False,
-            "Volume scaling factor [hm³/unit] (default: 1.0)",
+            "Energy scaling factor [hm³/unit] (default: 1.0)",
             None,
         ),
         (

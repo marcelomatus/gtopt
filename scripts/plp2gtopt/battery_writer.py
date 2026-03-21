@@ -358,13 +358,14 @@ class BatteryWriter(BaseWriter):
         convs = []
         for entry in entries:
             num = entry["number"]
+            name = entry["name"]
             convs.append(
                 {
                     "uid": num,
-                    "name": entry["name"],
-                    "battery": num,
-                    "generator": num,
-                    "demand": num,
+                    "name": name,
+                    "battery": name,
+                    "generator": name,
+                    "demand": name,
                     "capacity": entry.get("capacity", entry["pmax_discharge"]),
                 }
             )
