@@ -93,16 +93,14 @@ def _log_stats(planning: dict, elapsed: float) -> None:
         elem_pairs = [(k, str(v)) for k, v in all_elems]
     print_kv_table(elem_pairs, title="Elements")
 
-    all_scenarios = sim.get("scenario_array", [])
-    fwd_scenarios = [s for s in all_scenarios if "input_directory" not in s]
-    ap_scenarios = [s for s in all_scenarios if "input_directory" in s]
     sim_pairs = [
         ("Blocks", str(len(sim.get("block_array", [])))),
         ("Stages", str(len(sim.get("stage_array", [])))),
-        ("Scenarios", str(len(fwd_scenarios))),
+        ("Scenarios", str(len(sim.get("scenario_array", [])))),
     ]
-    if ap_scenarios:
-        sim_pairs.append(("Aperture scenarios", str(len(ap_scenarios))))
+    apertures = sim.get("aperture_array", [])
+    if apertures:
+        sim_pairs.append(("Apertures", str(len(apertures))))
     print_kv_table(sim_pairs, title="Simulation")
 
     print_kv_table(
@@ -144,11 +142,8 @@ def show_simulation_summary(planning: dict) -> None:
 
     # --- Scenarios ---
     scenarios = sim.get("scenario_array", [])
-    fwd = [s for s in scenarios if "input_directory" not in s]
-    ap = [s for s in scenarios if "input_directory" in s]
-
     scen_rows = []
-    for s in fwd:
+    for s in scenarios:
         scen_rows.append(
             (
                 f"uid={s['uid']}",
@@ -156,22 +151,10 @@ def show_simulation_summary(planning: dict) -> None:
                 f"prob={s.get('probability_factor', 1.0):.4f}",
             )
         )
-    if ap:
-        scen_rows.append(("", ""))
-        for s in ap[:10]:
-            scen_rows.append(
-                (
-                    f"uid={s['uid']} (aperture)",
-                    f"hydrology={s.get('hydrology', '?')} "
-                    f"dir={s.get('input_directory', '')}",
-                )
-            )
-        if len(ap) > 10:
-            scen_rows.append(("...", f"({len(ap) - 10} more aperture scenarios)"))
-    print_kv_table(
-        scen_rows,
-        title=f"Scenarios ({len(fwd)} forward + {len(ap)} aperture-only)",
-    )
+    if len(scenarios) > 10:
+        scen_rows = scen_rows[:10]
+        scen_rows.append(("...", f"({len(scenarios) - 10} more)"))
+    print_kv_table(scen_rows, title=f"Scenarios ({len(scenarios)})")
 
     # --- Stages ---
     stages = sim.get("stage_array", [])
