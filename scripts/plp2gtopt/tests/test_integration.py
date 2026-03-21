@@ -1372,9 +1372,9 @@ def test_plp_case_2y_single_stage_all_scenarios(tmp_path):
         "Expected 0-based hydrology indices 50-65 (1-based 51-66 from idsim)"
     )
 
-    # UIDs are sequential 1-based
+    # UIDs = Fortran 1-based hydrology indices (51-66)
     uids = sorted(s["uid"] for s in sim["scenario_array"])
-    assert uids == list(range(1, 17))
+    assert uids == list(range(51, 67))
 
     # Equal probability weights
     for s in sim["scenario_array"]:
@@ -1394,8 +1394,9 @@ def test_plp_case_2y_single_stage_all_scenarios(tmp_path):
     aps = sim["aperture_array"]
     assert len(aps) == 16
     source_uids = {a["source_scenario"] for a in aps}
-    # All apertures reference forward scenario UIDs 1-16
-    assert source_uids.issubset(set(range(1, 17))), (
+    # All apertures reference forward scenario UIDs (51-66 = Fortran indices)
+    forward_uids = {s["uid"] for s in sim["scenario_array"]}
+    assert source_uids.issubset(forward_uids), (
         "Stage-1 apertures all map to forward scenarios, no extra UIDs expected"
     )
 
@@ -1418,7 +1419,7 @@ def test_plp_case_2y_single_stage_all_scenarios(tmp_path):
     assert len(unique_scen) == 16, (
         f"Expected 16 unique scenario values in discharge.parquet, got {len(unique_scen)}"
     )
-    assert unique_scen == list(range(1, 17)), "Scenario UIDs should be 1-16"
+    assert unique_scen == list(range(51, 67)), "Scenario UIDs should be 51-66 (Fortran indices)"
     # uid:N columns represent hydro-capable centrals (there are many in this case)
     central_cols = [c for c in df.columns if c.startswith("uid:")]
     assert len(central_cols) > 0, (
@@ -1571,9 +1572,10 @@ def _check_2y_global_indicators(
     plp_counts = _plp_element_counts(parser)
     gtopt_counts = _gtopt_element_counts(data)
 
-    # ---- Cross-check: PLP hydrology indices == gtopt scenario hydrologies ----
+    # ---- Cross-check: PLP hydrology indices == gtopt forward scenario hydrologies ----
     scenarios = data["simulation"]["scenario_array"]
-    gtopt_hydros = sorted(s["hydrology"] for s in scenarios)
+    forward_scenarios = [s for s in scenarios if "input_directory" not in s]
+    gtopt_hydros = sorted(s["hydrology"] for s in forward_scenarios)
     plp_hydros = sorted(hydrology_indices)
     assert gtopt_hydros == plp_hydros, (
         f"PLP hydro indices {plp_hydros} != gtopt scenario hydrologies {gtopt_hydros}"
@@ -1735,7 +1737,8 @@ def test_plp_case_2y_4h_partial_hydrology(tmp_path):
 
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
     scenarios = data["simulation"]["scenario_array"]
-    assert len(scenarios) == 4, "Expected 4 scenarios for hydrologies 1,2,3,4"
+    forward_scenarios = [s for s in scenarios if "input_directory" not in s]
+    assert len(forward_scenarios) == 4, "Expected 4 forward scenarios for hydrologies 1,2,3,4"
 
     # Verify flow names exist
     flow_central_names = _extract_flow_central_names(data)

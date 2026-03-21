@@ -323,11 +323,33 @@ def make_parser() -> argparse.ArgumentParser:
         default="all",
         help=(
             "Simulation/hydrology scenario selector using 1-based (Fortran) "
-            "indices.  Accepts 'all' (default), a single index, "
-            "comma-separated values, or ranges: '1', '1,2', '1,2,5-10'. "
-            "When plpidsim.dat is present the indices are simulation numbers "
-            "mapped to hydrology columns via plpidsim.dat; otherwise they are "
-            "raw 1-based hydrology column indices.  (default: %(default)s)"
+            "indices.  Accepts 'all' (default), 'first' (first available), "
+            "a single index, comma-separated values, or ranges: "
+            "'51', '51,52', '51,52,55-60'. "
+            "Use '-y 0' to list available scenarios and exit. "
+            "When plpidsim.dat is present the indices are the hydrology "
+            "columns from plpidsim.dat; otherwise raw 1-based hydrology "
+            "column indices from plpaflce.dat.  (default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--first-scenario",
+        action="store_true",
+        default=False,
+        help=(
+            "Select only the first available scenario (equivalent to "
+            "'-y first').  Safe shortcut that works regardless of the "
+            "case's hydrology numbering."
+        ),
+    )
+    parser.add_argument(
+        "--show-simulation",
+        action="store_true",
+        default=False,
+        help=(
+            "After conversion, print a detailed summary of the simulation "
+            "structure: scenarios, stages, phases, apertures, and their "
+            "relationships."
         ),
     )
     parser.add_argument(
@@ -708,7 +730,8 @@ def build_options(args: argparse.Namespace) -> dict:
         "compression": args.compression,
         "output_format": args.output_format,
         "input_format": input_format,
-        "hydrologies": args.hydrologies,
+        "hydrologies": "first" if args.first_scenario else args.hydrologies,
+        "show_simulation": args.show_simulation,
         "probability_factors": args.probability_factors,
         "discount_rate": args.discount_rate,
         "management_factor": args.management_factor,

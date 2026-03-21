@@ -16,10 +16,10 @@ from typing import Any, Optional
 from ._neos import _check_internet
 
 _AI_PROVIDERS = ("claude", "openai", "deepseek", "github")
-_AI_DEFAULT_PROVIDER = "github"
+_AI_DEFAULT_PROVIDER = "claude"
 
 _AI_DEFAULT_MODEL: dict[str, str] = {
-    "claude": "claude-3-5-sonnet-20241022",
+    "claude": "claude-sonnet-4-6",
     "openai": "gpt-4o",
     "deepseek": "deepseek-chat",
     "github": "gpt-4o",
