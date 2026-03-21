@@ -235,7 +235,7 @@ TEST_CASE("Reservoir construction and default values")
   CHECK(reservoir.fmax.value_or(0.0)
         == doctest::Approx(Reservoir::default_fmax));
 
-  CHECK_FALSE(reservoir.vol_scale.has_value());
+  CHECK_FALSE(reservoir.energy_scale.has_value());
 
   REQUIRE(reservoir.flow_conversion_rate.has_value());
   CHECK(reservoir.flow_conversion_rate.value_or(0.0)
@@ -267,7 +267,7 @@ TEST_CASE("Reservoir attribute assignment")
   reservoir.eini = 25000.0;
   reservoir.efin = 20000.0;
 
-  reservoir.vol_scale = 2.0;
+  reservoir.energy_scale = 2.0;
   reservoir.flow_conversion_rate = 0.0036;
 
   CHECK(reservoir.uid == 9001);
@@ -291,7 +291,7 @@ TEST_CASE("Reservoir attribute assignment")
   CHECK(reservoir.eini.value_or(0.0) == doctest::Approx(25000.0));
   CHECK(reservoir.efin.value_or(0.0) == doctest::Approx(20000.0));
 
-  CHECK(reservoir.vol_scale.value_or(0.0) == doctest::Approx(2.0));
+  CHECK(reservoir.energy_scale.value_or(0.0) == doctest::Approx(2.0));
   CHECK(reservoir.flow_conversion_rate.value_or(0.0)
         == doctest::Approx(0.0036));
 }

@@ -66,7 +66,7 @@ struct Reservoir
   static constexpr Real default_spillway_capacity = 6'000.0;  ///< [m³/s]
   static constexpr Real default_fmin = -10'000.0;  ///< [m³/s]
   static constexpr Real default_fmax = +10'000.0;  ///< [m³/s]
-  static constexpr Real default_vol_scale = 1.0;  ///< [dimensionless]
+  static constexpr Real default_energy_scale = 1.0;  ///< [dimensionless]
   static constexpr Real default_flow_conversion_rate =
       0.0036;  ///< [dam³/(m³/s·h)]
   /// @}
@@ -102,8 +102,8 @@ struct Reservoir
   OptReal fmax {
       default_fmax};  ///< Maximum net flow into the reservoir junction [m³/s]
 
-  OptReal vol_scale {};  ///< Volume scale factor: LP variable =
-                         ///< physical_volume / vol_scale [dimensionless]
+  OptReal energy_scale {};  ///< Energy scale factor: LP variable =
+                            ///< physical_energy / energy_scale [dimensionless]
   OptReal flow_conversion_rate {
       default_flow_conversion_rate};  ///< Converts m³/s × hours into dam³
                                       ///< [dam³/(m³/s·h)]

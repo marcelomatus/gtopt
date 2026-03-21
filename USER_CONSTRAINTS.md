@@ -105,9 +105,9 @@ generator('uid:23').generation  -- by UID
 | `battery` | `spill` | Battery energy spillway / curtailment (MW); also accepts `drain` |
 | `converter` | `charge` | Converter charging power (MW) |
 | `converter` | `discharge` | Converter discharging power (MW) |
-| `reservoir` | `volume` | Reservoir water volume (dam³); also accepts `energy`; scaled by `vol_scale` |
-| `reservoir` | `extraction` | Water extraction from reservoir (m³/s); scaled by `vol_scale` |
-| `reservoir` | `spill` | Reservoir spillway discharge (m³/s); also accepts `drain`; scaled by `vol_scale` |
+| `reservoir` | `volume` | Reservoir water volume (dam³); also accepts `energy`; scaled by `energy_scale` |
+| `reservoir` | `extraction` | Water extraction from reservoir (m³/s); scaled by `energy_scale` |
+| `reservoir` | `spill` | Reservoir spillway discharge (m³/s); also accepts `drain`; scaled by `energy_scale` |
 | `bus` | `theta` | Voltage angle at bus (radians); also accepts `angle`; scaled by `1/scale_theta` |
 | `waterway` | `flow` | Water flow through waterway (m³/s) |
 | `turbine` | `generation` | Turbine power output (MW) |
@@ -128,17 +128,17 @@ is dimensionally correct.
 
 | Variable | Scale factor (physical = LP × scale) | Default |
 |----------|--------------------------------------|---------|
-| `reservoir.volume` / `reservoir.energy` | `energy_scale` (= `vol_scale`) | 1000 |
-| `reservoir.extraction` | `flow_scale` (= `vol_scale`) | 1000 |
-| `reservoir.spill` / `reservoir.drain` | `flow_scale` (= `vol_scale`) | 1000 |
+| `reservoir.volume` / `reservoir.energy` | `energy_scale` | 1000 |
+| `reservoir.extraction` | `flow_scale` (= `energy_scale`) | 1000 |
+| `reservoir.spill` / `reservoir.drain` | `flow_scale` (= `energy_scale`) | 1000 |
 | `battery.energy` | `energy_scale` | 1.0 |
 | `battery.spill` / `battery.drain` | `flow_scale` | 1.0 |
 | `bus.theta` / `bus.angle` | `1 / scale_theta` | 1/1000 |
 | All other variables | 1.0 (no scaling) | — |
 
 For example, `reservoir("R1").volume >= 5000` (in dam³) is automatically
-translated to the LP constraint `vol_scale × volume_LP ≥ 5000`, accounting
-for the fact that the LP variable stores `volume_physical / vol_scale`.
+translated to the LP constraint `energy_scale × volume_LP ≥ 5000`, accounting
+for the fact that the LP variable stores `volume_physical / energy_scale`.
 
 ---
 

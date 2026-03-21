@@ -50,12 +50,13 @@ bool FiltrationLP::add_to_lp(const SystemContext& sc,
   const auto eini_col = reservoir.eini_col_at(scenario, stage);
   const auto efin_col = reservoir.efin_col_at(scenario, stage);
 
-  // The volume columns are in LP (scaled) units: LP_vol = phys_vol / vol_scale.
-  // The filtration slope is in physical units [m³/s / dam³].  Multiplying the
-  // slope by vol_scale converts it to [m³/s / LP_unit] so the constraint
+  // The volume columns are in LP (scaled) units: LP_vol = phys_vol /
+  // energy_scale.  The filtration slope is in physical units [m³/s / dam³].
+  // Multiplying the slope by energy_scale converts it to [m³/s / LP_unit] so
+  // the constraint
   //   filt_flow = slope_lp * V_avg_lp + constant
   // is dimensionally correct.
-  const double vol_scale = reservoir.energy_scale();
+  const double energy_scale = reservoir.energy_scale();
 
   // Determine effective slope and intercept (RHS).
   // Priority: piecewise segments (volume-dependent) > per-stage schedule >
@@ -72,7 +73,7 @@ bool FiltrationLP::add_to_lp(const SystemContext& sc,
   }
 
   // Convert slope from physical to LP units.
-  const Real lp_slope = effective_slope * vol_scale;
+  const Real lp_slope = effective_slope * energy_scale;
 
   const auto& blocks = stage.blocks();
 
@@ -108,7 +109,7 @@ bool FiltrationLP::add_to_lp(const SystemContext& sc,
   m_states_[st_key] = FiltrationState {
       .eini_col = eini_col,
       .efin_col = efin_col,
-      .vol_scale = vol_scale,
+      .energy_scale = energy_scale,
       .current_slope = effective_slope,
       .current_rhs = effective_rhs,
   };
@@ -176,7 +177,7 @@ int FiltrationLP::update_lp(SystemLP& sys,
   }
 
   // Convert slope from physical to LP units.
-  const auto new_lp_slope = new_slope * state.vol_scale;
+  const auto new_lp_slope = new_slope * state.energy_scale;
 
   const auto& frows = filtration_rows.at(st_key);
   int count = 0;

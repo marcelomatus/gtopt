@@ -258,7 +258,7 @@ per downstream node in the hydro cascade.
 | Spillway capacity | `spillway_capacity` (m³/s) | — (implicit large) | gtopt default: 6000 m³/s. |
 | Spillway cost | `spillway_cost` ($/dam³) | — | gtopt-only penalty for spilling. |
 | Storage capacity | `capacity` (dam³) | `vol_max` (Mm³) | Same as emax in basic cases. |
-| Volume scale | `vol_scale` (default 1000) | — | LP scaling: converts dam³ to Mm³ for numerics. |
+| Volume scale | `energy_scale` (default 1000) | — | LP scaling: converts dam³ to Mm³ for numerics. |
 | Flow conversion | `flow_conversion_rate` (0.0036) | 0.0036 | Converts m³/s × hours → dam³. Both use same factor. |
 | State variable | `use_state_variable` (bool) | — (always true) | SDDP: carries volume across phases. |
 | Annual loss | `annual_loss` (p.u./year) | — | Evaporation/seepage rate. |
