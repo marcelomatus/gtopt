@@ -879,8 +879,9 @@ public:
    * The map provides `lookup(class_name, variable, uid)` to resolve scale
    * factors with per-element > per-class > default (1.0) priority.
    *
-   * Note: per-element fields (`Battery::energy_scale`, `Reservoir::vol_scale`)
-   * and global options (`scale_theta`) take precedence over this map.
+   * Note: per-element fields (`Battery::energy_scale`,
+   * `Reservoir::energy_scale`) and global options (`scale_theta`) take
+   * precedence over this map.
    * Use this for variables not covered by dedicated fields.
    */
   [[nodiscard]] const auto& variable_scale_map() const noexcept

@@ -30,7 +30,7 @@ struct json_data_contract<Reservoir>
       json_number_null<"efin", OptReal>,
       json_number_null<"fmin", OptReal>,
       json_number_null<"fmax", OptReal>,
-      json_number_null<"vol_scale", OptReal>,
+      json_number_null<"energy_scale", OptReal>,
       json_number_null<"flow_conversion_rate", OptReal>,
       json_bool_null<"use_state_variable", OptBool>,  ///< Stage/phase coupling
       json_bool_null<"daily_cycle", OptBool>  ///< Daily cycle operation
@@ -53,7 +53,7 @@ struct json_data_contract<Reservoir>
                                  reservoir.efin,
                                  reservoir.fmin,
                                  reservoir.fmax,
-                                 reservoir.vol_scale,
+                                 reservoir.energy_scale,
                                  reservoir.flow_conversion_rate,
                                  reservoir.use_state_variable,
                                  reservoir.daily_cycle);
