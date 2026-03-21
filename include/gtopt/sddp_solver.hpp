@@ -63,7 +63,6 @@
 
 #include <gtopt/aperture.hpp>
 #include <gtopt/aperture_data_cache.hpp>
-#include <gtopt/basic_types.hpp>
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/enum_option.hpp>
 #include <gtopt/error.hpp>
@@ -74,6 +73,7 @@
 #include <gtopt/planning_solver.hpp>
 #include <gtopt/reservoir_efficiency_lp.hpp>
 #include <gtopt/sddp_aperture.hpp>
+#include <gtopt/sddp_common.hpp>
 #include <gtopt/sddp_pool.hpp>
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/solver_options.hpp>
@@ -320,7 +320,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
 /// Result of a single SDDP iteration (forward + backward pass)
 struct SDDPIterationResult
 {
-  int iteration {};  ///< Iteration number (1-based)
+  IterationIndex iteration {};  ///< Iteration number (1-based)
   double lower_bound {};  ///< Lower bound (phase 0 objective including α)
   double upper_bound {};  ///< Upper bound (sum of actual phase costs)
   double gap {};  ///< Relative gap: (UB − LB) / max(1, |UB|)
@@ -654,13 +654,13 @@ private:
   void collect_state_variable_links(SceneIndex scene);
 
   [[nodiscard]] auto forward_pass(SceneIndex scene,
-                                  int iteration,
+                                  IterationIndex iteration,
                                   const SolverOptions& opts)
       -> std::expected<double, Error>;
 
   [[nodiscard]] auto backward_pass(SceneIndex scene,
                                    const SolverOptions& opts,
-                                   int iteration = 0)
+                                   IterationIndex iteration = {})
       -> std::expected<int, Error>;
 
   /**
@@ -685,7 +685,7 @@ private:
    */
   [[nodiscard]] auto backward_pass_with_apertures(SceneIndex scene,
                                                   const SolverOptions& opts,
-                                                  int iteration = 0)
+                                                  IterationIndex iteration = {})
       -> std::expected<int, Error>;
 
   /// Update volume-dependent LP coefficients (turbine efficiency, etc.)
@@ -694,7 +694,7 @@ private:
   /// subsequent iterations.
   void update_coefficients_for_phase(SceneIndex scene,
                                      PhaseIndex phase,
-                                     int iteration);
+                                     IterationIndex iteration);
 
   /// Clone the LP, apply elastic filter on the clone, and solve it.
   /// Returns an ElasticResult (with solution data and per-link slack info)
@@ -735,12 +735,17 @@ private:
                                                PhaseIndex start_phase,
                                                int total_cuts,
                                                const SolverOptions& opts,
-                                               int iteration)
+                                               IterationIndex iteration)
       -> std::expected<int, Error>;
 
   /// Create a submit function that submits complete aperture tasks to
   /// the work pool for parallel execution.
-  [[nodiscard]] auto make_aperture_submit_fn() -> ApertureSubmitFunc;
+  ///
+  /// @param iteration  SDDP iteration index (for pool priority ordering)
+  /// @param phase      Phase index (for pool priority ordering)
+  [[nodiscard]] auto make_aperture_submit_fn(IterationIndex iteration,
+                                             PhaseIndex phase)
+      -> ApertureSubmitFunc;
 
   /// Check whether the sentinel file exists (user-requested stop)
   [[nodiscard]] bool check_sentinel_stop() const;
@@ -756,7 +761,7 @@ private:
   void share_cuts_for_phase(
       PhaseIndex phase,
       const StrongIndexVector<SceneIndex, std::vector<SparseRow>>& scene_cuts,
-      int iteration);
+      IterationIndex iteration);
 
   /// Validate that the simulation has ≥2 phases and ≥1 scene.
   [[nodiscard]] auto validate_inputs() const -> std::optional<Error>;
@@ -770,7 +775,7 @@ private:
 
   /// Run the forward pass for all scenes in parallel.
   /// Returns a ForwardPassOutcome or an error if ALL scenes failed.
-  [[nodiscard]] auto run_forward_pass_all_scenes(int iter,
+  [[nodiscard]] auto run_forward_pass_all_scenes(IterationIndex iter,
                                                  SDDPWorkPool& pool,
                                                  const SolverOptions& opts)
       -> std::expected<ForwardPassOutcome, Error>;
@@ -784,7 +789,7 @@ private:
       std::span<const uint8_t> scene_feasible,
       SDDPWorkPool& pool,
       const SolverOptions& opts,
-      int iter) -> BackwardPassOutcome;
+      IterationIndex iter) -> BackwardPassOutcome;
 
   /// Process a single backward-pass phase step (pi → pi-1) for one scene.
   /// Builds the optimality cut, stores it, adds it to the LP, re-solves,
@@ -794,7 +799,7 @@ private:
                                                 PhaseIndex phase,
                                                 int cut_offset,
                                                 const SolverOptions& opts,
-                                                int iteration)
+                                                IterationIndex iteration)
       -> std::expected<int, Error>;
 
   /// Process a single backward-pass phase step (pi → pi-1) with apertures.
@@ -804,7 +809,7 @@ private:
       PhaseIndex phase,
       int cut_offset,
       const SolverOptions& opts,
-      int iteration) -> std::expected<int, Error>;
+      IterationIndex iteration) -> std::expected<int, Error>;
 
   /// Implementation helper for aperture per-phase backward step.
   /// Used by backward_pass_with_apertures_single_phase.
@@ -816,7 +821,7 @@ private:
       std::span<const ScenarioLP> all_scenarios,
       std::span<const Aperture> aperture_defs,
       const SolverOptions& opts,
-      int iteration) -> std::expected<int, Error>;
+      IterationIndex iteration) -> std::expected<int, Error>;
 
   /// Phase-synchronized backward pass: processes phases one at a time,
   /// sharing optimality cuts between scenes after each phase completes.
@@ -824,7 +829,7 @@ private:
       std::span<const uint8_t> scene_feasible,
       SDDPWorkPool& pool,
       const SolverOptions& opts,
-      int iter) -> BackwardPassOutcome;
+      IterationIndex iter) -> BackwardPassOutcome;
 
   /// Compute and fill ir.upper_bound, ir.lower_bound, ir.scene_lower_bounds.
   void compute_iteration_bounds(SDDPIterationResult& ir,
@@ -834,10 +839,11 @@ private:
   /// Apply cut-sharing across scenes for all phases generated in this
   /// iteration.  @param cuts_before is m_stored_cuts_.size() BEFORE this
   /// iteration's backward pass.
-  void apply_cut_sharing_for_iteration(std::size_t cuts_before, int iteration);
+  void apply_cut_sharing_for_iteration(std::size_t cuts_before,
+                                       IterationIndex iteration);
 
   /// Compute gap, update convergence flag, update live-query atomics, log.
-  void finalize_iteration_result(SDDPIterationResult& ir, int iter);
+  void finalize_iteration_result(SDDPIterationResult& ir, IterationIndex iter);
 
   /// Write the monitoring API status file if API is enabled.
   void maybe_write_api_status(const std::string& status_file,
@@ -847,7 +853,7 @@ private:
 
   /// Save cuts (combined + per-scene) after an iteration, handling infeasible
   /// scene renaming.
-  void save_cuts_for_iteration(int iter,
+  void save_cuts_for_iteration(IterationIndex iter,
                                std::span<const uint8_t> scene_feasible);
 
   // Accessor for the wrapped PlanningLP reference (avoids raw reference member)
@@ -898,7 +904,7 @@ private:
   /// run are loaded, the solver starts numbering new iterations after
   /// the highest iteration found in the loaded cuts, avoiding name
   /// collisions.
-  int m_iteration_offset_ {0};
+  IterationIndex m_iteration_offset_ {};
 
   // ── Stop / callback machinery ──
   SDDPIterationCallback m_iteration_callback_ {};
