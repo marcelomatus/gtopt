@@ -139,6 +139,15 @@ namespace
 SDDPSolver::SDDPSolver(PlanningLP& planning_lp, SDDPOptions opts) noexcept
     : m_planning_lp_(planning_lp)
     , m_options_(std::move(opts))
+    , m_aperture_cache_(
+          [&]() -> ApertureDataCache
+          {
+            const auto dir = planning_lp.options().sddp_aperture_directory();
+            if (dir.empty()) {
+              return {};
+            }
+            return ApertureDataCache {dir};
+          }())
     , m_label_maker_(planning_lp.options())
 {
 }
@@ -1999,6 +2008,7 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
                                 make_aperture_resolve_fn(),
                                 m_options_.aperture_timeout,
                                 m_options_.save_aperture_lp,
+                                m_aperture_cache_,
                                 target_state.forward_col_sol,
                                 target_state.forward_row_dual);
 
@@ -2215,6 +2225,7 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
                                   resolve_fn,
                                   0.0,
                                   m_options_.save_aperture_lp,
+                                  m_aperture_cache_,
                                   target_state.forward_col_sol,
                                   target_state.forward_row_dual);
 

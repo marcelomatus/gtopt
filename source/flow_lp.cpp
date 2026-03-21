@@ -12,6 +12,7 @@
  * - Output generation for flow solutions
  */
 
+#include <gtopt/aperture_data_cache.hpp>
 #include <gtopt/flow_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
@@ -112,6 +113,39 @@ bool FlowLP::update_aperture_lp(LinearInterface& li,
         discharge.at(aperture_scenario.uid(), stage.uid(), block_uid);
     li.set_col_low(col, new_val);
     li.set_col_upp(col, new_val);
+  }
+
+  return true;
+}
+
+bool FlowLP::update_aperture_from_cache(LinearInterface& li,
+                                        const ScenarioLP& base_scenario,
+                                        Uid aperture_scenario_uid,
+                                        const ApertureDataCache& cache,
+                                        const StageLP& stage) const
+{
+  if (!is_active(stage)) {
+    return true;
+  }
+
+  const auto st_key = std::pair {base_scenario.uid(), stage.uid()};
+  const auto it = flow_cols.find(st_key);
+  if (it == flow_cols.end()) {
+    return true;
+  }
+
+  const auto& fcols = it->second;
+  for (const auto& [block_uid, col] : fcols) {
+    const auto cached = cache.lookup(ClassName.full_name(),
+                                     id().second,
+                                     aperture_scenario_uid,
+                                     static_cast<int>(stage.uid()),
+                                     static_cast<int>(block_uid));
+    if (cached.has_value()) {
+      li.set_col_low(col, *cached);
+      li.set_col_upp(col, *cached);
+    }
+    // If not in cache, keep the forward-pass value (no change)
   }
 
   return true;
