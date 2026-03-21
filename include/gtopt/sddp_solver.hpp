@@ -738,10 +738,9 @@ private:
                                                int iteration)
       -> std::expected<int, Error>;
 
-  /// Build the ApertureResolveFunc callback that delegates to
-  /// resolve_clone_via_pool.  Used to bridge the free-function
-  /// solve_apertures_for_phase with the solver's work pool.
-  [[nodiscard]] auto make_aperture_resolve_fn() -> ApertureResolveFunc;
+  /// Create a submit function that submits complete aperture tasks to
+  /// the work pool for parallel execution.
+  [[nodiscard]] auto make_aperture_submit_fn() -> ApertureSubmitFunc;
 
   /// Check whether the sentinel file exists (user-requested stop)
   [[nodiscard]] bool check_sentinel_stop() const;
