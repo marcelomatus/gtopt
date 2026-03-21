@@ -714,9 +714,7 @@ def test_embalse_ocean_junction_waterways_created():
     result = writer.to_json_array()[0]
 
     # Only ONE waterway should point to the ocean junction (gen, not ver)
-    to_ocean = [
-        w for w in result["waterway_array"] if w["junction_b"] == "RAPEL_ocean"
-    ]
+    to_ocean = [w for w in result["waterway_array"] if w["junction_b"] == "RAPEL_ocean"]
     assert len(to_ocean) == 1
     assert to_ocean[0]["junction_a"] == "RAPEL"
 
