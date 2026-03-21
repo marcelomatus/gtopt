@@ -1947,16 +1947,23 @@ auto SDDPPlanningSolver::solve(PlanningLP& planning_lp,
   });
 }
 
-// ── Helper: build the ApertureResolveFunc callback ──────────────────────────
+// ── Helper: build the ApertureSubmitFunc callback ───────────────────────────
 
-auto SDDPSolver::make_aperture_resolve_fn() -> ApertureResolveFunc
+auto SDDPSolver::make_aperture_submit_fn() -> ApertureSubmitFunc
 {
-  return [this](LinearInterface& clone,
-                const SolverOptions& opts,
-                PhaseIndex phase) -> std::expected<int, Error>
+  return [this](std::function<ApertureCutResult()> task)
+             -> std::future<ApertureCutResult>
   {
-    return resolve_clone_via_pool(
-        clone, opts, make_backward_lp_task_req(0, phase));
+    if (m_pool_ != nullptr) {
+      auto fut = m_pool_->submit(std::move(task));
+      if (fut.has_value()) {
+        return std::move(*fut);
+      }
+    }
+    // Fallback: run synchronously via a ready future
+    std::promise<ApertureCutResult> p;
+    p.set_value(task());
+    return p.get_future();
   };
 }
 
@@ -2005,7 +2012,7 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
                                 m_options_.log_directory,
                                 scene_uid(scene),
                                 phase_uid(phase),
-                                make_aperture_resolve_fn(),
+                                make_aperture_submit_fn(),
                                 m_options_.aperture_timeout,
                                 m_options_.save_aperture_lp,
                                 m_aperture_cache_,
@@ -2186,7 +2193,7 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
     return backward_pass(scene, opts, iteration);
   }
   const auto& base_scenario = scene_scenarios.front();
-  auto resolve_fn = make_aperture_resolve_fn();
+  auto submit_fn = make_aperture_submit_fn();
 
   // Collect phases where all apertures were infeasible for a summary
   std::vector<int> infeasible_phases;
@@ -2222,7 +2229,7 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
                                   m_options_.log_directory,
                                   scene_uid(scene),
                                   phase_uid(phase),
-                                  resolve_fn,
+                                  submit_fn,
                                   0.0,
                                   m_options_.save_aperture_lp,
                                   m_aperture_cache_,

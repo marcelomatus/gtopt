@@ -104,29 +104,29 @@ auto build_synthetic_apertures(std::span<const ScenarioLP> all_scenarios,
 
 // ─── solve_apertures_for_phase ──────────────────────────────────────────────
 
-auto solve_apertures_for_phase(SceneIndex scene,
-                               PhaseIndex phase,
-                               const PhaseStateInfo& src_state,
-                               const ScenarioLP& base_scenario,
-                               std::span<const ScenarioLP> all_scenarios,
-                               std::span<const Aperture> aperture_defs,
-                               std::span<const Uid> phase_apertures,
-                               int total_cuts,
-                               int iteration,
-                               SystemLP& sys,
-                               const PhaseLP& phase_lp,
-                               const SolverOptions& opts,
-                               const LabelMaker& label_maker,
-                               const std::string& log_directory,
-                               int scene_uid,
-                               int phase_uid,
-                               const ApertureResolveFunc& resolve_fn,
-                               double aperture_timeout,
-                               bool save_aperture_lp,
-                               const ApertureDataCache& aperture_cache,
-                               std::span<const double> forward_col_sol,
-                               std::span<const double> forward_row_dual)
-    -> std::optional<SparseRow>
+auto solve_apertures_for_phase(
+    SceneIndex scene,
+    PhaseIndex phase,
+    const PhaseStateInfo& src_state,
+    const ScenarioLP& base_scenario,
+    std::span<const ScenarioLP> all_scenarios,
+    std::span<const Aperture> aperture_defs,
+    std::span<const Uid> phase_apertures,
+    int total_cuts,
+    int iteration,
+    SystemLP& sys,
+    const PhaseLP& phase_lp,
+    const SolverOptions& opts,
+    const LabelMaker& label_maker,
+    [[maybe_unused]] const std::string& log_directory,
+    int scene_uid,
+    int phase_uid,
+    const ApertureSubmitFunc& submit_fn,
+    double aperture_timeout,
+    [[maybe_unused]] bool save_aperture_lp,
+    const ApertureDataCache& aperture_cache,
+    std::span<const double> forward_col_sol,
+    std::span<const double> forward_row_dual) -> std::optional<SparseRow>
 {
   const auto pi = Index {phase};
   const auto& phase_li = sys.linear_interface();
@@ -137,10 +137,6 @@ auto solve_apertures_for_phase(SceneIndex scene,
     aperture_opts.time_limit = aperture_timeout;
   }
 
-  std::vector<SparseRow> aperture_cuts;
-  std::vector<double> aperture_weights;
-  double total_weight = 0.0;
-
   // Build the effective aperture list for this phase
   auto effective_apertures =
       build_effective_apertures(aperture_defs, phase_apertures);
@@ -149,8 +145,15 @@ auto solve_apertures_for_phase(SceneIndex scene,
     return std::nullopt;
   }
 
-  int n_infeasible = 0;
-  [[maybe_unused]] int n_skipped = 0;
+  // ── Submit all aperture tasks to the pool ────────────────────────────
+  //
+  // Each task is a complete unit: clone → update → warm-start → solve →
+  // build cut.  Tasks are independent (separate LP clones) and execute
+  // concurrently in the SDDP work pool.
+
+  std::vector<std::future<ApertureCutResult>> futures;
+  futures.reserve(effective_apertures.size());
+  int n_skipped = 0;
 
   for (const auto& [ap_ref, ap_count] : effective_apertures) {
     const auto& aperture = ap_ref.get();
@@ -163,8 +166,6 @@ auto solve_apertures_for_phase(SceneIndex scene,
           ap_uid,
           pf);
     }
-    // The effective weight is N * probability_factor.
-    // This makes the result equivalent to solving the LP N separate times.
     const double effective_pf = pf > 0.0 ? pf : 1.0;
     const double weight = static_cast<double>(ap_count) * effective_pf;
 
@@ -174,53 +175,7 @@ auto solve_apertures_for_phase(SceneIndex scene,
         [&aperture](const auto& scen)
         { return Uid {scen.uid()} == aperture.source_scenario; });
 
-    // Clone the phase LP (state variables already fixed from forward pass).
-    auto clone = phase_li.clone();
-
-    if (scen_it != all_scenarios.end()) {
-      // Scenario found in forward set — use update_aperture_lp.
-      const auto& aperture_scenario = *scen_it;
-      auto aperture_visitor = [&](auto& e) -> bool
-      {
-        if constexpr (requires {
-                        e.update_aperture_lp(clone,
-                                             base_scenario,
-                                             aperture_scenario,
-                                             std::declval<const StageLP&>());
-                      })
-        {
-          for (const auto& stage : phase_lp.stages()) {
-            [[maybe_unused]] const auto ok = e.update_aperture_lp(
-                clone, base_scenario, aperture_scenario, stage);
-          }
-        }
-        return true;
-      };
-      visit_elements(sys.collections(), aperture_visitor);
-    } else if (!aperture_cache.empty()) {
-      // Scenario not in forward set — use cached aperture data to
-      // update flow columns directly from the pre-loaded parquet data.
-      const ScenarioUid ap_scen_uid {aperture.source_scenario};
-      auto cache_visitor = [&](auto& e) -> bool
-      {
-        if constexpr (requires {
-                        e.update_aperture_from_cache(
-                            clone,
-                            base_scenario,
-                            ap_scen_uid,
-                            aperture_cache,
-                            std::declval<const StageLP&>());
-                      })
-        {
-          for (const auto& stage : phase_lp.stages()) {
-            [[maybe_unused]] const auto ok = e.update_aperture_from_cache(
-                clone, base_scenario, ap_scen_uid, aperture_cache, stage);
-          }
-        }
-        return true;
-      };
-      visit_elements(sys.collections(), cache_visitor);
-    } else {
+    if (scen_it == all_scenarios.end() && aperture_cache.empty()) {
       spdlog::info(
           "SDDP aperture: scene {} phase {} aperture uid {} — "
           "source_scenario {} not found and no aperture cache, skipping",
@@ -232,79 +187,136 @@ auto solve_apertures_for_phase(SceneIndex scene,
       continue;
     }
 
-    // Apply the saved forward-pass solution as warm-start hint.
-    // Dimension mismatches (new cut rows) are handled internally.
-    if (aperture_opts.warm_start) {
-      clone.set_warm_start_solution(forward_col_sol, forward_row_dual);
-    }
+    // Submit the entire aperture task (clone + update + solve + cut)
+    futures.push_back(submit_fn(
+        [&, ap_uid, weight, scen_it]() -> ApertureCutResult
+        {
+          // Clone the phase LP
+          auto clone = phase_li.clone();
 
-    // Solve the clone via the resolve callback (with aperture timeout)
-    auto result = resolve_fn(clone, aperture_opts, phase);
-    if (!result.has_value() || !clone.is_optimal()) {
-      const auto status = clone.get_status();
+          // Update scenario-dependent bounds
+          if (scen_it != all_scenarios.end()) {
+            const auto& aperture_scenario = *scen_it;
+            auto visitor = [&](auto& e) -> bool
+            {
+              if constexpr (requires {
+                              e.update_aperture_lp(
+                                  clone,
+                                  base_scenario,
+                                  aperture_scenario,
+                                  std::declval<const StageLP&>());
+                            })
+              {
+                for (const auto& stage : phase_lp.stages()) {
+                  [[maybe_unused]] const auto ok = e.update_aperture_lp(
+                      clone, base_scenario, aperture_scenario, stage);
+                }
+              }
+              return true;
+            };
+            visit_elements(sys.collections(), visitor);
+          } else {
+            const ScenarioUid ap_scen_uid {aperture.source_scenario};
+            auto visitor = [&](auto& e) -> bool
+            {
+              if constexpr (requires {
+                              e.update_aperture_from_cache(
+                                  clone,
+                                  base_scenario,
+                                  ap_scen_uid,
+                                  aperture_cache,
+                                  std::declval<const StageLP&>());
+                            })
+              {
+                for (const auto& stage : phase_lp.stages()) {
+                  [[maybe_unused]] const auto ok = e.update_aperture_from_cache(
+                      clone, base_scenario, ap_scen_uid, aperture_cache, stage);
+                }
+              }
+              return true;
+            };
+            visit_elements(sys.collections(), visitor);
+          }
 
-      // Check for aperture timeout: status 1 (abandoned) or 3 (other)
-      // when a time limit was set indicates a timeout
-      if (aperture_timeout > 0.0 && (status == 1 || status == 3)) {
-        ++n_infeasible;
+          // Apply warm-start hint
+          if (aperture_opts.warm_start) {
+            clone.set_warm_start_solution(forward_col_sol, forward_row_dual);
+          }
+
+          // Solve
+          [[maybe_unused]] auto solve_result = clone.resolve(aperture_opts);
+          const bool feasible = clone.is_optimal();
+
+          if (!feasible) {
+            return ApertureCutResult {
+                .ap_uid = ap_uid,
+                .weight = weight,
+                .feasible = false,
+                .status = clone.get_status(),
+            };
+          }
+
+          // Build Benders cut from the clone's reduced costs
+          const auto cut_name = label_maker.lp_label(
+              "sddp", "aper_cut", scene, pi, ap_uid, total_cuts);
+          auto cut = build_benders_cut(src_state.alpha_col,
+                                       src_state.outgoing_links,
+                                       clone.get_col_cost(),
+                                       clone.get_obj_value(),
+                                       cut_name);
+
+          return ApertureCutResult {
+              .ap_uid = ap_uid,
+              .weight = weight,
+              .feasible = true,
+              .status = 0,
+              .cut = std::move(cut),
+          };
+        }));
+  }
+
+  // ── Collect results ─────────────────────────────────────────────────
+
+  std::vector<SparseRow> aperture_cuts;
+  std::vector<double> aperture_weights;
+  double total_weight = 0.0;
+  int n_infeasible = 0;
+
+  for (auto& fut : futures) {
+    auto result = fut.get();
+
+    if (!result.feasible) {
+      ++n_infeasible;
+      if (aperture_timeout > 0.0 && (result.status == 1 || result.status == 3))
+      {
         spdlog::warn(
             "SDDP aperture: scene {} phase {} aperture uid {} timed out "
             "({:.1f}s, status {}), treating as infeasible",
             scene_uid,
             phase_uid,
-            ap_uid,
+            result.ap_uid,
             aperture_timeout,
-            status);
-        continue;
+            result.status);
+      } else {
+        spdlog::info(
+            "SDDP aperture: scene {} phase {} aperture uid {} infeasible "
+            "(status {}), skipping",
+            scene_uid,
+            phase_uid,
+            result.ap_uid,
+            result.status);
       }
-
-      ++n_infeasible;
-      spdlog::info(
-          "SDDP aperture: scene {} phase {} aperture uid {} infeasible "
-          "(status {}), skipping",
-          scene_uid,
-          phase_uid,
-          ap_uid,
-          status);
-
-      // Save the infeasible aperture LP when explicitly enabled via
-      // sddp_options.save_aperture_lp (default: false).
-      if (save_aperture_lp && !log_directory.empty()) {
-        std::filesystem::create_directories(log_directory);
-        const auto err_stem = (std::filesystem::path(log_directory)
-                               / std::format("error_aperture_sc_{}_ph_{}_ap_{}",
-                                             scene_uid,
-                                             phase_uid,
-                                             ap_uid))
-                                  .string();
-
-        clone.write_lp(err_stem);
-        spdlog::info("SDDP aperture: saved infeasible LP to {}.lp", err_stem);
-      }
-
       continue;
     }
 
-    // Build a Benders cut from the clone's reduced costs.
-    // Use aperture UID (not 0-based index) in user-facing labels.
-    const auto cut_name =
-        label_maker.lp_label("sddp", "aper_cut", scene, pi, ap_uid, total_cuts);
-    auto cut = build_benders_cut(src_state.alpha_col,
-                                 src_state.outgoing_links,
-                                 clone.get_col_cost(),
-                                 clone.get_obj_value(),
-                                 cut_name);
-
-    // Accumulate the cut with weight = N * probability_factor.
-    // Both the cut contribution and the denominator use the same
-    // effective weight, so repeated optimal apertures correctly
-    // amplify their influence in the weighted average.
-    aperture_cuts.push_back(std::move(cut));
-    aperture_weights.push_back(weight);
-    total_weight += weight;
+    if (result.cut.has_value()) {
+      aperture_cuts.push_back(std::move(*result.cut));
+      aperture_weights.push_back(result.weight);
+      total_weight += result.weight;
+    }
   }
 
-  // Log summary when some apertures were infeasible
+  // Log summary
   [[maybe_unused]] const auto n_total = effective_apertures.size();
   [[maybe_unused]] const auto n_feasible = aperture_cuts.size();
   if (n_infeasible > 0 || n_skipped > 0) {
