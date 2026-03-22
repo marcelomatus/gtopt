@@ -1128,25 +1128,25 @@ void SDDPSolver::prune_inactive_cuts()
         int row;
         double abs_dual;
       };
-      auto cut_infos = std::views::iota(base, total_rows)
-          | std::views::transform(
-                           [&duals](Index r)
-                           {
-                             return CutInfo {
-                                 .row = r,
-                                 .abs_dual = std::abs(duals[r]),
-                             };
-                           })
-          | std::ranges::to<std::vector>();
+      auto cut_infos =
+          std::ranges::to<std::vector>(std::views::iota(base, total_rows)
+                                       | std::views::transform(
+                                           [&duals](Index r)
+                                           {
+                                             return CutInfo {
+                                                 .row = r,
+                                                 .abs_dual = std::abs(duals[r]),
+                                             };
+                                           }));
       std::ranges::sort(cut_infos, {}, &CutInfo::abs_dual);
 
       // Collect lowest-dual rows below the threshold for deletion
       const auto to_remove = num_cut_rows - max_cuts;
-      auto rows_to_delete = cut_infos | std::views::take(to_remove)
+      auto rows_to_delete = std::ranges::to<std::vector>(
+          cut_infos | std::views::take(to_remove)
           | std::views::filter([threshold](const CutInfo& ci)
                                { return ci.abs_dual < threshold; })
-          | std::views::transform(&CutInfo::row)
-          | std::ranges::to<std::vector>();
+          | std::views::transform(&CutInfo::row));
 
       if (rows_to_delete.empty()) {
         continue;
