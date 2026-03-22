@@ -125,7 +125,11 @@ ApertureDataCache::ApertureDataCache(const std::filesystem::path& aperture_dir)
   // Sort and bulk-construct the flat_map — O(n log n) vs O(n²)
   std::ranges::sort(
       entries, [](const auto& a, const auto& b) { return a.first < b.first; });
-  m_data_.insert(std::sorted_unique, entries.begin(), entries.end());
+  // Remove duplicates after sorting (keeping first occurrence)
+  const auto [first, last] = std::ranges::unique(
+      entries, [](const auto& a, const auto& b) { return a.first == b.first; });
+  entries.erase(first, last);
+  m_data_.insert(entries.begin(), entries.end());
 
   const auto load_s = std::chrono::duration<double>(
                           std::chrono::steady_clock::now() - load_start)
