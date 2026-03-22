@@ -722,8 +722,9 @@ def _run_gtopt(
 
     Returns (returncode, stderr).
     """
+    json_file = f"{json_stem}.json"
     result = subprocess.run(
-        [gtopt_bin, json_stem],
+        [gtopt_bin, json_file],
         cwd=str(case_dir),
         capture_output=True,
         text=True,
@@ -942,6 +943,41 @@ def test_igtopt_bat4b24_gtopt_no_load_shedding(gtopt_bin, tmp_path):
                 assert val < 1e-6, (
                     f"Load shedding detected: fail_sol[{i}] = {val:.4f} MW"
                 )
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not _BAT4B24_XLSX.exists(), reason="bat4b24.xlsx not present")
+def test_igtopt_bat4b24_gtopt_curtailment_check(gtopt_bin, tmp_path):
+    """gtopt_check_output curtailment check runs on bat4b24 solver output.
+
+    The bat4b24 case has a solar generator profile (gp_solar).  After solving,
+    check_renewable_curtailment should run without error and report curtailment
+    data (expected to be zero or very small for this case).
+    """
+    case_dir = tmp_path / "bat4b24"
+    case_dir.mkdir()
+    json_path = _prepare_case(_BAT4B24_XLSX, case_dir)
+    rc, stderr = _run_gtopt(gtopt_bin, case_dir, "bat4b24")
+    assert rc == 0, f"gtopt crashed: {stderr}"
+
+    from gtopt_check_output._checks import check_renewable_curtailment  # noqa: PLC0415
+
+    planning = json.loads(json_path.read_text(encoding="utf-8"))
+    results_dir = case_dir / "output"
+    findings, curtailment_data = check_renewable_curtailment(results_dir, planning)
+
+    # Should have at least one finding (INFO or WARNING)
+    assert len(findings) >= 1, "curtailment check should produce at least one finding"
+
+    # The solar profile exists → curtailment_data should have gp_solar key
+    # (may be 0.0 if no curtailment occurs)
+    profile_names = {
+        gp["name"]
+        for gp in planning.get("system", {}).get("generator_profile_array", [])
+    }
+    for pname in profile_names:
+        assert pname in curtailment_data, f"Missing curtailment data for {pname}"
+        assert curtailment_data[pname] >= 0.0, f"Negative curtailment for {pname}"
 
 
 @pytest.mark.integration

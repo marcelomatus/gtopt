@@ -9,7 +9,6 @@ Handles:
 """
 
 from typing import Any, Dict, List, Optional
-import numpy as np
 
 from .base_parser import BaseParser
 
@@ -31,7 +30,7 @@ class ManceParser(BaseParser):
         """Parse the maintenance file and populate the data structure."""
         self.validate_file()
 
-        lines = []
+        lines: list[str] = []
         try:
             lines = self._read_non_empty_lines()
             if not lines:
@@ -52,28 +51,22 @@ class ManceParser(BaseParser):
                 if num_blocks <= 0:
                     continue
 
-                # Initialize numpy arrays
-                blocks = np.empty(num_blocks, dtype=np.int32)
-                p_min = np.empty(num_blocks, dtype=np.float64)
-                p_max = np.empty(num_blocks, dtype=np.float64)
-
-                # Parse maintenance entries
-                for i in range(num_blocks):
-                    idx = self._next_idx(idx, lines)
-                    parts = lines[idx].split()
-                    if len(parts) < 5:
-                        raise ValueError(f"Invalid maintenance entry at line {idx + 1}")
-
-                    blocks[i] = self._parse_int(parts[1])
-                    p_min[i] = self._parse_float(parts[3])
-                    p_max[i] = self._parse_float(parts[4])
+                # Vectorized parse: cols 1=block, 3=pmin, 4=pmax
+                next_idx, cols = self._parse_numeric_block(
+                    lines,
+                    idx + 1,
+                    num_blocks,
+                    int_cols=(1,),
+                    float_cols=(3, 4),
+                )
+                idx = next_idx - 1
 
                 # Store complete data
                 mance = {
                     "name": name,
-                    "block": blocks,
-                    "pmin": p_min,
-                    "pmax": p_max,
+                    "block": cols[1],
+                    "pmin": cols[3],
+                    "pmax": cols[4],
                 }
                 self._append(mance)
 

@@ -219,6 +219,9 @@ class JunctionWriter(BaseWriter):
         self.filemb_parser = filemb_parser
         self._waterway_counter = 0
         self._ocean_junction_counter = 0
+        self._junction_names: dict[int, str] = {}
+        self._skipped_isolated: list[str] = []
+        self._referenced_junctions: set[int] = set()
 
     @property
     def central_parser(self) -> CentralParser:
@@ -298,7 +301,7 @@ class JunctionWriter(BaseWriter):
 
         # Build number→name map for junction name references.
         # This lets _create_waterway resolve numeric IDs to names.
-        self._junction_names: dict[int, str] = {}
+        self._junction_names = {}
         for c in items:
             self._junction_names[c["number"]] = c["name"]
 
@@ -313,12 +316,12 @@ class JunctionWriter(BaseWriter):
         }
 
         # Track isolated centrals that were skipped
-        self._skipped_isolated: list[str] = []
+        self._skipped_isolated = []
 
         # Build set of junction numbers referenced as downstream targets by
         # other centrals.  A central with ser_hid=0/ser_ver=0 that IS referenced
         # by others acts as a drain/sink junction and must NOT be skipped.
-        self._referenced_junctions: set[int] = set()
+        self._referenced_junctions = set()
         for c in items:
             hid = c.get("ser_hid", 0)
             ver = c.get("ser_ver", 0)

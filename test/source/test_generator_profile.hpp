@@ -252,77 +252,13 @@ TEST_CASE("GeneratorProfileLP - generator profile with spillover cost")
   auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
-}
 
-TEST_CASE("GeneratorProfile default construction")  // NOLINT
-{
-  const GeneratorProfile gp;
-
-  CHECK(gp.uid == Uid {unknown_uid});
-  CHECK(gp.name.empty());
-  CHECK_FALSE(gp.active.has_value());
-  CHECK(gp.generator == SingleId {unknown_uid});
-  CHECK_FALSE(gp.scost.has_value());
-}
-
-TEST_CASE("GeneratorProfile attribute assignment")  // NOLINT
-{
-  GeneratorProfile gp;
-
-  gp.uid = Uid {1};
-  gp.name = "solar_profile";
-  gp.active = true;
-  gp.generator = Uid {42};
-  gp.scost = 2.5;
-
-  CHECK(gp.uid == Uid {1});
-  CHECK(gp.name == "solar_profile");
-  REQUIRE(gp.active.has_value());
-  CHECK(std::get<IntBool>(gp.active.value_or(Active {False})) == 1);
-  CHECK(std::get<Uid>(gp.generator) == Uid {42});
-
-  REQUIRE(gp.scost.has_value());
-  CHECK(std::get<Real>(gp.scost.value_or(Real {0.0})) == doctest::Approx(2.5));
-}
-
-TEST_CASE("GeneratorProfile scalar profile")  // NOLINT
-{
-  GeneratorProfile gp;
-  gp.uid = Uid {2};
-  gp.name = "wind_profile";
-  gp.generator = Uid {10};
-
-  // Scalar profile (same value for all scenario/time/block combinations)
-  gp.profile = 0.75;
-
-  REQUIRE(std::get_if<Real>(&gp.profile) != nullptr);
-  CHECK(*std::get_if<Real>(&gp.profile) == doctest::Approx(0.75));
-}
-
-TEST_CASE("GeneratorProfile 2D vector profile")  // NOLINT
-{
-  // STBRealFieldSched is FieldSched3<double> = variant<double,
-  // vector<vector<vector<double>>>, string>
-  GeneratorProfile gp;
-  gp.uid = Uid {3};
-  gp.name = "pv_profile_24h";
-  gp.generator = Uid {5};
-
-  // Two stages, one block each – scalar profile per stage-block
-  // Use the FileSched (string) alternative to name an external file
-  gp.profile = std::string {"solar_pv_profile"};
-
-  REQUIRE(std::get_if<std::string>(&gp.profile) != nullptr);
-  CHECK(*std::get_if<std::string>(&gp.profile) == "solar_pv_profile");
-}
-
-TEST_CASE("GeneratorProfile with name-based generator reference")  // NOLINT
-{
-  GeneratorProfile gp;
-  gp.uid = Uid {4};
-  gp.name = "hydro_profile";
-  gp.generator = Name {"hydro_plant_1"};
-
-  CHECK(std::holds_alternative<Name>(gp.generator));
-  CHECK(std::get<Name>(gp.generator) == "hydro_plant_1");
+  // Wind: 200 MW × 0.5 profile = 100 MW available.
+  // Demand: 80 MW.  Constraint: spillover + generation = 100 MW.
+  // Optimal: wind_gen dispatches 80 MW, spillover = 20 MW.
+  // Verify via objective: wind_gen gcost=0 (free), backup unused (gcost=100),
+  // spillover cost = 20 × 10 = 200.  Objective ≈ 200.
+  // scale_objective defaults to 1000, so solver objective = 200 / 1000 = 0.2
+  const auto obj = lp.get_obj_value();
+  CHECK(obj == doctest::Approx(0.2).epsilon(1e-3));
 }

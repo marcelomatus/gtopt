@@ -345,19 +345,30 @@ def _plp_indicators(
                     continue
             else:
                 valid_cols = None
-            for b_idx, blk_num_raw in enumerate(block_arr):
-                blk_num = int(blk_num_raw)
-                blk = block_parser.get_item_by_number(blk_num)
-                duration = blk.get("duration", 1.0) if blk else 1.0
-                if valid_cols is not None:
-                    avg_flow_val = float(flow_data[b_idx, valid_cols].mean())
-                else:
-                    avg_flow_val = float(flow_data[b_idx].mean())
-                total_water_vol_hm3 += avg_flow_val * duration * _M3S_TO_HM3_PER_H
-                if b_idx == 0:
-                    first_afl += avg_flow_val
-                if b_idx == len(block_arr) - 1:
-                    last_afl += avg_flow_val
+            # Vectorized: compute mean flow per block across hydrologies
+            import numpy as np  # noqa: PLC0415
+
+            if valid_cols is not None:
+                avg_flows = flow_data[:, valid_cols].mean(axis=1)
+            else:
+                avg_flows = flow_data.mean(axis=1)
+
+            # Build durations array for all blocks
+            durations = np.array(
+                [
+                    (block_parser.get_item_by_number(int(bn)) or {}).get(
+                        "duration", 1.0
+                    )
+                    for bn in block_arr
+                ],
+                dtype=np.float64,
+            )
+            total_water_vol_hm3 += float(
+                (avg_flows * durations).sum() * _M3S_TO_HM3_PER_H
+            )
+            first_afl += float(avg_flows[0])
+            if len(avg_flows) > 0:
+                last_afl += float(avg_flows[-1])
 
     # Average flow per affluent (m³/s) = total_volume / total_time / num_flows
     avg_flow_m3s = (
@@ -635,11 +646,26 @@ def _log_comparison(
     g_scenarios = gtopt_counts.get("scenarios", 0)
     g_stateless_res = gtopt_counts.get("stateless_reservoirs", 0)
 
-    # gtopt generator type breakdown
-    g_gen_embalse = gtopt_counts.get("gen_embalse", 0)
-    g_gen_serie = gtopt_counts.get("gen_serie", 0)
-    g_gen_pasada = gtopt_counts.get("gen_pasada", 0)
-    g_gen_termica = gtopt_counts.get("gen_termica", 0)
+    # gtopt generator type breakdown — group new tech types back to PLP
+    # categories using the shared classification map.
+    from .tech_classify import PLP_CATEGORY_MAP  # noqa: PLC0415
+
+    _plp_cat_counts: dict[str, int] = {
+        "embalse": 0,
+        "serie": 0,
+        "pasada": 0,
+        "termica": 0,
+    }
+    for key, val in gtopt_counts.items():
+        if key.startswith("gen_"):
+            tech = key[4:]
+            plp_cat = PLP_CATEGORY_MAP.get(tech)
+            if plp_cat and plp_cat in _plp_cat_counts:
+                _plp_cat_counts[plp_cat] += val
+    g_gen_embalse = _plp_cat_counts["embalse"]
+    g_gen_serie = _plp_cat_counts["serie"]
+    g_gen_pasada = _plp_cat_counts["pasada"]
+    g_gen_termica = _plp_cat_counts["termica"]
 
     # --- helpers ---
     def _v(val: int | None) -> str:

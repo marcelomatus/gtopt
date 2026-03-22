@@ -39,10 +39,6 @@ def _find_gtopt_binary() -> str | None:
     if env_bin and pathlib.Path(env_bin).exists():
         return env_bin
 
-    which_bin = shutil.which("gtopt")
-    if which_bin:
-        return which_bin
-
     # __file__ = scripts/plp2gtopt/tests/conftest.py  →  parents[3] = repo root
     repo_root = pathlib.Path(__file__).resolve().parents[3]
     for rel in (
@@ -54,6 +50,10 @@ def _find_gtopt_binary() -> str | None:
         candidate = repo_root / rel
         if candidate.exists():
             return str(candidate)
+
+    which_bin = shutil.which("gtopt")
+    if which_bin:
+        return which_bin
 
     return None
 
