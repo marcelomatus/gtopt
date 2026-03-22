@@ -645,7 +645,7 @@ hs_2_1_4,2,1,4,-4800.0,0.30,0.60,...
 | `max_iterations` | int | 100 | Maximum SDDP iterations |
 | `min_iterations` | int | 2 | Minimum iterations before declaring convergence |
 | `convergence_tol` | double | 1e-4 | Relative gap tolerance |
-| `elastic_penalty` | double | 1e6 | Penalty cost for elastic slack variables |
+| `elastic_penalty` | double | 1000 | Penalty cost for elastic slack variables |
 | `elastic_filter_mode` | ElasticFilterMode | single_cut | Elastic filter strategy (see S5.4) |
 | `multi_cut_threshold` | int | 10 | Infeasibility count before auto-switching to multi_cut (0 = always multi_cut, <0 = disabled) |
 | `alpha_min` | double | 0.0 | Lower bound for α variables |
@@ -671,6 +671,12 @@ hs_2_1_4,2,1,4,-4800.0,0.30,0.60,...
 | `boundary_cuts_mode` | string | "separated" | Load mode: `"noload"`, `"separated"`, `"combined"` |
 | `boundary_max_iterations` | int | 0 | Max iterations to load (0 = all) |
 | `named_cuts_file` | string | "" | CSV file with named multi-phase cuts (S4.15) |
+| `max_cuts_per_phase` | int | 0 | Max retained cuts per (scene, phase) LP (0 = unlimited) |
+| `cut_prune_interval` | int | 10 | Iterations between cut pruning passes |
+| `prune_dual_threshold` | double | 1e-8 | Dual threshold for inactive cut detection |
+| `single_cut_storage` | bool | false | Store cuts per-scene only (halves memory) |
+| `max_stored_cuts` | int | 0 | Max stored cuts per scene (0 = unlimited) |
+| `use_clone_pool` | bool | true | Reuse cached LP clones for aperture solves |
 
 ### 5.2 Options (JSON)
 
@@ -1130,6 +1136,45 @@ The SDDP solver uses two levels of cut storage:
 Each scene has its own per-phase LP subproblems, so forward/backward
 passes for different scenes can proceed in parallel without LP-level
 locking.
+
+When `single_cut_storage` is enabled, cuts are stored only in the
+per-scene vectors.  The combined cut list for persistence is built on
+demand from the per-scene vectors, halving the memory cost of cut
+metadata.
+
+### 7.6 Memory Management
+
+Long SDDP runs accumulate Benders cuts as LP constraint rows that are
+never automatically deleted.  The CLP solver's internal matrix grows
+monotonically, which can cause memory exhaustion.  Several mechanisms
+mitigate this:
+
+1. **Cut pruning** (`max_cuts_per_phase`, `cut_prune_interval`,
+   `prune_dual_threshold`): periodically removes inactive cuts (those
+   with |dual| below the threshold) from each (scene, phase) LP via
+   `OsiSolverInterface::deleteRows()`.  A "base row count" is saved
+   during initialization so structural constraints are never pruned.
+
+2. **Stored cut capping** (`max_stored_cuts`): limits the in-memory cut
+   metadata per scene, dropping the oldest cuts when the cap is exceeded.
+
+3. **Single cut storage** (`single_cut_storage`): avoids duplicating cut
+   metadata across per-scene and shared storage.
+
+4. **Clone pool** (`use_clone_pool`): caches one LP clone per
+   (scene, phase) for aperture backward-pass solves.  Instead of calling
+   `OsiSolverInterface::clone(true)` per aperture (which allocates a
+   full copy of the CLP solver), the cached clone is reset by copying
+   column/row bounds from the source LP and deleting any added rows.
+   This avoids repeated heap allocation for the CLP internal matrix.
+
+5. **Warm-start pre-padding**: forward-pass solution vectors are padded
+   with zeros at save time so that `set_warm_start_solution()` can use a
+   subspan instead of allocating a temporary vector every call.
+
+6. **Monitor history cap**: the `SolverMonitor` background sampling
+   thread caps its history at 7200 entries (~1 hour at 500ms), dropping
+   the oldest 25% when full.
 
 ---
 

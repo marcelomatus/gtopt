@@ -161,6 +161,18 @@ public:
   }
 
   /**
+   * @brief Reset this LP to a base state by copying column bounds from
+   *        @p source and deleting any rows beyond @p base_rows.
+   *
+   * Used by the clone pool to reuse a cached LP clone across aperture
+   * solves without re-allocating the underlying CLP solver.
+   *
+   * @param source    The original (unmodified) LP to copy bounds from
+   * @param base_rows Number of structural rows to keep (delete beyond)
+   */
+  void reset_from(const LinearInterface& source, size_t base_rows);
+
+  /**
    * @brief Gets the number of constraint rows in the problem
    * @return Number of rows
    */

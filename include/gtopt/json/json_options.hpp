@@ -74,7 +74,10 @@ struct json_data_contract<SddpOptions>
                        json_string_null<"named_cuts_file", OptName>,
                        json_number_null<"max_cuts_per_phase", OptInt>,
                        json_number_null<"cut_prune_interval", OptInt>,
-                       json_number_null<"prune_dual_threshold", OptReal>>;
+                       json_number_null<"prune_dual_threshold", OptReal>,
+                       json_bool_null<"single_cut_storage", OptBool>,
+                       json_number_null<"max_stored_cuts", OptInt>,
+                       json_bool_null<"use_clone_pool", OptBool>>;
 
   constexpr static auto to_json_data(SddpOptions const& opt)
   {
@@ -107,7 +110,10 @@ struct json_data_contract<SddpOptions>
                                  opt.named_cuts_file,
                                  opt.max_cuts_per_phase,
                                  opt.cut_prune_interval,
-                                 opt.prune_dual_threshold);
+                                 opt.prune_dual_threshold,
+                                 opt.single_cut_storage,
+                                 opt.max_stored_cuts,
+                                 opt.use_clone_pool);
   }
 };
 

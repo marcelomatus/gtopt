@@ -647,10 +647,13 @@ void SDDPSolver::store_cut(SceneIndex scene,
     stored.coefficients.emplace_back(static_cast<int>(col), coeff);
   }
   // Per-scene storage: no lock needed (each scene writes its own vector)
-  m_scene_cuts_[scene].push_back(stored);
-  // Shared storage: needs lock for cut sharing and combined persistence
-  const std::scoped_lock lock(m_cuts_mutex_);
-  m_stored_cuts_.push_back(std::move(stored));
+  if (m_options_.single_cut_storage) {
+    m_scene_cuts_[scene].push_back(std::move(stored));
+  } else {
+    m_scene_cuts_[scene].push_back(stored);
+    const std::scoped_lock lock(m_cuts_mutex_);
+    m_stored_cuts_.push_back(std::move(stored));
+  }
 }
 
 // ── Helper: resolve an LP via the work pool (avoids naked direct calls) ─────
@@ -1171,11 +1174,97 @@ void SDDPSolver::prune_inactive_cuts()
   }
 }
 
+// ── Cut capping ─────────────────────────────────────────────────────────────
+
+void SDDPSolver::cap_stored_cuts()
+{
+  const auto max_cuts = m_options_.max_stored_cuts;
+  if (max_cuts <= 0) {
+    return;
+  }
+  const auto limit = static_cast<std::size_t>(max_cuts);
+
+  const auto num_scenes =
+      static_cast<Index>(planning_lp().simulation().scenes().size());
+  int total_dropped = 0;
+
+  for (const auto scene :
+       std::views::iota(SceneIndex {0}, SceneIndex {num_scenes}))
+  {
+    auto& cuts = m_scene_cuts_[scene];
+    if (cuts.size() > limit) {
+      const auto excess = cuts.size() - limit;
+      cuts.erase(cuts.begin(),
+                 cuts.begin() + static_cast<std::ptrdiff_t>(excess));
+      total_dropped += static_cast<int>(excess);
+    }
+  }
+
+  // Also cap the shared storage when not using single_cut_storage
+  if (!m_options_.single_cut_storage) {
+    const std::scoped_lock lock(m_cuts_mutex_);
+    const auto total_limit = limit * static_cast<std::size_t>(num_scenes);
+    if (m_stored_cuts_.size() > total_limit) {
+      const auto excess = m_stored_cuts_.size() - total_limit;
+      m_stored_cuts_.erase(
+          m_stored_cuts_.begin(),
+          m_stored_cuts_.begin() + static_cast<std::ptrdiff_t>(excess));
+    }
+  }
+
+  if (total_dropped > 0) {
+    SPDLOG_INFO("SDDP: capped stored cuts, dropped {} oldest entries",
+                total_dropped);
+  }
+}
+
+std::vector<StoredCut> SDDPSolver::build_combined_cuts() const
+{
+  std::vector<StoredCut> combined;
+  const auto num_scenes =
+      static_cast<Index>(planning_lp().simulation().scenes().size());
+  for (const auto scene :
+       std::views::iota(SceneIndex {0}, SceneIndex {num_scenes}))
+  {
+    const auto& cuts = m_scene_cuts_[scene];
+    combined.insert(combined.end(), cuts.begin(), cuts.end());
+  }
+  return combined;
+}
+
+// ── Clone pool ──────────────────────────────────────────────────────────────
+
+LinearInterface& SDDPSolver::get_or_create_clone(SceneIndex scene,
+                                                 PhaseIndex phase)
+{
+  const auto idx = (static_cast<std::size_t>(scene)
+                    * static_cast<std::size_t>(m_clone_pool_phases_))
+      + static_cast<std::size_t>(phase);
+
+  auto& slot = m_clone_pool_[idx];
+  if (!slot.has_value()) {
+    // First use: create the clone from the original LP
+    slot = planning_lp().system(scene, phase).linear_interface().clone();
+    SPDLOG_TRACE(
+        "SDDP clone pool: created clone for scene {} phase {}", scene, phase);
+  } else {
+    // Reuse: reset bounds and delete cut rows
+    const auto& src_li = planning_lp().system(scene, phase).linear_interface();
+    const auto base = m_scene_phase_states_[scene][phase].base_nrows;
+    slot->reset_from(src_li, base);
+  }
+  return *slot;
+}
+
 // ── Cut persistence (delegated to sddp_cut_io.hpp free functions) ───────────
 
 auto SDDPSolver::save_cuts(const std::string& filepath) const
     -> std::expected<void, Error>
 {
+  if (m_options_.single_cut_storage) {
+    const auto combined = build_combined_cuts();
+    return save_cuts_csv(combined, planning_lp(), filepath);
+  }
   return save_cuts_csv(m_stored_cuts_, planning_lp(), filepath);
 }
 
@@ -1309,6 +1398,15 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
       li.save_base_numrows();
       m_scene_phase_states_[scene][phase].base_nrows = li.base_numrows();
     }
+  }
+
+  // ── Initialize clone pool ──────────────────────────────────────────────────
+  if (m_options_.use_clone_pool) {
+    m_clone_pool_phases_ = num_phases;
+    m_clone_pool_.resize(static_cast<std::size_t>(num_scenes)
+                         * static_cast<std::size_t>(num_phases));
+    SPDLOG_DEBUG("SDDP: clone pool allocated for {} scene×phase slots",
+                 m_clone_pool_.size());
   }
 
   // ── Load hot-start cuts and track max iteration for offset ────────────────
@@ -1747,6 +1845,20 @@ void SDDPSolver::apply_cut_sharing_for_iteration(std::size_t cuts_before,
     return;
   }
 
+  // Helper: reconstruct a SparseRow from a StoredCut
+  auto to_sparse_row = [](const StoredCut& sc) -> SparseRow
+  {
+    auto row = SparseRow {
+        .name = sc.name,
+        .lowb = sc.rhs,
+        .uppb = LinearProblem::DblMax,
+    };
+    for (const auto& [col, coeff] : sc.coefficients) {
+      row[ColIndex {col}] = coeff;
+    }
+    return row;
+  };
+
   // Build scene UID → SceneIndex lookup
   flat_map<SceneUid, SceneIndex> scene_uid_map;
   const auto& scenes = planning_lp().simulation().scenes();
@@ -1757,34 +1869,41 @@ void SDDPSolver::apply_cut_sharing_for_iteration(std::size_t cuts_before,
   for (const auto pi :
        std::views::iota(PhaseIndex {0}, PhaseIndex {num_phases - 1}))
   {
-    StrongIndexVector<SceneIndex, std::vector<SparseRow>> scene_cuts;
-    scene_cuts.resize(num_scenes);
+    StrongIndexVector<SceneIndex, std::vector<SparseRow>> per_scene_cuts;
+    per_scene_cuts.resize(num_scenes);
 
     const auto pi_uid = phase_uid(pi);
-    for (std::size_t ci = cuts_before; ci < m_stored_cuts_.size(); ++ci) {
-      const auto& sc = m_stored_cuts_[ci];
-      // Only share optimality cuts; feasibility cuts stay local
-      if (sc.type != CutType::Optimality) {
-        continue;
+
+    if (m_options_.single_cut_storage) {
+      // Iterate per-scene vectors directly
+      for (const auto si :
+           std::views::iota(SceneIndex {0}, SceneIndex {num_scenes}))
+      {
+        const auto& cuts = m_scene_cuts_[si];
+        const auto offset = m_scene_cuts_before_[static_cast<std::size_t>(si)];
+        for (std::size_t ci = offset; ci < cuts.size(); ++ci) {
+          const auto& sc = cuts[ci];
+          if (sc.type != CutType::Optimality || sc.phase != pi_uid) {
+            continue;
+          }
+          per_scene_cuts[si].push_back(to_sparse_row(sc));
+        }
       }
-      if (sc.phase != pi_uid) {
-        continue;
-      }
-      auto row = SparseRow {
-          .name = sc.name,
-          .lowb = sc.rhs,
-          .uppb = LinearProblem::DblMax,
-      };
-      for (const auto& [col, coeff] : sc.coefficients) {
-        row[ColIndex {col}] = coeff;
-      }
-      auto sit = scene_uid_map.find(sc.scene);
-      if (sit != scene_uid_map.end()) {
-        scene_cuts[sit->second].push_back(std::move(row));
+    } else {
+      // Use shared m_stored_cuts_ with offset
+      for (std::size_t ci = cuts_before; ci < m_stored_cuts_.size(); ++ci) {
+        const auto& sc = m_stored_cuts_[ci];
+        if (sc.type != CutType::Optimality || sc.phase != pi_uid) {
+          continue;
+        }
+        auto sit = scene_uid_map.find(sc.scene);
+        if (sit != scene_uid_map.end()) {
+          per_scene_cuts[sit->second].push_back(to_sparse_row(sc));
+        }
       }
     }
 
-    share_cuts_for_phase(pi, scene_cuts, iteration);
+    share_cuts_for_phase(pi, per_scene_cuts, iteration);
   }
 }
 
@@ -2002,7 +2121,15 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
 
     // ── Backward pass ──
     SPDLOG_DEBUG("SDDP: starting backward pass (iter {})", iter);
+    // Save per-scene cut counts for cut sharing offset tracking
     const auto cuts_before = m_stored_cuts_.size();
+    const auto num_scenes_bwd =
+        static_cast<Index>(planning_lp().simulation().scenes().size());
+    m_scene_cuts_before_.resize(static_cast<std::size_t>(num_scenes_bwd));
+    for (Index si = 0; si < num_scenes_bwd; ++si) {
+      m_scene_cuts_before_[static_cast<std::size_t>(si)] =
+          m_scene_cuts_[SceneIndex {si}].size();
+    }
     auto bwd = run_backward_pass_all_scenes(
         fwd->scene_feasible, *sddp_pool, lp_opts, iter);
     ir.cuts_added = bwd.total_cuts;
@@ -2037,6 +2164,9 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
         prune_inactive_cuts();
       }
     }
+
+    // ── Cap stored cuts ──
+    cap_stored_cuts();
 
     // ── Convergence + live-query update ──
     finalize_iteration_result(ir, iter);
@@ -2090,9 +2220,10 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     const auto mode = m_options_.hot_start_mode;
     if (mode == HotStartMode::append) {
       // Append mode: add newly generated cuts to the existing file.
-      // m_stored_cuts_ contains only cuts from this run (loaded cuts
-      // went directly to the LP, not into storage).
-      auto result = save_cuts_csv(m_stored_cuts_,
+      const auto& cuts_to_append = m_options_.single_cut_storage
+          ? build_combined_cuts()
+          : m_stored_cuts_;
+      auto result = save_cuts_csv(cuts_to_append,
                                   planning_lp(),
                                   m_options_.cuts_output_file,
                                   /*append_mode=*/true);
@@ -2238,7 +2369,8 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
                                 m_options_.save_aperture_lp,
                                 m_aperture_cache_,
                                 target_state.forward_col_sol,
-                                target_state.forward_row_dual);
+                                target_state.forward_row_dual,
+                                get_pooled_clone_ptr(scene, phase));
 
   if (!expected_cut.has_value()) {
     // Fallback: build a regular Benders cut from the cached
@@ -2463,7 +2595,8 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
                                   m_options_.save_aperture_lp,
                                   m_aperture_cache_,
                                   target_state.forward_col_sol,
-                                  target_state.forward_row_dual);
+                                  target_state.forward_row_dual,
+                                  get_pooled_clone_ptr(scene, phase));
 
     if (!expected_cut.has_value()) {
       infeasible_phases.push_back(phase_uid(phase));

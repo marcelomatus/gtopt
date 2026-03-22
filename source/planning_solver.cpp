@@ -255,6 +255,9 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options,
       sddp_opts.max_cuts_per_phase = options.sddp_max_cuts_per_phase();
       sddp_opts.cut_prune_interval = options.sddp_cut_prune_interval();
       sddp_opts.prune_dual_threshold = options.sddp_prune_dual_threshold();
+      sddp_opts.single_cut_storage = options.sddp_single_cut_storage();
+      sddp_opts.max_stored_cuts = options.sddp_max_stored_cuts();
+      sddp_opts.use_clone_pool = options.sddp_use_clone_pool();
       sddp_opts.alpha_min = options.sddp_alpha_min();
       sddp_opts.alpha_max = options.sddp_alpha_max();
 
