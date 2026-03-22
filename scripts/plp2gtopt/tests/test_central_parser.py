@@ -409,3 +409,72 @@ def test_hid_indep_true(tmp_path: Path) -> None:
     emb_indep = parser.get_central_by_name("EMB_INDEP")
     assert emb_indep is not None
     assert emb_indep["hid_indep"] is True
+
+
+def test_parse_battery_missing_potmin(tmp_path: Path) -> None:
+    """Test parsing batteries where PotMin field is blank (3 values instead of 4).
+
+    In some PLP data files (e.g. plpcnfce.dat from 5-year planning scenarios),
+    battery centrals may have only 3 values on the PotMin/PotMax line instead of 4.
+    Visually the PotMin column appears blank, and the 3 values are PotMax, VertMin,
+    VertMax (or just PotMin, PotMax, extra).  PLP Fortran (leecnfce.f) reads only
+    CenPotMin and CenPotMax for batteries/fallas, so it silently ignores the issue.
+    Python must handle len(parts)==3 without raising IndexError.
+    """
+    file_path = tmp_path / "bat_missing_potmin.dat"
+    content = """# plpcnfce.dat with battery having missing PotMin (3 values)
+# Num.Centrales  Num.Embalses Num.Serie Num.Fallas Num.Pas.Pur. Num.BAT
+     3            0           0         1          0            2
+# Interm Min.Tec. Cos.Arr.Det. FFaseSinMT EtapaCambioFase
+  F      F        F            F          00
+# Centrales Termicas
+# (no thermal section - baterias follow immediately)
+# Baterias
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+1303 'BAT_GRAN_TENO_FV'                                1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  200.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    195      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+1304 'BAT_SOCOMPA_FV'                                  1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+                  000.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    226      0      0    0.0  0000.0
+# Fallas
+                                                 IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+1305 'FALLA_001'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0 9999.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+           406.0  1.000      1      0      0    0.0  0000.0
+"""
+    file_path.write_text(content)
+
+    parser = CentralParser(file_path)
+    parser.parse()
+
+    assert len(parser.centrals) == 3
+
+    # Battery with full 4-value line parses correctly
+    bat1 = parser.get_central_by_name("BAT_GRAN_TENO_FV")
+    assert bat1 is not None
+    assert bat1["pmin"] == 0.0
+    assert bat1["pmax"] == 200.0
+    assert bat1.get("vert_min", 0.0) == 0.0
+    assert bat1.get("vert_max", 0.0) == 0.0
+
+    # Battery with 3-value line (missing PotMin) must not raise IndexError
+    bat2 = parser.get_central_by_name("BAT_SOCOMPA_FV")
+    assert bat2 is not None
+    assert bat2["pmin"] == 0.0
+    assert bat2["pmax"] == 0.0
+    assert bat2.get("vert_min", 0.0) == 0.0
+    assert bat2.get("vert_max", 0.0) == 0.0
