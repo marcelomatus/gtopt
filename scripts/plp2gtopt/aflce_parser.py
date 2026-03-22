@@ -76,25 +76,14 @@ class AflceParser(BaseParser):
                 if num_blocks <= 0:
                     continue  # Skip centrals with no blocks
 
-                # Initialize numpy arrays with optimal types
-                blocks = np.empty(num_blocks, dtype=np.int32)
-                flows = np.empty((num_blocks, num_hydrologies), dtype=np.float64)
+                # Vectorized parse: col 1=block, cols 2..2+num_hydrologies=flows
+                next_idx, raw = self._parse_numeric_block_wide(
+                    lines, idx + 1, num_blocks, skip_cols=0
+                )
+                idx = next_idx - 1
 
-                # Parse each block's flow data
-                for block_idx in range(num_blocks):
-                    idx = self._next_idx(idx, lines)
-                    parts = lines[idx].split()
-
-                    if len(parts) < 2 + num_hydrologies:
-                        raise ValueError(
-                            f"Invalid flow entry at line {idx + 1}: "
-                            f"expected {2 + num_hydrologies} values, got {len(parts)}"
-                        )
-
-                    blocks[block_idx] = self._parse_int(parts[1])  # Block number
-                    flows[block_idx] = [
-                        self._parse_float(v) for v in parts[2 : 2 + num_hydrologies]
-                    ]
+                blocks = raw[:, 1].astype(np.int32)
+                flows = raw[:, 2 : 2 + num_hydrologies]
 
                 # In profile mode (default), scale pasada flows by pmax to
                 # produce normalised capacity factors.  In hydro mode

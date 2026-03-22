@@ -6,10 +6,10 @@ It checks (in order):
 
 1. ``GTOPT_BIN`` environment variable – set by CTest (``ubuntu.yml`` build
    workflow) or by the ``scripts.yml`` pre-download step.
-2. ``gtopt`` on ``PATH`` (``shutil.which``).
-3. Standard build-directory paths relative to the repository root:
+2. Standard build-directory paths relative to the repository root:
    ``build/standalone/gtopt``, ``build/gtopt``, ``build-standalone/gtopt``,
    ``all/build/gtopt``.
+3. ``gtopt`` on ``PATH`` (``shutil.which``) — last resort.
 
 The test is **skipped** (not failed) when the binary cannot be found.
 The fixture never downloads anything or installs libraries.  Set up the
@@ -38,18 +38,15 @@ def _find_gtopt_binary() -> str | None:
     Checks (in order):
 
     1. ``GTOPT_BIN`` environment variable.
-    2. ``shutil.which("gtopt")`` (binary on ``PATH``).
-    3. Standard build-directory paths relative to the repository root.
+    2. Standard build-directory paths relative to the repository root
+       (preferred — always uses the freshly built binary).
+    3. ``shutil.which("gtopt")`` (binary on ``PATH``, last resort).
 
     Returns the path as a string, or ``None`` when not found.
     """
     env_bin = os.environ.get("GTOPT_BIN")
     if env_bin and pathlib.Path(env_bin).exists():
         return env_bin
-
-    which_bin = shutil.which("gtopt")
-    if which_bin:
-        return which_bin
 
     # __file__ = scripts/igtopt/tests/conftest.py  →  parents[3] = repo root
     repo_root = pathlib.Path(__file__).resolve().parents[3]
@@ -62,6 +59,10 @@ def _find_gtopt_binary() -> str | None:
         candidate = repo_root / rel
         if candidate.exists():
             return str(candidate)
+
+    which_bin = shutil.which("gtopt")
+    if which_bin:
+        return which_bin
 
     return None
 

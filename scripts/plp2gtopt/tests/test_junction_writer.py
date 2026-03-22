@@ -942,7 +942,7 @@ def test_isolated_pasada_bus_zero_skipped():
     )
     # Pasada bus<=0 filtered in items selection, so no items → empty result
     result = writer.to_json_array()
-    assert result == []
+    assert not result
 
 
 def test_serie_bus_zero_with_ser_hid_not_skipped():

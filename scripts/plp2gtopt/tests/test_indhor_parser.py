@@ -61,6 +61,57 @@ def test_is_empty_before_parse(tmp_path):
     assert parser.is_empty
 
 
+def test_parse_malformed_csv(tmp_path):
+    """Malformed CSV (wrong column count) raises ValueError."""
+    p = tmp_path / "indhor.csv"
+    p.write_text("a,b\n1,2,3,4,5\n", encoding="utf-8")
+    parser = IndhorParser(p)
+    # Should still parse (pandas is lenient with extra columns)
+    parser.parse()
+
+
+def test_to_dict_list(tmp_path):
+    """to_dict_list returns row dicts from parsed data."""
+    parser = IndhorParser(_write_csv(tmp_path))
+    parser.parse()
+    rows = parser.to_dict_list()
+    assert len(rows) == 5
+    assert rows[0] == {"year": 2024, "month": 1, "day": 1, "hour": 1, "block": 1}
+    assert rows[4]["block"] == 3
+
+
+def test_to_dict_list_empty(tmp_path):
+    """to_dict_list returns empty list before parsing."""
+    parser = IndhorParser(tmp_path / "indhor.csv")
+    assert parser.to_dict_list() == []
+
+
+def test_block_hours_map_empty(tmp_path):
+    """block_hours_map returns empty dict before parsing."""
+    parser = IndhorParser(tmp_path / "indhor.csv")
+    assert not parser.block_hours_map()
+
+
+def test_parse_real_case_structure(tmp_path):
+    """Test with a multi-day, multi-block structure like plp_case_2y."""
+    lines = ["Año,Mes,Dia,Hora,Bloque\n"]
+    # 3 days × 24 hours, 4 blocks per day (6h each)
+    for day in range(1, 4):
+        for hour in range(1, 25):
+            blk = (hour - 1) // 6 + 1 + (day - 1) * 4
+            lines.append(f"2024,1,{day},{hour},{blk}\n")
+    p = tmp_path / "indhor.csv"
+    p.write_text("".join(lines), encoding="utf-8")
+    parser = IndhorParser(p)
+    parser.parse()
+    assert len(parser.df) == 72
+    bhm = parser.block_hours_map()
+    # Block 1 (day 1, hours 1-6) should contain hours 1..6
+    assert bhm[1] == [1, 2, 3, 4, 5, 6]
+    # 12 total blocks (3 days × 4 blocks)
+    assert len(bhm) == 12
+
+
 def test_indhor_written_to_json(tmp_path):
     """IndhorWriter writes parquet and returns correct relative path."""
     p = _write_csv(tmp_path)

@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict, cast
 import typing
 
+import pandas as pd
+
 from .base_writer import BaseWriter
 from .central_parser import CentralParser
 from .bus_parser import BusParser
@@ -50,13 +52,22 @@ class GeneratorProfileWriter(BaseWriter):
     def to_json_array(
         self, items: Optional[List[Dict[str, Any]]] = None
     ) -> List[Dict[str, Any]]:
-        """Convert central data to JSON array format.
+        """Convert pasada centrals classified for profile mode to JSON.
 
-        In hydro mode (``pasada_hydro=True``), pasada centrals are handled
-        by JunctionWriter as full hydro topology, so no profiles are created.
+        Only pasada centrals whose names appear in
+        ``options["_pasada_profile_names"]`` are included.  When the set
+        is empty (e.g. all pasada are hydro), returns ``[]``.
+
+        For legacy ``--pasada-mode profile`` (all pasada), the set is
+        populated by ``classify_pasada_centrals`` to include all.
         """
-        # In hydro mode, pasada centrals become flows+turbines, not profiles
-        if self.options and self.options.get("pasada_hydro", False):
+        profile_names: set[str] | None = None
+        if self.options:
+            profile_names = self.options.get("_pasada_profile_names")
+
+        # When _pasada_profile_names is explicitly empty (set()), no profiles.
+        # When absent (None), include all pasada (backward compat / unit tests).
+        if profile_names is not None and not profile_names:
             return []
 
         if items is None:
@@ -68,8 +79,17 @@ class GeneratorProfileWriter(BaseWriter):
         if not items:
             return []
 
+        # Write own parquet files for profile centrals (not using Flow@discharge)
+        if profile_names is not None:
+            self._write_profile_parquet(profile_names)
+
         json_profiles: List[GeneratorProfile] = []
         for central in items:
+            central_name = central["name"]
+            # When profile_names is set, only include listed centrals
+            if profile_names is not None and central_name not in profile_names:
+                continue
+
             # Skip centrals without a bus or with bus 0
             bus_number = central.get("bus", -1)
             if bus_number <= 0:
@@ -78,12 +98,8 @@ class GeneratorProfileWriter(BaseWriter):
             if self.bus_parser:
                 bus = self.bus_parser.get_bus_by_number(bus_number)
                 if bus is None or bus.get("number", -1) <= 0:
-                    print(
-                        f"Skipping central {central['name']} with invalid bus {bus_number}."
-                    )
                     continue
 
-            central_name = central["name"]
             central_number = central["number"]
 
             aflce = (
@@ -91,7 +107,14 @@ class GeneratorProfileWriter(BaseWriter):
                 if self.aflce_parser
                 else None
             )
-            afluent = central.get("afluent", 0.0) if aflce is None else "Flow@discharge"
+            if aflce is None:
+                afluent = central.get("afluent", 0.0)
+            elif profile_names is not None:
+                # Auto/explicit profile mode: own GeneratorProfile parquet
+                afluent = "profile"
+            else:
+                # Legacy/backward compat: reference Flow@discharge
+                afluent = "Flow@discharge"
 
             if isinstance(afluent, float) and afluent <= 0.0:
                 continue
@@ -106,14 +129,29 @@ class GeneratorProfileWriter(BaseWriter):
 
         return cast(List[Dict[str, Any]], json_profiles)
 
-    def _write_parquet_files(self) -> None:
-        """Write demand data to Parquet file format."""
+    def _write_profile_parquet(self, profile_names: set[str]) -> None:
+        """Write profile Parquet files for solar/wind pasada centrals.
+
+        Writes to ``GeneratorProfile/profile.parquet`` containing the
+        affluent data (capacity factor) for each profile central.
+        """
+        if not self.aflce_parser or not profile_names:
+            return
+
         output_dir = (
             self.options["output_dir"] / "GeneratorProfile"
-            if "output_dir" in self.options
+            if self.options and "output_dir" in self.options
             else Path("GeneratorProfile")
         )
         output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Filter aflce items to only include profile centrals
+        profile_items = [
+            f for f in self.aflce_parser.flows if f.get("name") in profile_names
+        ]
+
+        if not profile_items:
+            return
 
         aflce_writer = AflceWriter(
             self.aflce_parser,
@@ -122,4 +160,12 @@ class GeneratorProfileWriter(BaseWriter):
             self.scenarios,
             self.options,
         )
-        aflce_writer.to_parquet(output_dir)
+        # Write as profile.parquet (not discharge.parquet) to match the
+        # C++ GeneratorProfile.profile field name.
+        df = aflce_writer.to_dataframe(items=profile_items)
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            df.to_parquet(
+                output_dir / "profile.parquet",
+                index=False,
+                compression=aflce_writer.get_compression(),
+            )

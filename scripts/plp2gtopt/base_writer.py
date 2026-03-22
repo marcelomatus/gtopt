@@ -139,9 +139,17 @@ class BaseWriter(ABC):
         if not items:
             return pd.DataFrame()
 
-        # Process items into a dictionary of {col_name: (index, values)}
-        fill_values = {}
-        series = []
+        # Detect whether value_oper is identity (default) to skip per-element calls
+        try:
+            sentinel = object()
+            is_identity = value_oper(sentinel) is sentinel
+        except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            is_identity = False
+
+        # Collect series for bulk concat at the end
+        fill_values: Dict[str, Any] = {}
+        series_list: list[pd.Series] = []
+
         for item in items:
             name = item.get("name", "")
             unit = unit_parser.get_item_by_name(name) if unit_parser else None
@@ -154,25 +162,42 @@ class BaseWriter(ABC):
             if fill_field and fill_field in unit:
                 fill_values[col_name] = unit[fill_field]
 
-            values = [value_oper(v) for v in item.get(value_field, [])]
+            raw_values = item.get(value_field, [])
             index = item.get(index_field, [])
-            if len(values) * len(index) == 0:
+            if len(raw_values) == 0 or len(index) == 0:
                 continue
+
+            # Convert to numpy arrays
+            if isinstance(raw_values, np.ndarray) and is_identity:
+                values = raw_values
+            elif is_identity:
+                values = np.asarray(raw_values, dtype=np.float64)
+            else:
+                values = np.array([value_oper(v) for v in raw_values], dtype=np.float64)
+
+            if not isinstance(index, np.ndarray):
+                index = np.asarray(index, dtype=np.int32)
 
             # Skip if all values match the fill value
-            if col_name in fill_values and np.allclose(
-                values, fill_values[col_name], rtol=1e-8, atol=1e-11
-            ):
-                continue
+            if col_name in fill_values:
+                fv = fill_values[col_name]
+                if np.allclose(values, fv, rtol=1e-8, atol=1e-11):
+                    continue
 
-            s = pd.Series(data=values, index=index, name=col_name)
-            s = s.loc[~s.index.duplicated(keep="last")]
-            series.append(s)
+            # Handle duplicate indices (keep last)
+            _, unique_idx = np.unique(index[::-1], return_index=True)
+            unique_idx = len(index) - 1 - unique_idx
+            if len(unique_idx) < len(index):
+                index = index[unique_idx]
+                values = values[unique_idx]
 
-        if not series:
+            series_list.append(pd.Series(data=values, index=index, name=col_name))
+
+        if not series_list:
             return pd.DataFrame()
 
-        df = pd.concat(series, axis=1)
+        # Single concat of all series at once (much faster than incremental)
+        df = pd.concat(series_list, axis=1)
 
         # Convert index to column
         index_name = index_name or index_field
@@ -180,8 +205,8 @@ class BaseWriter(ABC):
             index_values = np.array(
                 [item[item_key] for item in index_parser.items], dtype=np.int32
             )
-            s = pd.Series(data=index_values, index=index_values, name=index_name)
-            df = pd.concat([s, df], axis=1)
+            idx_s = pd.Series(data=index_values, index=index_values, name=index_name)
+            df = pd.concat([idx_s, df], axis=1)
 
         # Fill missing values with column-specific defaults
         if fill_values:

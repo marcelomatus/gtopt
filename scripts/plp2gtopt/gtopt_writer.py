@@ -7,33 +7,31 @@ Handles conversion of parsed PLP data to GTOPT JSON format.
 
 import json
 import logging
-from typing import Dict, Any
-
 from pathlib import Path
+from typing import Any, Dict
 
-_logger = logging.getLogger(__name__)
-
-from .plp_parser import PLPParser
-from .planos_writer import write_boundary_cuts_csv, write_hot_start_cuts_csv
-
-from .block_writer import BlockWriter
-from .stage_writer import StageWriter
-from .bus_writer import BusWriter
-from .central_writer import CentralWriter
-
-from .generator_profile_writer import GeneratorProfileWriter
-from .demand_writer import DemandWriter
-from .line_writer import LineWriter
-from .junction_writer import JunctionWriter
 from .aflce_writer import AflceWriter
-from .battery_writer import BatteryWriter
-from .index_utils import parse_index_range, parse_stages_phase
-from .indhor_writer import IndhorWriter
 from .aperture_writer import (
     build_aperture_array,
     build_phase_aperture_sets,
     write_aperture_afluents,
 )
+from .battery_writer import BatteryWriter
+from .block_writer import BlockWriter
+from .bus_writer import BusWriter
+from .central_writer import CentralWriter
+from .demand_writer import DemandWriter
+from .generator_profile_writer import GeneratorProfileWriter
+from .index_utils import parse_index_range, parse_stages_phase
+from .indhor_writer import IndhorWriter
+from .junction_writer import JunctionWriter
+from .line_writer import LineWriter
+from .planos_writer import write_boundary_cuts_csv, write_hot_start_cuts_csv
+from .plp_parser import PLPParser
+from .stage_writer import StageWriter
+from .tech_detect import detect_technology, load_centipo_csv
+
+_logger = logging.getLogger(__name__)
 
 
 class GTOptWriter:
@@ -102,6 +100,10 @@ class GTOptWriter:
         cut_sharing_mode = options.get("cut_sharing_mode")
         if cut_sharing_mode is not None:
             sddp_opts["cut_sharing_mode"] = cut_sharing_mode
+
+        max_iter = options.get("max_iterations")
+        if max_iter is not None:
+            sddp_opts["max_iterations"] = max_iter
 
         # When the JSON file lives inside the output directory (the default),
         # input_directory is "." so paths are relative to the JSON location.
@@ -514,31 +516,33 @@ class GTOptWriter:
         ).to_json_array()
 
     def process_afluents(self, options):
-        """Write affluent/discharge Parquet files.
+        """Write affluent/discharge Parquet files for Flow elements.
 
-        In pasada-hydro mode, pasada centrals with bus<=0 are excluded
-        from the Parquet output (they are isolated hydro nodes with no
-        electrical connection and no turbine).
+        Excludes:
+        - Pasada centrals with bus<=0 (isolated, no turbine).
+        - Pasada centrals routed to profile mode (solar/wind) — their
+          data is written to GeneratorProfile/ by the profile writer.
         """
         centrals = self.parser.parsed_data.get("central_parser", [])
         blocks = self.parser.parsed_data.get("block_parser", None)
         aflces = self.parser.parsed_data.get("aflce_parser", [])
         scenarios = self.planning["simulation"]["scenario_array"]
 
-        # Filter out pasada bus<=0 affluents in hydro mode
-        if options.get("pasada_hydro", False) and aflces and centrals:
-            excluded: set[str] = set()
-            for c in centrals.centrals_of_type.get("pasada", []):
+        # Build set of names to exclude from Flow parquet
+        excluded: set[str] = set()
+        cot = getattr(centrals, "centrals_of_type", None) if centrals else None
+        if cot:
+            for c in cot.get("pasada", []):
                 if c.get("bus", 0) <= 0:
                     excluded.add(c["name"])
-            if excluded:
-                aflces_items = [
-                    f for f in aflces.flows if f.get("name") not in excluded
-                ]
-            else:
-                aflces_items = None  # use default (all)
+        # Also exclude profile-mode centrals (their data goes to GeneratorProfile/)
+        profile_names = options.get("_pasada_profile_names", set())
+        excluded.update(profile_names)
+
+        if excluded and aflces:
+            aflces_items = [f for f in aflces.flows if f.get("name") not in excluded]
         else:
-            aflces_items = None
+            aflces_items = None  # use default (all)
 
         output_dir = Path(options["output_dir"]) if options else Path("results")
         output_dir = output_dir / "Flow"
@@ -589,21 +593,24 @@ class GTOptWriter:
                 self.planning["system"][key] = val
 
     def process_flow_turbines(self, options):
-        """Create Flow + Turbine(flow=ref) for pasada centrals in flow-turbine mode.
+        """Create Flow + Turbine(flow=ref) for hydro pasada centrals.
 
-        In flow-turbine mode, each pasada central with bus>0 gets:
-        - A Flow element with discharge data from plpaflce.dat
-        - A Turbine element with ``flow`` field referencing the Flow
-        No junctions or waterways are created.
+        Only pasada centrals classified as hydro (in
+        ``_pasada_hydro_names``) get flow+turbine elements.  Solar/wind
+        pasada centrals are handled by ``process_generator_profiles``.
         """
-        if options.get("pasada_mode") != "flow-turbine":
+        hydro_names = options.get("_pasada_hydro_names", set())
+        if not hydro_names:
             return
 
         central_parser = self.parser.parsed_data.get("central_parser")
         if not central_parser:
             return
 
-        pasada_centrals = central_parser.centrals_of_type.get("pasada", [])
+        centrals_of_type = getattr(central_parser, "centrals_of_type", None)
+        if not centrals_of_type:
+            return
+        pasada_centrals = centrals_of_type.get("pasada", [])
         if not pasada_centrals:
             return
 
@@ -613,11 +620,11 @@ class GTOptWriter:
         aflce_parser = self.parser.parsed_data.get("aflce_parser")
 
         for central in pasada_centrals:
-            if central.get("bus", 0) <= 0:
+            central_name = central["name"]
+            if central_name not in hydro_names:
                 continue
 
             central_id = central["number"]
-            central_name = central["name"]
 
             # Determine discharge: file ref if aflce data exists, else scalar
             afluent: float | str = central.get("afluent", 0.0)
@@ -645,6 +652,107 @@ class GTOptWriter:
                     "generator": central_name,
                     "conversion_rate": central.get("efficiency", 1.0),
                 }
+            )
+
+    def classify_pasada_centrals(self, options):
+        """Classify pasada centrals by detected technology.
+
+        Populates ``options["_pasada_hydro_names"]`` (set of names for
+        hydro run-of-river centrals → flow+turbine mode) and
+        ``options["_pasada_profile_names"]`` (set of names for
+        solar/wind/renewable centrals → generator profile mode).
+
+        Modes:
+        - ``auto`` (default): per-central routing based on detected
+          technology.  Solar/wind → profile, hydro → flow+turbine.
+        - ``profile``: ALL pasada go to generator profile mode.
+        - ``flow-turbine``: ALL pasada go to flow+turbine mode.
+        - ``hydro``: ALL pasada go to full hydro topology (junctions).
+        """
+        central_parser = self.parser.parsed_data.get("central_parser")
+        if not central_parser:
+            return
+
+        centrals_of_type = getattr(central_parser, "centrals_of_type", None)
+        if not centrals_of_type:
+            return
+        pasada_centrals = centrals_of_type.get("pasada", [])
+        if not pasada_centrals:
+            return
+
+        pasada_mode = options.get("pasada_mode", "auto")
+        active_names = {c["name"] for c in pasada_centrals if c.get("bus", 0) > 0}
+
+        # Global modes: all pasada go to the same path
+        if pasada_mode == "profile":
+            options["_pasada_hydro_names"] = set()
+            options["_pasada_profile_names"] = active_names
+            return
+        if pasada_mode == "hydro":
+            options["_pasada_hydro_names"] = active_names
+            options["_pasada_profile_names"] = set()
+            return
+        if pasada_mode == "flow-turbine":
+            options["_pasada_hydro_names"] = active_names
+            options["_pasada_profile_names"] = set()
+            return
+
+        # Auto mode: per-central routing based on detected technology
+        hydro_names: set[str] = set()
+        profile_names: set[str] = set()
+
+        user_overrides = options.get("tech_overrides")
+        centipo_overrides = (
+            load_centipo_csv(options.get("input_dir", ""))
+            if options.get("input_dir")
+            else {}
+        )
+        effective_overrides = {**centipo_overrides}
+        if user_overrides:
+            effective_overrides.update(user_overrides)
+
+        auto_detect = options.get("auto_detect_tech", True)
+
+        mance_parser = self.parser.parsed_data.get("mance_parser")
+        mance_names: set[str] = set()
+        if mance_parser and hasattr(mance_parser, "items"):
+            for mitem in mance_parser.items:
+                mance_names.add(mitem.get("name", ""))
+
+        # Renewable types that should use generator profile mode
+        _profile_types = {"solar", "wind", "csp", "renewable"}
+
+        for central in pasada_centrals:
+            if central.get("bus", 0) <= 0:
+                continue
+            name = central["name"]
+            variable_cost = central.get("gcost")
+            if not isinstance(variable_cost, (int, float)):
+                variable_cost = None
+
+            tech = detect_technology(
+                "pasada",
+                name,
+                overrides=effective_overrides,
+                auto_detect=auto_detect,
+                variable_cost=variable_cost,
+                has_profile=name in mance_names,
+            )
+
+            if tech in _profile_types:
+                profile_names.add(name)
+                _logger.info("  pasada '%s' → profile mode (tech=%s)", name, tech)
+            else:
+                hydro_names.add(name)
+
+        options["_pasada_hydro_names"] = hydro_names
+        options["_pasada_profile_names"] = profile_names
+
+        if profile_names:
+            _logger.info(
+                "  pasada routing: %d hydro (flow+turbine), %d renewable (profile)",
+                len(hydro_names),
+                len(profile_names),
             )
 
     def process_centrals(self, options):
@@ -1028,6 +1136,7 @@ class GTOptWriter:
         self.process_apertures(options)
         self.process_buses()
         self.process_lines(options)
+        self.classify_pasada_centrals(options)
         self.process_centrals(options)
         self.process_demands(options)
         self.process_afluents(options)

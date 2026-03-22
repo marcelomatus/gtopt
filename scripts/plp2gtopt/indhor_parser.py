@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """Parser for PLP indhor.csv files mapping calendar hours to block numbers.
 
-The file has columns: Año, Mes, Dia, Hora, Bloque (all integers, 1-based Hora
-and Bloque).  It records for every calendar hour in the PLP horizon which
-PLP block that hour belongs to.  This mapping is used to reconstruct hourly
-time-series from block-level gtopt solver output.
+The file has columns (header row is ignored — may contain non-ASCII like
+``Año``): year, month, day, hour, block — all integers, 1-based hour and
+block.  It records for every calendar hour in the PLP horizon which PLP block
+that hour belongs to.  This mapping is used to reconstruct hourly time-series
+from block-level gtopt solver output.
 """
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -23,8 +23,6 @@ class IndhorParser:
     column names: ``year``, ``month``, ``day``, ``hour``, ``block`` — all ``int32``.
     ``hour`` is kept 1-based (1-24) to match PLP convention.
     """
-
-    _CSV_ENCODINGS = ("utf-8", "latin-1")
 
     def __init__(self, file_path: str | Path) -> None:
         self.file_path = Path(file_path)
@@ -42,40 +40,23 @@ class IndhorParser:
     def parse(self) -> None:
         """Read and normalise indhor.csv.
 
+        Uses ASCII encoding with ``errors='ignore'`` so that non-ASCII
+        characters in the header (e.g. ``Año``) are silently dropped.
+
         Raises:
             FileNotFoundError: if the file does not exist.
-            ValueError: if required columns are missing or file cannot be decoded.
+            ValueError: if the file cannot be parsed.
         """
         if not self.file_path.exists():
             raise FileNotFoundError(f"indhor.csv not found: {self.file_path}")
 
-        df: Optional[pd.DataFrame] = None
-        for enc in self._CSV_ENCODINGS:
-            try:
-                # header=0 tells pandas the first row contains headers and should be replaced.
-                # names=[...] explicitly assigns our desired column names.
-                df = pd.read_csv(
-                    self.file_path,
-                    encoding=enc,
-                    header=0,
-                    names=["year", "month", "day", "hour", "block"],
-                )
-                break
-            except UnicodeDecodeError:
-                logging.getLogger(__name__).debug(
-                    "indhor.csv: encoding '%s' failed, trying next", enc
-                )
-                continue
-            except ValueError as e:
-                # Catches mismatched column counts if the file format is unexpected
-                raise ValueError(
-                    f"Error parsing {self.file_path} with encoding {enc}: {e}"
-                )
-
-        if df is None:
-            raise ValueError(
-                f"Cannot decode {self.file_path} with any supported encoding"
-            )
+        df = pd.read_csv(
+            self.file_path,
+            encoding="ascii",
+            encoding_errors="ignore",
+            header=0,
+            names=["year", "month", "day", "hour", "block"],
+        )
 
         # Cast to int32 for compact storage
         for col in ("year", "month", "day", "hour", "block"):

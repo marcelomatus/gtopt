@@ -173,8 +173,11 @@ def make_parser() -> argparse.ArgumentParser:
         "--output-dir",
         type=Path,
         metavar="DIR",
-        default=Path("output"),
-        help="directory for gtopt output files (default: %(default)s)",
+        default=None,
+        help=(
+            "directory for gtopt output files "
+            "(default: output, or gtopt_NAME if input is plp_NAME)"
+        ),
     )
     parser.add_argument(
         "-f",
@@ -666,15 +669,15 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--pasada-mode",
         dest="pasada_mode",
-        choices=["hydro", "flow-turbine", "profile"],
-        default="flow-turbine",
+        choices=["auto", "hydro", "flow-turbine", "profile"],
+        default="auto",
         help=(
             "how to model pasada (run-of-river) centrals: "
+            "'auto' = per-central: solar/wind → profile, hydro → flow+turbine; "
             "'hydro' = full topology (junctions, waterways, turbines, flows); "
-            "'flow-turbine' = simplified (flow + turbine with flow ref, "
-            "no junctions/waterways); "
-            "'profile' = legacy generator profiles with normalized capacity "
-            "factors. (default: %(default)s)"
+            "'flow-turbine' = all pasada as simplified flow + turbine; "
+            "'profile' = all pasada as generator profiles. "
+            "(default: %(default)s)"
         ),
     )
     # Backward compatibility aliases
@@ -691,6 +694,37 @@ def make_parser() -> argparse.ArgumentParser:
         action="store_const",
         const="profile",
         help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--tech-detect",
+        dest="auto_detect_tech",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "auto-detect generator technology from central names. "
+            "Refines PLP types (termica, pasada) into specific types "
+            "(solar, wind, gas, coal, etc.) by scanning names for "
+            "keywords. Use --no-tech-detect to keep raw PLP types. "
+            "(default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--tech-overrides",
+        dest="tech_overrides",
+        metavar="SPEC",
+        default=None,
+        help=(
+            "override generator technology types as comma-separated "
+            "name:type pairs (e.g. 'SolarAlmeyda:solar,Canela:wind') "
+            "or a path to a .json/.csv file with overrides. "
+            "These take priority over auto-detection."
+        ),
+    )
+    parser.add_argument(
+        "--tech-list",
+        action="store_true",
+        default=False,
+        help="list known technology types and exit",
     )
     parser.add_argument(
         "-V",
@@ -713,17 +747,43 @@ def _resolve_input_dir(args: argparse.Namespace) -> Path:
     return Path("input")
 
 
+def _infer_output_dir(input_dir: Path, explicit_output: Path) -> Path:
+    """Infer the output directory from the input directory name.
+
+    When only a directory name starting with ``plp_`` is given as the
+    positional argument and ``-o`` was not set, the output directory is
+    derived by replacing the ``plp_`` prefix with ``gtopt_``.
+
+    For example, ``plp_case_2y`` → ``gtopt_case_2y``.
+
+    If the input directory does not start with ``plp_``, the original
+    output directory is returned unchanged.
+    """
+    dir_name = input_dir.name
+    if dir_name.startswith("plp_"):
+        return input_dir.parent / ("gtopt_" + dir_name[4:])
+    return explicit_output
+
+
 def build_options(args: argparse.Namespace) -> dict:
     """Convert parsed CLI arguments to a conversion options dict."""
     input_dir = _resolve_input_dir(args)
+
+    # When -o is not given, infer the output dir:
+    # - If input dir starts with "plp_", replace prefix with "gtopt_"
+    # - Otherwise, default to "output"
+    output_dir = args.output_dir
+    if output_dir is None:
+        output_dir = _infer_output_dir(input_dir, Path("output"))
+
     output_file = args.output_file
     if output_file is None:
-        output_file = args.output_dir / Path(args.output_dir.name).with_suffix(".json")
+        output_file = output_dir / Path(output_dir.name).with_suffix(".json")
     name = args.name if args.name is not None else Path(output_file).stem
     input_format = args.input_format if args.input_format else args.output_format
     opts = {
         "input_dir": input_dir,
-        "output_dir": args.output_dir,
+        "output_dir": output_dir,
         "output_file": output_file,
         "last_stage": args.last_stage,
         "last_time": args.last_time,
@@ -772,11 +832,17 @@ def build_options(args: argparse.Namespace) -> dict:
     if args.variable_scales_file is not None:
         opts["variable_scales_file"] = args.variable_scales_file
     opts["run_check"] = args.run_check
+    # Technology detection
+    opts["auto_detect_tech"] = args.auto_detect_tech
+    if args.tech_overrides is not None:
+        from .tech_detect import load_overrides  # noqa: PLC0415
+
+        opts["tech_overrides"] = load_overrides(args.tech_overrides)
     # Pasada mode: "hydro", "flow-turbine", or "profile"
     pasada_mode = getattr(args, "pasada_mode", "flow-turbine") or "flow-turbine"
     opts["pasada_mode"] = pasada_mode
-    # Backward compat: pasada_hydro = True when mode is "hydro" or "flow-turbine"
-    opts["pasada_hydro"] = pasada_mode in ("hydro", "flow-turbine")
+    # Backward compat: pasada_hydro = True when mode is "hydro", "flow-turbine", or "auto"
+    opts["pasada_hydro"] = pasada_mode in ("hydro", "flow-turbine", "auto")
     return opts
 
 
@@ -826,6 +892,19 @@ def main():
                 file=sys.stderr,
             )
             sys.exit(1)
+        return
+
+    if args.tech_list:
+        from .tech_classify import type_label  # noqa: PLC0415
+        from .tech_detect import available_types  # noqa: PLC0415
+
+        print("Known generator technology types:")
+        for t in available_types():
+            label = type_label(t)
+            if label != t:
+                print(f"  {t:<25s} {label}")
+            else:
+                print(f"  {t}")
         return
 
     if args.validate:

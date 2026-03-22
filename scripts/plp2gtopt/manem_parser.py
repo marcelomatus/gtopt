@@ -9,7 +9,6 @@ Handles:
 """
 
 from typing import Any, Dict, List, Optional
-import numpy as np
 
 from .base_parser import BaseParser
 
@@ -59,21 +58,18 @@ class ManemParser(BaseParser):
                 if num_stages <= 0:
                     continue
 
-                # Initialize numpy arrays
-                stages = np.empty(num_stages, dtype=np.int32)
-                emin = np.empty(num_stages, dtype=np.float64)
-                emax = np.empty(num_stages, dtype=np.float64)
-
-                # Parse maintenance entries
-                for i in range(num_stages):
-                    idx = self._next_idx(idx, lines)
-                    parts = lines[idx].split()
-                    if len(parts) < 4:
-                        raise ValueError(f"Invalid maintenance entry at line {idx + 1}")
-
-                    stages[i] = self._parse_int(parts[1])
-                    emin[i] = self._parse_float(parts[2]) * scale
-                    emax[i] = self._parse_float(parts[3]) * scale
+                # Vectorized parse: col 1=stage, col 2=emin, col 3=emax
+                next_idx, cols = self._parse_numeric_block(
+                    lines,
+                    idx + 1,
+                    num_stages,
+                    int_cols=(1,),
+                    float_cols=(2, 3),
+                )
+                idx = next_idx - 1
+                stages = cols[1]
+                emin = cols[2] * scale
+                emax = cols[3] * scale
 
                 # Store complete data
                 manem = {
