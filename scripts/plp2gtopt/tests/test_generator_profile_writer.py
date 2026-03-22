@@ -19,6 +19,7 @@ class MockCentralParser:
 
     def __init__(self, centrals: List[Dict[str, Any]]):
         self._data = centrals
+        self._by_name = {c["name"]: c for c in centrals}
         self.centrals_of_type: Dict[str, List[Dict[str, Any]]] = {}
         for c in centrals:
             ctype = c.get("type", "unknown")
@@ -34,6 +35,9 @@ class MockCentralParser:
 
     def get_all(self):
         return self._data
+
+    def get_item_by_name(self, name: str):
+        return self._by_name.get(name)
 
 
 class MockBusParser:
@@ -160,6 +164,72 @@ def test_invalid_bus_skipped():
         bus_parser=typing.cast(typing.Any, MockBusParser(buses)),
     )
     assert not writer.to_json_array()
+
+
+def test_profile_parquet_filename(tmp_path):
+    """Profile mode writes profile.parquet (not discharge.parquet)."""
+    import numpy as np
+
+    centrals = [
+        {
+            "number": 1,
+            "name": "Solar1",
+            "type": "pasada",
+            "bus": 1,
+            "pmax": 100.0,
+            "afluent": 0.5,
+        },
+    ]
+
+    # Create a minimal aflce parser with flow data
+    class FullAflceParser:
+        def __init__(self):
+            self._flows = [
+                {
+                    "name": "Solar1",
+                    "block": np.array([1, 2], dtype=np.int32),
+                    "flow": np.array([[0.5], [0.8]], dtype=np.float64),
+                    "num_hydrologies": 1,
+                }
+            ]
+
+        @property
+        def flows(self):
+            return self._flows
+
+        def get_all(self):
+            return self._flows
+
+        def get_item_by_name(self, name):
+            for f in self._flows:
+                if f["name"] == name:
+                    return f
+            return None
+
+    scenarios = [{"uid": 1, "hydrology": 0}]
+    writer = GeneratorProfileWriter(
+        central_parser=typing.cast(typing.Any, MockCentralParser(centrals)),
+        bus_parser=typing.cast(
+            typing.Any, MockBusParser([{"number": 1, "name": "B1"}])
+        ),
+        aflce_parser=typing.cast(typing.Any, FullAflceParser()),
+        block_parser=None,
+        scenarios=scenarios,
+        options={
+            "output_dir": tmp_path,
+            "compression": "gzip",
+            "_pasada_profile_names": {"Solar1"},
+        },
+    )
+    writer.to_json_array()
+
+    profile_dir = tmp_path / "GeneratorProfile"
+    assert (profile_dir / "profile.parquet").exists(), (
+        "Should write profile.parquet, not discharge.parquet"
+    )
+    assert not (profile_dir / "discharge.parquet").exists(), (
+        "Should NOT write discharge.parquet in GeneratorProfile/"
+    )
 
 
 def test_zero_bus_skipped():

@@ -10,7 +10,6 @@ Handles:
 
 from typing import Any, Optional
 
-import numpy as np
 from .base_parser import BaseParser
 
 
@@ -50,33 +49,35 @@ class DemandParser(BaseParser):
                 idx = self._next_idx(idx, lines)
                 num_blocks = self._parse_int(lines[idx].strip().split()[0])
 
-                # Initialize numpy arrays for this bus
-                blocks = np.empty(num_blocks, dtype=np.int32)
-                values = np.empty(num_blocks, dtype=np.float64)
+                # Vectorized parse: col 1=block, col 2=demand value
+                next_idx, cols = self._parse_numeric_block(
+                    lines,
+                    idx + 1,
+                    num_blocks,
+                    int_cols=(1,),
+                    float_cols=(2,),
+                )
+                idx = next_idx - 1
+                blocks = cols[1]
+                values = cols[2]
 
-                # Parse demand entries
+                # Compute energies per stage
                 demand_energy = 0.0
                 energies: dict[int, float] = {}
                 for i in range(num_blocks):
-                    idx = self._next_idx(idx, lines)
-                    parts = lines[idx].split()
-                    if len(parts) < 3:
-                        raise ValueError(f"Invalid demand entry at line {idx + 1}")
-
-                    blocks[i] = self._parse_int(parts[1])  # Block number
-                    values[i] = self._parse_float(parts[2])  # Demand value
-
                     block = (
-                        block_parser.get_item_by_number(blocks[i])
+                        block_parser.get_item_by_number(int(blocks[i]))
                         if block_parser
                         else None
                     )
                     bdur = block.get("duration", 0.0) if block else 0.0
-                    bener = values[i] * bdur
+                    bener = float(values[i]) * bdur
                     demand_energy += bener
 
                     stage = (
-                        block_parser.get_stage_number(blocks[i]) if block_parser else -1
+                        block_parser.get_stage_number(int(blocks[i]))
+                        if block_parser
+                        else -1
                     )
                     if stage >= 0:
                         energies[stage] = energies.get(stage, 0.0) + bener

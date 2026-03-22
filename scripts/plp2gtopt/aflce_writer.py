@@ -4,6 +4,8 @@
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict, cast
+
+import numpy as np
 import pandas as pd
 
 from .base_writer import BaseWriter
@@ -67,23 +69,64 @@ class AflceWriter(BaseWriter):
         )
         return df
 
+    def _build_base_columns(
+        self, items: list
+    ) -> tuple[
+        list[str], np.ndarray | None, dict[str, float], list[tuple[str, np.ndarray]]
+    ]:
+        """Pre-filter items and extract common metadata (once, not per hydrology).
+
+        Returns (col_names, master_index, fill_values, valid_items) where each
+        valid_item is ``(col_name, flow_2d_array)`` with flow shape
+        ``(num_blocks, num_hydrologies)``.
+        """
+        if not items:
+            return [], None, {}, []
+
+        col_names: list[str] = []
+        fill_values: dict[str, float] = {}
+        valid_items: list[tuple[str, np.ndarray]] = []
+        master_index: np.ndarray | None = None
+
+        for item in items:
+            name = item.get("name", "")
+            unit = (
+                self.central_parser.get_item_by_name(name)
+                if self.central_parser
+                else None
+            )
+            if not unit:
+                continue
+            uid = int(unit["number"]) if "number" in unit else name
+            col_name = self.pcol_name(name, uid)
+
+            flow_data = item.get("flow")
+            index = item.get("block")
+            if flow_data is None or index is None or len(index) == 0:
+                continue
+
+            if not isinstance(index, np.ndarray):
+                index = np.asarray(index, dtype=np.int32)
+
+            if "afluent" in unit:
+                fill_values[col_name] = unit["afluent"]
+
+            if master_index is None:
+                master_index = index
+
+            col_names.append(col_name)
+            valid_items.append((col_name, flow_data))
+
+        return col_names, master_index, fill_values, valid_items
+
     def to_dataframe(
         self, items: Optional[List[Dict[str, Any]]] = None
     ) -> pd.DataFrame:
         """Convert flow data to pandas DataFrame.
 
-        Args:
-            items: Optional list of flow items to convert. Uses self.items if None.
-
-        Returns:
-            DataFrame containing flow data with columns:
-            - block: Block numbers
-            - scenario: Scenario IDs
-            - stage: Stage numbers
-            - afluent: Flow values
-
-        Raises:
-            ValueError: If input data is invalid
+        Builds one DataFrame per scenario by slicing the pre-filtered 2D flow
+        arrays at the hydrology column, avoiding repeated ``_create_dataframe``
+        calls.
         """
         if items is None:
             items = self.items
@@ -91,47 +134,75 @@ class AflceWriter(BaseWriter):
         if not items:
             return []
 
-        # Build all data at once
-        scenario_data = []
-
+        # Collect valid scenarios
+        valid_scenarios = []
         for i, scenario in enumerate(self.scenarios):
             hydro_idx = scenario.get("hydrology", i)
-            if hydro_idx < 0:
-                continue
+            if hydro_idx >= 0:
+                valid_scenarios.append((scenario.get("uid", -1), hydro_idx))
 
-            df = self._create_dataframe_for_hydrology(hydro_idx, items)
-            if df.empty:
-                continue
-
-            scenario_data.append(
-                {
-                    "df": df,
-                    "uid": scenario.get("uid", -1),
-                    "stage": (
-                        df["block"].map(self.block_parser.get_stage_number)
-                        if self.block_parser
-                        else None
-                    ),
-                }
-            )
-
-        if not scenario_data:
+        if not valid_scenarios:
             return pd.DataFrame()
 
-        # Concatenate all at once
-        dfs = [
-            pd.concat(
-                [
-                    pd.DataFrame(
-                        {"scenario": data["uid"], "stage": data["stage"]},
-                        index=data["df"].index,
-                    ).astype({"scenario": "int32", "stage": "int32"}),
-                    data["df"],
-                ],
-                axis=1,
+        # Pre-filter items once
+        _, master_index, fill_values, valid_items = self._build_base_columns(items)
+        if not valid_items or master_index is None:
+            return pd.DataFrame()
+
+        # Build block index column
+        block_col: np.ndarray | None = None
+        if self.block_parser and self.block_parser.items:
+            block_col = np.array(
+                [it["number"] for it in self.block_parser.items], dtype=np.int32
             )
-            for data in scenario_data
-        ]
+
+        # Stage mapping (computed once)
+        stage_map: dict[int, int] | None = None
+        if self.block_parser:
+            stage_map = {}
+            for blk in master_index:
+                stage_map[int(blk)] = self.block_parser.get_stage_number(int(blk))
+
+        # Build one DataFrame per scenario by column-slicing the 2D arrays
+        dfs: list[pd.DataFrame] = []
+        for uid, hydro_idx in valid_scenarios:
+            col_data: dict[str, np.ndarray] = {}
+            for col_name, flow_2d in valid_items:
+                vals = flow_2d[:, hydro_idx] if flow_2d.ndim == 2 else flow_2d
+                fv = fill_values.get(col_name)
+                if fv is not None and np.allclose(vals, fv, rtol=1e-8, atol=1e-11):
+                    continue
+                col_data[col_name] = vals
+
+            if not col_data:
+                continue
+
+            df = pd.DataFrame(col_data, index=master_index)
+
+            # Prepend block index column
+            if block_col is not None:
+                idx_s = pd.Series(data=block_col, index=block_col, name="block")
+                df = pd.concat([idx_s, df], axis=1)
+
+            # Fill missing values
+            if fill_values:
+                df = df.fillna(fill_values)
+
+            # Add scenario + stage columns
+            n = len(df)
+            stage_vals = (
+                np.array([stage_map.get(int(b), -1) for b in df.index], dtype=np.int32)
+                if stage_map
+                else np.full(n, -1, dtype=np.int32)
+            )
+            meta = pd.DataFrame(
+                {"scenario": np.full(n, uid, dtype=np.int32), "stage": stage_vals},
+                index=df.index,
+            )
+            dfs.append(pd.concat([meta, df], axis=1))
+
+        if not dfs:
+            return pd.DataFrame()
 
         return pd.concat(dfs, ignore_index=True)
 

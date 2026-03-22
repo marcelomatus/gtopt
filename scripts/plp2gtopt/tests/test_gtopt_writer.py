@@ -359,3 +359,159 @@ class TestSimulationWriter:
         sim = SimulationWriter(parser.parsed_data, opts).build()
         assert len(sim["phase_array"]) == 1
         assert sim["phase_array"][0]["first_stage"] == 0
+
+
+class TestLoadVariableScalesFile:
+    """Tests for GTOptWriter._load_variable_scales_file."""
+
+    def test_valid_file(self, tmp_path):
+        f = tmp_path / "scales.json"
+        data = [
+            {"class_name": "Reservoir", "variable": "energy", "uid": 1, "scale": 0.01}
+        ]
+        f.write_text(json.dumps(data))
+        result = GTOptWriter._load_variable_scales_file(f)
+        assert len(result) == 1
+        assert result[0]["scale"] == 0.01
+
+    def test_empty_array(self, tmp_path):
+        f = tmp_path / "scales.json"
+        f.write_text("[]")
+        result = GTOptWriter._load_variable_scales_file(f)
+        assert not result
+
+    def test_not_an_array(self, tmp_path):
+        f = tmp_path / "scales.json"
+        f.write_text('{"key": "value"}')
+        result = GTOptWriter._load_variable_scales_file(f)
+        assert not result
+
+    def test_invalid_entry_skipped(self, tmp_path):
+        f = tmp_path / "scales.json"
+        data = [
+            {"class_name": "Reservoir", "variable": "energy", "uid": 1, "scale": 0.01},
+            {"bad": "entry"},
+            "not a dict",
+        ]
+        f.write_text(json.dumps(data))
+        result = GTOptWriter._load_variable_scales_file(f)
+        assert len(result) == 1
+
+    def test_missing_file(self, tmp_path):
+        result = GTOptWriter._load_variable_scales_file(tmp_path / "missing.json")
+        assert not result
+
+    def test_corrupt_json(self, tmp_path):
+        f = tmp_path / "scales.json"
+        f.write_text("{ not json")
+        result = GTOptWriter._load_variable_scales_file(f)
+        assert not result
+
+
+class TestBuildStageToPhaseMap:
+    """Tests for GTOptWriter._build_stage_to_phase_map."""
+
+    def test_returns_none_when_empty(self, tmp_path):
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        writer.planning["stage_array"] = []
+        result = writer._build_stage_to_phase_map()
+        assert result is None
+
+    def test_returns_mapping(self, tmp_path):
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        writer.planning["stage_array"] = [
+            {"uid": 1, "phase_uid": 1},
+            {"uid": 2, "phase_uid": 1},
+            {"uid": 3, "phase_uid": 2},
+        ]
+        result = writer._build_stage_to_phase_map()
+        assert result == {1: 1, 2: 1, 3: 2}
+
+
+class TestProcessVariableScales:
+    """Tests for GTOptWriter.process_variable_scales."""
+
+    def test_reservoir_auto_scale(self, tmp_path):
+        """auto_rsv_energy_scale adds reservoir energy+flow scale entries."""
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        opts = _make_opts(tmp_path)
+        writer.to_json(opts)
+
+        # Inject a reservoir to test scaling
+        writer.planning["system"]["reservoir_array"] = [{"uid": 1, "name": "rsv1"}]
+        writer.planning["options"] = {}
+
+        # Mock central_parser with energy_scale
+        cp = MagicMock()
+        cp.centrals = [{"name": "rsv1", "type": "embalse", "energy_scale": 0.001}]
+        writer.parser.parsed_data["central_parser"] = cp
+
+        writer.process_variable_scales({**opts, "auto_rsv_energy_scale": True})
+        scales = writer.planning["options"].get("variable_scales", [])
+        rsv_scales = [s for s in scales if s["class_name"] == "Reservoir"]
+        assert len(rsv_scales) == 2  # energy + flow
+        assert rsv_scales[0]["variable"] == "energy"
+        assert rsv_scales[1]["variable"] == "flow"
+
+    def test_battery_auto_scale(self, tmp_path):
+        """auto_bat_energy_scale adds battery scale entries."""
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        opts = _make_opts(tmp_path)
+        writer.to_json(opts)
+
+        writer.planning["system"]["battery_array"] = [{"uid": 1, "name": "bat1"}]
+        writer.planning["options"] = {}
+
+        writer.process_variable_scales({**opts, "auto_bat_energy_scale": True})
+        scales = writer.planning["options"].get("variable_scales", [])
+        bat_scales = [s for s in scales if s["class_name"] == "Battery"]
+        assert len(bat_scales) == 1
+        assert bat_scales[0]["scale"] == 0.01
+
+    def test_file_scales_merged(self, tmp_path):
+        """File-based scales are loaded and merged."""
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        opts = _make_opts(tmp_path)
+        writer.to_json(opts)
+        writer.planning["options"] = {}
+
+        scales_file = tmp_path / "scales.json"
+        scales_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "class_name": "Generator",
+                        "variable": "power",
+                        "uid": 1,
+                        "scale": 0.5,
+                    }
+                ]
+            )
+        )
+        writer.process_variable_scales(
+            {**opts, "variable_scales_file": str(scales_file)}
+        )
+        scales = writer.planning["options"].get("variable_scales", [])
+        assert any(s["class_name"] == "Generator" for s in scales)
+
+    def test_no_scales_when_disabled(self, tmp_path):
+        """No variable_scales when nothing is enabled."""
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        opts = _make_opts(tmp_path)
+        writer.to_json(opts)
+        writer.planning["options"] = {}
+
+        writer.process_variable_scales(opts)
+        assert "variable_scales" not in writer.planning.get("options", {})
