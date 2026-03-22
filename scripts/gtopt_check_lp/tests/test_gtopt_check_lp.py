@@ -28,7 +28,6 @@ from gtopt_check_lp._lp_analyzer import (
 from gtopt_check_lp.gtopt_check_lp import (
     AiOptions,
     NeosClient,
-    _AI_DEFAULT_PROVIDER,
     _AI_INFEASIBILITY_PROMPT,
     _build_parser,
     _default_config_path,
@@ -814,10 +813,6 @@ class TestQueryAi:
     def test_ai_infeasibility_prompt_has_report_placeholder(self):
         """The built-in prompt template must contain a {report} placeholder."""
         assert "{report}" in _AI_INFEASIBILITY_PROMPT
-
-    def test_ai_default_provider(self):
-        """Default AI provider is 'github'."""
-        assert _AI_DEFAULT_PROVIDER == "github"
 
 
 # ── check_lp integration ─────────────────────────────────────────────────────

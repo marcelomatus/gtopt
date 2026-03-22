@@ -450,6 +450,57 @@ TEST_CASE("OptionsLP - Test all accessor methods")
   CHECK(options_lp.annual_discount_rate() == doctest::Approx(0.07));
 }
 
+TEST_CASE("Options - Merge appends variable_scales")  // NOLINT
+{
+  using namespace gtopt;
+
+  Options base {};
+  base.variable_scales.push_back({
+      .class_name = "Bus",
+      .variable = "theta",
+      .scale = 1000.0,
+  });
+
+  Options overlay {};
+  overlay.variable_scales.push_back({
+      .class_name = "Reservoir",
+      .variable = "volume",
+      .scale = 0.001,
+  });
+  overlay.variable_scales.push_back({
+      .class_name = "Battery",
+      .variable = "energy",
+      .scale = 0.01,
+  });
+
+  base.merge(std::move(overlay));
+
+  // Base had 1, overlay had 2 → merged should have 3
+  REQUIRE(base.variable_scales.size() == 3);
+  CHECK(base.variable_scales[0].class_name == "Bus");
+  CHECK(base.variable_scales[1].class_name == "Reservoir");
+  CHECK(base.variable_scales[2].class_name == "Battery");
+}
+
+TEST_CASE("Options - Merge with empty variable_scales does nothing")  // NOLINT
+{
+  using namespace gtopt;
+
+  Options base {};
+  base.variable_scales.push_back({
+      .class_name = "Bus",
+      .variable = "theta",
+      .scale = 1000.0,
+  });
+
+  Options overlay {};
+
+  base.merge(std::move(overlay));
+
+  REQUIRE(base.variable_scales.size() == 1);
+  CHECK(base.variable_scales[0].class_name == "Bus");
+}
+
 TEST_CASE("Options - Solver algorithm fields default to empty")  // NOLINT
 {
   using namespace gtopt;

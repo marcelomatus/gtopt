@@ -942,3 +942,49 @@ TEST_CASE(  // NOLINT
 
   restore_and_remove(tmpdir);
 }
+
+// ---------------------------------------------------------------------------
+// probe_parquet_codec direct tests
+// ---------------------------------------------------------------------------
+
+TEST_CASE("probe_parquet_codec - empty string returns empty")  // NOLINT
+{
+  CHECK(probe_parquet_codec("").empty());
+}
+
+TEST_CASE("probe_parquet_codec - none returns none")  // NOLINT
+{
+  CHECK(probe_parquet_codec("none") == "none");
+}
+
+TEST_CASE("probe_parquet_codec - uncompressed returns uncompressed")  // NOLINT
+{
+  CHECK(probe_parquet_codec("uncompressed") == "uncompressed");
+}
+
+TEST_CASE("probe_parquet_codec - gzip returns gzip")  // NOLINT
+{
+  // gzip is always available in Arrow
+  CHECK(probe_parquet_codec("gzip") == "gzip");
+}
+
+TEST_CASE("probe_parquet_codec - zstd returns zstd")  // NOLINT
+{
+  CHECK(probe_parquet_codec("zstd") == "zstd");
+}
+
+TEST_CASE("probe_parquet_codec - unknown codec falls back")  // NOLINT
+{
+  // "xyzzy" is not in the codec_map → should warn and fall back
+  const auto result = probe_parquet_codec("xyzzy");
+  // Falls back to gzip if available, else ""
+  CHECK((result == "gzip" || result.empty()));
+}
+
+TEST_CASE("probe_parquet_codec - lzo typically unavailable")  // NOLINT
+{
+  // lzo is in codec_map but usually not compiled into Arrow
+  const auto result = probe_parquet_codec("lzo");
+  // Falls back to gzip or "" if lzo is unavailable
+  CHECK((result == "lzo" || result == "gzip" || result.empty()));
+}

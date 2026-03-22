@@ -14,7 +14,6 @@
 #include <future>
 #include <ranges>
 
-#include <gtopt/check_lp.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_solver.hpp>
 #include <gtopt/solver_monitor.hpp>
@@ -290,15 +289,9 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
       const auto lp_file = system_sp.write_lp(filename);
       spdlog::error("  Infeasible LP written to: {}", lp_file);
 
-      // Run gtopt_check_lp static analysis and log the diagnostic.
-      // Pass the full SolverOptions so the diagnostic uses the same algorithm
-      // and tolerance settings as the gtopt solver.
-      if (const auto diag =
-              run_check_lp_diagnostic(lp_file, /*timeout_seconds=*/10, lp_opts);
-          !diag.empty())
-      {
-        log_diagnostic_lines("error", lp_file, diag);
-      }
+      // LP diagnostic analysis is performed by run_gtopt after the solver
+      // exits.  It scans the log directory for error*.lp files and runs
+      // gtopt_check_lp on them with richer output (AI, IIS, parallel).
 
       auto error = std::move(result.error());
       error.message += std::format(

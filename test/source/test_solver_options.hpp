@@ -238,6 +238,35 @@ TEST_CASE("SolverOptions - merge() only applies to optional tolerance fields")
     CHECK_FALSE(dest.feasible_eps.has_value());
     CHECK_FALSE(dest.barrier_eps.has_value());
   }
+
+  SUBCASE("merge sets barrier_eps and time_limit from source")
+  {
+    SolverOptions dest {};
+    const SolverOptions src {
+        .barrier_eps = 1e-9,
+        .time_limit = 300.0,
+    };
+    dest.merge(src);
+
+    CHECK(dest.barrier_eps.value_or(0.0) == doctest::Approx(1e-9));
+    CHECK(dest.time_limit.value_or(0.0) == doctest::Approx(300.0));
+  }
+
+  SUBCASE("merge does not overwrite existing barrier_eps and time_limit")
+  {
+    SolverOptions dest {
+        .barrier_eps = 1e-6,
+        .time_limit = 60.0,
+    };
+    const SolverOptions src {
+        .barrier_eps = 1e-12,
+        .time_limit = 600.0,
+    };
+    dest.merge(src);
+
+    CHECK(dest.barrier_eps.value_or(0.0) == doctest::Approx(1e-6));
+    CHECK(dest.time_limit.value_or(0.0) == doctest::Approx(60.0));
+  }
 }
 
 TEST_CASE("SolverOptions - Threading options")

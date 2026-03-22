@@ -24,6 +24,8 @@ class Line(TypedDict, total=False):
     tmax_ab: float | str
     tmax_ba: float | str
     voltage: float
+    loss_segments: int
+    use_line_losses: bool
 
 
 class LineWriter(BaseWriter):
@@ -68,6 +70,10 @@ class LineWriter(BaseWriter):
             tmax_ba = "tmax_ba" if pcol_name in pcols["tmax_ba"] else line["tmax_ba"]
             active = "active" if pcol_name in pcols["active"] else line["operational"]
 
+            # Loss modeling: num_sections (Num.Tramos) and mod_perdidas flag
+            num_sections = line.get("num_sections", 1)
+            mod_perdidas = line.get("mod_perdidas", False)
+
             json_line: Line = {
                 "uid": line_number,
                 "name": line_name,
@@ -80,6 +86,14 @@ class LineWriter(BaseWriter):
                 "tmax_ba": tmax_ba,
                 "voltage": line["voltage"],
             }
+
+            # Only include loss_segments when > 1 (piecewise-linear model)
+            if num_sections > 1:
+                json_line["loss_segments"] = num_sections
+
+            # Include use_line_losses when explicitly set per-line
+            if mod_perdidas:
+                json_line["use_line_losses"] = True
             json_lines.append(json_line)
 
         return cast(List[Dict[str, Any]], json_lines)

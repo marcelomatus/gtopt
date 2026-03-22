@@ -119,8 +119,8 @@ auto solve_apertures_for_phase(
     const SolverOptions& opts,
     const LabelMaker& label_maker,
     [[maybe_unused]] const std::string& log_directory,
-    int scene_uid,
-    int phase_uid,
+    SceneUid scene_uid,
+    PhaseUid phase_uid,
     const ApertureSubmitFunc& submit_fn,
     double aperture_timeout,
     [[maybe_unused]] bool save_aperture_lp,
@@ -157,7 +157,7 @@ auto solve_apertures_for_phase(
 
   for (const auto& [ap_ref, ap_count] : effective_apertures) {
     const auto& aperture = ap_ref.get();
-    const auto ap_uid = aperture.uid;
+    const ApertureUid ap_uid {aperture.uid};
     const double pf = aperture.probability_factor.value_or(1.0);
     if (pf <= 0.0) {
       SPDLOG_WARN(
@@ -199,14 +199,11 @@ auto solve_apertures_for_phase(
             const auto& aperture_scenario = *scen_it;
             auto visitor = [&](auto& e) -> bool
             {
-              if constexpr (requires {
-                              e.update_aperture_lp(
-                                  clone,
-                                  base_scenario,
-                                  aperture_scenario,
-                                  std::declval<const StageLP&>());
-                            })
-              {
+              using E = std::remove_cvref_t<decltype(e)>;
+              // Contract: if an element has update_aperture_lp,
+              // it must also have update_aperture_from_cache.
+              static_assert(ApertureConsistent<E>);
+              if constexpr (HasApertureLp<E>) {
                 for (const auto& stage : phase_lp.stages()) {
                   [[maybe_unused]] const auto ok = e.update_aperture_lp(
                       clone, base_scenario, aperture_scenario, stage);
@@ -219,15 +216,11 @@ auto solve_apertures_for_phase(
             const ScenarioUid ap_scen_uid {aperture.source_scenario};
             auto visitor = [&](auto& e) -> bool
             {
-              if constexpr (requires {
-                              e.update_aperture_from_cache(
-                                  clone,
-                                  base_scenario,
-                                  ap_scen_uid,
-                                  aperture_cache,
-                                  std::declval<const StageLP&>());
-                            })
-              {
+              using E = std::remove_cvref_t<decltype(e)>;
+              // Contract: if an element has update_aperture_from_cache,
+              // it must also have update_aperture_lp.
+              static_assert(ApertureConsistent<E>);
+              if constexpr (HasApertureFromCache<E>) {
                 for (const auto& stage : phase_lp.stages()) {
                   [[maybe_unused]] const auto ok = e.update_aperture_from_cache(
                       clone, base_scenario, ap_scen_uid, aperture_cache, stage);
