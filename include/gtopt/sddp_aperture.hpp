@@ -44,35 +44,22 @@ namespace gtopt
 
 // ─── Aperture element concepts ──────────────────────────────────────────────
 
-/// An element that can update its LP for a direct aperture scenario.
-template<typename T>
-concept HasApertureLp = requires(const T& e,
-                                 LinearInterface& li,
-                                 const ScenarioLP& base,
-                                 const ScenarioLP& aper,
-                                 const StageLP& stage) {
-  { e.update_aperture_lp(li, base, aper, stage) } -> std::same_as<bool>;
-};
+/// Value-provider signature: (StageUid, BlockUid) -> std::optional<double>.
+/// Returns the aperture value for the given stage/block, or std::nullopt
+/// if the value is unavailable (keeps the forward-pass value unchanged).
+using ApertureValueFn =
+    std::function<std::optional<double>(StageUid, BlockUid)>;
 
-/// An element that can update its LP from cached aperture data.
+/// An element that can update its LP for an aperture scenario using a
+/// generic value provider.
 template<typename T>
-concept HasApertureFromCache = requires(const T& e,
-                                        LinearInterface& li,
-                                        const ScenarioLP& base,
-                                        ScenarioUid uid,
-                                        const ApertureDataCache& cache,
-                                        const StageLP& stage) {
-  {
-    e.update_aperture_from_cache(li, base, uid, cache, stage)
-  } -> std::same_as<bool>;
+concept HasUpdateAperture = requires(const T& e,
+                                     LinearInterface& li,
+                                     const ScenarioLP& base,
+                                     const ApertureValueFn& value_fn,
+                                     const StageLP& stage) {
+  { e.update_aperture(li, base, value_fn, stage) } -> std::same_as<bool>;
 };
-
-/// Contract: any element with update_aperture_lp MUST also provide
-/// update_aperture_from_cache.  Use this in static_assert to catch
-/// interface inconsistencies at compile time.
-template<typename T>
-concept ApertureConsistent =
-    !HasApertureLp<T> || (HasApertureLp<T> && HasApertureFromCache<T>);
 
 // ─── Effective aperture entry ───────────────────────────────────────────────
 
@@ -172,9 +159,9 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
 ///                         0 = no timeout.  When exceeded, the aperture is
 ///                         treated as infeasible and skipped.
 /// @param forward_col_sol  Forward-pass primal solution (warm-start hint for
-///                         aperture clones).  Applied after update_aperture_lp.
+///                         aperture clones).  Applied after update_aperture.
 /// @param forward_row_dual Forward-pass dual solution (warm-start hint for
-///                         aperture clones).  Applied after update_aperture_lp.
+///                         aperture clones).  Applied after update_aperture.
 [[nodiscard]] auto solve_apertures_for_phase(
     SceneIndex scene,
     PhaseIndex phase,

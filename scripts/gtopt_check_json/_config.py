@@ -22,6 +22,7 @@ CHECK_DEFAULTS: dict[str, str] = {
     "bus_connectivity": "true",
     "unreferenced_elements": "true",
     "capacity_adequacy": "true",
+    "battery_efficiency": "true",
     "ai_system_analysis": "false",
 }
 

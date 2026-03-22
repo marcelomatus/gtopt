@@ -314,7 +314,16 @@ for phase = T-1 down to 1:
 ```
 
 **Aperture data updates**: When switching to an aperture scenario, the solver
-updates all scenario-dependent LP elements via `update_aperture_lp()`:
+updates all scenario-dependent LP elements via a unified `update_aperture()`
+method.  Each element that satisfies the `HasUpdateAperture` concept receives
+an `ApertureValueFn` — a `std::function<std::optional<double>(StageUid, BlockUid)>`
+— that provides the new values.  The value function abstracts over two data
+sources:
+
+- **LP scenario data** (when the aperture's source scenario is in the forward
+  set): reads directly from the element's schedule data via `aperture_value()`.
+- **Aperture data cache** (when the source scenario is external): looks up
+  pre-loaded parquet data via `ApertureDataCache::lookup()`.
 
 | Element | What is updated | Mechanism |
 |---------|----------------|-----------|
@@ -326,6 +335,13 @@ This ensures that hydro inflows, solar/wind capacity factors, and demand
 forecast uncertainty are all varied across aperture scenarios during the
 backward pass.  State variable bounds remain fixed at the forward-pass
 trial values.
+
+**Aperture data cache**: The `ApertureDataCache` loads all `*.parquet` files
+from the `sddp_aperture_directory` at construction time into a `flat_map`
+keyed by `(class_name, element_name, scenario_uid, stage_uid, block_uid)`.
+The directory structure is `aperture_dir/ClassName/ElementName.parquet`,
+with each parquet file containing `stage`, `block`, and `uid:N` columns
+(one per scenario UID).  Loading is O(n log n) via vectorized bulk insert.
 
 **Configuration**:
 - `num_apertures = 0` — disabled (default, uses standard backward pass)
@@ -634,7 +650,7 @@ hs_2_1_4,2,1,4,-4800.0,0.30,0.60,...
 | `multi_cut_threshold` | int | 10 | Infeasibility count before auto-switching to multi_cut (0 = always multi_cut, <0 = disabled) |
 | `alpha_min` | double | 0.0 | Lower bound for α variables |
 | `alpha_max` | double | 1e12 | Upper bound for α variables |
-| `cut_sharing` | CutSharingMode | none | Cut sharing strategy between scenes |
+| `cut_sharing_mode` | CutSharingMode | none | Cut sharing strategy between scenes |
 | `save_per_iteration` | bool | true | Save cuts to CSV after each iteration |
 | `hot_start` | bool | false | Load previously saved cuts on startup |
 | `solve_timeout` | double | 180.0 | Forward-pass LP solve timeout in seconds (0 = no timeout) |
@@ -1041,6 +1057,10 @@ enough that convergence is achieved quickly.
 | `PlanningLP` | `planning_lp.hpp/cpp` | LP assembly and phase management |
 | `LinearInterface` | `linear_interface.hpp/cpp` | LP solver abstraction (COIN-OR) |
 | `AdaptiveWorkPool` | `work_pool.hpp` | Parallel scene processing |
+| `ApertureDataCache` | `aperture_data_cache.hpp/cpp` | Pre-loaded aperture parquet data |
+| `build_effective_apertures()` | `sddp_aperture.hpp/cpp` | Deduplicate aperture UIDs |
+| `build_synthetic_apertures()` | `sddp_aperture.hpp/cpp` | Generate apertures from scenarios |
+| `solve_apertures_for_phase()` | `sddp_aperture.hpp/cpp` | Clone + update + solve per aperture |
 
 ### 7.2 SolverMonitor
 
@@ -1075,8 +1095,9 @@ allow external tools to read it without seeing a partial write.
 | `build_benders_cut()` | Construct optimality cut from reduced costs |
 | `relax_fixed_state_variable()` | Apply elastic relaxation to one column |
 | `average_benders_cut()` | Average multiple cuts (for `expected` sharing) |
-| `parse_cut_sharing_mode()` | Parse string to `CutSharingMode` enum |
+| `cut_sharing_mode_from_name()` | Parse string to `CutSharingMode` enum |
 | `parse_elastic_filter_mode()` | Parse `"cut"` / `"backpropagate"` to `ElasticFilterMode` |
+| `weighted_average_benders_cut()` | Probability-weighted average of aperture cuts |
 
 ### 7.4 LP Clone Pattern
 

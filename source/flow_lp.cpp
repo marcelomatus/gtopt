@@ -12,7 +12,9 @@
  * - Output generation for flow solutions
  */
 
-#include <gtopt/aperture_data_cache.hpp>
+#include <functional>
+#include <optional>
+
 #include <gtopt/flow_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
@@ -92,10 +94,11 @@ bool FlowLP::add_to_output(OutputContext& out) const
   return true;
 }
 
-bool FlowLP::update_aperture_lp(LinearInterface& li,
-                                const ScenarioLP& base_scenario,
-                                const ScenarioLP& aperture_scenario,
-                                const StageLP& stage) const
+bool FlowLP::update_aperture(
+    LinearInterface& li,
+    const ScenarioLP& base_scenario,
+    const std::function<std::optional<double>(StageUid, BlockUid)>& value_fn,
+    const StageLP& stage) const
 {
   if (!is_active(stage)) {
     return true;
@@ -109,43 +112,12 @@ bool FlowLP::update_aperture_lp(LinearInterface& li,
 
   const auto& fcols = it->second;
   for (const auto& [block_uid, col] : fcols) {
-    const auto new_val =
-        discharge.at(aperture_scenario.uid(), stage.uid(), block_uid);
-    li.set_col_low(col, new_val);
-    li.set_col_upp(col, new_val);
-  }
-
-  return true;
-}
-
-bool FlowLP::update_aperture_from_cache(LinearInterface& li,
-                                        const ScenarioLP& base_scenario,
-                                        ScenarioUid aperture_scenario_uid,
-                                        const ApertureDataCache& cache,
-                                        const StageLP& stage) const
-{
-  if (!is_active(stage)) {
-    return true;
-  }
-
-  const auto st_key = std::pair {base_scenario.uid(), stage.uid()};
-  const auto it = flow_cols.find(st_key);
-  if (it == flow_cols.end()) {
-    return true;
-  }
-
-  const auto& fcols = it->second;
-  for (const auto& [block_uid, col] : fcols) {
-    const auto cached = cache.lookup(ClassName.full_name(),
-                                     id().second,
-                                     aperture_scenario_uid,
-                                     stage.uid(),
-                                     block_uid);
-    if (cached.has_value()) {
-      li.set_col_low(col, *cached);
-      li.set_col_upp(col, *cached);
+    const auto new_val = value_fn(stage.uid(), block_uid);
+    if (new_val.has_value()) {
+      li.set_col_low(col, *new_val);
+      li.set_col_upp(col, *new_val);
     }
-    // If not in cache, keep the forward-pass value (no change)
+    // If nullopt, keep the forward-pass value (no change)
   }
 
   return true;

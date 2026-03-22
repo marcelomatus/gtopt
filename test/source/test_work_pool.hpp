@@ -384,16 +384,18 @@ TEST_CASE("WorkPool stress testing")
     }
   }
 
-  SUBCASE("Constexpr verification")
+  SUBCASE("Config verification")
   {
-    constexpr WorkPoolConfig cfg {
+    const WorkPoolConfig cfg {
         4,  // max_threads
         80.0,  // max_cpu_threshold
-        std::chrono::milliseconds(10)  // scheduler_interval
+        std::chrono::milliseconds(10),  // scheduler_interval
+        "TestPool",  // name
     };
-    static_assert(cfg.max_threads == 4);
-    static_assert(cfg.max_cpu_threshold == 80.0);
-    static_assert(cfg.scheduler_interval.count() == 10);
+    CHECK(cfg.max_threads == 4);
+    CHECK(cfg.max_cpu_threshold == 80.0);
+    CHECK(cfg.scheduler_interval.count() == 10);
+    CHECK(cfg.name == "TestPool");
     CHECK(true);
   }
 

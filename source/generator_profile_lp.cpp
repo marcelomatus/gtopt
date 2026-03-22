@@ -66,28 +66,13 @@ bool GeneratorProfileLP::add_to_output(OutputContext& out) const
   return add_profile_to_output(ClassName.full_name(), out, "spillover");
 }
 
-bool GeneratorProfileLP::update_aperture_lp(LinearInterface& li,
-                                            const ScenarioLP& base_scenario,
-                                            const ScenarioLP& aperture_scenario,
-                                            const StageLP& stage) const
-{
-  return ProfileObjectLP::update_aperture_lp(
-      li, base_scenario, aperture_scenario, stage);
-}
-
-bool GeneratorProfileLP::update_aperture_from_cache(
+bool GeneratorProfileLP::update_aperture(
     LinearInterface& li,
     const ScenarioLP& base_scenario,
-    ScenarioUid aperture_scenario_uid,
-    const ApertureDataCache& cache,
+    const std::function<std::optional<double>(StageUid, BlockUid)>& value_fn,
     const StageLP& stage) const
 {
-  return ProfileObjectLP::update_aperture_from_cache(ClassName.full_name(),
-                                                     li,
-                                                     base_scenario,
-                                                     aperture_scenario_uid,
-                                                     cache,
-                                                     stage);
+  return ProfileObjectLP::update_aperture(li, base_scenario, value_fn, stage);
 }
 
 }  // namespace gtopt

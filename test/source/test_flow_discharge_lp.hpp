@@ -19,6 +19,8 @@
 #pragma once
 
 #include <array>
+#include <functional>
+#include <optional>
 
 #include <doctest/doctest.h>
 #include <gtopt/flow_lp.hpp>
@@ -711,7 +713,7 @@ TEST_CASE(  // NOLINT
     "Aperture update correctly replaces discharge bounds per-block")
 {
   // Build a 2-scenario system with different per-block discharge values.
-  // Verify that update_aperture_lp replaces per-block values individually.
+  // Verify that update_aperture replaces per-block values individually.
 
   // Scenario 1: [12.0, 18.0]  (block 1, block 2)
   // Scenario 2: [45.0, 55.0]
@@ -898,7 +900,12 @@ TEST_CASE(  // NOLINT
   SUBCASE("after aperture update, per-block values are [45, 55]")
   {
     auto clone = li.clone();
-    const auto ok = flow_lp.update_aperture_lp(clone, base, aperture, stage);
+    const auto ok = flow_lp.update_aperture(
+        clone,
+        base,
+        [&](StageUid st, BlockUid bl) -> std::optional<double>
+        { return flow_lp.aperture_value(aperture.uid(), st, bl); },
+        stage);
     REQUIRE(ok);
 
     const auto low = clone.get_col_low();
@@ -919,8 +926,12 @@ TEST_CASE(  // NOLINT
   SUBCASE("clone solves after aperture update")
   {
     auto clone = li.clone();
-    [[maybe_unused]] const auto ok =
-        flow_lp.update_aperture_lp(clone, base, aperture, stage);
+    [[maybe_unused]] const auto ok = flow_lp.update_aperture(
+        clone,
+        base,
+        [&](StageUid st, BlockUid bl) -> std::optional<double>
+        { return flow_lp.aperture_value(aperture.uid(), st, bl); },
+        stage);
     auto res = clone.resolve();
     REQUIRE(res.has_value());
     CHECK(res.value() == 0);
@@ -929,8 +940,12 @@ TEST_CASE(  // NOLINT
   SUBCASE("original bounds unchanged after clone update")
   {
     auto clone = li.clone();
-    [[maybe_unused]] const auto ok =
-        flow_lp.update_aperture_lp(clone, base, aperture, stage);
+    [[maybe_unused]] const auto ok = flow_lp.update_aperture(
+        clone,
+        base,
+        [&](StageUid st, BlockUid bl) -> std::optional<double>
+        { return flow_lp.aperture_value(aperture.uid(), st, bl); },
+        stage);
     const auto low = li.get_col_low();
     std::vector<double> bounds;
     for (const auto& [buid, col] : fcols) {
@@ -1113,10 +1128,18 @@ TEST_CASE(  // NOLINT
   auto clone_normal = li.clone();
   auto clone_wet = li.clone();
 
-  const auto ok1 = flow_lp.update_aperture_lp(
-      clone_normal, scenarios[0], scenarios[1], stage);
-  const auto ok2 =
-      flow_lp.update_aperture_lp(clone_wet, scenarios[0], scenarios[2], stage);
+  const auto ok1 = flow_lp.update_aperture(
+      clone_normal,
+      scenarios[0],
+      [&](StageUid st, BlockUid bl) -> std::optional<double>
+      { return flow_lp.aperture_value(scenarios[1].uid(), st, bl); },
+      stage);
+  const auto ok2 = flow_lp.update_aperture(
+      clone_wet,
+      scenarios[0],
+      [&](StageUid st, BlockUid bl) -> std::optional<double>
+      { return flow_lp.aperture_value(scenarios[2].uid(), st, bl); },
+      stage);
   REQUIRE(ok1);
   REQUIRE(ok2);
 
@@ -1301,8 +1324,12 @@ TEST_CASE(  // NOLINT
   const auto& flow_lp = sys_lp.elements<FlowLP>()[0];
 
   auto clone = li.clone();
-  const auto ok =
-      flow_lp.update_aperture_lp(clone, base_scenario, high_scenario, stage);
+  const auto ok = flow_lp.update_aperture(
+      clone,
+      base_scenario,
+      [&](StageUid st, BlockUid bl) -> std::optional<double>
+      { return flow_lp.aperture_value(high_scenario.uid(), st, bl); },
+      stage);
   REQUIRE(ok);
 
   auto clone_result = clone.resolve();

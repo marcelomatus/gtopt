@@ -63,6 +63,8 @@ void write_sddp_api_status(const std::string& filepath,
                       snapshot.converged ? "true" : "false");
   json += std::format("  \"max_iterations\": {},\n", snapshot.max_iterations);
   json += std::format("  \"min_iterations\": {},\n", snapshot.min_iterations);
+  json += std::format("  \"current_pass\": {},\n", snapshot.current_pass);
+  json += std::format("  \"scenes_done\": {},\n", snapshot.scenes_done);
 
   // ── Iteration history ──
   json += "  \"history\": [\n";
