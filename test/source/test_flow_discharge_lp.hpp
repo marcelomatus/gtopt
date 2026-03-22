@@ -18,6 +18,8 @@
 
 #pragma once
 
+#include <array>
+
 #include <doctest/doctest.h>
 #include <gtopt/flow_lp.hpp>
 #include <gtopt/linear_interface.hpp>
@@ -350,11 +352,11 @@ TEST_CASE("Flow discharge per-block vector loaded into LP bounds")  // NOLINT
   const auto col_upp = li.get_col_upp();
 
   // Block 1 (uid=1) → 10.0, Block 2 (uid=2) → 30.0
-  const double expected[] = {10.0, 30.0};
+  const std::array expected = {10.0, 30.0};
   int idx = 0;
   for (const auto& [buid, col] : fcols) {
-    CHECK(col_low[col] == doctest::Approx(expected[idx]));
-    CHECK(col_upp[col] == doctest::Approx(expected[idx]));
+    CHECK(col_low[col] == doctest::Approx(expected.at(idx)));
+    CHECK(col_upp[col] == doctest::Approx(expected.at(idx)));
     ++idx;
   }
 }

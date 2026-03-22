@@ -76,7 +76,7 @@ auto make_test_dir(const std::string& test_name) -> std::filesystem::path
 TEST_CASE("build_phase_uid_map produces correct mapping")  // NOLINT
 {
   auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
+  const PlanningLP planning_lp(std::move(planning));
 
   const auto phase_map = build_phase_uid_map(planning_lp);
 
@@ -95,7 +95,7 @@ TEST_CASE("build_phase_uid_map produces correct mapping")  // NOLINT
 TEST_CASE("build_phase_uid_map with single-phase planning")  // NOLINT
 {
   auto planning = make_single_phase_planning();
-  PlanningLP planning_lp(std::move(planning));
+  const PlanningLP planning_lp(std::move(planning));
 
   const auto phase_map = build_phase_uid_map(planning_lp);
 
@@ -152,7 +152,7 @@ TEST_CASE("save_cuts_csv writes a valid CSV file")  // NOLINT
 TEST_CASE("save_cuts_csv with empty cuts vector writes header only")  // NOLINT
 {
   auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
+  const PlanningLP planning_lp(std::move(planning));
 
   const auto tmp_dir = std::filesystem::temp_directory_path();
   const auto cuts_file =
@@ -184,7 +184,7 @@ TEST_CASE(
     "fallback")  // NOLINT
 {
   auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
+  const PlanningLP planning_lp(std::move(planning));
 
   const auto tmp_dir = std::filesystem::temp_directory_path();
   const auto cuts_file =
@@ -225,7 +225,7 @@ TEST_CASE(
 TEST_CASE("save_cuts_csv creates parent directories")  // NOLINT
 {
   auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
+  const PlanningLP planning_lp(std::move(planning));
 
   const auto nested_dir = std::filesystem::temp_directory_path()
       / "gtopt_test_nested" / "sub1" / "sub2";
@@ -495,7 +495,7 @@ TEST_CASE(
     "file")  // NOLINT
 {
   auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
+  const PlanningLP planning_lp(std::move(planning));
 
   const auto tmp_dir =
       (std::filesystem::temp_directory_path() / "gtopt_test_scene_cuts_empty")
@@ -1102,7 +1102,7 @@ TEST_CASE(
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
-  SDDPOptions opts;
+  const SDDPOptions opts;
   const LabelMaker label_maker(planning_lp.options());
   auto states = make_scene_phase_states(planning_lp);
 
@@ -1133,7 +1133,7 @@ TEST_CASE(
     ofs << "cut1,1,1,1\n";
   }
 
-  SDDPOptions opts;
+  const SDDPOptions opts;
   const LabelMaker label_maker(planning_lp.options());
   auto states = make_scene_phase_states(planning_lp);
 
@@ -1163,7 +1163,7 @@ TEST_CASE(
     ofs << "cut1,1,1,1,10.0,1.0\n";
   }
 
-  SDDPOptions opts;
+  const SDDPOptions opts;
   const LabelMaker label_maker(planning_lp.options());
   auto states = make_scene_phase_states(planning_lp);
 
@@ -1195,7 +1195,7 @@ TEST_CASE(
     ofs << "cut_p3,1,1,3,30.0,3.0\n";
   }
 
-  SDDPOptions opts;
+  const SDDPOptions opts;
   const LabelMaker label_maker(planning_lp.options());
   auto states = make_scene_phase_states(planning_lp);
 
@@ -1233,7 +1233,7 @@ TEST_CASE(
     ofs << "good_cut,1,1,1,20.0,2.0\n";
   }
 
-  SDDPOptions opts;
+  const SDDPOptions opts;
   const LabelMaker label_maker(planning_lp.options());
   auto states = make_scene_phase_states(planning_lp);
 
@@ -1261,7 +1261,7 @@ TEST_CASE("load_named_cuts_csv with empty body loads 0 cuts")  // NOLINT
     // No data lines
   }
 
-  SDDPOptions opts;
+  const SDDPOptions opts;
   const LabelMaker label_maker(planning_lp.options());
   auto states = make_scene_phase_states(planning_lp);
 
@@ -1290,7 +1290,7 @@ TEST_CASE(
     ofs << "cut1,1,1,1,10.0,1.0\n";
   }
 
-  SDDPOptions opts;
+  const SDDPOptions opts;
   const LabelMaker label_maker(planning_lp.options());
   auto states = make_scene_phase_states(planning_lp);
 
@@ -1320,7 +1320,7 @@ TEST_CASE(
     ofs << "cut1,1,1,1,10.0,1.0\n";
   }
 
-  SDDPOptions opts;
+  const SDDPOptions opts;
   const LabelMaker label_maker(planning_lp.options());
   auto states = make_scene_phase_states(planning_lp);
 
@@ -1350,7 +1350,7 @@ TEST_CASE(
     ofs << "cut1,1,1,1,10.0,0.0\n";
   }
 
-  SDDPOptions opts;
+  const SDDPOptions opts;
   const LabelMaker label_maker(planning_lp.options());
   auto states = make_scene_phase_states(planning_lp);
 
@@ -1380,7 +1380,7 @@ TEST_CASE(
     ofs << "cut1,1,1,2,50.0,3.0,7.0\n";
   }
 
-  SDDPOptions opts;
+  const SDDPOptions opts;
   const LabelMaker label_maker(planning_lp.options());
   auto states = make_scene_phase_states(planning_lp);
 
@@ -1412,7 +1412,7 @@ TEST_CASE(
     ofs << "\n";
   }
 
-  SDDPOptions opts;
+  const SDDPOptions opts;
   const LabelMaker label_maker(planning_lp.options());
   auto states = make_scene_phase_states(planning_lp);
 
@@ -1444,7 +1444,7 @@ TEST_CASE(
     ofs << "cut3,3,1,1,30.0,3.0\n";
   }
 
-  SDDPOptions opts;
+  const SDDPOptions opts;
   const LabelMaker label_maker(planning_lp.options());
   auto states = make_scene_phase_states(planning_lp);
 

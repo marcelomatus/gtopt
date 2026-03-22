@@ -993,7 +993,8 @@ TEST_CASE("ReserveZoneLP - reserve fail cost with insufficient provision")
   REQUIRE(ur_col.has_value());
 
   const auto col_sol = lp.get_col_sol();
-  const auto ur_sol = col_sol[static_cast<size_t>(*ur_col)];
+  REQUIRE(ur_col.has_value());
+  const auto ur_sol = col_sol[static_cast<size_t>(ur_col.value())];
   // Reserve requirement is 50, but only 20 MW headroom (120-100)
   // So urequirement_sol should be less than the full 50 MW requirement
   // (the fail cost variable absorbs some of it)
@@ -1077,7 +1078,7 @@ TEST_CASE("ReserveZoneLP - no reserve_fail_cost (fixed requirement)")
   };
 
   // No reserve_fail_cost set -> fixed requirement (no shortage variable)
-  Options opts;
+  const Options opts;
 
   const System system = {
       .name = "FixedReqTest",
@@ -1111,7 +1112,7 @@ TEST_CASE("ReserveZoneLP - no reserve_fail_cost (fixed requirement)")
 
   const auto col_sol = lp.get_col_sol();
   // Fixed requirement: solution equals the requirement value
-  CHECK(col_sol[static_cast<size_t>(*ur_col)] == doctest::Approx(40.0));
+  CHECK(col_sol[static_cast<size_t>(ur_col.value())] == doctest::Approx(40.0));
 }
 
 TEST_CASE(
@@ -1230,7 +1231,7 @@ TEST_CASE(
 
   // Down provision should have a non-negative solution
   const auto col_sol = lp.get_col_sol();
-  CHECK(col_sol[static_cast<size_t>(*dn_col)] >= doctest::Approx(0.0));
+  CHECK(col_sol[static_cast<size_t>(dn_col.value())] >= doctest::Approx(0.0));
 }
 
 TEST_CASE("ReserveZoneLP - multiple blocks with reserve duals")

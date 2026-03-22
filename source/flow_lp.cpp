@@ -68,7 +68,7 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
     fcols[buid] = fcol;
 
     // adding flow to the junction balances (only when junction exists)
-    if (junction_ptr) {
+    if (junction_ptr != nullptr) {
       const auto& balance_rows = junction_ptr->balance_rows_at(scenario, stage);
       auto& brow = lp.row_at(balance_rows.at(buid));
       brow[fcol] = is_input() ? 1 : -1;
