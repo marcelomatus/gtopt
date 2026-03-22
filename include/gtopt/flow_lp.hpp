@@ -49,8 +49,9 @@ public:
   [[nodiscard]] auto junction_sid() const
   {
     const auto& opt = flow().junction;
-    assert(opt.has_value());
-    return JunctionLPSId {opt.value()};
+    assert(opt.has_value()
+           && "junction_sid() called on a Flow without a junction");
+    return JunctionLPSId {*opt};
   }
 
   [[nodiscard]] constexpr bool is_input() const noexcept

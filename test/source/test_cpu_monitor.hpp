@@ -9,7 +9,7 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 TEST_CASE("CPUMonitor default construction")  // NOLINT
 {
-  CPUMonitor mon;
+  const CPUMonitor mon;
 
   SUBCASE("initial load is zero")
   {

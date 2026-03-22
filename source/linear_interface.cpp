@@ -478,10 +478,10 @@ void LinearInterface::set_solver_opts(const SolverOptions& solver_options)
       clp_model->setAlgorithm(1);  // 1 = dual simplex
       // Bit 1: keep factorization (avoid re-factorising the basis)
       // Bit 8: keep work areas (avoid re-allocating internal arrays)
-      constexpr int keep_factorization = 1;
-      constexpr int keep_work_areas = 8;
-      clp_model->setSpecialOptions(clp_model->specialOptions()
-                                   | keep_factorization | keep_work_areas);
+      constexpr unsigned keep_factorization = 1U;
+      constexpr unsigned keep_work_areas = 8U;
+      clp_model->setSpecialOptions(static_cast<int>(
+          clp_model->specialOptions() | keep_factorization | keep_work_areas));
     }
 #endif
 

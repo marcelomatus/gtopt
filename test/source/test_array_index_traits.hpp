@@ -94,7 +94,7 @@ void write_parquet_zst(const std::filesystem::path& path)
 
   auto maybe_buf_out = arrow::io::BufferOutputStream::Create();
   REQUIRE(maybe_buf_out.ok());
-  const auto buf_out = *maybe_buf_out;
+  const auto& buf_out = *maybe_buf_out;
   REQUIRE(parquet::arrow::WriteTable(
               *table, arrow::default_memory_pool(), buf_out, 1024)
               .ok());

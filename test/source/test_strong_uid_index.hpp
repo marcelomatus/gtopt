@@ -186,7 +186,7 @@ TEST_CASE("UID must not be used as array index in StrongIndexVector")  // NOLINT
 
 TEST_CASE("StoredCut preserves strong-typed scene and phase UIDs")  // NOLINT
 {
-  StoredCut cut {
+  const StoredCut cut {
       .type = CutType::Optimality,
       .phase = PhaseUid {42},
       .scene = SceneUid {7},
