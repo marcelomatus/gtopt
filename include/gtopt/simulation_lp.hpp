@@ -149,7 +149,7 @@ public:
       return {&prev_stage, &prev_phase};
     }
 
-    const auto prev_stage_index = StageIndex {stage.index() - 1};
+    const auto prev_stage_index = stage.index() - StageIndex {1};
     return {&m_stage_array_[prev_stage_index], nullptr};
   }
 
