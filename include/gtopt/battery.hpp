@@ -173,6 +173,14 @@ struct Battery
                     ///< of the last phase (not an equality).
 
   OptTRealFieldSched
+      soft_emin {};  ///< Soft minimum SoC per stage [MWh].
+                     ///< Creates a penalized constraint: efin + slack >=
+                     ///< soft_emin.
+                     ///< @see Reservoir::soft_emin for full documentation.
+  OptTRealFieldSched soft_emin_cost {};  ///< Penalty cost per unit of soft_emin
+                                         ///< violation [$/MWh].
+
+  OptTRealFieldSched
       pmax_charge {};  ///< Max charging power [MW] (unified definition)
   OptTRealFieldSched
       pmax_discharge {};  ///< Max discharging power [MW] (unified definition)

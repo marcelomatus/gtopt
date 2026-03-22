@@ -25,6 +25,7 @@ from .aflce_parser import AflceParser
 from .filemb_parser import FilembParser
 from .manem_parser import ManemParser
 from .manem_writer import ManemWriter
+from .minembh_parser import MinembhParser
 from .stage_parser import StageParser
 
 _logger = logging.getLogger(__name__)
@@ -95,6 +96,8 @@ class Reservoir(_ReservoirRequired, total=False):
     """
 
     use_state_variable: bool
+    soft_emin: list[float]
+    soft_emin_cost: list[float]
 
 
 class Turbine(TypedDict):
@@ -192,6 +195,7 @@ class JunctionWriter(BaseWriter):
         cenre_parser: Optional[CenreParser] = None,
         cenfi_parser: Optional[CenfiParser] = None,
         filemb_parser: Optional[FilembParser] = None,
+        minembh_parser: Optional[MinembhParser] = None,
         options: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialize hydro system writer.
@@ -207,6 +211,8 @@ class JunctionWriter(BaseWriter):
             filemb_parser: Parser for primary PLP filtration model
                 (plpfilemb.dat); takes precedence over cenfi_parser when
                 both are present.
+            minembh_parser: Parser for soft minimum volume constraints
+                (plpminembh.dat).
             options: Configuration options for the writer
         """
         super().__init__(central_parser, options)
@@ -217,6 +223,7 @@ class JunctionWriter(BaseWriter):
         self.cenre_parser = cenre_parser
         self.cenfi_parser = cenfi_parser
         self.filemb_parser = filemb_parser
+        self.minembh_parser = minembh_parser
         self._waterway_counter = 0
         self._ocean_junction_counter = 0
         self._junction_names: dict[int, str] = {}
@@ -584,7 +591,49 @@ class JunctionWriter(BaseWriter):
             if central.get("hid_indep", False):
                 reservoir["use_state_variable"] = False
 
+            # Soft minimum volume (plpminembh.dat "holgura" / slack)
+            self._apply_soft_emin(reservoir, central_name)
+
             system["reservoir_array"].append(reservoir)
+
+    def _apply_soft_emin(self, reservoir: Reservoir, central_name: str) -> None:
+        """Add soft_emin and soft_emin_cost from plpminembh.dat if available.
+
+        Builds per-stage arrays from the sparse minembh data.  Stages without
+        data get 0 (no constraint).  The cost defaults to the CLI option
+        ``--soft-emin-cost`` (default 0.1) when the file cost is zero.
+        """
+        if not self.minembh_parser or not self.stage_parser:
+            return
+
+        entry = self.minembh_parser.get_minembh_by_name(central_name)
+        if entry is None:
+            return
+
+        num_stages = self.stage_parser.num_stages
+        default_cost = self.options.get("soft_emin_cost", 0.1) if self.options else 0.1
+        if default_cost <= 0:
+            return
+
+        # Build per-stage arrays (0-indexed); minembh stages are 1-based.
+        soft_emin_arr = [0.0] * num_stages
+        soft_cost_arr = [0.0] * num_stages
+
+        stages = entry["stage"]  # numpy int32 array, 1-based
+        vmins = entry["vmin"]  # numpy float64 array [dam³]
+        costs = entry["cost"]  # numpy float64 array [$/dam³]
+
+        for i, stage_num in enumerate(stages):
+            idx = int(stage_num) - 1  # convert to 0-based
+            if 0 <= idx < num_stages and float(vmins[i]) > 0:
+                soft_emin_arr[idx] = float(vmins[i])
+                file_cost = float(costs[i])
+                soft_cost_arr[idx] = file_cost if file_cost > 0 else default_cost
+
+        # Only add if there's at least one non-zero soft_emin
+        if any(v > 0 for v in soft_emin_arr):
+            reservoir["soft_emin"] = soft_emin_arr
+            reservoir["soft_emin_cost"] = soft_cost_arr
 
     def _process_filtrations(
         self,

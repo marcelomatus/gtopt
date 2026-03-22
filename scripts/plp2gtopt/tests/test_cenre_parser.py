@@ -82,8 +82,45 @@ def test_parse_multiple_segments(tmp_path):
     assert entry["mean_efficiency"] == pytest.approx(2.100)
     assert len(entry["segments"]) == 2
     assert entry["segments"][0]["slope"] == pytest.approx(0.0003)
-    assert entry["segments"][1]["volume"] == pytest.approx(500.0)
+    assert entry["segments"][1]["volume"] == pytest.approx(500000.0)
     assert entry["segments"][1]["constant"] == pytest.approx(2.1)
+
+
+def test_fescala_volume_conversion(tmp_path):
+    """FEscala physically scales volume breakpoints to dam³."""
+    content = (
+        " 1\n"
+        "'T1'\n"
+        "'R1'\n"
+        "1.0\n"
+        " 2\n"
+        "     1  100.0     0.0003000    1.800   1.0E9\n"
+        "     2  200.0     0.0001000    2.100   1.0E10\n"
+    )
+    f = write_cenre(tmp_path, content)
+    parser = CenreParser(f)
+    parser.parse()
+
+    segs = parser.efficiencies[0]["segments"]
+    # 100.0 × 1E9 / 1E6 = 100_000 dam³
+    assert segs[0]["volume"] == pytest.approx(100_000.0)
+    # 200.0 × 1E10 / 1E6 = 2_000_000 dam³
+    assert segs[1]["volume"] == pytest.approx(2_000_000.0)
+    # slope and constant unchanged
+    assert segs[0]["slope"] == pytest.approx(0.0003)
+    assert segs[1]["constant"] == pytest.approx(2.1)
+
+
+def test_fescala_missing_defaults_to_1e6(tmp_path):
+    """Without FEscala column, volume is stored as-is (×1E6/1E6 = ×1)."""
+    content = " 1\n'T1'\n'R1'\n1.0\n 1\n     1  750.0     0.0002000    1.500\n"
+    f = write_cenre(tmp_path, content)
+    parser = CenreParser(f)
+    parser.parse()
+
+    seg = parser.efficiencies[0]["segments"][0]
+    # 750.0 × 1E6 / 1E6 = 750.0 (passthrough)
+    assert seg["volume"] == pytest.approx(750.0)
 
 
 def test_parse_multiple_entries(tmp_path):

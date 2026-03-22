@@ -87,6 +87,9 @@ public:
       , ecost(ic, cname.full_name(), id(), std::move(storage().ecost))
       , annual_loss(
             ic, cname.full_name(), id(), std::move(storage().annual_loss))
+      , soft_emin(ic, cname.full_name(), id(), std::move(storage().soft_emin))
+      , soft_emin_cost(
+            ic, cname.full_name(), id(), std::move(storage().soft_emin_cost))
   {
   }
 
@@ -452,6 +455,44 @@ public:
       prev_vc = ec;
     }
 
+    // Soft minimum energy constraint (PLP "holgura" / slack):
+    //   efin + slack >= soft_emin / energy_scale
+    // The slack variable has a penalty cost in the objective, allowing the
+    // volume/SoC to drop below soft_emin at a cost.  One constraint per
+    // stage, applied to the efin column (prev_vc = last block's energy col).
+    const auto stage_soft_emin = soft_emin.at(stage.uid()).value_or(0.0);
+    const auto stage_soft_emin_cost =
+        soft_emin_cost.at(stage.uid()).value_or(0.0);
+    if (stage_soft_emin > 0.0 && stage_soft_emin_cost > 0.0) {
+      const double lp_soft_emin = stage_soft_emin / energy_scale;
+      // Penalty cost per LP unit of slack: cost_physical * energy_scale
+      // (since slack_physical = slack_LP * energy_scale).
+      // Apply scenario probability and discount via scenario_stage_ecost,
+      // then remove the duration factor (state penalty, not flow).
+      const double slack_cost =
+          sc.scenario_stage_ecost(scenario, stage, stage_soft_emin_cost)
+          / stage.duration() * energy_scale;
+
+      const auto semin_col = lp.add_col({
+          .name = sc.lp_label(scenario, stage, cname, "semin", uid()),
+          .lowb = 0,
+          .uppb = LinearProblem::DblMax,
+          .cost = slack_cost,
+          .scale = energy_scale,
+      });
+
+      auto semin_row =
+          SparseRow {
+              .name = sc.lp_label(scenario, stage, cname, "semin_ge", uid()),
+          }
+              .greater_equal(lp_soft_emin);
+      semin_row[prev_vc] = 1.0;
+      semin_row[semin_col] = 1.0;
+
+      soft_emin_rows[st_key] = lp.add_row(std::move(semin_row));
+      soft_emin_slack_cols[st_key] = semin_col;
+    }
+
     // Register efin (the last block's energy column) as a StateVariable so
     // that PlanningLP::resolve_scene_phases() and the SDDP solver can
     // discover and propagate the reservoir/battery state across phase
@@ -559,6 +600,26 @@ public:
     out.add_row_dual(cname, "capacity", pid, capacity_rows);
     out.add_row_dual(cname, "efin", pid, efin_rows);
 
+    // Soft emin slack: LP variable is in physical/m_energy_scale_ units.
+    if (std::abs(m_energy_scale_ - 1.0)
+        > std::numeric_limits<double>::epsilon())
+    {
+      out.add_col_sol(cname,
+                      "soft_emin",
+                      pid,
+                      soft_emin_slack_cols,
+                      col_scale_sol(m_energy_scale_));
+      out.add_col_cost(cname,
+                       "soft_emin",
+                       pid,
+                       soft_emin_slack_cols,
+                       col_scale_cost(m_energy_scale_));
+    } else {
+      out.add_col_sol(cname, "soft_emin", pid, soft_emin_slack_cols);
+      out.add_col_cost(cname, "soft_emin", pid, soft_emin_slack_cols);
+    }
+    out.add_row_dual(cname, "soft_emin", pid, soft_emin_rows);
+
     // Drain LP variable is in physical/m_flow_scale_ units; multiply primal
     // by m_flow_scale_ to recover physical units, divide cost by m_flow_scale_.
     // Uses col_scale_sol/cost helpers for uniform rescaling.
@@ -583,6 +644,9 @@ private:
 
   OptTRealSched annual_loss;
 
+  OptTRealSched soft_emin;
+  OptTRealSched soft_emin_cost;
+
   STBIndexHolder<ColIndex> energy_cols;
   STBIndexHolder<ColIndex> drain_cols;
   STBIndexHolder<RowIndex> energy_rows;
@@ -598,6 +662,10 @@ private:
                                       ///< used by SDDP StateVariable linking.
   STIndexHolder<RowIndex> efin_rows;  ///< Explicit >= efin constraint rows;
                                       ///< only for last stage when efin set.
+
+  STIndexHolder<ColIndex> soft_emin_slack_cols;  ///< Soft emin slack variable
+                                                 ///< per (scenario, stage).
+  STIndexHolder<RowIndex> soft_emin_rows;  ///< Soft emin >= constraint rows.
 
   /// Combined dual correction factor per (scenario, stage):
   ///   dual_physical = dual_LP * output_dual_scale[{suid, tuid}]

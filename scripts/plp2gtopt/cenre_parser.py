@@ -29,10 +29,15 @@ Field definitions:
   mean_efficiency – Mean/fallback efficiency value [MW·s/m³]
   num_segments    – Number of piecewise-linear segments
   idx             – Segment index (1-based, informational)
-  volume          – Volume breakpoint [dam³]
-  slope           – Piecewise-linear slope [efficiency/dam³]
+  volume          – Volume breakpoint [raw]; converted to dam³ via × FEscala / 1E6
+  slope           – Piecewise-linear slope [raw]; already correct for dam³ volumes
   constant        – Efficiency at the volume breakpoint [MW·s/m³]
-  scale           – Scaling factor (historical, ignored in gtopt)
+  scale (FEscala) – Per-segment physical scale for the volume breakpoint
+
+Unit conversions (matching PLP Fortran ``plp-leecenre.f``):
+  volume_dam3 = volume_raw × FEscala / 1E6
+  slope is kept as-is (the Mm³→dam³ factor on volume and the /1E3 on slope cancel)
+  constant is kept as-is [MW·s/m³]
 
 The efficiency at a given reservoir volume V is (concave-envelope minimum,
 matching PLP Fortran ``FRendimientos`` in ``plp-frendim.f``):
@@ -119,10 +124,13 @@ class CenreParser(BaseParser):
                 parts = lines[idx].split()
                 if len(parts) < 4:
                     raise ValueError(f"Segment line has too few fields: {lines[idx]}")
-                # Format: idx volume slope constant [scale]
-                # Note: F.Escala (scale) is present but ignored
+                # Format: idx volume slope constant [FEscala]
+                # FEscala is a per-segment physical scale for volume breakpoints.
+                # Conversion: volume_dam3 = raw_volume × FEscala / 1E6
+                # Slope is already correct for dam³ (the ×1E3/÷1E3 cancel out).
+                fescala = self._parse_float(parts[4]) if len(parts) >= 5 else 1.0e6
                 seg = {
-                    "volume": self._parse_float(parts[1]),
+                    "volume": self._parse_float(parts[1]) * fescala / 1.0e6,
                     "slope": self._parse_float(parts[2]),
                     "constant": self._parse_float(parts[3]),
                 }
