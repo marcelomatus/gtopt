@@ -288,8 +288,8 @@ TEST_CASE(
 
 TEST_CASE("ApertureValueFn — lambda returning value")  // NOLINT
 {
-  ApertureValueFn fn = [](StageUid /*st*/,
-                          BlockUid /*bl*/) -> std::optional<double>
+  const ApertureValueFn fn = [](StageUid /*st*/,
+                                BlockUid /*bl*/) -> std::optional<double>
   { return 42.0; };
 
   const auto val = fn(StageUid {0}, BlockUid {0});
@@ -299,8 +299,8 @@ TEST_CASE("ApertureValueFn — lambda returning value")  // NOLINT
 
 TEST_CASE("ApertureValueFn — lambda returning nullopt")  // NOLINT
 {
-  ApertureValueFn fn = [](StageUid /*st*/,
-                          BlockUid /*bl*/) -> std::optional<double>
+  const ApertureValueFn fn = [](StageUid /*st*/,
+                                BlockUid /*bl*/) -> std::optional<double>
   { return std::nullopt; };
 
   const auto val = fn(StageUid {0}, BlockUid {0});
@@ -325,8 +325,8 @@ TEST_CASE("ApertureValueFn — cache-backed lambda")  // NOLINT
       },
   };
 
-  ApertureValueFn fn = [&cache](StageUid st,
-                                BlockUid bl) -> std::optional<double>
+  const ApertureValueFn fn = [&cache](StageUid st,
+                                      BlockUid bl) -> std::optional<double>
   {
     auto key = std::pair {Index {st}, Index {bl}};
     auto it = cache.find(key);
