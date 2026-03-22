@@ -252,6 +252,9 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options,
       sddp_opts.save_aperture_lp = options.sddp_save_aperture_lp();
       sddp_opts.warm_start = options.sddp_warm_start();
       sddp_opts.solve_timeout = options.sddp_solve_timeout();
+      sddp_opts.max_cuts_per_phase = options.sddp_max_cuts_per_phase();
+      sddp_opts.cut_prune_interval = options.sddp_cut_prune_interval();
+      sddp_opts.prune_dual_threshold = options.sddp_prune_dual_threshold();
       sddp_opts.alpha_min = options.sddp_alpha_min();
       sddp_opts.alpha_max = options.sddp_alpha_max();
 

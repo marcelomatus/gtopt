@@ -163,8 +163,8 @@ def _validate_sddp_options(sddp: dict, messages: list[str]) -> None:
 
     penalty = sddp.get("elastic_penalty")
     if penalty is not None and penalty <= 0:
-        messages.append("FIX: sddp elastic_penalty must be > 0, setting to 1e6")
-        sddp["elastic_penalty"] = 1e6
+        messages.append("FIX: sddp elastic_penalty must be > 0, setting to 1000")
+        sddp["elastic_penalty"] = 1000
 
     alpha_min = sddp.get("alpha_min")
     alpha_max = sddp.get("alpha_max")
@@ -188,6 +188,21 @@ def _validate_sddp_options(sddp: dict, messages: list[str]) -> None:
     if timeout is not None and timeout < 0:
         messages.append("FIX: sddp aperture_timeout must be >= 0, setting to 0")
         sddp["aperture_timeout"] = 0
+
+    max_cuts = sddp.get("max_cuts_per_phase")
+    if max_cuts is not None and max_cuts < 0:
+        messages.append("FIX: sddp max_cuts_per_phase must be >= 0, setting to 0")
+        sddp["max_cuts_per_phase"] = 0
+
+    prune_interval = sddp.get("cut_prune_interval")
+    if prune_interval is not None and prune_interval <= 0:
+        messages.append("FIX: sddp cut_prune_interval must be > 0, setting to 10")
+        sddp["cut_prune_interval"] = 10
+
+    prune_thr = sddp.get("prune_dual_threshold")
+    if prune_thr is not None and prune_thr <= 0:
+        messages.append("FIX: sddp prune_dual_threshold must be > 0, setting to 1e-8")
+        sddp["prune_dual_threshold"] = 1e-8
 
 
 # ---------------------------------------------------------------------------

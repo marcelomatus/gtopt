@@ -117,6 +117,10 @@ public:
   /// Update interval for the background sampling thread.
   using Interval = std::chrono::milliseconds;
 
+  /// Maximum number of monitor points to retain.
+  /// At 500ms intervals, 7200 points ≈ 1 hour of data.
+  static constexpr std::size_t max_history_size {7200};
+
   explicit SolverMonitor(Interval update_interval = Interval {500}) noexcept
       : m_update_interval_(update_interval)
   {
@@ -158,6 +162,14 @@ public:
             const auto stats = pool.get_statistics();
             {
               const std::scoped_lock lck(m_mutex_);
+              if (m_history_.size() >= max_history_size) {
+                // Drop oldest 25%, keep newest 75%
+                const auto keep = max_history_size * 3 / 4;
+                m_history_.erase(m_history_.begin(),
+                                 m_history_.begin()
+                                     + static_cast<std::ptrdiff_t>(
+                                         m_history_.size() - keep));
+              }
               m_history_.push_back(MonitorPoint {
                   .timestamp = elapsed,
                   .cpu_load = stats.current_cpu_load,

@@ -1200,6 +1200,9 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "boundary_cuts_mode",
         "boundary_max_iterations",
         "named_cuts_file",
+        "max_cuts_per_phase",
+        "cut_prune_interval",
+        "prune_dual_threshold",
     }
 )
 
@@ -1420,6 +1423,21 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         "named_cuts_file",
         "[sddp] Path to named cuts file for warm-starting SDDP",
         None,
+    ),
+    (
+        "max_cuts_per_phase",
+        "[sddp] Max retained cuts per (scene,phase) LP (0=unlimited, no pruning)",
+        0,
+    ),
+    (
+        "cut_prune_interval",
+        "[sddp] Iterations between cut pruning passes (requires max_cuts_per_phase>0)",
+        10,
+    ),
+    (
+        "prune_dual_threshold",
+        "[sddp] Dual threshold for inactive cut detection during pruning",
+        1e-8,
     ),
     # ------------------------------------------------------------------
     # Monolithic options (nested into "monolithic_options" in JSON output)
