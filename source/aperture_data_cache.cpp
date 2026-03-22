@@ -125,16 +125,11 @@ ApertureDataCache::ApertureDataCache(const std::filesystem::path& aperture_dir)
   // Sort and bulk-construct the flat_map — O(n log n) vs O(n²)
   std::ranges::sort(
       entries, [](const auto& a, const auto& b) { return a.first < b.first; });
-#ifdef GTOPT_USE_STD_FLAT_MAP
-  m_data_.insert(std::sorted_unique, entries.begin(), entries.end());
-#elif defined(GTOPT_USE_BOOST_FLAT_MAP)
-  m_data_.insert(
-      boost::container::ordered_unique_range, entries.begin(), entries.end());
-#else
-  // std::map: insert from pre-sorted range (each insert is O(log n) amortised
-  // but the hint below allows O(1) amortised insertion).
+  // Remove duplicates after sorting (keeping first occurrence)
+  const auto [first, last] = std::ranges::unique(
+      entries, [](const auto& a, const auto& b) { return a.first == b.first; });
+  entries.erase(first, last);
   m_data_.insert(entries.begin(), entries.end());
-#endif
 
   const auto load_s = std::chrono::duration<double>(
                           std::chrono::steady_clock::now() - load_start)

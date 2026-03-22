@@ -328,8 +328,11 @@ void LinearInterface::reset_from(const LinearInterface& source,
   const auto total_rows = static_cast<size_t>(solver->getNumRows());
   if (total_rows > base_rows) {
     const auto n_to_delete = total_rows - base_rows;
-    auto indices = std::ranges::to<std::vector>(std::views::iota(
-        static_cast<int>(base_rows), static_cast<int>(total_rows)));
+    std::vector<int> indices;
+    indices.reserve(n_to_delete);
+    for (auto i = base_rows; i < total_rows; ++i) {
+      indices.push_back(static_cast<int>(i));
+    }
     solver->deleteRows(static_cast<int>(n_to_delete), indices.data());
   }
 
