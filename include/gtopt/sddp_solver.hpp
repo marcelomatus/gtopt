@@ -555,6 +555,18 @@ public:
     return m_converged_.load();
   }
 
+  /// Current pass: 0=idle, 1=forward, 2=backward
+  [[nodiscard]] int current_pass() const noexcept
+  {
+    return m_current_pass_.load();
+  }
+
+  /// Number of scenes completed in the current pass
+  [[nodiscard]] int scenes_done() const noexcept
+  {
+    return m_scenes_done_.load();
+  }
+
   // ── Data accessors (valid after at least one iteration) ──
 
   /// Per-phase state for a given scene
@@ -916,6 +928,8 @@ private:
   std::atomic<double> m_current_lb_ {0.0};
   std::atomic<double> m_current_ub_ {0.0};
   std::atomic<bool> m_converged_ {false};
+  std::atomic<int> m_current_pass_ {0};  ///< 0=idle, 1=forward, 2=backward
+  std::atomic<int> m_scenes_done_ {0};  ///< Scenes completed in current pass
 
   // ── BendersCut: wraps elastic-filter LP solves via the work pool ──
   /// Constructed with null pool; updated in solve() once the pool is created.

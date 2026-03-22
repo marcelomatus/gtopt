@@ -61,15 +61,18 @@ struct WorkPoolConfig
   int max_threads;
   double max_cpu_threshold;
   std::chrono::milliseconds scheduler_interval;
+  std::string name;
 
-  explicit constexpr WorkPoolConfig(
+  explicit WorkPoolConfig(
       int max_threads_ = static_cast<int>(std::thread::hardware_concurrency()),
       double max_cpu_threshold_ = 95.0,
       std::chrono::milliseconds scheduler_interval_ =
-          std::chrono::milliseconds(20)) noexcept
+          std::chrono::milliseconds(20),
+      std::string name_ = "WorkPool") noexcept
       : max_threads(max_threads_)
       , max_cpu_threshold(max_cpu_threshold_)
       , scheduler_interval(scheduler_interval_)
+      , name(std::move(name_))
   {
   }
 };
@@ -254,6 +257,7 @@ private:
   int max_threads_;
   double max_cpu_threshold_;
   std::chrono::milliseconds scheduler_interval_;
+  std::string name_;
 
   std::atomic<size_t> tasks_completed_ {0};
   std::atomic<size_t> tasks_submitted_ {0};
@@ -266,17 +270,17 @@ public:
   BasicWorkPool& operator=(const BasicWorkPool&) = delete;
   BasicWorkPool& operator=(const BasicWorkPool&&) = delete;
 
-  explicit constexpr BasicWorkPool(WorkPoolConfig config = WorkPoolConfig {})
+  explicit BasicWorkPool(WorkPoolConfig config = WorkPoolConfig {})
       : available_threads_(config.max_threads)
       , max_threads_(config.max_threads)
       , max_cpu_threshold_(config.max_cpu_threshold)
       , scheduler_interval_(config.scheduler_interval)
+      , name_(std::move(config.name))
   {
-    spdlog::info(
-        std::format("  WorkPool initialized with {} max threads, max CPU "
-                    "threshold: {}%",
-                    max_threads_,
-                    max_cpu_threshold_));
+    spdlog::info("  {} initialized: {} max threads, {}% CPU threshold",
+                 name_,
+                 max_threads_,
+                 max_cpu_threshold_);
   }
 
   ~BasicWorkPool() { shutdown(); }
@@ -305,8 +309,7 @@ public:
             }
           },
       };
-      spdlog::info(
-          std::format("  WorkPool started with {} max threads", max_threads_));
+      spdlog::info("  {} started", name_);
     } catch (const std::exception& e) {
       running_ = false;
       auto msg = std::format("Failed to start BasicWorkPool: {}", e.what());

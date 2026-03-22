@@ -10,6 +10,7 @@ import pytest
 from gtopt_check_json._checks import (
     Severity,
     check_affluent_nonneg,
+    check_battery_efficiency,
     check_bus_connectivity,
     check_capacity_adequacy,
     check_demand_lmax_nonneg,
@@ -282,6 +283,110 @@ class TestUnreferencedElements:
         findings = check_unreferenced_elements(case)
         assert len(findings) >= 1
         assert any("Bus" in f.message and "b3_orphan" in f.message for f in findings)
+
+
+# ── Battery efficiency ──────────────────────────────────────────────────────
+
+
+class TestBatteryEfficiency:
+    """Test check_battery_efficiency."""
+
+    def test_valid_no_findings(self) -> None:
+        """No batteries → no findings."""
+        assert not check_battery_efficiency(_VALID_CASE)
+
+    def test_valid_efficiencies(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["system"]["battery_array"] = [
+            {
+                "uid": 1,
+                "name": "bat1",
+                "input_efficiency": 0.95,
+                "output_efficiency": 0.9,
+            },
+        ]
+        assert not check_battery_efficiency(case)
+
+    def test_input_efficiency_above_one(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["system"]["battery_array"] = [
+            {
+                "uid": 1,
+                "name": "bat1",
+                "input_efficiency": 1.05,
+                "output_efficiency": 0.9,
+            },
+        ]
+        findings = check_battery_efficiency(case)
+        assert len(findings) == 1
+        assert findings[0].severity == Severity.WARNING
+        assert "input_efficiency" in findings[0].message
+        assert "1.05" in findings[0].message
+
+    def test_output_efficiency_above_one(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["system"]["battery_array"] = [
+            {
+                "uid": 1,
+                "name": "bat1",
+                "input_efficiency": 0.95,
+                "output_efficiency": 1.1,
+            },
+        ]
+        findings = check_battery_efficiency(case)
+        assert len(findings) == 1
+        assert findings[0].severity == Severity.WARNING
+        assert "output_efficiency" in findings[0].message
+
+    def test_negative_efficiency(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["system"]["battery_array"] = [
+            {
+                "uid": 1,
+                "name": "bat1",
+                "input_efficiency": -0.5,
+                "output_efficiency": 0.9,
+            },
+        ]
+        findings = check_battery_efficiency(case)
+        assert len(findings) == 1
+        assert findings[0].severity == Severity.WARNING
+        assert "negative" in findings[0].message.lower()
+
+    def test_both_above_one(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["system"]["battery_array"] = [
+            {
+                "uid": 1,
+                "name": "bat1",
+                "input_efficiency": 1.2,
+                "output_efficiency": 1.3,
+            },
+        ]
+        findings = check_battery_efficiency(case)
+        assert len(findings) == 2
+
+    def test_efficiency_list_with_bad_values(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["system"]["battery_array"] = [
+            {
+                "uid": 1,
+                "name": "bat1",
+                "input_efficiency": [0.9, 1.1, 0.95],
+                "output_efficiency": 0.9,
+            },
+        ]
+        findings = check_battery_efficiency(case)
+        assert len(findings) == 1
+        assert "1.1" in findings[0].message
+
+    def test_missing_efficiency_no_findings(self) -> None:
+        """Batteries without efficiency fields should not produce findings."""
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["system"]["battery_array"] = [
+            {"uid": 1, "name": "bat1"},
+        ]
+        assert not check_battery_efficiency(case)
 
 
 # ── run_all_checks ──────────────────────────────────────────────────────────

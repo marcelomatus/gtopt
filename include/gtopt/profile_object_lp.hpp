@@ -11,6 +11,9 @@
 
 #pragma once
 
+#include <functional>
+#include <optional>
+
 #include <gtopt/aperture_data_cache.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -144,79 +147,31 @@ public:
     return true;
   }
 
-  /**
-   * @brief Update profile constraint for aperture scenario
-   *
-   * Re-reads the profile value for the aperture scenario and updates
-   * the constraint row accordingly.  When a capacity column was used
-   * during LP construction, updates the coefficient; otherwise updates
-   * the row RHS.  Uses the capacity info stored during add_profile_to_lp.
-   *
-   * @param li                Cloned LinearInterface to modify in-place.
-   * @param base_scenario     Original scenario (identifies stored rows).
-   * @param aperture_scenario Scenario whose profile values to apply.
-   * @param stage             Stage to update.
-   * @return true on success.
-   */
-  [[nodiscard]] bool update_aperture_lp(LinearInterface& li,
-                                        const ScenarioLP& base_scenario,
-                                        const ScenarioLP& aperture_scenario,
-                                        const StageLP& stage) const
+  /// Return the profile value for a given scenario/stage/block.
+  [[nodiscard]] std::optional<double> aperture_value(ScenarioUid scenario_uid,
+                                                     StageUid stage_uid,
+                                                     BlockUid block_uid) const
   {
-    if (!is_active(stage)) {
-      return true;
-    }
-
-    const auto st_key = std::pair {base_scenario.uid(), stage.uid()};
-    const auto row_it = spillover_rows.find(st_key);
-    if (row_it == spillover_rows.end()) {
-      return true;  // no rows registered for this (scenario, stage)
-    }
-
-    const auto cap_it = capacity_info.find(st_key);
-    if (cap_it == capacity_info.end()) {
-      return true;  // no capacity info (should not happen)
-    }
-
-    const auto& [cap_col, stage_cap] = cap_it->second;
-
-    for (const auto& [block_uid, row] : row_it->second) {
-      const auto new_profile =
-          profile.at(aperture_scenario.uid(), stage.uid(), block_uid);
-      if (cap_col) {
-        // Row: spillover + element - profile * capacity = 0
-        li.set_coeff(row, *cap_col, -new_profile);
-      } else {
-        // Row: spillover + element = capacity * profile
-        const auto new_rhs = stage_cap * new_profile;
-        li.set_row_low(row, new_rhs);
-        li.set_row_upp(row, new_rhs);
-      }
-    }
-    return true;
+    return profile.at(scenario_uid, stage_uid, block_uid);
   }
 
   /**
-   * @brief Update profile constraint from cached aperture data
+   * @brief Update profile constraint for an aperture scenario.
    *
-   * When the aperture scenario is not in the forward set, reads profile
-   * values from the ApertureDataCache instead of in-memory schedules.
-   * Mirrors update_aperture_lp but uses cache.lookup() for values.
+   * Re-reads the profile value via @p value_fn and updates the constraint
+   * row accordingly.  When a capacity column was used during LP construction,
+   * updates the coefficient; otherwise updates the row RHS.
    *
-   * @param cname               Class name for cache lookup key.
-   * @param li                  Cloned LinearInterface to modify in-place.
-   * @param base_scenario       Original scenario (identifies stored rows).
-   * @param aperture_scenario_uid Scenario UID whose cached values to apply.
-   * @param cache               Pre-loaded aperture data cache.
-   * @param stage               Stage to update.
+   * @param li            Cloned LinearInterface to modify in-place.
+   * @param base_scenario Original scenario (identifies stored rows).
+   * @param value_fn      (StageUid, BlockUid) -> optional<double> provider.
+   * @param stage         Stage to update.
    * @return true on success.
    */
-  [[nodiscard]] bool update_aperture_from_cache(
-      std::string_view cname,
+  [[nodiscard]] bool update_aperture(
       LinearInterface& li,
       const ScenarioLP& base_scenario,
-      ScenarioUid aperture_scenario_uid,
-      const ApertureDataCache& cache,
+      const std::function<std::optional<double>(StageUid, BlockUid)>& value_fn,
       const StageLP& stage) const
   {
     if (!is_active(stage)) {
@@ -237,16 +192,16 @@ public:
     const auto& [cap_col, stage_cap] = cap_it->second;
 
     for (const auto& [block_uid, row] : row_it->second) {
-      const auto cached = cache.lookup(
-          cname, id().second, aperture_scenario_uid, stage.uid(), block_uid);
-      if (!cached.has_value()) {
-        continue;  // keep forward-pass value if not in cache
+      const auto new_profile = value_fn(stage.uid(), block_uid);
+      if (!new_profile.has_value()) {
+        continue;  // keep forward-pass value if not available
       }
-      const auto new_profile = *cached;
       if (cap_col) {
-        li.set_coeff(row, *cap_col, -new_profile);
+        // Row: spillover + element - profile * capacity = 0
+        li.set_coeff(row, *cap_col, -*new_profile);
       } else {
-        const auto new_rhs = stage_cap * new_profile;
+        // Row: spillover + element = capacity * profile
+        const auto new_rhs = stage_cap * *new_profile;
         li.set_row_low(row, new_rhs);
         li.set_row_upp(row, new_rhs);
       }

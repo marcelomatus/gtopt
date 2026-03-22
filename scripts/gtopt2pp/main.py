@@ -6,7 +6,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from gtopt2pp.convert import convert, load_gtopt_case, run_dcopp
+from gtopt2pp.convert import (
+    convert,
+    format_diagnostic,
+    load_gtopt_case,
+    run_dcopp,
+    run_diagnostic,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -224,6 +230,17 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "checks. Use --no-check to disable. (default: enabled)"
         ),
     )
+    parser.add_argument(
+        "--diagnostic",
+        action="store_true",
+        default=False,
+        help=(
+            "Run pandapower diagnostic on the converted network and "
+            "print the results.  Useful for detecting topology issues "
+            "such as disconnected elements, different voltage levels "
+            "connected by lines, or missing load/generation."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -247,6 +264,16 @@ def main(argv: list[str] | None = None) -> int:
     else:
         block_uids = [int(blocks[0]["uid"])] if blocks else [1]
 
+    def _maybe_diagnostic(net: Any, label: str = "") -> None:
+        """Run and print pandapower diagnostic if --diagnostic was given."""
+        if not args.diagnostic:
+            return
+        prefix = f" ({label})" if label else ""
+        diag = run_diagnostic(net)
+        report = format_diagnostic(diag)
+        print(f"\n=== pandapower diagnostic{prefix} ===")
+        print(report)
+
     if args.solve:
         if len(block_uids) > 1:
             print(
@@ -260,6 +287,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Objective: {net.res_cost:.4f}")
 
         _log_conversion_summary(case, net, [bi])
+        _maybe_diagnostic(net, f"block {bi}")
 
         out = args.output or args.case_file.with_name(
             f"{args.case_file.stem}_pp_solved.json"
@@ -275,6 +303,7 @@ def main(argv: list[str] | None = None) -> int:
         bi = block_uids[0]
         net = convert(case, scenario=args.scenario, block=bi)
         _log_conversion_summary(case, net, [bi])
+        _maybe_diagnostic(net, f"block {bi}")
         out = args.output or args.case_file.with_name(f"{args.case_file.stem}_pp.json")
         pp.to_json(net, str(out))
         print(f"Written: {out}")
@@ -284,6 +313,7 @@ def main(argv: list[str] | None = None) -> int:
         for bi in block_uids:
             net = convert(case, scenario=args.scenario, block=bi)
             last_net = net
+            _maybe_diagnostic(net, f"block {bi}")
             if args.output:
                 out = args.output.with_stem(f"{args.output.stem}_b{bi}")
             else:

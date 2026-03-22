@@ -35,6 +35,8 @@ TEST_CASE("SDDPStatusSnapshot default construction")  // NOLINT
   CHECK_FALSE(snap.converged);
   CHECK(snap.max_iterations == 0);
   CHECK(snap.min_iterations == 0);
+  CHECK(snap.current_pass == 0);
+  CHECK(snap.scenes_done == 0);
 }
 
 TEST_CASE("SDDPStatusSnapshot with custom values")  // NOLINT
@@ -47,6 +49,8 @@ TEST_CASE("SDDPStatusSnapshot with custom values")  // NOLINT
       .converged = true,
       .max_iterations = 100,
       .min_iterations = 2,
+      .current_pass = 1,
+      .scenes_done = 3,
   };
 
   CHECK(snap.iteration == 5);
@@ -56,6 +60,8 @@ TEST_CASE("SDDPStatusSnapshot with custom values")  // NOLINT
   CHECK(snap.converged);
   CHECK(snap.max_iterations == 100);
   CHECK(snap.min_iterations == 2);
+  CHECK(snap.current_pass == 1);
+  CHECK(snap.scenes_done == 3);
 }
 
 // ─── SDDPIterationResult default construction ───────────────────────────────
@@ -95,6 +101,8 @@ TEST_CASE("write_sddp_api_status produces valid JSON")  // NOLINT
       .converged = false,
       .max_iterations = 100,
       .min_iterations = 2,
+      .current_pass = 1,
+      .scenes_done = 4,
   };
 
   std::vector<SDDPIterationResult> results;
@@ -163,6 +171,8 @@ TEST_CASE("write_sddp_api_status produces valid JSON")  // NOLINT
   CHECK(content.find("\"lower_bound\": 950.0") != std::string::npos);
   CHECK(content.find("\"upper_bound\": 1000.0") != std::string::npos);
   CHECK(content.find("\"status\": \"running\"") != std::string::npos);
+  CHECK(content.find("\"current_pass\": 1") != std::string::npos);
+  CHECK(content.find("\"scenes_done\": 4") != std::string::npos);
 
   // Verify history array is present with iteration entries
   CHECK(content.find("\"history\"") != std::string::npos);

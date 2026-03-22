@@ -194,41 +194,59 @@ auto solve_apertures_for_phase(
           // Clone the phase LP
           auto clone = phase_li.clone();
 
-          // Update scenario-dependent bounds
-          if (scen_it != all_scenarios.end()) {
-            const auto& aperture_scenario = *scen_it;
+          // Update scenario-dependent bounds via a unified visitor.
+          // Build a value-provider that reads from the scenario LP
+          // arrays when the scenario is in the forward set, or from
+          // the aperture data cache otherwise.
+          // If the aperture's source scenario matches the forward-pass
+          // base scenario, the clone already has the correct bounds —
+          // skip the visitor update entirely.
+          const bool is_base_scenario =
+              (scen_it != all_scenarios.end()
+               && Uid {scen_it->uid()} == Uid {base_scenario.uid()});
+
+          if (!is_base_scenario) {
             auto visitor = [&](auto& e) -> bool
             {
               using E = std::remove_cvref_t<decltype(e)>;
-              // Contract: if an element has update_aperture_lp,
-              // it must also have update_aperture_from_cache.
-              static_assert(ApertureConsistent<E>);
-              if constexpr (HasApertureLp<E>) {
+              if constexpr (HasUpdateAperture<E>) {
                 for (const auto& stage : phase_lp.stages()) {
-                  [[maybe_unused]] const auto ok = e.update_aperture_lp(
-                      clone, base_scenario, aperture_scenario, stage);
+                  // Build value_fn for this element
+                  ApertureValueFn value_fn;
+                  if (scen_it != all_scenarios.end()) {
+                    const auto& ap_scen = *scen_it;
+                    value_fn = [&e, &ap_scen](
+                                   StageUid st,
+                                   BlockUid bl) -> std::optional<double>
+                    { return e.aperture_value(ap_scen.uid(), st, bl); };
+                  } else {
+                    const ScenarioUid ap_uid_val {aperture.source_scenario};
+                    value_fn = [&e, &aperture_cache, ap_uid_val](
+                                   StageUid st,
+                                   BlockUid bl) -> std::optional<double>
+                    {
+                      return aperture_cache.lookup(E::ClassName.full_name(),
+                                                   e.id().second,
+                                                   ap_uid_val,
+                                                   st,
+                                                   bl);
+                    };
+                  }
+                  [[maybe_unused]] const auto ok =
+                      e.update_aperture(clone, base_scenario, value_fn, stage);
                 }
               }
               return true;
             };
             visit_elements(sys.collections(), visitor);
           } else {
-            const ScenarioUid ap_scen_uid {aperture.source_scenario};
-            auto visitor = [&](auto& e) -> bool
-            {
-              using E = std::remove_cvref_t<decltype(e)>;
-              // Contract: if an element has update_aperture_from_cache,
-              // it must also have update_aperture_lp.
-              static_assert(ApertureConsistent<E>);
-              if constexpr (HasApertureFromCache<E>) {
-                for (const auto& stage : phase_lp.stages()) {
-                  [[maybe_unused]] const auto ok = e.update_aperture_from_cache(
-                      clone, base_scenario, ap_scen_uid, aperture_cache, stage);
-                }
-              }
-              return true;
-            };
-            visit_elements(sys.collections(), visitor);
+            SPDLOG_DEBUG(
+                "SDDP aperture: scene {} phase {} aperture uid {}"
+                " — source matches base scenario, "
+                "skipping bound update",
+                scene_uid,
+                phase_uid,
+                ap_uid);
           }
 
           // Apply warm-start hint

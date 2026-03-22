@@ -609,9 +609,14 @@ def convert(
         display_name = line_name or f"l{bus_a_ref}_{bus_b_ref}"
 
         if line_type == "transformer":
-            # Model as transformer
-            sn_mva = tmax if tmax < _TMAX_UNLIMITED else base_mva
-            vk_percent = x_pu * 100.0 * (sn_mva / base_mva)
+            # Model as transformer.
+            # Use the system base MVA as the transformer rating so that
+            # vk_percent = x_pu * 100 stays on the same per-unit base as
+            # the gtopt reactance.  Using tmax (MW transfer limit) as
+            # sn_mva caused huge vk_percent values and divide-by-zero
+            # when tmax was 0.
+            sn_mva = base_mva
+            vk_percent = x_pu * 100.0
 
             kv_a = float(net.bus.at[idx_a, "vn_kv"])
             kv_b = float(net.bus.at[idx_b, "vn_kv"])
@@ -641,12 +646,11 @@ def convert(
             from_kv = float(net.bus.at[idx_a, "vn_kv"])
             x_ohm = _pu_to_ohm(x_pu, from_kv, base_mva)
 
-            # pandapower needs max_i_ka for thermal limit
-            max_i_ka = (
-                tmax / (from_kv * math.sqrt(3))
-                if tmax < _TMAX_UNLIMITED
-                else _TMAX_UNLIMITED
-            )
+            # pandapower needs max_i_ka for thermal limit (must be > 0)
+            if 0.0 < tmax < _TMAX_UNLIMITED and from_kv > 0.0:
+                max_i_ka = tmax / (from_kv * math.sqrt(3))
+            else:
+                max_i_ka = _TMAX_UNLIMITED
 
             pp.create_line_from_parameters(
                 net,
@@ -776,6 +780,58 @@ def run_dcopp(
             f"pandapower DC OPF failed to converge (scenario={scenario}, block={block})"
         )
     return net
+
+
+def run_diagnostic(
+    net: pp.pandapowerNet,
+) -> dict[str, Any]:
+    """Run pandapower diagnostic on a network and return the results.
+
+    Parameters
+    ----------
+    net
+        A pandapower network (as returned by :func:`convert`).
+
+    Returns
+    -------
+    dict[str, Any]
+        Dictionary whose keys are diagnostic check names (e.g.
+        ``"different_voltage_levels_connected"``,
+        ``"disconnected_elements"``) and values describe the issues
+        found.  An empty dict means no issues were detected.
+    """
+    return pp.diagnostic(net, report_style=None)
+
+
+def format_diagnostic(diag: dict[str, Any]) -> str:
+    """Format a pandapower diagnostic dict as a human-readable report.
+
+    Parameters
+    ----------
+    diag
+        Dictionary returned by :func:`run_diagnostic`.
+
+    Returns
+    -------
+    str
+        A multi-line string summarising the diagnostic findings.
+        Returns ``"No issues found."`` when *diag* is empty.
+    """
+    if not diag:
+        return "No issues found."
+
+    lines: list[str] = []
+    for check_name, details in diag.items():
+        lines.append(f"  {check_name}:")
+        if isinstance(details, dict):
+            for sub_key, sub_val in details.items():
+                lines.append(f"    {sub_key}: {sub_val}")
+        elif isinstance(details, list):
+            for item in details:
+                lines.append(f"    - {item}")
+        else:
+            lines.append(f"    {details}")
+    return "\n".join(lines)
 
 
 def get_ac_opf_requirements() -> dict[str, str]:

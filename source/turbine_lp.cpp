@@ -71,7 +71,7 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
     // Use the FlowLP's column variable directly.  The flow column has
     // lowb == uppb == discharge[block], so the constraint:
     //   gen_power <= conversion_rate × flow_col
-    // automatically adapts when FlowLP::update_aperture_lp changes
+    // automatically adapts when FlowLP::update_aperture changes
     // the flow column bounds — no separate aperture update needed.
     const auto& flow_lp = sc.element<FlowLP>(flow_sid());
     const auto& discharge_cols = flow_lp.flow_cols_at(scenario, stage);

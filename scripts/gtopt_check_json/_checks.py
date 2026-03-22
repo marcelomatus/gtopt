@@ -753,6 +753,54 @@ def check_unreferenced_elements(
 
 
 # ---------------------------------------------------------------------------
+# Battery efficiency
+# ---------------------------------------------------------------------------
+
+
+def check_battery_efficiency(planning: dict[str, Any]) -> list[Finding]:
+    """Check that battery efficiencies are at most 1.0 (100 %).
+
+    Both ``input_efficiency`` (charging) and ``output_efficiency``
+    (discharging) must be in the range [0, 1].  Values above 1.0
+    indicate a data entry error (energy would be created from nothing).
+    """
+    findings: list[Finding] = []
+    sys = planning.get("system", {})
+
+    for idx, bat in enumerate(sys.get("battery_array", [])):
+        name = bat.get("name", f"index {idx}")
+        uid = bat.get("uid")
+        for field in ("input_efficiency", "output_efficiency"):
+            values = _extract_scalar_values(bat.get(field))
+            bad = [v for v in values if v > 1.0]
+            if bad:
+                findings.append(
+                    Finding(
+                        check_id="battery_efficiency",
+                        severity=Severity.WARNING,
+                        message=(
+                            f"Battery '{name}' (uid={uid}): "
+                            f"{field} value(s) > 1.0: {bad}"
+                        ),
+                    )
+                )
+            neg = [v for v in values if v < 0.0]
+            if neg:
+                findings.append(
+                    Finding(
+                        check_id="battery_efficiency",
+                        severity=Severity.WARNING,
+                        message=(
+                            f"Battery '{name}' (uid={uid}): "
+                            f"negative {field} value(s): {neg}"
+                        ),
+                    )
+                )
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
 # AI system analysis (optional)
 # ---------------------------------------------------------------------------
 
@@ -948,6 +996,7 @@ _CHECK_REGISTRY: list[tuple[str, Any, bool]] = [
     ("bus_connectivity", check_bus_connectivity, False),
     ("unreferenced_elements", check_unreferenced_elements, False),
     ("capacity_adequacy", check_capacity_adequacy, False),
+    ("battery_efficiency", check_battery_efficiency, False),
     ("ai_system_analysis", check_ai_system_analysis, True),
 ]
 

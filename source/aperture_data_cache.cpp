@@ -7,6 +7,7 @@
  */
 
 #include <charconv>
+#include <chrono>
 #include <set>
 
 #include <arrow/api.h>
@@ -23,7 +24,15 @@ ApertureDataCache::ApertureDataCache(const std::filesystem::path& aperture_dir)
     return;
   }
 
-  // Walk subdirectories (class_name) and load parquet files (element_name)
+  spdlog::info("ApertureDataCache: scanning '{}'", aperture_dir.string());
+
+  const auto load_start = std::chrono::steady_clock::now();
+
+  // Collect all entries into a vector first, then bulk-insert into
+  // the flat_map.  Inserting one-by-one into a flat_map is O(n) per
+  // insert (element shifting), making 340K inserts O(n²) — too slow.
+  std::vector<std::pair<Key, double>> entries;
+
   for (const auto& class_entry :
        std::filesystem::directory_iterator(aperture_dir))
   {
@@ -99,26 +108,32 @@ ApertureDataCache::ApertureDataCache(const std::filesystem::path& aperture_dir)
             std::static_pointer_cast<arrow::DoubleArray>(val_col->chunk(0));
 
         for (int64_t row = 0; row < num_rows; ++row) {
-          m_data_[Key {
-              .class_name = Name {class_name},
-              .element_name = Name {element_name},
-              .scenario_uid = scen_uid,
-              .stage_uid = StageUid {stage_arr->Value(row)},
-              .block_uid = BlockUid {block_arr->Value(row)},
-          }] = val_arr->Value(row);
+          entries.emplace_back(
+              Key {
+                  .class_name = Name {class_name},
+                  .element_name = Name {element_name},
+                  .scenario_uid = scen_uid,
+                  .stage_uid = StageUid {stage_arr->Value(row)},
+                  .block_uid = BlockUid {block_arr->Value(row)},
+              },
+              val_arr->Value(row));
         }
       }
-
-      SPDLOG_DEBUG("ApertureDataCache: loaded {}/{} ({} rows)",
-                   class_name,
-                   element_name,
-                   num_rows);
     }
   }
 
-  spdlog::info("ApertureDataCache: loaded {} entries from {}",
+  // Sort and bulk-construct the flat_map — O(n log n) vs O(n²)
+  std::ranges::sort(
+      entries, [](const auto& a, const auto& b) { return a.first < b.first; });
+  m_data_.insert(std::sorted_unique, entries.begin(), entries.end());
+
+  const auto load_s = std::chrono::duration<double>(
+                          std::chrono::steady_clock::now() - load_start)
+                          .count();
+  spdlog::info("ApertureDataCache: loaded {} entries from {} ({:.2f}s)",
                m_data_.size(),
-               aperture_dir.string());
+               aperture_dir.string(),
+               load_s);
 }
 
 auto ApertureDataCache::lookup(std::string_view class_name,

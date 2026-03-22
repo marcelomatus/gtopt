@@ -13,6 +13,8 @@
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_solver.hpp>
+#include <gtopt/scenario_lp.hpp>
+#include <gtopt/sddp_aperture.hpp>
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_monitor.hpp>
 #include <gtopt/sddp_solver.hpp>
@@ -30,4 +32,5 @@ using namespace gtopt;  // NOLINT(google-build-using-namespace)
 #include "test_sddp_solver.hpp"
 #include "test_sddp_cut_io.hpp"
 #include "test_sddp_monitor.hpp"
+#include "test_sddp_aperture_functions.hpp"
 // clang-format on

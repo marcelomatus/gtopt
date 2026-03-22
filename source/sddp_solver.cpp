@@ -18,7 +18,9 @@
 #include <format>
 #include <ranges>
 #include <span>
+#include <thread>
 #include <utility>
+#include <vector>
 
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/planning_lp.hpp>
@@ -148,7 +150,15 @@ SDDPSolver::SDDPSolver(PlanningLP& planning_lp, SDDPOptions opts) noexcept
             if (dir.empty()) {
               return {};
             }
-            return ApertureDataCache {dir};
+            // Resolve relative aperture directory against input_directory
+            std::filesystem::path dir_path {dir};
+            if (dir_path.is_relative()) {
+              dir_path =
+                  std::filesystem::path {
+                      planning_lp.options().input_directory()}
+                  / dir_path;
+            }
+            return ApertureDataCache {dir_path};
           }())
     , m_label_maker_(planning_lp.options())
 {
@@ -382,6 +392,15 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
                phases.size());
 
   for (auto&& [phase, _ph] : enumerate<PhaseIndex>(phases)) {
+    if (should_stop()) {
+      return std::unexpected(Error {
+          .code = ErrorCode::SolverError,
+          .message = std::format("SDDP forward: cancelled at scene {} phase {}",
+                                 scene_uid(scene),
+                                 phase_uid(phase)),
+      });
+    }
+
     auto& li = planning_lp().system(scene, phase).linear_interface();
     auto& state = phase_states[phase];
 
@@ -423,9 +442,8 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
       li.set_warm_start_solution(state.forward_col_sol, state.forward_row_dual);
     }
 
-    // Solve this phase via the work pool with forward-pass priority
-    auto result = resolve_via_pool(
-        li, effective_opts, make_forward_lp_task_req(iteration, phase));
+    // Solve directly — already running in a pool thread.
+    auto result = li.resolve(effective_opts);
 
     if (!result.has_value() || !li.is_optimal()) {
       // Check for solve timeout: status 1 (abandoned) or 3 (other)
@@ -766,8 +784,7 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
         }
 
         // Re-solve the previous phase with updated cuts or bounds
-        auto r3 = resolve_via_pool(
-            prev_li, opts, make_backward_lp_task_req(iteration, back_phase));
+        auto r3 = prev_li.resolve(opts);
         if (r3.has_value() && prev_li.is_optimal()) {
           break;  // Feasibility restored
         }
@@ -829,8 +846,7 @@ auto SDDPSolver::backward_pass_single_phase(SceneIndex scene,
   // Re-solve source and handle iterative feasibility backpropagation.
   // Feasibility cuts are never shared between scenes — they stay local.
   if (phase > PhaseIndex {0}) {
-    auto r = resolve_via_pool(
-        src_li, opts, make_backward_lp_task_req(iteration, prev_phase));
+    auto r = src_li.resolve(opts);
     if (!r.has_value() || !src_li.is_optimal()) {
       SPDLOG_WARN(
           "SDDP backward: iter {} scene {} phase {} non-optimal after cut "
@@ -872,6 +888,16 @@ auto SDDPSolver::backward_pass(SceneIndex scene,
        std::views::iota(PhaseIndex {1}, PhaseIndex {num_phases})
            | std::views::reverse)
   {
+    if (should_stop()) {
+      return std::unexpected(Error {
+          .code = ErrorCode::SolverError,
+          .message =
+              std::format("SDDP backward: cancelled at scene {} phase {}",
+                          scene_uid(scene),
+                          phase_uid(phase)),
+      });
+    }
+
     auto step_result =
         backward_pass_single_phase(scene, phase, total_cuts, opts, iteration);
     if (!step_result.has_value()) {
@@ -1135,6 +1161,8 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
 
   SPDLOG_INFO("SDDP: initializing solver (no initial solve pass)");
 
+  const auto init_start = std::chrono::steady_clock::now();
+
   const auto& sim = planning_lp().simulation();
   const auto num_scenes = static_cast<Index>(sim.scenes().size());
   const auto num_phases = static_cast<Index>(sim.phases().size());
@@ -1234,17 +1262,32 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
   m_initialized_ = true;
 
   SPDLOG_INFO("SDDP: updating initial LP coefficients for all phases");
-  for (const auto si :
-       std::views::iota(SceneIndex {0}, SceneIndex {num_scenes}))
   {
-    for (const auto pi :
-         std::views::iota(PhaseIndex {0}, PhaseIndex {num_phases}))
+    std::vector<std::jthread> threads;
+    threads.reserve(static_cast<size_t>(num_scenes));
+    for (const auto si :
+         std::views::iota(SceneIndex {0}, SceneIndex {num_scenes}))
     {
-      update_coefficients_for_phase(si, pi, m_iteration_offset_);
+      threads.emplace_back(
+          [this, si, num_phases]()
+          {
+            for (const auto pi :
+                 std::views::iota(PhaseIndex {0}, PhaseIndex {num_phases}))
+            {
+              update_coefficients_for_phase(si, pi, m_iteration_offset_);
+            }
+          });
     }
   }
+  SPDLOG_INFO(
+      "SDDP: initial coefficient update done ({} scene(s) × {} phase(s))",
+      num_scenes,
+      num_phases);
 
-  SPDLOG_INFO("SDDP: initialization complete");
+  const auto init_s = std::chrono::duration<double>(
+                          std::chrono::steady_clock::now() - init_start)
+                          .count();
+  SPDLOG_INFO("SDDP: initialization complete ({:.2f}s)", init_s);
   return {};
 }
 
@@ -1255,6 +1298,8 @@ void SDDPSolver::reset_live_state() noexcept
   m_current_lb_.store(0.0);
   m_current_ub_.store(0.0);
   m_converged_.store(false);
+  m_current_pass_.store(0);
+  m_scenes_done_.store(0);
 }
 
 auto SDDPSolver::run_forward_pass_all_scenes(IterationIndex iter,
@@ -1264,6 +1309,9 @@ auto SDDPSolver::run_forward_pass_all_scenes(IterationIndex iter,
 {
   const auto num_scenes =
       static_cast<Index>(planning_lp().simulation().scenes().size());
+
+  m_current_pass_.store(1);
+  m_scenes_done_.store(0);
 
   const auto fwd_start = std::chrono::steady_clock::now();
   std::vector<std::future<std::expected<double, Error>>> futures;
@@ -1290,15 +1338,22 @@ auto SDDPSolver::run_forward_pass_all_scenes(IterationIndex iter,
       SPDLOG_WARN("SDDP forward: scene {} failed: {}", si, fwd.error().message);
       out.has_feasibility_issue = true;
       out.scene_feasible[static_cast<std::size_t>(si)] = 0;
+      m_scenes_done_.fetch_add(1);
       continue;
     }
     out.scene_upper_bounds[static_cast<std::size_t>(si)] = *fwd;
     ++out.scenes_solved;
+    m_scenes_done_.fetch_add(1);
+    if ((si + 1) % 4 == 0 || si + 1 == num_scenes) {
+      SPDLOG_DEBUG("SDDP forward: {}/{} scenes completed", si + 1, num_scenes);
+    }
   }
 
   out.elapsed_s = std::chrono::duration<double>(std::chrono::steady_clock::now()
                                                 - fwd_start)
                       .count();
+
+  m_current_pass_.store(0);
 
   if (out.scenes_solved == 0) {
     return std::unexpected(Error {
@@ -1325,12 +1380,18 @@ auto SDDPSolver::run_backward_pass_all_scenes(
     bwd_opts.warm_start = true;
   }
 
+  m_current_pass_.store(2);
+  m_scenes_done_.store(0);
+
   // When cut sharing is enabled, use the phase-synchronized backward pass:
   // all scenes complete a phase before cuts are shared and the next phase
   // is processed.  When sharing is disabled (None), scenes run their full
   // backward pass independently in parallel with no synchronization.
   if (m_options_.cut_sharing != CutSharingMode::none) {
-    return run_backward_pass_synchronized(scene_feasible, pool, bwd_opts, iter);
+    auto result =
+        run_backward_pass_synchronized(scene_feasible, pool, bwd_opts, iter);
+    m_current_pass_.store(0);
+    return result;
   }
 
   const auto num_scenes =
@@ -1361,19 +1422,30 @@ auto SDDPSolver::run_backward_pass_all_scenes(
   }
 
   BackwardPassOutcome out;
+  int bwd_done = 0;
+  const auto bwd_total = static_cast<int>(futures.size());
   for (auto& fut : futures) {
     auto bwd = fut.get();
+    ++bwd_done;
     if (!bwd.has_value()) {
       SPDLOG_WARN("SDDP backward: failed: {}", bwd.error().message);
       out.has_feasibility_issue = true;
+      m_scenes_done_.fetch_add(1);
       continue;
     }
     out.total_cuts += *bwd;
+    m_scenes_done_.fetch_add(1);
+    if (bwd_done % 4 == 0 || bwd_done == bwd_total) {
+      SPDLOG_DEBUG(
+          "SDDP backward: {}/{} scenes completed", bwd_done, bwd_total);
+    }
   }
 
   out.elapsed_s = std::chrono::duration<double>(std::chrono::steady_clock::now()
                                                 - bwd_start)
                       .count();
+
+  m_current_pass_.store(0);
   return out;
 }
 
@@ -1447,10 +1519,12 @@ auto SDDPSolver::run_backward_pass_synchronized(
                     phase,
                     step_result.error().message);
         out.has_feasibility_issue = true;
+        m_scenes_done_.fetch_add(1);
         continue;
       }
       out.total_cuts += *step_result;
       per_scene_cut_count[static_cast<std::size_t>(si)] += *step_result;
+      m_scenes_done_.fetch_add(1);
     }
 
     // Share optimality cuts generated in this phase step across all scenes.
@@ -1649,6 +1723,8 @@ void SDDPSolver::maybe_write_api_status(
       .converged = m_converged_.load(),
       .max_iterations = m_options_.max_iterations,
       .min_iterations = m_options_.min_iterations,
+      .current_pass = m_current_pass_.load(),
+      .scenes_done = m_scenes_done_.load(),
   };
   write_sddp_api_status(status_file, results, elapsed, snapshot, monitor);
 }
@@ -1738,6 +1814,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   //  - sddp_pool: SDDPWorkPool with tuple key for main LP solve ordering
   //  - aux_pool:  AdaptiveWorkPool (int64_t key) for BendersCut and
   //               LpDebugWriter (gzip compression)
+  const auto pool_start = std::chrono::steady_clock::now();
   auto sddp_pool = make_sddp_work_pool();
   auto aux_pool = make_solver_work_pool();
   m_pool_ = sddp_pool.get();
@@ -1745,6 +1822,10 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   m_benders_cut_.set_pool(m_aux_pool_);
   m_lp_debug_writer_ = LpDebugWriter(
       m_options_.log_directory, m_options_.lp_debug_compression, m_aux_pool_);
+  const auto pool_create_s = std::chrono::duration<double>(
+                                 std::chrono::steady_clock::now() - pool_start)
+                                 .count();
+  SPDLOG_INFO("SDDP: work pools created ({:.2f}s)", pool_create_s);
 
   reset_live_state();
 
@@ -1831,10 +1912,12 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     results.push_back(ir);
 
     SPDLOG_INFO(
-        "SDDP: iter {} done in {:.3f}s — UB={:.4f} LB={:.4f} "
-        "gap={:.6f} cuts={} infeas_cuts={} {}",
+        "SDDP: iter {} done in {:.3f}s (fwd {:.2f}s + bwd {:.2f}s) — "
+        "UB={:.4f} LB={:.4f} gap={:.6f} cuts={} infeas_cuts={} {}",
         iter,
         ir.iteration_s,
+        ir.forward_pass_s,
+        ir.backward_pass_s,
         ir.upper_bound,
         ir.lower_bound,
         ir.gap,
@@ -1958,24 +2041,17 @@ auto SDDPPlanningSolver::solve(PlanningLP& planning_lp,
 
 // ── Helper: build the ApertureSubmitFunc callback ───────────────────────────
 
-auto SDDPSolver::make_aperture_submit_fn(IterationIndex iteration,
-                                         PhaseIndex phase) -> ApertureSubmitFunc
+auto SDDPSolver::make_aperture_submit_fn(IterationIndex /*iteration*/,
+                                         PhaseIndex /*phase*/)
+    -> ApertureSubmitFunc
 {
-  return
-      [this, iteration, phase](const std::function<ApertureCutResult()>& task)
-          -> std::future<ApertureCutResult>
+  // Run aperture tasks synchronously — the caller is already running
+  // in a pool thread (one per scene).  Submitting to the same pool
+  // would block the thread waiting for sub-tasks, causing starvation
+  // when all scene threads are occupied.
+  return [](const std::function<ApertureCutResult()>& task)
+             -> std::future<ApertureCutResult>
   {
-    if (m_pool_ != nullptr) {
-      SDDPWorkPool::Requirements req;
-      req.priority = TaskPriority::High;
-      req.priority_key = make_sddp_task_key(
-          iteration, SDDPPassDirection::backward, phase, SDDPTaskKind::lp);
-      if (auto fut = m_pool_->submit(task, req)) {
-        return std::move(*fut);
-      }
-      // submit copied task but rejected it — fall through to sync
-    }
-    // Fallback: run synchronously via a ready future
     std::promise<ApertureCutResult> p;
     p.set_value(task());
     return p.get_future();
@@ -2054,8 +2130,7 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
                  fallback_cut.lowb);
 
     if (src_phase > PhaseIndex {0}) {
-      auto r = resolve_via_pool(
-          src_li, opts, make_backward_lp_task_req(iteration, src_phase));
+      auto r = src_li.resolve(opts);
       if (!r.has_value() || !src_li.is_optimal()) {
         SPDLOG_WARN(
             "SDDP backward: iter {} scene {} phase {} non-optimal after "
@@ -2082,8 +2157,7 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
   // Re-solve source phase after adding the cut to propagate feasibility.
   // Feasibility cuts are never shared between scenes.
   if (src_phase > PhaseIndex {0}) {
-    auto r = resolve_via_pool(
-        src_li, opts, make_backward_lp_task_req(iteration, src_phase));
+    auto r = src_li.resolve(opts);
     if (!r.has_value() || !src_li.is_optimal()) {
       SPDLOG_WARN(
           "SDDP backward: iter {} scene {} phase {} non-optimal after "
@@ -2214,6 +2288,16 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
        std::views::iota(PhaseIndex {1}, PhaseIndex {num_phases})
            | std::views::reverse)
   {
+    if (should_stop()) {
+      return std::unexpected(Error {
+          .code = ErrorCode::SolverError,
+          .message = std::format(
+              "SDDP backward (apertures): cancelled at scene {} phase {}",
+              scene_uid(scene),
+              phase_uid(phase)),
+      });
+    }
+
     const auto src_phase = phase - PhaseIndex {1};
     auto& src_li = planning_lp().system(scene, src_phase).linear_interface();
     const auto& src_state = phase_states[src_phase];
@@ -2271,8 +2355,7 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
           fallback_cut.lowb);
 
       if (src_phase > PhaseIndex {0}) {
-        auto r = resolve_via_pool(
-            src_li, opts, make_backward_lp_task_req(iteration, src_phase));
+        auto r = src_li.resolve(opts);
         if (!r.has_value() || !src_li.is_optimal()) {
           SPDLOG_WARN(
               "SDDP backward: iter {} scene {} phase {} non-optimal "
@@ -2300,8 +2383,7 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
     // Re-solve source phase after adding the cut to propagate
     // feasibility.
     if (src_phase > PhaseIndex {0}) {
-      auto r = resolve_via_pool(
-          src_li, opts, make_backward_lp_task_req(iteration, src_phase));
+      auto r = src_li.resolve(opts);
       if (!r.has_value() || !src_li.is_optimal()) {
         SPDLOG_WARN(
             "SDDP backward: iter {} scene {} phase {} non-optimal "
