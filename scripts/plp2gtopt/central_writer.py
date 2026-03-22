@@ -76,13 +76,6 @@ class CentralWriter(BaseWriter):
         input_dir = self.options.get("input_dir", "") if self.options else ""
         centipo_overrides = load_centipo_csv(input_dir) if input_dir else {}
 
-        # Build the effective set of mance (profile) centrals for the
-        # cost+profile heuristic.
-        mance_names: set[str] = set()
-        if self.mance_parser and hasattr(self.mance_parser, "items"):
-            for mitem in self.mance_parser.items:
-                mance_names.add(mitem.get("name", ""))
-
         json_centrals: List[Generator] = []
         for central in items:
             central_name = central["name"]
@@ -123,19 +116,11 @@ class CentralWriter(BaseWriter):
             auto_detect_tech = (
                 self.options.get("auto_detect_tech", True) if self.options else True
             )
-            # Pass cost and profile info for the heuristic
-            variable_cost = central.get("gcost")
-            if not isinstance(variable_cost, (int, float)):
-                variable_cost = None
-            has_profile = central_name in mance_names
-
             gen_type = detect_technology(
                 plp_type,
                 central_name,
                 overrides=effective_overrides,
                 auto_detect=auto_detect_tech,
-                variable_cost=variable_cost,
-                has_profile=has_profile,
             )
 
             generator: Generator = {
