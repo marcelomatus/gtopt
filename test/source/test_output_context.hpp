@@ -448,7 +448,10 @@ std::string zstd_decompress_to_string(const std::filesystem::path& zst_path)
   ZSTD_inBuffer input {.src = compressed.data(), .size = file_size, .pos = 0};
   while (input.pos < input.size) {
     ZSTD_outBuffer output {
-        .dst = out_buf.data(), .size = kOutBufSize, .pos = 0};
+        .dst = out_buf.data(),
+        .size = kOutBufSize,
+        .pos = 0,
+    };
     const auto ret = ZSTD_decompressStream(dctx.get(), &output, &input);
     if (ZSTD_isError(ret) != 0U) {
       return {};

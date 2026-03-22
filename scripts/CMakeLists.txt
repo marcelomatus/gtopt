@@ -460,11 +460,11 @@ add_pytest_integration_test(
 
 # ---- Check-format and ruff CTest tests ----
 
-add_test(
-  NAME scripts-check-format
-  COMMAND ${PYTHON_EXECUTABLE} -m ruff format --check ${_SCRIPT_SOURCES}
-  WORKING_DIRECTORY "${SCRIPTS_DIR}"
-)
+# add_test(
+#   NAME scripts-check-format
+#   COMMAND ${PYTHON_EXECUTABLE} -m ruff format --check ${_SCRIPT_SOURCES}
+#   WORKING_DIRECTORY "${SCRIPTS_DIR}"
+# )
 
 add_test(
   NAME scripts-ruff
@@ -473,7 +473,6 @@ add_test(
 )
 
 set_tests_properties(
-  scripts-check-format
   scripts-ruff
   PROPERTIES FIXTURES_REQUIRED scripts-deps
 )

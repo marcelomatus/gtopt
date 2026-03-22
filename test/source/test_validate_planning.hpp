@@ -71,7 +71,7 @@ TEST_CASE("validate_planning - empty stage_array is an error")  // NOLINT
 TEST_CASE(
     "validate_planning - all empty arrays reports multiple errors")  // NOLINT
 {
-  Planning p;
+  const Planning p;
   auto result = validate_planning(p);
   CHECK_FALSE(result.ok());
   CHECK(result.errors.size() >= 3);

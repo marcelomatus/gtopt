@@ -992,11 +992,13 @@ TEST_CASE(  // NOLINT
 
   const auto col1 =
       lp.add_col({.name = "x1", .lowb = 0.0, .uppb = 10.0, .cost = 1.0});
-  const auto col2 = lp.add_col({.name = "x2",
-                                .lowb = 0.0,
-                                .uppb = 10.0,
-                                .cost = 2.0,
-                                .is_integer = true});
+  const auto col2 = lp.add_col({
+      .name = "x2",
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 2.0,
+      .is_integer = true,
+  });
 
   auto row1 = lp.add_row({.name = "c1", .uppb = 8.0});
   lp.set_coeff(row1, col1, 1.0);

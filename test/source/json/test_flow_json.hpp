@@ -23,7 +23,7 @@ TEST_CASE("Flow JSON basic parsing")
   REQUIRE(flow.direction.has_value());
   CHECK(flow.direction.value_or(0) == 1);
   REQUIRE(flow.junction.has_value());
-  CHECK(std::get<Uid>(flow.junction.value()) == 10);
+  CHECK((flow.junction && std::get<Uid>(*flow.junction) == 10));
   CHECK(std::get<Real>(flow.discharge) == doctest::Approx(25.5));
 }
 
@@ -62,7 +62,7 @@ TEST_CASE("Flow JSON round-trip serialization")
   REQUIRE(roundtrip.direction.has_value());
   CHECK(roundtrip.direction.value_or(0) == -1);
   REQUIRE(roundtrip.junction.has_value());
-  CHECK(std::get<Uid>(roundtrip.junction.value()) == 3);
+  CHECK((roundtrip.junction && std::get<Uid>(*roundtrip.junction) == 3));
   CHECK(std::get<Real>(roundtrip.discharge) == doctest::Approx(42.0));
 }
 

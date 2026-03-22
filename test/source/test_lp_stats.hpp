@@ -141,7 +141,7 @@ TEST_CASE("ScenePhaseLPStats quality_label")  // NOLINT
 
   SUBCASE("default stats - ratio 1.0 is excellent")
   {
-    ScenePhaseLPStats stats;
+    const ScenePhaseLPStats stats;
     CHECK(std::string_view(stats.quality_label()) == "excellent");
   }
 }
@@ -149,7 +149,7 @@ TEST_CASE("ScenePhaseLPStats quality_label")  // NOLINT
 TEST_CASE("log_lp_stats_summary - empty entries")  // NOLINT
 {
   // Should not crash with empty input
-  std::vector<ScenePhaseLPStats> empty;
+  const std::vector<ScenePhaseLPStats> empty;
   log_lp_stats_summary(empty);
 }
 

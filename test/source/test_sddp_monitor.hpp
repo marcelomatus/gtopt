@@ -142,13 +142,13 @@ TEST_CASE("write_sddp_api_status produces valid JSON")  // NOLINT
   });
 
   // Default-constructed SolverMonitor (no background thread started)
-  SolverMonitor monitor;
+  const SolverMonitor monitor;
 
   write_sddp_api_status(tmp_file, results, 2.5, snap, monitor);
   CHECK(std::filesystem::exists(tmp_file));
 
   // Read the file content
-  std::ifstream ifs(tmp_file);
+  const std::ifstream ifs(tmp_file);
   std::ostringstream oss;
   oss << ifs.rdbuf();
   const auto content = oss.str();
@@ -189,12 +189,12 @@ TEST_CASE("write_sddp_api_status handles empty results")  // NOLINT
   };
 
   const std::vector<SDDPIterationResult> results;
-  SolverMonitor monitor;
+  const SolverMonitor monitor;
 
   write_sddp_api_status(tmp_file, results, 0.0, snap, monitor);
   CHECK(std::filesystem::exists(tmp_file));
 
-  std::ifstream ifs(tmp_file);
+  const std::ifstream ifs(tmp_file);
   std::ostringstream oss;
   oss << ifs.rdbuf();
   const auto content = oss.str();
@@ -225,11 +225,11 @@ TEST_CASE(
   };
 
   const std::vector<SDDPIterationResult> results;
-  SolverMonitor monitor;
+  const SolverMonitor monitor;
 
   write_sddp_api_status(tmp_file, results, 5.0, snap, monitor);
 
-  std::ifstream ifs(tmp_file);
+  const std::ifstream ifs(tmp_file);
   std::ostringstream oss;
   oss << ifs.rdbuf();
   const auto content = oss.str();
