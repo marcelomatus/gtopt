@@ -227,6 +227,13 @@ struct SddpOptions
   /// Dual threshold for inactive cut detection.  Default: 1e-8.
   OptReal prune_dual_threshold {};
 
+  /// Use single cut storage: store in per-scene vectors only.  Default: false.
+  OptBool single_cut_storage {};
+  /// Maximum total stored cuts per scene (0 = unlimited).  Default: 0.
+  OptInt max_stored_cuts {};
+  /// Reuse cached LP clones for aperture solves.  Default: true.
+  OptBool use_clone_pool {};
+
   void merge(SddpOptions&& opts)
   {
     merge_opt(cut_sharing_mode, std::move(opts.cut_sharing_mode));
@@ -259,6 +266,9 @@ struct SddpOptions
     merge_opt(max_cuts_per_phase, opts.max_cuts_per_phase);
     merge_opt(cut_prune_interval, opts.cut_prune_interval);
     merge_opt(prune_dual_threshold, opts.prune_dual_threshold);
+    merge_opt(single_cut_storage, opts.single_cut_storage);
+    merge_opt(max_stored_cuts, opts.max_stored_cuts);
+    merge_opt(use_clone_pool, opts.use_clone_pool);
 
     auto _ = std::move(opts);
   }

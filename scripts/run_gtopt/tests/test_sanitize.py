@@ -321,6 +321,17 @@ def test_fix_sddp_aperture_timeout_negative(tmp_path: Path):
     assert data["options"]["sddp_options"]["aperture_timeout"] == 0
 
 
+def test_fix_negative_max_stored_cuts(tmp_path: Path):
+    """Negative max_stored_cuts is fixed to 0."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"sddp_options": {"max_stored_cuts": -3}},
+    )
+    result = sanitize_json(p)
+    data = json.loads(result.read_text())
+    assert data["options"]["sddp_options"]["max_stored_cuts"] == 0
+
+
 def test_output_directory_override(tmp_path: Path):
     """output_directory is overridden when provided."""
     p = _write_plan(tmp_path / "plan.json", {"output_directory": "old"})

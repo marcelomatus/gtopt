@@ -204,6 +204,11 @@ def _validate_sddp_options(sddp: dict, messages: list[str]) -> None:
         messages.append("FIX: sddp prune_dual_threshold must be > 0, setting to 1e-8")
         sddp["prune_dual_threshold"] = 1e-8
 
+    max_stored = sddp.get("max_stored_cuts")
+    if max_stored is not None and max_stored < 0:
+        messages.append("FIX: sddp max_stored_cuts must be >= 0, setting to 0")
+        sddp["max_stored_cuts"] = 0
+
 
 # ---------------------------------------------------------------------------
 # Public API

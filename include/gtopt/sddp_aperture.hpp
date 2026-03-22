@@ -184,6 +184,7 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
     bool save_aperture_lp = false,
     const ApertureDataCache& aperture_cache = {},
     std::span<const double> forward_col_sol = {},
-    std::span<const double> forward_row_dual = {}) -> std::optional<SparseRow>;
+    std::span<const double> forward_row_dual = {},
+    LinearInterface* pooled_clone = nullptr) -> std::optional<SparseRow>;
 
 }  // namespace gtopt

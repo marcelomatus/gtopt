@@ -715,6 +715,24 @@ public:
     return m_options_.sddp_options.prune_dual_threshold.value_or(1e-8);
   }
 
+  /// Use single cut storage (per-scene only).  Default: false.
+  [[nodiscard]] constexpr auto sddp_single_cut_storage() const
+  {
+    return m_options_.sddp_options.single_cut_storage.value_or(false);
+  }
+
+  /// Maximum stored cuts per scene.  Default: 0 (unlimited).
+  [[nodiscard]] constexpr auto sddp_max_stored_cuts() const
+  {
+    return m_options_.sddp_options.max_stored_cuts.value_or(0);
+  }
+
+  /// Reuse cached LP clones for aperture solves.  Default: true.
+  [[nodiscard]] constexpr auto sddp_use_clone_pool() const
+  {
+    return m_options_.sddp_options.use_clone_pool.value_or(true);
+  }
+
   // ── Enum-typed accessors ──────────────────────────────────────────────────
   // These return proper enum types, converting from the underlying OptName
   // string fields.  Use these in preference to the string-returning
