@@ -82,14 +82,14 @@ TEST_CASE("build_phase_uid_map produces correct mapping")  // NOLINT
 
   // 3-phase planning has UIDs 1, 2, 3
   REQUIRE(phase_map.size() == 3);
-  CHECK(phase_map.contains(1));
-  CHECK(phase_map.contains(2));
-  CHECK(phase_map.contains(3));
+  CHECK(phase_map.contains(PhaseUid {1}));
+  CHECK(phase_map.contains(PhaseUid {2}));
+  CHECK(phase_map.contains(PhaseUid {3}));
 
   // Verify the indices map correctly
-  CHECK(phase_map.at(1) == PhaseIndex {0});
-  CHECK(phase_map.at(2) == PhaseIndex {1});
-  CHECK(phase_map.at(3) == PhaseIndex {2});
+  CHECK(phase_map.at(PhaseUid {1}) == PhaseIndex {0});
+  CHECK(phase_map.at(PhaseUid {2}) == PhaseIndex {1});
+  CHECK(phase_map.at(PhaseUid {3}) == PhaseIndex {2});
 }
 
 TEST_CASE("build_phase_uid_map with single-phase planning")  // NOLINT
@@ -193,8 +193,8 @@ TEST_CASE(
   // Create a StoredCut with a phase UID that does not exist
   std::vector<StoredCut> cuts = {
       StoredCut {
-          .phase = 999,
-          .scene = 1,
+          .phase = PhaseUid {999},
+          .scene = SceneUid {1},
           .name = "bad_phase_cut",
           .rhs = 42.0,
           .coefficients =
@@ -1045,8 +1045,8 @@ TEST_CASE(
   auto states = make_scene_phase_states(planning_lp);
 
   // Before loading, alpha_col should be unknown
-  const auto last_phase = PhaseIndex {
-      static_cast<Index>(planning_lp.simulation().phases().size()) - 1};
+  const auto last_phase =
+      PhaseIndex {planning_lp.simulation().phases().size() - 1};
   CHECK(states[SceneIndex {0}][last_phase].alpha_col
         == ColIndex {unknown_index});
 

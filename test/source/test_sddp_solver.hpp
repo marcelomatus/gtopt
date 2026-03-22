@@ -475,7 +475,7 @@ TEST_CASE("SDDPSolver - 3-phase hydro+thermal converges")  // NOLINT
 
   const auto& first = results->front();
   const auto& last = results->back();
-  CHECK(first.iteration == 1);
+  CHECK(first.iteration == IterationIndex {0});
   CHECK(last.upper_bound > 0.0);
   CHECK(last.lower_bound > 0.0);
   // Allow a tiny negative gap from floating-point rounding when LB ≈ UB at
@@ -1575,7 +1575,8 @@ TEST_CASE("SDDPSolver API - iteration callback")  // NOLINT
   CHECK(results->size() <= 3);
   // Iteration numbers should be sequential
   for (size_t i = 0; i < callback_results.size(); ++i) {
-    CHECK(callback_results[i].iteration == static_cast<int>(i + 1));
+    CHECK(callback_results[i].iteration
+          == IterationIndex {static_cast<int>(i)});
   }
 }
 
@@ -1641,8 +1642,8 @@ TEST_CASE("SDDPSolver API - live query atomics")  // NOLINT
   auto results = sddp.solve();
   REQUIRE(results.has_value());
 
-  // After solving, live-query should reflect final state
-  CHECK(sddp.current_iteration() == static_cast<int>(results->size()));
+  // After solving, live-query should reflect final state (0-based iteration)
+  CHECK(sddp.current_iteration() == static_cast<int>(results->size() - 1));
   CHECK(sddp.current_gap() == doctest::Approx(results->back().gap));
   if (results->back().converged) {
     CHECK(sddp.has_converged());

@@ -20,7 +20,6 @@
 #include <span>
 #include <utility>
 
-#include <gtopt/check_lp.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_aperture.hpp>
@@ -119,15 +118,18 @@ double compute_convergence_gap(double upper_bound, double lower_bound) noexcept
 namespace
 {
 
-/// Format a vector of ints as a comma-separated string.
-[[nodiscard]] std::string join_ints(std::span<const int> values)
+/// Format a range of formattable values as a comma-separated string.
+template<typename Range>
+[[nodiscard]] std::string join_values(const Range& values)
 {
   std::string result;
-  for (std::size_t i = 0; i < values.size(); ++i) {
-    if (i > 0) {
+  bool first = true;
+  for (const auto& v : values) {
+    if (!first) {
       result += ", ";
     }
-    result += std::to_string(values[i]);
+    result += std::format("{}", v);
+    first = false;
   }
   return result;
 }
@@ -163,7 +165,7 @@ void SDDPSolver::initialize_alpha_variables(SceneIndex scene)
 
   // Add α (future-cost) variable to every phase except the last
   for (auto&& [pi, _phase] : enumerate<PhaseIndex>(phases)) {
-    if (pi == PhaseIndex {static_cast<Index>(phases.size()) - 1}) {
+    if (pi == PhaseIndex {phases.size() - 1}) {
       break;
     }
     auto& state = phase_states[pi];
@@ -176,7 +178,7 @@ void SDDPSolver::initialize_alpha_variables(SceneIndex scene)
   }
 
   // Last phase: no future cost
-  phase_states[PhaseIndex {static_cast<Index>(phases.size()) - 1}].alpha_col =
+  phase_states[PhaseIndex {phases.size() - 1}].alpha_col =
       ColIndex {unknown_index};
 }
 
@@ -195,7 +197,7 @@ void SDDPSolver::collect_state_variable_links(SceneIndex scene)
     const auto col_lo = src_li.get_col_low();
     const auto col_hi = src_li.get_col_upp();
 
-    const auto next_phase = PhaseIndex {static_cast<Index>(phase) + 1};
+    const auto next_phase = phase + PhaseIndex {1};
 
     for (const auto& [key, svar] : sim.state_variables(scene, phase)) {
       for (const auto& dep : svar.dependent_variables()) {
@@ -231,7 +233,7 @@ std::optional<SDDPSolver::ElasticResult> SDDPSolver::elastic_solve(
   }
 
   const auto& li = planning_lp().system(scene, phase).linear_interface();
-  const auto prev = PhaseIndex {static_cast<Index>(phase) - 1};
+  const auto prev = phase - PhaseIndex {1};
   const auto& prev_state = m_scene_phase_states_[scene][prev];
 
   // Delegate to BendersCut member (uses work pool when set).
@@ -332,13 +334,8 @@ BasicTaskRequirements<SDDPTaskKey> make_forward_lp_task_req(
 {
   return BasicTaskRequirements<SDDPTaskKey> {
       .priority = TaskPriority::Medium,
-      .priority_key =
-          SDDPTaskKey {
-              iteration,
-              kSDDPKeyForward,
-              static_cast<int>(phase),
-              kSDDPKeyIsLP,
-          },
+      .priority_key = make_sddp_task_key(
+          iteration, SDDPPassDirection::forward, phase, SDDPTaskKind::lp),
       .name = {},
   };
 }
@@ -348,13 +345,8 @@ BasicTaskRequirements<SDDPTaskKey> make_backward_lp_task_req(
 {
   return BasicTaskRequirements<SDDPTaskKey> {
       .priority = TaskPriority::Medium,
-      .priority_key =
-          SDDPTaskKey {
-              iteration,
-              kSDDPKeyBackward,
-              static_cast<int>(phase),
-              kSDDPKeyIsLP,
-          },
+      .priority_key = make_sddp_task_key(
+          iteration, SDDPPassDirection::backward, phase, SDDPTaskKind::lp),
       .name = {},
   };
 }
@@ -380,7 +372,7 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
   // solver pivots from that basis instead of re-solving from scratch with
   // barrier.  This is especially important when barrier is the default algo:
   // barrier ignores the existing basis entirely.
-  if (iteration > 1 && m_options_.warm_start) {
+  if (iteration > IterationIndex {0} && m_options_.warm_start) {
     effective_opts.warm_start = true;
   }
 
@@ -395,7 +387,7 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
 
     // Propagate state variables from previous phase
     if (phase != PhaseIndex {0}) {
-      const auto prev = PhaseIndex {static_cast<Index>(phase) - 1};
+      const auto prev = phase - PhaseIndex {1};
       auto& prev_st = phase_states[prev];
       const auto& prev_sol =
           planning_lp().system(scene, prev).linear_interface().get_col_sol();
@@ -547,15 +539,7 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
                   .string();
           li.write_lp(err_file);
           spdlog::warn("SDDP: saved infeasible LP to {}.lp", err_file);
-          // Run gtopt_check_lp static analysis and log the diagnostic.
-          // Pass the full SolverOptions so the diagnostic uses the same
-          // algorithm and tolerance settings as the gtopt solver.
-          if (const auto diag = run_check_lp_diagnostic(
-                  err_file, /*timeout_seconds=*/10, opts);
-              !diag.empty())
-          {
-            log_diagnostic_lines("error", err_file + ".lp", diag);
-          }
+          // LP diagnostic analysis is performed by run_gtopt after exit.
         }
         return std::unexpected(Error {
             .code = ErrorCode::SolverError,
@@ -691,28 +675,23 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
   int cuts_added = 0;
 
   // Iterate backward from start_phase to phase 0
-  const auto end_phase = static_cast<Index>(start_phase) + 1;
-  for (const auto back_pi :
-       std::views::iota(Index {0}, end_phase) | std::views::reverse)
-  {
-    const auto back_phase = PhaseIndex {back_pi};
-
-    if (back_pi > 0) {
+  for (auto back_phase = start_phase;; --back_phase) {
+    if (back_phase > PhaseIndex {0}) {
       SPDLOG_WARN(
           "SDDP backward: scene {} phase {} infeasible after "
           "cut, backpropagating to phase {}",
           scene,
           back_phase,
-          back_pi - 1);
+          back_phase - PhaseIndex {1});
     }
 
     // Clone the LP, apply elastic filter, solve the clone.
     // The original LP is never modified by the elastic filter.
     auto elastic_result = elastic_solve(scene, back_phase, opts);
     if (elastic_result.has_value()) {
-      if (back_pi > 0) {
+      if (back_phase > PhaseIndex {0}) {
         // Build a feasibility-like cut for the previous phase
-        const auto prev_bp = PhaseIndex {back_pi - 1};
+        const auto prev_bp = back_phase - PhaseIndex {1};
         auto& prev_li = planning_lp().system(scene, prev_bp).linear_interface();
         const auto& prev_state = phase_states[prev_bp];
 
@@ -747,7 +726,7 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
                                 sddp_label("sddp",
                                            "fcut",
                                            scene,
-                                           back_pi,
+                                           back_phase,
                                            iteration,
                                            total_cuts + cuts_added));
 
@@ -774,7 +753,7 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
                                  sddp_label("sddp",
                                             "mcut",
                                             scene,
-                                            back_pi,
+                                            back_phase,
                                             iteration,
                                             total_cuts + cuts_added));
 
@@ -788,9 +767,7 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
 
         // Re-solve the previous phase with updated cuts or bounds
         auto r3 = resolve_via_pool(
-            prev_li,
-            opts,
-            make_backward_lp_task_req(iteration, PhaseIndex {back_pi}));
+            prev_li, opts, make_backward_lp_task_req(iteration, back_phase));
         if (r3.has_value() && prev_li.is_optimal()) {
           break;  // Feasibility restored
         }
@@ -798,7 +775,7 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
       } else {
         break;  // Restored at phase 0
       }
-    } else if (back_pi == 0) {
+    } else if (back_phase == PhaseIndex {0}) {
       // Phase 0 with no elastic filter available = scene infeasible
       return std::unexpected(Error {
           .code = ErrorCode::SolverError,
@@ -825,8 +802,7 @@ auto SDDPSolver::backward_pass_single_phase(SceneIndex scene,
   auto& phase_states = m_scene_phase_states_[scene];
   int cuts_added = 0;
 
-  const auto pi = static_cast<Index>(phase);
-  const auto prev_phase = PhaseIndex {pi - 1};
+  const auto prev_phase = phase - PhaseIndex {1};
   auto& src_li = planning_lp().system(scene, prev_phase).linear_interface();
   const auto& src_state = phase_states[prev_phase];
 
@@ -847,12 +823,12 @@ auto SDDPSolver::backward_pass_single_phase(SceneIndex scene,
 
   SPDLOG_TRACE("SDDP backward: scene {} cut for phase {} rhs={:.4f}",
                scene_uid(scene),
-               phase_uid(src_phase),
+               phase_uid(prev_phase),
                cut.lowb);
 
   // Re-solve source and handle iterative feasibility backpropagation.
   // Feasibility cuts are never shared between scenes — they stay local.
-  if (pi > 0) {
+  if (phase > PhaseIndex {0}) {
     auto r = resolve_via_pool(
         src_li, opts, make_backward_lp_task_req(iteration, prev_phase));
     if (!r.has_value() || !src_li.is_optimal()) {
@@ -892,9 +868,12 @@ auto SDDPSolver::backward_pass(SceneIndex scene,
                num_phases);
 
   // Iterate backward from last phase to phase 1
-  for (const auto pi : std::views::iota(1, num_phases) | std::views::reverse) {
-    auto step_result = backward_pass_single_phase(
-        scene, PhaseIndex {pi}, total_cuts, opts, iteration);
+  for (const auto phase :
+       std::views::iota(PhaseIndex {1}, PhaseIndex {num_phases})
+           | std::views::reverse)
+  {
+    auto step_result =
+        backward_pass_single_phase(scene, phase, total_cuts, opts, iteration);
     if (!step_result.has_value()) {
       return std::unexpected(std::move(step_result.error()));
     }
@@ -1255,10 +1234,13 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
   m_initialized_ = true;
 
   SPDLOG_INFO("SDDP: updating initial LP coefficients for all phases");
-  for (Index si = 0; si < num_scenes; ++si) {
-    for (Index pi = 0; pi < num_phases; ++pi) {
-      update_coefficients_for_phase(
-          SceneIndex {si}, PhaseIndex {pi}, IterationIndex {});
+  for (const auto si :
+       std::views::iota(SceneIndex {0}, SceneIndex {num_scenes}))
+  {
+    for (const auto pi :
+         std::views::iota(PhaseIndex {0}, PhaseIndex {num_phases}))
+    {
+      update_coefficients_for_phase(si, pi, m_iteration_offset_);
     }
   }
 
@@ -1418,8 +1400,10 @@ auto SDDPSolver::run_backward_pass_synchronized(
 
   // Process phases backward: all scenes complete one phase before
   // sharing cuts and moving to the previous phase.
-  for (const auto pi : std::views::iota(1, num_phases) | std::views::reverse) {
-    const auto phase = PhaseIndex {pi};
+  for (const auto phase :
+       std::views::iota(PhaseIndex {1}, PhaseIndex {num_phases})
+           | std::views::reverse)
+  {
     const auto cuts_before_step = m_stored_cuts_.size();
 
     // Submit all feasible scenes for this phase step in parallel
@@ -1427,7 +1411,7 @@ auto SDDPSolver::run_backward_pass_synchronized(
         futures;
     futures.reserve(num_scenes);
 
-    const auto bwd_req = make_backward_lp_task_req(iter, PhaseIndex {pi});
+    const auto bwd_req = make_backward_lp_task_req(iter, phase);
 
     for (Index si = 0; si < num_scenes; ++si) {
       if (scene_feasible[static_cast<std::size_t>(si)] == 0U) {
@@ -1460,7 +1444,7 @@ auto SDDPSolver::run_backward_pass_synchronized(
       if (!step_result.has_value()) {
         SPDLOG_WARN("SDDP backward synchronized: scene {} phase {} failed: {}",
                     si,
-                    pi,
+                    phase,
                     step_result.error().message);
         out.has_feasibility_issue = true;
         continue;
@@ -1471,10 +1455,17 @@ auto SDDPSolver::run_backward_pass_synchronized(
 
     // Share optimality cuts generated in this phase step across all scenes.
     // Feasibility cuts are stored but only optimality cuts are shared.
-    const auto src_phase = PhaseIndex {pi - 1};
+    const auto src_phase = phase - PhaseIndex {1};
 
     StrongIndexVector<SceneIndex, std::vector<SparseRow>> scene_cuts;
     scene_cuts.resize(num_scenes);
+
+    // Build scene UID → SceneIndex lookup for cut sharing
+    flat_map<SceneUid, SceneIndex> scene_uid_map;
+    const auto& scenes = planning_lp().simulation().scenes();
+    for (auto&& [si, sc_lp] : enumerate<SceneIndex>(scenes)) {
+      scene_uid_map[sc_lp.uid()] = si;
+    }
 
     {
       const std::scoped_lock lock(m_cuts_mutex_);
@@ -1485,7 +1476,7 @@ auto SDDPSolver::run_backward_pass_synchronized(
         if (sc.type != CutType::Optimality) {
           continue;
         }
-        if (sc.phase != static_cast<int>(src_phase)) {
+        if (sc.phase != phase_uid(src_phase)) {
           continue;
         }
         auto row = SparseRow {
@@ -1496,8 +1487,9 @@ auto SDDPSolver::run_backward_pass_synchronized(
         for (const auto& [col, coeff] : sc.coefficients) {
           row[ColIndex {col}] = coeff;
         }
-        if (sc.scene >= 0 && sc.scene < num_scenes) {
-          scene_cuts[SceneIndex {sc.scene}].push_back(std::move(row));
+        auto sit = scene_uid_map.find(sc.scene);
+        if (sit != scene_uid_map.end()) {
+          scene_cuts[sit->second].push_back(std::move(row));
         }
       }
     }
@@ -1559,17 +1551,27 @@ void SDDPSolver::apply_cut_sharing_for_iteration(std::size_t cuts_before,
     return;
   }
 
-  for (Index pi = 0; pi < num_phases - 1; ++pi) {
+  // Build scene UID → SceneIndex lookup
+  flat_map<SceneUid, SceneIndex> scene_uid_map;
+  const auto& scenes = planning_lp().simulation().scenes();
+  for (auto&& [si, sc_lp] : enumerate<SceneIndex>(scenes)) {
+    scene_uid_map[sc_lp.uid()] = si;
+  }
+
+  for (const auto pi :
+       std::views::iota(PhaseIndex {0}, PhaseIndex {num_phases - 1}))
+  {
     StrongIndexVector<SceneIndex, std::vector<SparseRow>> scene_cuts;
     scene_cuts.resize(num_scenes);
 
+    const auto pi_uid = phase_uid(pi);
     for (std::size_t ci = cuts_before; ci < m_stored_cuts_.size(); ++ci) {
       const auto& sc = m_stored_cuts_[ci];
       // Only share optimality cuts; feasibility cuts stay local
       if (sc.type != CutType::Optimality) {
         continue;
       }
-      if (sc.phase != static_cast<int>(pi)) {
+      if (sc.phase != pi_uid) {
         continue;
       }
       auto row = SparseRow {
@@ -1580,12 +1582,13 @@ void SDDPSolver::apply_cut_sharing_for_iteration(std::size_t cuts_before,
       for (const auto& [col, coeff] : sc.coefficients) {
         row[ColIndex {col}] = coeff;
       }
-      if (sc.scene >= 0 && sc.scene < num_scenes) {
-        scene_cuts[SceneIndex {sc.scene}].push_back(std::move(row));
+      auto sit = scene_uid_map.find(sc.scene);
+      if (sit != scene_uid_map.end()) {
+        scene_cuts[sit->second].push_back(std::move(row));
       }
     }
 
-    share_cuts_for_phase(PhaseIndex {pi}, scene_cuts, iteration);
+    share_cuts_for_phase(pi, scene_cuts, iteration);
   }
 }
 
@@ -1596,8 +1599,8 @@ void SDDPSolver::finalize_iteration_result(SDDPIterationResult& ir,
   // Only declare convergence if both the gap tolerance is met AND
   // we have completed at least min_iterations (default 2).
   ir.converged = (ir.gap < m_options_.convergence_tol)
-      && (iter
-          >= m_iteration_offset_ + IterationIndex {m_options_.min_iterations});
+      && (iter >= m_iteration_offset_
+              + IterationIndex {m_options_.min_iterations - 1});
 
   m_current_iteration_.store(iter);
   m_current_gap_.store(ir.gap);
@@ -1756,19 +1759,18 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   std::vector<SDDPIterationResult> results;
   results.reserve(m_options_.max_iterations);
 
-  const auto iter_start_val = m_iteration_offset_ + IterationIndex {1};
-  const auto iter_end_val =
-      m_iteration_offset_ + IterationIndex {m_options_.max_iterations};
-  for (auto iter = iter_start_val; iter <= iter_end_val; ++iter) {
+  const auto iter_last =
+      m_iteration_offset_ + IterationIndex {m_options_.max_iterations - 1};
+  for (auto iter = m_iteration_offset_; iter <= iter_last; ++iter) {
     const auto iter_start = std::chrono::steady_clock::now();
 
     if (should_stop()) {
       SPDLOG_INFO("SDDP: stop requested, halting after {} iterations",
-                  iter - 1);
+                  iter - m_iteration_offset_);
       break;
     }
 
-    SPDLOG_INFO("SDDP: === iteration {} / {} ===", iter, iter_end_val);
+    SPDLOG_INFO("SDDP: === iteration {} / {} ===", iter, iter_last);
 
     SDDPIterationResult ir {
         .iteration = iter,
@@ -1959,17 +1961,19 @@ auto SDDPPlanningSolver::solve(PlanningLP& planning_lp,
 auto SDDPSolver::make_aperture_submit_fn(IterationIndex iteration,
                                          PhaseIndex phase) -> ApertureSubmitFunc
 {
-  return [this, iteration, phase](std::function<ApertureCutResult()> task)
-             -> std::future<ApertureCutResult>
+  return
+      [this, iteration, phase](const std::function<ApertureCutResult()>& task)
+          -> std::future<ApertureCutResult>
   {
     if (m_pool_ != nullptr) {
       SDDPWorkPool::Requirements req;
       req.priority = TaskPriority::High;
-      req.priority_key = {iteration, kSDDPKeyBackward, phase, kSDDPKeyIsLP};
-      auto fut = m_pool_->submit(std::move(task), req);
-      if (fut.has_value()) {
+      req.priority_key = make_sddp_task_key(
+          iteration, SDDPPassDirection::backward, phase, SDDPTaskKind::lp);
+      if (auto fut = m_pool_->submit(task, req)) {
         return std::move(*fut);
       }
+      // submit copied task but rejected it — fall through to sync
     }
     // Fallback: run synchronously via a ready future
     std::promise<ApertureCutResult> p;
@@ -1993,8 +1997,7 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
   auto& phase_states = m_scene_phase_states_[scene];
   int cuts_added = 0;
 
-  const auto pi = static_cast<Index>(phase);
-  const auto src_phase = PhaseIndex {pi - 1};
+  const auto src_phase = phase - PhaseIndex {1};
   auto& src_li = planning_lp().system(scene, src_phase).linear_interface();
   const auto& src_state = phase_states[src_phase];
   const auto& plp = planning_lp().simulation().phases()[phase];
@@ -2039,7 +2042,7 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
         src_state.outgoing_links,
         target_state.forward_col_cost,
         target_state.forward_full_obj,
-        sddp_label("sddp", "fcut", scene, pi, iteration, cut_offset));
+        sddp_label("sddp", "fcut", scene, phase, iteration, cut_offset));
 
     store_cut(scene, src_phase, fallback_cut);
     src_li.add_row(fallback_cut);
@@ -2050,7 +2053,7 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
                  src_phase,
                  fallback_cut.lowb);
 
-    if (pi > 1) {
+    if (src_phase > PhaseIndex {0}) {
       auto r = resolve_via_pool(
           src_li, opts, make_backward_lp_task_req(iteration, src_phase));
       if (!r.has_value() || !src_li.is_optimal()) {
@@ -2078,7 +2081,7 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
 
   // Re-solve source phase after adding the cut to propagate feasibility.
   // Feasibility cuts are never shared between scenes.
-  if (pi > 1) {
+  if (src_phase > PhaseIndex {0}) {
     auto r = resolve_via_pool(
         src_li, opts, make_backward_lp_task_req(iteration, src_phase));
     if (!r.has_value() || !src_li.is_optimal()) {
@@ -2205,11 +2208,13 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
   }
   const auto& base_scenario = scene_scenarios.front();
   // Collect phases where all apertures were infeasible for a summary
-  std::vector<int> infeasible_phases;
+  std::vector<PhaseUid> infeasible_phases;
 
-  for (const auto pi : std::views::iota(1, num_phases) | std::views::reverse) {
-    const auto phase = PhaseIndex {pi};
-    const auto src_phase = PhaseIndex {pi - 1};
+  for (const auto phase :
+       std::views::iota(PhaseIndex {1}, PhaseIndex {num_phases})
+           | std::views::reverse)
+  {
+    const auto src_phase = phase - PhaseIndex {1};
     auto& src_li = planning_lp().system(scene, src_phase).linear_interface();
     const auto& src_state = phase_states[src_phase];
     const auto& plp = phases[phase];
@@ -2252,7 +2257,7 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
           src_state.outgoing_links,
           target_state.forward_col_cost,
           target_state.forward_full_obj,
-          sddp_label("sddp", "fcut", scene, pi, iteration, total_cuts));
+          sddp_label("sddp", "fcut", scene, phase, iteration, total_cuts));
 
       store_cut(scene, src_phase, fallback_cut);
       src_li.add_row(fallback_cut);
@@ -2265,7 +2270,7 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
           src_phase,
           fallback_cut.lowb);
 
-      if (pi > 1) {
+      if (src_phase > PhaseIndex {0}) {
         auto r = resolve_via_pool(
             src_li, opts, make_backward_lp_task_req(iteration, src_phase));
         if (!r.has_value() || !src_li.is_optimal()) {
@@ -2294,7 +2299,7 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
 
     // Re-solve source phase after adding the cut to propagate
     // feasibility.
-    if (pi > 1) {
+    if (src_phase > PhaseIndex {0}) {
       auto r = resolve_via_pool(
           src_li, opts, make_backward_lp_task_req(iteration, src_phase));
       if (!r.has_value() || !src_li.is_optimal()) {
@@ -2317,7 +2322,7 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
         "phase(s) [{}], used Benders fallback cuts",
         scene_uid(scene),
         infeasible_phases.size(),
-        join_ints(infeasible_phases));
+        join_values(infeasible_phases));
   }
 
   return total_cuts;

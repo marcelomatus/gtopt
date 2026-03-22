@@ -320,7 +320,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
 /// Result of a single SDDP iteration (forward + backward pass)
 struct SDDPIterationResult
 {
-  IterationIndex iteration {};  ///< Iteration number (1-based)
+  IterationIndex iteration {};  ///< Iteration number (0-based)
   double lower_bound {};  ///< Lower bound (phase 0 objective including α)
   double upper_bound {};  ///< Upper bound (sum of actual phase costs)
   double gap {};  ///< Relative gap: (UB − LB) / max(1, |UB|)
@@ -409,8 +409,8 @@ enum class CutType : uint8_t
 struct StoredCut
 {
   CutType type {CutType::Optimality};  ///< Cut type (optimality or feasibility)
-  int phase {};  ///< Phase UID this cut was added to
-  int scene {};  ///< Scene UID that generated this cut (-1 = shared)
+  PhaseUid phase {};  ///< Phase UID this cut was added to
+  SceneUid scene {};  ///< Scene UID that generated this cut (-1 = shared)
   std::string name {};  ///< Cut name
   double rhs {};  ///< Right-hand side (lower bound)
   /// Coefficient pairs: (column_index, coefficient)
@@ -867,15 +867,15 @@ private:
   }
 
   /// Get the scene UID for a given SceneIndex.
-  [[nodiscard]] int scene_uid(SceneIndex si) const noexcept
+  [[nodiscard]] SceneUid scene_uid(SceneIndex si) const noexcept
   {
-    return static_cast<int>(planning_lp().simulation().scenes()[si].uid());
+    return planning_lp().simulation().scenes()[si].uid();
   }
 
   /// Get the phase UID for a given PhaseIndex.
-  [[nodiscard]] int phase_uid(PhaseIndex pi) const noexcept
+  [[nodiscard]] PhaseUid phase_uid(PhaseIndex pi) const noexcept
   {
-    return static_cast<int>(planning_lp().simulation().phases()[pi].uid());
+    return planning_lp().simulation().phases()[pi].uid();
   }
 
   std::reference_wrapper<PlanningLP> m_planning_lp_;
