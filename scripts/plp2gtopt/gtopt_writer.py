@@ -713,12 +713,6 @@ class GTOptWriter:
 
         auto_detect = options.get("auto_detect_tech", True)
 
-        mance_parser = self.parser.parsed_data.get("mance_parser")
-        mance_names: set[str] = set()
-        if mance_parser and hasattr(mance_parser, "items"):
-            for mitem in mance_parser.items:
-                mance_names.add(mitem.get("name", ""))
-
         # Renewable types that should use generator profile mode
         _profile_types = {"solar", "wind", "csp", "renewable"}
 
@@ -726,17 +720,12 @@ class GTOptWriter:
             if central.get("bus", 0) <= 0:
                 continue
             name = central["name"]
-            variable_cost = central.get("gcost")
-            if not isinstance(variable_cost, (int, float)):
-                variable_cost = None
 
             tech = detect_technology(
                 "pasada",
                 name,
                 overrides=effective_overrides,
                 auto_detect=auto_detect,
-                variable_cost=variable_cost,
-                has_profile=name in mance_names,
             )
 
             if tech in _profile_types:
