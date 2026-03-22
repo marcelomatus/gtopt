@@ -213,7 +213,7 @@ auto parquet_write_table(const auto& fpath, const auto& table, const auto& zfmt)
   auto status = parquet::arrow::WriteTable(*table.get(),
                                            arrow::default_memory_pool(),
                                            output,
-                                           1024 * 1024,  // NOLINT
+                                           4 * 1024 * 1024,  // NOLINT
                                            props);
   if (!status.ok()) {
     SPDLOG_CRITICAL(

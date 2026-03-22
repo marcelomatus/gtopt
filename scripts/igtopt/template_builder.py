@@ -1203,6 +1203,9 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "max_cuts_per_phase",
         "cut_prune_interval",
         "prune_dual_threshold",
+        "single_cut_storage",
+        "max_stored_cuts",
+        "use_clone_pool",
     }
 )
 
@@ -1438,6 +1441,21 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         "prune_dual_threshold",
         "[sddp] Dual threshold for inactive cut detection during pruning",
         1e-8,
+    ),
+    (
+        "single_cut_storage",
+        "[sddp] Store cuts per-scene only, build combined on demand (saves memory)",
+        False,
+    ),
+    (
+        "max_stored_cuts",
+        "[sddp] Max stored cuts per scene (0=unlimited; oldest dropped first)",
+        0,
+    ),
+    (
+        "use_clone_pool",
+        "[sddp] Reuse cached LP clones for aperture solves (avoids repeated allocation)",
+        True,
     ),
     # ------------------------------------------------------------------
     # Monolithic options (nested into "monolithic_options" in JSON output)

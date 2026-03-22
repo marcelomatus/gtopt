@@ -56,6 +56,7 @@
 #include <expected>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -288,6 +289,24 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// Cuts with |dual| below this value are candidates for removal.
   /// Default: 1e-8.
   double prune_dual_threshold {1e-8};
+
+  /// Use single cut storage: store cuts only in per-scene vectors.
+  /// Combined storage for persistence is built on demand from the
+  /// per-scene vectors.  Halves the memory cost of stored cuts.
+  /// Default: false (backward compatible).
+  bool single_cut_storage {false};
+
+  /// Maximum total stored cuts per scene (0 = unlimited).  When
+  /// non-zero, the oldest cuts beyond this limit are dropped after
+  /// each iteration.  Default: 0 (no cap).
+  int max_stored_cuts {0};
+
+  /// Reuse a cached LP clone for aperture solves instead of cloning
+  /// anew each time.  The clone's column bounds are reset from the
+  /// source LP before each solve; rows beyond the base count are
+  /// deleted.  Avoids repeated heap allocations for the CLP solver
+  /// internal matrix.  Default: true.
+  bool use_clone_pool {true};
 
   /// CSV file with boundary (future-cost) cuts for the last phase.
   ///
@@ -607,9 +626,17 @@ public:
     return m_stored_cuts_;
   }
 
-  /// Number of stored cuts (thread-safe)
+  /// Number of stored cuts (thread-safe).
+  /// In single_cut_storage mode, counts across all per-scene vectors.
   [[nodiscard]] int num_stored_cuts() const noexcept
   {
+    if (m_options_.single_cut_storage) {
+      int total = 0;
+      for (const auto& sc : m_scene_cuts_) {
+        total += static_cast<int>(sc.size());
+      }
+      return total;
+    }
     const std::scoped_lock lock(m_cuts_mutex_);
     return static_cast<int>(m_stored_cuts_.size());
   }
@@ -782,6 +809,24 @@ private:
   /// m_stored_cuts_ and m_scene_cuts_ are preserved for persistence.
   void prune_inactive_cuts();
 
+  /// Cap per-scene stored cuts to max_stored_cuts (oldest dropped first).
+  void cap_stored_cuts();
+
+  /// Build combined stored cuts from per-scene vectors (for persistence).
+  [[nodiscard]] std::vector<StoredCut> build_combined_cuts() const;
+
+  /// Get or create a cached clone for aperture solves.
+  LinearInterface& get_or_create_clone(SceneIndex scene, PhaseIndex phase);
+
+  /// Get a pooled clone pointer for aperture solves (nullptr if pool disabled).
+  LinearInterface* get_pooled_clone_ptr(SceneIndex scene, PhaseIndex phase)
+  {
+    if (!m_options_.use_clone_pool || m_clone_pool_.empty()) {
+      return nullptr;
+    }
+    return &get_or_create_clone(scene, phase);
+  }
+
   /// Check whether the sentinel file exists (user-requested stop)
   [[nodiscard]] bool check_sentinel_stop() const;
 
@@ -925,6 +970,16 @@ private:
   /// needing the shared m_cuts_mutex_, preventing lock contention during
   /// parallel backward passes.
   StrongIndexVector<SceneIndex, std::vector<StoredCut>> m_scene_cuts_ {};
+
+  /// Clone pool: one cached LinearInterface per (scene, phase) for aperture
+  /// reuse.  Stored as flat vector indexed by [scene * num_phases + phase].
+  /// Empty when use_clone_pool is false.
+  std::vector<std::optional<LinearInterface>> m_clone_pool_ {};
+  Index m_clone_pool_phases_ {0};  ///< num_phases (for indexing)
+
+  /// Per-scene cut count snapshot before each backward pass.
+  /// Used by apply_cut_sharing_for_iteration in single_cut_storage mode.
+  std::vector<std::size_t> m_scene_cuts_before_ {};
 
   /// Per-(scene, phase) count of consecutive forward-pass infeasibilities.
   /// Incremented when the elastic filter is used in forward_pass at (scene,

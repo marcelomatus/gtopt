@@ -126,7 +126,8 @@ auto solve_apertures_for_phase(
     [[maybe_unused]] bool save_aperture_lp,
     const ApertureDataCache& aperture_cache,
     std::span<const double> forward_col_sol,
-    std::span<const double> forward_row_dual) -> std::optional<SparseRow>
+    std::span<const double> forward_row_dual,
+    LinearInterface* pooled_clone) -> std::optional<SparseRow>
 {
   const auto pi = Index {phase};
   const auto& phase_li = sys.linear_interface();
@@ -191,8 +192,11 @@ auto solve_apertures_for_phase(
     futures.push_back(submit_fn(
         [&, ap_uid, weight, scen_it]() -> ApertureCutResult
         {
-          // Clone the phase LP
-          auto clone = phase_li.clone();
+          // Use pooled clone (reused across aperture solves) or create fresh
+          auto owned_clone = pooled_clone
+              ? std::optional<LinearInterface> {}
+              : std::optional<LinearInterface> {phase_li.clone()};
+          auto& clone = pooled_clone ? *pooled_clone : *owned_clone;
 
           // Update scenario-dependent bounds via a unified visitor.
           // Build a value-provider that reads from the scenario LP

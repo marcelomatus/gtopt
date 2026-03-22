@@ -320,6 +320,50 @@ void LinearInterface::delete_rows(const std::span<const int> indices)
   }
 }
 
+void LinearInterface::reset_from(const LinearInterface& source,
+                                 const size_t base_rows)
+{
+  // 1. Delete any rows beyond the base (Benders cuts added since the
+  //    clone was created or last reset).
+  const auto total_rows = static_cast<size_t>(solver->getNumRows());
+  if (total_rows > base_rows) {
+    const auto n_to_delete = total_rows - base_rows;
+    auto indices = std::views::iota(static_cast<int>(base_rows),
+                                    static_cast<int>(total_rows))
+        | std::ranges::to<std::vector>();
+    solver->deleteRows(static_cast<int>(n_to_delete), indices.data());
+  }
+
+  // 2. Copy column bounds from the source LP.
+  const auto ncols = solver->getNumCols();
+  const auto src_col_lo = source.get_col_low();
+  const auto src_col_hi = source.get_col_upp();
+  for (int c = 0; c < ncols; ++c) {
+    solver->setColLower(c, src_col_lo[c]);
+    solver->setColUpper(c, src_col_hi[c]);
+  }
+
+  // 3. Copy row bounds from the source LP (structural rows only).
+  const auto nrows = solver->getNumRows();
+  const auto src_row_lo = source.get_row_low();
+  const auto src_row_hi = source.get_row_upp();
+  for (int r = 0; r < nrows; ++r) {
+    solver->setRowLower(r, src_row_lo[r]);
+    solver->setRowUpper(r, src_row_hi[r]);
+  }
+
+  // Rebuild name map if active.
+  if (m_lp_names_level_ >= 1) {
+    m_row_names_.clear();
+    for (int r = 0; r < nrows; ++r) {
+      const auto name = solver->getRowName(r);
+      if (!name.empty()) {
+        m_row_names_.try_emplace(name, r);
+      }
+    }
+  }
+}
+
 void LinearInterface::set_coeff(const RowIndex row,
                                 const ColIndex column,
                                 const double value)
