@@ -11,6 +11,8 @@
  */
 #pragma once
 
+#include <cassert>
+
 #include <gtopt/flow_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/reservoir_lp.hpp>
@@ -61,12 +63,16 @@ public:
 
   [[nodiscard]] auto waterway_sid() const -> WaterwayLPSId
   {
-    return WaterwayLPSId {turbine().waterway.value()};
+    const auto& opt = turbine().waterway;
+    assert(opt.has_value());
+    return WaterwayLPSId {opt.value()};
   }
 
   [[nodiscard]] auto flow_sid() const -> FlowLPSId
   {
-    return FlowLPSId {turbine().flow.value()};
+    const auto& opt = turbine().flow;
+    assert(opt.has_value());
+    return FlowLPSId {opt.value()};
   }
 
   [[nodiscard]] constexpr auto generator_sid() const noexcept
@@ -103,7 +109,7 @@ public:
    * @param scenario   Current scenario
    * @param stage      Current stage
    * @param phase      Current phase (PhaseIndex{0} = first phase = use eini)
-   * @param iteration  Current SDDP iteration (1-based; 0 = initialisation)
+   * @param iteration  Current SDDP iteration (0-based)
    * @return Number of LP coefficients updated
    */
   int update_lp(SystemLP& sys,

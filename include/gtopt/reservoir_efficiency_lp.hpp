@@ -190,7 +190,7 @@ concept HasUpdateLP = requires(T& obj,
  *
  * @param system_lp  The SystemLP for this (scene, phase)
  * @param options    Global LP options (provides default skip count)
- * @param iteration  Current SDDP iteration (1-based; 0 = initial)
+ * @param iteration  Current SDDP iteration (0-based)
  * @param phase      Current phase index (PhaseIndex{0} = first phase)
  * @return Total number of LP coefficients modified
  */

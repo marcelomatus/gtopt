@@ -24,25 +24,29 @@ TEST_CASE("SDDPTaskKey type and constants")  // NOLINT
     CHECK(true);
   }
 
-  SUBCASE("kSDDPKey constants have correct values")
+  SUBCASE("SDDPPassDirection and SDDPTaskKind have correct values")
   {
-    CHECK(kSDDPKeyIsLP == 0);
-    CHECK(kSDDPKeyIsNonLP == 1);
-    CHECK(kSDDPKeyForward == 0);
-    CHECK(kSDDPKeyBackward == 1);
+    CHECK(static_cast<int>(SDDPTaskKind::lp) == 0);
+    CHECK(static_cast<int>(SDDPTaskKind::non_lp) == 1);
+    CHECK(static_cast<int>(SDDPPassDirection::forward) == 0);
+    CHECK(static_cast<int>(SDDPPassDirection::backward) == 1);
   }
 
   SUBCASE("BasicTaskRequirements with SDDPTaskKey")
   {
     BasicTaskRequirements<SDDPTaskKey> req {
         .priority = TaskPriority::Medium,
-        .priority_key = SDDPTaskKey {1, kSDDPKeyForward, 2, kSDDPKeyIsLP},
+        .priority_key = make_sddp_task_key(IterationIndex {1},
+                                           SDDPPassDirection::forward,
+                                           PhaseIndex {2},
+                                           SDDPTaskKind::lp),
         .name = {},
     };
     CHECK(std::get<0>(req.priority_key) == 1);
-    CHECK(std::get<1>(req.priority_key) == kSDDPKeyForward);
+    CHECK(std::get<1>(req.priority_key)
+          == static_cast<int>(SDDPPassDirection::forward));
     CHECK(std::get<2>(req.priority_key) == 2);
-    CHECK(std::get<3>(req.priority_key) == kSDDPKeyIsLP);
+    CHECK(std::get<3>(req.priority_key) == static_cast<int>(SDDPTaskKind::lp));
   }
 }
 
@@ -55,32 +59,48 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
 
   SUBCASE("lower iteration index has higher priority")
   {
-    STask iter0 {[] {},
-                 SReq {
-                     .priority_key = SDDPTaskKey {0, 0, 0, 0},
-                     .name = {},
-                 }};
-    STask iter1 {[] {},
-                 SReq {
-                     .priority_key = SDDPTaskKey {1, 0, 0, 0},
-                     .name = {},
-                 }};
+    STask iter0 {
+        [] {},
+        SReq {
+            .priority_key = make_sddp_task_key(IterationIndex {0},
+                                               SDDPPassDirection::forward,
+                                               PhaseIndex {0},
+                                               SDDPTaskKind::lp),
+            .name = {},
+        }};
+    STask iter1 {
+        [] {},
+        SReq {
+            .priority_key = make_sddp_task_key(IterationIndex {1},
+                                               SDDPPassDirection::forward,
+                                               PhaseIndex {0},
+                                               SDDPTaskKind::lp),
+            .name = {},
+        }};
     CHECK_FALSE(iter0 < iter1);  // iter0 has higher priority
     CHECK(iter1 < iter0);  // iter1 has lower priority
   }
 
   SUBCASE("forward (0) has higher priority than backward (1)")
   {
-    STask fwd {[] {},
-               SReq {
-                   .priority_key = SDDPTaskKey {0, kSDDPKeyForward, 0, 0},
-                   .name = {},
-               }};
-    STask bwd {[] {},
-               SReq {
-                   .priority_key = SDDPTaskKey {0, kSDDPKeyBackward, 0, 0},
-                   .name = {},
-               }};
+    STask fwd {
+        [] {},
+        SReq {
+            .priority_key = make_sddp_task_key(IterationIndex {0},
+                                               SDDPPassDirection::forward,
+                                               PhaseIndex {0},
+                                               SDDPTaskKind::lp),
+            .name = {},
+        }};
+    STask bwd {
+        [] {},
+        SReq {
+            .priority_key = make_sddp_task_key(IterationIndex {0},
+                                               SDDPPassDirection::backward,
+                                               PhaseIndex {0},
+                                               SDDPTaskKind::lp),
+            .name = {},
+        }};
     CHECK_FALSE(fwd < bwd);  // forward has higher priority
     CHECK(bwd < fwd);  // backward has lower priority
   }
@@ -89,30 +109,45 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
   {
     STask lp {[] {},
               SReq {
-                  .priority_key = SDDPTaskKey {0, 0, 0, kSDDPKeyIsLP},
+                  .priority_key = make_sddp_task_key(IterationIndex {0},
+                                                     SDDPPassDirection::forward,
+                                                     PhaseIndex {0},
+                                                     SDDPTaskKind::lp),
                   .name = {},
               }};
-    STask nonlp {[] {},
-                 SReq {
-                     .priority_key = SDDPTaskKey {0, 0, 0, kSDDPKeyIsNonLP},
-                     .name = {},
-                 }};
+    STask nonlp {
+        [] {},
+        SReq {
+            .priority_key = make_sddp_task_key(IterationIndex {0},
+                                               SDDPPassDirection::forward,
+                                               PhaseIndex {0},
+                                               SDDPTaskKind::non_lp),
+            .name = {},
+        }};
     CHECK_FALSE(lp < nonlp);  // LP has higher priority
     CHECK(nonlp < lp);  // non-LP has lower priority
   }
 
   SUBCASE("lower phase index has higher priority")
   {
-    STask ph0 {[] {},
-               SReq {
-                   .priority_key = SDDPTaskKey {0, 0, 0, 0},
-                   .name = {},
-               }};
-    STask ph2 {[] {},
-               SReq {
-                   .priority_key = SDDPTaskKey {0, 0, 2, 0},
-                   .name = {},
-               }};
+    STask ph0 {
+        [] {},
+        SReq {
+            .priority_key = make_sddp_task_key(IterationIndex {0},
+                                               SDDPPassDirection::forward,
+                                               PhaseIndex {0},
+                                               SDDPTaskKind::lp),
+            .name = {},
+        }};
+    STask ph2 {
+        [] {},
+        SReq {
+            .priority_key = make_sddp_task_key(IterationIndex {0},
+                                               SDDPPassDirection::forward,
+                                               PhaseIndex {2},
+                                               SDDPTaskKind::lp),
+            .name = {},
+        }};
     CHECK_FALSE(ph0 < ph2);  // phase 0 has higher priority
     CHECK(ph2 < ph0);  // phase 2 has lower priority
   }
@@ -153,7 +188,10 @@ TEST_CASE("SDDPWorkPool submit and execute")  // NOLINT
         [&] { result = 42; },
         Req {
             .priority = TaskPriority::Medium,
-            .priority_key = SDDPTaskKey {0, kSDDPKeyForward, 0, kSDDPKeyIsLP},
+            .priority_key = make_sddp_task_key(IterationIndex {0},
+                                               SDDPPassDirection::forward,
+                                               PhaseIndex {0},
+                                               SDDPTaskKind::lp),
             .name = {},
         });
 
@@ -183,7 +221,10 @@ TEST_CASE("SDDPWorkPool submit and execute")  // NOLINT
           done++;
         },
         Req {
-            .priority_key = SDDPTaskKey {0, kSDDPKeyForward, 0, kSDDPKeyIsLP},
+            .priority_key = make_sddp_task_key(IterationIndex {0},
+                                               SDDPPassDirection::forward,
+                                               PhaseIndex {0},
+                                               SDDPTaskKind::lp),
             .name = {},
         });
 
@@ -195,7 +236,10 @@ TEST_CASE("SDDPWorkPool submit and execute")  // NOLINT
           done++;
         },
         Req {
-            .priority_key = SDDPTaskKey {0, kSDDPKeyBackward, 0, kSDDPKeyIsLP},
+            .priority_key = make_sddp_task_key(IterationIndex {0},
+                                               SDDPPassDirection::backward,
+                                               PhaseIndex {0},
+                                               SDDPTaskKind::lp),
             .name = {},
         });
 
@@ -217,12 +261,24 @@ TEST_CASE("SDDPWorkPool submit and execute")  // NOLINT
     using Req = BasicTaskRequirements<SDDPTaskKey>;
 
     // Submit iter1 first, then iter0 — iter0 should have higher priority
-    auto f1 =
-        pool.submit([&] { result = 1; },
-                    Req {.priority_key = SDDPTaskKey {1, 0, 0, 0}, .name = {}});
-    auto f0 =
-        pool.submit([&] { result = 0; },
-                    Req {.priority_key = SDDPTaskKey {0, 0, 0, 0}, .name = {}});
+    auto f1 = pool.submit(
+        [&] { result = 1; },
+        Req {
+            .priority_key = make_sddp_task_key(IterationIndex {1},
+                                               SDDPPassDirection::forward,
+                                               PhaseIndex {0},
+                                               SDDPTaskKind::lp),
+            .name = {},
+        });
+    auto f0 = pool.submit(
+        [&] { result = 0; },
+        Req {
+            .priority_key = make_sddp_task_key(IterationIndex {0},
+                                               SDDPPassDirection::forward,
+                                               PhaseIndex {0},
+                                               SDDPTaskKind::lp),
+            .name = {},
+        });
 
     REQUIRE(f1.has_value());
     REQUIRE(f0.has_value());
@@ -248,7 +304,13 @@ TEST_CASE("make_sddp_work_pool factory")  // NOLINT
     using Req = BasicTaskRequirements<SDDPTaskKey>;
     auto fut = pool->submit(
         [&] { result = 99; },
-        Req {.priority_key = SDDPTaskKey {0, 0, 0, 0}, .name = {}});
+        Req {
+            .priority_key = make_sddp_task_key(IterationIndex {0},
+                                               SDDPPassDirection::forward,
+                                               PhaseIndex {0},
+                                               SDDPTaskKind::lp),
+            .name = {},
+        });
 
     REQUIRE(fut.has_value());
     fut->wait();

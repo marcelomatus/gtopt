@@ -11,8 +11,9 @@
  *    used as the secondary sort key so that forward LP solves in the earliest
  *    iteration are always scheduled before backward passes, later iterations,
  *    or non-LP tasks.
- *  - `kSDDPKeyIsLP`, `kSDDPKeyIsNonLP`, `kSDDPKeyForward`, `kSDDPKeyBackward`
- *    – named constants for the individual tuple fields.
+ *  - `SDDPPassDirection` – enum class (forward / backward) for pass direction.
+ *  - `SDDPTaskKind` – enum class (lp / non_lp) for task kind.
+ *  - `make_sddp_task_key()` – factory from strong types to SDDPTaskKey tuple.
  *  - `SDDPWorkPool` – a concrete `BasicWorkPool<SDDPTaskKey>` subclass that
  *    can be forward-declared as `class SDDPWorkPool;` in other headers.
  *  - `make_sddp_work_pool()` – a factory that creates, configures, and starts
@@ -40,6 +41,8 @@
 #include <thread>
 #include <tuple>
 
+#include <gtopt/phase.hpp>
+#include <gtopt/sddp_common.hpp>
 #include <gtopt/work_pool.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
@@ -65,14 +68,47 @@ namespace gtopt
 /// lower phase → lower `is_nonlp` → higher execution priority.
 using SDDPTaskKey = std::tuple<int, int, int, int>;
 
-/// @brief Named constant for the `is_nonlp` field of `SDDPTaskKey`.
-/// LP solve/resolve calls use 0; all other tasks (e.g. write_lp) use 1.
-inline constexpr int kSDDPKeyIsLP = 0;
-inline constexpr int kSDDPKeyIsNonLP = 1;
+/// @brief Pass direction for the `is_backward` field of `SDDPTaskKey`.
+/// Forward (0) has higher priority than backward (1) in lexicographic order.
+// NOLINTBEGIN(performance-enum-size) — int matches SDDPTaskKey tuple element
+// type
+enum class SDDPPassDirection : int
+{
+  forward = 0,
+  backward = 1,
+};
 
-/// @brief Named constants for the `is_backward` field of `SDDPTaskKey`.
-inline constexpr int kSDDPKeyForward = 0;
-inline constexpr int kSDDPKeyBackward = 1;
+/// @brief Task kind for the `is_nonlp` field of `SDDPTaskKey`.
+/// LP solves (0) have higher priority than non-LP tasks (1).
+enum class SDDPTaskKind : int
+{
+  lp = 0,
+  non_lp = 1,
+};
+// NOLINTEND(performance-enum-size)
+
+/// @brief Build an SDDPTaskKey from strongly-typed SDDP parameters.
+///
+/// Centralises the int conversions in one place so that callers never
+/// need `static_cast<int>` when constructing task keys.
+///
+/// @param iteration   SDDP iteration index
+/// @param direction   Forward or backward pass
+/// @param phase       Phase index within the iteration
+/// @param kind        LP solve or non-LP task
+[[nodiscard]] constexpr auto make_sddp_task_key(IterationIndex iteration,
+                                                SDDPPassDirection direction,
+                                                PhaseIndex phase,
+                                                SDDPTaskKind kind) noexcept
+    -> SDDPTaskKey
+{
+  return SDDPTaskKey {
+      static_cast<int>(iteration),
+      static_cast<int>(direction),
+      static_cast<int>(phase),
+      static_cast<int>(kind),
+  };
+}
 
 // ─── SDDPWorkPool
 // ─────────────────────────────────────────────────────────────

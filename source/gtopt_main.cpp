@@ -36,7 +36,6 @@
 
 #include <daw/daw_read_file.h>
 #include <gtopt/app_options.hpp>
-#include <gtopt/check_lp.hpp>
 #include <gtopt/error.hpp>
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/json/json_planning.hpp>
@@ -45,6 +44,7 @@
 #include <gtopt/output_context.hpp>
 #include <gtopt/pampl_parser.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/resolve_planning_args.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/validate_planning.hpp>
 #include <spdlog/sinks/basic_file_sink.h>
@@ -232,23 +232,13 @@ constexpr auto ExactParsePolicy = daw::json::options::parse_flags<
  * @param planning_files The list of planning JSON file stems/paths.
  * @param planning        The parsed planning (used for the built-in fallback).
  */
-void log_pre_solve_stats(const std::vector<std::string>& planning_files,
-                         const Planning& planning)
+void log_pre_solve_stats(
+    [[maybe_unused]] const std::vector<std::string>& planning_files,
+    const Planning& planning)
 {
-  const auto stats = run_check_json_info(planning_files);
-  if (!stats.empty()) {
-    // Forward each line through the spdlog INFO stream.
-    for (const auto line : std::views::split(std::string_view {stats}, '\n')) {
-      const std::string_view sv {line.begin(), line.end()};
-      if (!sv.empty()) {
-        spdlog::info("{}", sv);
-      }
-    }
-    return;
-  }
-
-  // Built-in fallback: print via spdlog when the external tool is absent.
-  SPDLOG_DEBUG("gtopt_check_json not found on PATH; using built-in stats");
+  // Pre-solve stats are now printed by the built-in C++ code.
+  // The external gtopt_check_json tool (richer output with global indicators)
+  // is invoked by the run_gtopt wrapper script as a pre-step.
 
   const auto& sys = planning.system;
   const auto& sim = planning.simulation;
@@ -344,8 +334,15 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
 }  // namespace
 
 [[nodiscard]] std::expected<int, std::string> gtopt_main(
-    const MainOptions& opts)
+    const MainOptions& raw_opts)
 {
+  // Resolve directory arguments and auto-detect CWD context
+  auto resolved = resolve_planning_args(raw_opts);
+  if (!resolved) {
+    return std::unexpected(std::move(resolved.error()));
+  }
+  const auto& opts = *resolved;
+
   // ── Set up trace log file ──
   // Always enable a trace-level file sink so that detailed SPDLOG_TRACE
   // messages are captured for later review.  When --trace-log is given
@@ -465,7 +462,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
         Uid next_uid = Uid {1};
         for (const auto& uc : existing) {
           if (uc.uid >= next_uid) {
-            next_uid = Uid {static_cast<int>(uc.uid) + 1};
+            next_uid = uc.uid + Uid {1};
           }
         }
 
@@ -680,6 +677,22 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
       } catch (const std::exception& ex) {
         return std::unexpected(
             std::format("Error writing output: {}", ex.what()));
+      }
+
+      // Save the merged planning JSON into the output directory so that
+      // post-processing tools (gtopt_check_output, gtopt_compare) have a
+      // self-contained reference to the solved case's input data.
+      {
+        const auto out_dir = planning_lp.options().output_directory();
+        const auto planning_json =
+            (std::filesystem::path(out_dir) / "planning.json").string();
+        auto pj_result =
+            write_json_output(planning_lp.planning(), planning_json);
+        if (pj_result) {
+          spdlog::info("  planning JSON saved to {}", planning_json);
+        } else {
+          spdlog::warn("  failed to save planning JSON: {}", pj_result.error());
+        }
       }
 
       spdlog::info(

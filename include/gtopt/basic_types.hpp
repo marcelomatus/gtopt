@@ -13,6 +13,7 @@
 #pragma once
 
 #include <cstdint>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -119,6 +120,20 @@ using StrongIndexType = strong::type<Index,
                                      strong::arithmetic,
                                      strong::bicrementable,
                                      strong::implicitly_convertible_to<Index>>;
+
+}  // namespace gtopt
+
+/// Specialise std::incrementable_traits for StrongIndexType so that
+/// it satisfies std::weakly_incrementable and can be used with
+/// std::views::iota and other range adaptors.
+template<typename Tag>
+struct std::incrementable_traits<gtopt::StrongIndexType<Tag>>
+{
+  using difference_type = gtopt::Index;
+};
+
+namespace gtopt
+{
 
 /** @brief Days in a standard year (non-leap) */
 constexpr double days_per_year = 365.0;
