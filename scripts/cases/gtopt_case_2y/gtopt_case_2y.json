@@ -31897,84 +31897,14 @@
         "block_hour_map": "BlockHourMap/block_hour_map",
         "scenario_array": [
             {
+                "uid": 50,
+                "probability_factor": 0.5,
+                "hydrology": 49
+            },
+            {
                 "uid": 51,
-                "probability_factor": 0.0625,
+                "probability_factor": 0.5,
                 "hydrology": 50
-            },
-            {
-                "uid": 52,
-                "probability_factor": 0.0625,
-                "hydrology": 51
-            },
-            {
-                "uid": 53,
-                "probability_factor": 0.0625,
-                "hydrology": 52
-            },
-            {
-                "uid": 54,
-                "probability_factor": 0.0625,
-                "hydrology": 53
-            },
-            {
-                "uid": 55,
-                "probability_factor": 0.0625,
-                "hydrology": 54
-            },
-            {
-                "uid": 56,
-                "probability_factor": 0.0625,
-                "hydrology": 55
-            },
-            {
-                "uid": 57,
-                "probability_factor": 0.0625,
-                "hydrology": 56
-            },
-            {
-                "uid": 58,
-                "probability_factor": 0.0625,
-                "hydrology": 57
-            },
-            {
-                "uid": 59,
-                "probability_factor": 0.0625,
-                "hydrology": 58
-            },
-            {
-                "uid": 60,
-                "probability_factor": 0.0625,
-                "hydrology": 59
-            },
-            {
-                "uid": 61,
-                "probability_factor": 0.0625,
-                "hydrology": 60
-            },
-            {
-                "uid": 62,
-                "probability_factor": 0.0625,
-                "hydrology": 61
-            },
-            {
-                "uid": 63,
-                "probability_factor": 0.0625,
-                "hydrology": 62
-            },
-            {
-                "uid": 64,
-                "probability_factor": 0.0625,
-                "hydrology": 63
-            },
-            {
-                "uid": 65,
-                "probability_factor": 0.0625,
-                "hydrology": 64
-            },
-            {
-                "uid": 66,
-                "probability_factor": 0.0625,
-                "hydrology": 65
             }
         ],
         "scene_array": [
@@ -31986,76 +31916,6 @@
             {
                 "uid": 2,
                 "first_scenario": 1,
-                "count_scenario": 1
-            },
-            {
-                "uid": 3,
-                "first_scenario": 2,
-                "count_scenario": 1
-            },
-            {
-                "uid": 4,
-                "first_scenario": 3,
-                "count_scenario": 1
-            },
-            {
-                "uid": 5,
-                "first_scenario": 4,
-                "count_scenario": 1
-            },
-            {
-                "uid": 6,
-                "first_scenario": 5,
-                "count_scenario": 1
-            },
-            {
-                "uid": 7,
-                "first_scenario": 6,
-                "count_scenario": 1
-            },
-            {
-                "uid": 8,
-                "first_scenario": 7,
-                "count_scenario": 1
-            },
-            {
-                "uid": 9,
-                "first_scenario": 8,
-                "count_scenario": 1
-            },
-            {
-                "uid": 10,
-                "first_scenario": 9,
-                "count_scenario": 1
-            },
-            {
-                "uid": 11,
-                "first_scenario": 10,
-                "count_scenario": 1
-            },
-            {
-                "uid": 12,
-                "first_scenario": 11,
-                "count_scenario": 1
-            },
-            {
-                "uid": 13,
-                "first_scenario": 12,
-                "count_scenario": 1
-            },
-            {
-                "uid": 14,
-                "first_scenario": 13,
-                "count_scenario": 1
-            },
-            {
-                "uid": 15,
-                "first_scenario": 14,
-                "count_scenario": 1
-            },
-            {
-                "uid": 16,
-                "first_scenario": 15,
                 "count_scenario": 1
             }
         ],
