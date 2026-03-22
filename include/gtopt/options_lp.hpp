@@ -444,7 +444,7 @@ public:
   /** @brief Default relative convergence tolerance */
   static constexpr Real default_sddp_convergence_tol = 1e-4;
   /** @brief Default elastic slack penalty */
-  static constexpr Real default_sddp_elastic_penalty = 1e6;
+  static constexpr Real default_sddp_elastic_penalty = 1000.0;
   /** @brief Default lower bound for future cost variable α */
   static constexpr Real default_sddp_alpha_min = 0.0;
   /** @brief Default upper bound for future cost variable α */
@@ -558,7 +558,7 @@ public:
 
   /**
    * @brief Gets the elastic slack penalty
-   * @return Penalty for elastic slack variables (default: 1e6)
+   * @return Penalty for elastic slack variables (default: 1000)
    */
   [[nodiscard]] constexpr auto sddp_elastic_penalty() const
   {
@@ -695,6 +695,24 @@ public:
   [[nodiscard]] auto sddp_named_cuts_file() const -> Name
   {
     return m_options_.sddp_options.named_cuts_file.value_or(Name {});
+  }
+
+  /// Maximum retained cuts per (scene, phase) LP.  0 = unlimited (default).
+  [[nodiscard]] constexpr auto sddp_max_cuts_per_phase() const
+  {
+    return m_options_.sddp_options.max_cuts_per_phase.value_or(0);
+  }
+
+  /// Iterations between cut pruning passes.  Default: 10.
+  [[nodiscard]] constexpr auto sddp_cut_prune_interval() const
+  {
+    return m_options_.sddp_options.cut_prune_interval.value_or(10);
+  }
+
+  /// Dual threshold for inactive cut detection.  Default: 1e-8.
+  [[nodiscard]] constexpr auto sddp_prune_dual_threshold() const
+  {
+    return m_options_.sddp_options.prune_dual_threshold.value_or(1e-8);
   }
 
   // ── Enum-typed accessors ──────────────────────────────────────────────────

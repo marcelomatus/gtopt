@@ -125,14 +125,47 @@ def test_fix_sddp_alpha_swap(tmp_path: Path):
 
 
 def test_fix_negative_elastic_penalty(tmp_path: Path):
-    """Negative elastic_penalty is fixed to 1e6."""
+    """Negative elastic_penalty is fixed to 1000."""
     p = _write_plan(
         tmp_path / "plan.json",
         {"sddp_options": {"elastic_penalty": -100}},
     )
     result = sanitize_json(p)
     data = json.loads(result.read_text())
-    assert data["options"]["sddp_options"]["elastic_penalty"] == 1e6
+    assert data["options"]["sddp_options"]["elastic_penalty"] == 1000
+
+
+def test_fix_negative_max_cuts_per_phase(tmp_path: Path):
+    """Negative max_cuts_per_phase is fixed to 0."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"sddp_options": {"max_cuts_per_phase": -5}},
+    )
+    result = sanitize_json(p)
+    data = json.loads(result.read_text())
+    assert data["options"]["sddp_options"]["max_cuts_per_phase"] == 0
+
+
+def test_fix_zero_cut_prune_interval(tmp_path: Path):
+    """Zero cut_prune_interval is fixed to 10."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"sddp_options": {"cut_prune_interval": 0}},
+    )
+    result = sanitize_json(p)
+    data = json.loads(result.read_text())
+    assert data["options"]["sddp_options"]["cut_prune_interval"] == 10
+
+
+def test_fix_negative_prune_dual_threshold(tmp_path: Path):
+    """Negative prune_dual_threshold is fixed to 1e-8."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"sddp_options": {"prune_dual_threshold": -0.01}},
+    )
+    result = sanitize_json(p)
+    data = json.loads(result.read_text())
+    assert data["options"]["sddp_options"]["prune_dual_threshold"] == 1e-8
 
 
 def test_input_directory_override(tmp_path: Path):

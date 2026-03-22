@@ -146,27 +146,27 @@ void LinearInterface::set_warm_start_solution(
 {
   if (!col_sol.empty()) {
     const auto ncols = static_cast<std::size_t>(get_numcols());
-    if (col_sol.size() == ncols) {
-      set_col_sol(col_sol);
-    } else if (col_sol.size() < ncols) {
+    if (col_sol.size() >= ncols) {
+      // Pre-padded or exact-size vector: use a subspan (no allocation).
+      set_col_sol(col_sol.first(ncols));
+    } else {
       // Saved solution has fewer columns (e.g. elastic slacks added later).
       std::vector<double> padded(ncols, 0.0);
       std::ranges::copy(col_sol, padded.begin());
       set_col_sol(padded);
     }
-    // col_sol.size() > ncols → stale snapshot, silently skip.
   }
   if (!row_dual.empty()) {
     const auto nrows = static_cast<std::size_t>(get_numrows());
-    if (row_dual.size() == nrows) {
-      set_row_dual(row_dual);
-    } else if (row_dual.size() < nrows) {
+    if (row_dual.size() >= nrows) {
+      // Pre-padded or exact-size vector: use a subspan (no allocation).
+      set_row_dual(row_dual.first(nrows));
+    } else {
       // Saved dual has fewer rows (e.g. Benders cuts added later).
       std::vector<double> padded(nrows, 0.0);
       std::ranges::copy(row_dual, padded.begin());
       set_row_dual(padded);
     }
-    // row_dual.size() > nrows → stale snapshot, silently skip.
   }
 }
 
@@ -296,6 +296,28 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
 
   return add_row(
       row.name, columns.size(), columns, elements, row.lowb, row.uppb);
+}
+
+void LinearInterface::delete_rows(const std::span<const int> indices)
+{
+  if (indices.empty()) {
+    return;
+  }
+
+  solver->deleteRows(static_cast<int>(indices.size()), indices.data());
+
+  // Rebuild m_row_names_ if name tracking is active, since row indices
+  // shift after deletion and the old map is stale.
+  if (m_lp_names_level_ >= 1) {
+    m_row_names_.clear();
+    const auto num_rows = solver->getNumRows();
+    for (int r = 0; r < num_rows; ++r) {
+      const auto name = solver->getRowName(r);
+      if (!name.empty()) {
+        m_row_names_.try_emplace(name, r);
+      }
+    }
+  }
 }
 
 void LinearInterface::set_coeff(const RowIndex row,

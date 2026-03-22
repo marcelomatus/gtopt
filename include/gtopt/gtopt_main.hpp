@@ -117,7 +117,7 @@ struct MainOptions
   /** @brief SDDP relative convergence tolerance (default: 1e-4) */
   std::optional<double> sddp_convergence_tol {};
   /** @brief Penalty coefficient for SDDP elastic slack variables (default:
-   * 1e6) */
+   * 1000) */
   std::optional<double> sddp_elastic_penalty {};
   /** @brief SDDP elastic filter mode: "cut" (default) or "backpropagate" */
   std::optional<std::string> sddp_elastic_mode {};
