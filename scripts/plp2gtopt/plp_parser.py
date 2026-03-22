@@ -29,7 +29,10 @@ from .indhor_parser import IndhorParser
 from .idsim_parser import IdSimParser
 from .idape_parser import IdApeParser
 from .idap2_parser import IdAp2Parser
+from .cenpmax_parser import CenpmaxParser
+from .minembh_parser import MinembhParser
 from .planos_parser import PlanosParser, find_planos_files
+from .plpmat_parser import PlpmatParser
 
 
 class PLPParser:
@@ -149,6 +152,27 @@ class PLPParser:
             idap2 = IdAp2Parser(idap2_path)
             idap2.parse(self.parsed_data)
             self.parsed_data["idap2_parser"] = idap2
+
+        # Optional: plpmat.dat — mathematical solver parameters (iteration limits)
+        plpmat_path = self.input_path / "plpmat.dat"
+        if plpmat_path.exists():
+            plpmat = PlpmatParser(plpmat_path)
+            plpmat.parse(self.parsed_data)
+            self.parsed_data["plpmat_parser"] = plpmat
+
+        # Optional: plpminembh.dat — per-stage minimum reservoir volumes with slack
+        minembh_path = self.input_path / "plpminembh.dat"
+        if minembh_path.exists():
+            minembh = MinembhParser(minembh_path)
+            minembh.parse(self.parsed_data)
+            self.parsed_data["minembh_parser"] = minembh
+
+        # Optional: plpcenpmax.dat — volume-dependent turbine Pmax curves
+        cenpmax_path = self.input_path / "plpcenpmax.dat"
+        if cenpmax_path.exists():
+            cenpmax = CenpmaxParser(cenpmax_path)
+            cenpmax.parse(self.parsed_data)
+            self.parsed_data["cenpmax_parser"] = cenpmax
 
         # Optional: plpplaem1/plpplem1 + plpplaem2/plpplem2 — boundary cuts
         # These define the future-cost function at the last planning stage
