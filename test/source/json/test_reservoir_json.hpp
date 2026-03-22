@@ -193,6 +193,65 @@ TEST_CASE("Reservoir use_state_variable JSON round-trip")  // NOLINT
   }
 }
 
+TEST_CASE("Reservoir soft_emin JSON round-trip")  // NOLINT
+{
+  SUBCASE("absent -> nullopt")
+  {
+    std::string_view json_data = R"({"uid":1,"name":"r1","junction":1})";
+    const Reservoir res = daw::json::from_json<Reservoir>(json_data);
+    CHECK_FALSE(res.soft_emin.has_value());
+    CHECK_FALSE(res.soft_emin_cost.has_value());
+  }
+
+  SUBCASE("scalar soft_emin and soft_emin_cost")
+  {
+    std::string_view json_data = R"({
+      "uid":1,"name":"r1","junction":1,
+      "soft_emin":500.0,"soft_emin_cost":0.1
+    })";
+    const Reservoir res = daw::json::from_json<Reservoir>(json_data);
+    REQUIRE(res.soft_emin.has_value());
+    CHECK(std::get<double>(res.soft_emin.value_or(-1.0))
+          == doctest::Approx(500.0));
+    REQUIRE(res.soft_emin_cost.has_value());
+    CHECK(std::get<double>(res.soft_emin_cost.value_or(-1.0))
+          == doctest::Approx(0.1));
+  }
+
+  SUBCASE("array soft_emin (per-stage)")
+  {
+    std::string_view json_data = R"({
+      "uid":1,"name":"r1","junction":1,
+      "soft_emin":[100,200,300],"soft_emin_cost":0.05
+    })";
+    const Reservoir res = daw::json::from_json<Reservoir>(json_data);
+    REQUIRE(res.soft_emin.has_value());
+    const auto& vec = std::get<std::vector<double>>(*res.soft_emin);
+    CHECK(vec.size() == 3);
+    CHECK(vec[0] == doctest::Approx(100.0));
+    CHECK(vec[2] == doctest::Approx(300.0));
+  }
+
+  SUBCASE("roundtrip")
+  {
+    Reservoir original {
+        .uid = Uid {10},
+        .name = "rsv_semin",
+        .junction = SingleId {Uid {1}},
+        .soft_emin = OptTRealFieldSched {250.0},
+        .soft_emin_cost = OptTRealFieldSched {0.1},
+    };
+    auto json = daw::json::to_json(original);
+    Reservoir rt = daw::json::from_json<Reservoir>(json);
+    REQUIRE(rt.soft_emin.has_value());
+    CHECK(std::get<double>(rt.soft_emin.value_or(-1.0))
+          == doctest::Approx(250.0));
+    REQUIRE(rt.soft_emin_cost.has_value());
+    CHECK(std::get<double>(rt.soft_emin_cost.value_or(-1.0))
+          == doctest::Approx(0.1));
+  }
+}
+
 TEST_CASE("Reservoir daily_cycle JSON round-trip")  // NOLINT
 {
   SUBCASE("absent -> nullopt (LP default false)")

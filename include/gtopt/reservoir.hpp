@@ -97,6 +97,20 @@ struct Reservoir
                     ///< [dam³].  Sets a >= constraint vol_end >= efin in the
                     ///< last stage of the last phase (not an equality).
 
+  OptTRealFieldSched
+      soft_emin {};  ///< Soft minimum volume per stage [dam³].
+                     ///< Creates a penalized constraint: efin + slack >=
+                     ///< soft_emin, where the slack variable has a penalty cost
+                     ///< (soft_emin_cost) in the objective.  Unlike emin (a
+                     ///< hard variable bound), this allows the volume to drop
+                     ///< below the threshold at a cost.  Corresponds to PLP's
+                     ///< plpminembh.dat "holgura" (slack) constraint.
+  OptTRealFieldSched
+      soft_emin_cost {};  ///< Penalty cost per unit of soft_emin
+                          ///< violation [$/dam³].  Applied to the slack
+                          ///< variable that relaxes the soft_emin constraint.
+                          ///< Must be > 0 for the constraint to be active.
+
   OptReal fmin {
       default_fmin};  ///< Minimum net flow into the reservoir junction [m³/s]
   OptReal fmax {

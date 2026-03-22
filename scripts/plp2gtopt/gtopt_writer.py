@@ -102,8 +102,21 @@ class GTOptWriter:
             sddp_opts["cut_sharing_mode"] = cut_sharing_mode
 
         max_iter = options.get("max_iterations")
+        if max_iter is None:
+            # Fall back to PDMaxIte from plpmat.dat if available.
+            # PDMaxIte=1 means monolithic (single LP solve) in PLP, so only
+            # use values > 1 as SDDP iteration limits.
+            parsed = getattr(self.parser, "parsed_data", None)
+            if isinstance(parsed, dict):
+                plpmat = parsed.get("plpmat_parser")
+                if plpmat is not None and getattr(plpmat, "max_iterations", 0) > 1:
+                    max_iter = plpmat.max_iterations
         if max_iter is not None:
             sddp_opts["max_iterations"] = max_iter
+
+        convergence_tol = options.get("convergence_tol")
+        if convergence_tol is not None:
+            sddp_opts["convergence_tol"] = convergence_tol
 
         # When the JSON file lives inside the output directory (the default),
         # input_directory is "." so paths are relative to the JSON location.
@@ -568,6 +581,7 @@ class GTOptWriter:
         cenre = self.parser.parsed_data.get("cenre_parser", None)
         cenfi = self.parser.parsed_data.get("cenfi_parser", None)
         filemb = self.parser.parsed_data.get("filemb_parser", None)
+        minembh = self.parser.parsed_data.get("minembh_parser", None)
         jw = JunctionWriter(
             central_parser=centrals,
             stage_parser=stages,
@@ -577,6 +591,7 @@ class GTOptWriter:
             cenre_parser=cenre,
             cenfi_parser=cenfi,
             filemb_parser=filemb,
+            minembh_parser=minembh,
             options=options,
         )
         json_junctions = jw.to_json_array()

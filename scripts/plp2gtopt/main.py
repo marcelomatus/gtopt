@@ -655,6 +655,19 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--soft-emin-cost",
+        dest="soft_emin_cost",
+        type=float,
+        metavar="COST",
+        default=0.1,
+        help=(
+            "default penalty cost [$/dam³] for the soft minimum volume "
+            "constraint (plpminembh.dat).  Per-stage costs from the file "
+            "override this default.  Set to 0 to disable soft emin. "
+            "(default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
         "--check",
         dest="run_check",
         action=argparse.BooleanOptionalAction,
@@ -831,6 +844,7 @@ def build_options(args: argparse.Namespace) -> dict:
     opts["auto_bat_energy_scale"] = args.auto_bat_energy_scale
     if args.variable_scales_file is not None:
         opts["variable_scales_file"] = args.variable_scales_file
+    opts["soft_emin_cost"] = args.soft_emin_cost
     opts["run_check"] = args.run_check
     # Technology detection
     opts["auto_detect_tech"] = args.auto_detect_tech
