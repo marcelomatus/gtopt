@@ -122,14 +122,17 @@ ApertureDataCache::ApertureDataCache(const std::filesystem::path& aperture_dir)
     }
   }
 
-  // Sort and bulk-construct the flat_map — O(n log n) vs O(n²)
+  // Sort and bulk-construct the flat_map — O(n log n) vs O(n²).
+  // map_insert_sorted_unique requires the input to be sorted and free of
+  // duplicate keys (precondition for std::sorted_unique /
+  // ordered_unique_range).
   std::ranges::sort(
       entries, [](const auto& a, const auto& b) { return a.first < b.first; });
-  // Remove duplicates after sorting (keeping first occurrence)
+  // Remove duplicates after sorting (keeping first occurrence).
   const auto [first, last] = std::ranges::unique(
       entries, [](const auto& a, const auto& b) { return a.first == b.first; });
   entries.erase(first, last);
-  m_data_.insert(entries.begin(), entries.end());
+  map_insert_sorted_unique(m_data_, entries.begin(), entries.end());
 
   const auto load_s = std::chrono::duration<double>(
                           std::chrono::steady_clock::now() - load_start)

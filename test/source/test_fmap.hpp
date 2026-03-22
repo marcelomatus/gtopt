@@ -336,3 +336,95 @@ TEST_CASE("flat_map - Count and contains")
   }
 #endif
 }
+
+// ── map_insert_sorted_unique tests ───────────────────────────────────────────
+
+TEST_CASE("flat_map - map_insert_sorted_unique basic insert")  // NOLINT
+{
+  using namespace gtopt;
+  flat_map<int, std::string> map;
+
+  // Build a sorted, deduplicated vector of pairs
+  std::vector<std::pair<int, std::string>> entries {
+      {1, "one"},
+      {2, "two"},
+      {3, "three"},
+  };
+
+  map_insert_sorted_unique(map, entries.begin(), entries.end());
+
+  CHECK(map.size() == 3);
+  CHECK(map.at(1) == "one");
+  CHECK(map.at(2) == "two");
+  CHECK(map.at(3) == "three");
+}
+
+TEST_CASE("flat_map - map_insert_sorted_unique on empty range")  // NOLINT
+{
+  using namespace gtopt;
+  flat_map<int, int> map;
+  map[42] = 99;
+
+  std::vector<std::pair<int, int>> entries;
+  map_insert_sorted_unique(map, entries.begin(), entries.end());
+
+  CHECK(map.size() == 1);
+  CHECK(map.at(42) == 99);
+}
+
+TEST_CASE("flat_map - map_insert_sorted_unique into empty map")  // NOLINT
+{
+  using namespace gtopt;
+  flat_map<int, int> map;
+
+  std::vector<std::pair<int, int>> entries {{10, 100}, {20, 200}, {30, 300}};
+  map_insert_sorted_unique(map, entries.begin(), entries.end());
+
+  CHECK(map.size() == 3);
+  CHECK(map.at(10) == 100);
+  CHECK(map.at(20) == 200);
+  CHECK(map.at(30) == 300);
+}
+
+TEST_CASE(
+    "flat_map - map_insert_sorted_unique preserves insertion order")  // NOLINT
+{
+  using namespace gtopt;
+  flat_map<int, int> map;
+
+  // Keys 0..9 in sorted order
+  std::vector<std::pair<int, int>> entries;
+  entries.reserve(10);
+  for (int i = 0; i < 10; ++i) {
+    entries.emplace_back(i, i * i);
+  }
+
+  map_insert_sorted_unique(map, entries.begin(), entries.end());
+
+  CHECK(map.size() == 10);
+  for (int i = 0; i < 10; ++i) {
+    CHECK(map.at(i) == i * i);
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "flat_map - map_insert_sorted_unique large sorted range is searchable")
+{
+  using namespace gtopt;
+  flat_map<int, int> map;
+
+  constexpr int kN = 1000;
+  std::vector<std::pair<int, int>> entries;
+  entries.reserve(kN);
+  for (int i = 0; i < kN; ++i) {
+    entries.emplace_back(i * 2, i);  // even keys 0, 2, 4, … 1998
+  }
+
+  map_insert_sorted_unique(map, entries.begin(), entries.end());
+
+  REQUIRE(map.size() == kN);
+  CHECK(map.find(0) != map.end());
+  CHECK(map.find(kN * 2 - 2) != map.end());
+  CHECK(map.find(1) == map.end());  // odd keys absent
+  CHECK(map.at(500) == 250);
+}
