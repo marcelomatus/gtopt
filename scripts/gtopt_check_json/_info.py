@@ -47,9 +47,14 @@ class SystemIndicators:
         (MW).  A generator is considered a failure generator when its
         ``type`` attribute equals ``"falla"``.
     hydro_capacity_mw : float
-        Sum of capacity for hydro-type generators (embalse, serie, pasada).
+        Sum of capacity for hydro-type generators (embalse, serie, pasada,
+        hydro_reservoir, hydro_ror, hydro_small, hydro_pumped).
     thermal_capacity_mw : float
-        Sum of capacity for thermal-type generators (termica).
+        Sum of capacity for thermal/fossil generators (termica, thermal,
+        gas, coal, diesel, nuclear, biomass, geothermal).
+    renewable_capacity_mw : float
+        Sum of capacity for non-hydro renewable generators (solar, wind,
+        csp, renewable).
     total_line_capacity_mw : float
         Sum of ``tmax_ab + tmax_ba`` across all lines (MW).
     first_block_demand_mw : float
@@ -106,6 +111,7 @@ class SystemIndicators:
     total_gen_capacity_mw: float = 0.0
     hydro_capacity_mw: float = 0.0
     thermal_capacity_mw: float = 0.0
+    renewable_capacity_mw: float = 0.0
     total_line_capacity_mw: float = 0.0
     first_block_demand_mw: float = 0.0
     last_block_demand_mw: float = 0.0
@@ -333,10 +339,63 @@ def compute_indicators(
     block_uids = [b.get("uid", i + 1) for i, b in enumerate(blocks)]
 
     # --- Total generation capacity (MW) ---
-    _hydro_types = {"embalse", "serie", "pasada"}
+    # Use shared classification from tech_classify
+    try:
+        from plp2gtopt.tech_classify import (  # noqa: PLC0415
+            HYDRO_TYPES,
+            RENEWABLE_TYPES,
+            THERMAL_TYPES,
+            classify_type,
+        )
+    except ImportError:
+        # Fallback if plp2gtopt is not installed
+        HYDRO_TYPES = frozenset(
+            {
+                "embalse",
+                "serie",
+                "pasada",
+                "hydro_reservoir",
+                "hydro_ror",
+                "hydro_small",
+                "hydro_pumped",
+            }
+        )
+        THERMAL_TYPES = frozenset(
+            {
+                "termica",
+                "thermal",
+                "gas",
+                "coal",
+                "diesel",
+                "nuclear",
+                "biomass",
+                "geothermal",
+            }
+        )
+        RENEWABLE_TYPES = frozenset(
+            {
+                "solar",
+                "wind",
+                "csp",
+                "renewable",
+            }
+        )
+
+        def classify_type(gtype: str) -> str:
+            gtype = gtype.lower()
+            if gtype in HYDRO_TYPES:
+                return "hydro"
+            if gtype in THERMAL_TYPES:
+                return "thermal"
+            if gtype in RENEWABLE_TYPES:
+                return "renewable"
+            return "other"
+
     total_gen_cap = 0.0
     hydro_cap = 0.0
     thermal_cap = 0.0
+    renewable_cap = 0.0
+    cap_by_type: dict[str, float] = {}
     num_gen = 0
     for gen in generators:
         if _is_failure_generator(gen):
@@ -348,10 +407,14 @@ def compute_indicators(
             total_gen_cap += cap
             num_gen += 1
             gtype = str(gen.get("type", "")).lower()
-            if gtype in _hydro_types:
+            category = classify_type(gtype)
+            cap_by_type[gtype] = cap_by_type.get(gtype, 0.0) + cap
+            if category == "hydro":
                 hydro_cap += cap
-            elif gtype == "termica":
+            elif category == "thermal":
                 thermal_cap += cap
+            elif category == "renewable":
+                renewable_cap += cap
 
     # --- Total line capacity (MW) ---
     # Also include battery discharge capacity (pmax_discharge) as generation
@@ -517,6 +580,7 @@ def compute_indicators(
         total_gen_capacity_mw=total_gen_cap,
         hydro_capacity_mw=hydro_cap,
         thermal_capacity_mw=thermal_cap,
+        renewable_capacity_mw=renewable_cap,
         total_line_capacity_mw=total_line_cap,
         first_block_demand_mw=first_block_demand,
         last_block_demand_mw=last_block_demand,
@@ -548,6 +612,7 @@ def _build_indicator_pairs(ind: SystemIndicators) -> list[tuple[str, str]]:
         ),
         ("  Hydro capacity", f"{ind.hydro_capacity_mw:,.1f} MW"),
         ("  Thermal capacity", f"{ind.thermal_capacity_mw:,.1f} MW"),
+        ("  Renewable capacity", f"{ind.renewable_capacity_mw:,.1f} MW"),
         ("Line capacity", f"{ind.total_line_capacity_mw:,.1f} MW"),
         ("First block demand", f"{ind.first_block_demand_mw:,.1f} MW"),
         ("Last block demand", f"{ind.last_block_demand_mw:,.1f} MW"),

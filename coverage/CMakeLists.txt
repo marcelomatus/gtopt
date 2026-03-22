@@ -273,7 +273,8 @@ add_custom_target(
     --test-dir "${_coverage_build_dir}"
     --output-on-failure
     -j ${_nproc}
-  COMMENT "Running tests with coverage instrumentation..."
+    -E "scripts-(check-format|ruff|format)"
+  COMMENT "Running tests with coverage instrumentation (excluding format/ruff)..."
   USES_TERMINAL
   VERBATIM
 )
@@ -295,6 +296,7 @@ add_custom_target(
     --ignore-errors unexecuted,unexecuted
     --ignore-errors negative,negative
     --ignore-errors inconsistent,inconsistent
+    --ignore-errors format,format
     --rc geninfo_unexecuted_blocks=1
     --rc branch_coverage=1
   # Step 2: Filter out external/test/third-party files
@@ -303,6 +305,7 @@ add_custom_target(
     --remove "${_coverage_raw_info}"
     "/usr/*"
     "*/cpm_modules/*"
+    "*/_deps/*"
     "*/test/*"
     "*/daw/*"
     "*/strong_type/*"
@@ -321,6 +324,7 @@ add_custom_target(
     --show-details
     --rc branch_coverage=1
     --ignore-errors inconsistent,inconsistent
+    --ignore-errors category,category
   COMMENT "Collecting coverage data and generating HTML report..."
   USES_TERMINAL
   VERBATIM

@@ -440,7 +440,7 @@ cmake --build build -j$(nproc)
 > ruff format scripts/ guiservice/
 >
 > # Step 2 — ruff check (REQUIRED before every Python commit)
-> cd scripts && ruff check gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
+> cd scripts && ruff check cvs2parquet gtopt_check_output gtopt_compare gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt run_gtopt sddp_monitor ts2gtopt
 >
 > # Step 3 — pylint (REQUIRED; exit code MUST be 0 — no messages of any category)
 > # CRITICAL: pylint prints "10.00/10" even when convention/refactor/warning messages
@@ -448,10 +448,10 @@ cmake --build build -j$(nproc)
 > # Exit codes: 0=clean, 1=fatal, 2=error, 4=warning, 8=refactor, 16=convention.
 > # A single C1803 convention message → exit code 16 → CI failure.
 > # Always verify: run pylint, then check `echo $?` is 0.
-> cd scripts && pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
+> cd scripts && pylint --jobs=0 cvs2parquet gtopt_check_output gtopt_compare gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt run_gtopt sddp_monitor ts2gtopt
 >
 > # Step 4 — mypy (REQUIRED; no errors allowed)
-> cd scripts && mypy gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt --ignore-missing-imports
+> cd scripts && mypy cvs2parquet gtopt_check_output gtopt_compare gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt run_gtopt sddp_monitor ts2gtopt --ignore-missing-imports
 > ```
 >
 > **Both steps are mandatory in agent sessions.** Fix all clang-tidy warnings
@@ -578,9 +578,9 @@ It is **independent** of the root `pyproject.toml`.
 > # Step 2 — lint, type-check (scripts/)
 > # pylint MUST exit 0 — any C/R/W message (even with 10.00/10 score) = CI failure
 > cd scripts
-> ruff check  gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
-> pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
-> mypy gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt \
+> ruff check  cvs2parquet gtopt_check_output gtopt_compare gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt run_gtopt sddp_monitor ts2gtopt
+> pylint --jobs=0 cvs2parquet gtopt_check_output gtopt_compare gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt run_gtopt sddp_monitor ts2gtopt
+> mypy cvs2parquet gtopt_check_output gtopt_compare gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt run_gtopt sddp_monitor ts2gtopt \
 >   --ignore-missing-imports
 >
 > # Step 3 — lint, type-check (guiservice/, run from repo root)
@@ -598,16 +598,16 @@ pip install -r scripts/requirements.txt          # runtime only
 cd scripts
 
 # Format (apply in-place)
-ruff format gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
+ruff format cvs2parquet gtopt_check_output gtopt_compare gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt run_gtopt sddp_monitor ts2gtopt
 
 # Lint (ruff)
-ruff check gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
+ruff check cvs2parquet gtopt_check_output gtopt_compare gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt run_gtopt sddp_monitor ts2gtopt
 
 # Lint (pylint — exit code must be 0; any C/R/W message = CI failure even with 10.00/10 score)
-pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
+pylint --jobs=0 cvs2parquet gtopt_check_output gtopt_compare gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt run_gtopt sddp_monitor ts2gtopt
 
 # Type check
-mypy gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt \
+mypy cvs2parquet gtopt_check_output gtopt_compare gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt run_gtopt sddp_monitor ts2gtopt \
   --ignore-missing-imports
 
 # Run all tests (fast, < 2 s)

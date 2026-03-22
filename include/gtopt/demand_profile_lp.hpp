@@ -46,6 +46,14 @@ public:
                                         const ScenarioLP& base_scenario,
                                         const ScenarioLP& aperture_scenario,
                                         const StageLP& stage) const;
+
+  /// Update profile constraints from cached aperture data.
+  [[nodiscard]] bool update_aperture_from_cache(
+      LinearInterface& li,
+      const ScenarioLP& base_scenario,
+      ScenarioUid aperture_scenario_uid,
+      const ApertureDataCache& cache,
+      const StageLP& stage) const;
 };
 
 }  // namespace gtopt

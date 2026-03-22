@@ -1059,4 +1059,166 @@ TEST_SUITE("ConstraintParser")
     CHECK(ref1.element_type == "battery");
     CHECK(ref1.attribute == "spill");
   }
+
+  // ── Additional error paths ──────────────────────────────────────────────
+
+  TEST_CASE("Error: unexpected character in expression")
+  {
+    CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
+                        R"(generator("G1").generation @ 100)")),
+                    std::invalid_argument);
+  }
+
+  TEST_CASE("Error: range constraint with non-constant lower bound")
+  {
+    CHECK_THROWS_AS(
+        static_cast<void>(ConstraintParser::parse(
+            R"(generator("G1").generation <= generator("G2").generation <= 100)")),
+        std::invalid_argument);
+  }
+
+  TEST_CASE("Error: range constraint with non-constant upper bound")
+  {
+    CHECK_THROWS_AS(
+        static_cast<void>(ConstraintParser::parse(
+            R"(10 <= generator("G1").generation <= demand("D1").load)")),
+        std::invalid_argument);
+  }
+
+  TEST_CASE("Error: missing 'in' or '=' after dimension in for clause")
+  {
+    CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
+                        R"(generator("G1").generation <= 100, for(stage 1))")),
+                    std::invalid_argument);
+  }
+
+  TEST_CASE("Error: non-element type after comma in sum(all,...)")
+  {
+    CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
+                        R"(sum(generator(all, foo).generation) <= 100)")),
+                    std::invalid_argument);
+  }
+
+  TEST_CASE("Error: non-string type value in sum(all, type=)")
+  {
+    CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
+                        R"(sum(generator(all, type=123).generation) <= 100)")),
+                    std::invalid_argument);
+  }
+
+  TEST_CASE("Error: unexpected token in sum element list")
+  {
+    CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
+                        R"(sum(generator(<=).generation) <= 100)")),
+                    std::invalid_argument);
+  }
+
+  TEST_CASE("Error: non-element type in sum()")
+  {
+    CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
+                        R"(sum(foo("G1").generation) <= 100)")),
+                    std::invalid_argument);
+  }
+
+  TEST_CASE("Error: non-ident dimension in for clause")
+  {
+    CHECK_THROWS_AS(
+        static_cast<void>(ConstraintParser::parse(
+            R"(generator("G1").generation <= 100, for(123 in all))")),
+        std::invalid_argument);
+  }
+
+  TEST_CASE("Lexer peek does not consume token")
+  {
+    // Verifying peek() by parsing a valid expression where peek is exercised
+    // This expression triggers the single-value parsing path (no braces)
+    auto expr = ConstraintParser::parse(
+        R"(generator("G1").generation <= 100, for(block in 5))");
+
+    CHECK_FALSE(expr.domain.blocks.is_all);
+    REQUIRE(expr.domain.blocks.values.size() == 1);
+    CHECK(expr.domain.blocks.values[0] == 5);
+  }
+
+  TEST_CASE("Parse for clause without comma separator")
+  {
+    // 'for' directly after expression (no comma)
+    auto expr = ConstraintParser::parse(
+        R"(generator("G1").generation <= 100 for(stage in 1..3))");
+
+    CHECK_FALSE(expr.domain.stages.is_all);
+    REQUIRE(expr.domain.stages.values.size() == 3);
+  }
+
+  TEST_CASE("Parse with escape character in string literal")
+  {
+    auto expr =
+        ConstraintParser::parse(R"(generator("G\"1").generation <= 100)");
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_id == "G\"1");
+  }
+
+  TEST_CASE("Parse with leading plus sign")
+  {
+    auto expr =
+        ConstraintParser::parse(R"(+generator("G1").generation <= 100)");
+    CHECK(expr.constraint_type == ConstraintType::LESS_EQUAL);
+    REQUIRE(expr.terms.size() == 1);
+    CHECK(expr.terms[0].coefficient == doctest::Approx(1.0));
+  }
+
+  TEST_CASE("Error: bad element id type (not string or number)")
+  {
+    CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
+                        R"(generator(<=).generation <= 100)")),
+                    std::invalid_argument);
+  }
+
+  TEST_CASE("Error: missing attribute after dot")
+  {
+    CHECK_THROWS_AS(static_cast<void>(
+                        ConstraintParser::parse(R"(generator("G1"). <= 100)")),
+                    std::invalid_argument);
+  }
+
+  TEST_CASE("Error: missing attribute after dot in sum")
+  {
+    CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
+                        R"(sum(generator("G1"). ) <= 100)")),
+                    std::invalid_argument);
+  }
+
+  TEST_CASE("Error: expected number after .. in index set")
+  {
+    CHECK_THROWS_AS(
+        static_cast<void>(ConstraintParser::parse(
+            R"(generator("G1").generation <= 100, for(block in 1..foo))")),
+        std::invalid_argument);
+  }
+
+  TEST_CASE("Error: expected number after .. in braced index set")
+  {
+    CHECK_THROWS_AS(
+        static_cast<void>(ConstraintParser::parse(
+            R"(generator("G1").generation <= 100, for(block in {1..foo}))")),
+        std::invalid_argument);
+  }
+
+  TEST_CASE("Error: non-number in braced index set")
+  {
+    CHECK_THROWS_AS(
+        static_cast<void>(ConstraintParser::parse(
+            R"(generator("G1").generation <= 100, for(block in {foo}))")),
+        std::invalid_argument);
+  }
+
+  TEST_CASE("Error: invalid index set starting token")
+  {
+    CHECK_THROWS_AS(
+        static_cast<void>(ConstraintParser::parse(
+            R"(generator("G1").generation <= 100, for(block in <=))")),
+        std::invalid_argument);
+  }
 }

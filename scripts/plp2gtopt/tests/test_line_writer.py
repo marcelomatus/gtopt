@@ -101,19 +101,40 @@ def test_json_output_structure(
         "active": int,
     }
 
+    optional_fields = {
+        "loss_segments": int,
+        "use_line_losses": bool,
+    }
+
     for line in json_lines:
         # Check all required fields exist and have correct types
-        assert set(line.keys()) == set(required_fields.keys())
+        assert set(required_fields.keys()).issubset(set(line.keys()))
         for field, field_type in required_fields.items():
             assert isinstance(line[field], field_type), (
                 f"Field {field} should be {field_type}, got {type(line[field])}"
             )
+        # Check optional fields have correct types when present
+        for field, field_type in optional_fields.items():
+            if field in line:
+                assert isinstance(line[field], field_type), (
+                    f"Field {field} should be {field_type}, got {type(line[field])}"
+                )
 
         # Additional value checks
         assert line["resistance"] >= 0, "Resistance should be non-negative"
         assert line["reactance"] >= 0, "Reactance should be non-negative"
         assert line["tmax_ab"] >= 0, "Flow limit AB should be non-negative"
         assert line["tmax_ba"] >= 0, "Flow limit BA should be non-negative"
+
+
+def test_loss_segments_in_json(sample_line_writer):
+    """Lines with num_sections > 1 include loss_segments in JSON."""
+    json_lines = sample_line_writer.to_json_array()
+    # plp_dat_ex lines have num_sections=3 and mod_perdidas=T
+    lines_with_segments = [ln for ln in json_lines if "loss_segments" in ln]
+    assert len(lines_with_segments) > 0, "Expected at least one line with loss_segments"
+    for line in lines_with_segments:
+        assert line["loss_segments"] > 1
 
 
 def test_write_empty_lines(tmp_path):

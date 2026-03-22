@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include <cassert>
+
 #include <gtopt/basic_types.hpp>
 #include <gtopt/flow.hpp>
 #include <gtopt/junction_lp.hpp>
@@ -46,7 +48,9 @@ public:
 
   [[nodiscard]] auto junction_sid() const
   {
-    return JunctionLPSId {flow().junction.value()};
+    const auto& opt = flow().junction;
+    assert(opt.has_value());
+    return JunctionLPSId {opt.value()};
   }
 
   [[nodiscard]] constexpr bool is_input() const noexcept

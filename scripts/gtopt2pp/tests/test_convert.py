@@ -865,7 +865,11 @@ class TestPlpCase2YGtopt2PP:
     @pytest.fixture(scope="class")
     def pp_net(self, gtopt_case: dict) -> pp.pandapowerNet:
         """Convert the gtopt case to a pandapower network (first scenario, first block)."""
-        return convert(gtopt_case, scenario=1, block=1)
+        scenarios = gtopt_case["simulation"]["scenario_array"]
+        first_uid = scenarios[0]["uid"]
+        blocks = gtopt_case["simulation"]["block_array"]
+        first_block = blocks[0]["uid"]
+        return convert(gtopt_case, scenario=first_uid, block=first_block)
 
     # ── structural assertions ────────────────────────────────────────────────
 

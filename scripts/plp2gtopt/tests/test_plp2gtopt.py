@@ -15,7 +15,13 @@ from plp2gtopt.central_parser import CentralParser
 from plp2gtopt.demand_parser import DemandParser
 from plp2gtopt.gtopt_writer import GTOptWriter
 from plp2gtopt.line_parser import LineParser
-from plp2gtopt.main import _resolve_input_dir, build_options, main, make_parser
+from plp2gtopt.main import (
+    _infer_output_dir,
+    _resolve_input_dir,
+    build_options,
+    main,
+    make_parser,
+)
 from plp2gtopt.plp2gtopt import (
     convert_plp_case,
     create_zip_output,
@@ -635,6 +641,43 @@ def test_default_input_dir():
 
     args = make_parser().parse_args([])
     assert _resolve_input_dir(args) == Path("input")
+
+
+# ---------------------------------------------------------------------------
+# _infer_output_dir — plp_ prefix → gtopt_ prefix
+# ---------------------------------------------------------------------------
+
+
+def test_infer_output_dir_plp_prefix():
+    """Input dir 'plp_case_2y' → output dir 'gtopt_case_2y'."""
+    result = _infer_output_dir(Path("plp_case_2y"), Path("output"))
+    assert result == Path("gtopt_case_2y")
+
+
+def test_infer_output_dir_plp_prefix_nested():
+    """Input dir '/data/plp_foo' → output dir '/data/gtopt_foo'."""
+    result = _infer_output_dir(Path("/data/plp_foo"), Path("output"))
+    assert result == Path("/data/gtopt_foo")
+
+
+def test_infer_output_dir_no_plp_prefix():
+    """Input dir 'my_case' → default 'output' unchanged."""
+    result = _infer_output_dir(Path("my_case"), Path("output"))
+    assert result == Path("output")
+
+
+def test_infer_output_dir_in_build_options():
+    """build_options infers output dir from plp_ positional input."""
+    args = make_parser().parse_args(["plp_test_case"])
+    opts = build_options(args)
+    assert opts["output_dir"] == Path("gtopt_test_case")
+
+
+def test_infer_output_dir_explicit_o_overrides():
+    """Explicit -o overrides plp_ prefix inference."""
+    args = make_parser().parse_args(["plp_test_case", "-o", "my_output"])
+    opts = build_options(args)
+    assert opts["output_dir"] == Path("my_output")
 
 
 # ---------------------------------------------------------------------------

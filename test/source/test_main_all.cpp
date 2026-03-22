@@ -33,6 +33,7 @@
 using namespace gtopt;
 
 #include "test_benchmark_map.hpp"
+#include "test_cpu_monitor.hpp"
 #include "test_gtopt_main.hpp"
 #include "test_lp_debug_writer.hpp"
 #include "test_sddp_pool.hpp"

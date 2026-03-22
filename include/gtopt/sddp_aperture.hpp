@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <concepts>
 #include <functional>
 #include <future>
 #include <optional>
@@ -32,12 +33,46 @@
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/phase.hpp>
+#include <gtopt/scene.hpp>
 #include <gtopt/sddp_common.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/sparse_row.hpp>
 
 namespace gtopt
 {
+
+// ─── Aperture element concepts ──────────────────────────────────────────────
+
+/// An element that can update its LP for a direct aperture scenario.
+template<typename T>
+concept HasApertureLp = requires(const T& e,
+                                 LinearInterface& li,
+                                 const ScenarioLP& base,
+                                 const ScenarioLP& aper,
+                                 const StageLP& stage) {
+  { e.update_aperture_lp(li, base, aper, stage) } -> std::same_as<bool>;
+};
+
+/// An element that can update its LP from cached aperture data.
+template<typename T>
+concept HasApertureFromCache = requires(const T& e,
+                                        LinearInterface& li,
+                                        const ScenarioLP& base,
+                                        ScenarioUid uid,
+                                        const ApertureDataCache& cache,
+                                        const StageLP& stage) {
+  {
+    e.update_aperture_from_cache(li, base, uid, cache, stage)
+  } -> std::same_as<bool>;
+};
+
+/// Contract: any element with update_aperture_lp MUST also provide
+/// update_aperture_from_cache.  Use this in static_assert to catch
+/// interface inconsistencies at compile time.
+template<typename T>
+concept ApertureConsistent =
+    !HasApertureLp<T> || (HasApertureLp<T> && HasApertureFromCache<T>);
 
 // ─── Effective aperture entry ───────────────────────────────────────────────
 
@@ -90,7 +125,7 @@ struct ApertureEntry
 /// Result of a single aperture task (clone + update + solve + cut).
 struct ApertureCutResult
 {
-  Uid ap_uid {};
+  ApertureUid ap_uid {};
   double weight {0.0};
   bool feasible {false};
   int status {0};
@@ -104,7 +139,7 @@ struct ApertureCutResult
 /// The caller submits all apertures first, then collects all futures,
 /// enabling parallel execution.
 using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
-    std::function<ApertureCutResult()> task)>;
+    const std::function<ApertureCutResult()>& task)>;
 
 // ─── Core aperture solver ───────────────────────────────────────────────────
 
@@ -130,8 +165,8 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
 /// @param opts             Solver options
 /// @param label_maker      Label maker for LP row names
 /// @param log_directory    Directory for debug LP files (empty = no save)
-/// @param scene_uid        Scene UID integer (for logging)
-/// @param phase_uid        Phase UID integer (for logging)
+/// @param scene_uid        Scene UID (for logging)
+/// @param phase_uid        Phase UID (for logging)
 /// @param resolve_fn       Callback to resolve a cloned LP
 /// @param aperture_timeout Timeout in seconds for each aperture LP solve;
 ///                         0 = no timeout.  When exceeded, the aperture is
@@ -155,8 +190,8 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
     const SolverOptions& opts,
     const LabelMaker& label_maker,
     const std::string& log_directory,
-    int scene_uid,
-    int phase_uid,
+    SceneUid scene_uid,
+    PhaseUid phase_uid,
     const ApertureSubmitFunc& submit_fn,
     double aperture_timeout = 0.0,
     bool save_aperture_lp = false,

@@ -194,3 +194,114 @@ TEST_CASE("log_lp_stats_summary - above threshold triggers detail")  // NOLINT
   // Should log detailed table (ratio > 1e7)
   log_lp_stats_summary(entries, 1e7);
 }
+
+TEST_CASE(  // NOLINT
+    "log_lp_stats_summary - empty col names in detail logging")
+{
+  std::vector<ScenePhaseLPStats> entries;
+  entries.push_back({
+      .scene_uid = 1,
+      .phase_uid = 1,
+      .num_vars = 100,
+      .num_constraints = 50,
+      .stats_nnz = 500,
+      .stats_zeroed = 0,
+      .stats_max_abs = 1e10,
+      .stats_min_abs = 0.0001,
+      .stats_max_col = 5,
+      .stats_min_col = 15,
+      // empty names — exercises the branch without column names
+  });
+  // Ratio = 1e14 > 1e7 → triggers detailed output with empty col names
+  log_lp_stats_summary(entries, 1e7);
+}
+
+TEST_CASE(  // NOLINT
+    "log_lp_stats_summary - zeroed entries in summary line")
+{
+  std::vector<ScenePhaseLPStats> entries;
+  entries.push_back({
+      .scene_uid = 1,
+      .phase_uid = 1,
+      .num_vars = 50,
+      .num_constraints = 25,
+      .stats_nnz = 200,
+      .stats_zeroed = 3,
+      .stats_max_abs = 10.0,
+      .stats_min_abs = 1.0,
+      .stats_max_col = 0,
+      .stats_min_col = 1,
+      .stats_max_col_name = "x",
+      .stats_min_col_name = "y",
+  });
+  // Ratio = 10 < 1e7 → summary line path, but with stats_zeroed > 0
+  log_lp_stats_summary(entries, 1e7);
+}
+
+TEST_CASE(  // NOLINT
+    "log_lp_stats_summary - multiple entries with global max update")
+{
+  std::vector<ScenePhaseLPStats> entries;
+  entries.push_back({
+      .scene_uid = 1,
+      .phase_uid = 1,
+      .num_vars = 50,
+      .num_constraints = 25,
+      .stats_nnz = 100,
+      .stats_max_abs = 100.0,
+      .stats_min_abs = 1.0,
+      .stats_max_col = 0,
+      .stats_min_col = 1,
+      .stats_max_col_name = "a",
+      .stats_min_col_name = "b",
+  });
+  entries.push_back({
+      .scene_uid = 1,
+      .phase_uid = 2,
+      .num_vars = 50,
+      .num_constraints = 25,
+      .stats_nnz = 100,
+      .stats_max_abs = 500.0,  // higher max
+      .stats_min_abs = 0.5,  // lower min
+      .stats_max_col = 2,
+      .stats_min_col = 3,
+      .stats_max_col_name = "c",
+      .stats_min_col_name = "d",
+  });
+  // Global ratio = 500/0.5 = 1000 < 1e7 → summary line
+  log_lp_stats_summary(entries, 1e7);
+}
+
+TEST_CASE(  // NOLINT
+    "log_lp_stats_summary - detail with zeroed and multiple entries")
+{
+  std::vector<ScenePhaseLPStats> entries;
+  entries.push_back({
+      .scene_uid = 0,
+      .phase_uid = 0,
+      .num_vars = 50,
+      .num_constraints = 25,
+      .stats_nnz = 100,
+      .stats_zeroed = 2,
+      .stats_max_abs = 1e9,
+      .stats_min_abs = 0.001,
+      .stats_max_col = 0,
+      .stats_min_col = 1,
+      .stats_max_col_name = "x",
+      .stats_min_col_name = "y",
+  });
+  entries.push_back({
+      .scene_uid = 0,
+      .phase_uid = 1,
+      .num_vars = 50,
+      .num_constraints = 25,
+      .stats_nnz = 100,
+      .stats_zeroed = 1,
+      .stats_max_abs = 1e10,
+      .stats_min_abs = 0.0001,
+      .stats_max_col = 2,
+      .stats_min_col = 3,
+  });
+  // Ratio > 1e7 → detail path, with global zeroed > 0
+  log_lp_stats_summary(entries, 1e7);
+}

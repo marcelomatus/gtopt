@@ -18,6 +18,7 @@
 
 using namespace gtopt;
 
+#include "test_demand_emin_planning.hpp"
 #include "test_ieee14_planning.hpp"
 #include "test_ieee14b_ori_planning.hpp"
 #include "test_ieee4b_ori_planning.hpp"

@@ -63,10 +63,10 @@ int main(int argc, char** argv)
     std::vector<std::string> system_files;
     if (vm.contains("system-file")) {
       system_files = vm["system-file"].as<std::vector<std::string>>();
-    } else {
-      std::cerr << "ERROR: a system file is needed, use --help" << '\n';
-      return 2;  // input error
     }
+    // When no files are given, gtopt_main() will try to auto-detect a
+    // planning JSON in the current directory (convention:
+    // dirname/dirname.json).
 
     //
     // LOG system configuration
