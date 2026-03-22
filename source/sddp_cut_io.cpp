@@ -39,16 +39,15 @@ namespace gtopt
 // ─── Phase UID lookup helper ────────────────────────────────────────────────
 
 auto build_phase_uid_map(const PlanningLP& planning_lp)
-    -> flat_map<int, PhaseIndex>
+    -> flat_map<PhaseUid, PhaseIndex>
 {
   const auto& sim = planning_lp.simulation();
   const auto num_phases = static_cast<Index>(sim.phases().size());
 
-  flat_map<int, PhaseIndex> phase_map;
+  flat_map<PhaseUid, PhaseIndex> phase_map;
 
   for (Index pi = 0; pi < num_phases; ++pi) {
-    phase_map.emplace(static_cast<int>(sim.phases()[pi].uid()),
-                      PhaseIndex {pi});
+    phase_map.emplace(sim.phases()[pi].uid(), PhaseIndex {pi});
   }
   return phase_map;
 }
@@ -330,7 +329,7 @@ auto load_cuts_csv(PlanningLP& planning_lp,
     // Track (phase_uid, cut_name) pairs already loaded.
     // Cuts are broadcast to all scenes, so if the CSV contains
     // the same cut for multiple scenes we must load it only once.
-    std::set<std::pair<int, std::string>> loaded_keys;
+    std::set<std::pair<PhaseUid, std::string>> loaded_keys;
 
     // Process data lines
     int line_num = 1;  // header was line 1
@@ -363,9 +362,9 @@ auto load_cuts_csv(PlanningLP& planning_lp,
             filepath);
         continue;
       }
-      int phase_val = 0;
+      PhaseUid phase_val {};
       try {
-        phase_val = std::stoi(token);
+        phase_val = PhaseUid {std::stoi(token)};
       } catch (const std::exception&) {
         SPDLOG_WARN(
             "SDDP load_cuts: malformed line {} in {}: "
@@ -697,9 +696,9 @@ auto load_boundary_cuts_csv(
     const auto last_phase = PhaseIndex {num_phases - 1};
 
     // Build scene UID -> SceneIndex lookup (for "separated" mode)
-    std::unordered_map<int, Index> scene_uid_to_index;
+    flat_map<SceneUid, Index> scene_uid_to_index;
     for (Index si = 0; si < num_scenes; ++si) {
-      scene_uid_to_index[static_cast<int>(sim.scenes()[si].uid())] = si;
+      scene_uid_to_index[sim.scenes()[si].uid()] = si;
     }
 
     // Build element-name -> uid lookup from the System.
@@ -776,7 +775,7 @@ auto load_boundary_cuts_csv(
     {
       std::string name;
       int iteration;
-      int scene;
+      SceneUid scene {};
       double rhs;
       std::string coeff_line;
     };
@@ -804,7 +803,7 @@ auto load_boundary_cuts_csv(
 
       // Next column: scene UID
       std::getline(iss, token, ',');
-      const auto scene_val = std::stoi(token);
+      const SceneUid scene_val {std::stoi(token)};
 
       // Next column: rhs
       std::getline(iss, token, ',');
@@ -1115,11 +1114,11 @@ auto load_named_cuts_csv(
 
       // Column 2: scene UID
       std::getline(iss, token, ',');
-      [[maybe_unused]] const auto scene_val = std::stoi(token);
+      [[maybe_unused]] const SceneUid scene_val {std::stoi(token)};
 
       // Column 3: phase UID
       std::getline(iss, token, ',');
-      const auto phase_val = std::stoi(token);
+      const PhaseUid phase_val {std::stoi(token)};
 
       // Column 4: rhs
       std::getline(iss, token, ',');

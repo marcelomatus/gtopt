@@ -271,6 +271,33 @@ class TestMakeTemplateCli:
 # ---------------------------------------------------------------------------
 
 
+class TestSddpOptionKeysSync:
+    """Verify SDDP_OPTION_KEYS matches the C++ json_data_contract<SddpOptions>."""
+
+    def test_sddp_keys_match_cpp_header(self, repo_root):
+        """All fields in json_options.hpp SddpOptions appear in SDDP_OPTION_KEYS."""
+        import re
+
+        header = repo_root / "include" / "gtopt" / "json" / "json_options.hpp"
+        if not header.exists():
+            pytest.skip("json_options.hpp not found")
+
+        text = header.read_text()
+        # Extract the SddpOptions contract block
+        sddp_match = re.search(r"json_data_contract<SddpOptions>.*?>;", text, re.DOTALL)
+        assert sddp_match, "Could not find json_data_contract<SddpOptions>"
+
+        block = sddp_match.group()
+        # Find all json_*<"field_name", ...> entries
+        cpp_fields = set(re.findall(r'json_\w+<"(\w+)"', block))
+        assert cpp_fields, "No fields found in SddpOptions contract"
+
+        missing = cpp_fields - tb.SDDP_OPTION_KEYS
+        assert not missing, (
+            f"C++ SddpOptions fields missing from SDDP_OPTION_KEYS: {missing}"
+        )
+
+
 class TestFiltrationArraySheet:
     """Tests that the generated template has correct filtration_array columns."""
 

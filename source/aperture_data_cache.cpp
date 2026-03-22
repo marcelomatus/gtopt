@@ -43,8 +43,12 @@ ApertureDataCache::ApertureDataCache(const std::filesystem::path& aperture_dir)
 
       const auto element_name = file_entry.path().stem().string();
 
-      // Read parquet file into Arrow table using the project's reader
-      auto table_result = parquet_read_table(file_entry.path());
+      // Read parquet file into Arrow table using the project's reader.
+      // parquet_read_table expects a stem (no .parquet extension) — it
+      // appends .parquet/.parquet.gz/.parquet.zst internally.
+      auto stem_path = file_entry.path();
+      stem_path.replace_extension();  // strip .parquet
+      auto table_result = parquet_read_table(stem_path);
       if (!table_result.has_value()) {
         spdlog::warn("ApertureDataCache: failed to read {}: {}",
                      file_entry.path().string(),
@@ -81,7 +85,10 @@ ApertureDataCache::ApertureDataCache(const std::filesystem::path& aperture_dir)
         const auto uid_str = col_name.substr(4);
         uid_t raw_uid {0};
         auto [ptr, ec] = std::from_chars(
-            uid_str.data(), uid_str.data() + uid_str.size(), raw_uid);
+            uid_str.data(),
+            std::next(uid_str.data(),
+                      static_cast<std::ptrdiff_t>(uid_str.size())),
+            raw_uid);
         if (ec != std::errc {}) {
           continue;
         }

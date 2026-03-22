@@ -56,116 +56,6 @@ bool run_external(const char* cmd, const std::string& arg) noexcept
   }
 }
 
-/// Inline gzip compression via zlib — last-resort fallback.
-/// Returns the .gz path on success, empty string on failure.
-std::string gzip_lp_file_inline(const std::string& src_path)
-{
-  std::string gz_path = src_path + ".gz";
-
-  std::ifstream src(src_path, std::ios::binary);
-  if (!src.is_open()) {
-    spdlog::warn("LpDebugWriter: cannot open {} for gzip compression",
-                 src_path);
-    return {};
-  }
-
-  gzFile gz = gzopen(gz_path.c_str(), "wb");
-  if (gz == nullptr) {
-    spdlog::warn("LpDebugWriter: cannot create gzip file {}", gz_path);
-    return {};
-  }
-
-  constexpr std::size_t kBufSize = 65536;
-  std::array<char, kBufSize> buf {};
-  bool ok = true;
-  while (src) {
-    src.read(buf.data(), static_cast<std::streamsize>(kBufSize));
-    const auto n = static_cast<unsigned int>(src.gcount());
-    if (n > 0) {
-      if (gzwrite(gz, buf.data(), n) == 0) {
-        ok = false;
-        break;
-      }
-    }
-  }
-  gzclose(gz);
-
-  if (!ok) {
-    spdlog::warn("LpDebugWriter: gzip write error for {}", gz_path);
-    std::filesystem::remove(gz_path);
-    return {};
-  }
-
-  src.close();
-  std::error_code ec;
-  std::filesystem::remove(src_path, ec);
-  if (ec) {
-    spdlog::warn(
-        "LpDebugWriter: could not remove {}: {}", src_path, ec.message());
-  }
-
-  return gz_path;
-}
-
-/// Zstd compression level: 3 is the library default, offering a good
-/// balance between speed and ratio for LP debug files.
-constexpr int kZstdCompressionLevel = 3;
-
-/// Inline zstd compression via libzstd — preferred fallback over zlib/gzip.
-/// Returns the .zst path on success, empty string on failure.
-std::string zstd_lp_file_inline(const std::string& src_path)
-{
-  std::string zst_path = src_path + ".zst";
-
-  std::ifstream src(src_path, std::ios::binary | std::ios::ate);
-  if (!src.is_open()) {
-    spdlog::warn("LpDebugWriter: cannot open {} for zstd compression",
-                 src_path);
-    return {};
-  }
-
-  const auto file_size = static_cast<std::size_t>(src.tellg());
-  src.seekg(0, std::ios::beg);
-
-  std::vector<char> input(file_size);
-  if (!src.read(input.data(), static_cast<std::streamsize>(file_size))) {
-    spdlog::warn("LpDebugWriter: cannot read {} for zstd compression",
-                 src_path);
-    return {};
-  }
-  src.close();
-
-  const auto bound = ZSTD_compressBound(file_size);
-  std::vector<char> output(bound);
-
-  const auto compressed_size = ZSTD_compress(
-      output.data(), bound, input.data(), file_size, kZstdCompressionLevel);
-
-  if (ZSTD_isError(compressed_size) != 0U) {
-    spdlog::warn("LpDebugWriter: zstd compress error for {}: {}",
-                 src_path,
-                 ZSTD_getErrorName(compressed_size));
-    return {};
-  }
-
-  std::ofstream out(zst_path, std::ios::binary);
-  if (!out.is_open()) {
-    spdlog::warn("LpDebugWriter: cannot create zstd file {}", zst_path);
-    return {};
-  }
-  out.write(output.data(), static_cast<std::streamsize>(compressed_size));
-  out.close();
-
-  std::error_code ec;
-  std::filesystem::remove(src_path, ec);
-  if (ec) {
-    spdlog::warn(
-        "LpDebugWriter: could not remove {}: {}", src_path, ec.message());
-  }
-
-  return zst_path;
-}
-
 /// Codec table — maps codec names to binary commands and output extensions.
 struct CodecInfo
 {
@@ -274,23 +164,116 @@ std::string try_gtopt_compress_lp(const std::string& src_path,
   return {};
 }
 
-/// Compress @p src_path according to @p lp_compression.
-///
-/// Semantics of @p lp_compression:
-///   - `"none"`: caller guarantees no compression is required; this function
-///     is not normally called in that case but returns src_path harmlessly.
-///   - `""` (empty / auto): let `gtopt_compress_lp` choose; cascade to zstd
-///     binary, zstd inline, gzip binary, then inline zlib.
-///   - Named codec (e.g. `"gzip"`, `"zstd"`, `"lz4"`, `"bzip2"`, `"xz"`):
-///     passed as `--codec <codec>` suggestion to `gtopt_compress_lp`.
-///     If the script is unavailable, the named binary is tried directly.
-///     Unknown codec names produce a warning and fall back to the cascade.
-///
-/// The cascade always terminates in inline zlib/libzstd so compression always
-/// succeeds unless all mechanisms fail, in which case the plain `.lp` is
-/// kept with a warning.  Never throws, never exits non-zero.
+}  // namespace
+
+/// Zstd compression level: 3 is the library default, offering a good
+/// balance between speed and ratio for LP debug files.
+constexpr int kZstdCompressionLevel = 3;
+
+std::string gzip_lp_file_inline(const std::string& src_path)
+{
+  std::string gz_path = src_path + ".gz";
+
+  std::ifstream src(src_path, std::ios::binary);
+  if (!src.is_open()) {
+    spdlog::warn("LpDebugWriter: cannot open {} for gzip compression",
+                 src_path);
+    return {};
+  }
+
+  gzFile gz = gzopen(gz_path.c_str(), "wb");
+  if (gz == nullptr) {
+    spdlog::warn("LpDebugWriter: cannot create gzip file {}", gz_path);
+    return {};
+  }
+
+  constexpr std::size_t kBufSize = 65536;
+  std::array<char, kBufSize> buf {};
+  bool ok = true;
+  while (src) {
+    src.read(buf.data(), static_cast<std::streamsize>(kBufSize));
+    const auto n = static_cast<unsigned int>(src.gcount());
+    if (n > 0) {
+      if (gzwrite(gz, buf.data(), n) == 0) {
+        ok = false;
+        break;
+      }
+    }
+  }
+  gzclose(gz);
+
+  if (!ok) {
+    spdlog::warn("LpDebugWriter: gzip write error for {}", gz_path);
+    std::filesystem::remove(gz_path);
+    return {};
+  }
+
+  src.close();
+  std::error_code ec;
+  std::filesystem::remove(src_path, ec);
+  if (ec) {
+    spdlog::warn(
+        "LpDebugWriter: could not remove {}: {}", src_path, ec.message());
+  }
+
+  return gz_path;
+}
+
+std::string zstd_lp_file_inline(const std::string& src_path)
+{
+  std::string zst_path = src_path + ".zst";
+
+  std::ifstream src(src_path, std::ios::binary | std::ios::ate);
+  if (!src.is_open()) {
+    spdlog::warn("LpDebugWriter: cannot open {} for zstd compression",
+                 src_path);
+    return {};
+  }
+
+  const auto file_size = static_cast<std::size_t>(src.tellg());
+  src.seekg(0, std::ios::beg);
+
+  std::vector<char> input(file_size);
+  if (!src.read(input.data(), static_cast<std::streamsize>(file_size))) {
+    spdlog::warn("LpDebugWriter: cannot read {} for zstd compression",
+                 src_path);
+    return {};
+  }
+  src.close();
+
+  const auto bound = ZSTD_compressBound(file_size);
+  std::vector<char> output(bound);
+
+  const auto compressed_size = ZSTD_compress(
+      output.data(), bound, input.data(), file_size, kZstdCompressionLevel);
+
+  if (ZSTD_isError(compressed_size) != 0U) {
+    spdlog::warn("LpDebugWriter: zstd compress error for {}: {}",
+                 src_path,
+                 ZSTD_getErrorName(compressed_size));
+    return {};
+  }
+
+  std::ofstream out(zst_path, std::ios::binary);
+  if (!out.is_open()) {
+    spdlog::warn("LpDebugWriter: cannot create zstd file {}", zst_path);
+    return {};
+  }
+  out.write(output.data(), static_cast<std::streamsize>(compressed_size));
+  out.close();
+
+  std::error_code ec;
+  std::filesystem::remove(src_path, ec);
+  if (ec) {
+    spdlog::warn(
+        "LpDebugWriter: could not remove {}: {}", src_path, ec.message());
+  }
+
+  return zst_path;
+}
+
 std::string compress_lp_file(const std::string& src_path,
-                             const std::string& lp_compression = {})
+                             const std::string& lp_compression)
 {
   // "none" → caller should not have called us, but handle gracefully.
   if (lp_compression == "none") {
@@ -298,9 +281,6 @@ std::string compress_lp_file(const std::string& src_path,
   }
 
   // ── 1. gtopt_compress_lp (user-configured, any codec) ────────────────────
-  // Pass the codec hint when provided so the script can honour the user's
-  // preference; the script is free to fall back to its configured default
-  // when the hint is absent, unknown, or the codec binary is missing.
   {
     const auto result = try_gtopt_compress_lp(src_path, lp_compression);
     if (!result.empty()) {
@@ -370,8 +350,6 @@ std::string compress_lp_file(const std::string& src_path,
       src_path);
   return src_path;
 }
-
-}  // namespace
 
 LpDebugWriter::LpDebugWriter(std::string directory,
                              std::string compression,

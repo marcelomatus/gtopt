@@ -97,7 +97,8 @@ template<typename T>
       ("version,V", "print program version and exit")  //
       ("system-file,s",
        po::value<std::vector<std::string>>(),
-       "planning JSON input file(s); may be specified positionally")  //
+       "planning file(s) (planning.json); may be a JSON file, a stem "
+       "(without .json), or a directory name")  //
       ("lp-file,l",
        po::value<std::string>(),
        "write the assembled LP model to this file (stem; .lp extension added)")
@@ -260,7 +261,7 @@ inline void apply_cli_options(
   }
 
   if (use_lp_names) {
-    planning.options.use_lp_names = use_lp_names.value();
+    planning.options.use_lp_names = use_lp_names;
   }
 
   if (output_directory) {

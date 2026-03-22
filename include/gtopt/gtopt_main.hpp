@@ -37,7 +37,14 @@ namespace gtopt
 struct MainOptions
 {
   // ---- required ----
-  /** @brief Paths to planning JSON input files (at least one required) */
+  /** @brief Paths to planning JSON files (``planning.json``).
+   *
+   * At least one file is required.  When multiple files are given they are
+   * merged in order (later files override earlier ones).  Each file may be:
+   * - a full path to a ``.json`` file,
+   * - a stem without extension (the ``.json`` suffix is appended), or
+   * - a directory name (resolved to ``dir/dir.json``).
+   */
   std::vector<std::string> planning_files {};
 
   // ---- I/O directories / formats ----
@@ -132,14 +139,15 @@ struct MainOptions
 /**
  * @brief Run the gtopt power-system optimizer.
  *
- * Reads the planning JSON files listed in @p opts.planning_files, applies all
- * option overrides, constructs a @c PlanningLP model, optionally solves it,
- * and writes the solution output.
+ * Reads the planning files listed in @p raw_opts.planning_files, merges
+ * them into a single Planning object, applies CLI overrides, builds and
+ * solves the LP model, writes the solution output, and saves a copy of
+ * the merged planning as ``planning.json`` in the output directory.
  *
- * @param opts  All runtime options; only set the fields you need.
+ * @param raw_opts  All runtime options; only set the fields you need.
  * @return 0 on success, 1 on infeasibility, or an error string on failure.
  */
 [[nodiscard]] std::expected<int, std::string> gtopt_main(
-    const MainOptions& opts);
+    const MainOptions& raw_opts);
 
 }  // namespace gtopt

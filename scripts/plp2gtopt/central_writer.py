@@ -7,14 +7,15 @@ from typing import Any, Dict, List, Optional, TypedDict
 import typing
 
 from .base_writer import BaseWriter
+from .block_parser import BlockParser
+from .bus_parser import BusParser
 from .central_parser import CentralParser
 from .cost_parser import CostParser
-from .stage_parser import StageParser
-from .bus_parser import BusParser
-from .mance_parser import ManceParser
 from .cost_writer import CostWriter
+from .mance_parser import ManceParser
 from .mance_writer import ManceWriter
-from .block_parser import BlockParser
+from .stage_parser import StageParser
+from .tech_detect import detect_technology
 
 
 class Generator(TypedDict):
@@ -67,6 +68,21 @@ class CentralWriter(BaseWriter):
 
         parquet_cols = self._write_parquet_files()
 
+        # Load centipo.csv overrides from the input directory (PLP's own
+        # technology classification file) and merge with user overrides.
+        # User overrides take precedence over centipo.csv.
+        from .tech_detect import load_centipo_csv  # noqa: PLC0415
+
+        input_dir = self.options.get("input_dir", "") if self.options else ""
+        centipo_overrides = load_centipo_csv(input_dir) if input_dir else {}
+
+        # Build the effective set of mance (profile) centrals for the
+        # cost+profile heuristic.
+        mance_names: set[str] = set()
+        if self.mance_parser and hasattr(self.mance_parser, "items"):
+            for mitem in self.mance_parser.items:
+                mance_names.add(mitem.get("name", ""))
+
         json_centrals: List[Generator] = []
         for central in items:
             central_name = central["name"]
@@ -96,6 +112,32 @@ class CentralWriter(BaseWriter):
             pmin = "pmin" if pcol_name in parquet_cols["pmin"] else central["pmin"]
             pmax = "pmax" if pcol_name in parquet_cols["pmax"] else central["pmax"]
 
+            plp_type = central.get("type", "unknown")
+            user_overrides = (
+                self.options.get("tech_overrides") if self.options else None
+            )
+            # Merge: user overrides > centipo.csv overrides
+            effective_overrides = {**centipo_overrides}
+            if user_overrides:
+                effective_overrides.update(user_overrides)
+            auto_detect_tech = (
+                self.options.get("auto_detect_tech", True) if self.options else True
+            )
+            # Pass cost and profile info for the heuristic
+            variable_cost = central.get("gcost")
+            if not isinstance(variable_cost, (int, float)):
+                variable_cost = None
+            has_profile = central_name in mance_names
+
+            gen_type = detect_technology(
+                plp_type,
+                central_name,
+                overrides=effective_overrides,
+                auto_detect=auto_detect_tech,
+                variable_cost=variable_cost,
+                has_profile=has_profile,
+            )
+
             generator: Generator = {
                 "uid": central_number,
                 "name": central_name,
@@ -104,7 +146,7 @@ class CentralWriter(BaseWriter):
                 "capacity": central["pmax"],
                 "pmax": pmax,
                 "pmin": pmin,
-                "type": central.get("type", "unknown"),
+                "type": gen_type,
             }
             json_centrals.append(generator)
 

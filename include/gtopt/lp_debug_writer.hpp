@@ -18,6 +18,22 @@ namespace gtopt
 class AdaptiveWorkPool;
 class LinearInterface;
 
+/// @name Compression utility functions (detail — exposed for testing)
+/// @{
+
+/// Inline gzip compression via zlib.  Returns .gz path or empty on failure.
+[[nodiscard]] std::string gzip_lp_file_inline(const std::string& src_path);
+
+/// Inline zstd compression via libzstd.  Returns .zst path or empty on failure.
+[[nodiscard]] std::string zstd_lp_file_inline(const std::string& src_path);
+
+/// Compress a file using the named codec or auto-cascade.
+/// @param lp_compression  "none", "", "gzip", "zstd", "lz4", "bzip2", "xz"
+[[nodiscard]] std::string compress_lp_file(
+    const std::string& src_path, const std::string& lp_compression = {});
+
+/// @}
+
 /// Encapsulates LP debug file writing and optional async gzip compression.
 ///
 /// Construct with a non-empty @p directory to activate.  When @p compression

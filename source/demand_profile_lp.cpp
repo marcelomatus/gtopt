@@ -8,6 +8,7 @@
  * This module
  */
 
+#include <gtopt/aperture_data_cache.hpp>
 #include <gtopt/demand_profile_lp.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -67,6 +68,21 @@ bool DemandProfileLP::update_aperture_lp(LinearInterface& li,
 {
   return ProfileObjectLP::update_aperture_lp(
       li, base_scenario, aperture_scenario, stage);
+}
+
+bool DemandProfileLP::update_aperture_from_cache(
+    LinearInterface& li,
+    const ScenarioLP& base_scenario,
+    ScenarioUid aperture_scenario_uid,
+    const ApertureDataCache& cache,
+    const StageLP& stage) const
+{
+  return ProfileObjectLP::update_aperture_from_cache(ClassName.full_name(),
+                                                     li,
+                                                     base_scenario,
+                                                     aperture_scenario_uid,
+                                                     cache,
+                                                     stage);
 }
 
 }  // namespace gtopt

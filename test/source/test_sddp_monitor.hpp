@@ -99,7 +99,7 @@ TEST_CASE("write_sddp_api_status produces valid JSON")  // NOLINT
 
   std::vector<SDDPIterationResult> results;
   results.push_back(SDDPIterationResult {
-      .iteration = 1,
+      .iteration = IterationIndex {1},
       .lower_bound = 800.0,
       .upper_bound = 1200.0,
       .gap = 0.33,
@@ -120,7 +120,7 @@ TEST_CASE("write_sddp_api_status produces valid JSON")  // NOLINT
           },
   });
   results.push_back(SDDPIterationResult {
-      .iteration = 2,
+      .iteration = IterationIndex {2},
       .lower_bound = 900.0,
       .upper_bound = 1050.0,
       .gap = 0.14,

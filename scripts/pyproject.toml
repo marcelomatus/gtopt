@@ -46,6 +46,8 @@ gtopt2pp              = "gtopt2pp.main:main"
 gtopt_check_json      = "gtopt_check_json.gtopt_check_json:main"
 sddp_monitor          = "sddp_monitor:main"
 ts2gtopt              = "ts2gtopt.main:main"
+run_gtopt             = "run_gtopt.main:main"
+gtopt_check_output    = "gtopt_check_output.main:main"
 
 
 [project.optional-dependencies]
@@ -61,7 +63,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["gtopt_compare*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "gtopt_compress_lp*", "gtopt_check_json*", "igtopt*", "plp2gtopt*", "pp2gtopt*", "gtopt2pp*", "sddp_monitor*", "ts2gtopt*"]
+include = ["gtopt_compare*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "gtopt_check_output*", "gtopt_compress_lp*", "gtopt_check_json*", "gtopt_config*", "igtopt*", "plp2gtopt*", "pp2gtopt*", "gtopt2pp*", "run_gtopt*", "sddp_monitor*", "ts2gtopt*"]
 
 
 # ---------------------------------------------------------------------------
@@ -83,6 +85,9 @@ testpaths = [
     "plp2gtopt/tests",
     "pp2gtopt/tests",
     "sddp_monitor/tests",
+    "gtopt_config/tests",
+    "gtopt_check_output/tests",
+    "run_gtopt/tests",
     "ts2gtopt/tests",
 ]
 addopts = "-v --import-mode=importlib -n 0"

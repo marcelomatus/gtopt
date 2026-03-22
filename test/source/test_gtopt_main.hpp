@@ -601,7 +601,7 @@ TEST_CASE("gtopt_main - check_json=true warns on unknown fields")  // NOLINT
 
 TEST_CASE("gtopt_main - output_format=parquet full solve")  // NOLINT
 {
-  const auto stem = write_tmp_json("gtopt_main_parquet_out", minimal_json);
+  const auto stem = write_tmp_json("gtopt_main_parquet_solve", minimal_json);
   const auto out_dir =
       (std::filesystem::temp_directory_path() / "gtopt_main_parquet_out")
           .string();
@@ -619,7 +619,7 @@ TEST_CASE("gtopt_main - output_format=parquet full solve")  // NOLINT
 
 TEST_CASE("gtopt_main - output_format=csv full solve")  // NOLINT
 {
-  const auto stem = write_tmp_json("gtopt_main_csv_out", minimal_json);
+  const auto stem = write_tmp_json("gtopt_main_csv_solve", minimal_json);
   const auto out_dir =
       (std::filesystem::temp_directory_path() / "gtopt_main_csv_out").string();
 
@@ -864,5 +864,155 @@ TEST_CASE(
   }
   CHECK(found_gz);
   CHECK_FALSE(found_bare);
+  std::filesystem::remove_all(log_dir);
+}
+
+TEST_CASE(  // NOLINT
+    "gtopt_main - user_constraint_file loads JSON constraints")
+{
+  // Create a JSON constraint file referencing generator g1.
+  // This covers lines 455-495 in gtopt_main.cpp (user_constraint_file loading).
+  const auto uc_path =
+      std::filesystem::temp_directory_path() / "gtopt_main_uc_test.json";
+  {
+    std::ofstream uc_file(uc_path);
+    uc_file << R"([
+      {
+        "uid": 100,
+        "name": "uc_gen_limit",
+        "expression": "generator(\"g1\").generation <= 150"
+      }
+    ])";
+  }
+
+  // Planning JSON referencing the external constraint file
+  const auto planning_json = std::format(R"({{
+    "options": {{
+      "demand_fail_cost": 1000,
+      "output_compression": "uncompressed"
+    }},
+    "simulation": {{
+      "block_array": [{{"uid": 1, "duration": 1}}],
+      "stage_array":  [{{"uid": 1, "first_block": 0, "count_block": 1}}],
+      "scenario_array": [{{"uid": 1}}]
+    }},
+    "system": {{
+      "name": "uc_file_test",
+      "user_constraint_file": "{}",
+      "bus_array": [{{"uid": 1, "name": "b1"}}],
+      "generator_array": [
+        {{"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}}
+      ],
+      "demand_array": [
+        {{"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}}
+      ]
+    }}
+  }})",
+                                         uc_path.string());
+
+  const auto stem =
+      write_tmp_json("gtopt_main_uc_file", std::string_view(planning_json));
+  const auto out_dir =
+      (std::filesystem::temp_directory_path() / "gtopt_main_uc_file_out")
+          .string();
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .output_directory = out_dir,
+      .use_single_bus = true,
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+
+  std::filesystem::remove(uc_path);
+}
+
+TEST_CASE("gtopt_main - demand_fail_cost=0 triggers warning")  // NOLINT
+{
+  // When demand_fail_cost is 0 (or not set), gtopt_main logs a warning
+  // (lines 511-514).  This test exercises that path.
+  constexpr auto no_dfc_json = R"({
+    "options": {"output_compression": "uncompressed"},
+    "simulation": {
+      "block_array":    [{"uid": 1, "duration": 1}],
+      "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 1}],
+      "scenario_array": [{"uid": 1}]
+    },
+    "system": {
+      "name": "no_dfc_test",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}
+      ]
+    }
+  })";
+
+  const auto stem = write_tmp_json("gtopt_main_no_dfc", no_dfc_json);
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .just_build_lp = true,
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+}
+
+TEST_CASE(  // NOLINT
+    "gtopt_main - input_directory fallback for planning file")
+{
+  // Create a planning file in a subdirectory and reference it via
+  // input_directory, covering lines 109-118 in gtopt_main.cpp.
+  const auto input_dir =
+      std::filesystem::temp_directory_path() / "gtopt_main_input_dir_test";
+  std::filesystem::create_directories(input_dir);
+
+  // Write the planning JSON into input_dir
+  {
+    std::ofstream f(input_dir / "alt_plan.json");
+    f << minimal_json;
+  }
+
+  // Reference the file by name only (not full path), with input_directory set
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {"alt_plan"},
+      .input_directory = input_dir.string(),
+      .just_build_lp = true,
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+
+  std::filesystem::remove_all(input_dir);
+}
+
+TEST_CASE(  // NOLINT
+    "gtopt_main - auto trace log without explicit trace_log path")
+{
+  // When trace_log is NOT set, gtopt_main auto-creates a numbered
+  // trace_N.log in the log directory (lines 365-390).
+  const auto stem = write_tmp_json("gtopt_main_auto_trace", minimal_json);
+  const auto log_dir =
+      std::filesystem::temp_directory_path() / "gtopt_main_auto_trace_logs";
+  std::filesystem::remove_all(log_dir);
+
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .just_build_lp = true,
+      .log_directory = log_dir.string(),
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+
+  // Should have created trace_1.log in the log directory
+  bool found_trace = false;
+  if (std::filesystem::exists(log_dir)) {
+    for (const auto& entry : std::filesystem::directory_iterator(log_dir)) {
+      if (entry.path().filename().string().starts_with("trace_")) {
+        found_trace = true;
+        break;
+      }
+    }
+  }
+  CHECK(found_trace);
   std::filesystem::remove_all(log_dir);
 }

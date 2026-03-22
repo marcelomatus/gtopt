@@ -982,3 +982,207 @@ TEST_CASE("LinearInterface - set_warm_start_solution with empty spans is no-op")
   REQUIRE(r.has_value());
   CHECK(li.get_obj_value() == doctest::Approx(3.0));
 }
+
+TEST_CASE(  // NOLINT
+    "LinearInterface - load_flat with integer columns and name tracking")
+{
+  using namespace gtopt;
+
+  LinearProblem lp("IntLP");
+
+  const auto col1 =
+      lp.add_col({.name = "x1", .lowb = 0.0, .uppb = 10.0, .cost = 1.0});
+  const auto col2 = lp.add_col({.name = "x2",
+                                .lowb = 0.0,
+                                .uppb = 10.0,
+                                .cost = 2.0,
+                                .is_integer = true});
+
+  auto row1 = lp.add_row({.name = "c1", .uppb = 8.0});
+  lp.set_coeff(row1, col1, 1.0);
+  lp.set_coeff(row1, col2, 1.0);
+
+  // Convert to flat with names
+  FlatOptions flat_opts;
+  flat_opts.col_with_names = true;
+  flat_opts.row_with_names = true;
+  auto flat_lp = lp.to_flat(flat_opts);
+
+  // Load with name tracking enabled
+  LinearInterface li;
+  li.set_lp_names_level(1);
+  li.load_flat(flat_lp);
+
+  CHECK(li.get_numcols() == 2);
+  CHECK(li.get_numrows() == 1);
+
+  // Name maps should be populated
+  CHECK(li.col_name_map().size() == 2);
+  CHECK(li.row_name_map().size() == 1);
+  CHECK(li.col_name_map().count("x1") == 1);
+  CHECK(li.col_name_map().count("x2") == 1);
+  CHECK(li.row_name_map().count("c1") == 1);
+
+  // Integer column should be marked
+  CHECK(li.is_integer(col2));
+  CHECK(li.is_continuous(col1));
+
+  auto result = li.resolve();
+  REQUIRE(result.has_value());
+}
+
+TEST_CASE("LinearInterface - load_flat without names (level 0)")  // NOLINT
+{
+  using namespace gtopt;
+
+  LinearProblem lp("NoNames");
+  [[maybe_unused]] const auto col =
+      lp.add_col({.name = "x1", .lowb = 0.0, .uppb = 5.0, .cost = 1.0});
+
+  FlatOptions flat_opts;
+  flat_opts.col_with_names = true;
+  flat_opts.row_with_names = true;
+  auto flat_lp = lp.to_flat(flat_opts);
+
+  LinearInterface li;
+  li.set_lp_names_level(0);
+  li.load_flat(flat_lp);
+
+  // Name maps should remain empty at level 0
+  CHECK(li.col_name_map().empty());
+  CHECK(li.row_name_map().empty());
+}
+
+TEST_CASE("LinearInterface - initial_solve returns error on infeasible LP")
+// NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Create an infeasible LP: x >= 10 AND x <= 5
+  LinearInterface li;
+  const auto x1 = li.add_col("x1", 0.0, 5.0);
+  li.set_obj_coeff(x1, 1.0);
+
+  SparseRow row("lb");
+  row[x1] = 1.0;
+  row.lowb = 10.0;
+  row.uppb = LinearProblem::DblMax;
+  li.add_row(row);
+
+  auto result = li.initial_solve();
+  REQUIRE_FALSE(result.has_value());
+
+  const auto& err = result.error();
+  CHECK(err.code == ErrorCode::SolverError);
+  CHECK_FALSE(err.message.empty());
+  CHECK(err.status == 2);  // infeasible status
+
+  // Verify status queries
+  CHECK_FALSE(li.is_optimal());
+  CHECK(li.is_prim_infeasible());
+  CHECK(li.get_status() == 2);
+}
+
+TEST_CASE("LinearInterface - resolve returns error on infeasible LP")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Create an infeasible LP: x >= 10 AND x <= 5
+  LinearInterface li;
+  const auto x1 = li.add_col("x1", 0.0, 5.0);
+  li.set_obj_coeff(x1, 1.0);
+
+  SparseRow row("lb");
+  row[x1] = 1.0;
+  row.lowb = 10.0;
+  row.uppb = LinearProblem::DblMax;
+  li.add_row(row);
+
+  auto result = li.resolve();
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error().code == ErrorCode::SolverError);
+  CHECK_FALSE(li.is_optimal());
+}
+
+TEST_CASE("LinearInterface - get_coeff on empty LP returns zero")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  LinearInterface li;
+  const auto col = li.add_col("x", 0.0, 10.0);
+
+  // No rows added, matrix should return 0.0 for any coefficient
+  CHECK(li.get_coeff(RowIndex {0}, col) == doctest::Approx(0.0));
+}
+
+TEST_CASE("LinearInterface - set_coeff and get_coeff round trip")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  LinearInterface li;
+  const auto x1 = li.add_col("x1", 0.0, 10.0);
+  const auto x2 = li.add_col("x2", 0.0, 10.0);
+  li.set_obj_coeff(x1, 1.0);
+
+  SparseRow row("c1");
+  row[x1] = 2.0;
+  row[x2] = 3.0;
+  row.uppb = 20.0;
+  const auto r1 = li.add_row(row);
+
+  CHECK(li.get_coeff(r1, x1) == doctest::Approx(2.0));
+  CHECK(li.get_coeff(r1, x2) == doctest::Approx(3.0));
+
+  // Modify coefficient
+  li.set_coeff(r1, x1, 5.0);
+  CHECK(li.get_coeff(r1, x1) == doctest::Approx(5.0));
+  CHECK(li.supports_set_coeff());
+}
+
+TEST_CASE("LinearInterface - set_log_file direct call")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  LinearInterface li;
+  li.set_log_file("/tmp/test_direct_log");
+
+  const auto x1 = li.add_col("x1", 0.0, 10.0);
+  li.set_obj_coeff(x1, 1.0);
+
+  SparseRow row("c1");
+  row[x1] = 1.0;
+  row.uppb = 5.0;
+  li.add_row(row);
+
+  // Solve with logging enabled — exercises open/close log handler
+  SolverOptions opts;
+  opts.log_level = 1;
+  auto result = li.resolve(opts);
+  REQUIRE(result.has_value());
+
+  // Cleanup
+  const std::string log_file = "/tmp/test_direct_log.log";
+  if (std::filesystem::exists(log_file)) {
+    std::filesystem::remove(log_file);
+  }
+}
+
+TEST_CASE("LinearInterface - solve with time_limit option")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  LinearInterface li;
+  const auto x1 = li.add_col("x1", 0.0, 10.0);
+  li.set_obj_coeff(x1, 1.0);
+
+  SparseRow row("c1");
+  row[x1] = 1.0;
+  row.uppb = 5.0;
+  li.add_row(row);
+
+  SolverOptions opts;
+  opts.time_limit = 60.0;
+  auto result = li.initial_solve(opts);
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+}

@@ -669,9 +669,19 @@ def _build_gen_profile_map(
     block_idx: int,
 ) -> dict[int, float]:
     """Build a generator UID → profile factor map for the given block."""
+    # Build name→uid map for generators so name-based references resolve
+    gen_name_to_uid: dict[str, int] = {
+        g["name"]: int(g["uid"])
+        for g in system.get("generator_array", [])
+        if "name" in g and "uid" in g
+    }
     profiles: dict[int, float] = {}
     for gp in system.get("generator_profile_array", []):
-        gen_uid = int(gp.get("generator", gp.get("uid", 0)))
+        gen_ref = gp.get("generator", gp.get("uid", 0))
+        if isinstance(gen_ref, str):
+            gen_uid = gen_name_to_uid.get(gen_ref, 0)
+        else:
+            gen_uid = int(gen_ref)
         profile = gp.get("profile")
         if profile is None:
             continue

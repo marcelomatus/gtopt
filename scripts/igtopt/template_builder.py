@@ -1184,6 +1184,7 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "alpha_min",
         "alpha_max",
         "hot_start",
+        "hot_start_mode",
         "save_per_iteration",
         "cuts_input_file",
         "sentinel_file",
@@ -1191,6 +1192,10 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "multi_cut_threshold",
         "num_apertures",
         "aperture_directory",
+        "aperture_timeout",
+        "save_aperture_lp",
+        "warm_start",
+        "solve_timeout",
         "boundary_cuts_file",
         "boundary_cuts_mode",
         "boundary_max_iterations",
@@ -1337,6 +1342,11 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     ("alpha_max", "[sddp] Maximum alpha (future cost) upper bound", None),
     ("hot_start", "[sddp] Resume SDDP from existing cuts (true/false)", None),
     (
+        "hot_start_mode",
+        "[sddp] Hot-start mode: 'cuts' (default) or 'solution'",
+        None,
+    ),
+    (
         "save_per_iteration",
         "[sddp] Save cuts after every iteration (true/false)",
         None,
@@ -1369,6 +1379,26 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     (
         "aperture_directory",
         "[sddp] Directory for aperture definition files",
+        None,
+    ),
+    (
+        "aperture_timeout",
+        "[sddp] Timeout in seconds for each aperture solve",
+        None,
+    ),
+    (
+        "save_aperture_lp",
+        "[sddp] Save LP files for infeasible apertures (true/false)",
+        None,
+    ),
+    (
+        "warm_start",
+        "[sddp] Enable warm-start for aperture/elastic resolves (true/false)",
+        None,
+    ),
+    (
+        "solve_timeout",
+        "[sddp] Timeout in seconds for each LP solve",
         None,
     ),
     (
