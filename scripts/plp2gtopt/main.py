@@ -917,16 +917,15 @@ def main():
     try:
         convert_plp_case(build_options(args))
     except (RuntimeError, FileNotFoundError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
         if no_args:
             print(
-                f"error: {exc}\n"
                 "Usage: plp2gtopt [INPUT_DIR] -o <output_dir> [options]\n"
                 "Run 'plp2gtopt -h' for the full list of options, "
                 "or 'plp2gtopt --info <input_dir>' to inspect a case.",
                 file=sys.stderr,
             )
-            sys.exit(1)
-        raise
+        sys.exit(1)
 
 
 if __name__ == "__main__":

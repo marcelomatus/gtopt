@@ -5,7 +5,11 @@ PLP classifies generators into broad categories (termica, pasada,
 embalse, serie, bateria, falla).  The ``pasada`` and ``termica``
 categories are catch-all buckets that include solar, wind, geothermal,
 biomass, and other technologies.  This module refines those types by
-analysing the central name for technology-specific keywords.
+analysing the central name for technology-specific keywords and
+explicit overrides (user-provided or from ``centipo.csv``).
+
+Note: profile presence (``plpmance.dat``) is NOT used as a type
+indicator — all pasada centrals have profiles.
 
 Usage::
 
@@ -52,14 +56,15 @@ _NAME_PATTERNS: list[tuple[re.Pattern, str]] = [
     # Solar
     (
         re.compile(
-            r"solar|fotovolt|[\b_]pv[\b_]|[\b_]fv[\b_]|^pv[_]|^fv[_]", re.IGNORECASE
+            r"solar|fotovolt|[\b_]pv[\b_]|[\b_]fv[\b_]|^pv[_]|^fv[_]|_fv$|_pv$",
+            re.IGNORECASE,
         ),
         "solar",
     ),
     # Wind
     (
         re.compile(
-            r"eolic|eol[_\s]|wind|parque.*eol|viento",
+            r"eolic|eol[_\s]|wind|parque.*eol|[\b_]eo[\b_]|_eo$",
             re.IGNORECASE,
         ),
         "wind",
@@ -99,8 +104,6 @@ def detect_technology(
     *,
     overrides: dict[str, str] | None = None,
     auto_detect: bool = True,
-    variable_cost: float | None = None,
-    has_profile: bool = False,
 ) -> str:
     """Determine the generator technology type.
 
@@ -108,10 +111,7 @@ def detect_technology(
     1. Explicit override (if ``central_name`` is in *overrides*).
     2. ``centipo.csv`` overrides (loaded into *overrides* by the caller).
     3. Name-based keyword detection (if *auto_detect* is True).
-    4. Cost + profile heuristic: a ``termica`` central with
-       ``variable_cost == 0`` and a time-varying profile from
-       ``plpmance.dat`` is likely a renewable (solar or wind).
-    5. PLP base-type mapping.
+    4. PLP base-type mapping.
 
     Args:
         plp_type: PLP type string (e.g. "termica", "pasada").
@@ -120,10 +120,6 @@ def detect_technology(
             This includes both user ``--tech-overrides`` and any entries
             loaded from ``centipo.csv``.
         auto_detect: If True, try name-based keyword detection.
-        variable_cost: The central's ``CenCosVar`` from plpcnfce.dat.
-            Zero variable cost is a strong signal for renewable generation.
-        has_profile: True if the central has an entry in ``plpmance.dat``
-            (time-varying capacity profile), typical of solar/wind.
 
     Returns:
         A refined technology string (e.g. "solar", "wind", "thermal").
@@ -138,24 +134,7 @@ def detect_technology(
             if pattern.search(central_name):
                 return tech
 
-    # 3. Cost + profile heuristic for termica
-    # Solar/wind have zero variable cost AND a plpmance profile.
-    # Pure pasada also has zero cost but is already classified by PLP type.
-    if (
-        auto_detect
-        and plp_type == "termica"
-        and variable_cost is not None
-        and variable_cost == 0.0
-        and has_profile
-    ):
-        log.info(
-            "  %s: zero cost + profile → classified as 'renewable' "
-            "(use --tech-overrides to correct)",
-            central_name,
-        )
-        return "renewable"
-
-    # 4. PLP base type
+    # 3. PLP base type
     return _PLP_BASE_TYPE.get(plp_type, plp_type)
 
 

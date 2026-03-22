@@ -46,12 +46,17 @@ def test_detect_solar_from_name():
     assert detect_technology("termica", "SolarAlmeyda") == "solar"
     assert detect_technology("pasada", "FotovoltaicaPV") == "solar"
     assert detect_technology("termica", "PV_Santiago") == "solar"
+    assert detect_technology("pasada", "Plant_FV") == "solar"
+    assert detect_technology("pasada", "Plant_FV_Sur") == "solar"
+    assert detect_technology("termica", "PlantaSOLAR") == "solar"
 
 
 def test_detect_wind_from_name():
     assert detect_technology("termica", "EolicaCanela") == "wind"
     assert detect_technology("pasada", "ParqueEolico") == "wind"
     assert detect_technology("termica", "WindFarmNorth") == "wind"
+    assert detect_technology("pasada", "Plant_EO") == "wind"
+    assert detect_technology("pasada", "Plant_EO_Norte") == "wind"
 
 
 def test_detect_geothermal_from_name():
@@ -114,38 +119,14 @@ def test_override_beats_auto_detect():
 
 
 # ---------------------------------------------------------------------------
-# Cost + profile heuristic
+# Fallback to PLP base type
 # ---------------------------------------------------------------------------
 
 
-def test_zero_cost_with_profile_is_renewable():
-    """Termica with zero cost and mance profile → renewable."""
-    result = detect_technology(
-        "termica", "UnknownPlant", variable_cost=0.0, has_profile=True
-    )
-    assert result == "renewable"
-
-
-def test_zero_cost_without_profile_is_thermal():
-    """Termica with zero cost but NO profile → stays thermal."""
-    result = detect_technology(
-        "termica", "UnknownPlant", variable_cost=0.0, has_profile=False
-    )
+def test_unknown_termica_falls_back_to_thermal():
+    """Termica with unrecognised name → thermal (PLP base type)."""
+    result = detect_technology("termica", "UnknownPlant")
     assert result == "thermal"
-
-
-def test_nonzero_cost_with_profile_is_thermal():
-    """Termica with non-zero cost → stays thermal regardless of profile."""
-    result = detect_technology(
-        "termica", "UnknownPlant", variable_cost=50.0, has_profile=True
-    )
-    assert result == "thermal"
-
-
-def test_name_detection_beats_cost_heuristic():
-    """Name-based detection has priority over cost heuristic."""
-    result = detect_technology("termica", "SolarX", variable_cost=0.0, has_profile=True)
-    assert result == "solar"  # name wins over generic "renewable"
 
 
 # ---------------------------------------------------------------------------
