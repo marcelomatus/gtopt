@@ -73,6 +73,7 @@ namespace gtopt
     double cpu_factor = 1.25)
 {
   WorkPoolConfig pool_config {};
+  pool_config.name = "SolverWorkPool";
   pool_config.max_threads = static_cast<int>(
       std::lround(cpu_factor * std::thread::hardware_concurrency()));
   pool_config.max_cpu_threshold = static_cast<int>(

@@ -421,9 +421,9 @@ def check_lp(  # pylint: disable=too-many-arguments
             else:
                 raise
 
-        iis_report = _format_iis_report(solver_name, ok, out)
-        print(iis_report)
-        report_parts.append(iis_report)
+        screen_report, ai_report = _format_iis_report(solver_name, ok, out)
+        print(screen_report)
+        report_parts.append(ai_report)
 
         # Quiet mode: when no local solver and no NEOS email, give targeted advice.
         if quiet and not available and not filtered_email:
@@ -512,14 +512,75 @@ def _run_ai_diagnostics(
         report_parts.append(f"{ai_section}\n{response}")
 
 
-def _format_iis_report(solver_name: str, success: bool, output: str) -> str:
-    """Format the solver IIS output into a readable report section."""
-    lines = [_header(f"IIS Analysis ({solver_name})")]
+# Patterns that indicate infeasibility-relevant solver output (not runtime noise).
+_SOLVER_RELEVANT_PATTERNS = [
+    re.compile(r"infeasib", re.IGNORECASE),
+    re.compile(r"conflict", re.IGNORECASE),
+    re.compile(r"IIS\b", re.IGNORECASE),
+    re.compile(r"bound", re.IGNORECASE),
+    re.compile(r"violation", re.IGNORECASE),
+    re.compile(r"unbounded", re.IGNORECASE),
+    re.compile(r"bad bound", re.IGNORECASE),
+    re.compile(r"constraint", re.IGNORECASE),
+    re.compile(r"primal\s", re.IGNORECASE),
+    re.compile(r"dual\s", re.IGNORECASE),
+    re.compile(r"presolve.*infeasib", re.IGNORECASE),
+    re.compile(r"model\s+status", re.IGNORECASE),
+    re.compile(r"[✗•]"),  # our own formatted findings
+    re.compile(r"^---\s"),  # section headers
+    re.compile(r"^┌"),  # section headers
+    re.compile(r"Key infeasibility"),
+    re.compile(r"objective\s+value", re.IGNORECASE),
+    re.compile(r"rows?\s+\d|columns?\s+\d", re.IGNORECASE),
+]
+
+
+def _filter_solver_lines(output: str) -> list[str]:
+    """Extract only infeasibility-relevant lines from solver output."""
+    relevant: list[str] = []
+    for line in output.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if any(pat.search(stripped) for pat in _SOLVER_RELEVANT_PATTERNS):
+            relevant.append(line)
+    return relevant
+
+
+def _format_iis_report(solver_name: str, success: bool, output: str) -> tuple[str, str]:
+    """Format the solver IIS output for screen and AI.
+
+    Returns ``(screen_report, ai_report)`` where *screen_report* shows only
+    the last 10 relevant lines and *ai_report* includes the last 50 relevant
+    lines for deeper analysis.
+    """
+    header = _header(f"IIS Analysis ({solver_name})")
+
     if not success:
-        lines.append(f"\n{_c(_RED, 'Solver error:')} {output}")
-    else:
-        lines.append(output)
-    return "\n".join(lines)
+        err = f"\n{_c(_RED, 'Solver error:')} {output}"
+        return f"{header}{err}", f"{header}{err}"
+
+    # Filter to infeasibility-relevant lines only
+    relevant = _filter_solver_lines(output)
+    if not relevant:
+        # Fallback: use last lines of raw output if no patterns matched
+        raw_lines = [ln for ln in output.splitlines() if ln.strip()]
+        relevant = raw_lines[-50:] if raw_lines else [output]
+
+    screen_lines = relevant[-10:]
+    ai_lines = relevant[-50:]
+
+    screen_text = "\n".join(
+        [
+            header,
+            "  (showing last 10 relevant lines; "
+            "full output in report file / AI diagnostics)",
+            "",
+        ]
+        + screen_lines
+    )
+    ai_text = "\n".join([header] + ai_lines)
+    return screen_text, ai_text
 
 
 def _write_report(output_file: Path, parts: list[str]) -> None:

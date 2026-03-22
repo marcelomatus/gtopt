@@ -16,8 +16,10 @@ from gtopt2pp.convert import (
     _resolve_field_sched,
     convert,
     convert_all_blocks,
+    format_diagnostic,
     get_ac_opf_requirements,
     load_gtopt_case,
+    run_diagnostic,
 )
 
 # ── Paths ─────────────────────────────────────────────────────────────────
@@ -790,6 +792,86 @@ class TestGeneratorProfileConversion:
         # ext_grid max should be scaled by profile
         assert net_b0.ext_grid.iloc[0]["max_p_mw"] == pytest.approx(50.0)
         assert net_b1.ext_grid.iloc[0]["max_p_mw"] == pytest.approx(80.0)
+
+
+# ── Diagnostic tests ─────────────────────────────────────────────────────────
+
+
+class TestRunDiagnostic:
+    """Test run_diagnostic and format_diagnostic."""
+
+    def test_clean_network_no_issues(self) -> None:
+        """A well-formed minimal case should produce no diagnostic issues."""
+        net = convert(_MINIMAL_CASE, scenario=1, block=1)
+        diag = run_diagnostic(net)
+        # The minimal case is clean — no topology issues expected.
+        # Some pandapower versions may report minor notes; the key checks
+        # (different_voltage_levels_connected, disconnected_elements) must
+        # be absent.
+        assert "different_voltage_levels_connected" not in diag
+        assert "disconnected_elements" not in diag
+
+    def test_isolated_bus_detected(self) -> None:
+        """A bus with no connections should be flagged by diagnostic."""
+        case = json.loads(json.dumps(_MINIMAL_CASE))
+        case["system"]["bus_array"].append({"uid": 99, "name": "b_isolated"})
+        net = convert(case, scenario=1, block=1)
+        diag = run_diagnostic(net)
+        assert "disconnected_elements" in diag
+
+    def test_format_diagnostic_empty(self) -> None:
+        """Formatting an empty diagnostic dict should say no issues."""
+        assert format_diagnostic({}) == "No issues found."
+
+    def test_format_diagnostic_with_issues(self) -> None:
+        """Formatting a diagnostic dict with issues should include check names."""
+        diag = {"disconnected_elements": [4]}
+        report = format_diagnostic(diag)
+        assert "disconnected_elements" in report
+        assert "4" in report
+
+    def test_format_diagnostic_dict_values(self) -> None:
+        """Formatting handles dict-typed diagnostic values."""
+        diag = {"some_check": {"bus": [1, 2], "line": [3]}}
+        report = format_diagnostic(diag)
+        assert "some_check" in report
+        assert "bus" in report
+
+    def test_format_diagnostic_scalar_values(self) -> None:
+        """Formatting handles scalar diagnostic values."""
+        diag = {"some_check": "a scalar message"}
+        report = format_diagnostic(diag)
+        assert "a scalar message" in report
+
+
+class TestCLIDiagnostic:
+    """Test the --diagnostic CLI flag."""
+
+    def test_diagnostic_flag_prints_report(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--diagnostic should print the diagnostic section."""
+        from gtopt2pp.main import main  # pylint: disable=import-outside-toplevel
+
+        p = tmp_path / "case.json"
+        p.write_text(json.dumps(_MINIMAL_CASE), encoding="utf-8")
+        rc = main(["--no-check", "--diagnostic", str(p)])
+        assert rc == 0
+        captured = capsys.readouterr()
+        assert "pandapower diagnostic" in captured.out
+
+    def test_no_diagnostic_flag_omits_report(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Without --diagnostic the report should not appear."""
+        from gtopt2pp.main import main  # pylint: disable=import-outside-toplevel
+
+        p = tmp_path / "case.json"
+        p.write_text(json.dumps(_MINIMAL_CASE), encoding="utf-8")
+        rc = main(["--no-check", str(p)])
+        assert rc == 0
+        captured = capsys.readouterr()
+        assert "pandapower diagnostic" not in captured.out
 
 
 # ── Integration tests (require pandapower DC OPF) ───────────────────────────

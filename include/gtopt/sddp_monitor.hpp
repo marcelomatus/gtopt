@@ -38,6 +38,8 @@ struct SDDPStatusSnapshot
   bool converged {};  ///< Whether the solver has converged
   int max_iterations {};  ///< SDDPOptions::max_iterations
   int min_iterations {};  ///< SDDPOptions::min_iterations
+  int current_pass {};  ///< 0=idle, 1=forward, 2=backward
+  int scenes_done {};  ///< Scenes completed in current pass
 };
 
 /// Write SDDP status JSON to a file.
