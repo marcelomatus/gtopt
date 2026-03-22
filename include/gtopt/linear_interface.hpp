@@ -15,6 +15,7 @@
 
 #include <expected>
 #include <memory>
+#include <span>
 
 #include <gtopt/error.hpp>
 #include <gtopt/fmap.hpp>
@@ -129,6 +130,35 @@ public:
    * @return The index of the newly added row
    */
   RowIndex add_row(const SparseRow& row, double eps = 0.0);
+
+  /**
+   * @brief Deletes rows by index from the constraint matrix.
+   *
+   * Calls `OsiSolverInterface::deleteRows()` and rebuilds the internal
+   * `m_row_names_` map (when `lp_names_level >= 1`) so that name-to-index
+   * lookups remain consistent after the index shift.
+   *
+   * @param indices  Row indices to delete (must be sorted ascending)
+   */
+  void delete_rows(std::span<const int> indices);
+
+  /**
+   * @brief Save the current row count as the "base" model size.
+   *
+   * All rows added after this point are considered cuts and are eligible
+   * for pruning.  Must be called once after the structural LP is built,
+   * before any Benders cuts are added.
+   */
+  void save_base_numrows() noexcept { m_base_numrows_ = get_numrows(); }
+
+  /**
+   * @brief Get the saved base row count.
+   * @return Base row count (0 if save_base_numrows was never called)
+   */
+  [[nodiscard]] constexpr size_t base_numrows() const noexcept
+  {
+    return m_base_numrows_;
+  }
 
   /**
    * @brief Gets the number of constraint rows in the problem
@@ -519,6 +549,8 @@ private:
   name_index_map_t m_row_names_;  ///< Row (constraint) name → row index
   name_index_map_t m_col_names_;  ///< Column (variable) name → col index
   std::vector<std::string> m_col_index_to_name_;  ///< Col index → name
+
+  size_t m_base_numrows_ {};  ///< Row count before any cuts were added
 
   std::vector<double> m_col_scales_;  ///< Per-column physical-to-LP scale
                                       ///< factors (physical = LP × scale)

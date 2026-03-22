@@ -220,6 +220,13 @@ struct SddpOptions
    */
   OptName named_cuts_file {};
 
+  /// Maximum retained cuts per (scene, phase) LP.  0 = unlimited (default).
+  OptInt max_cuts_per_phase {};
+  /// Iterations between cut pruning passes.  Default: 10.
+  OptInt cut_prune_interval {};
+  /// Dual threshold for inactive cut detection.  Default: 1e-8.
+  OptReal prune_dual_threshold {};
+
   void merge(SddpOptions&& opts)
   {
     merge_opt(cut_sharing_mode, std::move(opts.cut_sharing_mode));
@@ -249,6 +256,9 @@ struct SddpOptions
     merge_opt(boundary_cuts_mode, std::move(opts.boundary_cuts_mode));
     merge_opt(boundary_max_iterations, opts.boundary_max_iterations);
     merge_opt(named_cuts_file, std::move(opts.named_cuts_file));
+    merge_opt(max_cuts_per_phase, opts.max_cuts_per_phase);
+    merge_opt(cut_prune_interval, opts.cut_prune_interval);
+    merge_opt(prune_dual_threshold, opts.prune_dual_threshold);
 
     auto _ = std::move(opts);
   }

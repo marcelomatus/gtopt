@@ -145,7 +145,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   int max_iterations {100};  ///< Maximum forward/backward iterations
   int min_iterations {2};  ///< Minimum iterations before convergence
   double convergence_tol {1e-4};  ///< Relative gap tolerance for convergence
-  double elastic_penalty {1e6};  ///< Penalty for elastic slack variables
+  double elastic_penalty {1000.0};  ///< Penalty for elastic slack variables
   double alpha_min {0.0};  ///< Lower bound for future cost variable α ($)
   double alpha_max {1e12};  ///< Upper bound for future cost variable α ($)
   CutSharingMode cut_sharing {CutSharingMode::none};  ///< Cut sharing mode
@@ -273,6 +273,22 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// (the default).
   bool warm_start {true};
 
+  /// Maximum number of retained cuts per (scene, phase) LP after pruning.
+  /// 0 = unlimited (default, no pruning).  When non-zero, at every
+  /// cut_prune_interval iterations the solver removes inactive cuts
+  /// (|dual| < prune_dual_threshold) until at most max_cuts_per_phase
+  /// active cuts remain.
+  int max_cuts_per_phase {0};
+
+  /// Number of iterations between cut pruning passes.
+  /// Only used when max_cuts_per_phase > 0.  Default: 10.
+  int cut_prune_interval {10};
+
+  /// Dual-value threshold for considering a cut inactive.
+  /// Cuts with |dual| below this value are candidates for removal.
+  /// Default: 1e-8.
+  double prune_dual_threshold {1e-8};
+
   /// CSV file with boundary (future-cost) cuts for the last phase.
   ///
   /// These cuts approximate the expected future cost beyond the planning
@@ -384,6 +400,7 @@ struct PhaseStateInfo
 {
   ColIndex alpha_col {unknown_index};  ///< α column (unknown for last)
   std::vector<StateVarLink> outgoing_links {};  ///< Links TO the next phase
+  size_t base_nrows {0};  ///< Row count before any Benders cuts were added
   double forward_objective {0.0};  ///< Opex from last forward pass
   /// Full LP objective from last forward solve (including α).
   /// Cached for the backward pass so the original LP need not be re-queried.
@@ -758,6 +775,12 @@ private:
   [[nodiscard]] auto make_aperture_submit_fn(IterationIndex iteration,
                                              PhaseIndex phase)
       -> ApertureSubmitFunc;
+
+  /// Prune inactive cuts from all (scene, phase) LPs.
+  /// Removes cuts whose |dual| < prune_dual_threshold, keeping at most
+  /// max_cuts_per_phase active cuts per LP.  Only LP rows are removed;
+  /// m_stored_cuts_ and m_scene_cuts_ are preserved for persistence.
+  void prune_inactive_cuts();
 
   /// Check whether the sentinel file exists (user-requested stop)
   [[nodiscard]] bool check_sentinel_stop() const;

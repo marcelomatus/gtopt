@@ -43,6 +43,26 @@ namespace gtopt
 
 // ─── Utilities ──────────────────────────────────────────────────────────────
 
+namespace
+{
+/// Round *n* up to the next multiple of *alignment*.
+constexpr std::size_t align_up(std::size_t n, std::size_t alignment) noexcept
+{
+  return (n + alignment - 1) / alignment * alignment;
+}
+
+/// Assign *src* into *dst* and pad with zeros to at least *src.size() + extra*,
+/// rounded up to a 16-element boundary.  When the destination already has
+/// enough capacity the resize just bumps the size counter (no allocation).
+void assign_padded(std::vector<double>& dst,
+                   std::span<const double> src,
+                   std::size_t extra)
+{
+  dst.assign(src.begin(), src.end());
+  dst.resize(align_up(src.size() + extra, 16), 0.0);
+}
+}  // namespace
+
 CutSharingMode parse_cut_sharing_mode(std::string_view name)
 {
   return cut_sharing_mode_from_name(name).value_or(CutSharingMode::none);
@@ -516,11 +536,12 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
         const auto rc = solved_li.get_col_cost();
         state.forward_col_cost.assign(rc.begin(), rc.end());
 
-        // Save primal/dual solution for aperture warm-start
-        const auto sol = solved_li.get_col_sol();
-        state.forward_col_sol.assign(sol.begin(), sol.end());
-        const auto dual = solved_li.get_row_dual();
-        state.forward_row_dual.assign(dual.begin(), dual.end());
+        // Save primal/dual solution for aperture warm-start (pre-padded
+        // so set_warm_start_solution can use a subspan without allocation).
+        const auto n_links = state.outgoing_links.size();
+        assign_padded(state.forward_col_sol, solved_li.get_col_sol(), n_links);
+        assign_padded(
+            state.forward_row_dual, solved_li.get_row_dual(), 2 * n_links);
 
         const auto alpha_val = (state.alpha_col != ColIndex {unknown_index})
             ? solved_li.get_col_sol()[state.alpha_col]
@@ -579,11 +600,11 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
       const auto rc = li.get_col_cost();
       state.forward_col_cost.assign(rc.begin(), rc.end());
 
-      // Save primal/dual solution for aperture warm-start
-      const auto sol = li.get_col_sol();
-      state.forward_col_sol.assign(sol.begin(), sol.end());
-      const auto dual = li.get_row_dual();
-      state.forward_row_dual.assign(dual.begin(), dual.end());
+      // Save primal/dual solution for aperture warm-start (pre-padded
+      // so set_warm_start_solution can use a subspan without allocation).
+      const auto n_links = state.outgoing_links.size();
+      assign_padded(state.forward_col_sol, li.get_col_sol(), n_links);
+      assign_padded(state.forward_row_dual, li.get_row_dual(), 2 * n_links);
 
       const auto alpha_val = (state.alpha_col != ColIndex {unknown_index})
           ? li.get_col_sol()[state.alpha_col]
@@ -1064,6 +1085,92 @@ void SDDPSolver::share_cuts_for_phase(
   }
 }
 
+// ── Cut pruning ─────────────────────────────────────────────────────────────
+
+void SDDPSolver::prune_inactive_cuts()
+{
+  const auto max_cuts = m_options_.max_cuts_per_phase;
+  if (max_cuts <= 0) {
+    return;
+  }
+
+  const auto threshold = m_options_.prune_dual_threshold;
+  const auto& sim = planning_lp().simulation();
+  const auto num_scenes = static_cast<Index>(sim.scenes().size());
+  const auto num_phases = static_cast<Index>(sim.phases().size());
+  int total_pruned = 0;
+
+  for (const auto scene :
+       std::views::iota(SceneIndex {0}, SceneIndex {num_scenes}))
+  {
+    for (const auto phase :
+         std::views::iota(PhaseIndex {0}, PhaseIndex {num_phases}))
+    {
+      auto& li = planning_lp().system(scene, phase).linear_interface();
+      const auto& psi = m_scene_phase_states_[scene][phase];
+
+      const auto total_rows = static_cast<Index>(li.get_numrows());
+      const auto base = static_cast<Index>(psi.base_nrows);
+      const auto num_cut_rows = total_rows - base;
+      if (num_cut_rows <= max_cuts) {
+        continue;
+      }
+
+      // Get duals for all rows
+      const auto duals = li.get_row_dual();
+
+      // Build (row_index, |dual|) for cut rows, sorted by |dual| ascending
+      struct CutInfo
+      {
+        int row;
+        double abs_dual;
+      };
+      auto cut_infos = std::views::iota(base, total_rows)
+          | std::views::transform(
+                           [&duals](Index r)
+                           {
+                             return CutInfo {
+                                 .row = r,
+                                 .abs_dual = std::abs(duals[r]),
+                             };
+                           })
+          | std::ranges::to<std::vector>();
+      std::ranges::sort(cut_infos, {}, &CutInfo::abs_dual);
+
+      // Collect lowest-dual rows below the threshold for deletion
+      const auto to_remove = num_cut_rows - max_cuts;
+      auto rows_to_delete = cut_infos | std::views::take(to_remove)
+          | std::views::filter([threshold](const CutInfo& ci)
+                               { return ci.abs_dual < threshold; })
+          | std::views::transform(&CutInfo::row)
+          | std::ranges::to<std::vector>();
+
+      if (rows_to_delete.empty()) {
+        continue;
+      }
+
+      // Sort indices ascending (required by deleteRows)
+      std::ranges::sort(rows_to_delete);
+
+      SPDLOG_DEBUG(
+          "SDDP: pruning {} inactive cuts from scene {} phase {} "
+          "({} cut rows, max {})",
+          rows_to_delete.size(),
+          scene_uid(scene),
+          phase_uid(phase),
+          num_cut_rows,
+          max_cuts);
+
+      li.delete_rows(rows_to_delete);
+      total_pruned += static_cast<int>(rows_to_delete.size());
+    }
+  }
+
+  if (total_pruned > 0) {
+    SPDLOG_INFO("SDDP: pruned {} inactive cuts across all LPs", total_pruned);
+  }
+}
+
 // ── Cut persistence (delegated to sddp_cut_io.hpp free functions) ───────────
 
 auto SDDPSolver::save_cuts(const std::string& filepath) const
@@ -1187,6 +1294,21 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
                      ? 0
                      : m_scene_phase_states_[scene][PhaseIndex {0}]
                            .outgoing_links.size());
+  }
+
+  // Save per-(scene, phase) base row counts before any cuts are loaded.
+  // Rows below this threshold are structural constraints and are never
+  // pruned; rows above it are Benders cuts (including hot-start cuts).
+  for (const auto scene :
+       std::views::iota(SceneIndex {0}, SceneIndex {num_scenes}))
+  {
+    for (const auto phase :
+         std::views::iota(PhaseIndex {0}, PhaseIndex {num_phases}))
+    {
+      auto& li = planning_lp().system(scene, phase).linear_interface();
+      li.save_base_numrows();
+      m_scene_phase_states_[scene][phase].base_nrows = li.base_numrows();
+    }
   }
 
   // ── Load hot-start cuts and track max iteration for offset ────────────────
@@ -1905,6 +2027,15 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     // early for None.  This guard prevents double-sharing of cuts.
     if (m_options_.cut_sharing == CutSharingMode::none) {
       apply_cut_sharing_for_iteration(cuts_before, iter);
+    }
+
+    // ── Cut pruning ──
+    if (m_options_.max_cuts_per_phase > 0 && m_options_.cut_prune_interval > 0)
+    {
+      const auto iter_offset = static_cast<int>(iter - m_iteration_offset_);
+      if (iter_offset > 0 && iter_offset % m_options_.cut_prune_interval == 0) {
+        prune_inactive_cuts();
+      }
     }
 
     // ── Convergence + live-query update ──
