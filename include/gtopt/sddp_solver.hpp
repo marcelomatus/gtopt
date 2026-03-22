@@ -74,7 +74,9 @@
 #include <gtopt/planning_solver.hpp>
 #include <gtopt/reservoir_efficiency_lp.hpp>
 #include <gtopt/sddp_aperture.hpp>
+#include <gtopt/sddp_clone_pool.hpp>
 #include <gtopt/sddp_common.hpp>
+#include <gtopt/sddp_cut_sharing.hpp>
 #include <gtopt/sddp_pool.hpp>
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/solver_options.hpp>
@@ -799,8 +801,8 @@ private:
   ///
   /// @param iteration  SDDP iteration index (for pool priority ordering)
   /// @param phase      Phase index (for pool priority ordering)
-  [[nodiscard]] auto make_aperture_submit_fn(IterationIndex iteration,
-                                             PhaseIndex phase)
+  [[nodiscard]] static auto make_aperture_submit_fn(IterationIndex iteration,
+                                                    PhaseIndex phase)
       -> ApertureSubmitFunc;
 
   /// Prune inactive cuts from all (scene, phase) LPs.
@@ -815,16 +817,17 @@ private:
   /// Build combined stored cuts from per-scene vectors (for persistence).
   [[nodiscard]] std::vector<StoredCut> build_combined_cuts() const;
 
-  /// Get or create a cached clone for aperture solves.
-  LinearInterface& get_or_create_clone(SceneIndex scene, PhaseIndex phase);
-
   /// Get a pooled clone pointer for aperture solves (nullptr if pool disabled).
   LinearInterface* get_pooled_clone_ptr(SceneIndex scene, PhaseIndex phase)
   {
-    if (!m_options_.use_clone_pool || m_clone_pool_.empty()) {
+    if (!m_options_.use_clone_pool || !m_clone_pool_.is_allocated()) {
       return nullptr;
     }
-    return &get_or_create_clone(scene, phase);
+    return m_clone_pool_.get_ptr(
+        scene,
+        phase,
+        planning_lp(),
+        m_scene_phase_states_[scene][phase].base_nrows);
   }
 
   /// Check whether the sentinel file exists (user-requested stop)
@@ -972,10 +975,8 @@ private:
   StrongIndexVector<SceneIndex, std::vector<StoredCut>> m_scene_cuts_ {};
 
   /// Clone pool: one cached LinearInterface per (scene, phase) for aperture
-  /// reuse.  Stored as flat vector indexed by [scene * num_phases + phase].
-  /// Empty when use_clone_pool is false.
-  std::vector<std::optional<LinearInterface>> m_clone_pool_ {};
-  Index m_clone_pool_phases_ {0};  ///< num_phases (for indexing)
+  /// reuse.  Empty when use_clone_pool is false.
+  SDDPClonePool m_clone_pool_ {};
 
   /// Per-scene cut count snapshot before each backward pass.
   /// Used by apply_cut_sharing_for_iteration in single_cut_storage mode.
