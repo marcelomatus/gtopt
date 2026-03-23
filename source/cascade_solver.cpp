@@ -249,8 +249,7 @@ void CascadePlanningSolver::clear_all_cuts(PlanningLP& planning_lp,
       const auto current = static_cast<int>(li.get_numrows());
 
       if (current > base) {
-        auto indices =
-            iota_range(base, current) | std::ranges::to<std::vector>();
+        auto indices = std::ranges::to<std::vector>(iota_range(base, current));
         li.delete_rows(indices);
         total_removed += current - base;
       }
