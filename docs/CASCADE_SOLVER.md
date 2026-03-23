@@ -681,6 +681,13 @@ After solving, `level_stats()` returns a vector of
 - The overall convergence flag is taken from the last iteration
   result across all levels.
 
+Each level inherits the full convergence machinery from the SDDP solver,
+including the **stationary-gap secondary criterion** (see
+[SDDP_SOLVER.md §4.5](SDDP_SOLVER.md#45-convergence-check)).  Per-level
+`sddp_options` can set `stationary_tol` and `stationary_window` to
+enable secondary convergence detection at that level — useful when
+simplified models converge to a non-zero gap plateau.
+
 ```mermaid
 flowchart TD
     Start([Start Cascade]) --> L["Level ℓ = 0"]

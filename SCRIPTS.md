@@ -461,6 +461,8 @@ Use `-l DEBUG` to also see which individual `.dat` files are being parsed.
 | `--stages-phase SPEC` | (solver default) | Explicit phase layout; comma-separated stage indices/ranges with optional `...` wildcard |
 | `--solver TYPE` | `sddp` | Simulation structure: `sddp` (one phase/scene per stage/scenario) or `mono`/`monolithic` (single phase and scene) |
 | `--pasada-hydro / --no-pasada-hydro` | enabled | Model *pasada* (run-of-river) centrals as full hydro topology (junction, waterway, turbine, flow) instead of generator profiles. Use `--no-pasada-hydro` for legacy behavior with generator profiles using normalized capacity factors |
+| `--stationary-tol TOL` | (auto) | Secondary convergence tolerance for stationary-gap detection. When the relative change in the SDDP gap over the last `--stationary-window` iterations falls below this value, the solver declares convergence even if gap > `convergence_tol`. Default: `convergence_tol / 10`. Set to `0` to disable |
+| `--stationary-window N` | `4` | Number of iterations to look back when checking gap stationarity. Only used when `--stationary-tol` is set |
 | `-l, --log-level LEVEL` | `INFO` | Verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `-V, --version` | — | Print version and exit |
 

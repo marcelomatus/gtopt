@@ -1644,20 +1644,28 @@ target constraints from the Level 0 reservoir volumes, guiding the forward pass.
 gtopt sddp_hydro_3phase.json
 ```
 
-The solver logs per-level statistics:
+The solver logs per-level statistics (including `gap_change` when the
+stationary-gap criterion is enabled):
 
 ```
 [info] ═══ Cascade level 0: uninodal_benders ═══
-[info] SDDP iter 1: LB=1234.0 UB=5678.0 gap=0.782 cuts=3
-[info] SDDP iter 2: LB=2345.0 UB=3456.0 gap=0.321 cuts=6
+[info] SDDP iter 1: gap=0.782000 gap_change=1.000000 cuts=3
+[info] SDDP iter 2: gap=0.321000 gap_change=1.000000 cuts=6
 ...
-[info] SDDP iter 8: LB=3210.0 UB=3215.0 gap=0.002 cuts=24 [CONVERGED]
+[info] SDDP iter 8: gap=0.002000 gap_change=0.800000 cuts=24 [CONVERGED]
 [info] ═══ Cascade level 1: full_sddp ═══
 [info] Injecting 9 elastic targets from previous level
-[info] SDDP iter 1: LB=3200.0 UB=3250.0 gap=0.016 cuts=3
+[info] SDDP iter 1: gap=0.016000 gap_change=1.000000 cuts=3
 ...
-[info] SDDP iter 5: LB=3212.0 UB=3213.0 gap=0.0003 cuts=15 [CONVERGED]
+[info] SDDP iter 5: gap=0.000300 gap_change=0.005000 cuts=15 [CONVERGED]
 ```
+
+> **Tip**: When the gap plateaus at a non-zero value (common in stochastic
+> problems with many scenarios), enable the stationary-gap criterion by
+> adding `"stationary_tol": 0.01` to `sddp_options`.  The solver will
+> declare convergence when `gap_change` falls below `stationary_tol`,
+> logging `"stationary gap convergence"` instead of the standard
+> `"[CONVERGED]"` message.
 
 ### 13.3 Example: 3-level progressive refinement
 
