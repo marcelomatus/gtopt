@@ -927,8 +927,8 @@ auto SDDPSolver::save_all_scene_cuts(const std::string& directory) const
   const auto num_scenes =
       static_cast<Index>(planning_lp().simulation().scenes().size());
 
-  for (Index si = 0; si < num_scenes; ++si) {
-    auto result = save_scene_cuts(SceneIndex {si}, directory);
+  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
+    auto result = save_scene_cuts(scene, directory);
     if (!result.has_value()) {
       return result;
     }
@@ -1017,13 +1017,12 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
   m_scene_phase_states_.resize(num_scenes);
   m_scene_cuts_.resize(num_scenes);
   m_infeasibility_counter_.resize(num_scenes);
-  for (Index si = 0; si < num_scenes; ++si) {
-    m_infeasibility_counter_[SceneIndex {si}].resize(num_phases, 0);
+  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
+    m_infeasibility_counter_[scene].resize(num_phases, 0);
   }
 
   SPDLOG_INFO("SDDP: adding alpha variables and collecting state links");
-  for (Index si = 0; si < num_scenes; ++si) {
-    const auto scene = SceneIndex {si};
+  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
     initialize_alpha_variables(scene);
     collect_state_variable_links(scene);
     SPDLOG_DEBUG("SDDP: scene {} initialized ({} state links)",
@@ -1180,8 +1179,7 @@ auto SDDPSolver::run_forward_pass_all_scenes(IterationIndex iter,
   // Forward-pass scene tasks use High priority; lower iteration = higher key.
   const auto fwd_req = make_forward_lp_task_req(iter, PhaseIndex {0});
 
-  for (Index si = 0; si < num_scenes; ++si) {
-    const auto scene = SceneIndex {si};
+  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
     auto fut = pool.submit([this, scene, iter, &opts]
                            { return forward_pass(scene, iter, opts); },
                            fwd_req);
@@ -1192,18 +1190,21 @@ auto SDDPSolver::run_forward_pass_all_scenes(IterationIndex iter,
   out.scene_upper_bounds.resize(num_scenes, 0.0);
   out.scene_feasible.resize(num_scenes, 1);
 
-  for (Index si = 0; si < num_scenes; ++si) {
-    auto fwd = futures[static_cast<std::size_t>(si)].get();
+  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
+    const auto si_sz = static_cast<std::size_t>(scene);
+    auto fwd = futures[si_sz].get();
     if (!fwd.has_value()) {
-      SPDLOG_WARN("SDDP forward: scene {} failed: {}", si, fwd.error().message);
+      SPDLOG_WARN(
+          "SDDP forward: scene {} failed: {}", scene, fwd.error().message);
       out.has_feasibility_issue = true;
-      out.scene_feasible[static_cast<std::size_t>(si)] = 0;
+      out.scene_feasible[si_sz] = 0;
       m_scenes_done_.fetch_add(1);
       continue;
     }
-    out.scene_upper_bounds[static_cast<std::size_t>(si)] = *fwd;
+    out.scene_upper_bounds[si_sz] = *fwd;
     ++out.scenes_solved;
     m_scenes_done_.fetch_add(1);
+    const auto si = static_cast<Index>(scene);
     if ((si + 1) % 4 == 0 || si + 1 == num_scenes) {
       SPDLOG_DEBUG("SDDP forward: {}/{} scenes completed", si + 1, num_scenes);
     }
@@ -1265,11 +1266,10 @@ auto SDDPSolver::run_backward_pass_all_scenes(
   // get slightly higher priority_key (phase 0 = lowest phase index).
   const auto bwd_req = make_backward_lp_task_req(iter, PhaseIndex {0});
 
-  for (Index si = 0; si < num_scenes; ++si) {
-    if (scene_feasible[static_cast<std::size_t>(si)] == 0U) {
+  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
+    if (scene_feasible[static_cast<std::size_t>(scene)] == 0U) {
       continue;
     }
-    const auto scene = SceneIndex {si};
     const bool use_ap = !m_options_.apertures || !m_options_.apertures->empty();
     auto fut = use_ap
         ? pool.submit(
@@ -1341,18 +1341,17 @@ auto SDDPSolver::run_backward_pass_synchronized(
     const auto cuts_before_step = m_stored_cuts_.size();
 
     // Submit all feasible scenes for this phase step in parallel
-    std::vector<std::pair<Index, std::future<std::expected<int, Error>>>>
+    std::vector<std::pair<SceneIndex, std::future<std::expected<int, Error>>>>
         futures;
     futures.reserve(num_scenes);
 
     const auto bwd_req = make_backward_lp_task_req(iter, phase);
 
-    for (Index si = 0; si < num_scenes; ++si) {
-      if (scene_feasible[static_cast<std::size_t>(si)] == 0U) {
+    for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
+      if (scene_feasible[static_cast<std::size_t>(scene)] == 0U) {
         continue;
       }
-      const auto scene = SceneIndex {si};
-      const int offset = per_scene_cut_count[static_cast<std::size_t>(si)];
+      const int offset = per_scene_cut_count[static_cast<std::size_t>(scene)];
 
       auto fut = use_apertures
           ? pool.submit(
@@ -1369,15 +1368,15 @@ auto SDDPSolver::run_backward_pass_synchronized(
                       scene, phase, offset, opts, iter);
                 },
                 bwd_req);
-      futures.emplace_back(si, std::move(fut.value()));
+      futures.emplace_back(scene, std::move(fut.value()));
     }
 
     // Wait for all scenes to complete this phase step
-    for (auto& [si, fut] : futures) {
+    for (auto& [scene, fut] : futures) {
       auto step_result = fut.get();
       if (!step_result.has_value()) {
         SPDLOG_WARN("SDDP backward synchronized: scene {} phase {} failed: {}",
-                    si,
+                    scene,
                     phase,
                     step_result.error().message);
         out.has_feasibility_issue = true;
@@ -1385,7 +1384,7 @@ auto SDDPSolver::run_backward_pass_synchronized(
         continue;
       }
       out.total_cuts += *step_result;
-      per_scene_cut_count[static_cast<std::size_t>(si)] += *step_result;
+      per_scene_cut_count[static_cast<std::size_t>(scene)] += *step_result;
       m_scenes_done_.fetch_add(1);
     }
 
@@ -1434,7 +1433,7 @@ auto SDDPSolver::run_backward_pass_synchronized(
 
     SPDLOG_TRACE(
         "SDDP backward synchronized: phase {} cuts shared across {} scenes",
-        pi,
+        phase,
         num_scenes);
   }
 
@@ -1453,24 +1452,25 @@ void SDDPSolver::compute_iteration_bounds(
       static_cast<Index>(planning_lp().simulation().scenes().size());
 
   double weighted_upper = 0.0;
-  for (Index si = 0; si < num_scenes; ++si) {
-    weighted_upper += weights[static_cast<std::size_t>(si)]
-        * ir.scene_upper_bounds[static_cast<std::size_t>(si)];
+  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
+    const auto si_sz = static_cast<std::size_t>(scene);
+    weighted_upper += weights[si_sz] * ir.scene_upper_bounds[si_sz];
   }
   ir.upper_bound = weighted_upper;
 
   ir.scene_lower_bounds.resize(num_scenes, 0.0);
   double weighted_lower = 0.0;
-  for (Index si = 0; si < num_scenes; ++si) {
-    if (scene_feasible[static_cast<std::size_t>(si)] == 0U) {
+  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
+    const auto si_sz = static_cast<std::size_t>(scene);
+    if (scene_feasible[si_sz] == 0U) {
       continue;
     }
     const double lb_si = planning_lp()
-                             .system(SceneIndex {si}, PhaseIndex {0})
+                             .system(scene, PhaseIndex {0})
                              .linear_interface()
                              .get_obj_value();
-    ir.scene_lower_bounds[static_cast<std::size_t>(si)] = lb_si;
-    weighted_lower += weights[static_cast<std::size_t>(si)] * lb_si;
+    ir.scene_lower_bounds[si_sz] = lb_si;
+    weighted_lower += weights[si_sz] * lb_si;
   }
   ir.lower_bound = weighted_lower;
 }
@@ -1643,14 +1643,14 @@ void SDDPSolver::save_cuts_for_iteration(
   // Rename cut files for infeasible scenes
   const auto num_scenes =
       static_cast<Index>(planning_lp().simulation().scenes().size());
-  for (Index si = 0; si < num_scenes; ++si) {
-    if (scene_feasible[static_cast<std::size_t>(si)] != 0U) {
+  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
+    if (scene_feasible[static_cast<std::size_t>(scene)] != 0U) {
       continue;
     }
     if (cut_dir.empty()) {
       continue;
     }
-    const auto suid = scene_uid(SceneIndex {si});
+    const auto suid = scene_uid(scene);
     const auto scene_file =
         cut_dir / std::format(sddp_file::scene_cuts_fmt, suid);
     const auto error_file =
@@ -1660,7 +1660,7 @@ void SDDPSolver::save_cuts_for_iteration(
       std::filesystem::rename(scene_file, error_file, ec);
       if (!ec) {
         SPDLOG_TRACE("SDDP: renamed cut file for infeasible scene {} to {}",
-                     si,
+                     scene,
                      error_file.string());
       }
     }
