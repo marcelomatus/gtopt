@@ -1043,8 +1043,13 @@ TEST_CASE("LinearInterface - load_flat without names (level 0)")  // NOLINT
   using namespace gtopt;
 
   LinearProblem lp("NoNames");
-  [[maybe_unused]] const auto col =
+  const auto col =
       lp.add_col({.name = "x1", .lowb = 0.0, .uppb = 5.0, .cost = 1.0});
+
+  // Add a row so to_flat() does not early-return (needs ncols>0 AND nrows>0).
+  auto row = SparseRow {.name = "r1", .uppb = 10.0};
+  row[col] = 1.0;
+  [[maybe_unused]] const auto row_idx = lp.add_row(row);
 
   FlatOptions flat_opts;
   flat_opts.col_with_names = true;

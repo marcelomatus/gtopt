@@ -649,10 +649,11 @@ TEST_CASE(
 
   SUBCASE("compute_stats=true without col names — col index still tracked")
   {
-    // col_with_names=false but compute_stats=true: indices available, names
-    // empty
+    // col_with_names=false AND col_with_name_map=false: indices available,
+    // names empty
     const auto flat = lp.to_flat({
         .col_with_names = false,
+        .col_with_name_map = false,
         .compute_stats = true,
     });
 
