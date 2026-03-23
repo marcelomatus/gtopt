@@ -1559,7 +1559,7 @@ a hydro generator, a thermal generator, and a reservoir, decomposed into
 a rough solution trajectory for reservoir volumes.
 
 **Level 1 (full SDDP with targets)**: builds the full LP and inherits elastic
-target constraints from level 0's reservoir volumes, guiding the forward pass.
+target constraints from the Level 0 reservoir volumes, guiding the forward pass.
 
 ```json
 {
@@ -1633,7 +1633,7 @@ target constraints from level 0's reservoir volumes, guiding the forward pass.
 │  │ + targets │  │ + targets │      │ + targets │    │
 │  └──────────┘  └──────────┘       └──────────┘     │
 │                                                     │
-│  → Guided by level 0's state trajectory             │
+│  → Guided by Level 0 state trajectory               │
 │  → Converges in fewer iterations than from scratch  │
 └─────────────────────────────────────────────────────┘
 ```
@@ -1729,7 +1729,7 @@ Level 0 (benders_uninodal)           Level 1 (guided_full_network)     Level 2 (
 └──────────────────────┘             └──────────────────────┘          └──────────────────────┘
 ```
 
-Note that level 2 omits `model_options`, so it **reuses level 1's LP**.  Only
+Note that Level 2 omits `model_options`, so it **reuses the Level 1 LP**.  Only
 the solver parameters change (cuts inherited, possibly different apertures).
 
 ### 13.4 Monitoring cascade progress
