@@ -255,7 +255,7 @@ ColIndex LinearInterface::add_col(const std::string& name,
   const CoinPackedVector vec;
   const double obj = 0;
 
-  solver->addCol(vec, collb, colub, obj, name);
+  solver->addCol(vec, collb, colub, obj);
 
   // Keep col name maps in sync (level >= 0, state var names always tracked)
   if (m_lp_names_level_ >= 0 && !name.empty()) {
