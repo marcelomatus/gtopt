@@ -84,7 +84,7 @@ auto create_phase_array(const Simulation& simulation, const OptionsLP& options)
           .active = {},
           .first_stage = 0,
           .count_stage = std::dynamic_extent,
-          .aperture_set = {},
+          .apertures = {},
       },
   };
   const auto& phases =

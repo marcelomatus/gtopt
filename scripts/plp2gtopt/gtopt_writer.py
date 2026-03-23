@@ -13,7 +13,7 @@ from typing import Any, Dict
 from .aflce_writer import AflceWriter
 from .aperture_writer import (
     build_aperture_array,
-    build_phase_aperture_sets,
+    build_phase_apertures,
     write_aperture_afluents,
 )
 from .battery_writer import BatteryWriter
@@ -77,25 +77,12 @@ class GTOptWriter:
         solver_type = self._normalize_solver_type(options.get("solver_type", "sddp"))
 
         # Build the nested sddp_options block (all sddp_* fields except solver_type).
+        # NOTE: num_apertures is NOT emitted here — the C++ SddpOptions JSON
+        # contract has no "num_apertures" field (only "apertures", an array of
+        # UIDs).  Aperture configuration is fully handled by aperture_array and
+        # per-phase apertures in the simulation section, plus
+        # aperture_directory in sddp_options (all set by process_apertures).
         sddp_opts: dict = {}
-        num_apertures = options.get("num_apertures")
-        if num_apertures is not None:
-            spec_str = str(num_apertures).strip().lower()
-            # "all", empty, or "-1" → auto-detect in process_apertures; don't set here
-            if spec_str not in ("all", "", "-1"):
-                try:
-                    # Try as a plain integer first (handles "0", "5", etc.)
-                    n = int(spec_str)
-                    if n >= 0:
-                        sddp_opts["num_apertures"] = n
-                    # negative (e.g. -2) treated as "all" → not set
-                except ValueError:
-                    # Not a plain integer → treat as range or comma list
-                    try:
-                        indices = parse_index_range(num_apertures)
-                        sddp_opts["num_apertures"] = len(indices)
-                    except (ValueError, TypeError):
-                        pass  # Ignore invalid spec; process_apertures auto-detects
 
         cut_sharing_mode = options.get("cut_sharing_mode")
         if cut_sharing_mode is not None:
@@ -115,8 +102,16 @@ class GTOptWriter:
             sddp_opts["max_iterations"] = max_iter
 
         convergence_tol = options.get("convergence_tol")
-        if convergence_tol is not None:
-            sddp_opts["convergence_tol"] = convergence_tol
+        if convergence_tol is None:
+            # Fall back to PDError from plpmat.dat; use 0.1 if absent or zero.
+            parsed = getattr(self.parser, "parsed_data", None)
+            if isinstance(parsed, dict):
+                plpmat = parsed.get("plpmat_parser")
+                if plpmat is not None and getattr(plpmat, "pd_error", 0.0) > 0.0:
+                    convergence_tol = plpmat.pd_error
+            if convergence_tol is None:
+                convergence_tol = 0.1
+        sddp_opts["convergence_tol"] = convergence_tol
 
         # When the JSON file lives inside the output directory (the default),
         # input_directory is "." so paths are relative to the JSON location.
@@ -384,8 +379,8 @@ class GTOptWriter:
         extra affluent Parquet files, and the ``sddp_aperture_directory``
         option is set accordingly.
 
-        This method also sets ``sddp_num_apertures`` automatically when the
-        PLP aperture files are present and the user didn't explicitly set it.
+        Aperture configuration is fully handled through aperture_array and
+        per-phase apertures in the simulation section.
         """
         if not options:
             return
@@ -470,15 +465,13 @@ class GTOptWriter:
                 sddp_opts["aperture_directory"] = str(aperture_dir)
             self.planning["options"]["sddp_options"] = sddp_opts
 
-        # Auto-set num_apertures from PLP data when not explicitly configured
-        sddp_opts = self.planning["options"].get("sddp_options", {})
-        if "num_apertures" not in sddp_opts:
-            sddp_opts["num_apertures"] = len(result.aperture_array)
-            self.planning["options"]["sddp_options"] = sddp_opts
+        # NOTE: num_apertures is NOT emitted in sddp_options — the C++
+        # SddpOptions JSON contract has no such field.  The aperture count is
+        # fully determined by aperture_array and per-phase apertures.
 
-        # Populate per-phase aperture_set from stage-indexed PLP data
+        # Populate per-phase apertures from stage-indexed PLP data
         phase_array = self.planning["simulation"].get("phase_array", [])
-        build_phase_aperture_sets(
+        build_phase_apertures(
             idap2_parser=idap2_parser,
             aperture_array=result.aperture_array,
             phase_array=phase_array,

@@ -216,19 +216,17 @@ def show_simulation_summary(planning: dict) -> None:
             ("Valid (source in scenarios)", str(len(valid))),
             ("Missing (source not found)", str(len(missing))),
         ]
-        if sddp_opts.get("num_apertures"):
-            ap_rows.append(("num_apertures", str(sddp_opts["num_apertures"])))
         if sddp_opts.get("aperture_directory"):
             ap_rows.append(("aperture_directory", sddp_opts["aperture_directory"]))
         print_kv_table(ap_rows, title="Apertures")
 
         # Show per-phase aperture distribution
-        phases_with_ap = [p for p in phases if "aperture_set" in p]
+        phases_with_ap = [p for p in phases if "apertures" in p]
         if phases_with_ap:
-            ap_set_sizes = [len(p["aperture_set"]) for p in phases_with_ap]
+            ap_set_sizes = [len(p["apertures"]) for p in phases_with_ap]
             print_kv_table(
                 [
-                    ("Phases with aperture_set", str(len(phases_with_ap))),
+                    ("Phases with apertures", str(len(phases_with_ap))),
                     ("Min apertures/phase", str(min(ap_set_sizes))),
                     ("Max apertures/phase", str(max(ap_set_sizes))),
                 ],
@@ -240,7 +238,7 @@ def show_simulation_summary(planning: dict) -> None:
         sddp_rows = [
             (k, str(v))
             for k, v in sddp_opts.items()
-            if k not in ("aperture_directory", "num_apertures")
+            if k not in ("aperture_directory",)
         ]
         if sddp_rows:
             print_kv_table(sddp_rows, title="SDDP Options")

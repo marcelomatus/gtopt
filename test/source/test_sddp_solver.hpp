@@ -3372,7 +3372,7 @@ TEST_CASE("SDDPSolver - 2-phase with apertures converges")  // NOLINT
 
   SUBCASE("apertures enabled with nullopt (use per-phase)")
   {
-    sddp_opts.apertures = std::nullopt;  // use per-phase aperture_set
+    sddp_opts.apertures = std::nullopt;  // use per-phase apertures
     SDDPSolver sddp(plp, sddp_opts);
     auto results = sddp.solve();
 

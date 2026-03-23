@@ -65,7 +65,7 @@ concept HasUpdateAperture = requires(const T& e,
 
 /// A deduplicated aperture reference with a repetition count.
 ///
-/// When the per-phase aperture_set contains duplicates (e.g. [1,2,3,3,3]),
+/// When the per-phase apertures contains duplicates (e.g. [1,2,3,3,3]),
 /// each unique aperture is solved only once but its weight is scaled by
 /// @p count (the number of occurrences).
 struct ApertureEntry

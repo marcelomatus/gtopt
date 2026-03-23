@@ -254,7 +254,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// all aperture cuts (expected cut).
   /// Aperture UIDs for the backward pass.
   ///
-  ///  nullopt – use per-phase `Phase::aperture_set` or simulation-level
+  ///  nullopt – use per-phase `Phase::apertures` or simulation-level
   ///            `aperture_array` (default behaviour).
   ///  empty   – no apertures; use pure Benders backward pass.
   ///  [1,2,3] – use exactly these aperture UIDs, overriding per-phase sets.

@@ -6,7 +6,7 @@ import textwrap
 import pytest
 
 from plp2gtopt.idap2_parser import IdAp2Parser
-from plp2gtopt.aperture_writer import build_aperture_array, build_phase_aperture_sets
+from plp2gtopt.aperture_writer import build_aperture_array, build_phase_apertures
 
 
 @pytest.fixture()
@@ -103,7 +103,7 @@ def test_aperture_probabilities_sum_to_one(idap2_parser: IdAp2Parser) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tests for build_phase_aperture_sets
+# Tests for build_phase_apertures
 # ---------------------------------------------------------------------------
 
 
@@ -131,8 +131,8 @@ def idap2_varying(tmp_path: Path) -> IdAp2Parser:
     return parser
 
 
-def test_phase_aperture_sets_uniform(idap2_parser: IdAp2Parser) -> None:
-    """When all stages share the same apertures, no aperture_set is added."""
+def test_phase_aperturess_uniform(idap2_parser: IdAp2Parser) -> None:
+    """When all stages share the same apertures, no apertures is added."""
     scenario_hydro_map = {50: 1, 51: 2, 52: 3, 53: 4}
     aperture_array = build_aperture_array(
         idap2_parser, scenario_hydro_map, 3
@@ -143,14 +143,14 @@ def test_phase_aperture_sets_uniform(idap2_parser: IdAp2Parser) -> None:
         {"uid": 2, "first_stage": 1, "count_stage": 1},
         {"uid": 3, "first_stage": 2, "count_stage": 1},
     ]
-    build_phase_aperture_sets(idap2_parser, aperture_array, phase_array, 3)
-    # All phases use the same apertures [51,52,53,54] → no aperture_set added
+    build_phase_apertures(idap2_parser, aperture_array, phase_array, 3)
+    # All phases use the same apertures [51,52,53,54] → no apertures added
     for phase in phase_array:
-        assert "aperture_set" not in phase
+        assert "apertures" not in phase
 
 
-def test_phase_aperture_sets_varying(idap2_varying: IdAp2Parser) -> None:
-    """When stages have different apertures, per-phase aperture_set is added."""
+def test_phase_aperturess_varying(idap2_varying: IdAp2Parser) -> None:
+    """When stages have different apertures, per-phase apertures is added."""
     scenario_hydro_map = {0: 10, 50: 1, 51: 2, 52: 3}
     aperture_array = build_aperture_array(
         idap2_varying, scenario_hydro_map, 3
@@ -161,36 +161,36 @@ def test_phase_aperture_sets_varying(idap2_varying: IdAp2Parser) -> None:
         {"uid": 2, "first_stage": 1, "count_stage": 1},
         {"uid": 3, "first_stage": 2, "count_stage": 1},
     ]
-    build_phase_aperture_sets(idap2_varying, aperture_array, phase_array, 3)
+    build_phase_apertures(idap2_varying, aperture_array, phase_array, 3)
 
     # Stage 1 uses [51,52] → aperture UIDs for hydros 51,52
     # Stage 2 uses [51,52,53] → aperture UIDs for hydros 51,52,53
     # Stage 3 uses [1,51,52,53] → aperture UIDs for hydros 1,51,52,53
-    # Each phase should have its own aperture_set
-    assert "aperture_set" in phase_array[0]
-    assert "aperture_set" in phase_array[1]
-    assert "aperture_set" in phase_array[2]
+    # Each phase should have its own apertures
+    assert "apertures" in phase_array[0]
+    assert "apertures" in phase_array[1]
+    assert "apertures" in phase_array[2]
 
     # Phase 3 has the most apertures (all), phase 1 has the fewest
-    assert len(phase_array[0]["aperture_set"]) < len(phase_array[2]["aperture_set"])
+    assert len(phase_array[0]["apertures"]) < len(phase_array[2]["apertures"])
 
 
-def test_phase_aperture_sets_no_parser() -> None:
+def test_phase_aperturess_no_parser() -> None:
     """No parser → no modification."""
     phase_array = [{"uid": 1, "first_stage": 0, "count_stage": 1}]
-    build_phase_aperture_sets(None, [], phase_array, 1)
-    assert "aperture_set" not in phase_array[0]
+    build_phase_apertures(None, [], phase_array, 1)
+    assert "apertures" not in phase_array[0]
 
 
-def test_phase_aperture_sets_empty_inputs() -> None:
+def test_phase_aperturess_empty_inputs() -> None:
     """Empty aperture_array or phase_array → no modification."""
-    build_phase_aperture_sets(None, [], [], 0)
+    build_phase_apertures(None, [], [], 0)
     phase_array: list = [{"uid": 1, "first_stage": 0, "count_stage": 1}]
-    build_phase_aperture_sets(None, [{"uid": 1}], phase_array, 1)
-    assert "aperture_set" not in phase_array[0]
+    build_phase_apertures(None, [{"uid": 1}], phase_array, 1)
+    assert "apertures" not in phase_array[0]
 
 
-def test_phase_aperture_sets_multistage_duplicates(
+def test_phase_aperturess_multistage_duplicates(
     idap2_varying: IdAp2Parser,
 ) -> None:
     """Multi-stage phase preserves duplicate aperture UIDs.
@@ -209,11 +209,11 @@ def test_phase_aperture_sets_multistage_duplicates(
         {"uid": 1, "first_stage": 0, "count_stage": 2},
         {"uid": 2, "first_stage": 2, "count_stage": 1},
     ]
-    build_phase_aperture_sets(idap2_varying, aperture_array, phase_array, 3)
+    build_phase_apertures(idap2_varying, aperture_array, phase_array, 3)
 
     # Phase 1 (stages 1+2): stage 1 → [51,52], stage 2 → [51,52,53]
     # With extend: hydros = [51,52,51,52,53] → sorted UIDs with duplicates
-    ap_set_1 = phase_array[0]["aperture_set"]
+    ap_set_1 = phase_array[0]["apertures"]
     from collections import Counter
 
     counts_1 = Counter(ap_set_1)
@@ -225,5 +225,5 @@ def test_phase_aperture_sets_multistage_duplicates(
     assert counts_1[3] == 1
 
     # Phase 2 (stage 3): [1,51,52,53] → 4 unique aperture UIDs, no duplicates
-    ap_set_2 = phase_array[1]["aperture_set"]
+    ap_set_2 = phase_array[1]["apertures"]
     assert len(ap_set_2) == len(set(ap_set_2))
