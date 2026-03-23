@@ -524,3 +524,97 @@ TEST_CASE("CPUMonitor start and sample load")
   CHECK(monitor.get_load() >= 0.0);
   CHECK(monitor.get_load() <= 100.0);
 }
+
+TEST_CASE("CPUMonitor repeated get_system_cpu_usage calls")
+{
+  // First call initializes the static last_idle/last_total atomics.
+  // Second call exercises the delta calculation path (total_delta != 0).
+  const double first = CPUMonitor::get_system_cpu_usage(99.0);
+  CHECK(first >= 0.0);
+  CHECK(first <= 100.0);
+
+  // Small delay so /proc/stat counters advance, producing a non-zero delta
+  std::this_thread::sleep_for(std::chrono::milliseconds {50});
+
+  const double second = CPUMonitor::get_system_cpu_usage(99.0);
+  CHECK(second >= 0.0);
+  CHECK(second <= 100.0);
+
+  // A third call to further exercise the steady-state path
+  std::this_thread::sleep_for(std::chrono::milliseconds {50});
+  const double third = CPUMonitor::get_system_cpu_usage(99.0);
+  CHECK(third >= 0.0);
+  CHECK(third <= 100.0);
+}
+
+TEST_CASE("CPUMonitor RAII destructor stops thread")
+{
+  // Verify that the destructor stops the monitoring thread cleanly
+  // (exercises the stop() call inside ~CPUMonitor)
+  {
+    CPUMonitor monitor;
+    monitor.set_interval(std::chrono::milliseconds {30});
+    monitor.start();
+    std::this_thread::sleep_for(std::chrono::milliseconds {100});
+    // destructor called here — must not hang or crash
+  }
+  CHECK(true);  // If we reach here, RAII cleanup succeeded
+}
+
+TEST_CASE("CPUMonitor thread updates current_load_ over time")
+{
+  CPUMonitor monitor;
+  monitor.set_interval(std::chrono::milliseconds {20});
+  monitor.start();
+
+  // Sample the load multiple times while the thread is running
+  std::vector<double> samples;
+  for (int i = 0; i < 10; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds {30});
+    samples.push_back(monitor.get_load());
+  }
+
+  monitor.stop();
+
+  // All samples should be in valid range
+  for (const auto load : samples) {
+    CHECK(load >= 0.0);
+    CHECK(load <= 100.0);
+  }
+}
+
+TEST_CASE("CPUMonitor start-stop-start cycle")
+{
+  CPUMonitor monitor;
+  monitor.set_interval(std::chrono::milliseconds {30});
+
+  // First cycle
+  monitor.start();
+  std::this_thread::sleep_for(std::chrono::milliseconds {80});
+  monitor.stop();
+
+  const double load_after_stop = monitor.get_load();
+  CHECK(load_after_stop >= 0.0);
+  CHECK(load_after_stop <= 100.0);
+
+  // Second cycle — exercises start() on a stopped monitor
+  monitor.start();
+  std::this_thread::sleep_for(std::chrono::milliseconds {80});
+  monitor.stop();
+
+  CHECK(monitor.get_load() >= 0.0);
+  CHECK(monitor.get_load() <= 100.0);
+}
+
+TEST_CASE("CPUMonitor double stop is safe")
+{
+  CPUMonitor monitor;
+  monitor.set_interval(std::chrono::milliseconds {30});
+
+  monitor.start();
+  std::this_thread::sleep_for(std::chrono::milliseconds {60});
+
+  // stop() twice — second call should be a no-op (thread not joinable)
+  monitor.stop();
+  CHECK_NOTHROW(monitor.stop());
+}

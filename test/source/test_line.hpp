@@ -1101,3 +1101,654 @@ TEST_CASE("Phase-shifting transformer modifies Kirchhoff RHS")
   // Objective should equal 100 MW * $10/MWh / scale_objective (1000) = 1.0
   CHECK(lp_iface.get_obj_value() == doctest::Approx(1.0));
 }
+
+// ── Capacity expansion + loss model tests ─────────────────────────────────
+
+TEST_CASE("LineLP - quadratic losses with capacity expansion")
+{
+  // Exercises the quadratic loss path when capacity_col is present (expcap
+  // set). This covers the capacity constraint inside
+  // add_quadratic_flow_direction (lines 169-179) and the cprows/cnrows storage
+  // (lines 335-336, 359-360).
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+      {
+          .uid = Uid {2},
+          .name = "b2",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {2},
+          .capacity = 100.0,
+      },
+  };
+
+  const Array<Line> line_array = {
+      {
+          .uid = Uid {1},
+          .name = "l1",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .voltage = 100.0,
+          .resistance = 0.01,
+          .loss_segments = 3,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 100.0,
+          .expcap = 50.0,
+          .expmod = 4.0,
+          .capmax = 300.0,
+          .annual_capcost = 100.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  Options opts;
+  opts.use_single_bus = false;
+  opts.use_kirchhoff = false;
+  opts.use_line_losses = true;
+
+  const System system = {
+      .name = "QuadLossExpansion",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .line_array = line_array,
+  };
+
+  const OptionsLP options_qe(opts);
+  SimulationLP simulation_lp(simulation, options_qe);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  CHECK(lp.get_numrows() > 0);
+  CHECK(lp.get_numcols() > 0);
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Demand is 100 MW, capacity starts at 100 MW with expansion available.
+  // Quadratic losses require slightly more generation.
+  const auto obj = lp.get_obj_value();
+  CHECK(obj > 0.9);
+  CHECK(obj < 2.0);
+}
+
+TEST_CASE("LineLP - linear losses (lossfactor) with capacity expansion")
+{
+  // Exercises the linear loss path with capacity_col present (expcap set).
+  // This covers the capacity constraint rows for both positive and negative
+  // flow directions in the linear loss model (lines 378-388, 403-413).
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+      {
+          .uid = Uid {2},
+          .name = "b2",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {2},
+          .capacity = 100.0,
+      },
+  };
+
+  const Array<Line> line_array = {
+      {
+          .uid = Uid {1},
+          .name = "l1",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .lossfactor = 0.05,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 100.0,
+          .expcap = 50.0,
+          .expmod = 4.0,
+          .capmax = 300.0,
+          .annual_capcost = 100.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  Options opts;
+  opts.use_single_bus = false;
+  opts.use_kirchhoff = false;
+
+  const System system = {
+      .name = "LinLossExpansion",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .line_array = line_array,
+  };
+
+  const OptionsLP options_le(opts);
+  SimulationLP simulation_lp(simulation, options_le);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  CHECK(lp.get_numrows() > 0);
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // With 5% loss factor: gen ~105 MW for 100 MW demand, cost ~1.05 (scaled)
+  const auto obj = lp.get_obj_value();
+  CHECK(obj > 1.0);
+  CHECK(obj < 1.1);
+}
+
+TEST_CASE("LineLP - inactive line is skipped")
+{
+  // A line with active=false should be skipped entirely in add_to_lp.
+  // This exercises the !is_active(stage) early return (line 276).
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+      {
+          .uid = Uid {2},
+          .name = "b2",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "g2",
+          .bus = Uid {2},
+          .gcost = 20.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {2},
+          .capacity = 100.0,
+      },
+  };
+
+  // Line is inactive: should not participate in power flow
+  const Array<Line> line_array = {
+      {
+          .uid = Uid {1},
+          .name = "l_inactive",
+          .active = false,
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  Options opts;
+  opts.use_single_bus = false;
+  opts.use_kirchhoff = false;
+  opts.demand_fail_cost = 1000.0;
+
+  const System system = {
+      .name = "InactiveLineTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .line_array = line_array,
+  };
+
+  const OptionsLP options_il(opts);
+  SimulationLP simulation_lp(simulation, options_il);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // With inactive line, bus 2 demand is served by local g2 at $20/MWh
+  // cost = 100 * 20 / 1000 = 2.0
+  const auto obj = lp.get_obj_value();
+  CHECK(obj == doctest::Approx(2.0));
+}
+
+TEST_CASE("LineLP - transfer cost is applied to flow")
+{
+  // Verifies that tcost adds to the objective when power flows through a line.
+  // Two generators at different costs on different buses; line tcost adds to
+  // the effective dispatch cost.
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+      {
+          .uid = Uid {2},
+          .name = "b2",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "g2",
+          .bus = Uid {2},
+          .gcost = 20.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {2},
+          .capacity = 100.0,
+      },
+  };
+
+  // Line with transfer cost of $5/MWh; no losses
+  const Array<Line> line_array = {
+      {
+          .uid = Uid {1},
+          .name = "l1",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .tcost = 5.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  Options opts;
+  opts.use_single_bus = false;
+  opts.use_kirchhoff = false;
+
+  const System system = {
+      .name = "TransferCostTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .line_array = line_array,
+  };
+
+  const OptionsLP options_tc(opts);
+  SimulationLP simulation_lp(simulation, options_tc);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // g1 at $10 + line tcost $5 = $15 effective; cheaper than g2 at $20.
+  // Total cost = (10 + 5) * 100 / 1000 = 1.5
+  const auto obj = lp.get_obj_value();
+  CHECK(obj == doctest::Approx(1.5));
+}
+
+TEST_CASE("LineLP - multi-stage capacity expansion with quadratic losses")
+{
+  // Two stages: stage 1 has initial capacity, stage 2 can expand.
+  // Exercises capacity tracking across stages in the quadratic loss model.
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+      {
+          .uid = Uid {2},
+          .name = "b2",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {2},
+          .capacity = 80.0,
+      },
+  };
+
+  const Array<Line> line_array = {
+      {
+          .uid = Uid {1},
+          .name = "l1",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .voltage = 100.0,
+          .resistance = 0.01,
+          .loss_segments = 2,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 100.0,
+          .expcap = 50.0,
+          .expmod = 2.0,
+          .capmax = 200.0,
+          .annual_capcost = 10.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+              {
+                  .uid = Uid {2},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+              {
+                  .uid = Uid {2},
+                  .first_block = 1,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  Options opts;
+  opts.use_single_bus = false;
+  opts.use_kirchhoff = false;
+  opts.use_line_losses = true;
+
+  const System system = {
+      .name = "MultiStageQuadExpansion",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .line_array = line_array,
+  };
+
+  const OptionsLP options_ms(opts);
+  SimulationLP simulation_lp(simulation, options_ms);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  CHECK(lp.get_numrows() > 0);
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+}
+
+TEST_CASE(
+    "LineLP - quadratic losses with Kirchhoff and capacity expansion combined")
+{
+  // Exercises all three advanced features together: quadratic losses, Kirchhoff
+  // DC power flow, and capacity expansion. This tests the full integration
+  // path.
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+          .reference_theta = 0.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "b2",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {2},
+          .capacity = 80.0,
+      },
+  };
+
+  const Array<Line> line_array = {
+      {
+          .uid = Uid {1},
+          .name = "l1",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .voltage = 100.0,
+          .resistance = 0.01,
+          .reactance = 0.05,
+          .loss_segments = 3,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 100.0,
+          .expcap = 50.0,
+          .expmod = 2.0,
+          .capmax = 200.0,
+          .annual_capcost = 10.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  Options opts;
+  opts.use_single_bus = false;
+  opts.use_kirchhoff = true;
+  opts.use_line_losses = true;
+
+  System system = {
+      .name = "QuadKirchhoffExpansion",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .line_array = line_array,
+  };
+
+  const OptionsLP options_qke(opts);
+  SimulationLP simulation_lp(simulation, options_qke);
+  system.setup_reference_bus(options_qke);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  CHECK(lp.get_numrows() > 0);
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+}

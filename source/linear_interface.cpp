@@ -202,37 +202,21 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
     solver->setInteger(i);
   }
 
-  // Build name maps efficiently: collect (name, index) pairs, sort, then
-  // bulk-insert into the flat_map.  Individual try_emplace into a flat_map
-  // is O(n) per insertion (shifts elements), making N inserts O(n²) — too
-  // slow for large LPs with tens of thousands of columns/rows.
-  using pair_t = std::pair<std::string, int32_t>;
-
+  // Build name maps: populate the unordered_map with O(1) amortized inserts.
   auto build_name_map = [](const auto& names_vec,
                            name_index_map_t& name_map,
                            std::vector<std::string>& index_to_name)
   {
     index_to_name.resize(names_vec.size());
+    name_map.reserve(names_vec.size());
 
-    // Collect non-empty (name, index) pairs
-    std::vector<pair_t> pairs;
-    pairs.reserve(names_vec.size());
     for (int i = 0; const auto& name : names_vec) {
       if (!name.empty()) {
         index_to_name[static_cast<size_t>(i)] = name;
-        pairs.emplace_back(name, i);
+        name_map.emplace(name, i);  // first occurrence wins
       }
       ++i;
     }
-
-    // Sort by name and deduplicate (keep first occurrence)
-    std::ranges::sort(pairs, {}, &pair_t::first);
-    auto [dup_begin, dup_end] = std::ranges::unique(pairs, {}, &pair_t::first);
-    pairs.erase(dup_begin, dup_end);
-
-    // Bulk-insert into flat_map — O(n) for sorted unique range
-    map_reserve(name_map, pairs.size());
-    map_insert_sorted_unique(name_map, pairs.begin(), pairs.end());
   };
 
   if (m_lp_names_level_ >= 1 && !flat_lp.colnm.empty()) {
@@ -341,38 +325,31 @@ void LinearInterface::delete_rows(const std::span<const int> indices)
 
   solver->deleteRows(static_cast<int>(indices.size()), indices.data());
 
-  // Rebuild row name maps if name tracking is active, since row indices
-  // shift after deletion and the old maps are stale.
+  // Update row name maps: erase deleted indices from the vector (reverse
+  // order keeps remaining indices valid), then rebuild the hash map.
   if (m_lp_names_level_ >= 1) {
+    for (const auto idx : indices | std::views::reverse) {
+      const auto pos = static_cast<ptrdiff_t>(idx);
+      if (pos < std::ssize(m_row_index_to_name_)) {
+        m_row_index_to_name_.erase(m_row_index_to_name_.begin() + pos);
+      }
+    }
     rebuild_row_name_maps();
   }
 }
 
 void LinearInterface::rebuild_row_name_maps()
 {
-  using pair_t = std::pair<std::string, int32_t>;
-
+  // Rebuild the name→index hash map from the index→name vector.
+  // This avoids O(n) solver->getRowName() string allocations.
   m_row_names_.clear();
-  const auto num_rows = solver->getNumRows();
-  m_row_index_to_name_.clear();
-  m_row_index_to_name_.resize(static_cast<size_t>(num_rows));
-
-  std::vector<pair_t> pairs;
-  pairs.reserve(static_cast<size_t>(num_rows));
-  for (int r = 0; r < num_rows; ++r) {
-    auto name = solver->getRowName(r);
+  m_row_names_.reserve(m_row_index_to_name_.size());
+  for (int32_t i = 0; const auto& name : m_row_index_to_name_) {
     if (!name.empty()) {
-      m_row_index_to_name_[static_cast<size_t>(r)] = name;
-      pairs.emplace_back(std::move(name), r);
+      m_row_names_.emplace(name, i);
     }
+    ++i;
   }
-
-  std::ranges::sort(pairs, {}, &pair_t::first);
-  auto [dup_begin, dup_end] = std::ranges::unique(pairs, {}, &pair_t::first);
-  pairs.erase(dup_begin, dup_end);
-
-  map_reserve(m_row_names_, pairs.size());
-  map_insert_sorted_unique(m_row_names_, pairs.begin(), pairs.end());
 }
 
 void LinearInterface::reset_from(const LinearInterface& source,
@@ -409,8 +386,9 @@ void LinearInterface::reset_from(const LinearInterface& source,
     solver->setRowUpper(r, src_row_hi[r]);
   }
 
-  // Rebuild row name maps if active.
+  // Truncate row name vector to base size and rebuild hash map.
   if (m_lp_names_level_ >= 1) {
+    m_row_index_to_name_.resize(static_cast<size_t>(nrows));
     rebuild_row_name_maps();
   }
 }

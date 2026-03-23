@@ -16,6 +16,7 @@
 #include <expected>
 #include <memory>
 #include <span>
+#include <unordered_map>
 
 #include <gtopt/error.hpp>
 #include <gtopt/fmap.hpp>
@@ -458,7 +459,7 @@ public:
   /// @{
 
   /// Row (constraint) name → row index map.
-  using name_index_map_t = flat_map<std::string, int32_t>;
+  using name_index_map_t = std::unordered_map<std::string, int32_t>;
 
   [[nodiscard]] constexpr const name_index_map_t& row_name_map() const noexcept
   {
