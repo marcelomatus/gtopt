@@ -202,29 +202,52 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
     solver->setInteger(i);
   }
 
-  if (m_lp_names_level_ >= 1) {
-    m_col_index_to_name_.resize(static_cast<size_t>(flat_lp.ncols),
-                                std::string {});
+  // Build name maps efficiently: collect (name, index) pairs, sort, then
+  // bulk-insert into the flat_map.  Individual try_emplace into a flat_map
+  // is O(n) per insertion (shifts elements), making N inserts O(n²) — too
+  // slow for large LPs with tens of thousands of columns/rows.
+  using pair_t = std::pair<std::string, int32_t>;
+
+  auto build_name_map = [](const auto& names_vec,
+                           name_index_map_t& name_map,
+                           std::vector<std::string>& index_to_name)
+  {
+    index_to_name.resize(names_vec.size());
+
+    // Collect non-empty (name, index) pairs
+    std::vector<pair_t> pairs;
+    pairs.reserve(names_vec.size());
+    for (int i = 0; const auto& name : names_vec) {
+      if (!name.empty()) {
+        index_to_name[static_cast<size_t>(i)] = name;
+        pairs.emplace_back(name, i);
+      }
+      ++i;
+    }
+
+    // Sort by name and deduplicate (keep first occurrence)
+    std::ranges::sort(pairs, {}, &pair_t::first);
+    auto [dup_begin, dup_end] = std::ranges::unique(pairs, {}, &pair_t::first);
+    pairs.erase(dup_begin, dup_end);
+
+    // Bulk-insert into flat_map — O(n) for sorted unique range
+    map_reserve(name_map, pairs.size());
+    map_insert_sorted_unique(name_map, pairs.begin(), pairs.end());
+  };
+
+  if (m_lp_names_level_ >= 1 && !flat_lp.colnm.empty()) {
+    build_name_map(flat_lp.colnm, m_col_names_, m_col_index_to_name_);
   }
   for (int i = 0; auto&& name : flat_lp.colnm) {
     solver->setColName(i, name);
-    if (m_lp_names_level_ >= 1 && !name.empty()) {
-      m_col_names_.try_emplace(name, i);
-      m_col_index_to_name_[static_cast<size_t>(i)] = name;
-    }
     ++i;
   }
 
-  if (m_lp_names_level_ >= 1) {
-    m_row_index_to_name_.resize(static_cast<size_t>(flat_lp.nrows),
-                                std::string {});
+  if (m_lp_names_level_ >= 1 && !flat_lp.rownm.empty()) {
+    build_name_map(flat_lp.rownm, m_row_names_, m_row_index_to_name_);
   }
   for (int i = 0; auto&& name : flat_lp.rownm) {
     solver->setRowName(i, name);
-    if (m_lp_names_level_ >= 1 && !name.empty()) {
-      m_row_names_.try_emplace(name, i);
-      m_row_index_to_name_[static_cast<size_t>(i)] = name;
-    }
     ++i;
   }
 }
@@ -321,18 +344,35 @@ void LinearInterface::delete_rows(const std::span<const int> indices)
   // Rebuild row name maps if name tracking is active, since row indices
   // shift after deletion and the old maps are stale.
   if (m_lp_names_level_ >= 1) {
-    m_row_names_.clear();
-    const auto num_rows = solver->getNumRows();
-    m_row_index_to_name_.clear();
-    m_row_index_to_name_.resize(static_cast<size_t>(num_rows));
-    for (int r = 0; r < num_rows; ++r) {
-      const auto name = solver->getRowName(r);
-      if (!name.empty()) {
-        m_row_names_.try_emplace(name, r);
-        m_row_index_to_name_[static_cast<size_t>(r)] = name;
-      }
+    rebuild_row_name_maps();
+  }
+}
+
+void LinearInterface::rebuild_row_name_maps()
+{
+  using pair_t = std::pair<std::string, int32_t>;
+
+  m_row_names_.clear();
+  const auto num_rows = solver->getNumRows();
+  m_row_index_to_name_.clear();
+  m_row_index_to_name_.resize(static_cast<size_t>(num_rows));
+
+  std::vector<pair_t> pairs;
+  pairs.reserve(static_cast<size_t>(num_rows));
+  for (int r = 0; r < num_rows; ++r) {
+    auto name = solver->getRowName(r);
+    if (!name.empty()) {
+      m_row_index_to_name_[static_cast<size_t>(r)] = name;
+      pairs.emplace_back(std::move(name), r);
     }
   }
+
+  std::ranges::sort(pairs, {}, &pair_t::first);
+  auto [dup_begin, dup_end] = std::ranges::unique(pairs, {}, &pair_t::first);
+  pairs.erase(dup_begin, dup_end);
+
+  map_reserve(m_row_names_, pairs.size());
+  map_insert_sorted_unique(m_row_names_, pairs.begin(), pairs.end());
 }
 
 void LinearInterface::reset_from(const LinearInterface& source,
@@ -371,16 +411,7 @@ void LinearInterface::reset_from(const LinearInterface& source,
 
   // Rebuild row name maps if active.
   if (m_lp_names_level_ >= 1) {
-    m_row_names_.clear();
-    m_row_index_to_name_.clear();
-    m_row_index_to_name_.resize(static_cast<size_t>(nrows));
-    for (int r = 0; r < nrows; ++r) {
-      const auto name = solver->getRowName(r);
-      if (!name.empty()) {
-        m_row_names_.try_emplace(name, r);
-        m_row_index_to_name_[static_cast<size_t>(r)] = name;
-      }
-    }
+    rebuild_row_name_maps();
   }
 }
 
