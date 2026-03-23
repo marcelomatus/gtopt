@@ -70,8 +70,8 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
     {
       auto grow =
           SparseRow {
-              .name =
-                  sc.lp_label(scenario, stage, block, cname, "gconv", uid()),
+              .name = sc.lp_row_label(
+                  scenario, stage, block, cname, "gconv", uid()),
           }
               .equal(0);
       const auto ocol = fout_cols.at(buid);
@@ -86,8 +86,8 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
       const auto icol = finp_cols.at(buid);
       auto drow =
           SparseRow {
-              .name =
-                  sc.lp_label(scenario, stage, block, cname, "dconv", uid()),
+              .name = sc.lp_row_label(
+                  scenario, stage, block, cname, "dconv", uid()),
           }
               .equal(0);
       drow[icol] = -stage_conversion_rate;
@@ -99,7 +99,8 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
     if (capacity_col) {
       auto crow =
           SparseRow {
-              .name = sc.lp_label(scenario, stage, block, cname, "cap", uid()),
+              .name =
+                  sc.lp_row_label(scenario, stage, block, cname, "cap", uid()),
           }
               .greater_equal(0);
 

@@ -82,7 +82,8 @@ std::expected<void, Error> add_provision(
     prov_cols[buid] = prov_col;
 
     if (use_capacity) {
-      auto crow = SparseRow {.name = sc.lp_label("cap", name)}.greater_equal(0);
+      auto crow =
+          SparseRow {.name = sc.lp_row_label("cap", name)}.greater_equal(0);
       crow[capacity_col.value()] = stage_capacity_factor.value();
       crow[prov_col] = -1;
       cap_rows[buid] = lp.add_row(std::move(crow));

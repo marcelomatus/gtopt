@@ -47,7 +47,7 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
 
     // Create balance row for this block
     auto brow = SparseRow {
-        .name = sc.lp_label(scenario, stage, block, cname, "bal", uid()),
+        .name = sc.lp_row_label(scenario, stage, block, cname, "bal", uid()),
     };
 
     // Add drain column if needed
