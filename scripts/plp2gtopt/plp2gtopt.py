@@ -601,13 +601,13 @@ def generate_variable_scales_template(options: dict[str, Any]) -> str:
         if fescala_val is not None:
             entry["_fescala"] = fescala_val
         scales.append(entry)
-        # Also scale flow (extraction) variables with the same factor
+        # Scale flow (extraction) variables: flow_scale = energy_scale / 1000
         scales.append(
             {
                 "class_name": "Reservoir",
                 "variable": "flow",
                 "uid": uid,
-                "scale": resolved_scale,
+                "scale": resolved_scale / 1000.0,
                 "name": name,
             }
         )
