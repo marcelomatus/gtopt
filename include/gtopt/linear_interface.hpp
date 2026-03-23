@@ -539,6 +539,7 @@ private:
                    double rowlb,
                    double rowub);
 
+  void rebuild_row_name_maps();
   void open_log_handler(int log_level);
   void close_log_handler();
 
