@@ -242,6 +242,8 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options,
       sddp_opts.max_iterations = options.sddp_max_iterations();
       sddp_opts.min_iterations = options.sddp_min_iterations();
       sddp_opts.convergence_tol = options.sddp_convergence_tol();
+      sddp_opts.stationary_tol = options.sddp_stationary_tol();
+      sddp_opts.stationary_window = options.sddp_stationary_window();
 
       // Simulation mode: forward-only evaluation, no training, no cut saving
       if (options.sddp_simulation_mode()) {
@@ -349,6 +351,8 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options,
       sddp_opts.max_iterations = options.sddp_max_iterations();
       sddp_opts.min_iterations = options.sddp_min_iterations();
       sddp_opts.convergence_tol = options.sddp_convergence_tol();
+      sddp_opts.stationary_tol = options.sddp_stationary_tol();
+      sddp_opts.stationary_window = options.sddp_stationary_window();
 
       // Simulation mode: forward-only evaluation, no training, no cut saving
       if (options.sddp_simulation_mode()) {

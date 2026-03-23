@@ -4291,3 +4291,196 @@ TEST_CASE("SDDPSolver - forget_first_cuts removes inherited cuts")  // NOLINT
     CHECK(last.lower_bound > 0.0);
   }
 }
+
+// ─── Convergence criteria unit tests ────────────────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "SDDPSolver primary convergence - gap < convergence_tol stops the loop")
+{
+  // 3-phase hydro problem converges in a few iterations.
+  // Verify that the primary criterion (gap < convergence_tol) fires and that
+  // SDDPIterationResult fields are properly populated.
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 50;
+  sddp_opts.min_iterations = 1;
+  sddp_opts.convergence_tol = 1e-3;
+  // Disable stationary criterion so only the primary criterion can fire.
+  sddp_opts.stationary_tol = 0.0;
+
+  SDDPSolver sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  const auto& last = results->back();
+
+  // Primary convergence: gap must be below convergence_tol.
+  CHECK(last.converged);
+  CHECK_FALSE(last.stationary_converged);
+  CHECK(last.gap < sddp_opts.convergence_tol);
+
+  // gap_change is 1.0 (default / "not checked") when stationary is disabled.
+  CHECK(last.gap_change == doctest::Approx(1.0));
+
+  // The solver should stop well before max_iterations.
+  CHECK(static_cast<int>(results->size()) < sddp_opts.max_iterations);
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPSolver stationary convergence - fires when gap stops improving")
+{
+  // The hydro problem converges to a gap of ~0 after a few iterations.
+  // By setting convergence_tol to a negative value (-1.0), the primary
+  // criterion (gap < convergence_tol) can never be satisfied.
+  // The stationary criterion will then fire once the now-zero gap has not
+  // changed over the look-back window.
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 50;
+  // Require at least 4 training iterations so the window (2) can fill.
+  sddp_opts.min_iterations = 4;
+  // Negative primary tolerance: primary convergence is impossible.
+  sddp_opts.convergence_tol = -1.0;
+  // Stationary criterion: any gap-change < 100% (i.e. not doubling) triggers.
+  sddp_opts.stationary_tol = 1.0;
+  sddp_opts.stationary_window = 2;
+
+  SDDPSolver sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  bool found_stationary = false;
+  for (const auto& ir : *results) {
+    if (ir.stationary_converged) {
+      found_stationary = true;
+      // stationary_converged implies converged.
+      CHECK(ir.converged);
+      // gap_change must be below stationary_tol.
+      CHECK(ir.gap_change < sddp_opts.stationary_tol);
+      break;
+    }
+  }
+  CHECK(found_stationary);
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPSolver stationary convergence - gap_change populated after window")
+{
+  // Verify that gap_change stays at 1.0 (default) for early iterations
+  // before the window is reached, and is computed for later ones.
+  // Use negative convergence_tol so only the stationary path can fire.
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 20;
+  // Require at least window+1 training iterations before stationary can fire.
+  sddp_opts.min_iterations = 4;
+  sddp_opts.convergence_tol = -1.0;  // primary convergence impossible
+  sddp_opts.stationary_tol = 0.99;  // fires once gap stops changing
+  sddp_opts.stationary_window = 3;
+
+  SDDPSolver sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  // Training results (all but the simulation pass at the back).
+  const auto& all = *results;
+  const std::size_t n = all.size();
+
+  // First (window-1) training iterations: gap_change not yet computed (=1.0).
+  for (std::size_t i = 0; i + 1 < n
+       && i < static_cast<std::size_t>(sddp_opts.stationary_window - 1);
+       ++i)
+  {
+    CHECK(all[i].gap_change == doctest::Approx(1.0));
+  }
+
+  // From index (window) onwards gap_change must be a non-negative value.
+  for (std::size_t i = static_cast<std::size_t>(sddp_opts.stationary_window);
+       i + 1 < n;
+       ++i)
+  {
+    CHECK(all[i].gap_change >= 0.0);
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "PlanningLP::SddpSummary populated after SDDP solve")
+{
+  // After a successful SDDP solve, PlanningLP::sddp_summary() must contain
+  // meaningful gap/gap_change/converged values, and write_out() must emit
+  // gap and gap_change columns in solution.csv.
+  auto planning = make_3phase_hydro_planning();
+
+  // Route output into a temporary directory.
+  const auto out_dir =
+      std::filesystem::temp_directory_path() / "__sddp_summary_test_out__";
+  std::filesystem::remove_all(out_dir);
+  std::filesystem::create_directories(out_dir);
+  planning.options.output_directory = std::string(out_dir.string());
+
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 30;
+  sddp_opts.min_iterations = 1;
+  sddp_opts.convergence_tol = 1e-3;
+
+  SDDPSolver sddp(planning_lp, sddp_opts);
+  const auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  // Manually populate the summary (normally done by SDDPPlanningSolver).
+  const auto& last = results->back();
+  planning_lp.set_sddp_summary({
+      .gap = last.gap,
+      .gap_change = last.gap_change,
+      .lower_bound = last.lower_bound,
+      .upper_bound = last.upper_bound,
+      .iterations = static_cast<int>(results->size()),
+      .converged = last.converged,
+      .stationary_converged = last.stationary_converged,
+  });
+
+  // Verify the summary is populated.
+  const auto& summary = planning_lp.sddp_summary();
+  CHECK(summary.converged);
+  // Allow tiny negative gap from floating-point rounding (LB ≈ UB).
+  static constexpr double kGapFpTol = -1e-10;
+  CHECK(summary.gap >= kGapFpTol);
+  CHECK(summary.gap < sddp_opts.convergence_tol);
+  CHECK(summary.lower_bound > 0.0);
+  CHECK(summary.upper_bound > 0.0);
+  CHECK(summary.iterations > 0);
+
+  // Write output and check that solution.csv contains gap and gap_change.
+  planning_lp.write_out();
+
+  const auto sol_path = out_dir / "solution.csv";
+  REQUIRE(std::filesystem::exists(sol_path));
+
+  std::ifstream f(sol_path.string());
+  REQUIRE(f.is_open());
+  std::string header;
+  REQUIRE(std::getline(f, header));
+
+  // Header must contain both gap columns.
+  CHECK(header.find("gap") != std::string::npos);
+  CHECK(header.find("gap_change") != std::string::npos);
+
+  // At least one data row with non-negative gap value.
+  std::string data_line;
+  REQUIRE(std::getline(f, data_line));
+  CHECK_FALSE(data_line.empty());
+
+  std::filesystem::remove_all(out_dir);
+}

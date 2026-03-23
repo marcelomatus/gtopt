@@ -475,6 +475,37 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--stationary-tol",
+        dest="stationary_tol",
+        metavar="TOL",
+        type=float,
+        default=None,
+        help=(
+            "Secondary convergence tolerance for stationary-gap detection. "
+            "When the relative change in the SDDP gap over the last "
+            "--stationary-window iterations falls below this value, the "
+            "solver declares convergence even if gap > --convergence-tol. "
+            "This handles problems where the gap converges to a non-zero "
+            "stationary value rather than to 0. "
+            "Example: 0.01 declares convergence when the gap improves by "
+            "less than 1%% over the look-back window. "
+            "Default: not set (secondary criterion disabled)."
+        ),
+    )
+    parser.add_argument(
+        "--stationary-window",
+        dest="stationary_window",
+        metavar="N",
+        type=int,
+        default=None,
+        help=(
+            "Number of iterations to look back when checking gap stationarity "
+            "(secondary convergence criterion). "
+            "Only used when --stationary-tol is set. "
+            "Default: 10."
+        ),
+    )
+    parser.add_argument(
         "-g",
         "--stages-phase",
         dest="stages_phase",
@@ -836,6 +867,10 @@ def build_options(args: argparse.Namespace) -> dict:
         opts["no_boundary_cuts"] = True
     if args.hot_start_cuts:
         opts["hot_start_cuts"] = True
+    if args.stationary_tol is not None:
+        opts["stationary_tol"] = args.stationary_tol
+    if args.stationary_window is not None:
+        opts["stationary_window"] = args.stationary_window
     if args.rsv_energy_scale is not None:
         opts["rsv_energy_scale"] = _parse_name_value_pairs(args.rsv_energy_scale)
     opts["auto_rsv_energy_scale"] = args.auto_rsv_energy_scale
