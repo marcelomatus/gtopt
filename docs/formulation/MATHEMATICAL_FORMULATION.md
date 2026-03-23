@@ -1123,8 +1123,16 @@ $$
 
 #### Convergence
 
-The algorithm terminates when the **optimality gap** falls below a
-tolerance $\varepsilon$ and a minimum iteration count has been reached:
+The algorithm uses two convergence criteria, evaluated at the **end of each
+training iteration** (after a paired forward + backward pass).  The final
+simulation pass (a forward-only evaluation) does **not** determine
+convergence — it inherits the converged status from the last training
+iteration.
+
+##### Primary criterion — gap tolerance
+
+The solver declares convergence when the **relative optimality gap** falls
+below a tolerance $\varepsilon$:
 
 $$
 \text{gap}^{(k)} = \frac{\text{UB}^{(k)} - \text{LB}^{(k)}}{\max\bigl(1, \lvert \text{UB}^{(k)} \rvert\bigr)} < \varepsilon
@@ -1139,16 +1147,51 @@ where:
 - $\varepsilon$ = `convergence_tol` (default $10^{-4}$);
 - $k_{\min}$ = `min_iterations` (default 2).
 
-The convergence check is evaluated at the **end of each training iteration**
-(after a paired forward + backward pass).  The final simulation pass (a
-forward-only evaluation) does **not** determine convergence — it inherits
-the converged status from the last training iteration.
+##### Secondary criterion — stationary gap
+
+Some SDDP/Benders problems converge to a **non-zero stationary gap** due
+to stochastic noise, problem structure, or numerical conditioning.  In
+these cases the primary gap tolerance $\varepsilon$ is never reached, but
+the gap stops improving.  The **stationary-gap criterion** detects this
+plateau and declares convergence when the gap has not changed significantly
+over a look-back window:
+
+$$
+\text{gap\_change}^{(k)} =
+\frac{\lvert \text{gap}^{(k)} - \text{gap}^{(k - w)} \rvert}
+     {\max\bigl(10^{-10},\; \text{gap}^{(k - w)}\bigr)}
+< \varepsilon_s
+\quad \text{and} \quad k \ge k_{\min}
+\quad \text{and} \quad k \ge w
+$$
+
+where:
+- $w$ = `stationary_window` (default 10) — number of iterations to look
+  back;
+- $\varepsilon_s$ = `stationary_tol` (default 0.0 = disabled) — relative
+  gap-change tolerance.
+
+The secondary criterion only fires when $\varepsilon_s > 0$ and the
+primary criterion has **not** been met.  When triggered, the solver sets
+both `converged = true` and `stationary_converged = true` in the
+iteration result.
+
+##### Convergence output
+
+The `solution.csv` output file includes two convergence columns:
+
+| Column | Description |
+|--------|-------------|
+| `gap` | Final relative gap $(UB - LB) / \max(1, \lvert UB \rvert)$ |
+| `gap_change` | Final gap-change metric (1.0 if stationary criterion disabled) |
 
 | JSON field | Symbol | Default | Description |
 |------------|--------|---------|-------------|
-| `convergence_tol` | $\varepsilon$ | $10^{-4}$ | Relative gap tolerance |
+| `convergence_tol` | $\varepsilon$ | $10^{-4}$ | Relative gap tolerance (primary) |
 | `min_iterations` | $k_{\min}$ | 2 | Minimum training iterations before convergence |
 | `max_iterations` | $k_{\max}$ | 100 | Maximum training iterations (hard stop) |
+| `stationary_tol` | $\varepsilon_s$ | 0.0 | Stationary gap-change tolerance (0 = disabled) |
+| `stationary_window` | $w$ | 10 | Look-back window for stationary gap check |
 
 #### Cut Sharing
 

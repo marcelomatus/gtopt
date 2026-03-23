@@ -145,10 +145,26 @@ At each iteration, the algorithm computes:
   forward pass (without $\alpha$ contributions)
 - **Gap**: $(UB - LB) / \max(1, |UB|)$
 
-The algorithm terminates when the gap falls below the convergence tolerance.
-For deterministic problems (single scenario), SDDP converges finitely to
-the exact optimum [[3]](#ref3).  For stochastic problems, statistical
-convergence criteria apply [[4]](#ref4).
+The algorithm terminates when the gap falls below the convergence tolerance
+(**primary criterion**).  For deterministic problems (single scenario),
+SDDP converges finitely to the exact optimum [[3]](#ref3).  For stochastic
+problems, statistical convergence criteria apply [[4]](#ref4).
+
+#### Secondary criterion — stationary gap
+
+Some problems converge to a **non-zero stationary gap** due to stochastic
+noise, problem structure, or numerical conditioning.  The gap stops
+improving but never reaches the primary tolerance $\varepsilon$.  The
+**stationary-gap criterion** detects this plateau:
+
+```
+gap_change = |gap[k] − gap[k − window]| / max(1e-10, gap[k − window])
+if gap_change < stationary_tol → declare convergence
+```
+
+When triggered, the solver sets `converged = true` and
+`stationary_converged = true`, allowing downstream tools to distinguish
+primary from secondary convergence.
 
 ---
 
@@ -357,19 +373,47 @@ solve, collect cuts, and compute the probability-weighted average.
 
 ### 4.5 Convergence Check
 
-```
-LB = average of phase-0 objectives across scenes
-UB = average of total forward-pass costs across scenes
-gap = (UB - LB) / max(1, |UB|)
-converged = (gap < convergence_tol)
-```
-
-The convergence check is evaluated at the end of each **training
+Two convergence criteria are evaluated at the end of each **training
 iteration** (a paired forward + backward pass that generates cuts).
 The simulation pass (see S4.5.1) does **not** determine convergence
 on its own — it inherits the convergence status from the last training
 iteration.  When `max_iterations = 0` (e.g. `simulation_mode`), no
 training iterations run, so `converged` is always `false`.
+
+#### Primary criterion
+
+```
+LB = average of phase-0 objectives across scenes
+UB = average of total forward-pass costs across scenes
+gap = (UB - LB) / max(1, |UB|)
+converged = (gap < convergence_tol) AND (iter >= min_iterations)
+```
+
+#### Secondary criterion — stationary gap
+
+When `stationary_tol > 0` and at least `stationary_window` iterations
+have completed, the solver checks whether the gap has stopped improving:
+
+```
+gap_change = |gap[iter] - gap[iter - window]| / max(1e-10, gap[iter - window])
+if gap_change < stationary_tol AND iter >= min_iterations:
+    converged = true
+    stationary_converged = true
+```
+
+This criterion fires **only** when the primary criterion has not been met.
+It handles SDDP problems where the gap converges to a non-zero stationary
+value — a known theoretical limitation of Benders/SDDP on certain
+stochastic programs.
+
+#### Iteration result fields
+
+| Field | Description |
+|-------|-------------|
+| `gap` | Relative optimality gap: $(UB - LB) / \max(1, \lvert UB \rvert)$ |
+| `gap_change` | Relative change in gap over the look-back window (1.0 if not yet checked) |
+| `converged` | `true` if either criterion was met |
+| `stationary_converged` | `true` if convergence was declared by the stationary criterion |
 
 ### 4.5.1 Simulation Pass
 
@@ -711,6 +755,8 @@ hs_2_1_4,2,1,4,-4800.0,0.30,0.60,...
 | `max_stored_cuts` | int | 0 | Max stored cuts per scene (0 = unlimited) |
 | `use_clone_pool` | bool | true | Reuse cached LP clones for aperture solves |
 | `simulation_mode` | bool | false | Skip training (force `max_iterations=0`), run simulation pass only, disable cut saving |
+| `stationary_tol` | double | 0.0 | Secondary convergence: relative gap-change tolerance (0 = disabled; e.g. 0.01 = 1%) |
+| `stationary_window` | int | 10 | Look-back window for stationary gap check (only used when `stationary_tol > 0`) |
 | `save_simulation_cuts` | bool | false | Persist feasibility cuts from the simulation pass (see S4.5.1) |
 
 ### 5.2 Options (JSON)
@@ -732,7 +778,9 @@ the JSON planning file.
       "elastic_mode": "backpropagate",
       "hot_start": true,
       "solve_timeout": 300,
-      "aperture_timeout": 30
+      "aperture_timeout": 30,
+      "stationary_tol": 0.01,
+      "stationary_window": 10
     }
   }
 }
@@ -777,6 +825,8 @@ prefix, since the section name already provides the namespace).
 | `named_cuts_file` | string | `""` | CSV file with named multi-phase cuts (S4.15) |
 | `simulation_mode` | bool | `false` | Skip training, run simulation pass only (S4.5.1) |
 | `save_simulation_cuts` | bool | `false` | Save feasibility cuts from simulation pass |
+| `stationary_tol` | double | 0.0 | Secondary convergence: relative gap-change tolerance (0 = disabled) |
+| `stationary_window` | int | 10 | Look-back window for stationary gap detection |
 
 ### 5.3 CLI
 
