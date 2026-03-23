@@ -1788,7 +1788,7 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
                                 base_scenario,
                                 all_scenarios,
                                 aperture_defs,
-                                plp.aperture_set(),
+                                plp.apertures(),
                                 cut_offset,
                                 iteration,
                                 planning_lp().system(scene, phase),
@@ -1899,7 +1899,7 @@ auto SDDPSolver::backward_pass_with_apertures_single_phase(
 
   if (!m_options_.apertures.has_value()) {
     // nullopt: use simulation aperture_array as-is (per-phase filtering
-    // happens inside build_effective_apertures via Phase::aperture_set)
+    // happens inside build_effective_apertures via Phase::apertures)
     if (aperture_defs.empty()) {
       return backward_pass_single_phase(
           scene, phase, cut_offset, opts, iteration);
@@ -1968,7 +1968,7 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
 
   if (!m_options_.apertures.has_value()) {
     // nullopt: use simulation aperture_array (per-phase filtering via
-    // Phase::aperture_set happens downstream in build_effective_apertures)
+    // Phase::apertures happens downstream in build_effective_apertures)
     if (aperture_defs.empty()) {
       return backward_pass(scene, opts, iteration);
     }
@@ -2055,7 +2055,7 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
                                   base_scenario,
                                   all_scenarios,
                                   effective_defs,
-                                  plp.aperture_set(),
+                                  plp.apertures(),
                                   total_cuts,
                                   iteration,
                                   planning_lp().system(scene, phase),

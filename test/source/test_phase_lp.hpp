@@ -220,30 +220,30 @@ TEST_CASE("PhaseLP construction from simulation")
   CHECK(phase_lp.duration() == doctest::Approx(1.0));
 }
 
-TEST_CASE("Phase aperture_set field")
+TEST_CASE("Phase apertures field")
 {
-  SUBCASE("default aperture_set is empty")
+  SUBCASE("default apertures is empty")
   {
     const Phase phase {.uid = 1, .first_stage = 0, .count_stage = 1};
-    CHECK(phase.aperture_set.empty());
+    CHECK(phase.apertures.empty());
   }
 
-  SUBCASE("aperture_set with values")
+  SUBCASE("apertures with values")
   {
     const Phase phase {
         .uid = 1,
         .first_stage = 0,
         .count_stage = 3,
-        .aperture_set = {1, 2, 5},
+        .apertures = {1, 2, 5},
     };
-    REQUIRE(phase.aperture_set.size() == 3);
-    CHECK(phase.aperture_set[0] == 1);
-    CHECK(phase.aperture_set[1] == 2);
-    CHECK(phase.aperture_set[2] == 5);
+    REQUIRE(phase.apertures.size() == 3);
+    CHECK(phase.apertures[0] == 1);
+    CHECK(phase.apertures[1] == 2);
+    CHECK(phase.apertures[2] == 5);
   }
 }
 
-TEST_CASE("PhaseLP aperture_set accessor")
+TEST_CASE("PhaseLP apertures accessor")
 {
   const OptionsLP options;
   std::vector<Stage> stages = {
@@ -259,25 +259,25 @@ TEST_CASE("PhaseLP aperture_set accessor")
       Block {.duration = 1.0},
   };
 
-  SUBCASE("empty aperture_set")
+  SUBCASE("empty apertures")
   {
     const Phase phase {.uid = 1, .first_stage = 0, .count_stage = 1};
     const PhaseLP phase_lp(phase, options, stages, blocks);
-    CHECK(phase_lp.aperture_set().empty());
+    CHECK(phase_lp.apertures().empty());
   }
 
-  SUBCASE("non-empty aperture_set")
+  SUBCASE("non-empty apertures")
   {
     const Phase phase {
         .uid = 1,
         .first_stage = 0,
         .count_stage = 1,
-        .aperture_set = {3, 7, 11},
+        .apertures = {3, 7, 11},
     };
     const PhaseLP phase_lp(phase, options, stages, blocks);
-    REQUIRE(phase_lp.aperture_set().size() == 3);
-    CHECK(phase_lp.aperture_set()[0] == 3);
-    CHECK(phase_lp.aperture_set()[1] == 7);
-    CHECK(phase_lp.aperture_set()[2] == 11);
+    REQUIRE(phase_lp.apertures().size() == 3);
+    CHECK(phase_lp.apertures()[0] == 3);
+    CHECK(phase_lp.apertures()[1] == 7);
+    CHECK(phase_lp.apertures()[2] == 11);
   }
 }

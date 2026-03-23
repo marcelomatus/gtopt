@@ -31042,7 +31042,7 @@
                 "uid": 1,
                 "first_stage": 0,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31065,7 +31065,7 @@
                 "uid": 2,
                 "first_stage": 1,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31088,7 +31088,7 @@
                 "uid": 3,
                 "first_stage": 2,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31111,7 +31111,7 @@
                 "uid": 4,
                 "first_stage": 3,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31134,7 +31134,7 @@
                 "uid": 5,
                 "first_stage": 4,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31157,7 +31157,7 @@
                 "uid": 6,
                 "first_stage": 5,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31180,7 +31180,7 @@
                 "uid": 7,
                 "first_stage": 6,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31203,7 +31203,7 @@
                 "uid": 8,
                 "first_stage": 7,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31226,7 +31226,7 @@
                 "uid": 9,
                 "first_stage": 8,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31249,7 +31249,7 @@
                 "uid": 10,
                 "first_stage": 9,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31272,7 +31272,7 @@
                 "uid": 11,
                 "first_stage": 10,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31295,7 +31295,7 @@
                 "uid": 12,
                 "first_stage": 11,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31318,7 +31318,7 @@
                 "uid": 13,
                 "first_stage": 12,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31341,7 +31341,7 @@
                 "uid": 14,
                 "first_stage": 13,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31364,7 +31364,7 @@
                 "uid": 15,
                 "first_stage": 14,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31387,7 +31387,7 @@
                 "uid": 16,
                 "first_stage": 15,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31410,7 +31410,7 @@
                 "uid": 17,
                 "first_stage": 16,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31433,7 +31433,7 @@
                 "uid": 18,
                 "first_stage": 17,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31456,7 +31456,7 @@
                 "uid": 19,
                 "first_stage": 18,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31479,7 +31479,7 @@
                 "uid": 20,
                 "first_stage": 19,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31502,7 +31502,7 @@
                 "uid": 21,
                 "first_stage": 20,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31525,7 +31525,7 @@
                 "uid": 22,
                 "first_stage": 21,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31548,7 +31548,7 @@
                 "uid": 23,
                 "first_stage": 22,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31571,7 +31571,7 @@
                 "uid": 24,
                 "first_stage": 23,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31594,7 +31594,7 @@
                 "uid": 25,
                 "first_stage": 24,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31617,7 +31617,7 @@
                 "uid": 26,
                 "first_stage": 25,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31640,7 +31640,7 @@
                 "uid": 27,
                 "first_stage": 26,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     1,
                     2,
                     3,
@@ -31663,7 +31663,7 @@
                 "uid": 28,
                 "first_stage": 27,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     2,
                     3,
                     4,
@@ -31686,7 +31686,7 @@
                 "uid": 29,
                 "first_stage": 28,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     2,
                     3,
                     4,
@@ -31709,7 +31709,7 @@
                 "uid": 30,
                 "first_stage": 29,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     2,
                     3,
                     4,
@@ -31732,7 +31732,7 @@
                 "uid": 31,
                 "first_stage": 30,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     2,
                     3,
                     4,
@@ -31755,7 +31755,7 @@
                 "uid": 32,
                 "first_stage": 31,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     2,
                     3,
                     4,
@@ -31778,7 +31778,7 @@
                 "uid": 33,
                 "first_stage": 32,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     2,
                     3,
                     4,
@@ -31801,7 +31801,7 @@
                 "uid": 34,
                 "first_stage": 33,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     2,
                     3,
                     4,
@@ -31824,7 +31824,7 @@
                 "uid": 35,
                 "first_stage": 34,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     2,
                     3,
                     4,
@@ -31847,7 +31847,7 @@
                 "uid": 36,
                 "first_stage": 35,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     2,
                     3,
                     4,
@@ -31870,7 +31870,7 @@
                 "uid": 37,
                 "first_stage": 36,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     2,
                     3,
                     4,
@@ -31893,7 +31893,7 @@
                 "uid": 38,
                 "first_stage": 37,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     2,
                     3,
                     4,
@@ -31916,7 +31916,7 @@
                 "uid": 39,
                 "first_stage": 38,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     2,
                     3,
                     4,
@@ -31939,7 +31939,7 @@
                 "uid": 40,
                 "first_stage": 39,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     3,
                     4,
                     5,
@@ -31962,7 +31962,7 @@
                 "uid": 41,
                 "first_stage": 40,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     3,
                     4,
                     5,
@@ -31985,7 +31985,7 @@
                 "uid": 42,
                 "first_stage": 41,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     3,
                     4,
                     5,
@@ -32008,7 +32008,7 @@
                 "uid": 43,
                 "first_stage": 42,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     3,
                     4,
                     5,
@@ -32031,7 +32031,7 @@
                 "uid": 44,
                 "first_stage": 43,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     3,
                     4,
                     5,
@@ -32054,7 +32054,7 @@
                 "uid": 45,
                 "first_stage": 44,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     3,
                     4,
                     5,
@@ -32077,7 +32077,7 @@
                 "uid": 46,
                 "first_stage": 45,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     3,
                     4,
                     5,
@@ -32100,7 +32100,7 @@
                 "uid": 47,
                 "first_stage": 46,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     3,
                     4,
                     5,
@@ -32123,7 +32123,7 @@
                 "uid": 48,
                 "first_stage": 47,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     3,
                     4,
                     5,
@@ -32146,7 +32146,7 @@
                 "uid": 49,
                 "first_stage": 48,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     3,
                     4,
                     5,
@@ -32169,7 +32169,7 @@
                 "uid": 50,
                 "first_stage": 49,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     3,
                     4,
                     5,
@@ -32192,7 +32192,7 @@
                 "uid": 51,
                 "first_stage": 50,
                 "count_stage": 1,
-                "aperture_set": [
+                "apertures": [
                     3,
                     4,
                     5,

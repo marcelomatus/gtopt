@@ -332,7 +332,7 @@ inline void apply_cli_options(
     if (*sddp_num_apertures == 0) {
       planning.options.sddp_options.apertures = Array<Uid> {};
     }
-    // Non-zero: leave apertures as nullopt (use per-phase aperture_set)
+    // Non-zero: leave apertures as nullopt (use per-phase apertures)
   }
 
   if (lp_debug) {

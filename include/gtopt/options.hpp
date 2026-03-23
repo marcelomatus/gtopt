@@ -110,10 +110,10 @@ struct SddpOptions
   OptInt multi_cut_threshold {};
   /** @brief Aperture UIDs for the backward pass.
    *
-   * - absent (nullopt) – use per-phase `Phase::aperture_set` (default)
+   * - absent (nullopt) – use per-phase `Phase::apertures` (default)
    * - empty array `[]` – no apertures (pure Benders)
    * - non-empty `[1,2,3]` – use exactly these aperture UIDs,
-   *   overriding per-phase aperture sets
+   *   overriding per-phase apertures
    */
   std::optional<Array<Uid>> apertures {};
   /** @brief Directory for aperture-specific scenario data.

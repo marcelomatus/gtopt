@@ -148,9 +148,9 @@ public:
   }
 
   /// @return Per-phase aperture UIDs (empty = use all global apertures)
-  [[nodiscard]] constexpr const auto& aperture_set() const noexcept
+  [[nodiscard]] constexpr const auto& apertures() const noexcept
   {
-    return m_phase_.aperture_set;
+    return m_phase_.apertures;
   }
 
 private:
