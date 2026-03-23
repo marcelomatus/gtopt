@@ -10,15 +10,26 @@ preparing, converting, visualising, and post-processing data for use with gtopt.
 ## Table of Contents
 
 - [Installation](#installation)
-- [gtopt_diagram](#gtopt_diagram) · [full docs](docs/scripts/gtopt_diagram.md)
-- [plp2gtopt](#plp2gtopt) · [full docs](docs/scripts/plp2gtopt.md)
-- [pp2gtopt](#pp2gtopt) · [full docs](docs/scripts/pp2gtopt.md)
-- [igtopt](#igtopt) · [full docs](docs/scripts/igtopt.md) · [Excel template](docs/templates/gtopt_template.xlsx) · `igtopt --make-template` regenerates the template
-- [cvs2parquet](#cvs2parquet) · [full docs](docs/scripts/cvs2parquet.md)
-- [ts2gtopt](#ts2gtopt) · [full docs](docs/scripts/ts2gtopt.md)
-- [gtopt_compare](#gtopt_compare) · [full docs](docs/scripts/gtopt_compare.md)
-- [sddp_monitor](#sddp_monitor)
-- [gtopt_field_extractor](#gtopt_field_extractor)
+- **Data Preparation & Conversion**
+  - [gtopt_diagram](#gtopt_diagram) · [full docs](docs/scripts/gtopt_diagram.md)
+  - [plp2gtopt](#plp2gtopt) · [full docs](docs/scripts/plp2gtopt.md)
+  - [pp2gtopt](#pp2gtopt) · [full docs](docs/scripts/pp2gtopt.md)
+  - [gtopt2pp](#gtopt2pp) — convert gtopt JSON back to pandapower
+  - [igtopt](#igtopt) · [full docs](docs/scripts/igtopt.md) · [Excel template](docs/templates/gtopt_template.xlsx) · `igtopt --make-template` regenerates the template
+  - [cvs2parquet](#cvs2parquet) · [full docs](docs/scripts/cvs2parquet.md)
+  - [ts2gtopt](#ts2gtopt) · [full docs](docs/scripts/ts2gtopt.md)
+  - [gtopt_compare](#gtopt_compare) · [full docs](docs/scripts/gtopt_compare.md)
+- **Running & Monitoring**
+  - [run_gtopt](#run_gtopt) — smart solver wrapper with pre/post-flight checks
+  - [sddp_monitor](#sddp_monitor) — live SDDP convergence dashboard
+- **Validation & Diagnostics**
+  - [gtopt_check_json](#gtopt_check_json) — validate JSON planning files
+  - [gtopt_check_lp](#gtopt_check_lp) — diagnose infeasible LP files
+  - [gtopt_check_output](#gtopt_check_output) — analyze solver output
+  - [gtopt_compress_lp](#gtopt_compress_lp) — compress LP debug files
+- **Utilities**
+  - [gtopt_config](#gtopt_config) — unified configuration for all tools
+  - [gtopt_field_extractor](#gtopt_field_extractor)
 - [Tool Comparison (gtopt vs PLP vs pandapower)](docs/TOOL_COMPARISON.md)
 - [Using with gtopt\_guisrv and gtopt\_websrv](#using-with-gtopt_guisrv-and-gtopt_websrv)
 
@@ -32,9 +43,12 @@ Install all tools with a single `pip` command from the repository root:
 pip install ./scripts
 ```
 
-This registers the `gtopt_diagram`, `plp2gtopt`, `pp2gtopt`, `igtopt`,
-`cvs2parquet`, `ts2gtopt`, `gtopt_compare`, `sddp_monitor`,
-`gtopt_field_extractor`, and other commands on your `PATH`.  An editable install is useful during
+This registers all 15 command-line tools on your `PATH`:
+`gtopt_diagram`, `plp2gtopt`, `pp2gtopt`, `gtopt2pp`, `igtopt`,
+`cvs2parquet`, `ts2gtopt`, `gtopt_compare`, `run_gtopt`,
+`sddp_monitor`, `gtopt_check_json`, `gtopt_check_lp`,
+`gtopt_check_output`, `gtopt_compress_lp`, and
+`gtopt_field_extractor`.  An editable install is useful during
 development:
 
 ```bash
@@ -62,6 +76,13 @@ Each command-line tool lives in its own Python package directory under
 | `igtopt/` | `igtopt` | Excel → gtopt JSON converter |
 | `plp2gtopt/` | `plp2gtopt` | PLP → gtopt JSON converter |
 | `pp2gtopt/` | `pp2gtopt` | pandapower → gtopt JSON converter |
+| `gtopt2pp/` | `gtopt2pp` | gtopt JSON → pandapower converter |
+| `run_gtopt/` | `run_gtopt` | Smart solver wrapper with pre/post-flight checks |
+| `gtopt_check_json/` | `gtopt_check_json` | JSON planning file validator |
+| `gtopt_check_lp/` | `gtopt_check_lp` | Infeasible LP file diagnostic tool |
+| `gtopt_check_output/` | `gtopt_check_output` | Solver output analyzer |
+| `gtopt_compress_lp/` | `gtopt_compress_lp` | LP debug file compressor |
+| `gtopt_config/` | *(library)* | Unified configuration management |
 | `sddp_monitor/` | `sddp_monitor` | SDDP solver live monitoring dashboard |
 | `ts2gtopt/` | `ts2gtopt` | Time-series → gtopt block schedule converter |
 
@@ -73,7 +94,9 @@ Each command-line tool lives in its own Python package directory under
 | `pandas` | DataFrame I/O |
 | `pyarrow` | Parquet read/write |
 | `openpyxl` | Excel file support (`igtopt`) |
-| `pandapower` | Power system network data (`pp2gtopt`) |
+| `pandapower` | Power system network data (`pp2gtopt`, `gtopt2pp`, `gtopt_compare`) |
+| `rich` | Styled terminal output (`gtopt_check_json`, `plp2gtopt`, `igtopt`, `run_gtopt`) |
+| `matplotlib` *(optional)* | Live charts (`sddp_monitor` GUI mode) |
 | `graphviz` *(optional)* | SVG/PNG/PDF rendering (`gtopt_diagram`) |
 | `pyvis` *(optional)* | Interactive HTML diagrams (`gtopt_diagram`) |
 | `cairosvg` *(optional)* | High-res PNG/PDF export (`gtopt_diagram`) |
@@ -849,6 +872,417 @@ Options:
 
 ---
 
+## gtopt2pp
+
+Converts a **gtopt JSON case** back to a **pandapower** network file,
+optionally solving a DC OPF and/or running topology diagnostics.  This is
+the reverse direction of `pp2gtopt`.
+
+### Basic usage
+
+```bash
+# Convert a gtopt case to pandapower JSON
+gtopt2pp cases/ieee_9b_ori/ieee_9b_ori.json
+
+# Specify output file
+gtopt2pp cases/ieee_9b_ori/ieee_9b_ori.json -o ieee9b_pp.json
+
+# Convert and solve DC OPF
+gtopt2pp cases/ieee_9b_ori/ieee_9b_ori.json --solve
+
+# Convert all blocks (one output file per block)
+gtopt2pp cases/ieee_9b/ieee_9b.json --all-blocks
+
+# Select specific blocks (comma-separated, ranges)
+gtopt2pp cases/ieee_9b/ieee_9b.json -b 1,5-10
+
+# Run pandapower diagnostic on converted network
+gtopt2pp cases/ieee_14b_ori/ieee_14b_ori.json --diagnostic
+```
+
+### Multi-block support
+
+When the source case has multiple blocks (e.g. 24-hour dispatch), use
+`--all-blocks` or `-b SPEC` to produce one pandapower network per block:
+
+```bash
+gtopt2pp cases/ieee_9b/ieee_9b.json --all-blocks
+# Produces: ieee_9b_pp_b1.json, ieee_9b_pp_b2.json, …, ieee_9b_pp_b24.json
+```
+
+### Elements skipped during conversion
+
+The following gtopt elements have no pandapower equivalent and are silently
+skipped: batteries, converters, junctions, waterways, reservoirs, turbines,
+filtrations, flows.  A summary of skipped elements is logged.
+
+### All options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `case_file` (positional) | — | Path to gtopt JSON case file |
+| `-o, --output PATH` | `<stem>_pp.json` | Output pandapower JSON file path |
+| `-s, --scenario UID` | first | Scenario UID to convert |
+| `-b, --block SPEC` | first | Block UID spec: single (`1`), list (`1,2,4`), range (`1-5`), or mix (`1,3-5,8`) |
+| `--solve` | off | Run pandapower DC OPF after conversion |
+| `--all-blocks` | off | Convert all blocks (one file per block) |
+| `--check / --no-check` | enabled | Validate source JSON via `gtopt_check_json` |
+| `--diagnostic` | off | Run pandapower topology diagnostic |
+
+---
+
+## run_gtopt
+
+Smart **solver wrapper** that detects case types (PLP, gtopt directory, or
+JSON file), runs conversions when needed, and invokes the `gtopt` binary with
+appropriate runtime options.  Integrates pre-flight and post-flight checks
+automatically.
+
+### Basic usage
+
+```bash
+# Auto-detect case type from CWD
+run_gtopt
+
+# PLP case: auto-convert to gtopt and solve
+run_gtopt plp_case_2y
+
+# gtopt case directory: solve directly
+run_gtopt cases/ieee_9b
+
+# Explicit JSON file
+run_gtopt cases/ieee_9b/ieee_9b.json
+
+# Pass extra arguments to the gtopt binary after --
+run_gtopt cases/ieee_9b -- --use-single-bus --stats
+```
+
+### Pre-flight checks (enabled by default)
+
+Before invoking the solver, `run_gtopt` validates:
+
+- JSON syntax and file readability
+- Input file existence (Parquet/CSV references)
+- Output directory writability
+- Compression codec availability (auto-fallback if unavailable)
+- System/simulation statistics (`gtopt_check_json --info`)
+- Full JSON validation (`gtopt_check_json`)
+
+Disable with `--no-check` or abort on any warning with `--strict`.
+
+### Post-flight checks
+
+After the solver completes, `run_gtopt` automatically:
+
+- Analyzes any error LP files via `gtopt_check_lp`
+- Validates solver output via `gtopt_check_output`
+- Prints a solution summary
+
+### All options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `CASE` (positional) | CWD | PLP directory, gtopt directory, or JSON file |
+| `-t, --threads N` | auto | Number of LP solver threads |
+| `-C, --compression CODEC` | `zstd` | Output compression codec |
+| `-o, --output-dir DIR` | — | Override output directory |
+| `--plp-args ARGS` | — | Extra arguments for `plp2gtopt` (quote whole string) |
+| `--check / --no-check` | enabled | Run pre-flight checks |
+| `--strict` | off | Abort on any warning |
+| `--enable-check NAME` | — | Enable specific check (repeatable) |
+| `--disable-check NAME` | — | Disable specific check (repeatable) |
+| `--list-checks` | — | List available checks and exit |
+| `--convert-only` | off | Convert PLP case but do not run solver |
+| `--export-json FILE` | — | Write sanitized planning JSON to file |
+| `--dry-run` | off | Print commands without executing |
+| `-l, --log-level LEVEL` | `INFO` | Verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `-V, --version` | — | Print version and exit |
+| `-- [ARGS]` | — | Pass remaining arguments to gtopt binary |
+
+---
+
+## gtopt_check_json
+
+Validates **gtopt JSON planning files** and reports potential issues.  Also
+serves as a quick system/simulation statistics tool (similar to
+`gtopt --stats`).
+
+### Basic usage
+
+```bash
+# Validate a JSON case and report issues
+gtopt_check_json cases/ieee_9b/ieee_9b.json
+
+# Print system/simulation statistics only (no validation)
+gtopt_check_json --info cases/ieee_9b/ieee_9b.json
+
+# Show detailed simulation structure (scenarios, stages, phases, apertures)
+gtopt_check_json --show-simulation cases/sddp_hydro_3phase/sddp_hydro_3phase.json
+
+# Validate multiple JSON files (merged before checking)
+gtopt_check_json system.json overrides.json
+
+# Run interactive configuration setup
+gtopt_check_json --init-config
+```
+
+### Validation checks
+
+The tool runs configurable checks organized by severity:
+
+| Severity | Color | Meaning |
+|----------|-------|---------|
+| **CRITICAL** | Red | Issues that will likely cause solver failure |
+| **WARNING** | Yellow | Potential problems or suboptimal configurations |
+| **NOTE** | Cyan | Informational observations |
+
+Individual checks can be enabled/disabled via `--init-config` or the
+configuration file (`~/.gtopt.conf`).
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | OK — no critical issues (warnings/notes may be present) |
+| `1` | Critical issues found |
+
+### All options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `json_files` (positional) | — | Path(s) to gtopt JSON case files |
+| `--info` | off | Print system/simulation statistics and exit |
+| `--show-simulation` | off | Print detailed simulation structure |
+| `--config PATH` | `~/.gtopt.conf` | Path to configuration file |
+| `--init-config` | off | Run interactive configuration setup |
+| `--no-color` | off | Disable colored output |
+
+---
+
+## gtopt_check_lp
+
+Diagnoses **infeasible LP files** generated by the gtopt solver.  Combines
+static analysis, local IIS (Irreducible Infeasible Subsystem) solvers, and
+optional NEOS remote analysis to pinpoint the root cause of infeasibility.
+
+### Basic usage
+
+```bash
+# Analyze an LP file
+gtopt_check_lp error_0.lp
+
+# Analyze a gzip-compressed LP file
+gtopt_check_lp error_0.lp.gz
+
+# Auto-find the newest error*.lp[.gz] in the current directory
+gtopt_check_lp --last
+
+# Static analysis only (no solver invocation)
+gtopt_check_lp error_0.lp --analyze-only
+
+# Use a specific solver
+gtopt_check_lp error_0.lp --solver coinor
+
+# Submit to NEOS remote server (requires email)
+gtopt_check_lp error_0.lp --solver neos --email user@example.com
+
+# Run interactive configuration setup
+gtopt_check_lp --init-config
+```
+
+### Analysis pipeline
+
+1. **Static analysis** — parses the LP file directly:
+   - Variables with conflicting bounds (`lb > ub`)
+   - Empty or fixed constraints
+   - Numerical range issues (very large/small coefficients)
+   - Duplicate constraint names
+   - Problem statistics (rows, columns, non-zeros)
+
+2. **Local IIS finding** — tries available solvers in order:
+   CPLEX → HiGHS → COIN-OR CLP → CBC → GLPK
+
+3. **NEOS remote analysis** — submits to https://neos-server.org via XML-RPC
+   using CPLEX (requires email)
+
+4. **AI diagnostics** *(optional)* — expert infeasibility diagnosis from
+   Claude, OpenAI, DeepSeek, or GitHub AI
+
+### Quiet mode
+
+When called with `--quiet` (used automatically by the `gtopt` binary and
+`run_gtopt`), the tool never fails (always exits 0), never prompts for
+input, and handles all errors gracefully with warnings.
+
+### All options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `LP_FILE` (positional) | — | Path to LP file (`.lp`, `.lp.gz`, `.lp.gzip`) |
+| `--last` | off | Auto-find newest `error*.lp[.gz]` |
+| `--analyze-only` | off | Static analysis only, no solver |
+| `-q, --quiet` | off | Non-failing quiet mode |
+| `--solver SOLVER` | `all` | Solver strategy: `all`, `auto`, `cplex`, `highs`, `coinor`, `glpk`, `neos` |
+| `--no-neos` | off | Skip NEOS submissions |
+| `--email EMAIL` | — | Email for NEOS submissions |
+| `--output FILE` | — | Write report to file |
+| `-v, --verbose` | off | Verbose logging |
+| `--config FILE` | `~/.gtopt.conf` | Config file path |
+| `--init-config` | off | Interactive config wizard |
+
+---
+
+## gtopt_check_output
+
+Validates and analyzes **gtopt solver output** for completeness and
+correctness.  Auto-discovers results and JSON files in a case directory.
+
+### Basic usage
+
+```bash
+# Analyze output in a case directory
+gtopt_check_output cases/ieee_9b
+
+# Explicit paths to results and JSON
+gtopt_check_output -r output/ -j ieee_9b.json
+
+# Quiet mode — only show warnings and critical findings
+gtopt_check_output cases/ieee_9b --quiet
+
+# Run interactive configuration setup
+gtopt_check_output --init-config
+```
+
+### Checks performed
+
+- **Output completeness** — verifies expected output files exist
+  (`solution.csv`, `generation_sol`, `balance_dual`, etc.)
+- **Load shedding analysis** — detects unserved energy in `fail_sol`
+- **Generation/demand balance** — validates energy conservation
+- **Line congestion ranking** — identifies most congested transmission lines
+- **LMP statistics** — locational marginal price analysis
+- **Cost breakdown** — dispatches by generator cost tier
+
+### All options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `CASE_DIR` (positional) | CWD | Case directory (auto-discovers JSON and results) |
+| `-r, --results-dir DIR` | — | Explicit results directory |
+| `-j, --json-file FILE` | — | Explicit planning JSON file |
+| `--no-color` | off | Disable colored output |
+| `-q, --quiet` | off | Only show warnings and critical findings |
+| `-l, --log-level LEVEL` | `WARNING` | Verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `--config FILE` | `~/.gtopt.conf` | Config file path |
+| `--init-config` | off | Initialize config section |
+| `-V, --version` | — | Print version and exit |
+
+---
+
+## gtopt_compress_lp
+
+Compresses **LP debug files** generated by the gtopt solver (when
+`lp_debug=true` or `just_build_lp=true`).  Supports multiple compression
+formats and integrates seamlessly with the solver's post-solve workflow.
+
+### Basic usage
+
+```bash
+# Compress an LP file
+gtopt_compress_lp file.lp
+
+# Use a specific compression codec
+gtopt_compress_lp file.lp --codec zstd
+
+# Quiet mode (non-interactive, never fails)
+gtopt_compress_lp file.lp --quiet
+
+# Show available compression tools
+gtopt_compress_lp --list-tools
+
+# Run interactive setup
+gtopt_compress_lp --init-config
+```
+
+### Supported compressors
+
+| Tool | Extension | Notes |
+|------|-----------|-------|
+| `zstd` | `.zst` | Recommended — fast with excellent compression ratio |
+| `gzip` | `.gz` | Universally available |
+| `lz4` | `.lz4` | Fastest compression/decompression |
+| `bzip2` | `.bz2` | Best ratio for text files |
+| `xz` | `.xz` | Excellent ratio, slower compression |
+| `lzma` | `.lzma` | Similar to `xz` |
+
+### Compression cascade
+
+1. Codec hint from `--codec` (if provided and available)
+2. Configured compressor from config file (`auto` → first available)
+3. First available tool found on `PATH`
+4. Skip compression (leave original unchanged)
+
+### All options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `FILE.lp` (positional) | — | LP file(s) to compress |
+| `--init-config` | off | Run interactive setup wizard |
+| `--list-tools` | off | Show available compression tools |
+| `--quiet` | off | Non-interactive, never-fail mode |
+| `--codec CODEC` | — | Codec suggestion: `gzip`, `zstd`, `lz4`, etc. |
+| `--compressor TOOL` | — | Override configured compressor |
+| `--config PATH` | `~/.gtopt_compress_lp.conf` | Config file path |
+| `--color {auto,always,never}` | `auto` | Terminal color output |
+| `--version` | — | Show version and exit |
+
+---
+
+## gtopt_config
+
+Unified **configuration management** library used by all gtopt Python scripts.
+Reads and writes a single INI-format configuration file shared across tools.
+
+> `gtopt_config` is a library module, not a standalone command.  It is used by
+> `gtopt_check_json`, `gtopt_check_lp`, `gtopt_check_output`, `run_gtopt`, and
+> `gtopt_compress_lp`.
+
+### Configuration file
+
+Default location: `~/.gtopt.conf`.  The file uses INI format with a `[global]`
+section for shared settings and per-tool sections:
+
+```ini
+[global]
+ai_enabled  = false
+ai_provider = claude
+ai_model    =
+color       = auto
+
+[gtopt_check_json]
+check_uid_uniqueness = true
+
+[gtopt_check_output]
+congestion_top_n = 10
+
+[run_gtopt]
+default_threads = 0
+```
+
+### Initializing configuration
+
+Each tool that uses `gtopt_config` provides an `--init-config` flag that runs
+an interactive setup wizard to create or update its section:
+
+```bash
+gtopt_check_json --init-config
+gtopt_check_lp --init-config
+gtopt_check_output --init-config
+run_gtopt --init-config     # via run_gtopt --list-checks / --init-config
+```
+
+---
+
 ## sddp_monitor
 
 Interactive **SDDP solver monitoring dashboard**.  Polls the JSON status file
@@ -870,6 +1304,23 @@ sddp_monitor --no-gui
 ```
 
 The tool exits when the solver reports "converged" or when you press Ctrl-C.
+
+### Text mode output
+
+In headless mode (`--no-gui`), the tool prints a summary table to stdout:
+
+```
+[Time]  [Iter]  [LB]           [UB]           [Gap]      [Status]
+  7.1s   45     12345.1234   12450.5678     0.008765   running
+```
+
+### All options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--status-file PATH` | `output/sddp_status.json` | Path to SDDP status file |
+| `--poll SECONDS` | `1.0` | Polling interval |
+| `--no-gui` | off | Print to stdout instead of GUI windows |
 
 ---
 

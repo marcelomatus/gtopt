@@ -104,6 +104,108 @@ gtopt_diagram cases/ieee_9b/ieee_9b.json --format mermaid
 
 ---
 
+## Examples by Case Type
+
+### Small IEEE cases (< 100 elements)
+
+These cases use `--aggregate none` (auto default) showing every element
+individually:
+
+```bash
+# IEEE 4-bus – the simplest multi-bus case (4 buses, 2 generators, 5 lines)
+gtopt_diagram cases/ieee_4b_ori/ieee_4b_ori.json -o ieee4b.svg
+
+# IEEE 9-bus original – classic OPF benchmark (9 buses, 3 generators)
+gtopt_diagram cases/ieee_9b_ori/ieee_9b_ori.json -o ieee9b.svg
+
+# IEEE 9-bus with 24-hour solar profile
+gtopt_diagram cases/ieee_9b/ieee_9b.json -o ieee9b_solar.svg
+
+# IEEE 14-bus – standard 14-bus benchmark
+gtopt_diagram cases/ieee_14b_ori/ieee_14b_ori.json -o ieee14b.svg
+```
+
+### Medium IEEE cases (100–999 elements)
+
+```bash
+# IEEE 30-bus – auto selects per-bus aggregation
+gtopt_diagram cases/ieee30b/ieee30b.json -o ieee30b.svg
+
+# IEEE 57-bus – 57 buses, 7 generators, 80 lines
+gtopt_diagram cases/ieee_57b/ieee_57b.json -o ieee57b.svg
+
+# Force individual elements for IEEE 57-bus (more detailed but busier)
+gtopt_diagram cases/ieee_57b/ieee_57b.json --aggregate none -o ieee57b_full.svg
+
+# Interactive HTML for IEEE 30-bus exploration
+gtopt_diagram cases/ieee30b/ieee30b.json --format html -o ieee30b.html
+```
+
+### Battery and storage cases
+
+```bash
+# 4-bus with battery storage – shows battery, converter, generator, and demand
+gtopt_diagram cases/bat_4b/bat_4b.json -o bat4b.svg
+
+# 24-hour battery dispatch – same network, hourly blocks
+gtopt_diagram cases/bat_4b_24/bat_4b_24.json -o bat4b_24.svg
+```
+
+### Expansion planning cases
+
+```bash
+# Battery expansion – shows expandable battery + converter links
+gtopt_diagram cases/exp_bat_4b/exp_bat_4b.json -o exp_bat4b.svg
+
+# 24-hour battery expansion variant
+gtopt_diagram cases/exp_bat_4b_24/exp_bat_4b_24.json -o exp_bat4b_24.svg
+
+# Generator expansion – shows expandable generators
+gtopt_diagram cases/exp_gen_4b/exp_gen_4b.json -o exp_gen4b.svg
+
+# Planning diagram for multi-stage expansion (5 stages)
+gtopt_diagram cases/c0/system_c0.json --diagram-type planning -o c0_planning.svg
+```
+
+### SDDP and multi-phase cases
+
+```bash
+# SDDP hydro with 3 phases – planning structure
+gtopt_diagram cases/sddp_hydro_3phase/sddp_hydro_3phase.json \
+    --diagram-type planning -o sddp_planning.svg
+
+# SDDP hydro topology (hydro subsystem only)
+gtopt_diagram cases/sddp_hydro_3phase/sddp_hydro_3phase.json \
+    --subsystem hydro -o sddp_hydro.svg
+```
+
+### Mermaid diagrams (embeddable in Markdown)
+
+Mermaid output requires no external dependencies and can be pasted directly
+into GitHub Markdown files:
+
+```bash
+# Generate a Mermaid snippet for an IEEE 9-bus case
+gtopt_diagram cases/ieee_9b_ori/ieee_9b_ori.json --format mermaid
+
+# Planning structure as Mermaid (top-to-bottom direction)
+gtopt_diagram cases/c0/system_c0.json --diagram-type planning \
+    --format mermaid --direction TD
+```
+
+Paste the output into a Markdown code fence:
+
+````markdown
+```mermaid
+graph LR
+    bus_1((b1))
+    bus_2((b2))
+    ...
+```
+````
+
+---
+
 ## Reduction Options for Large Cases
 
 Real-world cases can have hundreds of buses and thousands of generators.
