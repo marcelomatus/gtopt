@@ -294,7 +294,7 @@ public:
       // Global initial condition – first stage of the first phase only.
       // eini bounds are in LP (scaled) units.
       eicol = lp.add_col({
-          .name = sc.lp_col_label(scenario, stage, cname, "eini", uid()),
+          .name = sc.state_col_label(scenario, stage, cname, "eini", uid()),
           .lowb = storage().eini.value_or(stage_emin) / energy_scale,
           .uppb = storage().eini.value_or(stage_emax) / energy_scale,
           .scale = energy_scale,
@@ -310,7 +310,7 @@ public:
       // in the first phase; sini columns are the SDDP inter-phase coupling
       // variables propagated by the forward pass.
       eicol = lp.add_col({
-          .name = sc.lp_col_label(scenario, stage, cname, "sini", uid()),
+          .name = sc.state_col_label(scenario, stage, cname, "sini", uid()),
           .lowb = lp_emin,
           .uppb = lp_emax,
           .scale = energy_scale,
@@ -357,8 +357,8 @@ public:
 
       auto erow =
           SparseRow {
-              .name =
-                  sc.lp_col_label(scenario, stage, block, cname, "vol", uid()),
+              .name = sc.state_col_label(
+                  scenario, stage, block, cname, "vol", uid()),
           }
               .equal(0);
 

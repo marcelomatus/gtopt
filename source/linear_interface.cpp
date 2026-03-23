@@ -223,7 +223,7 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
     }
   };
 
-  // Level 0: col name maps only (for internal use, e.g. cascade solver)
+  // Level 0: col name maps for state variable names
   // Level 1: col + row name maps (for LP file output via write_lp)
   // Level 2: same as 1 + strict duplicate detection
   if (m_lp_names_level_ >= 0 && !flat_lp.colnm.empty()) {
@@ -249,18 +249,15 @@ ColIndex LinearInterface::add_col(const std::string& name,
                                   double colub)
 {
   const auto index = solver->getNumCols();
-  // Col name duplicate detection at level >= 0
+  // Col name duplicate detection at level >= 0 (state var names always present)
   check_name_unique(m_col_names_, name, index, "column", m_lp_names_level_, 0);
 
   const CoinPackedVector vec;
   const double obj = 0;
 
-  // At level >= 1 pass the name so the solver can produce nice LP files.
-  // At level 0 pass empty (names tracked internally only).
-  solver->addCol(
-      vec, collb, colub, obj, m_lp_names_level_ >= 1 ? name : std::string {});
+  solver->addCol(vec, collb, colub, obj, name);
 
-  // Keep col name maps in sync (level >= 0)
+  // Keep col name maps in sync (level >= 0, state var names always tracked)
   if (m_lp_names_level_ >= 0 && !name.empty()) {
     if (m_col_index_to_name_.size() <= static_cast<size_t>(index)) {
       m_col_index_to_name_.resize(static_cast<size_t>(index) + 1);
