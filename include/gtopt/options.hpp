@@ -243,6 +243,32 @@ struct SddpOptions
   /// No cuts are saved.  Default: false.
   OptBool simulation_mode {};
 
+  // ── Secondary (stationary gap) convergence ─────────────────────────────────
+  /** @brief Tolerance for secondary stationary-gap convergence criterion.
+   *
+   * When the relative change in the convergence gap over the last
+   * `stationary_window` iterations falls below this value, the solver
+   * declares convergence even if the gap is above `convergence_tol`.
+   * This handles problems where the gap converges to a non-zero stationary
+   * value (a known theoretical limitation of SDDP/Benders on certain
+   * stochastic programs).
+   *
+   * Formula (after at least `min_iterations` and `stationary_window`
+   * iterations have completed):
+   *   gap_change = |gap[i] − gap[i − window]| / max(1e-10, gap[i − window])
+   *   if gap_change < stationary_tol → declare convergence
+   *
+   * Default: 0.0 (disabled; secondary criterion is off).
+   * Set to a small positive value (e.g. 0.01) to enable.
+   */
+  OptReal stationary_tol {};
+
+  /** @brief Number of iterations to look back when checking for a stationary
+   * gap (secondary convergence criterion).  Only used when `stationary_tol`
+   * is positive.  Default: 10.
+   */
+  OptInt stationary_window {};
+
   void merge(SddpOptions&& opts)
   {
     merge_opt(cut_sharing_mode, std::move(opts.cut_sharing_mode));
@@ -281,6 +307,8 @@ struct SddpOptions
     merge_opt(max_stored_cuts, opts.max_stored_cuts);
     merge_opt(use_clone_pool, opts.use_clone_pool);
     merge_opt(simulation_mode, opts.simulation_mode);
+    merge_opt(stationary_tol, opts.stationary_tol);
+    merge_opt(stationary_window, opts.stationary_window);
 
     auto _ = std::move(opts);
   }

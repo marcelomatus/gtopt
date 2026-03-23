@@ -359,6 +359,28 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   ///
   /// Empty = no named hot-start cuts.
   std::string named_cuts_file {};
+
+  // ── Secondary (stationary gap) convergence ──────────────────────────────
+
+  /// Tolerance for the secondary stationary-gap convergence criterion.
+  ///
+  /// When the relative change in the convergence gap over the last
+  /// `stationary_window` iterations falls below this value, the solver
+  /// declares convergence even if the gap is above `convergence_tol`.
+  /// This handles problems where the SDDP gap converges to a non-zero
+  /// stationary value due to stochastic noise or problem structure
+  /// (a known theoretical limitation of SDDP/Benders on certain programs).
+  ///
+  /// Criterion (after min_iterations and stationary_window iters done):
+  ///   gap_change = |gap[i] − gap[i − window]| / max(1e-10, gap[i − window])
+  ///   gap_change < stationary_tol → declare convergence
+  ///
+  /// Default: 0.0 (disabled).  Set to e.g. 0.01 to enable.
+  double stationary_tol {0.0};
+
+  /// Number of iterations to look back when checking gap stationarity.
+  /// Only used when stationary_tol > 0.0.  Default: 10.
+  int stationary_window {10};
 };
 
 // ─── Iteration result ───────────────────────────────────────────────────────
