@@ -18,9 +18,10 @@ This project includes comprehensive documentation for different use cases:
 - **[USAGE.md](USAGE.md)** - Complete command-line reference, examples, and advanced usage patterns
 - **[INPUT_DATA.md](INPUT_DATA.md)** - Input data structure and file format reference
 - **[USER_CONSTRAINTS.md](USER_CONSTRAINTS.md)** - User-defined LP constraints: AMPL-inspired syntax, domain specs, external files
-- **[SCRIPTS.md](SCRIPTS.md)** - Python conversion utilities ([igtopt](docs/scripts/igtopt.md), [plp2gtopt](docs/scripts/plp2gtopt.md), [pp2gtopt](docs/scripts/pp2gtopt.md), [ts2gtopt](docs/scripts/ts2gtopt.md), [cvs2parquet](docs/scripts/cvs2parquet.md), [gtopt_diagram](docs/scripts/gtopt_diagram.md))
+- **[SCRIPTS.md](SCRIPTS.md)** - Python utilities: conversion ([plp2gtopt](docs/scripts/plp2gtopt.md), [pp2gtopt](docs/scripts/pp2gtopt.md), [igtopt](docs/scripts/igtopt.md), [ts2gtopt](docs/scripts/ts2gtopt.md), [cvs2parquet](docs/scripts/cvs2parquet.md), [gtopt2pp](#gtopt2pp)), visualization ([gtopt_diagram](docs/scripts/gtopt_diagram.md)), validation ([gtopt_check_json](#gtopt_check_json), [gtopt_check_lp](#gtopt_check_lp), [gtopt_check_output](#gtopt_check_output)), and solver management ([run_gtopt](#run_gtopt), [sddp_monitor](#sddp_monitor))
 - **[TOOL_COMPARISON.md](docs/TOOL_COMPARISON.md)** - Detailed comparison of gtopt vs PLP, pandapower, and other tools (elements, parameters, units, methodology)
 - **[SDDP_SOLVER.md](docs/SDDP_SOLVER.md)** - SDDP solver: theory, options, monitoring API, elastic filter modes, and JSON configuration
+- **[CASCADE_SOLVER.md](docs/CASCADE_SOLVER.md)** - Cascade solver: multi-level hybrid SDDP with warm-start
 - **[MONOLITHIC_SOLVER.md](docs/MONOLITHIC_SOLVER.md)** - Default monolithic solver, boundary cuts, and sequential mode
 - **[CHANGELOG.md](CHANGELOG.md)** - Release history and notable changes
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution guidelines, code style, and testing
@@ -44,6 +45,7 @@ This project includes comprehensive documentation for different use cases:
 
 * **Cost Optimization**: minimizes investment (CAPEX) and operational (OPEX) costs.
 * **System Modeling**: supports single-bus or multi-bus DC power flow (Kirchhoff laws).
+* **Multiple Solvers**: monolithic LP, SDDP decomposition, and cascade multi-level hybrid SDDP with progressive LP refinement.
 * **Flexible I/O**: high-speed parsing and export to Parquet, CSV, and JSON.
 * **Scalability**: designed for large-scale grids with sparse matrix assembly.
 * **Web Service**: browser-based UI and REST API for submitting and retrieving optimization results.
@@ -121,14 +123,28 @@ file format, and advanced examples, see **[USAGE.md](USAGE.md#running-the-sample
 
 ## Python Scripts
 
-The `scripts/` directory contains three Python utilities for preparing and
-converting data for use with gtopt:
+The `scripts/` directory contains Python utilities for preparing, converting,
+validating, and post-processing data for use with gtopt:
 
 | Command | Purpose |
 |---------|---------|
+| **Data Preparation & Conversion** | |
 | `plp2gtopt` | Convert a PLP case to gtopt JSON + Parquet |
+| `pp2gtopt` | Convert a pandapower network to gtopt JSON |
+| `gtopt2pp` | Convert gtopt JSON back to pandapower |
 | `igtopt` | Convert an Excel workbook to a gtopt JSON case |
 | `cvs2parquet` | Convert CSV time-series files to Parquet format |
+| `ts2gtopt` | Project hourly time-series onto a gtopt planning horizon |
+| `gtopt_diagram` | Generate network topology and planning diagrams |
+| `gtopt_compare` | Compare gtopt results against pandapower DC OPF |
+| **Running & Monitoring** | |
+| `run_gtopt` | Smart solver wrapper with pre/post-flight checks |
+| `sddp_monitor` | Live SDDP convergence monitoring dashboard |
+| **Validation & Diagnostics** | |
+| `gtopt_check_json` | Validate JSON planning files and report issues |
+| `gtopt_check_lp` | Diagnose infeasible LP files (static + solver + AI) |
+| `gtopt_check_output` | Analyze solver output completeness and correctness |
+| `gtopt_compress_lp` | Compress LP debug files |
 
 ### Install
 
@@ -281,6 +297,8 @@ power system analysis, including AC/DC power flow and DC optimal power flow.
 
 - **`pp2gtopt`**: converts a pandapower network (JSON) to a gtopt case,
   enabling direct use of any pandapower network in gtopt.
+- **`gtopt2pp`**: converts a gtopt case back to pandapower, optionally
+  running DC OPF and topology diagnostics.
 - **`gtopt_compare`**: validates gtopt dispatch results against pandapower
   DC OPF on the built-in IEEE test cases (`ieee_4b_ori`, `ieee30b`, `ieee_57b`,
   `bat_4b_24`).

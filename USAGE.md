@@ -59,6 +59,7 @@ Multiple system files can be provided and will be merged.
 | `-V` | `--version` | | Show program version and exit |
 | `-v` | `--verbose` | | Activate maximum verbosity (trace-level logging) |
 | `-q` | `--quiet` | `[=arg]` | Suppress all log output to stdout |
+| `-S` | `--stats` | | Print pre-solve system statistics and post-solve results summary |
 | `-s` | `--system-file` | `arg` | System JSON file(s) to process (also accepted as positional args) |
 | `-D` | `--input-directory` | `arg` | Override the input data directory |
 | `-F` | `--input-format` | `arg` | Input data format: `parquet`, `csv` |
@@ -293,14 +294,16 @@ On success, gtopt logs its progress and exits with code 0:
 The solver produces a `solution.csv` summary:
 
 ```
-obj_value,23.163424133184083
-    kappa,1
-   status,0
+scene,phase,status,status_name,obj_value,kappa,gap,gap_change
+0,0,0,optimal,23.163424,1,0,1.0
 ```
 
 - **`obj_value`**: total optimized cost.
 - **`kappa`**: number of iterations.
 - **`status`**: `0` = optimal solution found.
+- **`gap`**: final SDDP convergence gap (0 for monolithic solver).
+- **`gap_change`**: relative gap change over the stationary window (1.0 if
+  secondary criterion disabled or for monolithic solver).
 
 ## Output Files
 
@@ -309,7 +312,8 @@ Output is organized by component type. Each component produces solution
 
 ### Solution summary
 
-`solution.csv` — overall optimization result (objective value, status).
+`solution.csv` — overall optimization result (objective value, status, SDDP
+convergence metrics).
 
 ### Generator output
 
@@ -533,6 +537,12 @@ When the SDDP gap does not close within the expected number of iterations:
 
 - **Increase `max_iterations`**: the default of 100 may be insufficient for
   large problems.  Try 200--500.
+- **Enable the stationary-gap criterion**: some problems converge to a
+  non-zero gap plateau.  Set `stationary_tol` to a small positive value
+  (e.g. `0.01` = 1% gap-change threshold) with `stationary_window` (default
+  10) to declare convergence when the gap stops improving.  The solver will
+  log `[CONVERGED]` with `stationary gap convergence` when this criterion
+  triggers.
 - **Adjust `elastic_penalty`**: if the elastic filter activates frequently,
   try increasing the penalty (e.g., `1e8`) to discourage elastic slack.
 - **Try `cut_sharing_mode: "expected"`**: sharing cuts across scenes can
@@ -549,7 +559,9 @@ When the SDDP gap does not close within the expected number of iterations:
   short, loading `boundary_cuts_file` can provide a better terminal
   approximation and speed convergence.
 - **Monitor progress**: use the SDDP monitoring API (`api_enabled: true`)
-  and the `sddp_monitor.py` script to visualize the convergence trajectory.
+  and the `sddp_monitor` script to visualize the convergence trajectory.
+  Check the `gap_change` column in `solution.csv` to assess whether the
+  gap has plateaued.
 
 ### Out of memory
 
@@ -561,6 +573,9 @@ When the LP is too large to fit in memory:
   representative days instead of hourly resolution.
 - **Use SDDP decomposition**: set `solver_type: "sddp"` to decompose the
   problem into smaller per-phase LPs instead of one large monolithic LP.
+- **Use the cascade solver**: set `solver_type: "cascade"` for multi-level
+  SDDP that starts with a simplified model and progressively refines.
+  See [CASCADE_SOLVER.md](docs/CASCADE_SOLVER.md).
 - **Reduce the number of scenes**: fewer scenarios in each scene means
   smaller per-scene LPs.
 - **Reduce reserve zones**: spinning reserve constraints add rows per bus
@@ -687,6 +702,8 @@ if __name__ == "__main__":
   reference (complete options reference)
 - **[SDDP Solver](docs/SDDP_SOLVER.md)** — SDDP decomposition algorithm,
   configuration, and convergence details
+- **[Cascade Solver](docs/CASCADE_SOLVER.md)** — Multi-level hybrid SDDP
+  solver with cut inheritance and progressive refinement
 - **[Monolithic Solver](docs/MONOLITHIC_SOLVER.md)** — Default monolithic
   solver, boundary cuts, and sequential mode
 - **[SCRIPTS.md](SCRIPTS.md)** — Python conversion utilities
