@@ -124,6 +124,39 @@ public:
    */
   void write_out() const;
 
+  // ── SDDP solve summary ──────────────────────────────────────────────────
+
+  /**
+   * @brief Summary of the last SDDP solve (populated by the SDDP solver).
+   *
+   * Carries the final-iteration gap metrics so that `write_out()` can emit
+   * them as extra columns in `solution.csv`.  For monolithic solves this
+   * struct is left at its default (all-zero / false) values.
+   */
+  struct SddpSummary
+  {
+    double gap {0.0};  ///< Final primary gap (UB−LB)/max(1,|UB|)
+    double gap_change {1.0};  ///< Final stationary gap-change metric
+    double lower_bound {0.0};  ///< Final lower bound
+    double upper_bound {0.0};  ///< Final upper bound
+    int iterations {0};  ///< Number of training iterations completed
+    bool converged {false};  ///< True if any convergence criterion was met
+    bool stationary_converged {
+        false};  ///< True if stationary criterion triggered convergence
+  };
+
+  /** @brief Populate the SDDP summary (called by the SDDP solver). */
+  void set_sddp_summary(SddpSummary summary) noexcept
+  {
+    m_sddp_summary_ = std::move(summary);
+  }
+
+  /** @brief Read the SDDP summary (populated after a successful SDDP solve). */
+  [[nodiscard]] const SddpSummary& sddp_summary() const noexcept
+  {
+    return m_sddp_summary_;
+  }
+
   template<typename Self>
   [[nodiscard]] constexpr auto&& system(this Self&& self,
                                         SceneIndex scene_index,
@@ -145,6 +178,7 @@ private:
   SimulationLP m_simulation_;
 
   scene_phase_systems_t m_systems_;
+  SddpSummary m_sddp_summary_ {};
 };
 
 }  // namespace gtopt
