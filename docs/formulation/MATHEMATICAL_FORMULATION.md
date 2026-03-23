@@ -205,9 +205,9 @@ $$
 \sum_{s \in \mathcal{S}} \sum_{t \in \mathcal{T}} \sum_{b \in \mathcal{B}_t}
 \omega_{s,t,b}
 \left[
-  \sum_{g} c_g \, p_{g,s,t,b}
-  + \sum_{d} c_d^{\text{fail}} q_{d,s,t,b}
-  + \sum_{l} c_l \left( f_{l,s,t,b}^+ + f_{l,s,t,b}^- \right)
+  \sum_{g} c_g \, p_{g,s,t,b} +
+  \sum_{d} c_d^{\text{fail}} q_{d,s,t,b} +
+  \sum_{l} c_l \left( f_{l,s,t,b}^+ + f_{l,s,t,b}^- \right)
 \right]
 }_{\text{OPEX}}
 \;+\;
@@ -279,9 +279,9 @@ $$
 z_{\text{OPEX}} = \sum_{s \in \mathcal{S}} \sum_{t \in \mathcal{T}}
 \sum_{b \in \mathcal{B}_t} \omega_{s,t,b}
 \Bigg[
-  \underbrace{\sum_{g \in \mathcal{G}} c_{g,t} \; p_{g,s,t,b}}_{\text{Generation cost}}
-  + \underbrace{\sum_{d \in \mathcal{D}} c_{d,t}^{\text{fail}} \; q_{d,s,t,b}}_{\text{Curtailment cost}}
-  + \underbrace{\sum_{l \in \mathcal{L}} c_{l,t} \left( f_{l,s,t,b}^{+} + f_{l,s,t,b}^{-} \right)}_{\text{Transfer cost}}
+  \underbrace{\sum_{g \in \mathcal{G}} c_{g,t} \; p_{g,s,t,b}}_{\text{Generation cost}} +
+  \underbrace{\sum_{d \in \mathcal{D}} c_{d,t}^{\text{fail}} \; q_{d,s,t,b}}_{\text{Curtailment cost}} +
+  \underbrace{\sum_{l \in \mathcal{L}} c_{l,t} \left( f_{l,s,t,b}^{+} + f_{l,s,t,b}^{-} \right)}_{\text{Transfer cost}}
 \Bigg]
 $$
 
@@ -546,9 +546,9 @@ the standard Kirchhoff constraint with two additional parameters:
 The generalised Kirchhoff constraint for a transformer branch is:
 
 $$
--\theta_{a,s,t,b} + \theta_{b,s,t,b}
-+ (\tau_l \, \chi_l) \, f_{l,s,t,b}^{+}
-- (\tau_l \, \chi_l) \, f_{l,s,t,b}^{-}
+-\theta_{a,s,t,b} + \theta_{b,s,t,b} +
+(\tau_l \, \chi_l) \, f_{l,s,t,b}^{+} -
+(\tau_l \, \chi_l) \, f_{l,s,t,b}^{-}
 = -\sigma_\theta \cdot \varphi_{l,\text{rad}}
 \qquad \forall \; l, s, t, b
 $$
@@ -1112,8 +1112,8 @@ $$
    stage:
 
 $$
-\hat{\alpha}_t^{(k)} : \alpha_t \ge z_t^{(k)}
-+ \sum_i \bar{\pi}_i^{(k)} \bigl( x_{t-1,i} - \hat{x}_{t-1,i}^{(k)} \bigr)
+\hat{\alpha}_t^{(k)} : \alpha_t \ge z_t^{(k)} +
+\sum_i \bar{\pi}_i^{(k)} \bigl( x_{t-1,i} - \hat{x}_{t-1,i}^{(k)} \bigr)
 $$
 
    where $z_t^{(k)}$ is the optimal value of the stage-$t$ LP in iteration
@@ -1235,8 +1235,8 @@ aperture and computes the **probability-weighted average** cut:
 $$
 \hat{\alpha}_t^{(k)} : \alpha_t \;\ge\;
 \sum_{a \in \mathcal{A}} \rho_a \Bigl[
-  z_{t,a}^{(k)}
-  + \sum_i \bar{\pi}_{i,a}^{(k)} \bigl( x_{t-1,i} - \hat{x}_{t-1,i,a}^{(k)} \bigr)
+  z_{t,a}^{(k)} +
+  \sum_i \bar{\pi}_{i,a}^{(k)} \bigl( x_{t-1,i} - \hat{x}_{t-1,i,a}^{(k)} \bigr)
 \Bigr]
 $$
 
