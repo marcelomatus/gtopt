@@ -118,8 +118,8 @@ LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
   // Linking: f_total − Σ f_seg_k = 0
   auto linkrow =
       SparseRow {
-          .name =
-              sc.lp_label(scenario, stage, block, cname, labels.link, uid()),
+          .name = sc.lp_row_label(
+              scenario, stage, block, cname, labels.link, uid()),
       }
           .equal(0);
   linkrow.reserve(reserve_sz);
@@ -136,7 +136,7 @@ LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
   // Loss linking: loss − Σ loss_k · f_seg_k = 0
   auto lossrow =
       SparseRow {
-          .name = sc.lp_label(
+          .name = sc.lp_row_label(
               scenario, stage, block, cname, labels.loss_link, uid()),
       }
           .equal(0);
@@ -172,8 +172,8 @@ LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
   if (capacity_col) {
     auto cprow =
         SparseRow {
-            .name =
-                sc.lp_label(scenario, stage, block, cname, labels.cap, uid()),
+            .name = sc.lp_row_label(
+                scenario, stage, block, cname, labels.cap, uid()),
         }
             .greater_equal(0);
     cprow[*capacity_col] = 1;
@@ -236,7 +236,8 @@ void LineLP::add_kirchhoff_rows(SystemContext& sc,
     const auto buid = block.uid();
     auto trow =
         SparseRow {
-            .name = sc.lp_label(scenario, stage, block, cname, "theta", uid()),
+            .name =
+                sc.lp_row_label(scenario, stage, block, cname, "theta", uid()),
         }
             .equal(kirchhoff_rhs);
 
@@ -381,8 +382,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
         if (capacity_col) {
           auto cprow =
               SparseRow {
-                  .name =
-                      sc.lp_label(scenario, stage, block, cname, "capp", uid()),
+                  .name = sc.lp_row_label(
+                      scenario, stage, block, cname, "capp", uid()),
               }
                   .greater_equal(0);
           cprow[*capacity_col] = 1;
@@ -406,8 +407,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
         if (capacity_col) {
           auto cnrow =
               SparseRow {
-                  .name =
-                      sc.lp_label(scenario, stage, block, cname, "capn", uid()),
+                  .name = sc.lp_row_label(
+                      scenario, stage, block, cname, "capn", uid()),
               }
                   .greater_equal(0);
           cnrow[*capacity_col] = 1;

@@ -88,7 +88,8 @@ bool FiltrationLP::add_to_lp(const SystemContext& sc,
 
     auto frow =
         SparseRow {
-            .name = sc.lp_label(scenario, stage, block, cname, "filt", uid()),
+            .name =
+                sc.lp_row_label(scenario, stage, block, cname, "filt", uid()),
         }
             .equal(effective_rhs);
 

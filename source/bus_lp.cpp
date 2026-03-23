@@ -96,8 +96,9 @@ bool BusLP::add_to_lp(const SystemContext& sc,
       blocks,
       [&](const BlockLP& block)
       {
-        brows[block.uid()] = lp.add_row(
-            {.name = sc.lp_label(scenario, stage, block, cname, "bal", uid())});
+        brows[block.uid()] =
+            lp.add_row({.name = sc.lp_row_label(
+                            scenario, stage, block, cname, "bal", uid())});
       });
 
   const auto st_key = std::pair {scenario.uid(), stage.uid()};
