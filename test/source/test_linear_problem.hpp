@@ -532,7 +532,7 @@ TEST_CASE("Linear problem to_flat column and row names")
     CHECK(flat.rowmp.at("con2") == 1);
   }
 
-  SUBCASE("default FlatOptions (level 0: col names only)")
+  SUBCASE("default FlatOptions (level 0: col names for state vars)")
   {
     const auto flat = lp.to_flat();
 

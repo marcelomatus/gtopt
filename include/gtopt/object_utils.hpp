@@ -70,6 +70,38 @@ public:
    * @param args Additional arguments to include in the label
    * @return Label string
    */
+  // ── state_col_label: always generates (state variables need names) ──
+
+  template<typename Self, typename SystemContext, typename... Args>
+  [[nodiscard]] constexpr auto state_col_label(this const Self& self,
+                                               SystemContext& sc,
+                                               const ScenarioLP& scenario,
+                                               const StageLP& stage,
+                                               Args&&... args)
+  {
+    return sc.state_col_label(scenario,
+                              stage,
+                              self.short_name(),
+                              std::forward<Args>(args)...,
+                              self.uid());
+  }
+
+  template<typename Self, typename SystemContext, typename... Args>
+  [[nodiscard]] constexpr auto state_col_label(this const Self& self,
+                                               SystemContext& sc,
+                                               const ScenarioLP& scenario,
+                                               const StageLP& stage,
+                                               const BlockLP& block,
+                                               Args&&... args)
+  {
+    return sc.state_col_label(scenario,
+                              stage,
+                              block,
+                              self.short_name(),
+                              std::forward<Args>(args)...,
+                              self.uid());
+  }
+
   // ── lp_col_label: column names (level >= 0) ──
 
   template<typename Self, typename SystemContext, typename... Args>

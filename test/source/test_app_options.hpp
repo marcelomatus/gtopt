@@ -441,7 +441,7 @@ TEST_CASE("make_flat_options - defaults when both nullopt")
   CHECK(opts.lp_names_level == 0);
 }
 
-TEST_CASE("make_flat_options - lp_names level 0 enables col names only")
+TEST_CASE("make_flat_options - lp_names level 0 col names for state vars")
 {
   auto opts = make_flat_options(std::optional<int>(0), std::nullopt);
 
