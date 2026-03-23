@@ -77,29 +77,159 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   }
 
   std::vector<SDDPIterationResult> results;
-  results.reserve(m_options_.max_iterations);
+  results.reserve(static_cast<std::size_t>(m_options_.max_iterations) + 1);
 
-  const auto iter_last =
-      m_iteration_offset_ + IterationIndex {m_options_.max_iterations - 1};
-  for (auto iter = m_iteration_offset_; iter <= iter_last; ++iter) {
-    const auto iter_start = std::chrono::steady_clock::now();
+  // ── Training iterations (forward + backward passes) ──
+  // When max_iterations == 0, this loop is skipped entirely and only the
+  // simulation pass below is executed.
+  if (m_options_.max_iterations > 0) {
+    const auto iter_last =
+        m_iteration_offset_ + IterationIndex {m_options_.max_iterations - 1};
+    for (auto iter = m_iteration_offset_; iter <= iter_last; ++iter) {
+      const auto iter_start = std::chrono::steady_clock::now();
 
-    if (should_stop()) {
-      SPDLOG_INFO("SDDP: stop requested, halting after {} iterations",
-                  iter - m_iteration_offset_);
-      break;
+      if (should_stop()) {
+        SPDLOG_INFO("SDDP: stop requested, halting after {} iterations",
+                    iter - m_iteration_offset_);
+        break;
+      }
+
+      SPDLOG_INFO("SDDP: === iteration {} / {} ===", iter, iter_last);
+
+      SDDPIterationResult ir {
+          .iteration = iter,
+      };
+      m_benders_cut_.reset_infeasible_cut_count();
+
+      // ── Forward pass ──
+      SPDLOG_DEBUG("SDDP: starting forward pass (iter {})", iter);
+      auto fwd = run_forward_pass_all_scenes(iter, *sddp_pool, lp_opts);
+      if (!fwd.has_value()) {
+        monitor.stop();
+        return std::unexpected(std::move(fwd.error()));
+      }
+      ir.scene_upper_bounds = std::move(fwd->scene_upper_bounds);
+      ir.forward_pass_s = fwd->elapsed_s;
+      if (fwd->has_feasibility_issue) {
+        ir.feasibility_issue = true;
+        SPDLOG_INFO("SDDP: iter {} forward pass has feasibility issues", iter);
+      }
+      SPDLOG_DEBUG("SDDP: forward pass done in {:.3f}s", fwd->elapsed_s);
+
+      // ── Scene weights and bounds ──
+      const auto& scenes = planning_lp().simulation().scenes();
+      const auto weights = compute_scene_weights(scenes, fwd->scene_feasible);
+      compute_iteration_bounds(ir, fwd->scene_feasible, weights);
+
+      // ── Backward pass ──
+      SPDLOG_DEBUG("SDDP: starting backward pass (iter {})", iter);
+      // Save per-scene cut counts for cut sharing offset tracking
+      const auto cuts_before = m_stored_cuts_.size();
+      const auto num_scenes_bwd =
+          static_cast<Index>(planning_lp().simulation().scenes().size());
+      m_scene_cuts_before_.resize(static_cast<std::size_t>(num_scenes_bwd));
+      for (Index si = 0; si < num_scenes_bwd; ++si) {
+        m_scene_cuts_before_[static_cast<std::size_t>(si)] =
+            m_scene_cuts_[SceneIndex {si}].size();
+      }
+      auto bwd = run_backward_pass_all_scenes(
+          fwd->scene_feasible, *sddp_pool, lp_opts, iter);
+      ir.cuts_added = bwd.total_cuts;
+      ir.infeasible_cuts_added = m_benders_cut_.infeasible_cut_count();
+      ir.backward_pass_s = bwd.elapsed_s;
+      if (bwd.has_feasibility_issue) {
+        ir.feasibility_issue = true;
+        SPDLOG_INFO("SDDP: iter {} backward pass has feasibility issues", iter);
+      }
+      ir.iteration_s = std::chrono::duration<double>(
+                           std::chrono::steady_clock::now() - iter_start)
+                           .count();
+      SPDLOG_DEBUG("SDDP: backward pass done in {:.3f}s, {} cuts added",
+                   bwd.elapsed_s,
+                   bwd.total_cuts);
+
+      // ── Cut sharing ──
+      if (m_options_.cut_sharing == CutSharingMode::none) {
+        apply_cut_sharing_for_iteration(cuts_before, iter);
+      }
+
+      // ── Cut pruning ──
+      if (m_options_.max_cuts_per_phase > 0
+          && m_options_.cut_prune_interval > 0)
+      {
+        const auto iter_offset = static_cast<int>(iter - m_iteration_offset_);
+        if (iter_offset > 0 && iter_offset % m_options_.cut_prune_interval == 0)
+        {
+          prune_inactive_cuts();
+        }
+      }
+
+      // ── Cap stored cuts ──
+      cap_stored_cuts();
+
+      // ── Convergence + live-query update ──
+      finalize_iteration_result(ir, iter);
+      results.push_back(ir);
+
+      SPDLOG_INFO(
+          "SDDP: iter {} done in {:.3f}s (fwd {:.2f}s + bwd {:.2f}s) — "
+          "UB={:.4f} LB={:.4f} gap={:.6f} cuts={} infeas_cuts={} {}",
+          iter,
+          ir.iteration_s,
+          ir.forward_pass_s,
+          ir.backward_pass_s,
+          ir.upper_bound,
+          ir.lower_bound,
+          ir.gap,
+          ir.cuts_added,
+          ir.infeasible_cuts_added,
+          ir.converged ? "[CONVERGED]" : "");
+
+      // ── Monitoring API and cut persistence ──
+      maybe_write_api_status(status_file, results, solve_start, monitor);
+      if (m_options_.save_per_iteration) {
+        save_cuts_for_iteration(iter, fwd->scene_feasible);
+      }
+
+      // ── Iteration callback ──
+      if (m_iteration_callback_ && m_iteration_callback_(ir)) {
+        SPDLOG_INFO("SDDP: callback requested stop at iter {}", iter);
+        break;
+      }
+
+      if (ir.converged) {
+        break;
+      }
     }
+  }
 
-    SPDLOG_INFO("SDDP: === iteration {} / {} ===", iter, iter_last);
+  // ── Simulation pass ──
+  // Always run a simulation (forward-only) pass after training iterations
+  // complete (or when max_iterations == 0).  This evaluates the policy
+  // with all accumulated cuts, producing the definitive output.
+  // No backward pass is run, so no new optimality cuts are generated.
+  // Feasibility cuts (from the elastic filter) may still be produced.
+  // By default (save_simulation_cuts=false) they are discarded to ensure
+  // hot-start reproducibility.
+  const auto cuts_before_simulation = m_stored_cuts_.size();
+  {
+    const auto final_iter = results.empty()
+        ? m_iteration_offset_
+        : IterationIndex {results.back().iteration + IterationIndex {1}};
+    const auto final_start = std::chrono::steady_clock::now();
+
+    SPDLOG_INFO("SDDP: === simulation pass (iter {}) ===", final_iter);
+
+    // Suppress stop checks so the simulation pass always completes.
+    // The stop was already honoured by exiting the iteration loop.
+    m_in_simulation_ = true;
 
     SDDPIterationResult ir {
-        .iteration = iter,
+        .iteration = final_iter,
     };
     m_benders_cut_.reset_infeasible_cut_count();
 
-    // ── Forward pass ──
-    SPDLOG_DEBUG("SDDP: starting forward pass (iter {})", iter);
-    auto fwd = run_forward_pass_all_scenes(iter, *sddp_pool, lp_opts);
+    auto fwd = run_forward_pass_all_scenes(final_iter, *sddp_pool, lp_opts);
     if (!fwd.has_value()) {
       monitor.stop();
       return std::unexpected(std::move(fwd.error()));
@@ -108,102 +238,49 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     ir.forward_pass_s = fwd->elapsed_s;
     if (fwd->has_feasibility_issue) {
       ir.feasibility_issue = true;
-      SPDLOG_INFO("SDDP: iter {} forward pass has feasibility issues", iter);
     }
-    SPDLOG_DEBUG("SDDP: forward pass done in {:.3f}s", fwd->elapsed_s);
 
-    // ── Scene weights and bounds ──
     const auto& scenes = planning_lp().simulation().scenes();
     const auto weights = compute_scene_weights(scenes, fwd->scene_feasible);
     compute_iteration_bounds(ir, fwd->scene_feasible, weights);
 
-    // ── Backward pass ──
-    SPDLOG_DEBUG("SDDP: starting backward pass (iter {})", iter);
-    // Save per-scene cut counts for cut sharing offset tracking
-    const auto cuts_before = m_stored_cuts_.size();
-    const auto num_scenes_bwd =
-        static_cast<Index>(planning_lp().simulation().scenes().size());
-    m_scene_cuts_before_.resize(static_cast<std::size_t>(num_scenes_bwd));
-    for (Index si = 0; si < num_scenes_bwd; ++si) {
-      m_scene_cuts_before_[static_cast<std::size_t>(si)] =
-          m_scene_cuts_[SceneIndex {si}].size();
-    }
-    auto bwd = run_backward_pass_all_scenes(
-        fwd->scene_feasible, *sddp_pool, lp_opts, iter);
-    ir.cuts_added = bwd.total_cuts;
-    ir.infeasible_cuts_added = m_benders_cut_.infeasible_cut_count();
-    ir.backward_pass_s = bwd.elapsed_s;
-    if (bwd.has_feasibility_issue) {
-      ir.feasibility_issue = true;
-      SPDLOG_INFO("SDDP: iter {} backward pass has feasibility issues", iter);
-    }
     ir.iteration_s = std::chrono::duration<double>(
-                         std::chrono::steady_clock::now() - iter_start)
+                         std::chrono::steady_clock::now() - final_start)
                          .count();
-    SPDLOG_DEBUG("SDDP: backward pass done in {:.3f}s, {} cuts added",
-                 bwd.elapsed_s,
-                 bwd.total_cuts);
 
-    // ── Cut sharing ──
-    // When cut sharing is enabled (non-None), the phase-synchronized backward
-    // pass (run_backward_pass_synchronized) already shares cuts at each phase.
-    // Only apply post-hoc sharing when scenes ran independently (None mode),
-    // which is a no-op anyway since apply_cut_sharing_for_iteration returns
-    // early for None.  This guard prevents double-sharing of cuts.
-    if (m_options_.cut_sharing == CutSharingMode::none) {
-      apply_cut_sharing_for_iteration(cuts_before, iter);
-    }
+    finalize_iteration_result(ir, final_iter);
 
-    // ── Cut pruning ──
-    if (m_options_.max_cuts_per_phase > 0 && m_options_.cut_prune_interval > 0)
-    {
-      const auto iter_offset = static_cast<int>(iter - m_iteration_offset_);
-      if (iter_offset > 0 && iter_offset % m_options_.cut_prune_interval == 0) {
-        prune_inactive_cuts();
-      }
-    }
+    // The simulation pass does not determine convergence on its own.
+    // It inherits the convergence status from the last training iteration.
+    // With max_iterations=0, no training ran, so converged stays false.
+    ir.converged = !results.empty() && results.back().converged;
 
-    // ── Cap stored cuts ──
-    cap_stored_cuts();
-
-    // ── Convergence + live-query update ──
-    finalize_iteration_result(ir, iter);
     results.push_back(ir);
 
     SPDLOG_INFO(
-        "SDDP: iter {} done in {:.3f}s (fwd {:.2f}s + bwd {:.2f}s) — "
-        "UB={:.4f} LB={:.4f} gap={:.6f} cuts={} infeas_cuts={} {}",
-        iter,
+        "SDDP: simulation pass done in {:.3f}s — "
+        "UB={:.4f} LB={:.4f} gap={:.6f} {}",
         ir.iteration_s,
-        ir.forward_pass_s,
-        ir.backward_pass_s,
         ir.upper_bound,
         ir.lower_bound,
         ir.gap,
-        ir.cuts_added,
-        ir.infeasible_cuts_added,
         ir.converged ? "[CONVERGED]" : "");
 
-    // ── Monitoring API and cut persistence ──
-    maybe_write_api_status(status_file, results, solve_start, monitor);
-    if (m_options_.save_per_iteration) {
-      save_cuts_for_iteration(iter, fwd->scene_feasible);
-    }
-
-    // ── Iteration callback ──
-    if (m_iteration_callback_ && m_iteration_callback_(ir)) {
-      SPDLOG_INFO("SDDP: callback requested stop at iter {}", iter);
-      break;
-    }
-
-    if (ir.converged) {
-      break;
-    }
+    m_in_simulation_ = false;
   }
 
-  // Final cut save — always save at the end of the solve, regardless of
-  // save_per_iteration.  This ensures cuts are persisted on convergence,
-  // user-stop, or max-iterations even when per-iteration saving is disabled.
+  // Discard feasibility cuts produced during simulation unless explicitly
+  // requested.  This ensures hot-start determinism: reloading cuts from
+  // training iterations alone reproduces the same policy.
+  if (!m_options_.save_simulation_cuts
+      && m_stored_cuts_.size() > cuts_before_simulation)
+  {
+    SPDLOG_INFO("SDDP: discarding {} simulation feasibility cut(s)",
+                m_stored_cuts_.size() - cuts_before_simulation);
+    m_stored_cuts_.resize(cuts_before_simulation);
+  }
+
+  // ── Cut persistence ──
   if (!m_options_.cuts_output_file.empty() && !results.empty()) {
     const auto num_scenes_final =
         static_cast<Index>(planning_lp().simulation().scenes().size());

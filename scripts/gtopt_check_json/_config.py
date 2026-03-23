@@ -23,6 +23,10 @@ CHECK_DEFAULTS: dict[str, str] = {
     "unreferenced_elements": "true",
     "capacity_adequacy": "true",
     "battery_efficiency": "true",
+    "cascade_levels": "true",
+    "simulation_mode": "true",
+    "sddp_options": "true",
+    "cascade_solver_type": "true",
     "ai_system_analysis": "false",
 }
 

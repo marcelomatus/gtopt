@@ -364,6 +364,39 @@ gap = (UB - LB) / max(1, |UB|)
 converged = (gap < convergence_tol)
 ```
 
+The convergence check is evaluated at the end of each **training
+iteration** (a paired forward + backward pass that generates cuts).
+The simulation pass (see S4.5.1) does **not** determine convergence
+on its own — it inherits the convergence status from the last training
+iteration.  When `max_iterations = 0` (e.g. `simulation_mode`), no
+training iterations run, so `converged` is always `false`.
+
+### 4.5.1 Simulation Pass
+
+After all training iterations complete (or when `max_iterations = 0`),
+the solver runs a **simulation pass** — a forward-only policy
+evaluation with no backward pass and no cut generation.  The simulation
+pass solves all phases sequentially using the accumulated cuts from
+training and records the resulting operating costs and state-variable
+trajectories.
+
+The simulation pass always runs, regardless of whether training
+converged.  Its purpose is to evaluate the final policy under the full
+set of Benders cuts without modifying the LP.
+
+**Feasibility cuts during simulation**: if the simulation pass
+encounters an infeasible trial point, the elastic filter is activated
+and may produce a feasibility cut.  By default these cuts are
+**discarded** (`save_simulation_cuts: false`) to ensure that hot-start
+reproducibility is not affected by the evaluation pass.  Set
+`save_simulation_cuts: true` to persist them.
+
+**`simulation_mode`**: set `"simulation_mode": true` in `sddp_options`
+to skip all training iterations (`max_iterations` is forced to 0) and
+disable cut saving entirely.  Only the simulation pass runs, evaluating
+the policy from previously loaded cuts (typically via `hot_start`).
+This is useful for policy evaluation without modifying any cut state.
+
 ### 4.6 Cut Sharing (Optional)
 
 After the backward pass, cuts from all scenes are optionally shared.  In
@@ -677,6 +710,8 @@ hs_2_1_4,2,1,4,-4800.0,0.30,0.60,...
 | `single_cut_storage` | bool | false | Store cuts per-scene only (halves memory) |
 | `max_stored_cuts` | int | 0 | Max stored cuts per scene (0 = unlimited) |
 | `use_clone_pool` | bool | true | Reuse cached LP clones for aperture solves |
+| `simulation_mode` | bool | false | Skip training (force `max_iterations=0`), run simulation pass only, disable cut saving |
+| `save_simulation_cuts` | bool | false | Persist feasibility cuts from the simulation pass (see S4.5.1) |
 
 ### 5.2 Options (JSON)
 
@@ -740,6 +775,8 @@ prefix, since the section name already provides the namespace).
 | `boundary_cuts_mode` | string | `"separated"` | Load mode: `"noload"`, `"separated"`, `"combined"` |
 | `boundary_max_iterations` | int | 0 | Max SDDP iterations to load from boundary cuts (0 = all) |
 | `named_cuts_file` | string | `""` | CSV file with named multi-phase cuts (S4.15) |
+| `simulation_mode` | bool | `false` | Skip training, run simulation pass only (S4.5.1) |
+| `save_simulation_cuts` | bool | `false` | Save feasibility cuts from simulation pass |
 
 ### 5.3 CLI
 
@@ -1058,6 +1095,7 @@ enough that convergence is achieved quickly.
 |-------|------|------|
 | `SDDPSolver` | `sddp_solver.hpp/cpp` | Core SDDP algorithm |
 | `SDDPPlanningSolver` | `sddp_solver.hpp/cpp` | `PlanningSolver` interface adapter |
+| `SDDPClonePool` | `sddp_clone_pool.hpp/cpp` | Cached LP clone pool for aperture reuse |
 | `MonolithicSolver` | `planning_solver.hpp/cpp` | Default full-LP solver |
 | `SolverMonitor` | `solver_monitor.hpp` | Background CPU/worker monitoring (SDDP + Monolithic) |
 | `PlanningLP` | `planning_lp.hpp/cpp` | LP assembly and phase management |
@@ -1101,6 +1139,8 @@ allow external tools to read it without seeing a partial write.
 | `build_benders_cut()` | Construct optimality cut from reduced costs |
 | `relax_fixed_state_variable()` | Apply elastic relaxation to one column |
 | `average_benders_cut()` | Average multiple cuts (for `expected` sharing) |
+| `accumulate_benders_cuts()` | Sum multiple cuts (for `accumulate` sharing) |
+| `share_cuts_for_phase()` | Share cuts across scenes for a phase (`sddp_cut_sharing.hpp`) |
 | `cut_sharing_mode_from_name()` | Parse string to `CutSharingMode` enum |
 | `parse_elastic_filter_mode()` | Parse `"cut"` / `"backpropagate"` to `ElasticFilterMode` |
 | `weighted_average_benders_cut()` | Probability-weighted average of aperture cuts |
@@ -1120,6 +1160,13 @@ auto rc = cloned.get_col_cost();     // Extract dual information
 // Clone is destroyed when it goes out of scope.
 // Original LP `li` is untouched.
 ```
+
+For aperture backward-pass solves, the `SDDPClonePool` class (in
+`sddp_clone_pool.hpp/cpp`) caches one clone per `(scene, phase)` slot.
+On first access, `get_or_create()` clones the source LP; on subsequent
+accesses, it resets column bounds and deletes cut rows rather than
+allocating a fresh copy.  This avoids repeated heap allocation for the
+CLP internal matrix during long SDDP runs.
 
 ### 7.5 Thread Safety
 
@@ -1290,10 +1337,289 @@ DOI: [10.1287/educ.1053.0020](https://doi.org/10.1287/educ.1053.0020)
 *IEEE Kansas Power and Energy Conference (KPEC)*, 2022.
 DOI: [10.1109/KPEC54747.2022.9814758](https://doi.org/10.1109/KPEC54747.2022.9814758)
 
+<a id="ref15"></a>
+**[15]** O. Dowson and L. Kapelevich, "SDDP.jl: a Julia package for
+stochastic dual dynamic programming," *INFORMS Journal on Computing*,
+vol. 33, no. 1, pp. 27–33, 2021.
+DOI: [10.1287/ijoc.2020.0987](https://doi.org/10.1287/ijoc.2020.0987)
+
+<a id="ref16"></a>
+**[16]** J. R. Birge and F. Louveaux, *Introduction to Stochastic
+Programming*, 2nd ed. New York: Springer, 2011.
+DOI: [10.1007/978-1-4614-0237-4](https://doi.org/10.1007/978-1-4614-0237-4)
+
+<a id="ref17"></a>
+**[17]** S. Rebennack, "Combining sampling-based and scenario-based
+nested Benders decomposition methods: application to stochastic dual
+dynamic programming," *Mathematical Programming*, vol. 156,
+pp. 343–389, 2016.
+DOI: [10.1007/s10107-015-0884-3](https://doi.org/10.1007/s10107-015-0884-3)
+
+<a id="ref18"></a>
+**[18]** V. Zverovich, C. I. Fabian, E. F. D. Ellison, and G. Mitra,
+"A computational study of a solver system for processing two-stage
+stochastic LPs with enhanced Benders decomposition," *Mathematical
+Programming Computation*, vol. 4, pp. 211–238, 2012.
+DOI: [10.1007/s12532-012-0038-z](https://doi.org/10.1007/s12532-012-0038-z)
+
 ---
 
-## 10. See Also
+## 10. Cascade Solver — Multi-Level Hybrid Solver
 
+> For full cascade solver documentation, see
+> [CASCADE_SOLVER.md](CASCADE_SOLVER.md).
+
+The **Cascade solver** (`solver_type = "cascade"`) is a multi-level hybrid
+algorithm that progressively refines the LP formulation and solver strategy
+across a variable number of levels.  It accelerates convergence by starting
+with a simplified network model (e.g. single bus, no Kirchhoff) and
+gradually adding complexity, transferring solution information between
+levels via cuts and target constraints.
+
+### 10.1 Multi-Level Architecture
+
+The cascade solver executes a sequence of **levels** defined in the
+`cascade_options.level_array` array.  Each level has:
+
+- **`name`** — human-readable identifier (for logging).
+- **`model_options`** — LP construction overrides (`use_single_bus`,
+  `use_kirchhoff`, `use_line_losses`, `kirchhoff_threshold`,
+  `loss_segments`, `scale_objective`, `scale_theta`,
+  `demand_fail_cost`, `reserve_fail_cost`, `annual_discount_rate`).
+  When present, a fresh `PlanningLP` is built.  When absent, the
+  previous level's LP is reused.
+- **`sddp_options`** — per-level solver settings (`max_iterations`,
+  `min_iterations`, `apertures`, `convergence_tol`).  Absent fields
+  inherit from the global `sddp_options`.
+- **`transition`** — how to receive information from the previous level
+  (cut inheritance, target constraints).
+
+**LP rebuild rule**: when `model_options` is present (even if all its
+fields match the previous level), the LP is rebuilt from scratch.  When
+absent, the previous level's LP and solver state are reused, allowing a
+level to change only solver parameters (e.g. enable apertures) without
+the cost of LP reconstruction.
+
+**Named transfer**: cuts and target constraints use LP **column names**
+(e.g. `Reservoir1_efin`) for cross-LP resolution.  This allows cuts
+generated with one LP structure (e.g. single-bus) to be applied to a
+different LP structure (e.g. multi-bus with Kirchhoff), as long as the
+state-variable columns share the same names.
+
+If the solver converges at any level, it returns immediately without
+proceeding to subsequent levels.
+
+### 10.2 Built-in Default Levels
+
+When `cascade_options.level_array` is empty (or omitted), a built-in
+4-level default is used:
+
+| Level | Name | LP | Solver | Transition |
+|-------|------|----|--------|------------|
+| 0 | `uninodal_benders` | Single bus, no Kirchhoff, no losses | Benders only (no apertures) | -- |
+| 1 | `transport_benders` | Multi-bus, no Kirchhoff, no losses | Benders only | Target constraints from level 0 |
+| 2 | `transport_sddp` | Reuses level 1 LP | SDDP with apertures | Target constraints from level 1 |
+| 3 | `full_sddp` | Kirchhoff + line losses | SDDP with apertures | Inherits optimality + feasibility cuts |
+
+This default progression moves from a fast coarse approximation to the
+full network model, transferring solution information at each step.
+
+### 10.3 Level Configuration
+
+Each level in `level_array` can contain three optional sub-objects.
+
+#### `model_options` — LP Formulation
+
+Controls how the LP is constructed for this level.  When present, a
+fresh `PlanningLP` is built.  When absent, the previous level's LP is
+reused.  Only set fields override the global `model_options`; absent
+fields inherit from the global configuration.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `use_single_bus` | bool | `false` | Aggregate all buses into one |
+| `use_kirchhoff` | bool | `true` | Enable DC power flow (voltage angles) |
+| `use_line_losses` | bool | `false` | Model resistive line losses |
+| `kirchhoff_threshold` | real | 0.0 | Min bus voltage [kV] for Kirchhoff |
+| `loss_segments` | int | 1 | Piecewise-linear loss segments |
+| `scale_objective` | real | 1000 | Divisor for objective coefficients |
+| `scale_theta` | real | 1.0 | Scaling for voltage-angle variables |
+| `demand_fail_cost` | real | 1000 | Penalty for unserved demand [$/MWh] |
+| `reserve_fail_cost` | real | 1000 | Penalty for unserved reserve [$/MWh] |
+| `annual_discount_rate` | real | 0.0 | Discount rate for multi-stage CAPEX |
+
+#### `sddp_options` — Per-Level Solver Parameters
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `max_iterations` | int | from global `sddp_options` | Max training iterations for this level |
+| `min_iterations` | int | from global `sddp_options` | Min iterations before convergence |
+| `apertures` | array of UIDs | from global `sddp_options` | Aperture UIDs (empty = Benders only) |
+| `convergence_tol` | real | from global `sddp_options` | Convergence tolerance |
+
+#### `transition` — Transfer from Previous Level
+
+Controls how information from the previous level is carried forward.
+Level 0 has no transition (it is the starting point).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `inherit_optimality_cuts` | bool | `false` | Carry forward Benders optimality cuts |
+| `inherit_feasibility_cuts` | bool | `false` | Carry forward feasibility cuts |
+| `inherit_targets` | bool | `false` | Add elastic target constraints from previous solution |
+| `target_rtol` | real | 0.05 | Relative tolerance for target band (5% of \|v\|) |
+| `target_min_atol` | real | 1.0 | Minimum absolute tolerance for target band |
+| `target_penalty` | real | 500 | Elastic penalty per unit target violation |
+| `optimality_dual_threshold` | real | 0.0 | Min \|dual\| for cut transfer (0 = all) |
+
+### 10.4 Target Constraints
+
+Target constraints are LP rows (not column bound changes) that constrain
+state variables near the previous level's solution trajectory.  They use
+an elastic formulation with a penalty cost, avoiding hard infeasibility
+while guiding the optimizer:
+
+$$v_{\text{prev}} - \text{atol} \le v \le v_{\text{prev}} + \text{atol}$$
+
+where $\text{atol} = \max(\text{rtol} \cdot |v_{\text{prev}}|,
+\text{min\_atol})$.  Violations beyond the tolerance band incur a cost
+of `target_penalty` per unit.
+
+Target rows are named `cascade_target_s{scene}_p{phase}_c{col}` for
+easy identification in LP debug output.
+
+### 10.5 Configuration Example
+
+Cascade options are set in their own `cascade_options` sub-object in the
+JSON configuration (not inside `sddp_options`).  The global
+`sddp_options` provide defaults that individual levels can override.
+
+**2-level cascade** — uninodal warm-start followed by full network:
+
+```json
+{
+  "options": {
+    "solver_type": "cascade",
+    "model_options": {
+      "use_kirchhoff": true,
+      "demand_fail_cost": 5000
+    },
+    "sddp_options": {
+      "max_iterations": 50,
+      "convergence_tol": 0.001
+    },
+    "cascade_options": {
+      "level_array": [
+        {
+          "name": "uninodal",
+          "model_options": {
+            "use_single_bus": true,
+            "use_kirchhoff": false
+          },
+          "sddp_options": {
+            "max_iterations": 15,
+            "convergence_tol": 0.01
+          }
+        },
+        {
+          "name": "full_network",
+          "model_options": {
+            "use_single_bus": false,
+            "use_kirchhoff": true
+          },
+          "sddp_options": {
+            "max_iterations": 50,
+            "convergence_tol": 0.001
+          },
+          "transition": {
+            "inherit_optimality_cuts": true,
+            "inherit_feasibility_cuts": true,
+            "inherit_targets": true,
+            "target_rtol": 0.05,
+            "target_min_atol": 1.0,
+            "target_penalty": 500
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+**Reusing the LP** — a level without `model_options` reuses the
+previous level's LP and solver state.  This is useful when you want
+to change solver parameters (e.g. enable apertures) without rebuilding:
+
+```json
+{
+  "options": {
+    "solver_type": "cascade",
+    "sddp_options": {
+      "max_iterations": 30,
+      "convergence_tol": 0.01
+    },
+    "cascade_options": {
+      "level_array": [
+        {
+          "name": "benders_warm_start",
+          "model_options": {
+            "use_single_bus": true,
+            "use_kirchhoff": false
+          },
+          "sddp_options": {
+            "max_iterations": 10
+          }
+        },
+        {
+          "name": "sddp_with_apertures",
+          "sddp_options": {
+            "max_iterations": 20,
+            "apertures": [1, 2, 3]
+          },
+          "transition": {
+            "inherit_targets": true
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+To use the built-in 4-level default, simply omit `level_array` (or set
+it to an empty array):
+
+```json
+{
+  "options": {
+    "solver_type": "cascade",
+    "sddp_options": {
+      "max_iterations": 30,
+      "convergence_tol": 0.01
+    },
+    "cascade_options": {}
+  }
+}
+```
+
+### 10.6 Iteration Budget
+
+Each level has its own `max_iterations` budget (from its `sddp_options`
+or from the global `sddp_options` default).  The global
+`cascade_options.sddp_options.max_iterations` serves as the **global
+iteration budget** across all levels.  Per-level
+`sddp_options.max_iterations` controls iterations within each level.
+
+If a level exhausts its budget without converging, the cascade proceeds
+to the next level.  If the final level exhausts its budget, the solver
+reports non-convergence.
+
+---
+
+## 11. See Also
+
+- [CASCADE_SOLVER.md](CASCADE_SOLVER.md) --- cascade (multi-level hybrid)
+  solver documentation
 - [MONOLITHIC_SOLVER.md](MONOLITHIC_SOLVER.md) --- monolithic solver
   documentation (default solver, boundary cuts, solve timeout)
 - [MATHEMATICAL_FORMULATION.md](formulation/MATHEMATICAL_FORMULATION.md) ---

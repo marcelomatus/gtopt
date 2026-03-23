@@ -215,10 +215,15 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
     ++i;
   }
 
+  if (m_lp_names_level_ >= 1) {
+    m_row_index_to_name_.resize(static_cast<size_t>(flat_lp.nrows),
+                                std::string {});
+  }
   for (int i = 0; auto&& name : flat_lp.rownm) {
     solver->setRowName(i, name);
     if (m_lp_names_level_ >= 1 && !name.empty()) {
       m_row_names_.try_emplace(name, i);
+      m_row_index_to_name_[static_cast<size_t>(i)] = name;
     }
     ++i;
   }
@@ -287,6 +292,13 @@ RowIndex LinearInterface::add_row(const std::string& name,
                  rowub);
   solver->setRowName(index, name);
 
+  if (m_lp_names_level_ >= 1 && !name.empty()) {
+    if (m_row_index_to_name_.size() <= static_cast<size_t>(index)) {
+      m_row_index_to_name_.resize(static_cast<size_t>(index) + 1);
+    }
+    m_row_index_to_name_[static_cast<size_t>(index)] = name;
+  }
+
   return RowIndex {index};
 }
 
@@ -306,15 +318,18 @@ void LinearInterface::delete_rows(const std::span<const int> indices)
 
   solver->deleteRows(static_cast<int>(indices.size()), indices.data());
 
-  // Rebuild m_row_names_ if name tracking is active, since row indices
-  // shift after deletion and the old map is stale.
+  // Rebuild row name maps if name tracking is active, since row indices
+  // shift after deletion and the old maps are stale.
   if (m_lp_names_level_ >= 1) {
     m_row_names_.clear();
     const auto num_rows = solver->getNumRows();
+    m_row_index_to_name_.clear();
+    m_row_index_to_name_.resize(static_cast<size_t>(num_rows));
     for (int r = 0; r < num_rows; ++r) {
       const auto name = solver->getRowName(r);
       if (!name.empty()) {
         m_row_names_.try_emplace(name, r);
+        m_row_index_to_name_[static_cast<size_t>(r)] = name;
       }
     }
   }
@@ -354,13 +369,16 @@ void LinearInterface::reset_from(const LinearInterface& source,
     solver->setRowUpper(r, src_row_hi[r]);
   }
 
-  // Rebuild name map if active.
+  // Rebuild row name maps if active.
   if (m_lp_names_level_ >= 1) {
     m_row_names_.clear();
+    m_row_index_to_name_.clear();
+    m_row_index_to_name_.resize(static_cast<size_t>(nrows));
     for (int r = 0; r < nrows; ++r) {
       const auto name = solver->getRowName(r);
       if (!name.empty()) {
         m_row_names_.try_emplace(name, r);
+        m_row_index_to_name_[static_cast<size_t>(r)] = name;
       }
     }
   }

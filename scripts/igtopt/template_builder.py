@@ -1161,9 +1161,12 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
 # (field, description, default_value_or_None)
 #
 # The flat Excel sheet uses a single "options" tab.  igtopt.py
-# partitions these keys into top-level, sddp_options, and
-# monolithic_options sub-objects when writing the JSON output.
+# partitions these keys into top-level, sddp_options,
+# cascade_options, and monolithic_options sub-objects when writing
+# the JSON output.
 # Keys in SDDP_OPTION_KEYS go into "sddp_options".
+# Keys prefixed with "cascade_" go into "cascade_options"
+# (with the prefix stripped).
 # Keys prefixed with "monolithic_" go into "monolithic_options"
 # (with the prefix stripped).
 # ------------------------------------------------------------------
@@ -1190,6 +1193,7 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "sentinel_file",
         "elastic_mode",
         "multi_cut_threshold",
+        "apertures",
         "num_apertures",
         "aperture_directory",
         "aperture_timeout",
@@ -1206,8 +1210,15 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "single_cut_storage",
         "max_stored_cuts",
         "use_clone_pool",
+        "simulation_mode",
     }
 )
+
+# Cascade options now use a hierarchical ``levels`` array structure
+# that is too complex for the flat Excel template.  Cascade
+# configuration should be done directly in JSON.  This frozenset is
+# kept empty for backward compatibility with imports.
+CASCADE_OPTION_KEYS: frozenset[str] = frozenset()
 
 # Keys that belong inside the ``monolithic_options`` JSON sub-object.
 # Must match the fields in ``json_data_contract<MonolithicOptions>``.
@@ -1314,7 +1325,7 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     # ------------------------------------------------------------------
     (
         "cut_sharing_mode",
-        "[sddp] How Benders cuts are shared: 'none', 'expected', or 'max'",
+        "[sddp] How Benders cuts are shared: 'none', 'expected', 'accumulate', or 'max'",
         None,
     ),
     (
@@ -1349,7 +1360,7 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     ("hot_start", "[sddp] Resume SDDP from existing cuts (true/false)", None),
     (
         "hot_start_mode",
-        "[sddp] Hot-start mode: 'cuts' (default) or 'solution'",
+        "[sddp] Hot-start mode: 'none' (default), 'keep', 'append', or 'replace'",
         None,
     ),
     (
@@ -1369,7 +1380,7 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     ),
     (
         "elastic_mode",
-        "[sddp] Elastic constraint mode: 'none', 'feasibility', or 'cost'",
+        "[sddp] Elastic filter mode: 'single_cut', 'multi_cut', or 'backpropagate'",
         None,
     ),
     (
@@ -1457,6 +1468,15 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         "[sddp] Reuse cached LP clones for aperture solves (avoids repeated allocation)",
         True,
     ),
+    (
+        "simulation_mode",
+        "[sddp] Forward-only evaluation of loaded cuts, no training (true/false)",
+        None,
+    ),
+    # NOTE: Cascade options now use a hierarchical ``levels`` array
+    # structure (with lp_options, solver, and transition sub-objects per
+    # level).  This is too complex for the flat Excel template; cascade
+    # configuration should be done directly in JSON.
     # ------------------------------------------------------------------
     # Monolithic options (nested into "monolithic_options" in JSON output)
     # In the flat Excel sheet these use a "monolithic_" prefix to avoid
