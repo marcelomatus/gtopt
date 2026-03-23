@@ -392,7 +392,14 @@ struct SDDPIterationResult
   double lower_bound {};  ///< Lower bound (phase 0 objective including α)
   double upper_bound {};  ///< Upper bound (sum of actual phase costs)
   double gap {};  ///< Relative gap: (UB − LB) / max(1, |UB|)
+  /// Relative change in gap vs. `stationary_window` iterations ago.
+  /// Populated only when `stationary_tol > 0` and enough iterations have
+  /// elapsed; 1.0 otherwise (meaning "not yet checked / not applicable").
+  double gap_change {1.0};
   bool converged {};  ///< True if gap < convergence tolerance
+  /// True when convergence was declared by the stationary-gap criterion
+  /// (gap_change < stationary_tol) rather than the primary criterion.
+  bool stationary_converged {};
   int cuts_added {};  ///< Number of Benders cuts added this iteration
   bool feasibility_issue {};  ///< True if elastic filter was activated
 

@@ -116,8 +116,8 @@ class GTOptWriter:
         # Secondary (stationary gap) convergence criterion:
         # When the gap stops improving over a window of iterations, declare
         # convergence even if gap > convergence_tol.
-        # Default: stationary_tol = convergence_tol, stationary_window = 4.
-        stationary_tol = options.get("stationary_tol", convergence_tol)
+        # Default: stationary_tol = convergence_tol / 10, stationary_window = 4.
+        stationary_tol = options.get("stationary_tol", convergence_tol / 10.0)
         sddp_opts["stationary_tol"] = stationary_tol
 
         stationary_window = options.get("stationary_window", 4)
