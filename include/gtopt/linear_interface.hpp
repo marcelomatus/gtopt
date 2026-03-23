@@ -477,6 +477,14 @@ public:
   {
     return m_col_index_to_name_;
   }
+
+  /// Row index → name vector (empty string for unnamed rows).
+  /// Populated alongside row_name_map when lp_names_level >= 1.
+  [[nodiscard]] constexpr const std::vector<std::string>& row_index_to_name()
+      const noexcept
+  {
+    return m_row_index_to_name_;
+  }
   /// @}
 
   /// @name LP coefficient statistics (populated during load_flat from
@@ -561,6 +569,7 @@ private:
   name_index_map_t m_row_names_;  ///< Row (constraint) name → row index
   name_index_map_t m_col_names_;  ///< Column (variable) name → col index
   std::vector<std::string> m_col_index_to_name_;  ///< Col index → name
+  std::vector<std::string> m_row_index_to_name_;  ///< Row index → name
 
   size_t m_base_numrows_ {};  ///< Row count before any cuts were added
 

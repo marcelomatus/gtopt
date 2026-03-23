@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 # Option validation and auto-fix
 # ---------------------------------------------------------------------------
 
-_VALID_SOLVER_TYPES = {"monolithic", "sddp"}
+_VALID_SOLVER_TYPES = {"monolithic", "sddp", "cascade"}
 _VALID_INPUT_FORMATS = {"parquet", "csv"}
 _VALID_OUTPUT_FORMATS = {"parquet", "csv"}
 _VALID_LP_ALGORITHMS = {0, 1, 2, 3}
@@ -136,6 +136,11 @@ def _validate_options(opts: dict) -> list[str]:
     if sddp:
         _validate_sddp_options(sddp, messages)
 
+    # ── Cascade options ──
+    cascade = opts.get("cascade_options", {})
+    if cascade:
+        _validate_cascade_options(cascade, messages)
+
     return messages
 
 
@@ -208,6 +213,132 @@ def _validate_sddp_options(sddp: dict, messages: list[str]) -> None:
     if max_stored is not None and max_stored < 0:
         messages.append("FIX: sddp max_stored_cuts must be >= 0, setting to 0")
         sddp["max_stored_cuts"] = 0
+
+    sim_mode = sddp.get("simulation_mode")
+    if sim_mode is not None and not isinstance(sim_mode, bool):
+        messages.append(
+            f"FIX: sddp simulation_mode must be a boolean, setting to {bool(sim_mode)}"
+        )
+        sddp["simulation_mode"] = bool(sim_mode)
+
+
+def _validate_cascade_options(cascade: dict, messages: list[str]) -> None:
+    """Validate cascade sub-options (hierarchical levels array).
+
+    Supports both the new ``levels`` key and the legacy ``level_array``
+    key used by the C++ JSON serialisation.
+    """
+    levels = cascade.get("levels") or cascade.get("level_array")
+    if levels is None:
+        return
+    if not isinstance(levels, list):
+        messages.append("WARN: cascade_options.levels must be an array")
+        return
+
+    for i, level in enumerate(levels):
+        if not isinstance(level, dict):
+            messages.append(f"WARN: cascade_options.levels[{i}] must be an object")
+            continue
+
+        # ── model_options sub-object (Kirchhoff / single-bus consistency) ──
+        model_opts = level.get("model_options", {})
+        if isinstance(model_opts, dict):
+            if model_opts.get("use_single_bus") and model_opts.get("use_kirchhoff"):
+                messages.append(
+                    f"FIX: cascade level[{i}] model_options: "
+                    "use_kirchhoff incompatible with use_single_bus, "
+                    "disabling use_kirchhoff"
+                )
+                model_opts["use_kirchhoff"] = False
+
+        # ── sddp_options sub-object (CascadeLevelSolver) ──
+        sddp = level.get("sddp_options", {})
+        if isinstance(sddp, dict):
+            max_iter = sddp.get("max_iterations")
+            if max_iter is not None and max_iter <= 0:
+                messages.append(
+                    f"FIX: cascade level[{i}] sddp_options.max_iterations "
+                    "must be > 0, setting to 20"
+                )
+                sddp["max_iterations"] = 20
+
+            min_iter = sddp.get("min_iterations")
+            if min_iter is not None and min_iter < 0:
+                messages.append(
+                    f"FIX: cascade level[{i}] sddp_options.min_iterations "
+                    "must be >= 0, setting to 0"
+                )
+                sddp["min_iterations"] = 0
+
+            conv_tol = sddp.get("convergence_tol")
+            if conv_tol is not None and conv_tol < 0:
+                messages.append(
+                    f"FIX: cascade level[{i}] sddp_options.convergence_tol "
+                    "must be >= 0, setting to 0.01"
+                )
+                sddp["convergence_tol"] = 0.01
+
+        # ── legacy solver sub-object (kept for backward compat) ──
+        solver = level.get("solver", {})
+        if isinstance(solver, dict):
+            max_iter = solver.get("max_iterations")
+            if max_iter is not None and max_iter <= 0:
+                messages.append(
+                    f"FIX: cascade level[{i}] solver.max_iterations must be > 0, "
+                    "setting to 20"
+                )
+                solver["max_iterations"] = 20
+
+            conv_tol = solver.get("convergence_tol")
+            if conv_tol is not None and conv_tol < 0:
+                messages.append(
+                    f"FIX: cascade level[{i}] solver.convergence_tol must be >= 0, "
+                    "setting to 0.01"
+                )
+                solver["convergence_tol"] = 0.01
+
+            num_ap = solver.get("num_apertures")
+            if num_ap is not None and num_ap < 0:
+                messages.append(
+                    f"FIX: cascade level[{i}] solver.num_apertures must be >= 0, "
+                    "setting to 0"
+                )
+                solver["num_apertures"] = 0
+
+        # ── transition sub-object ──
+        transition = level.get("transition", {})
+        if isinstance(transition, dict):
+            target_rtol = transition.get("target_rtol")
+            if target_rtol is not None and target_rtol < 0:
+                messages.append(
+                    f"FIX: cascade level[{i}] transition.target_rtol must be >= 0, "
+                    "setting to 0.05"
+                )
+                transition["target_rtol"] = 0.05
+
+            target_atol = transition.get("target_min_atol")
+            if target_atol is not None and target_atol < 0:
+                messages.append(
+                    f"FIX: cascade level[{i}] transition.target_min_atol must be >= 0, "
+                    "setting to 1.0"
+                )
+                transition["target_min_atol"] = 1.0
+
+            target_penalty = transition.get("target_penalty")
+            if target_penalty is not None and target_penalty < 0:
+                messages.append(
+                    f"FIX: cascade level[{i}] transition.target_penalty must be >= 0, "
+                    "setting to 500.0"
+                )
+                transition["target_penalty"] = 500.0
+
+            opt_dual_thr = transition.get("optimality_dual_threshold")
+            if opt_dual_thr is not None and opt_dual_thr < 0:
+                messages.append(
+                    f"FIX: cascade level[{i}] transition.optimality_dual_threshold "
+                    "must be >= 0, setting to 0.0"
+                )
+                transition["optimality_dual_threshold"] = 0.0
 
 
 # ---------------------------------------------------------------------------

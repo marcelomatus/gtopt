@@ -983,6 +983,317 @@ def check_capacity_adequacy(planning: dict[str, Any]) -> list[Finding]:
 
 
 # ---------------------------------------------------------------------------
+# Cascade level validation
+# ---------------------------------------------------------------------------
+
+
+def check_cascade_levels(planning: dict[str, Any]) -> list[Finding]:
+    """Check cascade level configuration for consistency.
+
+    Validates:
+    - Each level has a ``name``.
+    - Level 0 should not have a ``transition`` (nothing to inherit from).
+    - ``transition.target_penalty`` > 0 when ``inherit_targets`` is true.
+    - ``transition.target_rtol`` in (0, 1] when present.
+    - ``sddp_options.max_iterations`` >= 0 in each level.
+    - ``sddp_options.convergence_tol`` in (0, 1) when present.
+    - Warn if both ``inherit_optimality_cuts`` and ``inherit_targets`` are true.
+    """
+    findings: list[Finding] = []
+    opts = planning.get("options", {})
+    cascade = opts.get("cascade_options", {})
+    levels = cascade.get("level_array", [])
+
+    if not levels:
+        return findings
+
+    for idx, level in enumerate(levels):
+        label = level.get("name", f"index {idx}")
+
+        # Each level should have a name
+        if not level.get("name"):
+            findings.append(
+                Finding(
+                    check_id="cascade_levels",
+                    severity=Severity.WARNING,
+                    message=(f"Cascade level {idx}: missing 'name' field"),
+                )
+            )
+
+        # Level 0 should not have a transition
+        transition = level.get("transition")
+        if idx == 0 and transition is not None:
+            findings.append(
+                Finding(
+                    check_id="cascade_levels",
+                    severity=Severity.WARNING,
+                    message=(
+                        f"Cascade level '{label}' (index 0): "
+                        f"has 'transition' but is the first level "
+                        f"(nothing to inherit from)"
+                    ),
+                )
+            )
+
+        if transition is not None:
+            inherit_targets = transition.get("inherit_targets", False)
+            inherit_cuts = transition.get("inherit_optimality_cuts", False)
+
+            # target_penalty should be > 0 when inherit_targets is true
+            target_penalty = transition.get("target_penalty")
+            if inherit_targets and target_penalty is not None and target_penalty <= 0:
+                findings.append(
+                    Finding(
+                        check_id="cascade_levels",
+                        severity=Severity.WARNING,
+                        message=(
+                            f"Cascade level '{label}': "
+                            f"target_penalty={target_penalty} should be "
+                            f"> 0 when inherit_targets is true"
+                        ),
+                    )
+                )
+
+            # target_rtol should be in (0, 1] when present
+            target_rtol = transition.get("target_rtol")
+            if target_rtol is not None and (target_rtol <= 0 or target_rtol > 1):
+                findings.append(
+                    Finding(
+                        check_id="cascade_levels",
+                        severity=Severity.CRITICAL,
+                        message=(
+                            f"Cascade level '{label}': "
+                            f"target_rtol={target_rtol} must be in (0, 1]"
+                        ),
+                    )
+                )
+
+            # Warn if both inherit_optimality_cuts and inherit_targets
+            if inherit_cuts and inherit_targets:
+                findings.append(
+                    Finding(
+                        check_id="cascade_levels",
+                        severity=Severity.NOTE,
+                        message=(
+                            f"Cascade level '{label}': both "
+                            f"inherit_optimality_cuts and inherit_targets "
+                            f"are true (unusual but valid)"
+                        ),
+                    )
+                )
+
+        # sddp_options validation within each level
+        sddp = level.get("sddp_options")
+        if sddp is not None:
+            max_iter = sddp.get("max_iterations")
+            if max_iter is not None and max_iter < 0:
+                findings.append(
+                    Finding(
+                        check_id="cascade_levels",
+                        severity=Severity.CRITICAL,
+                        message=(
+                            f"Cascade level '{label}': "
+                            f"sddp_options.max_iterations={max_iter} "
+                            f"must be >= 0"
+                        ),
+                    )
+                )
+
+            conv_tol = sddp.get("convergence_tol")
+            if conv_tol is not None and (conv_tol <= 0 or conv_tol >= 1):
+                findings.append(
+                    Finding(
+                        check_id="cascade_levels",
+                        severity=Severity.CRITICAL,
+                        message=(
+                            f"Cascade level '{label}': "
+                            f"sddp_options.convergence_tol={conv_tol} "
+                            f"must be in (0, 1)"
+                        ),
+                    )
+                )
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Simulation mode checks
+# ---------------------------------------------------------------------------
+
+
+def check_simulation_mode(planning: dict[str, Any]) -> list[Finding]:
+    """Check simulation mode configuration for consistency.
+
+    Validates:
+    - ``simulation_mode=true`` with ``max_iterations > 0`` is a conflict.
+    - ``simulation_mode=true`` with ``save_per_iteration=true`` warns that
+      cuts are not saved in simulation mode.
+    """
+    findings: list[Finding] = []
+    opts = planning.get("options", {})
+    sddp = opts.get("sddp_options", {})
+
+    sim_mode = sddp.get("simulation_mode", False)
+    if not sim_mode:
+        return findings
+
+    max_iter = sddp.get("max_iterations")
+    if max_iter is not None and max_iter > 0:
+        findings.append(
+            Finding(
+                check_id="simulation_mode",
+                severity=Severity.WARNING,
+                message=(
+                    f"simulation_mode is true but "
+                    f"max_iterations={max_iter}; in simulation mode "
+                    f"no training iterations are performed"
+                ),
+            )
+        )
+
+    save_per_iter = sddp.get("save_per_iteration")
+    if save_per_iter is True:
+        findings.append(
+            Finding(
+                check_id="simulation_mode",
+                severity=Severity.WARNING,
+                message=(
+                    "simulation_mode is true but "
+                    "save_per_iteration is true; cuts are not saved "
+                    "in simulation mode"
+                ),
+            )
+        )
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# General SDDP checks
+# ---------------------------------------------------------------------------
+
+
+def check_sddp_options(planning: dict[str, Any]) -> list[Finding]:
+    """Check general SDDP option consistency.
+
+    Validates:
+    - ``min_iterations > max_iterations`` is suspicious (max wins).
+    - ``max_iterations=0`` without hot-start cuts is an untrained policy.
+    - ``convergence_tol`` outside (0, 1) is an error.
+    """
+    findings: list[Finding] = []
+    opts = planning.get("options", {})
+    sddp = opts.get("sddp_options", {})
+
+    # Skip if no sddp_options present
+    if not sddp:
+        return findings
+
+    max_iter = sddp.get("max_iterations")
+    min_iter = sddp.get("min_iterations")
+
+    # min_iterations > max_iterations
+    if min_iter is not None and max_iter is not None and min_iter > max_iter:
+        findings.append(
+            Finding(
+                check_id="sddp_options",
+                severity=Severity.WARNING,
+                message=(
+                    f"min_iterations ({min_iter}) > "
+                    f"max_iterations ({max_iter}); "
+                    f"max_iterations takes precedence"
+                ),
+            )
+        )
+
+    # max_iterations=0 without hot-start cuts
+    if max_iter is not None and max_iter == 0:
+        hot_start = sddp.get("hot_start", False)
+        hot_start_mode = sddp.get("hot_start_mode", "none")
+        cuts_input = sddp.get("cuts_input_file", "")
+        has_cuts = (
+            hot_start is True
+            or (hot_start_mode and hot_start_mode != "none")
+            or bool(cuts_input)
+        )
+        if not has_cuts:
+            findings.append(
+                Finding(
+                    check_id="sddp_options",
+                    severity=Severity.WARNING,
+                    message=(
+                        "max_iterations=0 without hot-start cuts; "
+                        "the policy will be untrained "
+                        "(forward-only with no cuts)"
+                    ),
+                )
+            )
+
+    # convergence_tol outside (0, 1)
+    conv_tol = sddp.get("convergence_tol")
+    if conv_tol is not None and (conv_tol <= 0 or conv_tol >= 1):
+        findings.append(
+            Finding(
+                check_id="sddp_options",
+                severity=Severity.CRITICAL,
+                message=(f"convergence_tol={conv_tol} must be in (0, 1)"),
+            )
+        )
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Cascade + solver_type consistency
+# ---------------------------------------------------------------------------
+
+
+def check_cascade_solver_type(planning: dict[str, Any]) -> list[Finding]:
+    """Check cascade_options and solver_type consistency.
+
+    Validates:
+    - ``cascade_options.level_array`` non-empty but ``solver_type`` is not
+      ``"cascade"`` — warn about mismatch.
+    - ``solver_type == "cascade"`` but no ``cascade_options.level_array``
+      — info note that defaults will be used.
+    """
+    findings: list[Finding] = []
+    opts = planning.get("options", {})
+
+    solver_type = opts.get("solver_type", "")
+    cascade = opts.get("cascade_options", {})
+    levels = cascade.get("level_array", [])
+
+    if levels and solver_type and solver_type != "cascade":
+        findings.append(
+            Finding(
+                check_id="cascade_solver_type",
+                severity=Severity.WARNING,
+                message=(
+                    f"cascade_options.level_array has {len(levels)} "
+                    f"level(s) but solver_type='{solver_type}' "
+                    f"(expected 'cascade')"
+                ),
+            )
+        )
+
+    if solver_type == "cascade" and not levels:
+        findings.append(
+            Finding(
+                check_id="cascade_solver_type",
+                severity=Severity.NOTE,
+                message=(
+                    "solver_type='cascade' but "
+                    "cascade_options.level_array is empty; "
+                    "a single default level will be used"
+                ),
+            )
+        )
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
 # Registry and runner
 # ---------------------------------------------------------------------------
 
@@ -997,6 +1308,10 @@ _CHECK_REGISTRY: list[tuple[str, Any, bool]] = [
     ("unreferenced_elements", check_unreferenced_elements, False),
     ("capacity_adequacy", check_capacity_adequacy, False),
     ("battery_efficiency", check_battery_efficiency, False),
+    ("cascade_levels", check_cascade_levels, False),
+    ("simulation_mode", check_simulation_mode, False),
+    ("sddp_options", check_sddp_options, False),
+    ("cascade_solver_type", check_cascade_solver_type, False),
     ("ai_system_analysis", check_ai_system_analysis, True),
 ]
 

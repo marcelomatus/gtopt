@@ -184,6 +184,60 @@ class TestGTOptWriterProcessMethods:
         sddp = writer.planning["options"]["sddp_options"]
         assert "num_apertures" not in sddp
 
+    @staticmethod
+    def _make_plpmat_parser(max_iterations=0, pd_error=0.0, default_cuts=0):
+        """Build a mock parser with a plpmat_parser in parsed_data."""
+        from types import SimpleNamespace
+
+        mock_parser = MagicMock()
+        mock_parser.parsed_data = {
+            "plpmat_parser": SimpleNamespace(
+                max_iterations=max_iterations,
+                pd_error=pd_error,
+                default_cuts=default_cuts,
+            )
+        }
+        return mock_parser
+
+    def test_process_options_max_iterations_from_plpmat(self):
+        """max_iterations defaults to PDMaxIte from plpmat.dat when > 1."""
+        mock_parser = self._make_plpmat_parser(max_iterations=150)
+        writer = GTOptWriter(mock_parser)
+        writer.process_options({"output_dir": "out"})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["max_iterations"] == 150
+
+    def test_process_options_max_iterations_plpmat_one_ignored(self):
+        """PDMaxIte=1 means monolithic in PLP, should not set max_iterations."""
+        mock_parser = self._make_plpmat_parser(max_iterations=1)
+        writer = GTOptWriter(mock_parser)
+        writer.process_options({"output_dir": "out"})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert "max_iterations" not in sddp
+
+    def test_process_options_max_iterations_explicit_overrides_plpmat(self):
+        """Explicit max_iterations overrides plpmat.dat value."""
+        mock_parser = self._make_plpmat_parser(max_iterations=150)
+        writer = GTOptWriter(mock_parser)
+        writer.process_options({"output_dir": "out", "max_iterations": 300})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["max_iterations"] == 300
+
+    def test_process_options_max_iterations_no_plpmat(self):
+        """Without plpmat.dat, max_iterations is absent when not specified."""
+        mock_parser = MagicMock()
+        mock_parser.parsed_data = {}
+        writer = GTOptWriter(mock_parser)
+        writer.process_options({"output_dir": "out"})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert "max_iterations" not in sddp
+
+    def test_process_options_demand_fail_cost_default(self):
+        """demand_fail_cost defaults to 1000 when not specified."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out"})
+        assert writer.planning["options"]["demand_fail_cost"] == 1000
+
     def test_process_options_with_discount(self):
         """process_options passes discount_rate through."""
         writer = GTOptWriter(MagicMock())

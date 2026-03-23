@@ -16,7 +16,9 @@
 #include <cmath>
 #include <filesystem>
 #include <format>
+#include <map>
 #include <ranges>
+#include <set>
 #include <span>
 #include <thread>
 #include <utility>
@@ -150,6 +152,10 @@ SDDPSolver::SDDPSolver(PlanningLP& planning_lp, SDDPOptions opts) noexcept
     , m_aperture_cache_(
           [&]() -> ApertureDataCache
           {
+            // Skip aperture cache in simulation mode (no backward pass)
+            if (m_options_.max_iterations <= 0) {
+              return {};
+            }
             const auto dir = planning_lp.options().sddp_aperture_directory();
             if (dir.empty()) {
               return {};
@@ -166,6 +172,129 @@ SDDPSolver::SDDPSolver(PlanningLP& planning_lp, SDDPOptions opts) noexcept
           }())
     , m_label_maker_(planning_lp.options())
 {
+}
+
+void SDDPSolver::clear_stored_cuts() noexcept
+{
+  {
+    const std::scoped_lock lk(m_cuts_mutex_);
+    m_stored_cuts_.clear();
+  }
+  for (auto& sc : m_scene_cuts_) {
+    sc.clear();
+  }
+}
+
+void SDDPSolver::forget_first_cuts(int count)
+{
+  if (count <= 0) {
+    return;
+  }
+
+  const auto phase_map = build_phase_uid_map(planning_lp());
+  const auto scene_map = build_scene_uid_map(planning_lp());
+
+  using ScenePhaseKey = std::pair<SceneIndex, PhaseIndex>;
+
+  // Helper: resolve a stored cut's (scene, phase) key.
+  auto resolve_key = [&](const StoredCut& cut) -> std::optional<ScenePhaseKey>
+  {
+    auto pit = phase_map.find(cut.phase);
+    auto sit = scene_map.find(cut.scene);
+    if (pit == phase_map.end() || sit == scene_map.end()) {
+      return std::nullopt;
+    }
+    return ScenePhaseKey {sit->second, pit->second};
+  };
+
+  // Collect LP rows to delete per (scene, phase) and cut names to forget.
+  std::map<ScenePhaseKey, std::vector<int>> rows_to_delete;
+  std::set<std::string> names_to_forget;
+
+  int n = 0;
+  {
+    const std::scoped_lock lk(m_cuts_mutex_);
+    n = std::min(count, static_cast<int>(m_stored_cuts_.size()));
+    for (const auto& cut : m_stored_cuts_ | std::views::take(n)) {
+      if (!cut.name.empty()) {
+        names_to_forget.insert(cut.name);
+      }
+      if (auto key = resolve_key(cut)) {
+        rows_to_delete[*key].push_back(static_cast<int>(cut.row));
+      }
+    }
+    m_stored_cuts_.erase(m_stored_cuts_.begin(), m_stored_cuts_.begin() + n);
+  }
+
+  // Delete LP rows and track deletion count per (scene, phase).
+  std::map<ScenePhaseKey, int> deleted_count;
+  int total_deleted = 0;
+  for (auto& [key, rows] : rows_to_delete) {
+    auto& li = planning_lp().system(key.first, key.second).linear_interface();
+    std::ranges::sort(rows);
+    li.delete_rows(rows);
+    deleted_count[key] = static_cast<int>(rows.size());
+    total_deleted += static_cast<int>(rows.size());
+  }
+
+  // Helper: shift a cut's row index by the number of deleted rows
+  // in its (scene, phase).
+  auto shift_row = [&](StoredCut& cut)
+  {
+    if (auto key = resolve_key(cut)) {
+      if (auto it = deleted_count.find(*key); it != deleted_count.end()) {
+        cut.row -= RowIndex {it->second};
+      }
+    }
+  };
+
+  // Update row indices in remaining m_stored_cuts_.
+  {
+    const std::scoped_lock lk(m_cuts_mutex_);
+    std::ranges::for_each(m_stored_cuts_, shift_row);
+  }
+
+  // Remove forgotten cuts from m_scene_cuts_ and update row indices.
+  for (auto&& [si, cuts] : enumerate<SceneIndex>(m_scene_cuts_)) {
+    std::erase_if(
+        cuts,
+        [&](const StoredCut& c)
+        { return !c.name.empty() && names_to_forget.contains(c.name); });
+    std::ranges::for_each(cuts, shift_row);
+  }
+
+  SPDLOG_INFO(
+      "SDDP: forgot {} inherited cuts ({} LP rows deleted)", n, total_deleted);
+}
+
+void SDDPSolver::update_stored_cut_duals()
+{
+  const auto phase_map = build_phase_uid_map(planning_lp());
+  const auto scene_map = build_scene_uid_map(planning_lp());
+
+  auto update_dual = [&](StoredCut& cut)
+  {
+    auto pit = phase_map.find(cut.phase);
+    auto sit = scene_map.find(cut.scene);
+    if (pit == phase_map.end() || sit == scene_map.end()) {
+      return;
+    }
+    const auto& li =
+        planning_lp().system(sit->second, pit->second).linear_interface();
+    const auto row_idx = static_cast<std::size_t>(cut.row);
+    const auto duals = li.get_row_dual();
+    if (row_idx < duals.size()) {
+      cut.dual = duals[row_idx];
+    }
+  };
+
+  {
+    const std::scoped_lock lk(m_cuts_mutex_);
+    std::ranges::for_each(m_stored_cuts_, update_dual);
+  }
+  for (auto& sc : m_scene_cuts_) {
+    std::ranges::for_each(sc, update_dual);
+  }
 }
 
 // ── Initialisation ──────────────────────────────────────────────────────────
@@ -294,6 +423,9 @@ bool SDDPSolver::check_api_stop_request() const
 
 bool SDDPSolver::should_stop() const
 {
+  if (m_in_simulation_) {
+    return false;  // simulation pass always runs to completion
+  }
   return m_stop_requested_.load() || check_sentinel_stop()
       || check_api_stop_request();
 }
@@ -374,7 +506,8 @@ BasicTaskRequirements<SDDPTaskKey> make_backward_lp_task_req(
 void SDDPSolver::store_cut(SceneIndex scene,
                            PhaseIndex src_phase,
                            const SparseRow& cut,
-                           CutType type)
+                           CutType type,
+                           RowIndex row)
 {
   StoredCut stored {
       .type = type,
@@ -382,6 +515,7 @@ void SDDPSolver::store_cut(SceneIndex scene,
       .scene = scene_uid(scene),
       .name = cut.name,
       .rhs = cut.lowb,
+      .row = row,
   };
   for (const auto& [col, coeff] : cut.cmap) {
     stored.coefficients.emplace_back(static_cast<int>(col), coeff);
@@ -472,9 +606,8 @@ auto SDDPSolver::backward_pass_single_phase(SceneIndex scene,
       target_state.forward_full_obj,
       sddp_label("sddp", "scut", scene, phase, iteration, cut_offset));
 
-  store_cut(scene, prev_phase, cut);
-
-  src_li.add_row(cut);
+  const auto cut_row = src_li.add_row(cut);
+  store_cut(scene, prev_phase, cut, CutType::Optimality, cut_row);
   ++cuts_added;
 
   SPDLOG_TRACE("SDDP backward: scene {} cut for phase {} rhs={:.4f}",
@@ -576,19 +709,17 @@ void SDDPSolver::prune_inactive_cuts()
   }
 
   const auto threshold = m_options_.prune_dual_threshold;
-  const auto& sim = planning_lp().simulation();
-  const auto num_scenes = static_cast<Index>(sim.scenes().size());
-  const auto num_phases = static_cast<Index>(sim.phases().size());
   int total_pruned = 0;
 
-  for (const auto scene :
-       std::views::iota(SceneIndex {0}, SceneIndex {num_scenes}))
+  // Track deleted rows per (scene, phase) so we can update stored cuts.
+  using ScenePhaseKey = std::pair<SceneIndex, PhaseIndex>;
+  std::map<ScenePhaseKey, std::vector<Index>> all_deleted;
+
+  for (auto&& [scene, scene_states] :
+       enumerate<SceneIndex>(m_scene_phase_states_))
   {
-    for (const auto phase :
-         std::views::iota(PhaseIndex {0}, PhaseIndex {num_phases}))
-    {
+    for (auto&& [phase, psi] : enumerate<PhaseIndex>(scene_states)) {
       auto& li = planning_lp().system(scene, phase).linear_interface();
-      const auto& psi = m_scene_phase_states_[scene][phase];
 
       const auto total_rows = static_cast<Index>(li.get_numrows());
       const auto base = static_cast<Index>(psi.base_nrows);
@@ -597,7 +728,6 @@ void SDDPSolver::prune_inactive_cuts()
         continue;
       }
 
-      // Get duals for all rows
       const auto duals = li.get_row_dual();
 
       // Build (row_index, |dual|) for cut rows, sorted by |dual| ascending
@@ -616,7 +746,6 @@ void SDDPSolver::prune_inactive_cuts()
       }
       std::ranges::sort(cut_infos, {}, &CutInfo::abs_dual);
 
-      // Collect lowest-dual rows below the threshold for deletion
       const auto to_remove = num_cut_rows - max_cuts;
       std::vector<Index> rows_to_delete;
       rows_to_delete.reserve(to_remove);
@@ -630,7 +759,6 @@ void SDDPSolver::prune_inactive_cuts()
         continue;
       }
 
-      // Sort indices ascending (required by deleteRows)
       std::ranges::sort(rows_to_delete);
 
       SPDLOG_DEBUG(
@@ -644,12 +772,78 @@ void SDDPSolver::prune_inactive_cuts()
 
       li.delete_rows(rows_to_delete);
       total_pruned += static_cast<int>(rows_to_delete.size());
+      all_deleted[{scene, phase}] = std::move(rows_to_delete);
     }
   }
 
-  if (total_pruned > 0) {
-    SPDLOG_INFO("SDDP: pruned {} inactive cuts across all LPs", total_pruned);
+  if (total_pruned == 0) {
+    return;
   }
+
+  // Build UID → index lookups for stored cut matching.
+  const auto phase_map = build_phase_uid_map(planning_lp());
+  const auto scene_map = build_scene_uid_map(planning_lp());
+
+  // Helper: resolve a stored cut to its (scene, phase) key.
+  auto resolve_key = [&](const StoredCut& cut) -> std::optional<ScenePhaseKey>
+  {
+    auto pit = phase_map.find(cut.phase);
+    auto sit = scene_map.find(cut.scene);
+    if (pit == phase_map.end() || sit == scene_map.end()) {
+      return std::nullopt;
+    }
+    return ScenePhaseKey {sit->second, pit->second};
+  };
+
+  // Helper: find the deleted rows vector for a stored cut.
+  auto find_deleted = [&](const StoredCut& cut) -> const std::vector<Index>*
+  {
+    if (auto key = resolve_key(cut)) {
+      if (auto it = all_deleted.find(*key); it != all_deleted.end()) {
+        return &it->second;
+      }
+    }
+    return nullptr;
+  };
+
+  // Helper: check if a row was deleted.
+  auto was_deleted = [](const std::vector<Index>& deleted, RowIndex row) -> bool
+  { return std::ranges::binary_search(deleted, static_cast<Index>(row)); };
+
+  // Helper: compute row shift (number of deleted rows below this one).
+  auto compute_shift = [](const std::vector<Index>& deleted,
+                          RowIndex row) -> RowIndex
+  {
+    return RowIndex {static_cast<Index>(
+        std::ranges::lower_bound(deleted, static_cast<Index>(row) + 1)
+        - deleted.begin())};
+  };
+
+  // Helper: erase pruned cuts and shift remaining row indices.
+  auto update_cuts = [&](std::vector<StoredCut>& cuts)
+  {
+    std::erase_if(cuts,
+                  [&](const StoredCut& cut)
+                  {
+                    const auto* del = find_deleted(cut);
+                    return del != nullptr && was_deleted(*del, cut.row);
+                  });
+    for (auto& cut : cuts) {
+      if (const auto* del = find_deleted(cut)) {
+        cut.row -= compute_shift(*del, cut.row);
+      }
+    }
+  };
+
+  {
+    const std::scoped_lock lk(m_cuts_mutex_);
+    update_cuts(m_stored_cuts_);
+  }
+  for (auto& sc : m_scene_cuts_) {
+    update_cuts(sc);
+  }
+
+  SPDLOG_INFO("SDDP: pruned {} inactive cuts across all LPs", total_pruned);
 }
 
 // ── Cut capping ─────────────────────────────────────────────────────────────
@@ -813,6 +1007,10 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
 
   SPDLOG_INFO("SDDP: initializing solver (no initial solve pass)");
 
+  // Clamp min_iterations: max_iterations always wins
+  m_options_.min_iterations =
+      std::min(m_options_.min_iterations, m_options_.max_iterations);
+
   const auto init_start = std::chrono::steady_clock::now();
 
   const auto& sim = planning_lp().simulation();
@@ -856,8 +1054,8 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
     }
   }
 
-  // ── Initialize clone pool ──────────────────────────────────────────────────
-  if (m_options_.use_clone_pool) {
+  // ── Initialize clone pool (skipped in simulation mode) ───────────────────
+  if (m_options_.use_clone_pool && m_options_.max_iterations > 0) {
     m_clone_pool_.allocate(num_scenes, num_phases);
     SPDLOG_DEBUG("SDDP: clone pool allocated for {} scene×phase slots",
                  static_cast<std::size_t>(num_scenes)
@@ -1085,7 +1283,8 @@ auto SDDPSolver::run_backward_pass_all_scenes(
       continue;
     }
     const auto scene = SceneIndex {si};
-    auto fut = (m_options_.num_apertures != 0)
+    const bool use_ap = !m_options_.apertures || !m_options_.apertures->empty();
+    auto fut = use_ap
         ? pool.submit(
               [this, scene, &bwd_opts, iter]
               { return backward_pass_with_apertures(scene, bwd_opts, iter); },
@@ -1143,7 +1342,9 @@ auto SDDPSolver::run_backward_pass_synchronized(
   // Per-scene cumulative cut count for unique cut labels across phase steps
   std::vector<int> per_scene_cut_count(static_cast<std::size_t>(num_scenes), 0);
 
-  const bool use_apertures = (m_options_.num_apertures != 0);
+  // Apertures enabled unless explicitly set to empty array
+  const bool use_apertures =
+      !m_options_.apertures || !m_options_.apertures->empty();
 
   // Process phases backward: all scenes complete one phase before
   // sharing cuts and moving to the previous phase.
@@ -1616,8 +1817,10 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
         target_state.forward_full_obj,
         sddp_label("sddp", "fcut", scene, phase, iteration, cut_offset));
 
-    store_cut(scene, src_phase, fallback_cut);
-    src_li.add_row(fallback_cut);
+    {
+      const auto cut_row = src_li.add_row(fallback_cut);
+      store_cut(scene, src_phase, fallback_cut, CutType::Optimality, cut_row);
+    }
     ++cuts_added;
 
     SPDLOG_TRACE("SDDP aperture fallback: scene {} cut for phase {} rhs={:.4f}",
@@ -1641,8 +1844,10 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
     return cuts_added;
   }
 
-  store_cut(scene, src_phase, *expected_cut);
-  src_li.add_row(*expected_cut);
+  {
+    const auto cut_row = src_li.add_row(*expected_cut);
+    store_cut(scene, src_phase, *expected_cut, CutType::Optimality, cut_row);
+  }
   ++cuts_added;
 
   SPDLOG_TRACE("SDDP aperture: scene {} cut for phase {} rhs={:.4f}",
@@ -1679,46 +1884,61 @@ auto SDDPSolver::backward_pass_with_apertures_single_phase(
 {
   const auto& simulation = planning_lp().simulation();
   const auto& all_scenarios = simulation.scenarios();
-  const auto num_all_scenarios = static_cast<int>(all_scenarios.size());
   const auto& aperture_defs = simulation.apertures();
-
-  // No explicit apertures → build synthetic from first N scenarios
-  if (aperture_defs.empty()) {
-    const int n_aps = (m_options_.num_apertures < 0)
-        ? num_all_scenarios
-        : std::min(m_options_.num_apertures, num_all_scenarios);
-
-    if (n_aps <= 0 || num_all_scenarios == 0) {
-      return backward_pass_single_phase(
-          scene, phase, cut_offset, opts, iteration);
-    }
-
-    auto synthetic = build_synthetic_apertures(all_scenarios, n_aps);
-
-    const auto& scene_lp = simulation.scenes()[scene];
-    const auto& scene_scenarios = scene_lp.scenarios();
-    if (scene_scenarios.empty()) {
-      return backward_pass_single_phase(
-          scene, phase, cut_offset, opts, iteration);
-    }
-
-    return backward_pass_aperture_phase_impl(
-        scene,
-        phase,
-        cut_offset,
-        scene_scenarios.front(),
-        all_scenarios,
-        std::span<const Aperture>(synthetic),
-        opts,
-        iteration);
-  }
-
-  // Explicit aperture array
   const auto& scene_lp = simulation.scenes()[scene];
   const auto& scene_scenarios = scene_lp.scenarios();
+
   if (scene_scenarios.empty()) {
     return backward_pass_single_phase(
         scene, phase, cut_offset, opts, iteration);
+  }
+
+  // Determine effective apertures based on options
+  Array<Aperture> filtered;
+  std::span<const Aperture> effective_defs;
+
+  if (!m_options_.apertures.has_value()) {
+    // nullopt: use simulation aperture_array as-is (per-phase filtering
+    // happens inside build_effective_apertures via Phase::aperture_set)
+    if (aperture_defs.empty()) {
+      return backward_pass_single_phase(
+          scene, phase, cut_offset, opts, iteration);
+    }
+    effective_defs = aperture_defs;
+  } else {
+    // Non-empty UID list: filter aperture_defs to only matching UIDs
+    const auto& requested = *m_options_.apertures;
+    if (requested.empty()) {
+      return backward_pass_single_phase(
+          scene, phase, cut_offset, opts, iteration);
+    }
+
+    if (!aperture_defs.empty()) {
+      // Filter existing apertures by requested UIDs
+      for (const auto& ap : aperture_defs) {
+        if (std::ranges::find(requested, ap.uid) != requested.end()) {
+          filtered.push_back(ap);
+        }
+      }
+      for (const auto uid : requested) {
+        const bool found = std::ranges::any_of(
+            filtered, [uid](const auto& a) { return a.uid == uid; });
+        if (!found) {
+          SPDLOG_WARN("SDDP apertures: requested UID {} not found, skipping",
+                      uid);
+        }
+      }
+    } else {
+      // No aperture_array: build synthetic from scenarios matching UIDs
+      filtered = build_synthetic_apertures(all_scenarios,
+                                           static_cast<int>(requested.size()));
+    }
+
+    if (filtered.empty()) {
+      return backward_pass_single_phase(
+          scene, phase, cut_offset, opts, iteration);
+    }
+    effective_defs = filtered;
   }
 
   return backward_pass_aperture_phase_impl(scene,
@@ -1726,7 +1946,7 @@ auto SDDPSolver::backward_pass_with_apertures_single_phase(
                                            cut_offset,
                                            scene_scenarios.front(),
                                            all_scenarios,
-                                           aperture_defs,
+                                           effective_defs,
                                            opts,
                                            iteration);
 }
@@ -1740,29 +1960,51 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
 {
   const auto& simulation = planning_lp().simulation();
   const auto& all_scenarios = simulation.scenarios();
-  const auto num_all_scenarios = static_cast<int>(all_scenarios.size());
   const auto& aperture_defs = simulation.apertures();
 
-  // Determine the effective aperture definitions to use:
-  // explicit aperture_array if present, otherwise synthetic from first N
-  // scenarios.
-  Array<Aperture> synthetic;
+  // Determine the effective aperture definitions to use
+  Array<Aperture> filtered;
   std::span<const Aperture> effective_defs;
 
-  if (!aperture_defs.empty()) {
+  if (!m_options_.apertures.has_value()) {
+    // nullopt: use simulation aperture_array (per-phase filtering via
+    // Phase::aperture_set happens downstream in build_effective_apertures)
+    if (aperture_defs.empty()) {
+      return backward_pass(scene, opts, iteration);
+    }
     effective_defs = aperture_defs;
   } else {
-    // Legacy path: determine the effective aperture count
-    const int n_aps = (m_options_.num_apertures < 0)
-        ? num_all_scenarios
-        : std::min(m_options_.num_apertures, num_all_scenarios);
-
-    if (n_aps <= 0 || num_all_scenarios == 0) {
+    const auto& requested = *m_options_.apertures;
+    if (requested.empty()) {
       return backward_pass(scene, opts, iteration);
     }
 
-    synthetic = build_synthetic_apertures(all_scenarios, n_aps);
-    effective_defs = synthetic;
+    if (!aperture_defs.empty()) {
+      // Filter existing apertures by requested UIDs
+      for (const auto& ap : aperture_defs) {
+        if (std::ranges::find(requested, ap.uid) != requested.end()) {
+          filtered.push_back(ap);
+        }
+      }
+      for (const auto uid : requested) {
+        const bool found = std::ranges::any_of(
+            filtered, [uid](const auto& a) { return a.uid == uid; });
+        if (!found) {
+          SPDLOG_WARN("SDDP apertures: requested UID {} not found, skipping",
+                      uid);
+        }
+      }
+    } else {
+      // No aperture_array: build synthetic from scenarios
+      const auto num_all = static_cast<int>(all_scenarios.size());
+      filtered = build_synthetic_apertures(
+          all_scenarios, std::min(static_cast<int>(requested.size()), num_all));
+    }
+
+    if (filtered.empty()) {
+      return backward_pass(scene, opts, iteration);
+    }
+    effective_defs = filtered;
   }
 
   // ── Common aperture backward loop ─────────────────────────────────────
@@ -1840,8 +2082,10 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
           target_state.forward_full_obj,
           sddp_label("sddp", "fcut", scene, phase, iteration, total_cuts));
 
-      store_cut(scene, src_phase, fallback_cut);
-      src_li.add_row(fallback_cut);
+      {
+        const auto cut_row = src_li.add_row(fallback_cut);
+        store_cut(scene, src_phase, fallback_cut, CutType::Optimality, cut_row);
+      }
       ++total_cuts;
 
       SPDLOG_TRACE(
@@ -1868,8 +2112,10 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
       continue;
     }
 
-    store_cut(scene, src_phase, *expected_cut);
-    src_li.add_row(*expected_cut);
+    {
+      const auto cut_row = src_li.add_row(*expected_cut);
+      store_cut(scene, src_phase, *expected_cut, CutType::Optimality, cut_row);
+    }
     ++total_cuts;
 
     SPDLOG_TRACE("SDDP aperture: scene {} cut for phase {} rhs={:.4f}",

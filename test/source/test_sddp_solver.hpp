@@ -1569,11 +1569,12 @@ TEST_CASE("SDDPSolver API - iteration callback")  // NOLINT
   auto results = sddp.solve();
   REQUIRE(results.has_value());
 
-  // The callback should have been called for each iteration
-  CHECK(callback_results.size() == results->size());
-  // The solver should have stopped after 3 iterations (or converged earlier)
-  CHECK(results->size() <= 3);
-  // Iteration numbers should be sequential
+  // The callback should have been called for each iteration (not the final
+  // forward pass).  results includes the final forward pass as the last entry.
+  CHECK(callback_results.size() + 1 == results->size());
+  // The solver should have stopped after 3 iterations + 1 final forward pass
+  CHECK(results->size() <= 4);
+  // Callback iteration numbers should be sequential
   for (size_t i = 0; i < callback_results.size(); ++i) {
     CHECK(callback_results[i].iteration
           == IterationIndex {static_cast<int>(i)});
@@ -1603,9 +1604,9 @@ TEST_CASE("SDDPSolver API - programmatic stop")  // NOLINT
 
   auto results = sddp.solve();
   REQUIRE(results.has_value());
-  // Should have stopped after ≤ 3 iterations (request_stop checked at iter
-  // start)
-  CHECK(results->size() <= 3);
+  // Should have stopped after ≤ 3 iterations + 1 final forward pass
+  CHECK(results->size() <= 4);
+  // The stop flag remains set (it was honoured by exiting the loop)
   CHECK(sddp.is_stop_requested());
 }
 
@@ -2367,9 +2368,8 @@ TEST_CASE("SDDPSolver API - monitoring API stop-request file")  // NOLINT
 
   auto results = sddp.solve();
   REQUIRE(results.has_value());
-  // Should stop after ≤ 2 iterations (file created at end of iter 1;
-  // checked at start of iter 2)
-  CHECK(results->size() <= 2);
+  // Should stop after ≤ 2 iterations + 1 final forward pass
+  CHECK(results->size() <= 3);
 
   std::filesystem::remove_all(tmp_dir);
 }
@@ -3363,33 +3363,16 @@ TEST_CASE("SDDPSolver - 2-phase with apertures converges")  // NOLINT
 
   SUBCASE("apertures disabled (baseline)")
   {
-    sddp_opts.num_apertures = 0;
+    sddp_opts.apertures = std::vector<Uid> {};  // empty = no apertures
     SDDPSolver sddp(plp, sddp_opts);
     auto results = sddp.solve();
     REQUIRE(results.has_value());
     CHECK_FALSE(results->empty());
   }
 
-  SUBCASE("apertures enabled with -1 (all scenarios)")
+  SUBCASE("apertures enabled with nullopt (use per-phase)")
   {
-    sddp_opts.num_apertures = -1;
-    SDDPSolver sddp(plp, sddp_opts);
-    auto results = sddp.solve();
-
-    REQUIRE(results.has_value());
-    CHECK_FALSE(results->empty());
-
-    // At least one cut should be generated
-    int total_cuts = 0;
-    for (const auto& r : *results) {
-      total_cuts += r.cuts_added;
-    }
-    CHECK(total_cuts > 0);
-  }
-
-  SUBCASE("apertures enabled with explicit count")
-  {
-    sddp_opts.num_apertures = 2;
+    sddp_opts.apertures = std::nullopt;  // use per-phase aperture_set
     SDDPSolver sddp(plp, sddp_opts);
     auto results = sddp.solve();
 
@@ -4196,5 +4179,115 @@ TEST_CASE(  // NOLINT
                 rel_diff);
 
     CHECK(rel_diff < 0.05);
+  }
+}
+
+// ─── forget_first_cuts tests ────────────────────────────────────────────────
+
+TEST_CASE("SDDPSolver - forget_first_cuts removes inherited cuts")  // NOLINT
+{
+  // Solve to generate some cuts, then use forget_first_cuts to remove a
+  // subset and verify LP row counts and stored cut counts are consistent.
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 5;
+  sddp_opts.convergence_tol = 1e-6;
+
+  SDDPSolver sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+
+  const auto total_cuts_before = sddp.num_stored_cuts();
+  REQUIRE(total_cuts_before > 2);
+
+  // Record LP row counts per (scene, phase) before forget
+  const auto& sim = planning_lp.simulation();
+  const auto num_scenes = static_cast<Index>(sim.scenes().size());
+  const auto num_phases = static_cast<Index>(sim.phases().size());
+
+  std::vector<int> rows_before;
+  for (Index si = 0; si < num_scenes; ++si) {
+    for (Index pi = 0; pi < num_phases; ++pi) {
+      const auto& li = planning_lp.system(SceneIndex {si}, PhaseIndex {pi})
+                           .linear_interface();
+      rows_before.push_back(li.get_numrows());
+    }
+  }
+
+  SUBCASE("forget 0 cuts is a no-op")
+  {
+    sddp.forget_first_cuts(0);
+    CHECK(sddp.num_stored_cuts() == total_cuts_before);
+  }
+
+  SUBCASE("forget 2 cuts reduces stored count by 2")
+  {
+    const int to_forget = 2;
+    sddp.forget_first_cuts(to_forget);
+
+    CHECK(sddp.num_stored_cuts() == total_cuts_before - to_forget);
+
+    // Total LP rows should have decreased
+    int total_rows_before = 0;
+    int total_rows_after = 0;
+    int idx = 0;
+    for (Index si = 0; si < num_scenes; ++si) {
+      for (Index pi = 0; pi < num_phases; ++pi) {
+        const auto& li = planning_lp.system(SceneIndex {si}, PhaseIndex {pi})
+                             .linear_interface();
+        total_rows_before += rows_before[static_cast<size_t>(idx)];
+        total_rows_after += li.get_numrows();
+        ++idx;
+      }
+    }
+    CHECK(total_rows_after < total_rows_before);
+    CHECK(total_rows_before - total_rows_after == to_forget);
+  }
+
+  SUBCASE("forget all cuts empties the stored cuts")
+  {
+    sddp.forget_first_cuts(total_cuts_before);
+    CHECK(sddp.num_stored_cuts() == 0);
+  }
+
+  SUBCASE("forget more than available clamps to available")
+  {
+    sddp.forget_first_cuts(total_cuts_before + 100);
+    CHECK(sddp.num_stored_cuts() == 0);
+  }
+
+  SUBCASE("remaining cuts have valid row indices after forget")
+  {
+    sddp.forget_first_cuts(2);
+
+    // After forgetting, update duals to verify row indices are valid.
+    // update_stored_cut_duals reads duals at cut.row — if the index
+    // were stale/out-of-range, the solver would crash or return garbage.
+    sddp.update_stored_cut_duals();
+
+    const auto& cuts = sddp.stored_cuts();
+    for (const auto& cut : cuts) {
+      CHECK(static_cast<int>(cut.row) >= 0);
+      CHECK(cut.dual.has_value());
+    }
+  }
+
+  SUBCASE("solver can re-solve after forgetting cuts")
+  {
+    sddp.forget_first_cuts(2);
+    sddp.clear_stop();
+
+    // Reconfigure for a few more iterations
+    sddp.mutable_options().max_iterations = 3;
+    auto results2 = sddp.solve();
+    REQUIRE(results2.has_value());
+    CHECK_FALSE(results2->empty());
+
+    // Should still find a valid bound
+    const auto& last = results2->back();
+    CHECK(last.upper_bound > 0.0);
+    CHECK(last.lower_bound > 0.0);
   }
 }

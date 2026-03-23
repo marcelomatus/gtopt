@@ -16,6 +16,11 @@
 
 namespace daw::json
 {
+using gtopt::CascadeLevel;
+using gtopt::CascadeLevelSolver;
+using gtopt::CascadeOptions;
+using gtopt::CascadeTransition;
+using gtopt::ModelOptions;
 using gtopt::MonolithicOptions;
 using gtopt::Options;
 using gtopt::SddpOptions;
@@ -62,7 +67,9 @@ struct json_data_contract<SddpOptions>
                        json_string_null<"sentinel_file", OptName>,
                        json_string_null<"elastic_mode", OptName>,
                        json_number_null<"multi_cut_threshold", OptInt>,
-                       json_number_null<"num_apertures", OptInt>,
+                       json_array_null<"apertures",
+                                       std::optional<Array<Uid>>,
+                                       json_number_no_name<Uid>>,
                        json_string_null<"aperture_directory", OptName>,
                        json_number_null<"aperture_timeout", OptReal>,
                        json_bool_null<"save_aperture_lp", OptBool>,
@@ -77,7 +84,8 @@ struct json_data_contract<SddpOptions>
                        json_number_null<"prune_dual_threshold", OptReal>,
                        json_bool_null<"single_cut_storage", OptBool>,
                        json_number_null<"max_stored_cuts", OptInt>,
-                       json_bool_null<"use_clone_pool", OptBool>>;
+                       json_bool_null<"use_clone_pool", OptBool>,
+                       json_bool_null<"simulation_mode", OptBool>>;
 
   constexpr static auto to_json_data(SddpOptions const& opt)
   {
@@ -98,7 +106,7 @@ struct json_data_contract<SddpOptions>
                                  opt.sentinel_file,
                                  opt.elastic_mode,
                                  opt.multi_cut_threshold,
-                                 opt.num_apertures,
+                                 opt.apertures,
                                  opt.aperture_directory,
                                  opt.aperture_timeout,
                                  opt.save_aperture_lp,
@@ -113,7 +121,113 @@ struct json_data_contract<SddpOptions>
                                  opt.prune_dual_threshold,
                                  opt.single_cut_storage,
                                  opt.max_stored_cuts,
-                                 opt.use_clone_pool);
+                                 opt.use_clone_pool,
+                                 opt.simulation_mode);
+  }
+};
+
+template<>
+struct json_data_contract<ModelOptions>
+{
+  using type =
+      json_member_list<json_bool_null<"use_single_bus", OptBool>,
+                       json_bool_null<"use_kirchhoff", OptBool>,
+                       json_bool_null<"use_line_losses", OptBool>,
+                       json_number_null<"kirchhoff_threshold", OptReal>,
+                       json_number_null<"loss_segments", OptInt>,
+                       json_number_null<"scale_objective", OptReal>,
+                       json_number_null<"scale_theta", OptReal>,
+                       json_number_null<"demand_fail_cost", OptReal>,
+                       json_number_null<"reserve_fail_cost", OptReal>,
+                       json_number_null<"annual_discount_rate", OptReal>>;
+
+  constexpr static auto to_json_data(ModelOptions const& opt)
+  {
+    return std::forward_as_tuple(opt.use_single_bus,
+                                 opt.use_kirchhoff,
+                                 opt.use_line_losses,
+                                 opt.kirchhoff_threshold,
+                                 opt.loss_segments,
+                                 opt.scale_objective,
+                                 opt.scale_theta,
+                                 opt.demand_fail_cost,
+                                 opt.reserve_fail_cost,
+                                 opt.annual_discount_rate);
+  }
+};
+
+template<>
+struct json_data_contract<CascadeTransition>
+{
+  using type =
+      json_member_list<json_number_null<"inherit_optimality_cuts", OptInt>,
+                       json_number_null<"inherit_feasibility_cuts", OptInt>,
+                       json_number_null<"inherit_targets", OptInt>,
+                       json_number_null<"target_rtol", OptReal>,
+                       json_number_null<"target_min_atol", OptReal>,
+                       json_number_null<"target_penalty", OptReal>,
+                       json_number_null<"optimality_dual_threshold", OptReal>>;
+
+  constexpr static auto to_json_data(CascadeTransition const& opt)
+  {
+    return std::forward_as_tuple(opt.inherit_optimality_cuts,
+                                 opt.inherit_feasibility_cuts,
+                                 opt.inherit_targets,
+                                 opt.target_rtol,
+                                 opt.target_min_atol,
+                                 opt.target_penalty,
+                                 opt.optimality_dual_threshold);
+  }
+};
+
+template<>
+struct json_data_contract<CascadeLevelSolver>
+{
+  using type = json_member_list<json_number_null<"max_iterations", OptInt>,
+                                json_number_null<"min_iterations", OptInt>,
+                                json_array_null<"apertures",
+                                                std::optional<Array<Uid>>,
+                                                json_number_no_name<Uid>>,
+                                json_number_null<"convergence_tol", OptReal>>;
+
+  constexpr static auto to_json_data(CascadeLevelSolver const& opt)
+  {
+    return std::forward_as_tuple(opt.max_iterations,
+                                 opt.min_iterations,
+                                 opt.apertures,
+                                 opt.convergence_tol);
+  }
+};
+
+template<>
+struct json_data_contract<CascadeLevel>
+{
+  using type =
+      json_member_list<json_number_null<"uid", OptUid>,
+                       json_string_null<"name", OptName>,
+                       json_class_null<"model_options", ModelOptions>,
+                       json_class_null<"sddp_options", CascadeLevelSolver>,
+                       json_class_null<"transition", CascadeTransition>>;
+
+  constexpr static auto to_json_data(CascadeLevel const& opt)
+  {
+    return std::forward_as_tuple(
+        opt.uid, opt.name, opt.model_options, opt.sddp_options, opt.transition);
+  }
+};
+
+template<>
+struct json_data_contract<CascadeOptions>
+{
+  using type = json_member_list<
+      json_class_null<"model_options", ModelOptions>,
+      json_class_null<"sddp_options", SddpOptions>,
+      json_array_null<"level_array", gtopt::Array<CascadeLevel>, CascadeLevel>>;
+
+  constexpr static auto to_json_data(CascadeOptions const& opt)
+  {
+    return std::forward_as_tuple(
+        opt.model_options, opt.sddp_options, opt.level_array);
   }
 };
 
@@ -151,8 +265,10 @@ struct json_data_contract<Options>
                        json_bool_null<"just_build_lp", OptBool>,
                        json_number_null<"lp_coeff_ratio_threshold", OptReal>,
 
+                       json_class_null<"model_options", ModelOptions>,
                        json_class_null<"monolithic_options", MonolithicOptions>,
                        json_class_null<"sddp_options", SddpOptions>,
+                       json_class_null<"cascade_options", CascadeOptions>,
                        json_class_null<"solver_options", SolverOptions>,
                        json_array_null<"variable_scales",
                                        gtopt::Array<VariableScale>,
@@ -190,8 +306,10 @@ struct json_data_contract<Options>
                                  opt.just_build_lp,
                                  opt.lp_coeff_ratio_threshold,
 
+                                 opt.model_options,
                                  opt.monolithic_options,
                                  opt.sddp_options,
+                                 opt.cascade_options,
                                  opt.solver_options,
                                  opt.variable_scales);
   }

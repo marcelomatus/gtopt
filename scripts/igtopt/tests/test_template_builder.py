@@ -329,3 +329,195 @@ class TestFiltrationArraySheet:
         headers = {cell.value for cell in next(ws.iter_rows(max_row=1))}
         required = {"uid", "name", "waterway", "reservoir"}
         assert required.issubset(headers), f"Missing columns: {required - headers}"
+
+
+# ---------------------------------------------------------------------------
+# simulation_mode in SDDP_OPTION_KEYS
+# ---------------------------------------------------------------------------
+
+
+class TestSimulationModeKey:
+    """Verify simulation_mode is present in SDDP_OPTION_KEYS."""
+
+    def test_simulation_mode_in_sddp_keys(self):
+        """simulation_mode must be in SDDP_OPTION_KEYS."""
+        assert "simulation_mode" in tb.SDDP_OPTION_KEYS
+
+    def test_apertures_in_sddp_keys(self):
+        """apertures must be in SDDP_OPTION_KEYS."""
+        assert "apertures" in tb.SDDP_OPTION_KEYS
+
+
+# ---------------------------------------------------------------------------
+# Cascade option keys
+# ---------------------------------------------------------------------------
+
+
+class TestCascadeOptionKeys:
+    """Verify CASCADE_OPTION_KEYS is exported and cascade_options is importable."""
+
+    def test_cascade_option_keys_exists(self):
+        """CASCADE_OPTION_KEYS is a frozenset (may be empty for hierarchical config)."""
+        assert isinstance(tb.CASCADE_OPTION_KEYS, frozenset)
+
+    def test_cascade_options_sync_with_cpp(self, repo_root):
+        """CascadeOptions fields in json_options.hpp are well-formed."""
+        import re
+
+        header = repo_root / "include" / "gtopt" / "json" / "json_options.hpp"
+        if not header.exists():
+            pytest.skip("json_options.hpp not found")
+
+        text = header.read_text()
+
+        # Verify CascadeOptions contract exists
+        match = re.search(r"json_data_contract<CascadeOptions>.*?>;", text, re.DOTALL)
+        assert match, "Could not find json_data_contract<CascadeOptions>"
+
+        block = match.group()
+        cpp_fields = set(re.findall(r'json_\w+<"(\w+)"', block))
+        expected = {"model_options", "sddp_options", "level_array"}
+        assert expected == cpp_fields, (
+            f"CascadeOptions fields mismatch: expected {expected}, got {cpp_fields}"
+        )
+
+    def test_cascade_level_fields_sync_with_cpp(self, repo_root):
+        """CascadeLevel fields in json_options.hpp match expected structure."""
+        import re
+
+        header = repo_root / "include" / "gtopt" / "json" / "json_options.hpp"
+        if not header.exists():
+            pytest.skip("json_options.hpp not found")
+
+        text = header.read_text()
+
+        match = re.search(r"json_data_contract<CascadeLevel>.*?>;", text, re.DOTALL)
+        assert match, "Could not find json_data_contract<CascadeLevel>"
+
+        block = match.group()
+        cpp_fields = set(re.findall(r'json_\w+<"(\w+)"', block))
+        expected = {"uid", "name", "model_options", "sddp_options", "transition"}
+        assert expected == cpp_fields, (
+            f"CascadeLevel fields mismatch: expected {expected}, got {cpp_fields}"
+        )
+
+    def test_cascade_transition_fields_sync_with_cpp(self, repo_root):
+        """CascadeTransition fields in json_options.hpp match expected structure."""
+        import re
+
+        header = repo_root / "include" / "gtopt" / "json" / "json_options.hpp"
+        if not header.exists():
+            pytest.skip("json_options.hpp not found")
+
+        text = header.read_text()
+
+        match = re.search(
+            r"json_data_contract<CascadeTransition>.*?>;", text, re.DOTALL
+        )
+        assert match, "Could not find json_data_contract<CascadeTransition>"
+
+        block = match.group()
+        cpp_fields = set(re.findall(r'json_\w+<"(\w+)"', block))
+        expected = {
+            "inherit_optimality_cuts",
+            "inherit_feasibility_cuts",
+            "inherit_targets",
+            "target_rtol",
+            "target_min_atol",
+            "target_penalty",
+            "optimality_dual_threshold",
+        }
+        assert expected == cpp_fields, (
+            f"CascadeTransition fields mismatch: expected {expected}, got {cpp_fields}"
+        )
+
+    def test_cascade_level_solver_fields_sync_with_cpp(self, repo_root):
+        """CascadeLevelSolver fields in json_options.hpp match expected structure."""
+        import re
+
+        header = repo_root / "include" / "gtopt" / "json" / "json_options.hpp"
+        if not header.exists():
+            pytest.skip("json_options.hpp not found")
+
+        text = header.read_text()
+
+        match = re.search(
+            r"json_data_contract<CascadeLevelSolver>.*?>;", text, re.DOTALL
+        )
+        assert match, "Could not find json_data_contract<CascadeLevelSolver>"
+
+        block = match.group()
+        cpp_fields = set(re.findall(r'json_\w+<"(\w+)"', block))
+        expected = {"max_iterations", "min_iterations", "apertures", "convergence_tol"}
+        assert expected == cpp_fields, (
+            f"CascadeLevelSolver fields mismatch: expected {expected}, got {cpp_fields}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# _nest_sub_options — cascade and simulation_mode
+# ---------------------------------------------------------------------------
+
+
+class TestNestSubOptionsCascade:
+    """Tests for _nest_sub_options handling of cascade_options and simulation_mode."""
+
+    def test_simulation_mode_nested_into_sddp(self):
+        """simulation_mode is placed inside sddp_options by _nest_sub_options."""
+        from igtopt.igtopt import _nest_sub_options
+
+        flat = {"solver_type": "sddp", "simulation_mode": True}
+        result = _nest_sub_options(flat)
+        assert "simulation_mode" not in result
+        assert result["sddp_options"]["simulation_mode"] is True
+
+    def test_cascade_options_passthrough(self):
+        """cascade_options dict is passed through as-is."""
+        from igtopt.igtopt import _nest_sub_options
+
+        cascade = {
+            "levels": [
+                {
+                    "name": "copper_plate",
+                    "model_options": {"use_single_bus": True},
+                    "sddp_options": {"max_iterations": 20},
+                    "transition": {"inherit_optimality_cuts": True},
+                }
+            ]
+        }
+        flat = {"solver_type": "sddp", "cascade_options": cascade}
+        result = _nest_sub_options(flat)
+        assert result["cascade_options"] == cascade
+        assert result["cascade_options"]["levels"][0]["name"] == "copper_plate"
+
+    def test_cascade_options_with_sddp_keys(self):
+        """cascade_options coexists with flat SDDP keys."""
+        from igtopt.igtopt import _nest_sub_options
+
+        cascade = {
+            "levels": [
+                {
+                    "name": "level_0",
+                    "model_options": {"use_single_bus": True},
+                }
+            ]
+        }
+        flat = {
+            "solver_type": "sddp",
+            "max_iterations": 100,
+            "simulation_mode": False,
+            "cascade_options": cascade,
+        }
+        result = _nest_sub_options(flat)
+        assert result["cascade_options"] == cascade
+        assert result["sddp_options"]["max_iterations"] == 100
+        assert result["sddp_options"]["simulation_mode"] is False
+
+    def test_apertures_nested_into_sddp(self):
+        """apertures list is placed inside sddp_options by _nest_sub_options."""
+        from igtopt.igtopt import _nest_sub_options
+
+        flat = {"solver_type": "sddp", "apertures": [1, 2, 3]}
+        result = _nest_sub_options(flat)
+        assert "apertures" not in result
+        assert result["sddp_options"]["apertures"] == [1, 2, 3]

@@ -172,9 +172,14 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// Default: 10.
   int multi_cut_threshold {10};
 
-  /// Save cuts to CSV after each iteration (default: true).
+  /// Save cuts to CSV after each training iteration (default: true).
   /// When false, cuts are only saved at the end of the solve or on stop.
   bool save_per_iteration {true};
+
+  /// Save feasibility cuts produced during the simulation pass (default:
+  /// false).  When false, only training-iteration cuts are persisted,
+  /// ensuring hot-start reproducibility.
+  bool save_simulation_cuts {false};
 
   /// Global solve timeout in seconds (0 = no timeout).
   /// When non-zero, each forward-pass LP solve is given this time limit;
@@ -247,18 +252,22 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// then solves the clone to obtain an independent Benders cut.  The final
   /// cut added to the previous phase is the probability-weighted average of
   /// all aperture cuts (expected cut).
+  /// Aperture UIDs for the backward pass.
   ///
-  ///  0  – disabled; use the cached forward-pass solution (default, current
-  ///       behaviour).
-  /// -1  – use all available scenarios as apertures (one-to-one mapping).
-  ///  N > 0 – use the first N scenarios as apertures (capped at the total
-  ///          number of scenarios defined in the simulation).
+  ///  nullopt – use per-phase `Phase::aperture_set` or simulation-level
+  ///            `aperture_array` (default behaviour).
+  ///  empty   – no apertures; use pure Benders backward pass.
+  ///  [1,2,3] – use exactly these aperture UIDs, overriding per-phase sets.
+  ///
+  /// When a non-empty list is given but no matching `Aperture` definitions
+  /// exist in `simulation.aperture_array`, synthetic apertures are built
+  /// from scenarios whose UIDs match.
   ///
   /// Note: apertures only update flow column bounds (affluent values).
   /// Other stochastic parameters (demand, generator profiles) are not
   /// updated.  State variable bounds remain fixed at the forward-pass
   /// trial values.
-  int num_apertures {0};
+  std::optional<std::vector<Uid>> apertures {};
 
   /// Timeout in seconds for individual aperture LP solves in the backward
   /// pass.  When an aperture LP exceeds this time, it is treated as
@@ -451,6 +460,8 @@ struct StoredCut
   SceneUid scene {};  ///< Scene UID that generated this cut (-1 = shared)
   std::string name {};  ///< Cut name
   double rhs {};  ///< Right-hand side (lower bound)
+  std::optional<double> dual {};  ///< Row dual value (nullopt = unknown)
+  RowIndex row {};  ///< LP row index where this cut was added
   /// Coefficient pairs: (column_index, coefficient)
   std::vector<std::pair<int, double>> coefficients {};
 };
@@ -537,6 +548,14 @@ public:
   [[nodiscard]] auto solve(const SolverOptions& lp_opts = {})
       -> std::expected<std::vector<SDDPIterationResult>, Error>;
 
+  /// Ensure the solver is initialized (alpha variables, state links, etc.).
+  /// Safe to call multiple times (guarded by m_initialized_ flag).
+  /// Call before loading external cuts that reference alpha columns.
+  [[nodiscard]] auto ensure_initialized() -> std::expected<void, Error>
+  {
+    return initialize_solver();
+  }
+
   // ── Iteration callback / observer ──
 
   /// Register a callback invoked after each iteration.
@@ -619,8 +638,33 @@ public:
     return m_scene_phase_states_[SceneIndex {0}];
   }
 
-  /// SDDP options
+  /// SDDP options (const)
   [[nodiscard]] constexpr auto& options() const noexcept { return m_options_; }
+
+  /// Mutable options access (for cascade orchestration between solve() calls).
+  [[nodiscard]] constexpr auto& mutable_options() noexcept
+  {
+    return m_options_;
+  }
+
+  /// Clear all stored cut metadata (combined + per-scene).
+  /// Used by CascadePlanningSolver between cascade phases.
+  void clear_stored_cuts() noexcept;
+
+  /// Remove the first @p count cuts from stored cuts and from the LP.
+  /// This deletes the LP rows associated with those cuts (via
+  /// `delete_rows`) and erases them from `m_stored_cuts_`.  Used by
+  /// the cascade solver's "forget inherited cuts" feature: the first
+  /// N cuts loaded via hot-start are dropped so the solver continues
+  /// with only self-generated cuts.
+  ///
+  /// @param count  Number of leading cuts to remove (clamped to size).
+  void forget_first_cuts(int count);
+
+  /// Update dual values of stored cuts from the current LP solution.
+  /// Call after the solver finishes to populate the dual field in each
+  /// StoredCut with the row dual from the last forward-pass solve.
+  void update_stored_cut_duals();
 
   /// All stored cuts (for persistence / inspection)
   [[nodiscard]] const auto& stored_cuts() const noexcept
@@ -768,7 +812,8 @@ private:
   void store_cut(SceneIndex scene,
                  PhaseIndex src_phase,
                  const SparseRow& cut,
-                 CutType type = CutType::Optimality);
+                 CutType type = CutType::Optimality,
+                 RowIndex row = RowIndex {-1});
 
   /// Resolve an LP via the SDDP work pool.  Falls back to direct resolve if
   /// the pool is not available.  Avoids naked direct resolve() calls.
@@ -1000,6 +1045,8 @@ private:
   // ── Stop / callback machinery ──
   SDDPIterationCallback m_iteration_callback_ {};
   std::atomic<bool> m_stop_requested_ {false};
+  /// When true, should_stop() returns false (simulation pass ignores stops).
+  bool m_in_simulation_ {false};
 
   // ── Atomic live-query state ──
   std::atomic<int> m_current_iteration_ {0};

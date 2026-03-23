@@ -13,9 +13,13 @@ from gtopt_check_json._checks import (
     check_battery_efficiency,
     check_bus_connectivity,
     check_capacity_adequacy,
+    check_cascade_levels,
+    check_cascade_solver_type,
     check_demand_lmax_nonneg,
     check_element_references,
     check_name_uniqueness,
+    check_sddp_options,
+    check_simulation_mode,
     check_uid_uniqueness,
     check_unreferenced_elements,
     run_all_checks,
@@ -858,4 +862,383 @@ class TestCheckCapacityAdequacy:
         case = json.loads(json.dumps(_INDICATOR_CASE))
         case["system"]["demand_array"] = []
         findings = check_capacity_adequacy(case)
+        assert not findings
+
+
+# ── Cascade level validation ──────────────────────────────────────────────
+
+
+class TestCascadeLevels:
+    """Test check_cascade_levels."""
+
+    def test_no_cascade_no_findings(self) -> None:
+        assert not check_cascade_levels(_VALID_CASE)
+
+    def test_valid_cascade(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["cascade_options"] = {
+            "level_array": [
+                {"name": "coarse", "sddp_options": {"max_iterations": 10}},
+                {
+                    "name": "fine",
+                    "transition": {"inherit_optimality_cuts": True},
+                    "sddp_options": {
+                        "max_iterations": 20,
+                        "convergence_tol": 0.001,
+                    },
+                },
+            ],
+        }
+        findings = check_cascade_levels(case)
+        assert not findings
+
+    def test_missing_name_warning(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["cascade_options"] = {
+            "level_array": [
+                {"sddp_options": {"max_iterations": 10}},
+            ],
+        }
+        findings = check_cascade_levels(case)
+        assert len(findings) == 1
+        assert findings[0].severity == Severity.WARNING
+        assert "missing 'name'" in findings[0].message
+
+    def test_level0_transition_warning(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["cascade_options"] = {
+            "level_array": [
+                {
+                    "name": "first",
+                    "transition": {"inherit_optimality_cuts": True},
+                },
+            ],
+        }
+        findings = check_cascade_levels(case)
+        assert any(
+            "index 0" in f.message and "nothing to inherit" in f.message
+            for f in findings
+        )
+
+    def test_target_penalty_nonpositive(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["cascade_options"] = {
+            "level_array": [
+                {"name": "coarse"},
+                {
+                    "name": "fine",
+                    "transition": {
+                        "inherit_targets": True,
+                        "target_penalty": 0,
+                    },
+                },
+            ],
+        }
+        findings = check_cascade_levels(case)
+        assert any(
+            "target_penalty" in f.message and f.severity == Severity.WARNING
+            for f in findings
+        )
+
+    def test_target_rtol_out_of_range(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["cascade_options"] = {
+            "level_array": [
+                {"name": "coarse"},
+                {
+                    "name": "fine",
+                    "transition": {"target_rtol": 1.5},
+                },
+            ],
+        }
+        findings = check_cascade_levels(case)
+        assert any(
+            "target_rtol" in f.message and f.severity == Severity.CRITICAL
+            for f in findings
+        )
+
+    def test_target_rtol_zero(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["cascade_options"] = {
+            "level_array": [
+                {"name": "coarse"},
+                {"name": "fine", "transition": {"target_rtol": 0}},
+            ],
+        }
+        findings = check_cascade_levels(case)
+        assert any("target_rtol" in f.message for f in findings)
+
+    def test_target_rtol_valid_one(self) -> None:
+        """target_rtol=1.0 is valid (edge of range)."""
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["cascade_options"] = {
+            "level_array": [
+                {"name": "coarse"},
+                {"name": "fine", "transition": {"target_rtol": 1.0}},
+            ],
+        }
+        findings = check_cascade_levels(case)
+        assert not any("target_rtol" in f.message for f in findings)
+
+    def test_both_inherit_cuts_and_targets_note(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["cascade_options"] = {
+            "level_array": [
+                {"name": "coarse"},
+                {
+                    "name": "fine",
+                    "transition": {
+                        "inherit_optimality_cuts": True,
+                        "inherit_targets": True,
+                    },
+                },
+            ],
+        }
+        findings = check_cascade_levels(case)
+        assert any(
+            f.severity == Severity.NOTE
+            and "inherit_optimality_cuts" in f.message
+            and "inherit_targets" in f.message
+            for f in findings
+        )
+
+    def test_negative_max_iterations_critical(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["cascade_options"] = {
+            "level_array": [
+                {
+                    "name": "bad",
+                    "sddp_options": {"max_iterations": -1},
+                },
+            ],
+        }
+        findings = check_cascade_levels(case)
+        assert any(
+            "max_iterations" in f.message and f.severity == Severity.CRITICAL
+            for f in findings
+        )
+
+    def test_convergence_tol_out_of_range(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["cascade_options"] = {
+            "level_array": [
+                {
+                    "name": "bad",
+                    "sddp_options": {"convergence_tol": 1.5},
+                },
+            ],
+        }
+        findings = check_cascade_levels(case)
+        assert any(
+            "convergence_tol" in f.message and f.severity == Severity.CRITICAL
+            for f in findings
+        )
+
+
+# ── Simulation mode checks ────────────────────────────────────────────────
+
+
+class TestSimulationMode:
+    """Test check_simulation_mode."""
+
+    def test_no_simulation_mode_no_findings(self) -> None:
+        assert not check_simulation_mode(_VALID_CASE)
+
+    def test_simulation_mode_with_max_iterations(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["sddp_options"] = {
+            "simulation_mode": True,
+            "max_iterations": 10,
+        }
+        findings = check_simulation_mode(case)
+        assert len(findings) == 1
+        assert findings[0].severity == Severity.WARNING
+        assert "max_iterations" in findings[0].message
+
+    def test_simulation_mode_with_save_per_iteration(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["sddp_options"] = {
+            "simulation_mode": True,
+            "save_per_iteration": True,
+        }
+        findings = check_simulation_mode(case)
+        assert any("save_per_iteration" in f.message for f in findings)
+
+    def test_simulation_mode_false_no_findings(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["sddp_options"] = {
+            "simulation_mode": False,
+            "max_iterations": 10,
+        }
+        assert not check_simulation_mode(case)
+
+    def test_simulation_mode_max_iter_zero_ok(self) -> None:
+        """simulation_mode=true with max_iterations=0 is consistent."""
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["sddp_options"] = {
+            "simulation_mode": True,
+            "max_iterations": 0,
+        }
+        findings = check_simulation_mode(case)
+        assert not any("max_iterations" in f.message for f in findings)
+
+
+# ── General SDDP checks ──────────────────────────────────────────────────
+
+
+class TestSddpOptions:
+    """Test check_sddp_options."""
+
+    def test_no_sddp_options_no_findings(self) -> None:
+        assert not check_sddp_options(_VALID_CASE)
+
+    def test_min_gt_max_iterations(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["sddp_options"] = {
+            "min_iterations": 50,
+            "max_iterations": 10,
+        }
+        findings = check_sddp_options(case)
+        assert len(findings) == 1
+        assert findings[0].severity == Severity.WARNING
+        assert "min_iterations" in findings[0].message
+
+    def test_max_iter_zero_no_hot_start(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["sddp_options"] = {
+            "max_iterations": 0,
+        }
+        findings = check_sddp_options(case)
+        assert any(
+            "untrained" in f.message and f.severity == Severity.WARNING
+            for f in findings
+        )
+
+    def test_max_iter_zero_with_hot_start_ok(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["sddp_options"] = {
+            "max_iterations": 0,
+            "hot_start": True,
+        }
+        findings = check_sddp_options(case)
+        assert not any("untrained" in f.message for f in findings)
+
+    def test_max_iter_zero_with_cuts_input_ok(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["sddp_options"] = {
+            "max_iterations": 0,
+            "cuts_input_file": "cuts/saved.csv",
+        }
+        findings = check_sddp_options(case)
+        assert not any("untrained" in f.message for f in findings)
+
+    def test_max_iter_zero_with_hot_start_mode_ok(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["sddp_options"] = {
+            "max_iterations": 0,
+            "hot_start_mode": "keep",
+        }
+        findings = check_sddp_options(case)
+        assert not any("untrained" in f.message for f in findings)
+
+    def test_convergence_tol_zero_critical(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["sddp_options"] = {
+            "convergence_tol": 0,
+        }
+        findings = check_sddp_options(case)
+        assert any(
+            "convergence_tol" in f.message and f.severity == Severity.CRITICAL
+            for f in findings
+        )
+
+    def test_convergence_tol_one_critical(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["sddp_options"] = {
+            "convergence_tol": 1.0,
+        }
+        findings = check_sddp_options(case)
+        assert any(
+            "convergence_tol" in f.message and f.severity == Severity.CRITICAL
+            for f in findings
+        )
+
+    def test_convergence_tol_negative_critical(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["sddp_options"] = {
+            "convergence_tol": -0.01,
+        }
+        findings = check_sddp_options(case)
+        assert any("convergence_tol" in f.message for f in findings)
+
+    def test_convergence_tol_valid(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["sddp_options"] = {
+            "convergence_tol": 0.001,
+        }
+        findings = check_sddp_options(case)
+        assert not any("convergence_tol" in f.message for f in findings)
+
+    def test_valid_sddp_options_no_findings(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["sddp_options"] = {
+            "max_iterations": 100,
+            "min_iterations": 2,
+            "convergence_tol": 0.0001,
+        }
+        assert not check_sddp_options(case)
+
+
+# ── Cascade + solver_type consistency ─────────────────────────────────────
+
+
+class TestCascadeSolverType:
+    """Test check_cascade_solver_type."""
+
+    def test_no_cascade_no_findings(self) -> None:
+        assert not check_cascade_solver_type(_VALID_CASE)
+
+    def test_levels_with_wrong_solver_type(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["solver_type"] = "sddp"
+        case["options"]["cascade_options"] = {
+            "level_array": [
+                {"name": "coarse"},
+                {"name": "fine"},
+            ],
+        }
+        findings = check_cascade_solver_type(case)
+        assert len(findings) == 1
+        assert findings[0].severity == Severity.WARNING
+        assert "sddp" in findings[0].message
+
+    def test_cascade_solver_no_levels_note(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["solver_type"] = "cascade"
+        case["options"]["cascade_options"] = {"level_array": []}
+        findings = check_cascade_solver_type(case)
+        assert len(findings) == 1
+        assert findings[0].severity == Severity.NOTE
+        assert "default level" in findings[0].message
+
+    def test_cascade_solver_with_levels_ok(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["solver_type"] = "cascade"
+        case["options"]["cascade_options"] = {
+            "level_array": [{"name": "coarse"}, {"name": "fine"}],
+        }
+        assert not check_cascade_solver_type(case)
+
+    def test_no_solver_type_no_cascade_no_findings(self) -> None:
+        """No solver_type and no cascade → no findings."""
+        assert not check_cascade_solver_type(_VALID_CASE)
+
+    def test_levels_without_solver_type_no_findings(self) -> None:
+        """Levels present but solver_type empty string → no finding."""
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["cascade_options"] = {
+            "level_array": [{"name": "coarse"}],
+        }
+        # solver_type not set at all → empty string → no warning
+        findings = check_cascade_solver_type(case)
         assert not findings

@@ -332,9 +332,312 @@ def test_fix_negative_max_stored_cuts(tmp_path: Path):
     assert data["options"]["sddp_options"]["max_stored_cuts"] == 0
 
 
+def test_fix_cascade_level_negative_max_iterations(tmp_path: Path):
+    """Negative solver.max_iterations in a cascade level is fixed to 20."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"cascade_options": {"levels": [{"solver": {"max_iterations": -1}}]}},
+    )
+    result = sanitize_json(p)
+    data = json.loads(result.read_text())
+    assert (
+        data["options"]["cascade_options"]["levels"][0]["solver"]["max_iterations"]
+        == 20
+    )
+
+
+def test_fix_cascade_level_negative_convergence_tol(tmp_path: Path):
+    """Negative solver.convergence_tol in a cascade level is fixed to 0.01."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"cascade_options": {"levels": [{"solver": {"convergence_tol": -0.5}}]}},
+    )
+    result = sanitize_json(p)
+    data = json.loads(result.read_text())
+    assert (
+        data["options"]["cascade_options"]["levels"][0]["solver"]["convergence_tol"]
+        == 0.01
+    )
+
+
+def test_fix_cascade_level_negative_target_rtol(tmp_path: Path):
+    """Negative transition.target_rtol is fixed to 0.05."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"cascade_options": {"levels": [{"transition": {"target_rtol": -0.1}}]}},
+    )
+    result = sanitize_json(p)
+    data = json.loads(result.read_text())
+    assert (
+        data["options"]["cascade_options"]["levels"][0]["transition"]["target_rtol"]
+        == 0.05
+    )
+
+
+def test_fix_cascade_level_negative_target_min_atol(tmp_path: Path):
+    """Negative transition.target_min_atol is fixed to 1.0."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"cascade_options": {"levels": [{"transition": {"target_min_atol": -2.0}}]}},
+    )
+    result = sanitize_json(p)
+    data = json.loads(result.read_text())
+    assert (
+        data["options"]["cascade_options"]["levels"][0]["transition"]["target_min_atol"]
+        == 1.0
+    )
+
+
+def test_fix_cascade_level_negative_target_penalty(tmp_path: Path):
+    """Negative transition.target_penalty is fixed to 500.0."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"cascade_options": {"levels": [{"transition": {"target_penalty": -100}}]}},
+    )
+    result = sanitize_json(p)
+    data = json.loads(result.read_text())
+    assert (
+        data["options"]["cascade_options"]["levels"][0]["transition"]["target_penalty"]
+        == 500.0
+    )
+
+
+def test_fix_cascade_level_negative_num_apertures(tmp_path: Path):
+    """Negative solver.num_apertures is fixed to 0."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"cascade_options": {"levels": [{"solver": {"num_apertures": -3}}]}},
+    )
+    result = sanitize_json(p)
+    data = json.loads(result.read_text())
+    assert (
+        data["options"]["cascade_options"]["levels"][0]["solver"]["num_apertures"] == 0
+    )
+
+
+def test_valid_cascade_levels_pass_through(tmp_path: Path):
+    """Valid cascade levels are not modified."""
+    level = {
+        "name": "uninodal_benders",
+        "model_options": {"use_single_bus": True, "use_kirchhoff": False},
+        "sddp_options": {
+            "max_iterations": 20,
+            "convergence_tol": 0.01,
+        },
+        "transition": {
+            "inherit_optimality_cuts": False,
+            "target_rtol": 0.05,
+            "target_min_atol": 1.0,
+            "target_penalty": 500.0,
+        },
+    }
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"cascade_options": {"levels": [level]}},
+    )
+    result = sanitize_json(p)
+    data = json.loads(result.read_text())
+    out_level = data["options"]["cascade_options"]["levels"][0]
+    assert out_level["sddp_options"]["max_iterations"] == 20
+    assert out_level["transition"]["target_rtol"] == 0.05
+    assert out_level["transition"]["target_penalty"] == 500.0
+
+
+def test_cascade_multiple_levels_validated(tmp_path: Path):
+    """Validation applies to each level independently."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {
+            "cascade_options": {
+                "levels": [
+                    {"solver": {"max_iterations": 10}},
+                    {"solver": {"max_iterations": -5}},
+                ]
+            }
+        },
+    )
+    result = sanitize_json(p)
+    data = json.loads(result.read_text())
+    levels = data["options"]["cascade_options"]["levels"]
+    assert levels[0]["solver"]["max_iterations"] == 10
+    assert levels[1]["solver"]["max_iterations"] == 20
+
+
+def test_cascade_solver_type_accepted(tmp_path: Path):
+    """solver_type 'cascade' passes validation."""
+    p = _write_plan(tmp_path / "plan.json", {"solver_type": "cascade"})
+    result = sanitize_json(p)
+    data = json.loads(result.read_text())
+    assert data["options"]["solver_type"] == "cascade"
+
+
 def test_output_directory_override(tmp_path: Path):
     """output_directory is overridden when provided."""
     p = _write_plan(tmp_path / "plan.json", {"output_directory": "old"})
     result = sanitize_json(p, output_directory="/new/output")
     data = json.loads(result.read_text())
     assert data["options"]["output_directory"] == "/new/output"
+
+
+# ---------------------------------------------------------------------------
+# New cascade level structure (sddp_options / model_options)
+# ---------------------------------------------------------------------------
+
+
+def test_fix_cascade_sddp_options_negative_max_iterations(tmp_path: Path):
+    """Negative sddp_options.max_iterations in a cascade level is fixed."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"cascade_options": {"levels": [{"sddp_options": {"max_iterations": -1}}]}},
+    )
+    result = sanitize_json(p)
+    data = json.loads(result.read_text())
+    lvl = data["options"]["cascade_options"]["levels"][0]
+    assert lvl["sddp_options"]["max_iterations"] == 20
+
+
+def test_fix_cascade_sddp_options_negative_min_iterations(tmp_path: Path):
+    """Negative sddp_options.min_iterations in a cascade level is fixed."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"cascade_options": {"levels": [{"sddp_options": {"min_iterations": -3}}]}},
+    )
+    result = sanitize_json(p)
+    data = json.loads(result.read_text())
+    lvl = data["options"]["cascade_options"]["levels"][0]
+    assert lvl["sddp_options"]["min_iterations"] == 0
+
+
+def test_fix_cascade_sddp_options_negative_convergence_tol(tmp_path: Path):
+    """Negative sddp_options.convergence_tol in a cascade level is fixed."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"cascade_options": {"levels": [{"sddp_options": {"convergence_tol": -0.5}}]}},
+    )
+    result = sanitize_json(p)
+    data = json.loads(result.read_text())
+    lvl = data["options"]["cascade_options"]["levels"][0]
+    assert lvl["sddp_options"]["convergence_tol"] == 0.01
+
+
+def test_fix_cascade_model_options_kirchhoff_single_bus(tmp_path: Path):
+    """Kirchhoff + single-bus conflict in cascade model_options is resolved."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {
+            "cascade_options": {
+                "levels": [
+                    {
+                        "model_options": {
+                            "use_single_bus": True,
+                            "use_kirchhoff": True,
+                        }
+                    }
+                ]
+            }
+        },
+    )
+    result = sanitize_json(p)
+    data = json.loads(result.read_text())
+    mo = data["options"]["cascade_options"]["levels"][0]["model_options"]
+    assert mo["use_kirchhoff"] is False
+    assert mo["use_single_bus"] is True
+
+
+def test_fix_cascade_transition_negative_optimality_dual_threshold(tmp_path: Path):
+    """Negative optimality_dual_threshold in transition is fixed to 0.0."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {
+            "cascade_options": {
+                "levels": [{"transition": {"optimality_dual_threshold": -0.01}}]
+            }
+        },
+    )
+    result = sanitize_json(p)
+    data = json.loads(result.read_text())
+    tr = data["options"]["cascade_options"]["levels"][0]["transition"]
+    assert tr["optimality_dual_threshold"] == 0.0
+
+
+def test_cascade_level_array_key_accepted(tmp_path: Path):
+    """The legacy level_array key is also accepted."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {
+            "cascade_options": {
+                "level_array": [{"sddp_options": {"max_iterations": -1}}]
+            }
+        },
+    )
+    result = sanitize_json(p)
+    data = json.loads(result.read_text())
+    lvl = data["options"]["cascade_options"]["level_array"][0]
+    assert lvl["sddp_options"]["max_iterations"] == 20
+
+
+def test_cascade_new_structure_full_level(tmp_path: Path):
+    """A full new-structure level with model_options, sddp_options, transition."""
+    level = {
+        "name": "fast_benders",
+        "model_options": {"use_single_bus": True, "use_kirchhoff": False},
+        "sddp_options": {
+            "max_iterations": 20,
+            "convergence_tol": 0.01,
+        },
+        "transition": {
+            "inherit_optimality_cuts": True,
+            "inherit_feasibility_cuts": False,
+            "inherit_targets": False,
+            "target_penalty": 500.0,
+            "optimality_dual_threshold": 0.0,
+        },
+    }
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"cascade_options": {"levels": [level]}},
+    )
+    result = sanitize_json(p)
+    data = json.loads(result.read_text())
+    out = data["options"]["cascade_options"]["levels"][0]
+    assert out["sddp_options"]["max_iterations"] == 20
+    assert out["model_options"]["use_kirchhoff"] is False
+    assert out["transition"]["target_penalty"] == 500.0
+    assert out["transition"]["optimality_dual_threshold"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# simulation_mode in sddp_options
+# ---------------------------------------------------------------------------
+
+
+def test_sddp_simulation_mode_bool_accepted(tmp_path: Path):
+    """Boolean simulation_mode passes through without modification."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"sddp_options": {"simulation_mode": True}},
+    )
+    result = sanitize_json(p)
+    # No FIX applied, original returned
+    assert result == p
+
+
+def test_sddp_simulation_mode_false_accepted(tmp_path: Path):
+    """simulation_mode=false passes through without modification."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"sddp_options": {"simulation_mode": False}},
+    )
+    result = sanitize_json(p)
+    assert result == p
+
+
+def test_fix_sddp_simulation_mode_non_bool(tmp_path: Path):
+    """Non-boolean simulation_mode is coerced to bool."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"sddp_options": {"simulation_mode": 1}},
+    )
+    result = sanitize_json(p)
+    data = json.loads(result.read_text())
+    assert data["options"]["sddp_options"]["simulation_mode"] is True

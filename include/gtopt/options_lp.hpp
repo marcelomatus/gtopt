@@ -105,82 +105,94 @@ public:
    * @brief Gets the demand failure cost
    * @return The demand failure cost as an optional value
    */
+  /// @brief Gets the demand failure cost.
+  /// Flat field takes precedence, then model_options.
   [[nodiscard]] constexpr auto demand_fail_cost() const
   {
-    return m_options_.demand_fail_cost;
+    if (m_options_.demand_fail_cost.has_value()) {
+      return m_options_.demand_fail_cost;
+    }
+    return m_options_.model_options.demand_fail_cost;
   }
 
-  /**
-   * @brief Gets the reserve failure cost
-   * @return The reserve failure cost as an optional value
-   */
+  /// @brief Gets the reserve failure cost.
+  /// Flat field takes precedence, then model_options.
   [[nodiscard]] constexpr auto reserve_fail_cost() const
   {
-    return m_options_.reserve_fail_cost;
+    if (m_options_.reserve_fail_cost.has_value()) {
+      return m_options_.reserve_fail_cost;
+    }
+    return m_options_.model_options.reserve_fail_cost;
   }
 
-  /**
-   * @brief Gets the line loss modeling flag, using default if not set
-   * @return Whether to model line losses
-   */
+  /// @brief Gets the line loss modeling flag.
+  /// Flat field takes precedence, then model_options, then default.
   [[nodiscard]] constexpr auto use_line_losses() const
   {
-    return m_options_.use_line_losses.value_or(default_use_line_losses);
+    if (m_options_.use_line_losses.has_value()) {
+      return *m_options_.use_line_losses;
+    }
+    return m_options_.model_options.use_line_losses.value_or(
+        default_use_line_losses);
   }
 
-  /**
-   * @brief Gets the default number of piecewise-linear loss segments
-   * @return Number of segments (1 = linear model, >1 = quadratic
-   * approximation)
-   */
+  /// @brief Gets the number of piecewise-linear loss segments.
   [[nodiscard]] constexpr auto loss_segments() const
   {
-    return m_options_.loss_segments.value_or(default_loss_segments);
+    if (m_options_.loss_segments.has_value()) {
+      return *m_options_.loss_segments;
+    }
+    return m_options_.model_options.loss_segments.value_or(
+        default_loss_segments);
   }
 
-  /**
-   * @brief Gets the Kirchhoff constraints flag, using default if not set
-   * @return Whether to apply Kirchhoff constraints
-   */
+  /// @brief Gets the Kirchhoff constraints flag.
   [[nodiscard]] constexpr auto use_kirchhoff() const
   {
-    return m_options_.use_kirchhoff.value_or(default_use_kirchhoff);
+    if (m_options_.use_kirchhoff.has_value()) {
+      return *m_options_.use_kirchhoff;
+    }
+    return m_options_.model_options.use_kirchhoff.value_or(
+        default_use_kirchhoff);
   }
 
-  /**
-   * @brief Gets the single-bus modeling flag, using default if not set
-   * @return Whether to model the system as a single bus
-   */
+  /// @brief Gets the single-bus modeling flag.
   [[nodiscard]] constexpr auto use_single_bus() const
   {
-    return m_options_.use_single_bus.value_or(default_use_single_bus);
+    if (m_options_.use_single_bus.has_value()) {
+      return *m_options_.use_single_bus;
+    }
+    return m_options_.model_options.use_single_bus.value_or(
+        default_use_single_bus);
   }
 
-  /**
-   * @brief Gets the objective function scaling factor, using default if not set
-   * @return The objective function scaling factor
-   */
+  /// @brief Gets the objective function scaling factor.
   [[nodiscard]] constexpr auto scale_objective() const
   {
-    return m_options_.scale_objective.value_or(default_scale_objective);
+    if (m_options_.scale_objective.has_value()) {
+      return *m_options_.scale_objective;
+    }
+    return m_options_.model_options.scale_objective.value_or(
+        default_scale_objective);
   }
 
-  /**
-   * @brief Gets the Kirchhoff threshold, using default if not set
-   * @return The threshold for applying Kirchhoff constraints
-   */
+  /// @brief Gets the Kirchhoff threshold.
   [[nodiscard]] constexpr auto kirchhoff_threshold() const
   {
-    return m_options_.kirchhoff_threshold.value_or(default_kirchhoff_threshold);
+    if (m_options_.kirchhoff_threshold.has_value()) {
+      return *m_options_.kirchhoff_threshold;
+    }
+    return m_options_.model_options.kirchhoff_threshold.value_or(
+        default_kirchhoff_threshold);
   }
 
-  /**
-   * @brief Gets the voltage angle scaling factor, using default if not set
-   * @return The voltage angle scaling factor
-   */
+  /// @brief Gets the voltage angle scaling factor.
   [[nodiscard]] constexpr auto scale_theta() const
   {
-    return m_options_.scale_theta.value_or(default_scale_theta);
+    if (m_options_.scale_theta.has_value()) {
+      return *m_options_.scale_theta;
+    }
+    return m_options_.model_options.scale_theta.value_or(default_scale_theta);
   }
 
   /**
@@ -235,7 +247,10 @@ public:
    */
   [[nodiscard]] constexpr auto annual_discount_rate() const
   {
-    return m_options_.annual_discount_rate.value_or(
+    if (m_options_.annual_discount_rate.has_value()) {
+      return *m_options_.annual_discount_rate;
+    }
+    return m_options_.model_options.annual_discount_rate.value_or(
         default_annual_discount_rate);
   }
 
@@ -621,6 +636,15 @@ public:
   }
 
   /**
+   * @brief Simulation mode: no training iterations, forward-only pass.
+   * @return true if simulation mode is enabled (default: false)
+   */
+  [[nodiscard]] constexpr auto sddp_simulation_mode() const
+  {
+    return m_options_.sddp_options.simulation_mode.value_or(false);
+  }
+
+  /**
    * @brief Gets the input cut file for SDDP hot-start
    * @return Cut file path or empty string for cold start
    */
@@ -659,9 +683,11 @@ public:
         default_sddp_multi_cut_threshold);
   }
 
-  [[nodiscard]] constexpr auto sddp_num_apertures() const
+  /// Aperture UIDs for the backward pass.
+  /// nullopt = use per-phase aperture_set; empty = no apertures (Benders).
+  [[nodiscard]] const auto& sddp_apertures() const noexcept
   {
-    return m_options_.sddp_options.num_apertures.value_or(0);
+    return m_options_.sddp_options.apertures;
   }
 
   /// Directory for aperture-specific scenario data (empty = use
@@ -731,6 +757,32 @@ public:
   [[nodiscard]] constexpr auto sddp_use_clone_pool() const
   {
     return m_options_.sddp_options.use_clone_pool.value_or(true);
+  }
+
+  // ── Cascade options ─────────────────────────────────────────────────────
+
+  /// Cascade level configurations.  Empty → use built-in defaults.
+  [[nodiscard]] const auto& cascade_levels() const noexcept
+  {
+    return m_options_.cascade_options.level_array;
+  }
+
+  /// Whether the user specified cascade levels.
+  [[nodiscard]] bool has_cascade_levels() const noexcept
+  {
+    return !m_options_.cascade_options.level_array.empty();
+  }
+
+  /// Global cascade model options (serve as defaults for all levels).
+  [[nodiscard]] const auto& cascade_model_options() const noexcept
+  {
+    return m_options_.cascade_options.model_options;
+  }
+
+  /// Global cascade SDDP options (serve as defaults for all levels).
+  [[nodiscard]] const auto& cascade_sddp_options() const noexcept
+  {
+    return m_options_.cascade_options.sddp_options;
   }
 
   // ── Enum-typed accessors ──────────────────────────────────────────────────

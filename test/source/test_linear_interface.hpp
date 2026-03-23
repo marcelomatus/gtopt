@@ -1188,3 +1188,233 @@ TEST_CASE("LinearInterface - solve with time_limit option")  // NOLINT
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 }
+
+// ─── row_index_to_name tests ────────────────────────────────────────────────
+
+TEST_CASE("LinearInterface - row_index_to_name via load_flat")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  LinearProblem lp("RowNames");
+  const auto c1 = lp.add_col({
+      .name = "x1",
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 1.0,
+  });
+  const auto c2 = lp.add_col({
+      .name = "x2",
+      .lowb = 0.0,
+      .uppb = 5.0,
+      .cost = 2.0,
+  });
+
+  auto r1 = lp.add_row({
+      .name = "cons_alpha",
+      .uppb = 8.0,
+  });
+  lp.set_coeff(r1, c1, 1.0);
+  lp.set_coeff(r1, c2, 1.0);
+
+  auto r2 = lp.add_row({
+      .name = "cons_beta",
+      .uppb = 4.0,
+  });
+  lp.set_coeff(r2, c1, 1.0);
+
+  FlatOptions flat_opts;
+  flat_opts.col_with_names = true;
+  flat_opts.row_with_names = true;
+  auto flat_lp = lp.to_flat(flat_opts);
+
+  LinearInterface li;
+  li.set_lp_names_level(1);
+  li.load_flat(flat_lp);
+
+  REQUIRE(li.get_numrows() == 2);
+
+  SUBCASE("row_index_to_name has correct size and entries")
+  {
+    const auto& names = li.row_index_to_name();
+    REQUIRE(names.size() == 2);
+    CHECK(names[0] == "cons_alpha");
+    CHECK(names[1] == "cons_beta");
+  }
+
+  SUBCASE("row_index_to_name is consistent with row_name_map")
+  {
+    const auto& names = li.row_index_to_name();
+    const auto& map = li.row_name_map();
+    for (size_t i = 0; i < names.size(); ++i) {
+      if (!names[i].empty()) {
+        CHECK(map.at(names[i]) == static_cast<int32_t>(i));
+      }
+    }
+  }
+}
+
+TEST_CASE("LinearInterface - row_index_to_name updated by add_row")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  LinearInterface li;
+  li.set_lp_names_level(1);
+
+  const auto c1 = li.add_col("x", 0.0, 10.0);
+
+  SparseRow row_a {
+      .name = "row_a",
+      .lowb = 0.0,
+      .uppb = 5.0,
+  };
+  row_a[c1] = 1.0;
+  li.add_row(row_a);
+
+  SparseRow row_b {
+      .name = "row_b",
+      .lowb = 0.0,
+      .uppb = 3.0,
+  };
+  row_b[c1] = 1.0;
+  li.add_row(row_b);
+
+  SparseRow row_c {
+      .name = "row_c",
+      .lowb = 0.0,
+      .uppb = 7.0,
+  };
+  row_c[c1] = 1.0;
+  li.add_row(row_c);
+
+  REQUIRE(li.get_numrows() == 3);
+  const auto& names = li.row_index_to_name();
+  REQUIRE(names.size() == 3);
+  CHECK(names[0] == "row_a");
+  CHECK(names[1] == "row_b");
+  CHECK(names[2] == "row_c");
+}
+
+TEST_CASE(
+    "LinearInterface - row_index_to_name rebuilt after delete_rows")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  LinearInterface li;
+  li.set_lp_names_level(1);
+
+  const auto c1 = li.add_col("x", 0.0, 10.0);
+  li.set_obj_coeff(c1, 1.0);
+
+  // Add 4 rows
+  for (const auto* name : {"r0", "r1", "r2", "r3"}) {
+    SparseRow row {
+        .name = std::string(name),
+        .lowb = 0.0,
+        .uppb = 10.0,
+    };
+    row[c1] = 1.0;
+    li.add_row(row);
+  }
+  REQUIRE(li.get_numrows() == 4);
+
+  SUBCASE("delete middle row shifts indices")
+  {
+    // Delete row 1 ("r1")
+    std::vector<int> to_delete {
+        1,
+    };
+    li.delete_rows(to_delete);
+
+    REQUIRE(li.get_numrows() == 3);
+    const auto& names = li.row_index_to_name();
+    REQUIRE(names.size() == 3);
+    CHECK(names[0] == "r0");
+    CHECK(names[1] == "r2");
+    CHECK(names[2] == "r3");
+
+    // row_name_map must agree
+    CHECK(li.row_name_map().at("r0") == 0);
+    CHECK(li.row_name_map().at("r2") == 1);
+    CHECK(li.row_name_map().at("r3") == 2);
+    CHECK(li.row_name_map().count("r1") == 0);
+  }
+
+  SUBCASE("delete first and last rows")
+  {
+    std::vector<int> to_delete {
+        0,
+        3,
+    };
+    li.delete_rows(to_delete);
+
+    REQUIRE(li.get_numrows() == 2);
+    const auto& names = li.row_index_to_name();
+    REQUIRE(names.size() == 2);
+    CHECK(names[0] == "r1");
+    CHECK(names[1] == "r2");
+
+    CHECK(li.row_name_map().at("r1") == 0);
+    CHECK(li.row_name_map().at("r2") == 1);
+  }
+
+  SUBCASE("delete all rows leaves empty maps")
+  {
+    std::vector<int> to_delete {
+        0,
+        1,
+        2,
+        3,
+    };
+    li.delete_rows(to_delete);
+
+    CHECK(li.get_numrows() == 0);
+    CHECK(li.row_index_to_name().empty());
+    CHECK(li.row_name_map().empty());
+  }
+
+  SUBCASE("add rows after deletion continues correctly")
+  {
+    std::vector<int> to_delete {
+        1,
+        2,
+    };
+    li.delete_rows(to_delete);
+    REQUIRE(li.get_numrows() == 2);
+
+    SparseRow new_row {
+        .name = "r_new",
+        .lowb = 0.0,
+        .uppb = 5.0,
+    };
+    new_row[c1] = 1.0;
+    li.add_row(new_row);
+
+    REQUIRE(li.get_numrows() == 3);
+    const auto& names = li.row_index_to_name();
+    REQUIRE(names.size() == 3);
+    CHECK(names[0] == "r0");
+    CHECK(names[1] == "r3");
+    CHECK(names[2] == "r_new");
+  }
+}
+
+TEST_CASE("LinearInterface - row_index_to_name empty at level 0")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  LinearInterface li;
+  li.set_lp_names_level(0);
+
+  const auto c1 = li.add_col("x", 0.0, 10.0);
+
+  SparseRow row {
+      .name = "named_row",
+      .lowb = 0.0,
+      .uppb = 5.0,
+  };
+  row[c1] = 1.0;
+  li.add_row(row);
+
+  CHECK(li.row_index_to_name().empty());
+  CHECK(li.row_name_map().empty());
+}
