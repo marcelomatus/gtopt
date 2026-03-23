@@ -42,8 +42,8 @@ flowchart TD
         L1["Level 1: Full Network LP<br/>(e.g. Kirchhoff + losses)"]
         L2["Level 2: Refined<br/>(reuse LP, inherit cuts)"]
 
-        L0 -->|"targets<br/>(elastic constraints)"| L1
-        L1 -->|"cuts<br/>(named transfer)"| L2
+        L0 -->|"state targets"| L1
+        L1 -->|"Benders cuts"| L2
     end
 
     subgraph level["Each Level (SDDP)"]

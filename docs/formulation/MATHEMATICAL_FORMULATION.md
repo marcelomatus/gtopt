@@ -1124,7 +1124,7 @@ $$
 #### Convergence
 
 The algorithm terminates when the **optimality gap** falls below a
-tolerance $\varepsilon$ **and** a minimum iteration count has been reached:
+tolerance $\varepsilon$ and a minimum iteration count has been reached:
 
 $$
 \text{gap}^{(k)} = \frac{\text{UB}^{(k)} - \text{LB}^{(k)}}{\max\bigl(1, \lvert \text{UB}^{(k)} \rvert\bigr)} < \varepsilon
@@ -1490,7 +1490,7 @@ detailed network models.
 
 #### Multi-Level Structure
 
-A cascade consists of $L$ ordered levels $\ell = 0, 1, \ldots, L{-}1$.
+A cascade consists of $L$ ordered levels $\ell = 0, 1, \ldots, L-1$.
 Each level defines:
 
 - **LP formulation** $\mathcal{M}_\ell$: network topology, Kirchhoff
@@ -1568,9 +1568,9 @@ level is active.
 #### Convergence Behavior
 
 - If level $\ell$ converges ($\text{gap}_\ell < \varepsilon_\ell$) at an
-  intermediate position ($\ell < L{-}1$), the cascade **continues** to the
+  intermediate position ($\ell < L-1$), the cascade **continues** to the
   next level for further refinement.
-- If the **final** level ($\ell = L{-}1$) converges, the solver returns
+- If the **final** level ($\ell = L-1$) converges, the solver returns
   immediately.
 - If the global iteration budget is exhausted, the solver stops and
   reports non-convergence.
