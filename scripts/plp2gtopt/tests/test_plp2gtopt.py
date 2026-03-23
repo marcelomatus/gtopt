@@ -1099,11 +1099,11 @@ def test_generate_variable_scales_template_with_reservoirs(tmp_path):
     assert rsv1_energy["scale"] == pytest.approx(0.001)
     assert rsv1_energy["_fescala"] == 3
 
-    # Rsv1 flow entry uses the same scale
+    # Rsv1 flow entry uses energy_scale / 1000
     rsv1_flow = [e for e in parsed if e["name"] == "Rsv1" and e["variable"] == "flow"][
         0
     ]
-    assert rsv1_flow["scale"] == pytest.approx(0.001)
+    assert rsv1_flow["scale"] == pytest.approx(0.001 / 1000.0)
 
     # Rsv2: fallback to central energy_scale = 0.5
     rsv2_energy = [
@@ -1152,7 +1152,7 @@ def test_generate_variable_scales_template_no_fescala(tmp_path):
     assert vol_entry["scale"] == pytest.approx(1.0)
     assert "_fescala" not in vol_entry
     flow_entry = [e for e in parsed if e["variable"] == "flow"][0]
-    assert flow_entry["scale"] == pytest.approx(1.0)
+    assert flow_entry["scale"] == pytest.approx(1.0 / 1000.0)
 
 
 def test_print_variable_scales_template_success(tmp_path, capsys):
