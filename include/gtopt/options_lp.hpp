@@ -469,6 +469,10 @@ public:
   /** @brief Default multi_cut threshold (auto-switch after this many
    *         consecutive forward-pass infeasibilities at a phase) */
   static constexpr int default_sddp_multi_cut_threshold = 10;
+  /** @brief Default stationary-gap tolerance (0.0 = disabled) */
+  static constexpr Real default_sddp_stationary_tol = 0.0;
+  /** @brief Default look-back window for stationary gap check */
+  static constexpr Int default_sddp_stationary_window = 10;
 
   /**
    * @brief Gets the solver type, using default if not set.
@@ -757,6 +761,30 @@ public:
   [[nodiscard]] constexpr auto sddp_use_clone_pool() const
   {
     return m_options_.sddp_options.use_clone_pool.value_or(true);
+  }
+
+  /**
+   * @brief Gets the stationary-gap convergence tolerance.
+   *
+   * When positive, enables the secondary convergence criterion: if the
+   * relative change in the gap over the last `stationary_window` iterations
+   * falls below this threshold, the solver declares convergence even when the
+   * gap exceeds `convergence_tol`.  Default: 0.0 (disabled).
+   */
+  [[nodiscard]] constexpr auto sddp_stationary_tol() const
+  {
+    return m_options_.sddp_options.stationary_tol.value_or(
+        default_sddp_stationary_tol);
+  }
+
+  /**
+   * @brief Gets the look-back window for stationary gap detection.
+   * @return Number of iterations to look back (default: 10)
+   */
+  [[nodiscard]] constexpr auto sddp_stationary_window() const
+  {
+    return m_options_.sddp_options.stationary_window.value_or(
+        default_sddp_stationary_window);
   }
 
   // ── Cascade options ─────────────────────────────────────────────────────
