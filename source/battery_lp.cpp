@@ -73,10 +73,10 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   for (auto&& block : blocks) {
     const auto buid = block.uid();
     finps[buid] = lp.add_col(SparseCol {
-        .name = sc.lp_label(scenario, stage, block, cname, "finp", uid()),
+        .name = sc.lp_col_label(scenario, stage, block, cname, "finp", uid()),
     });
     fouts[buid] = lp.add_col(SparseCol {
-        .name = sc.lp_label(scenario, stage, block, cname, "fout", uid()),
+        .name = sc.lp_col_label(scenario, stage, block, cname, "fout", uid()),
     });
   }
   // Resolve energy_scale: per-element field > VariableScaleMap > default.

@@ -72,7 +72,7 @@ std::expected<void, Error> add_provision(
       }
     }
 
-    auto name = sc.lp_label(scenario, stage, block, cname, pname, uid);
+    auto name = sc.lp_col_label(scenario, stage, block, cname, pname, uid);
     const auto prov_col = lp.add_col({
         .name = name,
         .uppb = block_rmax.value(),

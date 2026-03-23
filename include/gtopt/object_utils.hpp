@@ -70,6 +70,40 @@ public:
    * @param args Additional arguments to include in the label
    * @return Label string
    */
+  // ── lp_col_label: column names (level >= 0) ──
+
+  template<typename Self, typename SystemContext, typename... Args>
+  [[nodiscard]] constexpr auto lp_col_label(this const Self& self,
+                                            SystemContext& sc,
+                                            const ScenarioLP& scenario,
+                                            const StageLP& stage,
+                                            Args&&... args)
+  {
+    return sc.lp_col_label(scenario,
+                           stage,
+                           self.short_name(),
+                           std::forward<Args>(args)...,
+                           self.uid());
+  }
+
+  template<typename Self, typename SystemContext, typename... Args>
+  [[nodiscard]] constexpr auto lp_col_label(this const Self& self,
+                                            SystemContext& sc,
+                                            const ScenarioLP& scenario,
+                                            const StageLP& stage,
+                                            const BlockLP& block,
+                                            Args&&... args)
+  {
+    return sc.lp_col_label(scenario,
+                           stage,
+                           block,
+                           self.short_name(),
+                           std::forward<Args>(args)...,
+                           self.uid());
+  }
+
+  // ── lp_label / lp_row_label: row names (level >= 1) ──
+
   template<typename Self, typename SystemContext, typename... Args>
   [[nodiscard]] constexpr auto lp_label(this const Self& self,
                                         SystemContext& sc,

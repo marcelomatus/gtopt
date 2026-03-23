@@ -96,8 +96,10 @@ TEST_CASE("Linear problem matrix operations")
     CHECK(flat_full.nrows == 3);
     CHECK(flat_full.matval.size() == 5);
 
-    auto flat_minimal =
-        lp.to_flat({.col_with_names = false, .row_with_names = false});
+    auto flat_minimal = lp.to_flat({.col_with_names = false,
+                                    .row_with_names = false,
+                                    .col_with_name_map = false,
+                                    .row_with_name_map = false});
 
     CHECK(flat_minimal.colnm.empty());
     CHECK(flat_minimal.rownm.empty());
@@ -305,7 +307,8 @@ TEST_CASE("Linear problem advanced operations")
   }
 
   {
-    const auto flat_lp = lp.to_flat({.col_with_names = false});
+    const auto flat_lp =
+        lp.to_flat({.col_with_names = false, .col_with_name_map = false});
 
     REQUIRE(flat_lp.ncols == 2);
     REQUIRE(flat_lp.nrows == 2);
@@ -412,9 +415,10 @@ TEST_CASE("Linear problem to_flat column and row names")
   lp.set_coeff(r0, c2, 2.0);
   lp.set_coeff(r1, c1, 3.0);
 
-  SUBCASE("col_with_names only")
+  SUBCASE("col_with_names only (no maps)")
   {
-    const auto flat = lp.to_flat({.col_with_names = true});
+    const auto flat =
+        lp.to_flat({.col_with_names = true, .col_with_name_map = false});
 
     REQUIRE(flat.colnm.size() == 3);
     CHECK(flat.colnm[0] == "alpha");
@@ -426,9 +430,11 @@ TEST_CASE("Linear problem to_flat column and row names")
     CHECK(flat.rowmp.empty());
   }
 
-  SUBCASE("row_with_names only")
+  SUBCASE("row_with_names only (no maps)")
   {
-    const auto flat = lp.to_flat({.row_with_names = true});
+    const auto flat = lp.to_flat({.col_with_names = false,
+                                  .row_with_names = true,
+                                  .col_with_name_map = false});
 
     CHECK(flat.colnm.empty());
 
@@ -440,11 +446,13 @@ TEST_CASE("Linear problem to_flat column and row names")
     CHECK(flat.rowmp.empty());
   }
 
-  SUBCASE("both names enabled")
+  SUBCASE("both names enabled (no maps)")
   {
     const auto flat = lp.to_flat({
         .col_with_names = true,
         .row_with_names = true,
+        .col_with_name_map = false,
+        .row_with_name_map = false,
     });
 
     REQUIRE(flat.colnm.size() == 3);
@@ -480,7 +488,9 @@ TEST_CASE("Linear problem to_flat column and row names")
 
   SUBCASE("row_with_name_map implies rownm populated")
   {
-    const auto flat = lp.to_flat({.row_with_name_map = true});
+    const auto flat = lp.to_flat({.col_with_names = false,
+                                  .col_with_name_map = false,
+                                  .row_with_name_map = true});
 
     CHECK(flat.colnm.empty());
     CHECK(flat.colmp.empty());
@@ -522,13 +532,23 @@ TEST_CASE("Linear problem to_flat column and row names")
     CHECK(flat.rowmp.at("con2") == 1);
   }
 
-  SUBCASE("no names requested")
+  SUBCASE("default FlatOptions (level 0: col names only)")
   {
     const auto flat = lp.to_flat();
 
-    CHECK(flat.colnm.empty());
+    // Default FlatOptions has col_with_names=true, col_with_name_map=true
+    REQUIRE(flat.colnm.size() == 3);
+    CHECK(flat.colnm[0] == "alpha");
+    CHECK(flat.colnm[1] == "beta");
+    CHECK(flat.colnm[2] == "gamma");
+
     CHECK(flat.rownm.empty());
-    CHECK(flat.colmp.empty());
+
+    REQUIRE(flat.colmp.size() == 3);
+    CHECK(flat.colmp.at("alpha") == 0);
+    CHECK(flat.colmp.at("beta") == 1);
+    CHECK(flat.colmp.at("gamma") == 2);
+
     CHECK(flat.rowmp.empty());
   }
 }

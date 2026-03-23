@@ -99,7 +99,7 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
     // rsv_fext LP variable = physical_flow [m³/s] / flow_scale.
     // Bounds are scaled accordingly.
     const auto rc = lp.add_col(SparseCol {
-        .name = sc.lp_label(scenario, stage, block, cname, "fext", uid()),
+        .name = sc.lp_col_label(scenario, stage, block, cname, "fext", uid()),
         .lowb = fmin * inv_flow_scale,
         .uppb = fmax * inv_flow_scale,
         .scale = flow_scale,

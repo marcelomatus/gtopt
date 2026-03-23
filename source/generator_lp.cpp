@@ -112,7 +112,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
 
     // Create generation variable for this time block
     const auto gcol = lp.add_col({
-        .name = sc.lp_label(scenario, stage, block, cname, "gen", guid),
+        .name = sc.lp_col_label(scenario, stage, block, cname, "gen", guid),
         .lowb = block_pmin,
         .uppb = block_pmax,
         .cost = sc.block_ecost(scenario, stage, block, stage_gcost),

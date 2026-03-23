@@ -562,20 +562,22 @@ TEST_CASE("LinearInterface - time limit")
   REQUIRE(result.has_value());
 }
 
-TEST_CASE("LinearInterface - duplicate name detection level 0 (disabled)")
+TEST_CASE("LinearInterface - duplicate name detection level 0 (col only)")
 {
   using namespace gtopt;
 
   LinearInterface li;
   li.set_lp_names_level(0);
 
-  // Duplicate names are silently accepted (no tracking)
+  // Duplicate col names are silently accepted at level 0
   const auto c1 = li.add_col("x", 0.0, 1.0);
   const auto c2 = li.add_col("x", 0.0, 1.0);
   CHECK(c1 != c2);
 
-  // Name maps stay empty at level 0
-  CHECK(li.col_name_map().empty());
+  // Col name map is populated at level 0 (first "x" wins)
+  CHECK(li.col_name_map().size() == 1);
+  CHECK(li.col_name_map().at("x") == static_cast<int32_t>(c1));
+  // Row name map stays empty at level 0
   CHECK(li.row_name_map().empty());
 }
 
@@ -598,7 +600,7 @@ TEST_CASE("LinearInterface - duplicate name detection level 1 (warn)")
   CHECK(li.col_name_map().size() == 2);
   CHECK(li.col_name_map().at("x") == static_cast<int32_t>(c1));
 
-  // Rows: same behavior
+  // Rows: same behavior at level 1 - row name maps are populated
   li.set_obj_coeff(c1, 1.0);
   li.set_obj_coeff(c2, 1.0);
   li.set_obj_coeff(c3, 1.0);
@@ -610,10 +612,11 @@ TEST_CASE("LinearInterface - duplicate name detection level 1 (warn)")
   };
   row_a[c1] = 1.0;
   const auto r1 = li.add_row(row_a);
-  // row_name_map is only populated at level >= 2
-  CHECK(li.row_name_map().empty());
+  // row_name_map is populated at level >= 1
+  CHECK(li.row_name_map().size() == 1);
+  CHECK(li.row_name_map().at("cons_a") == static_cast<int32_t>(r1));
 
-  // Duplicate row name: still adds the row (no dup check at level 1)
+  // Duplicate row name: warns but still adds the row (first "cons_a" wins)
   SparseRow row_a2 {
       .name = "cons_a",
       .lowb = 0.0,
@@ -622,7 +625,9 @@ TEST_CASE("LinearInterface - duplicate name detection level 1 (warn)")
   row_a2[c2] = 1.0;
   const auto r2 = li.add_row(row_a2);
   CHECK(li.get_numrows() == 2);
-  CHECK(li.row_name_map().empty());
+  // Map still has 1 entry (first "cons_a" wins)
+  CHECK(li.row_name_map().size() == 1);
+  CHECK(li.row_name_map().at("cons_a") == static_cast<int32_t>(r1));
   CHECK(r1 != r2);
 }
 
@@ -1017,12 +1022,13 @@ TEST_CASE(  // NOLINT
   CHECK(li.get_numcols() == 2);
   CHECK(li.get_numrows() == 1);
 
-  // Column name map populated at level >= 1
+  // Column name map populated at level >= 0
   CHECK(li.col_name_map().size() == 2);
   CHECK(li.col_name_map().count("x1") == 1);
   CHECK(li.col_name_map().count("x2") == 1);
-  // Row name map only populated at level >= 2
-  CHECK(li.row_name_map().empty());
+  // Row name map populated at level >= 1
+  CHECK(li.row_name_map().size() == 1);
+  CHECK(li.row_name_map().count("c1") == 1);
 
   // Integer column should be marked
   CHECK(li.is_integer(col2));
@@ -1049,8 +1055,9 @@ TEST_CASE("LinearInterface - load_flat without names (level 0)")  // NOLINT
   li.set_lp_names_level(0);
   li.load_flat(flat_lp);
 
-  // Name maps should remain empty at level 0
-  CHECK(li.col_name_map().empty());
+  // Col name map populated at level 0, row name map stays empty
+  CHECK(li.col_name_map().size() == 1);
+  CHECK(li.col_name_map().count("x1") == 1);
   CHECK(li.row_name_map().empty());
 }
 

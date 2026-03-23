@@ -105,7 +105,8 @@ LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
 
   // Total flow variable (for Kirchhoff, capacity, and output)
   const auto flow_col = lp.add_col({
-      .name = sc.lp_label(scenario, stage, block, cname, labels.flow, uid()),
+      .name =
+          sc.lp_col_label(scenario, stage, block, cname, labels.flow, uid()),
       .lowb = 0,
       .uppb = block_tmax,
       .cost = block_tcost,
@@ -126,7 +127,8 @@ LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
 
   // Loss variable: tracks total power lost
   const auto loss_col = lp.add_col({
-      .name = sc.lp_label(scenario, stage, block, cname, labels.loss, uid()),
+      .name =
+          sc.lp_col_label(scenario, stage, block, cname, labels.loss, uid()),
       .lowb = 0,
       .uppb = CoinDblMax,
   });
@@ -151,7 +153,8 @@ LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
     const double loss_k = seg_width * loss.resistance * ((2 * k) - 1) / loss.V2;
 
     const auto seg_col = lp.add_col({
-        .name = sc.lp_label(scenario, stage, block, cname, labels.seg, uid())
+        .name =
+            sc.lp_col_label(scenario, stage, block, cname, labels.seg, uid())
             + std::to_string(k),
         .lowb = 0,
         .uppb = seg_width,
@@ -365,7 +368,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
 
       if (!loss.has_loss || block_tmax_ab > 0.0) {
         const auto fpc = lp.add_col({
-            .name = sc.lp_label(scenario, stage, block, cname, "fp", uid()),
+            .name = sc.lp_col_label(scenario, stage, block, cname, "fp", uid()),
             .lowb = loss.has_loss ? 0.0 : -block_tmax_ba,
             .uppb = block_tmax_ab,
             .cost = block_tcost,
@@ -390,7 +393,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
 
       if (loss.has_loss && block_tmax_ba > 0.0) {
         const auto fnc = lp.add_col({
-            .name = sc.lp_label(scenario, stage, block, cname, "fn", uid()),
+            .name = sc.lp_col_label(scenario, stage, block, cname, "fn", uid()),
             .lowb = 0,
             .uppb = block_tmax_ba,
             .cost = block_tcost,

@@ -98,7 +98,7 @@ public:
           sc.block_ecost(scenario, stage, block, stage_scost);
 
       auto name =
-          sc.lp_label(scenario, stage, block, cname, profile_name, uid());
+          sc.lp_col_label(scenario, stage, block, cname, profile_name, uid());
       const auto scol = lp.add_col({.name = name, .cost = block_scost});
       scols[buid] = scol;
 

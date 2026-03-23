@@ -69,7 +69,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
       return std::nullopt;
     }
 
-    auto name = lp_label(sc, scenario, stage, "emin");
+    auto name = lp_col_label(sc, scenario, stage, "emin");
 
     const auto emin_col = stage_ecost
         ? lp.add_col({
@@ -106,13 +106,13 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     const auto load_lowb = !stage_fcost ? block_lmax : 0;
     const auto load_uppb = !stage_fcost ? block_lmax : LinearProblem::DblMax;
     const auto lcol = lp.add_col({
-        .name = sc.lp_label(scenario, stage, block, cname, "load", uid()),
+        .name = sc.lp_col_label(scenario, stage, block, cname, "load", uid()),
         .lowb = load_lowb,
         .uppb = load_uppb,
     });
 
     if (stage_fcost) {
-      auto name = sc.lp_label(scenario, stage, block, cname, "fail", uid());
+      auto name = sc.lp_col_label(scenario, stage, block, cname, "fail", uid());
       const auto fcol = lp.add_col({
           .name = name,
           .cost = sc.block_ecost(scenario, stage, block, *stage_fcost),
@@ -151,7 +151,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
       const auto bdur = block.duration();
 
       const auto mcol = lp.add_col({
-          .name = sc.lp_label(scenario, stage, block, cname, "lman", uid()),
+          .name = sc.lp_col_label(scenario, stage, block, cname, "lman", uid()),
           .uppb = *stage_emin / bdur,
       });
 
