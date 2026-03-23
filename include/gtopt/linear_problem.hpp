@@ -107,7 +107,7 @@ struct FlatOptions
   bool row_with_names {false};  ///< Include row names (level >= 1)
   bool col_with_name_map {true};  ///< Include column name mapping
   bool row_with_name_map {false};  ///< Include row name mapping
-  bool move_names {false};  ///< Move instead of copy names
+  bool move_names {true};  ///< Move instead of copy names
   bool reserve_matrix {false};  ///< Pre-reserve matrix memory
   double reserve_factor {default_reserve_factor};  ///< Reserve factor
   bool compute_stats {false};  ///< Compute coefficient min/max/ratio
@@ -144,6 +144,18 @@ public:
   constexpr explicit LinearProblem(std::string name = {}) noexcept
       : pname(std::move(name))
   {
+  }
+
+  /**
+   * Pre-reserves capacity for columns, rows, and coefficients.
+   * Call before the build loop to avoid repeated reallocations.
+   * @param est_cols Estimated number of columns (variables)
+   * @param est_rows Estimated number of rows (constraints)
+   */
+  constexpr void reserve(size_t est_cols, size_t est_rows)
+  {
+    cols.reserve(est_cols);
+    rows.reserve(est_rows);
   }
 
   /**

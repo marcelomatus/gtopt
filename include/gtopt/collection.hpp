@@ -359,4 +359,18 @@ constexpr auto visit_elements(Collections&& collections,
   return count;
 }
 
+/**
+ * @brief Counts the total number of active elements across all collections
+ * @param collections Tuple of collections to count
+ * @return Total number of active elements
+ */
+template<typename Collections>
+constexpr auto count_all_elements(Collections&& collections)
+{
+  std::size_t count = 0;
+  std::apply([&](auto&&... coll) { ((count += coll.elements().size()), ...); },
+             std::forward<Collections>(collections));
+  return count;
+}
+
 }  // namespace gtopt
