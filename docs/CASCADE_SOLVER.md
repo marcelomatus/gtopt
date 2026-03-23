@@ -32,6 +32,31 @@ The cascade solver is most beneficial when:
 - The problem has many phases, increasing the number of state variable
   links and thus the iterations needed for cut convergence.
 
+### Architecture Overview
+
+```mermaid
+flowchart TD
+    subgraph cascade["Cascade Solver"]
+        direction TB
+        L0["Level 0: Simplified LP<br/>(e.g. single-bus Benders)"]
+        L1["Level 1: Full Network LP<br/>(e.g. Kirchhoff + losses)"]
+        L2["Level 2: Refined<br/>(reuse LP, inherit cuts)"]
+
+        L0 -->|"state targets"| L1
+        L1 -->|"Benders cuts"| L2
+    end
+
+    subgraph level["Each Level (SDDP)"]
+        direction LR
+        FW["Forward Pass<br/>(solve phases sequentially)"]
+        BW["Backward Pass<br/>(generate Benders cuts)"]
+        FW --> BW
+        BW -->|"repeat until<br/>gap < ε"| FW
+    end
+
+    cascade --> level
+```
+
 ---
 
 ## 2. Key Concepts
@@ -266,13 +291,34 @@ plain SDDP solver.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `inherit_optimality_cuts` | bool | `false` | Carry forward Benders optimality cuts |
-| `inherit_feasibility_cuts` | bool | `false` | Carry forward feasibility cuts |
-| `inherit_targets` | bool | `false` | Add elastic target constraints from previous solution |
+| `inherit_optimality_cuts` | int | `0` | `0` = do not inherit; `-1` = inherit and keep forever; `N > 0` = inherit, then forget after N training iterations |
+| `inherit_feasibility_cuts` | int | `0` | Same semantics as `inherit_optimality_cuts` |
+| `inherit_targets` | int | `0` | `0` = no targets; `-1` = inherit forever; `N > 0` = inherit with forgetting |
 | `target_rtol` | real | 0.05 | Relative tolerance for target band (5% of abs(v)) |
 | `target_min_atol` | real | 1.0 | Minimum absolute tolerance for target band |
 | `target_penalty` | real | 500 | Elastic penalty per unit target violation |
 | `optimality_dual_threshold` | real | 0.0 | Min abs(dual) for cut transfer (0 = all) |
+
+#### Cut Forgetting Semantics
+
+When `inherit_optimality_cuts` or `inherit_feasibility_cuts` is a positive
+integer N, the solver runs in two phases:
+
+1. **Phase 1** (up to N iterations): solve with inherited cuts plus
+   self-generated cuts.  The per-level iteration cap is temporarily set
+   to `min(N, remaining_budget)`.
+2. **Phase 2** (remaining budget): delete all inherited cuts from the LP,
+   then re-solve using only self-generated cuts.
+
+This prevents over-reliance on potentially inaccurate cuts from a
+simplified LP while still benefiting from the warm-start.
+
+```mermaid
+flowchart LR
+    A["Inherit cuts<br/>from Level ℓ-1"] --> B["Phase 1:<br/>Solve with inherited<br/>+ self-generated cuts<br/>(up to N iters)"]
+    B --> C["Delete inherited cuts"]
+    C --> D["Phase 2:<br/>Solve with only<br/>self-generated cuts<br/>(remaining budget)"]
+```
 
 ### 4.6 ModelOptions Fields
 
@@ -634,6 +680,28 @@ After solving, `level_stats()` returns a vector of
   reports non-convergence.
 - The overall convergence flag is taken from the last iteration
   result across all levels.
+
+Each level inherits the full convergence machinery from the SDDP solver,
+including the **stationary-gap secondary criterion** (see
+[SDDP_SOLVER.md §4.5](SDDP_SOLVER.md#45-convergence-check)).  Per-level
+`sddp_options` can set `stationary_tol` and `stationary_window` to
+enable secondary convergence detection at that level — useful when
+simplified models converge to a non-zero gap plateau.
+
+```mermaid
+flowchart TD
+    Start([Start Cascade]) --> L["Level ℓ = 0"]
+    L --> Solve["Run SDDP for Level ℓ<br/>(up to min(per_level_max, remaining_budget))"]
+    Solve --> Conv{"Level ℓ<br/>converged?"}
+    Conv -->|Yes| Last{"Is ℓ the<br/>last level?"}
+    Conv -->|No| Budget{"Global budget<br/>exhausted?"}
+    Last -->|Yes| Done([Return: converged])
+    Last -->|No| Next["ℓ = ℓ + 1<br/>Transfer cuts/targets"]
+    Next --> Solve
+    Budget -->|Yes| Stop([Return: non-converged])
+    Budget -->|No| Next2["ℓ = ℓ + 1<br/>Transfer cuts/targets"]
+    Next2 --> Solve
+```
 
 ### 7.6 Cut Save Policy
 
