@@ -45,6 +45,7 @@ This project includes comprehensive documentation for different use cases:
 
 * **Cost Optimization**: minimizes investment (CAPEX) and operational (OPEX) costs.
 * **System Modeling**: supports single-bus or multi-bus DC power flow (Kirchhoff laws).
+* **Multiple Solvers**: monolithic LP, SDDP decomposition, and cascade multi-level hybrid SDDP with progressive LP refinement.
 * **Flexible I/O**: high-speed parsing and export to Parquet, CSV, and JSON.
 * **Scalability**: designed for large-scale grids with sparse matrix assembly.
 * **Web Service**: browser-based UI and REST API for submitting and retrieving optimization results.

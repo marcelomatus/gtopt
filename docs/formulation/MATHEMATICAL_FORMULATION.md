@@ -43,6 +43,7 @@
    - [6.11 Solver Timeouts](#611-solver-timeouts)
    - [6.12 Monolithic vs SDDP Equivalence](#612-monolithic-vs-sddp-equivalence)
    - [6.13 Elastic Filter and Feasibility](#613-elastic-filter-and-feasibility)
+   - [6.14 Cascade Solver — Multi-Level Decomposition](#614-cascade-solver--multi-level-decomposition)
 7. [Mapping: JSON Fields → Mathematical Symbols](#7-mapping-json-fields--mathematical-symbols)
 8. [Cross-References](#8-cross-references)
 9. [References](#9-references)
@@ -1123,17 +1124,31 @@ $$
 #### Convergence
 
 The algorithm terminates when the **optimality gap** falls below a
-tolerance $\varepsilon$:
+tolerance $\varepsilon$ **and** a minimum iteration count has been reached:
 
 $$
 \text{gap}^{(k)} = \frac{\text{UB}^{(k)} - \text{LB}^{(k)}}{\max\bigl(1, \lvert \text{UB}^{(k)} \rvert\bigr)} < \varepsilon
+\quad \text{and} \quad k \ge k_{\min}
 $$
 
 where:
 - $\text{LB}^{(k)}$ = average phase-0 objective across scenes (lower bound
   on the expected cost);
 - $\text{UB}^{(k)}$ = average total forward-pass cost across scenes (upper
-  bound, feasible but not optimal).
+  bound, feasible but not optimal);
+- $\varepsilon$ = `convergence_tol` (default $10^{-4}$);
+- $k_{\min}$ = `min_iterations` (default 2).
+
+The convergence check is evaluated at the **end of each training iteration**
+(after a paired forward + backward pass).  The final simulation pass (a
+forward-only evaluation) does **not** determine convergence — it inherits
+the converged status from the last training iteration.
+
+| JSON field | Symbol | Default | Description |
+|------------|--------|---------|-------------|
+| `convergence_tol` | $\varepsilon$ | $10^{-4}$ | Relative gap tolerance |
+| `min_iterations` | $k_{\min}$ | 2 | Minimum training iterations before convergence |
+| `max_iterations` | $k_{\max}$ | 100 | Maximum training iterations (hard stop) |
 
 #### Cut Sharing
 
@@ -1460,6 +1475,125 @@ in practice for problems with tight physical bounds.
 > **See also**: [`docs/SDDP_SOLVER.md`](../SDDP_SOLVER.md) Section 5.4
 > for a detailed comparison of elastic filter modes.
 
+### 6.14 Cascade Solver — Multi-Level Decomposition
+
+The **Cascade solver** (`solver_type = "cascade"`) extends the SDDP
+algorithm with an outer loop over multiple **levels**, each with its own LP
+formulation and solver parameters.  The key idea is progressive refinement:
+start from a simplified model (e.g. single-bus / copper-plate) that
+converges quickly, then warm-start subsequent levels with increasingly
+detailed network models.
+
+> **See also**: [`docs/CASCADE_SOLVER.md`](../CASCADE_SOLVER.md) for the
+> complete configuration reference, implementation details, and worked
+> examples.
+
+#### Multi-Level Structure
+
+A cascade consists of $L$ ordered levels $\ell = 0, 1, \ldots, L{-}1$.
+Each level defines:
+
+- **LP formulation** $\mathcal{M}_\ell$: network topology, Kirchhoff
+  constraints, line losses, scaling (via `model_options`)
+- **Solver parameters** $\Theta_\ell$: iteration limits, apertures,
+  convergence tolerance (via `sddp_options`)
+- **Transition rules** $\mathcal{T}_\ell$: cut inheritance, target
+  inheritance, dual thresholds (via `transition`)
+
+At each level, the cascade solver internally runs an SDDP solver (§6.6)
+with the specified LP and parameters.
+
+#### Cut Inheritance
+
+When level $\ell$ receives cuts from level $\ell{-}1$, the transfer uses
+LP **column names** (not indices) for cross-LP resolution.  This allows
+cuts generated with one LP structure (e.g. single-bus, where theta columns
+do not exist) to be applied to a different structure (e.g. multi-bus with
+Kirchhoff).
+
+Formally, a stored optimality cut from level $\ell{-}1$:
+
+$$
+\alpha_t \;\ge\; z_t^{(k)} + \sum_{i \in \mathcal{S}}
+\bar{\pi}_i^{(k)} (x_{t{-}1,i} - \hat{x}_{t{-}1,i}^{(k)})
+$$
+
+is serialized with column names $\{\text{name}(i)\}$ and deserialized at
+level $\ell$ by resolving each name to the corresponding column index in
+the new LP $\mathcal{M}_\ell$.  Columns that do not resolve (e.g. a theta
+variable in a single-bus LP) are skipped.
+
+**Cut forgetting**: when `inherit_optimality_cuts = N` (positive integer),
+the inherited cuts are kept for at most $N$ training iterations, then
+discarded.  The solver re-solves with only self-generated cuts for the
+remaining iteration budget.
+
+#### Target Inheritance (Elastic Constraints)
+
+When level $\ell$ inherits targets from level $\ell{-}1$, state variable
+values (reservoir volumes, battery SoC) from the previous level's
+forward-pass solution are used as **elastic penalty constraints**:
+
+$$
+v_{\ell{-}1} - \delta \;\le\; v + s^- - s^+ \;\le\; v_{\ell{-}1} + \delta
+\qquad s^+, s^- \ge 0
+$$
+
+where:
+- $v_{\ell{-}1}$ = state variable value from previous level's solution
+- $\delta = \max(\rho \cdot |v_{\ell{-}1}|, \;\delta_{\min})$
+- $\rho$ = `target_rtol` (default 0.05 = 5%)
+- $\delta_{\min}$ = `target_min_atol` (default 1.0)
+- $s^+, s^-$ have objective cost `target_penalty` (default 500) per unit
+
+The target constraints guide the optimizer towards the previous level's
+solution trajectory without creating hard infeasibility.
+
+#### Iteration Budget
+
+The cascade supports two levels of iteration control:
+
+- **Per-level budget**: $k^{\ell}_{\max}$ = `CascadeLevelSolver::max_iterations`
+- **Global budget**: $K_{\max}$ = `CascadeOptions::sddp_options::max_iterations`
+
+The effective per-level limit is:
+
+$$
+k^{\ell}_{\text{eff}} = \min\bigl(k^{\ell}_{\max},\; K_{\max} - \sum_{j < \ell} k^{j}_{\text{used}}\bigr)
+$$
+
+When the global budget is exhausted, the cascade stops regardless of which
+level is active.
+
+#### Convergence Behavior
+
+- If level $\ell$ converges ($\text{gap}_\ell < \varepsilon_\ell$) at an
+  intermediate position ($\ell < L{-}1$), the cascade **continues** to the
+  next level for further refinement.
+- If the **final** level ($\ell = L{-}1$) converges, the solver returns
+  immediately.
+- If the global iteration budget is exhausted, the solver stops and
+  reports non-convergence.
+- The overall convergence flag is taken from the last iteration result
+  across all levels.
+
+#### Typical Cascade Patterns
+
+```
+Pattern 1: Uninodal → Full Network (2 levels)
+  Level 0: use_single_bus=true, Benders (no apertures), fast convergence
+  Level 1: use_kirchhoff=true, SDDP with apertures, inherits targets
+
+Pattern 2: Training → Refinement (2 levels, same LP)
+  Level 0: N iterations, generate cuts
+  Level 1: reuse LP, inherit cuts → converge faster
+
+Pattern 3: Progressive (3 levels)
+  Level 0: uninodal Benders → rough trajectory
+  Level 1: full network + targets from L0 → guided convergence
+  Level 2: reuse L1's LP + inherit cuts from L1 → fast final refinement
+```
+
 ---
 
 ## 7. Mapping: JSON Fields → Mathematical Symbols
@@ -1607,6 +1741,9 @@ mathematical symbols used in this formulation.
   description, convergence criteria, cut sharing, and configuration.
 - **[Monolithic Solver](../MONOLITHIC_SOLVER.md)** — Default solver
   description, boundary cuts, and equivalence with SDDP.
+- **[Cascade Solver](../CASCADE_SOLVER.md)** — Multi-level hybrid SDDP
+  solver with cut inheritance, target inheritance, and progressive
+  LP refinement.
 
 ---
 
