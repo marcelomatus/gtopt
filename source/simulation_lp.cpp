@@ -19,6 +19,7 @@
 
 #include <gtopt/scene.hpp>
 #include <gtopt/simulation_lp.hpp>
+#include <gtopt/utils.hpp>
 
 namespace gtopt
 {
@@ -153,7 +154,7 @@ SimulationLP::SimulationLP(const Simulation& simulation,
     , m_scenario_array_(create_scenario_array(simulation))
     , m_scene_array_(create_scene_array(simulation))
     , m_global_variable_map_(std::ranges::to<global_variable_map_t>(
-          std::views::iota(0U, m_scene_array_.size())
+          iota_range<Size>(0, m_scene_array_.size())
           | std::views::transform(
               [&](const auto&)
               {

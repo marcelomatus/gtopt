@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <format>
 #include <iterator>
+#include <limits>
 #include <optional>
 #include <ranges>
 #include <string>
@@ -33,6 +34,142 @@
 
 namespace gtopt
 {
+
+/// Lightweight replacement for std::views::iota (not available in libc++ 21).
+/// Returns a random-access range [first, last) that is compatible with
+/// range adaptors such as std::views::reverse and std::views::transform.
+template<typename T>
+class IotaRange : public std::ranges::view_interface<IotaRange<T>>
+{
+public:
+  class iterator
+  {
+  public:
+    using iterator_category = std::random_access_iterator_tag;
+    using value_type = T;
+    using difference_type = std::ptrdiff_t;
+    using pointer = const T*;
+    using reference = T;
+
+    constexpr iterator() = default;
+    constexpr explicit iterator(T value)
+        : value_(value)
+    {
+    }
+
+    constexpr auto operator*() const -> T { return value_; }
+    constexpr auto operator[](difference_type n) const -> T
+    {
+      auto copy = value_;
+      copy += static_cast<T>(n);
+      return copy;
+    }
+
+    constexpr auto operator++() -> iterator&
+    {
+      ++value_;
+      return *this;
+    }
+    constexpr auto operator++(int) -> iterator
+    {
+      auto tmp = *this;
+      ++value_;
+      return tmp;
+    }
+    constexpr auto operator--() -> iterator&
+    {
+      --value_;
+      return *this;
+    }
+    constexpr auto operator--(int) -> iterator
+    {
+      auto tmp = *this;
+      --value_;
+      return tmp;
+    }
+
+    constexpr auto operator+=(difference_type n) -> iterator&
+    {
+      value_ += static_cast<T>(n);
+      return *this;
+    }
+    constexpr auto operator-=(difference_type n) -> iterator&
+    {
+      value_ -= static_cast<T>(n);
+      return *this;
+    }
+
+    friend constexpr auto operator+(iterator it, difference_type n) -> iterator
+    {
+      it += n;
+      return it;
+    }
+    friend constexpr auto operator+(difference_type n, iterator it) -> iterator
+    {
+      it += n;
+      return it;
+    }
+    friend constexpr auto operator-(iterator it, difference_type n) -> iterator
+    {
+      it -= n;
+      return it;
+    }
+    friend constexpr auto operator-(iterator lhs, iterator rhs)
+        -> difference_type
+    {
+      return static_cast<difference_type>(lhs.value_)
+          - static_cast<difference_type>(rhs.value_);
+    }
+
+    constexpr auto operator<=>(const iterator&) const = default;
+    constexpr auto operator==(const iterator&) const -> bool = default;
+
+  private:
+    T value_ {};
+  };
+
+  constexpr IotaRange(T first, T last)
+      : first_(first)
+      , last_(last)
+  {
+  }
+
+  [[nodiscard]] constexpr auto begin() const -> iterator
+  {
+    return iterator(first_);
+  }
+  [[nodiscard]] constexpr auto end() const -> iterator
+  {
+    return iterator(last_);
+  }
+  [[nodiscard]] constexpr auto size() const -> std::size_t
+  {
+    return static_cast<std::size_t>(static_cast<std::ptrdiff_t>(last_)
+                                    - static_cast<std::ptrdiff_t>(first_));
+  }
+  [[nodiscard]] constexpr auto empty() const -> bool { return first_ == last_; }
+
+private:
+  T first_;
+  T last_;
+};
+
+/// Create an IotaRange [first, last) with deduced type.
+template<typename T>
+constexpr auto iota_range(T first, T last) -> IotaRange<T>
+{
+  return IotaRange<T>(first, last);
+}
+
+/// Create an IotaRange [first, last) with explicit IndexType,
+/// similar to enumerate<IndexType>(...).
+/// Usage: iota_range<PhaseIndex>(0, num_phases)
+template<typename IndexType, typename A, typename B>
+constexpr auto iota_range(A first, B last) -> IotaRange<IndexType>
+{
+  return IotaRange<IndexType>(static_cast<IndexType>(first),
+                              static_cast<IndexType>(last));
+}
 
 /**
  * @brief Efficiently merges two vectors using move semantics
@@ -109,7 +246,8 @@ struct enumerate_adapter
 private:
   static constexpr auto make_index_view()
   {
-    return std::ranges::views::iota(std::size_t {0}, std::unreachable_sentinel)
+    return IotaRange<std::size_t>(std::size_t {0},
+                                  std::numeric_limits<std::size_t>::max())
         | std::ranges::views::transform([](std::size_t i)
                                         { return static_cast<IndexType>(i); });
   }

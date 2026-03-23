@@ -657,8 +657,7 @@ auto SDDPSolver::backward_pass(SceneIndex scene,
 
   // Iterate backward from last phase to phase 1
   for (const auto phase :
-       std::views::iota(PhaseIndex {1}, PhaseIndex {num_phases})
-           | std::views::reverse)
+       iota_range<PhaseIndex>(1, num_phases) | std::views::reverse)
   {
     if (should_stop()) {
       return std::unexpected(Error {
@@ -860,9 +859,7 @@ void SDDPSolver::cap_stored_cuts()
       static_cast<Index>(planning_lp().simulation().scenes().size());
   int total_dropped = 0;
 
-  for (const auto scene :
-       std::views::iota(SceneIndex {0}, SceneIndex {num_scenes}))
-  {
+  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
     auto& cuts = m_scene_cuts_[scene];
     if (cuts.size() > limit) {
       const auto excess = cuts.size() - limit;
@@ -895,9 +892,7 @@ std::vector<StoredCut> SDDPSolver::build_combined_cuts() const
   std::vector<StoredCut> combined;
   const auto num_scenes =
       static_cast<Index>(planning_lp().simulation().scenes().size());
-  for (const auto scene :
-       std::views::iota(SceneIndex {0}, SceneIndex {num_scenes}))
-  {
+  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
     const auto& cuts = m_scene_cuts_[scene];
     combined.insert(combined.end(), cuts.begin(), cuts.end());
   }
@@ -1042,12 +1037,8 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
   // Save per-(scene, phase) base row counts before any cuts are loaded.
   // Rows below this threshold are structural constraints and are never
   // pruned; rows above it are Benders cuts (including hot-start cuts).
-  for (const auto scene :
-       std::views::iota(SceneIndex {0}, SceneIndex {num_scenes}))
-  {
-    for (const auto phase :
-         std::views::iota(PhaseIndex {0}, PhaseIndex {num_phases}))
-    {
+  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
+    for (const auto phase : iota_range<PhaseIndex>(0, num_phases)) {
       auto& li = planning_lp().system(scene, phase).linear_interface();
       li.save_base_numrows();
       m_scene_phase_states_[scene][phase].base_nrows = li.base_numrows();
@@ -1138,15 +1129,11 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
   {
     std::vector<std::jthread> threads;
     threads.reserve(static_cast<size_t>(num_scenes));
-    for (const auto si :
-         std::views::iota(SceneIndex {0}, SceneIndex {num_scenes}))
-    {
+    for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
       threads.emplace_back(
           [this, si, num_phases]()
           {
-            for (const auto pi :
-                 std::views::iota(PhaseIndex {0}, PhaseIndex {num_phases}))
-            {
+            for (const auto pi : iota_range<PhaseIndex>(0, num_phases)) {
               update_coefficients_for_phase(si, pi, m_iteration_offset_);
             }
           });
@@ -1349,8 +1336,7 @@ auto SDDPSolver::run_backward_pass_synchronized(
   // Process phases backward: all scenes complete one phase before
   // sharing cuts and moving to the previous phase.
   for (const auto phase :
-       std::views::iota(PhaseIndex {1}, PhaseIndex {num_phases})
-           | std::views::reverse)
+       iota_range<PhaseIndex>(1, num_phases) | std::views::reverse)
   {
     const auto cuts_before_step = m_stored_cuts_.size();
 
@@ -1522,9 +1508,7 @@ void SDDPSolver::apply_cut_sharing_for_iteration(std::size_t cuts_before,
     scene_uid_map[sc_lp.uid()] = si;
   }
 
-  for (const auto pi :
-       std::views::iota(PhaseIndex {0}, PhaseIndex {num_phases - 1}))
-  {
+  for (const auto pi : iota_range<PhaseIndex>(0, num_phases - 1)) {
     StrongIndexVector<SceneIndex, std::vector<SparseRow>> per_scene_cuts;
     per_scene_cuts.resize(num_scenes);
 
@@ -1532,9 +1516,7 @@ void SDDPSolver::apply_cut_sharing_for_iteration(std::size_t cuts_before,
 
     if (m_options_.single_cut_storage) {
       // Iterate per-scene vectors directly
-      for (const auto si :
-           std::views::iota(SceneIndex {0}, SceneIndex {num_scenes}))
-      {
+      for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
         const auto& cuts = m_scene_cuts_[si];
         const auto offset = m_scene_cuts_before_[static_cast<std::size_t>(si)];
         for (std::size_t ci = offset; ci < cuts.size(); ++ci) {
@@ -2023,8 +2005,7 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
   std::vector<PhaseUid> infeasible_phases;
 
   for (const auto phase :
-       std::views::iota(PhaseIndex {1}, PhaseIndex {num_phases})
-           | std::views::reverse)
+       iota_range<PhaseIndex>(1, num_phases) | std::views::reverse)
   {
     if (should_stop()) {
       return std::unexpected(Error {
