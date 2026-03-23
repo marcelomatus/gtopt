@@ -105,7 +105,10 @@ LinearInterface::LinearInterface(solver_ptr_t psolver, std::string plog_file)
 {
   handler->setLogLevel(0);
   solver->passInMessageHandler(handler.get());
-  solver->setIntParam(OsiNameDiscipline, 2);
+  // Name tracking is handled by our own maps (m_col_names_, etc.).
+  // OsiNameDiscipline = 0 avoids the solver's expensive per-element
+  // name index.  Names are pushed to the solver only in write_lp().
+  solver->setIntParam(OsiNameDiscipline, 0);
 }
 
 LinearInterface::LinearInterface(const std::string& plog_file)
@@ -222,17 +225,27 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   if (m_lp_names_level_ >= 1 && !flat_lp.colnm.empty()) {
     build_name_map(flat_lp.colnm, m_col_names_, m_col_index_to_name_);
   }
-  for (int i = 0; auto&& name : flat_lp.colnm) {
-    solver->setColName(i, name);
-    ++i;
+
+  // Row name→index map is only needed at level >= 2 (duplicate error
+  // detection).  At level 1 we still populate the index→name vector
+  // (used by sddp_cut_io and cascade_solver via col_index_to_name).
+  if (m_lp_names_level_ >= 2 && !flat_lp.rownm.empty()) {
+    build_name_map(flat_lp.rownm, m_row_names_, m_row_index_to_name_);
+  } else if (m_lp_names_level_ >= 1 && !flat_lp.rownm.empty()) {
+    m_row_index_to_name_.resize(flat_lp.rownm.size());
+    for (int i = 0; const auto& name : flat_lp.rownm) {
+      if (!name.empty()) {
+        m_row_index_to_name_[static_cast<size_t>(i)] = name;
+      }
+      ++i;
+    }
   }
 
-  if (m_lp_names_level_ >= 1 && !flat_lp.rownm.empty()) {
-    build_name_map(flat_lp.rownm, m_row_names_, m_row_index_to_name_);
-  }
-  for (int i = 0; auto&& name : flat_lp.rownm) {
-    solver->setRowName(i, name);
-    ++i;
+  // At level >= 2 push names to the solver for nice LP output.
+  // Use ClpModel::copyNames() for O(1) bulk copy when available,
+  // falling back to per-element setColName/setRowName otherwise.
+  if (m_lp_names_level_ >= 2) {
+    push_names_to_solver();
   }
 }
 
@@ -255,7 +268,10 @@ ColIndex LinearInterface::add_col(const std::string& name,
   const CoinPackedVector vec;
   const double obj = 0;
 
-  solver->addCol(vec, collb, colub, obj, name);
+  // At level >= 2 pass the name so the solver can produce nice LP files.
+  // At lower levels pass empty (OsiNameDiscipline = 0, no overhead).
+  solver->addCol(
+      vec, collb, colub, obj, m_lp_names_level_ >= 2 ? name : std::string {});
 
   // Keep inverse map in sync
   if (m_lp_names_level_ >= 1 && !name.empty()) {
@@ -290,14 +306,17 @@ RowIndex LinearInterface::add_row(const std::string& name,
                                   const double rowub)
 {
   const auto index = solver->getNumRows();
-  check_name_unique(m_row_names_, name, index, "row", m_lp_names_level_);
+  // Row name→index map only at level >= 2 (duplicate error detection).
+  if (m_lp_names_level_ >= 2) {
+    check_name_unique(m_row_names_, name, index, "row", m_lp_names_level_);
+  }
 
   solver->addRow(static_cast<int>(numberElements),
                  columns.data(),
                  elements.data(),
                  rowlb,
                  rowub);
-  solver->setRowName(index, name);
+  // No solver->setRowName() — OsiNameDiscipline = 0.
 
   if (m_lp_names_level_ >= 1 && !name.empty()) {
     if (m_row_index_to_name_.size() <= static_cast<size_t>(index)) {
@@ -341,14 +360,16 @@ void LinearInterface::delete_rows(const std::span<const int> indices)
 void LinearInterface::rebuild_row_name_maps()
 {
   // Rebuild the name→index hash map from the index→name vector.
-  // This avoids O(n) solver->getRowName() string allocations.
-  m_row_names_.clear();
-  m_row_names_.reserve(m_row_index_to_name_.size());
-  for (int32_t i = 0; const auto& name : m_row_index_to_name_) {
-    if (!name.empty()) {
-      m_row_names_.emplace(name, i);
+  // Only at level >= 2 (row_name_map is unused in production).
+  if (m_lp_names_level_ >= 2) {
+    m_row_names_.clear();
+    m_row_names_.reserve(m_row_index_to_name_.size());
+    for (int32_t i = 0; const auto& name : m_row_index_to_name_) {
+      if (!name.empty()) {
+        m_row_names_.emplace(name, i);
+      }
+      ++i;
     }
-    ++i;
   }
 }
 
@@ -416,6 +437,9 @@ void LinearInterface::set_coeff(const RowIndex row,
 #elifdef COIN_USE_CPX
   // OsiCpxSolverInterface provides setCoefficient() which wraps CPXchgcoef
   solver->setCoefficient(r, c, value);
+#elifdef COIN_USE_HGS
+  // OsiHiGHS: use the generic OSI modifyCoefficient path
+  solver->modifyCoefficient(r, c, value, false);
 #else
   // Not implemented for this solver backend — silently skip.
   // Callers should check supports_set_coeff() first.
@@ -438,7 +462,8 @@ double LinearInterface::get_coeff(const RowIndex row,
 
 bool LinearInterface::supports_set_coeff() noexcept
 {
-#if defined(COIN_USE_CLP) || defined(COIN_USE_CBC) || defined(COIN_USE_CPX)
+#if defined(COIN_USE_CLP) || defined(COIN_USE_CBC) || defined(COIN_USE_CPX) \
+    || defined(COIN_USE_HGS)
   return true;
 #else
   return false;
@@ -518,12 +543,104 @@ bool LinearInterface::is_integer(const ColIndex index) const
   return solver->isInteger(static_cast<int>(index));
 }
 
+void LinearInterface::push_names_to_solver() const
+{
+  const auto ncols = static_cast<size_t>(solver->getNumCols());
+  const auto nrows = static_cast<size_t>(solver->getNumRows());
+
+  // Pad vectors to match solver dimensions (our vectors may be shorter
+  // if elastic/cut columns/rows were added without names).
+  std::vector<std::string> col_names(ncols);
+  for (size_t i = 0; i < std::min(m_col_index_to_name_.size(), ncols); ++i) {
+    col_names[i] = m_col_index_to_name_[i];
+  }
+  std::vector<std::string> row_names(nrows);
+  for (size_t i = 0; i < std::min(m_row_index_to_name_.size(), nrows); ++i) {
+    row_names[i] = m_row_index_to_name_[i];
+  }
+
+#ifdef COIN_USE_CLP
+  // Fast path: ClpModel::copyNames() sets both name vectors and
+  // lengthNames_ in one pass — no per-element overhead.
+  solver->getModelPtr()->copyNames(row_names, col_names);
+#elifdef COIN_USE_CBC
+  auto* real_solver = solver->getRealSolverPtr();
+  auto* clp_solver = dynamic_cast<OsiClpSolverInterface*>(real_solver);
+  if (clp_solver != nullptr) {
+    clp_solver->getModelPtr()->copyNames(row_names, col_names);
+  }
+#elifdef COIN_USE_CPX
+  // Fast path: bulk name setting via CPLEX C API (CPXchgcolname/CPXchgrowname)
+  // avoids per-element OSI overhead.
+  {
+    auto* env = solver->getEnvironmentPtr();
+    auto* lp = solver->getLpPtr(OsiCpxSolverInterface::KEEPCACHED_ALL);
+
+    // Build index + c-string arrays for CPXchgcolname
+    std::vector<int> col_indices;
+    std::vector<char*> col_cnames;
+    col_indices.reserve(ncols);
+    col_cnames.reserve(ncols);
+    for (size_t i = 0; i < ncols; ++i) {
+      if (!col_names[i].empty()) {
+        col_indices.push_back(static_cast<int>(i));
+        col_cnames.push_back(col_names[i].data());
+      }
+    }
+    if (!col_indices.empty()) {
+      CPXchgcolname(env,
+                    lp,
+                    static_cast<int>(col_indices.size()),
+                    col_indices.data(),
+                    col_cnames.data());
+    }
+
+    // Build index + c-string arrays for CPXchgrowname
+    std::vector<int> row_indices;
+    std::vector<char*> row_cnames;
+    row_indices.reserve(nrows);
+    row_cnames.reserve(nrows);
+    for (size_t i = 0; i < nrows; ++i) {
+      if (!row_names[i].empty()) {
+        row_indices.push_back(static_cast<int>(i));
+        row_cnames.push_back(row_names[i].data());
+      }
+    }
+    if (!row_indices.empty()) {
+      CPXchgrowname(env,
+                    lp,
+                    static_cast<int>(row_indices.size()),
+                    row_indices.data(),
+                    row_cnames.data());
+    }
+  }
+#else
+  // Generic fallback: per-element via OSI (requires discipline >= 1).
+  // Works for HiGHS and any other OSI-compatible solver.
+  solver->setIntParam(OsiNameDiscipline, 2);
+  for (size_t i = 0; i < ncols; ++i) {
+    if (!col_names[i].empty()) {
+      solver->setColName(static_cast<int>(i), col_names[i]);
+    }
+  }
+  for (size_t i = 0; i < nrows; ++i) {
+    if (!row_names[i].empty()) {
+      solver->setRowName(static_cast<int>(i), row_names[i]);
+    }
+  }
+#endif
+}
+
 void LinearInterface::write_lp(const std::string& filename) const
 {
   if (filename.empty()) {
     return;
   }
-  solver->setIntParam(OsiNameDiscipline, 2);
+  // At level >= 2 names are already on the solver (set during load_flat
+  // and kept in sync by add_col/add_row).  At level < 2 push them now.
+  if (m_lp_names_level_ < 2) {
+    push_names_to_solver();
+  }
   solver->writeLp(filename.c_str());
 }
 
