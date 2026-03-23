@@ -1079,14 +1079,14 @@ class GTOptWriter:
                         }
                     )
                     computed_keys.add(("Reservoir", "energy", uid))
-                    # Also scale flow (extraction) variables with the same
-                    # factor so energy-balance coefficients stay O(1).
+                    # Scale flow (extraction) variables: energy is in GWh,
+                    # flow is in hm³ ≈ energy/1000, so divide by 1000.
                     scales.append(
                         {
                             "class_name": "Reservoir",
                             "variable": "flow",
                             "uid": uid,
-                            "scale": scale,
+                            "scale": scale / 1000.0,
                             "name": name,
                         }
                     )
