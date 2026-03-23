@@ -825,7 +825,7 @@ The efficiency is modelled as a **concave piecewise-linear envelope**
 parameterised by $N$ segments:
 
 $$
-\kappa_u(v) = \min_{i=1}^{N} \left\{ c_i + m_i \cdot (v - v_i) \right\}
+\kappa_u(v) = \min_{i=1}^{N} \lbrace c_i + m_i \cdot (v - v_i) \rbrace
 $$
 
 where for each segment $i$:
