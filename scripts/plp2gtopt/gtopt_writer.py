@@ -113,6 +113,16 @@ class GTOptWriter:
                 convergence_tol = 0.1
         sddp_opts["convergence_tol"] = convergence_tol
 
+        # Secondary (stationary gap) convergence criterion:
+        # When the gap stops improving over a window of iterations, declare
+        # convergence even if gap > convergence_tol.
+        # Default: stationary_tol = convergence_tol / 10, stationary_window = 4.
+        stationary_tol = options.get("stationary_tol", convergence_tol / 10.0)
+        sddp_opts["stationary_tol"] = stationary_tol
+
+        stationary_window = options.get("stationary_window", 4)
+        sddp_opts["stationary_window"] = stationary_window
+
         # When the JSON file lives inside the output directory (the default),
         # input_directory is "." so paths are relative to the JSON location.
         # When -f places the JSON elsewhere, use the full output_dir path.
