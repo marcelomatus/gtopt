@@ -216,7 +216,9 @@ For full algorithmic details, see [SDDP Solver](docs/SDDP_SOLVER.md).
 |--------------------|---------|----------|-------------|
 | `max_iterations`   | integer | `100`    | Maximum number of forward/backward iterations |
 | `min_iterations`   | integer | `2`      | Minimum iterations before declaring convergence |
-| `convergence_tol`  | number  | `1e-4`   | Relative gap tolerance for convergence |
+| `convergence_tol`  | number  | `1e-4`   | Relative gap tolerance for convergence (primary criterion) |
+| `stationary_tol`   | number  | `0.0`    | Secondary convergence: relative gap-change tolerance. When the gap stops improving over the look-back window, convergence is declared even if gap > `convergence_tol`. Set to e.g. `0.01` to enable. `0.0` = disabled |
+| `stationary_window`| integer | `10`     | Number of iterations to look back when checking gap stationarity (only used when `stationary_tol > 0`) |
 
 #### Advanced tuning
 
@@ -345,14 +347,19 @@ fields:
 | `min_iterations`  | integer   | from global `sddp_options` | Minimum iterations before convergence |
 | `apertures`       | int array | from global `sddp_options` | Aperture UIDs (absent = inherit, `[]` = Benders) |
 | `convergence_tol` | number    | from global `sddp_options` | Convergence tolerance |
+| `stationary_tol`  | number    | from global `sddp_options` | Stationary gap-change tolerance (0 = disabled) |
+| `stationary_window`| integer  | from global `sddp_options` | Look-back window for stationary gap check |
 
 **`transition` fields:**
 
+See [CASCADE_SOLVER.md §4.5](docs/CASCADE_SOLVER.md) for detailed cut
+forgetting semantics and the two-phase solve behavior.
+
 | Field                        | Type    | Default | Description |
 |------------------------------|---------|---------|-------------|
-| `inherit_optimality_cuts`    | boolean | `false` | Carry forward Benders optimality cuts |
-| `inherit_feasibility_cuts`   | boolean | `false` | Carry forward feasibility cuts |
-| `inherit_targets`            | boolean | `false` | Add elastic target constraints from previous solution |
+| `inherit_optimality_cuts`    | integer | `0`     | `0` = do not inherit; `-1` = inherit and keep forever; `N > 0` = inherit, then forget after N training iterations |
+| `inherit_feasibility_cuts`   | integer | `0`     | Same semantics as `inherit_optimality_cuts` |
+| `inherit_targets`            | integer | `0`     | `0` = no targets; `-1` = inherit forever; `N > 0` = inherit with forgetting |
 | `target_rtol`                | number  | `0.05`  | Relative tolerance for target band (fraction of abs(v)) |
 | `target_min_atol`            | number  | `1.0`   | Minimum absolute tolerance for target band |
 | `target_penalty`             | number  | `500`   | Elastic penalty cost per unit target violation |
@@ -367,6 +374,8 @@ fields:
     "sddp_options": {
       "max_iterations": 200,
       "convergence_tol": 1e-5,
+      "stationary_tol": 0.01,
+      "stationary_window": 10,
       "cut_sharing_mode": "expected",
       "cut_directory": "cuts",
       "elastic_mode": "single_cut",

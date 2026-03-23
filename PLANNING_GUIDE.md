@@ -39,6 +39,11 @@ external time-series data.
     - [Example: Solar plant with stochastic production](#122-example-solar-plant-with-stochastic-production)
     - [Pasada hydro mode](#123-pasada-hydro-mode)
     - [SDDP apertures](#124-sddp-apertures)
+13. [Using the Cascade Solver](#13-using-the-cascade-solver)
+    - [When to use cascade vs plain SDDP](#131-when-to-use-cascade-vs-plain-sddp)
+    - [Example: 2-level cascade (uninodal warm-start)](#132-example-2-level-cascade-uninodal-warm-start)
+    - [Example: 3-level progressive refinement](#133-example-3-level-progressive-refinement)
+    - [Monitoring cascade progress](#134-monitoring-cascade-progress)
 
 ---
 
@@ -1517,6 +1522,249 @@ scenarios.
 
 ---
 
+## 13. Using the Cascade Solver
+
+The **cascade solver** (`solver_type = "cascade"`) runs multiple SDDP levels
+in sequence, each with its own LP formulation and solver parameters.  It
+accelerates convergence by starting from a simplified model and progressively
+refining towards the full network.
+
+> **Full reference**: [CASCADE_SOLVER.md](docs/CASCADE_SOLVER.md) —
+> configuration fields, transfer mechanisms, implementation details.
+
+### 13.1 When to use cascade vs plain SDDP
+
+| Criterion | Plain SDDP | Cascade |
+|-----------|-----------|---------|
+| Network complexity | Single formulation | Graduated: uninodal → transport → full |
+| Convergence speed | All iterations on full LP | Faster via warm-start from simpler models |
+| LP rebuild cost | One LP build | Multiple LP builds (amortized by fewer iterations) |
+| Configuration effort | Minimal | Per-level settings required |
+
+Use the cascade solver when:
+
+- The full network model (Kirchhoff + line losses) takes many iterations to
+  converge.
+- A simplified model (single-bus) converges quickly and provides a good
+  starting point.
+- The problem has many phases (stages), increasing the cut convergence time.
+
+### 13.2 Example: 2-level cascade (uninodal warm-start)
+
+This example uses the `sddp_hydro_3phase` test case — a single-bus system with
+a hydro generator, a thermal generator, and a reservoir, decomposed into
+3 phases (one stage each with 24 blocks).
+
+**Level 0 (uninodal Benders)**: solves a copper-plate model quickly, producing
+a rough solution trajectory for reservoir volumes.
+
+**Level 1 (full SDDP with targets)**: builds the full LP and inherits elastic
+target constraints from the Level 0 reservoir volumes, guiding the forward pass.
+
+```json
+{
+  "options": {
+    "solver_type": "cascade",
+    "use_single_bus": true,
+    "scale_objective": 1.0,
+    "demand_fail_cost": 1000,
+    "sddp_options": {
+      "max_iterations": 30,
+      "convergence_tol": 0.001
+    },
+    "cascade_options": {
+      "level_array": [
+        {
+          "name": "uninodal_benders",
+          "model_options": {
+            "use_single_bus": true
+          },
+          "sddp_options": {
+            "max_iterations": 10,
+            "apertures": []
+          }
+        },
+        {
+          "name": "full_sddp",
+          "model_options": {
+            "use_single_bus": true
+          },
+          "sddp_options": {
+            "max_iterations": 20,
+            "convergence_tol": 0.001
+          },
+          "transition": {
+            "inherit_targets": true,
+            "target_rtol": 0.05,
+            "target_min_atol": 1.0,
+            "target_penalty": 500
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+**How it works:**
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Level 0: uninodal_benders                          │
+│  ┌──────────┐  ┌──────────┐       ┌──────────┐     │
+│  │ Phase 1   │→ │ Phase 2   │→ … → │ Phase T   │    │
+│  │ (forward) │  │ (forward) │      │ (forward) │    │
+│  └────┬─────┘  └────┬─────┘       └────┬─────┘    │
+│       ↑ cuts        ↑ cuts              ↑ cuts     │
+│  ┌────┴─────┐  ┌────┴─────┐       ┌────┴─────┐    │
+│  │ Phase 1   │← │ Phase 2   │← … ← │ Phase T   │   │
+│  │ (backward)│  │ (backward)│      │ (backward)│    │
+│  └──────────┘  └──────────┘       └──────────┘     │
+│                                                     │
+│  → Converges quickly (single bus, no Kirchhoff)     │
+│  → Extracts reservoir/battery state trajectories    │
+└──────────────────────┬──────────────────────────────┘
+                       │ targets (elastic constraints)
+                       ↓
+┌─────────────────────────────────────────────────────┐
+│  Level 1: full_sddp                                 │
+│  ┌──────────┐  ┌──────────┐       ┌──────────┐     │
+│  │ Phase 1   │→ │ Phase 2   │→ … → │ Phase T   │    │
+│  │ + targets │  │ + targets │      │ + targets │    │
+│  └──────────┘  └──────────┘       └──────────┘     │
+│                                                     │
+│  → Guided by Level 0 state trajectory               │
+│  → Converges in fewer iterations than from scratch  │
+└─────────────────────────────────────────────────────┘
+```
+
+**Running the cascade**:
+
+```bash
+gtopt sddp_hydro_3phase.json
+```
+
+The solver logs per-level statistics (including `gap_change` when the
+stationary-gap criterion is enabled):
+
+```
+[info] ═══ Cascade level 0: uninodal_benders ═══
+[info] SDDP iter 1: gap=0.782000 gap_change=1.000000 cuts=3
+[info] SDDP iter 2: gap=0.321000 gap_change=1.000000 cuts=6
+...
+[info] SDDP iter 8: gap=0.002000 gap_change=0.800000 cuts=24 [CONVERGED]
+[info] ═══ Cascade level 1: full_sddp ═══
+[info] Injecting 9 elastic targets from previous level
+[info] SDDP iter 1: gap=0.016000 gap_change=1.000000 cuts=3
+...
+[info] SDDP iter 5: gap=0.000300 gap_change=0.005000 cuts=15 [CONVERGED]
+```
+
+> **Tip**: When the gap plateaus at a non-zero value (common in stochastic
+> problems with many scenarios), enable the stationary-gap criterion by
+> adding `"stationary_tol": 0.01` to `sddp_options`.  The solver will
+> declare convergence when `gap_change` falls below `stationary_tol`,
+> logging `"stationary gap convergence"` instead of the standard
+> `"[CONVERGED]"` message.
+
+### 13.3 Example: 3-level progressive refinement
+
+A more advanced cascade that progressively refines both the LP formulation and
+the solver strategy:
+
+```json
+{
+  "options": {
+    "solver_type": "cascade",
+    "sddp_options": {
+      "max_iterations": 50,
+      "convergence_tol": 0.001
+    },
+    "cascade_options": {
+      "level_array": [
+        {
+          "name": "benders_uninodal",
+          "model_options": {
+            "use_single_bus": true
+          },
+          "sddp_options": {
+            "max_iterations": 15,
+            "apertures": []
+          }
+        },
+        {
+          "name": "guided_full_network",
+          "model_options": {
+            "use_single_bus": false,
+            "use_kirchhoff": true
+          },
+          "sddp_options": {
+            "max_iterations": 20,
+            "apertures": []
+          },
+          "transition": {
+            "inherit_targets": true,
+            "target_rtol": 0.05,
+            "target_min_atol": 1.0,
+            "target_penalty": 500
+          }
+        },
+        {
+          "name": "refined_with_cuts",
+          "sddp_options": {
+            "max_iterations": 20
+          },
+          "transition": {
+            "inherit_optimality_cuts": true,
+            "inherit_feasibility_cuts": true
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+**How the 3 levels work:**
+
+```
+Level 0 (benders_uninodal)           Level 1 (guided_full_network)     Level 2 (refined_with_cuts)
+┌──────────────────────┐             ┌──────────────────────┐          ┌──────────────────────┐
+│ Single-bus Benders    │   targets   │ Full network SDDP    │  cuts    │ Same LP, inherits    │
+│ • Fast convergence    │───────────→ │ • Kirchhoff enabled  │────────→ │ • Warm-started LB    │
+│ • Rough trajectory    │             │ • Guided by L0 state │          │ • Fewer iterations   │
+│ • Generates base cuts │             │ • Better cuts        │          │ • Final convergence  │
+└──────────────────────┘             └──────────────────────┘          └──────────────────────┘
+```
+
+Note that Level 2 omits `model_options`, so it **reuses the Level 1 LP**.  Only
+the solver parameters change (cuts inherited, possibly different apertures).
+
+### 13.4 Monitoring cascade progress
+
+Use `sddp_monitor` to watch convergence in real time:
+
+```bash
+# In one terminal: run the solver
+gtopt case.json
+
+# In another terminal: monitor convergence
+sddp_monitor --status-file output/sddp_status.json
+```
+
+The monitoring dashboard shows per-scene upper/lower bounds and gap across all
+cascade levels.  Level transitions appear as step changes in the bound
+trajectories.
+
+Alternatively, use `gtopt --stats` to get a summary of per-level statistics
+after the solve completes.
+
+> **See also**: [SDDP_SOLVER.md](docs/SDDP_SOLVER.md) — convergence theory,
+> cut sharing, elastic filter, and monitoring API.
+> [CASCADE_SOLVER.md](docs/CASCADE_SOLVER.md) — full configuration reference.
+
+---
+
 ## See also
 
 - **[Mathematical Formulation](docs/formulation/MATHEMATICAL_FORMULATION.md)**
@@ -1530,5 +1778,11 @@ scenarios.
 - **[BUILDING.md](BUILDING.md)** — Build and installation instructions
 - **[DIAGRAM_TOOL.md](DIAGRAM_TOOL.md)** — `gtopt_diagram` network and
   planning diagram tool: aggregation, voltage reduction, large-case workflows
+- **[SDDP_SOLVER.md](docs/SDDP_SOLVER.md)** — SDDP solver: convergence
+  theory, cut sharing, elastic filter, monitoring API
+- **[CASCADE_SOLVER.md](docs/CASCADE_SOLVER.md)** — Cascade solver:
+  multi-level hybrid SDDP with cut and target inheritance
+- **[MONOLITHIC_SOLVER.md](docs/MONOLITHIC_SOLVER.md)** — Default monolithic
+  solver, boundary cuts, and sequential mode
 - `scripts/gtopt_field_extractor.py` — Auto-generate field-reference tables
   from C++ headers
