@@ -36,16 +36,15 @@ find_package(COIN)
 # COIN_SOLVER chooses which LP/MIP back-end to use through the COIN-OR Osi
 # layer.  Accepted values:
 #
-#   AUTO  – probe for installed solvers in order CPX → CLP → CBC and pick the
-#           first one found (default).  CLP is preferred over CBC because it
-#           is the primary LP solver; CBC is a MIP solver built on top of CLP
-#           and its OsiCbcSolverInterface is not suited for pure LP use.
+#   AUTO  – probe for installed solvers in order CPX → HGS → CLP → CBC and
+#           pick the first one found (default).
 #   CLP   – use Clp  (COIN-OR LP solver).
 #   CBC   – use Cbc  (COIN-OR MIP solver, implies Clp).
 #   CPX   – use IBM ILOG CPLEX.
+#   HGS   – use HiGHS (MIT-licensed LP/MIP solver, requires OsiHiGHS).
 #
-set(COIN_SOLVER "AUTO" CACHE STRING "COIN-OR solver back-end (AUTO, CLP, CBC, CPX)")
-set_property(CACHE COIN_SOLVER PROPERTY STRINGS AUTO CLP CBC CPX)
+set(COIN_SOLVER "AUTO" CACHE STRING "COIN-OR solver back-end (AUTO, CLP, CBC, CPX, HGS)")
+set_property(CACHE COIN_SOLVER PROPERTY STRINGS AUTO CLP CBC CPX HGS)
 
 string(TOUPPER "${COIN_SOLVER}" _COIN_SOLVER_UPPER)
 
@@ -66,6 +65,11 @@ macro(_coin_probe_clp)
   set(_CLP_AVAILABLE ${CLP_FOUND})
 endmacro()
 
+macro(_coin_probe_hgs)
+  find_package(HiGHS QUIET)
+  set(_HGS_AVAILABLE ${HIGHS_FOUND})
+endmacro()
+
 # --- AUTO: probe in priority order and pick the first available solver --------
 
 if(_COIN_SOLVER_UPPER STREQUAL "AUTO")
@@ -74,18 +78,24 @@ if(_COIN_SOLVER_UPPER STREQUAL "AUTO")
     set(_COIN_SOLVER_UPPER "CPX")
     message(STATUS "COIN_SOLVER=AUTO: detected CPLEX")
   else()
-    _coin_probe_clp()
-    if(_CLP_AVAILABLE)
-      set(_COIN_SOLVER_UPPER "CLP")
-      message(STATUS "COIN_SOLVER=AUTO: detected CLP")
+    _coin_probe_hgs()
+    if(_HGS_AVAILABLE)
+      set(_COIN_SOLVER_UPPER "HGS")
+      message(STATUS "COIN_SOLVER=AUTO: detected HiGHS")
     else()
-      _coin_probe_cbc()
-      if(_CBC_AVAILABLE)
-        set(_COIN_SOLVER_UPPER "CBC")
-        message(STATUS "COIN_SOLVER=AUTO: detected CBC")
+      _coin_probe_clp()
+      if(_CLP_AVAILABLE)
+        set(_COIN_SOLVER_UPPER "CLP")
+        message(STATUS "COIN_SOLVER=AUTO: detected CLP")
       else()
-        set(_COIN_SOLVER_UPPER "NONE")
-        message(STATUS "COIN_SOLVER=AUTO: no solver found")
+        _coin_probe_cbc()
+        if(_CBC_AVAILABLE)
+          set(_COIN_SOLVER_UPPER "CBC")
+          message(STATUS "COIN_SOLVER=AUTO: detected CBC")
+        else()
+          set(_COIN_SOLVER_UPPER "NONE")
+          message(STATUS "COIN_SOLVER=AUTO: no solver found")
+        endif()
       endif()
     endif()
   endif()
@@ -135,9 +145,24 @@ elseif(_COIN_SOLVER_UPPER STREQUAL "CLP")
     message(STATUS "COIN solver: CLP")
   endif()
 
+elseif(_COIN_SOLVER_UPPER STREQUAL "HGS")
+  find_package(HiGHS)
+  if(HIGHS_FOUND)
+    list(APPEND SOLVER_LIBRARIES ${HIGHS_LIBRARIES})
+    list(APPEND SOLVER_INCLUDE_DIRS ${HIGHS_INCLUDE_DIRS})
+
+    find_package(OsiHiGHS QUIET)
+    if(OSIHIGHS_FOUND)
+      list(INSERT COIN_OSI_LIBRARIES 0 ${COIN_OSIHIGHS_LIBRARY})
+    endif()
+
+    add_compile_definitions(COIN_USE_HGS)
+    message(STATUS "COIN solver: HiGHS")
+  endif()
+
 elseif(_COIN_SOLVER_UPPER STREQUAL "NONE")
   message(STATUS "COIN solver: none configured")
 
 else()
-  message(FATAL_ERROR "Unknown COIN_SOLVER value: '${COIN_SOLVER}'. Use AUTO, CLP, CBC, or CPX.")
+  message(FATAL_ERROR "Unknown COIN_SOLVER value: '${COIN_SOLVER}'. Use AUTO, CLP, CBC, CPX, or HGS.")
 endif()

@@ -541,6 +541,7 @@ private:
                    double rowub);
 
   void rebuild_row_name_maps();
+  void push_names_to_solver() const;
   void open_log_handler(int log_level);
   void close_log_handler();
 
