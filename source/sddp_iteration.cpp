@@ -169,6 +169,37 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
 
       // ── Convergence + live-query update ──
       finalize_iteration_result(ir, iter);
+
+      // ── Secondary (stationary gap) convergence check ──
+      // When stationary_tol > 0, also declare convergence if the gap has not
+      // improved by more than stationary_tol (relative) over the last
+      // stationary_window iterations.  This handles problems where the SDDP
+      // gap converges to a non-zero stationary value.
+      if (!ir.converged && m_options_.stationary_tol > 0.0
+          && m_options_.stationary_window > 0)
+      {
+        const auto window =
+            static_cast<std::size_t>(m_options_.stationary_window);
+        if (results.size() >= window) {
+          const double old_gap = results[results.size() - window].gap;
+          const double gap_change =
+              std::abs(ir.gap - old_gap) / std::max(1e-10, old_gap);
+          if (gap_change < m_options_.stationary_tol
+              && (iter >= m_iteration_offset_
+                      + IterationIndex {m_options_.min_iterations - 1}))
+          {
+            ir.converged = true;
+            m_converged_.store(true);
+            SPDLOG_INFO(
+                "SDDP iter {}: stationary gap convergence "
+                "(gap_change={:.6f} < stationary_tol={:.6f}) [CONVERGED]",
+                iter,
+                gap_change,
+                m_options_.stationary_tol);
+          }
+        }
+      }
+
       results.push_back(ir);
 
       SPDLOG_INFO(
