@@ -1060,7 +1060,7 @@ TEST_CASE("LinearInterface - load_flat without names (level 0)")  // NOLINT
   li.set_lp_names_level(0);
   li.load_flat(flat_lp);
 
-  // Col name map populated at level 0, row name map stays empty
+  // Col name map populated at level 0 (state var names), row map stays empty
   CHECK(li.col_name_map().size() == 1);
   CHECK(li.col_name_map().count("x1") == 1);
   CHECK(li.row_name_map().empty());

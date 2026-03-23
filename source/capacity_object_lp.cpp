@@ -60,8 +60,8 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
                 sv_key_p(scenario, *prev_stage, col_name));
             prev_svar)
         {
-          auto col =
-              lp.add_col({.name = lp_col_label_p(sc, stage, col_name, "ini")});
+          auto col = lp.add_col(
+              {.name = state_col_label_p(sc, stage, col_name, "ini")});
           prev_svar->get().add_dependent_variable(scenario, stage, col);
           return col;
         }
@@ -78,7 +78,7 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
     return true;
   }
 
-  auto capainst_name = lp_col_label_p(sc, stage, "capainst");
+  auto capainst_name = state_col_label_p(sc, stage, "capainst");
   const auto capainst_col = lp.add_col({
       .name = capainst_name,
       .lowb = stage_capacity,
@@ -90,7 +90,7 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   SparseRow capainst_row {.name = std::move(capainst_name)};
   capainst_row[capainst_col] = -1;
 
-  auto capacost_name = lp_col_label_p(sc, stage, "capacost");
+  auto capacost_name = state_col_label_p(sc, stage, "capacost");
   const auto capacost_col =
       lp.add_col({.name = capacost_name, .cost = sc.stage_ecost(stage, 1.0)});
   sc.add_state_variable(sv_key_p(scenario, stage, "capacost"), capacost_col);
@@ -101,7 +101,7 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   if (stage_maxexpcap > 0) {
     const auto expmod_col = expmod_cols[stage.uid()] = lp.add_col({
         // expmod variable
-        .name = lp_col_label_p(sc, stage, "expmod"),
+        .name = state_col_label_p(sc, stage, "expmod"),
         .uppb = stage_expmod,
     });
 
