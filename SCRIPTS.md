@@ -96,7 +96,7 @@ Each command-line tool lives in its own Python package directory under
 | `openpyxl` | Excel file support (`igtopt`) |
 | `pandapower` | Power system network data (`pp2gtopt`, `gtopt2pp`, `gtopt_compare`) |
 | `rich` | Styled terminal output (`gtopt_check_json`, `plp2gtopt`, `igtopt`, `run_gtopt`) |
-| `matplotlib` *(optional)* | Live charts (`sddp_monitor` GUI mode) |
+| `matplotlib` *(optional)* | live charts (`sddp_monitor` GUI mode) |
 | `graphviz` *(optional)* | SVG/PNG/PDF rendering (`gtopt_diagram`) |
 | `pyvis` *(optional)* | Interactive HTML diagrams (`gtopt_diagram`) |
 | `cairosvg` *(optional)* | High-res PNG/PDF export (`gtopt_diagram`) |
