@@ -1,11 +1,13 @@
 /**
  * @file      osi_solver.hpp
- * @brief     Header of
+ * @brief     Solver back-end selection via COIN-OR Osi layer
  * @date      Mon Mar 24 09:51:39 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * Selects the concrete OsiSolverInterface implementation based on the
+ * compile-time COIN_USE_* macro set by cmake_local/Solver.cmake.
+ * Priority: CPX > HGS > CBC > CLP (fallback).
  */
 
 #pragma once
@@ -14,6 +16,12 @@
 #  include <coin/OsiCpxSolverInterface.hpp>
 #  define OSI_SOLVER CPLEX
 using osiSolverInterface = OsiCpxSolverInterface;
+#endif
+
+#ifdef COIN_USE_HGS
+#  include <OsiHiGHSSolverInterface.hpp>
+#  define OSI_SOLVER HiGHS
+using osiSolverInterface = OsiHiGHSSolverInterface;
 #endif
 
 #ifdef COIN_USE_CBC
