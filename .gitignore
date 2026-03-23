@@ -53,3 +53,5 @@ userstop
 tools/compile_commands.json
 .claude
 reports
+scripts/Testing/
+scripts/results/
