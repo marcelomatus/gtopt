@@ -1562,12 +1562,13 @@ void SDDPSolver::finalize_iteration_result(SDDPIterationResult& ir,
   m_converged_.store(ir.converged);
 
   SPDLOG_TRACE(
-      "SDDP iter {}: LB={:.4f} UB={:.4f} gap={:.6f} cuts={} "
-      "infeas_cuts={} fwd={:.3f}s bwd={:.3f}s total={:.3f}s{}",
+      "SDDP iter {}: LB={:.4f} UB={:.4f} gap={:.6f} gap_change={:.6f} "
+      "cuts={} infeas_cuts={} fwd={:.3f}s bwd={:.3f}s total={:.3f}s{}",
       iter,
       ir.lower_bound,
       ir.upper_bound,
       ir.gap,
+      ir.gap_change,
       ir.cuts_added,
       ir.infeasible_cuts_added,
       ir.forward_pass_s,
@@ -1575,9 +1576,10 @@ void SDDPSolver::finalize_iteration_result(SDDPIterationResult& ir,
       ir.iteration_s,
       ir.converged ? " [CONVERGED]" : "");
 
-  SPDLOG_INFO("SDDP iter {}: gap={:.6f} ({:.3f}s){}",
+  SPDLOG_INFO("SDDP iter {}: gap={:.6f} gap_change={:.6f} ({:.3f}s){}",
               iter,
               ir.gap,
+              ir.gap_change,
               ir.iteration_s,
               ir.converged ? " [CONVERGED]" : "");
 }
@@ -1702,6 +1704,24 @@ auto SDDPPlanningSolver::solve(PlanningLP& planning_lp,
   }
 
   m_last_results_ = std::move(*results);
+
+  // Populate the SDDP summary on planning_lp for write_out() consumption.
+  if (!m_last_results_.empty()) {
+    const auto& last = m_last_results_.back();
+    // Count only training iterations (all but the final simulation pass).
+    const int training_iters = static_cast<int>(m_last_results_.size()) > 1
+        ? static_cast<int>(m_last_results_.size()) - 1
+        : static_cast<int>(m_last_results_.size());
+    planning_lp.set_sddp_summary({
+        .gap = last.gap,
+        .gap_change = last.gap_change,
+        .lower_bound = last.lower_bound,
+        .upper_bound = last.upper_bound,
+        .iterations = training_iters,
+        .converged = last.converged,
+        .stationary_converged = last.stationary_converged,
+    });
+  }
 
   // Return 1 if converged, 0 otherwise
   if (!m_last_results_.empty() && m_last_results_.back().converged) {

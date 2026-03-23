@@ -179,11 +179,16 @@ void PlanningLP::write_out() const
     int status;
     double obj_value;
     double kappa;
+    double gap;  ///< Final SDDP gap (0.0 for monolithic)
+    double
+        gap_change;  ///< Final SDDP stationary gap-change (1.0 for monolithic)
   };
 
   std::vector<SolutionRow> rows;
   rows.reserve(static_cast<std::size_t>(num_scenes)
                * static_cast<std::size_t>(std::max(num_phases, 0)));
+
+  const auto& sddp = m_sddp_summary_;
 
   for (const auto& phase_systems : m_systems_) {
     for (const auto& system : phase_systems) {
@@ -194,6 +199,8 @@ void PlanningLP::write_out() const
           .status = li.get_status(),
           .obj_value = li.get_obj_value(),
           .kappa = li.get_kappa(),
+          .gap = sddp.gap,
+          .gap_change = sddp.gap_change,
       });
     }
   }
@@ -238,20 +245,26 @@ void PlanningLP::write_out() const
     }
   };
 
-  sol_file << "scene,phase,status,status_name,obj_value,kappa\n";
+  sol_file << "scene,phase,status,status_name,obj_value,kappa,gap,gap_change\n";
   for (const auto& row : rows) {
-    sol_file << std::format("{},{},{},{},{},{}\n",
+    sol_file << std::format("{},{},{},{},{},{},{},{}\n",
                             row.scene_uid,
                             row.phase_uid,
                             row.status,
                             status_name(row.status),
                             row.obj_value,
-                            row.kappa);
-    SPDLOG_DEBUG("  solution.csv: scene={} phase={} status={} obj_value={}",
-                 row.scene_uid,
-                 row.phase_uid,
-                 row.status,
-                 row.obj_value);
+                            row.kappa,
+                            row.gap,
+                            row.gap_change);
+    SPDLOG_DEBUG(
+        "  solution.csv: scene={} phase={} status={} obj_value={} "
+        "gap={} gap_change={}",
+        row.scene_uid,
+        row.phase_uid,
+        row.status,
+        row.obj_value,
+        row.gap,
+        row.gap_change);
   }
 }
 

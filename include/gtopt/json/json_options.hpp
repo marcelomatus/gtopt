@@ -85,7 +85,9 @@ struct json_data_contract<SddpOptions>
                        json_bool_null<"single_cut_storage", OptBool>,
                        json_number_null<"max_stored_cuts", OptInt>,
                        json_bool_null<"use_clone_pool", OptBool>,
-                       json_bool_null<"simulation_mode", OptBool>>;
+                       json_bool_null<"simulation_mode", OptBool>,
+                       json_number_null<"stationary_tol", OptReal>,
+                       json_number_null<"stationary_window", OptInt>>;
 
   constexpr static auto to_json_data(SddpOptions const& opt)
   {
@@ -122,7 +124,9 @@ struct json_data_contract<SddpOptions>
                                  opt.single_cut_storage,
                                  opt.max_stored_cuts,
                                  opt.use_clone_pool,
-                                 opt.simulation_mode);
+                                 opt.simulation_mode,
+                                 opt.stationary_tol,
+                                 opt.stationary_window);
   }
 };
 

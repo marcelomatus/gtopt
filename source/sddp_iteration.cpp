@@ -169,11 +169,41 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
 
       // ── Convergence + live-query update ──
       finalize_iteration_result(ir, iter);
+
+      // ── Secondary (stationary gap) convergence check ──
+      // When stationary_tol > 0, also declare convergence if the gap has not
+      // improved by more than stationary_tol (relative) over the last
+      // stationary_window iterations.  This handles problems where the SDDP
+      // gap converges to a non-zero stationary value.
+      if (m_options_.stationary_tol > 0.0 && m_options_.stationary_window > 0) {
+        const auto window =
+            static_cast<std::size_t>(m_options_.stationary_window);
+        if (results.size() >= window) {
+          const double old_gap = results[results.size() - window].gap;
+          ir.gap_change = std::abs(ir.gap - old_gap) / std::max(1e-10, old_gap);
+          if (!ir.converged && ir.gap_change < m_options_.stationary_tol
+              && (iter >= m_iteration_offset_
+                      + IterationIndex {m_options_.min_iterations - 1}))
+          {
+            ir.converged = true;
+            ir.stationary_converged = true;
+            m_converged_.store(true);
+            SPDLOG_INFO(
+                "SDDP iter {}: stationary gap convergence "
+                "(gap_change={:.6f} < stationary_tol={:.6f}) [CONVERGED]",
+                iter,
+                ir.gap_change,
+                m_options_.stationary_tol);
+          }
+        }
+      }
+
       results.push_back(ir);
 
       SPDLOG_INFO(
           "SDDP: iter {} done in {:.3f}s (fwd {:.2f}s + bwd {:.2f}s) — "
-          "UB={:.4f} LB={:.4f} gap={:.6f} cuts={} infeas_cuts={} {}",
+          "UB={:.4f} LB={:.4f} gap={:.6f} gap_change={:.6f} "
+          "cuts={} infeas_cuts={} {}",
           iter,
           ir.iteration_s,
           ir.forward_pass_s,
@@ -181,6 +211,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
           ir.upper_bound,
           ir.lower_bound,
           ir.gap,
+          ir.gap_change,
           ir.cuts_added,
           ir.infeasible_cuts_added,
           ir.converged ? "[CONVERGED]" : "");
@@ -259,11 +290,12 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
 
     SPDLOG_INFO(
         "SDDP: simulation pass done in {:.3f}s — "
-        "UB={:.4f} LB={:.4f} gap={:.6f} {}",
+        "UB={:.4f} LB={:.4f} gap={:.6f} gap_change={:.6f} {}",
         ir.iteration_s,
         ir.upper_bound,
         ir.lower_bound,
         ir.gap,
+        ir.gap_change,
         ir.converged ? "[CONVERGED]" : "");
 
     m_in_simulation_ = false;
