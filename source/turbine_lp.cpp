@@ -82,7 +82,8 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
       const auto dcol = discharge_cols.at(buid);
 
       auto rrow = SparseRow {
-          .name = sc.lp_label(scenario, stage, block, cname, "fconv", uid()),
+          .name =
+              sc.lp_row_label(scenario, stage, block, cname, "fconv", uid()),
       };
       rrow[gcol] = 1;
       rrow[dcol] = -stage_conversion_rate;
@@ -101,7 +102,7 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
       const auto gcol = gen_cols.at(buid);
 
       auto rrow = SparseRow {
-          .name = sc.lp_label(scenario, stage, block, cname, "conv", uid()),
+          .name = sc.lp_row_label(scenario, stage, block, cname, "conv", uid()),
       };
       rrow[fcol] = -stage_conversion_rate;
       rrow[gcol] = 1;
@@ -112,8 +113,8 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
       if (stage_capacity) {
         auto crow =
             SparseRow {
-                .name =
-                    sc.lp_label(scenario, stage, block, cname, "fcap", uid()),
+                .name = sc.lp_row_label(
+                    scenario, stage, block, cname, "fcap", uid()),
             }
                 .less_equal(*stage_capacity);
         crow[fcol] = 1;

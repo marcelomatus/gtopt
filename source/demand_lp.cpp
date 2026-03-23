@@ -136,7 +136,8 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     if (capacity_col) {
       auto crow =
           SparseRow {
-              .name = sc.lp_label(scenario, stage, block, cname, "cap", uid()),
+              .name =
+                  sc.lp_row_label(scenario, stage, block, cname, "cap", uid()),
           }
               .greater_equal(0.0);
 
