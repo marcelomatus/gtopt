@@ -51,8 +51,8 @@ void share_cuts_for_phase(
 
     const auto accumulated = accumulate_benders_cuts(all_cuts, label_prefix);
 
-    for (Index si = 0; si < num_scenes; ++si) {
-      auto& li = planning.system(SceneIndex {si}, phase).linear_interface();
+    for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
+      auto& li = planning.system(scene, phase).linear_interface();
       li.add_row(accumulated);
     }
 
@@ -68,19 +68,20 @@ void share_cuts_for_phase(
     std::vector<double> scene_probs(static_cast<std::size_t>(num_scenes), 0.0);
     double total_prob = 0.0;
 
-    for (Index si = 0; si < num_scenes; ++si) {
-      if (scene_cuts[SceneIndex {si}].empty()) {
+    for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
+      const auto si_sz = static_cast<std::size_t>(scene);
+      if (scene_cuts[scene].empty()) {
         continue;
       }
-      if (std::cmp_less(si, scenes.size())) {
-        for (const auto& sc : scenes[si].scenarios()) {
-          scene_probs[static_cast<std::size_t>(si)] += sc.probability_factor();
+      if (si_sz < scenes.size()) {
+        for (const auto& sc : scenes[si_sz].scenarios()) {
+          scene_probs[si_sz] += sc.probability_factor();
         }
       }
-      if (scene_probs[static_cast<std::size_t>(si)] <= 0.0) {
-        scene_probs[static_cast<std::size_t>(si)] = 1.0;
+      if (scene_probs[si_sz] <= 0.0) {
+        scene_probs[si_sz] = 1.0;
       }
-      total_prob += scene_probs[static_cast<std::size_t>(si)];
+      total_prob += scene_probs[si_sz];
     }
 
     if (total_prob <= 0.0) {
@@ -92,12 +93,12 @@ void share_cuts_for_phase(
     scene_avg_cuts.reserve(static_cast<std::size_t>(num_scenes));
     weights.reserve(static_cast<std::size_t>(num_scenes));
 
-    for (Index si = 0; si < num_scenes; ++si) {
-      const auto& cuts = scene_cuts[SceneIndex {si}];
+    for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
+      const auto& cuts = scene_cuts[scene];
       if (cuts.empty()) {
         continue;
       }
-      const double w = scene_probs[static_cast<std::size_t>(si)];
+      const double w = scene_probs[static_cast<std::size_t>(scene)];
       if (w <= 0.0) {
         continue;
       }
@@ -112,8 +113,8 @@ void share_cuts_for_phase(
     const auto avg =
         weighted_average_benders_cut(scene_avg_cuts, weights, label_prefix);
 
-    for (Index si = 0; si < num_scenes; ++si) {
-      auto& li = planning.system(SceneIndex {si}, phase).linear_interface();
+    for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
+      auto& li = planning.system(scene, phase).linear_interface();
       li.add_row(avg);
     }
 
@@ -135,8 +136,8 @@ void share_cuts_for_phase(
       return;
     }
 
-    for (Index si = 0; si < num_scenes; ++si) {
-      auto& li = planning.system(SceneIndex {si}, phase).linear_interface();
+    for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
+      auto& li = planning.system(scene, phase).linear_interface();
       for (const auto& cut : all_cuts) {
         li.add_row(cut);
       }

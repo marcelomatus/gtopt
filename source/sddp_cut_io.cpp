@@ -579,8 +579,7 @@ auto load_cuts_csv(PlanningLP& planning_lp,
       // Coefficients in the CSV are in fully physical space;
       // convert to LP space:
       //   LP_coeff = phys_coeff * col_scale / scale_objective
-      for (Index si = 0; si < num_scenes; ++si) {
-        const auto scene = SceneIndex {si};
+      for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
         auto& li = planning_lp.system(scene, phase).linear_interface();
         auto scene_row = row;
         // Include scene index in name to avoid duplicates across scenes
@@ -724,8 +723,8 @@ auto load_boundary_cuts_csv(
     const auto last_phase = PhaseIndex {num_phases - 1};
 
     // Build scene UID -> SceneIndex lookup (for "separated" mode)
-    flat_map<SceneUid, Index> scene_uid_to_index;
-    for (Index si = 0; si < num_scenes; ++si) {
+    flat_map<SceneUid, SceneIndex> scene_uid_to_index;
+    for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
       scene_uid_to_index[sim.scenes()[si].uid()] = si;
     }
 
@@ -876,8 +875,7 @@ auto load_boundary_cuts_csv(
     }
 
     // ── Ensure the last phase has an alpha column ───────────────
-    for (Index si = 0; si < num_scenes; ++si) {
-      const auto scene = SceneIndex {si};
+    for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
       auto& state = scene_phase_states[scene][last_phase];
       if (state.alpha_col == ColIndex {unknown_index}) {
         auto& li = planning_lp.system(scene, last_phase).linear_interface();
@@ -900,8 +898,8 @@ auto load_boundary_cuts_csv(
     int cuts_loaded = 0;
     for (const auto& rc : raw_cuts) {
       // Determine which scenes get this cut
-      Index scene_start = 0;
-      Index scene_end = num_scenes;
+      SceneIndex scene_start {0};
+      SceneIndex scene_end {num_scenes};
       if (separated) {
         auto it = scene_uid_to_index.find(rc.scene);
         if (it == scene_uid_to_index.end()) {
@@ -913,11 +911,10 @@ auto load_boundary_cuts_csv(
           continue;
         }
         scene_start = it->second;
-        scene_end = it->second + 1;
+        scene_end = it->second + SceneIndex {1};
       }
 
-      for (Index si = scene_start; si < scene_end; ++si) {
-        const auto scene = SceneIndex {si};
+      for (const auto scene : iota_range(scene_start, scene_end)) {
         const auto& state = scene_phase_states[scene][last_phase];
 
         auto row = SparseRow {
@@ -1051,13 +1048,13 @@ auto load_named_cuts_csv(
     const auto num_state_cols = static_cast<int>(headers.size()) - kFixedCols;
 
     // Cache per-phase column maps (lazy: built on first use)
-    std::unordered_map<Index, std::vector<std::optional<ColIndex>>>
+    std::unordered_map<PhaseIndex, std::vector<std::optional<ColIndex>>>
         phase_col_maps;
 
     auto get_col_map =
         [&](PhaseIndex phase) -> const std::vector<std::optional<ColIndex>>&
     {
-      auto it = phase_col_maps.find(static_cast<Index>(phase));
+      auto it = phase_col_maps.find(phase);
       if (it != phase_col_maps.end()) {
         return it->second;
       }
@@ -1110,13 +1107,12 @@ auto load_named_cuts_csv(
               "Named cuts: could not find state variable "
               "for header '{}' in phase {}; column ignored",
               hdr,
-              static_cast<Index>(phase));
+              phase);
         }
         col_map.push_back(found_col);
       }
 
-      auto [ins_it, _] =
-          phase_col_maps.emplace(static_cast<Index>(phase), std::move(col_map));
+      auto [ins_it, _] = phase_col_maps.emplace(phase, std::move(col_map));
       return ins_it->second;
     };
 
@@ -1167,8 +1163,7 @@ auto load_named_cuts_csv(
 
       // Ensure alpha variable exists for this phase in all
       // scenes
-      for (Index si = 0; si < num_scenes; ++si) {
-        const auto scene = SceneIndex {si};
+      for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
         auto& state = scene_phase_states[scene][phase];
         if (state.alpha_col == ColIndex {unknown_index}) {
           auto& li = planning_lp.system(scene, phase).linear_interface();
@@ -1187,8 +1182,7 @@ auto load_named_cuts_csv(
       std::string remainder;
       std::getline(iss, remainder);
 
-      for (Index si = 0; si < num_scenes; ++si) {
-        const auto scene = SceneIndex {si};
+      for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
         const auto& state = scene_phase_states[scene][phase];
 
         auto row = SparseRow {

@@ -128,9 +128,9 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
       const auto num_scenes_bwd =
           static_cast<Index>(planning_lp().simulation().scenes().size());
       m_scene_cuts_before_.resize(static_cast<std::size_t>(num_scenes_bwd));
-      for (Index si = 0; si < num_scenes_bwd; ++si) {
-        m_scene_cuts_before_[static_cast<std::size_t>(si)] =
-            m_scene_cuts_[SceneIndex {si}].size();
+      for (const auto scene : iota_range<SceneIndex>(0, num_scenes_bwd)) {
+        m_scene_cuts_before_[static_cast<std::size_t>(scene)] =
+            m_scene_cuts_[scene].size();
       }
       auto bwd = run_backward_pass_all_scenes(
           fwd->scene_feasible, *sddp_pool, lp_opts, iter);
