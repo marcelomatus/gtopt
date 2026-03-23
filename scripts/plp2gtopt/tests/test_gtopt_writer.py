@@ -158,31 +158,24 @@ class TestGTOptWriterProcessMethods:
         writer.process_options({"output_dir": "out", "solver_type": "mono"})
         assert writer.planning["options"]["solver_type"] == "monolithic"
 
-    def test_process_options_num_apertures(self):
-        """process_options writes num_apertures inside sddp_options."""
+    def test_process_options_no_num_apertures_in_sddp(self):
+        """num_apertures is never emitted in sddp_options (C++ has no such field)."""
         writer = GTOptWriter(MagicMock())
         writer.process_options({"output_dir": "out", "num_apertures": "5"})
         sddp = writer.planning["options"]["sddp_options"]
-        assert sddp["num_apertures"] == 5
+        assert "num_apertures" not in sddp
 
-    def test_process_options_num_apertures_all(self):
-        """process_options with 'all'/-1 does not set num_apertures (auto-detect)."""
+    def test_process_options_no_num_apertures_all(self):
+        """num_apertures is absent for 'all'/-1 and default cases."""
         writer = GTOptWriter(MagicMock())
         writer.process_options({"output_dir": "out", "num_apertures": "all"})
         sddp = writer.planning["options"]["sddp_options"]
         assert "num_apertures" not in sddp
 
         writer2 = GTOptWriter(MagicMock())
-        writer2.process_options({"output_dir": "out", "num_apertures": "-1"})
+        writer2.process_options({"output_dir": "out"})
         sddp2 = writer2.planning["options"]["sddp_options"]
         assert "num_apertures" not in sddp2
-
-    def test_process_options_no_apertures_by_default(self):
-        """num_apertures is absent when num_apertures not supplied."""
-        writer = GTOptWriter(MagicMock())
-        writer.process_options({"output_dir": "out"})
-        sddp = writer.planning["options"]["sddp_options"]
-        assert "num_apertures" not in sddp
 
     @staticmethod
     def _make_plpmat_parser(max_iterations=0, pd_error=0.0, default_cuts=0):
@@ -231,6 +224,39 @@ class TestGTOptWriterProcessMethods:
         writer.process_options({"output_dir": "out"})
         sddp = writer.planning["options"]["sddp_options"]
         assert "max_iterations" not in sddp
+
+    def test_process_options_convergence_tol_from_plpmat(self):
+        """convergence_tol defaults to PDError from plpmat.dat when > 0."""
+        mock_parser = self._make_plpmat_parser(pd_error=0.001)
+        writer = GTOptWriter(mock_parser)
+        writer.process_options({"output_dir": "out"})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["convergence_tol"] == pytest.approx(0.001)
+
+    def test_process_options_convergence_tol_default(self):
+        """convergence_tol defaults to 0.1 when plpmat has no PDError."""
+        mock_parser = self._make_plpmat_parser(pd_error=0.0)
+        writer = GTOptWriter(mock_parser)
+        writer.process_options({"output_dir": "out"})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["convergence_tol"] == pytest.approx(0.1)
+
+    def test_process_options_convergence_tol_no_plpmat(self):
+        """convergence_tol defaults to 0.1 when no plpmat.dat is present."""
+        mock_parser = MagicMock()
+        mock_parser.parsed_data = {}
+        writer = GTOptWriter(mock_parser)
+        writer.process_options({"output_dir": "out"})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["convergence_tol"] == pytest.approx(0.1)
+
+    def test_process_options_convergence_tol_explicit_overrides(self):
+        """Explicit convergence_tol overrides plpmat.dat value."""
+        mock_parser = self._make_plpmat_parser(pd_error=0.001)
+        writer = GTOptWriter(mock_parser)
+        writer.process_options({"output_dir": "out", "convergence_tol": 0.05})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["convergence_tol"] == pytest.approx(0.05)
 
     def test_process_options_demand_fail_cost_default(self):
         """demand_fail_cost defaults to 1000 when not specified."""

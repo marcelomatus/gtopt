@@ -684,7 +684,7 @@ public:
   }
 
   /// Aperture UIDs for the backward pass.
-  /// nullopt = use per-phase aperture_set; empty = no apertures (Benders).
+  /// nullopt = use per-phase apertures; empty = no apertures (Benders).
   [[nodiscard]] const auto& sddp_apertures() const noexcept
   {
     return m_options_.sddp_options.apertures;

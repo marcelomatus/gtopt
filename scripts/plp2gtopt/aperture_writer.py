@@ -175,13 +175,13 @@ def build_aperture_array(
     return ApertureResult(aperture_array, extra_scenarios)
 
 
-def build_phase_aperture_sets(
+def build_phase_apertures(
     idap2_parser: Any,
     aperture_array: List[Dict[str, Any]],
     phase_array: List[Dict[str, Any]],
     num_stages: int,
 ) -> None:
-    """Populate ``aperture_set`` on each phase from per-stage PLP aperture data.
+    """Populate ``apertures`` on each phase from per-stage PLP aperture data.
 
     PLP's ``plpidap2.dat`` stores aperture indices **per stage**.  Since each
     gtopt phase maps to one or more PLP stages, this function computes the
@@ -189,8 +189,8 @@ def build_phase_aperture_sets(
     and maps them to the corresponding aperture UIDs from ``aperture_array``.
 
     The function modifies ``phase_array`` **in place**, adding an
-    ``"aperture_set"`` key to each phase dict.  If all phases share the same
-    aperture set (the common case for single-year problems), ``aperture_set``
+    ``"apertures"`` key to each phase dict.  If all phases share the same
+    aperture set (the common case for single-year problems), ``apertures``
     is left empty (meaning "use all apertures") to keep the JSON compact.
 
     Parameters
@@ -253,7 +253,7 @@ def build_phase_aperture_sets(
         )
         phase_sets.append(ap_uids)
 
-    # Write aperture_set when phases differ OR any phase contains duplicates.
+    # Write apertures when phases differ OR any phase contains duplicates.
     # Duplicates carry semantic weight: the C++ solver scales the aperture
     # probability by the repetition count, so they must be preserved.
     all_ap_uids = sorted(hydro_to_aperture_uid.values())
@@ -262,7 +262,7 @@ def build_phase_aperture_sets(
 
     if not all_same or has_duplicates:
         for phase, ap_set in zip(phase_array, phase_sets):
-            phase["aperture_set"] = ap_set
+            phase["apertures"] = ap_set
 
 
 def write_aperture_afluents(

@@ -1374,7 +1374,7 @@ auto make_2phase_aperture_planning() -> Planning
       },
   };
 
-  // Two phases with aperture_set referencing aperture UIDs
+  // Two phases with apertures referencing aperture UIDs
   Array<Phase> phase_array = {
       Phase {
           .uid = Uid {1},
@@ -1385,7 +1385,7 @@ auto make_2phase_aperture_planning() -> Planning
           .uid = Uid {2},
           .first_stage = 1,
           .count_stage = 1,
-          .aperture_set =
+          .apertures =
               {
                   1,
                   2,
