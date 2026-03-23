@@ -522,6 +522,9 @@ TEST_CASE(
     "errors")  // NOLINT
 {
   auto planning = make_3phase_hydro_planning();
+  // Enable LP names at level 1 so SDDP cuts get named (required for CSV
+  // round-trip: the loader rejects rows with empty name columns).
+  planning.options.use_lp_names = OptInt {1};
   PlanningLP planning_lp(std::move(planning));
 
   // Run SDDP to generate and save per-scene cuts
