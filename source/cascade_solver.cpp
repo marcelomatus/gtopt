@@ -250,7 +250,7 @@ void CascadePlanningSolver::clear_all_cuts(PlanningLP& planning_lp,
 
       if (current > base) {
         auto indices =
-            std::views::iota(base, current) | std::ranges::to<std::vector>();
+            iota_range(base, current) | std::ranges::to<std::vector>();
         li.delete_rows(indices);
         total_removed += current - base;
       }

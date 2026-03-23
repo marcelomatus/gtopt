@@ -125,7 +125,7 @@ using StrongIndexType = strong::type<Index,
 
 /// Specialise std::incrementable_traits for StrongIndexType so that
 /// it satisfies std::weakly_incrementable and can be used with
-/// std::views::iota and other range adaptors.
+/// IotaRange and other range adaptors.
 template<typename Tag>
 struct std::incrementable_traits<gtopt::StrongIndexType<Tag>>
 {
