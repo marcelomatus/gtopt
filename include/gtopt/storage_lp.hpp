@@ -294,7 +294,7 @@ public:
       // Global initial condition – first stage of the first phase only.
       // eini bounds are in LP (scaled) units.
       eicol = lp.add_col({
-          .name = sc.lp_label(scenario, stage, cname, "eini", uid()),
+          .name = sc.lp_col_label(scenario, stage, cname, "eini", uid()),
           .lowb = storage().eini.value_or(stage_emin) / energy_scale,
           .uppb = storage().eini.value_or(stage_emax) / energy_scale,
           .scale = energy_scale,
@@ -310,7 +310,7 @@ public:
       // in the first phase; sini columns are the SDDP inter-phase coupling
       // variables propagated by the forward pass.
       eicol = lp.add_col({
-          .name = sc.lp_label(scenario, stage, cname, "sini", uid()),
+          .name = sc.lp_col_label(scenario, stage, cname, "sini", uid()),
           .lowb = lp_emin,
           .uppb = lp_emax,
           .scale = energy_scale,
@@ -357,7 +357,8 @@ public:
 
       auto erow =
           SparseRow {
-              .name = sc.lp_label(scenario, stage, block, cname, "vol", uid()),
+              .name =
+                  sc.lp_col_label(scenario, stage, block, cname, "vol", uid()),
           }
               .equal(0);
 
@@ -399,7 +400,8 @@ public:
         // The drain LP variable is pre-divided by flow_scale (bounds scaled
         // down); multiply cost by flow_scale to keep objective invariant.
         const auto dcol = lp.add_col({
-            .name = sc.lp_label(scenario, stage, block, cname, "drain", uid()),
+            .name =
+                sc.lp_col_label(scenario, stage, block, cname, "drain", uid()),
             .lowb = 0,
             .uppb = drain_capacity.value_or(LinearProblem::DblMax) / flow_scale,
             .cost = sc.block_ecost(scenario, stage, block, *drain_cost)
@@ -474,7 +476,7 @@ public:
           / stage.duration() * energy_scale;
 
       const auto semin_col = lp.add_col({
-          .name = sc.lp_label(scenario, stage, cname, "semin", uid()),
+          .name = sc.lp_col_label(scenario, stage, cname, "semin", uid()),
           .lowb = 0,
           .uppb = LinearProblem::DblMax,
           .cost = slack_cost,

@@ -52,8 +52,9 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
 
     // Add drain column if needed
     if (add_drain_col) {
-      const auto dcol = lp.add_col(
-          {.name = sc.lp_label(scenario, stage, block, cname, "drain", uid())});
+      const auto dcol =
+          lp.add_col({.name = sc.lp_col_label(
+                          scenario, stage, block, cname, "drain", uid())});
       dcols[buid] = dcol;
       brow[dcol] = -1.0;  // Drain coefficient
     }

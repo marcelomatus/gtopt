@@ -103,16 +103,15 @@ struct FlatOptions
                              ///< values with |v| > max(eps, stats_eps) update
                              ///< stats_min_abs. Defaults to 1e-10 for
                              ///< consistency with external LP analysis tools.
-  bool col_with_names {false};  ///< Include column names
-  bool row_with_names {false};  ///< Include row names
-  bool col_with_name_map {false};  ///< Include column name mapping
+  bool col_with_names {true};  ///< Include column names (level >= 0)
+  bool row_with_names {false};  ///< Include row names (level >= 1)
+  bool col_with_name_map {true};  ///< Include column name mapping
   bool row_with_name_map {false};  ///< Include row name mapping
   bool move_names {false};  ///< Move instead of copy names
   bool reserve_matrix {false};  ///< Pre-reserve matrix memory
   double reserve_factor {default_reserve_factor};  ///< Reserve factor
   bool compute_stats {false};  ///< Compute coefficient min/max/ratio
-  int lp_names_level {0};  ///< LP name uniqueness-check level (0–2)
-                           ///< 0=no names, 1=warn, 2=error
+  int lp_names_level {0};  ///< LP name level: 0=col only, 1=col+row, 2=strict
 };
 
 /**
