@@ -188,18 +188,16 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
     rowmp = build_name_map(rownm, "row");
   }
 
-  // Populate col name strings for stats if column names are available.
-  // Access cols[] directly (member variable) to get the source name —
-  // this works whether or not colnm was built (col_with_names may be false).
+  // Populate col name strings for stats from colnm (which may have been
+  // moved from cols, so we must read from colnm, not cols).
   std::string stats_max_col_name;
   std::string stats_min_col_name;
-  if (do_stats) {
-    const bool have_names = opts.col_with_names || opts.col_with_name_map;
-    if (have_names && stats_max_col >= 0) {
-      stats_max_col_name = cols[static_cast<size_t>(stats_max_col)].name;
+  if (do_stats && !colnm.empty()) {
+    if (stats_max_col >= 0) {
+      stats_max_col_name = colnm[static_cast<size_t>(stats_max_col)];
     }
-    if (have_names && stats_min_col >= 0) {
-      stats_min_col_name = cols[static_cast<size_t>(stats_min_col)].name;
+    if (stats_min_col >= 0) {
+      stats_min_col_name = colnm[static_cast<size_t>(stats_min_col)];
     }
   }
 
@@ -220,7 +218,7 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
       .rownm = std::move(rownm),
       .colmp = std::move(colmp),
       .rowmp = std::move(rowmp),
-      .name = opts.move_names ? std::move(pname) : pname,
+      .name = pname,  // always copy (trivially small, enables multiple to_flat)
       .stats_nnz = stats_nnz,
       .stats_zeroed = stats_zeroed,
       .stats_max_abs = stats_max,

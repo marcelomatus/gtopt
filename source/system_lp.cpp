@@ -133,6 +133,25 @@ constexpr auto create_linear_interface(auto& collections,
   // Use scene/phase UIDs in the problem name so that CoinLpIO does not
   // warn about "missing objective function name" when writing .lp files.
   LinearProblem lp(std::format("gtopt_s{}_p{}", scene.uid(), phase.uid()));
+
+  // Pre-reserve capacity to avoid repeated reallocations during build.
+  // Each element typically adds ~2 cols and ~2 rows per block per scenario.
+  {
+    const auto n_elements = count_all_elements(collections);
+    size_t total_blocks = 0;
+    for (auto&& stage : phase.stages()) {
+      total_blocks += stage.blocks().size();
+    }
+    const auto n_scenarios = scene.scenarios().size();
+    constexpr size_t cols_per_element = 3;
+    constexpr size_t rows_per_element = 2;
+    const auto est_cols =
+        n_elements * total_blocks * n_scenarios * cols_per_element;
+    const auto est_rows =
+        n_elements * total_blocks * n_scenarios * rows_per_element;
+    lp.reserve(est_cols, est_rows);
+  }
+
   // Process all active stages in phase
   for (auto&& stage : phase.stages()) {
     // Process all active scenarios in simulation
