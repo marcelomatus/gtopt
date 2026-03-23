@@ -7,6 +7,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
+#include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -149,7 +150,7 @@ LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
   sending_brow[loss_col] = -1.0;
 
   // Add segment variables with increasing loss coefficients
-  for (const auto k : std::views::iota(1, nseg + 1)) {
+  for (const auto k : iota_range(1, nseg + 1)) {
     const double loss_k = seg_width * loss.resistance * ((2 * k) - 1) / loss.V2;
 
     const auto seg_col = lp.add_col({
