@@ -59,6 +59,7 @@ Multiple system files can be provided and will be merged.
 | `-V` | `--version` | | Show program version and exit |
 | `-v` | `--verbose` | | Activate maximum verbosity (trace-level logging) |
 | `-q` | `--quiet` | `[=arg]` | Suppress all log output to stdout |
+| `-S` | `--stats` | | Print pre-solve system statistics and post-solve results summary |
 | `-s` | `--system-file` | `arg` | System JSON file(s) to process (also accepted as positional args) |
 | `-D` | `--input-directory` | `arg` | Override the input data directory |
 | `-F` | `--input-format` | `arg` | Input data format: `parquet`, `csv` |
@@ -561,6 +562,9 @@ When the LP is too large to fit in memory:
   representative days instead of hourly resolution.
 - **Use SDDP decomposition**: set `solver_type: "sddp"` to decompose the
   problem into smaller per-phase LPs instead of one large monolithic LP.
+- **Use the cascade solver**: set `solver_type: "cascade"` for multi-level
+  SDDP that starts with a simplified model and progressively refines.
+  See [CASCADE_SOLVER.md](docs/CASCADE_SOLVER.md).
 - **Reduce the number of scenes**: fewer scenarios in each scene means
   smaller per-scene LPs.
 - **Reduce reserve zones**: spinning reserve constraints add rows per bus
@@ -687,6 +691,8 @@ if __name__ == "__main__":
   reference (complete options reference)
 - **[SDDP Solver](docs/SDDP_SOLVER.md)** — SDDP decomposition algorithm,
   configuration, and convergence details
+- **[Cascade Solver](docs/CASCADE_SOLVER.md)** — Multi-level hybrid SDDP
+  solver with cut inheritance and progressive refinement
 - **[Monolithic Solver](docs/MONOLITHIC_SOLVER.md)** — Default monolithic
   solver, boundary cuts, and sequential mode
 - **[SCRIPTS.md](SCRIPTS.md)** — Python conversion utilities
