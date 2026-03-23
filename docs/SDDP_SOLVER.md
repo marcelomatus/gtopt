@@ -1531,8 +1531,7 @@ while guiding the optimizer:
 
 $$v_{\text{prev}} - \text{atol} \le v \le v_{\text{prev}} + \text{atol}$$
 
-where $\text{atol} = \max(\text{rtol} \cdot |v_{\text{prev}}|,
-\text{min\_atol})$.  Violations beyond the tolerance band incur a cost
+where $\text{atol} = \max(\text{rtol} \cdot |v_{\text{prev}}|, \text{min\_atol})$.  Violations beyond the tolerance band incur a cost
 of `target_penalty` per unit.
 
 Target rows are named `cascade_target_s{scene}_p{phase}_c{col}` for
