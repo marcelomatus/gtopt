@@ -149,6 +149,46 @@ Boolean values are written as `True` / `False`. Numeric values are parsed
 automatically. See [INPUT_DATA.md](../../INPUT_DATA.md) for the full list of
 supported options.
 
+#### Solver selection
+
+Set `solver_type` to choose the planning solver:
+
+| `solver_type` | Description |
+|---------------|-------------|
+| `monolithic`  | Single LP solve (default) |
+| `sddp`        | SDDP decomposition with Benders cuts |
+| `cascade`     | Multi-level hybrid solver with progressive LP refinement |
+
+SDDP options go under the `sddp_*` prefix in the options sheet
+(e.g. `max_iterations`, `num_apertures`).  These are nested into the
+`sddp_options` sub-object in the output JSON automatically.
+
+#### Cascade-specific options
+
+When using `solver_type = "cascade"`, the cascade solver uses a
+variable-number-of-levels architecture configured via a `levels` array
+inside `cascade_options`.  Each level can specify its own LP formulation,
+solver parameters, and transition rules.
+
+**Cascade levels are configured directly in the JSON file** rather than
+through the Excel template, because the nested structure (arrays of objects
+with sub-objects) is too complex for a flat spreadsheet format.  To use the
+cascade solver from igtopt, set `solver_type = "cascade"` in the options
+sheet and then edit the generated JSON to add `cascade_options`.
+
+When `cascade_options` is empty or `levels` is omitted, a built-in 4-level
+default is used:
+
+| Level | Name | Description |
+|-------|------|-------------|
+| 0 | `uninodal_benders` | Single bus, Benders only |
+| 1 | `transport_benders` | Multi-bus transport, Benders with targets |
+| 2 | `transport_sddp` | Reuses level 1 LP, enables apertures |
+| 3 | `full_sddp` | Kirchhoff + losses, inherits cuts |
+
+See [SDDP Solver — Cascade](../SDDP_SOLVER.md#10-cascade-solver--multi-level-hybrid-solver)
+for the full level configuration schema and JSON examples.
+
 ### 5.2 Simulation Sheets
 
 These define the time structure of the optimization problem.

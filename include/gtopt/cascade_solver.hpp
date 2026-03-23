@@ -1,0 +1,125 @@
+/**
+ * @file      cascade_solver.hpp
+ * @brief     Multi-level cascade solver with configurable LP formulations
+ * @date      2026-03-22
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * Implements a multi-level hybrid algorithm where each level can have a
+ * different LP formulation (single bus, transport, full network) and solver
+ * configuration (Benders vs SDDP, iteration limits, tolerances).
+ *
+ * Between levels, state variable values and/or named cuts are transferred
+ * to guide the next level's solution trajectory.  When a level's LP options
+ * differ from the previous level, a new PlanningLP is built automatically.
+ * When LP options are absent, the previous LP and solver are reused.
+ *
+ * When no levels are specified (empty CascadeOptions), the solver
+ * behaves as a single level using the base SDDP options and the
+ * caller's PlanningLP directly.
+ */
+
+#pragma once
+
+#include <expected>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include <gtopt/options.hpp>
+#include <gtopt/planning_solver.hpp>
+#include <gtopt/sddp_solver.hpp>
+
+namespace gtopt
+{
+
+// ─── Named state variable target ────────────────────────────────────────────
+
+/// State variable target for cross-LP transfer (using variable names).
+struct NamedStateTarget
+{
+  std::string var_name {};  ///< Column name in source LP
+  SceneIndex scene {};
+  PhaseIndex phase {};
+  double target_value {};  ///< Value from previous level's forward pass
+};
+
+// ─── Per-level statistics ────────────────────────────────────────────────────
+
+/// Statistics collected for each cascade level after solving.
+struct CascadeLevelStats
+{
+  std::string name {};  ///< Level name (from config or auto-generated)
+  int iterations {};  ///< Number of SDDP iterations (excludes final fwd pass)
+  double lower_bound {};  ///< Final lower bound
+  double upper_bound {};  ///< Final upper bound
+  double gap {};  ///< Final relative gap
+  bool converged {};  ///< Whether convergence tolerance was met
+  double elapsed_s {};  ///< Wall-clock time for this level
+  int cuts_added {};  ///< Total cuts added across all iterations
+};
+
+// ─── CascadePlanningSolver ──────────────────────────────────────────────────
+
+/**
+ * @class CascadePlanningSolver
+ * @brief Multi-level solver with configurable LP formulations per level
+ *
+ * Each level can specify LP construction options, solver parameters,
+ * and transition rules.  The solver automatically rebuilds the PlanningLP
+ * when a level's LP options differ from the previous level.
+ */
+class CascadePlanningSolver final : public PlanningSolver
+{
+public:
+  explicit CascadePlanningSolver(SDDPOptions base_opts,
+                                 CascadeOptions cascade_opts) noexcept;
+
+  [[nodiscard]] auto solve(PlanningLP& planning_lp, const SolverOptions& opts)
+      -> std::expected<int, Error> override;
+
+  /// Access all iteration results across all cascade levels.
+  [[nodiscard]] const auto& all_results() const noexcept
+  {
+    return m_all_results_;
+  }
+
+  /// Access per-level statistics (populated after solve).
+  [[nodiscard]] const auto& level_stats() const noexcept
+  {
+    return m_level_stats_;
+  }
+
+private:
+  /// Build SDDPOptions for a level, overriding base with level solver opts.
+  /// @param remaining_budget  Global iteration budget remaining (-1 = no cap).
+  [[nodiscard]] auto build_level_sddp_opts(
+      const std::optional<CascadeLevelSolver>& level_solver,
+      int remaining_budget) const -> SDDPOptions;
+
+  /// Clone Planning data with model option overrides applied.
+  [[nodiscard]] static auto clone_planning_with_overrides(
+      const Planning& source, const ModelOptions& model_opts) -> Planning;
+
+  /// Collect named state variable targets from a solved level.
+  [[nodiscard]] static auto collect_named_targets(const SDDPSolver& solver,
+                                                  const PlanningLP& planning_lp)
+      -> std::vector<NamedStateTarget>;
+
+  /// Add elastic target constraints to a PlanningLP using named targets.
+  static void add_elastic_targets(PlanningLP& planning_lp,
+                                  const std::vector<NamedStateTarget>& targets,
+                                  const CascadeTransition& transition);
+
+  /// Clear all cut rows (>= base_nrows) from every (scene, phase) LP.
+  static void clear_all_cuts(PlanningLP& planning_lp, const SDDPSolver& solver);
+
+  SDDPOptions m_base_opts_;
+  CascadeOptions m_cascade_opts_;
+  std::vector<SDDPIterationResult> m_all_results_ {};
+  std::vector<CascadeLevelStats> m_level_stats_ {};
+  /// Owns PlanningLPs built for levels that need different LP formulations.
+  std::vector<std::unique_ptr<PlanningLP>> m_owned_lps_ {};
+};
+
+}  // namespace gtopt

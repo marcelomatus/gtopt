@@ -82,7 +82,7 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 
 | Field         | Type   | Default        | Description |
 |---------------|--------|----------------|-------------|
-| `solver_type` | string | `"monolithic"` | Planning solver: `"monolithic"` (default) or `"sddp"`. See [SDDP Solver](docs/SDDP_SOLVER.md) and [Monolithic Solver](docs/MONOLITHIC_SOLVER.md) |
+| `solver_type` | string | `"monolithic"` | Planning solver: `"monolithic"` (default), `"sddp"`, or `"cascade"`. See [SDDP Solver](docs/SDDP_SOLVER.md), [Cascade Solver](docs/CASCADE_SOLVER.md), and [Monolithic Solver](docs/MONOLITHIC_SOLVER.md) |
 
 #### Logging and debugging
 
@@ -235,7 +235,6 @@ For full algorithmic details, see [SDDP Solver](docs/SDDP_SOLVER.md).
 | Field                | Type    | Default  | Description |
 |----------------------|---------|----------|-------------|
 | `cut_directory`      | string  | `"cuts"` | Directory for Benders cut files |
-| `hot_start`          | boolean | `false`  | Enable hot-start from previously saved cuts |
 | `save_per_iteration` | boolean | `true`   | Save cuts to CSV after each iteration (vs. only at end) |
 | `cuts_input_file`    | string  | `""`     | File path for loading initial cuts (empty = cold start) |
 | `named_cuts_file`    | string  | `""`     | CSV file with named-variable cuts for hot-start across all phases |
@@ -251,10 +250,43 @@ For full algorithmic details, see [SDDP Solver](docs/SDDP_SOLVER.md).
 
 #### Apertures
 
-| Field                 | Type    | Default | Description |
-|-----------------------|---------|---------|-------------|
-| `num_apertures`       | integer | `0`     | Number of hydrological apertures for backward pass. 0 = disabled, -1 = all scenarios, N > 0 = first N |
-| `aperture_directory`  | string  | `""`    | Directory for aperture-specific scenario data (empty = use `input_directory`) |
+| Field                 | Type      | Default   | Description |
+|-----------------------|-----------|-----------|-------------|
+| `apertures`           | int array | *(absent)*| Aperture UIDs for backward pass. Absent = use per-phase `aperture_set`. Empty `[]` = pure Benders. Non-empty = use exactly these UIDs |
+| `aperture_directory`  | string    | `""`      | Directory for aperture-specific scenario data (empty = use `input_directory`) |
+| `aperture_timeout`    | number    | `15.0`    | Timeout in seconds for individual aperture LP solves (0 = no timeout) |
+| `save_aperture_lp`    | boolean   | `false`   | Save LP files for infeasible apertures to `log_directory` |
+
+#### Timeouts and warm-start
+
+| Field            | Type    | Default | Description |
+|------------------|---------|---------|-------------|
+| `solve_timeout`  | number  | `180.0` | Forward-pass LP solve timeout in seconds (0 = no timeout) |
+| `warm_start`     | boolean | `true`  | Enable warm-start (dual simplex from saved basis) for aperture and elastic resolves |
+
+#### Hot-start modes
+
+| Field            | Type    | Default  | Description |
+|------------------|---------|----------|-------------|
+| `hot_start`      | boolean | `false`  | Load previously saved cuts on startup (deprecated: use `hot_start_mode`) |
+| `hot_start_mode` | string  | `"none"` | Hot-start mode: `"none"`, `"keep"`, `"append"`, or `"replace"`. Takes precedence over boolean `hot_start` |
+
+#### Cut pruning
+
+| Field                  | Type    | Default  | Description |
+|------------------------|---------|----------|-------------|
+| `max_cuts_per_phase`   | integer | `0`      | Maximum retained cuts per (scene, phase) LP. 0 = unlimited |
+| `cut_prune_interval`   | integer | `10`     | Iterations between cut pruning passes |
+| `prune_dual_threshold` | number  | `1e-8`   | Dual threshold for inactive cut detection |
+| `single_cut_storage`   | boolean | `false`  | Store cuts in per-scene vectors only |
+| `max_stored_cuts`      | integer | `0`      | Maximum total stored cuts per scene (0 = unlimited) |
+| `use_clone_pool`       | boolean | `true`   | Reuse cached LP clones for aperture solves |
+
+#### Simulation mode
+
+| Field             | Type    | Default | Description |
+|-------------------|---------|---------|-------------|
+| `simulation_mode` | boolean | `false` | Run in simulation mode: forward-only evaluation of the policy from loaded cuts. Sets `max_iterations=0` and disables cut saving. Feasibility cuts from the simulation pass are discarded by default for hot-start reproducibility |
 
 #### Monitoring API
 
@@ -262,7 +294,71 @@ For full algorithmic details, see [SDDP Solver](docs/SDDP_SOLVER.md).
 |---------------|---------|---------|-------------|
 | `api_enabled` | boolean | `true`  | Enable the SDDP monitoring API (writes JSON status file each iteration) |
 
-**Example:**
+### 1.4 CascadeOptions (multi-level hybrid solver)
+
+These options configure the cascade solver (`solver_type = "cascade"`), which
+runs a multi-level hybrid algorithm with progressive LP refinement.  They are
+set in their own `cascade_options` sub-object (not inside `sddp_options`).
+See [CASCADE_SOLVER.md](docs/CASCADE_SOLVER.md) for full documentation, and
+[SDDP Solver -- S10](docs/SDDP_SOLVER.md#10-cascade-solver--multi-level-hybrid-solver)
+for a summary.
+
+The `cascade_options` object contains three top-level fields:
+
+| Field           | Type   | Description |
+|-----------------|--------|-------------|
+| `model_options` | object | Global `ModelOptions` defaults for all levels |
+| `sddp_options`  | object | Global `SddpOptions` defaults for all levels. `max_iterations` here is the global budget across all levels |
+| `level_array`   | array  | Array of `CascadeLevel` objects. When empty or omitted, a built-in 4-level default is used |
+
+Each element in the `level_array` is an object with the following optional
+fields:
+
+| Field           | Type    | Description |
+|-----------------|---------|-------------|
+| `uid`           | integer | Unique identifier for this level |
+| `name`          | string  | Human-readable level name (for logging) |
+| `model_options` | object  | LP formulation overrides; when present, a new LP is built. When absent, the previous level's LP is reused |
+| `sddp_options`  | object  | Solver parameters for this level (per-level overrides) |
+| `transition`    | object  | Transfer rules from the previous level |
+
+**`model_options` fields** (same structure at both cascade and level scope):
+
+| Field                  | Type    | Default | Description |
+|------------------------|---------|---------|-------------|
+| `use_single_bus`       | boolean | `false` | Aggregate all buses into one |
+| `use_kirchhoff`        | boolean | `true`  | Enable DC power flow (voltage angles) |
+| `use_line_losses`      | boolean | `false` | Model line losses |
+| `kirchhoff_threshold`  | number  | `0.0`   | Threshold for Kirchhoff constraint activation |
+| `loss_segments`        | integer | `1`     | Number of piecewise-linear loss segments |
+| `scale_objective`      | number  | `1000`  | Divisor for objective coefficients |
+| `scale_theta`          | number  | `1000`  | Scaling factor for voltage-angle variables |
+| `demand_fail_cost`     | number  | *(none)*| Penalty cost for unserved demand [$/MWh] |
+| `reserve_fail_cost`    | number  | *(none)*| Penalty cost for unserved reserve [$/MWh] |
+| `annual_discount_rate` | number  | `0.0`   | Annual discount rate [p.u./year] |
+
+**`sddp_options` fields** (per-level solver parameters):
+
+| Field             | Type      | Default              | Description |
+|-------------------|-----------|----------------------|-------------|
+| `max_iterations`  | integer   | from global `sddp_options` | Maximum iterations for this level |
+| `min_iterations`  | integer   | from global `sddp_options` | Minimum iterations before convergence |
+| `apertures`       | int array | from global `sddp_options` | Aperture UIDs (absent = inherit, `[]` = Benders) |
+| `convergence_tol` | number    | from global `sddp_options` | Convergence tolerance |
+
+**`transition` fields:**
+
+| Field                        | Type    | Default | Description |
+|------------------------------|---------|---------|-------------|
+| `inherit_optimality_cuts`    | boolean | `false` | Carry forward Benders optimality cuts |
+| `inherit_feasibility_cuts`   | boolean | `false` | Carry forward feasibility cuts |
+| `inherit_targets`            | boolean | `false` | Add elastic target constraints from previous solution |
+| `target_rtol`                | number  | `0.05`  | Relative tolerance for target band (fraction of abs(v)) |
+| `target_min_atol`            | number  | `1.0`   | Minimum absolute tolerance for target band |
+| `target_penalty`             | number  | `500`   | Elastic penalty cost per unit target violation |
+| `optimality_dual_threshold`  | number  | `0.0`   | Minimum abs(dual) threshold for transferring cuts. Cuts with abs(dual) below this are skipped. 0 = transfer all |
+
+**SDDP example:**
 
 ```json
 {
@@ -275,16 +371,95 @@ For full algorithmic details, see [SDDP Solver](docs/SDDP_SOLVER.md).
       "cut_directory": "cuts",
       "elastic_mode": "single_cut",
       "elastic_penalty": 1e7,
-      "hot_start": true,
+      "hot_start_mode": "keep",
       "boundary_cuts_file": "boundary_cuts.csv",
       "boundary_cuts_mode": "separated",
-      "num_apertures": 0
+      "apertures": []
     }
   }
 }
 ```
 
-### 1.4 MonolithicOptions
+**Cascade example:**
+
+```json
+{
+  "options": {
+    "solver_type": "cascade",
+    "sddp_options": {
+      "max_iterations": 30,
+      "convergence_tol": 0.01
+    },
+    "cascade_options": {
+      "level_array": [
+        {
+          "name": "uninodal_benders",
+          "model_options": {
+            "use_single_bus": true,
+            "use_kirchhoff": false,
+            "use_line_losses": false
+          },
+          "sddp_options": {
+            "max_iterations": 10,
+            "apertures": [],
+            "convergence_tol": 0.05
+          }
+        },
+        {
+          "name": "transport_sddp",
+          "model_options": {
+            "use_single_bus": false,
+            "use_kirchhoff": false
+          },
+          "sddp_options": {
+            "max_iterations": 15,
+            "apertures": [1, 2, 3]
+          },
+          "transition": {
+            "inherit_targets": true,
+            "target_rtol": 0.05,
+            "target_min_atol": 1.0,
+            "target_penalty": 500
+          }
+        },
+        {
+          "name": "full_sddp",
+          "model_options": {
+            "use_kirchhoff": true,
+            "use_line_losses": true
+          },
+          "sddp_options": {
+            "max_iterations": 30,
+            "apertures": [1, 2, 3]
+          },
+          "transition": {
+            "inherit_optimality_cuts": true,
+            "inherit_feasibility_cuts": true,
+            "optimality_dual_threshold": 1e-6
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+**Simulation mode example:**
+
+```json
+{
+  "options": {
+    "solver_type": "sddp",
+    "sddp_options": {
+      "simulation_mode": true,
+      "hot_start_mode": "keep",
+      "cut_directory": "cuts"
+    }
+  }
+}
+```
+
+### 1.5 MonolithicOptions
 
 Monolithic-solver-specific configuration, specified as a sub-object under
 `options.monolithic_options`.  All fields are optional.
@@ -297,6 +472,7 @@ For full details, see [Monolithic Solver](docs/MONOLITHIC_SOLVER.md).
 | `boundary_cuts_file`       | string  | `""`          | CSV file with boundary (future-cost) cuts for the last phase |
 | `boundary_cuts_mode`       | string  | `"separated"` | Load mode: `"noload"`, `"separated"` (per-scene), or `"combined"` (broadcast) |
 | `boundary_max_iterations`  | integer | `0`           | Max iterations to load from boundary file (0 = all) |
+| `solve_timeout`            | number  | `18000.0`     | LP solve timeout in seconds (0 = no timeout) |
 
 **Example:**
 

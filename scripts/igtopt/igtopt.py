@@ -538,16 +538,19 @@ _MONOLITHIC_PREFIX = "monolithic_"
 
 
 def _nest_sub_options(flat: dict[str, Any]) -> dict[str, Any]:
-    """Partition flat options into top-level, sddp_options, and monolithic_options.
+    """Partition flat options into sub-objects.
 
     Keys listed in :data:`SDDP_OPTION_KEYS` are moved into a nested
-    ``sddp_options`` dict.  Keys whose name starts with ``monolithic_`` are
-    moved into a nested ``monolithic_options`` dict with the prefix stripped.
+    ``sddp_options`` dict.  Keys whose name starts with ``monolithic_``
+    are moved into a nested ``monolithic_options`` dict with the prefix
+    stripped.  ``cascade_options`` is passed through as-is (it uses a
+    hierarchical ``levels`` array that cannot be flattened).
     All remaining keys stay at the top level.
 
-    If the flat dict already contains a ``sddp_options`` or
-    ``monolithic_options`` sub-dict (e.g. injected by the boundary_cuts sheet
-    handler), its contents are merged with the keys extracted here.
+    If the flat dict already contains a ``sddp_options``,
+    ``cascade_options``, or ``monolithic_options`` sub-dict (e.g. injected
+    by the boundary_cuts sheet handler), its contents are merged with the
+    keys extracted here.
     """
     top: dict[str, Any] = {}
     sddp: dict[str, Any] = {}
@@ -557,6 +560,9 @@ def _nest_sub_options(flat: dict[str, Any]) -> dict[str, Any]:
         if key == "sddp_options" and isinstance(value, dict):
             # Already-nested sub-dict (e.g. from boundary_cuts handler)
             sddp.update(value)
+        elif key == "cascade_options" and isinstance(value, dict):
+            # Cascade uses a hierarchical levels array — pass through as-is.
+            top["cascade_options"] = value
         elif key == "monolithic_options" and isinstance(value, dict):
             mono.update(value)
         elif key in SDDP_OPTION_KEYS:

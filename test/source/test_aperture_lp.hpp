@@ -1557,7 +1557,7 @@ TEST_CASE("SDDPSolver with explicit aperture_array converges")  // NOLINT
   sddp_opts.max_iterations = 15;
   sddp_opts.convergence_tol = 1e-3;
   sddp_opts.enable_api = false;
-  // num_apertures is not set — the solver should use the explicit
+  // apertures is nullopt — the solver should use the explicit
   // aperture_array from the simulation.
 
   SDDPSolver sddp(plp, sddp_opts);
@@ -1592,21 +1592,19 @@ TEST_CASE("SDDPSolver with explicit aperture_array converges")  // NOLINT
 }
 
 TEST_CASE(
-    "SDDPSolver explicit aperture vs legacy num_apertures both work")  // NOLINT
+    "SDDPSolver explicit aperture vs apertures option both work")  // NOLINT
 {
   // Both approaches should produce valid results with cuts added.
   auto planning_explicit = make_2phase_aperture_planning();
-  auto planning_legacy = make_2phase_aperture_planning();
-  // Remove the explicit aperture_array from the legacy one
-  planning_legacy.simulation.aperture_array.clear();
 
-  SUBCASE("explicit aperture_array")
+  SUBCASE("explicit aperture_array (apertures=nullopt)")
   {
     PlanningLP plp(std::move(planning_explicit));
     SDDPOptions sddp_opts;
     sddp_opts.max_iterations = 10;
     sddp_opts.convergence_tol = 1e-3;
     sddp_opts.enable_api = false;
+    // apertures is nullopt → use simulation's aperture_array
 
     SDDPSolver sddp(plp, sddp_opts);
     auto results = sddp.solve();
@@ -1620,25 +1618,19 @@ TEST_CASE(
     CHECK(total_cuts > 0);
   }
 
-  SUBCASE("legacy num_apertures=-1 (all scenarios)")
+  SUBCASE("apertures=[] disables apertures")
   {
-    PlanningLP plp(std::move(planning_legacy));
+    PlanningLP plp(std::move(planning_explicit));
     SDDPOptions sddp_opts;
     sddp_opts.max_iterations = 10;
     sddp_opts.convergence_tol = 1e-3;
     sddp_opts.enable_api = false;
-    sddp_opts.num_apertures = -1;
+    sddp_opts.apertures = std::vector<Uid> {};  // empty = Benders
 
     SDDPSolver sddp(plp, sddp_opts);
     auto results = sddp.solve();
     REQUIRE(results.has_value());
     CHECK_FALSE(results->empty());
-
-    int total_cuts = 0;
-    for (const auto& r : *results) {
-      total_cuts += r.cuts_added;
-    }
-    CHECK(total_cuts > 0);
   }
 }
 

@@ -14,6 +14,7 @@
 #include <mutex>
 #include <vector>
 
+#include <gtopt/cascade_solver.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/options_lp.hpp>
 #include <gtopt/planning_lp.hpp>
@@ -242,12 +243,19 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options,
       sddp_opts.min_iterations = options.sddp_min_iterations();
       sddp_opts.convergence_tol = options.sddp_convergence_tol();
 
+      // Simulation mode: forward-only evaluation, no training, no cut saving
+      if (options.sddp_simulation_mode()) {
+        sddp_opts.max_iterations = 0;
+        sddp_opts.save_per_iteration = false;
+        sddp_opts.save_simulation_cuts = false;
+      }
+
       // Advanced tuning
       sddp_opts.elastic_penalty = options.sddp_elastic_penalty();
       sddp_opts.elastic_filter_mode =
           parse_elastic_filter_mode(options.sddp_elastic_mode());
       sddp_opts.multi_cut_threshold = options.sddp_multi_cut_threshold();
-      sddp_opts.num_apertures = options.sddp_num_apertures();
+      sddp_opts.apertures = options.sddp_apertures();
       sddp_opts.aperture_timeout = options.sddp_aperture_timeout();
       sddp_opts.save_aperture_lp = options.sddp_save_aperture_lp();
       sddp_opts.warm_start = options.sddp_warm_start();
@@ -320,11 +328,121 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options,
                 .string();
       }
 
+      // Simulation mode: clear output file to suppress all cut persistence
+      if (options.sddp_simulation_mode()) {
+        sddp_opts.cuts_output_file.clear();
+      }
+
       return std::make_unique<SDDPPlanningSolver>(std::move(sddp_opts));
     }  // else (num_phases >= 2)
   }  // solver_type == "sddp"
 
-  // Default: monolithic (also used as fallback for single-phase SDDP)
+  if (options.solver_type_enum() == SolverType::cascade) {
+    if (num_phases > 0 && num_phases < 2) {
+      SPDLOG_INFO(
+          "Cascade requested but only {} phase(s); using monolithic solver",
+          num_phases);
+    } else {
+      // Reuse the same SDDP option wiring
+      SDDPOptions sddp_opts;
+
+      sddp_opts.max_iterations = options.sddp_max_iterations();
+      sddp_opts.min_iterations = options.sddp_min_iterations();
+      sddp_opts.convergence_tol = options.sddp_convergence_tol();
+
+      // Simulation mode: forward-only evaluation, no training, no cut saving
+      if (options.sddp_simulation_mode()) {
+        sddp_opts.max_iterations = 0;
+        sddp_opts.save_per_iteration = false;
+        sddp_opts.save_simulation_cuts = false;
+      }
+
+      sddp_opts.elastic_penalty = options.sddp_elastic_penalty();
+      sddp_opts.elastic_filter_mode =
+          parse_elastic_filter_mode(options.sddp_elastic_mode());
+      sddp_opts.multi_cut_threshold = options.sddp_multi_cut_threshold();
+      sddp_opts.apertures = options.sddp_apertures();
+      sddp_opts.aperture_timeout = options.sddp_aperture_timeout();
+      sddp_opts.save_aperture_lp = options.sddp_save_aperture_lp();
+      sddp_opts.warm_start = options.sddp_warm_start();
+      sddp_opts.solve_timeout = options.sddp_solve_timeout();
+      sddp_opts.max_cuts_per_phase = options.sddp_max_cuts_per_phase();
+      sddp_opts.cut_prune_interval = options.sddp_cut_prune_interval();
+      sddp_opts.prune_dual_threshold = options.sddp_prune_dual_threshold();
+      sddp_opts.single_cut_storage = options.sddp_single_cut_storage();
+      sddp_opts.max_stored_cuts = options.sddp_max_stored_cuts();
+      sddp_opts.use_clone_pool = options.sddp_use_clone_pool();
+      sddp_opts.alpha_min = options.sddp_alpha_min();
+      sddp_opts.alpha_max = options.sddp_alpha_max();
+
+      sddp_opts.cut_sharing =
+          parse_cut_sharing_mode(options.sddp_cut_sharing_mode());
+      const auto output_dir_sv = options.output_directory();
+      const auto cut_dir =
+          (std::filesystem::path(
+               output_dir_sv.empty() ? "output" : std::string(output_dir_sv))
+           / options.sddp_cut_directory())
+              .string();
+      sddp_opts.cuts_output_file =
+          (std::filesystem::path(cut_dir) / sddp_file::combined_cuts).string();
+
+      sddp_opts.hot_start_mode = options.sddp_hot_start_mode_enum();
+      if (!options.sddp_simulation_mode()) {
+        sddp_opts.save_per_iteration = options.sddp_save_per_iteration();
+      } else {
+        sddp_opts.cuts_output_file.clear();
+      }
+      const auto cuts_input = options.sddp_cuts_input_file();
+      if (!cuts_input.empty()) {
+        sddp_opts.cuts_input_file = cuts_input;
+      }
+
+      const auto boundary_cuts = options.sddp_boundary_cuts_file();
+      if (!boundary_cuts.empty()) {
+        sddp_opts.boundary_cuts_file = std::string(boundary_cuts);
+      }
+      sddp_opts.boundary_cuts_mode = options.sddp_boundary_cuts_mode_enum();
+      sddp_opts.boundary_max_iterations =
+          options.sddp_boundary_max_iterations();
+
+      const auto named_cuts = options.sddp_named_cuts_file();
+      if (!named_cuts.empty()) {
+        sddp_opts.named_cuts_file = std::string(named_cuts);
+      }
+
+      const auto sentinel = options.sddp_sentinel_file();
+      const auto output_dir = options.output_directory();
+      if (!sentinel.empty()) {
+        sddp_opts.sentinel_file = sentinel;
+      }
+
+      sddp_opts.log_directory = std::string(options.log_directory());
+      sddp_opts.lp_debug = options.lp_debug();
+      sddp_opts.just_build_lp = options.just_build_lp();
+      sddp_opts.lp_debug_compression = std::string(options.lp_compression());
+      sddp_opts.enable_api = options.sddp_api_enabled();
+      if (!output_dir.empty()) {
+        sddp_opts.api_status_file =
+            (std::filesystem::path(output_dir) / "sddp_status.json").string();
+        sddp_opts.api_stop_request_file =
+            (std::filesystem::path(output_dir) / sddp_file::stop_request)
+                .string();
+      }
+
+      // Get cascade options (user-configured or defaults)
+      CascadeOptions cascade_opts;
+      cascade_opts.sddp_options = options.cascade_sddp_options();
+      if (options.has_cascade_levels()) {
+        cascade_opts.level_array = {options.cascade_levels().begin(),
+                                    options.cascade_levels().end()};
+      }
+
+      return std::make_unique<CascadePlanningSolver>(std::move(sddp_opts),
+                                                     std::move(cascade_opts));
+    }  // else (num_phases >= 2)
+  }  // solver_type == "cascade"
+
+  // Default: monolithic (also used as fallback for single-phase SDDP/cascade)
   auto solver = std::make_unique<MonolithicSolver>();
   const auto output_dir_m = options.output_directory();
   if (options.sddp_api_enabled() && !output_dir_m.empty()) {

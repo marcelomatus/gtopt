@@ -90,8 +90,10 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
                                            iteration,
                                            total_cuts + cuts_added));
 
-          store_cut(scene, prev_bp, feas_cut, CutType::Feasibility);
-          prev_li.add_row(feas_cut);
+          {
+            const auto cut_row = prev_li.add_row(feas_cut);
+            store_cut(scene, prev_bp, feas_cut, CutType::Feasibility, cut_row);
+          }
           ++cuts_added;
 
           // multi_cut: also add one bound-constraint cut per
@@ -118,8 +120,8 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
                                             total_cuts + cuts_added));
 
             for (auto& mc : mc_cuts) {
-              store_cut(scene, prev_bp, mc, CutType::Feasibility);
-              prev_li.add_row(mc);
+              const auto cut_row = prev_li.add_row(mc);
+              store_cut(scene, prev_bp, mc, CutType::Feasibility, cut_row);
               ++cuts_added;
             }
           }

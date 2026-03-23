@@ -32,12 +32,17 @@ namespace gtopt
 // Forward declarations
 class PlanningLP;
 
-// ─── Phase UID lookup helper ────────────────────────────────────────────────
+// ─── UID lookup helpers ─────────────────────────────────────────────────────
 
 /// Build a phase UID -> PhaseIndex lookup from a SimulationLP.
 /// Uses flat_map for cache-friendly sorted lookup.
 [[nodiscard]] auto build_phase_uid_map(const PlanningLP& planning_lp)
     -> flat_map<PhaseUid, PhaseIndex>;
+
+/// Build a scene UID -> SceneIndex lookup from a SimulationLP.
+/// Uses flat_map for cache-friendly sorted lookup.
+[[nodiscard]] auto build_scene_uid_map(const PlanningLP& planning_lp)
+    -> flat_map<SceneUid, SceneIndex>;
 
 // ─── Save functions ─────────────────────────────────────────────────────────
 

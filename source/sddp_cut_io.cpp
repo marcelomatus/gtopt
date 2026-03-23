@@ -26,6 +26,7 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/utils.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
 #  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
@@ -36,20 +37,30 @@
 namespace gtopt
 {
 
-// ─── Phase UID lookup helper ────────────────────────────────────────────────
+// ─── UID lookup helpers ─────────────────────────────────────────────────────
 
 auto build_phase_uid_map(const PlanningLP& planning_lp)
     -> flat_map<PhaseUid, PhaseIndex>
 {
-  const auto& sim = planning_lp.simulation();
-  const auto num_phases = static_cast<Index>(sim.phases().size());
-
   flat_map<PhaseUid, PhaseIndex> phase_map;
-
-  for (Index pi = 0; pi < num_phases; ++pi) {
-    phase_map.emplace(sim.phases()[pi].uid(), PhaseIndex {pi});
+  for (auto&& [pi, phase] :
+       enumerate<PhaseIndex>(planning_lp.simulation().phases()))
+  {
+    phase_map.emplace(phase.uid(), pi);
   }
   return phase_map;
+}
+
+auto build_scene_uid_map(const PlanningLP& planning_lp)
+    -> flat_map<SceneUid, SceneIndex>
+{
+  flat_map<SceneUid, SceneIndex> scene_map;
+  for (auto&& [si, scene] :
+       enumerate<SceneIndex>(planning_lp.simulation().scenes()))
+  {
+    scene_map.emplace(scene.uid(), si);
+  }
+  return scene_map;
 }
 
 // ─── Helper: state-variable name matching ───────────────────────────────────
@@ -169,7 +180,7 @@ auto save_cuts_csv(std::span<const StoredCut> cuts,
     const auto scale_obj = planning_lp.options().scale_objective();
     if (!append_mode) {
       ofs << "# scale_objective=" << scale_obj << "\n";
-      ofs << "type,phase,scene,name,rhs,coefficients\n";
+      ofs << "type,phase,scene,name,rhs,dual,coefficients\n";
     }
 
     // Build phase UID -> PhaseIndex lookup
@@ -181,7 +192,10 @@ auto save_cuts_csv(std::span<const StoredCut> cuts,
 
       // RHS in physical objective units
       ofs << type_char << "," << cut.phase << "," << cut.scene << ","
-          << cut.name << "," << (cut.rhs * scale_obj);
+          << cut.name << "," << (cut.rhs * scale_obj) << ",";
+      if (cut.dual.has_value()) {
+        ofs << *cut.dual;
+      }
 
       // Look up the LinearInterface to retrieve column scales.
       // Use scene 0 as representative (scales are identical
@@ -241,7 +255,7 @@ auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
 
     const auto scale_obj = planning_lp.options().scale_objective();
     ofs << "# scale_objective=" << scale_obj << "\n";
-    ofs << "type,phase,scene,name,rhs,coefficients\n";
+    ofs << "type,phase,scene,name,rhs,dual,coefficients\n";
 
     // Build phase UID -> PhaseIndex lookup
     const auto phase_map = build_phase_uid_map(planning_lp);
@@ -252,7 +266,10 @@ auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
 
       // RHS in physical objective units
       ofs << type_char << "," << cut.phase << "," << cut.scene << ","
-          << cut.name << "," << (cut.rhs * scale_obj);
+          << cut.name << "," << (cut.rhs * scale_obj) << ",";
+      if (cut.dual.has_value()) {
+        ofs << *cut.dual;
+      }
 
       auto pit = phase_map.find(cut.phase);
       if (pit != phase_map.end()) {
@@ -317,6 +334,9 @@ auto load_cuts_csv(PlanningLP& planning_lp,
       has_type_col = line.starts_with("type,");
       break;
     }
+
+    // Detect if header includes a dual column
+    const bool has_dual_col = line.contains(",dual,");
 
     CutLoadResult result {};
     const auto& sim = planning_lp.simulation();
@@ -440,6 +460,14 @@ auto load_cuts_csv(PlanningLP& planning_lp,
             token,
             cut_name);
         continue;
+      }
+
+      // Parse optional dual column (backward compatible).
+      // The dual is informational — it is not used when loading
+      // cuts into the LP, but skipping the column is required
+      // to correctly parse the remaining coefficient fields.
+      if (has_dual_col) {
+        std::getline(iss, token, ',');  // consume dual field
       }
 
       // RHS in CSV is in physical objective units; convert to LP

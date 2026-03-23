@@ -327,7 +327,12 @@ inline void apply_cli_options(
   }
 
   if (sddp_num_apertures) {
-    planning.options.sddp_options.num_apertures = sddp_num_apertures;
+    // Legacy CLI: convert num_apertures int to apertures array.
+    // 0 → empty (no apertures), >0 or <0 handled at solve time.
+    if (*sddp_num_apertures == 0) {
+      planning.options.sddp_options.apertures = Array<Uid> {};
+    }
+    // Non-zero: leave apertures as nullopt (use per-phase aperture_set)
   }
 
   if (lp_debug) {

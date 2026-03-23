@@ -108,10 +108,14 @@ struct SddpOptions
   /** @brief Forward-pass infeasibility count threshold for switching from
    *         single_cut to multi_cut (default: 10; 0 = never auto-switch) */
   OptInt multi_cut_threshold {};
-  /** @brief Number of apertures (hydrological realisations) for the backward
-   *         pass. 0 = disabled (default); -1 = all scenarios; N > 0 = first N
+  /** @brief Aperture UIDs for the backward pass.
+   *
+   * - absent (nullopt) – use per-phase `Phase::aperture_set` (default)
+   * - empty array `[]` – no apertures (pure Benders)
+   * - non-empty `[1,2,3]` – use exactly these aperture UIDs,
+   *   overriding per-phase aperture sets
    */
-  OptInt num_apertures {};
+  std::optional<Array<Uid>> apertures {};
   /** @brief Directory for aperture-specific scenario data.
    *
    * When present, scenarios referenced by `Aperture::source_scenario` are
@@ -234,6 +238,11 @@ struct SddpOptions
   /// Reuse cached LP clones for aperture solves.  Default: true.
   OptBool use_clone_pool {};
 
+  /// Run in simulation mode: no training iterations (max_iterations=0),
+  /// forward-only evaluation of the policy from loaded cuts.
+  /// No cuts are saved.  Default: false.
+  OptBool simulation_mode {};
+
   void merge(SddpOptions&& opts)
   {
     merge_opt(cut_sharing_mode, std::move(opts.cut_sharing_mode));
@@ -253,7 +262,9 @@ struct SddpOptions
     merge_opt(sentinel_file, std::move(opts.sentinel_file));
     merge_opt(elastic_mode, std::move(opts.elastic_mode));
     merge_opt(multi_cut_threshold, opts.multi_cut_threshold);
-    merge_opt(num_apertures, opts.num_apertures);
+    if (opts.apertures.has_value()) {
+      apertures = std::move(opts.apertures);
+    }
     merge_opt(aperture_directory, std::move(opts.aperture_directory));
     merge_opt(aperture_timeout, opts.aperture_timeout);
     merge_opt(save_aperture_lp, opts.save_aperture_lp);
@@ -269,8 +280,198 @@ struct SddpOptions
     merge_opt(single_cut_storage, opts.single_cut_storage);
     merge_opt(max_stored_cuts, opts.max_stored_cuts);
     merge_opt(use_clone_pool, opts.use_clone_pool);
+    merge_opt(simulation_mode, opts.simulation_mode);
 
     auto _ = std::move(opts);
+  }
+};
+
+/**
+ * @brief Power system model configuration for LP construction.
+ *
+ * Groups all options that affect how the mathematical model is
+ * formulated: network topology, Kirchhoff constraints, line losses,
+ * scaling factors, penalty costs, and discount rate.
+ *
+ * Used both as a global sub-object in Options (`model_options`) and
+ * as per-level overrides in CascadeLevel (`model_options`).
+ * When used in a cascade level, only set fields override the global;
+ * absent fields inherit from the global configuration.
+ */
+struct ModelOptions
+{
+  /// Collapse the network to a single bus (copper-plate model).
+  OptBool use_single_bus {};
+  /// Apply DC Kirchhoff voltage-law constraints.
+  OptBool use_kirchhoff {};
+  /// Model resistive line losses.
+  OptBool use_line_losses {};
+  /// Minimum bus voltage [kV] below which Kirchhoff is not applied.
+  OptReal kirchhoff_threshold {};
+  /// Number of piecewise-linear segments for quadratic line losses.
+  OptInt loss_segments {};
+  /// Divisor for all objective coefficients (numerical stability).
+  OptReal scale_objective {};
+  /// Scaling factor for voltage-angle variables.
+  OptReal scale_theta {};
+  /// Penalty cost for unserved demand [$/MWh].
+  OptReal demand_fail_cost {};
+  /// Penalty cost for unserved spinning-reserve [$/MWh].
+  OptReal reserve_fail_cost {};
+  /// Annual discount rate for multi-stage CAPEX [p.u./year].
+  OptReal annual_discount_rate {};
+
+  void merge(const ModelOptions& opts)
+  {
+    merge_opt(use_single_bus, opts.use_single_bus);
+    merge_opt(use_kirchhoff, opts.use_kirchhoff);
+    merge_opt(use_line_losses, opts.use_line_losses);
+    merge_opt(kirchhoff_threshold, opts.kirchhoff_threshold);
+    merge_opt(loss_segments, opts.loss_segments);
+    merge_opt(scale_objective, opts.scale_objective);
+    merge_opt(scale_theta, opts.scale_theta);
+    merge_opt(demand_fail_cost, opts.demand_fail_cost);
+    merge_opt(reserve_fail_cost, opts.reserve_fail_cost);
+    merge_opt(annual_discount_rate, opts.annual_discount_rate);
+  }
+
+  /// True if any field is set.
+  [[nodiscard]] bool has_any() const noexcept
+  {
+    return use_single_bus.has_value() || use_kirchhoff.has_value()
+        || use_line_losses.has_value() || kirchhoff_threshold.has_value()
+        || loss_segments.has_value() || scale_objective.has_value()
+        || scale_theta.has_value() || demand_fail_cost.has_value()
+        || reserve_fail_cost.has_value() || annual_discount_rate.has_value();
+  }
+};
+
+/**
+ * @brief Transition configuration: how a cascade level receives
+ *        information from the previous level.
+ */
+struct CascadeTransition
+{
+  /// Carry forward optimality cuts (Benders cuts) from previous level.
+  /// The value controls when inherited cuts are dropped ("forgotten"):
+  ///   - absent or 0: do not inherit
+  ///   - -1:          inherit and keep forever
+  ///   - N > 0:       inherit but forget after N training iterations,
+  ///                  then re-solve with only self-generated cuts
+  OptInt inherit_optimality_cuts {};
+  /// Carry forward feasibility cuts from previous level.
+  /// Same semantics as inherit_optimality_cuts.
+  OptInt inherit_feasibility_cuts {};
+  /// Add elastic state variable target constraints from previous
+  /// solution.  Same semantics as inherit_optimality_cuts:
+  ///   - absent or 0: do not inherit
+  ///   - -1:          inherit and keep forever
+  ///   - N > 0:       inherit but remove target constraints after N
+  ///                  training iterations
+  OptInt inherit_targets {};
+  /// Relative tolerance for target band.  Default: 0.05 (5%).
+  OptReal target_rtol {};
+  /// Minimum absolute tolerance for target band.  Default: 1.0.
+  OptReal target_min_atol {};
+  /// Elastic penalty cost per unit violation of target.  Default: 500.
+  OptReal target_penalty {};
+  /// Minimum |dual| threshold for transferring cuts.  Cuts with
+  /// |dual| < threshold are considered inactive and skipped.
+  /// Default: 0.0 (transfer all cuts regardless of dual).
+  OptReal optimality_dual_threshold {};
+
+  void merge(const CascadeTransition& opts)
+  {
+    merge_opt(inherit_optimality_cuts, opts.inherit_optimality_cuts);
+    merge_opt(inherit_feasibility_cuts, opts.inherit_feasibility_cuts);
+    merge_opt(inherit_targets, opts.inherit_targets);
+    merge_opt(target_rtol, opts.target_rtol);
+    merge_opt(target_min_atol, opts.target_min_atol);
+    merge_opt(target_penalty, opts.target_penalty);
+    merge_opt(optimality_dual_threshold, opts.optimality_dual_threshold);
+  }
+};
+
+/**
+ * @brief Solver options for one cascade level.
+ */
+struct CascadeLevelSolver
+{
+  /// Maximum iterations for this level.
+  OptInt max_iterations {};
+  /// Minimum iterations before convergence can be declared.
+  OptInt min_iterations {};
+  /// Aperture UIDs for this level (nullopt = inherit, empty = Benders).
+  std::optional<Array<Uid>> apertures {};
+  /// Convergence tolerance for this level.
+  OptReal convergence_tol {};
+
+  void merge(const CascadeLevelSolver& opts)
+  {
+    merge_opt(max_iterations, opts.max_iterations);
+    merge_opt(min_iterations, opts.min_iterations);
+    if (opts.apertures.has_value()) {
+      apertures = opts.apertures;
+    }
+    merge_opt(convergence_tol, opts.convergence_tol);
+  }
+};
+
+/**
+ * @brief One cascade level configuration.
+ *
+ * LP is automatically rebuilt when `model_options` is present.
+ * When absent, the previous level's LP and solver are reused.
+ */
+struct CascadeLevel
+{
+  /// Unique identifier for this level.
+  OptUid uid {};
+  /// Human-readable level name (for logging).
+  OptName name {};
+  /// Model overrides for this level (absent → reuse previous LP).
+  std::optional<ModelOptions> model_options {};
+  /// SDDP solver options for this level.
+  std::optional<CascadeLevelSolver> sddp_options {};
+  /// Transition from the previous level.
+  std::optional<CascadeTransition> transition {};
+};
+
+/**
+ * @brief Cascade solver configuration: variable number of levels.
+ *
+ * Contains an `SddpOptions` sub-object (`sddp_options`) so that all SDDP
+ * options (convergence_tol, cut_sharing_mode, elastic_mode, etc.) can be
+ * set at the cascade level and serve as defaults for each level solver.
+ *
+ * `sddp_options.max_iterations` is used as the **global iteration budget**
+ * across all levels (not per-level).  Per-level
+ * `CascadeLevelSolver::max_iterations` controls iterations within each level.
+ *
+ * Each level can have different LP formulation options, solver
+ * parameters, and transition rules.  When `level_array` is empty,
+ * a single default level is created that passes through all options.
+ */
+struct CascadeOptions
+{
+  /// Global model options — serve as defaults for all levels.
+  /// Per-level model_options override these when set.
+  ModelOptions model_options {};
+  /// Global SDDP options — serve as defaults for all levels.
+  /// max_iterations here is the global iteration budget across all levels.
+  SddpOptions sddp_options {};
+  /// Array of cascade level configurations.
+  Array<CascadeLevel> level_array {};
+
+  void merge(
+      CascadeOptions&&
+          opts)  // NOLINT(cppcoreguidelines-rvalue-reference-param-not-moved)
+  {
+    model_options.merge(opts.model_options);
+    sddp_options.merge(std::move(opts.sddp_options));
+    if (!opts.level_array.empty()) {
+      level_array = std::move(opts.level_array);
+    }
   }
 };
 
@@ -394,13 +595,14 @@ struct Options
    * Whether to apply the solver's built-in presolve (default: true) */
   OptBool lp_presolve {};
 
-  /** @brief Planning solver type: `"monolithic"` (default) or `"sddp"`.
+  /** @brief Planning solver type: `"monolithic"` (default), `"sddp"`,
+   * or `"cascade"`.
    *
    * This is the only supported way to select the solver.
    * Example:
    *
    * ```json
-   * { "options": { "solver_type": "sddp" } }
+   * { "options": { "solver_type": "cascade" } }
    * ```
    */
   OptName solver_type {};
@@ -443,6 +645,15 @@ struct Options
   // Note: solve_timeout is per-solver (sddp_options and monolithic_options)
   // with different defaults: 180s for SDDP, 18000s for monolithic.
 
+  // ── Model options (grouped sub-object) ──────────────────────────────────
+  /** @brief Power system model configuration (sub-object).
+   *
+   * New preferred location for LP-construction options.  Fields here
+   * are overridden by the corresponding flat fields in Options when
+   * both are set (backward compatibility).
+   */
+  ModelOptions model_options {};
+
   // ── Monolithic-specific options (grouped sub-object)
   // ────────────────────────
   /** @brief Monolithic solver configuration (sub-object) */
@@ -451,6 +662,10 @@ struct Options
   // ── SDDP-specific options (grouped sub-object) ────────────────────────────
   /** @brief SDDP solver configuration (sub-object) */
   SddpOptions sddp_options {};
+
+  // ── Cascade-specific options (grouped sub-object) ────────────────────────
+  /** @brief Cascade solver configuration (sub-object) */
+  CascadeOptions cascade_options {};
 
   // ── LP solver options (grouped sub-object) ────────────────────────────────
   /** @brief LP solver configuration (algorithm, tolerances, threads, etc.)
@@ -538,11 +753,17 @@ struct Options
     merge_opt(lp_coeff_ratio_threshold, opts.lp_coeff_ratio_threshold);
     // solve_timeout is per-solver (sddp_options, monolithic_options)
 
+    // Merge model options
+    model_options.merge(opts.model_options);
+
     // Merge monolithic-specific options
     monolithic_options.merge(std::move(opts.monolithic_options));
 
     // Merge SDDP-specific options
     sddp_options.merge(std::move(opts.sddp_options));
+
+    // Merge Cascade-specific options
+    cascade_options.merge(std::move(opts.cascade_options));
 
     // Merge LP solver options (only optional tolerance fields are merged;
     // non-optional fields in the first file win)

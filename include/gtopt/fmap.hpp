@@ -23,9 +23,8 @@
  *   GTOPT_USE_BOOST_FLAT_MAP  - boost::container::flat_map (default for all
  *                                               other compilers / older
  *                                               versions)
- *   GTOPT_USE_STD_MAP         - std::map  (automatic for Clang < 23 to avoid
- *                                          the boost::flat_map reserve(0)
- *                                          debug assertion / SIGABRT)
+ *   GTOPT_USE_STD_MAP         - std::map  (not used by default; available
+ *                                          as an explicit override)
  */
 
 #pragma once
@@ -45,17 +44,16 @@
 // Clang 23+: std::flat_map is available (guarded by __has_include)
 #    define GTOPT_USE_STD_FLAT_MAP
 
-#  elifdef __clang__
-// Clang < 23: std::flat_map is not available, and
-// boost::container::flat_map triggers a debug assertion (m_ptr || !off) when
-// reserve(0) is called, causing SIGABRT in debug builds.  Fall back to
-// std::map which only requires operator< (available on all key types via
-// strong::regular / operator<=>).
-#    define GTOPT_USE_STD_MAP
+#  elif __has_include(<boost/container/flat_map.hpp>)
+// GCC < 15, Clang < 23, and all other compilers:
+// use boost::container::flat_map.  The map_reserve() helper already
+// guards against reserve(0) so the old Clang debug-assertion issue
+// does not apply.
+#    define GTOPT_USE_BOOST_FLAT_MAP
 
 #  else
-// GCC < 15 and all other compilers: use boost::container::flat_map
-#    define GTOPT_USE_BOOST_FLAT_MAP
+// No flat_map available: fall back to std::map.
+#    define GTOPT_USE_STD_MAP
 
 #  endif
 #endif

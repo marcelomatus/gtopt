@@ -97,12 +97,13 @@ template<typename E, std::size_t N>
 // ─── SolverType ──────────────────────────────────────────────────────────────
 
 /**
- * @brief Top-level solver selection: monolithic LP or SDDP decomposition.
+ * @brief Top-level solver selection: monolithic LP, SDDP, or cascade.
  */
 enum class SolverType : uint8_t
 {
   monolithic = 0,  ///< Single monolithic LP/MIP (default)
   sddp = 1,  ///< Stochastic Dual Dynamic Programming decomposition
+  cascade = 2,  ///< Cascade: Benders → guided SDDP → free SDDP
 };
 
 /// Name-value table for SolverType
@@ -110,9 +111,10 @@ inline constexpr auto solver_type_entries =
     std::to_array<EnumEntry<SolverType>>({
         {.name = "monolithic", .value = SolverType::monolithic},
         {.name = "sddp", .value = SolverType::sddp},
+        {.name = "cascade", .value = SolverType::cascade},
     });
 
-/// Parse a SolverType from a string ("monolithic", "sddp")
+/// Parse a SolverType from a string ("monolithic", "sddp", "cascade")
 [[nodiscard]] constexpr auto solver_type_from_name(
     std::string_view name) noexcept -> std::optional<SolverType>
 {
