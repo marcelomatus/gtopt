@@ -48,7 +48,7 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
         {
           const auto buid = block.uid();
           auto tname =
-              sc.lp_label(scenario, stage, block, cname, "theta", uid());
+              sc.lp_col_label(scenario, stage, block, cname, "theta", uid());
 
           const auto& theta = reference_theta();
           if (theta) [[unlikely]] {

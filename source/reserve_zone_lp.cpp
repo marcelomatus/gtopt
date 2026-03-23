@@ -42,7 +42,7 @@ std::expected<void, Error> add_requirement(const std::string_view cname,
       continue;
     }
 
-    auto name = sc.lp_label(scenario, stage, block, cname, rname, uid);
+    auto name = sc.lp_col_label(scenario, stage, block, cname, rname, uid);
     const auto rcol = stage_rcost
         ? lp.add_col({
               .name = name,

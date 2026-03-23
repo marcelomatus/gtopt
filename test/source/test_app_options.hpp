@@ -433,25 +433,25 @@ TEST_CASE("make_flat_options - defaults when both nullopt")
 
   CHECK(opts.eps == doctest::Approx(0.0));
   CHECK(opts.col_with_names == true);
-  CHECK(opts.row_with_names == true);
+  CHECK(opts.row_with_names == false);
   CHECK(opts.col_with_name_map == true);
-  CHECK(opts.row_with_name_map == true);
+  CHECK(opts.row_with_name_map == false);
   CHECK(opts.reserve_matrix == false);
   CHECK(opts.reserve_factor == doctest::Approx(2.0));
-  CHECK(opts.lp_names_level == 1);
+  CHECK(opts.lp_names_level == 0);
 }
 
-TEST_CASE("make_flat_options - lp_names level 0 disables names")
+TEST_CASE("make_flat_options - lp_names level 0 enables col names only")
 {
   auto opts = make_flat_options(std::optional<int>(0), std::nullopt);
 
-  CHECK(opts.col_with_names == false);
+  CHECK(opts.col_with_names == true);
   CHECK(opts.row_with_names == false);
-  CHECK(opts.col_with_name_map == false);
+  CHECK(opts.col_with_name_map == true);
   CHECK(opts.row_with_name_map == false);
 }
 
-TEST_CASE("make_flat_options - lp_names level 1 enables names and warns")
+TEST_CASE("make_flat_options - lp_names level 1 enables col and row names")
 {
   auto opts = make_flat_options(std::optional<int>(1), std::nullopt);
 

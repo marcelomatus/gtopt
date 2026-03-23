@@ -434,12 +434,13 @@ public:
   /**
    * @brief Sets the LP name uniqueness-check level.
    *
-   * Controls duplicate detection for add_row()/add_col() names:
-   *   - 0: no names, no tracking
-   *   - 1: names + warn on duplicate names via spdlog
-   *   - 2: names + throw std::runtime_error on duplicate names
+   * Controls name tracking and duplicate detection for add_row()/add_col():
+   *   - 0: col names tracked, row names disabled
+   *   - 1: col + row names tracked, warn on duplicate names via spdlog
+   *   - 2: col + row names tracked + throw std::runtime_error on duplicates
    *
-   * At levels >= 1, name-to-index maps are populated via try_emplace.
+   * Col name-to-index maps are populated at level >= 0.
+   * Row name-to-index maps are populated at level >= 1.
    * The overhead is a single map insert per add_row/add_col call.
    *
    * @param level The LP name check level (matches use_lp_names semantics)
@@ -455,7 +456,7 @@ public:
     return m_lp_names_level_;
   }
 
-  /// @name Name-to-index maps (populated when lp_names_level >= 1)
+  /// @name Name-to-index maps (col: level >= 0, row: level >= 1)
   /// @{
 
   /// Row (constraint) name → row index map.

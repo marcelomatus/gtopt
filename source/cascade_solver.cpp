@@ -303,14 +303,9 @@ auto CascadePlanningSolver::solve(PlanningLP& planning_lp,
     {
       auto modified_planning = clone_planning_with_overrides(
           planning_lp.planning(), effective_model);
-      // Enable LP column names for named state variable transfer
-      static constexpr FlatOptions cascade_flat_opts {
-          .col_with_names = true,
-          .col_with_name_map = true,
-          .lp_names_level = 1,
-      };
-      auto new_lp = std::make_unique<PlanningLP>(std::move(modified_planning),
-                                                 cascade_flat_opts);
+      // Default FlatOptions (level 0) provides col names for state variable
+      // transfer — no explicit override needed.
+      auto new_lp = std::make_unique<PlanningLP>(std::move(modified_planning));
       current_lp = new_lp.get();
       m_owned_lps_.push_back(std::move(new_lp));
       current_solver.reset();
