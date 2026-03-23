@@ -1169,7 +1169,10 @@ where:
 - $w$ = `stationary_window` (default 10) — number of iterations to look
   back;
 - $\varepsilon_s$ = `stationary_tol` (default 0.0 = disabled) — relative
-  gap-change tolerance.
+  gap-change tolerance;
+- the denominator uses $\text{gap}^{(k-w)}$ (the earlier gap value) as the
+  reference, with $10^{-10}$ as a floor to prevent division by zero when the
+  gap is near zero.
 
 The secondary criterion only fires when $\varepsilon_s > 0$ and the
 primary criterion has **not** been met.  When triggered, the solver sets

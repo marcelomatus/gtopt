@@ -352,6 +352,9 @@ fields:
 
 **`transition` fields:**
 
+See [CASCADE_SOLVER.md §4.5](docs/CASCADE_SOLVER.md) for detailed cut
+forgetting semantics and the two-phase solve behavior.
+
 | Field                        | Type    | Default | Description |
 |------------------------------|---------|---------|-------------|
 | `inherit_optimality_cuts`    | integer | `0`     | `0` = do not inherit; `-1` = inherit and keep forever; `N > 0` = inherit, then forget after N training iterations |
