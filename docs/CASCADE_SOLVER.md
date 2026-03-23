@@ -168,8 +168,7 @@ $$v_{\text{prev}} - \text{atol} \le v + s^- - s^+ \le v_{\text{prev}} + \text{at
 
 where:
 
-- $\text{atol} = \max(\text{rtol} \cdot |v_{\text{prev}}|,
-  \text{min\_atol})$
+- $\text{atol} = \max(\text{rtol} \cdot |v_{\text{prev}}|, \text{min\_atol})$
 - $s^+$ and $s^-$ are elastic slack variables with cost
   `target_penalty` per unit
 
