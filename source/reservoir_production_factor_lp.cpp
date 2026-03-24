@@ -101,13 +101,14 @@ int ReservoirProductionFactorLP::update_lp(SystemLP& sys,
     return 0;
   }
   const auto default_volume = rsv.reservoir().eini.value_or(0.0);
-  auto& li = sys.linear_interface();
 
-  const auto vini = rsv.physical_eini(li, scenario, stage, default_volume);
-  const auto vfin = rsv.physical_efin(li, scenario, stage, default_volume);
+  const auto vini =
+      rsv.physical_eini(sys, scenario, stage, default_volume, reservoir_sid());
+  const auto vfin = rsv.physical_efin(sys, scenario, stage, default_volume);
   const Real volume = (vini + vfin) / 2.0;
 
-  return update_conversion_coeff(li, scenario.uid(), stage.uid(), volume);
+  return update_conversion_coeff(
+      sys.linear_interface(), scenario.uid(), stage.uid(), volume);
 }
 
 // ── update_conversion_coeff ─────────────────────────────────────────────────
