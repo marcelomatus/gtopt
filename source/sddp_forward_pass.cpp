@@ -64,9 +64,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
   // After the first iteration the LP already carries a valid basis from the
   // previous solve.  Enable warm-start (dual simplex + no presolve) so the
   // solver pivots from that basis instead of re-solving from scratch with
-  // barrier.  This is especially important when barrier is the default algo:
-  // barrier ignores the existing basis entirely.
-  if (iteration > IterationIndex {0} && m_options_.warm_start) {
+  // barrier.  With hot start (offset > 0), warm_start is enabled from the
+  // first iteration since the LP already has a basis.
+  if (iteration > m_iteration_offset_ && m_options_.warm_start) {
     effective_opts.warm_start = true;
   }
 

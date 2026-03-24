@@ -448,11 +448,11 @@ void SDDPMethod::dispatch_update_lp(SceneIndex scene, IterationIndex iteration)
       }
       // Explicitly enabled — bypass skip count below
     } else {
-      // Default: apply global skip count
+      // Default: apply global skip count using relative iteration
       const auto skip = planning_lp().options().sddp_update_lp_skip();
-      if (skip > 0 && static_cast<int>(iteration) > 0
-          && (static_cast<int>(iteration) % (skip + 1)) != 0)
-      {
+      const auto rel =
+          static_cast<int>(iteration) - static_cast<int>(m_iteration_offset_);
+      if (skip > 0 && rel > 0 && (rel % (skip + 1)) != 0) {
         return;
       }
     }
