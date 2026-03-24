@@ -57,8 +57,14 @@ cmake_minimum_required(VERSION 3.31.6)
 
 project(gtoptWebService LANGUAGES NONE)
 
+# ---- Shared cmake module path ----
+list(APPEND CMAKE_MODULE_PATH
+     "${CMAKE_CURRENT_LIST_DIR}/../cmake_local"
+     "${CMAKE_CURRENT_LIST_DIR}/../cmake"
+)
+
 # Default to ~/.local for non-root users (XDG Base Directory)
-include("${CMAKE_CURRENT_LIST_DIR}/../cmake_local/DefaultInstallPrefix.cmake")
+include(DefaultInstallPrefix)
 
 # ---- Configuration ----
 

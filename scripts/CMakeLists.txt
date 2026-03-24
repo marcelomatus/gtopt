@@ -130,8 +130,14 @@ cmake_minimum_required(VERSION 3.31.6)
 
 project(gtoptScripts LANGUAGES NONE)
 
+# ---- Shared cmake module path ----
+list(APPEND CMAKE_MODULE_PATH
+     "${CMAKE_CURRENT_LIST_DIR}/../cmake_local"
+     "${CMAKE_CURRENT_LIST_DIR}/../cmake"
+)
+
 # Default to ~/.local for non-root users (XDG Base Directory)
-include("${CMAKE_CURRENT_LIST_DIR}/../cmake_local/DefaultInstallPrefix.cmake")
+include(DefaultInstallPrefix)
 
 # ---- Find Python ----
 
@@ -303,13 +309,7 @@ add_custom_target(scripts-coverage
 # ---- CTest integration ----
 
 enable_testing()
-
-include(ProcessorCount)
-ProcessorCount(NPROC)
-if(NPROC EQUAL 0)
-  set(NPROC 1)
-endif()
-list(APPEND CMAKE_CTEST_ARGUMENTS "--parallel" "${NPROC}")
+include(TestParallelism)
 
 # ---- Helper: add_pytest_integration_test ----
 # Registers a pytest integration-test group as an individual CTest entry.
