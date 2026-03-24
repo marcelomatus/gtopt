@@ -1342,19 +1342,36 @@ def get_gtopt_binary(
 
 
 def _ensure_binary_libs(bin_path: pathlib.Path) -> None:
-    """Check *bin_path* for missing shared libs; install them when needed.
+    """Check *bin_path* and co-located plugins for missing shared libs.
 
-    Calls :func:`_missing_shared_libs` to detect unresolved ``.so`` files.
-    When any are found, :func:`install_runtime_deps` is invoked.  After
-    installation the check is repeated; a warning (not an error) is emitted
-    if libraries are still missing (e.g. because apt/conda are unavailable).
+    Calls :func:`_missing_shared_libs` on the binary and on any
+    ``libgtopt_solver_*.so`` plugin files in the same directory.
+    When any missing libraries are found, :func:`install_runtime_deps` is
+    invoked.  After installation the check is repeated; a warning (not an
+    error) is emitted if libraries are still missing.
 
     Parameters
     ----------
     bin_path:
         Path to the ``gtopt`` binary to inspect.
     """
-    missing = _missing_shared_libs(bin_path)
+    # Check the main binary and any solver plugins in the same directory
+    files_to_check = [bin_path]
+    bin_dir = bin_path.parent
+    files_to_check.extend(sorted(bin_dir.glob("libgtopt_solver_*.so")))
+
+    missing: list[str] = []
+    for f in files_to_check:
+        missing.extend(_missing_shared_libs(f))
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    unique_missing = []
+    for lib in missing:
+        if lib not in seen:
+            seen.add(lib)
+            unique_missing.append(lib)
+    missing = unique_missing
+
     if not missing:
         log.debug("All shared libraries for %s are present.", bin_path)
         return
@@ -1370,7 +1387,9 @@ def _ensure_binary_libs(bin_path: pathlib.Path) -> None:
     install_runtime_deps()
 
     # Re-check after installation
-    still_missing = _missing_shared_libs(bin_path)
+    still_missing: list[str] = []
+    for f in files_to_check:
+        still_missing.extend(_missing_shared_libs(f))
     if still_missing:
         log.warning(
             "After installing runtime deps, %d librar%s still not found: %s\n"
