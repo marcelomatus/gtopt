@@ -35,6 +35,7 @@ using namespace gtopt;  // NOLINT(google-build-using-namespace)
 #include "test_strong_uid_index.hpp"
 #include "test_sddp_method.hpp"
 #include "test_sddp_cut_io.hpp"
+#include "test_sddp_state_io.hpp"
 #include "test_sddp_monitor.hpp"
 #include "test_sddp_aperture_functions.hpp"
 #include "test_sddp_pool.hpp"
