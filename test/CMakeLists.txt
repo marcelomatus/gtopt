@@ -18,7 +18,7 @@ option(ENABLE_TEST_COVERAGE "Enable test coverage" OFF)
 option(TEST_INSTALLED_VERSION "Test the version found by find_package" OFF)
 
 set(CPPCHECK_ARGS
-    "--check-level=exhaustive;--suppress=returnDanglingLifetime;--suppress=internalAstError"
+    "--check-level=exhaustive" "--suppress=returnDanglingLifetime" "--suppress=internalAstError"
 )
 
 # ---- Compiler checks and tools ----
@@ -37,7 +37,7 @@ endif()
 
 CPMAddPackage("gh:doctest/doctest@2.4.12")
 
-include("${CMAKE_CURRENT_LIST_DIR}/../cmake/ClangFormat.cmake")
+include(ClangFormat)
 
 # ---- Test executable ----
 file(GLOB sources CONFIGURE_DEPENDS

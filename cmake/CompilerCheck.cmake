@@ -1,3 +1,5 @@
+include_guard(GLOBAL)
+
 # ---- Compiler version requirements ----
 # This project requires GCC >= 14 or Clang >= 21.
 # Older compilers lack full C++23/26 support needed by the codebase.

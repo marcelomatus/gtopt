@@ -16,7 +16,7 @@ list(APPEND CMAKE_MODULE_PATH
 )
 include(CxxStandard)
 
-include(cmake/CompilerCheck.cmake)
+include(CompilerCheck)
 
 # ---- Include guards ----
 
@@ -30,8 +30,8 @@ set(CPM_SOURCE_CACHE "$ENV{HOME}/.cache/cpm")
 set(CPM_USE_LOCAL_PACKAGES ON)
 set(CPM_DOWNLOAD_ALL OFF)
 
-set(CPPCHECK_ARGS "--check-level=exhaustive" "--suppress=returnDanglingLifetime"
-                  "--suppress=internalAstError"
+set(CPPCHECK_ARGS
+    "--check-level=exhaustive" "--suppress=returnDanglingLifetime" "--suppress=internalAstError"
 )
 
 include(cmake/CPM.cmake)
