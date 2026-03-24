@@ -995,6 +995,19 @@ auto SDDPMethod::load_named_cuts(const std::string& filepath)
                              m_scene_phase_states_);
 }
 
+auto SDDPMethod::save_state(const std::string& filepath) const
+    -> std::expected<void, Error>
+{
+  return save_state_csv(
+      planning_lp(), filepath, IterationIndex {m_current_iteration_.load()});
+}
+
+auto SDDPMethod::load_state(const std::string& filepath)
+    -> std::expected<void, Error>
+{
+  return load_state_csv(planning_lp(), filepath);
+}
+
 // ── Monitoring API ───────────────────────────────────────────────────────────
 // Implementation moved to sddp_monitor.cpp (write_sddp_api_status free fn).
 // maybe_write_api_status below builds the snapshot and delegates.
@@ -1146,6 +1159,22 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   if (m_iteration_offset_ > 0) {
     SPDLOG_INFO("SDDP: iteration offset set to {} from hot-start cuts",
                 m_iteration_offset_);
+  }
+
+  // ── Load hot-start state variable column solutions ────────────────────────
+  if (m_iteration_offset_ > 0 && !m_options_.cuts_output_file.empty()) {
+    const auto cut_dir =
+        std::filesystem::path(m_options_.cuts_output_file).parent_path();
+    const auto state_file = (cut_dir / sddp_file::state_cols).string();
+    if (std::filesystem::exists(state_file)) {
+      auto result = load_state(state_file);
+      if (result.has_value()) {
+        SPDLOG_INFO("SDDP hot-start: loaded state from {}", state_file);
+      } else {
+        SPDLOG_WARN("SDDP hot-start: could not load state: {}",
+                    result.error().message);
+      }
+    }
   }
 
   // ── Build preallocated iteration vector ───────────────────────────────────
@@ -1674,6 +1703,25 @@ void SDDPMethod::save_cuts_for_iteration(
       SPDLOG_WARN("SDDP: could not save per-scene cuts at iter {}: {}",
                   iter,
                   scene_result.error().message);
+    }
+  }
+
+  // Save state variable column solutions (latest + versioned)
+  if (!cut_dir.empty()) {
+    const auto state_file = (cut_dir / sddp_file::state_cols).string();
+    auto sr = save_state(state_file);
+    if (!sr.has_value()) {
+      SPDLOG_WARN("SDDP: could not save state at iter {}: {}",
+                  iter,
+                  sr.error().message);
+    }
+    const auto versioned_state =
+        (cut_dir / std::format(sddp_file::versioned_state_fmt, iter)).string();
+    sr = save_state(versioned_state);
+    if (!sr.has_value()) {
+      SPDLOG_WARN("SDDP: could not save versioned state at iter {}: {}",
+                  iter,
+                  sr.error().message);
     }
   }
 
