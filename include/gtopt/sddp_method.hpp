@@ -122,6 +122,10 @@ constexpr auto debug_lp_fmt = "gtopt_iter_{}_scene_{}_phase_{}";
 /// SDDP solver stops gracefully after the current iteration and saves cuts.
 /// Created externally (e.g. by the webservice stop endpoint).
 constexpr auto stop_sentinel = "sddp_stop";
+/// State variable column solution (latest)
+constexpr auto state_cols = "sddp_state.csv";
+/// Versioned state column solution: format with iteration number
+constexpr auto versioned_state_fmt = "sddp_state_{}.csv";
 /// Monitoring API stop-request file name: if this file exists, the solver
 /// stops gracefully after the current iteration (same behaviour as the
 /// sentinel file).  Written by the webservice soft-stop endpoint as part of
@@ -771,6 +775,19 @@ public:
   /// @return CutLoadResult with count and max iteration, or an error.
   [[nodiscard]] auto load_named_cuts(const std::string& filepath)
       -> std::expected<CutLoadResult, Error>;
+
+  /// Save state variable column solutions and reduced costs to a CSV file.
+  /// Writes one row per column with its name, phase, scene, value, and
+  /// reduced cost.  Saved alongside cuts for hot-start state restoration.
+  [[nodiscard]] auto save_state(const std::string& filepath) const
+      -> std::expected<void, Error>;
+
+  /// Load state variable column solutions from a CSV file.
+  /// Sets the warm column solution on each phase's LinearInterface so
+  /// that physical_eini/physical_efin return loaded values before the
+  /// first solve.
+  [[nodiscard]] auto load_state(const std::string& filepath)
+      -> std::expected<void, Error>;
 
 private:
   using scene_phase_states_t =

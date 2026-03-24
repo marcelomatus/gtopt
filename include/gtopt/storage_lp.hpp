@@ -181,8 +181,10 @@ public:
   /// Retrieve the physical eini (initial energy/volume) for a given
   /// scenario and stage.  For the first stage of the first phase the eini
   /// column is the fixed initial condition, so @p default_eini is returned
-  /// directly.  Otherwise, if the LP has an optimal solution the value is
-  /// read from the solution vector; falls back to @p default_eini.
+  /// directly.  Otherwise, the fallback chain is:
+  ///   1. LP optimal solution
+  ///   2. Warm column solution (loaded from hot-start state file)
+  ///   3. default_eini
   [[nodiscard]] double physical_eini(const LinearInterface& li,
                                      const ScenarioLP& scenario,
                                      const StageLP& stage,
@@ -193,22 +195,34 @@ public:
     {
       return default_eini;
     }
+    const auto col = eini_col_at(scenario, stage);
     if (li.is_optimal()) {
-      return physical_col_value(li.get_col_sol(), eini_col_at(scenario, stage));
+      return physical_col_value(li.get_col_sol(), col);
+    }
+    const auto& warm = li.warm_col_sol();
+    if (!warm.empty() && static_cast<size_t>(col) < warm.size()) {
+      return physical_col_value(warm, col);
     }
     return default_eini;
   }
 
   /// Retrieve the physical efin (final energy/volume) for a given
-  /// scenario and stage.  If the LP has an optimal solution the value is
-  /// read from the solution vector; otherwise @p default_efin is returned.
+  /// scenario and stage.  Fallback chain:
+  ///   1. LP optimal solution
+  ///   2. Warm column solution (loaded from hot-start state file)
+  ///   3. default_efin
   [[nodiscard]] double physical_efin(const LinearInterface& li,
                                      const ScenarioLP& scenario,
                                      const StageLP& stage,
                                      double default_efin) const
   {
+    const auto col = efin_col_at(scenario, stage);
     if (li.is_optimal()) {
-      return physical_col_value(li.get_col_sol(), efin_col_at(scenario, stage));
+      return physical_col_value(li.get_col_sol(), col);
+    }
+    const auto& warm = li.warm_col_sol();
+    if (!warm.empty() && static_cast<size_t>(col) < warm.size()) {
+      return physical_col_value(warm, col);
     }
     return default_efin;
   }
