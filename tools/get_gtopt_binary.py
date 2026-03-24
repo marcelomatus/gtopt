@@ -303,7 +303,7 @@ def download_gtopt_from_ci(
     bin_path.chmod(0o755)
 
     # Make solver plugin .so files executable (dlopen requires +x on some systems)
-    for so_file in sorted(dest_dir.glob("libgtopt_solver_*.so")):
+    for so_file in dest_dir.glob("libgtopt_solver_*.so"):
         so_file.chmod(0o755)
         log.info("  solver plugin: %s", so_file.name)
 
