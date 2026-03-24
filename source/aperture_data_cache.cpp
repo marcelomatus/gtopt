@@ -107,6 +107,7 @@ ApertureDataCache::ApertureDataCache(const std::filesystem::path& aperture_dir)
         auto val_arr =
             std::static_pointer_cast<arrow::DoubleArray>(val_col->chunk(0));
 
+        entries.reserve(entries.size() + static_cast<size_t>(num_rows));
         for (int64_t row = 0; row < num_rows; ++row) {
           entries.emplace_back(
               Key {

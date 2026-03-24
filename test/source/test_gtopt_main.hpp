@@ -539,6 +539,7 @@ TEST_CASE("gtopt_main - lp_debug writes LP files to log directory")  // NOLINT
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
       .use_single_bus = true,
+      .use_lp_names = 1,
       .lp_debug = true,
       .lp_compression = "none",
       .log_directory = log_dir.string(),
@@ -840,6 +841,7 @@ TEST_CASE(
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
       .use_single_bus = true,
+      .use_lp_names = 1,
       .lp_debug = true,
       .lp_compression = "gzip",
       .log_directory = log_dir.string(),

@@ -618,15 +618,28 @@ void LinearInterface::push_names_to_solver() const
 #endif
 }
 
-void LinearInterface::write_lp(const std::string& filename) const
+auto LinearInterface::write_lp(const std::string& filename) const
+    -> std::expected<void, Error>
 {
   if (filename.empty()) {
-    return;
+    return {};
   }
-  // Push names to solver before writing. At level >= 0 col names are always
-  // available; row names only at level >= 1.
+
+  // LP files are only useful when both column and row names are available.
+  // Row names are populated only at use_lp_names >= 1.
+  if (m_row_index_to_name_.empty()) {
+    return std::unexpected(Error {
+        .code = ErrorCode::InvalidInput,
+        .message =
+            std::format("LP file '{}' not saved: row names are not available. "
+                        "Set use_lp_names >= 1 to enable LP file output.",
+                        filename),
+    });
+  }
+
   push_names_to_solver();
   solver->writeLp(filename.c_str());
+  return {};
 }
 
 void LinearInterface::set_solver_opts(const SolverOptions& solver_options)

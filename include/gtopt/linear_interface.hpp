@@ -237,8 +237,10 @@ public:
   /**
    * @brief Writes the problem to an LP format file
    * @param filename Name of the file to write (without extension)
+   * @return Success, or an error if row names are not available
    */
-  void write_lp(const std::string& filename) const;
+  [[nodiscard]] std::expected<void, Error> write_lp(
+      const std::string& filename) const;
 
   /**
    * @brief Performs initial solve of the problem from scratch
