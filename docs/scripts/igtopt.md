@@ -337,10 +337,10 @@ Enter a JSON array of objects, one per segment, directly in the cell:
 | `slope` | m³/s per dam³ | Seepage slope (convert from PLP /Mm³: divide by 1000) |
 | `constant` | m³/s | Seepage rate at this breakpoint (no unit conversion needed) |
 
-When `segments` is present, `FiltrationLP::update_lp()` selects the active
-segment at each SDDP iteration/phase and updates the LP constraint coefficients
-(the slope on the `eini`/`efin` volume columns and the constant RHS) directly in
-the LP matrix — no LP bound update, analogous to `reservoir_efficiency_array`.
+When `segments` is present, `ReservoirSeepageLP::update_lp()` selects the
+active segment based on the current reservoir volume and updates the LP
+constraint coefficients (the slope on the `eini`/`efin` volume columns and the
+constant RHS) directly in the LP matrix via `SystemLP::update_lp()`.
 
 When `segments` is absent, the scalar `slope` and `constant` values (or their
 per-stage schedules) are applied directly.
