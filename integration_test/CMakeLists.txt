@@ -28,7 +28,7 @@ if(NOT TARGET gtopt::gtopt)
   CPMAddPackage(NAME gtopt SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/..")
 endif()
 
-include("${CMAKE_CURRENT_LIST_DIR}/../cmake/ClangFormat.cmake")
+include(ClangFormat)
 
 # ---- Standalone binary (or reuse from parent) ----
 # When included from all/CMakeLists.txt the standalone binary is already

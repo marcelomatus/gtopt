@@ -20,6 +20,8 @@ ensures the ``CMAKE_CTEST_ARGUMENTS`` entry is only appended once.
 
 #]=======================================================================]
 
+include_guard(GLOBAL)
+
 include(ProcessorCount)
 ProcessorCount(_test_parallelism_nproc)
 if(_test_parallelism_nproc EQUAL 0)
