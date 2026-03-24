@@ -432,40 +432,47 @@ bool SDDPMethod::should_stop() const
 
 // ── Coefficient updates ─────────────────────────────────────────────────────
 
-void SDDPMethod::update_coefficients_for_phase(SceneIndex scene,
-                                               PhaseIndex phase,
-                                               IterationIndex iteration)
+void SDDPMethod::dispatch_update_lp(SceneIndex scene, IterationIndex iteration)
 {
-  // Three-way logic from iteration_array:
+  // Three-way logic from the preallocated iteration vector:
   //  - update_lp == false  → explicitly skip
   //  - update_lp == true   → force dispatch (bypass skip count)
-  //  - not found / absent  → default behaviour (respect global skip count)
-  const auto* iter_lp = planning_lp().simulation().find_iteration(iteration);
+  //  - not specified        → default behaviour (respect global skip count)
+  if (static_cast<Index>(iteration) < static_cast<Index>(m_iterations_.size()))
+  {
+    const auto& iter_lp = m_iterations_[iteration];
 
-  if (iter_lp != nullptr && !iter_lp->should_update_lp()) {
-    return;  // explicitly disabled for this iteration
-  }
-
-  // Apply global skip count unless the iteration explicitly forces dispatch
-  const bool forced = (iter_lp != nullptr);
-  if (!forced) {
-    const auto skip = planning_lp().options().sddp_update_lp_skip();
-    if (skip > 0 && static_cast<int>(iteration) > 0
-        && (static_cast<int>(iteration) % (skip + 1)) != 0)
-    {
-      return;
+    if (iter_lp.has_explicit_update_lp()) {
+      if (!iter_lp.should_update_lp()) {
+        return;  // explicitly disabled for this iteration
+      }
+      // Explicitly enabled — bypass skip count below
+    } else {
+      // Default: apply global skip count
+      const auto skip = planning_lp().options().sddp_update_lp_skip();
+      if (skip > 0 && static_cast<int>(iteration) > 0
+          && (static_cast<int>(iteration) % (skip + 1)) != 0)
+      {
+        return;
+      }
     }
   }
 
-  auto& sys = planning_lp().system(scene, phase);
-  const auto updated = dispatch_update_lp(sys);
+  const auto num_phases =
+      static_cast<Index>(planning_lp().simulation().phases().size());
 
-  if (updated > 0) {
-    SPDLOG_TRACE("SDDP: updated {} LP elements for scene {} phase {} (iter {})",
-                 updated,
-                 scene,
-                 phase,
-                 iteration);
+  for (const auto phase : iota_range<PhaseIndex>(0, num_phases)) {
+    auto& sys = planning_lp().system(scene, phase);
+    const auto updated = sys.update_lp();
+
+    if (updated > 0) {
+      SPDLOG_TRACE(
+          "SDDP: updated {} LP elements for scene {} phase {} (iter {})",
+          updated,
+          scene,
+          phase,
+          iteration);
+    }
   }
 }
 
@@ -1141,26 +1148,35 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
                 m_iteration_offset_);
   }
 
-  m_initialized_ = true;
-
-  SPDLOG_INFO("SDDP: updating initial LP coefficients for all phases");
+  // ── Build preallocated iteration vector ───────────────────────────────────
   {
-    std::vector<std::jthread> threads;
-    threads.reserve(static_cast<size_t>(num_scenes));
-    for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
-      threads.emplace_back(
-          [this, si, num_phases]()
-          {
-            for (const auto pi : iota_range<PhaseIndex>(0, num_phases)) {
-              update_coefficients_for_phase(si, pi, m_iteration_offset_);
-            }
-          });
+    const auto total_iterations =
+        static_cast<Index>(m_iteration_offset_) + m_options_.max_iterations;
+    m_iterations_.resize(total_iterations);
+    for (auto i = Index {0}; i < total_iterations; ++i) {
+      m_iterations_[IterationIndex {i}] = IterationLP {
+          Iteration {
+              .index = i,
+          },
+          IterationIndex {i},
+      };
     }
+    // Overlay user-specified entries from simulation.iteration_array
+    for (const auto& iter : sim.simulation().iteration_array) {
+      const auto idx = IterationIndex {iter.index};
+      if (iter.index >= 0 && iter.index < total_iterations) {
+        m_iterations_[idx] = IterationLP {
+            iter,
+            idx,
+        };
+      }
+    }
+    SPDLOG_DEBUG("SDDP: preallocated {} iteration entries ({} user-specified)",
+                 total_iterations,
+                 sim.simulation().iteration_array.size());
   }
-  SPDLOG_INFO(
-      "SDDP: initial coefficient update done ({} scene(s) × {} phase(s))",
-      num_scenes,
-      num_phases);
+
+  m_initialized_ = true;
 
   const auto init_s = std::chrono::duration<double>(
                           std::chrono::steady_clock::now() - init_start)

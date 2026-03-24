@@ -75,6 +75,11 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
                iteration,
                phases.size());
 
+  // Update LP elements for all phases in this scene before solving.
+  // Checks iteration skip/force flags and calls SystemLP::update_lp()
+  // per phase.  Runs in the per-scene thread.
+  dispatch_update_lp(scene, iteration);
+
   for (auto&& [phase, _ph] : enumerate<PhaseIndex>(phases)) {
     if (should_stop()) {
       return std::unexpected(Error {
@@ -103,9 +108,6 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
           prev_st.outgoing_links.size(),
           phase_uid(prev));
     }
-
-    // Update volume-dependent coefficients (turbine efficiency, etc.)
-    update_coefficients_for_phase(scene, phase, iteration);
 
     // If lp_debug is enabled, write LP file (pre-solve state) then optionally
     // submit gzip compression as a fire-and-forget async task.

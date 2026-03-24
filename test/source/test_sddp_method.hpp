@@ -2228,7 +2228,7 @@ TEST_CASE("update_lp - no-op when no updatable elements")  // NOLINT
       system_lp.linear_interface().supports_set_coeff();
 
   // update_lp with no production factor elements → 0 updated
-  const auto updated = dispatch_update_lp(system_lp);
+  const auto updated = system_lp.update_lp();
   CHECK(updated == 0);
 }
 
@@ -2329,7 +2329,7 @@ TEST_CASE(
   SystemLP system_lp(system, sim_lp);
 
   // ReservoirSeepageLP::update_lp is a no-op when no segments are present → 0
-  const auto updated = dispatch_update_lp(system_lp);
+  const auto updated = system_lp.update_lp();
   CHECK(updated == 0);
 }
 

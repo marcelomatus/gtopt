@@ -95,17 +95,14 @@ int ReservoirProductionFactorLP::update_lp(SystemLP& sys,
                                            const ScenarioLP& scenario,
                                            const StageLP& stage)
 {
-  // Determine current reservoir volume as vavg = (vini + vfin) / 2.
-  // physical_eini returns the default for the first stage of the first
-  // phase; physical_efin reads from the LP solution when available.
   const auto& rsv = sys.element<ReservoirLP>(reservoir_sid());
 
   if (!rsv.reservoir().eini.has_value()) {
     return 0;
   }
   const auto default_volume = rsv.reservoir().eini.value_or(0.0);
-
   auto& li = sys.linear_interface();
+
   const auto vini = rsv.physical_eini(li, scenario, stage, default_volume);
   const auto vfin = rsv.physical_efin(li, scenario, stage, default_volume);
   const Real volume = (vini + vfin) / 2.0;
@@ -145,39 +142,6 @@ auto ReservoirProductionFactorLP::update_conversion_coeff(LinearInterface& li,
       new_rate);
 
   return count;
-}
-
-// ── Generalized LP update dispatch ───────────────────────────────────────────
-
-int dispatch_update_lp(SystemLP& system_lp)
-{
-  // Check solver capability once
-  if (!system_lp.linear_interface().supports_set_coeff()) {
-    // Cannot modify matrix coefficients — elements keep the static
-    // values set during add_to_lp().
-    return 0;
-  }
-
-  int total = 0;
-
-  // Iterate over all (scenario, stage) pairs in this SystemLP and dispatch
-  // update_lp() to every collection element that satisfies HasUpdateLP.
-  for (auto&& stage : system_lp.phase().stages()) {
-    for (auto&& scenario : system_lp.scene().scenarios()) {
-      visit_elements(
-          system_lp.collections(),
-          [&total, &system_lp, &scenario, &stage](auto& element) -> bool
-          {
-            using T = std::decay_t<decltype(element)>;
-            if constexpr (HasUpdateLP<T>) {
-              total += element.update_lp(system_lp, scenario, stage);
-            }
-            return true;
-          });
-    }
-  }
-
-  return total;
 }
 
 }  // namespace gtopt

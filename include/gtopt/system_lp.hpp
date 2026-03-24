@@ -92,6 +92,21 @@ static_assert(AddToLP<ReservoirProductionFactorLP>);
 static_assert(AddToLP<UserConstraintLP>);
 
 /**
+ * @concept HasUpdateLP
+ * @brief Concept satisfied by LP element types that implement `update_lp()`.
+ *
+ * Used by SystemLP::update_lp() to iterate over the LP element collection
+ * and dispatch `update_lp()` only to types that implement it.
+ */
+template<typename T>
+concept HasUpdateLP = requires(T& obj,
+                               SystemLP& system_lp,
+                               const ScenarioLP& scenario,
+                               const StageLP& stage) {
+  { obj.update_lp(system_lp, scenario, stage) } -> std::same_as<int>;
+};
+
+/**
  * @class SystemLP
  * @brief Central coordinator for power system LP formulation
  *
@@ -285,6 +300,17 @@ public:
   }
 
   void create_lp(const FlatOptions& flat_opts = {});
+
+  /**
+   * @brief Update LP elements for all (scenario, stage) pairs in this system.
+   *
+   * Iterates over all scenarios and stages in this SystemLP and dispatches
+   * `element.update_lp()` to every collection element that satisfies the
+   * `HasUpdateLP` concept.  May update coefficients, bounds, or RHS values.
+   *
+   * @return Total number of LP modifications across all elements
+   */
+  [[nodiscard]] int update_lp();
 
   /**
    * @brief Write LP formulation to file

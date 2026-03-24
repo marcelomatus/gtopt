@@ -1140,7 +1140,7 @@ TEST_CASE("ReservoirSeepageLP - update_lp with piecewise segments")
     // volume = (eini + efin_from_solution) / 2; update count depends on
     // whether the average volume selects a different piecewise segment
     // than the one used at add_to_lp time.
-    const auto updated = dispatch_update_lp(system_lp);
+    const auto updated = system_lp.update_lp();
     CHECK(updated >= 0);
   }
 
@@ -1309,7 +1309,7 @@ TEST_CASE("ReservoirSeepageLP - update_lp with different eini segment")
   CHECK(result.value() == 0);
 
   // eini=1000 -> seg1. update_lp iter=0/phase=0 uses eini -> same -> 0
-  const auto updated0 = dispatch_update_lp(system_lp);
+  const auto updated0 = system_lp.update_lp();
   CHECK(updated0 == 0);
 
   // Re-solve remains feasible
@@ -1467,7 +1467,7 @@ TEST_CASE("ReservoirSeepageLP - zero-slope segment edge case")
   CHECK(result.value() == 0);
 
   // update_lp with zero-slope segment is no-op (same coefficients)
-  const auto updated = dispatch_update_lp(system_lp);
+  const auto updated = system_lp.update_lp();
   CHECK(updated == 0);
 
   // Verify the seepage flow equals the constant (3.0) with zero slope

@@ -134,7 +134,6 @@ int ReservoirDischargeLimitLP::update_lp(SystemLP& sys,
   }
 
   auto& li = sys.linear_interface();
-
   const auto& rsv = sys.element<ReservoirLP>(reservoir_sid());
   const auto default_volume = rsv.reservoir().eini.value_or(0.0);
 
@@ -155,19 +154,18 @@ int ReservoirDischargeLimitLP::update_lp(SystemLP& sys,
     return 0;
   }
 
+  int total = 0;
   const auto new_lp_slope = new_slope * state.energy_scale;
-
   const auto row = vol_rows.at(st_key);
-  int count = 0;
 
   if (new_slope != state.current_slope) {
     li.set_coeff(row, state.eini_col, -new_lp_slope * 0.5);
     li.set_coeff(row, state.efin_col, -new_lp_slope * 0.5);
-    ++count;
+    ++total;
   }
   if (new_rhs != state.current_rhs) {
     li.set_rhs(row, new_rhs);
-    ++count;
+    ++total;
   }
 
   SPDLOG_TRACE(
@@ -181,7 +179,7 @@ int ReservoirDischargeLimitLP::update_lp(SystemLP& sys,
   state.current_slope = new_slope;
   state.current_rhs = new_rhs;
 
-  return count;
+  return total;
 }
 
 }  // namespace gtopt
