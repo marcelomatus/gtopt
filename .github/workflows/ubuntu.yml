@@ -190,7 +190,9 @@ jobs:
           # Copy solver plugin libraries next to the binary so that the
           # artifact is self-contained.  SolverRegistry discovers plugins
           # in <exe_dir>/ automatically.
-          cp build/plugins/libgtopt_solver_*.so build/standalone/ 2>/dev/null || true
+          if ls build/plugins/libgtopt_solver_*.so >/dev/null 2>&1; then
+            cp build/plugins/libgtopt_solver_*.so build/standalone/
+          fi
           ls -la build/standalone/
 
       - name: upload gtopt binary
