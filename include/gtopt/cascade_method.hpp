@@ -120,6 +120,10 @@ private:
   std::vector<CascadeLevelStats> m_level_stats_ {};
   /// Owns PlanningLPs built for levels that need different LP formulations.
   std::vector<std::unique_ptr<PlanningLP>> m_owned_lps_ {};
+  /// Temp file path holding previous level's state variable solutions.
+  /// Populated after each non-final level solves; consumed by the next level
+  /// via name-based load_state_csv to seed warm column solutions.
+  std::string m_prev_state_file_ {};
 };
 
 }  // namespace gtopt

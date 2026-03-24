@@ -6,8 +6,9 @@
 ## What is this repository?
 
 **gtopt** is a C++ library and solver for **Generation and Transmission Expansion Planning (GTEP)**.
-It builds a sparse LP/MIP formulation of a multi-stage power system and solves it via COIN-OR
-solvers (CBC by default). The repo also contains a Next.js web service, a Python/Flask GUI service,
+It builds a sparse LP/MIP formulation of a multi-stage power system and solves it via
+pluggable LP solver backends (CLP, CBC, CPLEX, HiGHS) loaded at runtime as shared
+libraries. The repo also contains a Next.js web service, a Python/Flask GUI service,
 and Python utility scripts.
 
 ## Environment Setup
@@ -50,7 +51,7 @@ cd build && ctest --output-on-failure
 |---------|-----|
 | `ccache: not found` | Install ccache, delete build dir, reconfigure |
 | `Could not find ArrowConfig.cmake` | Install Arrow (APT or conda) |
-| `COIN solver: none configured` | `sudo apt-get install -y coinor-libcbc-dev` |
+| `No solver plugins found` | Install COIN-OR (`coinor-libcbc-dev`) and/or HiGHS; set `GTOPT_PLUGIN_DIR` if plugins are in a non-standard location |
 | Clang not found | Follow LLVM APT steps in `setup_sandbox.sh` or `.github/actions/install-clang/action.yml` |
 
 ## Build Commands
@@ -229,6 +230,20 @@ Minimize total discounted cost (OPEX + CAPEX) over scenarios, stages, blocks.
 | `demand_fail_cost` | 1000 | $/MWh unserved load penalty |
 | `scale_objective` | 1000 | Divides obj coefficients for numerics |
 | `input_format` / `output_format` | `"parquet"` | I/O format |
+| `method` | `"monolithic"` | Planning method: `monolithic`, `sddp`, `cascade` |
+
+### LP solver backends
+
+LP solver backends are loaded as dynamic plugins (`libgtopt_solver_*.so`)
+at runtime. The default is auto-detected by priority: cplex > highs > cbc > clp.
+
+| CLI flag | Effect |
+|----------|--------|
+| `--lp-solver highs` | Use a specific LP solver backend |
+| `--lp-solvers` | List available LP solver plugins |
+
+Plugin search path: `$GTOPT_PLUGIN_DIR`, `<exe>/../lib/gtopt/plugins/`,
+`<exe>/plugins/`, `/usr/local/lib/gtopt/plugins/`.
 
 ### IEEE benchmark cases
 
@@ -244,7 +259,7 @@ Minimize total discounted cost (OPEX + CAPEX) over scenarios, stages, blocks.
 ## Documentation Style Guide
 
 - GitHub-Flavored Markdown, ATX headers, 80-char lines
-- LaTeX math in `docs/formulation/MATHEMATICAL_FORMULATION.md`
+- LaTeX math in `docs/formulation/mathematical-formulation.md`
 - References: numbered `[N]`, HTML anchors, DOI links
 - Cross-references use relative paths between doc files
 - When modifying LP assembly code, update the formulation document

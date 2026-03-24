@@ -364,9 +364,9 @@ turbines — along with the simulation structure (blocks × stages × scenarios)
 
 ## See Also
 
-- [SCRIPTS.md](../../SCRIPTS.md) — Overview of all gtopt Python scripts
-- [PLANNING\_GUIDE.md](../../PLANNING_GUIDE.md) — Guide to gtopt planning concepts
+- [SCRIPTS.md](../scripts-guide.md) — Overview of all gtopt Python scripts
+- [PLANNING\_GUIDE.md](../planning-guide.md) — Guide to gtopt planning concepts
   (stages, blocks, scenarios, expansion)
-- [INPUT\_DATA.md](../../INPUT_DATA.md) — gtopt input file format reference
+- [INPUT\_DATA.md](../input-data.md) — gtopt input file format reference
 - [pp2gtopt](pp2gtopt.md) — Convert pandapower networks to gtopt
 - [ts2gtopt](ts2gtopt.md) — Project hourly time-series onto gtopt horizons
