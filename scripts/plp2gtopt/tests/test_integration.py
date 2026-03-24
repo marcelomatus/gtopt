@@ -1618,8 +1618,8 @@ def _check_2y_global_indicators(
         "Stateless reservoir counts should match between PLP and gtopt"
     )
 
-    # Filtrations and reservoir efficiencies must match
-    assert plp_counts["filtrations"] == gtopt_counts["filtrations"]
+    # ReservoirSeepages and reservoir efficiencies must match
+    assert plp_counts["seepages"] == gtopt_counts["seepages"]
     assert (
         plp_counts["reservoir_efficiencies"] == gtopt_counts["reservoir_efficiencies"]
     )

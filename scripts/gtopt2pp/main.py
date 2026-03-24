@@ -78,7 +78,9 @@ def _log_source_summary(case: dict[str, Any]) -> None:
         ("waterway_array", "waterways"),
         ("reservoir_array", "reservoirs"),
         ("turbine_array", "turbines"),
-        ("filtration_array", "filtrations"),
+        ("reservoir_seepage_array", "seepages"),
+        ("reservoir_discharge_limit_array", "discharge limits"),
+        ("reservoir_production_factor_array", "production factors"),
         ("flow_array", "flows"),
     ):
         count = len(system.get(key, []))

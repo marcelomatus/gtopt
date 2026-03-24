@@ -48,8 +48,8 @@ constexpr double const CoinDblMax = std::numeric_limits<double>::max();
  *   `rc_phys = rc_LP / scale`.
  * - User constraints (PAMPL): `LinearProblem::get_col_scale()` returns the
  *   scale so that constraint coefficients are correctly adjusted.
- * - Cross-element references (e.g. FiltrationLP reading reservoir volume
- *   scale to convert filtration slope to LP units).
+ * - Cross-element references (e.g. ReservoirSeepageLP reading reservoir volume
+ *   scale to convert seepage slope to LP units).
  *
  * All methods are constexpr to enable compile-time construction of problems.
  */

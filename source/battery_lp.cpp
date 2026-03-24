@@ -89,11 +89,18 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
         sc.options().variable_scale_map().lookup("Battery", "energy", uid());
     return (vs != 1.0) ? vs : Battery::default_energy_scale;
   }();
+  // Resolve flow_scale: VariableScaleMap > default (1.0).
+  const auto fs = [&]
+  {
+    const auto vs =
+        sc.options().variable_scale_map().lookup("Battery", "flow", uid());
+    return (vs != 1.0) ? vs : 1.0;
+  }();
   const StorageOptions opts {
       .use_state_variable = battery().use_state_variable.value_or(false),
       .daily_cycle = battery().daily_cycle.value_or(true),
       .energy_scale = es,
-      .flow_scale = 1.0,  // finp/fout columns are unscaled (physical MW)
+      .flow_scale = fs,
   };
   if (!StorageBase::add_to_lp(cname,
                               sc,

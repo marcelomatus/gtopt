@@ -17,7 +17,7 @@
  * ### Variable efficiency (hydraulic head)
  * When `main_reservoir` is set, the turbine's conversion rate can vary
  * with the reservoir volume (hydraulic head).  The piecewise-linear
- * efficiency curve is provided by a matching `ReservoirEfficiency`
+ * efficiency curve is provided by a matching `ReservoirProductionFactor`
  * element.  During SDDP forward iterations the conversion-rate LP
  * coefficient is updated based on the current reservoir volume.
  *
@@ -84,11 +84,11 @@ namespace gtopt
  *
  * When `main_reservoir` is specified, the turbine's conversion rate may be
  * updated dynamically by the SDDP solver using the piecewise-linear
- * efficiency curve from the corresponding `ReservoirEfficiency` element.
+ * efficiency curve from the corresponding `ReservoirProductionFactor` element.
  *
  * @see Waterway for the water channel
  * @see Generator for the power output representation
- * @see ReservoirEfficiency for the piecewise-linear efficiency curve
+ * @see ReservoirProductionFactor for the piecewise-linear efficiency curve
  * @see TurbineLP for the LP formulation
  */
 struct Turbine
@@ -113,8 +113,8 @@ struct Turbine
   /// Optional ID of the main reservoir whose volume drives the turbine's
   /// conversion rate.  When set, the SDDP solver will update the
   /// conversion-rate LP coefficient at each forward-pass iteration based
-  /// on the current reservoir volume and the matching ReservoirEfficiency
-  /// element's piecewise-linear curve.  The ReservoirEfficiency element
+  /// on the current reservoir volume and the matching ReservoirProductionFactor
+  /// element's piecewise-linear curve.  The ReservoirProductionFactor element
   /// must reference this turbine's UID in its @c turbine field and the
   /// reservoir's UID in its @c reservoir field.
   OptSingleId main_reservoir {};

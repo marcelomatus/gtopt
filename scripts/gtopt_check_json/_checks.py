@@ -52,7 +52,9 @@ _ELEMENT_ARRAYS: dict[str, str] = {
     "waterway_array": "Waterway",
     "flow_array": "Flow",
     "reservoir_array": "Reservoir",
-    "filtration_array": "Filtration",
+    "reservoir_seepage_array": "ReservoirSeepage",
+    "reservoir_discharge_limit_array": "ReservoirDischargeLimit",
+    "reservoir_production_factor_array": "ReservoirProductionFactor",
     "turbine_array": "Turbine",
     "generator_profile_array": "GeneratorProfile",
     "demand_profile_array": "DemandProfile",
@@ -523,11 +525,11 @@ def check_element_references(
             junc_names,
         )
 
-    # Filtration → Waterway, Reservoir
-    for filt in sys.get("filtration_array", []):
+    # ReservoirSeepage → Waterway, Reservoir
+    for filt in sys.get("reservoir_seepage_array", []):
         name = filt.get("name", str(filt.get("uid", "?")))
         _check_ref(
-            "Filtration",
+            "ReservoirSeepage",
             name,
             "waterway",
             filt.get("waterway"),
@@ -535,10 +537,30 @@ def check_element_references(
             ww_names,
         )
         _check_ref(
-            "Filtration",
+            "ReservoirSeepage",
             name,
             "reservoir",
             filt.get("reservoir"),
+            res_uids,
+            res_names,
+        )
+
+    # ReservoirDischargeLimit → Waterway, Reservoir
+    for ddl in sys.get("reservoir_discharge_limit_array", []):
+        name = ddl.get("name", str(ddl.get("uid", "?")))
+        _check_ref(
+            "ReservoirDischargeLimit",
+            name,
+            "waterway",
+            ddl.get("waterway"),
+            ww_uids,
+            ww_names,
+        )
+        _check_ref(
+            "ReservoirDischargeLimit",
+            name,
+            "reservoir",
+            ddl.get("reservoir"),
             res_uids,
             res_names,
         )

@@ -366,7 +366,7 @@ _HYDRO_PLANNING = {
         "flow_array": [
             {"uid": 1, "name": "F1", "junction": 2, "discharge": 100, "direction": 1}
         ],
-        "filtration_array": [
+        "reservoir_seepage_array": [
             {"uid": 1, "name": "Filt1", "waterway": 2, "reservoir": 1}
         ],
     }
@@ -415,20 +415,20 @@ class TestHydroTopology:
         pairs = self._edge_pairs(model)
         assert ("turb_T1_1", "gen_G_hydro_1") in pairs
 
-    def test_filtration_is_a_node(self):
-        """Filtration must be rendered as a node, not only as an edge."""
+    def test_seepage_is_a_node(self):
+        """ReservoirSeepage must be rendered as a node, not only as an edge."""
         model = self._build()
         node_ids = {n.node_id for n in model.nodes}
         assert "filt_Filt1_1" in node_ids
 
-    def test_filtration_has_waterway_junction_edge(self):
-        """junction_a of filtration's waterway → filtration node edge must exist."""
+    def test_seepage_has_waterway_junction_edge(self):
+        """junction_a of seepage's waterway → seepage node edge must exist."""
         model = self._build()
         pairs = self._edge_pairs(model)
         assert ("junc_J2_2", "filt_Filt1_1") in pairs
 
-    def test_filtration_has_reservoir_edge(self):
-        """filtration node → reservoir edge must exist."""
+    def test_seepage_has_reservoir_edge(self):
+        """seepage node → reservoir edge must exist."""
         model = self._build()
         pairs = self._edge_pairs(model)
         assert ("filt_Filt1_1", "res_Res1_1") in pairs
@@ -587,13 +587,13 @@ _HYDRO_WITH_EFFICIENCY = {
         ],
         "generator_array": [{"uid": 1, "name": "G1", "bus": 1, "pmax": 100}],
         "bus_array": [{"uid": 1, "name": "B1"}],
-        "reservoir_efficiency_array": [
+        "reservoir_production_factor_array": [
             {
                 "uid": 1,
                 "name": "eff_T1",
                 "turbine": 1,
                 "reservoir": 1,
-                "mean_efficiency": 0.0025,
+                "mean_production_factor": 0.0025,
                 "segments": [{"volume": 0.0, "slope": 0.0, "constant": 0.0025}],
             }
         ],
@@ -625,13 +625,13 @@ _HYDRO_WITH_MAIN_RES_ONLY = {
         ],
         "generator_array": [{"uid": 1, "name": "G1", "bus": 1, "pmax": 100}],
         "bus_array": [{"uid": 1, "name": "B1"}],
-        # No reservoir_efficiency_array
+        # No reservoir_production_factor_array
     }
 }
 
 
-class TestReservoirEfficiency:
-    """Verify reservoir_efficiency_array and main_reservoir edge drawing."""
+class TestReservoirProductionFactor:
+    """Verify reservoir_production_factor_array and main_reservoir edge drawing."""
 
     def _build(self, planning, subsystem="hydro"):
         fo = gd.FilterOptions(aggregate="none")
@@ -641,24 +641,24 @@ class TestReservoirEfficiency:
     def _edge_pairs(self, model):
         return {(e.src, e.dst) for e in model.edges}
 
-    def test_reservoir_efficiency_draws_edge(self):
-        """reservoir_efficiency_array must produce a reservoir → turbine edge."""
+    def test_reservoir_production_factor_draws_edge(self):
+        """reservoir_production_factor_array must produce a reservoir → turbine edge."""
         model = self._build(_HYDRO_WITH_EFFICIENCY)
         pairs = self._edge_pairs(model)
         assert ("res_Res1_1", "turb_T1_1") in pairs
 
-    def test_reservoir_efficiency_suppresses_main_reservoir_fallback(self):
+    def test_reservoir_production_factor_suppresses_main_reservoir_fallback(self):
         """main_reservoir edge must not duplicate when efficiency array covers it."""
         model = self._build(_HYDRO_WITH_EFFICIENCY)
         eff_edges = [
             e for e in model.edges if e.src == "res_Res1_1" and e.dst == "turb_T1_1"
         ]
-        # Exactly one edge (from reservoir_efficiency_array, not main_reservoir)
+        # Exactly one edge (from reservoir_production_factor_array, not main_reservoir)
         assert len(eff_edges) == 1
 
     def test_main_reservoir_fallback_draws_edge_when_no_efficiency_array(self):
         """Turbine.main_reservoir must produce a reservoir → turbine edge when
-        no reservoir_efficiency_array entry exists for that turbine."""
+        no reservoir_production_factor_array entry exists for that turbine."""
         model = self._build(_HYDRO_WITH_MAIN_RES_ONLY)
         pairs = self._edge_pairs(model)
         assert ("res_Res1_1", "turb_T1_1") in pairs
@@ -783,36 +783,36 @@ class TestDefaultShow:
 
 
 # ---------------------------------------------------------------------------
-# Filtration → reservoir dependency
+# ReservoirSeepage → reservoir dependency
 # ---------------------------------------------------------------------------
 
 
-class TestFiltrationReservoirDependency:
-    """Confirm the filtration-to-reservoir edge is present in every valid topology."""
+class TestReservoirSeepageReservoirDependency:
+    """Confirm the seepage-to-reservoir edge is present in every valid topology."""
 
-    def test_filtration_reservoir_edge_present(self):
-        """filtration_node → reservoir edge must always be drawn."""
+    def test_seepage_reservoir_edge_present(self):
+        """seepage_node → reservoir edge must always be drawn."""
         fo = gd.FilterOptions(aggregate="none")
         builder = gd.TopologyBuilder(_HYDRO_PLANNING, subsystem="hydro", opts=fo)
         model = builder.build()
         pairs = {(e.src, e.dst) for e in model.edges}
         assert ("filt_Filt1_1", "res_Res1_1") in pairs, (
-            "filtration → reservoir dependency edge missing"
+            "seepage → reservoir dependency edge missing"
         )
 
-    def test_filtration_reservoir_edge_style(self):
-        """The filtration→reservoir edge must use a dotted style."""
+    def test_seepage_reservoir_edge_style(self):
+        """The seepage→reservoir edge must use a dotted style."""
         fo = gd.FilterOptions(aggregate="none")
         builder = gd.TopologyBuilder(_HYDRO_PLANNING, subsystem="hydro", opts=fo)
         model = builder.build()
         filt_res_edges = [
             e for e in model.edges if e.src == "filt_Filt1_1" and e.dst == "res_Res1_1"
         ]
-        assert filt_res_edges, "filtration → reservoir edge not found"
+        assert filt_res_edges, "seepage → reservoir edge not found"
         assert filt_res_edges[0].style == "dotted"
 
-    def test_filtration_reservoir_edge_color(self):
-        """The filtration→reservoir edge must use the filtration_border colour."""
+    def test_seepage_reservoir_edge_color(self):
+        """The seepage→reservoir edge must use the seepage_border colour."""
         fo = gd.FilterOptions(aggregate="none")
         builder = gd.TopologyBuilder(_HYDRO_PLANNING, subsystem="hydro", opts=fo)
         model = builder.build()
@@ -820,7 +820,7 @@ class TestFiltrationReservoirDependency:
             e for e in model.edges if e.src == "filt_Filt1_1" and e.dst == "res_Res1_1"
         ]
         assert filt_res_edges
-        assert filt_res_edges[0].color == gd._PALETTE["filtration_border"]  # noqa: SLF001
+        assert filt_res_edges[0].color == gd._PALETTE["seepage_border"]  # noqa: SLF001
 
 
 # ---------------------------------------------------------------------------

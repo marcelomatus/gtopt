@@ -9,7 +9,7 @@ can model:
 - **Line** → ``net.line`` or ``net.trafo`` (depending on ``type`` field)
 
 Hydro-specific elements (Junction, Waterway, Reservoir, Turbine, Flow,
-Filtration) are silently skipped since pandapower does not have
+ReservoirSeepage) are silently skipped since pandapower does not have
 equivalents.
 
 For multi-block / multi-scenario cases the converter produces one

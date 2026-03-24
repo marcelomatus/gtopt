@@ -289,7 +289,7 @@ bool ConstraintParser::Parser::is_element_type(const std::string& name)
   return name == "generator" || name == "demand" || name == "line"
       || name == "battery" || name == "converter" || name == "reservoir"
       || name == "bus" || name == "waterway" || name == "turbine"
-      || name == "junction" || name == "flow" || name == "filtration"
+      || name == "junction" || name == "flow" || name == "seepage"
       || name == "reserve_provision" || name == "reserve_zone";
 }
 

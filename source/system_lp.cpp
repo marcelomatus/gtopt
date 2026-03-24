@@ -210,13 +210,16 @@ void create_collections(const auto& system_context,
       make_collection<FlowLP>(ic, sys.flow_array);
   std::get<Collection<ReservoirLP>>(colls) =
       make_collection<ReservoirLP>(ic, sys.reservoir_array);
-  std::get<Collection<FiltrationLP>>(colls) =
-      make_collection<FiltrationLP>(ic, sys.filtration_array);
+  std::get<Collection<ReservoirSeepageLP>>(colls) =
+      make_collection<ReservoirSeepageLP>(ic, sys.reservoir_seepage_array);
+  std::get<Collection<ReservoirDischargeLimitLP>>(colls) =
+      make_collection<ReservoirDischargeLimitLP>(
+          ic, sys.reservoir_discharge_limit_array);
   std::get<Collection<TurbineLP>>(colls) =
       make_collection<TurbineLP>(ic, sys.turbine_array);
-  std::get<Collection<ReservoirEfficiencyLP>>(colls) =
-      make_collection<ReservoirEfficiencyLP>(ic,
-                                             sys.reservoir_efficiency_array);
+  std::get<Collection<ReservoirProductionFactorLP>>(colls) =
+      make_collection<ReservoirProductionFactorLP>(
+          ic, sys.reservoir_production_factor_array);
 
   // UserConstraintLP is placed LAST so that user-constraint rows are added to
   // the LP after all other elements whose columns they reference.

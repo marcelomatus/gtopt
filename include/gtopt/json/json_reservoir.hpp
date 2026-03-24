@@ -2,6 +2,9 @@
 
 #include <daw/json/daw_json_link.h>
 #include <gtopt/json/json_field_sched.hpp>
+#include <gtopt/json/json_reservoir_discharge_limit.hpp>
+#include <gtopt/json/json_reservoir_production_factor.hpp>
+#include <gtopt/json/json_reservoir_seepage.hpp>
 #include <gtopt/json/json_single_id.hpp>
 #include <gtopt/reservoir.hpp>
 
@@ -37,8 +40,14 @@ struct json_data_contract<Reservoir>
       json_number_null<"energy_scale", OptReal>,
       json_number_null<"flow_conversion_rate", OptReal>,
       json_bool_null<"use_state_variable", OptBool>,  ///< Stage/phase coupling
-      json_bool_null<"daily_cycle", OptBool>  ///< Daily cycle operation
-      >;
+      json_bool_null<"daily_cycle", OptBool>,  ///< Daily cycle operation
+      json_array_null<"seepage", Array<ReservoirSeepage>, ReservoirSeepage>,
+      json_array_null<"discharge_limit",
+                      Array<ReservoirDischargeLimit>,
+                      ReservoirDischargeLimit>,
+      json_array_null<"production_factor",
+                      Array<ReservoirProductionFactor>,
+                      ReservoirProductionFactor>>;
 
   constexpr static auto to_json_data(Reservoir const& reservoir)
   {
@@ -62,7 +71,10 @@ struct json_data_contract<Reservoir>
                                  reservoir.energy_scale,
                                  reservoir.flow_conversion_rate,
                                  reservoir.use_state_variable,
-                                 reservoir.daily_cycle);
+                                 reservoir.daily_cycle,
+                                 reservoir.seepage,
+                                 reservoir.discharge_limit,
+                                 reservoir.production_factor);
   }
 };
 }  // namespace daw::json

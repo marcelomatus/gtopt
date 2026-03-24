@@ -1689,10 +1689,10 @@ auto SDDPPlanningSolver::solve(PlanningLP& planning_lp,
   SPDLOG_INFO(
       "SDDPSolver: starting {} scene(s) × {} phase(s)", num_scenes, num_phases);
 
-  // just_build_lp: LP already built in PlanningLP constructor — skip all
+  // build_lp: LP already built in PlanningLP constructor — skip all
   // solving.
-  if (m_sddp_opts_.just_build_lp) {
-    SPDLOG_INFO("SDDP: just_build_lp mode — LP built, skipping solve");
+  if (m_sddp_opts_.build_lp) {
+    SPDLOG_INFO("SDDP: build_lp mode — LP built, skipping solve");
     return 0;
   }
 

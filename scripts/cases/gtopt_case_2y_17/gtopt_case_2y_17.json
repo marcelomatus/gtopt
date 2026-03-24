@@ -27162,7 +27162,7 @@
                 "conversion_rate": 1.0
             }
         ],
-        "filtration_array": [
+        "reservoir_seepage_array": [
             {
                 "uid": 1,
                 "name": "filt_CIPRESES_FILT_CIPRESES",
@@ -27244,13 +27244,13 @@
                 ]
             }
         ],
-        "reservoir_efficiency_array": [
+        "reservoir_production_factor_array": [
             {
                 "uid": 1,
                 "name": "eff_COLBUN",
                 "turbine": "COLBUN",
                 "reservoir": "COLBUN",
-                "mean_efficiency": 1.53,
+                "mean_production_factor": 1.53,
                 "segments": [
                     {
                         "volume": 0.0,
@@ -27264,7 +27264,7 @@
                 "name": "eff_ELTORO",
                 "turbine": "ELTORO",
                 "reservoir": "ELTORO",
-                "mean_efficiency": 4.8,
+                "mean_production_factor": 4.8,
                 "segments": [
                     {
                         "volume": 0.0,
@@ -27278,7 +27278,7 @@
                 "name": "eff_RAPEL",
                 "turbine": "RAPEL",
                 "reservoir": "RAPEL",
-                "mean_efficiency": 0.635,
+                "mean_production_factor": 0.635,
                 "segments": [
                     {
                         "volume": 0.0,
@@ -27292,7 +27292,7 @@
                 "name": "eff_CANUTILLAR",
                 "turbine": "CANUTILLAR",
                 "reservoir": "CANUTILLAR",
-                "mean_efficiency": 2.0,
+                "mean_production_factor": 2.0,
                 "segments": [
                     {
                         "volume": 0.0,
@@ -27306,7 +27306,7 @@
                 "name": "eff_RALCO",
                 "turbine": "RALCO",
                 "reservoir": "RALCO",
-                "mean_efficiency": 1.6,
+                "mean_production_factor": 1.6,
                 "segments": [
                     {
                         "volume": 0.0,

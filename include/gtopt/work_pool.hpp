@@ -305,7 +305,13 @@ public:
               if (should_schedule_new_task()) {
                 schedule_next_task();
               }
-              std::this_thread::sleep_for(scheduler_interval_);
+              // Wait on cv_ so that shutdown() and submit() can wake us
+              // immediately instead of blocking up to scheduler_interval_.
+              std::unique_lock lock(queue_mutex_);
+              cv_.wait_for(
+                  lock,
+                  scheduler_interval_,
+                  [&] { return stoken.stop_requested() || !running_.load(); });
             }
           },
       };

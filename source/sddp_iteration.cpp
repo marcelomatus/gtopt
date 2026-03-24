@@ -37,10 +37,10 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     return std::unexpected(std::move(*err));
   }
 
-  // just_build_lp: the LP matrix is already built (PlanningLP constructor).
+  // build_lp: the LP matrix is already built (PlanningLP constructor).
   // Return an empty results vector immediately — no solving, no initialization.
-  if (m_options_.just_build_lp) {
-    SPDLOG_INFO("SDDP: just_build_lp mode — LP built, skipping all solving");
+  if (m_options_.build_lp) {
+    SPDLOG_INFO("SDDP: build_lp mode — LP built, skipping all solving");
     return std::vector<SDDPIterationResult> {};
   }
 

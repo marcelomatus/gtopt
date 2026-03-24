@@ -584,6 +584,7 @@ class GTOptWriter:
         cenre = self.parser.parsed_data.get("cenre_parser", None)
         cenfi = self.parser.parsed_data.get("cenfi_parser", None)
         filemb = self.parser.parsed_data.get("filemb_parser", None)
+        ralco = self.parser.parsed_data.get("ralco_parser", None)
         minembh = self.parser.parsed_data.get("minembh_parser", None)
         jw = JunctionWriter(
             central_parser=centrals,
@@ -594,6 +595,7 @@ class GTOptWriter:
             cenre_parser=cenre,
             cenfi_parser=cenfi,
             filemb_parser=filemb,
+            ralco_parser=ralco,
             minembh_parser=minembh,
             options=options,
         )
@@ -1121,6 +1123,18 @@ class GTOptWriter:
                         }
                     )
                     computed_keys.add(("Battery", "energy", uid))
+                    # Scale flow (finp/fout) with the same factor so
+                    # energy-balance coefficients stay O(1).
+                    scales.append(
+                        {
+                            "class_name": "Battery",
+                            "variable": "flow",
+                            "uid": uid,
+                            "scale": scale,
+                            "name": name,
+                        }
+                    )
+                    computed_keys.add(("Battery", "flow", uid))
 
         # --- Merge file-based scales (lowest priority) ---
         for entry in file_scales:

@@ -11,7 +11,7 @@
  * Key options handled here:
  *  - `planning_files`: list of JSON case file stems to load and merge.
  *  - `fast_parsing`: use lenient (non-strict) JSON parsing.
- *  - `just_build_lp`: build all scene/phase LP matrices but skip solving;
+ *  - `build_lp`: build all scene/phase LP matrices but skip solving;
  *    validating input without running the solver.
  *  - `json_file`: write the merged Planning to a JSON file before solving.
  *  - `lp_file`: write the flat LP model to a `.lp` file before solving.
@@ -271,8 +271,8 @@ void log_pre_solve_stats(
   spdlog::info(std::format("  Flows           : {}", sys.flow_array.size()));
   spdlog::info(
       std::format("  Reservoirs      : {}", sys.reservoir_array.size()));
-  spdlog::info(
-      std::format("  Filtrations     : {}", sys.filtration_array.size()));
+  spdlog::info(std::format("  ReservoirSeepages     : {}",
+                           sys.reservoir_seepage_array.size()));
   spdlog::info(std::format("  Turbines        : {}", sys.turbine_array.size()));
   spdlog::info("=== Simulation statistics ===");
   spdlog::info(std::format("  Blocks          : {}", sim.block_array.size()));
@@ -443,10 +443,10 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     my_planning.options.output_compression = probe_parquet_codec(
         OptionsLP(my_planning.options).output_compression());
 
-    // Propagate just_build_lp into planning options so the SDDP solver
+    // Propagate build_lp into planning options so the SDDP solver
     // also sees it when called via planning_lp.resolve().
-    if (opts.just_build_lp) {
-      my_planning.options.just_build_lp = opts.just_build_lp;
+    if (opts.build_lp) {
+      my_planning.options.build_lp = opts.build_lp;
     }
 
     //
@@ -591,11 +591,12 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
                              planning_lp.options().lp_coeff_ratio_threshold());
       }
 
-      // just_build_lp: LP matrix assembly is done (all scene×phase LPs exist
+      // build_lp: LP matrix assembly is done (all scene×phase LPs exist
       // in memory and, if lp_file was set, are saved to disk).  Exit before
       // ANY solving — this applies to both the monolithic and SDDP solvers.
-      if (opts.just_build_lp.value_or(false)) {
-        spdlog::info("just_build_lp: all LP matrices built, skipping solve");
+      // Check both the CLI flag and the JSON option (planning_lp.options()).
+      if (opts.build_lp.value_or(false) || planning_lp.options().build_lp()) {
+        spdlog::info("build_lp: all LP matrices built, skipping solve");
         return 0;
       }
 

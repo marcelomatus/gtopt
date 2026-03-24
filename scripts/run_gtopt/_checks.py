@@ -193,7 +193,9 @@ def check_input_files(json_path: Path, **_kwargs) -> CheckResult:
         "reservoir_array": "Reservoir",
         "turbine_array": "Turbine",
         "waterway_array": "Waterway",
-        "filtration_array": "Filtration",
+        "reservoir_seepage_array": "ReservoirSeepage",
+        "reservoir_discharge_limit_array": "ReservoirDischargeLimit",
+        "reservoir_production_factor_array": "ReservoirProductionFactor",
     }
 
     checked: set[tuple[str, str]] = set()

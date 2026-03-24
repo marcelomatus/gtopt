@@ -85,7 +85,10 @@ def _log_stats(planning: dict, elapsed: float) -> None:
         ("Waterways", len(sys_data.get("waterway_array", []))),
         ("Flows", len(sys_data.get("flow_array", []))),
         ("Reservoirs", len(sys_data.get("reservoir_array", []))),
-        ("Filtrations", len(sys_data.get("filtration_array", []))),
+        (
+            "ReservoirSeepages",
+            sum(len(r.get("seepage", [])) for r in sys_data.get("reservoir_array", [])),
+        ),
         ("Turbines", len(sys_data.get("turbine_array", []))),
     ]
     elem_pairs = [(k, str(v)) for k, v in all_elems if v > 0]
@@ -621,6 +624,17 @@ def generate_variable_scales_template(options: dict[str, Any]) -> str:
             {
                 "class_name": "Battery",
                 "variable": "energy",
+                "uid": uid,
+                "scale": 0.01,
+                "name": name,
+            }
+        )
+        # Scale flow (finp/fout) with the same factor so
+        # energy-balance coefficients stay O(1).
+        scales.append(
+            {
+                "class_name": "Battery",
+                "variable": "flow",
                 "uid": uid,
                 "scale": 0.01,
                 "name": name,
