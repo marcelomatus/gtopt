@@ -5,7 +5,7 @@ name: Profile
 # C++ profiling strategy:
 #   - valgrind/callgrind for detailed call-graph profiling (accurate)
 #   - /usr/bin/time for wall-clock + peak RSS measurements
-#   - The gtopt binary is run with just_build_lp=true (default) to measure
+#   - The gtopt binary is run with build_lp=true (default) to measure
 #     LP-creation time without solver overhead.
 #
 # Python profiling strategy:
@@ -27,8 +27,8 @@ on:
         description: 'PLP case under scripts/cases/ for Python profiling'
         type: string
         default: 'plp_dat_ex'
-      just_build_lp:
-        description: 'Profile LP creation only (just_build_lp=true)'
+      build_lp:
+        description: 'Profile LP creation only (build_lp=true)'
         type: boolean
         default: true
       reps:
@@ -107,7 +107,7 @@ jobs:
       - name: Configure profiling sub-project
         run: |
           CASE_DIR="${{ inputs.case || 'cases/ieee_9b_ori' }}"
-          JUST_LP="${{ inputs.just_build_lp }}"
+          JUST_LP="${{ inputs.build_lp }}"
           REPS="${{ inputs.reps || 5 }}"
           PLP_CASE="${{ inputs.plp_case || 'plp_dat_ex' }}"
           cmake -S profiling -B build-profiling \

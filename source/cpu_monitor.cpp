@@ -115,11 +115,12 @@ void CPUMonitor::start()
             const double load = get_system_cpu_usage();
             current_load_.store(load, std::memory_order_relaxed);
 
-            // Using C++20's jthread stop token for interruption
-            std::this_thread::sleep_for(monitor_interval_);
-            if (stoken.stop_requested()) {
-              break;
-            }
+            // Wait on stop_cv_ so that stop() can wake us immediately
+            // instead of blocking for the full monitor_interval_.
+            std::unique_lock lock(stop_mutex_);
+            stop_cv_.wait_for(lock,
+                              monitor_interval_,
+                              [&] { return stoken.stop_requested(); });
           }
         });
 
@@ -139,6 +140,7 @@ void CPUMonitor::stop() noexcept
   running_.store(false, std::memory_order_relaxed);
   if (monitor_thread_.joinable()) {
     monitor_thread_.request_stop();
+    stop_cv_.notify_all();  // Wake the monitor thread immediately
     monitor_thread_.join();
   }
 }

@@ -104,13 +104,13 @@ def _plp_element_counts(parser: PLPParser) -> dict[str, Any]:
         counts["affluents"] = len(hydro_affluent_names)
         counts["_affluent_names"] = sorted(hydro_affluent_names)
 
-    # Filtrations from plpfilemb.dat (primary) or plpcenfi.dat (legacy)
+    # ReservoirSeepages from plpfilemb.dat (primary) or plpcenfi.dat (legacy)
     filemb_parser = pdata.get("filemb_parser")
     cenfi_parser = pdata.get("cenfi_parser")
     if filemb_parser:
-        counts["filtrations"] = getattr(filemb_parser, "num_filtrations", 0)
+        counts["seepages"] = getattr(filemb_parser, "num_seepages", 0)
     elif cenfi_parser:
-        counts["filtrations"] = getattr(cenfi_parser, "num_filtrations", 0)
+        counts["seepages"] = getattr(cenfi_parser, "num_seepages", 0)
 
     # Reservoir efficiencies from plpcenre.dat
     cenre_parser = pdata.get("cenre_parser")
@@ -442,8 +442,12 @@ def _gtopt_element_counts(planning: dict[str, Any]) -> dict[str, Any]:
         "waterways": len(psys.get("waterway_array", [])),
         "flows": len(psys.get("flow_array", [])),
         "reservoirs": len(psys.get("reservoir_array", [])),
-        "reservoir_efficiencies": len(psys.get("reservoir_efficiency_array", [])),
-        "filtrations": len(psys.get("filtration_array", [])),
+        "reservoir_efficiencies": sum(
+            len(r.get("production_factor", [])) for r in psys.get("reservoir_array", [])
+        ),
+        "seepages": sum(
+            len(r.get("seepage", [])) for r in psys.get("reservoir_array", [])
+        ),
         "turbines": len(psys.get("turbine_array", [])),
         "blocks": len(sim.get("block_array", [])),
         "stages": len(sim.get("stage_array", [])),
@@ -619,7 +623,7 @@ def _log_comparison(
     p_blocks = plp_counts.get("blocks", 0)
     p_stages = plp_counts.get("stages", 0)
     p_hydrologies = plp_counts.get("hydrologies", 0)
-    p_filtrations = plp_counts.get("filtrations", 0)
+    p_seepages = plp_counts.get("seepages", 0)
     p_res_eff = plp_counts.get("reservoir_efficiencies", 0)
     p_stateless_res = plp_counts.get("stateless_reservoirs", 0)
 
@@ -639,7 +643,7 @@ def _log_comparison(
     g_flows = gtopt_counts.get("flows", 0)
     g_reservoirs = gtopt_counts.get("reservoirs", 0)
     g_res_eff = gtopt_counts.get("reservoir_efficiencies", 0)
-    g_filtrations = gtopt_counts.get("filtrations", 0)
+    g_seepages = gtopt_counts.get("seepages", 0)
     g_turbines = gtopt_counts.get("turbines", 0)
     g_blocks = gtopt_counts.get("blocks", 0)
     g_stages = gtopt_counts.get("stages", 0)
@@ -812,7 +816,7 @@ def _log_comparison(
         indent=1,
     )
     _row("reservoir efficiencies", p_res_eff, g_res_eff)
-    _row("filtrations", p_filtrations, g_filtrations)
+    _row("seepages", p_seepages, g_seepages)
     table.add_row("", "", "", "", "")
 
     # -- Storage --

@@ -1094,14 +1094,14 @@ class TestDfToOpts:
 
 
 # ---------------------------------------------------------------------------
-# Filtration with piecewise-linear segments
+# ReservoirSeepage with piecewise-linear segments
 # ---------------------------------------------------------------------------
 
 
-class TestFiltrationSegments:
-    """Tests for filtration_array with piecewise-linear segments support."""
+class TestReservoirSeepageSegments:
+    """Tests for reservoir_seepage_array with piecewise-linear segments support."""
 
-    def test_df_to_str_filtration_segments_string_parsed(self):
+    def test_df_to_str_seepage_segments_string_parsed(self):
         """segments column with a JSON-encoded string is parsed to a list."""
         segments_json = (
             '[{"volume":0,"slope":0.00016132,"constant":2.18918},'
@@ -1130,7 +1130,7 @@ class TestFiltrationSegments:
         assert segs[1]["slope"] == pytest.approx(0.0001)
         assert segs[1]["constant"] == pytest.approx(4.8)
 
-    def test_df_to_str_filtration_no_segments_omitted_when_null(self):
+    def test_df_to_str_seepage_no_segments_omitted_when_null(self):
         """When segments is NaN/None it is omitted from JSON output."""
         import numpy as np
 
@@ -1154,7 +1154,7 @@ class TestFiltrationSegments:
         assert rec["slope"] == pytest.approx(0.00005)
         assert rec["constant"] == pytest.approx(1.2)
 
-    def test_df_to_str_filtration_slope_as_schedule_array(self):
+    def test_df_to_str_seepage_slope_as_schedule_array(self):
         """slope column accepts a JSON array (per-stage schedule)."""
         df = pd.DataFrame(
             [
@@ -1173,8 +1173,8 @@ class TestFiltrationSegments:
         assert rec["slope"] == [pytest.approx(0.0001), pytest.approx(0.0002)]
         assert rec["constant"] == [pytest.approx(1.0), pytest.approx(1.5)]
 
-    def test_igtopt_filtration_array_with_segments(self, tmp_path):
-        """igtopt converts a filtration_array sheet with segments to valid JSON."""
+    def test_igtopt_reservoir_seepage_array_with_segments(self, tmp_path):
+        """igtopt converts a reservoir_seepage_array sheet with segments to valid JSON."""
         pytest.importorskip("openpyxl")
         import openpyxl
 
@@ -1221,7 +1221,7 @@ class TestFiltrationSegments:
         ws_res.append(["uid", "name", "junction"])
         ws_res.append([2, "embalse1", 2])
 
-        ws_filt = wb.create_sheet("filtration_array")
+        ws_filt = wb.create_sheet("reservoir_seepage_array")
         ws_filt.append(["uid", "name", "waterway", "reservoir", "segments"])
         ws_filt.append([1, "filt1", 1, 2, segments_json])
 
@@ -1243,7 +1243,7 @@ class TestFiltrationSegments:
         assert rc == 0
 
         data = json.loads((tmp_path / "hydro_filt.json").read_text())
-        filt_array = data["system"]["filtration_array"]
+        filt_array = data["system"]["reservoir_seepage_array"]
         assert len(filt_array) == 1
         filt = filt_array[0]
         assert filt["uid"] == 1
@@ -1280,7 +1280,7 @@ class TestArrayNameToCname:
         assert _array_name_to_cname("turbine_array") == "Turbine"
         assert _array_name_to_cname("junction_array") == "Junction"
         assert _array_name_to_cname("waterway_array") == "Waterway"
-        assert _array_name_to_cname("filtration_array") == "Filtration"
+        assert _array_name_to_cname("reservoir_seepage_array") == "ReservoirSeepage"
         assert _array_name_to_cname("converter_array") == "Converter"
 
     def test_compound_names(self):
@@ -1292,7 +1292,12 @@ class TestArrayNameToCname:
         assert _array_name_to_cname("reserve_zone_array") == "ReserveZone"
         assert _array_name_to_cname("reserve_provision_array") == "ReserveProvision"
         assert (
-            _array_name_to_cname("reservoir_efficiency_array") == "ReservoirEfficiency"
+            _array_name_to_cname("reservoir_production_factor_array")
+            == "ReservoirProductionFactor"
+        )
+        assert (
+            _array_name_to_cname("reservoir_discharge_limit_array")
+            == "ReservoirDischargeLimit"
         )
 
     def test_no_array_suffix(self):
@@ -1454,15 +1459,15 @@ class TestResolveAtSheetColumns:
 
 
 # ---------------------------------------------------------------------------
-# igtopt roundtrip for reservoir_efficiency_array (with segments)
+# igtopt roundtrip for reservoir_production_factor_array (with segments)
 # ---------------------------------------------------------------------------
 
 
-class TestReservoirEfficiencyRoundtrip:
-    """Tests that reservoir_efficiency_array with segments survives igtopt roundtrip."""
+class TestReservoirProductionFactorRoundtrip:
+    """Tests that reservoir_production_factor_array with segments survives igtopt roundtrip."""
 
     def _make_xlsx(self, tmp_path: pathlib.Path, segments_json: str) -> pathlib.Path:
-        """Build a minimal xlsx with a reservoir_efficiency_array sheet."""
+        """Build a minimal xlsx with a reservoir_production_factor_array sheet."""
         pytest.importorskip("openpyxl")
         import openpyxl
 
@@ -1511,9 +1516,16 @@ class TestReservoirEfficiencyRoundtrip:
         ws_turb.append(["uid", "name", "waterway", "generator", "conversion_rate"])
         ws_turb.append([1, "t1", 1, 1, 1.5])
 
-        ws_re = wb.create_sheet("reservoir_efficiency_array")
+        ws_re = wb.create_sheet("reservoir_production_factor_array")
         ws_re.append(
-            ["uid", "name", "turbine", "reservoir", "mean_efficiency", "segments"]
+            [
+                "uid",
+                "name",
+                "turbine",
+                "reservoir",
+                "mean_production_factor",
+                "segments",
+            ]
         )
         ws_re.append([1, "re_colbun", 1, 1, 1.53, segments_json])
 
@@ -1538,19 +1550,19 @@ class TestReservoirEfficiencyRoundtrip:
         assert rc == 0, "igtopt._run() failed"
         return json.loads((tmp_path / "res_eff.json").read_text())
 
-    def test_reservoir_efficiency_roundtrip_single_segment(self, tmp_path):
-        """reservoir_efficiency_array with one segment roundtrips correctly."""
+    def test_reservoir_production_factor_roundtrip_single_segment(self, tmp_path):
+        """reservoir_production_factor_array with one segment roundtrips correctly."""
         pytest.importorskip("openpyxl")
         segs = '[{"volume":0.0,"slope":0.0002294,"constant":1.2558}]'
         xlsx = self._make_xlsx(tmp_path, segs)
         data = self._run(xlsx, tmp_path)
 
-        re_arr = data["system"].get("reservoir_efficiency_array", [])
+        re_arr = data["system"].get("reservoir_production_factor_array", [])
         assert len(re_arr) == 1
         re = re_arr[0]
         assert re["uid"] == 1
         assert re["name"] == "re_colbun"
-        assert re["mean_efficiency"] == pytest.approx(1.53)
+        assert re["mean_production_factor"] == pytest.approx(1.53)
         segs_parsed = re["segments"]
         assert isinstance(segs_parsed, list)
         assert len(segs_parsed) == 1
@@ -1558,8 +1570,8 @@ class TestReservoirEfficiencyRoundtrip:
         assert segs_parsed[0]["slope"] == pytest.approx(0.0002294)
         assert segs_parsed[0]["constant"] == pytest.approx(1.2558)
 
-    def test_reservoir_efficiency_roundtrip_multi_segment(self, tmp_path):
-        """reservoir_efficiency_array with multiple segments roundtrips correctly."""
+    def test_reservoir_production_factor_roundtrip_multi_segment(self, tmp_path):
+        """reservoir_production_factor_array with multiple segments roundtrips correctly."""
         pytest.importorskip("openpyxl")
         segs = (
             '[{"volume":0.0,"slope":0.0003,"constant":1.1},'
@@ -1569,14 +1581,14 @@ class TestReservoirEfficiencyRoundtrip:
         xlsx = self._make_xlsx(tmp_path, segs)
         data = self._run(xlsx, tmp_path)
 
-        re = data["system"]["reservoir_efficiency_array"][0]
+        re = data["system"]["reservoir_production_factor_array"][0]
         segs_parsed = re["segments"]
         assert len(segs_parsed) == 3
         assert segs_parsed[1]["volume"] == pytest.approx(500.0)
         assert segs_parsed[2]["slope"] == pytest.approx(0.00005)
 
-    def test_reservoir_efficiency_sddp_update_skip(self, tmp_path):
-        """sddp_efficiency_update_skip field is preserved in roundtrip."""
+    def test_reservoir_production_factor_sddp_update_skip(self, tmp_path):
+        """sddp_production_factor_update_skip field is preserved in roundtrip."""
         pytest.importorskip("openpyxl")
         import openpyxl
 
@@ -1610,15 +1622,15 @@ class TestReservoirEfficiencyRoundtrip:
             for row in sheet_data[1]:
                 ws.append(row)
 
-        ws_re = wb.create_sheet("reservoir_efficiency_array")
+        ws_re = wb.create_sheet("reservoir_production_factor_array")
         ws_re.append(
             [
                 "uid",
                 "name",
                 "turbine",
                 "reservoir",
-                "mean_efficiency",
-                "sddp_efficiency_update_skip",
+                "mean_production_factor",
+                "sddp_production_factor_update_skip",
             ]
         )
         ws_re.append([1, "re1", 1, 1, 1.4, 5])
@@ -1639,8 +1651,8 @@ class TestReservoirEfficiencyRoundtrip:
         rc = _igtopt_run(args)
         assert rc == 0
         data = json.loads((tmp_path / "re_skip.json").read_text())
-        re = data["system"]["reservoir_efficiency_array"][0]
-        assert re["sddp_efficiency_update_skip"] == 5
+        re = data["system"]["reservoir_production_factor_array"][0]
+        assert re["sddp_production_factor_update_skip"] == 5
 
 
 # ---------------------------------------------------------------------------

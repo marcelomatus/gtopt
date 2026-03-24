@@ -728,7 +728,12 @@ def _build_info_sections(
         ("Waterways", len(sys_data.get("waterway_array", []))),
         ("Flows", len(sys_data.get("flow_array", []))),
         ("Reservoirs", len(sys_data.get("reservoir_array", []))),
-        ("Filtrations", len(sys_data.get("filtration_array", []))),
+        ("ReservoirSeepages", len(sys_data.get("reservoir_seepage_array", []))),
+        ("DischargeLimits", len(sys_data.get("reservoir_discharge_limit_array", []))),
+        (
+            "ProductionFactors",
+            len(sys_data.get("reservoir_production_factor_array", [])),
+        ),
         ("Turbines", len(sys_data.get("turbine_array", []))),
     ]
     elem_pairs = [(k, str(v)) for k, v in all_elems if v > 0]

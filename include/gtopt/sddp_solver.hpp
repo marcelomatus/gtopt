@@ -72,7 +72,7 @@
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_solver.hpp>
-#include <gtopt/reservoir_efficiency_lp.hpp>
+#include <gtopt/reservoir_production_factor_lp.hpp>
 #include <gtopt/sddp_aperture.hpp>
 #include <gtopt/sddp_clone_pool.hpp>
 #include <gtopt/sddp_common.hpp>
@@ -217,7 +217,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// and SDDP solvers.  If lp_debug is also true, every LP file is saved
   /// before returning.  Useful for profiling LP build time without solver
   /// overhead.
-  bool just_build_lp {false};
+  bool build_lp {false};
 
   /// Compression format for LP debug files ("gzip" / "uncompressed" / "").
   /// Empty or "uncompressed" means no compression; any other value uses gzip.

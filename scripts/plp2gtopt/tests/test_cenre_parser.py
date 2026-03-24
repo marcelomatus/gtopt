@@ -54,7 +54,7 @@ def test_parse_single_entry(tmp_path):
     entry = parser.efficiencies[0]
     assert entry["name"] == "Reservoir1"
     assert entry["reservoir"] == "Reservoir1"
-    assert entry["mean_efficiency"] == pytest.approx(1.530)
+    assert entry["mean_production_factor"] == pytest.approx(1.530)
     assert len(entry["segments"]) == 1
     seg = entry["segments"][0]
     assert seg["volume"] == pytest.approx(0.0)
@@ -79,7 +79,7 @@ def test_parse_multiple_segments(tmp_path):
 
     assert parser.num_efficiencies == 1
     entry = parser.efficiencies[0]
-    assert entry["mean_efficiency"] == pytest.approx(2.100)
+    assert entry["mean_production_factor"] == pytest.approx(2.100)
     assert len(entry["segments"]) == 2
     assert entry["segments"][0]["slope"] == pytest.approx(0.0003)
     assert entry["segments"][1]["volume"] == pytest.approx(500000.0)
@@ -145,7 +145,7 @@ def test_parse_multiple_entries(tmp_path):
     assert parser.num_efficiencies == 2
     assert parser.efficiencies[0]["name"] == "COLBUN"
     assert parser.efficiencies[1]["name"] == "ELTORO"
-    assert parser.efficiencies[1]["mean_efficiency"] == pytest.approx(4.800)
+    assert parser.efficiencies[1]["mean_production_factor"] == pytest.approx(4.800)
 
 
 def test_parse_real_file():
@@ -158,7 +158,7 @@ def test_parse_real_file():
     e0 = parser.efficiencies[0]
     assert e0["name"] == "Reservoir1"
     assert e0["reservoir"] == "Reservoir1"
-    assert e0["mean_efficiency"] == pytest.approx(1.530)
+    assert e0["mean_production_factor"] == pytest.approx(1.530)
     assert len(e0["segments"]) == 1
     # Entry 1: TurbineGen, 2 segments
     e1 = parser.efficiencies[1]
@@ -185,7 +185,7 @@ def test_get_efficiency_by_central(tmp_path):
 
     found = parser.get_efficiency_by_central("RAPEL")
     assert found is not None
-    assert found["mean_efficiency"] == pytest.approx(0.635)
+    assert found["mean_production_factor"] == pytest.approx(0.635)
 
     not_found = parser.get_efficiency_by_central("NONEXISTENT")
     assert not_found is None

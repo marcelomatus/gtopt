@@ -95,7 +95,7 @@ def test_records_to_df_empty():
 def test_records_to_df_serializes_list_values():
     """_records_to_df serializes list values as JSON strings."""
     records = [{"uid": 1, "segments": [{"volume": 10, "slope": 1.0}]}]
-    df = _records_to_df(records, "filtration_array")
+    df = _records_to_df(records, "reservoir_seepage_array")
     val = df.loc[0, "segments"]
     assert isinstance(val, str)
 

@@ -737,7 +737,7 @@ hs_2_1_4,2,1,4,-4800.0,0.30,0.60,...
 | `cuts_input_file` | string | "" | Path for loading cuts (hot-start) |
 | `log_directory` | string | "logs" | Directory for log and error LP files |
 | `lp_debug` | bool | false | Save debug LP file for every (iter, scene, phase) |
-| `just_build_lp` | bool | false | Build LP matrices and exit without solving |
+| `build_lp` | bool | false | Build LP matrices and exit without solving |
 | `lp_debug_compression` | string | "" | Compression for LP debug files (`"gzip"` / `""`) |
 | `enable_api` | bool | true | Enable monitoring API (JSON status file) |
 | `api_status_file` | string | "" | Path for the JSON status file |

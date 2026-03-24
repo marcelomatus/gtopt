@@ -8,7 +8,7 @@ Converts central plant data into:
 - Flows (water discharges)
 - Reservoirs (storage nodes)
 - Turbines (energy conversion points)
-- Filtrations (waterway → reservoir seepage links)
+- ReservoirSeepages (waterway → reservoir seepage links)
 - ReservoirEfficiencies (volume-dependent turbine efficiency curves)
 """
 
@@ -24,6 +24,7 @@ from .extrac_parser import ExtracParser
 from .aflce_parser import AflceParser
 from .filemb_parser import FilembParser
 from .manem_parser import ManemParser
+from .ralco_parser import RalcoParser
 from .manem_writer import ManemWriter
 from .minembh_parser import MinembhParser
 from .stage_parser import StageParser
@@ -110,7 +111,7 @@ class Turbine(TypedDict):
     conversion_rate: float
 
 
-class EfficiencySegment(TypedDict):
+class ProductionFactorSegment(TypedDict):
     """One segment of a piecewise-linear efficiency curve."""
 
     volume: float
@@ -118,7 +119,7 @@ class EfficiencySegment(TypedDict):
     constant: float
 
 
-class ReservoirEfficiency(TypedDict):
+class ReservoirProductionFactor(TypedDict):
     """Volume-dependent turbine efficiency (PLP rendimiento).
 
     Maps reservoir volume to turbine conversion rate [MW·s/m³] via a
@@ -129,20 +130,20 @@ class ReservoirEfficiency(TypedDict):
     name: str
     turbine: str
     reservoir: str
-    mean_efficiency: float
-    segments: List[EfficiencySegment]
+    mean_production_factor: float
+    segments: List[ProductionFactorSegment]
 
 
-class FiltrationSegment(TypedDict):
-    """One segment of a piecewise-linear filtration curve."""
+class ReservoirSeepageSegment(TypedDict):
+    """One segment of a piecewise-linear seepage curve."""
 
     volume: float
     slope: float
     constant: float
 
 
-class _FiltrationRequired(TypedDict):
-    """Required fields for Filtration (always present)."""
+class _ReservoirSeepageRequired(TypedDict):
+    """Required fields for ReservoirSeepage (always present)."""
 
     uid: int
     name: str
@@ -152,14 +153,14 @@ class _FiltrationRequired(TypedDict):
     constant: float
 
 
-class Filtration(_FiltrationRequired, total=False):
+class ReservoirSeepage(_ReservoirSeepageRequired, total=False):
     """Represents water seepage from a waterway into a reservoir.
 
     When ``segments`` is non-empty the piecewise-linear concave envelope
-    is used: ``filtration(V) = slope_i × V + constant_i`` where the active
+    is used: ``seepage(V) = slope_i × V + constant_i`` where the active
     segment is selected based on the current reservoir volume.  The LP
     constraint coefficients (slope on eini/efin columns and the constant RHS)
-    are updated dynamically by FiltrationLP.
+    are updated dynamically by ReservoirSeepageLP.
 
     ``slope`` and ``constant`` may be a scalar, an inline array (per-stage
     schedule), or a filename string referencing a Parquet schedule file.
@@ -167,7 +168,35 @@ class Filtration(_FiltrationRequired, total=False):
     used before the first volume-dependent update.
     """
 
-    segments: List[FiltrationSegment]
+    segments: List[ReservoirSeepageSegment]
+
+
+class ReservoirDischargeLimitSegment(TypedDict):
+    """One segment of a piecewise-linear drawdown limit curve."""
+
+    volume: float
+    slope: float
+    intercept: float
+
+
+class _ReservoirDischargeLimitRequired(TypedDict):
+    """Required fields for ReservoirDischargeLimit."""
+
+    uid: int
+    name: str
+    waterway: str
+    reservoir: str
+
+
+class ReservoirDischargeLimit(_ReservoirDischargeLimitRequired, total=False):
+    """Volume-dependent discharge limit for a reservoir.
+
+    The LP constraint per stage is:
+      qeh ≤ slope × V_avg + intercept
+    where the active segment is selected by reservoir volume.
+    """
+
+    segments: List[ReservoirDischargeLimitSegment]
 
 
 class HydroSystemOutput(TypedDict):
@@ -178,8 +207,6 @@ class HydroSystemOutput(TypedDict):
     flow_array: List[Flow]
     reservoir_array: List[Reservoir]
     turbine_array: List[Turbine]
-    filtration_array: List[Filtration]
-    reservoir_efficiency_array: List[ReservoirEfficiency]
 
 
 class JunctionWriter(BaseWriter):
@@ -195,6 +222,7 @@ class JunctionWriter(BaseWriter):
         cenre_parser: Optional[CenreParser] = None,
         cenfi_parser: Optional[CenfiParser] = None,
         filemb_parser: Optional[FilembParser] = None,
+        ralco_parser: Optional[RalcoParser] = None,
         minembh_parser: Optional[MinembhParser] = None,
         options: Optional[Dict[str, Any]] = None,
     ) -> None:
@@ -207,10 +235,11 @@ class JunctionWriter(BaseWriter):
             extrac_parser: Parser for extraction data
             manem_parser: Parser for reservoir maintenance schedules
             cenre_parser: Parser for reservoir efficiency (plpcenre.dat)
-            cenfi_parser: Parser for filtration data (plpcenfi.dat)
-            filemb_parser: Parser for primary PLP filtration model
+            cenfi_parser: Parser for seepage data (plpcenfi.dat)
+            filemb_parser: Parser for primary PLP seepage model
                 (plpfilemb.dat); takes precedence over cenfi_parser when
                 both are present.
+            ralco_parser: Parser for drawdown limit data (plpralco.dat).
             minembh_parser: Parser for soft minimum volume constraints
                 (plpminembh.dat).
             options: Configuration options for the writer
@@ -223,6 +252,7 @@ class JunctionWriter(BaseWriter):
         self.cenre_parser = cenre_parser
         self.cenfi_parser = cenfi_parser
         self.filemb_parser = filemb_parser
+        self.ralco_parser = ralco_parser
         self.minembh_parser = minembh_parser
         self._waterway_counter = 0
         self._ocean_junction_counter = 0
@@ -318,8 +348,6 @@ class JunctionWriter(BaseWriter):
             "flow_array": [],
             "reservoir_array": [],
             "turbine_array": [],
-            "filtration_array": [],
-            "reservoir_efficiency_array": [],
         }
 
         # Track isolated centrals that were skipped
@@ -349,11 +377,15 @@ class JunctionWriter(BaseWriter):
         if self.extrac_parser and central_parser:
             self._process_extractions(system, central_parser)
 
-        # Process filtration data (plpfilemb.dat takes precedence over plpcenfi.dat)
+        # Process seepage data (plpfilemb.dat takes precedence over plpcenfi.dat)
         if self.filemb_parser and central_parser:
-            self._process_filtrations_filemb(system, central_parser)
+            self._process_seepages_filemb(system, central_parser)
         elif self.cenfi_parser and central_parser:
-            self._process_filtrations(system, central_parser)
+            self._process_seepages(system, central_parser)
+
+        # Process drawdown limit data (plpralco.dat)
+        if self.ralco_parser and central_parser:
+            self._process_reservoir_discharge_limits(system, central_parser)
 
         # Process reservoir efficiency data (plpcenre.dat)
         if self.cenre_parser and central_parser:
@@ -635,18 +667,25 @@ class JunctionWriter(BaseWriter):
             reservoir["soft_emin"] = soft_emin_arr
             reservoir["soft_emin_cost"] = soft_cost_arr
 
-    def _process_filtrations(
+    @staticmethod
+    def _find_reservoir(
+        system: HydroSystemOutput, name: str
+    ) -> Optional[Dict[str, Any]]:
+        """Find a reservoir dict by name in the system."""
+        for r in system["reservoir_array"]:
+            if r["name"] == name:
+                return r
+        return None
+
+    def _process_seepages(
         self,
         system: HydroSystemOutput,
         central_parser: CentralParser,
     ) -> None:
-        """Process filtration data into filtration_array elements.
+        """Process seepage data and embed inside reservoir definitions.
 
         Each entry in plpcenfi.dat links a central (waterway source) to a
-        receiving reservoir with a slope/constant seepage model.  The
-        waterway uid is resolved from the turbine's generation waterway uid
-        stored in turbine_array; the reservoir uid is resolved from the
-        central number of the reservoir.
+        receiving reservoir with a slope/constant seepage model.
         """
         if not self.cenfi_parser:
             return
@@ -656,47 +695,37 @@ class JunctionWriter(BaseWriter):
             t["name"]: t["waterway"] for t in system["turbine_array"]
         }
 
-        # Build name→reservoir name lookup from the already-created reservoirs
-        reservoir_name_map: Dict[str, str] = {
-            r["name"]: r["name"] for r in system["reservoir_array"]
-        }
-
-        uid_counter = 1
-        for entry in self.cenfi_parser.filtrations:
+        for entry in self.cenfi_parser.seepages:
             central_name = entry["name"]
             reservoir_name = entry["reservoir"]
 
             # Resolve waterway uid
             ww_uid = turbine_waterway.get(central_name)
             if ww_uid is None:
-                # Try looking up the central by name to get its generation waterway
                 central = central_parser.get_central_by_name(central_name)
                 if central is None:
                     _logger.warning(
-                        "Filtration central '%s' not found; skipping.",
+                        "ReservoirSeepage central '%s' not found; skipping.",
                         central_name,
                     )
                     continue
-                # Fallback: use the central number as waterway uid
                 ww_uid = central["name"]
 
-            # Resolve reservoir name
-            rsv_uid = reservoir_name_map.get(reservoir_name)
-            if rsv_uid is None:
+            # Find the target reservoir
+            rsv = self._find_reservoir(system, reservoir_name)
+            if rsv is None:
                 central = central_parser.get_central_by_name(reservoir_name)
-                if central is None:
+                if central is not None:
+                    rsv = self._find_reservoir(system, central["name"])
+                if rsv is None:
                     _logger.warning(
-                        "Filtration reservoir '%s' not found; skipping.",
+                        "ReservoirSeepage reservoir '%s' not found; skipping.",
                         reservoir_name,
                     )
                     continue
-                rsv_uid = central["name"]
 
-            filtration: Filtration = {
-                "uid": uid_counter,
-                "name": f"filt_{central_name}_{reservoir_name}",
+            seepage: Dict[str, Any] = {
                 "waterway": ww_uid,
-                "reservoir": rsv_uid,
                 "slope": entry["slope"],
                 "constant": entry["constant"],
             }
@@ -704,7 +733,7 @@ class JunctionWriter(BaseWriter):
             # Include piecewise segments when present
             segments = entry.get("segments", [])
             if segments:
-                filtration["segments"] = [
+                seepage["segments"] = [
                     {
                         "volume": seg["volume"],
                         "slope": seg["slope"],
@@ -713,28 +742,27 @@ class JunctionWriter(BaseWriter):
                     for seg in segments
                 ]
 
-            system["filtration_array"].append(filtration)
-            uid_counter += 1
+            rsv.setdefault("seepage", []).append(seepage)
 
-    def _process_filtrations_filemb(
+    def _process_seepages_filemb(
         self,
         system: HydroSystemOutput,
         central_parser: CentralParser,
     ) -> None:
-        """Process filtrations from plpfilemb.dat (primary PLP filtration model).
+        """Process seepages from plpfilemb.dat (primary PLP seepage model).
 
         Each entry in plpfilemb.dat provides:
         - ``embalse``: source reservoir name (filtered reservoir)
         - ``central``: receiving central name (destination of filtrated water)
-        - ``mean_filtration``: mean flow [m³/s], used as initial slope fallback
-        - ``segments``: piecewise-linear filtration curve (volume→slope/constant)
+        - ``mean_seepage``: mean flow [m³/s], used as initial slope fallback
+        - ``segments``: piecewise-linear seepage curve (volume→slope/constant)
 
-        A new filtration waterway is created from the source reservoir's
+        A new seepage waterway is created from the source reservoir's
         junction to the receiving central's junction.  The source reservoir
         uid drives the volume-dependent LP update, exactly as described in
         the PLP Fortran subroutine ``LeeFilEmb`` / ``GenPDFilAi``.
 
-        This method is called instead of ``_process_filtrations`` when
+        This method is called instead of ``_process_seepages`` when
         ``filemb_parser`` is available.
         """
         if not self.filemb_parser:
@@ -750,8 +778,7 @@ class JunctionWriter(BaseWriter):
         for central_entry in central_parser.centrals:
             central_number[str(central_entry["name"])] = int(central_entry["number"])
 
-        uid_counter = 1
-        for entry in self.filemb_parser.filtrations:
+        for entry in self.filemb_parser.seepages:
             embalse_name = entry["embalse"]
             receiving_name = entry["central"]
             segments = entry.get("segments", [])
@@ -777,7 +804,7 @@ class JunctionWriter(BaseWriter):
                 )
                 continue
 
-            # Create a new filtration waterway from source reservoir's junction
+            # Create a new seepage waterway from source reservoir's junction
             # to receiving central's junction (matching PLP GenPDFilAi behaviour)
             filt_waterway = self._create_waterway(
                 f"filt_{embalse_name}",
@@ -786,7 +813,7 @@ class JunctionWriter(BaseWriter):
             )
             if filt_waterway is None:
                 _logger.warning(
-                    "Filemb filtration waterway for '%s'→'%s' could not be created"
+                    "Filemb seepage waterway for '%s'→'%s' could not be created"
                     " (source == target?); skipping.",
                     embalse_name,
                     receiving_name,
@@ -798,17 +825,20 @@ class JunctionWriter(BaseWriter):
             default_slope = segments[0]["slope"] if segments else 0.0
             default_constant = segments[0]["constant"] if segments else 0.0
 
-            filtration: Filtration = {
-                "uid": uid_counter,
-                "name": f"filt_{embalse_name}_{receiving_name}",
+            # Find the source reservoir and embed seepage
+            rsv = self._find_reservoir(system, rsv_name)
+            if rsv is None:
+                _logger.warning("Filemb reservoir '%s' not found; skipping.", rsv_name)
+                continue
+
+            seepage: Dict[str, Any] = {
                 "waterway": filt_waterway["name"],
-                "reservoir": rsv_name,
                 "slope": default_slope,
                 "constant": default_constant,
             }
 
             if segments:
-                filtration["segments"] = [
+                seepage["segments"] = [
                     {
                         "volume": seg["volume"],
                         "slope": seg["slope"],
@@ -817,14 +847,69 @@ class JunctionWriter(BaseWriter):
                     for seg in segments
                 ]
 
-            system["filtration_array"].append(filtration)
-            uid_counter += 1
+            rsv.setdefault("seepage", []).append(seepage)
+
+    def _process_reservoir_discharge_limits(
+        self,
+        system: HydroSystemOutput,
+        central_parser: CentralParser,
+    ) -> None:
+        """Process drawdown limit data from plpralco.dat.
+
+        Creates ReservoirDischargeLimit elements that constrain the stage-average
+        discharge from a reservoir as a piecewise-linear function of volume.
+        The waterway reference is resolved from the reservoir's turbine.
+        """
+        if not self.ralco_parser:
+            return
+
+        # Build reservoir name → turbine waterway name map
+        turbine_waterway: Dict[str, str] = {}
+        for turbine in system["turbine_array"]:
+            turbine_waterway[turbine["name"]] = turbine["waterway"]
+
+        for entry in self.ralco_parser.reservoir_discharge_limits:
+            rsv_name = entry["reservoir"]
+            segments = entry.get("segments", [])
+
+            rsv = self._find_reservoir(system, rsv_name)
+            if rsv is None:
+                _logger.warning(
+                    "Ralco reservoir '%s' not found in reservoir_array; skipping.",
+                    rsv_name,
+                )
+                continue
+
+            # Resolve waterway from the turbine associated with this reservoir
+            ww_name = turbine_waterway.get(rsv_name)
+            if not ww_name:
+                _logger.warning(
+                    "Ralco reservoir '%s' has no turbine waterway; skipping.",
+                    rsv_name,
+                )
+                continue
+
+            ddl: Dict[str, Any] = {
+                "waterway": ww_name,
+            }
+
+            if segments:
+                ddl["segments"] = [
+                    {
+                        "volume": seg["volume"],
+                        "slope": seg["slope"],
+                        "intercept": seg["intercept"],
+                    }
+                    for seg in segments
+                ]
+
+            rsv.setdefault("discharge_limit", []).append(ddl)
 
     def _process_reservoir_efficiencies(
         self,
         system: HydroSystemOutput,
     ) -> None:
-        """Process reservoir efficiency data into reservoir_efficiency_array.
+        """Process reservoir efficiency data and embed inside reservoirs.
 
         Each entry in plpcenre.dat links a central (turbine) to a reservoir
         and provides a piecewise-linear efficiency curve (rendimiento) that
@@ -838,40 +923,20 @@ class JunctionWriter(BaseWriter):
             t["name"]: t["name"] for t in system["turbine_array"]
         }
 
-        # Build reservoir name→uid lookup from already-created reservoirs
-        reservoir_name_map: Dict[str, str] = {
-            r["name"]: r["name"] for r in system["reservoir_array"]
-        }
-
-        uid_counter = 1
         for entry in self.cenre_parser.efficiencies:
             central_name = entry["name"]
             reservoir_name = entry["reservoir"]
 
-            # Resolve turbine uid — only use turbines that were actually
-            # created.  A turbine is not created when:
-            #   • bus <= 0 : hydro dam only, no electrical output.
-            #   • bus > 0 but serie/pasada with ser_hid==0 (no generation
-            #     waterway).
-            # Note: for embalse centrals the ocean-junction fix in
-            # _process_central ensures the hydro topology is always complete,
-            # but a turbine is only created when bus > 0.
             turb_uid = turbine_name_map.get(central_name)
             if turb_uid is None:
                 central_data = self.central_parser.get_central_by_name(central_name)
                 if central_data is not None and central_data.get("bus", 0) <= 0:
-                    # Reservoir-only central (bus <= 0): no turbine is
-                    # expected, so skip silently at DEBUG level.
                     _logger.debug(
                         "Efficiency central '%s': reservoir-only central"
                         " (bus<=0), no turbine; skipping.",
                         central_name,
                     )
                 else:
-                    # Unexpected: central has a bus but no turbine was found.
-                    # This should not happen for embalse centrals (the ocean-
-                    # junction fix creates their turbines).  Log a warning for
-                    # investigation.
                     _logger.warning(
                         "Efficiency central '%s': no matching turbine found;"
                         " skipping efficiency entry.",
@@ -879,16 +944,15 @@ class JunctionWriter(BaseWriter):
                     )
                 continue
 
-            # Resolve reservoir uid
-            rsv_uid = reservoir_name_map.get(reservoir_name)
-            if rsv_uid is None:
+            rsv = self._find_reservoir(system, reservoir_name)
+            if rsv is None:
                 _logger.warning(
                     "Efficiency reservoir '%s' not found; skipping.",
                     reservoir_name,
                 )
                 continue
 
-            segments: List[EfficiencySegment] = [
+            segments: List[ProductionFactorSegment] = [
                 {
                     "volume": seg["volume"],
                     "slope": seg["slope"],
@@ -897,16 +961,12 @@ class JunctionWriter(BaseWriter):
                 for seg in entry["segments"]
             ]
 
-            efficiency: ReservoirEfficiency = {
-                "uid": uid_counter,
-                "name": f"eff_{central_name}",
+            pfac: Dict[str, Any] = {
                 "turbine": turb_uid,
-                "reservoir": rsv_uid,
-                "mean_efficiency": entry["mean_efficiency"],
+                "mean_production_factor": entry["mean_production_factor"],
                 "segments": segments,
             }
-            system["reservoir_efficiency_array"].append(efficiency)
-            uid_counter += 1
+            rsv.setdefault("production_factor", []).append(pfac)
 
     def _write_parquet_files(self) -> Dict[str, List[str]]:
         """Write demand data to Parquet file format."""

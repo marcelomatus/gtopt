@@ -273,7 +273,7 @@ class TestTurbineRefs:
             {"uid": 2, "generator": "G2", "waterway": "W2"},
             {"uid": 3, "waterway": "W3"},  # no generator
         ],
-        "reservoir_efficiency_array": [
+        "reservoir_production_factor_array": [
             {"uid": 1, "turbine": 1},
             {"uid": 2, "turbine": 2},
         ],

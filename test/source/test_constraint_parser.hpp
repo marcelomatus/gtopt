@@ -575,14 +575,14 @@ TEST_SUITE("ConstraintParser")
     CHECK(ref0.attribute == "flow");
   }
 
-  TEST_CASE("Parse filtration element")
+  TEST_CASE("Parse seepage element")
   {
-    auto expr = ConstraintParser::parse(R"(filtration("FIL1").flow <= 200)");
+    auto expr = ConstraintParser::parse(R"(seepage("FIL1").flow <= 200)");
 
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].element.has_value());
     const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
-    CHECK(ref0.element_type == "filtration");
+    CHECK(ref0.element_type == "seepage");
     CHECK(ref0.element_id == "FIL1");
     CHECK(ref0.attribute == "flow");
   }

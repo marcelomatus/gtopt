@@ -265,8 +265,6 @@ def main(argv: list[str] | None = None) -> int:
 
     # --show-simulation: load JSON and print simulation structure
     if args.show_simulation:
-        import json  # noqa: PLC0415
-
         from plp2gtopt.plp2gtopt import show_simulation_summary  # noqa: PLC0415
 
         for json_file in args.json_files:

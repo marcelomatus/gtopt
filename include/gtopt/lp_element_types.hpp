@@ -32,7 +32,8 @@ class BusLP;
 class ConverterLP;
 class DemandLP;
 class DemandProfileLP;
-class FiltrationLP;
+class ReservoirDischargeLimitLP;
+class ReservoirSeepageLP;
 class FlowLP;
 class GeneratorLP;
 class GeneratorProfileLP;
@@ -40,7 +41,7 @@ class JunctionLP;
 class LineLP;
 class ReserveProvisionLP;
 class ReserveZoneLP;
-class ReservoirEfficiencyLP;
+class ReservoirProductionFactorLP;
 class ReservoirLP;
 class TurbineLP;
 class UserConstraintLP;
@@ -75,9 +76,10 @@ using lp_element_types_t = std::tuple<BusLP,
                                       WaterwayLP,
                                       FlowLP,
                                       ReservoirLP,
-                                      FiltrationLP,
+                                      ReservoirSeepageLP,
+                                      ReservoirDischargeLimitLP,
                                       TurbineLP,
-                                      ReservoirEfficiencyLP,
+                                      ReservoirProductionFactorLP,
                                       UserConstraintLP>;
 
 /// Total number of LP element types.

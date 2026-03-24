@@ -33,8 +33,8 @@ Options
   Absolute path to the test-case directory.  Must contain at least one
   ``*.json`` file.  Defaults to ``<repo_root>/cases/ieee_9b_ori``.
 
-``PROFILING_JUST_BUILD_LP``
-  ``ON`` (default) — inject ``"just_build_lp": true`` into the case JSON so
+``PROFILING_BUILD_LP``
+  ``ON`` (default) — inject ``"build_lp": true`` into the case JSON so
   that only the LP creation time is measured (no solver overhead).
   Set to ``OFF`` to measure the full solve.
 
@@ -106,8 +106,8 @@ set(PROFILING_CASE
     CACHE PATH "Absolute path to the gtopt case directory to profile"
 )
 
-option(PROFILING_JUST_BUILD_LP
-       "Inject just_build_lp=true into the case JSON (measure LP creation only)" ON
+option(PROFILING_BUILD_LP
+       "Inject build_lp=true into the case JSON (measure LP creation only)" ON
 )
 
 get_filename_component(
@@ -170,10 +170,10 @@ else()
   message(STATUS "Profiling case JSON: ${_case_json_src}")
 endif()
 
-# ---- Optionally inject just_build_lp into a working copy ----------------
-if(PROFILING_JUST_BUILD_LP AND _case_json_src)
+# ---- Optionally inject build_lp into a working copy ----------------
+if(PROFILING_BUILD_LP AND _case_json_src)
   set(_work_json "${CMAKE_BINARY_DIR}/profile_case.json")
-  # Use cmake's JSON support (cmake >= 3.19) to inject just_build_lp
+  # Use cmake's JSON support (cmake >= 3.19) to inject build_lp
   file(READ "${_case_json_src}" _json_content)
   # Ensure "options" key exists; SET creates it if absent (cmake >= 3.28)
   string(JSON _json_type ERROR_VARIABLE _json_err TYPE "${_json_content}" "options")
@@ -183,26 +183,30 @@ if(PROFILING_JUST_BUILD_LP AND _case_json_src)
       execute_process(
         COMMAND
           ${PYTHON3_EXECUTABLE}
-          "${CMAKE_CURRENT_LIST_DIR}/inject_just_build_lp.py"
+          "${CMAKE_CURRENT_LIST_DIR}/inject_build_lp.py"
           "${_case_json_src}"
           "${_work_json}"
         RESULT_VARIABLE _py_rc
       )
       if(NOT _py_rc EQUAL 0)
-        message(WARNING "Failed to inject just_build_lp via python3; using original JSON")
+        message(WARNING "Failed to inject build_lp via python3; using original JSON")
         set(_work_json "${_case_json_src}")
       endif()
     else()
       # Best-effort cmake JSON injection
       string(JSON _json_content SET "${_json_content}" "options" "{}")
-      string(JSON _json_content SET "${_json_content}" "options" "just_build_lp" "true")
+      string(JSON _json_content SET "${_json_content}" "options" "build_lp" "true")
       file(WRITE "${_work_json}" "${_json_content}")
     endif()
   else()
-    string(JSON _json_content SET "${_json_content}" "options" "just_build_lp" "true")
+    string(JSON _json_content SET "${_json_content}" "options" "build_lp" "true")
+    # Override input_directory so external Parquet/CSV files are found
+    # relative to the case directory rather than an absolute /tmp path.
+    string(JSON _json_content SET "${_json_content}" "options" "input_directory"
+           "\"${PROFILING_CASE}\"")
     file(WRITE "${_work_json}" "${_json_content}")
   endif()
-  message(STATUS "Profiling JSON (with just_build_lp=true): ${_work_json}")
+  message(STATUS "Profiling JSON (with build_lp=true): ${_work_json}")
 elseif(_case_json_src)
   set(_work_json "${_case_json_src}")
 endif()
@@ -234,7 +238,7 @@ message(STATUS "  /usr/bin/time: ${GNU_TIME_EXECUTABLE}")
 message(STATUS "  python3:     ${PYTHON3_EXECUTABLE}")
 message(STATUS "  Case:        ${PROFILING_CASE}")
 message(STATUS "  JSON:        ${_work_json}")
-message(STATUS "  just_build_lp: ${PROFILING_JUST_BUILD_LP}")
+message(STATUS "  build_lp: ${PROFILING_BUILD_LP}")
 message(STATUS "  Reps:        ${PROFILING_REPS}")
 message(STATUS "  Output dir:  ${PROFILING_OUTPUT_DIR}")
 
@@ -393,7 +397,8 @@ add_custom_target(
     "-DCALLGRIND_ANNOTATE_EXECUTABLE=${CALLGRIND_ANNOTATE_EXECUTABLE}"
     "-DOUTPUT_MD=${PROFILING_OUTPUT_DIR}/profiling-summary.md"
     "-DPROFILING_CASE=${PROFILING_CASE}"
-    "-DJUST_BUILD_LP=${PROFILING_JUST_BUILD_LP}"
+    "-DBUILD_LP=${PROFILING_BUILD_LP}"
+    "-DPYTHON3_EXECUTABLE=${PYTHON3_EXECUTABLE}"
     -P "${CMAKE_CURRENT_LIST_DIR}/GenerateProfilingReport.cmake"
   COMMENT "Generating Markdown profiling report..."
   USES_TERMINAL

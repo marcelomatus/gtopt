@@ -1088,8 +1088,8 @@ def test_generate_variable_scales_template_with_reservoirs(tmp_path):
         result = generate_variable_scales_template(opts)
 
     parsed = json.loads(result)
-    # 2 reservoirs × 2 (volume + flow) + 1 battery = 5
-    assert len(parsed) == 5
+    # 2 reservoirs × 2 (energy + flow) + 1 battery × 2 (energy + flow) = 6
+    assert len(parsed) == 6
 
     # Rsv1: fescala=3 -> scale = 10^(3-6) = 0.001
     rsv1_energy = [
@@ -1112,11 +1112,14 @@ def test_generate_variable_scales_template_with_reservoirs(tmp_path):
     assert rsv2_energy["scale"] == pytest.approx(0.5)
     assert "_fescala" not in rsv2_energy
 
-    # Bat1: default battery scale = 0.01
-    bat1 = [e for e in parsed if e["name"] == "Bat1"][0]
-    assert bat1["class_name"] == "Battery"
-    assert bat1["variable"] == "energy"
-    assert bat1["scale"] == pytest.approx(0.01)
+    # Bat1: default battery scale = 0.01 (energy + flow)
+    bat1_entries = [e for e in parsed if e["name"] == "Bat1"]
+    assert len(bat1_entries) == 2
+    bat1_energy = [e for e in bat1_entries if e["variable"] == "energy"][0]
+    assert bat1_energy["class_name"] == "Battery"
+    assert bat1_energy["scale"] == pytest.approx(0.01)
+    bat1_flow = [e for e in bat1_entries if e["variable"] == "flow"][0]
+    assert bat1_flow["scale"] == pytest.approx(0.01)
 
 
 def test_generate_variable_scales_template_no_fescala(tmp_path):

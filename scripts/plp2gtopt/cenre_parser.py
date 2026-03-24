@@ -16,7 +16,7 @@ File format (plpcenre.dat - Archivo de Rendimiento de Embalses):
   # Nombre del Embalse
   'EMBALSE_NAME'
   # Rendimiento Medio
-  mean_efficiency
+  mean_production_factor
   # Número de Tramos
   num_segments
   # For each segment:
@@ -26,7 +26,7 @@ File format (plpcenre.dat - Archivo de Rendimiento de Embalses):
 Field definitions:
   CENTRAL_NAME  – Central/turbine name (must match a central in plpcnfce.dat)
   EMBALSE_NAME  – Reservoir name (must match a reservoir in plpcnfce.dat)
-  mean_efficiency – Mean/fallback efficiency value [MW·s/m³]
+  mean_production_factor – Mean/fallback efficiency value [MW·s/m³]
   num_segments    – Number of piecewise-linear segments
   idx             – Segment index (1-based, informational)
   volume          – Volume breakpoint [raw]; converted to dam³ via × FEscala / 1E6
@@ -43,7 +43,7 @@ The efficiency at a given reservoir volume V is (concave-envelope minimum,
 matching PLP Fortran ``FRendimientos`` in ``plp-frendim.f``):
   efficiency(V) = min_i { constant_i + slope_i × (V − volume_i) }
 
-Note: Unlike filtration where ``constant`` is the y-intercept (value at V=0),
+Note: Unlike seepage where ``constant`` is the y-intercept (value at V=0),
 here ``constant`` is the efficiency value **at the breakpoint** (point-slope
 form).  This is the native PLP convention for rendimientos.
 """
@@ -105,7 +105,7 @@ class CenreParser(BaseParser):
                 )
 
             # Mean efficiency
-            mean_efficiency = self._parse_float(lines[idx])
+            mean_production_factor = self._parse_float(lines[idx])
             idx += 1
 
             if idx >= len(lines):
@@ -140,7 +140,7 @@ class CenreParser(BaseParser):
             entry: Dict[str, Any] = {
                 "name": central_name,
                 "reservoir": reservoir_name,
-                "mean_efficiency": mean_efficiency,
+                "mean_production_factor": mean_production_factor,
                 "segments": segments,
             }
             self._append(entry)

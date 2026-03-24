@@ -33,6 +33,7 @@ from .cenpmax_parser import CenpmaxParser
 from .minembh_parser import MinembhParser
 from .planos_parser import PlanosParser, find_planos_files
 from .plpmat_parser import PlpmatParser
+from .ralco_parser import RalcoParser
 
 
 class PLPParser:
@@ -110,20 +111,27 @@ class PLPParser:
             crp.parse(self.parsed_data)
             self.parsed_data["cenre_parser"] = crp
 
-        # Optional filtration file – plpcenfi.dat (Centrales Filtración)
+        # Optional seepage file – plpcenfi.dat (Centrales Filtración)
         cenfi_path = self.input_path / "plpcenfi.dat"
         if cenfi_path.exists():
             cfp = CenfiParser(cenfi_path)
             cfp.parse(self.parsed_data)
             self.parsed_data["cenfi_parser"] = cfp
 
-        # Primary PLP filtration model – plpfilemb.dat (Filtraciones de Embalses)
+        # Primary PLP seepage model – plpfilemb.dat (Filtraciones de Embalses)
         # Takes precedence over plpcenfi.dat when both are present.
         filemb_path = self.input_path / "plpfilemb.dat"
         if filemb_path.exists():
             fmp = FilembParser(filemb_path)
             fmp.parse(self.parsed_data)
             self.parsed_data["filemb_parser"] = fmp
+
+        # Optional: plpralco.dat — volume-dependent discharge limit
+        ralco_path = self.input_path / "plpralco.dat"
+        if ralco_path.exists():
+            rp = RalcoParser(ralco_path)
+            rp.parse(self.parsed_data)
+            self.parsed_data["ralco_parser"] = rp
 
         # Optional: indhor.csv block-to-hour mapping
         indhor_path = self.input_path / "indhor.csv"

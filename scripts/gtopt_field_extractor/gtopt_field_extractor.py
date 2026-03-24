@@ -303,7 +303,9 @@ SYSTEM_ELEMENTS = [
     "Waterway",
     "Flow",
     "Reservoir",
-    "Filtration",
+    "ReservoirSeepage",
+    "ReservoirDischargeLimit",
+    "ReservoirProductionFactor",
     "Turbine",
 ]
 

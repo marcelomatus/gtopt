@@ -1,7 +1,7 @@
 /**
  * @file      test_hydro_lp.hpp
  * @brief     Unit tests for hydro system LP components (junction, waterway,
- *            flow, reservoir, turbine, filtration)
+ *            flow, reservoir, turbine, seepage)
  * @date      2026-02-18
  * @copyright BSD-3-Clause
  */

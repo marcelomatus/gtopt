@@ -1502,7 +1502,7 @@ TEST_CASE("User constraint - battery drain alias for spill")
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Additional coverage tests for converter, filtration, reserve_zone,
+// Additional coverage tests for converter, seepage, reserve_zone,
 // reserve_provision element types in resolve_single_col and collect_sum_cols,
 // plus RANGE constraint type in apply_constraint_bounds.
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1588,12 +1588,12 @@ TEST_CASE("User constraint - converter discharge and charge attributes")
 
 // clang-format off
 
-/// System with filtration (waterway -> reservoir seepage) and user constraints
-/// referencing filtration flow attribute.  The hydro topology uses a single
+/// System with seepage (waterway -> reservoir seepage) and user constraints
+/// referencing seepage flow attribute.  The hydro topology uses a single
 /// junction chain: j1 -> ww1 -> j_down, with a second waterway ww_filt from
-/// j1 -> j_down carrying the filtration flow.  Both inflow and filtration feed
+/// j1 -> j_down carrying the seepage flow.  Both inflow and seepage feed
 /// junction j1, and j_down drains everything.
-static constexpr std::string_view uc_filtration_json = R"json({
+static constexpr std::string_view uc_seepage_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
     "use_lp_names": 1,
@@ -1612,7 +1612,7 @@ static constexpr std::string_view uc_filtration_json = R"json({
     "scenario_array": [{"uid": 1}]
   },
   "system": {
-    "name": "uc_filtration",
+    "name": "uc_seepage",
     "bus_array": [{"uid": 1, "name": "b1"}],
     "generator_array": [
       {"uid": 1, "name": "hg1", "bus": 1, "gcost": 5, "capacity": 200},
@@ -1638,7 +1638,7 @@ static constexpr std::string_view uc_filtration_json = R"json({
     "turbine_array": [
       {"uid": 1, "name": "tur1", "waterway": 1, "generator": 1, "conversion_rate": 1.0}
     ],
-    "filtration_array": [
+    "reservoir_seepage_array": [
       {
         "uid": 1, "name": "filt1",
         "waterway": 2, "reservoir": 1,
@@ -1648,15 +1648,15 @@ static constexpr std::string_view uc_filtration_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_filt_flow",
-        "expression": "filtration(\"filt1\").flow <= 80"
+        "expression": "seepage(\"filt1\").flow <= 80"
       },
       {
         "uid": 2, "name": "uc_filt_attr",
-        "expression": "filtration(\"filt1\").filtration <= 90"
+        "expression": "seepage(\"filt1\").seepage <= 90"
       },
       {
         "uid": 3, "name": "uc_sum_filt_all",
-        "expression": "sum(filtration(all).flow) <= 100"
+        "expression": "sum(seepage(all).flow) <= 100"
       }
     ]
   }
@@ -1664,11 +1664,11 @@ static constexpr std::string_view uc_filtration_json = R"json({
 
 // clang-format on
 
-TEST_CASE("User constraint - filtration flow attribute")
+TEST_CASE("User constraint - seepage flow attribute")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(uc_filtration_json);
+  auto planning = daw::json::from_json<Planning>(uc_seepage_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -1904,8 +1904,8 @@ static constexpr std::string_view uc_demand_unknown_attr_json = R"json({
         "expression": "converter(\"nonexistent\").bogus <= 100"
       },
       {
-        "uid": 11, "name": "uc_filtration_bogus",
-        "expression": "filtration(\"nonexistent\").bogus <= 100"
+        "uid": 11, "name": "uc_seepage_bogus",
+        "expression": "seepage(\"nonexistent\").bogus <= 100"
       },
       {
         "uid": 12, "name": "uc_reserve_provision_bogus",

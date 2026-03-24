@@ -33,6 +33,7 @@ auto PlanningLP::create_systems(System& system,
     -> scene_phase_systems_t
 {
   system.expand_batteries();
+  system.expand_reservoir_constraints();
   system.setup_reference_bus(options);
   auto&& scenes = simulation.scenes();
   auto&& phases = simulation.phases();

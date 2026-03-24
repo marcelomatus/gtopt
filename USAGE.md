@@ -638,7 +638,7 @@ You can:
 
 **Additional debug options:**
 
-- `just_build_lp: true` builds all LP matrices without solving, useful for
+- `build_lp: true` builds all LP matrices without solving, useful for
   inspecting the formulation without waiting for the solve.
 - `lp_coeff_ratio_threshold` (default: `1e7`) controls when per-scene/phase
   coefficient ratio diagnostics are printed.  Lower the threshold to detect

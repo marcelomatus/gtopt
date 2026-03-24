@@ -35,13 +35,14 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cstdint>
 #include <format>
 #include <iterator>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
-#include <variant>
 
 namespace gtopt
 {
@@ -86,74 +87,169 @@ template<integral_convertible T>
   return {begin, ptr};
 }
 
-// Simplified string holder using C++23 features
-class string_holder
-{
-  std::variant<std::string_view, std::string> storage;
+// Compile-time lookup table mapping integers 0–1023 to their string
+// representations.  The buffer and index are built entirely at compile
+// time so that cached_int_view() returns a std::string_view pointing
+// into static storage with zero runtime allocation.
 
-  template<string_like T>
-  static constexpr auto as_string(T&& t)
-  {
-    if constexpr (std::is_constructible_v<T, std::string_view>) {
-      return std::string_view(std::forward<T>(t));
+inline constexpr std::size_t int_cache_size = 1024;
+
+// Total chars: 1*10 + 2*90 + 3*900 + 4*24 = 2986, plus 1024 NULs.
+// Upper bound: 4 * 1024 + 1024 = 5120 chars is safe.
+inline constexpr std::size_t int_cache_buf_len = 5120;
+
+struct IntCacheData
+{
+  std::array<char, int_cache_buf_len> buf {};
+  std::array<std::uint16_t, int_cache_size> offsets {};
+  std::array<std::uint8_t, int_cache_size> lengths {};
+};
+
+// NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index,misc-const-correctness)
+consteval IntCacheData build_int_cache() noexcept
+{
+  IntCacheData data {};
+  std::size_t pos = 0;
+
+  for (std::size_t i = 0; i < int_cache_size; ++i) {
+    data.offsets[i] = static_cast<std::uint16_t>(pos);
+
+    // Convert i to decimal digits into the buffer
+    if (i == 0) {
+      data.buf[pos] = '0';
+      data.lengths[i] = 1;
+      pos += 2;  // char + NUL
     } else {
-      return std::format("{}", std::forward<T>(t));
+      // Write digits in reverse, then flip
+      std::size_t start = pos;
+      std::size_t val = i;
+      while (val > 0) {
+        data.buf[pos] = static_cast<char>('0' + (val % 10));
+        ++pos;
+        val /= 10;
+      }
+      data.lengths[i] = static_cast<std::uint8_t>(pos - start);
+      // Reverse the digits in place
+      std::size_t lo = start;
+      std::size_t hi = pos - 1;
+      while (lo < hi) {
+        char tmp = data.buf[lo];
+        data.buf[lo] = data.buf[hi];
+        data.buf[hi] = tmp;
+        ++lo;
+        --hi;
+      }
+      ++pos;  // NUL terminator (already zero-initialized)
     }
   }
+  return data;
+}
+// NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index,misc-const-correctness)
+
+inline constexpr IntCacheData int_cache = build_int_cache();
+
+[[nodiscard]] constexpr std::optional<std::string_view> cached_int_view(
+    std::int64_t n) noexcept
+{
+  if (std::cmp_less(n, 0) || std::cmp_greater_equal(n, int_cache_size))
+      [[unlikely]]
+  {
+    return std::nullopt;
+  }
+  auto idx = static_cast<std::size_t>(n);
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-bounds-constant-array-index)
+  return std::string_view(int_cache.buf.data() + int_cache.offsets[idx],
+                          int_cache.lengths[idx]);
+  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-bounds-constant-array-index)
+}
+
+/// String holder that avoids heap allocation for integral and string_view
+/// arguments.  Integer values are formatted into a small stack buffer.
+/// Only the std::format fallback path allocates on the heap.
+///
+/// Uses a tag to track which storage is active, computing the view on
+/// demand in view().  This avoids self-referential pointers that would
+/// break on move/copy.
+class string_holder
+{
+  enum class Tag : std::uint8_t
+  {
+    ext,
+    buf,
+    owned,
+  };
+
+  std::array<char, int_buf_size> int_buf_ {};
+  std::string owned_;
+  std::string_view ext_;
+  std::uint8_t int_len_ {0};
+  Tag tag_ {Tag::ext};
 
 public:
-  // For string-like types (views)
+  // For string-like types — zero allocation
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
   template<string_like T>
     requires(!std::same_as<std::remove_cvref_t<T>, std::string>)
-  constexpr explicit string_holder(T&& value) noexcept(
-      noexcept(as_string(std::forward<T>(value))))
-      : storage(as_string(std::forward<T>(value)))
+  constexpr explicit string_holder(T&& value) noexcept
+      : ext_(std::string_view(std::forward<T>(value)))
   {
   }
+  // NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
 
-  // For strings (avoid extra conversion)
+  // For const string refs — zero allocation, just view
   constexpr explicit string_holder(const std::string& s) noexcept
-      : storage(std::string_view(s))
+      : ext_(s)
   {
   }
 
-  // For rvalue strings (take ownership)
-  constexpr explicit string_holder(std::string&& s) noexcept
-      : storage(std::move(s))
+  // For rvalue strings — take ownership
+  explicit string_holder(std::string&& s) noexcept
+      : owned_(std::move(s))
+      , tag_(Tag::owned)
   {
   }
 
-  // Fast path for integral and integral-convertible types (strong int types).
-  // Uses std::to_chars instead of std::format to avoid format string parsing.
+  // Fast path for integral and integral-convertible types.
+  // Uses compile-time cache for 0–1023, stack buffer otherwise.
   template<typename T>
     requires(!string_like<T> && integral_convertible<T>)
-  explicit string_holder(const T& value)
-      : storage(int_to_string(value))
+  explicit string_holder(const T& value) noexcept
   {
+    const auto ival = static_cast<std::int64_t>(value);
+    if (auto sv = cached_int_view(ival)) {
+      ext_ = *sv;
+      tag_ = Tag::ext;
+      return;
+    }
+    tag_ = Tag::buf;
+    auto* const begin = int_buf_.data();
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    auto* const end = begin + int_buf_.size();
+    const auto [ptr, ec] = std::to_chars(begin, end, ival);
+    int_len_ = static_cast<std::uint8_t>(ptr - begin);
   }
 
   // Fallback for non-string, non-integral types (floating point, custom
-  // formatters)
+  // formatters) — allocates via std::format.
   template<typename T>
     requires(!string_like<T> && !integral_convertible<T>)
   explicit string_holder(const T& value)
-      : storage(std::format("{}", value))
+      : owned_(std::format("{}", value))
+      , tag_(Tag::owned)
   {
   }
 
-  [[nodiscard]] constexpr std::string_view view() const
+  [[nodiscard]] constexpr std::string_view view() const noexcept
   {
-    return std::visit(
-        [](const auto& s) noexcept -> std::string_view
-        {
-          if constexpr (std::same_as<std::decay_t<decltype(s)>,
-                                     std::string_view>) {
-            return s;
-          } else {
-            return std::string_view(s);
-          }
-        },
-        storage);
+    switch (tag_) {
+      case Tag::buf:
+        return {int_buf_.data(), int_len_};
+      case Tag::owned:
+        return owned_;
+      case Tag::ext:
+        return ext_;
+    }
+    return {};
   }
 };
 

@@ -199,7 +199,7 @@ TEST_CASE("OutputContext - write output with reserve components")
   std::filesystem::remove_all(tmpdir);
 }
 
-TEST_CASE("OutputContext - write output with hydro and filtration")
+TEST_CASE("OutputContext - write output with hydro and seepage")
 {
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
 
@@ -262,7 +262,7 @@ TEST_CASE("OutputContext - write output with hydro and filtration")
       },
   };
 
-  const Array<Filtration> filtration_array = {
+  const Array<ReservoirSeepage> reservoir_seepage_array = {
       {
           .uid = Uid {1},
           .name = "filt1",
@@ -295,7 +295,7 @@ TEST_CASE("OutputContext - write output with hydro and filtration")
       .junction_array = junction_array,
       .waterway_array = waterway_array,
       .reservoir_array = reservoir_array,
-      .filtration_array = filtration_array,
+      .reservoir_seepage_array = reservoir_seepage_array,
       .turbine_array = turbine_array,
   };
 

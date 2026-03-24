@@ -871,15 +871,15 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
     ],
-    "filtration_array": [
-        ("uid", _J_INT, True, "Unique filtration identifier", 1),
-        ("name", _J_STR, True, "Filtration name", "filt1"),
+    "reservoir_seepage_array": [
+        ("uid", _J_INT, True, "Unique seepage identifier", 1),
+        ("name", _J_STR, True, "ReservoirSeepage name", "filt1"),
         ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
         (
             "waterway",
             _J_ID,
             True,
-            "Waterway uid or name that loses water via filtration",
+            "Waterway uid or name that loses water via seepage",
             "ww1",
         ),
         (
@@ -911,13 +911,43 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "segments",
             "JSON array",
             False,
-            "Piecewise-linear filtration curve (plpfilemb.dat model): JSON array "
+            "Piecewise-linear seepage curve (plpfilemb.dat model): JSON array "
             "of {volume [dam³], slope [m³/s per dam³], constant [m³/s]} objects. "
             "When present, the active segment is selected at each phase based on "
             "the current reservoir volume and the LP constraint coefficients "
             "(slope on eini/efin and the RHS) are updated directly in the LP. "
             'Example: [{"volume":0,"slope":0.00016,"constant":2.19},'
             '{"volume":500000,"slope":0.0001,"constant":4.8}]',
+            None,
+        ),
+    ],
+    "reservoir_discharge_limit_array": [
+        ("uid", _J_INT, True, "Unique discharge-limit identifier", 1),
+        ("name", _J_STR, True, "ReservoirDischargeLimit name", "ddl1"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        (
+            "waterway",
+            _J_ID,
+            True,
+            "Waterway uid or name whose discharge is limited",
+            "ww1",
+        ),
+        (
+            "reservoir",
+            _J_ID,
+            True,
+            "Reservoir uid or name providing the volume reference",
+            "res1",
+        ),
+        (
+            "segments",
+            "JSON array",
+            False,
+            "Piecewise-linear discharge-limit curve: JSON array of "
+            "{volume [dam³], slope [m³/s per dam³], intercept [m³/s]} objects. "
+            "The active segment is selected based on reservoir volume. "
+            'Example: [{"volume":0,"slope":6.9868e-5,"intercept":15.787},'
+            '{"volume":757000,"slope":1.3985e-4,"intercept":57.454}]',
             None,
         ),
     ],
@@ -968,7 +998,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
     ],
-    "reservoir_efficiency_array": [
+    "reservoir_production_factor_array": [
         ("uid", _J_INT, True, "Unique reservoir-efficiency identifier", 1),
         (
             "name",
@@ -993,7 +1023,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "res1",
         ),
         (
-            "mean_efficiency",
+            "mean_production_factor",
             _J_NUM,
             False,
             "Mean productivity [MW/(m³/s)] averaged over operating range",
@@ -1008,7 +1038,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
-            "sddp_efficiency_update_skip",
+            "sddp_production_factor_update_skip",
             _J_INT,
             False,
             "SDDP iterations between efficiency updates (default: 1)",
@@ -1179,7 +1209,7 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "cut_sharing_mode",
         "cut_directory",
         "api_enabled",
-        "efficiency_update_skip",
+        "production_factor_update_skip",
         "max_iterations",
         "min_iterations",
         "convergence_tol",
@@ -1316,7 +1346,7 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         "Compression codec for debug LP files (e.g. 'gzip')",
         None,
     ),
-    ("just_build_lp", "Build LP without solving (true/false)", None),
+    ("build_lp", "Build LP without solving (true/false)", None),
     (
         "lp_coeff_ratio_threshold",
         "Warn when LP coefficient ratio exceeds this value",
@@ -1341,7 +1371,7 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         None,
     ),
     (
-        "efficiency_update_skip",
+        "production_factor_update_skip",
         "[sddp] SDDP iterations between reservoir efficiency updates",
         None,
     ),
@@ -1534,9 +1564,10 @@ _TEMPLATE_SYSTEM_SHEETS = [
     "waterway_array",
     "flow_array",
     "reservoir_array",
-    "filtration_array",
+    "reservoir_seepage_array",
+    "reservoir_discharge_limit_array",
     "turbine_array",
-    "reservoir_efficiency_array",
+    "reservoir_production_factor_array",
     "user_constraint_array",
 ]
 
@@ -1656,9 +1687,15 @@ _INTRO_LINES = [
         "TABLE",
     ),
     (
-        "filtration_array",
+        "reservoir_seepage_array",
         "System",
         "Water seepage from waterways into reservoirs",
+        "TABLE",
+    ),
+    (
+        "reservoir_discharge_limit_array",
+        "System",
+        "Volume-dependent discharge limits for reservoirs (Ralco-type constraints)",
         "TABLE",
     ),
     (
@@ -1668,7 +1705,7 @@ _INTRO_LINES = [
         "TABLE",
     ),
     (
-        "reservoir_efficiency_array",
+        "reservoir_production_factor_array",
         "System",
         "Volume-dependent turbine productivity curves",
         "TABLE",

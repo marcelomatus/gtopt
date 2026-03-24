@@ -24,7 +24,7 @@
  *       "cut_sharing_mode": "expected",
  *       "cut_directory": "cuts",
  *       "api_enabled": true,
- *       "efficiency_update_skip": 0,
+ *       "production_factor_update_skip": 0,
  *       "elastic_mode": "single_cut",
  *       "multi_cut_threshold": 10
  *     }
@@ -63,7 +63,7 @@ struct SddpOptions
   OptBool api_enabled {};
   /** @brief Global default for iterations to skip between efficiency
    * coefficient updates.  0 = update every iteration (PLP default). */
-  OptInt efficiency_update_skip {};
+  OptInt production_factor_update_skip {};
 
   // ── Iteration control ──────────────────────────────────────────────────────
   /** @brief Maximum number of forward/backward iterations (default: 100) */
@@ -274,7 +274,8 @@ struct SddpOptions
     merge_opt(cut_sharing_mode, std::move(opts.cut_sharing_mode));
     merge_opt(cut_directory, std::move(opts.cut_directory));
     merge_opt(api_enabled, opts.api_enabled);
-    merge_opt(efficiency_update_skip, opts.efficiency_update_skip);
+    merge_opt(production_factor_update_skip,
+              opts.production_factor_update_skip);
     merge_opt(max_iterations, opts.max_iterations);
     merge_opt(min_iterations, opts.min_iterations);
     merge_opt(convergence_tol, opts.convergence_tol);
@@ -663,7 +664,7 @@ struct Options
    * Both the monolithic and SDDP solvers exit immediately after LP matrix
    * assembly — no solving occurs at all.
    * Combine with `lp_debug=true` to save every scene/phase LP file. */
-  OptBool just_build_lp {};
+  OptBool build_lp {};
 
   /** @brief LP coefficient ratio threshold for numerical conditioning
    * diagnostics.  When the global max/min |coefficient| ratio exceeds this
@@ -777,7 +778,7 @@ struct Options
     merge_opt(log_directory, std::move(opts.log_directory));
     merge_opt(lp_debug, opts.lp_debug);
     merge_opt(lp_compression, std::move(opts.lp_compression));
-    merge_opt(just_build_lp, opts.just_build_lp);
+    merge_opt(build_lp, opts.build_lp);
     merge_opt(lp_coeff_ratio_threshold, opts.lp_coeff_ratio_threshold);
     // solve_timeout is per-solver (sddp_options, monolithic_options)
 

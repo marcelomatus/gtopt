@@ -131,9 +131,9 @@ def test_gtopt_element_counts_populated() -> None:
             "junction_array": [{"uid": 1}],
             "waterway_array": [],
             "flow_array": [],
-            "reservoir_array": [],
-            "reservoir_efficiency_array": [{"uid": 1}],
-            "filtration_array": [],
+            "reservoir_array": [
+                {"uid": 1, "production_factor": [{"turbine": "t1"}]},
+            ],
             "turbine_array": [{"uid": 1}, {"uid": 2}],
         },
         "simulation": {
@@ -211,7 +211,7 @@ def test_log_comparison_output(capsys: pytest.CaptureFixture) -> None:
         "waterways": 15,
         "flows": 4,
         "reservoirs": 3,
-        "filtrations": 1,
+        "seepages": 1,
         "turbines": 8,
         "blocks": 24,
         "stages": 1,
@@ -281,7 +281,7 @@ def test_log_comparison_gen_delta(capsys: pytest.CaptureFixture) -> None:
         "waterways": 8,
         "flows": 2,
         "reservoirs": 2,
-        "filtrations": 0,
+        "seepages": 0,
         "turbines": 4,
         "blocks": 10,
         "stages": 1,
@@ -324,7 +324,7 @@ def test_log_comparison_hydrology_row(capsys: pytest.CaptureFixture) -> None:
         "flows": 0,
         "reservoirs": 0,
         "reservoir_efficiencies": 0,
-        "filtrations": 0,
+        "seepages": 0,
         "turbines": 0,
         "blocks": 10,
         "stages": 1,
@@ -337,10 +337,10 @@ def test_log_comparison_hydrology_row(capsys: pytest.CaptureFixture) -> None:
     assert "hydrologies / scenarios" in output
 
 
-def test_log_comparison_filtrations_res_eff(
+def test_log_comparison_seepages_res_eff(
     capsys: pytest.CaptureFixture,
 ) -> None:
-    """The comparison table shows filtrations and reservoir efficiencies."""
+    """The comparison table shows seepages and reservoir efficiencies."""
     plp = {
         "buses": 3,
         "lines": 2,
@@ -355,7 +355,7 @@ def test_log_comparison_filtrations_res_eff(
         "batteries": 0,
         "blocks": 10,
         "stages": 1,
-        "filtrations": 3,
+        "seepages": 3,
         "reservoir_efficiencies": 2,
     }
     gtopt = {
@@ -370,7 +370,7 @@ def test_log_comparison_filtrations_res_eff(
         "flows": 2,
         "reservoirs": 2,
         "reservoir_efficiencies": 2,
-        "filtrations": 3,
+        "seepages": 3,
         "turbines": 3,
         "blocks": 10,
         "stages": 1,
@@ -381,7 +381,7 @@ def test_log_comparison_filtrations_res_eff(
 
     output = capsys.readouterr().err
     assert "reservoir efficiencies" in output
-    assert "filtrations" in output
+    assert "seepages" in output
 
 
 def test_log_comparison_demand_delta(capsys: pytest.CaptureFixture) -> None:
@@ -413,7 +413,7 @@ def test_log_comparison_demand_delta(capsys: pytest.CaptureFixture) -> None:
         "flows": 0,
         "reservoirs": 0,
         "reservoir_efficiencies": 0,
-        "filtrations": 0,
+        "seepages": 0,
         "turbines": 0,
         "blocks": 5,
         "stages": 1,
@@ -457,7 +457,7 @@ def test_log_comparison_with_indicators(
         "flows": 0,
         "reservoirs": 0,
         "reservoir_efficiencies": 0,
-        "filtrations": 0,
+        "seepages": 0,
         "turbines": 0,
         "blocks": 5,
         "stages": 1,
@@ -583,26 +583,26 @@ class TestPlpElementCounts:
         assert counts["blocks"] == 24
         assert counts["stages"] == 12
 
-    def test_filtrations_from_filemb(self) -> None:
-        """Filemb parser takes priority for filtration count."""
+    def test_seepages_from_filemb(self) -> None:
+        """Filemb parser takes priority for seepage count."""
         parser = _make_parser(
             {
-                "filemb_parser": SimpleNamespace(num_filtrations=5),
-                "cenfi_parser": SimpleNamespace(num_filtrations=3),
+                "filemb_parser": SimpleNamespace(num_seepages=5),
+                "cenfi_parser": SimpleNamespace(num_seepages=3),
             }
         )
         counts = _plp_element_counts(parser)
-        assert counts["filtrations"] == 5
+        assert counts["seepages"] == 5
 
-    def test_filtrations_from_cenfi_fallback(self) -> None:
+    def test_seepages_from_cenfi_fallback(self) -> None:
         """Cenfi parser is used when filemb is absent."""
         parser = _make_parser(
             {
-                "cenfi_parser": SimpleNamespace(num_filtrations=3),
+                "cenfi_parser": SimpleNamespace(num_seepages=3),
             }
         )
         counts = _plp_element_counts(parser)
-        assert counts["filtrations"] == 3
+        assert counts["seepages"] == 3
 
     def test_reservoir_efficiencies(self) -> None:
         """Cenre parser contributes reservoir efficiency count."""

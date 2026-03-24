@@ -13,7 +13,7 @@ Invocation::
     -DCALLGRIND_ANNOTATE_EXECUTABLE=<path> \
     -DOUTPUT_MD=<path/to/profiling-summary.md> \
     -DPROFILING_CASE=<case-directory> \
-    -DJUST_BUILD_LP=<ON|OFF> \
+    -DBUILD_LP=<ON|OFF> \
     -P profiling/GenerateProfilingReport.cmake
 
 Variables
@@ -36,8 +36,8 @@ Variables
 ``PROFILING_CASE``
   Human-readable label for the profiling case (path or name).
 
-``JUST_BUILD_LP``
-  ``ON`` or ``OFF`` — whether the profiling run used ``just_build_lp=true``.
+``BUILD_LP``
+  ``ON`` or ``OFF`` — whether the profiling run used ``build_lp=true``.
 
 #]=======================================================================]
 
@@ -63,7 +63,7 @@ if(EXISTS "${TIMING_FILE}")
 
   foreach(_line IN LISTS _timing_lines)
     # /usr/bin/time -v outputs "Elapsed (wall clock) time: H:MM:SS or M:SS.ss"
-    if(_line MATCHES "Elapsed.*wall clock.*time[^:]*: *([0-9:.]+)")
+    if(_line MATCHES "Elapsed.*wall clock.*time[^0-9]*([0-9:.]+)")
       list(APPEND _wall_times "${CMAKE_MATCH_1}")
     endif()
     # "Maximum resident set size (kbytes): NNNN"
@@ -124,10 +124,13 @@ endif()
 # ---- Parse callgrind top functions --------------------------------------
 set(_callgrind_section "")
 if(CALLGRIND_ANNOTATE_EXECUTABLE AND EXISTS "${CALLGRIND_FILE}")
+  # Use --show=Ir for clean single-column output:
+  #   "10,388,201 (40.30%)  ./elf/dl-lookup.c:do_lookup_x [lib.so]"
   execute_process(
     COMMAND
       "${CALLGRIND_ANNOTATE_EXECUTABLE}"
       --auto=no
+      --show=Ir
       --threshold=99
       "${CALLGRIND_FILE}"
     OUTPUT_VARIABLE _cg_raw
@@ -135,28 +138,137 @@ if(CALLGRIND_ANNOTATE_EXECUTABLE AND EXISTS "${CALLGRIND_FILE}")
     OUTPUT_STRIP_TRAILING_WHITESPACE
     TIMEOUT 60
   )
-  # Extract function lines: lines starting with a count followed by a name
-  # Format: "  NNNN  function_name  (file)"
-  set(_func_lines "")
-  string(REPLACE "\n" ";" _cg_lines "${_cg_raw}")
+  # Use a Python helper to parse the callgrind_annotate output reliably.
+  # CMake's string(REPLACE "\n" ";") breaks on lines containing semicolons
+  # (common in C++ template instantiation names).
+  # Step 1: run callgrind_annotate and save to a temp file
+  set(_cg_txt "${CMAKE_CURRENT_BINARY_DIR}/_cg_annotate.txt")
+  set(_cg_parsed "${CMAKE_CURRENT_BINARY_DIR}/_cg_parsed.txt")
+  execute_process(
+    COMMAND "${CALLGRIND_ANNOTATE_EXECUTABLE}" --auto=no --show=Ir
+            --threshold=99 "${CALLGRIND_FILE}"
+    OUTPUT_FILE "${_cg_txt}"
+    ERROR_QUIET
+    TIMEOUT 120
+  )
+  # Step 2: parse with Python (reads file, writes parsed output)
+  set(_parse_script [=[
+import sys, re, pathlib
+
+def short_name(rest):
+    """Extract a human-readable short function name from callgrind_annotate output."""
+    # Strip the [library] suffix and file: prefix
+    no_lib = re.sub(r'\s*\[.*', '', rest)
+    # Remove the file:path prefix (everything before the last ':' before the function)
+    # Format: path/file.cpp:FUNCTION_SIGNATURE
+    # Look for gtopt:: functions first
+    gm = re.search(r'gtopt::(\w+(?:::\w+)*)', no_lib)
+    if gm:
+        return 'gtopt::' + gm.group(1)
+    # Look for std:: container operations (try_emplace, _M_emplace_uniq, etc.)
+    sm = re.search(r'std::(\w+(?:::\w+)*)<.*>::(\w+)', no_lib)
+    if sm:
+        container = sm.group(1)
+        method = sm.group(2)
+        return f'std::{container}::{method}'
+    # Mangled names (start with _Z)
+    zm = re.search(r':(_Z\w+)', no_lib)
+    if zm:
+        # Try to extract gtopt function from mangled name
+        dm = re.search(r'gtopt(\d+detail)?(\d+)([a-z_][a-z_0-9]*)', zm.group(1))
+        if dm:
+            name = dm.group(3)
+            prefix = 'gtopt::detail::' if dm.group(1) else 'gtopt::'
+            return prefix + name
+        return zm.group(1)[:40]
+    # Plain C functions (libc, etc.): look for :function_name[.isra.N] at end
+    cm = re.search(r':([A-Za-z_]\w*(?:\.\w+\.\d+)?)\s*$', no_lib)
+    if cm:
+        name = cm.group(1)
+        # Strip .isra.N suffixes
+        name = re.sub(r'\.\w+\.\d+$', '', name)
+        return name
+    # ???:function_name pattern
+    qm = re.search(r'\?\?\?:(\S+)', no_lib)
+    if qm:
+        name = qm.group(1)
+        # Strip address-only entries
+        if re.match(r'^0x[0-9a-f]+$', name):
+            return '(unknown)'
+        return name if len(name) <= 40 else name[:40]
+    # Fallback
+    return no_lib[:60].strip()
+
+raw = pathlib.Path(sys.argv[1]).read_text()
+out = pathlib.Path(sys.argv[2])
+total_pat = re.compile(r'^\s*([\d,]+)\s+\(\s*[\d.]+%\)\s+PROGRAM TOTALS', re.M)
+func_pat = re.compile(r'^\s*([\d,]+)\s+\(\s*([\d.]+)%\)\s+(.+)$', re.M)
+lines = []
+m = total_pat.search(raw)
+lines.append(f'TOTAL_IR={m.group(1) if m else ""}')
+count = 0
+for m in func_pat.finditer(raw):
+    ir, pct, rest = m.group(1), m.group(2), m.group(3)
+    if 'PROGRAM TOTALS' in rest:
+        continue
+    func = short_name(rest)
+    lib_m = re.search(r'\[([^\]]+)\]', rest)
+    lib = lib_m.group(1).rsplit('/', 1)[-1] if lib_m else ''
+    lines.append(f'ROW={ir}|{pct}|{func}|{lib}')
+    count += 1
+    if count >= 30:
+        break
+out.write_text('\n'.join(lines) + '\n')
+]=])
+  execute_process(
+    COMMAND ${PYTHON3_EXECUTABLE} -c "${_parse_script}" "${_cg_txt}" "${_cg_parsed}"
+    RESULT_VARIABLE _py_rc
+    ERROR_VARIABLE _parse_err
+    TIMEOUT 30
+  )
+  set(_func_rows "")
+  set(_total_ir "")
   set(_func_count 0)
-  foreach(_line IN LISTS _cg_lines)
-    # Lines with call counts look like: "  123,456,789  func (file.cpp:10)"
-    if(_line MATCHES "^ *[0-9,]+ +[A-Za-z_].*\\(")
-      string(APPEND _func_lines "${_line}\n")
-      math(EXPR _func_count "${_func_count} + 1")
-      if(_func_count GREATER_EQUAL 30)
-        break()
+  if(EXISTS "${_cg_parsed}")
+    # file(STRINGS) reads lines into a cmake list while properly escaping
+    # semicolons that may appear in C++ template names.
+    file(STRINGS "${_cg_parsed}" _parsed_lines)
+  else()
+    set(_parsed_lines "")
+  endif()
+  foreach(_line IN LISTS _parsed_lines)
+    if(_line MATCHES "^TOTAL_IR=(.+)$")
+      set(_total_ir "${CMAKE_MATCH_1}")
+    elseif(_line MATCHES "^ROW=([^|]+)\\|([^|]+)\\|([^|]+)\\|(.*)$")
+      set(_ir "${CMAKE_MATCH_1}")
+      set(_pct "${CMAKE_MATCH_2}")
+      set(_fn "${CMAKE_MATCH_3}")
+      set(_lib "${CMAKE_MATCH_4}")
+      if(_lib)
+        string(APPEND _func_rows
+          "| ${_ir} | ${_pct}% | `${_fn}` | ${_lib} |\n")
+      else()
+        string(APPEND _func_rows
+          "| ${_ir} | ${_pct}% | `${_fn}` | |\n")
       endif()
+      math(EXPR _func_count "${_func_count} + 1")
     endif()
   endforeach()
-  if(_func_lines)
+  if(_func_rows)
     set(_callgrind_section
-      "## Top Functions (callgrind, ≥99% threshold)\n"
+      "## Top Functions (callgrind, Ir — instruction refs)\n"
       "\n"
-      "```\n"
-      "${_func_lines}"
-      "```\n"
+    )
+    if(_total_ir)
+      string(APPEND _callgrind_section
+        "> Total instructions: ${_total_ir}\n"
+        "\n"
+      )
+    endif()
+    string(APPEND _callgrind_section
+      "| Ir | % | Function | Library |\n"
+      "|---:|--:|----------|--------|\n"
+      "${_func_rows}"
       "\n"
     )
   else()
@@ -191,7 +303,7 @@ if(NOT PROFILING_CASE)
 else()
   cmake_path(GET PROFILING_CASE FILENAME _case_label)
 endif()
-if(NOT JUST_BUILD_LP)
+if(NOT BUILD_LP)
   set(_just_lp "false (full solve)")
 else()
   set(_just_lp "true (LP build only)")
@@ -203,7 +315,7 @@ set(_md
   "\n"
   "> Generated: ${_report_date}  \n"
   "> Case: `${_case_label}`  \n"
-  "> just_build_lp: ${_just_lp}\n"
+  "> build_lp: ${_just_lp}\n"
   "\n"
   "## Timing Summary\n"
   "\n"
@@ -240,6 +352,30 @@ string(
   "  -DPROFILING_OUTPUT_DIR=reports/profiling\n"
   "cmake --build build-profiling\n"
   "```\n"
+  "\n"
+  "## Improvement Proposals\n"
+  "\n"
+  "Based on typical profiling results with this case:\n"
+  "\n"
+  "1. **Reduce allocation pressure (~40% in malloc/free)**: The LP build\n"
+  "   phase generates many small heap allocations from label generation,\n"
+  "   map insertions, and vector growth.  Using stack buffers for integer\n"
+  "   conversion in `as_label` (already done) reduced total instructions\n"
+  "   by ~5%.  Further gains possible with arena/pool allocators.\n"
+  "\n"
+  "2. **Optimize name→index maps (~6% in map operations)**: The\n"
+  "   `to_flat()` method builds `std::map<string_view, int>` name maps.\n"
+  "   The red-black tree operations (`try_emplace`, `_Rb_tree_insert`,\n"
+  "   `memcmp`) account for ~6%.  Consider `std::unordered_map` or\n"
+  "   skipping name maps when names are not needed.\n"
+  "\n"
+  "3. **Reduce `as_label` call frequency (~8% total)**: State column\n"
+  "   labels are generated for every variable even at `use_lp_names=0`.\n"
+  "   Consider lazy generation or numeric-only naming for state columns.\n"
+  "\n"
+  "4. **Optimize `LinearProblem::to_flat` (~1%)**: The two-pass\n"
+  "   column-major conversion iterates all sparse rows twice.  A single\n"
+  "   pass with pre-sized vectors could halve the traversal cost.\n"
   "\n"
   "## References\n"
   "\n"

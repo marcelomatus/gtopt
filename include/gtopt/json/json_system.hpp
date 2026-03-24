@@ -17,7 +17,6 @@
 #include <gtopt/json/json_converter.hpp>
 #include <gtopt/json/json_demand.hpp>
 #include <gtopt/json/json_demand_profile.hpp>
-#include <gtopt/json/json_filtration.hpp>
 #include <gtopt/json/json_flow.hpp>
 #include <gtopt/json/json_generator.hpp>
 #include <gtopt/json/json_generator_profile.hpp>
@@ -26,7 +25,9 @@
 #include <gtopt/json/json_reserve_provision.hpp>
 #include <gtopt/json/json_reserve_zone.hpp>
 #include <gtopt/json/json_reservoir.hpp>
-#include <gtopt/json/json_reservoir_efficiency.hpp>
+#include <gtopt/json/json_reservoir_discharge_limit.hpp>
+#include <gtopt/json/json_reservoir_production_factor.hpp>
+#include <gtopt/json/json_reservoir_seepage.hpp>
 #include <gtopt/json/json_turbine.hpp>
 #include <gtopt/json/json_user_constraint.hpp>
 #include <gtopt/json/json_waterway.hpp>
@@ -63,11 +64,16 @@ struct json_data_contract<System>
       json_array_null<"waterway_array", Array<Waterway>, Waterway>,
       json_array_null<"flow_array", Array<Flow>, Flow>,
       json_array_null<"reservoir_array", Array<Reservoir>, Reservoir>,
-      json_array_null<"filtration_array", Array<Filtration>, Filtration>,
+      json_array_null<"reservoir_seepage_array",
+                      Array<ReservoirSeepage>,
+                      ReservoirSeepage>,
+      json_array_null<"reservoir_discharge_limit_array",
+                      Array<ReservoirDischargeLimit>,
+                      ReservoirDischargeLimit>,
       json_array_null<"turbine_array", Array<Turbine>, Turbine>,
-      json_array_null<"reservoir_efficiency_array",
-                      Array<ReservoirEfficiency>,
-                      ReservoirEfficiency>,
+      json_array_null<"reservoir_production_factor_array",
+                      Array<ReservoirProductionFactor>,
+                      ReservoirProductionFactor>,
       json_array_null<"user_constraint_array",
                       Array<UserConstraint>,
                       UserConstraint>,
@@ -91,9 +97,10 @@ struct json_data_contract<System>
                                  system.waterway_array,
                                  system.flow_array,
                                  system.reservoir_array,
-                                 system.filtration_array,
+                                 system.reservoir_seepage_array,
+                                 system.reservoir_discharge_limit_array,
                                  system.turbine_array,
-                                 system.reservoir_efficiency_array,
+                                 system.reservoir_production_factor_array,
                                  system.user_constraint_array,
                                  system.user_constraint_file);
   }

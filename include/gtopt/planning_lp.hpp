@@ -142,13 +142,14 @@ public:
     int iterations {0};  ///< Number of training iterations completed
     bool converged {false};  ///< True if any convergence criterion was met
     bool stationary_converged {
-        false};  ///< True if stationary criterion triggered convergence
+        false,
+    };  ///< True if stationary criterion triggered convergence
   };
 
   /** @brief Populate the SDDP summary (called by the SDDP solver). */
   void set_sddp_summary(SddpSummary summary) noexcept
   {
-    m_sddp_summary_ = std::move(summary);
+    m_sddp_summary_ = summary;
   }
 
   /** @brief Read the SDDP summary (populated after a successful SDDP solve). */

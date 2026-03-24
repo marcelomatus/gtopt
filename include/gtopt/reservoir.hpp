@@ -40,6 +40,9 @@
 
 #include <gtopt/field_sched.hpp>
 #include <gtopt/object.hpp>
+#include <gtopt/reservoir_discharge_limit.hpp>
+#include <gtopt/reservoir_production_factor.hpp>
+#include <gtopt/reservoir_seepage.hpp>
 
 namespace gtopt
 {
@@ -54,7 +57,7 @@ namespace gtopt
  *        + flow_conversion_rate × (inflows − outflows) × duration
  * ```
  * where inflows/outflows include waterway flows, turbine discharges, natural
- * inflows (Flow), and seepage (Filtration).
+ * inflows (Flow), and seepage (ReservoirSeepage).
  *
  * @see Junction for the hydraulic node the reservoir is attached to
  * @see ReservoirLP for the LP formulation
@@ -133,6 +136,27 @@ struct Reservoir
   /// Default for reservoirs is false (disabled); can be enabled explicitly
   /// for small reservoirs that operate on a daily cycle.
   OptBool daily_cycle {};
+
+  // ── Inline reservoir constraints (optional) ───────────────────────────
+  // These can be defined here instead of in separate system-level arrays.
+  // During expand_reservoir_constraints(), embedded entries are extracted
+  // into the flat System arrays with auto-generated uids and the
+  // reservoir field set from the parent.
+
+  /// Inline seepage definitions for this reservoir.
+  /// Each entry needs only `waterway` (and optionally slope/constant/segments);
+  /// `reservoir` is set automatically from this reservoir's uid.
+  Array<ReservoirSeepage> seepage {};
+
+  /// Inline discharge limit definitions for this reservoir.
+  /// Each entry needs only `waterway` and `segments`;
+  /// `reservoir` is set automatically.
+  Array<ReservoirDischargeLimit> discharge_limit {};
+
+  /// Inline production factor definitions for this reservoir.
+  /// Each entry needs only `turbine` and `segments`;
+  /// `reservoir` is set automatically.
+  Array<ReservoirProductionFactor> production_factor {};
 };
 
 }  // namespace gtopt

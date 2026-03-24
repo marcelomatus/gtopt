@@ -55,14 +55,14 @@ def turbine_waterway_refs(sys: dict) -> set:
 
 
 def efficiency_turbine_pairs(sys: dict) -> set:
-    """Return the set of turbine uid/name references covered by reservoir_efficiency_array.
+    """Return the set of turbine uid/name references covered by reservoir_production_factor_array.
 
     Used to avoid drawing a duplicate ``main_reservoir`` edge when a
-    ``reservoir_efficiency_array`` entry already represents the same
+    ``reservoir_production_factor_array`` entry already represents the same
     turbine-reservoir relationship.
     """
     refs: set = set()
-    for e in sys.get("reservoir_efficiency_array", []):
+    for e in sys.get("reservoir_production_factor_array", []):
         t = e.get("turbine")
         if t is not None:
             refs.add(t)

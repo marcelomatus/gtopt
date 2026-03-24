@@ -96,9 +96,10 @@ _SYSTEM_SHEETS = frozenset(
         "waterway_array",
         "flow_array",
         "reservoir_array",
-        "filtration_array",
+        "reservoir_seepage_array",
+        "reservoir_discharge_limit_array",
         "turbine_array",
-        "reservoir_efficiency_array",
+        "reservoir_production_factor_array",
         "user_constraint_array",
     }
 )
@@ -479,8 +480,9 @@ def log_conversion_stats(
             ("Waterways", counts.get("waterway_array", 0)),
             ("Reservoirs", counts.get("reservoir_array", 0)),
             ("Turbines", counts.get("turbine_array", 0)),
-            ("Filtrations", counts.get("filtration_array", 0)),
-            ("Res. efficiencies", counts.get("reservoir_efficiency_array", 0)),
+            ("ReservoirSeepages", counts.get("reservoir_seepage_array", 0)),
+            ("Discharge limits", counts.get("reservoir_discharge_limit_array", 0)),
+            ("Production factors", counts.get("reservoir_production_factor_array", 0)),
             ("User constraints", counts.get("user_constraint_array", 0)),
         ]
         elem_pairs = [(k, str(v)) for k, v in all_elems if v > 0]

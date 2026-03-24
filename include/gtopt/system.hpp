@@ -17,7 +17,8 @@
  * | Profiles | GeneratorProfile, DemandProfile |
  * | Energy storage | Battery, Converter |
  * | Reserve | ReserveZone, ReserveProvision |
- * | Hydro cascade | Junction, Waterway, Flow, Reservoir, Filtration, Turbine |
+ * | Hydro cascade | Junction, Waterway, Flow, Reservoir, ReservoirSeepage,
+ * ReservoirDischargeLimit, Turbine |
  */
 
 #pragma once
@@ -27,7 +28,6 @@
 #include <gtopt/converter.hpp>
 #include <gtopt/demand.hpp>
 #include <gtopt/demand_profile.hpp>
-#include <gtopt/filtration.hpp>
 #include <gtopt/flow.hpp>
 #include <gtopt/generator.hpp>
 #include <gtopt/generator_profile.hpp>
@@ -36,7 +36,9 @@
 #include <gtopt/reserve_provision.hpp>
 #include <gtopt/reserve_zone.hpp>
 #include <gtopt/reservoir.hpp>
-#include <gtopt/reservoir_efficiency.hpp>
+#include <gtopt/reservoir_discharge_limit.hpp>
+#include <gtopt/reservoir_production_factor.hpp>
+#include <gtopt/reservoir_seepage.hpp>
 #include <gtopt/turbine.hpp>
 #include <gtopt/user_constraint.hpp>
 #include <gtopt/utils.hpp>
@@ -85,11 +87,15 @@ struct System
   Array<Waterway> waterway_array {};  ///< Water channels between junctions
   Array<Flow> flow_array {};  ///< Exogenous inflows / mandatory releases
   Array<Reservoir> reservoir_array {};  ///< Water storage reservoirs
-  Array<Filtration>
-      filtration_array {};  ///< Waterway → reservoir seepage links
+  Array<ReservoirSeepage>
+      reservoir_seepage_array {};  ///< Waterway → reservoir seepage links
+  Array<ReservoirDischargeLimit>
+      reservoir_discharge_limit_array {};  ///< Volume-dependent discharge
+                                           ///< limits
   Array<Turbine> turbine_array {};  ///< Hydro turbines (waterway → generator)
-  Array<ReservoirEfficiency>
-      reservoir_efficiency_array {};  ///< Volume-dependent turbine efficiency
+  Array<ReservoirProductionFactor>
+      reservoir_production_factor_array {};  ///< Volume-dependent turbine
+                                             ///< efficiency
 
   // ── User constraints ────────────────────────────────────────────────────
   Array<UserConstraint>
@@ -138,6 +144,19 @@ struct System
    * This is called automatically by PlanningLP before LP construction.
    */
   void expand_batteries();
+
+  /**
+   * @brief Extracts inline reservoir constraints into flat system arrays
+   *
+   * For each Reservoir with non-empty `seepage`, `discharge_limit`, or
+   * `production_factor` inline arrays, this method moves entries into the
+   * corresponding system-level arrays (reservoir_seepage_array, etc.),
+   * auto-generating uids and setting the `reservoir` field from the parent.
+   *
+   * After extraction, the inline arrays on each Reservoir are cleared so
+   * that re-expansion is idempotent.
+   */
+  void expand_reservoir_constraints();
 
   void setup_reference_bus(const class OptionsLP& options);
 };

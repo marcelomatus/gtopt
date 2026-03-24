@@ -20,7 +20,6 @@
 #include <gtopt/converter_lp.hpp>
 #include <gtopt/demand_lp.hpp>
 #include <gtopt/demand_profile_lp.hpp>
-#include <gtopt/filtration_lp.hpp>
 #include <gtopt/flow_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/generator_profile_lp.hpp>
@@ -32,8 +31,10 @@
 #include <gtopt/phase_lp.hpp>
 #include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
-#include <gtopt/reservoir_efficiency_lp.hpp>
+#include <gtopt/reservoir_discharge_limit_lp.hpp>
 #include <gtopt/reservoir_lp.hpp>
+#include <gtopt/reservoir_production_factor_lp.hpp>
+#include <gtopt/reservoir_seepage_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/scene_lp.hpp>
 #include <gtopt/schedule.hpp>
@@ -84,9 +85,10 @@ static_assert(AddToLP<JunctionLP>);
 static_assert(AddToLP<WaterwayLP>);
 static_assert(AddToLP<FlowLP>);
 static_assert(AddToLP<ReservoirLP>);
-static_assert(AddToLP<FiltrationLP>);
+static_assert(AddToLP<ReservoirSeepageLP>);
+static_assert(AddToLP<ReservoirDischargeLimitLP>);
 static_assert(AddToLP<TurbineLP>);
-static_assert(AddToLP<ReservoirEfficiencyLP>);
+static_assert(AddToLP<ReservoirProductionFactorLP>);
 static_assert(AddToLP<UserConstraintLP>);
 
 /**
@@ -160,9 +162,10 @@ public:
                                    Collection<WaterwayLP>,
                                    Collection<FlowLP>,
                                    Collection<ReservoirLP>,
-                                   Collection<FiltrationLP>,
+                                   Collection<ReservoirSeepageLP>,
+                                   Collection<ReservoirDischargeLimitLP>,
                                    Collection<TurbineLP>,
-                                   Collection<ReservoirEfficiencyLP>,
+                                   Collection<ReservoirProductionFactorLP>,
                                    Collection<UserConstraintLP>>;
 
   template<typename Self>

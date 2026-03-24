@@ -448,7 +448,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .use_lp_names = get_opt<int>(vm, "use-lp-names"),
       .matrix_eps = get_opt<double>(vm, "matrix-eps"),
       .json_file = get_opt<std::string>(vm, "json-file"),
-      .just_build_lp = get_opt<bool>(vm, "build-lp"),
+      .build_lp = get_opt<bool>(vm, "build-lp"),
       .fast_parsing = get_opt<bool>(vm, "fast-parsing"),
       .check_json = get_opt<bool>(vm, "check-json"),
       .print_stats = get_opt<bool>(vm, "stats"),
