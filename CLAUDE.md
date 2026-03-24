@@ -259,7 +259,7 @@ Plugin search path: `$GTOPT_PLUGIN_DIR`, `<exe>/../lib/gtopt/plugins/`,
 ## Documentation Style Guide
 
 - GitHub-Flavored Markdown, ATX headers, 80-char lines
-- LaTeX math in `docs/formulation/MATHEMATICAL_FORMULATION.md`
+- LaTeX math in `docs/formulation/mathematical-formulation.md`
 - References: numbered `[N]`, HTML anchors, DOI links
 - Cross-references use relative paths between doc files
 - When modifying LP assembly code, update the formulation document

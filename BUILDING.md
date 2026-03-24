@@ -635,7 +635,7 @@ sudo cmake --install build
 
 After successfully building and installing gtopt:
 
-- Read the [Usage Guide](USAGE.md) for detailed usage instructions
+- Read the [Usage Guide](docs/usage.md) for detailed usage instructions
 - Try the [sample case](cases/c0/) to verify your installation
 - Explore the [web service](webservice/INSTALL.md) for browser-based optimization
 - Check out the [GUI service](guiservice/INSTALL.md) for visual case creation

@@ -1431,7 +1431,7 @@ DOI: [10.1007/s12532-012-0038-z](https://doi.org/10.1007/s12532-012-0038-z)
 ## 10. Cascade Solver — Multi-Level Hybrid Solver
 
 > For full cascade solver documentation, see
-> [CASCADE_SOLVER.md](CASCADE_SOLVER.md).
+> [Cascade Method](cascade.md).
 
 The **Cascade solver** (`method = "cascade"`) is a multi-level hybrid
 algorithm that progressively refines the LP formulation and solver strategy
@@ -1681,15 +1681,15 @@ reports non-convergence.
 
 ## 11. See Also
 
-- [CASCADE_SOLVER.md](CASCADE_SOLVER.md) --- cascade (multi-level hybrid)
+- [Cascade Method](cascade.md) --- cascade (multi-level hybrid)
   solver documentation
-- [MONOLITHIC_SOLVER.md](MONOLITHIC_SOLVER.md) --- monolithic solver
+- [Monolithic Method](monolithic.md) --- monolithic solver
   documentation (default solver, boundary cuts, solve timeout)
-- [MATHEMATICAL_FORMULATION.md](formulation/MATHEMATICAL_FORMULATION.md) ---
+- [Mathematical Formulation](../formulation/mathematical-formulation.md) ---
   full LP/MIP formulation for gtopt
-- [PLANNING_GUIDE.md](../PLANNING_GUIDE.md) --- worked examples and time
+- [Planning Guide](../planning-guide.md) --- worked examples and time
   structure concepts
-- [INPUT_DATA.md](../INPUT_DATA.md) --- JSON/Parquet input format
+- [Input Data Reference](../input-data.md) --- JSON/Parquet input format
   specification
-- [USAGE.md](../USAGE.md) --- CLI reference including `--trace-log`
-- [CONTRIBUTING.md](../CONTRIBUTING.md) --- code style and testing guidelines
+- [Usage Guide](../usage.md) --- CLI reference including `--trace-log`
+- [Contributing Guide](../../CONTRIBUTING.md) --- code style and testing guidelines
