@@ -10,13 +10,13 @@ parallel using the adaptive work pool.
 The monolithic solver is the simplest and most robust approach: it produces
 the exact optimal solution in one solve, without iterative decomposition.
 For problems with many phases and state variables, the SDDP solver may be
-more efficient (see [SDDP_SOLVER.md](SDDP_SOLVER.md)).
+more efficient (see [SDDP Method](sddp.md)).
 
 ### When to use the monolithic solver
 
 | Criterion | Monolithic | SDDP |
 |-----------|:----------:|:----:|
-| Default solver | Yes | No (set `solver_type: "sddp"`) |
+| Default solver | Yes | No (set `method: "sddp"`) |
 | Number of phases | Any (1+) | 2+ required |
 | Solution quality | Exact (single LP solve) | Iterative convergence |
 | Memory | Full LP in memory per scene | Per-phase LPs (smaller) |
@@ -100,7 +100,7 @@ and cuts are not shared across scenes.
 ```json
 {
   "options": {
-    "solver_type": "monolithic",
+    "method": "monolithic",
     "monolithic_options": {
       "solve_mode": "monolithic",
       "solve_timeout": 18000,
@@ -164,7 +164,7 @@ SDDP iterations (by the `iteration` column) are loaded.  Set to `0` to
 load all cuts (default).
 
 The CSV format is identical to the SDDP boundary cuts format
-(see [SDDP_SOLVER.md](SDDP_SOLVER.md)).
+(see [SDDP Method](sddp.md)).
 
 ---
 
@@ -179,10 +179,10 @@ gtopt_main()
   |
   +-> PlanningLP::resolve()
         |
-        +-> make_planning_solver(options, num_phases)
+        +-> make_planning_method(options, num_phases)
         |     |
-        |     +-> MonolithicSolver  (default, or SDDP fallback for 1 phase)
-        |     +-> SDDPPlanningSolver (when solver_type="sddp" and phases >= 2)
+        |     +-> MonolithicMethod  (default, or SDDP fallback for 1 phase)
+        |     +-> SDDPPlanningMethod (when method="sddp" and phases >= 2)
         |
         +-> solver->solve(planning_lp, lp_opts)
 ```
@@ -195,7 +195,7 @@ invalid UIDs, inconsistent array sizes, and other semantic errors.
 Validation errors are reported with specific messages and the solver
 exits before any LP is assembled.
 
-### 5.3 MonolithicSolver::solve()
+### 5.3 MonolithicMethod::solve()
 
 1. **Load boundary cuts** (if configured) --- before parallel dispatch
 2. **Write LP debug files** (if `lp_debug` enabled)
@@ -214,7 +214,7 @@ in the JSON to override this default.
 
 ### 5.5 Single-Phase SDDP Fallback
 
-When `solver_type: "sddp"` is requested but only 1 phase exists, the
+When `method: "sddp"` is requested but only 1 phase exists, the
 factory automatically falls back to the monolithic solver with an
 informational log message.  This prevents the SDDP "requires at least
 2 phases" error.
@@ -232,11 +232,11 @@ programming problems," *Numerische Mathematik*, vol. 4, pp. 238--252,
 
 ## See Also
 
-- [SDDP_SOLVER.md](SDDP_SOLVER.md) --- SDDP solver documentation
+- [SDDP Method](sddp.md) --- SDDP solver documentation
   (iterative decomposition, cut persistence, hot-start)
-- [USAGE.md](../USAGE.md) --- CLI reference and output interpretation
-- [INPUT_DATA.md](../INPUT_DATA.md) --- JSON input format specification
-- [MATHEMATICAL_FORMULATION.md](formulation/MATHEMATICAL_FORMULATION.md)
+- [Usage Guide](../usage.md) --- CLI reference and output interpretation
+- [Input Data Reference](../input-data.md) --- JSON input format specification
+- [Mathematical Formulation](../formulation/mathematical-formulation.md)
   --- LP/MIP formulation details
-- [PLANNING_GUIDE.md](../PLANNING_GUIDE.md) --- worked examples and time
+- [Planning Guide](../planning-guide.md) --- worked examples and time
   structure concepts

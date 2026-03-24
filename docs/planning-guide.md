@@ -958,7 +958,7 @@ This tells gtopt: read `input/Demand/lmax.parquet`, column `uid:1`.
 
 ## 9. Complete JSON element reference
 
-> **Full reference**: See **[INPUT_DATA.md](INPUT_DATA.md)** for the complete
+> **Full reference**: See **[Input Data Reference](input-data.md)** for the complete
 > field-by-field documentation of every JSON element. This section provides a
 > concise summary of the most commonly used fields.
 
@@ -1049,15 +1049,15 @@ charge Demand, and Converter automatically.
 | **Turbine** | `uid`✱, `name`✱, `waterway`✱, `generator`✱, `conversion_rate`, `main_reservoir` | Hydro turbine |
 | **ReservoirEfficiency** | `uid`✱, `name`✱, `turbine`✱, `reservoir`✱, `mean_efficiency`, `segments` | Volume-dependent efficiency |
 
-> See **[INPUT_DATA.md](INPUT_DATA.md)** for full field descriptions, units, and all optional fields.
+> See **[Input Data Reference](input-data.md)** for full field descriptions, units, and all optional fields.
 
 **Volume-dependent turbine efficiency**: when a `ReservoirEfficiency`
 element is defined, the turbine's conversion rate is updated during SDDP
 iterations based on the current reservoir volume.  The efficiency curve
 is a concave piecewise-linear function (analogous to PLP's "rendimiento"
 tables).  For monolithic solves, the static `conversion_rate` is used.
-See the [Mathematical Formulation](docs/formulation/MATHEMATICAL_FORMULATION.md)
-for the efficiency formula and the [SDDP Solver](docs/SDDP_SOLVER.md)
+See the [Mathematical Formulation](formulation/mathematical-formulation.md)
+for the efficiency formula and the [SDDP Solver](methods/sddp.md)
 for the update mechanism.
 
 ---
@@ -1166,7 +1166,7 @@ Run the simplest bundled case (`ieee_4b_ori`) end-to-end in three steps.
 
 ### 1. Get the binary
 
-Build from source (see [BUILDING.md](BUILDING.md)) or download a CI
+Build from source (see [Building Guide](../BUILDING.md)) or download a CI
 artifact:
 
 ```bash
@@ -1477,7 +1477,7 @@ Run-of-river (pasada) hydro plants can be modelled in two ways:
    in a cascade with reservoirs upstream or downstream.
 
 > See [Example 5](#7-example-5--simple-hydro-cascade-2-bus-2-stages) for the
-> hydro cascade data model. See [SCRIPTS.md](SCRIPTS.md) for `plp2gtopt`
+> hydro cascade data model. See [Scripts Guide](scripts-guide.md) for `plp2gtopt`
 > usage.
 
 ### 12.4 SDDP apertures
@@ -1524,12 +1524,12 @@ scenarios.
 
 ## 13. Using the Cascade Solver
 
-The **cascade solver** (`solver_type = "cascade"`) runs multiple SDDP levels
+The **cascade solver** (`method = "cascade"`) runs multiple SDDP levels
 in sequence, each with its own LP formulation and solver parameters.  It
 accelerates convergence by starting from a simplified model and progressively
 refining towards the full network.
 
-> **Full reference**: [CASCADE_SOLVER.md](docs/CASCADE_SOLVER.md) —
+> **Full reference**: [Cascade Method](methods/cascade.md) —
 > configuration fields, transfer mechanisms, implementation details.
 
 ### 13.1 When to use cascade vs plain SDDP
@@ -1564,7 +1564,7 @@ target constraints from the Level 0 reservoir volumes, guiding the forward pass.
 ```json
 {
   "options": {
-    "solver_type": "cascade",
+    "method": "cascade",
     "use_single_bus": true,
     "scale_objective": 1.0,
     "demand_fail_cost": 1000,
@@ -1675,7 +1675,7 @@ the solver strategy:
 ```json
 {
   "options": {
-    "solver_type": "cascade",
+    "method": "cascade",
     "sddp_options": {
       "max_iterations": 50,
       "convergence_tol": 0.001
@@ -1759,30 +1759,30 @@ trajectories.
 Alternatively, use `gtopt --stats` to get a summary of per-level statistics
 after the solve completes.
 
-> **See also**: [SDDP_SOLVER.md](docs/SDDP_SOLVER.md) — convergence theory,
+> **See also**: [SDDP Method](methods/sddp.md) — convergence theory,
 > cut sharing, elastic filter, and monitoring API.
-> [CASCADE_SOLVER.md](docs/CASCADE_SOLVER.md) — full configuration reference.
+> [Cascade Method](methods/cascade.md) — full configuration reference.
 
 ---
 
 ## See also
 
-- **[Mathematical Formulation](docs/formulation/MATHEMATICAL_FORMULATION.md)**
+- **[Mathematical Formulation](formulation/mathematical-formulation.md)**
   — Full LP/MIP optimization formulation with LaTeX notation, JSON-to-symbol
   mapping, and academic references
-- **[INPUT_DATA.md](INPUT_DATA.md)** — Complete field reference for all JSON
+- **[Input Data Reference](input-data.md)** — Complete field reference for all JSON
   elements
-- **[USAGE.md](USAGE.md)** — Command-line options and advanced usage
-- **[SCRIPTS.md](SCRIPTS.md)** — `plp2gtopt`, `igtopt`, `cvs2parquet`
+- **[Usage Guide](usage.md)** — Command-line options and advanced usage
+- **[Scripts Guide](scripts-guide.md)** — `plp2gtopt`, `igtopt`, `cvs2parquet`
   conversion utilities
-- **[BUILDING.md](BUILDING.md)** — Build and installation instructions
-- **[DIAGRAM_TOOL.md](DIAGRAM_TOOL.md)** — `gtopt_diagram` network and
+- **[Building Guide](../BUILDING.md)** — Build and installation instructions
+- **[Diagram Tool](tools/diagram.md)** — `gtopt_diagram` network and
   planning diagram tool: aggregation, voltage reduction, large-case workflows
-- **[SDDP_SOLVER.md](docs/SDDP_SOLVER.md)** — SDDP solver: convergence
+- **[SDDP Method](methods/sddp.md)** — SDDP solver: convergence
   theory, cut sharing, elastic filter, monitoring API
-- **[CASCADE_SOLVER.md](docs/CASCADE_SOLVER.md)** — Cascade solver:
+- **[Cascade Method](methods/cascade.md)** — Cascade solver:
   multi-level hybrid SDDP with cut and target inheritance
-- **[MONOLITHIC_SOLVER.md](docs/MONOLITHIC_SOLVER.md)** — Default monolithic
+- **[Monolithic Method](methods/monolithic.md)** — Default monolithic
   solver, boundary cuts, and sequential mode
 - `scripts/gtopt_field_extractor.py` — Auto-generate field-reference tables
   from C++ headers

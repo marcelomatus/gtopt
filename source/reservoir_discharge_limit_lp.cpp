@@ -140,8 +140,9 @@ int ReservoirDischargeLimitLP::update_lp(SystemLP& sys,
   const auto st_key = std::pair {scenario.uid(), stage.uid()};
   auto& state = m_states_.at(st_key);
 
-  const auto vini = rsv.physical_eini(li, scenario, stage, default_volume);
-  const auto vfin = rsv.physical_efin(li, scenario, stage, default_volume);
+  const auto vini =
+      rsv.physical_eini(sys, scenario, stage, default_volume, reservoir_sid());
+  const auto vfin = rsv.physical_efin(sys, scenario, stage, default_volume);
   const Real volume = (vini + vfin) / 2.0;
 
   const auto coeffs =
