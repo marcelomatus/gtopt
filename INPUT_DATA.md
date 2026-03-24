@@ -82,7 +82,7 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 
 | Field         | Type   | Default        | Description |
 |---------------|--------|----------------|-------------|
-| `solver_type` | string | `"monolithic"` | Planning solver: `"monolithic"` (default), `"sddp"`, or `"cascade"`. See [SDDP Solver](docs/SDDP_SOLVER.md), [Cascade Solver](docs/CASCADE_SOLVER.md), and [Monolithic Solver](docs/MONOLITHIC_SOLVER.md) |
+| `method` | string | `"monolithic"` | Planning solver: `"monolithic"` (default), `"sddp"`, or `"cascade"`. See [SDDP Solver](docs/SDDP_SOLVER.md), [Cascade Solver](docs/CASCADE_SOLVER.md), and [Monolithic Solver](docs/MONOLITHIC_SOLVER.md) |
 
 #### Logging and debugging
 
@@ -119,7 +119,7 @@ by the `solver_options` sub-object (see Section 1.1).
     "use_kirchhoff": true,
     "input_directory": "system_c0",
     "input_format": "parquet",
-    "solver_type": "monolithic",
+    "method": "monolithic",
     "solver_options": {
       "algorithm": 3,
       "presolve": true
@@ -298,7 +298,7 @@ For full algorithmic details, see [SDDP Solver](docs/SDDP_SOLVER.md).
 
 ### 1.4 CascadeOptions (multi-level hybrid solver)
 
-These options configure the cascade solver (`solver_type = "cascade"`), which
+These options configure the cascade solver (`method = "cascade"`), which
 runs a multi-level hybrid algorithm with progressive LP refinement.  They are
 set in their own `cascade_options` sub-object (not inside `sddp_options`).
 See [CASCADE_SOLVER.md](docs/CASCADE_SOLVER.md) for full documentation, and
@@ -370,7 +370,7 @@ forgetting semantics and the two-phase solve behavior.
 ```json
 {
   "options": {
-    "solver_type": "sddp",
+    "method": "sddp",
     "sddp_options": {
       "max_iterations": 200,
       "convergence_tol": 1e-5,
@@ -394,7 +394,7 @@ forgetting semantics and the two-phase solve behavior.
 ```json
 {
   "options": {
-    "solver_type": "cascade",
+    "method": "cascade",
     "sddp_options": {
       "max_iterations": 30,
       "convergence_tol": 0.01
@@ -458,7 +458,7 @@ forgetting semantics and the two-phase solve behavior.
 ```json
 {
   "options": {
-    "solver_type": "sddp",
+    "method": "sddp",
     "sddp_options": {
       "simulation_mode": true,
       "hot_start_mode": "keep",
@@ -488,7 +488,7 @@ For full details, see [Monolithic Solver](docs/MONOLITHIC_SOLVER.md).
 ```json
 {
   "options": {
-    "solver_type": "monolithic",
+    "method": "monolithic",
     "monolithic_options": {
       "solve_mode": "monolithic",
       "boundary_cuts_file": "boundary_cuts.csv",
