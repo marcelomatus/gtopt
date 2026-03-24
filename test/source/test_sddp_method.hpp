@@ -4482,3 +4482,246 @@ TEST_CASE(  // NOLINT
 
   std::filesystem::remove_all(out_dir);
 }
+
+// ─── SystemLP::update_lp dispatches to all HasUpdateLP elements ─────────────
+
+TEST_CASE(
+    "SystemLP::update_lp dispatches to all HasUpdateLP elements")  // NOLINT
+{
+  // Build a system with all three HasUpdateLP element types:
+  //   ReservoirProductionFactorLP, ReservoirSeepageLP,
+  //   ReservoirDischargeLimitLP
+  // All have piecewise segments so their update_lp actually modifies
+  // coefficients.  A single call to system_lp.update_lp() must dispatch
+  // to all three.
+
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 500.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "thermal_gen",
+          .bus = Uid {1},
+          .gcost = 100.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 50.0,
+      },
+  };
+
+  const Array<Junction> junction_array = {
+      {.uid = Uid {1}, .name = "j_up"},
+      {.uid = Uid {2}, .name = "j_down", .drain = true},
+  };
+
+  // ww1: turbine waterway (also used by discharge limit)
+  // ww2: seepage waterway
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 500.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "ww_seep",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 100.0,
+      },
+  };
+
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 10000.0,
+          .emin = 0.0,
+          .emax = 10000.0,
+          .eini = 500.0,
+          .fmin = -1000.0,
+          .fmax = 1000.0,
+          .flow_conversion_rate = 1.0,
+      },
+  };
+
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .conversion_rate = 1.0,
+          .main_reservoir = Uid {1},
+      },
+  };
+
+  // ProductionFactor with 2 segments → update_lp modifies turbine coeff
+  const Array<ReservoirProductionFactor> reservoir_production_factor_array = {
+      {
+          .uid = Uid {1},
+          .name = "eff1",
+          .turbine = Uid {1},
+          .reservoir = Uid {1},
+          .mean_production_factor = 1.5,
+          .segments =
+              {
+                  {.volume = 0.0, .slope = 0.001, .constant = 1.0},
+                  {.volume = 800.0, .slope = 0.0001, .constant = 1.5},
+              },
+      },
+  };
+
+  // Seepage with 2 segments → update_lp modifies seepage constraint
+  const Array<ReservoirSeepage> reservoir_seepage_array = {
+      {
+          .uid = Uid {1},
+          .name = "seep1",
+          .waterway = Uid {2},
+          .reservoir = Uid {1},
+          .segments =
+              {
+                  {.volume = 0.0, .slope = 0.0003, .constant = 0.5},
+                  {.volume = 1000.0, .slope = 0.0001, .constant = 0.7},
+              },
+      },
+  };
+
+  // DischargeLimit with 2 segments → update_lp modifies DDL constraint
+  const Array<ReservoirDischargeLimit> reservoir_discharge_limit_array = {
+      {
+          .uid = Uid {1},
+          .name = "ddl1",
+          .waterway = Uid {1},
+          .reservoir = Uid {1},
+          .segments =
+              {
+                  {.volume = 0.0, .slope = 7e-5, .intercept = 15.0},
+                  {.volume = 1000.0, .slope = 1.4e-4, .intercept = 57.0},
+              },
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {.uid = Uid {1}, .duration = 1.0},
+              {.uid = Uid {2}, .duration = 2.0},
+          },
+      .stage_array =
+          {
+              {.uid = Uid {1}, .first_block = 0, .count_block = 2},
+          },
+      .scenario_array =
+          {
+              {.uid = Uid {0}},
+          },
+  };
+
+  const System system = {
+      .name = "test_update_lp_dispatch",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .reservoir_array = reservoir_array,
+      .reservoir_seepage_array = reservoir_seepage_array,
+      .reservoir_discharge_limit_array = reservoir_discharge_limit_array,
+      .turbine_array = turbine_array,
+      .reservoir_production_factor_array = reservoir_production_factor_array,
+  };
+
+  Options options;
+  options.demand_fail_cost = OptReal {1000.0};
+  const OptionsLP options_lp(options);
+  SimulationLP sim_lp(simulation, options_lp);
+  SystemLP system_lp(system, sim_lp);
+
+  auto& lp = system_lp.linear_interface();
+  CHECK(lp.get_numrows() > 0);
+  CHECK(lp.get_numcols() > 0);
+
+  SUBCASE("update_lp dispatches to all three element types")
+  {
+    // First solve to establish a baseline solution
+    auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+
+    // Call system_lp.update_lp() — should dispatch to all three elements
+    const auto updated = system_lp.update_lp();
+
+    // ProductionFactor always updates (initial coeff was mean=1.5,
+    // update sets it from segments at eini=500).
+    // Seepage and DDL update only if segment selection changes.
+    // At minimum, ProductionFactor contributes > 0 updates.
+    CHECK(updated > 0);
+
+    // Verify each element type is present in the system
+    CHECK(system_lp.elements<ReservoirProductionFactorLP>().size() == 1);
+    CHECK(system_lp.elements<ReservoirSeepageLP>().size() == 1);
+    CHECK(system_lp.elements<ReservoirDischargeLimitLP>().size() == 1);
+
+    // Verify ProductionFactor coefficient was actually updated:
+    // The initial conversion_rate was 1.0 from the Turbine.  After
+    // update_lp, the coefficient should differ (set from piecewise curve
+    // at the solution volume, which is near eini=500).
+    auto& eff = system_lp.elements<ReservoirProductionFactorLP>().front();
+    const auto& bmap = eff.coeff_indices_at(ScenarioUid {0}, StageUid {1});
+    CHECK_FALSE(bmap.empty());
+    for (const auto& [buid, ci] : bmap) {
+      const auto coeff = lp.get_coeff(ci.row, ci.col);
+      // Coefficient is -rate; original was -1.0, updated value should
+      // be in the range of the piecewise segments (between -1.0 and -2.0)
+      CHECK(coeff < -1.0);
+      CHECK(coeff > -2.0);
+    }
+  }
+
+  SUBCASE("system solves after update_lp")
+  {
+    auto result1 = lp.resolve();
+    REQUIRE(result1.has_value());
+    CHECK(result1.value() == 0);
+
+    std::ignore = system_lp.update_lp();
+
+    auto result2 = lp.resolve();
+    REQUIRE(result2.has_value());
+    CHECK(result2.value() == 0);
+  }
+
+  SUBCASE("second update_lp is idempotent when volume unchanged")
+  {
+    auto result = lp.resolve();
+    REQUIRE(result.has_value());
+
+    const auto updated1 = system_lp.update_lp();
+    const auto updated2 = system_lp.update_lp();
+
+    // Second call with same solution → no additional changes for
+    // seepage/DDL (they track state). ProductionFactor always writes
+    // the coefficient, so it may still count.
+    CHECK(updated2 <= updated1);
+  }
+}
