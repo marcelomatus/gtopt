@@ -32,7 +32,7 @@ set(CPLEX_ROOT_DIR
 )
 
 find_path(
-  CPLEX_INCLUDE_DIR ilcplex/cplex.h
+  CPLEX_INCLUDE_DIR include/ilcplex/cplex.h
   HINTS ${CPLEX_ROOT_DIR}/include
   PATHS ENV C_INCLUDE_PATH ENV C_PLUS_INCLUDE_PATH ENV INCLUDE_PATH
 )
