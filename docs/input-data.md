@@ -5,7 +5,7 @@ optimization cases with **gtopt** (Generation and Transmission Optimization
 Planning Tool).
 
 > For a step-by-step tutorial with worked examples and time-series workflow,
-> see **[PLANNING_GUIDE.md](PLANNING_GUIDE.md)**.
+> see **[Planning Guide](planning-guide.md)**.
 > For auto-generated field tables from source code run:
 > `python3 scripts/gtopt_field_extractor.py --format html --output field_reference.html`
 
@@ -82,7 +82,7 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 
 | Field         | Type   | Default        | Description |
 |---------------|--------|----------------|-------------|
-| `method` | string | `"monolithic"` | Planning solver: `"monolithic"` (default), `"sddp"`, or `"cascade"`. See [SDDP Solver](docs/SDDP_SOLVER.md), [Cascade Solver](docs/CASCADE_SOLVER.md), and [Monolithic Solver](docs/MONOLITHIC_SOLVER.md) |
+| `method` | string | `"monolithic"` | Planning solver: `"monolithic"` (default), `"sddp"`, or `"cascade"`. See [SDDP Solver](methods/sddp.md), [Cascade Solver](methods/cascade.md), and [Monolithic Solver](methods/monolithic.md) |
 
 #### Logging and debugging
 
@@ -208,7 +208,7 @@ SDDP-specific solver configuration, specified as a sub-object under
 `options.sddp_options`.  Field names omit the `sddp_` prefix since the
 section name already provides the namespace.  All fields are optional.
 
-For full algorithmic details, see [SDDP Solver](docs/SDDP_SOLVER.md).
+For full algorithmic details, see [SDDP Solver](methods/sddp.md).
 
 #### Iteration control
 
@@ -301,8 +301,8 @@ For full algorithmic details, see [SDDP Solver](docs/SDDP_SOLVER.md).
 These options configure the cascade solver (`method = "cascade"`), which
 runs a multi-level hybrid algorithm with progressive LP refinement.  They are
 set in their own `cascade_options` sub-object (not inside `sddp_options`).
-See [CASCADE_SOLVER.md](docs/CASCADE_SOLVER.md) for full documentation, and
-[SDDP Solver -- S10](docs/SDDP_SOLVER.md#10-cascade-solver--multi-level-hybrid-solver)
+See [Cascade Method](methods/cascade.md) for full documentation, and
+[SDDP Solver -- S10](methods/sddp.md#10-cascade-solver--multi-level-hybrid-solver)
 for a summary.
 
 The `cascade_options` object contains three top-level fields:
@@ -352,7 +352,7 @@ fields:
 
 **`transition` fields:**
 
-See [CASCADE_SOLVER.md §4.5](docs/CASCADE_SOLVER.md) for detailed cut
+See [CASCADE_SOLVER.md §4.5](methods/cascade.md) for detailed cut
 forgetting semantics and the two-phase solve behavior.
 
 | Field                        | Type    | Default | Description |
@@ -473,7 +473,7 @@ forgetting semantics and the two-phase solve behavior.
 Monolithic-solver-specific configuration, specified as a sub-object under
 `options.monolithic_options`.  All fields are optional.
 
-For full details, see [Monolithic Solver](docs/MONOLITHIC_SOLVER.md).
+For full details, see [Monolithic Solver](methods/monolithic.md).
 
 | Field                      | Type    | Default       | Description |
 |----------------------------|---------|---------------|-------------|
@@ -1118,7 +1118,7 @@ A generator's contribution to reserve zones.
 ### 3.18 User Constraint
 
 User-defined linear constraints applied to the LP formulation.
-See **[USER_CONSTRAINTS.md](USER_CONSTRAINTS.md)** for the full syntax
+See **[User Constraints](user-constraints.md)** for the full syntax
 reference and examples.
 
 | Field         | Type            | Unit  | Required | Description |
@@ -1261,9 +1261,9 @@ See `cases/c0/system_c0.json` for a minimal working example with:
 
 ## See also
 
-- **[Mathematical Formulation](docs/formulation/MATHEMATICAL_FORMULATION.md)**
+- **[Mathematical Formulation](formulation/mathematical-formulation.md)**
   — Full LP/MIP optimization formulation with academic references
-- **[PLANNING_GUIDE.md](PLANNING_GUIDE.md)** — Step-by-step planning guide
+- **[Planning Guide](planning-guide.md)** — Step-by-step planning guide
   with worked examples
-- **[USAGE.md](USAGE.md)** — Command-line options and advanced usage
-- **[SCRIPTS.md](SCRIPTS.md)** — Python conversion utilities
+- **[Usage Guide](usage.md)** — Command-line options and advanced usage
+- **[Scripts Guide](scripts-guide.md)** — Python conversion utilities

@@ -146,7 +146,7 @@ Two columns: **option** and **value**. Each row sets one planning option.
 | `output_format` | `csv` |
 
 Boolean values are written as `True` / `False`. Numeric values are parsed
-automatically. See [INPUT_DATA.md](../../INPUT_DATA.md) for the full list of
+automatically. See [INPUT_DATA.md](../input-data.md) for the full list of
 supported options.
 
 #### Solver selection
@@ -186,7 +186,7 @@ default is used:
 | 2 | `transport_sddp` | Reuses level 1 LP, enables apertures |
 | 3 | `full_sddp` | Kirchhoff + losses, inherits cuts |
 
-See [SDDP Solver — Cascade](../SDDP_SOLVER.md#10-cascade-solver--multi-level-hybrid-solver)
+See [SDDP Solver — Cascade](../methods/sddp.md#10-cascade-solver--multi-level-hybrid-solver)
 for the full level configuration schema and JSON examples.
 
 ### 5.2 Simulation Sheets
@@ -1029,13 +1029,13 @@ python -m pytest igtopt/tests/ -m integration -q
 
 ## See Also
 
-- [SCRIPTS.md](../../SCRIPTS.md) — Overview of all Python scripts including
+- [SCRIPTS.md](../scripts-guide.md) — Overview of all Python scripts including
   igtopt usage examples and the full sheet reference
-- [PLANNING_GUIDE.md](../../PLANNING_GUIDE.md) — How to structure planning
+- [PLANNING_GUIDE.md](../planning-guide.md) — How to structure planning
   problems for gtopt
-- [INPUT_DATA.md](../../INPUT_DATA.md) — Complete reference for gtopt JSON
+- [INPUT_DATA.md](../input-data.md) — Complete reference for gtopt JSON
   input format and all available options
-- [MATHEMATICAL_FORMULATION.md](../MATHEMATICAL_FORMULATION.md) — The LP/MIP
+- [MATHEMATICAL_FORMULATION.md](../formulation/mathematical-formulation.md) — The LP/MIP
   formulation that gtopt assembles from igtopt's output
 - [pp2gtopt.md](pp2gtopt.md) — Converting pandapower cases to gtopt (an
   alternative input path)

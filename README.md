@@ -12,22 +12,22 @@ A high-performance C++ tool for **Generation and Transmission Expansion Planning
 This project includes comprehensive documentation for different use cases:
 
 - **[README.md](README.md)** (this file) - Project overview, quick installation, and basic usage
-- **[PLANNING_GUIDE.md](PLANNING_GUIDE.md)** - Complete planning guide: time structure, system elements, JSON format, and worked examples
-- **[MATHEMATICAL_FORMULATION.md](docs/formulation/MATHEMATICAL_FORMULATION.md)** - Full LP/MIP optimization formulation with LaTeX notation
-- **[BUILDING.md](BUILDING.md)** - Detailed build instructions for all platforms, dependencies, and troubleshooting
-- **[USAGE.md](USAGE.md)** - Complete command-line reference, examples, and advanced usage patterns
-- **[INPUT_DATA.md](INPUT_DATA.md)** - Input data structure and file format reference
-- **[USER_CONSTRAINTS.md](USER_CONSTRAINTS.md)** - User-defined LP constraints: AMPL-inspired syntax, domain specs, external files
-- **[SCRIPTS.md](SCRIPTS.md)** - Python utilities: conversion ([plp2gtopt](docs/scripts/plp2gtopt.md), [pp2gtopt](docs/scripts/pp2gtopt.md), [igtopt](docs/scripts/igtopt.md), [ts2gtopt](docs/scripts/ts2gtopt.md), [cvs2parquet](docs/scripts/cvs2parquet.md), [gtopt2pp](#gtopt2pp)), visualization ([gtopt_diagram](docs/scripts/gtopt_diagram.md)), validation ([gtopt_check_json](#gtopt_check_json), [gtopt_check_lp](#gtopt_check_lp), [gtopt_check_output](#gtopt_check_output)), and solver management ([run_gtopt](#run_gtopt), [sddp_monitor](#sddp_monitor))
-- **[TOOL_COMPARISON.md](docs/TOOL_COMPARISON.md)** - Detailed comparison of gtopt vs PLP, pandapower, and other tools (elements, parameters, units, methodology)
-- **[SDDP_SOLVER.md](docs/SDDP_SOLVER.md)** - SDDP solver: theory, options, monitoring API, elastic filter modes, and JSON configuration
-- **[CASCADE_SOLVER.md](docs/CASCADE_SOLVER.md)** - Cascade solver: multi-level hybrid SDDP with warm-start
-- **[MONOLITHIC_SOLVER.md](docs/MONOLITHIC_SOLVER.md)** - Default monolithic solver, boundary cuts, and sequential mode
-- **[CHANGELOG.md](CHANGELOG.md)** - Release history and notable changes
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution guidelines, code style, and testing
+- **[Planning Guide](docs/planning-guide.md)** - Complete planning guide: time structure, system elements, JSON format, and worked examples
+- **[Mathematical Formulation](docs/formulation/mathematical-formulation.md)** - Full LP/MIP optimization formulation with LaTeX notation
+- **[Building Guide](BUILDING.md)** - Detailed build instructions for all platforms, dependencies, and troubleshooting
+- **[Usage Guide](docs/usage.md)** - Complete command-line reference, examples, and advanced usage patterns
+- **[Input Data Reference](docs/input-data.md)** - Input data structure and file format reference
+- **[User Constraints](docs/user-constraints.md)** - User-defined LP constraints: AMPL-inspired syntax, domain specs, external files
+- **[Scripts Guide](docs/scripts-guide.md)** - Python utilities: conversion ([plp2gtopt](docs/scripts/plp2gtopt.md), [pp2gtopt](docs/scripts/pp2gtopt.md), [igtopt](docs/scripts/igtopt.md), [ts2gtopt](docs/scripts/ts2gtopt.md), [cvs2parquet](docs/scripts/cvs2parquet.md), [gtopt2pp](#gtopt2pp)), visualization ([gtopt_diagram](docs/scripts/gtopt_diagram.md)), validation ([gtopt_check_json](#gtopt_check_json), [gtopt_check_lp](#gtopt_check_lp), [gtopt_check_output](#gtopt_check_output)), and solver management ([run_gtopt](#run_gtopt), [sddp_monitor](#sddp_monitor))
+- **[Tool Comparison](docs/tools/comparison.md)** - Detailed comparison of gtopt vs PLP, pandapower, and other tools (elements, parameters, units, methodology)
+- **[SDDP Method](docs/methods/sddp.md)** - SDDP solver: theory, options, monitoring API, elastic filter modes, and JSON configuration
+- **[Cascade Method](docs/methods/cascade.md)** - Cascade solver: multi-level hybrid SDDP with warm-start
+- **[Monolithic Method](docs/methods/monolithic.md)** - Default monolithic solver, boundary cuts, and sequential mode
+- **[Changelog](CHANGELOG.md)** - Release history and notable changes
+- **[Contributing Guide](CONTRIBUTING.md)** - Contribution guidelines, code style, and testing
 - **[webservice/INSTALL.md](webservice/INSTALL.md)** - Web service installation, deployment, and API reference
 - **[guiservice/INSTALL.md](guiservice/INSTALL.md)** - GUI service installation, deployment, and usage guide
-- **[DIAGRAM_TOOL.md](DIAGRAM_TOOL.md)** - Network and planning diagram tool with aggregation and large-case support
+- **[Diagram Tool](docs/tools/diagram.md)** - Network and planning diagram tool with aggregation and large-case support
 
 ## Table of Contents
 
@@ -80,7 +80,7 @@ sudo cmake --install build
 gtopt --version
 ```
 
-For detailed build instructions, alternative platforms, troubleshooting, and build options, see **[BUILDING.md](BUILDING.md)**.
+For detailed build instructions, alternative platforms, troubleshooting, and build options, see **[Building Guide](BUILDING.md)**.
 
 ## Usage
 
@@ -103,7 +103,7 @@ gtopt system_c0.json --use-single-bus
 gtopt system_c0.json --use-kirchhoff
 ```
 
-For complete command-line reference, advanced examples, and detailed usage instructions, see **[USAGE.md](USAGE.md)**.
+For complete command-line reference, advanced examples, and detailed usage instructions, see **[Usage Guide](docs/usage.md)**.
 
 ## Running the Sample Case
 
@@ -117,9 +117,9 @@ gtopt system_c0.json
 The solver produces output files organized by component type in the `output/` directory. A status of `0` in `solution.csv` indicates an optimal solution was found.
 
 For a step-by-step walkthrough of running and interpreting the simplest case
-(`ieee_4b_ori`), see the **[Quickstart: Your First Solve](PLANNING_GUIDE.md#quickstart-your-first-solve)**
+(`ieee_4b_ori`), see the **[Quickstart: Your First Solve](docs/planning-guide.md#quickstart-your-first-solve)**
 section in the Planning Guide. For detailed output file descriptions, system
-file format, and advanced examples, see **[USAGE.md](USAGE.md#running-the-sample-case)**.
+file format, and advanced examples, see **[Usage Guide](docs/usage.md#running-the-sample-case)**.
 
 ## Python Scripts
 
@@ -175,7 +175,7 @@ After conversion, `plp2gtopt` prints statistics covering the number of buses,
 generators, demands, lines, blocks, stages, and scenarios — similar to the
 stats printed by the `gtopt` solver itself.
 
-For the full reference, see **[SCRIPTS.md](SCRIPTS.md)**.
+For the full reference, see **[Scripts Guide](docs/scripts-guide.md)**.
 
 ## GUI Service
 
@@ -287,7 +287,7 @@ for interoperability:
 |------|----------|-----------------|
 | **[pandapower](https://www.pandapower.org/)** | Python | DC OPF reference solver; `pp2gtopt` imports pandapower networks; `gtopt_compare` validates gtopt results against pandapower on standard IEEE test cases |
 | **[PLP](https://github.com/marcelomatus/plp_storage)** | Fortran | Hydrothermal scheduling tool widely used in Latin America; `plp2gtopt` converts PLP `.dat` input files to gtopt JSON + Parquet |
-| **[PyPSA](https://pypsa.org/)** | Python | Linear optimal power flow with multi-period investment planning; shares the same LP/MIP mathematical structure as gtopt (see [Mathematical Formulation](docs/formulation/MATHEMATICAL_FORMULATION.md)) |
+| **[PyPSA](https://pypsa.org/)** | Python | Linear optimal power flow with multi-period investment planning; shares the same LP/MIP mathematical structure as gtopt (see [Mathematical Formulation](docs/formulation/mathematical-formulation.md)) |
 | **[GenX](https://genxproject.github.io/GenX/)** | Julia | Capacity expansion model; similar modular investment + storage SoC formulation to gtopt |
 
 ### pandapower

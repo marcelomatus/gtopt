@@ -264,8 +264,8 @@ gtopt_compare --case ieee_57b --gtopt-output output/
 
 ## See Also
 
-- [SCRIPTS.md](../../SCRIPTS.md) — Overview of all gtopt Python scripts
+- [SCRIPTS.md](../scripts-guide.md) — Overview of all gtopt Python scripts
 - [gtopt_compare](gtopt_compare.md) — Validate gtopt results against
   pandapower DC OPF
 - [plp2gtopt](plp2gtopt.md) — Convert PLP cases to gtopt
-- [PLANNING\_GUIDE.md](../../PLANNING_GUIDE.md) — Guide to gtopt planning concepts
+- [PLANNING\_GUIDE.md](../planning-guide.md) — Guide to gtopt planning concepts

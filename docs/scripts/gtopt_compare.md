@@ -180,7 +180,7 @@ gtopt_compare --case ieee30b --pandapower-file ieee30b_pp.json --gtopt-output ou
 
 ## See Also
 
-- [SCRIPTS.md](../../SCRIPTS.md) — Overview of all gtopt Python scripts
+- [SCRIPTS.md](../scripts-guide.md) — Overview of all gtopt Python scripts
 - [pp2gtopt](pp2gtopt.md) — Convert pandapower networks to gtopt JSON
-- [PLANNING\_GUIDE.md](../../PLANNING_GUIDE.md) — Guide to gtopt planning concepts
-- [USAGE.md](../../USAGE.md) — Running gtopt and interpreting output files
+- [PLANNING\_GUIDE.md](../planning-guide.md) — Guide to gtopt planning concepts
+- [USAGE.md](../usage.md) — Running gtopt and interpreting output files
