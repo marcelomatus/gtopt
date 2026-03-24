@@ -378,9 +378,9 @@ vis.js diagram.  Users can:
 
 ## See Also
 
-- [SCRIPTS.md](../../SCRIPTS.md) — Overview of all gtopt Python scripts
-- [DIAGRAM\_TOOL.md](../../DIAGRAM_TOOL.md) — Original diagram tool documentation
+- [SCRIPTS.md](../scripts-guide.md) — Overview of all gtopt Python scripts
+- [DIAGRAM\_TOOL.md](../tools/diagram.md) — Original diagram tool documentation
   with sample images
-- [PLANNING\_GUIDE.md](../../PLANNING_GUIDE.md) — Guide to gtopt planning concepts
+- [PLANNING\_GUIDE.md](../planning-guide.md) — Guide to gtopt planning concepts
 - [plp2gtopt](plp2gtopt.md) — Convert PLP cases (source of the large-case example)
 - [pp2gtopt](pp2gtopt.md) — Convert pandapower networks (source of IEEE test cases)

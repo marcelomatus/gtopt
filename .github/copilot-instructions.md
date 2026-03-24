@@ -1509,7 +1509,7 @@ maintain consistency across the project.
 
 ### Mathematical Formulation Document
 
-The canonical formulation is `docs/formulation/MATHEMATICAL_FORMULATION.md`.
+The canonical formulation is `docs/formulation/mathematical-formulation.md`.
 
 - Use LaTeX display math (`$$...$$`) for equations and inline math (`$...$`)
   for symbols in text.
@@ -1529,13 +1529,13 @@ related documents. The current cross-reference structure:
 | Document | Links to |
 |----------|----------|
 | `README.md` | All documents (hub) |
-| `PLANNING_GUIDE.md` | INPUT_DATA, USAGE, SCRIPTS, BUILDING, DIAGRAM_TOOL, MATH_FORMULATION |
-| `MATHEMATICAL_FORMULATION.md` | PLANNING_GUIDE, INPUT_DATA, USAGE, CONTRIBUTING, BUILDING, SCRIPTS |
-| `USAGE.md` | MATH_FORMULATION, PLANNING_GUIDE, INPUT_DATA, SCRIPTS |
-| `INPUT_DATA.md` | MATH_FORMULATION, PLANNING_GUIDE, USAGE, SCRIPTS |
+| `docs/planning-guide.md` | INPUT_DATA, USAGE, SCRIPTS, BUILDING, DIAGRAM_TOOL, MATH_FORMULATION |
+| `docs/formulation/mathematical-formulation.md` | PLANNING_GUIDE, INPUT_DATA, USAGE, CONTRIBUTING, BUILDING, SCRIPTS |
+| `docs/usage.md` | MATH_FORMULATION, PLANNING_GUIDE, INPUT_DATA, SCRIPTS |
+| `docs/input-data.md` | MATH_FORMULATION, PLANNING_GUIDE, USAGE, SCRIPTS |
 
-Use relative paths: `[PLANNING_GUIDE.md](PLANNING_GUIDE.md)` from root,
-`[Planning Guide](../../PLANNING_GUIDE.md)` from `docs/formulation/`.
+Use relative paths: `[docs/planning-guide.md](docs/planning-guide.md)` from root,
+`[Planning Guide](../../docs/planning-guide.md)` from `docs/formulation/`.
 
 ### Formulation Validation (verified 2026-03)
 
@@ -1551,7 +1551,7 @@ The mathematical formulation has been validated against the C++ implementation
 | Capacity expansion | `capacity_object_lp.cpp` | $C_t = C_{t-1}(1{-}\xi) + M \cdot m_t + \Delta C$ |
 
 When modifying the C++ LP assembly code, update the corresponding section
-in `MATHEMATICAL_FORMULATION.md` to maintain consistency.
+in `docs/formulation/mathematical-formulation.md` to maintain consistency.
 
 ### Documentation File Purposes
 
@@ -1559,13 +1559,13 @@ in `MATHEMATICAL_FORMULATION.md` to maintain consistency.
 |------|---------|----------|
 | `README.md` | Quick start, feature overview | New users |
 | `BUILDING.md` | Build instructions, dependencies | Developers |
-| `USAGE.md` | CLI reference, output interpretation | Users |
-| `INPUT_DATA.md` | JSON/Parquet input format spec | Case builders |
-| `PLANNING_GUIDE.md` | Worked examples, concepts | Planners |
-| `SCRIPTS.md` | Python tool overview | Script users |
+| `docs/usage.md` | CLI reference, output interpretation | Users |
+| `docs/input-data.md` | JSON/Parquet input format spec | Case builders |
+| `docs/planning-guide.md` | Worked examples, concepts | Planners |
+| `docs/scripts-guide.md` | Python tool overview | Script users |
 | `CONTRIBUTING.md` | Code style, testing, CI | Contributors |
-| `MATHEMATICAL_FORMULATION.md` | LP/MIP formulation, references | Researchers |
-| `DIAGRAM_TOOL.md` | Network diagram tool | Visualization |
+| `docs/formulation/mathematical-formulation.md` | LP/MIP formulation, references | Researchers |
+| `docs/tools/diagram.md` | Network diagram tool | Visualization |
 | `CLAUDE.md` | AI agent guidance | Claude Code |
 | `.github/copilot-instructions.md` | AI agent guidance | GitHub Copilot |
 
@@ -1583,4 +1583,4 @@ be consulted when validating or extending the formulation:
 - **Solver**: COIN-OR CBC — Forrest & Lougee-Heimer (2005)
 
 Full citations with DOIs are in
-`docs/formulation/MATHEMATICAL_FORMULATION.md` §9.
+`docs/formulation/mathematical-formulation.md` §9.

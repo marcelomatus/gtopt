@@ -777,9 +777,9 @@ The gtopt constraint language is intentionally **narrower** than AMPL:
 
 ## 13. See Also
 
-- **[INPUT_DATA.md](INPUT_DATA.md)** — Full JSON input format specification
+- **[Input Data Reference](input-data.md)** — Full JSON input format specification
   (§3.18 for UserConstraint fields)
-- **[MATHEMATICAL_FORMULATION.md](docs/formulation/MATHEMATICAL_FORMULATION.md)**
+- **[Mathematical Formulation](formulation/mathematical-formulation.md)**
   — LP/MIP formulation details
-- **[PLANNING_GUIDE.md](PLANNING_GUIDE.md)** — Step-by-step planning guide
-- **[USAGE.md](USAGE.md)** — Command-line options and output interpretation
+- **[Planning Guide](planning-guide.md)** — Step-by-step planning guide
+- **[Usage Guide](usage.md)** — Command-line options and output interpretation

@@ -324,9 +324,9 @@ gtopt my_case.json
 
 ## See Also
 
-- [SCRIPTS.md](../../SCRIPTS.md) — Overview of all gtopt Python scripts
-- [PLANNING\_GUIDE.md](../../PLANNING_GUIDE.md) — Guide to gtopt planning concepts
+- [SCRIPTS.md](../scripts-guide.md) — Overview of all gtopt Python scripts
+- [PLANNING\_GUIDE.md](../planning-guide.md) — Guide to gtopt planning concepts
   (stages, blocks, scenarios)
-- [INPUT\_DATA.md](../../INPUT_DATA.md) — gtopt input file format reference
+- [INPUT\_DATA.md](../input-data.md) — gtopt input file format reference
 - [cvs2parquet](cvs2parquet.md) — Convert existing CSV files to Parquet
 - [plp2gtopt](plp2gtopt.md) — Convert PLP cases (includes time-series data)

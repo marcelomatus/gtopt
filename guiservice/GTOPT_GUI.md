@@ -436,4 +436,4 @@ Download Python from [python.org](https://www.python.org/) if needed.
 
 - [README.md](README.md) - Full GUI service documentation
 - [INSTALL.md](INSTALL.md) - Detailed installation guide
-- [../USAGE.md](../USAGE.md) - gtopt command-line usage
+- [../USAGE.md](../docs/usage.md) - gtopt command-line usage

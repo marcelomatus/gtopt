@@ -9,7 +9,7 @@ results should be directly comparable.
 
 > **Conversion tools**: The gtopt repository includes `plp2gtopt` (PLP →
 > gtopt), `pp2gtopt` (pandapower → gtopt), and `gtopt_compare`
-> (validation against pandapower DC OPF). See [SCRIPTS.md](../SCRIPTS.md)
+> (validation against pandapower DC OPF). See [Scripts Guide](../scripts-guide.md)
 > for installation and usage.
 
 ---
@@ -579,7 +579,7 @@ plp2gtopt -i plp_case_dir/ --excel -E output.xlsx   # Excel output
 - Demand profiles → Parquet time-series
 - Multiple hydrologies → scenario_array with probability_factors
 
-See [plp2gtopt documentation](scripts/plp2gtopt.md) for full usage.
+See [plp2gtopt documentation](../scripts/plp2gtopt.md) for full usage.
 
 ### pp2gtopt (pandapower → gtopt)
 
@@ -600,7 +600,7 @@ pp2gtopt --network ieee_57b -o output.json       # built-in network
 - Polynomial costs → linear `cp1` coefficient
 - Single-snapshot time structure (1 block, 1 stage, 1 scenario)
 
-See [pp2gtopt documentation](scripts/pp2gtopt.md) for full usage.
+See [pp2gtopt documentation](../scripts/pp2gtopt.md) for full usage.
 
 ### igtopt (Excel → gtopt)
 
@@ -614,7 +614,7 @@ igtopt --make-template -j template.xlsx          # Generate template
 The Excel format is the same produced by `plp2gtopt --excel`, enabling the
 workflow: **PLP → plp2gtopt (Excel) → manual editing → igtopt → gtopt**.
 
-See [igtopt documentation](scripts/igtopt.md) for full usage.
+See [igtopt documentation](../scripts/igtopt.md) for full usage.
 
 ### gtopt_compare (Validation against pandapower)
 
@@ -625,7 +625,7 @@ gtopt_compare ieee_4b_ori                        # built-in case
 gtopt_compare --output-dir results/ --tol-mw 0.5 # custom tolerance
 ```
 
-See [gtopt_compare documentation](scripts/gtopt_compare.md) for full usage.
+See [gtopt_compare documentation](../scripts/gtopt_compare.md) for full usage.
 
 ---
 
@@ -922,12 +922,12 @@ occurs. The bus marginal price equals the generator's marginal cost
 
 ## See Also
 
-- [SCRIPTS.md](../SCRIPTS.md) — Python tools overview
-- [INPUT_DATA.md](../INPUT_DATA.md) — gtopt input format specification
-- [USAGE.md](../USAGE.md) — CLI reference and output interpretation
-- [PLANNING_GUIDE.md](../PLANNING_GUIDE.md) — Worked examples and concepts
-- [MATHEMATICAL_FORMULATION.md](formulation/MATHEMATICAL_FORMULATION.md) — LP/MIP formulation
-- [plp2gtopt documentation](scripts/plp2gtopt.md) — Full PLP converter reference
-- [pp2gtopt documentation](scripts/pp2gtopt.md) — Full pandapower converter reference
-- [igtopt documentation](scripts/igtopt.md) — Full Excel converter reference
-- [gtopt_compare documentation](scripts/gtopt_compare.md) — Validation tool reference
+- [Scripts Guide](../scripts-guide.md) — Python tools overview
+- [Input Data Reference](../input-data.md) — gtopt input format specification
+- [Usage Guide](../usage.md) — CLI reference and output interpretation
+- [Planning Guide](../planning-guide.md) — Worked examples and concepts
+- [Mathematical Formulation](../formulation/mathematical-formulation.md) — LP/MIP formulation
+- [plp2gtopt documentation](../scripts/plp2gtopt.md) — Full PLP converter reference
+- [pp2gtopt documentation](../scripts/pp2gtopt.md) — Full pandapower converter reference
+- [igtopt documentation](../scripts/igtopt.md) — Full Excel converter reference
+- [gtopt_compare documentation](../scripts/gtopt_compare.md) — Validation tool reference

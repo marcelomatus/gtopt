@@ -2,7 +2,7 @@
 
 Detailed usage instructions, examples, and reference for the gtopt solver.
 
-> **Note**: This guide assumes gtopt is already installed. If you need build instructions, see [BUILDING.md](BUILDING.md). For detailed input data structure specifications, see [INPUT_DATA.md](INPUT_DATA.md).
+> **Note**: This guide assumes gtopt is already installed. If you need build instructions, see [Building Guide](../BUILDING.md). For detailed input data structure specifications, see [Input Data Reference](input-data.md).
 
 ## Table of Contents
 
@@ -577,7 +577,7 @@ When the LP is too large to fit in memory:
   problem into smaller per-phase LPs instead of one large monolithic LP.
 - **Use the cascade solver**: set `method: "cascade"` for multi-level
   SDDP that starts with a simplified model and progressively refines.
-  See [CASCADE_SOLVER.md](docs/CASCADE_SOLVER.md).
+  See [Cascade Method](methods/cascade.md).
 - **Reduce the number of scenes**: fewer scenarios in each scene means
   smaller per-scene LPs.
 - **Reduce reserve zones**: spinning reserve constraints add rows per bus
@@ -696,16 +696,16 @@ if __name__ == "__main__":
 
 ## See also
 
-- **[Mathematical Formulation](docs/formulation/MATHEMATICAL_FORMULATION.md)**
+- **[Mathematical Formulation](formulation/mathematical-formulation.md)**
   — Full LP/MIP optimization formulation with academic references
-- **[PLANNING_GUIDE.md](PLANNING_GUIDE.md)** — Step-by-step planning guide
+- **[Planning Guide](planning-guide.md)** — Step-by-step planning guide
   with worked examples
-- **[INPUT_DATA.md](INPUT_DATA.md)** — Input data structure and file format
+- **[Input Data Reference](input-data.md)** — Input data structure and file format
   reference (complete options reference)
-- **[SDDP Method](docs/SDDP_SOLVER.md)** — SDDP decomposition algorithm,
+- **[SDDP Method](methods/sddp.md)** — SDDP decomposition algorithm,
   configuration, and convergence details
-- **[Cascade Method](docs/CASCADE_SOLVER.md)** — Multi-level hybrid SDDP
+- **[Cascade Method](methods/cascade.md)** — Multi-level hybrid SDDP
   method with cut inheritance and progressive refinement
-- **[Monolithic Method](docs/MONOLITHIC_SOLVER.md)** — Default monolithic
+- **[Monolithic Method](methods/monolithic.md)** — Default monolithic
   method, boundary cuts, and sequential mode
-- **[SCRIPTS.md](SCRIPTS.md)** — Python conversion utilities
+- **[Scripts Guide](scripts-guide.md)** — Python conversion utilities

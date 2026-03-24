@@ -10,7 +10,7 @@ progressively refine towards the full network model, warm-starting each
 subsequent level with information from the previous one.
 
 Each level internally runs an `SDDPMethod` instance (the same solver
-documented in [SDDP_SOLVER.md](SDDP_SOLVER.md)).  The cascade solver
+documented in [SDDP Method](sddp.md)).  The cascade solver
 adds an outer loop that manages LP construction, solver lifecycle, and
 information transfer between levels.
 
@@ -334,7 +334,7 @@ flowchart LR
 | `reserve_fail_cost` | real | 1000 | Penalty for unserved reserve [$/MWh] |
 | `annual_discount_rate` | real | 0.0 | Discount rate for multi-stage CAPEX |
 
-See also [INPUT_DATA.md](../INPUT_DATA.md) for the full JSON input
+See also [Input Data Reference](../input-data.md) for the full JSON input
 specification.
 
 ---
@@ -682,7 +682,7 @@ After solving, `level_stats()` returns a vector of
 
 Each level inherits the full convergence machinery from the SDDP solver,
 including the **stationary-gap secondary criterion** (see
-[SDDP_SOLVER.md §4.5](SDDP_SOLVER.md#45-convergence-check)).  Per-level
+[SDDP_SOLVER.md §4.5](sddp.md#45-convergence-check)).  Per-level
 `sddp_options` can set `stationary_tol` and `stationary_window` to
 enable secondary convergence detection at that level — useful when
 simplified models converge to a non-zero gap plateau.
@@ -778,14 +778,14 @@ DOI: [10.1109/KPEC54747.2022.9814758](https://doi.org/10.1109/KPEC54747.2022.981
 
 ## 9. See Also
 
-- [SDDP_SOLVER.md](SDDP_SOLVER.md) -- base SDDP solver documentation,
+- [SDDP Method](sddp.md) -- base SDDP solver documentation,
   including convergence theory, cut types, elastic filter, and
   configuration reference
-- [MONOLITHIC_SOLVER.md](MONOLITHIC_SOLVER.md) -- monolithic solver
+- [Monolithic Method](monolithic.md) -- monolithic solver
   documentation
-- [INPUT_DATA.md](../INPUT_DATA.md) -- JSON/Parquet input format
+- [Input Data Reference](../input-data.md) -- JSON/Parquet input format
   specification (includes `cascade_options` reference)
-- [MATHEMATICAL_FORMULATION.md](formulation/MATHEMATICAL_FORMULATION.md)
+- [Mathematical Formulation](../formulation/mathematical-formulation.md)
   -- full LP/MIP formulation
-- [PLANNING_GUIDE.md](../PLANNING_GUIDE.md) -- worked examples and
+- [Planning Guide](../planning-guide.md) -- worked examples and
   time structure concepts
