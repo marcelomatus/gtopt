@@ -2,14 +2,14 @@
 
 ## 1. Introduction
 
-The **Cascade solver** (`solver_type = "cascade"`) orchestrates multiple
+The **Cascade solver** (`method = "cascade"`) orchestrates multiple
 SDDP/Benders decomposition levels, each with its own LP formulation and
 solver configuration.  The key idea is to start with a simplified model
 (e.g. uninodal/transport network) that converges quickly, then
 progressively refine towards the full network model, warm-starting each
 subsequent level with information from the previous one.
 
-Each level internally runs an `SDDPSolver` instance (the same solver
+Each level internally runs an `SDDPMethod` instance (the same solver
 documented in [SDDP_SOLVER.md](SDDP_SOLVER.md)).  The cascade solver
 adds an outer loop that manages LP construction, solver lifecycle, and
 information transfer between levels.
@@ -94,7 +94,7 @@ followed by 1 final simulation pass (forward-only).  The training
 iterations generate Benders cuts and improve the lower bound; the
 simulation pass evaluates the policy without adding cuts.
 
-The `SDDPSolver` returns N+1 results: N training iterations + 1
+The `SDDPMethod` returns N+1 results: N training iterations + 1
 simulation pass.  Only the N training iterations count towards the
 global iteration budget.
 
@@ -235,7 +235,7 @@ within the top-level `options` object:
 ```json
 {
   "options": {
-    "solver_type": "cascade",
+    "method": "cascade",
     "sddp_options": { ... },
     "cascade_options": {
       "model_options": { ... },
@@ -349,7 +349,7 @@ scratch; level 1 inherits those cuts and converges faster.
 ```json
 {
   "options": {
-    "solver_type": "cascade",
+    "method": "cascade",
     "sddp_options": {
       "max_iterations": 30,
       "convergence_tol": 0.01
@@ -406,7 +406,7 @@ trajectory as elastic targets.
 ```json
 {
   "options": {
-    "solver_type": "cascade",
+    "method": "cascade",
     "sddp_options": {
       "max_iterations": 30,
       "convergence_tol": 0.01
@@ -464,7 +464,7 @@ to refined convergence with inherited cuts.
 ```json
 {
   "options": {
-    "solver_type": "cascade",
+    "method": "cascade",
     "sddp_options": {
       "max_iterations": 30,
       "convergence_tol": 0.01
@@ -543,7 +543,7 @@ from Benders to SDDP with apertures:
 ```json
 {
   "options": {
-    "solver_type": "cascade",
+    "method": "cascade",
     "sddp_options": {
       "max_iterations": 30,
       "convergence_tol": 0.01
@@ -613,10 +613,10 @@ In this mode:
 
 ## 7. Implementation Notes
 
-### 7.1 CascadePlanningSolver Class
+### 7.1 CascadePlanningMethod Class
 
-The `CascadePlanningSolver` class (defined in `cascade_solver.hpp`,
-implemented in `cascade_solver.cpp`) inherits from `PlanningSolver`
+The `CascadePlanningMethod` class (defined in `cascade_method.hpp`,
+implemented in `cascade_method.cpp`) inherits from `PlanningMethod`
 and implements the `solve()` interface.
 
 Key members:

@@ -1524,7 +1524,7 @@ scenarios.
 
 ## 13. Using the Cascade Solver
 
-The **cascade solver** (`solver_type = "cascade"`) runs multiple SDDP levels
+The **cascade solver** (`method = "cascade"`) runs multiple SDDP levels
 in sequence, each with its own LP formulation and solver parameters.  It
 accelerates convergence by starting from a simplified model and progressively
 refining towards the full network.
@@ -1564,7 +1564,7 @@ target constraints from the Level 0 reservoir volumes, guiding the forward pass.
 ```json
 {
   "options": {
-    "solver_type": "cascade",
+    "method": "cascade",
     "use_single_bus": true,
     "scale_objective": 1.0,
     "demand_fail_cost": 1000,
@@ -1675,7 +1675,7 @@ the solver strategy:
 ```json
 {
   "options": {
-    "solver_type": "cascade",
+    "method": "cascade",
     "sddp_options": {
       "max_iterations": 50,
       "convergence_tol": 0.001

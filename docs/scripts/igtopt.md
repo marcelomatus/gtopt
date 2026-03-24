@@ -151,9 +151,9 @@ supported options.
 
 #### Solver selection
 
-Set `solver_type` to choose the planning solver:
+Set `method` to choose the planning solver:
 
-| `solver_type` | Description |
+| `method` | Description |
 |---------------|-------------|
 | `monolithic`  | Single LP solve (default) |
 | `sddp`        | SDDP decomposition with Benders cuts |
@@ -165,7 +165,7 @@ SDDP options go under the `sddp_*` prefix in the options sheet
 
 #### Cascade-specific options
 
-When using `solver_type = "cascade"`, the cascade solver uses a
+When using `method = "cascade"`, the cascade solver uses a
 variable-number-of-levels architecture configured via a `levels` array
 inside `cascade_options`.  Each level can specify its own LP formulation,
 solver parameters, and transition rules.
@@ -173,7 +173,7 @@ solver parameters, and transition rules.
 **Cascade levels are configured directly in the JSON file** rather than
 through the Excel template, because the nested structure (arrays of objects
 with sub-objects) is too complex for a flat spreadsheet format.  To use the
-cascade solver from igtopt, set `solver_type = "cascade"` in the options
+cascade solver from igtopt, set `method = "cascade"` in the options
 sheet and then edit the generated JSON to add `cascade_options`.
 
 When `cascade_options` is empty or `levels` is omitted, a built-in 4-level

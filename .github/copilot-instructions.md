@@ -6,7 +6,8 @@
 Transmission Expansion Planning (GTEP)**. It minimizes the total expected cost
 of operation and expansion of electrical power systems (CAPEX + OPEX). It
 supports single-bus and multi-bus DC power flow (Kirchhoff's laws), Parquet/CSV/JSON
-I/O, and a sparse-matrix LP/MIP formulation via COIN-OR solvers.
+I/O, and a sparse-matrix LP/MIP formulation via pluggable LP solver backends
+(CLP, CBC, CPLEX, HiGHS) loaded dynamically at runtime.
 
 The repository also contains:
 - `standalone/` – thin `main()` wrapper that builds the `gtopt` binary

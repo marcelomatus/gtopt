@@ -1523,7 +1523,7 @@ in practice for problems with tight physical bounds.
 
 ### 6.14 Cascade Solver — Multi-Level Decomposition
 
-The **Cascade solver** (`solver_type = "cascade"`) extends the SDDP
+The **Cascade solver** (`method = "cascade"`) extends the SDDP
 algorithm with an outer loop over multiple **levels**, each with its own LP
 formulation and solver parameters.  The key idea is progressive refinement:
 start from a simplified model (e.g. single-bus / copper-plate) that
@@ -1659,7 +1659,7 @@ mathematical symbols used in this formulation.
 | `options.use_line_losses` | — | Enable line losses |
 | `options.demand_fail_cost` | $c^{\text{fail}}_d$ | Curtailment penalty |
 | `options.reserve_fail_cost` | $c^{\text{rfail}}$ | Reserve penalty |
-| `options.solver_type` | — | Solver: `"monolithic"` or `"sddp"` |
+| `options.method` | — | Solver: `"monolithic"` or `"sddp"` |
 | `options.variable_scales` | $\sigma_x$ | Per-variable scale factors (Section 6.3) |
 | `options.sddp_options.boundary_cuts_file` | — | CSV with boundary cuts for last phase (Section 6.9) |
 | `options.sddp_options.boundary_cuts_mode` | — | Load mode: `"noload"`, `"separated"`, `"combined"` |

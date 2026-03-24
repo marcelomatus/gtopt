@@ -74,6 +74,8 @@ Multiple system files can be provided and will be merged.
 | `-e` | `--matrix-eps` | `arg` | Epsilon for matrix sparsity (coefficients below this are zero) |
 | `-c` | `--just-create` | `[=arg]` | Build the LP model and exit without solving |
 | `-p` | `--fast-parsing` | `[=arg]` | Use fast (non-strict) JSON parsing |
+| | `--lp-solver` | `arg` | LP solver backend: `clp`, `cbc`, `cplex`, `highs` (auto-detected by default) |
+| | `--lp-solvers` | | List available LP solver backends and exit |
 
 ## System Configuration File
 
@@ -571,9 +573,9 @@ When the LP is too large to fit in memory:
 
 - **Reduce the number of blocks/stages**: aggregate time periods or use
   representative days instead of hourly resolution.
-- **Use SDDP decomposition**: set `solver_type: "sddp"` to decompose the
+- **Use SDDP decomposition**: set `method: "sddp"` to decompose the
   problem into smaller per-phase LPs instead of one large monolithic LP.
-- **Use the cascade solver**: set `solver_type: "cascade"` for multi-level
+- **Use the cascade solver**: set `method: "cascade"` for multi-level
   SDDP that starts with a simplified model and progressively refines.
   See [CASCADE_SOLVER.md](docs/CASCADE_SOLVER.md).
 - **Reduce the number of scenes**: fewer scenarios in each scene means
@@ -700,10 +702,10 @@ if __name__ == "__main__":
   with worked examples
 - **[INPUT_DATA.md](INPUT_DATA.md)** — Input data structure and file format
   reference (complete options reference)
-- **[SDDP Solver](docs/SDDP_SOLVER.md)** — SDDP decomposition algorithm,
+- **[SDDP Method](docs/SDDP_SOLVER.md)** — SDDP decomposition algorithm,
   configuration, and convergence details
-- **[Cascade Solver](docs/CASCADE_SOLVER.md)** — Multi-level hybrid SDDP
-  solver with cut inheritance and progressive refinement
-- **[Monolithic Solver](docs/MONOLITHIC_SOLVER.md)** — Default monolithic
-  solver, boundary cuts, and sequential mode
+- **[Cascade Method](docs/CASCADE_SOLVER.md)** — Multi-level hybrid SDDP
+  method with cut inheritance and progressive refinement
+- **[Monolithic Method](docs/MONOLITHIC_SOLVER.md)** — Default monolithic
+  method, boundary cuts, and sequential mode
 - **[SCRIPTS.md](SCRIPTS.md)** — Python conversion utilities
