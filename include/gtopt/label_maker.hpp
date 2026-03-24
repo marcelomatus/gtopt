@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <gtopt/as_label.hpp>
 #include <gtopt/options_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 
@@ -56,34 +57,37 @@ public:
   // ── state_col_label: always generates (state variables need names) ──
 
   template<typename... Types>
-  [[nodiscard]] static auto state_col_label(Types&&... args) -> std::string
+  [[nodiscard]] auto state_col_label(Types&&... args) const -> std::string
   {
-    return gtopt::as_label(std::forward<Types>(args)...);
+    gtopt::as_label_into(label_buf_, std::forward<Types>(args)...);
+    return label_buf_;
   }
 
   template<typename StageLP, typename... Types>
     requires std::same_as<std::remove_cvref_t<StageLP>, gtopt::StageLP>
       && (sizeof...(Types) >= 3)
-  [[nodiscard]] static constexpr auto state_col_label(StageLP&& stage,
-                                                      Types&&... args)
+  [[nodiscard]] auto state_col_label(StageLP&& stage, Types&&... args) const
       -> std::string
   {
-    return gtopt::as_label(std::forward<Types>(args)...,
-                           std::forward<StageLP>(stage).uid());
+    gtopt::as_label_into(label_buf_,
+                         std::forward<Types>(args)...,
+                         std::forward<StageLP>(stage).uid());
+    return label_buf_;
   }
 
   template<typename ScenarioLP, typename StageLP, typename... Types>
     requires std::same_as<std::remove_cvref_t<ScenarioLP>, gtopt::ScenarioLP>
       && std::same_as<std::remove_cvref_t<StageLP>, gtopt::StageLP>
       && (sizeof...(Types) >= 3)
-  [[nodiscard]] static constexpr auto state_col_label(ScenarioLP&& scenario,
-                                                      StageLP&& stage,
-                                                      Types&&... args)
-      -> std::string
+  [[nodiscard]] auto state_col_label(ScenarioLP&& scenario,
+                                     StageLP&& stage,
+                                     Types&&... args) const -> std::string
   {
-    return gtopt::as_label(std::forward<Types>(args)...,
-                           std::forward<ScenarioLP>(scenario).uid(),
-                           std::forward<StageLP>(stage).uid());
+    gtopt::as_label_into(label_buf_,
+                         std::forward<Types>(args)...,
+                         std::forward<ScenarioLP>(scenario).uid(),
+                         std::forward<StageLP>(stage).uid());
+    return label_buf_;
   }
 
   template<typename ScenarioLP,
@@ -94,16 +98,17 @@ public:
       && std::same_as<std::remove_cvref_t<StageLP>, gtopt::StageLP>
       && std::same_as<std::remove_cvref_t<BlockLP>, gtopt::BlockLP>
       && (sizeof...(Types) >= 3)
-  [[nodiscard]] static constexpr auto state_col_label(ScenarioLP&& scenario,
-                                                      StageLP&& stage,
-                                                      BlockLP&& block,
-                                                      Types&&... args)
-      -> std::string
+  [[nodiscard]] auto state_col_label(ScenarioLP&& scenario,
+                                     StageLP&& stage,
+                                     BlockLP&& block,
+                                     Types&&... args) const -> std::string
   {
-    return gtopt::as_label(std::forward<Types>(args)...,
-                           std::forward<ScenarioLP>(scenario).uid(),
-                           std::forward<StageLP>(stage).uid(),
-                           std::forward<BlockLP>(block).uid());
+    gtopt::as_label_into(label_buf_,
+                         std::forward<Types>(args)...,
+                         std::forward<ScenarioLP>(scenario).uid(),
+                         std::forward<StageLP>(stage).uid(),
+                         std::forward<BlockLP>(block).uid());
+    return label_buf_;
   }
 
   // ── lp_col_label: generates column names at level >= 1 ──────────────
@@ -114,38 +119,41 @@ public:
     if (m_lp_names_level_ < 1) [[likely]] {
       return {};
     }
-    return gtopt::as_label(std::forward<Types>(args)...);
+    gtopt::as_label_into(label_buf_, std::forward<Types>(args)...);
+    return label_buf_;
   }
 
   template<typename StageLP, typename... Types>
     requires std::same_as<std::remove_cvref_t<StageLP>, gtopt::StageLP>
       && (sizeof...(Types) >= 3)
-  [[nodiscard]] constexpr auto lp_col_label(StageLP&& stage,
-                                            Types&&... args) const
+  [[nodiscard]] auto lp_col_label(StageLP&& stage, Types&&... args) const
       -> std::string
   {
     if (m_lp_names_level_ < 1) [[likely]] {
       return {};
     }
-    return gtopt::as_label(std::forward<Types>(args)...,
-                           std::forward<StageLP>(stage).uid());
+    gtopt::as_label_into(label_buf_,
+                         std::forward<Types>(args)...,
+                         std::forward<StageLP>(stage).uid());
+    return label_buf_;
   }
 
   template<typename ScenarioLP, typename StageLP, typename... Types>
     requires std::same_as<std::remove_cvref_t<ScenarioLP>, gtopt::ScenarioLP>
       && std::same_as<std::remove_cvref_t<StageLP>, gtopt::StageLP>
       && (sizeof...(Types) >= 3)
-  [[nodiscard]] constexpr auto lp_col_label(ScenarioLP&& scenario,
-                                            StageLP&& stage,
-                                            Types&&... args) const
-      -> std::string
+  [[nodiscard]] auto lp_col_label(ScenarioLP&& scenario,
+                                  StageLP&& stage,
+                                  Types&&... args) const -> std::string
   {
     if (m_lp_names_level_ < 1) [[likely]] {
       return {};
     }
-    return gtopt::as_label(std::forward<Types>(args)...,
-                           std::forward<ScenarioLP>(scenario).uid(),
-                           std::forward<StageLP>(stage).uid());
+    gtopt::as_label_into(label_buf_,
+                         std::forward<Types>(args)...,
+                         std::forward<ScenarioLP>(scenario).uid(),
+                         std::forward<StageLP>(stage).uid());
+    return label_buf_;
   }
 
   template<typename ScenarioLP,
@@ -156,19 +164,20 @@ public:
       && std::same_as<std::remove_cvref_t<StageLP>, gtopt::StageLP>
       && std::same_as<std::remove_cvref_t<BlockLP>, gtopt::BlockLP>
       && (sizeof...(Types) >= 3)
-  [[nodiscard]] constexpr auto lp_col_label(ScenarioLP&& scenario,
-                                            StageLP&& stage,
-                                            BlockLP&& block,
-                                            Types&&... args) const
-      -> std::string
+  [[nodiscard]] auto lp_col_label(ScenarioLP&& scenario,
+                                  StageLP&& stage,
+                                  BlockLP&& block,
+                                  Types&&... args) const -> std::string
   {
     if (m_lp_names_level_ < 1) [[likely]] {
       return {};
     }
-    return gtopt::as_label(std::forward<Types>(args)...,
-                           std::forward<ScenarioLP>(scenario).uid(),
-                           std::forward<StageLP>(stage).uid(),
-                           std::forward<BlockLP>(block).uid());
+    gtopt::as_label_into(label_buf_,
+                         std::forward<Types>(args)...,
+                         std::forward<ScenarioLP>(scenario).uid(),
+                         std::forward<StageLP>(stage).uid(),
+                         std::forward<BlockLP>(block).uid());
+    return label_buf_;
   }
 
   // ── lp_row_label: generates row names at level >= 1 ─────────────────
@@ -179,38 +188,41 @@ public:
     if (m_lp_names_level_ < 1) [[likely]] {
       return {};
     }
-    return gtopt::as_label(std::forward<Types>(args)...);
+    gtopt::as_label_into(label_buf_, std::forward<Types>(args)...);
+    return label_buf_;
   }
 
   template<typename StageLP, typename... Types>
     requires std::same_as<std::remove_cvref_t<StageLP>, gtopt::StageLP>
       && (sizeof...(Types) >= 3)
-  [[nodiscard]] constexpr auto lp_row_label(StageLP&& stage,
-                                            Types&&... args) const
+  [[nodiscard]] auto lp_row_label(StageLP&& stage, Types&&... args) const
       -> std::string
   {
     if (m_lp_names_level_ < 1) [[likely]] {
       return {};
     }
-    return gtopt::as_label(std::forward<Types>(args)...,
-                           std::forward<StageLP>(stage).uid());
+    gtopt::as_label_into(label_buf_,
+                         std::forward<Types>(args)...,
+                         std::forward<StageLP>(stage).uid());
+    return label_buf_;
   }
 
   template<typename ScenarioLP, typename StageLP, typename... Types>
     requires std::same_as<std::remove_cvref_t<ScenarioLP>, gtopt::ScenarioLP>
       && std::same_as<std::remove_cvref_t<StageLP>, gtopt::StageLP>
       && (sizeof...(Types) >= 3)
-  [[nodiscard]] constexpr auto lp_row_label(ScenarioLP&& scenario,
-                                            StageLP&& stage,
-                                            Types&&... args) const
-      -> std::string
+  [[nodiscard]] auto lp_row_label(ScenarioLP&& scenario,
+                                  StageLP&& stage,
+                                  Types&&... args) const -> std::string
   {
     if (m_lp_names_level_ < 1) [[likely]] {
       return {};
     }
-    return gtopt::as_label(std::forward<Types>(args)...,
-                           std::forward<ScenarioLP>(scenario).uid(),
-                           std::forward<StageLP>(stage).uid());
+    gtopt::as_label_into(label_buf_,
+                         std::forward<Types>(args)...,
+                         std::forward<ScenarioLP>(scenario).uid(),
+                         std::forward<StageLP>(stage).uid());
+    return label_buf_;
   }
 
   template<typename ScenarioLP,
@@ -221,19 +233,20 @@ public:
       && std::same_as<std::remove_cvref_t<StageLP>, gtopt::StageLP>
       && std::same_as<std::remove_cvref_t<BlockLP>, gtopt::BlockLP>
       && (sizeof...(Types) >= 3)
-  [[nodiscard]] constexpr auto lp_row_label(ScenarioLP&& scenario,
-                                            StageLP&& stage,
-                                            BlockLP&& block,
-                                            Types&&... args) const
-      -> std::string
+  [[nodiscard]] auto lp_row_label(ScenarioLP&& scenario,
+                                  StageLP&& stage,
+                                  BlockLP&& block,
+                                  Types&&... args) const -> std::string
   {
     if (m_lp_names_level_ < 1) [[likely]] {
       return {};
     }
-    return gtopt::as_label(std::forward<Types>(args)...,
-                           std::forward<ScenarioLP>(scenario).uid(),
-                           std::forward<StageLP>(stage).uid(),
-                           std::forward<BlockLP>(block).uid());
+    gtopt::as_label_into(label_buf_,
+                         std::forward<Types>(args)...,
+                         std::forward<ScenarioLP>(scenario).uid(),
+                         std::forward<StageLP>(stage).uid(),
+                         std::forward<BlockLP>(block).uid());
+    return label_buf_;
   }
 
   // ── lp_label: backward-compatible, generates at level >= 1 ──────────
@@ -305,6 +318,7 @@ public:
 
 private:
   int m_lp_names_level_;
+  mutable std::string label_buf_;
 };
 
 }  // namespace gtopt

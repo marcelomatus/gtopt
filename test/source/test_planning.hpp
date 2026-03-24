@@ -220,13 +220,14 @@ TEST_CASE("PlanningLP - Write LP file")
       .system = system,
   };
 
-  // Create flat options for LP file writing
-  const FlatOptions flat_options;
+  // Create flat options with lp_names_level=1 so row names are tracked.
+  FlatOptions flat_options;
+  flat_options.row_with_names = true;
+  flat_options.row_with_name_map = true;
+  flat_options.lp_names_level = 1;
 
   // Create planning_lp
   const PlanningLP planning_lp(planning, flat_options);
-
-  // Create systems first
 
   // Test writing LP file
   planning_lp.write_lp("test_planning");
@@ -324,14 +325,17 @@ TEST_CASE("PlanningLP - Run with write_only flag")
       .generator_array = generator_array,
   };
 
-  // Create planning with components
+  // Create planning with use_lp_names=1 so LP files include row names.
   const Planning planning {
       .simulation = simulation,
       .system = system,
   };
 
-  // Create flat options
-  const FlatOptions flat_options;
+  // Create flat options with lp_names_level=1 so row names are tracked.
+  FlatOptions flat_options;
+  flat_options.row_with_names = true;
+  flat_options.row_with_name_map = true;
+  flat_options.lp_names_level = 1;
 
   // Create planning_lp
   PlanningLP planning_lp(planning, flat_options);

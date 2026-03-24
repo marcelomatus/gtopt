@@ -289,7 +289,8 @@ void SystemLP::write_out() const
   oc.write();
 }
 
-std::string SystemLP::write_lp(const std::string& filename) const
+auto SystemLP::write_lp(const std::string& filename) const
+    -> std::expected<std::string, Error>
 {
   // Use UIDs (always valid: default Phase/Scene are assigned uid=0 in
   // simulation_lp.cpp when phase_array/scene_array are empty).
@@ -297,7 +298,10 @@ std::string SystemLP::write_lp(const std::string& filename) const
   const auto fname =
       as_label(filename, "scene", scene().uid(), "phase", phase().uid());
 
-  linear_interface().write_lp(fname);
+  auto result = linear_interface().write_lp(fname);
+  if (!result) {
+    return std::unexpected(std::move(result.error()));
+  }
   return fname + ".lp";
 }
 

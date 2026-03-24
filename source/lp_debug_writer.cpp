@@ -380,7 +380,11 @@ void LpDebugWriter::write(const LinearInterface& li,
     return;
   }
   ensure_directory();
-  li.write_lp(filepath_stem);
+  auto result = li.write_lp(filepath_stem);
+  if (!result) {
+    spdlog::warn("{}", result.error().message);
+    return;
+  }
   const auto lp_path = filepath_stem + ".lp";
   spdlog::debug("LpDebugWriter: saved LP to {}", lp_path);
   compress_async(lp_path);

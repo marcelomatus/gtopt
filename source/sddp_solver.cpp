@@ -517,6 +517,7 @@ void SDDPSolver::store_cut(SceneIndex scene,
       .rhs = cut.lowb,
       .row = row,
   };
+  stored.coefficients.reserve(cut.cmap.size());
   for (const auto& [col, coeff] : cut.cmap) {
     stored.coefficients.emplace_back(static_cast<int>(col), coeff);
   }

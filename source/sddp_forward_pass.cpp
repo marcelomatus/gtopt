@@ -144,16 +144,27 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
                              phase_uid(phase),
                              iteration))
                   .string();
-          li.write_lp(timeout_stem);
-          spdlog::critical(
-              "SDDP forward: solve timeout ({:.1f}s) at iter {} scene {} "
-              "phase {} (status {}), LP saved to {}.lp",
-              m_options_.solve_timeout,
-              iteration,
-              scene_uid(scene),
-              phase_uid(phase),
-              status,
-              timeout_stem);
+          if (auto lp_result = li.write_lp(timeout_stem)) {
+            spdlog::critical(
+                "SDDP forward: solve timeout ({:.1f}s) at iter {} scene {} "
+                "phase {} (status {}), LP saved to {}.lp",
+                m_options_.solve_timeout,
+                iteration,
+                scene_uid(scene),
+                phase_uid(phase),
+                status,
+                timeout_stem);
+          } else {
+            spdlog::critical(
+                "SDDP forward: solve timeout ({:.1f}s) at iter {} scene {} "
+                "phase {} (status {}). {}",
+                m_options_.solve_timeout,
+                iteration,
+                scene_uid(scene),
+                phase_uid(phase),
+                status,
+                lp_result.error().message);
+          }
         } else {
           spdlog::critical(
               "SDDP forward: solve timeout ({:.1f}s) at iter {} scene {} "
@@ -240,8 +251,11 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
                / std::format(
                    sddp_file::error_lp_fmt, scene_uid(scene), phase_uid(phase)))
                   .string();
-          li.write_lp(err_file);
-          spdlog::warn("SDDP: saved infeasible LP to {}.lp", err_file);
+          if (auto lp_result = li.write_lp(err_file)) {
+            spdlog::warn("SDDP: saved infeasible LP to {}.lp", err_file);
+          } else {
+            spdlog::warn("{}", lp_result.error().message);
+          }
           // LP diagnostic analysis is performed by run_gtopt after exit.
         }
         return std::unexpected(Error {

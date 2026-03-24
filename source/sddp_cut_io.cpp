@@ -879,10 +879,10 @@ auto load_boundary_cuts_csv(
       auto& state = scene_phase_states[scene][last_phase];
       if (state.alpha_col == ColIndex {unknown_index}) {
         auto& li = planning_lp.system(scene, last_phase).linear_interface();
-        state.alpha_col = li.add_col(
-            LabelMaker::state_col_label("sddp", "alpha", scene, last_phase),
-            options.alpha_min,
-            options.alpha_max);
+        state.alpha_col =
+            li.add_col(gtopt::as_label("sddp", "alpha", scene, last_phase),
+                       options.alpha_min,
+                       options.alpha_max);
         li.set_obj_coeff(state.alpha_col, 1.0);
       }
     }
@@ -1167,10 +1167,10 @@ auto load_named_cuts_csv(
         auto& state = scene_phase_states[scene][phase];
         if (state.alpha_col == ColIndex {unknown_index}) {
           auto& li = planning_lp.system(scene, phase).linear_interface();
-          state.alpha_col = li.add_col(
-              LabelMaker::state_col_label("sddp", "alpha", scene, phase),
-              options.alpha_min,
-              options.alpha_max);
+          state.alpha_col =
+              li.add_col(gtopt::as_label("sddp", "alpha", scene, phase),
+                         options.alpha_min,
+                         options.alpha_max);
           li.set_obj_coeff(state.alpha_col, 1.0);
         }
       }
