@@ -24,6 +24,7 @@
 
 #include <gtopt/aperture.hpp>
 #include <gtopt/block.hpp>
+#include <gtopt/iteration.hpp>
 #include <gtopt/options.hpp>
 #include <gtopt/phase.hpp>
 #include <gtopt/scenario.hpp>
@@ -59,6 +60,8 @@ struct Simulation
   Array<Scene> scene_array {};  ///< List of scene combinations
   Array<Aperture> aperture_array {};  ///< Aperture definitions for SDDP
                                       ///< backward pass (optional)
+  Array<Iteration> iteration_array {};  ///< Per-iteration solver control
+                                        ///< (optional, keyed by index)
 
   constexpr void merge(Simulation&& sim)
   {
@@ -68,6 +71,7 @@ struct Simulation
     gtopt::merge(phase_array, std::move(sim.phase_array));
     gtopt::merge(scene_array, std::move(sim.scene_array));
     gtopt::merge(aperture_array, std::move(sim.aperture_array));
+    gtopt::merge(iteration_array, std::move(sim.iteration_array));
 
     auto _ = std::move(sim);  // move/clear sim
   }

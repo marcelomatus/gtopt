@@ -9,7 +9,7 @@
  * history and real-time workpool statistics into a JSON status file
  * for external monitoring tools.
  *
- * Extracted from SDDPSolver::write_api_status().
+ * Extracted from SDDPMethod::write_api_status().
  */
 
 #include <chrono>

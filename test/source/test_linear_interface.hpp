@@ -496,7 +496,7 @@ TEST_CASE("LinearInterface - log file handling")
 
   const std::string log_file = "/tmp/gtopt_test_lp_log";
 
-  LinearInterface interface(log_file);
+  LinearInterface interface(std::string_view {}, log_file);
 
   const auto x1 = interface.add_col("x1", 0.0, 10.0);
   interface.set_obj_coeff(x1, 1.0);
@@ -540,7 +540,7 @@ TEST_CASE("LinearInterface - FlatLinearProblem constructor")
   auto flat_lp = lp.to_flat(flat_opts);
 
   // Construct directly from FlatLinearProblem
-  LinearInterface interface(flat_lp);
+  LinearInterface interface("clp", flat_lp);
 
   CHECK(interface.get_numcols() == 2);
   CHECK(interface.get_numrows() == 1);

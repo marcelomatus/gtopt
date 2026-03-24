@@ -16,7 +16,7 @@
 
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/planning_lp.hpp>
-#include <gtopt/sddp_solver.hpp>
+#include <gtopt/sddp_method.hpp>
 #include <gtopt/system_lp.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
@@ -47,9 +47,9 @@ void assign_padded(std::vector<double>& dst,
 }
 }  // namespace
 
-auto SDDPSolver::forward_pass(SceneIndex scene,
-                              IterationIndex iteration,
-                              const SolverOptions& opts)
+auto SDDPMethod::forward_pass(SceneIndex scene,
+                              const SolverOptions& opts,
+                              IterationIndex iteration)
     -> std::expected<double, Error>
 {
   const auto& phases = planning_lp().simulation().phases();

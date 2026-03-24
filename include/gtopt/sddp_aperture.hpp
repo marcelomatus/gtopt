@@ -171,7 +171,6 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
     std::span<const Aperture> aperture_defs,
     std::span<const Uid> phase_apertures,
     int total_cuts,
-    IterationIndex iteration,
     SystemLP& sys,
     const PhaseLP& phase_lp,
     const SolverOptions& opts,
@@ -185,6 +184,7 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
     const ApertureDataCache& aperture_cache = {},
     std::span<const double> forward_col_sol = {},
     std::span<const double> forward_row_dual = {},
-    LinearInterface* pooled_clone = nullptr) -> std::optional<SparseRow>;
+    LinearInterface* pooled_clone = nullptr,
+    IterationIndex iteration = {}) -> std::optional<SparseRow>;
 
 }  // namespace gtopt

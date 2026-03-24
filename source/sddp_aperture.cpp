@@ -19,7 +19,7 @@
 #include <gtopt/phase_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/sddp_aperture.hpp>
-#include <gtopt/sddp_solver.hpp>
+#include <gtopt/sddp_method.hpp>
 #include <gtopt/system_lp.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
@@ -113,7 +113,6 @@ auto solve_apertures_for_phase(
     std::span<const Aperture> aperture_defs,
     std::span<const Uid> phase_apertures,
     int total_cuts,
-    IterationIndex iteration,
     SystemLP& sys,
     const PhaseLP& phase_lp,
     const SolverOptions& opts,
@@ -127,7 +126,8 @@ auto solve_apertures_for_phase(
     const ApertureDataCache& aperture_cache,
     std::span<const double> forward_col_sol,
     std::span<const double> forward_row_dual,
-    LinearInterface* pooled_clone) -> std::optional<SparseRow>
+    LinearInterface* pooled_clone,
+    IterationIndex iteration) -> std::optional<SparseRow>
 {
   const auto pi = Index {phase};
   const auto& phase_li = sys.linear_interface();

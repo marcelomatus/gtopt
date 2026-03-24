@@ -30,8 +30,8 @@
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/options_lp.hpp>
 #include <gtopt/planning_lp.hpp>
-#include <gtopt/planning_solver.hpp>
-#include <gtopt/sddp_solver.hpp>
+#include <gtopt/planning_method.hpp>
+#include <gtopt/sddp_method.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
@@ -1548,7 +1548,7 @@ auto make_2phase_aperture_planning() -> Planning
 
 }  // namespace
 
-TEST_CASE("SDDPSolver with explicit aperture_array converges")  // NOLINT
+TEST_CASE("SDDPMethod with explicit aperture_array converges")  // NOLINT
 {
   auto planning = make_2phase_aperture_planning();
   PlanningLP plp(std::move(planning));
@@ -1560,7 +1560,7 @@ TEST_CASE("SDDPSolver with explicit aperture_array converges")  // NOLINT
   // apertures is nullopt — the solver should use the explicit
   // aperture_array from the simulation.
 
-  SDDPSolver sddp(plp, sddp_opts);
+  SDDPMethod sddp(plp, sddp_opts);
   auto results = sddp.solve();
 
   REQUIRE(results.has_value());
@@ -1592,7 +1592,7 @@ TEST_CASE("SDDPSolver with explicit aperture_array converges")  // NOLINT
 }
 
 TEST_CASE(
-    "SDDPSolver explicit aperture vs apertures option both work")  // NOLINT
+    "SDDPMethod explicit aperture vs apertures option both work")  // NOLINT
 {
   // Both approaches should produce valid results with cuts added.
   auto planning_explicit = make_2phase_aperture_planning();
@@ -1606,7 +1606,7 @@ TEST_CASE(
     sddp_opts.enable_api = false;
     // apertures is nullopt → use simulation's aperture_array
 
-    SDDPSolver sddp(plp, sddp_opts);
+    SDDPMethod sddp(plp, sddp_opts);
     auto results = sddp.solve();
     REQUIRE(results.has_value());
     CHECK_FALSE(results->empty());
@@ -1627,7 +1627,7 @@ TEST_CASE(
     sddp_opts.enable_api = false;
     sddp_opts.apertures = std::vector<Uid> {};  // empty = Benders
 
-    SDDPSolver sddp(plp, sddp_opts);
+    SDDPMethod sddp(plp, sddp_opts);
     auto results = sddp.solve();
     REQUIRE(results.has_value());
     CHECK_FALSE(results->empty());

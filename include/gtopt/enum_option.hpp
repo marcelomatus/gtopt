@@ -94,38 +94,38 @@ template<typename E, std::size_t N>
   return it != entries.end() ? it->name : "unknown";
 }
 
-// ─── SolverType ──────────────────────────────────────────────────────────────
+// ─── MethodType ──────────────────────────────────────────────────────────────
 
 /**
  * @brief Top-level solver selection: monolithic LP, SDDP, or cascade.
  */
-enum class SolverType : uint8_t
+enum class MethodType : uint8_t
 {
   monolithic = 0,  ///< Single monolithic LP/MIP (default)
   sddp = 1,  ///< Stochastic Dual Dynamic Programming decomposition
   cascade = 2,  ///< Cascade: Benders → guided SDDP → free SDDP
 };
 
-/// Name-value table for SolverType
-inline constexpr auto solver_type_entries =
-    std::to_array<EnumEntry<SolverType>>({
-        {.name = "monolithic", .value = SolverType::monolithic},
-        {.name = "sddp", .value = SolverType::sddp},
-        {.name = "cascade", .value = SolverType::cascade},
+/// Name-value table for MethodType
+inline constexpr auto method_type_entries =
+    std::to_array<EnumEntry<MethodType>>({
+        {.name = "monolithic", .value = MethodType::monolithic},
+        {.name = "sddp", .value = MethodType::sddp},
+        {.name = "cascade", .value = MethodType::cascade},
     });
 
-/// Parse a SolverType from a string ("monolithic", "sddp", "cascade")
-[[nodiscard]] constexpr auto solver_type_from_name(
-    std::string_view name) noexcept -> std::optional<SolverType>
+/// Parse a MethodType from a string ("monolithic", "sddp", "cascade")
+[[nodiscard]] constexpr auto method_type_from_name(
+    std::string_view name) noexcept -> std::optional<MethodType>
 {
-  return enum_from_name(std::span {solver_type_entries}, name);
+  return enum_from_name(std::span {method_type_entries}, name);
 }
 
-/// Return the canonical name of a SolverType
-[[nodiscard]] constexpr auto solver_type_name(SolverType value) noexcept
+/// Return the canonical name of a MethodType
+[[nodiscard]] constexpr auto method_type_name(MethodType value) noexcept
     -> std::string_view
 {
-  return enum_name(std::span {solver_type_entries}, value);
+  return enum_name(std::span {method_type_entries}, value);
 }
 
 // ─── SolveMode ───────────────────────────────────────────────────────────────

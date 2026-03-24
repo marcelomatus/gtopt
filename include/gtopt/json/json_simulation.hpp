@@ -14,6 +14,7 @@
 
 #include <gtopt/json/json_aperture.hpp>
 #include <gtopt/json/json_block.hpp>
+#include <gtopt/json/json_iteration.hpp>
 #include <gtopt/json/json_phase.hpp>
 #include <gtopt/json/json_scenario.hpp>
 #include <gtopt/json/json_scene.hpp>
@@ -35,7 +36,8 @@ struct json_data_contract<Simulation>
       json_array_null<"scenario_array", Array<Scenario>, Scenario>,
       json_array_null<"phase_array", Array<Phase>, Phase>,
       json_array_null<"scene_array", Array<Scene>, Scene>,
-      json_array_null<"aperture_array", Array<Aperture>, Aperture>>;
+      json_array_null<"aperture_array", Array<Aperture>, Aperture>,
+      json_array_null<"iteration_array", Array<Iteration>, Iteration>>;
 
   [[nodiscard]] constexpr static auto to_json_data(Simulation const& simulation)
   {
@@ -44,7 +46,8 @@ struct json_data_contract<Simulation>
                                  simulation.scenario_array,
                                  simulation.phase_array,
                                  simulation.scene_array,
-                                 simulation.aperture_array);
+                                 simulation.aperture_array,
+                                 simulation.iteration_array);
   }
 };
 }  // namespace daw::json

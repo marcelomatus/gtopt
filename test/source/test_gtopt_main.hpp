@@ -283,9 +283,8 @@ TEST_CASE("gtopt_main - lp_file option writes LP file successfully")
 
 TEST_CASE("gtopt_main - lp_file with invalid path silently fails (no throw)")
 {
-  // OsiSolverInterface::writeLpNative() prints an error AND calls exit(1)
-  // through the COIN-OR message handler when the output directory does not
-  // exist.  This behaviour makes the path untestable in a unit-test process.
+  // Some solver backends may print errors or behave unexpectedly when the
+  // output directory does not exist.  This subcase documents that limitation.
   // To document the finding: a valid writable path is used instead, which
   // exercises line 322 (planning_lp.write_lp call) successfully.
   const auto stem = write_tmp_json("gtopt_main_lp_file_fail", minimal_json);
@@ -330,6 +329,7 @@ TEST_CASE("gtopt_main - solver non-optimal for infeasible LP (pmin > pmax)")
       .planning_files = {stem.string()},
       .output_directory = out_dir,
       .use_single_bus = true,
+      .lp_solver = "clp",
   });
   REQUIRE(result.has_value());
   CHECK(*result == 1);  // non-optimal → gtopt_main returns 1
@@ -361,6 +361,7 @@ TEST_CASE("gtopt_main - solver non-optimal with stats=true")
       .planning_files = {stem.string()},
       .use_single_bus = true,
       .print_stats = true,
+      .lp_solver = "clp",
   });
   REQUIRE(result.has_value());
   CHECK(*result == 1);

@@ -1,13 +1,13 @@
 /**
- * @file      sddp_solver.cpp
- * @brief     SDDP (Stochastic Dual Dynamic Programming) solver implementation
+ * @file      sddp_method.cpp
+ * @brief     SDDP (Stochastic Dual Dynamic Programming) method implementation
  * @date      2026-03-08
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
  * Implements the forward/backward iterative decomposition with multi-scene
  * support, iterative feasibility backpropagation, and optimality cut sharing.
- * See sddp_solver.hpp for the algorithm description and the free-function
+ * See sddp_method.hpp for the algorithm description and the free-function
  * building blocks declared there.
  */
 
@@ -30,9 +30,9 @@
 #include <gtopt/sddp_clone_pool.hpp>
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_cut_sharing.hpp>
+#include <gtopt/sddp_method.hpp>
 #include <gtopt/sddp_monitor.hpp>
 #include <gtopt/sddp_pool.hpp>
-#include <gtopt/sddp_solver.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
 
@@ -144,9 +144,9 @@ template<typename Range>
 
 }  // namespace
 
-// ─── SDDPSolver ─────────────────────────────────────────────────────────────
+// ─── SDDPMethod ─────────────────────────────────────────────────────────────
 
-SDDPSolver::SDDPSolver(PlanningLP& planning_lp, SDDPOptions opts) noexcept
+SDDPMethod::SDDPMethod(PlanningLP& planning_lp, SDDPOptions opts) noexcept
     : m_planning_lp_(planning_lp)
     , m_options_(std::move(opts))
     , m_aperture_cache_(
@@ -174,7 +174,7 @@ SDDPSolver::SDDPSolver(PlanningLP& planning_lp, SDDPOptions opts) noexcept
 {
 }
 
-void SDDPSolver::clear_stored_cuts() noexcept
+void SDDPMethod::clear_stored_cuts() noexcept
 {
   {
     const std::scoped_lock lk(m_cuts_mutex_);
@@ -185,7 +185,7 @@ void SDDPSolver::clear_stored_cuts() noexcept
   }
 }
 
-void SDDPSolver::forget_first_cuts(int count)
+void SDDPMethod::forget_first_cuts(int count)
 {
   if (count <= 0) {
     return;
@@ -267,7 +267,7 @@ void SDDPSolver::forget_first_cuts(int count)
       "SDDP: forgot {} inherited cuts ({} LP rows deleted)", n, total_deleted);
 }
 
-void SDDPSolver::update_stored_cut_duals()
+void SDDPMethod::update_stored_cut_duals()
 {
   const auto phase_map = build_phase_uid_map(planning_lp());
   const auto scene_map = build_scene_uid_map(planning_lp());
@@ -299,7 +299,7 @@ void SDDPSolver::update_stored_cut_duals()
 
 // ── Initialisation ──────────────────────────────────────────────────────────
 
-void SDDPSolver::initialize_alpha_variables(SceneIndex scene)
+void SDDPMethod::initialize_alpha_variables(SceneIndex scene)
 {
   const auto& phases = planning_lp().simulation().phases();
 
@@ -325,7 +325,7 @@ void SDDPSolver::initialize_alpha_variables(SceneIndex scene)
       ColIndex {unknown_index};
 }
 
-void SDDPSolver::collect_state_variable_links(SceneIndex scene)
+void SDDPMethod::collect_state_variable_links(SceneIndex scene)
 {
   const auto& sim = planning_lp().simulation();
   const auto& phases = sim.phases();
@@ -368,7 +368,7 @@ void SDDPSolver::collect_state_variable_links(SceneIndex scene)
 
 // ── Elastic filter via LP clone (PLP pattern) ───────────────────────────────
 
-std::optional<SDDPSolver::ElasticResult> SDDPSolver::elastic_solve(
+std::optional<SDDPMethod::ElasticResult> SDDPMethod::elastic_solve(
     SceneIndex scene, PhaseIndex phase, const SolverOptions& opts)
 {
   if (phase == PhaseIndex {0}) {
@@ -405,7 +405,7 @@ std::optional<SDDPSolver::ElasticResult> SDDPSolver::elastic_solve(
   return result;
 }
 
-bool SDDPSolver::check_sentinel_stop() const
+bool SDDPMethod::check_sentinel_stop() const
 {
   if (m_options_.sentinel_file.empty()) {
     return false;
@@ -413,7 +413,7 @@ bool SDDPSolver::check_sentinel_stop() const
   return std::filesystem::exists(m_options_.sentinel_file);
 }
 
-bool SDDPSolver::check_api_stop_request() const
+bool SDDPMethod::check_api_stop_request() const
 {
   if (m_options_.api_stop_request_file.empty()) {
     return false;
@@ -421,7 +421,7 @@ bool SDDPSolver::check_api_stop_request() const
   return std::filesystem::exists(m_options_.api_stop_request_file);
 }
 
-bool SDDPSolver::should_stop() const
+bool SDDPMethod::should_stop() const
 {
   if (m_in_simulation_) {
     return false;  // simulation pass always runs to completion
@@ -432,22 +432,40 @@ bool SDDPSolver::should_stop() const
 
 // ── Coefficient updates ─────────────────────────────────────────────────────
 
-void SDDPSolver::update_coefficients_for_phase(SceneIndex scene,
+void SDDPMethod::update_coefficients_for_phase(SceneIndex scene,
                                                PhaseIndex phase,
                                                IterationIndex iteration)
 {
-  auto& sys = planning_lp().system(scene, phase);
+  // Three-way logic from iteration_array:
+  //  - update_lp == false  → explicitly skip
+  //  - update_lp == true   → force dispatch (bypass skip count)
+  //  - not found / absent  → default behaviour (respect global skip count)
+  const auto* iter_lp = planning_lp().simulation().find_iteration(iteration);
 
-  const auto updated =
-      update_lp_coefficients(sys, planning_lp().options(), iteration, phase);
+  if (iter_lp != nullptr && !iter_lp->should_update_lp()) {
+    return;  // explicitly disabled for this iteration
+  }
+
+  // Apply global skip count unless the iteration explicitly forces dispatch
+  const bool forced = (iter_lp != nullptr);
+  if (!forced) {
+    const auto skip = planning_lp().options().sddp_update_lp_skip();
+    if (skip > 0 && static_cast<int>(iteration) > 0
+        && (static_cast<int>(iteration) % (skip + 1)) != 0)
+    {
+      return;
+    }
+  }
+
+  auto& sys = planning_lp().system(scene, phase);
+  const auto updated = dispatch_update_lp(sys);
 
   if (updated > 0) {
-    SPDLOG_TRACE(
-        "SDDP: updated {} LP coefficients for scene {} phase {} (iter {})",
-        updated,
-        scene,
-        phase,
-        iteration);
+    SPDLOG_TRACE("SDDP: updated {} LP elements for scene {} phase {} (iter {})",
+                 updated,
+                 scene,
+                 phase,
+                 iteration);
   }
 }
 
@@ -503,7 +521,7 @@ BasicTaskRequirements<SDDPTaskKey> make_backward_lp_task_req(
 
 // ── Helper: store a cut for sharing and persistence (thread-safe) ───────────
 
-void SDDPSolver::store_cut(SceneIndex scene,
+void SDDPMethod::store_cut(SceneIndex scene,
                            PhaseIndex src_phase,
                            const SparseRow& cut,
                            CutType type,
@@ -533,7 +551,7 @@ void SDDPSolver::store_cut(SceneIndex scene,
 
 // ── Helper: resolve an LP via the work pool (avoids naked direct calls) ─────
 
-auto SDDPSolver::resolve_via_pool(
+auto SDDPMethod::resolve_via_pool(
     LinearInterface& li,
     const SolverOptions& opts,
     const BasicTaskRequirements<SDDPTaskKey>& task_req)
@@ -556,7 +574,7 @@ auto SDDPSolver::resolve_via_pool(
 
 // ── Helper: resolve a clone via the work pool ───────────────────────────────
 
-auto SDDPSolver::resolve_clone_via_pool(
+auto SDDPMethod::resolve_clone_via_pool(
     LinearInterface& clone,
     const SolverOptions& opts,
     const BasicTaskRequirements<SDDPTaskKey>& task_req)
@@ -583,7 +601,7 @@ auto SDDPSolver::resolve_clone_via_pool(
 
 // ── Per-phase backward-pass step (optimality cut only; no feasibility sharing)
 
-auto SDDPSolver::backward_pass_single_phase(SceneIndex scene,
+auto SDDPMethod::backward_pass_single_phase(SceneIndex scene,
                                             PhaseIndex phase,
                                             int cut_offset,
                                             const SolverOptions& opts,
@@ -642,7 +660,7 @@ auto SDDPSolver::backward_pass_single_phase(SceneIndex scene,
 
 // ── Backward pass with iterative feasibility backpropagation ────────────────
 
-auto SDDPSolver::backward_pass(SceneIndex scene,
+auto SDDPMethod::backward_pass(SceneIndex scene,
                                const SolverOptions& opts,
                                IterationIndex iteration)
     -> std::expected<int, Error>
@@ -687,7 +705,7 @@ auto SDDPSolver::backward_pass(SceneIndex scene,
 
 // ── Cut sharing (delegated to sddp_cut_sharing.hpp free function) ───────────
 
-void SDDPSolver::share_cuts_for_phase(
+void SDDPMethod::share_cuts_for_phase(
     PhaseIndex phase,
     const StrongIndexVector<SceneIndex, std::vector<SparseRow>>& scene_cuts,
     IterationIndex iteration)
@@ -701,7 +719,7 @@ void SDDPSolver::share_cuts_for_phase(
 
 // ── Cut pruning ─────────────────────────────────────────────────────────────
 
-void SDDPSolver::prune_inactive_cuts()
+void SDDPMethod::prune_inactive_cuts()
 {
   const auto max_cuts = m_options_.max_cuts_per_phase;
   if (max_cuts <= 0) {
@@ -848,7 +866,7 @@ void SDDPSolver::prune_inactive_cuts()
 
 // ── Cut capping ─────────────────────────────────────────────────────────────
 
-void SDDPSolver::cap_stored_cuts()
+void SDDPMethod::cap_stored_cuts()
 {
   const auto max_cuts = m_options_.max_stored_cuts;
   if (max_cuts <= 0) {
@@ -888,7 +906,7 @@ void SDDPSolver::cap_stored_cuts()
   }
 }
 
-std::vector<StoredCut> SDDPSolver::build_combined_cuts() const
+std::vector<StoredCut> SDDPMethod::build_combined_cuts() const
 {
   std::vector<StoredCut> combined;
   const auto num_scenes =
@@ -904,7 +922,7 @@ std::vector<StoredCut> SDDPSolver::build_combined_cuts() const
 
 // ── Cut persistence (delegated to sddp_cut_io.hpp free functions) ───────────
 
-auto SDDPSolver::save_cuts(const std::string& filepath) const
+auto SDDPMethod::save_cuts(const std::string& filepath) const
     -> std::expected<void, Error>
 {
   if (m_options_.single_cut_storage) {
@@ -914,7 +932,7 @@ auto SDDPSolver::save_cuts(const std::string& filepath) const
   return save_cuts_csv(m_stored_cuts_, planning_lp(), filepath);
 }
 
-auto SDDPSolver::save_scene_cuts(SceneIndex scene,
+auto SDDPMethod::save_scene_cuts(SceneIndex scene,
                                  const std::string& directory) const
     -> std::expected<void, Error>
 {
@@ -922,7 +940,7 @@ auto SDDPSolver::save_scene_cuts(SceneIndex scene,
       m_scene_cuts_[scene], scene, scene_uid(scene), planning_lp(), directory);
 }
 
-auto SDDPSolver::save_all_scene_cuts(const std::string& directory) const
+auto SDDPMethod::save_all_scene_cuts(const std::string& directory) const
     -> std::expected<void, Error>
 {
   const auto num_scenes =
@@ -937,20 +955,20 @@ auto SDDPSolver::save_all_scene_cuts(const std::string& directory) const
   return {};
 }
 
-auto SDDPSolver::load_cuts(const std::string& filepath)
+auto SDDPMethod::load_cuts(const std::string& filepath)
     -> std::expected<CutLoadResult, Error>
 {
   return load_cuts_csv(planning_lp(), filepath, m_label_maker_);
 }
 
-auto SDDPSolver::load_scene_cuts_from_directory(const std::string& directory)
+auto SDDPMethod::load_scene_cuts_from_directory(const std::string& directory)
     -> std::expected<CutLoadResult, Error>
 {
   return gtopt::load_scene_cuts_from_directory(
       planning_lp(), directory, m_label_maker_);
 }
 
-auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
+auto SDDPMethod::load_boundary_cuts(const std::string& filepath)
     -> std::expected<CutLoadResult, Error>
 {
   return load_boundary_cuts_csv(planning_lp(),
@@ -960,7 +978,7 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
                                 m_scene_phase_states_);
 }
 
-auto SDDPSolver::load_named_cuts(const std::string& filepath)
+auto SDDPMethod::load_named_cuts(const std::string& filepath)
     -> std::expected<CutLoadResult, Error>
 {
   return load_named_cuts_csv(planning_lp(),
@@ -976,7 +994,7 @@ auto SDDPSolver::load_named_cuts(const std::string& filepath)
 
 // ─── Private helper method implementations ───────────────────────────────────
 
-auto SDDPSolver::validate_inputs() const -> std::optional<Error>
+auto SDDPMethod::validate_inputs() const -> std::optional<Error>
 {
   const auto& sim = planning_lp().simulation();
   if (sim.scenes().empty()) {
@@ -994,7 +1012,7 @@ auto SDDPSolver::validate_inputs() const -> std::optional<Error>
   return std::nullopt;
 }
 
-auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
+auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
 {
   if (m_initialized_) {
     SPDLOG_DEBUG("SDDP: already initialized, skipping re-initialization");
@@ -1060,7 +1078,7 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
     auto result = load_cuts(m_options_.cuts_input_file);
     if (result.has_value()) {
       m_iteration_offset_ =
-          std::max(m_iteration_offset_, IterationIndex {result->max_iteration});
+          std::max(m_iteration_offset_, result->max_iteration);
       SPDLOG_INFO("SDDP hot-start: loaded {} cuts (max_iter={})",
                   result->count,
                   result->max_iteration);
@@ -1091,7 +1109,7 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
     auto result = load_boundary_cuts(m_options_.boundary_cuts_file);
     if (result.has_value()) {
       m_iteration_offset_ =
-          std::max(m_iteration_offset_, IterationIndex {result->max_iteration});
+          std::max(m_iteration_offset_, result->max_iteration);
       SPDLOG_INFO("SDDP: loaded {} boundary cuts from {} (max_iter={})",
                   result->count,
                   m_options_.boundary_cuts_file,
@@ -1107,7 +1125,7 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
     auto result = load_named_cuts(m_options_.named_cuts_file);
     if (result.has_value()) {
       m_iteration_offset_ =
-          std::max(m_iteration_offset_, IterationIndex {result->max_iteration});
+          std::max(m_iteration_offset_, result->max_iteration);
       SPDLOG_INFO("SDDP: loaded {} named hot-start cuts from {} (max_iter={})",
                   result->count,
                   m_options_.named_cuts_file,
@@ -1151,7 +1169,7 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
   return {};
 }
 
-void SDDPSolver::reset_live_state() noexcept
+void SDDPMethod::reset_live_state() noexcept
 {
   m_current_iteration_.store(0);
   m_current_gap_.store(1.0);
@@ -1162,9 +1180,9 @@ void SDDPSolver::reset_live_state() noexcept
   m_scenes_done_.store(0);
 }
 
-auto SDDPSolver::run_forward_pass_all_scenes(IterationIndex iter,
-                                             SDDPWorkPool& pool,
-                                             const SolverOptions& opts)
+auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
+                                             const SolverOptions& opts,
+                                             IterationIndex iter)
     -> std::expected<ForwardPassOutcome, Error>
 {
   const auto num_scenes =
@@ -1182,7 +1200,7 @@ auto SDDPSolver::run_forward_pass_all_scenes(IterationIndex iter,
 
   for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
     auto fut = pool.submit([this, scene, iter, &opts]
-                           { return forward_pass(scene, iter, opts); },
+                           { return forward_pass(scene, opts, iter); },
                            fwd_req);
     futures.push_back(std::move(fut.value()));
   }
@@ -1227,7 +1245,7 @@ auto SDDPSolver::run_forward_pass_all_scenes(IterationIndex iter,
   return out;
 }
 
-auto SDDPSolver::run_backward_pass_all_scenes(
+auto SDDPMethod::run_backward_pass_all_scenes(
     std::span<const uint8_t> scene_feasible,
     SDDPWorkPool& pool,
     const SolverOptions& opts,
@@ -1313,7 +1331,7 @@ auto SDDPSolver::run_backward_pass_all_scenes(
 
 // ── Phase-synchronized backward pass (for cut sharing) ──────────────────────
 
-auto SDDPSolver::run_backward_pass_synchronized(
+auto SDDPMethod::run_backward_pass_synchronized(
     std::span<const uint8_t> scene_feasible,
     SDDPWorkPool& pool,
     const SolverOptions& opts,
@@ -1444,7 +1462,7 @@ auto SDDPSolver::run_backward_pass_synchronized(
   return out;
 }
 
-void SDDPSolver::compute_iteration_bounds(
+void SDDPMethod::compute_iteration_bounds(
     SDDPIterationResult& ir,
     std::span<const uint8_t> scene_feasible,
     std::span<const double> weights) const
@@ -1476,7 +1494,7 @@ void SDDPSolver::compute_iteration_bounds(
   ir.lower_bound = weighted_lower;
 }
 
-void SDDPSolver::apply_cut_sharing_for_iteration(std::size_t cuts_before,
+void SDDPMethod::apply_cut_sharing_for_iteration(std::size_t cuts_before,
                                                  IterationIndex iteration)
 {
   const auto num_scenes =
@@ -1546,7 +1564,7 @@ void SDDPSolver::apply_cut_sharing_for_iteration(std::size_t cuts_before,
   }
 }
 
-void SDDPSolver::finalize_iteration_result(SDDPIterationResult& ir,
+void SDDPMethod::finalize_iteration_result(SDDPIterationResult& ir,
                                            IterationIndex iter)
 {
   ir.gap = compute_convergence_gap(ir.upper_bound, ir.lower_bound);
@@ -1585,7 +1603,7 @@ void SDDPSolver::finalize_iteration_result(SDDPIterationResult& ir,
               ir.converged ? " [CONVERGED]" : "");
 }
 
-void SDDPSolver::maybe_write_api_status(
+void SDDPMethod::maybe_write_api_status(
     const std::string& status_file,
     const std::vector<SDDPIterationResult>& results,
     std::chrono::steady_clock::time_point solve_start,
@@ -1611,7 +1629,7 @@ void SDDPSolver::maybe_write_api_status(
   write_sddp_api_status(status_file, results, elapsed, snapshot, monitor);
 }
 
-void SDDPSolver::save_cuts_for_iteration(
+void SDDPMethod::save_cuts_for_iteration(
     IterationIndex iter, std::span<const uint8_t> scene_feasible)
 {
   if (m_options_.cuts_output_file.empty()) {
@@ -1672,14 +1690,14 @@ void SDDPSolver::save_cuts_for_iteration(
 
 // ── solve() — now in sddp_iteration.cpp ─────────────────────────────────────
 
-// ─── SDDPPlanningSolver ─────────────────────────────────────────────────────
+// ─── SDDPPlanningMethod ─────────────────────────────────────────────────────
 
-SDDPPlanningSolver::SDDPPlanningSolver(SDDPOptions opts) noexcept
+SDDPPlanningMethod::SDDPPlanningMethod(SDDPOptions opts) noexcept
     : m_sddp_opts_(std::move(opts))
 {
 }
 
-auto SDDPPlanningSolver::solve(PlanningLP& planning_lp,
+auto SDDPPlanningMethod::solve(PlanningLP& planning_lp,
                                const SolverOptions& opts)
     -> std::expected<int, Error>
 {
@@ -1688,7 +1706,7 @@ auto SDDPPlanningSolver::solve(PlanningLP& planning_lp,
       ? static_cast<int>(planning_lp.systems().front().size())
       : 0;
   SPDLOG_INFO(
-      "SDDPSolver: starting {} scene(s) × {} phase(s)", num_scenes, num_phases);
+      "SDDPMethod: starting {} scene(s) × {} phase(s)", num_scenes, num_phases);
 
   // build_lp: LP already built in PlanningLP constructor — skip all
   // solving.
@@ -1697,7 +1715,7 @@ auto SDDPPlanningSolver::solve(PlanningLP& planning_lp,
     return 0;
   }
 
-  SDDPSolver sddp(planning_lp, m_sddp_opts_);
+  SDDPMethod sddp(planning_lp, m_sddp_opts_);
   auto results = sddp.solve(opts);
 
   if (!results.has_value()) {
@@ -1740,8 +1758,8 @@ auto SDDPPlanningSolver::solve(PlanningLP& planning_lp,
 
 // ── Helper: build the ApertureSubmitFunc callback ───────────────────────────
 
-auto SDDPSolver::make_aperture_submit_fn(IterationIndex /*iteration*/,
-                                         PhaseIndex /*phase*/)
+auto SDDPMethod::make_aperture_submit_fn(PhaseIndex /*phase*/,
+                                         IterationIndex /*iteration*/)
     -> ApertureSubmitFunc
 {
   // Run aperture tasks synchronously — the caller is already running
@@ -1759,7 +1777,7 @@ auto SDDPSolver::make_aperture_submit_fn(IterationIndex /*iteration*/,
 
 // ── Aperture per-phase implementation (shared by single-phase and full pass)
 
-auto SDDPSolver::backward_pass_aperture_phase_impl(
+auto SDDPMethod::backward_pass_aperture_phase_impl(
     SceneIndex scene,
     PhaseIndex phase,
     int cut_offset,
@@ -1793,7 +1811,6 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
                                 aperture_defs,
                                 plp.apertures(),
                                 cut_offset,
-                                iteration,
                                 planning_lp().system(scene, phase),
                                 plp,
                                 aperture_solve_opts,
@@ -1801,13 +1818,14 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
                                 m_options_.log_directory,
                                 scene_uid(scene),
                                 phase_uid(phase),
-                                make_aperture_submit_fn(iteration, phase),
+                                make_aperture_submit_fn(phase, iteration),
                                 m_options_.aperture_timeout,
                                 m_options_.save_aperture_lp,
                                 m_aperture_cache_,
                                 target_state.forward_col_sol,
                                 target_state.forward_row_dual,
-                                get_pooled_clone_ptr(scene, phase));
+                                get_pooled_clone_ptr(scene, phase),
+                                iteration);
 
   if (!expected_cut.has_value()) {
     // Fallback: build a regular Benders cut from the cached
@@ -1878,7 +1896,7 @@ auto SDDPSolver::backward_pass_aperture_phase_impl(
 
 // ── Per-phase aperture backward pass step ───────────────────────────────────
 
-auto SDDPSolver::backward_pass_with_apertures_single_phase(
+auto SDDPMethod::backward_pass_with_apertures_single_phase(
     SceneIndex scene,
     PhaseIndex phase,
     int cut_offset,
@@ -1956,7 +1974,7 @@ auto SDDPSolver::backward_pass_with_apertures_single_phase(
 
 // ── Aperture backward pass ──────────────────────────────────────────────────
 
-auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
+auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene,
                                               const SolverOptions& opts,
                                               IterationIndex iteration)
     -> std::expected<int, Error>
@@ -2059,7 +2077,6 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
                                   effective_defs,
                                   plp.apertures(),
                                   total_cuts,
-                                  iteration,
                                   planning_lp().system(scene, phase),
                                   plp,
                                   ws_opts,
@@ -2067,13 +2084,14 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
                                   m_options_.log_directory,
                                   scene_uid(scene),
                                   phase_uid(phase),
-                                  make_aperture_submit_fn(iteration, phase),
+                                  make_aperture_submit_fn(phase, iteration),
                                   0.0,
                                   m_options_.save_aperture_lp,
                                   m_aperture_cache_,
                                   target_state.forward_col_sol,
                                   target_state.forward_row_dual,
-                                  get_pooled_clone_ptr(scene, phase));
+                                  get_pooled_clone_ptr(scene, phase),
+                                  iteration);
 
     if (!expected_cut.has_value()) {
       infeasible_phases.push_back(phase_uid(phase));

@@ -1,6 +1,6 @@
 /**
- * @file      planning_solver.hpp
- * @brief     Abstract interface for planning solvers (monolithic and SDDP)
+ * @file      planning_method.hpp
+ * @brief     Abstract interface for planning methods (monolithic and SDDP)
  * @date      2026-03-09
  * @author    marcelo
  * @copyright BSD-3-Clause
@@ -8,13 +8,13 @@
  * Provides a common interface for different solving strategies used by
  * PlanningLP::resolve().  The two built-in implementations are:
  *
- * - **MonolithicSolver** – solves each (scene, phase) LP independently in
+ * - **MonolithicMethod** – solves each (scene, phase) LP independently in
  *   parallel using the adaptive work pool (the default).
  *
- * - **SDDPPlanningSolver** – wraps SDDPSolver with iterative forward/backward
+ * - **SDDPPlanningMethod** – wraps SDDPMethod with iterative forward/backward
  *   Benders decomposition across phases and scenes.
  *
- * The solver type is selected via the `solver_type` option in the JSON
+ * The solver type is selected via the `method` option in the JSON
  * options block (`"monolithic"` or `"sddp"`).
  */
 
@@ -35,26 +35,26 @@ namespace gtopt
 
 class PlanningLP;
 
-// ─── PlanningSolver interface ───────────────────────────────────────────────
+// ─── PlanningMethod interface ───────────────────────────────────────────────
 
 /**
- * @class PlanningSolver
+ * @class PlanningMethod
  * @brief Abstract interface for planning problem solvers
  *
  * All solvers take a mutable reference to a PlanningLP and solve its LP
  * subproblems.  The return value is the number of successfully processed
  * scenes (or an error).
  */
-class PlanningSolver
+class PlanningMethod
 {
 public:
-  PlanningSolver() = default;
-  virtual ~PlanningSolver() = default;
+  PlanningMethod() = default;
+  virtual ~PlanningMethod() = default;
 
-  PlanningSolver(const PlanningSolver&) = delete;
-  PlanningSolver& operator=(const PlanningSolver&) = delete;
-  PlanningSolver(PlanningSolver&&) = default;
-  PlanningSolver& operator=(PlanningSolver&&) = default;
+  PlanningMethod(const PlanningMethod&) = delete;
+  PlanningMethod& operator=(const PlanningMethod&) = delete;
+  PlanningMethod(PlanningMethod&&) = default;
+  PlanningMethod& operator=(PlanningMethod&&) = default;
 
   /**
    * @brief Solve the planning problem
@@ -67,10 +67,10 @@ public:
       -> std::expected<int, Error> = 0;
 };
 
-// ─── MonolithicSolver ───────────────────────────────────────────────────────
+// ─── MonolithicMethod ───────────────────────────────────────────────────────
 
 /**
- * @class MonolithicSolver
+ * @class MonolithicMethod
  * @brief Solves each (scene, phase) LP independently using a work pool
  *
  * This is the default solver.  Each scene's phases are solved sequentially
@@ -90,7 +90,7 @@ public:
  *  - `"realtime"`:     rolling CPU-load and active-worker history sampled
  *                      by a background thread at `api_update_interval`.
  */
-class MonolithicSolver final : public PlanningSolver
+class MonolithicMethod final : public PlanningMethod
 {
 public:
   /// When true, write a JSON status file after solving completes.
@@ -134,7 +134,7 @@ class OptionsLP;
  *        SDDP requirements; falls back to monolithic when < 2)
  * @return Unique pointer to the selected solver
  */
-[[nodiscard]] std::unique_ptr<PlanningSolver> make_planning_solver(
+[[nodiscard]] std::unique_ptr<PlanningMethod> make_planning_method(
     const OptionsLP& options, size_t num_phases = 0);
 
 }  // namespace gtopt

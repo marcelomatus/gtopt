@@ -24,8 +24,8 @@
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/options_lp.hpp>
 #include <gtopt/planning_lp.hpp>
-#include <gtopt/planning_solver.hpp>
-#include <gtopt/sddp_solver.hpp>
+#include <gtopt/planning_method.hpp>
+#include <gtopt/sddp_method.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 #include <parquet/arrow/writer.h>

@@ -29,7 +29,6 @@ if(NOT TARGET gtopt::gtopt)
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/ClangFormat.cmake")
-include(Solver)
 
 # ---- Standalone binary (or reuse from parent) ----
 # When included from all/CMakeLists.txt the standalone binary is already
@@ -45,13 +44,9 @@ else()
   add_executable(${PROJECT_NAME} ${sources})
   set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "gtopt")
 
-  target_include_directories(
-    ${PROJECT_NAME} SYSTEM PUBLIC "${COIN_INCLUDE_DIRS}"
-  )
   target_link_libraries(
     ${PROJECT_NAME}
     gtopt::gtopt
-    "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}"
   )
 
   include(Coverage)

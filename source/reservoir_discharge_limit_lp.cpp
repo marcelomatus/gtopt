@@ -127,9 +127,7 @@ bool ReservoirDischargeLimitLP::add_to_output(OutputContext& out) const
 
 int ReservoirDischargeLimitLP::update_lp(SystemLP& sys,
                                          const ScenarioLP& scenario,
-                                         const StageLP& stage,
-                                         PhaseIndex phase,
-                                         int iteration)
+                                         const StageLP& stage)
 {
   if (reservoir_discharge_limit().segments.size() < 2) {
     return 0;
@@ -138,19 +136,14 @@ int ReservoirDischargeLimitLP::update_lp(SystemLP& sys,
   auto& li = sys.linear_interface();
 
   const auto& rsv = sys.element<ReservoirLP>(reservoir_sid());
-  Real volume = rsv.reservoir().eini.value_or(0.0);
+  const auto default_volume = rsv.reservoir().eini.value_or(0.0);
 
   const auto st_key = std::pair {scenario.uid(), stage.uid()};
   auto& state = m_states_.at(st_key);
 
-  if (iteration > 1 && phase != PhaseIndex {0}) {
-    if (li.is_optimal()) {
-      const auto col_sol = li.get_col_sol();
-      const auto vini = rsv.physical_eini(col_sol, scenario, stage);
-      const auto vfin = rsv.physical_efin(col_sol, scenario, stage);
-      volume = (vini + vfin) / 2.0;
-    }
-  }
+  const auto vini = rsv.physical_eini(li, scenario, stage, default_volume);
+  const auto vfin = rsv.physical_efin(li, scenario, stage, default_volume);
+  const Real volume = (vini + vfin) / 2.0;
 
   const auto coeffs =
       select_rdl_coeffs(reservoir_discharge_limit().segments, volume);

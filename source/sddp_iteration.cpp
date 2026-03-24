@@ -16,9 +16,9 @@
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_cut_io.hpp>
+#include <gtopt/sddp_method.hpp>
 #include <gtopt/sddp_monitor.hpp>
 #include <gtopt/sddp_pool.hpp>
-#include <gtopt/sddp_solver.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
 #  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
@@ -29,7 +29,7 @@
 namespace gtopt
 {
 
-auto SDDPSolver::solve(const SolverOptions& lp_opts)
+auto SDDPMethod::solve(const SolverOptions& lp_opts)
     -> std::expected<std::vector<SDDPIterationResult>, Error>
 {
   // Validate preconditions
@@ -103,7 +103,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
 
       // ── Forward pass ──
       SPDLOG_DEBUG("SDDP: starting forward pass (iter {})", iter);
-      auto fwd = run_forward_pass_all_scenes(iter, *sddp_pool, lp_opts);
+      auto fwd = run_forward_pass_all_scenes(*sddp_pool, lp_opts, iter);
       if (!fwd.has_value()) {
         monitor.stop();
         return std::unexpected(std::move(fwd.error()));
@@ -260,7 +260,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     };
     m_benders_cut_.reset_infeasible_cut_count();
 
-    auto fwd = run_forward_pass_all_scenes(final_iter, *sddp_pool, lp_opts);
+    auto fwd = run_forward_pass_all_scenes(*sddp_pool, lp_opts, final_iter);
     if (!fwd.has_value()) {
       monitor.stop();
       return std::unexpected(std::move(fwd.error()));

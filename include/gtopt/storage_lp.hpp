@@ -15,6 +15,7 @@
 
 #include <gtopt/index_holder.hpp>
 #include <gtopt/input_context.hpp>
+#include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/object_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
@@ -177,22 +178,39 @@ public:
     return col_values[col] * m_energy_scale_;
   }
 
-  /// Retrieve the physical eini (initial energy/volume) from an LP solution
-  /// or bound vector for a given scenario and stage.
-  [[nodiscard]] double physical_eini(std::span<const double> col_values,
+  /// Retrieve the physical eini (initial energy/volume) for a given
+  /// scenario and stage.  For the first stage of the first phase the eini
+  /// column is the fixed initial condition, so @p default_eini is returned
+  /// directly.  Otherwise, if the LP has an optimal solution the value is
+  /// read from the solution vector; falls back to @p default_eini.
+  [[nodiscard]] double physical_eini(const LinearInterface& li,
                                      const ScenarioLP& scenario,
-                                     const StageLP& stage) const
+                                     const StageLP& stage,
+                                     double default_eini) const
   {
-    return physical_col_value(col_values, eini_col_at(scenario, stage));
+    if (stage.index() == StageIndex {0}
+        && stage.phase_index() == PhaseIndex {0})
+    {
+      return default_eini;
+    }
+    if (li.is_optimal()) {
+      return physical_col_value(li.get_col_sol(), eini_col_at(scenario, stage));
+    }
+    return default_eini;
   }
 
-  /// Retrieve the physical efin (final energy/volume) from an LP solution
-  /// or bound vector for a given scenario and stage.
-  [[nodiscard]] double physical_efin(std::span<const double> col_values,
+  /// Retrieve the physical efin (final energy/volume) for a given
+  /// scenario and stage.  If the LP has an optimal solution the value is
+  /// read from the solution vector; otherwise @p default_efin is returned.
+  [[nodiscard]] double physical_efin(const LinearInterface& li,
                                      const ScenarioLP& scenario,
-                                     const StageLP& stage) const
+                                     const StageLP& stage,
+                                     double default_efin) const
   {
-    return physical_col_value(col_values, efin_col_at(scenario, stage));
+    if (li.is_optimal()) {
+      return physical_col_value(li.get_col_sol(), efin_col_at(scenario, stage));
+    }
+    return default_efin;
   }
 
   template<typename SystemContextT>

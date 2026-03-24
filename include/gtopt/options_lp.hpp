@@ -440,7 +440,7 @@ public:
 
   // Default values for SDDP solver settings
   /** @brief Default solver type */
-  static constexpr auto default_sddp_solver_type = "monolithic";
+  static constexpr auto default_method_type = "monolithic";
   /** @brief Default cut sharing mode for SDDP */
   static constexpr auto default_sddp_cut_sharing_mode = "none";
   /** @brief Default directory for Benders cut files */
@@ -449,9 +449,9 @@ public:
   static constexpr auto default_log_directory = "logs";
   /** @brief Default for SDDP monitoring API (enabled by default) */
   static constexpr Bool default_sddp_api_enabled = true;
-  /** @brief Default iterations to skip between efficiency updates (0 = every
+  /** @brief Default iterations to skip between update_lp dispatches (0 = every
    * iteration, matching PLP behaviour) */
-  static constexpr Int default_sddp_production_factor_update_skip = 0;
+  static constexpr Int default_sddp_update_lp_skip = 0;
   /** @brief Default maximum SDDP iterations */
   static constexpr Int default_sddp_max_iterations = 100;
   /** @brief Default minimum iterations before declaring convergence */
@@ -477,14 +477,14 @@ public:
   /**
    * @brief Gets the solver type, using default if not set.
    *
-   * Reads the top-level `solver_type` field (`"monolithic"` or `"sddp"`).
+   * Reads the top-level `method` field (`"monolithic"` or `"sddp"`).
    * Defaults to `"monolithic"` when not set.
    *
    * @return The solver type ("monolithic" or "sddp")
    */
-  [[nodiscard]] auto solver_type() const -> Name
+  [[nodiscard]] auto method() const -> Name
   {
-    return m_options_.solver_type.value_or(Name {default_sddp_solver_type});
+    return m_options_.method.value_or(Name {default_method_type});
   }
 
   /**
@@ -536,13 +536,13 @@ public:
   }
 
   /**
-   * @brief Gets the global production factor update skip count
-   * @return Number of SDDP iterations to skip between efficiency updates
+   * @brief Gets the global update_lp skip count
+   * @return Number of SDDP iterations to skip between update_lp dispatches
    */
-  [[nodiscard]] constexpr auto sddp_production_factor_update_skip() const
+  [[nodiscard]] constexpr auto sddp_update_lp_skip() const
   {
-    return m_options_.sddp_options.production_factor_update_skip.value_or(
-        default_sddp_production_factor_update_skip);
+    return m_options_.sddp_options.update_lp_skip.value_or(
+        default_sddp_update_lp_skip);
   }
 
   /**
@@ -818,12 +818,12 @@ public:
   // string fields.  Use these in preference to the string-returning
   // accessors above for type-safe comparisons.
 
-  /// Solver type as an enum (SolverType::monolithic or SolverType::sddp).
-  [[nodiscard]] auto solver_type_enum() const -> SolverType
+  /// Solver type as an enum (MethodType::monolithic or MethodType::sddp).
+  [[nodiscard]] auto method_type_enum() const -> MethodType
   {
-    return solver_type_from_name(
-               m_options_.solver_type.value_or(default_sddp_solver_type))
-        .value_or(SolverType::monolithic);
+    return method_type_from_name(
+               m_options_.method.value_or(default_method_type))
+        .value_or(MethodType::monolithic);
   }
 
   /// Input data format as an enum (DataFormat::parquet or DataFormat::csv).
@@ -924,10 +924,10 @@ public:
       }
     };
 
-    // solver_type
+    // method
     {
-      const auto v = m_options_.solver_type.value_or(default_sddp_solver_type);
-      check("solver_type", v, solver_type_from_name(v), "monolithic");
+      const auto v = m_options_.method.value_or(default_method_type);
+      check("method", v, method_type_from_name(v), "monolithic");
     }
     // input_format
     {

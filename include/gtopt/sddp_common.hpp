@@ -8,21 +8,16 @@
  * Lightweight header with SDDP-specific strong types, forward declarations,
  * and small structures shared by sddp_solver, sddp_aperture, sddp_cut_io,
  * and sddp_monitor.  This avoids circular includes: consumers that only need
- * the basic types include this file instead of sddp_solver.hpp.
+ * the basic types include this file instead of sddp_method.hpp.
  */
 
 #pragma once
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/iteration.hpp>
 
 namespace gtopt
 {
-
-// ─── SDDP strong index types ────────────────────────────────────────────────
-
-/// Strong index type for SDDP iteration numbering.
-struct IterationTag;
-using IterationIndex = StrongIndexType<IterationTag>;
 
 // ─── Forward declarations ────────────────────────────────────────────────────
 

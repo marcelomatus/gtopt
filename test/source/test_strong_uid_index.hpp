@@ -19,7 +19,7 @@
 #include <gtopt/fmap.hpp>
 #include <gtopt/phase.hpp>
 #include <gtopt/scene.hpp>
-#include <gtopt/sddp_solver.hpp>
+#include <gtopt/sddp_method.hpp>
 #include <gtopt/strong_index_vector.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)

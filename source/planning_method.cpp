@@ -1,6 +1,6 @@
 /**
- * @file      planning_solver.cpp
- * @brief     Implementation of PlanningSolver interface and MonolithicSolver
+ * @file      planning_method.cpp
+ * @brief     Implementation of PlanningMethod interface and MonolithicMethod
  * @date      2026-03-09
  * @author    marcelo
  * @copyright BSD-3-Clause
@@ -14,13 +14,13 @@
 #include <mutex>
 #include <vector>
 
-#include <gtopt/cascade_solver.hpp>
+#include <gtopt/cascade_method.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/options_lp.hpp>
 #include <gtopt/planning_lp.hpp>
-#include <gtopt/planning_solver.hpp>
+#include <gtopt/planning_method.hpp>
 #include <gtopt/sddp_cut_io.hpp>
-#include <gtopt/sddp_solver.hpp>
+#include <gtopt/sddp_method.hpp>
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/work_pool.hpp>
 #include <spdlog/spdlog.h>
@@ -28,9 +28,9 @@
 namespace gtopt
 {
 
-// ─── MonolithicSolver ───────────────────────────────────────────────────────
+// ─── MonolithicMethod ───────────────────────────────────────────────────────
 
-auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
+auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
     -> std::expected<int, Error>
 {
   auto pool = make_solver_work_pool();
@@ -39,13 +39,13 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
   const auto solve_start = std::chrono::steady_clock::now();
   const auto num_scenes = static_cast<int>(planning_lp.systems().size());
 
-  SPDLOG_INFO("MonolithicSolver: starting {} scene(s)", num_scenes);
+  SPDLOG_INFO("MonolithicMethod: starting {} scene(s)", num_scenes);
 
   // ── Boundary cuts ──
   if (!boundary_cuts_file.empty()
       && boundary_cuts_mode != BoundaryCutsMode::noload)
   {
-    SPDLOG_INFO("MonolithicSolver: loading boundary cuts from '{}'",
+    SPDLOG_INFO("MonolithicMethod: loading boundary cuts from '{}'",
                 boundary_cuts_file);
 
     // Build temporary SDDPOptions with boundary cut settings
@@ -73,11 +73,11 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
                                             scene_phase_states);
     if (bc_result) {
       SPDLOG_INFO(
-          "MonolithicSolver: loaded {} boundary cuts (max iteration {})",
+          "MonolithicMethod: loaded {} boundary cuts (max iteration {})",
           bc_result->count,
           bc_result->max_iteration);
     } else {
-      SPDLOG_WARN("MonolithicSolver: failed to load boundary cuts: {}",
+      SPDLOG_WARN("MonolithicMethod: failed to load boundary cuts: {}",
                   bc_result.error().message);
     }
   }
@@ -86,7 +86,7 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
   auto effective_opts = opts;
   if (solve_timeout > 0.0) {
     effective_opts.time_limit = solve_timeout;
-    SPDLOG_INFO("MonolithicSolver: solve_timeout={:.1f}s", solve_timeout);
+    SPDLOG_INFO("MonolithicMethod: solve_timeout={:.1f}s", solve_timeout);
   }
 
   std::atomic<int> scenes_done {0};
@@ -118,7 +118,7 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
         }
       }
       spdlog::info(
-          "MonolithicSolver: wrote LP debug file(s) to {}_*.lp{}",
+          "MonolithicMethod: wrote LP debug file(s) to {}_*.lp{}",
           lp_stem,
           (lp_debug_compression.empty() || lp_debug_compression == "none"
            || lp_debug_compression == "uncompressed")
@@ -135,7 +135,7 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
       auto result = pool->submit(
           [&, scene_index]
           {
-            SPDLOG_TRACE("MonolithicSolver: scene {} starting", scene_index);
+            SPDLOG_TRACE("MonolithicMethod: scene {} starting", scene_index);
             const auto t_scene = std::chrono::steady_clock::now();
             auto r = planning_lp.resolve_scene_phases(
                 scene_index, phase_systems, effective_opts);
@@ -148,7 +148,7 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
               scene_times[static_cast<std::size_t>(scene_index)] = elapsed;
             }
             ++scenes_done;
-            SPDLOG_INFO("MonolithicSolver: scene {} done in {:.3f}s ({}/{})",
+            SPDLOG_INFO("MonolithicMethod: scene {} done in {:.3f}s ({}/{})",
                         scene_index,
                         elapsed,
                         scenes_done.load(),
@@ -176,7 +176,7 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
           std::chrono::duration<double>(std::chrono::steady_clock::now()
                                         - solve_start)
               .count();
-      SPDLOG_INFO("MonolithicSolver: all {} scene(s) done in {:.3f}s",
+      SPDLOG_INFO("MonolithicMethod: all {} scene(s) done in {:.3f}s",
                   num_scenes,
                   total_elapsed);
     }
@@ -225,7 +225,7 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
 
 // ─── Factory ────────────────────────────────────────────────────────────────
 
-std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options,
+std::unique_ptr<PlanningMethod> make_planning_method(const OptionsLP& options,
                                                      size_t num_phases)
 {
   // Validate enum option strings and warn about unknown values
@@ -233,7 +233,7 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options,
     SPDLOG_WARN("Options: {}", w);
   }
 
-  if (options.solver_type_enum() == SolverType::sddp) {
+  if (options.method_type_enum() == MethodType::sddp) {
     // SDDP requires at least 2 phases; fall back to monolithic for 0 or 1.
     if (num_phases > 0 && num_phases < 2) {
       SPDLOG_INFO(
@@ -339,11 +339,11 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options,
         sddp_opts.cuts_output_file.clear();
       }
 
-      return std::make_unique<SDDPPlanningSolver>(std::move(sddp_opts));
+      return std::make_unique<SDDPPlanningMethod>(std::move(sddp_opts));
     }  // else (num_phases >= 2)
-  }  // solver_type == "sddp"
+  }  // method == "sddp"
 
-  if (options.solver_type_enum() == SolverType::cascade) {
+  if (options.method_type_enum() == MethodType::cascade) {
     if (num_phases > 0 && num_phases < 2) {
       SPDLOG_INFO(
           "Cascade requested but only {} phase(s); using monolithic solver",
@@ -445,13 +445,13 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options,
                                     options.cascade_levels().end()};
       }
 
-      return std::make_unique<CascadePlanningSolver>(std::move(sddp_opts),
+      return std::make_unique<CascadePlanningMethod>(std::move(sddp_opts),
                                                      std::move(cascade_opts));
     }  // else (num_phases >= 2)
-  }  // solver_type == "cascade"
+  }  // method == "cascade"
 
   // Default: monolithic (also used as fallback for single-phase SDDP/cascade)
-  auto solver = std::make_unique<MonolithicSolver>();
+  auto solver = std::make_unique<MonolithicMethod>();
   const auto output_dir_m = options.output_directory();
   if (options.sddp_api_enabled() && !output_dir_m.empty()) {
     solver->enable_api = true;
