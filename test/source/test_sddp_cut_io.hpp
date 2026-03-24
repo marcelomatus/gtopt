@@ -37,7 +37,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_cut_io.hpp>
-#include <gtopt/sddp_solver.hpp>
+#include <gtopt/sddp_method.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -123,7 +123,7 @@ TEST_CASE("save_cuts_csv writes a valid CSV file")  // NOLINT
   sddp_opts.max_iterations = 3;
   sddp_opts.convergence_tol = 1e-6;
 
-  SDDPSolver sddp(planning_lp, sddp_opts);
+  SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();
   REQUIRE(results.has_value());
 
@@ -241,9 +241,9 @@ TEST_CASE("save_cuts_csv creates parent directories")  // NOLINT
                               / "gtopt_test_nested");
 }
 
-// ─── save_cuts_csv / load_cuts_csv round-trip via SDDPSolver ────────────────
+// ─── save_cuts_csv / load_cuts_csv round-trip via SDDPMethod ────────────────
 
-TEST_CASE("save and load cuts round-trip via SDDPSolver")  // NOLINT
+TEST_CASE("save and load cuts round-trip via SDDPMethod")  // NOLINT
 {
   const auto tmp_dir = std::filesystem::temp_directory_path();
   const auto cuts_file = (tmp_dir / "gtopt_test_cut_io_roundtrip.csv").string();
@@ -260,7 +260,7 @@ TEST_CASE("save and load cuts round-trip via SDDPSolver")  // NOLINT
     sddp_opts.convergence_tol = 1e-6;
     sddp_opts.cuts_output_file = cuts_file;
 
-    SDDPSolver sddp(planning_lp, sddp_opts);
+    SDDPMethod sddp(planning_lp, sddp_opts);
     auto results = sddp.solve();
     REQUIRE(results.has_value());
     REQUIRE_FALSE(sddp.stored_cuts().empty());
@@ -283,7 +283,7 @@ TEST_CASE("save and load cuts round-trip via SDDPSolver")  // NOLINT
     load_opts.hot_start_mode = HotStartMode::replace;
 
     // Solve with hot-start — should converge faster or at least not crash
-    SDDPSolver sddp2(planning_lp2, load_opts);
+    SDDPMethod sddp2(planning_lp2, load_opts);
     auto results2 = sddp2.solve();
     REQUIRE(results2.has_value());
   }
@@ -459,7 +459,7 @@ TEST_CASE("save_scene_cuts_csv creates per-scene file")  // NOLINT
   sddp_opts.max_iterations = 2;
   sddp_opts.convergence_tol = 1e-6;
 
-  SDDPSolver sddp(planning_lp, sddp_opts);
+  SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();
   REQUIRE(results.has_value());
 
@@ -532,7 +532,7 @@ TEST_CASE(
   sddp_opts.max_iterations = 2;
   sddp_opts.convergence_tol = 1e-6;
 
-  SDDPSolver sddp(planning_lp, sddp_opts);
+  SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();
   REQUIRE(results.has_value());
 

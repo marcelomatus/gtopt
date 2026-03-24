@@ -1,6 +1,6 @@
 /**
- * @file      sddp_solver.hpp
- * @brief     SDDP (Stochastic Dual Dynamic Programming) solver for multi-phase
+ * @file      sddp_method.hpp
+ * @brief     SDDP (Stochastic Dual Dynamic Programming) method for multi-phase
  *            planning problems with state variable coupling
  * @date      2026-03-08
  * @author    marcelo
@@ -71,7 +71,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/planning_lp.hpp>
-#include <gtopt/planning_solver.hpp>
+#include <gtopt/planning_method.hpp>
 #include <gtopt/reservoir_production_factor_lp.hpp>
 #include <gtopt/sddp_aperture.hpp>
 #include <gtopt/sddp_clone_pool.hpp>
@@ -89,7 +89,7 @@ namespace gtopt
 struct CutLoadResult
 {
   int count {};  ///< Number of unique cuts loaded
-  int max_iteration {};  ///< Highest iteration index found among loaded cuts
+  IterationIndex max_iteration {};  ///< Highest iteration index found
 };
 
 // ─── Cut sharing mode ───────────────────────────────────────────────────────
@@ -520,10 +520,10 @@ struct BackwardPassOutcome
   double elapsed_s {0.0};
 };
 
-// ─── SDDPSolver ─────────────────────────────────────────────────────────────
+// ─── SDDPMethod ─────────────────────────────────────────────────────────────
 
 /**
- * @class SDDPSolver
+ * @class SDDPMethod
  * @brief Iterative SDDP solver for multi-phase power system planning
  *
  * Wraps a `PlanningLP` and adds Benders decomposition on top of the
@@ -553,7 +553,7 @@ struct BackwardPassOutcome
  *   file on disk.
  *
  * @code
- * SDDPSolver sddp(planning_lp, SDDPOptions{.max_iterations = 100});
+ * SDDPMethod sddp(planning_lp, SDDPOptions{.max_iterations = 100});
  *
  * // Register a callback that prints progress and stops at gap < 1e-6
  * sddp.set_iteration_callback([](const SDDPIterationResult& r) {
@@ -568,10 +568,10 @@ struct BackwardPassOutcome
  * sddp.request_stop();
  * @endcode
  */
-class SDDPSolver
+class SDDPMethod
 {
 public:
-  explicit SDDPSolver(PlanningLP& planning_lp, SDDPOptions opts = {}) noexcept;
+  explicit SDDPMethod(PlanningLP& planning_lp, SDDPOptions opts = {}) noexcept;
 
   /// Run the SDDP iterative solve
   [[nodiscard]] auto solve(const SolverOptions& lp_opts = {})
@@ -677,7 +677,7 @@ public:
   }
 
   /// Clear all stored cut metadata (combined + per-scene).
-  /// Used by CascadePlanningSolver between cascade phases.
+  /// Used by CascadePlanningMethod between cascade phases.
   void clear_stored_cuts() noexcept;
 
   /// Remove the first @p count cuts from stored cuts and from the LP.
@@ -785,8 +785,8 @@ private:
   void collect_state_variable_links(SceneIndex scene);
 
   [[nodiscard]] auto forward_pass(SceneIndex scene,
-                                  IterationIndex iteration,
-                                  const SolverOptions& opts)
+                                  const SolverOptions& opts,
+                                  IterationIndex iteration)
       -> std::expected<double, Error>;
 
   [[nodiscard]] auto backward_pass(SceneIndex scene,
@@ -875,8 +875,8 @@ private:
   ///
   /// @param iteration  SDDP iteration index (for pool priority ordering)
   /// @param phase      Phase index (for pool priority ordering)
-  [[nodiscard]] static auto make_aperture_submit_fn(IterationIndex iteration,
-                                                    PhaseIndex phase)
+  [[nodiscard]] static auto make_aperture_submit_fn(PhaseIndex phase,
+                                                    IterationIndex iteration)
       -> ApertureSubmitFunc;
 
   /// Prune inactive cuts from all (scene, phase) LPs.
@@ -932,9 +932,9 @@ private:
 
   /// Run the forward pass for all scenes in parallel.
   /// Returns a ForwardPassOutcome or an error if ALL scenes failed.
-  [[nodiscard]] auto run_forward_pass_all_scenes(IterationIndex iter,
-                                                 SDDPWorkPool& pool,
-                                                 const SolverOptions& opts)
+  [[nodiscard]] auto run_forward_pass_all_scenes(SDDPWorkPool& pool,
+                                                 const SolverOptions& opts,
+                                                 IterationIndex iter)
       -> std::expected<ForwardPassOutcome, Error>;
 
   /// Run the backward pass for all feasible scenes in parallel.
@@ -1120,16 +1120,16 @@ private:
   }
 };
 
-// ─── SDDPPlanningSolver ─────────────────────────────────────────────────────
+// ─── SDDPPlanningMethod ─────────────────────────────────────────────────────
 
 /**
- * @class SDDPPlanningSolver
- * @brief Adapter that wraps SDDPSolver behind the PlanningSolver interface
+ * @class SDDPPlanningMethod
+ * @brief Adapter that wraps SDDPMethod behind the PlanningMethod interface
  */
-class SDDPPlanningSolver final : public PlanningSolver
+class SDDPPlanningMethod final : public PlanningMethod
 {
 public:
-  explicit SDDPPlanningSolver(SDDPOptions opts = {}) noexcept;
+  explicit SDDPPlanningMethod(SDDPOptions opts = {}) noexcept;
 
   [[nodiscard]] auto solve(PlanningLP& planning_lp, const SolverOptions& opts)
       -> std::expected<int, Error> override;

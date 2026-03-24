@@ -6,9 +6,12 @@
  * @copyright BSD-3-Clause
  *
  * This module provides a unified interface to various linear programming
- * solvers through the OSI (Open Solver Interface) library. It enables
+ * solvers through a pluggable SolverBackend abstraction.  It enables
  * problem construction, solving, and solution retrieval in a solver-agnostic
  * manner, simplifying the integration of different planning engines.
+ *
+ * Solver backends (CLP, CBC, CPLEX, HiGHS, …) are loaded as dynamic
+ * plugins at runtime via the SolverRegistry.
  */
 
 #pragma once
@@ -21,7 +24,7 @@
 #include <gtopt/error.hpp>
 #include <gtopt/fmap.hpp>
 #include <gtopt/linear_problem.hpp>
-#include <gtopt/osi_solver.hpp>
+#include <gtopt/solver_backend.hpp>
 #include <gtopt/solver_options.hpp>
 
 namespace gtopt
@@ -30,44 +33,46 @@ namespace gtopt
 class LinearInterface
 {
 public:
-  using SolverInterface = ::osiSolverInterface;
-  using solver_ptr_t = std::shared_ptr<SolverInterface>;
-
   /** @brief Copy constructor disabled */
   explicit LinearInterface(const LinearInterface&) = delete;
   /** @brief Copy assignment disabled */
   LinearInterface& operator=(const LinearInterface&) = delete;
-  /** @brief Move constructor disabled */
+  /** @brief Move constructor */
   LinearInterface(LinearInterface&&) = default;
-  /** @brief Move assignment disabled */
+  /** @brief Move assignment */
   LinearInterface& operator=(LinearInterface&&) = default;
 
   /**
-   * @brief Constructs interface with a default solver
+   * @brief Constructs interface with a solver backend by name
+   * @param solver_name Solver identifier ("clp", "cbc", "cplex", "highs")
    * @param plog_file Path to log file for solver output
    */
-  explicit LinearInterface(const std::string& plog_file = {});
+  explicit LinearInterface(std::string_view solver_name = {},
+                           const std::string& plog_file = {});
 
   /**
-   * @brief Constructs interface with an existing solver
-   * @param psolver Pre-configured solver pointer
+   * @brief Constructs interface with a pre-created backend
+   * @param backend Pre-configured solver backend
    * @param plog_file Path to log file for solver output
    */
-  LinearInterface(solver_ptr_t psolver, std::string plog_file);
+  explicit LinearInterface(std::unique_ptr<SolverBackend> backend,
+                           const std::string& plog_file = {});
 
   /**
-   * @brief Constructs interface and loads a problem
+   * @brief Constructs interface, loads a problem, with solver by name
+   * @param solver_name Solver identifier
    * @param flat_lp Flattened linear problem to load
    * @param plog_file Path to log file for solver output
    */
-  explicit LinearInterface(const FlatLinearProblem& flat_lp,
-                           const std::string& plog_file = {});
+  LinearInterface(std::string_view solver_name,
+                  const FlatLinearProblem& flat_lp,
+                  const std::string& plog_file = {});
 
   ~LinearInterface() = default;
 
   /**
-   * @brief Creates a deep copy of this LinearInterface via OsiSolverInterface
-   *        clone().
+   * @brief Creates a deep copy of this LinearInterface via the backend's
+   *        clone() method.
    *
    * The clone preserves the full LP state (variables, constraints, bounds,
    * objective, warm-start basis).  Modifications to the clone do not affect
@@ -135,10 +140,6 @@ public:
   /**
    * @brief Deletes rows by index from the constraint matrix.
    *
-   * Calls `OsiSolverInterface::deleteRows()` and rebuilds the internal
-   * `m_row_names_` map (when `lp_names_level >= 1`) so that name-to-index
-   * lookups remain consistent after the index shift.
-   *
    * @param indices  Row indices to delete (must be sorted ascending)
    */
   void delete_rows(std::span<const int> indices);
@@ -166,7 +167,7 @@ public:
    *        @p source and deleting any rows beyond @p base_rows.
    *
    * Used by the clone pool to reuse a cached LP clone across aperture
-   * solves without re-allocating the underlying CLP solver.
+   * solves without re-allocating the underlying solver.
    *
    * @param source    The original (unmodified) LP to copy bounds from
    * @param base_rows Number of structural rows to keep (delete beyond)
@@ -200,11 +201,6 @@ public:
   /**
    * @brief Sets (modifies) a coefficient in the constraint matrix
    *
-   * Uses solver-specific methods to update the matrix element in place:
-   * - CLP:  `OsiClpSolverInterface::modifyCoefficient()`
-   * - CBC:  delegates to the underlying CLP solver
-   * - CPLEX: `CPXchgcoef()` via `OsiCpxSolverInterface::setCoefficient()`
-   *
    * @param row Row index of the coefficient
    * @param column Column index of the coefficient
    * @param value New coefficient value
@@ -214,18 +210,15 @@ public:
   /**
    * @brief Checks whether the solver supports in-place coefficient updates
    *
-   * Returns true for CLP, CBC, and CPLEX solvers that provide
-   * `modifyCoefficient()` or equivalent.  When false, the caller should
-   * fall back to a static coefficient (e.g. mean efficiency).
-   *
    * @return true if set_coeff() is functional
    */
-  static bool supports_set_coeff() noexcept;
+  [[nodiscard]] bool supports_set_coeff() const noexcept;
 
   void set_obj_coeff(ColIndex index, double value);
-  [[nodiscard]] constexpr auto get_obj_coeff() const
+
+  [[nodiscard]] auto get_obj_coeff() const
   {
-    return std::span(solver->getObjCoefficients(), get_numcols());
+    return std::span(m_backend_->obj_coefficients(), get_numcols());
   }
 
   void set_col_low(ColIndex index, double value);
@@ -245,11 +238,6 @@ public:
   /**
    * @brief Performs initial solve of the problem from scratch
    * @param solver_options Options controlling the solve process
-   * @return True if the solve was successful, false otherwise
-   */
-  /**
-   * @brief Performs initial solve of the problem from scratch
-   * @param solver_options Options controlling the solve process
    * @return Expected with solver status code (0 = optimal) or error
    */
   [[nodiscard]] std::expected<int, Error> initial_solve(
@@ -265,7 +253,7 @@ public:
 
   /**
    * @brief Gets the condition number of the basis matrix (if available)
-   * @return Condition number kappa, or -1 if not available
+   * @return Condition number kappa, or 1.0 if not available
    */
   [[nodiscard]] double get_kappa() const;
 
@@ -335,54 +323,54 @@ public:
    * @brief Gets the lower bounds for all constraint rows
    * @return Span view of row lower bounds
    */
-  [[nodiscard]] constexpr auto get_row_low() const
+  [[nodiscard]] auto get_row_low() const
   {
-    return std::span(solver->getRowLower(), get_numrows());
+    return std::span(m_backend_->row_lower(), get_numrows());
   }
 
   /**
    * @brief Gets the upper bounds for all constraint rows
    * @return Span view of row upper bounds
    */
-  [[nodiscard]] constexpr auto get_row_upp() const
+  [[nodiscard]] auto get_row_upp() const
   {
-    return std::span(solver->getRowUpper(), get_numrows());
+    return std::span(m_backend_->row_upper(), get_numrows());
   }
 
   /**
    * @brief Gets the lower bounds for all variable columns
    * @return Span view of column lower bounds
    */
-  [[nodiscard]] constexpr auto get_col_low() const
+  [[nodiscard]] auto get_col_low() const
   {
-    return std::span(solver->getColLower(), get_numcols());
+    return std::span(m_backend_->col_lower(), get_numcols());
   }
 
   /**
    * @brief Gets the upper bounds for all variable columns
    * @return Span view of column upper bounds
    */
-  [[nodiscard]] constexpr auto get_col_upp() const
+  [[nodiscard]] auto get_col_upp() const
   {
-    return std::span(solver->getColUpper(), get_numcols());
+    return std::span(m_backend_->col_upper(), get_numcols());
   }
 
   /**
    * @brief Gets the solution values for all variables
    * @return Span view of solution values
    */
-  [[nodiscard]] constexpr auto get_col_sol() const
+  [[nodiscard]] auto get_col_sol() const
   {
-    return std::span(solver->getColSolution(), get_numcols());
+    return std::span(m_backend_->col_solution(), get_numcols());
   }
 
   /**
    * @brief Gets the reduced costs for all variables
    * @return Span view of reduced costs
    */
-  [[nodiscard]] constexpr auto get_col_cost() const
+  [[nodiscard]] auto get_col_cost() const
   {
-    return std::span(solver->getReducedCost(), get_numcols());
+    return std::span(m_backend_->reduced_cost(), get_numcols());
   }
 
   /**
@@ -419,16 +407,19 @@ public:
    * @brief Gets the dual values (shadow prices) for all constraints
    * @return Span view of dual values
    */
-  [[nodiscard]] constexpr auto get_row_dual() const
+  [[nodiscard]] auto get_row_dual() const
   {
-    return std::span(solver->getRowPrice(), get_numrows());
+    return std::span(m_backend_->row_price(), get_numrows());
   }
 
   void set_col_sol(std::span<const double> sol);
   void set_row_dual(std::span<const double> dual);
 
   void set_log_file(const std::string& plog_file);
-  [[nodiscard]] constexpr const auto& get_log_file() const { return log_file; }
+  [[nodiscard]] constexpr const auto& get_log_file() const
+  {
+    return m_log_file_;
+  }
 
   void set_prob_name(const std::string& pname);
   [[nodiscard]] std::string get_prob_name() const;
@@ -534,8 +525,6 @@ public:
   /// @}
 
 private:
-  void set_solver_opts(const SolverOptions& solver_options);
-
   RowIndex add_row(const std::string& name,
                    size_t numberElements,
                    const std::span<const int>& columns,
@@ -545,8 +534,6 @@ private:
 
   void rebuild_row_name_maps();
   void push_names_to_solver() const;
-  void open_log_handler(int log_level);
-  void close_log_handler();
 
   struct HandlerGuard
   {
@@ -566,8 +553,11 @@ private:
     ~HandlerGuard() { interface->close_log_handler(); }
   };
 
-  solver_ptr_t solver;
-  std::string log_file {};
+  void open_log_handler(int log_level);
+  void close_log_handler();
+
+  std::unique_ptr<SolverBackend> m_backend_;
+  std::string m_log_file_ {};
   int m_lp_names_level_ {};  ///< LP name uniqueness-check level (0–2)
 
   /// Name-to-index maps for duplicate detection and later lookup.
@@ -596,8 +586,7 @@ private:
     auto operator()(auto f) const { return fclose(f); }
   };
   using log_file_ptr_t = std::unique_ptr<FILE, FILEcloser>;
-  log_file_ptr_t log_file_ptr;
-  std::unique_ptr<CoinMessageHandler> handler {};
+  log_file_ptr_t m_log_file_ptr_;
 };
 
 }  // namespace gtopt

@@ -66,7 +66,6 @@ TEST_CASE("ReservoirProductionFactor daw json test 1")
   REQUIRE(re.segments[0].volume == doctest::Approx(0.0));
   REQUIRE(re.segments[0].slope == doctest::Approx(0.0002294));
   REQUIRE(re.segments[0].constant == doctest::Approx(1.2558));
-  CHECK_FALSE(re.sddp_production_factor_update_skip.has_value());
 }
 
 TEST_CASE("ReservoirProductionFactor daw json test - multiple segments")
@@ -80,8 +79,7 @@ TEST_CASE("ReservoirProductionFactor daw json test - multiple segments")
     "segments": [
       { "volume": 0.0,   "slope": 0.0003, "constant": 1.8 },
       { "volume": 500.0, "slope": 0.0001, "constant": 4.8 }
-    ],
-    "sddp_production_factor_update_skip": 3
+    ]
   })";
 
   const ReservoirProductionFactor re =
@@ -93,8 +91,6 @@ TEST_CASE("ReservoirProductionFactor daw json test - multiple segments")
   REQUIRE(re.segments.size() == 2);
   REQUIRE(re.segments[1].volume == doctest::Approx(500.0));
   REQUIRE(re.segments[1].constant == doctest::Approx(4.8));
-  REQUIRE(re.sddp_production_factor_update_skip.has_value());
-  CHECK(re.sddp_production_factor_update_skip.value_or(0) == 3);
 }
 
 TEST_CASE("ReservoirProductionFactor daw json test - empty segments")
@@ -167,7 +163,6 @@ TEST_CASE("ReservoirProductionFactor to_json and from_json round-trip")
               {.volume = 0.0, .slope = 0.0005, .constant = 1.5},
               {.volume = 800.0, .slope = 0.0002, .constant = 1.75},
           },
-      .sddp_production_factor_update_skip = 2,
   };
 
   const auto json = daw::json::to_json(orig);
@@ -182,6 +177,4 @@ TEST_CASE("ReservoirProductionFactor to_json and from_json round-trip")
   REQUIRE(roundtrip.segments.size() == 2);
   CHECK(roundtrip.segments[0].slope == doctest::Approx(0.0005));
   CHECK(roundtrip.segments[1].volume == doctest::Approx(800.0));
-  REQUIRE(roundtrip.sddp_production_factor_update_skip.has_value());
-  CHECK(roundtrip.sddp_production_factor_update_skip.value_or(0) == 2);
 }

@@ -38,7 +38,6 @@ endif()
 CPMAddPackage("gh:doctest/doctest@2.4.12")
 
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/ClangFormat.cmake")
-include(Solver)
 
 # ---- Test executable ----
 file(GLOB sources CONFIGURE_DEPENDS
@@ -48,14 +47,10 @@ file(GLOB sources CONFIGURE_DEPENDS
 
 add_executable(${PROJECT_NAME} ${sources})
 
-target_include_directories(
-  ${PROJECT_NAME} SYSTEM PUBLIC "${COIN_INCLUDE_DIRS}"
-)
 target_link_libraries(
   ${PROJECT_NAME}
   doctest::doctest
   gtopt::gtopt
-  "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}"
 )
 
 if(NOT TEST_INSTALLED_VERSION)

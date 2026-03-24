@@ -13,13 +13,13 @@
  *  - Writes atomic JSON status files for external monitoring tools
  *    (e.g. `scripts/sddp_monitor.py`).
  *
- * The class is used by both `SDDPSolver` (SDDP iteration history +
- * real-time workpool stats) and `MonolithicSolver` (scene-solve progress +
+ * The class is used by both `SDDPMethod` (SDDP iteration history +
+ * real-time workpool stats) and `MonolithicMethod` (scene-solve progress +
  * real-time workpool stats).
  *
- * ### Indicators monitored by MonolithicSolver
+ * ### Indicators monitored by MonolithicMethod
  *
- * The MonolithicSolver adds the following keys to its JSON status file:
+ * The MonolithicMethod adds the following keys to its JSON status file:
  *  - `"total_scenes"`: total number of scenes to process.
  *  - `"scenes_done"`:  scenes solved so far (thread-safe counter).
  *  - `"scene_times"`:  wall-clock time in seconds for each completed scene.
@@ -63,7 +63,7 @@ namespace gtopt
 /**
  * @brief Create and start an AdaptiveWorkPool configured for solver use.
  *
- * Both MonolithicSolver and SDDPSolver (auxiliary pool) use this factory.
+ * Both MonolithicMethod and SDDPMethod (auxiliary pool) use this factory.
  *
  * @param cpu_factor  Over-commit factor applied to hardware_concurrency.
  *                    Default 1.25 (25 % more threads than physical cores).

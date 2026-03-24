@@ -94,32 +94,6 @@ public:
 
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
-  /**
-   * @brief Update reservoir-dependent LP coefficients for this turbine.
-   *
-   * Finds the ReservoirProductionFactorLP element that references this turbine,
-   * queries the associated reservoir for the current volume (using the
-   * previous phase's solution if available, or the initial volume for the
-   * first phase / first iteration), and updates the turbine conversion-rate
-   * coefficient in the LP via
-   * ReservoirProductionFactorLP::update_conversion_coeff.
-   *
-   * Respects the per-element skip count from ReservoirProductionFactorLP.
-   *
-   * @param sys        SystemLP that owns this turbine (non-const for coeff
-   * update)
-   * @param scenario   Current scenario
-   * @param stage      Current stage
-   * @param phase      Current phase (PhaseIndex{0} = first phase = use eini)
-   * @param iteration  Current SDDP iteration (0-based)
-   * @return Number of LP coefficients updated
-   */
-  int update_lp(SystemLP& sys,
-                const ScenarioLP& scenario,
-                const StageLP& stage,
-                PhaseIndex phase,
-                int iteration);
-
   /// Access conversion-rate constraint row indices for a (scenario, stage)
   [[nodiscard]] auto conversion_rows_at(const ScenarioLP& scenario,
                                         const StageLP& stage) const

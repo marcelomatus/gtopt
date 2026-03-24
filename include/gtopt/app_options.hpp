@@ -90,6 +90,10 @@ template<typename T>
 {
   po::options_description desc("Gtopt options");
   desc.add_options()("help,h", "print this help message and exit")  //
+      ("lp-solvers", "list available LP solver backends and exit")  //
+      ("lp-solver",
+       po::value<std::string>(),
+       "LP solver backend: clp (default), cbc, cplex, highs")  //
       ("verbose,v", "enable maximum log verbosity (trace level)")  //
       ("quiet,q",
        po::value<bool>().implicit_value(/*v=*/true),
@@ -402,7 +406,8 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 [[nodiscard]] inline FlatOptions make_flat_options(
     const std::optional<int>& use_lp_names,
     const std::optional<double>& matrix_eps,
-    bool compute_stats = false)
+    bool compute_stats = false,
+    const std::optional<std::string>& lp_solver = {})
 {
   const auto eps = matrix_eps.value_or(0);
   const auto lp_names = use_lp_names.value_or(0);
@@ -417,6 +422,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   flat_opts.reserve_factor = 2;
   flat_opts.compute_stats = compute_stats;
   flat_opts.lp_names_level = lp_names;
+  flat_opts.solver_name = lp_solver.value_or("");
 
   return flat_opts;
 }
@@ -464,6 +470,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .sddp_elastic_penalty = get_opt<double>(vm, "sddp-elastic-penalty"),
       .sddp_elastic_mode = get_opt<std::string>(vm, "sddp-elastic-mode"),
       .sddp_num_apertures = get_opt<int>(vm, "sddp-num-apertures"),
+      .lp_solver = get_opt<std::string>(vm, "lp-solver"),
       .lp_algorithm = [&]() -> std::optional<int>
       {
         if (const auto raw = get_opt<std::string>(vm, "lp-algorithm")) {

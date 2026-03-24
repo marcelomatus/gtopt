@@ -24,6 +24,7 @@
 #include <gtopt/options_lp.hpp>
 #include <gtopt/reservoir_lp.hpp>
 #include <gtopt/reservoir_production_factor.hpp>
+#include <gtopt/sddp_common.hpp>
 #include <gtopt/turbine_lp.hpp>
 
 namespace gtopt
@@ -78,15 +79,6 @@ public:
     return production_factor().mean_production_factor;
   }
 
-  /// Get the effective production factor update skip count for this element.
-  /// Per-element value takes priority; falls back to global SDDP option.
-  [[nodiscard]] auto effective_update_skip(const OptionsLP& options) const
-      -> Int
-  {
-    return production_factor().sddp_production_factor_update_skip.value_or(
-        options.sddp_production_factor_update_skip());
-  }
-
   /**
    * @brief Register this production factor element in the LP
    *
@@ -100,6 +92,23 @@ public:
                                LinearProblem& lp);
 
   [[nodiscard]] static bool add_to_output(OutputContext& out);
+
+  /**
+   * @brief Update the conversion-rate LP coefficient based on reservoir volume
+   *
+   * Determines the current reservoir volume from the previous LP solution
+   * (`vavg = (vini + vfin) / 2`), falling back to the JSON `eini` value when
+   * no previous solution is available (first stage of first phase).
+   *
+   * Evaluates the piecewise-linear efficiency at that volume and sets the
+   * turbine conversion coefficient to `-efficiency` for every (row, col)
+   * pair stored for the given (scenario, stage).
+   *
+   * @return Number of LP coefficients modified (0 if unchanged or skipped)
+   */
+  [[nodiscard]] int update_lp(SystemLP& sys,
+                              const ScenarioLP& scenario,
+                              const StageLP& stage);
 
   /**
    * @brief Update the conversion-rate LP coefficient for a given volume
@@ -153,55 +162,44 @@ private:
 /**
  * @brief Concept satisfied by LP element types that implement `update_lp()`.
  *
- * Used by `update_lp_coefficients()` to iterate over the LP element collection
+ * Used by `update_lp()` to iterate over the LP element collection
  * with `visit_elements()` and dispatch `update_lp()` only to types that
- * implement it (currently `TurbineLP`, `ReservoirSeepageLP`, and
- * `ReservoirDischargeLimitLP`).
+ * implement it (currently `ReservoirSeepageLP`,
+ * `ReservoirDischargeLimitLP`, and `ReservoirProductionFactorLP`).
  */
 template<typename T>
 concept HasUpdateLP = requires(T& obj,
                                SystemLP& system_lp,
                                const ScenarioLP& scenario,
-                               const StageLP& stage,
-                               PhaseIndex phase,
-                               int iteration) {
-  {
-    obj.update_lp(system_lp, scenario, stage, phase, iteration)
-  } -> std::same_as<int>;
+                               const StageLP& stage) {
+  { obj.update_lp(system_lp, scenario, stage) } -> std::same_as<int>;
 };
 
-// ─── Generalized LP coefficient update ──────────────────────────────────────
+// ─── Generalized LP update dispatch ─────────────────────────────────────────
 
 /**
- * @brief Update all volume-dependent LP coefficients for a (scene, phase)
+ * @brief Dispatch update_lp to all volume-dependent LP elements
  *
- * This is the **generalized coefficient update hook** called by the SDDP
- * solver before each phase solve.  It iterates over ALL LP element types in
- * the collection via `visit_elements` and, for each type that satisfies the
- * `HasUpdateLP` concept, calls `element.update_lp()`.  Currently this
- * dispatches to:
+ * Called by the SDDP solver before each phase solve.  Iterates over ALL LP
+ * element types in the collection via `visit_elements` and, for each type
+ * that satisfies the `HasUpdateLP` concept, calls `element.update_lp()`.
+ * Currently dispatches to:
  *
- * 1. **TurbineLP::update_lp()** — recomputes the turbine conversion rate from
- *    the current reservoir volume and updates the LP constraint coefficient.
+ * 1. **ReservoirSeepageLP::update_lp()** — updates seepage constraint
+ *    slope and RHS based on current reservoir volume.
  *
- * 2. **ReservoirSeepageLP::update_lp()** — selects the active piecewise-linear
- *    segment based on the current reservoir volume and updates the seepage
+ * 2. **ReservoirDischargeLimitLP::update_lp()** — updates discharge limit
  *    constraint slope and RHS.
+ *
+ * 3. **ReservoirProductionFactorLP::update_lp()** — updates turbine
+ *    conversion-rate coefficient.
  *
  * Future extensions simply require implementing `update_lp()` on the new LP
  * element type; no changes to this function are necessary.
  *
  * @param system_lp  The SystemLP for this (scene, phase)
- * @param options    Global LP options (provides default skip count)
- * @param iteration  Current SDDP iteration (0-based)
- * @param phase      Current phase index (PhaseIndex{0} = first phase)
- * @return Total number of LP coefficients modified
+ * @return Total number of LP elements modified
  */
-class SystemLP;  // forward
-
-[[nodiscard]] int update_lp_coefficients(SystemLP& system_lp,
-                                         const OptionsLP& options,
-                                         int iteration,
-                                         PhaseIndex phase);
+[[nodiscard]] int dispatch_update_lp(SystemLP& system_lp);
 
 }  // namespace gtopt

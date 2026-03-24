@@ -724,8 +724,12 @@ class JunctionWriter(BaseWriter):
                     )
                     continue
 
+            seep_idx = len(rsv.get("seepage", []))
             seepage: Dict[str, Any] = {
+                "uid": seep_idx + 1,
+                "name": f"{rsv['name']}_seepage_{seep_idx + 1}",
                 "waterway": ww_uid,
+                "reservoir": rsv["name"],
                 "slope": entry["slope"],
                 "constant": entry["constant"],
             }
@@ -831,8 +835,12 @@ class JunctionWriter(BaseWriter):
                 _logger.warning("Filemb reservoir '%s' not found; skipping.", rsv_name)
                 continue
 
+            seep_idx = len(rsv.get("seepage", []))
             seepage: Dict[str, Any] = {
+                "uid": seep_idx + 1,
+                "name": f"{rsv['name']}_seepage_{seep_idx + 1}",
                 "waterway": filt_waterway["name"],
+                "reservoir": rsv["name"],
                 "slope": default_slope,
                 "constant": default_constant,
             }
@@ -889,8 +897,12 @@ class JunctionWriter(BaseWriter):
                 )
                 continue
 
+            ddl_idx = len(rsv.get("discharge_limit", []))
             ddl: Dict[str, Any] = {
+                "uid": ddl_idx + 1,
+                "name": f"{rsv['name']}_dlim_{ddl_idx + 1}",
                 "waterway": ww_name,
+                "reservoir": rsv["name"],
             }
 
             if segments:
@@ -961,8 +973,12 @@ class JunctionWriter(BaseWriter):
                 for seg in entry["segments"]
             ]
 
+            pfac_idx = len(rsv.get("production_factor", []))
             pfac: Dict[str, Any] = {
+                "uid": pfac_idx + 1,
+                "name": f"{rsv['name']}_pfac_{pfac_idx + 1}",
                 "turbine": turb_uid,
+                "reservoir": rsv["name"],
                 "mean_production_factor": entry["mean_production_factor"],
                 "segments": segments,
             }

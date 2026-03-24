@@ -13,7 +13,7 @@
  * ```json
  * {
  *   "options": {
- *     "solver_type": "sddp",
+ *     "method": "sddp",
  *     "demand_fail_cost": 1000,
  *     "use_kirchhoff": true,
  *     "scale_objective": 1000,
@@ -24,7 +24,7 @@
  *       "cut_sharing_mode": "expected",
  *       "cut_directory": "cuts",
  *       "api_enabled": true,
- *       "production_factor_update_skip": 0,
+ *       "update_lp_skip": 0,
  *       "elastic_mode": "single_cut",
  *       "multi_cut_threshold": 10
  *     }
@@ -61,9 +61,10 @@ struct SddpOptions
   /** @brief Enable the SDDP monitoring API (writes JSON status file each
    * iteration; default: true) */
   OptBool api_enabled {};
-  /** @brief Global default for iterations to skip between efficiency
-   * coefficient updates.  0 = update every iteration (PLP default). */
-  OptInt production_factor_update_skip {};
+  /** @brief Iterations to skip between update_lp dispatches.
+   * 0 = update every iteration (default).  Applies to all volume-dependent
+   * LP element updates (seepage, discharge limit, production factor). */
+  OptInt update_lp_skip {};
 
   // ── Iteration control ──────────────────────────────────────────────────────
   /** @brief Maximum number of forward/backward iterations (default: 100) */
@@ -274,8 +275,7 @@ struct SddpOptions
     merge_opt(cut_sharing_mode, std::move(opts.cut_sharing_mode));
     merge_opt(cut_directory, std::move(opts.cut_directory));
     merge_opt(api_enabled, opts.api_enabled);
-    merge_opt(production_factor_update_skip,
-              opts.production_factor_update_skip);
+    merge_opt(update_lp_skip, opts.update_lp_skip);
     merge_opt(max_iterations, opts.max_iterations);
     merge_opt(min_iterations, opts.min_iterations);
     merge_opt(convergence_tol, opts.convergence_tol);
@@ -631,10 +631,10 @@ struct Options
    * Example:
    *
    * ```json
-   * { "options": { "solver_type": "cascade" } }
+   * { "options": { "method": "cascade" } }
    * ```
    */
-  OptName solver_type {};
+  OptName method {};
 
   // ── Logging ────────────────────────────────────────────────────────────────
   /** @brief Directory for log and trace files (default: `"logs"`).
@@ -774,7 +774,7 @@ struct Options
     merge_opt(lp_algorithm, opts.lp_algorithm);
     merge_opt(lp_threads, opts.lp_threads);
     merge_opt(lp_presolve, opts.lp_presolve);
-    merge_opt(solver_type, std::move(opts.solver_type));
+    merge_opt(method, std::move(opts.method));
     merge_opt(log_directory, std::move(opts.log_directory));
     merge_opt(lp_debug, opts.lp_debug);
     merge_opt(lp_compression, std::move(opts.lp_compression));

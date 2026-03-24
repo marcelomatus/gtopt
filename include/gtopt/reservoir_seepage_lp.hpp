@@ -23,6 +23,7 @@
 #include <gtopt/reservoir_lp.hpp>
 #include <gtopt/reservoir_seepage.hpp>
 #include <gtopt/schedule.hpp>
+#include <gtopt/sddp_common.hpp>
 #include <gtopt/waterway_lp.hpp>
 
 namespace gtopt
@@ -105,9 +106,7 @@ public:
    */
   [[nodiscard]] int update_lp(SystemLP& sys,
                               const ScenarioLP& scenario,
-                              const StageLP& stage,
-                              PhaseIndex phase,
-                              int iteration);
+                              const StageLP& stage);
 
   /// Tracks the volume columns and current LP state for coefficient updates
   struct ReservoirSeepageState

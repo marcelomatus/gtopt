@@ -27,17 +27,16 @@ struct json_data_contract<ProductionFactorSegment>
 template<>
 struct json_data_contract<ReservoirProductionFactor>
 {
-  using type = json_member_list<
-      json_number<"uid", Uid>,
-      json_string<"name", Name>,
-      json_variant_null<"active", OptActive, jvtl_Active>,
-      json_variant<"turbine", SingleId>,
-      json_variant<"reservoir", SingleId>,
-      json_number_null<"mean_production_factor", Real>,
-      json_array_null<"segments",
-                      std::vector<ProductionFactorSegment>,
-                      ProductionFactorSegment>,
-      json_number_null<"sddp_production_factor_update_skip", OptInt>>;
+  using type =
+      json_member_list<json_number<"uid", Uid>,
+                       json_string<"name", Name>,
+                       json_variant_null<"active", OptActive, jvtl_Active>,
+                       json_variant<"turbine", SingleId>,
+                       json_variant<"reservoir", SingleId>,
+                       json_number_null<"mean_production_factor", Real>,
+                       json_array_null<"segments",
+                                       std::vector<ProductionFactorSegment>,
+                                       ProductionFactorSegment>>;
 
   static constexpr auto to_json_data(ReservoirProductionFactor const& re)
   {
@@ -47,8 +46,7 @@ struct json_data_contract<ReservoirProductionFactor>
                                  re.turbine,
                                  re.reservoir,
                                  re.mean_production_factor,
-                                 re.segments,
-                                 re.sddp_production_factor_update_skip);
+                                 re.segments);
   }
 };
 

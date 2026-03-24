@@ -120,11 +120,12 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
 ///   sddp_ecut_{scene}_{phase}_{total_cuts}           → no iteration
 ///
 /// Returns 0 if the iteration cannot be determined.
-[[nodiscard]] auto extract_iteration_from_name(std::string_view name) -> int
+[[nodiscard]] auto extract_iteration_from_name(std::string_view name)
+    -> IterationIndex
 {
   // Only scut and fcut encode the iteration
   if (!name.starts_with("sddp_scut_") && !name.starts_with("sddp_fcut_")) {
-    return 0;
+    return IterationIndex {0};
   }
   // Split by '_' and take the 5th field (index 4)
   int field = 0;
@@ -132,13 +133,13 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
   while (pos < name.size() && field < 4) {
     pos = name.find('_', pos);
     if (pos == std::string_view::npos) {
-      return 0;
+      return IterationIndex {0};
     }
     ++pos;
     ++field;
   }
   if (field != 4 || pos >= name.size()) {
-    return 0;
+    return IterationIndex {0};
   }
   const auto end = name.find('_', pos);
   const auto token = name.substr(pos, end - pos);
@@ -147,7 +148,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
   // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   const auto* const last = first + token.size();
   auto [ptr, ec] = std::from_chars(first, last, result);
-  return (ec == std::errc {}) ? result : 0;
+  return IterationIndex {(ec == std::errc {}) ? result : 0};
 }
 
 }  // namespace
@@ -801,7 +802,7 @@ auto load_boundary_cuts_csv(
     struct RawBoundaryCut
     {
       std::string name;
-      int iteration;
+      IterationIndex iteration {};
       SceneUid scene {};
       double rhs;
       std::string coeff_line;
@@ -821,11 +822,11 @@ auto load_boundary_cuts_csv(
       std::getline(iss, token, ',');
       auto cut_name = token;
 
-      int iteration = 0;
+      IterationIndex iteration {};
       if (has_iteration_col) {
         // Column 1: iteration
         std::getline(iss, token, ',');
-        iteration = std::stoi(token);
+        iteration = IterationIndex {std::stoi(token)};
       }
 
       // Next column: scene UID
@@ -888,7 +889,7 @@ auto load_boundary_cuts_csv(
     }
 
     // ── Compute max iteration from loaded raw cuts ────────────────
-    int max_iteration = 0;
+    IterationIndex max_iteration {};
     for (const auto& rc : raw_cuts) {
       max_iteration = std::max(max_iteration, rc.iteration);
     }
@@ -1133,7 +1134,7 @@ auto load_named_cuts_csv(
 
       // Column 1: iteration
       std::getline(iss, token, ',');
-      const auto iteration = std::stoi(token);
+      const IterationIndex iteration {std::stoi(token)};
       result.max_iteration = std::max(result.max_iteration, iteration);
 
       // Column 2: scene UID

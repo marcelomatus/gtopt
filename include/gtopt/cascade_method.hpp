@@ -1,6 +1,6 @@
 /**
- * @file      cascade_solver.hpp
- * @brief     Multi-level cascade solver with configurable LP formulations
+ * @file      cascade_method.hpp
+ * @brief     Multi-level cascade method with configurable LP formulations
  * @date      2026-03-22
  * @author    marcelo
  * @copyright BSD-3-Clause
@@ -27,8 +27,8 @@
 #include <vector>
 
 #include <gtopt/options.hpp>
-#include <gtopt/planning_solver.hpp>
-#include <gtopt/sddp_solver.hpp>
+#include <gtopt/planning_method.hpp>
+#include <gtopt/sddp_method.hpp>
 
 namespace gtopt
 {
@@ -59,20 +59,20 @@ struct CascadeLevelStats
   int cuts_added {};  ///< Total cuts added across all iterations
 };
 
-// ─── CascadePlanningSolver ──────────────────────────────────────────────────
+// ─── CascadePlanningMethod ──────────────────────────────────────────────────
 
 /**
- * @class CascadePlanningSolver
+ * @class CascadePlanningMethod
  * @brief Multi-level solver with configurable LP formulations per level
  *
  * Each level can specify LP construction options, solver parameters,
  * and transition rules.  The solver automatically rebuilds the PlanningLP
  * when a level's LP options differ from the previous level.
  */
-class CascadePlanningSolver final : public PlanningSolver
+class CascadePlanningMethod final : public PlanningMethod
 {
 public:
-  explicit CascadePlanningSolver(SDDPOptions base_opts,
+  explicit CascadePlanningMethod(SDDPOptions base_opts,
                                  CascadeOptions cascade_opts) noexcept;
 
   [[nodiscard]] auto solve(PlanningLP& planning_lp, const SolverOptions& opts)
@@ -102,7 +102,7 @@ private:
       const Planning& source, const ModelOptions& model_opts) -> Planning;
 
   /// Collect named state variable targets from a solved level.
-  [[nodiscard]] static auto collect_named_targets(const SDDPSolver& solver,
+  [[nodiscard]] static auto collect_named_targets(const SDDPMethod& solver,
                                                   const PlanningLP& planning_lp)
       -> std::vector<NamedStateTarget>;
 
@@ -112,7 +112,7 @@ private:
                                   const CascadeTransition& transition);
 
   /// Clear all cut rows (>= base_nrows) from every (scene, phase) LP.
-  static void clear_all_cuts(PlanningLP& planning_lp, const SDDPSolver& solver);
+  static void clear_all_cuts(PlanningLP& planning_lp, const SDDPMethod& solver);
 
   SDDPOptions m_base_opts_;
   CascadeOptions m_cascade_opts_;

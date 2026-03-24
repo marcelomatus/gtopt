@@ -136,7 +136,7 @@ TEST_CASE("SolverOptions - Usage with LinearInterface")
   flat_lp.rownm = {"r1"};  // Row names
 
   // Create LinearInterface with default options
-  LinearInterface lp(flat_lp);
+  LinearInterface lp("clp", flat_lp);
 
   // Create solver options with custom values
   const SolverOptions solver_options {
@@ -354,7 +354,7 @@ TEST_CASE("SolverOptions - Algorithm selection with dual simplex")  // NOLINT
   flat_lp.colnm = {"x"};
   flat_lp.rownm = {"r1"};
 
-  LinearInterface lp(flat_lp);
+  LinearInterface lp("clp", flat_lp);
 
   const SolverOptions solver_options {
       .algorithm = LPAlgo::dual,
@@ -387,7 +387,7 @@ TEST_CASE("SolverOptions - Algorithm selection with primal simplex")  // NOLINT
   flat_lp.colnm = {"x"};
   flat_lp.rownm = {"r1"};
 
-  LinearInterface lp(flat_lp);
+  LinearInterface lp("clp", flat_lp);
 
   const SolverOptions solver_options {
       .algorithm = LPAlgo::primal,
@@ -427,7 +427,7 @@ TEST_CASE("SolverOptions - All algorithms solve correctly on 2x2 LP")  // NOLINT
     flat_lp.rowub = {1e30};
     flat_lp.colnm = {"x", "y"};
     flat_lp.rownm = {"sum_row"};
-    return LinearInterface(flat_lp);
+    return LinearInterface("clp", flat_lp);
   };
 
   SUBCASE("default algorithm")
@@ -540,7 +540,7 @@ TEST_CASE("SolverOptions - Usage with LinearInterface")
   flat_lp.rownm = {"r1"};  // Row names
 
   // Create LinearInterface with default options
-  LinearInterface lp(flat_lp);
+  LinearInterface lp("clp", flat_lp);
 
   // Create solver options with custom values
   const SolverOptions solver_options {
@@ -690,7 +690,7 @@ TEST_CASE("SolverOptions - Algorithm selection with dual simplex")  // NOLINT
   flat_lp.colnm = {"x"};
   flat_lp.rownm = {"r1"};
 
-  LinearInterface lp(flat_lp);
+  LinearInterface lp("clp", flat_lp);
 
   const SolverOptions solver_options {
       .algorithm = LPAlgo::dual,
@@ -723,7 +723,7 @@ TEST_CASE("SolverOptions - Algorithm selection with primal simplex")  // NOLINT
   flat_lp.colnm = {"x"};
   flat_lp.rownm = {"r1"};
 
-  LinearInterface lp(flat_lp);
+  LinearInterface lp("clp", flat_lp);
 
   const SolverOptions solver_options {
       .algorithm = LPAlgo::primal,
@@ -763,7 +763,7 @@ TEST_CASE("SolverOptions - All algorithms solve correctly on 2x2 LP")  // NOLINT
     flat_lp.rowub = {1e30};
     flat_lp.colnm = {"x", "y"};
     flat_lp.rownm = {"sum_row"};
-    return LinearInterface(flat_lp);
+    return LinearInterface("clp", flat_lp);
   };
 
   SUBCASE("default algorithm")

@@ -542,8 +542,8 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     //
     try {
       const bool do_stats = opts.print_stats.value_or(true);
-      const auto flat_opts =
-          make_flat_options(opts.use_lp_names, opts.matrix_eps, do_stats);
+      const auto flat_opts = make_flat_options(
+          opts.use_lp_names, opts.matrix_eps, do_stats, opts.lp_solver);
 
       if (do_stats) {
         log_pre_solve_stats(opts.planning_files, my_planning);

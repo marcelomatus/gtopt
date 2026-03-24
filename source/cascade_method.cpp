@@ -1,6 +1,6 @@
 /**
- * @file      cascade_solver.cpp
- * @brief     Multi-level cascade solver implementation
+ * @file      cascade_method.cpp
+ * @brief     Multi-level cascade method implementation
  * @date      2026-03-22
  * @author    marcelo
  * @copyright BSD-3-Clause
@@ -15,7 +15,7 @@
 #include <ranges>
 #include <vector>
 
-#include <gtopt/cascade_solver.hpp>
+#include <gtopt/cascade_method.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_cut_io.hpp>
@@ -28,7 +28,7 @@ namespace gtopt
 
 // ─── Constructor ────────────────────────────────────────────────────────────
 
-CascadePlanningSolver::CascadePlanningSolver(
+CascadePlanningMethod::CascadePlanningMethod(
     SDDPOptions base_opts, CascadeOptions cascade_opts) noexcept
     : m_base_opts_(std::move(base_opts))
     , m_cascade_opts_(std::move(cascade_opts))
@@ -46,7 +46,7 @@ CascadePlanningSolver::CascadePlanningSolver(
 
 // ─── Build SDDPOptions for one level ────────────────────────────────────────
 
-auto CascadePlanningSolver::build_level_sddp_opts(
+auto CascadePlanningMethod::build_level_sddp_opts(
     const std::optional<CascadeLevelSolver>& level_solver,
     int remaining_budget) const -> SDDPOptions
 {
@@ -98,7 +98,7 @@ auto CascadePlanningSolver::build_level_sddp_opts(
 
 // ─── Clone Planning with LP overrides ───────────────────────────────────────
 
-auto CascadePlanningSolver::clone_planning_with_overrides(
+auto CascadePlanningMethod::clone_planning_with_overrides(
     const Planning& source, const ModelOptions& model_opts) -> Planning
 {
   Planning copy = source;
@@ -124,7 +124,7 @@ auto CascadePlanningSolver::clone_planning_with_overrides(
 
 // ─── Collect named state variable targets ───────────────────────────────────
 
-auto CascadePlanningSolver::collect_named_targets(const SDDPSolver& solver,
+auto CascadePlanningMethod::collect_named_targets(const SDDPMethod& solver,
                                                   const PlanningLP& planning_lp)
     -> std::vector<NamedStateTarget>
 {
@@ -174,7 +174,7 @@ auto CascadePlanningSolver::collect_named_targets(const SDDPSolver& solver,
 
 // ─── Add elastic target constraints ─────────────────────────────────────────
 
-void CascadePlanningSolver::add_elastic_targets(
+void CascadePlanningMethod::add_elastic_targets(
     PlanningLP& planning_lp,
     const std::vector<NamedStateTarget>& targets,
     const CascadeTransition& transition)
@@ -231,8 +231,8 @@ void CascadePlanningSolver::add_elastic_targets(
 
 // ─── Clear all cuts ─────────────────────────────────────────────────────────
 
-void CascadePlanningSolver::clear_all_cuts(PlanningLP& planning_lp,
-                                           const SDDPSolver& solver)
+void CascadePlanningMethod::clear_all_cuts(PlanningLP& planning_lp,
+                                           const SDDPMethod& solver)
 {
   int total_removed = 0;
 
@@ -261,13 +261,13 @@ void CascadePlanningSolver::clear_all_cuts(PlanningLP& planning_lp,
 
 // ─── Main solve orchestration ───────────────────────────────────────────────
 
-auto CascadePlanningSolver::solve(PlanningLP& planning_lp,
+auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
                                   const SolverOptions& opts)
     -> std::expected<int, Error>
 {
   PlanningLP* current_lp = nullptr;
   const PlanningLP* prev_lp = nullptr;
-  std::unique_ptr<SDDPSolver> current_solver;
+  std::unique_ptr<SDDPMethod> current_solver;
   std::vector<NamedStateTarget> prev_targets;
   std::vector<StoredCut> prev_cuts;
   ModelOptions prev_effective_model = m_cascade_opts_.model_options;
@@ -331,7 +331,7 @@ auto CascadePlanningSolver::solve(PlanningLP& planning_lp,
     }
 
     // Always create a fresh solver for each level, ensuring clean state.
-    current_solver = std::make_unique<SDDPSolver>(*current_lp, level_opts);
+    current_solver = std::make_unique<SDDPMethod>(*current_lp, level_opts);
 
     SPDLOG_INFO(
         "Cascade [{}]: new solver (max_iters={}, "

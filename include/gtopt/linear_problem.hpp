@@ -112,6 +112,7 @@ struct FlatOptions
   double reserve_factor {default_reserve_factor};  ///< Reserve factor
   bool compute_stats {false};  ///< Compute coefficient min/max/ratio
   int lp_names_level {0};  ///< LP name level: 0=col only, 1=col+row, 2=strict
+  std::string solver_name {};  ///< Solver backend name (empty = auto-detect)
 };
 
 /**

@@ -26,12 +26,10 @@ for the COIN-OR solver components.
 * ``ZLIB``
 * ``strong_type`` (rollbear, header-only)
 * ``daw_json_link`` (beached/daw_json_link; pulled via CPM if not installed)
-* COIN-OR solver back-end: one of ``OsiClp`` (Clp), ``OsiCbc`` (Cbc), or
-  ``OsiCpx`` (CPLEX).  The ``Solver.cmake`` in ``cmake_local/`` auto-detects
-  which solver is available.
+* ``dl`` (``libdl``, for runtime plugin loading via ``dlopen``)
 
-Note: if your project includes ``<gtopt/osi_solver.hpp>`` you also need
-COIN-OR development headers installed on the build machine.
+Solver back-ends (CLP, CBC, CPLEX, HiGHS) are loaded as dynamic plugins
+at runtime.  No solver library needs to be linked directly against gtopt.
 
 Headers
 ^^^^^^^
@@ -62,14 +60,9 @@ find_dependency(strong_type REQUIRED)
 # (e.g. via CPMAddPackage("gh:beached/daw_json_link@3.31.0")).
 find_dependency(daw QUIET)
 
-# ---- COIN-OR solver ----
-# Bundled Find modules allow consumers to discover the solver backend without
-# needing to copy the custom Find*.cmake scripts themselves.
-list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake_local")
-if(NOT DEFINED COIN_SOLVER)
-  set(COIN_SOLVER "AUTO" CACHE STRING "COIN-OR solver back-end (AUTO, CLP, CBC, CPX)")
-endif()
-include("${CMAKE_CURRENT_LIST_DIR}/cmake_local/Solver.cmake")
+# ---- Solver plugins ----
+# Solver back-ends are loaded dynamically at runtime (via dlopen).
+# No compile-time solver dependency is needed for consumers.
 
 # ---- Create the imported target ----
 # We do NOT use install(EXPORT) because gtopt's PUBLIC link dependencies
@@ -100,12 +93,11 @@ if(NOT TARGET gtopt::gtopt)
       spdlog::spdlog
       daw::daw-json-link
       strong_type::strong_type
-      ${COIN_OSI_LIBRARIES}
-      ${SOLVER_LIBRARIES}
       Arrow::arrow_shared
       Parquet::parquet_shared
       Boost::container
       ZLIB::ZLIB
+      ${CMAKE_DL_LIBS}
   )
 
   add_library(gtopt::gtopt STATIC IMPORTED)

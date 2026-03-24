@@ -24,7 +24,7 @@
 #include <gtopt/fmap.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/linear_problem.hpp>
-#include <gtopt/sddp_solver.hpp>
+#include <gtopt/sddp_method.hpp>
 
 namespace gtopt
 {

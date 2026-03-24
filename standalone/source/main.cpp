@@ -3,6 +3,7 @@
 
 #include <gtopt/app_options.hpp>
 #include <gtopt/gtopt_main.hpp>
+#include <gtopt/solver_registry.hpp>
 #include <gtopt/version.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
@@ -58,6 +59,44 @@ int main(int argc, char** argv)
     if (vm.contains("version")) {
       std::cout << GTOPT_VERSION << '\n';
       return 0;
+    }
+
+    if (vm.contains("lp-solvers")) {
+      const auto& registry = gtopt::SolverRegistry::instance();
+      const auto solvers = registry.available_solvers();
+      if (solvers.empty()) {
+        std::cout << "No LP solver plugins found.\n";
+      } else {
+        std::cout << "Available LP solvers:\n";
+        for (const auto& s : solvers) {
+          std::cout << "  " << s << '\n';
+        }
+      }
+      return 0;
+    }
+
+    // Validate --lp-solver early so the user gets a clear error
+    if (vm.contains("lp-solver")) {
+      const auto& registry = gtopt::SolverRegistry::instance();
+      const auto solver = vm["lp-solver"].as<std::string>();
+      if (!registry.has_solver(solver)) {
+        const auto avail = registry.available_solvers();
+        std::cerr << "ERROR: LP solver '" << solver << "' not available.\n";
+        if (avail.empty()) {
+          std::cerr << "No LP solver plugins found.\n"
+                    << "Hints:\n"
+                    << "  - Set GTOPT_PLUGIN_DIR to the plugin directory\n"
+                    << "  - Ensure libgtopt_solver_osi.so and/or "
+                       "libgtopt_solver_highs.so are installed\n";
+        } else {
+          std::cerr << "Available LP solvers:";
+          for (const auto& s : avail) {
+            std::cerr << " " << s;
+          }
+          std::cerr << '\n';
+        }
+        return 1;
+      }
     }
 
     std::vector<std::string> system_files;
