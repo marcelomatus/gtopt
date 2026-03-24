@@ -1364,13 +1364,7 @@ def _ensure_binary_libs(bin_path: pathlib.Path) -> None:
     for f in files_to_check:
         missing.extend(_missing_shared_libs(f))
     # Deduplicate while preserving order
-    seen: set[str] = set()
-    unique_missing = []
-    for lib in missing:
-        if lib not in seen:
-            seen.add(lib)
-            unique_missing.append(lib)
-    missing = unique_missing
+    missing = list(dict.fromkeys(missing))
 
     if not missing:
         log.debug("All shared libraries for %s are present.", bin_path)
