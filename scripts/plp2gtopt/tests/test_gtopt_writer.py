@@ -553,8 +553,13 @@ class TestProcessVariableScales:
         writer.process_variable_scales({**opts, "auto_bat_energy_scale": True})
         scales = writer.planning["options"].get("variable_scales", [])
         bat_scales = [s for s in scales if s["class_name"] == "Battery"]
-        assert len(bat_scales) == 1
-        assert bat_scales[0]["scale"] == 0.01
+        assert len(bat_scales) == 2
+        bat_energy = [s for s in bat_scales if s["variable"] == "energy"]
+        bat_flow = [s for s in bat_scales if s["variable"] == "flow"]
+        assert len(bat_energy) == 1
+        assert bat_energy[0]["scale"] == 0.01
+        assert len(bat_flow) == 1
+        assert bat_flow[0]["scale"] == 0.01
 
     def test_file_scales_merged(self, tmp_path):
         """File-based scales are loaded and merged."""

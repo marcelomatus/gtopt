@@ -31,12 +31,12 @@ def test_parse_empty_file(tmp_path):
     )
     parser = CenfiParser(f)
     parser.parse()
-    assert parser.num_filtrations == 0
-    assert not parser.filtrations
+    assert parser.num_seepages == 0
+    assert not parser.seepages
 
 
 def test_parse_single_entry(tmp_path):
-    """Parsing a file with a single filtration entry."""
+    """Parsing a file with a single seepage entry."""
     content = (
         "# Archivo de centrales filtracion\n"
         " 1\n"
@@ -48,8 +48,8 @@ def test_parse_single_entry(tmp_path):
     parser = CenfiParser(f)
     parser.parse()
 
-    assert parser.num_filtrations == 1
-    entry = parser.filtrations[0]
+    assert parser.num_seepages == 1
+    entry = parser.seepages[0]
     assert entry["name"] == "Reservoir1"
     assert entry["reservoir"] == "Reservoir1"
     assert entry["slope"] == pytest.approx(0.001)
@@ -57,7 +57,7 @@ def test_parse_single_entry(tmp_path):
 
 
 def test_parse_multiple_entries(tmp_path):
-    """Parsing a file with two filtration entries."""
+    """Parsing a file with two seepage entries."""
     content = (
         " 2\n"
         "'Reservoir1'\n"
@@ -71,12 +71,12 @@ def test_parse_multiple_entries(tmp_path):
     parser = CenfiParser(f)
     parser.parse()
 
-    assert parser.num_filtrations == 2
-    assert parser.filtrations[0]["name"] == "Reservoir1"
-    assert parser.filtrations[0]["slope"] == pytest.approx(0.001)
-    assert parser.filtrations[1]["name"] == "TurbineGen"
-    assert parser.filtrations[1]["slope"] == pytest.approx(0.0005)
-    assert parser.filtrations[1]["constant"] == pytest.approx(2.5)
+    assert parser.num_seepages == 2
+    assert parser.seepages[0]["name"] == "Reservoir1"
+    assert parser.seepages[0]["slope"] == pytest.approx(0.001)
+    assert parser.seepages[1]["name"] == "TurbineGen"
+    assert parser.seepages[1]["slope"] == pytest.approx(0.0005)
+    assert parser.seepages[1]["constant"] == pytest.approx(2.5)
 
 
 def test_parse_zero_slope_constant_only(tmp_path):
@@ -86,8 +86,8 @@ def test_parse_zero_slope_constant_only(tmp_path):
     parser = CenfiParser(f)
     parser.parse()
 
-    assert parser.num_filtrations == 1
-    entry = parser.filtrations[0]
+    assert parser.num_seepages == 1
+    entry = parser.seepages[0]
     assert entry["slope"] == pytest.approx(0.0)
     assert entry["constant"] == pytest.approx(3.14)
 
@@ -97,13 +97,13 @@ def test_parse_real_file():
     parser = CenfiParser(CENFI_TEST_FILE)
     parser.parse()
 
-    assert parser.num_filtrations == 2
-    e0 = parser.filtrations[0]
+    assert parser.num_seepages == 2
+    e0 = parser.seepages[0]
     assert e0["name"] == "Reservoir1"
     assert e0["reservoir"] == "Reservoir1"
     assert e0["slope"] == pytest.approx(0.001)
     assert e0["constant"] == pytest.approx(5.0)
-    e1 = parser.filtrations[1]
+    e1 = parser.seepages[1]
     assert e1["name"] == "TurbineGen"
     assert e1["slope"] == pytest.approx(0.0005)
     assert e1["constant"] == pytest.approx(2.5)
@@ -112,19 +112,19 @@ def test_parse_real_file():
 # ─── Lookup tests ────────────────────────────────────────────────────────────
 
 
-def test_get_filtration_by_central(tmp_path):
+def test_get_seepage_by_central(tmp_path):
     """Lookup by central name works after parsing."""
     content = " 1\n'HYDRO1'\n'DAM1'\n0.002  1.0\n"
     f = write_cenfi(tmp_path, content)
     parser = CenfiParser(f)
     parser.parse()
 
-    found = parser.get_filtration_by_central("HYDRO1")
+    found = parser.get_seepage_by_central("HYDRO1")
     assert found is not None
     assert found["reservoir"] == "DAM1"
     assert found["slope"] == pytest.approx(0.002)
 
-    not_found = parser.get_filtration_by_central("NONEXISTENT")
+    not_found = parser.get_seepage_by_central("NONEXISTENT")
     assert not_found is None
 
 
@@ -173,8 +173,8 @@ def test_parse_extended_format_with_segments(tmp_path):
     parser = CenfiParser(f)
     parser.parse()
 
-    assert parser.num_filtrations == 1
-    entry = parser.filtrations[0]
+    assert parser.num_seepages == 1
+    entry = parser.seepages[0]
     assert entry["name"] == "Reservoir1"
     assert entry["reservoir"] == "Dam1"
     # Default slope/constant from first segment
@@ -197,8 +197,8 @@ def test_parse_extended_format_zero_segments(tmp_path):
     parser = CenfiParser(f)
     parser.parse()
 
-    assert parser.num_filtrations == 1
-    entry = parser.filtrations[0]
+    assert parser.num_seepages == 1
+    entry = parser.seepages[0]
     assert entry["slope"] == pytest.approx(0.0)
     assert entry["constant"] == pytest.approx(0.0)
     assert entry["segments"] == []
@@ -211,7 +211,7 @@ def test_legacy_format_includes_empty_segments(tmp_path):
     parser = CenfiParser(f)
     parser.parse()
 
-    entry = parser.filtrations[0]
+    entry = parser.seepages[0]
     assert entry["segments"] == []
 
 
@@ -234,14 +234,14 @@ def test_mixed_legacy_and_extended(tmp_path):
     parser = CenfiParser(f)
     parser.parse()
 
-    assert parser.num_filtrations == 2
+    assert parser.num_seepages == 2
     # Legacy entry
-    e0 = parser.filtrations[0]
+    e0 = parser.seepages[0]
     assert e0["slope"] == pytest.approx(0.001)
     assert e0["constant"] == pytest.approx(5.0)
     assert e0["segments"] == []
     # Extended entry
-    e1 = parser.filtrations[1]
+    e1 = parser.seepages[1]
     assert len(e1["segments"]) == 2
     assert e1["segments"][0]["volume"] == pytest.approx(0.0)
     assert e1["segments"][1]["volume"] == pytest.approx(1000.0)

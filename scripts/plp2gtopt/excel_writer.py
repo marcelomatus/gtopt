@@ -118,9 +118,7 @@ _SYS_SHEETS = [
     "waterway_array",
     "flow_array",
     "reservoir_array",
-    "filtration_array",
     "turbine_array",
-    "reservoir_efficiency_array",
 ]
 
 # .introduction content (title, heading, body, table entries)
@@ -167,9 +165,7 @@ _INTRO_LINES: list[tuple] = [
     ("waterway_array", "System", "Water channels between junctions", "TABLE"),
     ("flow_array", "System", "Exogenous water inflows/outflows", "TABLE"),
     ("reservoir_array", "System", "Water reservoirs (lakes, dams)", "TABLE"),
-    ("filtration_array", "System", "Waterway-to-reservoir seepage links", "TABLE"),
     ("turbine_array", "System", "Hydro turbines", "TABLE"),
-    ("reservoir_efficiency_array", "System", "Turbine efficiency curves", "TABLE"),
     ("", ""),
     ("Time-series Sheets (@-sheets)", "HEADING"),
     ("", ""),
@@ -343,11 +339,19 @@ def _add_plpinfo_sheet(ws: Any, planning: dict, options: dict, styles: dict) -> 
         ("waterways", len(sys.get("waterway_array", [])), "", "TABLE"),
         ("flows", len(sys.get("flow_array", [])), "", "TABLE"),
         ("reservoirs", len(sys.get("reservoir_array", [])), "", "TABLE"),
-        ("filtrations", len(sys.get("filtration_array", [])), "", "TABLE"),
+        (
+            "seepages",
+            sum(len(r.get("seepage", [])) for r in sys.get("reservoir_array", [])),
+            "",
+            "TABLE",
+        ),
         ("turbines", len(sys.get("turbine_array", [])), "", "TABLE"),
         (
             "reservoir_efficiencies",
-            len(sys.get("reservoir_efficiency_array", [])),
+            sum(
+                len(r.get("production_factor", []))
+                for r in sys.get("reservoir_array", [])
+            ),
             "",
             "TABLE",
         ),

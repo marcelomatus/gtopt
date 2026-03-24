@@ -301,8 +301,8 @@ ELEMENT_SCHEMAS = {
             {"name": "discharge", "type": "number_or_file", "required": True},
         ],
     },
-    "filtration": {
-        "label": "Filtration",
+    "seepage": {
+        "label": "ReservoirSeepage",
         "fields": [
             {"name": "uid", "type": "integer", "required": True},
             {"name": "name", "type": "string", "required": True},
@@ -403,7 +403,7 @@ ELEMENT_TO_ARRAY_KEY = {
     "reservoir": "reservoir_array",
     "turbine": "turbine_array",
     "flow": "flow_array",
-    "filtration": "filtration_array",
+    "seepage": "reservoir_seepage_array",
     "generator_profile": "generator_profile_array",
     "demand_profile": "demand_profile_array",
     "reserve_zone": "reserve_zone_array",

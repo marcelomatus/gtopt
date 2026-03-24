@@ -21,7 +21,6 @@
 #include <gtopt/constraint_parser.hpp>
 #include <gtopt/converter_lp.hpp>
 #include <gtopt/demand_lp.hpp>
-#include <gtopt/filtration_lp.hpp>
 #include <gtopt/flow_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/input_context.hpp>
@@ -31,6 +30,7 @@
 #include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
 #include <gtopt/reservoir_lp.hpp>
+#include <gtopt/reservoir_seepage_lp.hpp>
 #include <gtopt/single_id.hpp>
 #include <gtopt/sparse_row.hpp>
 #include <gtopt/storage_lp.hpp>
@@ -378,12 +378,12 @@ struct ResolvedCol
       return std::nullopt;
     }
 
-    // ── filtration: filtration flow variable ──────────────────────────────
-    if (ref.element_type == "filtration") {
+    // ── seepage: seepage flow variable ──────────────────────────────
+    if (ref.element_type == "seepage") {
       const auto& fil =
-          sc.get_element(ObjectSingleId<FiltrationLP> {single_id});
-      if (ref.attribute == "flow" || ref.attribute == "filtration") {
-        const auto& cols = fil.filtration_cols_at(scenario, stage);
+          sc.get_element(ObjectSingleId<ReservoirSeepageLP> {single_id});
+      if (ref.attribute == "flow" || ref.attribute == "seepage") {
+        const auto& cols = fil.seepage_cols_at(scenario, stage);
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
@@ -608,7 +608,7 @@ void collect_sum_cols(const SystemContext& sc,
         add_one(std::to_string(static_cast<int>(flw.uid())));
       }
     } else if (sum_ref.element_type
-               == "filtration") {  // NOLINT(bugprone-branch-clone)
+               == "seepage") {  // NOLINT(bugprone-branch-clone)
       if (sum_ref.type_filter) {
         SPDLOG_WARN(std::format(
             "user_constraint sum({}): type_filter is not supported for "
@@ -616,7 +616,7 @@ void collect_sum_cols(const SystemContext& sc,
             sum_ref.element_type,
             sum_ref.element_type));
       }
-      for (const auto& fil : sc.elements<FiltrationLP>()) {
+      for (const auto& fil : sc.elements<ReservoirSeepageLP>()) {
         add_one(std::to_string(static_cast<int>(fil.uid())));
       }
     } else if (sum_ref.element_type

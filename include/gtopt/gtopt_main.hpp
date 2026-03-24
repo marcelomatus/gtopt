@@ -77,7 +77,7 @@ struct MainOptions
 
   // ---- execution control ----
   /** @brief Build all scene/phase LP matrices but skip solving entirely */
-  std::optional<bool> just_build_lp {};
+  std::optional<bool> build_lp {};
   /** @brief Use fast (non-strict) JSON parsing */
   std::optional<bool> fast_parsing {};
   /** @brief Warn about JSON fields not recognised by the schema */

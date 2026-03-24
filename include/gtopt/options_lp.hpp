@@ -325,7 +325,7 @@ public:
   }
 
   /**
-   * @brief Gets the just_build_lp flag, using default if not set.
+   * @brief Gets the build_lp flag, using default if not set.
    *
    * When true, the solver builds all scene×phase LP matrices but skips
    * solving entirely.  Applies uniformly to both the monolithic solver and
@@ -334,9 +334,9 @@ public:
    *
    * @return Whether to stop after LP building
    */
-  [[nodiscard]] constexpr auto just_build_lp() const
+  [[nodiscard]] constexpr auto build_lp() const
   {
-    return m_options_.just_build_lp.value_or(false);
+    return m_options_.build_lp.value_or(false);
   }
 
   /**
@@ -451,7 +451,7 @@ public:
   static constexpr Bool default_sddp_api_enabled = true;
   /** @brief Default iterations to skip between efficiency updates (0 = every
    * iteration, matching PLP behaviour) */
-  static constexpr Int default_sddp_efficiency_update_skip = 0;
+  static constexpr Int default_sddp_production_factor_update_skip = 0;
   /** @brief Default maximum SDDP iterations */
   static constexpr Int default_sddp_max_iterations = 100;
   /** @brief Default minimum iterations before declaring convergence */
@@ -536,13 +536,13 @@ public:
   }
 
   /**
-   * @brief Gets the global efficiency update skip count
+   * @brief Gets the global production factor update skip count
    * @return Number of SDDP iterations to skip between efficiency updates
    */
-  [[nodiscard]] constexpr auto sddp_efficiency_update_skip() const
+  [[nodiscard]] constexpr auto sddp_production_factor_update_skip() const
   {
-    return m_options_.sddp_options.efficiency_update_skip.value_or(
-        default_sddp_efficiency_update_skip);
+    return m_options_.sddp_options.production_factor_update_skip.value_or(
+        default_sddp_production_factor_update_skip);
   }
 
   /**

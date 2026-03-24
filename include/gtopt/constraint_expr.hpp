@@ -26,7 +26,7 @@
  * | turbine            | generation                                    |
  * | junction           | drain                                         |
  * | flow               | flow (alias: discharge)                       |
- * | filtration         | flow (alias: filtration)                      |
+ * | seepage            | flow (alias: seepage)                      |
  * | reserve_provision  | up (aliases: uprovision, up_provision),       |
  * |                    | dn (aliases: dprovision, dn_provision, down)  |
  * | reserve_zone       | up (aliases: urequirement, up_requirement),   |
@@ -75,7 +75,7 @@
  * element_type := 'generator' | 'demand' | 'line' | 'battery'
  *              |  'converter' | 'reservoir' | 'bus'
  *              |  'waterway'  | 'turbine'
- *              |  'junction'  | 'flow' | 'filtration'
+ *              |  'junction'  | 'flow' | 'seepage'
  *              |  'reserve_provision' | 'reserve_zone'
  *
  * attribute    := IDENT

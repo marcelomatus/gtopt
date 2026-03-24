@@ -27,7 +27,6 @@
 #include <gtopt/json/json_demand.hpp>
 #include <gtopt/json/json_demand_profile.hpp>
 #include <gtopt/json/json_field_sched.hpp>
-#include <gtopt/json/json_filtration.hpp>
 #include <gtopt/json/json_flow.hpp>
 #include <gtopt/json/json_generator.hpp>
 #include <gtopt/json/json_generator_profile.hpp>
@@ -38,7 +37,8 @@
 #include <gtopt/json/json_reserve_provision.hpp>
 #include <gtopt/json/json_reserve_zone.hpp>
 #include <gtopt/json/json_reservoir.hpp>
-#include <gtopt/json/json_reservoir_efficiency.hpp>
+#include <gtopt/json/json_reservoir_production_factor.hpp>
+#include <gtopt/json/json_reservoir_seepage.hpp>
 #include <gtopt/json/json_scene.hpp>
 #include <gtopt/json/json_simulation.hpp>
 #include <gtopt/json/json_solver_options.hpp>
@@ -60,7 +60,6 @@ using namespace gtopt;
 #include "test_converter_json.hpp"
 #include "test_demand_json.hpp"
 #include "test_demand_profile_json.hpp"
-#include "test_filtration_json.hpp"
 #include "test_flow_json.hpp"
 #include "test_generator_json.hpp"
 #include "test_generator_profile_json.hpp"
@@ -72,8 +71,9 @@ using namespace gtopt;
 #include "test_planning_json.hpp"
 #include "test_reserve_provision_json.hpp"
 #include "test_reserve_zone_json.hpp"
-#include "test_reservoir_efficiency_json.hpp"
 #include "test_reservoir_json.hpp"
+#include "test_reservoir_production_factor_json.hpp"
+#include "test_reservoir_seepage_json.hpp"
 #include "test_scenario_json.hpp"
 #include "test_scene_json.hpp"
 #include "test_simulation_json.hpp"

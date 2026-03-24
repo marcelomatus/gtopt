@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 
-"""Parser for plpcenfi.dat format files containing reservoir filtration data.
+"""Parser for plpcenfi.dat format files containing reservoir seepage data.
 
 Handles:
 - File parsing and validation
-- Filtration data structure creation
+- ReservoirSeepage data structure creation
 - Lookup by central name
 - Piecewise-linear segment support (backward-compatible)
 
@@ -37,7 +37,7 @@ Field definitions:
   slope         – Seepage rate proportional to reservoir volume [m³/s / dam³]
   constant      – Constant seepage rate independent of volume [m³/s]
 
-The filtration seepage flow per block is modelled as:
+The seepage seepage flow per block is modelled as:
   seepage [m³/s] = slope × avg_reservoir_volume [dam³] + constant [m³/s]
 
 where avg_reservoir_volume = (eini + efin) / 2.  When piecewise segments are
@@ -50,17 +50,17 @@ from .base_parser import BaseParser
 
 
 class CenfiParser(BaseParser):
-    """Parser for plpcenfi.dat files containing reservoir filtration data."""
+    """Parser for plpcenfi.dat files containing reservoir seepage data."""
 
     @property
-    def filtrations(self) -> List[Dict[str, Any]]:
-        """Return the parsed filtration entries."""
+    def seepages(self) -> List[Dict[str, Any]]:
+        """Return the parsed seepage entries."""
         return self.get_all()
 
     @property
-    def num_filtrations(self) -> int:
-        """Return the number of filtration entries."""
-        return len(self.filtrations)
+    def num_seepages(self) -> int:
+        """Return the number of seepage entries."""
+        return len(self.seepages)
 
     def parse(self, parsers: Optional[Dict[str, Any]] = None) -> None:
         """Parse the plpcenfi.dat file and populate the data structure.
@@ -82,7 +82,7 @@ class CenfiParser(BaseParser):
 
         if num_entries < 0:
             raise ValueError(
-                f"Invalid number of filtration entries: {num_entries}."
+                f"Invalid number of seepage entries: {num_entries}."
                 " Must be non-negative."
             )
 
@@ -125,7 +125,7 @@ class CenfiParser(BaseParser):
                     num_segments = self._parse_int(parts[0])
                 except ValueError as exc:
                     raise ValueError(
-                        "Filtration slope/constant line has too few fields:"
+                        "ReservoirSeepage slope/constant line has too few fields:"
                         f" {lines[idx]}"
                     ) from exc
                 idx += 1
@@ -165,12 +165,12 @@ class CenfiParser(BaseParser):
             }
             self._append(entry)
 
-        if self.num_filtrations != num_entries:
+        if self.num_seepages != num_entries:
             raise ValueError(
-                f"Expected {num_entries} filtration entries but parsed"
-                f" {self.num_filtrations}."
+                f"Expected {num_entries} seepage entries but parsed"
+                f" {self.num_seepages}."
             )
 
-    def get_filtration_by_central(self, central_name: str) -> Optional[Dict[str, Any]]:
-        """Get filtration data by central (waterway source) name."""
+    def get_seepage_by_central(self, central_name: str) -> Optional[Dict[str, Any]]:
+        """Get seepage data by central (waterway source) name."""
         return self.get_item_by_name(central_name)

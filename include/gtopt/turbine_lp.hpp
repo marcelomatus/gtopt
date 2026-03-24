@@ -97,13 +97,14 @@ public:
   /**
    * @brief Update reservoir-dependent LP coefficients for this turbine.
    *
-   * Finds the ReservoirEfficiencyLP element that references this turbine,
+   * Finds the ReservoirProductionFactorLP element that references this turbine,
    * queries the associated reservoir for the current volume (using the
    * previous phase's solution if available, or the initial volume for the
    * first phase / first iteration), and updates the turbine conversion-rate
-   * coefficient in the LP via ReservoirEfficiencyLP::update_conversion_coeff.
+   * coefficient in the LP via
+   * ReservoirProductionFactorLP::update_conversion_coeff.
    *
-   * Respects the per-element skip count from ReservoirEfficiencyLP.
+   * Respects the per-element skip count from ReservoirProductionFactorLP.
    *
    * @param sys        SystemLP that owns this turbine (non-const for coeff
    * update)

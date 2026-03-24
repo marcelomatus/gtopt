@@ -23,6 +23,8 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
+#include <mutex>
 #include <thread>
 
 namespace gtopt
@@ -68,6 +70,8 @@ private:
   std::atomic<double> current_load_ {0.0};
   std::atomic<bool> running_ {false};
   std::chrono::milliseconds monitor_interval_ {100};
+  std::mutex stop_mutex_;
+  std::condition_variable stop_cv_;
   std::jthread monitor_thread_;
 };
 

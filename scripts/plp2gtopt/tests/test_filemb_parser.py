@@ -31,8 +31,8 @@ def test_parse_empty_file(tmp_path):
     )
     parser = FilembParser(f)
     parser.parse()
-    assert parser.num_filtrations == 0
-    assert not parser.filtrations
+    assert parser.num_seepages == 0
+    assert not parser.seepages
 
 
 def test_parse_single_entry_one_segment(tmp_path):
@@ -50,11 +50,11 @@ def test_parse_single_entry_one_segment(tmp_path):
     parser = FilembParser(f)
     parser.parse()
 
-    assert parser.num_filtrations == 1
-    entry = parser.filtrations[0]
+    assert parser.num_seepages == 1
+    entry = parser.seepages[0]
     assert entry["embalse"] == "Reservoir1"
     assert entry["central"] == "Central1"
-    assert entry["mean_filtration"] == pytest.approx(5.0)
+    assert entry["mean_seepage"] == pytest.approx(5.0)
     assert len(entry["segments"]) == 1
 
     seg = entry["segments"][0]
@@ -82,11 +82,11 @@ def test_parse_single_entry_multiple_segments(tmp_path):
     parser = FilembParser(f)
     parser.parse()
 
-    assert parser.num_filtrations == 1
-    entry = parser.filtrations[0]
+    assert parser.num_seepages == 1
+    entry = parser.seepages[0]
     assert entry["embalse"] == "ELTORO"
     assert entry["central"] == "ABANICO"
-    assert entry["mean_filtration"] == pytest.approx(30.80)
+    assert entry["mean_seepage"] == pytest.approx(30.80)
     assert len(entry["segments"]) == 3
 
     # Segment 1: volume = 0.0 × 1000 = 0.0 dam³
@@ -125,17 +125,17 @@ def test_parse_multiple_entries(tmp_path):
     parser = FilembParser(f)
     parser.parse()
 
-    assert parser.num_filtrations == 2
-    e0 = parser.filtrations[0]
+    assert parser.num_seepages == 2
+    e0 = parser.seepages[0]
     assert e0["embalse"] == "CIPRESES"
     assert e0["central"] == "FILT_CIPRESES"
-    assert e0["mean_filtration"] == pytest.approx(14.20)
+    assert e0["mean_seepage"] == pytest.approx(14.20)
     assert len(e0["segments"]) == 1
 
-    e1 = parser.filtrations[1]
+    e1 = parser.seepages[1]
     assert e1["embalse"] == "COLBUN"
     assert e1["central"] == "SAN_CLEMENTE"
-    assert e1["mean_filtration"] == pytest.approx(6.10)
+    assert e1["mean_seepage"] == pytest.approx(6.10)
     assert len(e1["segments"]) == 2
     # Check unit conversion: 660.6 Mm³ → 660600 dam³
     assert e1["segments"][1]["volume"] == pytest.approx(660.6 * 1000.0)
@@ -146,12 +146,12 @@ def test_parse_real_file():
     parser = FilembParser(FILEMB_TEST_FILE)
     parser.parse()
 
-    assert parser.num_filtrations == 2
+    assert parser.num_seepages == 2
 
-    e0 = parser.filtrations[0]
+    e0 = parser.seepages[0]
     assert e0["embalse"] == "Reservoir1"
     assert e0["central"] == "Central1"
-    assert e0["mean_filtration"] == pytest.approx(5.0)
+    assert e0["mean_seepage"] == pytest.approx(5.0)
     assert len(e0["segments"]) == 1
     # Volume: 0.0 × 1000 = 0.0 dam³
     assert e0["segments"][0]["volume"] == pytest.approx(0.0)
@@ -159,10 +159,10 @@ def test_parse_real_file():
     assert e0["segments"][0]["slope"] == pytest.approx(0.16131527 / 1000.0)
     assert e0["segments"][0]["constant"] == pytest.approx(2.189179627)
 
-    e1 = parser.filtrations[1]
+    e1 = parser.seepages[1]
     assert e1["embalse"] == "Reservoir2"
     assert e1["central"] == "Central2"
-    assert e1["mean_filtration"] == pytest.approx(12.5)
+    assert e1["mean_seepage"] == pytest.approx(12.5)
     assert len(e1["segments"]) == 2
 
 
@@ -188,18 +188,18 @@ def test_parse_with_comments(tmp_path):
     parser = FilembParser(f)
     parser.parse()
 
-    assert parser.num_filtrations == 1
-    entry = parser.filtrations[0]
+    assert parser.num_seepages == 1
+    entry = parser.seepages[0]
     assert entry["embalse"] == "MyReservoir"
     assert entry["central"] == "Downstream"
-    assert entry["mean_filtration"] == pytest.approx(3.5)
+    assert entry["mean_seepage"] == pytest.approx(3.5)
     assert len(entry["segments"]) == 2
     # Segment 2: volume = 50.0 × 1000 = 50000 dam³
     assert entry["segments"][1]["volume"] == pytest.approx(50_000.0)
 
 
-def test_negative_mean_filtration_clipped(tmp_path):
-    """Negative mean_filtration is clipped to 0 (matching PLP Fortran)."""
+def test_negative_mean_seepage_clipped(tmp_path):
+    """Negative mean_seepage is clipped to 0 (matching PLP Fortran)."""
     content = (
         " 1\n"
         "'RSV'\n"
@@ -212,7 +212,7 @@ def test_negative_mean_filtration_clipped(tmp_path):
     parser = FilembParser(f)
     parser.parse()
 
-    assert parser.filtrations[0]["mean_filtration"] == pytest.approx(0.0)
+    assert parser.seepages[0]["mean_seepage"] == pytest.approx(0.0)
 
 
 def test_unit_conversions_volume_and_slope(tmp_path):
@@ -222,7 +222,7 @@ def test_unit_conversions_volume_and_slope(tmp_path):
     parser = FilembParser(f)
     parser.parse()
 
-    seg = parser.filtrations[0]["segments"][0]
+    seg = parser.seepages[0]["segments"][0]
     assert seg["volume"] == pytest.approx(100_000.0)  # 100 Mm³ → 100000 dam³
     assert seg["slope"] == pytest.approx(0.002)  # 2.0 / 1000 = 0.002 /dam³
     assert seg["constant"] == pytest.approx(3.0)  # no conversion
@@ -231,18 +231,18 @@ def test_unit_conversions_volume_and_slope(tmp_path):
 # ─── Lookup tests ─────────────────────────────────────────────────────────────
 
 
-def test_get_filtration_by_embalse(tmp_path):
+def test_get_seepage_by_embalse(tmp_path):
     """Lookup by embalse name works after parsing."""
     content = " 1\n'RAPEL'\n8.0\n 1\n     1   0.0   0.1   1.0\n'DONOSO'\n"
     f = write_filemb(tmp_path, content)
     parser = FilembParser(f)
     parser.parse()
 
-    found = parser.get_filtration_by_embalse("RAPEL")
+    found = parser.get_seepage_by_embalse("RAPEL")
     assert found is not None
-    assert found["mean_filtration"] == pytest.approx(8.0)
+    assert found["mean_seepage"] == pytest.approx(8.0)
 
-    not_found = parser.get_filtration_by_embalse("NONEXISTENT")
+    not_found = parser.get_seepage_by_embalse("NONEXISTENT")
     assert not_found is None
 
 

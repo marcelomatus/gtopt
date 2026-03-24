@@ -13,7 +13,7 @@
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
-#include <gtopt/reservoir_efficiency_lp.hpp>
+#include <gtopt/reservoir_production_factor_lp.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/turbine_lp.hpp>
@@ -156,7 +156,7 @@ bool TurbineLP::add_to_output(OutputContext& out) const
 /**
  * @brief Update reservoir-dependent LP coefficients for this turbine.
  *
- * Finds the ReservoirEfficiencyLP element(s) that reference this turbine,
+ * Finds the ReservoirProductionFactorLP element(s) that reference this turbine,
  * queries the associated reservoir for the current volume and updates the
  * turbine conversion-rate coefficient in the LP.
  *
@@ -177,7 +177,7 @@ int TurbineLP::update_lp(SystemLP& sys,
 
   int total = 0;
 
-  for (auto& eff : sys.elements<ReservoirEfficiencyLP>()) {
+  for (auto& eff : sys.elements<ReservoirProductionFactorLP>()) {
     if (eff.turbine_sid() != my_sid) {
       continue;
     }

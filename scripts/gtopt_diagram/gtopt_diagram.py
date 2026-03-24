@@ -14,7 +14,7 @@ Diagram types (--diagram-type)
 Subsystems for topology diagrams (--subsystem)
 -----------------------------------------------
 ``electrical`` — Buses, generators, demands, lines, batteries, converters.
-``hydro``      — Junctions, waterways, reservoirs, turbines, flows, filtrations.
+``hydro``      — Junctions, waterways, reservoirs, turbines, flows, seepages.
 ``full``       — Both subsystems together (default).
 
 Output formats (--format)
@@ -291,9 +291,7 @@ _ICON_SVG["flow"] = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 4
   <polygon points="46,24 38,19 38,29" fill="#1A5276"/>
 </svg>"""
 
-_ICON_SVG[
-    "filtration"
-] = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+_ICON_SVG["seepage"] = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
   <defs><linearGradient id="g" x1="0%" y1="0%" x2="0%" y2="100%">
     <stop offset="0%" stop-color="#E8E8E8"/><stop offset="100%" stop-color="#95A5A6"/>
   </linearGradient></defs>
@@ -422,8 +420,8 @@ _PALETTE: dict[str, str] = {
     "turbine_border": "#1565C0",
     "flow": "#E3F2FD",
     "flow_border": "#0277BD",
-    "filtration": "#E0E0E0",
-    "filtration_border": "#616161",
+    "seepage": "#E0E0E0",
+    "seepage_border": "#616161",
     "line_edge": "#4CAF50",
     "power_edge": "#66BB6A",
     "waterway_edge": "#0277BD",
@@ -461,8 +459,8 @@ _PALETTE_COLORBLIND: dict[str, str] = {
     "turbine_border": "#1B5E20",
     "flow": "#E1F5FE",
     "flow_border": "#0277BD",
-    "filtration": "#ECEFF1",
-    "filtration_border": "#546E7A",
+    "seepage": "#ECEFF1",
+    "seepage_border": "#546E7A",
     "reserve_zone": "#FFF8E1",
     "reserve_zone_border": "#F57F17",
     "gen_profile": "#F3E5F5",
@@ -531,7 +529,7 @@ _LEGEND_LABELS: dict[str, str] = {
     "reservoir_lg": "Reservoir (large)",
     "turbine": "Turbine",
     "flow": "Flow",
-    "filtration": "Filtration",
+    "seepage": "ReservoirSeepage",
     "reserve_zone": "Reserve zone",
     "gen_profile": "Generator profile",
     "dem_profile": "Demand profile",
@@ -552,7 +550,7 @@ _MM_SHAPES: dict[str, tuple[str, str]] = {
     "reservoir_lg": ("[/", "/]"),
     "turbine": ("{", "}"),
     "flow": ("((", "))"),
-    "filtration": ("((", "))"),
+    "seepage": ("((", "))"),
     "reserve_zone": (">", "]"),
     "gen_profile": ("[", "]"),
     "dem_profile": ("[", "]"),
@@ -573,7 +571,7 @@ _MM_STYLES: dict[str, str] = {
     "reservoir_lg": "fill:#039BE5,stroke:#01579B,color:#FFF",
     "turbine": "fill:#D1F2EB,stroke:#1E8449,color:#1C2833",
     "flow": "fill:#EAF2FF,stroke:#2980B9,color:#1C2833",
-    "filtration": "fill:#EAECEE,stroke:#717D7E,color:#1C2833",
+    "seepage": "fill:#EAECEE,stroke:#717D7E,color:#1C2833",
     "reserve_zone": "fill:#FFF8E1,stroke:#F57F17,color:#1C2833",
     "gen_profile": "fill:#F3E5F5,stroke:#7B1FA2,color:#1C2833",
     "dem_profile": "fill:#FCE4EC,stroke:#AD1457,color:#1C2833",
@@ -591,7 +589,7 @@ _MM_ICONS: dict[str, str] = {
     "reservoir": "🏞️",
     "turbine": "⚙️",
     "flow": "🌊",
-    "filtration": "🔽",
+    "seepage": "🔽",
     # aggregated generator nodes inherit the type icon
     "gen_wind": "🌬️",
     "gen_nuclear": "☢️",
@@ -615,7 +613,7 @@ _PYVIS_COLORS: dict[str, dict] = {
     "reservoir_lg": {"background": "#039BE5", "border": "#01579B"},
     "turbine": {"background": "#BBDEFB", "border": "#1565C0"},
     "flow": {"background": "#E3F2FD", "border": "#0277BD"},
-    "filtration": {"background": "#E0E0E0", "border": "#616161"},
+    "seepage": {"background": "#E0E0E0", "border": "#616161"},
     "reserve_zone": {"background": "#FFF8E1", "border": "#F57F17"},
     "gen_profile": {"background": "#F3E5F5", "border": "#7B1FA2"},
     "dem_profile": {"background": "#FCE4EC", "border": "#AD1457"},
@@ -636,7 +634,7 @@ _PYVIS_SHAPE_MAP: dict[str, str] = {
     "reservoir_lg": "box",
     "turbine": "diamond",
     "flow": "dot",
-    "filtration": "dot",
+    "seepage": "dot",
     "reserve_zone": "star",
     "gen_profile": "dot",
     "dem_profile": "dot",
@@ -654,7 +652,7 @@ _PYVIS_SIZE_MAP: dict[str, int] = {
     "reservoir": 28,
     "turbine": 22,
     "flow": 16,
-    "filtration": 14,
+    "seepage": 14,
 }
 
 
@@ -1021,8 +1019,9 @@ class TopologyBuilder:
                 "reservoir_array",
                 "turbine_array",
                 "flow_array",
-                "filtration_array",
-                "reservoir_efficiency_array",
+                "reservoir_seepage_array",
+                "reservoir_discharge_limit_array",
+                "reservoir_production_factor_array",
             )
         )
 
@@ -1091,7 +1090,8 @@ class TopologyBuilder:
                     "reservoir_array",
                     "turbine_array",
                     "flow_array",
-                    "filtration_array",
+                    "reservoir_seepage_array",
+                    "reservoir_discharge_limit_array",
                 )
             )
             if not has_hydro:
@@ -1117,7 +1117,7 @@ class TopologyBuilder:
             self._reservoirs()
             self._turbines()
             self._flows()
-            self._filtrations()
+            self._seepages()
             self._reservoir_efficiencies()
         if s == "full":
             self._reserve_zones()
@@ -1769,7 +1769,7 @@ class TopologyBuilder:
                     )
                 )
             # Draw main_reservoir → turbine edge when not already covered
-            # by a reservoir_efficiency_array entry (to avoid duplication).
+            # by a reservoir_production_factor_array entry (to avoid duplication).
             uid = t.get("uid")
             name_ref = t.get("name")
             if uid not in self._eff_turb_refs and name_ref not in self._eff_turb_refs:
@@ -1819,18 +1819,18 @@ class TopologyBuilder:
                     )
                 )
 
-    def _filtrations(self):
-        for fi in self.sys.get("filtration_array", []):
+    def _seepages(self):
+        for fi in self.sys.get("reservoir_seepage_array", []):
             name = _elem_name(fi)
             fiid = self._filtid(fi)
-            lbl = str(name) if self.opts.compact else f"{name}\n(filtration)"
+            lbl = str(name) if self.opts.compact else f"{name}\n(seepage)"
             self.model.add_node(
                 Node(
                     node_id=fiid,
                     label=lbl,
-                    kind="filtration",
+                    kind="seepage",
                     cluster="hydro",
-                    tooltip=f"Filtration uid={fi.get('uid')} name={fi.get('name')}",
+                    tooltip=f"ReservoirSeepage uid={fi.get('uid')} name={fi.get('name')}",
                 )
             )
             wway = _resolve(self.sys.get("waterway_array", []), fi.get("waterway"))
@@ -1847,7 +1847,7 @@ class TopologyBuilder:
                             ja,
                             fiid,
                             style="dotted",
-                            color=_PALETTE["filtration_border"],
+                            color=_PALETTE["seepage_border"],
                             directed=False,
                         )
                     )
@@ -1857,7 +1857,7 @@ class TopologyBuilder:
                         fiid,
                         res_id,
                         style="dotted",
-                        color=_PALETTE["filtration_border"],
+                        color=_PALETTE["seepage_border"],
                         directed=False,
                     )
                 )
@@ -1865,12 +1865,12 @@ class TopologyBuilder:
     def _reservoir_efficiencies(self):
         """Draw turbine-reservoir efficiency relationships.
 
-        Each entry in ``reservoir_efficiency_array`` associates a turbine with
+        Each entry in ``reservoir_production_factor_array`` associates a turbine with
         a reservoir whose volume drives the turbine's conversion rate (hydraulic
         head effect).  The relationship is drawn as a dashed edge
         ``reservoir → turbine`` coloured with ``efficiency_edge``.
         """
-        for e in self.sys.get("reservoir_efficiency_array", []):
+        for e in self.sys.get("reservoir_production_factor_array", []):
             res_id = self._find_node_id(
                 "reservoir_array", e.get("reservoir"), self._rid
             )
@@ -2644,7 +2644,7 @@ _GV_SHAPE_MAP: dict[str, str] = {
     "reservoir_lg": "box3d",
     "turbine": "diamond",
     "flow": "circle",
-    "filtration": "circle",
+    "seepage": "circle",
     "reserve_zone": "star",
     "gen_profile": "note",
     "dem_profile": "note",
@@ -2966,7 +2966,7 @@ def _legend_html(model: GraphModel) -> str:
         "reservoir": "Reservoir / dam",
         "turbine": "Hydraulic turbine",
         "flow": "Inflow / outflow",
-        "filtration": "Filtration / seepage",
+        "seepage": "ReservoirSeepage / seepage",
         "reserve_zone": "Reserve zone",
         "gen_profile": "Generator profile",
         "dem_profile": "Demand profile",
@@ -3172,7 +3172,7 @@ Diagram types (--diagram-type):
 Subsystems (topology, --subsystem):
   full        All elements together (default)
   electrical  Buses, generators, demands, lines, batteries, converters
-  hydro       Junctions, waterways, reservoirs, turbines, flows, filtrations
+  hydro       Junctions, waterways, reservoirs, turbines, flows, seepages
 
 Output formats (--format):
   svg, png, pdf, dot   Graphviz-rendered static images (requires graphviz)

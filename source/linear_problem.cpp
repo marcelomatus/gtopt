@@ -58,9 +58,12 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
     matval.resize(nnzero);
   }
 
-  // Pass 2: fill matind and matval using column offsets
-  // Use a working copy of matbeg as write cursors
-  std::vector<fp_index_t> colpos = matbeg;
+  // Pass 2: fill matind and matval using column offsets, and extract row
+  // bounds in the same traversal to avoid iterating rows a third time.
+  // Reuse matbeg as write cursors (avoids allocating a separate colpos
+  // vector); we reconstruct matbeg from the final cursor positions after
+  // the loop.
+  auto& colpos = matbeg;
 
   // Optionally track coefficient stats during the matrix scan (zero cost
   // when disabled — the branch is predictable and the inner loop is hot).
@@ -80,7 +83,13 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
   const double eff_stats_eps =
       (eps >= 0) ? std::max(eps, opts.stats_eps) : opts.stats_eps;
 
+  std::vector<double> rowlb(nrows);
+  std::vector<double> rowub(nrows);
+
   for (const auto& [i, row] : std::views::enumerate(rows)) {
+    rowlb[i] = row.lowb;
+    rowub[i] = row.uppb;
+
     for (const auto& [j, v] : row.cmap) {
       if (eps < 0 || std::abs(v) > eps) [[likely]] {
         const auto c = static_cast<size_t>(j);
@@ -112,12 +121,12 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
     }
   }
 
-  std::vector<double> rowlb(nrows);
-  std::vector<double> rowub(nrows);
-  for (const auto& [i, row] : std::views::enumerate(rows)) {
-    rowlb[i] = row.lowb;
-    rowub[i] = row.uppb;
+  // Reconstruct matbeg from the advanced write cursors: after pass 2,
+  // colpos[c] == original matbeg[c+1].  Shift right and reset position 0.
+  for (size_t c = ncols; c > 0; --c) {
+    matbeg[c] = matbeg[c - 1];
   }
+  matbeg[0] = 0;
 
   std::vector<double> collb(ncols);
   std::vector<double> colub(ncols);
@@ -166,6 +175,7 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
                            std::string_view entity_type) -> fp_index_map_t
   {
     fp_index_map_t map;
+    map.reserve(names.size());
 
     for (const auto& [i, name] : std::views::enumerate(names)) {
       if (auto [it, inserted] = map.try_emplace(name, i); !inserted)

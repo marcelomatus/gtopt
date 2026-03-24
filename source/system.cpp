@@ -191,6 +191,53 @@ void System::expand_batteries()
   }
 }
 
+void System::expand_reservoir_constraints()
+{
+  auto seep_uid = next_uid(reservoir_seepage_array);
+  auto dlim_uid = next_uid(reservoir_discharge_limit_array);
+  auto pfac_uid = next_uid(reservoir_production_factor_array);
+
+  for (auto& rsv : reservoir_array) {
+    const SingleId rsv_id {rsv.uid};
+
+    for (auto& s : rsv.seepage) {
+      if (s.uid == unknown_uid) {
+        s.uid = seep_uid++;
+      }
+      if (s.name.empty()) {
+        s.name = rsv.name + "_seepage_" + std::to_string(s.uid);
+      }
+      s.reservoir = rsv_id;
+      reservoir_seepage_array.push_back(std::move(s));
+    }
+    rsv.seepage.clear();
+
+    for (auto& d : rsv.discharge_limit) {
+      if (d.uid == unknown_uid) {
+        d.uid = dlim_uid++;
+      }
+      if (d.name.empty()) {
+        d.name = rsv.name + "_dlim_" + std::to_string(d.uid);
+      }
+      d.reservoir = rsv_id;
+      reservoir_discharge_limit_array.push_back(std::move(d));
+    }
+    rsv.discharge_limit.clear();
+
+    for (auto& p : rsv.production_factor) {
+      if (p.uid == unknown_uid) {
+        p.uid = pfac_uid++;
+      }
+      if (p.name.empty()) {
+        p.name = rsv.name + "_pfac_" + std::to_string(p.uid);
+      }
+      p.reservoir = rsv_id;
+      reservoir_production_factor_array.push_back(std::move(p));
+    }
+    rsv.production_factor.clear();
+  }
+}
+
 void System::merge(System&& sys)  // NOLINT
 {
   if (!sys.name.empty()) {
@@ -219,10 +266,12 @@ void System::merge(System&& sys)  // NOLINT
   gtopt::merge(waterway_array, std::move(sys.waterway_array));
   gtopt::merge(flow_array, std::move(sys.flow_array));
   gtopt::merge(reservoir_array, std::move(sys.reservoir_array));
-  gtopt::merge(filtration_array, std::move(sys.filtration_array));
+  gtopt::merge(reservoir_seepage_array, std::move(sys.reservoir_seepage_array));
+  gtopt::merge(reservoir_discharge_limit_array,
+               std::move(sys.reservoir_discharge_limit_array));
   gtopt::merge(turbine_array, std::move(sys.turbine_array));
-  gtopt::merge(reservoir_efficiency_array,
-               std::move(sys.reservoir_efficiency_array));
+  gtopt::merge(reservoir_production_factor_array,
+               std::move(sys.reservoir_production_factor_array));
 
   gtopt::merge(user_constraint_array, std::move(sys.user_constraint_array));
 
