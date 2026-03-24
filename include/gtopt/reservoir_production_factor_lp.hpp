@@ -157,49 +157,4 @@ private:
   IndexHolder2<ScenarioUid, StageUid, BCoeffMap> m_coeff_indices_;
 };
 
-// ─── HasUpdateLP concept ─────────────────────────────────────────────────────
-
-/**
- * @brief Concept satisfied by LP element types that implement `update_lp()`.
- *
- * Used by `update_lp()` to iterate over the LP element collection
- * with `visit_elements()` and dispatch `update_lp()` only to types that
- * implement it (currently `ReservoirSeepageLP`,
- * `ReservoirDischargeLimitLP`, and `ReservoirProductionFactorLP`).
- */
-template<typename T>
-concept HasUpdateLP = requires(T& obj,
-                               SystemLP& system_lp,
-                               const ScenarioLP& scenario,
-                               const StageLP& stage) {
-  { obj.update_lp(system_lp, scenario, stage) } -> std::same_as<int>;
-};
-
-// ─── Generalized LP update dispatch ─────────────────────────────────────────
-
-/**
- * @brief Dispatch update_lp to all volume-dependent LP elements
- *
- * Called by the SDDP solver before each phase solve.  Iterates over ALL LP
- * element types in the collection via `visit_elements` and, for each type
- * that satisfies the `HasUpdateLP` concept, calls `element.update_lp()`.
- * Currently dispatches to:
- *
- * 1. **ReservoirSeepageLP::update_lp()** — updates seepage constraint
- *    slope and RHS based on current reservoir volume.
- *
- * 2. **ReservoirDischargeLimitLP::update_lp()** — updates discharge limit
- *    constraint slope and RHS.
- *
- * 3. **ReservoirProductionFactorLP::update_lp()** — updates turbine
- *    conversion-rate coefficient.
- *
- * Future extensions simply require implementing `update_lp()` on the new LP
- * element type; no changes to this function are necessary.
- *
- * @param system_lp  The SystemLP for this (scene, phase)
- * @return Total number of LP elements modified
- */
-[[nodiscard]] int dispatch_update_lp(SystemLP& system_lp);
-
 }  // namespace gtopt

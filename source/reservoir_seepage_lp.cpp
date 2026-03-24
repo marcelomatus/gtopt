@@ -134,16 +134,11 @@ int ReservoirSeepageLP::update_lp(SystemLP& sys,
                                   const ScenarioLP& scenario,
                                   const StageLP& stage)
 {
-  // Only update when piecewise segments are present
   if (seepage().segments.empty()) {
     return 0;
   }
 
   auto& li = sys.linear_interface();
-
-  // Determine current reservoir volume (in physical units):
-  //  - first iteration OR first phase → use static initial volume (eini)
-  //  - otherwise → use vavg = (vini + vfin) / 2 from previous LP solve
   const auto& rsv = sys.element<ReservoirLP>(reservoir_sid());
   const auto default_volume = rsv.reservoir().eini.value_or(0.0);
 
@@ -154,22 +149,18 @@ int ReservoirSeepageLP::update_lp(SystemLP& sys,
   const auto vfin = rsv.physical_efin(li, scenario, stage, default_volume);
   const Real volume = (vini + vfin) / 2.0;
 
-  // Select the active segment for the current volume (physical units)
   const auto coeffs = select_seepage_coeffs(seepage().segments, volume);
 
   const auto new_slope = coeffs.slope;
   const auto new_rhs = coeffs.intercept;
 
-  // Only update when coefficients actually changed
   if (new_slope == state.current_slope && new_rhs == state.current_rhs) {
     return 0;
   }
 
-  // Convert slope from physical to LP units.
+  int total = 0;
   const auto new_lp_slope = new_slope * state.energy_scale;
-
   const auto& frows = seepage_rows.at(st_key);
-  int count = 0;
 
   for (const auto& [buid, row] : frows) {
     if (new_slope != state.current_slope) {
@@ -179,14 +170,13 @@ int ReservoirSeepageLP::update_lp(SystemLP& sys,
     if (new_rhs != state.current_rhs) {
       li.set_rhs(row, new_rhs);
     }
-    ++count;
+    ++total;
   }
 
   SPDLOG_TRACE(
-      "ReservoirSeepageLP uid={}: updated {} constraints "
+      "ReservoirSeepageLP uid={}: updated constraints "
       "(volume={:.1f}, slope={:.6f}, rhs={:.6f})",
       uid(),
-      count,
       volume,
       new_slope,
       new_rhs);
@@ -194,7 +184,7 @@ int ReservoirSeepageLP::update_lp(SystemLP& sys,
   state.current_slope = new_slope;
   state.current_rhs = new_rhs;
 
-  return count;
+  return total;
 }
 
 }  // namespace gtopt

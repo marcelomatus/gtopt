@@ -20,9 +20,14 @@ namespace gtopt
  * @class IterationLP
  * @brief LP-side wrapper for an Iteration control entry
  *
- * Stores the Iteration definition and its position in the iteration_array.
- * The SDDP solver looks up IterationLP objects by their `index()` to find
- * per-iteration overrides.
+ * Stores the Iteration definition and its position in the preallocated
+ * iteration vector.  Default-constructed entries represent iterations with
+ * no explicit user override; they return `should_update_lp() == true` and
+ * `has_explicit_update_lp() == false`.
+ *
+ * The SDDP solver preallocates a vector of IterationLP objects sized to
+ * `iteration_offset + max_iterations` and accesses them directly via
+ * `IterationIndex`, giving O(1) lookup.
  */
 class IterationLP
 {
@@ -49,6 +54,12 @@ public:
   [[nodiscard]] constexpr auto should_update_lp() const noexcept
   {
     return m_iteration_.should_update_lp();
+  }
+
+  /// @return Whether the user explicitly set update_lp for this iteration
+  [[nodiscard]] constexpr auto has_explicit_update_lp() const noexcept
+  {
+    return m_iteration_.update_lp.has_value();
   }
 
 private:

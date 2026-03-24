@@ -825,13 +825,13 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp with piecewise segments")
     // volume = (eini + efin_from_solution) / 2; update count depends on
     // whether the average volume selects a different piecewise segment
     // than the one used at add_to_lp time.
-    const auto updated = dispatch_update_lp(system_lp);
+    const auto updated = system_lp.update_lp();
     CHECK(updated >= 0);
   }
 
   SUBCASE("system solves after update_lp")
   {
-    [[maybe_unused]] const auto u = dispatch_update_lp(system_lp);
+    [[maybe_unused]] const auto u = system_lp.update_lp();
     auto result2 = lp.resolve();
     REQUIRE(result2.has_value());
     CHECK(result2.value() == 0);
@@ -963,7 +963,7 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp with different eini segment")
   CHECK(result.value() == 0);
 
   // eini=1000 → seg1. update_lp iter=0/phase=0 uses eini → same → 0
-  const auto updated = dispatch_update_lp(system_lp);
+  const auto updated = system_lp.update_lp();
   CHECK(updated == 0);
 
   // Re-solve after update_lp
@@ -1097,6 +1097,6 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp is a no-op without segments")
   CHECK(result.value() == 0);
 
   // Single segment → update_lp is a no-op
-  const auto updated = dispatch_update_lp(system_lp);
+  const auto updated = system_lp.update_lp();
   CHECK(updated == 0);
 }
