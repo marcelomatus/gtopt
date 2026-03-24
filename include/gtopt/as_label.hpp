@@ -345,4 +345,67 @@ template<char sep = '_', typename... Args>
   return result;
 }
 
+/**
+ * @brief Clears and writes a label into an existing string buffer
+ *
+ * @tparam sep Separator character (default '_')
+ * @return constexpr void
+ *
+ * @note Zero-argument overload — simply clears the buffer
+ */
+template<char sep = '_'>
+constexpr void as_label_into(std::string& result) noexcept
+{
+  result.clear();
+}
+
+/**
+ * @brief Writes a concatenated label into an existing string buffer
+ *
+ * Like as_label(), but reuses the buffer's existing capacity to avoid
+ * repeated heap allocations across calls.  The buffer is cleared (not
+ * deallocated) on each call, so its capacity grows monotonically to
+ * the high-water mark.
+ *
+ * @tparam sep Separator character between components (default '_')
+ * @tparam Args Argument types (automatically deduced)
+ * @param result String buffer to write into (cleared, not deallocated)
+ * @param args Values to concatenate into label
+ */
+template<char sep = '_', typename... Args>
+void as_label_into(std::string& result, Args&&... args) noexcept(
+    (std::is_nothrow_constructible_v<detail::string_holder, Args> && ...))
+{
+  // Create holders for all arguments
+  const std::array<detail::string_holder, sizeof...(Args)> holders {
+      detail::string_holder(std::forward<Args>(args))...};
+
+  // Calculate total size needed
+  detail::label_size size;
+  for (const auto& holder : holders) {
+    size = size.add(holder.view());
+  }
+
+  result.clear();  // Keeps existing capacity
+  if (size.total == 0) [[unlikely]] {
+    return;
+  }
+  result.reserve(size.total);
+
+  // Build the result string
+  bool needs_sep = false;
+  for (const auto& holder : holders) {
+    const auto view = holder.view();
+    if (view.empty()) [[unlikely]] {
+      continue;
+    }
+    if (needs_sep) {
+      result.push_back(detail::to_lower_char(sep));
+    }
+    std::ranges::transform(
+        view, std::back_inserter(result), detail::to_lower_char);
+    needs_sep = true;
+  }
+}
+
 }  // namespace gtopt

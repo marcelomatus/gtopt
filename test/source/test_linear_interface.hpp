@@ -156,8 +156,9 @@ TEST_CASE("LinearInterface - LP file output")
 {
   using namespace gtopt;
 
-  // Create simple LP
+  // Create simple LP with name level 1 so both col and row names are tracked.
   LinearInterface interface;
+  interface.set_lp_names_level(1);
 
   // Add variables
   interface.add_col("x1", 0.0, 10.0);
@@ -169,6 +170,7 @@ TEST_CASE("LinearInterface - LP file output")
 
   // Add constraint
   SparseRow row;
+  row.name = "c1";
   row[ColIndex {0}] = 1.0;
   row[ColIndex {1}] = 1.0;
   row.uppb = 15.0;
@@ -179,7 +181,8 @@ TEST_CASE("LinearInterface - LP file output")
 
   // Write LP to file
   const std::string temp_file = "test_interface_lp";
-  interface.write_lp(temp_file);
+  auto result = interface.write_lp(temp_file);
+  REQUIRE(result.has_value());
 
   // Verify file was created
   const std::string lp_file = temp_file + ".lp";
@@ -328,8 +331,8 @@ TEST_CASE("LinearInterface - write LP to empty filename (no-op)")
   LinearInterface interface;
   interface.add_col("x1", 0.0, 10.0);
 
-  // Writing with empty filename should not crash
-  CHECK_NOTHROW(interface.write_lp(""));
+  // Writing with empty filename should succeed (no-op)
+  CHECK(interface.write_lp("").has_value());
 }
 
 TEST_CASE("LinearInterface - solve with solver options (dual algorithm)")

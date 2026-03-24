@@ -725,6 +725,8 @@ IndexRange ConstraintParser::Parser::parse_index_set()
         }
         const int end = std::stoi(m_current_.value);
         advance();
+        range.values.reserve(range.values.size() + static_cast<size_t>(end)
+                             - static_cast<size_t>(start) + 1);
         for (int i = start; i <= end; ++i) {
           range.values.push_back(i);
         }
@@ -755,6 +757,8 @@ IndexRange ConstraintParser::Parser::parse_index_set()
       }
       const int end = std::stoi(m_current_.value);
       advance();
+      range.values.reserve(static_cast<size_t>(end) - static_cast<size_t>(start)
+                           + 1);
       for (int i = start; i <= end; ++i) {
         range.values.push_back(i);
       }

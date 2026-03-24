@@ -100,22 +100,14 @@ auto PlanningLP::create_systems(System& system,
 
 void PlanningLP::write_lp(const std::string& filename) const
 {
-  try {
-    for (auto&& phase_systems : m_systems_) {
-      for (auto&& system : phase_systems) {
-        try {
-          [[maybe_unused]] auto _ = system.write_lp(filename);
-        } catch (const std::exception& e) {
-          SPDLOG_ERROR(
-              std::format("Failed to write LP for system: {}", e.what()));
-          throw;
-        }
+  for (auto&& phase_systems : m_systems_) {
+    for (auto&& system : phase_systems) {
+      auto result = system.write_lp(filename);
+      if (!result) {
+        spdlog::warn("{}", result.error().message);
+        return;
       }
     }
-  } catch (const std::exception& e) {
-    SPDLOG_ERROR(
-        "Failed to write LP file {}: {}", filename, std::string(e.what()));
-    throw;
   }
 }
 
@@ -300,8 +292,11 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
           (std::filesystem::path(log_dir)
            / std::format("error_{}_{}", scene_index, phase_index))
               .string();
-      const auto lp_file = system_sp.write_lp(filename);
-      spdlog::error("  Infeasible LP written to: {}", lp_file);
+      if (auto lp_result = system_sp.write_lp(filename)) {
+        spdlog::error("  Infeasible LP written to: {}", *lp_result);
+      } else {
+        spdlog::warn("{}", lp_result.error().message);
+      }
 
       // LP diagnostic analysis is performed by run_gtopt after the solver
       // exits.  It scans the log directory for error*.lp files and runs

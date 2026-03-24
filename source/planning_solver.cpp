@@ -110,7 +110,11 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
           (std::filesystem::path(lp_debug_directory) / "gtopt_lp").string();
       for (const auto& phase_systems : planning_lp.systems()) {
         for (const auto& system : phase_systems) {
-          lp_writer.compress_async(system.write_lp(lp_stem));
+          if (auto lp_result = system.write_lp(lp_stem)) {
+            lp_writer.compress_async(*lp_result);
+          } else {
+            spdlog::warn("{}", lp_result.error().message);
+          }
         }
       }
       spdlog::info(
