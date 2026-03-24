@@ -578,7 +578,7 @@ Set either timeout to `0` to disable the corresponding time limit.
 
 ### 4.12 Single-Phase Fallback
 
-When `solver_type: "sddp"` is requested but only **1 phase** exists in
+When `method: "sddp"` is requested but only **1 phase** exists in
 the planning model, the solver factory automatically falls back to the
 monolithic solver with an informational log message.  This prevents the
 SDDP "requires at least 2 phases" error and allows the same JSON
@@ -586,7 +586,7 @@ configuration to work for both single-phase and multi-phase models.
 
 ### 4.13 Solver API for Monitoring and Control
 
-The `SDDPSolver` exposes a thread-safe API designed for GUI integration,
+The `SDDPMethod` exposes a thread-safe API designed for GUI integration,
 external monitoring tools, and programmatic control of the solve process:
 
 **Iteration callback** — register an `SDDPIterationCallback` via
@@ -781,7 +781,7 @@ the JSON planning file.
 ```json
 {
   "options": {
-    "solver_type": "sddp",
+    "method": "sddp",
     "log_directory": "logs",
     "sddp_options": {
       "cut_sharing_mode": "expected",
@@ -800,7 +800,7 @@ the JSON planning file.
 }
 ```
 
-The top-level `solver_type` field selects the planning solver.  SDDP-specific
+The top-level `method` field selects the planning solver.  SDDP-specific
 options live in the nested `sddp_options` sub-object (without the `sddp_`
 prefix, since the section name already provides the namespace).
 
@@ -808,7 +808,7 @@ prefix, since the section name already provides the namespace).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `solver_type` | string | `"monolithic"` | Solver: `"monolithic"` or `"sddp"` (recommended shorthand) |
+| `method` | string | `"monolithic"` | Solver: `"monolithic"` or `"sddp"` (recommended shorthand) |
 | `log_directory` | string | `"<output_directory>/logs"` | Directory for log and trace files |
 
 **`sddp_options` sub-object fields:**
@@ -1157,10 +1157,10 @@ enough that convergence is achieved quickly.
 
 | Class | File | Role |
 |-------|------|------|
-| `SDDPSolver` | `sddp_solver.hpp/cpp` | Core SDDP algorithm |
-| `SDDPPlanningSolver` | `sddp_solver.hpp/cpp` | `PlanningSolver` interface adapter |
+| `SDDPMethod` | `sddp_method.hpp/cpp` | Core SDDP algorithm |
+| `SDDPPlanningMethod` | `sddp_method.hpp/cpp` | `PlanningMethod` interface adapter |
 | `SDDPClonePool` | `sddp_clone_pool.hpp/cpp` | Cached LP clone pool for aperture reuse |
-| `MonolithicSolver` | `planning_solver.hpp/cpp` | Default full-LP solver |
+| `MonolithicMethod` | `planning_method.hpp/cpp` | Default full-LP solver |
 | `SolverMonitor` | `solver_monitor.hpp` | Background CPU/worker monitoring (SDDP + Monolithic) |
 | `PlanningLP` | `planning_lp.hpp/cpp` | LP assembly and phase management |
 | `LinearInterface` | `linear_interface.hpp/cpp` | LP solver abstraction (COIN-OR) |
@@ -1177,7 +1177,7 @@ statistics (CPU load, active worker count) in a background `std::jthread`
 and writes them to a JSON status file for external monitoring tools such as
 `scripts/sddp_monitor.py`.
 
-Both `SDDPSolver` and `MonolithicSolver` create a local `SolverMonitor`
+Both `SDDPMethod` and `MonolithicMethod` create a local `SolverMonitor`
 during their `solve()` call.
 
 **SDDP status file** (`sddp_status.json`) contains:
@@ -1297,8 +1297,8 @@ maintained in the `marcelomatus/plp_storage` repository:
 
 | PLP concept | gtopt equivalent |
 |-------------|-----------------|
-| SDDP forward/backward iteration | `SDDPSolver::forward_pass()` / `backward_pass()` |
-| Elastic filter (`osi_lp_get_feasible_cut`) | `SDDPSolver::elastic_solve()` via `clone()` |
+| SDDP forward/backward iteration | `SDDPMethod::forward_pass()` / `backward_pass()` |
+| Elastic filter (`osi_lp_get_feasible_cut`) | `SDDPMethod::elastic_solve()` via `clone()` |
 | LP cloning (`LPCont::get_lpi()`) | `LinearInterface::clone()` |
 | `userstop` file | `sentinel_file` option in `SDDPOptions` |
 | Cut file persistence | `save_cuts()` / `load_cuts()` in CSV format |
@@ -1431,9 +1431,9 @@ DOI: [10.1007/s12532-012-0038-z](https://doi.org/10.1007/s12532-012-0038-z)
 ## 10. Cascade Solver — Multi-Level Hybrid Solver
 
 > For full cascade solver documentation, see
-> [CASCADE_SOLVER.md](CASCADE_SOLVER.md).
+> [Cascade Method](cascade.md).
 
-The **Cascade solver** (`solver_type = "cascade"`) is a multi-level hybrid
+The **Cascade solver** (`method = "cascade"`) is a multi-level hybrid
 algorithm that progressively refines the LP formulation and solver strategy
 across a variable number of levels.  It accelerates convergence by starting
 with a simplified network model (e.g. single bus, no Kirchhoff) and
@@ -1562,7 +1562,7 @@ JSON configuration (not inside `sddp_options`).  The global
 ```json
 {
   "options": {
-    "solver_type": "cascade",
+    "method": "cascade",
     "model_options": {
       "use_kirchhoff": true,
       "demand_fail_cost": 5000
@@ -1616,7 +1616,7 @@ to change solver parameters (e.g. enable apertures) without rebuilding:
 ```json
 {
   "options": {
-    "solver_type": "cascade",
+    "method": "cascade",
     "sddp_options": {
       "max_iterations": 30,
       "convergence_tol": 0.01
@@ -1655,7 +1655,7 @@ it to an empty array):
 ```json
 {
   "options": {
-    "solver_type": "cascade",
+    "method": "cascade",
     "sddp_options": {
       "max_iterations": 30,
       "convergence_tol": 0.01
@@ -1681,15 +1681,15 @@ reports non-convergence.
 
 ## 11. See Also
 
-- [CASCADE_SOLVER.md](CASCADE_SOLVER.md) --- cascade (multi-level hybrid)
+- [Cascade Method](cascade.md) --- cascade (multi-level hybrid)
   solver documentation
-- [MONOLITHIC_SOLVER.md](MONOLITHIC_SOLVER.md) --- monolithic solver
+- [Monolithic Method](monolithic.md) --- monolithic solver
   documentation (default solver, boundary cuts, solve timeout)
-- [MATHEMATICAL_FORMULATION.md](formulation/MATHEMATICAL_FORMULATION.md) ---
+- [Mathematical Formulation](../formulation/mathematical-formulation.md) ---
   full LP/MIP formulation for gtopt
-- [PLANNING_GUIDE.md](../PLANNING_GUIDE.md) --- worked examples and time
+- [Planning Guide](../planning-guide.md) --- worked examples and time
   structure concepts
-- [INPUT_DATA.md](../INPUT_DATA.md) --- JSON/Parquet input format
+- [Input Data Reference](../input-data.md) --- JSON/Parquet input format
   specification
-- [USAGE.md](../USAGE.md) --- CLI reference including `--trace-log`
-- [CONTRIBUTING.md](../CONTRIBUTING.md) --- code style and testing guidelines
+- [Usage Guide](../usage.md) --- CLI reference including `--trace-log`
+- [Contributing Guide](../../CONTRIBUTING.md) --- code style and testing guidelines

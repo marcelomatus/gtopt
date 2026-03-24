@@ -182,7 +182,7 @@ cvs2parquet input/Demand/*.csv input/Generator/*.csv input/Line/*.csv -v
 
 ## See Also
 
-- [SCRIPTS.md](../../SCRIPTS.md) — Overview of all gtopt Python scripts
-- [INPUT\_DATA.md](../../INPUT_DATA.md) — gtopt input file format reference
+- [SCRIPTS.md](../scripts-guide.md) — Overview of all gtopt Python scripts
+- [INPUT\_DATA.md](../input-data.md) — gtopt input file format reference
 - [ts2gtopt](ts2gtopt.md) — Project hourly time-series onto gtopt horizons
 - [plp2gtopt](plp2gtopt.md) — Convert PLP cases (produces Parquet directly)

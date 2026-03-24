@@ -960,7 +960,7 @@ User constraints are added to the LP after all built-in constraints and
 can reference any LP variable (generator output, line flow, battery SoC,
 etc.).
 
-> **See also**: [`INPUT_DATA.md`](../../INPUT_DATA.md) for the JSON
+> **See also**: [`INPUT_DATA.md`](../input-data.md) for the JSON
 > format specification of user constraints.
 
 ---
@@ -1291,10 +1291,10 @@ An optional `sddp_boundary_max_iterations` parameter limits loading to
 the last $N$ distinct SDDP iterations (by the `iteration` column in the
 CSV, corresponding to PLP's `IPDNumIte`).
 
-> **See also**: [`docs/SDDP_SOLVER.md`](../SDDP_SOLVER.md) §4.11 for
+> **See also**: [`docs/SDDP_SOLVER.md`](../methods/sddp.md) §4.11 for
 > the CSV format specification and configuration details.
 
-> **See also**: [`docs/SDDP_SOLVER.md`](../SDDP_SOLVER.md) for the
+> **See also**: [`docs/SDDP_SOLVER.md`](../methods/sddp.md) for the
 > complete SDDP algorithm description, convergence criteria, and
 > implementation notes.
 
@@ -1377,7 +1377,7 @@ future-cost function). They are supported by both the SDDP and
 monolithic solvers. When used with the monolithic solver, an $\alpha$
 variable is added to the last phase and the cuts are applied identically.
 
-> **See also**: [`docs/SDDP_SOLVER.md`](../SDDP_SOLVER.md) Section 4.11
+> **See also**: [`docs/SDDP_SOLVER.md`](../methods/sddp.md) Section 4.11
 > for the CSV format specification, load modes, and iteration filtering.
 
 ### 6.10 Hot Start
@@ -1468,7 +1468,7 @@ number of iterations, provided:
 When any of these conditions is violated, the SDDP solution may differ
 from the monolithic optimum (typically providing a lower bound).
 
-> **See also**: [`docs/MONOLITHIC_SOLVER.md`](../MONOLITHIC_SOLVER.md)
+> **See also**: [`docs/MONOLITHIC_SOLVER.md`](../methods/monolithic.md)
 > Section 3 for additional details on equivalence conditions.
 
 ### 6.13 Elastic Filter and Feasibility
@@ -1514,19 +1514,19 @@ with theoretical convergence guarantees. The `"backpropagate"` mode is
 a heuristic from the PLP hydrothermal scheduler that can converge faster
 in practice for problems with tight physical bounds.
 
-> **See also**: [`docs/SDDP_SOLVER.md`](../SDDP_SOLVER.md) Section 5.4
+> **See also**: [`docs/SDDP_SOLVER.md`](../methods/sddp.md) Section 5.4
 > for a detailed comparison of elastic filter modes.
 
 ### 6.14 Cascade Solver — Multi-Level Decomposition
 
-The **Cascade solver** (`solver_type = "cascade"`) extends the SDDP
+The **Cascade solver** (`method = "cascade"`) extends the SDDP
 algorithm with an outer loop over multiple **levels**, each with its own LP
 formulation and solver parameters.  The key idea is progressive refinement:
 start from a simplified model (e.g. single-bus / copper-plate) that
 converges quickly, then warm-start subsequent levels with increasingly
 detailed network models.
 
-> **See also**: [`docs/CASCADE_SOLVER.md`](../CASCADE_SOLVER.md) for the
+> **See also**: [`docs/CASCADE_SOLVER.md`](../methods/cascade.md) for the
 > complete configuration reference, implementation details, and worked
 > examples.
 
@@ -1655,7 +1655,7 @@ mathematical symbols used in this formulation.
 | `options.use_line_losses` | — | Enable line losses |
 | `options.demand_fail_cost` | $c^{\text{fail}}_d$ | Curtailment penalty |
 | `options.reserve_fail_cost` | $c^{\text{rfail}}$ | Reserve penalty |
-| `options.solver_type` | — | Solver: `"monolithic"` or `"sddp"` |
+| `options.method` | — | Solver: `"monolithic"` or `"sddp"` |
 | `options.variable_scales` | $\sigma_x$ | Per-variable scale factors (Section 6.3) |
 | `options.sddp_options.boundary_cuts_file` | — | CSV with boundary cuts for last phase (Section 6.9) |
 | `options.sddp_options.boundary_cuts_mode` | — | Load mode: `"noload"`, `"separated"`, `"combined"` |
@@ -1767,23 +1767,23 @@ mathematical symbols used in this formulation.
 
 ## 8. Cross-References
 
-- **[Planning Guide](../../PLANNING_GUIDE.md)** — How to set up planning
+- **[Planning Guide](../planning-guide.md)** — How to set up planning
   problems with stages, scenarios, and expansion options.
-- **[Input Data Reference](../../INPUT_DATA.md)** — Complete specification of
+- **[Input Data Reference](../input-data.md)** — Complete specification of
   JSON and Parquet input file formats with all supported fields.
-- **[Usage Guide](../../USAGE.md)** — How to run the `gtopt` solver, CLI
+- **[Usage Guide](../usage.md)** — How to run the `gtopt` solver, CLI
   flags, and output interpretation.
 - **[Contributing Guide](../../CONTRIBUTING.md)** — Code style, testing, and
   contribution guidelines.
 - **[Building Guide](../../BUILDING.md)** — Detailed build instructions,
   dependencies, and troubleshooting.
-- **[Scripts Guide](../../SCRIPTS.md)** — Python conversion utilities
+- **[Scripts Guide](../scripts-guide.md)** — Python conversion utilities
   (plp2gtopt, igtopt, pp2gtopt, ts2gtopt, cvs2parquet).
-- **[SDDP Solver](../SDDP_SOLVER.md)** — Complete SDDP algorithm
+- **[SDDP Solver](../methods/sddp.md)** — Complete SDDP algorithm
   description, convergence criteria, cut sharing, and configuration.
-- **[Monolithic Solver](../MONOLITHIC_SOLVER.md)** — Default solver
+- **[Monolithic Solver](../methods/monolithic.md)** — Default solver
   description, boundary cuts, and equivalence with SDDP.
-- **[Cascade Solver](../CASCADE_SOLVER.md)** — Multi-level hybrid SDDP
+- **[Cascade Solver](../methods/cascade.md)** — Multi-level hybrid SDDP
   solver with cut inheritance, target inheritance, and progressive
   LP refinement.
 

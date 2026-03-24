@@ -4,7 +4,7 @@ The `scripts/` directory contains Python command-line utilities for
 preparing, converting, visualising, and post-processing data for use with gtopt.
 
 > **Detailed documentation** for each script is available in the
-> [`docs/scripts/`](docs/scripts/) directory. This page provides a summary
+> [`docs/scripts/`](scripts/) directory. This page provides a summary
 > with links to the full documentation.
 
 ## Table of Contents
@@ -30,7 +30,7 @@ preparing, converting, visualising, and post-processing data for use with gtopt.
 - **Utilities**
   - [gtopt_config](#gtopt_config) — unified configuration for all tools
   - [gtopt_field_extractor](#gtopt_field_extractor)
-- [Tool Comparison (gtopt vs PLP vs pandapower)](docs/TOOL_COMPARISON.md)
+- [Tool Comparison (gtopt vs PLP vs pandapower)](tools/comparison.md)
 - [Using with gtopt\_guisrv and gtopt\_websrv](#using-with-gtopt_guisrv-and-gtopt_websrv)
 
 ---

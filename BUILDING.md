@@ -28,9 +28,12 @@ This guide provides detailed instructions for building gtopt from source, includ
 | COIN-OR CBC/CLP | 2.10+ | LP/MIP solver | `coinor-libcbc-dev` |
 | spdlog | 1.12+ | Logging | `libspdlog-dev` |
 
-**Alternative Solvers**: gtopt auto-detects COIN-OR solvers in priority order:
-CBC → CLP → HiGHS → CPLEX. Installing `coinor-libcbc-dev` is sufficient; CLP
-is included and will be used if CBC headers are not found.
+**LP Solver Backends**: gtopt loads LP solver backends as dynamic plugins at
+runtime. The default is auto-detected by priority: CPLEX > HiGHS > CBC > CLP.
+Installing `coinor-libcbc-dev` provides CLP/CBC. HiGHS can be installed
+separately. Use `--lp-solvers` to list available backends, or `--lp-solver
+highs` to select a specific one. Set `GTOPT_PLUGIN_DIR` to point to a custom
+plugin directory.
 
 ## Installing Dependencies
 
@@ -328,9 +331,13 @@ cmake -S standalone -B build -DENABLE_TEST_COVERAGE=ON
 # Specify a custom install prefix
 cmake -S standalone -B build -DCMAKE_INSTALL_PREFIX=/opt/gtopt
 
-# Use a specific solver (if you have alternatives installed)
-cmake -S standalone -B build -DGTOPT_SOLVER=HiGHS
+# Build with HiGHS support (requires HiGHS headers/lib installed)
+cmake -S standalone -B build -DHIGHS_ROOT_DIR=$HOME/.local
 ```
+
+LP solver backends are selected at runtime via `--lp-solver`, not at build
+time. All detected solver plugins (`libgtopt_solver_*.so`) are built
+automatically when their dependencies are found.
 
 ## Installing
 
@@ -628,7 +635,7 @@ sudo cmake --install build
 
 After successfully building and installing gtopt:
 
-- Read the [Usage Guide](USAGE.md) for detailed usage instructions
+- Read the [Usage Guide](docs/usage.md) for detailed usage instructions
 - Try the [sample case](cases/c0/) to verify your installation
 - Explore the [web service](webservice/INSTALL.md) for browser-based optimization
 - Check out the [GUI service](guiservice/INSTALL.md) for visual case creation

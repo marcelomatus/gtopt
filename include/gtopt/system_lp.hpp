@@ -372,6 +372,25 @@ private:
   SceneLP m_scene_;
   LinearInterface m_linear_interface_;
   std::optional<ObjectSingleId<BusLP>> m_single_bus_id_ {};
+
+  /// Transient pointer to the previous phase's LinearInterface, set by
+  /// dispatch_update_lp() before calling update_lp().  Allows update_lp
+  /// elements to look up the previous phase's efin when computing vini
+  /// for cross-phase boundaries.  nullptr when phase == 0 or not set.
+  const SystemLP* m_prev_phase_sys_ {nullptr};
+
+public:
+  /// Set the previous phase's SystemLP (nullptr for phase 0).
+  constexpr void set_prev_phase_sys(const SystemLP* prev_sys) noexcept
+  {
+    m_prev_phase_sys_ = prev_sys;
+  }
+
+  /// Get the previous phase's SystemLP (nullptr when not set).
+  [[nodiscard]] constexpr const SystemLP* prev_phase_sys() const noexcept
+  {
+    return m_prev_phase_sys_;
+  }
 };
 
 }  // namespace gtopt

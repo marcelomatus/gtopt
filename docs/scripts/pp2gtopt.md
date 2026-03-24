@@ -186,8 +186,7 @@ the effective susceptance: $B_{\text{eff}} = B / \tau$, so a transformer with
 `phase_shift_deg` field is set.  In the DC OPF formulation the phase shift
 modifies the right-hand side of the Kirchhoff constraint:
 
-$$
--\theta_a + \theta_b + \tau \chi f^+ - \tau \chi f^- = -\sigma_\theta \cdot \varphi_{\text{rad}}
+$$ -\theta_a + \theta_b + \tau \chi f^+ - \tau \chi f^- = -\sigma_\theta \cdot \varphi_{\text{rad}}
 $$
 
 enabling the model to replicate PST-controlled power flow for large meshed
@@ -265,8 +264,8 @@ gtopt_compare --case ieee_57b --gtopt-output output/
 
 ## See Also
 
-- [SCRIPTS.md](../../SCRIPTS.md) — Overview of all gtopt Python scripts
+- [SCRIPTS.md](../scripts-guide.md) — Overview of all gtopt Python scripts
 - [gtopt_compare](gtopt_compare.md) — Validate gtopt results against
   pandapower DC OPF
 - [plp2gtopt](plp2gtopt.md) — Convert PLP cases to gtopt
-- [PLANNING\_GUIDE.md](../../PLANNING_GUIDE.md) — Guide to gtopt planning concepts
+- [PLANNING\_GUIDE.md](../planning-guide.md) — Guide to gtopt planning concepts
