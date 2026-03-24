@@ -482,6 +482,23 @@ public:
   }
   /// @}
 
+  /// @name Warm column solution (hot-start state)
+  /// @{
+
+  /// Return the warm column solution vector (empty if no state loaded).
+  [[nodiscard]] constexpr const std::vector<double>& warm_col_sol()
+      const noexcept
+  {
+    return m_warm_col_sol_;
+  }
+
+  /// Set the warm column solution from a loaded state file.
+  void set_warm_col_sol(std::vector<double> sol) noexcept
+  {
+    m_warm_col_sol_ = std::move(sol);
+  }
+  /// @}
+
   /// @name LP coefficient statistics (populated during load_flat from
   ///       FlatLinearProblem::stats_* fields, which are computed in
   ///       LinearProblem::to_flat when FlatOptions::compute_stats is true).
@@ -571,6 +588,12 @@ private:
 
   std::vector<double> m_col_scales_;  ///< Per-column physical-to-LP scale
                                       ///< factors (physical = LP × scale)
+
+  /// Warm column solution loaded from a previous run's state file.
+  /// Used by StorageLP::physical_eini/efin as fallback when
+  /// !is_optimal() (hot start before first solve).  Empty if no
+  /// state was loaded.
+  std::vector<double> m_warm_col_sol_;
 
   size_t m_stats_nnz_ {};
   size_t m_stats_zeroed_ {};
