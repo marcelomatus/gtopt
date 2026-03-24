@@ -99,6 +99,9 @@ class Reservoir(_ReservoirRequired, total=False):
     use_state_variable: bool
     soft_emin: list[float]
     soft_emin_cost: list[float]
+    seepage: List[Dict[str, Any]]
+    discharge_limit: List[Dict[str, Any]]
+    production_factor: List[Dict[str, Any]]
 
 
 class Turbine(TypedDict):
@@ -668,9 +671,7 @@ class JunctionWriter(BaseWriter):
             reservoir["soft_emin_cost"] = soft_cost_arr
 
     @staticmethod
-    def _find_reservoir(
-        system: HydroSystemOutput, name: str
-    ) -> Optional[Dict[str, Any]]:
+    def _find_reservoir(system: HydroSystemOutput, name: str) -> Optional[Reservoir]:
         """Find a reservoir dict by name in the system."""
         for r in system["reservoir_array"]:
             if r["name"] == name:
