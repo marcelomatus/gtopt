@@ -30,12 +30,11 @@ if(NOT TARGET gtopt::gtopt)
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/ClangFormat.cmake")
-include(Solver)
 
 # ---- RPATH configuration ----
 # INSTALL_RPATH_USE_LINK_PATH adds all linker search paths to the installed
-# binary's RPATH so that non-system shared libraries (Arrow, Parquet,
-# COIN-OR, …) are found at runtime after installation.
+# binary's RPATH so that non-system shared libraries (Arrow, Parquet, …)
+# are found at runtime after installation.
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
 # ---- Executable ----
@@ -46,13 +45,9 @@ file(GLOB sources CONFIGURE_DEPENDS
 add_executable(${PROJECT_NAME} ${sources})
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "gtopt")
 
-target_include_directories(
-  ${PROJECT_NAME} SYSTEM PUBLIC "${COIN_INCLUDE_DIRS}"
-)
 target_link_libraries(
   ${PROJECT_NAME}
   gtopt::gtopt
-  "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}"
 )
 
 # ---- Coverage ----

@@ -9,7 +9,7 @@
  * SDDP iteration history and real-time workpool statistics into a JSON
  * file for external monitoring tools (e.g. `scripts/sddp_monitor.py`).
  *
- * Extracted from SDDPSolver::write_api_status() to decouple the
+ * Extracted from SDDPMethod::write_api_status() to decouple the
  * monitoring serialisation logic from the solver class.
  */
 
@@ -18,7 +18,7 @@
 #include <string>
 #include <vector>
 
-#include <gtopt/sddp_solver.hpp>
+#include <gtopt/sddp_method.hpp>
 
 namespace gtopt
 {

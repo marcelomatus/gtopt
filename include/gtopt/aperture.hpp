@@ -30,7 +30,7 @@
  * }
  * ```
  *
- * @see SDDPSolver::backward_pass_with_apertures, Scene, Scenario
+ * @see SDDPMethod::backward_pass_with_apertures, Scene, Scenario
  */
 
 #pragma once

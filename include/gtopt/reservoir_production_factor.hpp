@@ -110,11 +110,6 @@ struct ReservoirProductionFactor
 
   std::vector<ProductionFactorSegment>
       segments {};  ///< Piecewise-linear segments (slopes in decreasing order)
-
-  /// Per-element override for the number of SDDP iterations to skip between
-  /// production factor coefficient updates.  When not set, falls back to the
-  /// global `sddp_options.production_factor_update_skip` option.
-  OptInt sddp_production_factor_update_skip {};
 };
 
 /**

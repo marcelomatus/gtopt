@@ -505,10 +505,12 @@ def test_reservoir_seepage_array_populated():
     assert "seepage" in dam1
     assert len(dam1["seepage"]) == 1
     filt = dam1["seepage"][0]
+    assert filt["uid"] == 1
+    assert filt["name"] == "Dam1_seepage_1"
+    assert filt["waterway"] == "Turbine1_gen_2_3"
+    assert filt["reservoir"] == "Dam1"
     assert filt["slope"] == pytest.approx(0.001)
     assert filt["constant"] == pytest.approx(5.0)
-    # Embedded entries no longer have uid, name, or reservoir fields
-    assert "reservoir" not in filt
 
 
 def test_reservoir_seepage_empty_when_no_parser():
@@ -617,9 +619,11 @@ def test_reservoir_production_factor_array_populated():
     assert "production_factor" in dam1
     assert len(dam1["production_factor"]) == 1
     eff = dam1["production_factor"][0]
+    assert eff["uid"] == 1
+    assert eff["name"] == "Dam1_pfac_1"
+    assert eff["turbine"] == "Turbine1"
+    assert eff["reservoir"] == "Dam1"
     assert eff["mean_production_factor"] == pytest.approx(1.5)
-    # Embedded entries no longer have uid, name, or reservoir fields
-    assert "reservoir" not in eff
     assert len(eff["segments"]) == 2
     assert eff["segments"][0]["slope"] == pytest.approx(0.0003)
     assert eff["segments"][1]["volume"] == pytest.approx(500.0)

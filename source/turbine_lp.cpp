@@ -10,12 +10,9 @@
  * constraints and relationships with other system components.
  */
 
-#include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
-#include <gtopt/reservoir_production_factor_lp.hpp>
 #include <gtopt/system_context.hpp>
-#include <gtopt/system_lp.hpp>
 #include <gtopt/turbine_lp.hpp>
 #include <spdlog/spdlog.h>
 
@@ -151,80 +148,6 @@ bool TurbineLP::add_to_output(OutputContext& out) const
   out.add_row_dual(cname, "capacity", id(), capacity_rows);
 
   return true;
-}
-
-/**
- * @brief Update reservoir-dependent LP coefficients for this turbine.
- *
- * Finds the ReservoirProductionFactorLP element(s) that reference this turbine,
- * queries the associated reservoir for the current volume and updates the
- * turbine conversion-rate coefficient in the LP.
- *
- * When the LP has been previously solved (iteration > 1 and past the first
- * phase), uses `vavg = (vini + vfin) / 2` — the average of the initial and
- * final reservoir volumes from the previous solve — as the linearization
- * point for the efficiency evaluation.  This provides a better approximation
- * than using only vini.
- */
-int TurbineLP::update_lp(SystemLP& sys,
-                         const ScenarioLP& scenario,
-                         const StageLP& stage,
-                         PhaseIndex phase,
-                         int iteration)
-{
-  const auto& options = sys.options();
-  const auto my_sid = TurbineLPSId {uid()};
-
-  int total = 0;
-
-  for (auto& eff : sys.elements<ReservoirProductionFactorLP>()) {
-    if (eff.turbine_sid() != my_sid) {
-      continue;
-    }
-
-    // Check per-element skip count
-    const auto skip = eff.effective_update_skip(options);
-    if (iteration > 0 && skip > 0 && (iteration % (skip + 1)) != 0) {
-      continue;
-    }
-
-    // Determine current reservoir volume:
-    //  - first iteration OR first phase → use static initial volume (eini)
-    //  - otherwise → use vavg = (vini + vfin) / 2 from previous LP solve
-    const auto& rsv = sys.element<ReservoirLP>(eff.reservoir_sid());
-
-    if (!rsv.reservoir().eini.has_value()) {
-      break;
-    }
-    Real volume = rsv.reservoir().eini.value_or(0.0);
-
-    auto& li = sys.linear_interface();
-    if (iteration > 1 && phase != PhaseIndex {0}) {
-      if (li.is_optimal()) {
-        const auto col_sol = li.get_col_sol();
-        const auto vini = rsv.physical_eini(col_sol, scenario, stage);
-        const auto vfin = rsv.physical_efin(col_sol, scenario, stage);
-        volume = (vini + vfin) / 2.0;
-      }
-    }
-
-    total +=
-        eff.update_conversion_coeff(li, scenario.uid(), stage.uid(), volume);
-
-    break;
-  }
-
-  if (total > 0) {
-    SPDLOG_TRACE(
-        "TurbineLP uid={}: updated {} LP coefficients "
-        "(scene phase={} iter={})",
-        uid(),
-        total,
-        phase,
-        iteration);
-  }
-
-  return total;
 }
 
 }  // namespace gtopt

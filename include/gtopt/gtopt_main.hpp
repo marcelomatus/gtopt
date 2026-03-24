@@ -126,6 +126,11 @@ struct MainOptions
   /** @brief Enable SDDP hot-start from previously saved cuts */
   std::optional<bool> sddp_hot_start {};
 
+  // ---- solver selection ----
+  /** @brief LP solver backend name ("clp", "cbc", "cplex", "highs").
+   * When empty, auto-detects from available plugins. */
+  std::optional<std::string> lp_solver {};
+
   // ---- solver algorithm ----
   /** @brief LP solution algorithm override (0=default, 1=primal, 2=dual,
    * 3=barrier) */

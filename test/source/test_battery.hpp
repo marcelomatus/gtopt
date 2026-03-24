@@ -497,8 +497,7 @@ TEST_CASE(  // NOLINT
   REQUIRE(!scenarios.empty());
   REQUIRE(!stages.empty());
 
-  const auto col_sol = li.get_col_sol();
-  const auto phys_eini = bat_lp.physical_eini(col_sol, scenarios[0], stages[0]);
+  const auto phys_eini = bat_lp.physical_eini(li, scenarios[0], stages[0], 0.0);
   // eini was set to 50.0 in the battery definition
   CHECK(phys_eini == doctest::Approx(50.0));
 }

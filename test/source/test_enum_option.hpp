@@ -17,45 +17,45 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 TEST_CASE("enum_from_name returns matching value")  // NOLINT
 {
-  const auto result = enum_from_name(std::span {solver_type_entries}, "sddp");
+  const auto result = enum_from_name(std::span {method_type_entries}, "sddp");
   REQUIRE(result.has_value());
-  CHECK(result.value_or(SolverType::monolithic) == SolverType::sddp);
+  CHECK(result.value_or(MethodType::monolithic) == MethodType::sddp);
 }
 
 TEST_CASE("enum_from_name returns nullopt for unknown name")  // NOLINT
 {
-  const auto result = enum_from_name(std::span {solver_type_entries}, "bogus");
+  const auto result = enum_from_name(std::span {method_type_entries}, "bogus");
   CHECK_FALSE(result.has_value());
 }
 
 TEST_CASE("enum_name returns canonical name for known value")  // NOLINT
 {
-  CHECK(enum_name(std::span {solver_type_entries}, SolverType::monolithic)
+  CHECK(enum_name(std::span {method_type_entries}, MethodType::monolithic)
         == "monolithic");
-  CHECK(enum_name(std::span {solver_type_entries}, SolverType::sddp) == "sddp");
+  CHECK(enum_name(std::span {method_type_entries}, MethodType::sddp) == "sddp");
 }
 
 TEST_CASE("enum_name returns 'unknown' for out-of-range value")  // NOLINT
 {
-  CHECK(enum_name(std::span {solver_type_entries}, static_cast<SolverType>(99))
+  CHECK(enum_name(std::span {method_type_entries}, static_cast<MethodType>(99))
         == "unknown");
 }
 
-// ─── SolverType ──────────────────────────────────────────────────────────────
+// ─── MethodType ──────────────────────────────────────────────────────────────
 
-TEST_CASE("solver_type_from_name")  // NOLINT
+TEST_CASE("method_type_from_name")  // NOLINT
 {
-  CHECK(solver_type_from_name("monolithic").value_or(SolverType::sddp)
-        == SolverType::monolithic);
-  CHECK(solver_type_from_name("sddp").value_or(SolverType::monolithic)
-        == SolverType::sddp);
-  CHECK_FALSE(solver_type_from_name("unknown").has_value());
+  CHECK(method_type_from_name("monolithic").value_or(MethodType::sddp)
+        == MethodType::monolithic);
+  CHECK(method_type_from_name("sddp").value_or(MethodType::monolithic)
+        == MethodType::sddp);
+  CHECK_FALSE(method_type_from_name("unknown").has_value());
 }
 
-TEST_CASE("solver_type_name")  // NOLINT
+TEST_CASE("method_type_name")  // NOLINT
 {
-  CHECK(solver_type_name(SolverType::monolithic) == "monolithic");
-  CHECK(solver_type_name(SolverType::sddp) == "sddp");
+  CHECK(method_type_name(MethodType::monolithic) == "monolithic");
+  CHECK(method_type_name(MethodType::sddp) == "sddp");
 }
 
 // ─── SolveMode ───────────────────────────────────────────────────────────────
@@ -183,9 +183,9 @@ TEST_CASE("OptionsLP enum accessors return correct defaults")  // NOLINT
 {
   const OptionsLP opts;
 
-  SUBCASE("solver_type_enum defaults to monolithic")
+  SUBCASE("method_type_enum defaults to monolithic")
   {
-    CHECK(opts.solver_type_enum() == SolverType::monolithic);
+    CHECK(opts.method_type_enum() == MethodType::monolithic);
   }
 
   SUBCASE("input_format_enum defaults to parquet")
@@ -238,7 +238,7 @@ TEST_CASE("OptionsLP enum accessors return correct defaults")  // NOLINT
 TEST_CASE("OptionsLP enum accessors parse explicit values")  // NOLINT
 {
   Options raw;
-  raw.solver_type = "sddp";
+  raw.method = "sddp";
   raw.input_format = "csv";
   raw.output_format = "csv";
   raw.output_compression = "gzip";
@@ -251,7 +251,7 @@ TEST_CASE("OptionsLP enum accessors parse explicit values")  // NOLINT
 
   const OptionsLP opts(std::move(raw));
 
-  CHECK(opts.solver_type_enum() == SolverType::sddp);
+  CHECK(opts.method_type_enum() == MethodType::sddp);
   CHECK(opts.input_format_enum() == DataFormat::csv);
   CHECK(opts.output_format_enum() == DataFormat::csv);
   CHECK(opts.output_compression_enum() == CompressionCodec::gzip);
@@ -276,7 +276,7 @@ TEST_CASE("validate_enum_options returns empty for valid explicit values")
 // NOLINT
 {
   Options raw;
-  raw.solver_type = "sddp";
+  raw.method = "sddp";
   raw.input_format = "csv";
   raw.output_format = "parquet";
   raw.output_compression = "gzip";
@@ -292,14 +292,14 @@ TEST_CASE("validate_enum_options returns empty for valid explicit values")
   CHECK(warnings.empty());
 }
 
-TEST_CASE("validate_enum_options warns about unknown solver_type")  // NOLINT
+TEST_CASE("validate_enum_options warns about unknown method")  // NOLINT
 {
   Options raw;
-  raw.solver_type = "bogus_solver";
+  raw.method = "bogus_solver";
   const OptionsLP opts(std::move(raw));
   const auto warnings = opts.validate_enum_options();
   REQUIRE(warnings.size() == 1);
-  CHECK(warnings[0].find("solver_type") != std::string::npos);
+  CHECK(warnings[0].find("method") != std::string::npos);
   CHECK(warnings[0].find("bogus_solver") != std::string::npos);
 }
 
@@ -308,7 +308,7 @@ TEST_CASE(
     "values")  // NOLINT
 {
   Options raw;
-  raw.solver_type = "bad";
+  raw.method = "bad";
   raw.input_format = "xml";
   raw.sddp_options.cut_sharing_mode = "invalid";
   const OptionsLP opts(std::move(raw));

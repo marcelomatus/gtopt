@@ -27,8 +27,8 @@
  *   (i.e. every LP infeasibility event handled by the filter) is counted.
  *   The counter can be queried for monitoring-API integration.
  *
- * The SDDP solver (`sddp_solver.hpp`) re-exports the free-function symbols
- * so that existing code that includes `sddp_solver.hpp` continues to compile
+ * The SDDP solver (`sddp_method.hpp`) re-exports the free-function symbols
+ * so that existing code that includes `sddp_method.hpp` continues to compile
  * without changes.
  */
 
@@ -257,7 +257,7 @@ struct FeasibilityCutResult
  * ## Usage
  *
  * ```cpp
- * // In SDDPSolver::solve():
+ * // In SDDPMethod::solve():
  * auto pool = make_solver_work_pool();
  * m_benders_cut_.set_pool(pool.get());
  *

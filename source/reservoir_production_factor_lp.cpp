@@ -7,7 +7,7 @@
  * @copyright BSD-3-Clause
  *
  * Implements the LP registration, per-element coefficient update, and the
- * generalized `update_lp_coefficients()` hook used by the SDDP solver.
+ * generalized `update_lp()` hook used by the SDDP solver.
  */
 
 #include <gtopt/linear_interface.hpp>
@@ -89,6 +89,30 @@ bool ReservoirProductionFactorLP::add_to_output(
   return true;
 }
 
+// ── update_lp ──────────────────────────────────────────────────────────────
+
+int ReservoirProductionFactorLP::update_lp(SystemLP& sys,
+                                           const ScenarioLP& scenario,
+                                           const StageLP& stage)
+{
+  // Determine current reservoir volume as vavg = (vini + vfin) / 2.
+  // physical_eini returns the default for the first stage of the first
+  // phase; physical_efin reads from the LP solution when available.
+  const auto& rsv = sys.element<ReservoirLP>(reservoir_sid());
+
+  if (!rsv.reservoir().eini.has_value()) {
+    return 0;
+  }
+  const auto default_volume = rsv.reservoir().eini.value_or(0.0);
+
+  auto& li = sys.linear_interface();
+  const auto vini = rsv.physical_eini(li, scenario, stage, default_volume);
+  const auto vfin = rsv.physical_efin(li, scenario, stage, default_volume);
+  const Real volume = (vini + vfin) / 2.0;
+
+  return update_conversion_coeff(li, scenario.uid(), stage.uid(), volume);
+}
+
 // ── update_conversion_coeff ─────────────────────────────────────────────────
 
 auto ReservoirProductionFactorLP::update_conversion_coeff(LinearInterface& li,
@@ -123,22 +147,14 @@ auto ReservoirProductionFactorLP::update_conversion_coeff(LinearInterface& li,
   return count;
 }
 
-// ── Generalized LP coefficient update ───────────────────────────────────────
+// ── Generalized LP update dispatch ───────────────────────────────────────────
 
-int update_lp_coefficients(SystemLP& system_lp,
-                           [[maybe_unused]] const OptionsLP& options,
-                           int iteration,
-                           PhaseIndex phase)
+int dispatch_update_lp(SystemLP& system_lp)
 {
   // Check solver capability once
-  if (!LinearInterface::supports_set_coeff()) {
-    if (iteration == 0) {
-      SPDLOG_WARN(
-          "update_lp_coefficients: set_coeff unsupported by solver, "
-          "using static conversion rates (mean efficiency)");
-    }
-    // Cannot modify matrix coefficients — turbines keep the static
-    // conversion_rate set during TurbineLP::add_to_lp().
+  if (!system_lp.linear_interface().supports_set_coeff()) {
+    // Cannot modify matrix coefficients — elements keep the static
+    // values set during add_to_lp().
     return 0;
   }
 
@@ -146,22 +162,18 @@ int update_lp_coefficients(SystemLP& system_lp,
 
   // Iterate over all (scenario, stage) pairs in this SystemLP and dispatch
   // update_lp() to every collection element that satisfies HasUpdateLP.
-  // This uses visit_elements with a compile-time if constexpr dispatch, so
-  // only types implementing update_lp() (TurbineLP, ReservoirSeepageLP, ...)
-  // are called — no separate per-type loops needed.
   for (auto&& stage : system_lp.phase().stages()) {
     for (auto&& scenario : system_lp.scene().scenarios()) {
-      visit_elements(system_lp.collections(),
-                     [&total, &system_lp, &scenario, &stage, phase, iteration](
-                         auto& element) -> bool
-                     {
-                       using T = std::decay_t<decltype(element)>;
-                       if constexpr (HasUpdateLP<T>) {
-                         total += element.update_lp(
-                             system_lp, scenario, stage, phase, iteration);
-                       }
-                       return true;
-                     });
+      visit_elements(
+          system_lp.collections(),
+          [&total, &system_lp, &scenario, &stage](auto& element) -> bool
+          {
+            using T = std::decay_t<decltype(element)>;
+            if constexpr (HasUpdateLP<T>) {
+              total += element.update_lp(system_lp, scenario, stage);
+            }
+            return true;
+          });
     }
   }
 

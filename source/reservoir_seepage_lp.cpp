@@ -132,9 +132,7 @@ bool ReservoirSeepageLP::add_to_output(OutputContext& out) const
 
 int ReservoirSeepageLP::update_lp(SystemLP& sys,
                                   const ScenarioLP& scenario,
-                                  const StageLP& stage,
-                                  PhaseIndex phase,
-                                  int iteration)
+                                  const StageLP& stage)
 {
   // Only update when piecewise segments are present
   if (seepage().segments.empty()) {
@@ -147,24 +145,14 @@ int ReservoirSeepageLP::update_lp(SystemLP& sys,
   //  - first iteration OR first phase → use static initial volume (eini)
   //  - otherwise → use vavg = (vini + vfin) / 2 from previous LP solve
   const auto& rsv = sys.element<ReservoirLP>(reservoir_sid());
-  Real volume = rsv.reservoir().eini.value_or(0.0);
+  const auto default_volume = rsv.reservoir().eini.value_or(0.0);
 
   const auto st_key = std::pair {scenario.uid(), stage.uid()};
   auto& state = m_states_.at(st_key);
 
-  // Use LP solution volume only when we are past the first iteration AND past
-  // the first phase.  In iteration 1 the LP has not yet been solved from a
-  // previous phase, so there is no meaningful solution to read back.  In
-  // phase 0 the eini column is the fixed initial condition, so
-  // reservoir().eini is always correct.
-  if (iteration > 1 && phase != PhaseIndex {0}) {
-    if (li.is_optimal()) {
-      const auto col_sol = li.get_col_sol();
-      const auto vini = rsv.physical_eini(col_sol, scenario, stage);
-      const auto vfin = rsv.physical_efin(col_sol, scenario, stage);
-      volume = (vini + vfin) / 2.0;
-    }
-  }
+  const auto vini = rsv.physical_eini(li, scenario, stage, default_volume);
+  const auto vfin = rsv.physical_efin(li, scenario, stage, default_volume);
+  const Real volume = (vini + vfin) / 2.0;
 
   // Select the active segment for the current volume (physical units)
   const auto coeffs = select_seepage_coeffs(seepage().segments, volume);

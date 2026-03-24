@@ -15,7 +15,8 @@
 #include <ranges>
 
 #include <gtopt/planning_lp.hpp>
-#include <gtopt/planning_solver.hpp>
+#include <gtopt/planning_method.hpp>
+#include <gtopt/reservoir_production_factor_lp.hpp>
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/system_context.hpp>
@@ -88,6 +89,15 @@ auto PlanningLP::create_systems(System& system,
 
   for (auto& fut : futures) {
     fut.get();
+  }
+
+  // After all add_to_lp calls, dispatch a single initial update_lp pass
+  // (iteration=0, phase=0) so that volume-dependent coefficients are set
+  // from the reservoir eini values before the first solve.
+  for (auto& phase_systems : all_systems) {
+    for (auto& sys : phase_systems) {
+      std::ignore = dispatch_update_lp(sys);
+    }
   }
 
   const double elapsed = std::chrono::duration<double>(
@@ -335,7 +345,7 @@ auto PlanningLP::resolve(const SolverOptions& lp_opts)
     -> std::expected<int, Error>
 {
   const auto num_phases = simulation().phases().size();
-  auto solver = make_planning_solver(m_options_, num_phases);
+  auto solver = make_planning_method(m_options_, num_phases);
   return solver->solve(*this, lp_opts);
 }
 

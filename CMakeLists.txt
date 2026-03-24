@@ -122,7 +122,7 @@ target_include_directories(
 )
 
 target_include_directories(
-  ${PROJECT_NAME} SYSTEM PUBLIC "${COIN_INCLUDE_DIRS}" ${Boost_INCLUDE_DIRS}
+  ${PROJECT_NAME} SYSTEM PUBLIC ${Boost_INCLUDE_DIRS}
 )
 
 target_link_libraries(
@@ -130,17 +130,20 @@ target_link_libraries(
   PUBLIC spdlog::spdlog
          daw::daw-json-link
          strong_type::strong_type
-         "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}"
          Arrow::arrow_shared
          Parquet::parquet_shared
          Boost::container
          ZLIB::ZLIB
          $<IF:$<TARGET_EXISTS:zstd::libzstd_shared>,zstd::libzstd_shared,zstd::libzstd_static>
+         ${CMAKE_DL_LIBS}
 )
 
 # enable compiler warnings
 include(cmake_local/CompilerWarnings.cmake)
 target_set_warnings(${PROJECT_NAME})
+
+# ---- Solver plugins (dlopen-loaded at runtime) ----
+add_subdirectory(plugins)
 
 # ---- Create an installable target ----
 # this allows users to install and find the library via `find_package()`. When

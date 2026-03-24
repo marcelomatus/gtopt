@@ -12,7 +12,7 @@
 
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/planning_lp.hpp>
-#include <gtopt/sddp_solver.hpp>
+#include <gtopt/sddp_method.hpp>
 #include <gtopt/system_lp.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
@@ -24,7 +24,7 @@
 namespace gtopt
 {
 
-auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
+auto SDDPMethod::feasibility_backpropagate(SceneIndex scene,
                                            PhaseIndex start_phase,
                                            int total_cuts,
                                            const SolverOptions& opts,

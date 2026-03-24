@@ -1,18 +1,20 @@
+/**
+ * @file      linear_interface.cpp
+ * @brief     LinearInterface implementation — solver-agnostic via SolverBackend
+ * @date      Mon Mar 24 09:41:39 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ */
+
 #include <algorithm>
-#include <cerrno>
 #include <expected>
 #include <memory>
 #include <ranges>
 
-#include <coin/CoinPackedMatrix.hpp>
-#include <coin/CoinPackedVector.hpp>
 #include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/solver_registry.hpp>
 #include <spdlog/spdlog.h>
-
-#ifdef COIN_USE_CLP
-#  include <coin/ClpSimplex.hpp>
-#endif
 
 namespace gtopt
 {
@@ -47,99 +49,89 @@ inline bool check_name_unique(LinearInterface::name_index_map_t& name_map,
 
 }  // namespace
 
-void LinearInterface::set_prob_name(const std::string& pname)
-{
-  solver->setStrParam(OsiProbName, pname);
-}
+// ── Constructors ──
 
-std::string LinearInterface::get_prob_name() const
-{
-  std::string name;
-  return solver->getStrParam(OsiProbName, name) ? name : "";
-}
-
-void LinearInterface::set_log_file(const std::string& plog_file)
-{
-  log_file = plog_file;
-}
-
-void LinearInterface::close_log_handler()
-{
-  if (log_file.empty()) {
-    return;
-  }
-
-  auto new_handler = std::make_unique<CoinMessageHandler>();
-  new_handler->setLogLevel(0);
-  solver->passInMessageHandler(new_handler.get());
-  handler = std::move(new_handler);
-
-  (void)std::fflush(log_file_ptr.get());
-}
-
-void LinearInterface::open_log_handler(const int log_level)
-{
-  if (log_file.empty()) {
-    return;
-  }
-
-  if (!log_file_ptr) {
-    auto file = std::format("{}.log", log_file);
-    log_file_ptr = log_file_ptr_t(std::fopen(file.c_str(), "ae"));
-
-    if (!log_file_ptr) {
-      throw std::runtime_error(std::format(
-          "failed to open solver log file {} : errno {}", log_file, errno));
-    }
-  }
-
-  auto new_handler = std::make_unique<CoinMessageHandler>(log_file_ptr.get());
-  new_handler->setLogLevel(log_level);
-  solver->passInMessageHandler(new_handler.get());
-  handler = std::move(new_handler);
-}
-
-LinearInterface::LinearInterface(solver_ptr_t psolver, std::string plog_file)
-    : solver(std::move(psolver))
-    , log_file(std::move(plog_file))
-    , handler(std::make_unique<CoinMessageHandler>())
-{
-  handler->setLogLevel(0);
-  solver->passInMessageHandler(handler.get());
-  // Name tracking is handled by our own maps (m_col_names_, etc.).
-  // OsiNameDiscipline = 0 avoids the solver's expensive per-element
-  // name index.  Names are pushed to the solver only in write_lp().
-  solver->setIntParam(OsiNameDiscipline, 0);
-}
-
-LinearInterface::LinearInterface(const std::string& plog_file)
-    : LinearInterface(std::make_shared<SolverInterface>(), plog_file)
-{
-}
-
-LinearInterface::LinearInterface(const FlatLinearProblem& flat_lp,
+LinearInterface::LinearInterface(std::unique_ptr<SolverBackend> backend,
                                  const std::string& plog_file)
-    : LinearInterface(std::make_shared<SolverInterface>(), plog_file)
+    : m_backend_(std::move(backend))
+    , m_log_file_(plog_file)
+{
+}
+
+LinearInterface::LinearInterface(std::string_view solver_name,
+                                 const std::string& plog_file)
+    : LinearInterface(
+          SolverRegistry::instance().create(
+              solver_name.empty() ? SolverRegistry::instance().default_solver()
+                                  : solver_name),
+          plog_file)
+{
+}
+
+LinearInterface::LinearInterface(std::string_view solver_name,
+                                 const FlatLinearProblem& flat_lp,
+                                 const std::string& plog_file)
+    : LinearInterface(solver_name, plog_file)
 {
   load_flat(flat_lp);
 }
 
+// ── Problem name ──
+
+void LinearInterface::set_prob_name(const std::string& pname)
+{
+  m_backend_->set_prob_name(pname);
+}
+
+std::string LinearInterface::get_prob_name() const
+{
+  return m_backend_->get_prob_name();
+}
+
+// ── Log file ──
+
+void LinearInterface::set_log_file(const std::string& plog_file)
+{
+  m_log_file_ = plog_file;
+}
+
+void LinearInterface::close_log_handler()
+{
+  if (m_log_file_.empty()) {
+    return;
+  }
+
+  m_backend_->close_log();
+
+  if (m_log_file_ptr_) {
+    (void)std::fflush(m_log_file_ptr_.get());
+  }
+}
+
+void LinearInterface::open_log_handler(const int log_level)
+{
+  if (m_log_file_.empty()) {
+    return;
+  }
+
+  if (!m_log_file_ptr_) {
+    auto file = std::format("{}.log", m_log_file_);
+    m_log_file_ptr_ = log_file_ptr_t(std::fopen(file.c_str(), "ae"));
+
+    if (!m_log_file_ptr_) {
+      throw std::runtime_error(std::format(
+          "failed to open solver log file {} : errno {}", m_log_file_, errno));
+    }
+  }
+
+  m_backend_->open_log(m_log_file_ptr_.get(), log_level);
+}
+
+// ── Clone & warm start ──
+
 LinearInterface LinearInterface::clone() const
 {
-  // OsiSolverInterface::clone(copyData=true) deep-copies the full LP
-  // state including variables, constraints, bounds, objective, and basis.
-  // The clone returns OsiSolverInterface* (virtual base), so we need
-  // dynamic_cast to recover the concrete solver type.
-  auto* raw = solver->clone(true);
-  solver_ptr_t cloned_solver(dynamic_cast<SolverInterface*>(raw));
-  if (!cloned_solver) {
-    // The concrete solver type differs from SolverInterface.
-    // Delete the raw pointer to avoid a leak and fall back to a fresh
-    // (empty) solver — the caller should re-load data if needed.
-    delete raw;  // NOLINT(cppcoreguidelines-owning-memory)
-    cloned_solver = std::make_shared<SolverInterface>();
-  }
-  auto cloned = LinearInterface {std::move(cloned_solver), log_file};
+  auto cloned = LinearInterface {m_backend_->clone(), m_log_file_};
   cloned.m_col_scales_ = m_col_scales_;
   return cloned;
 }
@@ -151,10 +143,8 @@ void LinearInterface::set_warm_start_solution(
   if (!col_sol.empty()) {
     const auto ncols = static_cast<std::size_t>(get_numcols());
     if (col_sol.size() >= ncols) {
-      // Pre-padded or exact-size vector: use a subspan (no allocation).
       set_col_sol(col_sol.first(ncols));
     } else {
-      // Saved solution has fewer columns (e.g. elastic slacks added later).
       std::vector<double> padded(ncols, 0.0);
       std::ranges::copy(col_sol, padded.begin());
       set_col_sol(padded);
@@ -163,10 +153,8 @@ void LinearInterface::set_warm_start_solution(
   if (!row_dual.empty()) {
     const auto nrows = static_cast<std::size_t>(get_numrows());
     if (row_dual.size() >= nrows) {
-      // Pre-padded or exact-size vector: use a subspan (no allocation).
       set_row_dual(row_dual.first(nrows));
     } else {
-      // Saved dual has fewer rows (e.g. Benders cuts added later).
       std::vector<double> padded(nrows, 0.0);
       std::ranges::copy(row_dual, padded.begin());
       set_row_dual(padded);
@@ -174,20 +162,22 @@ void LinearInterface::set_warm_start_solution(
   }
 }
 
+// ── Load ──
+
 void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
 {
-  solver->setStrParam(OsiProbName, flat_lp.name);
+  m_backend_->set_prob_name(flat_lp.name);
 
-  solver->loadProblem(flat_lp.ncols,
-                      flat_lp.nrows,
-                      flat_lp.matbeg.data(),
-                      flat_lp.matind.data(),
-                      flat_lp.matval.data(),
-                      flat_lp.collb.data(),
-                      flat_lp.colub.data(),
-                      flat_lp.objval.data(),
-                      flat_lp.rowlb.data(),
-                      flat_lp.rowub.data());
+  m_backend_->load_problem(flat_lp.ncols,
+                           flat_lp.nrows,
+                           flat_lp.matbeg.data(),
+                           flat_lp.matind.data(),
+                           flat_lp.matval.data(),
+                           flat_lp.collb.data(),
+                           flat_lp.colub.data(),
+                           flat_lp.objval.data(),
+                           flat_lp.rowlb.data(),
+                           flat_lp.rowub.data());
 
   // Preserve per-column scale factors from LinearProblem.
   m_col_scales_ = flat_lp.col_scales;
@@ -203,10 +193,10 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   m_stats_min_col_name_ = flat_lp.stats_min_col_name;
 
   for (auto i : flat_lp.colint) {
-    solver->setInteger(i);
+    m_backend_->set_integer(i);
   }
 
-  // Build name maps: populate the unordered_map with O(1) amortized inserts.
+  // Build name maps
   auto build_name_map = [](const auto& names_vec,
                            name_index_map_t& name_map,
                            std::vector<std::string>& index_to_name)
@@ -217,15 +207,12 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
     for (int i = 0; const auto& name : names_vec) {
       if (!name.empty()) {
         index_to_name[static_cast<size_t>(i)] = name;
-        name_map.emplace(name, i);  // first occurrence wins
+        name_map.emplace(name, i);
       }
       ++i;
     }
   };
 
-  // Level 0: col name maps for state variable names
-  // Level 1: col + row name maps (for LP file output via write_lp)
-  // Level 2: same as 1 + strict duplicate detection
   if (m_lp_names_level_ >= 0 && !flat_lp.colnm.empty()) {
     build_name_map(flat_lp.colnm, m_col_names_, m_col_index_to_name_);
   }
@@ -235,29 +222,26 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   }
 }
 
-#ifdef OSI_EXTENDED
-void LinearInterface::set_time_limit(double time_limit)
+// ── Time limit ──
+
+void LinearInterface::set_time_limit(double /*time_limit*/)
 {
-  solver->setDblParam(OsiTimeLimit, time_limit);
+  // Time limit is now handled via apply_options() in the backend.
+  // This method is kept for API compatibility but is a no-op.
+  // Use SolverOptions::time_limit instead.
 }
-#else
-void LinearInterface::set_time_limit(double /*time_limit*/) {}
-#endif
+
+// ── Column operations ──
 
 ColIndex LinearInterface::add_col(const std::string& name,
                                   double collb,
                                   double colub)
 {
-  const auto index = solver->getNumCols();
-  // Col name duplicate detection at level >= 0 (state var names always present)
+  const auto index = m_backend_->get_num_cols();
   check_name_unique(m_col_names_, name, index, "column", m_lp_names_level_, 0);
 
-  const CoinPackedVector vec;
-  const double obj = 0;
+  m_backend_->add_col(collb, colub, 0.0);
 
-  solver->addCol(vec, collb, colub, obj);
-
-  // Keep col name maps in sync (level >= 0, state var names always tracked)
   if (m_lp_names_level_ >= 0 && !name.empty()) {
     if (m_col_index_to_name_.size() <= static_cast<size_t>(index)) {
       m_col_index_to_name_.resize(static_cast<size_t>(index) + 1);
@@ -270,17 +254,15 @@ ColIndex LinearInterface::add_col(const std::string& name,
 
 ColIndex LinearInterface::add_col(const std::string& name)
 {
-  const double collb = 0;
-  const double colub = COIN_DBL_MAX;
-  return add_col(name, collb, colub);
+  return add_col(name, 0.0, m_backend_->infinity());
 }
 
 ColIndex LinearInterface::add_free_col(const std::string& name)
 {
-  const double collb = -COIN_DBL_MAX;
-  const double colub = COIN_DBL_MAX;
-  return add_col(name, collb, colub);
+  return add_col(name, -m_backend_->infinity(), m_backend_->infinity());
 }
+
+// ── Row operations ──
 
 RowIndex LinearInterface::add_row(const std::string& name,
                                   const size_t numberElements,
@@ -289,16 +271,14 @@ RowIndex LinearInterface::add_row(const std::string& name,
                                   const double rowlb,
                                   const double rowub)
 {
-  const auto index = solver->getNumRows();
-  // Row name duplicate detection at level >= 1
+  const auto index = m_backend_->get_num_rows();
   check_name_unique(m_row_names_, name, index, "row", m_lp_names_level_, 1);
 
-  solver->addRow(static_cast<int>(numberElements),
-                 columns.data(),
-                 elements.data(),
-                 rowlb,
-                 rowub);
-  // No solver->setRowName() — OsiNameDiscipline = 0.
+  m_backend_->add_row(static_cast<int>(numberElements),
+                      columns.data(),
+                      elements.data(),
+                      rowlb,
+                      rowub);
 
   if (m_lp_names_level_ >= 1 && !name.empty()) {
     if (m_row_index_to_name_.size() <= static_cast<size_t>(index)) {
@@ -324,10 +304,8 @@ void LinearInterface::delete_rows(const std::span<const int> indices)
     return;
   }
 
-  solver->deleteRows(static_cast<int>(indices.size()), indices.data());
+  m_backend_->delete_rows(static_cast<int>(indices.size()), indices.data());
 
-  // Update row name maps: erase deleted indices from the vector (reverse
-  // order keeps remaining indices valid), then rebuild the hash map.
   if (m_lp_names_level_ >= 1) {
     for (const auto idx : indices | std::views::reverse) {
       const auto pos = static_cast<ptrdiff_t>(idx);
@@ -341,8 +319,6 @@ void LinearInterface::delete_rows(const std::span<const int> indices)
 
 void LinearInterface::rebuild_row_name_maps()
 {
-  // Rebuild the name→index hash map from the index→name vector.
-  // Only at level >= 2 (row_name_map is unused in production).
   if (m_lp_names_level_ >= 2) {
     m_row_names_.clear();
     m_row_names_.reserve(m_row_index_to_name_.size());
@@ -358,9 +334,7 @@ void LinearInterface::rebuild_row_name_maps()
 void LinearInterface::reset_from(const LinearInterface& source,
                                  const size_t base_rows)
 {
-  // 1. Delete any rows beyond the base (Benders cuts added since the
-  //    clone was created or last reset).
-  const auto total_rows = static_cast<size_t>(solver->getNumRows());
+  const auto total_rows = static_cast<size_t>(m_backend_->get_num_rows());
   if (total_rows > base_rows) {
     const auto n_to_delete = total_rows - base_rows;
     std::vector<int> indices;
@@ -368,113 +342,76 @@ void LinearInterface::reset_from(const LinearInterface& source,
     for (auto i = base_rows; i < total_rows; ++i) {
       indices.push_back(static_cast<int>(i));
     }
-    solver->deleteRows(static_cast<int>(n_to_delete), indices.data());
+    m_backend_->delete_rows(static_cast<int>(n_to_delete), indices.data());
   }
 
-  // 2. Copy column bounds from the source LP.
-  const auto ncols = solver->getNumCols();
+  const auto ncols = m_backend_->get_num_cols();
   const auto src_col_lo = source.get_col_low();
   const auto src_col_hi = source.get_col_upp();
   for (int c = 0; c < ncols; ++c) {
-    solver->setColLower(c, src_col_lo[c]);
-    solver->setColUpper(c, src_col_hi[c]);
+    m_backend_->set_col_lower(c, src_col_lo[c]);
+    m_backend_->set_col_upper(c, src_col_hi[c]);
   }
 
-  // 3. Copy row bounds from the source LP (structural rows only).
-  const auto nrows = solver->getNumRows();
+  const auto nrows = m_backend_->get_num_rows();
   const auto src_row_lo = source.get_row_low();
   const auto src_row_hi = source.get_row_upp();
   for (int r = 0; r < nrows; ++r) {
-    solver->setRowLower(r, src_row_lo[r]);
-    solver->setRowUpper(r, src_row_hi[r]);
+    m_backend_->set_row_lower(r, src_row_lo[r]);
+    m_backend_->set_row_upper(r, src_row_hi[r]);
   }
 
-  // Truncate row name vector to base size and rebuild hash map.
   if (m_lp_names_level_ >= 1) {
     m_row_index_to_name_.resize(static_cast<size_t>(nrows));
     rebuild_row_name_maps();
   }
 }
 
+// ── Coefficients ──
+
 void LinearInterface::set_coeff(const RowIndex row,
                                 const ColIndex column,
                                 const double value)
 {
-  const auto r = static_cast<int>(row);
-  const auto c = static_cast<int>(column);
-
-#ifdef COIN_USE_CLP
-  // OsiClpSolverInterface provides modifyCoefficient() directly
-  solver->modifyCoefficient(r, c, value, false);
-#elifdef COIN_USE_CBC
-  // OsiCbcSolverInterface wraps a CLP solver underneath
-  auto* real_solver = solver->getRealSolverPtr();
-  auto* clp_solver = dynamic_cast<OsiClpSolverInterface*>(real_solver);
-  if (clp_solver != nullptr) {
-    clp_solver->modifyCoefficient(r, c, value, false);
-  }
-  // If the underlying solver is not OsiClpSolverInterface the coefficient
-  // modification is silently skipped; callers bear responsibility for
-  // checking supports_set_coeff() before calling this function.
-#elifdef COIN_USE_CPX
-  // OsiCpxSolverInterface provides setCoefficient() which wraps CPXchgcoef
-  solver->setCoefficient(r, c, value);
-#elifdef COIN_USE_HGS
-  // OsiHiGHS: use the generic OSI modifyCoefficient path
-  solver->modifyCoefficient(r, c, value, false);
-#else
-  // Not implemented for this solver backend — silently skip.
-  // Callers should check supports_set_coeff() first.
-  (void)r;
-  (void)c;
-  (void)value;
-#endif
+  m_backend_->set_coeff(static_cast<int>(row), static_cast<int>(column), value);
 }
 
 double LinearInterface::get_coeff(const RowIndex row,
                                   const ColIndex column) const
 {
-  const auto* matrix = solver->getMatrixByCol();
-  if (matrix == nullptr) {
-    return 0.0;
-  }
-  return matrix->getCoefficient(static_cast<int>(row),
-                                static_cast<int>(column));
+  return m_backend_->get_coeff(static_cast<int>(row), static_cast<int>(column));
 }
 
-bool LinearInterface::supports_set_coeff() noexcept
+bool LinearInterface::supports_set_coeff() const noexcept
 {
-#if defined(COIN_USE_CLP) || defined(COIN_USE_CBC) || defined(COIN_USE_CPX) \
-    || defined(COIN_USE_HGS)
-  return true;
-#else
-  return false;
-#endif
+  return m_backend_->supports_set_coeff();
 }
+
+// ── Simple delegations ──
 
 void LinearInterface::set_obj_coeff(const ColIndex index, const double value)
 {
-  solver->setObjCoeff(static_cast<int>(index), value);
+  m_backend_->set_obj_coeff(static_cast<int>(index), value);
 }
 
 void LinearInterface::set_col_low(const ColIndex index, const double value)
 {
-  solver->setColLower(static_cast<int>(index), value);
+  m_backend_->set_col_lower(static_cast<int>(index), value);
 }
 
 void LinearInterface::set_col_upp(const ColIndex index, const double value)
 {
-  solver->setColUpper(static_cast<int>(index), value);
+  m_backend_->set_col_upper(static_cast<int>(index), value);
 }
 
 void LinearInterface::set_row_low(const RowIndex index, const double value)
 {
-  solver->setRowLower(static_cast<int>(index), value);
+  m_backend_->set_row_lower(static_cast<int>(index), value);
 }
 
 void LinearInterface::set_row_upp(const RowIndex index, const double value)
 {
-  solver->setRowUpper(static_cast<int>(index), value);
+  m_backend_->set_row_upper(static_cast<int>(index), value);
 }
 
 void LinearInterface::set_col(const ColIndex index, const double value)
@@ -485,27 +422,27 @@ void LinearInterface::set_col(const ColIndex index, const double value)
 
 void LinearInterface::set_rhs(const RowIndex row, const double rhs)
 {
-  solver->setRowBounds(static_cast<int>(row), rhs, rhs);
+  m_backend_->set_row_bounds(static_cast<int>(row), rhs, rhs);
 }
 
 size_t LinearInterface::get_numrows() const
 {
-  return static_cast<size_t>(solver->getNumRows());
+  return static_cast<size_t>(m_backend_->get_num_rows());
 }
 
 size_t LinearInterface::get_numcols() const
 {
-  return static_cast<size_t>(solver->getNumCols());
+  return static_cast<size_t>(m_backend_->get_num_cols());
 }
 
 void LinearInterface::set_continuous(const ColIndex index)
 {
-  solver->setContinuous(static_cast<int>(index));
+  m_backend_->set_continuous(static_cast<int>(index));
 }
 
 void LinearInterface::set_integer(const ColIndex index)
 {
-  solver->setInteger(static_cast<int>(index));
+  m_backend_->set_integer(static_cast<int>(index));
 }
 
 void LinearInterface::set_binary(const ColIndex index)
@@ -517,105 +454,34 @@ void LinearInterface::set_binary(const ColIndex index)
 
 bool LinearInterface::is_continuous(const ColIndex index) const
 {
-  return solver->isContinuous(static_cast<int>(index));
+  return m_backend_->is_continuous(static_cast<int>(index));
 }
 
 bool LinearInterface::is_integer(const ColIndex index) const
 {
-  return solver->isInteger(static_cast<int>(index));
+  return m_backend_->is_integer(static_cast<int>(index));
 }
+
+// ── Names & LP file output ──
 
 void LinearInterface::push_names_to_solver() const
 {
-  const auto ncols = static_cast<size_t>(solver->getNumCols());
+  const auto ncols = static_cast<size_t>(m_backend_->get_num_cols());
 
-  // Pad col vector to match solver dimensions (our vectors may be shorter
-  // if elastic/cut columns were added without names).
   std::vector<std::string> col_names(ncols);
   for (size_t i = 0; i < std::min(m_col_index_to_name_.size(), ncols); ++i) {
     col_names[i] = m_col_index_to_name_[i];
   }
 
-  // Row names only at level >= 1.
-  const auto nrows = static_cast<size_t>(solver->getNumRows());
-  const bool push_rows = m_lp_names_level_ >= 1;
+  const auto nrows = static_cast<size_t>(m_backend_->get_num_rows());
   std::vector<std::string> row_names(nrows);
-  if (push_rows) {
+  if (m_lp_names_level_ >= 1) {
     for (size_t i = 0; i < std::min(m_row_index_to_name_.size(), nrows); ++i) {
       row_names[i] = m_row_index_to_name_[i];
     }
   }
 
-#ifdef COIN_USE_CLP
-  // Fast path: ClpModel::copyNames() sets both name vectors and
-  // lengthNames_ in one pass — no per-element overhead.
-  solver->getModelPtr()->copyNames(row_names, col_names);
-#elifdef COIN_USE_CBC
-  auto* real_solver = solver->getRealSolverPtr();
-  auto* clp_solver = dynamic_cast<OsiClpSolverInterface*>(real_solver);
-  if (clp_solver != nullptr) {
-    clp_solver->getModelPtr()->copyNames(row_names, col_names);
-  }
-#elifdef COIN_USE_CPX
-  // Fast path: bulk name setting via CPLEX C API.
-  {
-    auto* env = solver->getEnvironmentPtr();
-    auto* lp = solver->getLpPtr(OsiCpxSolverInterface::KEEPCACHED_ALL);
-
-    std::vector<int> col_indices;
-    std::vector<char*> col_cnames;
-    col_indices.reserve(ncols);
-    col_cnames.reserve(ncols);
-    for (size_t i = 0; i < ncols; ++i) {
-      if (!col_names[i].empty()) {
-        col_indices.push_back(static_cast<int>(i));
-        col_cnames.push_back(col_names[i].data());
-      }
-    }
-    if (!col_indices.empty()) {
-      CPXchgcolname(env,
-                    lp,
-                    static_cast<int>(col_indices.size()),
-                    col_indices.data(),
-                    col_cnames.data());
-    }
-
-    if (push_rows) {
-      std::vector<int> row_indices;
-      std::vector<char*> row_cnames;
-      row_indices.reserve(nrows);
-      row_cnames.reserve(nrows);
-      for (size_t i = 0; i < nrows; ++i) {
-        if (!row_names[i].empty()) {
-          row_indices.push_back(static_cast<int>(i));
-          row_cnames.push_back(row_names[i].data());
-        }
-      }
-      if (!row_indices.empty()) {
-        CPXchgrowname(env,
-                      lp,
-                      static_cast<int>(row_indices.size()),
-                      row_indices.data(),
-                      row_cnames.data());
-      }
-    }
-  }
-#else
-  // Generic fallback: per-element via OSI.
-  solver->setIntParam(OsiNameDiscipline, 2);
-  for (size_t i = 0; i < ncols; ++i) {
-    if (!col_names[i].empty()) {
-      solver->setColName(static_cast<int>(i), col_names[i]);
-    }
-  }
-  if (push_rows) {
-    for (size_t i = 0; i < nrows; ++i) {
-      if (!row_names[i].empty()) {
-        solver->setRowName(static_cast<int>(i), row_names[i]);
-      }
-    }
-  }
-#endif
+  m_backend_->push_names(col_names, row_names);
 }
 
 auto LinearInterface::write_lp(const std::string& filename) const
@@ -625,8 +491,6 @@ auto LinearInterface::write_lp(const std::string& filename) const
     return {};
   }
 
-  // LP files are only useful when both column and row names are available.
-  // Row names are populated only at use_lp_names >= 1.
   if (m_row_index_to_name_.empty()) {
     return std::unexpected(Error {
         .code = ErrorCode::InvalidInput,
@@ -638,124 +502,21 @@ auto LinearInterface::write_lp(const std::string& filename) const
   }
 
   push_names_to_solver();
-  solver->writeLp(filename.c_str());
+  m_backend_->write_lp(filename.c_str());
   return {};
 }
 
-void LinearInterface::set_solver_opts(const SolverOptions& solver_options)
-{
-  if (const auto oeps = solver_options.optimal_eps; oeps && *oeps > 0) {
-    solver->setDblParam(OsiDualTolerance, *oeps);
-  }
-
-  if (const auto feps = solver_options.feasible_eps; feps && *feps > 0) {
-    solver->setDblParam(OsiPrimalTolerance, *feps);
-  }
-
-#ifdef OSI_EXTENDED
-  if (const auto beps = solver_options.barrier_eps; beps && *beps > 0) {
-    solver->setDblParam(OsiBarrierTolerance, *beps);
-  }
-#endif
-
-  // Apply time limit if specified (must be set before algorithm hints)
-  if (const auto tl = solver_options.time_limit; tl && *tl > 0.0) {
-    set_time_limit(*tl);
-  }
-
-  // ── Warm-start override ──
-  // When warm_start is true the LP is a clone that already carries a basis
-  // (or crossover basis from barrier).  Force dual simplex and disable
-  // presolve so the solver pivots from the existing basis rather than
-  // restarting.  This is the primary optimisation for aperture/elastic
-  // resolves when the original solve used barrier.
-  if (solver_options.warm_start) {
-    solver->setHintParam(OsiDoPresolveInInitial, false, OsiHintDo);
-    solver->setHintParam(OsiDoPresolveInResolve, false, OsiHintDo);
-    solver->setHintParam(OsiDoDualInInitial, true, OsiHintDo);
-    solver->setHintParam(OsiDoDualInResolve, true, OsiHintDo);
-
-    // Ensure barrier is disabled so the solver uses dual simplex.
-    // The OsiDoBarrier hints require OSI_EXTENDED; without it, call the
-    // underlying solver directly to force dual simplex.
-#ifdef OSI_EXTENDED
-    solver->setHintParam(OsiDoBarrierInInitial, false, OsiHintIgnore);
-    solver->setHintParam(OsiDoBarrierInResolve, false, OsiHintIgnore);
-#elifdef COIN_USE_CLP
-    // ClpSolve algorithm 1 = dual simplex (avoids barrier)
-    auto* clp_model = solver->getModelPtr();
-    if (clp_model != nullptr) {
-      clp_model->setAlgorithm(1);  // 1 = dual simplex
-      // Bit 1: keep factorization (avoid re-factorising the basis)
-      // Bit 8: keep work areas (avoid re-allocating internal arrays)
-      constexpr unsigned keep_factorization = 1U;
-      constexpr unsigned keep_work_areas = 8U;
-      clp_model->setSpecialOptions(static_cast<int>(
-          clp_model->specialOptions() | keep_factorization | keep_work_areas));
-    }
-#endif
-
-    return;
-  }
-
-  const auto presolve = solver_options.presolve;
-  solver->setHintParam(OsiDoPresolveInInitial, presolve, OsiHintDo);
-
-  const bool On = true;
-  const bool Off = false;
-  const auto lp_algo = solver_options.algorithm;
-
-  switch (lp_algo) {
-    case LPAlgo::default_algo:
-      break;
-    case LPAlgo::primal: {
-      solver->setHintParam(OsiDoDualInInitial, Off, OsiHintDo);
-      solver->setHintParam(OsiDoDualInResolve, Off, OsiHintDo);
-
-#ifdef OSI_EXTENDED
-      solver->setHintParam(OsiDoBarrierInInitial, Off, OsiHintIgnore);
-      solver->setHintParam(OsiDoBarrierInResolve, Off, OsiHintIgnore);
-#endif
-      break;
-    }
-    case LPAlgo::dual: {
-      solver->setHintParam(OsiDoDualInInitial, On, OsiHintDo);
-      solver->setHintParam(OsiDoDualInResolve, On, OsiHintDo);
-
-#ifdef OSI_EXTENDED
-      solver->setHintParam(OsiDoBarrierInInitial, Off, OsiHintIgnore);
-      solver->setHintParam(OsiDoBarrierInResolve, Off, OsiHintIgnore);
-#endif
-      break;
-    }
-    case LPAlgo::barrier: {
-#ifdef OSI_EXTENDED
-      const auto threads = solver_options.threads;
-      if (threads > 0) {
-        solver->setIntParam(OsiNumThreads, threads);
-      }
-      solver->setHintParam(OsiDoDualInInitial, Off, OsiHintDo);
-      solver->setHintParam(OsiDoBarrierInInitial, On, OsiHintDo);
-
-      solver->setHintParam(OsiDoDualInResolve, Off, OsiHintDo);
-      solver->setHintParam(OsiDoBarrierInResolve, On, OsiHintDo);
-#endif
-      break;
-    }
-    case LPAlgo::last_algo:
-      break;
-  }
-}
+// ── Solve ──
 
 std::expected<int, Error> LinearInterface::initial_solve(
     const SolverOptions& solver_options)
 {
   try {
-    set_solver_opts(solver_options);
+    m_backend_->apply_options(solver_options);
 
     {
       const HandlerGuard guard(*this, solver_options.log_level);
-      solver->initialSolve();
+      m_backend_->initial_solve();
     }
 
     if (!is_optimal()) {
@@ -784,11 +545,11 @@ std::expected<int, Error> LinearInterface::resolve(
     const SolverOptions& solver_options)
 {
   try {
-    set_solver_opts(solver_options);
+    m_backend_->apply_options(solver_options);
 
     {
       const HandlerGuard guard(*this, solver_options.log_level);
-      solver->resolve();
+      m_backend_->resolve();
     }
 
     if (!is_optimal()) {
@@ -812,73 +573,64 @@ std::expected<int, Error> LinearInterface::resolve(
   }
 }
 
+// ── Status ──
+
 int LinearInterface::get_status() const
 {
   try {
-    if (solver->isProvenOptimal()) {
+    if (m_backend_->is_proven_optimal()) {
       return 0;
     }
-
-    if (solver->isAbandoned()) {
+    if (m_backend_->is_abandoned()) {
       return 1;
     }
-
-    if (solver->isProvenDualInfeasible() || solver->isProvenPrimalInfeasible())
+    if (m_backend_->is_proven_dual_infeasible()
+        || m_backend_->is_proven_primal_infeasible())
     {
       return 2;
     }
-
     return 3;
-
   } catch (...) {
     return 1;
   }
 }
 
-double LinearInterface::get_kappa() const  // NOLINT
+double LinearInterface::get_kappa() const
 {
-#ifdef OSI_EXTENDED
-  try {
-    return solver->getConditionNumber();
-  } catch (...) {
-    return 1;
-  }
-#else
-  return 1;
-#endif
+  return m_backend_->get_kappa();
 }
 
 bool LinearInterface::is_optimal() const
 {
-  return solver->isProvenOptimal();
+  return m_backend_->is_proven_optimal();
 }
 
 bool LinearInterface::is_dual_infeasible() const
 {
-  return solver->isProvenDualInfeasible();
+  return m_backend_->is_proven_dual_infeasible();
 }
 
 bool LinearInterface::is_prim_infeasible() const
 {
-  return solver->isProvenPrimalInfeasible();
+  return m_backend_->is_proven_primal_infeasible();
 }
 
 double LinearInterface::get_obj_value() const
 {
-  return solver->getObjValue();
+  return m_backend_->obj_value();
 }
 
 void LinearInterface::set_col_sol(const std::span<const double> sol)
 {
   if (sol.data() != nullptr) {
-    solver->setColSolution(sol.data());
+    m_backend_->set_col_solution(sol.data());
   }
 }
 
 void LinearInterface::set_row_dual(const std::span<const double> dual)
 {
   if (dual.data() != nullptr) {
-    solver->setRowPrice(dual.data());
+    m_backend_->set_row_price(dual.data());
   }
 }
 

@@ -1,6 +1,6 @@
 /**
- * @file      test_sddp_solver.hpp
- * @brief     Unit tests for the SDDPSolver (SDDP forward/backward iteration)
+ * @file      test_sddp_method.hpp
+ * @brief     Unit tests for the SDDPMethod (SDDP forward/backward iteration)
  * @date      2026-03-08
  * @copyright BSD-3-Clause
  *
@@ -24,8 +24,8 @@
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning_lp.hpp>
-#include <gtopt/planning_solver.hpp>
-#include <gtopt/sddp_solver.hpp>
+#include <gtopt/planning_method.hpp>
+#include <gtopt/sddp_method.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -452,7 +452,7 @@ TEST_CASE("relax_fixed_state_variable returns slack column indices")  // NOLINT
 
 // ─── Integration tests ─────────────────────────────────────────────────────
 
-TEST_CASE("SDDPSolver - 3-phase hydro+thermal converges")  // NOLINT
+TEST_CASE("SDDPMethod - 3-phase hydro+thermal converges")  // NOLINT
 {
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -468,7 +468,7 @@ TEST_CASE("SDDPSolver - 3-phase hydro+thermal converges")  // NOLINT
   sddp_opts.max_iterations = 5;
   sddp_opts.convergence_tol = 1e-3;
 
-  SDDPSolver sddp(planning_lp, sddp_opts);
+  SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();
   REQUIRE(results.has_value());
   CHECK_FALSE(results->empty());
@@ -486,17 +486,17 @@ TEST_CASE("SDDPSolver - 3-phase hydro+thermal converges")  // NOLINT
   CHECK(last.converged);
 }
 
-TEST_CASE("SDDPSolver - requires at least 2 phases")  // NOLINT
+TEST_CASE("SDDPMethod - requires at least 2 phases")  // NOLINT
 {
   auto planning = make_single_phase_planning();
 
   PlanningLP planning_lp(std::move(planning));
-  SDDPSolver sddp(planning_lp);
+  SDDPMethod sddp(planning_lp);
   auto results = sddp.solve();
   CHECK_FALSE(results.has_value());
 }
 
-TEST_CASE("SDDPSolver - cut persistence save and load")  // NOLINT
+TEST_CASE("SDDPMethod - cut persistence save and load")  // NOLINT
 {
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -510,7 +510,7 @@ TEST_CASE("SDDPSolver - cut persistence save and load")  // NOLINT
   sddp_opts.convergence_tol = 1e-6;
   sddp_opts.cuts_output_file = cuts_file;
 
-  SDDPSolver sddp(planning_lp, sddp_opts);
+  SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();
   REQUIRE(results.has_value());
 
@@ -524,32 +524,32 @@ TEST_CASE("SDDPSolver - cut persistence save and load")  // NOLINT
 
 // ─── Solver interface tests ─────────────────────────────────────────────────
 
-TEST_CASE("MonolithicSolver - solves single-phase problem")  // NOLINT
+TEST_CASE("MonolithicMethod - solves single-phase problem")  // NOLINT
 {
   auto planning = make_single_phase_planning();
   PlanningLP planning_lp(std::move(planning));
 
-  MonolithicSolver solver;
+  MonolithicMethod solver;
   auto result = solver.solve(planning_lp, {});
   REQUIRE(result.has_value());
   CHECK(*result == 1);
 }
 
-TEST_CASE("MonolithicSolver - solves 3-phase problem")  // NOLINT
+TEST_CASE("MonolithicMethod - solves 3-phase problem")  // NOLINT
 {
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
-  MonolithicSolver solver;
+  MonolithicMethod solver;
   auto result = solver.solve(planning_lp, {});
   REQUIRE(result.has_value());
   CHECK(*result == 1);
 }
 
-TEST_CASE("make_planning_solver factory - monolithic")  // NOLINT
+TEST_CASE("make_planning_method factory - monolithic")  // NOLINT
 {
   const OptionsLP options_lp;
-  auto solver = make_planning_solver(options_lp);
+  auto solver = make_planning_method(options_lp);
   REQUIRE(solver != nullptr);
 
   auto planning = make_single_phase_planning();
@@ -560,19 +560,19 @@ TEST_CASE("make_planning_solver factory - monolithic")  // NOLINT
   CHECK(*result == 1);
 }
 
-TEST_CASE("make_planning_solver factory - sddp")  // NOLINT
+TEST_CASE("make_planning_method factory - sddp")  // NOLINT
 {
   Options opts;
-  opts.solver_type = OptName {"sddp"};
+  opts.method = OptName {"sddp"};
   const OptionsLP options_lp(std::move(opts));
-  auto solver = make_planning_solver(options_lp);
+  auto solver = make_planning_method(options_lp);
   REQUIRE(solver != nullptr);
 }
 
-TEST_CASE("PlanningLP::resolve uses solver_type option")  // NOLINT
+TEST_CASE("PlanningLP::resolve uses method option")  // NOLINT
 {
   auto planning = make_single_phase_planning();
-  // Default solver_type is "monolithic"
+  // Default method is "monolithic"
   PlanningLP planning_lp(std::move(planning));
 
   auto result = planning_lp.resolve();
@@ -580,41 +580,41 @@ TEST_CASE("PlanningLP::resolve uses solver_type option")  // NOLINT
   CHECK(*result == 1);
 }
 
-TEST_CASE("Options solver_type and sddp_cut_sharing_mode")  // NOLINT
+TEST_CASE("Options method and sddp_cut_sharing_mode")  // NOLINT
 {
   Options opts;
-  opts.solver_type = OptName {"sddp"};
+  opts.method = OptName {"sddp"};
   opts.sddp_options.cut_sharing_mode = OptName {"expected"};
 
   const OptionsLP options_lp(std::move(opts));
-  CHECK(options_lp.solver_type() == "sddp");
+  CHECK(options_lp.method() == "sddp");
   CHECK(options_lp.sddp_cut_sharing_mode() == "expected");
 }
 
-TEST_CASE("Options solver_type defaults")  // NOLINT
+TEST_CASE("Options method defaults")  // NOLINT
 {
   const OptionsLP options_lp;
-  CHECK(options_lp.solver_type() == "monolithic");
+  CHECK(options_lp.method() == "monolithic");
   CHECK(options_lp.sddp_cut_sharing_mode() == "none");
 }
 
-TEST_CASE("Options top-level solver_type")  // NOLINT
+TEST_CASE("Options top-level method")  // NOLINT
 {
   Options opts;
-  opts.solver_type = OptName {"sddp"};
+  opts.method = OptName {"sddp"};
 
   const OptionsLP options_lp(std::move(opts));
-  CHECK(options_lp.solver_type() == "sddp");
+  CHECK(options_lp.method() == "sddp");
 }
 
-TEST_CASE("Options solver_type from JSON top-level field")  // NOLINT
+TEST_CASE("Options method from JSON top-level field")  // NOLINT
 {
-  // Verify that "solver_type": "sddp" in the top-level options block is
+  // Verify that "method": "sddp" in the top-level options block is
   // correctly parsed — this is the only supported way to select the solver.
   constexpr std::string_view json_str = R"json(
   {
     "options": {
-      "solver_type": "sddp"
+      "method": "sddp"
     }
   }
   )json";
@@ -622,7 +622,7 @@ TEST_CASE("Options solver_type from JSON top-level field")  // NOLINT
   const auto planning =
       daw::json::from_json<Planning>(json_str);  // NOLINT(misc-include-cleaner)
   const OptionsLP options_lp(planning.options);
-  CHECK(options_lp.solver_type() == "sddp");
+  CHECK(options_lp.method() == "sddp");
 }
 
 // ─── Integration: monolithic vs SDDP comparison ────────────────────────────
@@ -1330,7 +1330,7 @@ TEST_CASE(
   sddp_opts.max_iterations = 50;
   sddp_opts.convergence_tol = 1e-4;
 
-  SDDPSolver sddp(plp_sddp, sddp_opts);
+  SDDPMethod sddp(plp_sddp, sddp_opts);
   auto sddp_results = sddp.solve();
   REQUIRE(sddp_results.has_value());
   CHECK_FALSE(sddp_results->empty());
@@ -1392,7 +1392,7 @@ TEST_CASE(
   sddp_opts.max_iterations = 50;
   sddp_opts.convergence_tol = 1e-4;
 
-  SDDPSolver sddp(plp_sddp, sddp_opts);
+  SDDPMethod sddp(plp_sddp, sddp_opts);
   auto sddp_results = sddp.solve();
   REQUIRE(sddp_results.has_value());
   CHECK_FALSE(sddp_results->empty());
@@ -1453,7 +1453,7 @@ TEST_CASE(
   sddp_opts.max_iterations = 50;
   sddp_opts.convergence_tol = 1e-4;
 
-  SDDPSolver sddp(plp_sddp, sddp_opts);
+  SDDPMethod sddp(plp_sddp, sddp_opts);
   auto sddp_results = sddp.solve();
   REQUIRE(sddp_results.has_value());
   CHECK_FALSE(sddp_results->empty());
@@ -1513,7 +1513,7 @@ TEST_CASE(
   sddp_opts.max_iterations = 50;
   sddp_opts.convergence_tol = 1e-4;
 
-  SDDPSolver sddp(plp_sddp, sddp_opts);
+  SDDPMethod sddp(plp_sddp, sddp_opts);
   auto sddp_results = sddp.solve();
   REQUIRE(sddp_results.has_value());
   CHECK_FALSE(sddp_results->empty());
@@ -1545,7 +1545,7 @@ TEST_CASE(
 
 // ─── API tests ──────────────────────────────────────────────────────────────
 
-TEST_CASE("SDDPSolver API - iteration callback")  // NOLINT
+TEST_CASE("SDDPMethod API - iteration callback")  // NOLINT
 {
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -1554,7 +1554,7 @@ TEST_CASE("SDDPSolver API - iteration callback")  // NOLINT
   sddp_opts.max_iterations = 20;
   sddp_opts.convergence_tol = 1e-6;
 
-  SDDPSolver sddp(planning_lp, sddp_opts);
+  SDDPMethod sddp(planning_lp, sddp_opts);
 
   // Register a callback that collects iteration data and stops after 3 iters
   std::vector<SDDPIterationResult> callback_results;
@@ -1581,7 +1581,7 @@ TEST_CASE("SDDPSolver API - iteration callback")  // NOLINT
   }
 }
 
-TEST_CASE("SDDPSolver API - programmatic stop")  // NOLINT
+TEST_CASE("SDDPMethod API - programmatic stop")  // NOLINT
 {
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -1590,7 +1590,7 @@ TEST_CASE("SDDPSolver API - programmatic stop")  // NOLINT
   sddp_opts.max_iterations = 100;
   sddp_opts.convergence_tol = 1e-12;  // very tight → won't converge in 2 iters
 
-  SDDPSolver sddp(planning_lp, sddp_opts);
+  SDDPMethod sddp(planning_lp, sddp_opts);
 
   // Request stop after 2 iterations via the callback
   sddp.set_iteration_callback(
@@ -1610,7 +1610,7 @@ TEST_CASE("SDDPSolver API - programmatic stop")  // NOLINT
   CHECK(sddp.is_stop_requested());
 }
 
-TEST_CASE("SDDPSolver API - live query atomics")  // NOLINT
+TEST_CASE("SDDPMethod API - live query atomics")  // NOLINT
 {
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -1619,7 +1619,7 @@ TEST_CASE("SDDPSolver API - live query atomics")  // NOLINT
   sddp_opts.max_iterations = 5;
   sddp_opts.convergence_tol = 1e-3;
 
-  SDDPSolver sddp(planning_lp, sddp_opts);
+  SDDPMethod sddp(planning_lp, sddp_opts);
 
   // Before solving, live-query values should be at their initial state
   CHECK(sddp.current_iteration() == 0);
@@ -1803,7 +1803,7 @@ TEST_CASE(
 
 // ─── Multi-cut threshold=0 forces multi-cut immediately ──────────────────────
 
-TEST_CASE("SDDPSolver - multi_cut_threshold=0 forces multi-cut mode")  // NOLINT
+TEST_CASE("SDDPMethod - multi_cut_threshold=0 forces multi-cut mode")  // NOLINT
 {
   // Use the 3-phase hydro planning; set threshold=0 so any infeasibility
   // instantly uses multi-cut mode.  The problem should still converge.
@@ -1815,7 +1815,7 @@ TEST_CASE("SDDPSolver - multi_cut_threshold=0 forces multi-cut mode")  // NOLINT
   sddp_opts.convergence_tol = 1e-4;
   sddp_opts.multi_cut_threshold = 0;  // always force multi-cut
 
-  SDDPSolver sddp(planning_lp, sddp_opts);
+  SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();
   REQUIRE(results.has_value());
   CHECK_FALSE(results->empty());
@@ -1824,7 +1824,7 @@ TEST_CASE("SDDPSolver - multi_cut_threshold=0 forces multi-cut mode")  // NOLINT
   CHECK(results->back().converged);
 }
 
-TEST_CASE("SDDPSolver - multi_cut_threshold<0 disables auto-switch")  // NOLINT
+TEST_CASE("SDDPMethod - multi_cut_threshold<0 disables auto-switch")  // NOLINT
 {
   // Negative threshold disables automatic multi-cut switching entirely.
   // The problem should still converge with single-cut only.
@@ -1836,7 +1836,7 @@ TEST_CASE("SDDPSolver - multi_cut_threshold<0 disables auto-switch")  // NOLINT
   sddp_opts.convergence_tol = 1e-4;
   sddp_opts.multi_cut_threshold = -1;  // never auto-switch
 
-  SDDPSolver sddp(planning_lp, sddp_opts);
+  SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();
   REQUIRE(results.has_value());
   CHECK_FALSE(results->empty());
@@ -2023,7 +2023,7 @@ inline auto make_2scene_3phase_hydro_planning(double prob1 = 0.7,
   };
 }
 
-TEST_CASE("SDDPSolver 2-scene - probability-weighted bounds")  // NOLINT
+TEST_CASE("SDDPMethod 2-scene - probability-weighted bounds")  // NOLINT
 {
   // Two scenes with probabilities 0.7 and 0.3.
   // UB and LB should be probability-weighted expectations, not simple averages.
@@ -2035,7 +2035,7 @@ TEST_CASE("SDDPSolver 2-scene - probability-weighted bounds")  // NOLINT
   sddp_opts.convergence_tol = 1e-4;
   sddp_opts.cut_sharing = CutSharingMode::none;
 
-  SDDPSolver sddp(planning_lp, sddp_opts);
+  SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();
   REQUIRE(results.has_value());
   CHECK_FALSE(results->empty());
@@ -2064,7 +2064,7 @@ TEST_CASE("SDDPSolver 2-scene - probability-weighted bounds")  // NOLINT
 }
 
 TEST_CASE(
-    "SDDPSolver 2-scene - equal weights same as simple average")  // NOLINT
+    "SDDPMethod 2-scene - equal weights same as simple average")  // NOLINT
 {
   // Equal probability weights → result should match simple average
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
@@ -2074,7 +2074,7 @@ TEST_CASE(
   sddp_opts.max_iterations = 20;
   sddp_opts.convergence_tol = 1e-4;
 
-  SDDPSolver sddp(planning_lp, sddp_opts);
+  SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();
   REQUIRE(results.has_value());
   CHECK_FALSE(results->empty());
@@ -2089,7 +2089,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "SDDPSolver 2-scene Expected cut sharing with prob weights")  // NOLINT
+    "SDDPMethod 2-scene Expected cut sharing with prob weights")  // NOLINT
 {
   // Verify that Expected cut-sharing mode produces the same convergence
   // outcome whether we use equal or unequal probability weights.
@@ -2105,7 +2105,7 @@ TEST_CASE(
     sddp_opts.convergence_tol = 1e-4;
     sddp_opts.cut_sharing = CutSharingMode::expected;
 
-    SDDPSolver sddp(planning_lp, sddp_opts);
+    SDDPMethod sddp(planning_lp, sddp_opts);
     auto results = sddp.solve();
     REQUIRE(results.has_value());
     CHECK_FALSE(results->empty());
@@ -2122,7 +2122,7 @@ TEST_CASE(
     sddp_opts.convergence_tol = 1e-4;
     sddp_opts.cut_sharing = CutSharingMode::expected;
 
-    SDDPSolver sddp(planning_lp, sddp_opts);
+    SDDPMethod sddp(planning_lp, sddp_opts);
     auto results = sddp.solve();
     REQUIRE(results.has_value());
     CHECK_FALSE(results->empty());
@@ -2137,10 +2137,9 @@ TEST_CASE(
   }
 }
 
-// ─── TurbineLP::update_lp unit tests ─────────────────────────────────────────
+// ─── update_lp unit tests ───────────────────────────────────────
 
-TEST_CASE(
-    "TurbineLP::update_lp - no-op when no production factor element")  // NOLINT
+TEST_CASE("update_lp - no-op when no updatable elements")  // NOLINT
 {
   // Build a minimal system WITHOUT a ReservoirProductionFactor element.
   // update_lp should return 0 (nothing to update).
@@ -2226,11 +2225,10 @@ TEST_CASE(
   // The solver must support set_coeff for update_lp to actually try anything;
   // either way, the function call should be safe.
   [[maybe_unused]] const bool set_coeff_supported =
-      LinearInterface::supports_set_coeff();
+      system_lp.linear_interface().supports_set_coeff();
 
-  // update_lp_coefficients with no production factor elements → 0 updated
-  const auto updated =
-      update_lp_coefficients(system_lp, options_lp, 0, PhaseIndex {0});
+  // update_lp with no production factor elements → 0 updated
+  const auto updated = dispatch_update_lp(system_lp);
   CHECK(updated == 0);
 }
 
@@ -2238,7 +2236,7 @@ TEST_CASE(
     "ReservoirSeepageLP::update_lp is a no-op without segments")  // NOLINT
 {
   // Verify the trivial no-op path of ReservoirSeepageLP::update_lp by calling
-  // update_lp_coefficients on a system that has seepage without
+  // update_lp on a system that has seepage without
   // piecewise segments (static slope/constant only).
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
   const Array<Generator> generator_array = {
@@ -2331,12 +2329,11 @@ TEST_CASE(
   SystemLP system_lp(system, sim_lp);
 
   // ReservoirSeepageLP::update_lp is a no-op when no segments are present → 0
-  const auto updated =
-      update_lp_coefficients(system_lp, options_lp, 0, PhaseIndex {0});
+  const auto updated = dispatch_update_lp(system_lp);
   CHECK(updated == 0);
 }
 
-TEST_CASE("SDDPSolver API - monitoring API stop-request file")  // NOLINT
+TEST_CASE("SDDPMethod API - monitoring API stop-request file")  // NOLINT
 {
   // Verify that the solver stops gracefully when the monitoring API
   // stop-request file (sddp_stop_request.json) is created in the tmp dir.
@@ -2355,7 +2352,7 @@ TEST_CASE("SDDPSolver API - monitoring API stop-request file")  // NOLINT
   sddp_opts.convergence_tol = 1e-12;  // very tight — won't converge in 2
   sddp_opts.api_stop_request_file = stop_request_path.string();
 
-  SDDPSolver sddp(planning_lp, sddp_opts);
+  SDDPMethod sddp(planning_lp, sddp_opts);
 
   // Create the stop-request file after the first iteration via callback
   sddp.set_iteration_callback(
@@ -2413,7 +2410,7 @@ TEST_CASE("SDDPIterationResult contains timing information")  // NOLINT
   sddp_opts.max_iterations = 3;
   sddp_opts.convergence_tol = 1e-3;
 
-  SDDPSolver sddp(planning_lp, sddp_opts);
+  SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();
   REQUIRE(results.has_value());
   CHECK_FALSE(results->empty());
@@ -2430,7 +2427,7 @@ TEST_CASE("SDDPIterationResult contains timing information")  // NOLINT
   }
 }
 
-TEST_CASE("SDDPSolver API - status file contains timing fields")  // NOLINT
+TEST_CASE("SDDPMethod API - status file contains timing fields")  // NOLINT
 {
   const auto tmp_dir =
       std::filesystem::temp_directory_path() / "test_sddp_timing_status";
@@ -2448,7 +2445,7 @@ TEST_CASE("SDDPSolver API - status file contains timing fields")  // NOLINT
   sddp_opts.enable_api = true;
   sddp_opts.api_status_file = status_file;
 
-  SDDPSolver sddp(planning_lp, sddp_opts);
+  SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();
   REQUIRE(results.has_value());
 
@@ -2467,26 +2464,26 @@ TEST_CASE("SDDPSolver API - status file contains timing fields")  // NOLINT
   std::filesystem::remove_all(tmp_dir);
 }
 
-TEST_CASE("MonolithicSolver uses work pool from factory")  // NOLINT
+TEST_CASE("MonolithicMethod uses work pool from factory")  // NOLINT
 {
-  // Verify that MonolithicSolver works correctly after the refactoring
+  // Verify that MonolithicMethod works correctly after the refactoring
   // to use make_solver_work_pool()
   auto planning = make_single_phase_planning();
   PlanningLP planning_lp(std::move(planning));
 
-  MonolithicSolver solver;
+  MonolithicMethod solver;
   auto result = solver.solve(planning_lp, {});
   REQUIRE(result.has_value());
   CHECK(*result == 1);
 }
 
-TEST_CASE("MonolithicSolver with 3-phase uses work pool")  // NOLINT
+TEST_CASE("MonolithicMethod with 3-phase uses work pool")  // NOLINT
 {
   // Verify multi-phase monolithic solving after refactoring
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
-  MonolithicSolver solver;
+  MonolithicMethod solver;
   auto result = solver.solve(planning_lp, {});
   REQUIRE(result.has_value());
   CHECK(*result == 1);
@@ -2495,7 +2492,7 @@ TEST_CASE("MonolithicSolver with 3-phase uses work pool")  // NOLINT
 // ─── Modular Benders cut tests (benders_cut.hpp) ────────────────────────────
 //
 // These tests exercise the cut-creation functions against actual LP solves
-// using simple 2-variable LP problems.  They do not depend on SDDPSolver.
+// using simple 2-variable LP problems.  They do not depend on SDDPMethod.
 
 TEST_CASE(  // NOLINT
     "build_benders_cut - optimality cut from LP solve")
@@ -3304,7 +3301,7 @@ auto make_2phase_2scenario_planning() -> Planning
 
 // ─── Simple 2-phase linear SDDP tests ──────────────────────────────────────
 
-TEST_CASE("SDDPSolver - 2-phase linear converges")  // NOLINT
+TEST_CASE("SDDPMethod - 2-phase linear converges")  // NOLINT
 {
   auto planning = make_2phase_linear_planning();
   PlanningLP plp(std::move(planning));
@@ -3314,7 +3311,7 @@ TEST_CASE("SDDPSolver - 2-phase linear converges")  // NOLINT
   sddp_opts.convergence_tol = 1e-4;
   sddp_opts.enable_api = false;
 
-  SDDPSolver sddp(plp, sddp_opts);
+  SDDPMethod sddp(plp, sddp_opts);
   auto results = sddp.solve();
 
   REQUIRE(results.has_value());
@@ -3353,7 +3350,7 @@ TEST_CASE("SDDPSolver - 2-phase linear converges")  // NOLINT
   }
 }
 
-TEST_CASE("SDDPSolver - 2-phase with apertures converges")  // NOLINT
+TEST_CASE("SDDPMethod - 2-phase with apertures converges")  // NOLINT
 {
   auto planning = make_2phase_2scenario_planning();
   PlanningLP plp(std::move(planning));
@@ -3366,7 +3363,7 @@ TEST_CASE("SDDPSolver - 2-phase with apertures converges")  // NOLINT
   SUBCASE("apertures disabled (baseline)")
   {
     sddp_opts.apertures = std::vector<Uid> {};  // empty = no apertures
-    SDDPSolver sddp(plp, sddp_opts);
+    SDDPMethod sddp(plp, sddp_opts);
     auto results = sddp.solve();
     REQUIRE(results.has_value());
     CHECK_FALSE(results->empty());
@@ -3375,7 +3372,7 @@ TEST_CASE("SDDPSolver - 2-phase with apertures converges")  // NOLINT
   SUBCASE("apertures enabled with nullopt (use per-phase)")
   {
     sddp_opts.apertures = std::nullopt;  // use per-phase apertures
-    SDDPSolver sddp(plp, sddp_opts);
+    SDDPMethod sddp(plp, sddp_opts);
     auto results = sddp.solve();
 
     REQUIRE(results.has_value());
@@ -3466,7 +3463,7 @@ TEST_CASE("compute_convergence_gap - large absolute upper bound")  // NOLINT
 
 // ─── build_lp tests ─────────────────────────────────────────────────────
 
-TEST_CASE("SDDPSolver - build_lp=true builds LP only, no solving")  // NOLINT
+TEST_CASE("SDDPMethod - build_lp=true builds LP only, no solving")  // NOLINT
 {
   auto planning = make_3phase_hydro_planning();
 
@@ -3476,7 +3473,7 @@ TEST_CASE("SDDPSolver - build_lp=true builds LP only, no solving")  // NOLINT
   sddp_opts.build_lp = true;  // build LP only — no solving whatsoever
 
   PlanningLP planning_lp(std::move(planning));
-  SDDPSolver sddp(planning_lp, sddp_opts);
+  SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();
 
   REQUIRE(results.has_value());
@@ -3485,10 +3482,10 @@ TEST_CASE("SDDPSolver - build_lp=true builds LP only, no solving")  // NOLINT
   CHECK(results->empty());
 }
 
-TEST_CASE("SDDPPlanningSolver - build_lp=true returns 0")  // NOLINT
+TEST_CASE("SDDPPlanningMethod - build_lp=true returns 0")  // NOLINT
 {
   auto planning = make_3phase_hydro_planning();
-  planning.options.solver_type = OptName {"sddp"};
+  planning.options.method = OptName {"sddp"};
   planning.options.build_lp = OptBool {true};
 
   PlanningLP planning_lp(std::move(planning));
@@ -3508,7 +3505,7 @@ TEST_CASE(
     "options": {
       "demand_fail_cost": 1000,
       "output_compression": "uncompressed",
-      "solver_type": "sddp",
+      "method": "sddp",
       "use_single_bus": true
     },
     "simulation": {
@@ -3756,7 +3753,7 @@ TEST_CASE(  // NOLINT
   auto planning = make_nphase_simple_hydro_planning(1);
   PlanningLP plp(std::move(planning));
 
-  SDDPSolver sddp(plp);
+  SDDPMethod sddp(plp);
   auto results = sddp.solve();
   CHECK_FALSE(results.has_value());
 }
@@ -3781,7 +3778,7 @@ TEST_CASE(  // NOLINT
   sddp_opts.max_iterations = 30;
   sddp_opts.convergence_tol = 1e-4;
 
-  SDDPSolver sddp(plp, sddp_opts);
+  SDDPMethod sddp(plp, sddp_opts);
 
   // Collect lower bounds across iterations.
   std::vector<double> lower_bounds;
@@ -3818,7 +3815,7 @@ TEST_CASE(  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 1;  // single iteration to count precisely
 
-  SDDPSolver sddp(plp, sddp_opts);
+  SDDPMethod sddp(plp, sddp_opts);
   auto results = sddp.solve();
   REQUIRE(results.has_value());
   REQUIRE_FALSE(results->empty());
@@ -3839,7 +3836,7 @@ TEST_CASE(  // NOLINT
   sddp_opts.max_iterations = 2;
   sddp_opts.convergence_tol = 1e-4;
 
-  SDDPSolver sddp(plp, sddp_opts);
+  SDDPMethod sddp(plp, sddp_opts);
   auto results = sddp.solve();
   REQUIRE(results.has_value());
 
@@ -3866,7 +3863,7 @@ TEST_CASE(  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 1;  // count cuts from one backward pass only
 
-  SDDPSolver sddp(plp, sddp_opts);
+  SDDPMethod sddp(plp, sddp_opts);
   auto results = sddp.solve();
   REQUIRE(results.has_value());
   REQUIRE_FALSE(results->empty());
@@ -3885,7 +3882,7 @@ TEST_CASE(  // NOLINT
   sddp_opts.max_iterations = 2;
   sddp_opts.convergence_tol = 1e-4;
 
-  SDDPSolver sddp(plp, sddp_opts);
+  SDDPMethod sddp(plp, sddp_opts);
   auto results = sddp.solve();
   REQUIRE(results.has_value());
 
@@ -3922,7 +3919,7 @@ TEST_CASE(  // NOLINT
   sddp_opts.max_iterations = 20;
   sddp_opts.convergence_tol = 1e-4;
 
-  SDDPSolver sddp(plp, sddp_opts);
+  SDDPMethod sddp(plp, sddp_opts);
 
   std::vector<double> lbs;
   sddp.set_iteration_callback(
@@ -3954,7 +3951,7 @@ TEST_CASE(  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 1;
 
-  SDDPSolver sddp(plp, sddp_opts);
+  SDDPMethod sddp(plp, sddp_opts);
   auto results = sddp.solve();
   REQUIRE(results.has_value());
   REQUIRE_FALSE(results->empty());
@@ -3972,7 +3969,7 @@ TEST_CASE(  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 2;
 
-  SDDPSolver sddp(plp, sddp_opts);
+  SDDPMethod sddp(plp, sddp_opts);
   auto results = sddp.solve();
   REQUIRE(results.has_value());
 
@@ -3995,7 +3992,7 @@ TEST_CASE(  // NOLINT
   sddp_opts.max_iterations = 30;
   sddp_opts.convergence_tol = 1e-4;
 
-  SDDPSolver sddp(plp, sddp_opts);
+  SDDPMethod sddp(plp, sddp_opts);
 
   std::vector<double> lbs;
   sddp.set_iteration_callback(
@@ -4027,7 +4024,7 @@ TEST_CASE(  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 1;
 
-  SDDPSolver sddp(plp, sddp_opts);
+  SDDPMethod sddp(plp, sddp_opts);
   auto results = sddp.solve();
   REQUIRE(results.has_value());
   REQUIRE_FALSE(results->empty());
@@ -4045,7 +4042,7 @@ TEST_CASE(  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 2;
 
-  SDDPSolver sddp(plp, sddp_opts);
+  SDDPMethod sddp(plp, sddp_opts);
   auto results = sddp.solve();
   REQUIRE(results.has_value());
 
@@ -4069,7 +4066,7 @@ TEST_CASE(  // NOLINT
   sddp_opts.max_iterations = 30;
   sddp_opts.convergence_tol = 1e-4;
 
-  SDDPSolver sddp(plp, sddp_opts);
+  SDDPMethod sddp(plp, sddp_opts);
 
   std::vector<double> lbs;
   sddp.set_iteration_callback(
@@ -4110,7 +4107,7 @@ TEST_CASE(  // NOLINT
     sddp_opts.max_iterations = k;
     sddp_opts.convergence_tol = 1e-12;  // very tight: won't converge in 2
 
-    SDDPSolver sddp(plp, sddp_opts);
+    SDDPMethod sddp(plp, sddp_opts);
     auto results = sddp.solve();
 
     REQUIRE(results.has_value());
@@ -4162,7 +4159,7 @@ TEST_CASE(  // NOLINT
     sddp_opts.max_iterations = 50;
     sddp_opts.convergence_tol = 1e-4;
 
-    SDDPSolver sddp(plp_sddp, sddp_opts);
+    SDDPMethod sddp(plp_sddp, sddp_opts);
     auto sddp_results = sddp.solve();
     REQUIRE(sddp_results.has_value());
     REQUIRE_FALSE(sddp_results->empty());
@@ -4185,7 +4182,7 @@ TEST_CASE(  // NOLINT
 
 // ─── forget_first_cuts tests ────────────────────────────────────────────────
 
-TEST_CASE("SDDPSolver - forget_first_cuts removes inherited cuts")  // NOLINT
+TEST_CASE("SDDPMethod - forget_first_cuts removes inherited cuts")  // NOLINT
 {
   // Solve to generate some cuts, then use forget_first_cuts to remove a
   // subset and verify LP row counts and stored cut counts are consistent.
@@ -4196,7 +4193,7 @@ TEST_CASE("SDDPSolver - forget_first_cuts removes inherited cuts")  // NOLINT
   sddp_opts.max_iterations = 5;
   sddp_opts.convergence_tol = 1e-6;
 
-  SDDPSolver sddp(planning_lp, sddp_opts);
+  SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();
   REQUIRE(results.has_value());
 
@@ -4296,7 +4293,7 @@ TEST_CASE("SDDPSolver - forget_first_cuts removes inherited cuts")  // NOLINT
 // ─── Convergence criteria unit tests ────────────────────────────────────────
 
 TEST_CASE(  // NOLINT
-    "SDDPSolver primary convergence - gap < convergence_tol stops the loop")
+    "SDDPMethod primary convergence - gap < convergence_tol stops the loop")
 {
   // 3-phase hydro problem converges in a few iterations.
   // Verify that the primary criterion (gap < convergence_tol) fires and that
@@ -4311,7 +4308,7 @@ TEST_CASE(  // NOLINT
   // Disable stationary criterion so only the primary criterion can fire.
   sddp_opts.stationary_tol = 0.0;
 
-  SDDPSolver sddp(planning_lp, sddp_opts);
+  SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();
   REQUIRE(results.has_value());
   REQUIRE_FALSE(results->empty());
@@ -4331,7 +4328,7 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "SDDPSolver stationary convergence - fires when gap stops improving")
+    "SDDPMethod stationary convergence - fires when gap stops improving")
 {
   // The hydro problem converges to a gap of ~0 after a few iterations.
   // By setting convergence_tol to a negative value (-1.0), the primary
@@ -4351,7 +4348,7 @@ TEST_CASE(  // NOLINT
   sddp_opts.stationary_tol = 1.0;
   sddp_opts.stationary_window = 2;
 
-  SDDPSolver sddp(planning_lp, sddp_opts);
+  SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();
   REQUIRE(results.has_value());
   REQUIRE_FALSE(results->empty());
@@ -4371,7 +4368,7 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "SDDPSolver stationary convergence - gap_change populated after window")
+    "SDDPMethod stationary convergence - gap_change populated after window")
 {
   // Verify that gap_change stays at 1.0 (default) for early iterations
   // before the window is reached, and is computed for later ones.
@@ -4387,7 +4384,7 @@ TEST_CASE(  // NOLINT
   sddp_opts.stationary_tol = 0.99;  // fires once gap stops changing
   sddp_opts.stationary_window = 3;
 
-  SDDPSolver sddp(planning_lp, sddp_opts);
+  SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();
   REQUIRE(results.has_value());
   REQUIRE_FALSE(results->empty());
@@ -4435,12 +4432,12 @@ TEST_CASE(  // NOLINT
   sddp_opts.min_iterations = 1;
   sddp_opts.convergence_tol = 1e-3;
 
-  SDDPSolver sddp(planning_lp, sddp_opts);
+  SDDPMethod sddp(planning_lp, sddp_opts);
   const auto results = sddp.solve();
   REQUIRE(results.has_value());
   REQUIRE_FALSE(results->empty());
 
-  // Manually populate the summary (normally done by SDDPPlanningSolver).
+  // Manually populate the summary (normally done by SDDPPlanningMethod).
   const auto& last = results->back();
   planning_lp.set_sddp_summary({
       .gap = last.gap,

@@ -172,7 +172,7 @@ private:
       phase_systems_t& phase_systems,
       const SolverOptions& lp_opts);
 
-  friend class MonolithicSolver;
+  friend class MonolithicMethod;
 
   Planning m_planning_;
   OptionsLP m_options_;
