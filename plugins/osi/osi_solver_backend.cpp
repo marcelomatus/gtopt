@@ -23,6 +23,7 @@
 
 #ifdef GTOPT_OSI_HAS_CPX
 #  include <coin/OsiCpxSolverInterface.hpp>
+#  include <ilcplex/cplex.h>
 #endif
 
 // Check if ClpSimplex is available for CLP-specific optimizations
