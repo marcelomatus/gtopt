@@ -133,6 +133,14 @@ def _find_display_blocks(
     return blocks
 
 
+def _is_escaped(text: str, pos: int) -> bool:
+    """Return True if the character at *pos* is preceded by an odd number of backslashes."""
+    n = 0
+    while pos - 1 - n >= 0 and text[pos - 1 - n] == "\\":
+        n += 1
+    return n % 2 == 1
+
+
 def _find_inline_math(line: str) -> list[tuple[int, int]]:
     """Return (start, end) character positions of ``$...$`` spans in *line*.
 
@@ -141,8 +149,8 @@ def _find_inline_math(line: str) -> list[tuple[int, int]]:
     spans: list[tuple[int, int]] = []
     pos = 0
     while pos < len(line):
-        # Skip escaped dollars
-        if pos > 0 and line[pos - 1] == "\\":
+        # Skip escaped dollars (odd number of preceding backslashes)
+        if line[pos] == "$" and _is_escaped(line, pos):
             pos += 1
             continue
         # Skip display-math markers
@@ -153,7 +161,7 @@ def _find_inline_math(line: str) -> list[tuple[int, int]]:
             # Look for closing $
             end = pos + 1
             while end < len(line):
-                if line[end] == "$" and line[end - 1] != "\\":
+                if line[end] == "$" and not _is_escaped(line, end):
                     if end + 1 < len(line) and line[end + 1] == "$":
                         end += 2
                         continue
@@ -254,6 +262,11 @@ def check_file(filepath: Path) -> list[str]:
                 continue
             stripped = cline.strip()
             if stripped and stripped[0] in "+-":
+                # When content starts on the $$ line (on_opener=True), the
+                # offset in content_lines already includes the opener line,
+                # so start_idx + offset gives the correct 0-based line index.
+                # When $$ is on its own line, content starts one line after
+                # the opener, so we add 1.
                 line_num = start_idx + offset + (0 if on_opener else 1)
                 diagnostics.append(
                     f"{filepath}:{line_num + 1}: "
@@ -269,8 +282,8 @@ def check_file(filepath: Path) -> list[str]:
         if in_fence[i] or in_display[i]:
             continue
         stripped = line.strip()
-        # Remove escaped \$ and $$ markers from consideration
-        cleaned = re.sub(r"\\\$", "  ", line)
+        # Remove escaped \$ (odd number of backslashes before $) and $$
+        cleaned = re.sub(r"(?<!\\)(\\\\)*\\\$", lambda m: " " * len(m.group()), line)
         cleaned = re.sub(r"\$\$", "  ", cleaned)
         # Remove backtick-quoted spans
         cleaned = re.sub(r"`[^`]*`", lambda m: " " * len(m.group()), cleaned)
