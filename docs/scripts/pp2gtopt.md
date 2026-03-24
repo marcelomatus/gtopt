@@ -186,8 +186,7 @@ the effective susceptance: $B_{\text{eff}} = B / \tau$, so a transformer with
 `phase_shift_deg` field is set.  In the DC OPF formulation the phase shift
 modifies the right-hand side of the Kirchhoff constraint:
 
-$$
--\theta_a + \theta_b + \tau \chi f^+ - \tau \chi f^- = -\sigma_\theta \cdot \varphi_{\text{rad}}
+$$ -\theta_a + \theta_b + \tau \chi f^+ - \tau \chi f^- = -\sigma_\theta \cdot \varphi_{\text{rad}}
 $$
 
 enabling the model to replicate PST-controlled power flow for large meshed
