@@ -15,10 +15,12 @@
 #include <gtopt/constraint_parser.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/system_lp.hpp>
 
 using namespace gtopt;
 
 #include "test_demand_emin_planning.hpp"
+#include "test_element_column_resolver.hpp"
 #include "test_ieee14_planning.hpp"
 #include "test_ieee14b_ori_planning.hpp"
 #include "test_ieee4b_ori_planning.hpp"
