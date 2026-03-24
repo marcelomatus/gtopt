@@ -438,8 +438,7 @@ void SDDPMethod::dispatch_update_lp(SceneIndex scene, IterationIndex iteration)
   //  - update_lp == false  → explicitly skip
   //  - update_lp == true   → force dispatch (bypass skip count)
   //  - not specified        → default behaviour (respect global skip count)
-  if (static_cast<Index>(iteration) < static_cast<Index>(m_iterations_.size()))
-  {
+  if (std::cmp_less(static_cast<Index>(iteration), m_iterations_.size())) {
     const auto& iter_lp = m_iterations_[iteration];
 
     if (iter_lp.has_explicit_update_lp()) {
@@ -463,6 +462,16 @@ void SDDPMethod::dispatch_update_lp(SceneIndex scene, IterationIndex iteration)
 
   for (const auto phase : iota_range<PhaseIndex>(0, num_phases)) {
     auto& sys = planning_lp().system(scene, phase);
+
+    // Set previous phase's SystemLP so that update_lp elements can
+    // look up the previous phase's efin for cross-phase boundaries.
+    if (phase > PhaseIndex {0}) {
+      const auto prev = PhaseIndex {static_cast<Index>(phase) - 1};
+      sys.set_prev_phase_sys(&planning_lp().system(scene, prev));
+    } else {
+      sys.set_prev_phase_sys(nullptr);
+    }
+
     const auto updated = sys.update_lp();
 
     if (updated > 0) {

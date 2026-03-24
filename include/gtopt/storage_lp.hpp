@@ -179,12 +179,67 @@ public:
   }
 
   /// Retrieve the physical eini (initial energy/volume) for a given
-  /// scenario and stage.  For the first stage of the first phase the eini
-  /// column is the fixed initial condition, so @p default_eini is returned
-  /// directly.  Otherwise, the fallback chain is:
-  ///   1. LP optimal solution
-  ///   2. Warm column solution (loaded from hot-start state file)
-  ///   3. default_eini
+  /// scenario and stage.
+  ///
+  /// For the first stage of the first phase the eini column is the fixed
+  /// initial condition, so @p default_eini is returned directly.
+  ///
+  /// For cross-phase boundaries (phase > 0), eini corresponds to the
+  /// previous phase's efin.  When the current LP hasn't been solved and
+  /// no warm solution is available, the method looks up the previous
+  /// phase's efin from sys.prev_phase_sys().  Fallback chain:
+  ///   1. Current LP optimal solution (eini/sini column)
+  ///   2. Current LP warm column solution (from hot-start state file)
+  ///   3. Previous phase's efin (via sys.prev_phase_sys())
+  ///   4. default_eini (system initial volume / vini)
+  ///
+  /// @tparam SystemLPT  The SystemLP type (templated to avoid circular
+  ///   include between storage_lp.hpp and system_lp.hpp).
+  /// @param sys  Current SystemLP (provides linear_interface and
+  ///   prev_phase_sys for cross-phase lookups).
+  /// @param sid  ObjectSingleId for this element, used to look up
+  ///   the same storage element in the previous phase.
+  template<typename SystemLPT, typename SIdT>
+  [[nodiscard]] double physical_eini(const SystemLPT& sys,
+                                     const ScenarioLP& scenario,
+                                     const StageLP& stage,
+                                     double default_eini,
+                                     const SIdT& sid) const
+  {
+    if (stage.index() == StageIndex {0}
+        && stage.phase_index() == PhaseIndex {0})
+    {
+      return default_eini;
+    }
+    const auto& li = sys.linear_interface();
+    const auto col = eini_col_at(scenario, stage);
+    if (li.is_optimal()) {
+      return physical_col_value(li.get_col_sol(), col);
+    }
+    const auto& warm = li.warm_col_sol();
+    if (!warm.empty() && static_cast<size_t>(col) < warm.size()) {
+      return physical_col_value(warm, col);
+    }
+    // Cross-phase fallback: eini at phase N == efin at phase N-1.
+    // Look up the same storage element in the previous phase and
+    // retrieve its efin from the last stage.
+    if (const auto* prev_sys = sys.prev_phase_sys()) {
+      const auto& prev_rsv =
+          prev_sys->template element<typename SIdT::object_type>(sid);
+      const auto& prev_li = prev_sys->linear_interface();
+      const auto& prev_stages = prev_sys->phase().stages();
+      if (!prev_stages.empty()) {
+        return prev_rsv.physical_efin(
+            prev_li, scenario, prev_stages.back(), default_eini);
+      }
+    }
+    return default_eini;
+  }
+
+  /// Retrieve the physical eini without cross-phase lookup.
+  ///
+  /// Used by callers that only have a LinearInterface (e.g. tests, non-SDDP
+  /// code).  Fallback chain: optimal solution → warm solution → default_eini.
   [[nodiscard]] double physical_eini(const LinearInterface& li,
                                      const ScenarioLP& scenario,
                                      const StageLP& stage,
@@ -225,6 +280,16 @@ public:
       return physical_col_value(warm, col);
     }
     return default_efin;
+  }
+
+  /// Overload accepting a SystemLP (extracts LinearInterface internally).
+  template<typename SystemLPT>
+  [[nodiscard]] double physical_efin(const SystemLPT& sys,
+                                     const ScenarioLP& scenario,
+                                     const StageLP& stage,
+                                     double default_efin) const
+  {
+    return physical_efin(sys.linear_interface(), scenario, stage, default_efin);
   }
 
   template<typename SystemContextT>

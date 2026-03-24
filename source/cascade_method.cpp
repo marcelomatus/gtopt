@@ -323,12 +323,31 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     // ── 3. Build SDDPOptions and create solver ──
     auto level_opts =
         build_level_sddp_opts(level.sddp_options, remaining_budget);
-    level_opts.save_per_iteration = false;  // only save at final level
 
-    // Last level: restore save_per_iteration from base opts
-    if (level_idx == m_cascade_opts_.level_array.size() - 1) {
-      level_opts.save_per_iteration = m_base_opts_.save_per_iteration;
+    // Route each level's output to a level-specific subdirectory so
+    // per-scene cut files and state files don't collide between levels.
+    // Final level keeps the original path for backward compatibility.
+    const bool is_last_level =
+        level_idx == m_cascade_opts_.level_array.size() - 1;
+    if (!m_base_opts_.cuts_output_file.empty()) {
+      const auto base_dir =
+          std::filesystem::path(m_base_opts_.cuts_output_file).parent_path();
+      const auto base_name =
+          std::filesystem::path(m_base_opts_.cuts_output_file).filename();
+      if (is_last_level) {
+        level_opts.cuts_output_file = m_base_opts_.cuts_output_file;
+      } else {
+        const auto level_dir = base_dir / level_name;
+        std::filesystem::create_directories(level_dir);
+        level_opts.cuts_output_file = (level_dir / base_name).string();
+      }
     }
+
+    // Intermediate levels save per-iteration so that their cuts and
+    // state are available for cascade hot-start.  Final level uses
+    // the base option.
+    level_opts.save_per_iteration =
+        is_last_level ? m_base_opts_.save_per_iteration : true;
 
     // Always create a fresh solver for each level, ensuring clean state.
     current_solver = std::make_unique<SDDPMethod>(*current_lp, level_opts);
@@ -425,6 +444,30 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
           }
         }
       }
+    }
+
+    // ── Load previous level's state variable solutions ──
+    // When a previous level saved state to a temp file, load it into the
+    // new level's PlanningLP via name-based resolution.  This seeds the
+    // warm column solutions so that update_lp elements (e.g.
+    // ReservoirProductionFactorLP) use physical volumes from the previous
+    // level rather than falling back to default JSON values.
+    if (level_idx > 0 && !m_prev_state_file_.empty()
+        && std::filesystem::exists(m_prev_state_file_))
+    {
+      auto state_load = load_state_csv(*current_lp, m_prev_state_file_);
+      if (state_load.has_value()) {
+        SPDLOG_INFO("Cascade [{}]: loaded state from previous level",
+                    level_name);
+      } else {
+        SPDLOG_WARN("Cascade [{}]: could not load state: {}",
+                    level_name,
+                    state_load.error().message);
+      }
+      // Clean up temp file
+      std::error_code ec;
+      std::filesystem::remove(m_prev_state_file_, ec);
+      m_prev_state_file_.clear();
     }
 
     // ── Cut forgetting: iteration-aware inherited cut lifecycle ──
@@ -575,6 +618,25 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     // ── 5. Extract state for next level ──
     if (level_idx + 1 < m_cascade_opts_.level_array.size()) {
       prev_targets = collect_named_targets(*current_solver, *current_lp);
+
+      // Save state variable solutions to a temp file for inter-level
+      // transfer.  The next level loads these via name-based resolution,
+      // which handles different LP column layouts between levels.
+      const auto state_tmp = std::filesystem::temp_directory_path()
+          / std::format("cascade_state_{}.csv", level_idx);
+      auto state_save =
+          save_state_csv(*current_lp, state_tmp.string(), IterationIndex {0});
+      if (state_save.has_value()) {
+        m_prev_state_file_ = state_tmp.string();
+        SPDLOG_INFO("Cascade [{}]: saved state for next level to {}",
+                    level_name,
+                    state_tmp.string());
+      } else {
+        m_prev_state_file_.clear();
+        SPDLOG_WARN("Cascade [{}]: could not save state: {}",
+                    level_name,
+                    state_save.error().message);
+      }
 
       // Update stored cut duals from the last LP solution
       current_solver->update_stored_cut_duals();
