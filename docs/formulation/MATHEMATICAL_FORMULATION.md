@@ -459,8 +459,7 @@ $$
 
 A single bidirectional flow variable $f_l$ is created:
 
-$$
--\overline{F}_l^{ba} \;\leq\; f_{l,s,t,b} \;\leq\; \overline{F}_l^{ab}
+$$ -\overline{F}_l^{ba} \;\leq\; f_{l,s,t,b} \;\leq\; \overline{F}_l^{ab}
 \qquad \forall \; l, s, t, b
 $$
 
@@ -526,8 +525,7 @@ $$
 
 the constraint becomes:
 
-$$
--\theta_{a,s,t,b} + \theta_{b,s,t,b} + \chi_l \, f_{l,s,t,b}^{+} - \chi_l \, f_{l,s,t,b}^{-} = 0
+$$ -\theta_{a,s,t,b} + \theta_{b,s,t,b} + \chi_l \, f_{l,s,t,b}^{+} - \chi_l \, f_{l,s,t,b}^{-} = 0
 \qquad \forall \; l, s, t, b
 $$
 
@@ -545,8 +543,7 @@ the standard Kirchhoff constraint with two additional parameters:
 
 The generalised Kirchhoff constraint for a transformer branch is:
 
-$$
--\theta_{a,s,t,b} + \theta_{b,s,t,b} +
+$$ -\theta_{a,s,t,b} + \theta_{b,s,t,b} +
 (\tau_l \, \chi_l) \, f_{l,s,t,b}^{+} -
 (\tau_l \, \chi_l) \, f_{l,s,t,b}^{-}
 = -\sigma_\theta \cdot \varphi_{l,\text{rad}}
@@ -591,8 +588,7 @@ typically $\theta^{\text{ref}} = 0$.
 
 For non-reference buses:
 
-$$
--2\pi \, \sigma_\theta \;\leq\; \theta_{n,s,t,b} \;\leq\; 2\pi \, \sigma_\theta
+$$ -2\pi \, \sigma_\theta \;\leq\; \theta_{n,s,t,b} \;\leq\; 2\pi \, \sigma_\theta
 \qquad \forall \; n \neq n^{\text{ref}},\; s, t, b
 $$
 
@@ -825,7 +821,7 @@ The efficiency is modelled as a **concave piecewise-linear envelope**
 parameterised by $N$ segments:
 
 $$
-\kappa_u(v) = \min_{i=1}^{N} \left\{ c_i + m_i \cdot (v - v_i) \right\}
+\kappa_u(v) = \min_{i=1}^{N} \lbrace c_i + m_i \cdot (v - v_i) \rbrace
 $$
 
 where for each segment $i$:
@@ -865,7 +861,7 @@ When a set of segments $\{(V_k, b_k, c_k)\}_{k=1}^{K}$ is provided, the
 filtration function is defined by a concave envelope:
 
 $$
-\varphi(V) = \min_{k} \bigl\{ c_k + b_k \cdot (V - V_k) \bigr\}
+\varphi(V) = \min_{k} \lbrace c_k + b_k \cdot (V - V_k) \rbrace
 $$
 
 At each phase, the active segment $k^*$ is selected based on the last known
