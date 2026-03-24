@@ -315,7 +315,7 @@ TEST_CASE("SystemLP with reservoir production factor element")
     // Update coefficients using the reservoir's initial volume (eini = 500).
     // The new API derives the volume from the reservoir LP itself (iteration=0
     // and phase=0 both trigger the eini fallback: rsv.reservoir().eini = 500).
-    const auto updated = dispatch_update_lp(system_lp);
+    const auto updated = system_lp.update_lp();
     CHECK(updated > 0);
 
     // Verify the coefficient was changed (original was -1.0)
@@ -458,7 +458,7 @@ TEST_CASE("ReservoirProductionFactorLP - update_lp with different eini segment")
   // update_lp uses vavg = (eini + efin_from_solution) / 2.
   // physical_eini returns eini=100 (first stage, first phase fallback).
   // physical_efin reads from the LP solution.
-  const auto updated = dispatch_update_lp(system_lp);
+  const auto updated = system_lp.update_lp();
   CHECK(updated > 0);
 
   auto& effs = system_lp.elements<ReservoirProductionFactorLP>();
@@ -595,6 +595,6 @@ TEST_CASE(
   // which differs from mean_production_factor=2.0 set at add_to_lp,
   // so the coefficient IS updated.  ReservoirProductionFactorLP::update_lp
   // always calls update_conversion_coeff when coeff indices exist.
-  const auto updated = dispatch_update_lp(system_lp);
+  const auto updated = system_lp.update_lp();
   CHECK(updated > 0);
 }

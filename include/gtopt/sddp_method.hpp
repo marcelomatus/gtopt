@@ -67,12 +67,12 @@
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/enum_option.hpp>
 #include <gtopt/error.hpp>
+#include <gtopt/iteration_lp.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_method.hpp>
-#include <gtopt/reservoir_production_factor_lp.hpp>
 #include <gtopt/sddp_aperture.hpp>
 #include <gtopt/sddp_clone_pool.hpp>
 #include <gtopt/sddp_common.hpp>
@@ -819,13 +819,11 @@ private:
                                                   IterationIndex iteration = {})
       -> std::expected<int, Error>;
 
-  /// Update volume-dependent LP coefficients (turbine efficiency, etc.)
-  /// before solving a phase in the forward pass.  Uses reservoir eini for
-  /// the first iteration and the previous iteration's solved volumes for
-  /// subsequent iterations.
-  void update_coefficients_for_phase(SceneIndex scene,
-                                     PhaseIndex phase,
-                                     IterationIndex iteration);
+  /// Conditionally dispatch update_lp for all phases in a scene.
+  /// Checks the preallocated iteration vector for explicit skip/force
+  /// flags and the global skip count before calling SystemLP::update_lp()
+  /// on each phase.  Called once per scene before the forward pass.
+  void dispatch_update_lp(SceneIndex scene, IterationIndex iteration);
 
   /// Clone the LP, apply elastic filter on the clone, and solve it.
   /// Returns an ElasticResult (with solution data and per-link slack info)
@@ -1064,6 +1062,12 @@ private:
       m_infeasibility_counter_;
 
   bool m_initialized_ {false};
+
+  /// Preallocated iteration vector, sized to `iteration_offset +
+  /// max_iterations`. Default-constructed entries represent iterations with no
+  /// user override. Populated in initialize_solver() after iteration_offset is
+  /// known.
+  StrongIndexVector<IterationIndex, IterationLP> m_iterations_ {};
 
   /// Iteration offset from hot-start cuts.  When cuts from a previous
   /// run are loaded, the solver starts numbering new iterations after

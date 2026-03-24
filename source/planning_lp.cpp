@@ -16,7 +16,6 @@
 
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_method.hpp>
-#include <gtopt/reservoir_production_factor_lp.hpp>
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/system_context.hpp>
@@ -92,11 +91,11 @@ auto PlanningLP::create_systems(System& system,
   }
 
   // After all add_to_lp calls, dispatch a single initial update_lp pass
-  // (iteration=0, phase=0) so that volume-dependent coefficients are set
-  // from the reservoir eini values before the first solve.
+  // so that volume-dependent LP elements are set from the reservoir eini
+  // values before any solver is called.
   for (auto& phase_systems : all_systems) {
     for (auto& sys : phase_systems) {
-      std::ignore = dispatch_update_lp(sys);
+      std::ignore = sys.update_lp();
     }
   }
 

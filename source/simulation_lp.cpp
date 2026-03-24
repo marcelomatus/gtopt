@@ -134,16 +134,6 @@ auto create_scene_array(const Simulation& simulation)
                                           }));
 }
 
-auto create_iteration_array(const Simulation& simulation)
-{
-  auto idx = IterationIndex {0};
-  return std::ranges::to<std::vector>(
-      simulation.iteration_array
-      | std::ranges::views::transform(
-          [&idx](const Iteration& iteration)
-          { return IterationLP {iteration, idx++}; }));
-}
-
 }  // namespace
 
 SimulationLP::SimulationLP(const Simulation& simulation,
@@ -155,7 +145,6 @@ SimulationLP::SimulationLP(const Simulation& simulation,
     , m_phase_array_(create_phase_array(simulation, options))
     , m_scenario_array_(create_scenario_array(simulation))
     , m_scene_array_(create_scene_array(simulation))
-    , m_iteration_array_(create_iteration_array(simulation))
     , m_global_variable_map_(std::ranges::to<global_variable_map_t>(
           iota_range<Size>(0, m_scene_array_.size())
           | std::views::transform(

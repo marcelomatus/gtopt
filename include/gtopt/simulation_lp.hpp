@@ -18,7 +18,6 @@
 #include <vector>
 
 #include <gtopt/block_lp.hpp>
-#include <gtopt/iteration_lp.hpp>
 #include <gtopt/options_lp.hpp>
 #include <gtopt/phase_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
@@ -128,32 +127,6 @@ public:
     return m_simulation_.get().aperture_array;
   }
 
-  /**
-   * @brief Gets all iteration LP representations
-   * @return Const reference to vector of IterationLP objects
-   */
-  [[nodiscard]] constexpr const auto& iterations() const noexcept
-  {
-    return m_iteration_array_;
-  }
-
-  /**
-   * @brief Look up an IterationLP by its iteration index
-   * @param iteration The 0-based iteration index to look up
-   * @return Pointer to IterationLP if found, nullptr otherwise
-   */
-  [[nodiscard]] auto find_iteration(IterationIndex iteration) const noexcept
-      -> const IterationLP*
-  {
-    const auto target = static_cast<Index>(iteration);
-    for (const auto& it : m_iteration_array_) {
-      if (it.iteration().index == target) {
-        return &it;
-      }
-    }
-    return nullptr;
-  }
-
   [[nodiscard]] constexpr auto previous_stage(const StageLP& stage)
   {
     if (stage.index() == StageIndex {0}) {
@@ -261,7 +234,6 @@ private:
   std::vector<PhaseLP> m_phase_array_;
   std::vector<ScenarioLP> m_scenario_array_;
   std::vector<SceneLP> m_scene_array_;
-  std::vector<IterationLP> m_iteration_array_;
 
   global_variable_map_t m_global_variable_map_;
 };

@@ -310,4 +310,29 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
   return linear_interface().resolve(solver_options);
 }
 
+int SystemLP::update_lp()
+{
+  if (!linear_interface().supports_set_coeff()) {
+    return 0;
+  }
+
+  int total = 0;
+
+  for (auto&& scenario : scene().scenarios()) {
+    for (auto&& stage : phase().stages()) {
+      visit_elements(collections(),
+                     [&total, this, &scenario, &stage](auto& element) -> bool
+                     {
+                       using T = std::decay_t<decltype(element)>;
+                       if constexpr (HasUpdateLP<T>) {
+                         total += element.update_lp(*this, scenario, stage);
+                       }
+                       return true;
+                     });
+    }
+  }
+
+  return total;
+}
+
 }  // namespace gtopt
