@@ -1,0 +1,67 @@
+name: Docs
+
+on:
+  push:
+    paths:
+      - 'docs/**'
+      - '*.md'
+      - 'tools/check_latex_math.py'
+  pull_request:
+    branches:
+      - master
+      - main
+    paths:
+      - 'docs/**'
+      - '*.md'
+      - 'tools/check_latex_math.py'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check-latex-math:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Lint LaTeX math in Markdown
+        run: |
+          set +e
+          OUTPUT=$(python tools/check_latex_math.py docs/ *.md 2>&1)
+          EXIT_CODE=$?
+          set -e
+
+          echo "$OUTPUT"
+
+          if [ $EXIT_CODE -ne 0 ]; then
+            # Emit per-issue annotations
+            echo "$OUTPUT" | grep -E '^[^:]+\.md:' | while IFS= read -r line; do
+              FILE=$(echo "$line" | cut -d: -f1)
+              LINE=$(echo "$line" | cut -d: -f2)
+              MSG=$(echo "$line" | cut -d: -f3-)
+              echo "::error file=$FILE,line=$LINE::$MSG"
+            done
+
+            N=$(echo "$OUTPUT" | grep -c '\.md:' || true)
+            echo "## ❌ LaTeX math lint: $N issue(s)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$OUTPUT" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Fix locally: \`python tools/check_latex_math.py docs/ *.md\`" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          else
+            echo "## ✅ LaTeX math lint: no issues" >> $GITHUB_STEP_SUMMARY
+          fi
