@@ -1243,6 +1243,7 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "simulation_mode",
         "stationary_tol",
         "stationary_window",
+        "update_lp_skip",
     }
 )
 

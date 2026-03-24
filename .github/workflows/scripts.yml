@@ -130,6 +130,16 @@ jobs:
       - name: Install scripts package and dev dependencies
         run: uv pip install --system -e "./scripts[dev]" graphviz
 
+      - name: Install solver runtime dependencies
+        run: |
+          # The gtopt solver plugins (libgtopt_solver_osi.so) need COIN-OR
+          # runtime libraries.  Install them before downloading the binary
+          # so that _ensure_binary_libs() succeeds without needing sudo.
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            coinor-libclp1 coinor-libosi1v5 coinor-libcoinutils3v5 \
+            liblapack3 libblas3
+
       - name: Download gtopt binary and install runtime libraries
         run: |
           # Download the binary from the latest CI artifact and install any
@@ -144,10 +154,29 @@ jobs:
             exit $RC
           fi
           echo "GTOPT_BIN=$GTOPT_BIN" >> "$GITHUB_ENV"
+
+          # Log binary version and available solver plugins for diagnostics
+          echo "--- gtopt binary version ---"
+          "$GTOPT_BIN" --version || true
+          echo "--- Files alongside binary ---"
+          ls -la "$(dirname "$GTOPT_BIN")/"
+          echo "--- Available LP solver plugins ---"
+          "$GTOPT_BIN" --lp-solvers || true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify solver plugins are available
+        id: check_solvers
+        run: |
+          if "$GTOPT_BIN" --lp-solvers 2>&1 | grep -q "Available"; then
+            echo "has_solvers=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning title=No solver plugins::The downloaded gtopt artifact does not contain solver plugins. Integration tests will be skipped. This resolves once the ubuntu.yml artifact is rebuilt with plugins."
+            echo "has_solvers=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run integration tests
+        if: steps.check_solvers.outputs.has_solvers == 'true'
         working-directory: scripts
         run: |
           pytest \
@@ -351,8 +380,8 @@ jobs:
 
       - name: pylint
         working-directory: scripts
-        run: pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
+        run: pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt gtopt2pp gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_compress_lp gtopt_config run_gtopt
 
       - name: mypy
         working-directory: scripts
-        run: mypy gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt --ignore-missing-imports
+        run: mypy gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt gtopt2pp gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_compress_lp gtopt_config run_gtopt --ignore-missing-imports

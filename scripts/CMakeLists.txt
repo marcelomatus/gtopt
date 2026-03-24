@@ -167,9 +167,14 @@ set(_SCRIPT_MODULES
   gtopt_field_extractor
   gtopt_check_lp
   gtopt_check_json
+  gtopt_check_output
+  gtopt_compress_lp
+  gtopt_config
+  gtopt2pp
   igtopt
   plp2gtopt
   pp2gtopt
+  run_gtopt
   sddp_monitor
   ts2gtopt
 )
@@ -182,7 +187,7 @@ foreach(_mod IN LISTS _SCRIPT_MODULES)
   list(APPEND _SCRIPT_COV_ARGS  "--cov=${SCRIPTS_DIR}/${_mod}")
 endforeach()
 # Add test dirs for packages that have tests/ subdirectories.
-foreach(_mod IN ITEMS gtopt_compare cvs2parquet gtopt_diagram gtopt_check_lp gtopt_check_json gtopt2pp igtopt plp2gtopt pp2gtopt ts2gtopt)
+foreach(_mod IN ITEMS gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor gtopt_check_lp gtopt_check_json gtopt_check_output gtopt_compress_lp gtopt_config gtopt2pp igtopt plp2gtopt pp2gtopt run_gtopt sddp_monitor ts2gtopt)
   list(APPEND _SCRIPT_TEST_DIRS "${SCRIPTS_DIR}/${_mod}/tests")
 endforeach()
 

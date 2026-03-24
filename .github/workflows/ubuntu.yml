@@ -185,11 +185,23 @@ jobs:
           FAILED=$(grep -c "Failed" ctest_output.log || echo 0)
           echo "Total: $TOTAL | Passed: $PASSED | Failed: $FAILED"
 
+      - name: prepare gtopt artifact
+        run: |
+          # Copy solver plugin libraries next to the binary so that the
+          # artifact is self-contained.  SolverRegistry discovers plugins
+          # in <exe_dir>/ automatically.
+          if ls build/plugins/libgtopt_solver_*.so >/dev/null 2>&1; then
+            cp build/plugins/libgtopt_solver_*.so build/standalone/
+          fi
+          ls -la build/standalone/
+
       - name: upload gtopt binary
         uses: actions/upload-artifact@v4
         with:
           name: gtopt-binary-debug
-          path: build/standalone/gtopt
+          path: |
+            build/standalone/gtopt
+            build/standalone/libgtopt_solver_*.so
           retention-days: 7
 
       - name: collect coverage (unit + integration)
@@ -485,6 +497,8 @@ jobs:
       - name: Copy gtopt binary to install prefix
         run: |
           cp gtopt-install/bin/gtopt $HOME/gtopt-install/bin/gtopt
+          # Copy solver plugin libraries alongside the binary
+          cp gtopt-install/bin/libgtopt_solver_*.so $HOME/gtopt-install/bin/ 2>/dev/null || true
           chmod +x $HOME/gtopt-install/bin/gtopt
 
       - name: Test webservice runs after installation
@@ -554,6 +568,8 @@ jobs:
         run: |
           mkdir -p $HOME/gtopt-install/bin
           cp ${{ runner.temp }}/gtopt-bin/gtopt $HOME/gtopt-install/bin/gtopt
+          # Copy solver plugin libraries alongside the binary
+          cp ${{ runner.temp }}/gtopt-bin/libgtopt_solver_*.so $HOME/gtopt-install/bin/ 2>/dev/null || true
           chmod +x $HOME/gtopt-install/bin/gtopt
           $HOME/gtopt-install/bin/gtopt --version
           echo "✓ gtopt binary installed from CI artifact"

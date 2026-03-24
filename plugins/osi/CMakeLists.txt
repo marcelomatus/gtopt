@@ -67,10 +67,17 @@ endif()
 find_package(OsiCpx QUIET)
 if(OSICPX_FOUND)
   find_package(CPLEX QUIET)
-  target_link_libraries(gtopt_solver_osi PRIVATE
-    ${COIN_OSICPX_LIBRARY} ${CPLEX_LIBRARIES}
-  )
-  target_compile_definitions(gtopt_solver_osi PRIVATE GTOPT_OSI_HAS_CPX)
+  if(CPLEX_FOUND)
+    target_include_directories(gtopt_solver_osi SYSTEM PRIVATE
+      ${CPLEX_INCLUDE_DIRS}
+    )
+    target_link_libraries(gtopt_solver_osi PRIVATE
+      ${COIN_OSICPX_LIBRARY} ${CPLEX_LIBRARIES}
+    )
+    target_compile_definitions(gtopt_solver_osi PRIVATE GTOPT_OSI_HAS_CPX)
+  else()
+    message(STATUS "OsiCpx found but CPLEX SDK not found – CPLEX support disabled")
+  endif()
 endif()
 
 # ---- Output location ----
