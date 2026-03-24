@@ -449,24 +449,41 @@ After the backward pass, cuts from all scenes are optionally shared.  In
 
 ### 4.7 LP Coefficient Updates
 
-Before solving each phase in the forward pass, the solver calls the
-**generalized coefficient update hook** `update_lp_coefficients()`.  This
-updates LP matrix coefficients that depend on the current state of the
-system (e.g., reservoir volumes).
+The `update_lp` mechanism updates LP matrix coefficients, bounds, and RHS
+values that depend on the current state of the system (e.g., reservoir
+volumes).  It uses a **two-layer architecture**:
 
-Currently implemented updates:
+**Layer 1 — `SystemLP::update_lp()`**: Unconditional dispatch.  Iterates
+over all (scenario, stage) pairs in this system's scene/phase and calls
+`element.update_lp(sys, scenario, stage)` on every element that satisfies
+the `HasUpdateLP` concept.  Returns the total number of LP modifications.
 
-1. **Turbine efficiency** — For each `ReservoirEfficiency` element, the
-   solver reads the current reservoir volume, evaluates the piecewise-
-   linear efficiency curve, and sets the turbine's conversion-rate LP
-   coefficient via `set_coeff()`.
+**Layer 2 — `SDDPMethod::dispatch_update_lp(scene, iteration)`**:
+Conditional wrapper called at the start of each forward pass (per scene,
+in the per-scene thread).  Applies three-way iteration logic before
+delegating to `SystemLP::update_lp()` for each phase:
 
-The hook is designed to be extended with additional update types:
+- `iteration.update_lp == false` → skip (explicitly disabled)
+- `iteration.update_lp == true` → force (bypass skip count)
+- not specified → apply global `update_lp_skip` count
 
-2. **Filtration coefficients** (planned) — seepage rates that depend on
-   reservoir volume.
-3. **Linearised line losses** (planned) — loss coefficients that depend
-   on the current operating point.
+**Call sites**:
+
+- **After LP assembly** (`planning_lp.cpp`): `sys.update_lp()` is called
+  unconditionally for every system, setting volume-dependent coefficients
+  from reservoir `eini` values before any solver runs.
+- **SDDP forward pass** (`sddp_forward_pass.cpp`):
+  `dispatch_update_lp(scene, iteration)` runs before the phase solve loop.
+
+**Currently implemented element updates**:
+
+1. **Turbine efficiency** (`ReservoirProductionFactorLP`) — evaluates the
+   piecewise-linear efficiency curve at the current reservoir volume and
+   sets the turbine's conversion-rate LP coefficient via `set_coeff()`.
+2. **Seepage** (`ReservoirSeepageLP`) — updates slope and RHS of seepage
+   constraints based on volume-dependent piecewise-linear segments.
+3. **Discharge limits** (`ReservoirDischargeLimitLP`) — updates slope and
+   RHS of volume-dependent discharge limit constraints.
 
 **Volume source by iteration**:
 
@@ -476,17 +493,14 @@ The hook is designed to be extended with additional update types:
 | First (1)   | `eini` from reservoir | `eini` from reservoir |
 | Subsequent  | `eini` from reservoir | Previous phase efin (via state variable) |
 
-**Skip count**: the `efficiency_update_skip` option (per-element
-`sddp_efficiency_update_skip` on `ReservoirEfficiency`, or global
-`efficiency_update_skip` in `sddp_options`) controls how often the update
-is applied.  A skip of $N$ means
-"update every $N{+}1$ iterations".  This reduces computational overhead
-when the efficiency curve is nearly flat.
+**Skip count**: the `update_lp_skip` option in `sddp_options` controls
+how often the update is applied.  A skip of $N$ means "update every
+$N{+}1$ iterations".  Per-iteration overrides via the `iteration_array`
+take precedence over the global skip count.
 
 **Solver fallback**: if the LP solver does not support in-place matrix
 coefficient modification (`supports_set_coeff()` returns `false`), the
-static `conversion_rate` from the Turbine element is used unchanged and
-a warning is logged.
+update is skipped entirely and static coefficients are used unchanged.
 
 ### 4.8 Sentinel File Stop
 
