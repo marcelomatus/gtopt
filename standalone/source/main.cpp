@@ -65,7 +65,25 @@ int main(int argc, char** argv)
       const auto& registry = gtopt::SolverRegistry::instance();
       const auto solvers = registry.available_solvers();
       if (solvers.empty()) {
-        std::cout << "No LP solver plugins found.\n";
+        std::cout << "No LP solver plugins found.\n\n";
+        std::cout << "Search directories:\n";
+        for (const auto& dir : registry.searched_directories()) {
+          std::cout << "  " << dir << '\n';
+        }
+        const auto& errors = registry.load_errors();
+        if (!errors.empty()) {
+          std::cout << "\nPlugin load errors:\n";
+          for (const auto& err : errors) {
+            std::cout << "  " << err << '\n';
+          }
+        }
+        std::cout
+            << "\nHints:\n"
+            << "  - Set GTOPT_PLUGIN_DIR to the directory containing solver "
+               "plugin libraries\n"
+            << "  - Ensure solver plugins (osi and/or highs) are installed\n"
+            << "  - Install COIN-OR (coinor-libcbc-dev) for CLP/CBC support\n"
+            << "  - Install HiGHS for HiGHS support\n";
       } else {
         std::cout << "Available LP solvers:\n";
         for (const auto& s : solvers) {
