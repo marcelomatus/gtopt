@@ -82,6 +82,35 @@ template<typename T>
   return max_it->uid + 1;
 }
 
+/**
+ * @brief Check if a UID already exists in an element array
+ * @tparam T Element type (must have .uid member)
+ * @param arr Array of elements
+ * @param uid UID to check
+ * @return True if the UID already exists
+ */
+template<typename T>
+[[nodiscard]] bool uid_exists(const gtopt::Array<T>& arr, gtopt::Uid uid)
+{
+  return std::ranges::any_of(
+      arr, [uid](const auto& elem) { return elem.uid == uid; });
+}
+
+/**
+ * @brief Check if a name already exists in an element array
+ * @tparam T Element type (must have .name member)
+ * @param arr Array of elements
+ * @param name Name to check
+ * @return True if the name already exists
+ */
+template<typename T>
+[[nodiscard]] bool name_exists(const gtopt::Array<T>& arr,
+                               const std::string& name)
+{
+  return std::ranges::any_of(
+      arr, [&name](const auto& elem) { return elem.name == name; });
+}
+
 }  // namespace
 
 namespace gtopt
@@ -201,10 +230,10 @@ void System::expand_reservoir_constraints()
     const SingleId rsv_id {rsv.uid};
 
     for (auto& s : rsv.seepage) {
-      if (s.uid == unknown_uid) {
+      if (s.uid == unknown_uid || uid_exists(reservoir_seepage_array, s.uid)) {
         s.uid = seep_uid++;
       }
-      if (s.name.empty()) {
+      if (s.name.empty() || name_exists(reservoir_seepage_array, s.name)) {
         s.name = rsv.name + "_seepage_" + std::to_string(s.uid);
       }
       s.reservoir = rsv_id;
@@ -213,10 +242,14 @@ void System::expand_reservoir_constraints()
     rsv.seepage.clear();
 
     for (auto& d : rsv.discharge_limit) {
-      if (d.uid == unknown_uid) {
+      if (d.uid == unknown_uid
+          || uid_exists(reservoir_discharge_limit_array, d.uid))
+      {
         d.uid = dlim_uid++;
       }
-      if (d.name.empty()) {
+      if (d.name.empty()
+          || name_exists(reservoir_discharge_limit_array, d.name))
+      {
         d.name = rsv.name + "_dlim_" + std::to_string(d.uid);
       }
       d.reservoir = rsv_id;
@@ -225,10 +258,14 @@ void System::expand_reservoir_constraints()
     rsv.discharge_limit.clear();
 
     for (auto& p : rsv.production_factor) {
-      if (p.uid == unknown_uid) {
+      if (p.uid == unknown_uid
+          || uid_exists(reservoir_production_factor_array, p.uid))
+      {
         p.uid = pfac_uid++;
       }
-      if (p.name.empty()) {
+      if (p.name.empty()
+          || name_exists(reservoir_production_factor_array, p.name))
+      {
         p.name = rsv.name + "_pfac_" + std::to_string(p.uid);
       }
       p.reservoir = rsv_id;
