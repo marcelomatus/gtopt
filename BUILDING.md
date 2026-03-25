@@ -26,12 +26,13 @@ This guide provides detailed instructions for building gtopt from source, includ
 | Boost | 1.70+ | Container library | `libboost-container-dev` |
 | Apache Arrow | 10.0+ | Parquet I/O | `libarrow-dev libparquet-dev` or conda |
 | COIN-OR CBC/CLP | 2.10+ | LP/MIP solver | `coinor-libcbc-dev` |
+| HiGHS | 1.5+ | LP/MIP solver (optional) | `libhighs-dev` |
 | spdlog | 1.12+ | Logging | `libspdlog-dev` |
 
 **LP Solver Backends**: gtopt loads LP solver backends as dynamic plugins at
 runtime. The default is auto-detected by priority: CPLEX > HiGHS > CBC > CLP.
-Installing `coinor-libcbc-dev` provides CLP/CBC. HiGHS can be installed
-separately. Use `--lp-solvers` to list available backends, or `--lp-solver
+Installing `coinor-libcbc-dev` provides CLP/CBC. Installing `libhighs-dev`
+provides HiGHS. Use `--lp-solvers` to list available backends, or `--lp-solver
 highs` to select a specific one. Set `GTOPT_PLUGIN_DIR` to point to a custom
 plugin directory.
 
@@ -177,6 +178,20 @@ Verify:
 
 ```bash
 pkg-config --modversion cbc
+```
+
+#### HiGHS Solver (optional)
+
+HiGHS is a high-performance open-source LP/MIP solver:
+
+```bash
+sudo apt-get install -y libhighs-dev
+```
+
+Verify:
+
+```bash
+dpkg -l libhighs-dev
 ```
 
 ### macOS
