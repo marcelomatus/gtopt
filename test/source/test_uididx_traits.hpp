@@ -76,7 +76,7 @@ TEST_CASE("Scenario-Stage-Block mapping")
   SUBCASE("Empty simulation")
   {
     const Simulation sim;
-    const OptionsLP options;
+    const PlanningOptionsLP options;
     const SimulationLP sim_lp(sim, options);
 
     auto result = TestTraits::make_vector_uids_idx(sim_lp);
@@ -99,7 +99,7 @@ TEST_CASE("Scenario-Stage-Block mapping")
     sim.block_array.emplace_back(Block {.uid = BlockUid {3}});
     // Need to add blocks to test full mapping
 
-    const OptionsLP options;
+    const PlanningOptionsLP options;
     const SimulationLP sim_lp(sim, options);
 
     auto result = TestTraits::make_vector_uids_idx(sim_lp);
@@ -124,7 +124,7 @@ TEST_CASE("Scenario-Stage mapping")
     sim.scenario_array.emplace_back(Scenario {.uid = ScenarioUid {1}});
     sim.stage_array.emplace_back(Stage {.uid = StageUid {1}});
 
-    const OptionsLP options;
+    const PlanningOptionsLP options;
     const SimulationLP sim_lp(sim, options);
 
     // Remove constexpr requirement since flat_map isn't constexpr
@@ -145,7 +145,7 @@ TEST_CASE("Stage mapping")
     sim.stage_array.emplace_back(Stage {.uid = StageUid {1}});
     sim.stage_array.emplace_back(Stage {.uid = StageUid {1}});  // Duplicate
 
-    const OptionsLP options;
+    const PlanningOptionsLP options;
     const SimulationLP sim_lp(sim, options);
 
     // Remove constexpr requirement since flat_map isn't constexpr
@@ -168,7 +168,7 @@ TEST_CASE("Single UID type")
   Simulation sim;
   sim.stage_array.emplace_back(Stage {.uid = StageUid {42}});
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   const SimulationLP sim_lp(sim, options);
 
   // Remove constexpr requirement since flat_map isn't constexpr

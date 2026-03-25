@@ -32,11 +32,11 @@ TEST_CASE("MonolithicOptions JSON - Full deserialization")
   const auto opts = daw::json::from_json<MonolithicOptions>(json_data);
 
   REQUIRE(opts.solve_mode.has_value());
-  CHECK(*opts.solve_mode == "sequential");
+  CHECK(*opts.solve_mode == SolveMode::sequential);
   REQUIRE(opts.boundary_cuts_file.has_value());
   CHECK(*opts.boundary_cuts_file == "boundary.csv");
   REQUIRE(opts.boundary_cuts_mode.has_value());
-  CHECK(*opts.boundary_cuts_mode == "combined");
+  CHECK(*opts.boundary_cuts_mode == BoundaryCutsMode::combined);
   REQUIRE(opts.boundary_max_iterations.has_value());
   CHECK(*opts.boundary_max_iterations == 10);
   REQUIRE(opts.solver_options.has_value());
@@ -56,7 +56,7 @@ TEST_CASE("MonolithicOptions JSON - Missing fields stay nullopt")
   const auto opts = daw::json::from_json<MonolithicOptions>(json_data);
 
   REQUIRE(opts.solve_mode.has_value());
-  CHECK(*opts.solve_mode == "monolithic");
+  CHECK(*opts.solve_mode == SolveMode::monolithic);
   CHECK_FALSE(opts.boundary_cuts_file.has_value());
   CHECK_FALSE(opts.boundary_cuts_mode.has_value());
   CHECK_FALSE(opts.boundary_max_iterations.has_value());
@@ -69,9 +69,9 @@ TEST_CASE("MonolithicOptions JSON - Missing fields stay nullopt")
 TEST_CASE("MonolithicOptions JSON - Round-trip serialization")
 {
   const MonolithicOptions original {
-      .solve_mode = "sequential",
+      .solve_mode = SolveMode::sequential,
       .boundary_cuts_file = "cuts.csv",
-      .boundary_cuts_mode = "separated",
+      .boundary_cuts_mode = BoundaryCutsMode::separated,
       .boundary_max_iterations = 5,
   };
 

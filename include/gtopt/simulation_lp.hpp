@@ -18,8 +18,8 @@
 #include <vector>
 
 #include <gtopt/block_lp.hpp>
-#include <gtopt/options_lp.hpp>
 #include <gtopt/phase_lp.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/scene_lp.hpp>
 #include <gtopt/simulation.hpp>
@@ -59,7 +59,8 @@ public:
    * @throws std::runtime_error If component validation fails
    * @throws std::bad_alloc If memory allocation fails
    */
-  explicit SimulationLP(const Simulation& simulation, const OptionsLP& options);
+  explicit SimulationLP(const Simulation& simulation,
+                        const PlanningOptionsLP& options);
 
   // Accessors
   /**
@@ -76,7 +77,7 @@ public:
    * @brief Gets the LP solver options
    * @return Const reference to the options object
    */
-  [[nodiscard]] constexpr const OptionsLP& options() const noexcept
+  [[nodiscard]] constexpr const PlanningOptionsLP& options() const noexcept
   {
     return m_options_.get();
   }
@@ -228,7 +229,7 @@ public:
 
 private:
   std::reference_wrapper<const Simulation> m_simulation_;
-  std::reference_wrapper<const OptionsLP> m_options_;
+  std::reference_wrapper<const PlanningOptionsLP> m_options_;
   std::vector<BlockLP> m_block_array_;
   std::vector<StageLP> m_stage_array_;
   std::vector<PhaseLP> m_phase_array_;

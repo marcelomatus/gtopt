@@ -1314,7 +1314,10 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "stationary_tol",
         "stationary_window",
         "update_lp_skip",
+<<<<<<< copilot/fix-dependency-conflict-cbc
         "solver_options",
+=======
+>>>>>>> master
         "forward_solver_options",
         "backward_solver_options",
     }

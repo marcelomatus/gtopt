@@ -22,7 +22,7 @@ TEST_CASE("JSON Planning - Serialize empty")
 TEST_CASE("JSON Planning - Round trip serialization")
 {
   // Create planning with components
-  const Options options {};
+  const PlanningOptions options {};
   const Simulation simulation {};
 
   // Create minimal system

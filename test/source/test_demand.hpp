@@ -5,7 +5,7 @@
 #include <gtopt/demand_profile.hpp>
 #include <gtopt/json/json_demand.hpp>
 #include <gtopt/linear_interface.hpp>
-#include <gtopt/options_lp.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
@@ -63,7 +63,7 @@ TEST_CASE("DemandLP - basic demand with capacity")
       .generator_array = generator_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -108,7 +108,7 @@ TEST_CASE("DemandLP - multiple demands")
       .generator_array = generator_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -164,9 +164,9 @@ TEST_CASE("DemandLP - demand with expansion")
       .generator_array = generator_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.demand_fail_cost = 1000.0;
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -271,9 +271,9 @@ TEST_CASE("DemandProfileLP - basic demand profile with capacity")
       .demand_profile_array = demand_profile_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.demand_fail_cost = 10000.0;
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -338,9 +338,9 @@ TEST_CASE("DemandProfileLP - multi-stage demand profile")
       .demand_profile_array = demand_profile_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.demand_fail_cost = 10000.0;
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -424,7 +424,7 @@ TEST_CASE("DemandLP - emin with ecost (soft minimum energy constraint)")
       .generator_array = generator_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -503,9 +503,9 @@ TEST_CASE("DemandLP - emin without ecost falls back to fcost")
       .generator_array = generator_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.demand_fail_cost = 1000.0;
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -585,7 +585,7 @@ TEST_CASE("DemandLP - emin as hard constraint (no ecost, no fcost)")
   };
 
   // No demand_fail_cost, no ecost -> hard emin constraint
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -666,7 +666,7 @@ TEST_CASE("DemandLP - lossfactor on demand")
       .generator_array = generator_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -741,7 +741,7 @@ TEST_CASE("DemandLP - per-demand fcost (not global)")
   };
 
   // No global demand_fail_cost, but per-demand fcost is set
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -833,9 +833,9 @@ TEST_CASE("DemandLP - add_to_output with fail and emin variables")
       std::filesystem::temp_directory_path() / "gtopt_test_demand_output";
   std::filesystem::create_directories(tmpdir);
 
-  Options opts;
+  PlanningOptions opts;
   opts.output_directory = tmpdir.string();
-  opts.output_format = "parquet";
+  opts.output_format = DataFormat::parquet;
   opts.demand_fail_cost = 1000.0;
 
   const System system = {
@@ -845,7 +845,7 @@ TEST_CASE("DemandLP - add_to_output with fail and emin variables")
       .generator_array = generator_array,
   };
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -939,9 +939,9 @@ TEST_CASE("DemandLP - emin with fcost and expansion across stages")
       .generator_array = generator_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.demand_fail_cost = 2000.0;
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
