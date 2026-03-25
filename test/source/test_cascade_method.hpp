@@ -114,7 +114,6 @@ TEST_CASE("JSON parsing of cascade method")  // NOLINT
   const auto planning =
       daw::json::from_json<Planning>(json_str);  // NOLINT(misc-include-cleaner)
   const OptionsLP options_lp(planning.options);
-  CHECK(options_lp.method() == "cascade");
   CHECK(options_lp.method_type_enum() == MethodType::cascade);
 }
 

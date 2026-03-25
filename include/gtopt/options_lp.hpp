@@ -422,24 +422,10 @@ public:
 
   // ── Monolithic solver accessors ─────────────────────────────────────────
 
-  /// Monolithic solve mode: "monolithic" (default) or "sequential".
-  [[nodiscard]] auto monolithic_solve_mode() const -> Name
-  {
-    return m_options_.monolithic_options.solve_mode.value_or(
-        Name {"monolithic"});
-  }
-
   /// CSV file with boundary cuts for the monolithic solver (empty = none).
   [[nodiscard]] auto monolithic_boundary_cuts_file() const -> Name
   {
     return m_options_.monolithic_options.boundary_cuts_file.value_or(Name {});
-  }
-
-  /// Boundary cuts load mode: "noload", "separated" (default), "combined".
-  [[nodiscard]] auto monolithic_boundary_cuts_mode() const -> Name
-  {
-    return m_options_.monolithic_options.boundary_cuts_mode.value_or(
-        Name {"separated"});
   }
 
   /// Maximum boundary cut iterations to load (0 = all).
@@ -483,19 +469,6 @@ public:
   static constexpr Real default_sddp_stationary_tol = 0.0;
   /** @brief Default look-back window for stationary gap check */
   static constexpr Int default_sddp_stationary_window = 10;
-
-  /**
-   * @brief Gets the solver type, using default if not set.
-   *
-   * Reads the top-level `method` field (`"monolithic"` or `"sddp"`).
-   * Defaults to `"monolithic"` when not set.
-   *
-   * @return The solver type ("monolithic" or "sddp")
-   */
-  [[nodiscard]] auto method() const -> Name
-  {
-    return m_options_.method.value_or(Name {default_method_type});
-  }
 
   /**
    * @brief Gets the SDDP cut sharing mode, using default if not set
@@ -611,15 +584,6 @@ public:
   [[nodiscard]] constexpr auto sddp_alpha_max() const
   {
     return m_options_.sddp_options.alpha_max.value_or(default_sddp_alpha_max);
-  }
-
-  /**
-   * @brief Gets the hot-start mode string.
-   * @return "none" (default), "keep", "append", or "replace"
-   */
-  [[nodiscard]] auto sddp_cut_recovery_mode() const -> Name
-  {
-    return m_options_.sddp_options.cut_recovery_mode.value_or(Name {"none"});
   }
 
   /**
@@ -798,12 +762,6 @@ public:
     return !m_options_.cascade_options.level_array.empty();
   }
 
-  /// Global cascade model options (serve as defaults for all levels).
-  [[nodiscard]] const auto& cascade_model_options() const noexcept
-  {
-    return m_options_.cascade_options.model_options;
-  }
-
   /// Global cascade SDDP options (serve as defaults for all levels).
   [[nodiscard]] const auto& cascade_sddp_options() const noexcept
   {
@@ -823,51 +781,6 @@ public:
         .value_or(MethodType::monolithic);
   }
 
-  /// Input data format as an enum (DataFormat::parquet or DataFormat::csv).
-  [[nodiscard]] constexpr auto input_format_enum() const -> DataFormat
-  {
-    return data_format_from_name(
-               m_options_.input_format.value_or(default_input_format))
-        .value_or(DataFormat::parquet);
-  }
-
-  /// Output data format as an enum (DataFormat::parquet or DataFormat::csv).
-  [[nodiscard]] constexpr auto output_format_enum() const -> DataFormat
-  {
-    return data_format_from_name(
-               m_options_.output_format.value_or(default_output_format))
-        .value_or(DataFormat::parquet);
-  }
-
-  /// Output compression codec as an enum.
-  [[nodiscard]] constexpr auto output_compression_enum() const
-      -> CompressionCodec
-  {
-    return compression_codec_from_name(m_options_.output_compression.value_or(
-                                           default_output_compression))
-        .value_or(CompressionCodec::zstd);
-  }
-
-  /// SDDP cut sharing mode as an enum.
-  [[nodiscard]] constexpr auto sddp_cut_sharing_mode_enum() const
-      -> CutSharingMode
-  {
-    return cut_sharing_mode_from_name(
-               m_options_.sddp_options.cut_sharing_mode.value_or(
-                   default_sddp_cut_sharing_mode))
-        .value_or(CutSharingMode::none);
-  }
-
-  /// SDDP elastic filter mode as an enum.
-  [[nodiscard]] constexpr auto sddp_elastic_mode_enum() const
-      -> ElasticFilterMode
-  {
-    return elastic_filter_mode_from_name(
-               m_options_.sddp_options.elastic_mode.value_or(
-                   default_sddp_elastic_mode))
-        .value_or(ElasticFilterMode::single_cut);
-  }
-
   /// SDDP boundary cuts mode as an enum.
   [[nodiscard]] auto sddp_boundary_cuts_mode_enum() const -> BoundaryCutsMode
   {
@@ -879,20 +792,17 @@ public:
   /// SDDP cut recovery mode as an enum.
   [[nodiscard]] auto sddp_cut_recovery_mode_enum() const -> HotStartMode
   {
-    return cut_recovery_mode_from_name(sddp_cut_recovery_mode())
+    return cut_recovery_mode_from_name(
+               m_options_.sddp_options.cut_recovery_mode.value_or(
+                   Name {"none"}))
         .value_or(HotStartMode::none);
-  }
-
-  /// SDDP recovery mode: what to load from a previous run (default: full).
-  [[nodiscard]] auto sddp_recovery_mode() const -> Name
-  {
-    return m_options_.sddp_options.recovery_mode.value_or(Name {"full"});
   }
 
   /// SDDP recovery mode as an enum.
   [[nodiscard]] auto sddp_recovery_mode_enum() const -> RecoveryMode
   {
-    return recovery_mode_from_name(sddp_recovery_mode())
+    return recovery_mode_from_name(
+               m_options_.sddp_options.recovery_mode.value_or(Name {"full"}))
         .value_or(RecoveryMode::full);
   }
 
