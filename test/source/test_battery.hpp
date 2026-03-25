@@ -7,8 +7,8 @@
 #include <gtopt/generator.hpp>
 #include <gtopt/input_context.hpp>
 #include <gtopt/linear_problem.hpp>
-#include <gtopt/options.hpp>
-#include <gtopt/options_lp.hpp>
+#include <gtopt/planning_options.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/simulation.hpp>
 #include <gtopt/stage.hpp>
 #include <gtopt/system.hpp>
@@ -283,9 +283,9 @@ TEST_CASE(  // NOLINT
       .battery_array = battery_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.demand_fail_cost = 1000.0;  // flexible demand – LP always feasible
-  const OptionsLP options {opts};
+  const PlanningOptionsLP options {opts};
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -380,9 +380,9 @@ TEST_CASE(  // NOLINT
       .battery_array = battery_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.demand_fail_cost = 1000.0;
-  const OptionsLP options {opts};
+  const PlanningOptionsLP options {opts};
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -471,9 +471,9 @@ TEST_CASE(  // NOLINT
       .battery_array = battery_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.demand_fail_cost = 1000.0;
-  const OptionsLP options {opts};
+  const PlanningOptionsLP options {opts};
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -589,9 +589,9 @@ TEST_CASE(  // NOLINT
         .battery_array = battery_array,
     };
 
-    Options opts;
+    PlanningOptions opts;
     opts.demand_fail_cost = 1000.0;
-    const OptionsLP options {opts};
+    const PlanningOptionsLP options {opts};
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(system, simulation_lp);
 
@@ -614,10 +614,10 @@ TEST_CASE(  // NOLINT
   CHECK(obj_scale_100 == doctest::Approx(obj_scale_1).epsilon(1e-8));
 }
 
-/// Verify that Options::variable_scales affects the Battery energy scale
-/// the same way as the per-element Battery::energy_scale field.
-/// This confirms the JSON variable_scales mechanism is not ignored by
-/// checking both solution invariance AND that LP column bounds actually change.
+/// Verify that PlanningOptions::variable_scales affects the Battery energy
+/// scale the same way as the per-element Battery::energy_scale field. This
+/// confirms the JSON variable_scales mechanism is not ignored by checking both
+/// solution invariance AND that LP column bounds actually change.
 TEST_CASE(  // NOLINT
     "Battery variable_scales option – invariance and LP coefficient change")
 {
@@ -627,8 +627,9 @@ TEST_CASE(  // NOLINT
     double max_col_upper;  // max upper bound among columns with the scale
   };
 
-  // Helper: builds and solves a battery LP using Options::variable_scales
-  // (NOT Battery::energy_scale) and returns the objective + max scaled bound.
+  // Helper: builds and solves a battery LP using
+  // PlanningOptions::variable_scales (NOT Battery::energy_scale) and returns
+  // the objective + max scaled bound.
   auto solve_with_variable_scales = [](double scale) -> ScaleResult
   {
     const Array<Bus> bus_array = {
@@ -708,7 +709,7 @@ TEST_CASE(  // NOLINT
         .battery_array = battery_array,
     };
 
-    Options opts;
+    PlanningOptions opts;
     opts.demand_fail_cost = 1000.0;
     // Set energy scale via variable_scales option (not per-element field)
     opts.variable_scales = {
@@ -720,7 +721,7 @@ TEST_CASE(  // NOLINT
             .name = "bat1",
         },
     };
-    const OptionsLP options {opts};
+    const PlanningOptionsLP options {opts};
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(system, simulation_lp);
 

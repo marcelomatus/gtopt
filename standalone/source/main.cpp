@@ -158,8 +158,11 @@ int main(int argc, char** argv)
     //
     // dispatch the real main function
     //
-    auto result =
-        gtopt::gtopt_main(parse_main_options(vm, std::move(system_files)));
+    // Build MainOptions from CLI, then merge config-file defaults
+    auto main_opts = parse_main_options(vm, std::move(system_files));
+    merge_config_defaults(main_opts, load_gtopt_config());
+
+    auto result = gtopt::gtopt_main(main_opts);
     if (result.has_value()) {
       return *result;  // 0 = optimal, 1 = non-optimal
     }

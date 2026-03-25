@@ -10,8 +10,8 @@
 
 #include <gtopt/cascade_method.hpp>
 #include <gtopt/monolithic_method.hpp>
-#include <gtopt/options_lp.hpp>
 #include <gtopt/planning_method.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <spdlog/spdlog.h>
 
@@ -20,8 +20,8 @@ namespace gtopt
 
 // ─── Factory ────────────────────────────────────────────────────────────────
 
-std::unique_ptr<PlanningMethod> make_planning_method(const OptionsLP& options,
-                                                     size_t num_phases)
+std::unique_ptr<PlanningMethod> make_planning_method(
+    const PlanningOptionsLP& options, size_t num_phases)
 {
   // Validate enum option strings and warn about unknown values
   for (const auto& w : options.validate_enum_options()) {
@@ -53,8 +53,7 @@ std::unique_ptr<PlanningMethod> make_planning_method(const OptionsLP& options,
 
       // Advanced tuning
       sddp_opts.elastic_penalty = options.sddp_elastic_penalty();
-      sddp_opts.elastic_filter_mode =
-          parse_elastic_filter_mode(options.sddp_elastic_mode());
+      sddp_opts.elastic_filter_mode = options.sddp_elastic_mode_enum();
       sddp_opts.multi_cut_threshold = options.sddp_multi_cut_threshold();
       sddp_opts.apertures = options.sddp_apertures();
       sddp_opts.aperture_timeout = options.sddp_aperture_timeout();
@@ -69,8 +68,7 @@ std::unique_ptr<PlanningMethod> make_planning_method(const OptionsLP& options,
       sddp_opts.alpha_max = options.sddp_alpha_max();
 
       // Cut sharing and files
-      sddp_opts.cut_sharing =
-          parse_cut_sharing_mode(options.sddp_cut_sharing_mode());
+      sddp_opts.cut_sharing = options.sddp_cut_sharing_mode_enum();
       // Place the cuts directory inside the output directory so that all
       // solver output is self-contained.
       const auto output_dir_sv = options.output_directory();
@@ -136,11 +134,11 @@ std::unique_ptr<PlanningMethod> make_planning_method(const OptionsLP& options,
       // Wire warm_start from SddpOptions config (default: true)
       sddp_opts.warm_start = options.sddp_warm_start();
 
-      // Wire per-method solver_options into internal SDDPOptions
-      if (options.has_sddp_solver_options()) {
-        const auto method_solver = options.sddp_solver_options();
-        if (method_solver.time_limit) {
-          sddp_opts.solve_timeout = *method_solver.time_limit;
+      // Wire solve_timeout from forward solver's time_limit (if set)
+      {
+        const auto fwd_solver = options.sddp_forward_solver_options();
+        if (fwd_solver.time_limit) {
+          sddp_opts.solve_timeout = *fwd_solver.time_limit;
         }
       }
 
@@ -176,8 +174,7 @@ std::unique_ptr<PlanningMethod> make_planning_method(const OptionsLP& options,
       }
 
       sddp_opts.elastic_penalty = options.sddp_elastic_penalty();
-      sddp_opts.elastic_filter_mode =
-          parse_elastic_filter_mode(options.sddp_elastic_mode());
+      sddp_opts.elastic_filter_mode = options.sddp_elastic_mode_enum();
       sddp_opts.multi_cut_threshold = options.sddp_multi_cut_threshold();
       sddp_opts.apertures = options.sddp_apertures();
       sddp_opts.aperture_timeout = options.sddp_aperture_timeout();
@@ -191,8 +188,7 @@ std::unique_ptr<PlanningMethod> make_planning_method(const OptionsLP& options,
       sddp_opts.alpha_min = options.sddp_alpha_min();
       sddp_opts.alpha_max = options.sddp_alpha_max();
 
-      sddp_opts.cut_sharing =
-          parse_cut_sharing_mode(options.sddp_cut_sharing_mode());
+      sddp_opts.cut_sharing = options.sddp_cut_sharing_mode_enum();
       const auto output_dir_sv = options.output_directory();
       const auto cut_dir =
           (std::filesystem::path(
@@ -249,11 +245,11 @@ std::unique_ptr<PlanningMethod> make_planning_method(const OptionsLP& options,
       // Wire warm_start from SddpOptions config (default: true)
       sddp_opts.warm_start = options.sddp_warm_start();
 
-      // Wire per-method solver_options into internal SDDPOptions
-      if (options.has_sddp_solver_options()) {
-        const auto method_solver = options.sddp_solver_options();
-        if (method_solver.time_limit) {
-          sddp_opts.solve_timeout = *method_solver.time_limit;
+      // Wire solve_timeout from forward solver's time_limit (if set)
+      {
+        const auto fwd_solver = options.sddp_forward_solver_options();
+        if (fwd_solver.time_limit) {
+          sddp_opts.solve_timeout = *fwd_solver.time_limit;
         }
       }
 

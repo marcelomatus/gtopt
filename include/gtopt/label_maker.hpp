@@ -17,7 +17,7 @@
 #pragma once
 
 #include <gtopt/as_label.hpp>
-#include <gtopt/options_lp.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 
 namespace gtopt
@@ -37,7 +37,7 @@ inline constexpr RowLabelTag row_label_tag {};
 class LabelMaker
 {
 public:
-  explicit constexpr LabelMaker(const OptionsLP& options) noexcept
+  explicit constexpr LabelMaker(const PlanningOptionsLP& options) noexcept
       : m_names_level_(options.names_level())
   {
   }

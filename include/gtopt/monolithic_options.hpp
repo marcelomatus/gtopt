@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <gtopt/enum_option.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/utils.hpp>
 
@@ -19,12 +20,12 @@ namespace gtopt
  *
  * Groups monolithic-solver-specific options into a single sub-object for
  * clearer JSON organization.  All fields are optional — defaults are
- * applied via `OptionsLP`.
+ * applied via `PlanningOptionsLP`.
  */
 struct MonolithicOptions
 {
-  /** @brief Solve mode: `"monolithic"` (default) or `"sequential"` */
-  OptName solve_mode {};
+  /** @brief Solve mode: monolithic (default) or sequential */
+  std::optional<SolveMode> solve_mode {};
   /** @brief CSV file with boundary (future-cost) cuts.
    *
    * When non-empty, the monolithic solver loads boundary cuts from this
@@ -32,9 +33,9 @@ struct MonolithicOptions
    * beyond the planning horizon (analogous to SDDP boundary cuts).
    */
   OptName boundary_cuts_file {};
-  /** @brief Boundary cuts load mode: `"noload"`, `"separated"` (default),
-   * or `"combined"` */
-  OptName boundary_cuts_mode {};
+  /** @brief Boundary cuts load mode: noload, separated (default),
+   * or combined */
+  std::optional<BoundaryCutsMode> boundary_cuts_mode {};
   /** @brief Maximum iterations to load from boundary cuts file (0 = all) */
   OptInt boundary_max_iterations {};
 
@@ -49,9 +50,9 @@ struct MonolithicOptions
 
   void merge(MonolithicOptions&& opts)
   {
-    merge_opt(solve_mode, std::move(opts.solve_mode));
+    merge_opt(solve_mode, opts.solve_mode);
     merge_opt(boundary_cuts_file, std::move(opts.boundary_cuts_file));
-    merge_opt(boundary_cuts_mode, std::move(opts.boundary_cuts_mode));
+    merge_opt(boundary_cuts_mode, opts.boundary_cuts_mode);
     merge_opt(boundary_max_iterations, opts.boundary_max_iterations);
     if (opts.solver_options.has_value()) {
       if (solver_options.has_value()) {

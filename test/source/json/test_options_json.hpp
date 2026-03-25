@@ -11,7 +11,7 @@ TEST_CASE("json_options - Deserialization of Options from JSON")
   // JSON string representing Options
   const std::string json_string = R"({
     "input_directory": "input_dir",
-    "input_format": "json",
+    "input_format": "parquet",
     "demand_fail_cost": 1000.0,
     "reserve_fail_cost": 500.0,
     "use_line_losses": true,
@@ -31,7 +31,7 @@ TEST_CASE("json_options - Deserialization of Options from JSON")
   })";
 
   // Deserialize from JSON
-  const auto options = daw::json::from_json<Options>(json_string);
+  const auto options = daw::json::from_json<PlanningOptions>(json_string);
 
   // Check all fields are correctly deserialized
   REQUIRE(options.input_directory.has_value());
@@ -41,7 +41,7 @@ TEST_CASE("json_options - Deserialization of Options from JSON")
 
   REQUIRE(options.input_format.has_value());
   if (options.input_format) {
-    CHECK(*options.input_format == "json");
+    CHECK(*options.input_format == DataFormat::parquet);
   }
 
   REQUIRE(options.demand_fail_cost.has_value());
@@ -91,12 +91,12 @@ TEST_CASE("json_options - Deserialization of Options from JSON")
 
   REQUIRE(options.output_format.has_value());
   if (options.output_format) {
-    CHECK(*options.output_format == "csv");
+    CHECK(*options.output_format == DataFormat::csv);
   }
 
   REQUIRE(options.output_compression.has_value());
   if (options.output_compression) {
-    CHECK(*options.output_compression == "gzip");
+    CHECK(*options.output_compression == CompressionCodec::gzip);
   }
 
   REQUIRE(options.lp_build_options.names_level.has_value());
@@ -128,7 +128,7 @@ TEST_CASE(
   })";
 
   // Deserialize from JSON
-  const auto options = daw::json::from_json<Options>(json_string);
+  const auto options = daw::json::from_json<PlanningOptions>(json_string);
 
   // Check populated fields
   REQUIRE(options.input_directory.has_value());
@@ -167,7 +167,7 @@ TEST_CASE("json_options - Round-trip serialization and deserialization")
   using namespace gtopt;
 
   // Create original Options
-  Options original {
+  PlanningOptions original {
       .input_directory = "input_dir",
       .demand_fail_cost = 1000.0,
       .use_kirchhoff = true,
@@ -182,7 +182,7 @@ TEST_CASE("json_options - Round-trip serialization and deserialization")
   const auto json_data = daw::json::to_json(original);
 
   // Deserialize back to Options
-  const auto deserialized = daw::json::from_json<Options>(json_data);
+  const auto deserialized = daw::json::from_json<PlanningOptions>(json_data);
 
   // Check all fields match
   CHECK(deserialized.input_directory == original.input_directory);
@@ -211,7 +211,7 @@ TEST_CASE("json_options - Solver options fields JSON round-trip")  // NOLINT
   using namespace gtopt;
   // Verify that solver_options.algorithm, .threads, and .presolve are
   // serialized and deserialized correctly via the nested sub-object.
-  const Options original {
+  const PlanningOptions original {
       .solver_options =
           SolverOptions {
               .algorithm = LPAlgo::dual,
@@ -221,7 +221,7 @@ TEST_CASE("json_options - Solver options fields JSON round-trip")  // NOLINT
   };
 
   const auto json_data = daw::json::to_json(original);
-  const auto deserialized = daw::json::from_json<Options>(json_data);
+  const auto deserialized = daw::json::from_json<PlanningOptions>(json_data);
 
   CHECK(deserialized.solver_options.algorithm == LPAlgo::dual);
   CHECK(deserialized.solver_options.threads == 4);
@@ -243,7 +243,7 @@ TEST_CASE(
     }
   })";
 
-  const auto options = daw::json::from_json<Options>(json_string);
+  const auto options = daw::json::from_json<PlanningOptions>(json_string);
 
   CHECK(options.solver_options.algorithm == LPAlgo::primal);
   CHECK(options.solver_options.threads == 2);

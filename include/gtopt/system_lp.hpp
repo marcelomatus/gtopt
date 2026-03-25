@@ -26,9 +26,9 @@
 #include <gtopt/junction_lp.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/linear_interface.hpp>
-#include <gtopt/options_lp.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/phase_lp.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
 #include <gtopt/reservoir_discharge_limit_lp.hpp>

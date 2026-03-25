@@ -19,7 +19,7 @@ TEST_CASE("PhaseLP construction")
 
   SUBCASE("Construction with stages")
   {
-    const OptionsLP options;
+    const PlanningOptionsLP options;
     const std::vector<Stage> stages = {
         Stage {
             .uid = 1,
@@ -60,7 +60,7 @@ TEST_CASE("PhaseLP construction")
 
 TEST_CASE("PhaseLP duration calculation")
 {
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   std::vector<Stage> stages = {
       Stage {
           .uid = 1,
@@ -95,7 +95,7 @@ TEST_CASE("PhaseLP duration calculation")
 
 TEST_CASE("PhaseLP stage access")
 {
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   std::vector<Stage> stages = {
       Stage {
           .uid = 1,
@@ -149,7 +149,7 @@ TEST_CASE("PhaseLP stage access")
 
 TEST_CASE("PhaseLP active status")
 {
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   std::vector<Stage> stages = {
       Stage {
           .uid = 1,
@@ -200,7 +200,7 @@ TEST_CASE("PhaseLP active status")
 
 TEST_CASE("PhaseLP construction from simulation")
 {
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   Simulation simulation;
   simulation.stage_array = {
       Stage {
@@ -245,7 +245,7 @@ TEST_CASE("Phase apertures field")
 
 TEST_CASE("PhaseLP apertures accessor")
 {
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   std::vector<Stage> stages = {
       Stage {
           .uid = 1,

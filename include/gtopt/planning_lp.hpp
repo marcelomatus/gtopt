@@ -15,8 +15,8 @@
 #include <utility>
 
 #include <gtopt/error.hpp>
-#include <gtopt/options_lp.hpp>
 #include <gtopt/planning.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/strong_index_vector.hpp>
@@ -43,7 +43,7 @@ public:
 private:
   static auto create_systems(System& system,
                              SimulationLP& simulation,
-                             const OptionsLP& options,
+                             const PlanningOptionsLP& options,
                              const LpBuildOptions& flat_opts)
       -> scene_phase_systems_t;
 
@@ -67,9 +67,9 @@ public:
 
   /**
    * @brief Gets the LP options configuration
-   * @return Const reference to OptionsLP
+   * @return Const reference to PlanningOptionsLP
    */
-  [[nodiscard]] constexpr const OptionsLP& options() const noexcept
+  [[nodiscard]] constexpr const PlanningOptionsLP& options() const noexcept
   {
     return m_options_;
   }
@@ -176,7 +176,7 @@ private:
   friend class MonolithicMethod;
 
   Planning m_planning_;
-  OptionsLP m_options_;
+  PlanningOptionsLP m_options_;
   SimulationLP m_simulation_;
 
   scene_phase_systems_t m_systems_;
