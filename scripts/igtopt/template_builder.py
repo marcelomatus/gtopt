@@ -1315,6 +1315,8 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "stationary_window",
         "update_lp_skip",
         "solver_options",
+        "forward_solver_options",
+        "backward_solver_options",
     }
 )
 
