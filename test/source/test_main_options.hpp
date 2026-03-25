@@ -439,8 +439,6 @@ TEST_CASE("make_lp_build_options - defaults when both nullopt")
   CHECK(opts.row_with_names == false);
   CHECK(opts.col_with_name_map == true);
   CHECK(opts.row_with_name_map == false);
-  CHECK(opts.reserve_matrix == false);
-  CHECK(opts.reserve_factor == doctest::Approx(2.0));
   CHECK(opts.lp_names_level == LpNamesLevel::minimal);
 }
 
@@ -499,8 +497,6 @@ TEST_CASE("make_lp_build_options - both parameters provided")
   CHECK(opts.row_with_names == true);
   CHECK(opts.col_with_name_map == true);
   CHECK(opts.row_with_name_map == true);
-  CHECK(opts.reserve_matrix == false);
-  CHECK(opts.reserve_factor == doctest::Approx(2.0));
 }
 
 // ---- Integration-style tests combining get_opt with options description ----

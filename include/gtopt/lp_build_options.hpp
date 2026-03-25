@@ -27,8 +27,6 @@ namespace gtopt
  */
 struct LpBuildOptions
 {
-  constexpr static auto default_reserve_factor = 1.25;
-
   double eps {0};  ///< Coefficient epsilon: |v| <= eps is treated as zero.
                    ///< If negative, no filtering is applied.
   double stats_eps {1e-10};  ///< Minimum |coefficient| tracked in stats
@@ -41,8 +39,6 @@ struct LpBuildOptions
   bool col_with_name_map {true};  ///< Include column name mapping
   bool row_with_name_map {false};  ///< Include row name mapping
   bool move_names {true};  ///< Move instead of copy names
-  bool reserve_matrix {false};  ///< Pre-reserve matrix memory
-  double reserve_factor {default_reserve_factor};  ///< Reserve factor
   bool compute_stats {false};  ///< Compute coefficient min/max/ratio
   LpNamesLevel lp_names_level {LpNamesLevel::minimal};  ///< Computed naming
                                                         ///< level (internal)

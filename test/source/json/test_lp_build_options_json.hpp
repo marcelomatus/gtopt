@@ -66,8 +66,6 @@ TEST_CASE("LpBuildOptions JSON - Missing fields keep defaults")
   CHECK(opts.col_with_names == true);
   CHECK(opts.row_with_names == false);
   CHECK(opts.compute_stats == false);
-  CHECK(opts.reserve_factor
-        == doctest::Approx(LpBuildOptions::default_reserve_factor));
 }
 
 TEST_CASE("LpBuildOptions JSON - Round-trip serialization")

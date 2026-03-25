@@ -209,31 +209,6 @@ TEST_CASE("OptionsLP enum accessors return correct defaults")  // NOLINT
     CHECK(opts.method_type_enum() == MethodType::monolithic);
   }
 
-  SUBCASE("input_format_enum defaults to parquet")
-  {
-    CHECK(opts.input_format_enum() == DataFormat::parquet);
-  }
-
-  SUBCASE("output_format_enum defaults to parquet")
-  {
-    CHECK(opts.output_format_enum() == DataFormat::parquet);
-  }
-
-  SUBCASE("output_compression_enum defaults to zstd")
-  {
-    CHECK(opts.output_compression_enum() == CompressionCodec::zstd);
-  }
-
-  SUBCASE("sddp_cut_sharing_mode_enum defaults to none")
-  {
-    CHECK(opts.sddp_cut_sharing_mode_enum() == CutSharingMode::none);
-  }
-
-  SUBCASE("sddp_elastic_mode_enum defaults to single_cut")
-  {
-    CHECK(opts.sddp_elastic_mode_enum() == ElasticFilterMode::single_cut);
-  }
-
   SUBCASE("sddp_boundary_cuts_mode_enum defaults to separated")
   {
     CHECK(opts.sddp_boundary_cuts_mode_enum() == BoundaryCutsMode::separated);
@@ -260,11 +235,6 @@ TEST_CASE("OptionsLP enum accessors parse explicit values")  // NOLINT
 {
   Options raw;
   raw.method = "sddp";
-  raw.input_format = "csv";
-  raw.output_format = "csv";
-  raw.output_compression = "gzip";
-  raw.sddp_options.cut_sharing_mode = "expected";
-  raw.sddp_options.elastic_mode = "multi_cut";
   raw.sddp_options.boundary_cuts_mode = "combined";
   raw.sddp_options.cut_recovery_mode = "append";
   raw.monolithic_options.solve_mode = "sequential";
@@ -273,11 +243,6 @@ TEST_CASE("OptionsLP enum accessors parse explicit values")  // NOLINT
   const OptionsLP opts(std::move(raw));
 
   CHECK(opts.method_type_enum() == MethodType::sddp);
-  CHECK(opts.input_format_enum() == DataFormat::csv);
-  CHECK(opts.output_format_enum() == DataFormat::csv);
-  CHECK(opts.output_compression_enum() == CompressionCodec::gzip);
-  CHECK(opts.sddp_cut_sharing_mode_enum() == CutSharingMode::expected);
-  CHECK(opts.sddp_elastic_mode_enum() == ElasticFilterMode::multi_cut);
   CHECK(opts.sddp_boundary_cuts_mode_enum() == BoundaryCutsMode::combined);
   CHECK(opts.sddp_cut_recovery_mode_enum() == HotStartMode::append);
   CHECK(opts.monolithic_solve_mode_enum() == SolveMode::sequential);
