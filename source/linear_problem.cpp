@@ -178,6 +178,9 @@ auto LinearProblem::lp_build(const LpBuildOptions& opts) -> FlatLinearProblem
     map.reserve(names.size());
 
     for (const auto& [i, name] : std::views::enumerate(names)) {
+      if (name.empty()) [[unlikely]] {
+        continue;  // skip empty names to avoid false-positive duplicates
+      }
       if (auto [it, inserted] = map.try_emplace(name, i); !inserted)
           [[unlikely]]
       {
