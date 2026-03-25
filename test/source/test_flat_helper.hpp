@@ -16,7 +16,7 @@
 TEST_CASE("Active Elements Accessors")
 {
   using namespace gtopt;
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   const Simulation psimulation = {
       .block_array = {{.uid = Uid {0}}, {.uid = Uid {1}}},
       .stage_array = {{.uid = Uid {0}}},
@@ -53,7 +53,7 @@ TEST_CASE("Active Elements Accessors")
 
 TEST_CASE("Flat helper - Flat Methods")
 {
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   const Simulation psimulation = {
       .block_array = {{.uid = Uid {0}}, {.uid = Uid {1}}},
       .stage_array = {{.uid = Uid {0}}},
@@ -148,7 +148,7 @@ TEST_CASE("Flat Helper - Edge Cases")
 {
   SUBCASE("Empty Active Elements")
   {
-    const OptionsLP options;
+    const PlanningOptionsLP options;
     const Simulation psimulation;
     const SimulationLP simulation {psimulation, options};
 
@@ -188,7 +188,7 @@ TEST_CASE("Flat Helper - Edge Cases")
 
   SUBCASE("Partial Active Elements")
   {
-    const OptionsLP options;
+    const PlanningOptionsLP options;
     const Simulation psimulation = {
         .block_array = {{.uid = Uid {0}}, {.uid = Uid {1}}},
         .stage_array =
@@ -228,7 +228,7 @@ TEST_CASE("Flat Helper - Edge Cases")
 
   SUBCASE("Missing Values")
   {
-    const OptionsLP options;
+    const PlanningOptionsLP options;
     const Simulation psimulation = {
         .block_array = {{.uid = Uid {0}}, {.uid = Uid {1}}},
         .stage_array = {{.uid = Uid {0}}},
@@ -258,7 +258,7 @@ TEST_CASE("Flat Helper - Edge Cases")
 
 TEST_CASE("FlatHelper Move Semantics")
 {
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   const Simulation psimulation = {
       .block_array = {{.uid = Uid {0}}},
       .stage_array = {{.uid = Uid {0}}},
@@ -291,7 +291,7 @@ TEST_CASE("FlatHelper Move Semantics")
 }
 TEST_CASE("FlatHelper Const Correctness")
 {
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   const Simulation psimulation = {
       .block_array = {{.uid = Uid {0}}},
       .stage_array = {{.uid = Uid {0}}},
@@ -320,7 +320,7 @@ TEST_CASE("FlatHelper Const Correctness")
 }
 TEST_CASE("FlatHelper Template Constraints")
 {
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   const Simulation psimulation = {
       .block_array = {{.uid = Uid {0}}},
       .stage_array = {{.uid = Uid {0}}},
@@ -347,7 +347,7 @@ TEST_CASE("FlatHelper Template Constraints")
 
 TEST_CASE("FlatHelper - stb_uids basic")
 {
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   const Simulation psimulation = {
       .block_array = {{.uid = Uid {10}}, {.uid = Uid {20}}},
       .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 2}},
@@ -373,7 +373,7 @@ TEST_CASE("FlatHelper - stb_uids basic")
 
 TEST_CASE("FlatHelper - stb_uids multi-stage")
 {
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   const Simulation psimulation = {
       .block_array =
           {
@@ -404,7 +404,7 @@ TEST_CASE("FlatHelper - stb_uids multi-stage")
 
 TEST_CASE("FlatHelper - st_uids basic")
 {
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   const Simulation psimulation = {
       .block_array = {{.uid = Uid {1}}, {.uid = Uid {2}}},
       .stage_array =
@@ -430,7 +430,7 @@ TEST_CASE("FlatHelper - st_uids basic")
 
 TEST_CASE("FlatHelper - st_uids multi-scenario")
 {
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   const Simulation psimulation = {
       .block_array = {{.uid = Uid {1}}},
       .stage_array = {{.uid = Uid {10}, .first_block = 0, .count_block = 1}},
@@ -450,7 +450,7 @@ TEST_CASE("FlatHelper - st_uids multi-scenario")
 
 TEST_CASE("FlatHelper - t_uids basic")
 {
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   const Simulation psimulation = {
       .block_array = {{.uid = Uid {1}}, {.uid = Uid {2}}},
       .stage_array =
@@ -472,7 +472,7 @@ TEST_CASE("FlatHelper - t_uids basic")
 
 TEST_CASE("FlatHelper - uids with empty simulation")
 {
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   const Simulation psimulation;
   const SimulationLP simulation {psimulation, options};
   const FlatHelper helper(simulation);

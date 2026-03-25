@@ -211,10 +211,10 @@ TEST_CASE("Parquet file write and read test")
         .scenario_array = {{.uid = Uid {1}}, {.uid = Uid {2}}},
     };
 
-    Options opt;
+    PlanningOptions opt;
     opt.input_directory = iname;
-    opt.input_format = "parquet";
-    const OptionsLP options {opt};
+    opt.input_format = DataFormat::parquet;
+    const PlanningOptionsLP options {opt};
 
     SimulationLP simulation {sim, options};
 
@@ -537,10 +537,10 @@ TEST_CASE("Parquet file write and read test 2")
         .scenario_array = {{.uid = Uid {1}}},
     };
 
-    Options opt;
+    PlanningOptions opt;
     opt.input_directory = iname;
-    opt.input_format = "parquet";
-    const OptionsLP options {opt};
+    opt.input_format = DataFormat::parquet;
+    const PlanningOptionsLP options {opt};
 
     SimulationLP simulation {sim, options};
 

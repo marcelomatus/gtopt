@@ -149,7 +149,7 @@ TEST_CASE("SystemLP with battery and converter")
       .converter_array = converter_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 

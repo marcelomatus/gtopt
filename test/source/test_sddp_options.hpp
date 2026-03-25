@@ -50,7 +50,6 @@ TEST_CASE("SddpOptions - Default construction")
   CHECK_FALSE(opts.simulation_mode.has_value());
   CHECK_FALSE(opts.stationary_tol.has_value());
   CHECK_FALSE(opts.stationary_window.has_value());
-  CHECK_FALSE(opts.solver_options.has_value());
 }
 
 TEST_CASE("SddpOptions - Construction with iteration control fields")
@@ -72,13 +71,13 @@ TEST_CASE("SddpOptions - Construction with iteration control fields")
 TEST_CASE("SddpOptions - Construction with cut management fields")
 {
   const SddpOptions opts {
-      .cut_sharing_mode = "expected",
+      .cut_sharing_mode = CutSharingMode::expected,
       .cut_directory = "my_cuts",
-      .cut_recovery_mode = "append",
-      .recovery_mode = "cuts",
+      .cut_recovery_mode = HotStartMode::append,
+      .recovery_mode = RecoveryMode::cuts,
       .save_per_iteration = true,
       .cuts_input_file = "initial_cuts.csv",
-      .elastic_mode = "multi_cut",
+      .elastic_mode = ElasticFilterMode::multi_cut,
       .multi_cut_threshold = 20,
       .max_cuts_per_phase = 50,
       .cut_prune_interval = 5,
@@ -88,19 +87,19 @@ TEST_CASE("SddpOptions - Construction with cut management fields")
   };
 
   REQUIRE(opts.cut_sharing_mode.has_value());
-  CHECK(*opts.cut_sharing_mode == "expected");
+  CHECK(*opts.cut_sharing_mode == CutSharingMode::expected);
   REQUIRE(opts.cut_directory.has_value());
   CHECK(*opts.cut_directory == "my_cuts");
   REQUIRE(opts.cut_recovery_mode.has_value());
-  CHECK(*opts.cut_recovery_mode == "append");
+  CHECK(*opts.cut_recovery_mode == HotStartMode::append);
   REQUIRE(opts.recovery_mode.has_value());
-  CHECK(*opts.recovery_mode == "cuts");
+  CHECK(*opts.recovery_mode == RecoveryMode::cuts);
   REQUIRE(opts.save_per_iteration.has_value());
   CHECK(*opts.save_per_iteration == true);
   REQUIRE(opts.cuts_input_file.has_value());
   CHECK(*opts.cuts_input_file == "initial_cuts.csv");
   REQUIRE(opts.elastic_mode.has_value());
-  CHECK(*opts.elastic_mode == "multi_cut");
+  CHECK(*opts.elastic_mode == ElasticFilterMode::multi_cut);
   REQUIRE(opts.multi_cut_threshold.has_value());
   CHECK(*opts.multi_cut_threshold == 20);
   REQUIRE(opts.max_cuts_per_phase.has_value());
@@ -156,7 +155,7 @@ TEST_CASE("SddpOptions - Construction with boundary cut fields")
 {
   const SddpOptions opts {
       .boundary_cuts_file = "boundary.csv",
-      .boundary_cuts_mode = "combined",
+      .boundary_cuts_mode = BoundaryCutsMode::combined,
       .boundary_max_iterations = 50,
       .named_cuts_file = "named.csv",
   };
@@ -164,7 +163,7 @@ TEST_CASE("SddpOptions - Construction with boundary cut fields")
   REQUIRE(opts.boundary_cuts_file.has_value());
   CHECK(*opts.boundary_cuts_file == "boundary.csv");
   REQUIRE(opts.boundary_cuts_mode.has_value());
-  CHECK(*opts.boundary_cuts_mode == "combined");
+  CHECK(*opts.boundary_cuts_mode == BoundaryCutsMode::combined);
   REQUIRE(opts.boundary_max_iterations.has_value());
   CHECK(*opts.boundary_max_iterations == 50);
   REQUIRE(opts.named_cuts_file.has_value());
@@ -202,35 +201,16 @@ TEST_CASE("SddpOptions - Construction with advanced tuning fields")
   CHECK(*opts.stationary_window == 20);
 }
 
-TEST_CASE("SddpOptions - Construction with nested solver_options")
-{
-  const SddpOptions opts {
-      .solver_options =
-          SolverOptions {
-              .algorithm = LPAlgo::dual,
-              .threads = 1,
-              .presolve = false,
-              .reuse_basis = true,
-          },
-  };
-
-  REQUIRE(opts.solver_options.has_value());
-  CHECK(opts.solver_options->algorithm == LPAlgo::dual);
-  CHECK(opts.solver_options->threads == 1);
-  CHECK(opts.solver_options->presolve == false);
-  CHECK(opts.solver_options->reuse_basis == true);
-}
-
 TEST_CASE("SddpOptions - Merge fills missing fields")
 {
   SddpOptions base {
       .max_iterations = 100,
       .convergence_tol = 1e-4,
-      .elastic_mode = "single_cut",
+      .elastic_mode = ElasticFilterMode::single_cut,
   };
 
   SddpOptions overlay {
-      .cut_sharing_mode = "expected",
+      .cut_sharing_mode = CutSharingMode::expected,
       .min_iterations = 5,
       .elastic_penalty = 1e6,
       .warm_start = true,
@@ -244,11 +224,11 @@ TEST_CASE("SddpOptions - Merge fills missing fields")
   REQUIRE(base.convergence_tol.has_value());
   CHECK(*base.convergence_tol == doctest::Approx(1e-4));
   REQUIRE(base.elastic_mode.has_value());
-  CHECK(*base.elastic_mode == "single_cut");
+  CHECK(*base.elastic_mode == ElasticFilterMode::single_cut);
 
   // New from overlay
   REQUIRE(base.cut_sharing_mode.has_value());
-  CHECK(*base.cut_sharing_mode == "expected");
+  CHECK(*base.cut_sharing_mode == CutSharingMode::expected);
   REQUIRE(base.min_iterations.has_value());
   CHECK(*base.min_iterations == 5);
   REQUIRE(base.elastic_penalty.has_value());
@@ -261,12 +241,12 @@ TEST_CASE("SddpOptions - Merge overwrites existing (overlay wins)")
 {
   SddpOptions base {
       .max_iterations = 100,
-      .elastic_mode = "single_cut",
+      .elastic_mode = ElasticFilterMode::single_cut,
   };
 
   SddpOptions overlay {
       .max_iterations = 999,
-      .elastic_mode = "multi_cut",
+      .elastic_mode = ElasticFilterMode::multi_cut,
   };
 
   base.merge(std::move(overlay));
@@ -275,7 +255,7 @@ TEST_CASE("SddpOptions - Merge overwrites existing (overlay wins)")
   REQUIRE(base.max_iterations.has_value());
   CHECK(*base.max_iterations == 999);
   REQUIRE(base.elastic_mode.has_value());
-  CHECK(*base.elastic_mode == "multi_cut");
+  CHECK(*base.elastic_mode == ElasticFilterMode::multi_cut);
 }
 
 TEST_CASE("SddpOptions - Merge apertures replaces when set")
@@ -320,78 +300,6 @@ TEST_CASE("SddpOptions - Merge apertures not replaced when overlay absent")
 
   REQUIRE(base.apertures.has_value());
   CHECK(base.apertures->size() == 2);
-}
-
-TEST_CASE("SddpOptions - Merge nested solver_options")
-{
-  SUBCASE("both have solver_options: inner merge")
-  {
-    SddpOptions base {
-        .solver_options =
-            SolverOptions {
-                .algorithm = LPAlgo::barrier,
-                .optimal_eps = 1e-8,
-            },
-    };
-
-    SddpOptions overlay {
-        .solver_options =
-            SolverOptions {
-                .algorithm = LPAlgo::dual,
-                .feasible_eps = 1e-7,
-            },
-    };
-
-    base.merge(std::move(overlay));
-
-    REQUIRE(base.solver_options.has_value());
-    // Non-optional fields keep base
-    CHECK(base.solver_options->algorithm == LPAlgo::barrier);
-    // Optional: base keeps its own
-    REQUIRE(base.solver_options->optimal_eps.has_value());
-    CHECK(base.solver_options->optimal_eps.value_or(0.0)
-          == doctest::Approx(1e-8));
-    // Optional: overlay fills missing
-    REQUIRE(base.solver_options->feasible_eps.has_value());
-    CHECK(base.solver_options->feasible_eps.value_or(0.0)
-          == doctest::Approx(1e-7));
-  }
-
-  SUBCASE("base has no solver_options: takes overlay")
-  {
-    SddpOptions base {};
-
-    SddpOptions overlay {
-        .solver_options =
-            SolverOptions {
-                .algorithm = LPAlgo::dual,
-                .threads = 8,
-            },
-    };
-
-    base.merge(std::move(overlay));
-
-    REQUIRE(base.solver_options.has_value());
-    CHECK(base.solver_options->algorithm == LPAlgo::dual);
-    CHECK(base.solver_options->threads == 8);
-  }
-
-  SUBCASE("overlay has no solver_options: base unchanged")
-  {
-    SddpOptions base {
-        .solver_options =
-            SolverOptions {
-                .algorithm = LPAlgo::primal,
-            },
-    };
-
-    SddpOptions overlay {};
-
-    base.merge(std::move(overlay));
-
-    REQUIRE(base.solver_options.has_value());
-    CHECK(base.solver_options->algorithm == LPAlgo::primal);
-  }
 }
 
 TEST_CASE(

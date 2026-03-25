@@ -256,7 +256,7 @@ TEST_CASE("apply_cli_options - all options applied")
 
   REQUIRE(planning.options.input_format.has_value());
   CHECK((planning.options.input_format
-         && *planning.options.input_format == "parquet"));
+         && *planning.options.input_format == DataFormat::parquet));
 
   REQUIRE(planning.options.output_directory.has_value());
   CHECK((planning.options.output_directory
@@ -264,11 +264,11 @@ TEST_CASE("apply_cli_options - all options applied")
 
   REQUIRE(planning.options.output_format.has_value());
   CHECK((planning.options.output_format
-         && *planning.options.output_format == "csv"));
+         && *planning.options.output_format == DataFormat::csv));
 
   REQUIRE(planning.options.output_compression.has_value());
   CHECK((planning.options.output_compression
-         && *planning.options.output_compression == "gzip"));
+         && *planning.options.output_compression == CompressionCodec::gzip));
 }
 
 TEST_CASE("apply_cli_options - partial options applied")
@@ -392,11 +392,11 @@ TEST_CASE("apply_cli_options(MainOptions) - all options applied")
 
   REQUIRE(planning.options.output_format.has_value());
   CHECK((planning.options.output_format
-         && *planning.options.output_format == "csv"));
+         && *planning.options.output_format == DataFormat::csv));
 
   REQUIRE(planning.options.output_compression.has_value());
   CHECK((planning.options.output_compression
-         && *planning.options.output_compression == "gzip"));
+         && *planning.options.output_compression == CompressionCodec::gzip));
 }
 
 TEST_CASE("apply_cli_options(MainOptions) - does not overwrite when nullopt")
@@ -740,22 +740,26 @@ TEST_CASE("--recover gates recovery_mode in apply_cli_options")  // NOLINT
   SUBCASE("without --recover, recovery_mode forced to none")
   {
     Planning planning {};
-    planning.options.sddp_options.recovery_mode = Name {"full"};
+    planning.options.sddp_options.recovery_mode = RecoveryMode::full;
     apply_cli_options(planning, MainOptions {});
     REQUIRE(planning.options.sddp_options.recovery_mode.has_value());
-    CHECK(planning.options.sddp_options.recovery_mode.value_or("") == "none");
+    CHECK(
+        planning.options.sddp_options.recovery_mode.value_or(RecoveryMode::full)
+        == RecoveryMode::none);
   }
 
   SUBCASE("with --recover=true, recovery_mode preserved from JSON")
   {
     Planning planning {};
-    planning.options.sddp_options.recovery_mode = Name {"full"};
+    planning.options.sddp_options.recovery_mode = RecoveryMode::full;
     apply_cli_options(planning,
                       MainOptions {
                           .recover = true,
                       });
     REQUIRE(planning.options.sddp_options.recovery_mode.has_value());
-    CHECK(planning.options.sddp_options.recovery_mode.value_or("") == "full");
+    CHECK(
+        planning.options.sddp_options.recovery_mode.value_or(RecoveryMode::none)
+        == RecoveryMode::full);
   }
 
   SUBCASE("with --recover=true and no JSON recovery_mode, default applies")
@@ -765,20 +769,22 @@ TEST_CASE("--recover gates recovery_mode in apply_cli_options")  // NOLINT
                       MainOptions {
                           .recover = true,
                       });
-    // recovery_mode not set in JSON → stays nullopt, OptionsLP default is
-    // "full"
+    // recovery_mode not set in JSON → stays nullopt, PlanningOptionsLP default
+    // is "full"
     CHECK_FALSE(planning.options.sddp_options.recovery_mode.has_value());
   }
 
   SUBCASE("with --recover=false, recovery_mode forced to none")
   {
     Planning planning {};
-    planning.options.sddp_options.recovery_mode = Name {"cuts"};
+    planning.options.sddp_options.recovery_mode = RecoveryMode::cuts;
     apply_cli_options(planning,
                       MainOptions {
                           .recover = false,
                       });
     REQUIRE(planning.options.sddp_options.recovery_mode.has_value());
-    CHECK(planning.options.sddp_options.recovery_mode.value_or("") == "none");
+    CHECK(
+        planning.options.sddp_options.recovery_mode.value_or(RecoveryMode::full)
+        == RecoveryMode::none);
   }
 }

@@ -66,11 +66,11 @@ TEST_CASE("OutputContext - write output after solve (parquet)")
   const auto tmpdir = std::filesystem::temp_directory_path() / "gtopt_test_out";
   std::filesystem::create_directories(tmpdir);
 
-  Options opts;
+  PlanningOptions opts;
   opts.output_directory = tmpdir.string();
-  opts.output_format = "parquet";
+  opts.output_format = DataFormat::parquet;
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -97,11 +97,11 @@ TEST_CASE("OutputContext - write output as CSV")
       std::filesystem::temp_directory_path() / "gtopt_test_csv_out";
   std::filesystem::create_directories(tmpdir);
 
-  Options opts;
+  PlanningOptions opts;
   opts.output_directory = tmpdir.string();
-  opts.output_format = "csv";
+  opts.output_format = DataFormat::csv;
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -167,9 +167,9 @@ TEST_CASE("OutputContext - write output with reserve components")
       std::filesystem::temp_directory_path() / "gtopt_test_reserve_out";
   std::filesystem::create_directories(tmpdir);
 
-  Options opts;
+  PlanningOptions opts;
   opts.output_directory = tmpdir.string();
-  opts.output_format = "parquet";
+  opts.output_format = DataFormat::parquet;
   opts.reserve_fail_cost = 10000.0;
 
   const System system = {
@@ -181,7 +181,7 @@ TEST_CASE("OutputContext - write output with reserve components")
       .reserve_provision_array = reserve_provision_array,
   };
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -283,9 +283,9 @@ TEST_CASE("OutputContext - write output with hydro and seepage")
       std::filesystem::temp_directory_path() / "gtopt_test_hydro_out";
   std::filesystem::create_directories(tmpdir);
 
-  Options opts;
+  PlanningOptions opts;
   opts.output_directory = tmpdir.string();
-  opts.output_format = "parquet";
+  opts.output_format = DataFormat::parquet;
 
   const System system = {
       .name = "HydroOutputTest",
@@ -299,7 +299,7 @@ TEST_CASE("OutputContext - write output with hydro and seepage")
       .turbine_array = turbine_array,
   };
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -363,9 +363,9 @@ TEST_CASE("OutputContext - write output with demand and generator profiles")
       std::filesystem::temp_directory_path() / "gtopt_test_profile_out";
   std::filesystem::create_directories(tmpdir);
 
-  Options opts;
+  PlanningOptions opts;
   opts.output_directory = tmpdir.string();
-  opts.output_format = "csv";
+  opts.output_format = DataFormat::csv;
   opts.demand_fail_cost = 10000.0;
 
   const System system = {
@@ -377,7 +377,7 @@ TEST_CASE("OutputContext - write output with demand and generator profiles")
       .demand_profile_array = demand_profile_array,
   };
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -503,12 +503,12 @@ TEST_CASE("OutputContext - CSV zstd compression (default)")  // NOLINT
       std::filesystem::temp_directory_path() / "gtopt_csv_default_zst";
   std::filesystem::create_directories(tmpdir);
 
-  Options opts;
+  PlanningOptions opts;
   opts.output_directory = tmpdir.string();
-  opts.output_format = "csv";
+  opts.output_format = DataFormat::csv;
   // output_compression not set → default "zstd" → produces .csv.zst files
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -538,12 +538,13 @@ TEST_CASE(
       std::filesystem::temp_directory_path() / "gtopt_csv_nocomp";
   std::filesystem::create_directories(tmpdir);
 
-  Options opts;
+  PlanningOptions opts;
   opts.output_directory = tmpdir.string();
-  opts.output_format = "csv";
-  opts.output_compression = "uncompressed";  // explicit no-compression
+  opts.output_format = DataFormat::csv;
+  opts.output_compression =
+      CompressionCodec::uncompressed;  // explicit no-compression
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -576,12 +577,12 @@ TEST_CASE("OutputContext - CSV gzip compression produces .csv.gz")  // NOLINT
   const auto tmpdir = std::filesystem::temp_directory_path() / "gtopt_csv_gzip";
   std::filesystem::create_directories(tmpdir);
 
-  Options opts;
+  PlanningOptions opts;
   opts.output_directory = tmpdir.string();
-  opts.output_format = "csv";
-  opts.output_compression = "gzip";
+  opts.output_format = DataFormat::csv;
+  opts.output_compression = CompressionCodec::gzip;
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -621,12 +622,12 @@ TEST_CASE("OutputContext - CSV gzip output is readable through csv_read_table")
       std::filesystem::temp_directory_path() / "gtopt_csv_gzip_readback";
   std::filesystem::create_directories(tmpdir);
 
-  Options opts;
+  PlanningOptions opts;
   opts.output_directory = tmpdir.string();
-  opts.output_format = "csv";
-  opts.output_compression = "gzip";
+  opts.output_format = DataFormat::csv;
+  opts.output_compression = CompressionCodec::gzip;
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -648,12 +649,12 @@ TEST_CASE(  // NOLINT
   const auto tmpdir = std::filesystem::temp_directory_path() / "gtopt_csv_zstd";
   std::filesystem::create_directories(tmpdir);
 
-  Options opts;
+  PlanningOptions opts;
   opts.output_directory = tmpdir.string();
-  opts.output_format = "csv";
-  opts.output_compression = "zstd";
+  opts.output_format = DataFormat::csv;
+  opts.output_compression = CompressionCodec::zstd;
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -696,12 +697,12 @@ TEST_CASE(  // NOLINT
   const auto tmpdir = std::filesystem::temp_directory_path() / "gtopt_pq_gzip";
   std::filesystem::create_directories(tmpdir);
 
-  Options opts;
+  PlanningOptions opts;
   opts.output_directory = tmpdir.string();
-  opts.output_format = "parquet";
-  opts.output_compression = "gzip";
+  opts.output_format = DataFormat::parquet;
+  opts.output_compression = CompressionCodec::gzip;
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -731,12 +732,13 @@ TEST_CASE(  // NOLINT
       std::filesystem::temp_directory_path() / "gtopt_pq_unknown";
   std::filesystem::create_directories(tmpdir);
 
-  Options opts;
+  PlanningOptions opts;
   opts.output_directory = tmpdir.string();
-  opts.output_format = "parquet";
-  opts.output_compression = "snappy";  // not in codec_map → triggers fallback
+  opts.output_format = DataFormat::parquet;
+  opts.output_compression =
+      CompressionCodec::snappy;  // not in codec_map → triggers fallback
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -765,12 +767,13 @@ TEST_CASE(  // NOLINT
   const auto tmpdir = std::filesystem::temp_directory_path() / "gtopt_pq_lzo";
   std::filesystem::create_directories(tmpdir);
 
-  Options opts;
+  PlanningOptions opts;
   opts.output_directory = tmpdir.string();
-  opts.output_format = "parquet";
-  opts.output_compression = "lzo";  // known in codec_map but unsupported
+  opts.output_format = DataFormat::parquet;
+  opts.output_compression =
+      CompressionCodec::lzo;  // known in codec_map but unsupported
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -843,11 +846,11 @@ TEST_CASE(  // NOLINT
       std::filesystem::perms::owner_read | std::filesystem::perms::owner_exec,
       std::filesystem::perm_options::replace);
 
-  Options opts;
+  PlanningOptions opts;
   opts.output_directory = tmpdir.string();
-  opts.output_format = "csv";
+  opts.output_format = DataFormat::csv;
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -877,11 +880,11 @@ TEST_CASE(  // NOLINT
   std::filesystem::create_directories(tmpdir);
   make_readonly_subdirs(tmpdir);
 
-  Options opts;
+  PlanningOptions opts;
   opts.output_directory = tmpdir.string();
-  opts.output_format = "csv";
+  opts.output_format = DataFormat::csv;
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -904,11 +907,11 @@ TEST_CASE(  // NOLINT
   std::filesystem::create_directories(tmpdir);
   make_readonly_subdirs(tmpdir);
 
-  Options opts;
+  PlanningOptions opts;
   opts.output_directory = tmpdir.string();
-  opts.output_format = "parquet";
+  opts.output_format = DataFormat::parquet;
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -929,12 +932,12 @@ TEST_CASE(  // NOLINT
   std::filesystem::create_directories(tmpdir);
   make_readonly_subdirs(tmpdir);
 
-  Options opts;
+  PlanningOptions opts;
   opts.output_directory = tmpdir.string();
-  opts.output_format = "csv";
-  opts.output_compression = "gzip";
+  opts.output_format = DataFormat::csv;
+  opts.output_compression = CompressionCodec::gzip;
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 

@@ -158,7 +158,7 @@ struct System
    */
   void expand_reservoir_constraints();
 
-  void setup_reference_bus(const class OptionsLP& options);
+  void setup_reference_bus(const class PlanningOptionsLP& options);
 };
 
 }  // namespace gtopt
