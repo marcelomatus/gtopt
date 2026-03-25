@@ -701,3 +701,40 @@ TEST_CASE("Linear problem set_coeff overwrite preserves correctness")
   CHECK(flat.matval.size() == 1);
   CHECK(flat.matval[0] == doctest::Approx(5.0));
 }
+
+TEST_CASE("lp_build name map skips empty column names")
+{
+  gtopt::LinearProblem lp("empty_names_test");
+
+  // Add columns where some have empty names (simulating minimal names_level)
+  [[maybe_unused]] const auto c0 = lp.add_col(gtopt::SparseCol {.name = ""});
+  [[maybe_unused]] const auto c1 =
+      lp.add_col(gtopt::SparseCol {.name = "named_col"});
+  [[maybe_unused]] const auto c2 = lp.add_col(gtopt::SparseCol {.name = ""});
+  [[maybe_unused]] const auto c3 = lp.add_col(gtopt::SparseCol {.name = ""});
+
+  // lp_build requires at least one row to produce output
+  auto rrow = gtopt::SparseRow {.name = "r0"};
+  rrow[c0] = 1;
+  [[maybe_unused]] const auto r0 = lp.add_row(std::move(rrow.less_equal(1)));
+
+  REQUIRE(lp.get_numcols() == 4);
+  REQUIRE(lp.get_numrows() == 1);
+
+  auto flat = lp.lp_build({
+      .col_with_names = true,
+      .col_with_name_map = true,
+  });
+
+  // All 4 column names should be present in colnm
+  REQUIRE(flat.colnm.size() == 4);
+  CHECK(flat.colnm[0].empty());
+  CHECK(flat.colnm[1] == "named_col");
+  CHECK(flat.colnm[2].empty());
+  CHECK(flat.colnm[3].empty());
+
+  // The name map should only contain the non-empty name
+  CHECK(flat.colmp.size() == 1);
+  CHECK(flat.colmp.count("named_col") == 1);
+  CHECK(flat.colmp.at("named_col") == 1);
+}
