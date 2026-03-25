@@ -299,7 +299,7 @@ jobs:
             -i scripts/cases/plp_min_hydro \
             -o /tmp/out_min_hydro \
             -f /tmp/out_min_hydro/gtopt_case.json \
-            -y 0,1
+            -y 1,2
           python3 - <<'EOF'
           import json
           d = json.load(open("/tmp/out_min_hydro/gtopt_case.json"))
