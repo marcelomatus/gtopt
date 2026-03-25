@@ -82,7 +82,7 @@ double cplex_row_lb(char sense, double rhs, double range, double cpx_inf)
     case 'E':
       return rhs;
     case 'R':
-      return rhs;
+      return (range >0) ? rhs : rhs + range;
     default:
       return -cpx_inf;
   }
