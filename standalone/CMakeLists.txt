@@ -62,3 +62,13 @@ configure_install_rpath(${PROJECT_NAME} gtopt)
 
 # ---- Install ----
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)
+
+# ---- Plugin build dependency ----
+# Ensure solver plugins are built alongside the standalone binary so that
+# the binary can discover them at runtime (in the build tree or after install).
+if(TARGET gtopt_solver_osi)
+  add_dependencies(${PROJECT_NAME} gtopt_solver_osi)
+endif()
+if(TARGET gtopt_solver_highs)
+  add_dependencies(${PROJECT_NAME} gtopt_solver_highs)
+endif()
