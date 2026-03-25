@@ -68,6 +68,11 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
   reset_live_state();
 
+  // Compute per-pass solver options: forward/backward options override
+  // the base lp_opts when configured in SDDPOptions.
+  const auto fwd_opts = m_options_.forward_solver_options.value_or(lp_opts);
+  const auto bwd_opts = m_options_.backward_solver_options.value_or(lp_opts);
+
   // Monitoring setup
   const auto solve_start = std::chrono::steady_clock::now();
   const std::string& status_file = m_options_.api_status_file;
@@ -103,7 +108,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
       // ── Forward pass ──
       SPDLOG_DEBUG("SDDP: starting forward pass (iter {})", iter);
-      auto fwd = run_forward_pass_all_scenes(*sddp_pool, lp_opts, iter);
+      auto fwd = run_forward_pass_all_scenes(*sddp_pool, fwd_opts, iter);
       if (!fwd.has_value()) {
         monitor.stop();
         return std::unexpected(std::move(fwd.error()));
@@ -133,7 +138,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
             m_scene_cuts_[scene].size();
       }
       auto bwd = run_backward_pass_all_scenes(
-          fwd->scene_feasible, *sddp_pool, lp_opts, iter);
+          fwd->scene_feasible, *sddp_pool, bwd_opts, iter);
       ir.cuts_added = bwd.total_cuts;
       ir.infeasible_cuts_added = m_benders_cut_.infeasible_cut_count();
       ir.backward_pass_s = bwd.elapsed_s;
@@ -260,7 +265,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     };
     m_benders_cut_.reset_infeasible_cut_count();
 
-    auto fwd = run_forward_pass_all_scenes(*sddp_pool, lp_opts, final_iter);
+    auto fwd = run_forward_pass_all_scenes(*sddp_pool, fwd_opts, final_iter);
     if (!fwd.has_value()) {
       monitor.stop();
       return std::unexpected(std::move(fwd.error()));
