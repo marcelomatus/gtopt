@@ -63,8 +63,8 @@ class GTOptWriter:
     def process_options(self, options):
         """Process options data to include input and output paths.
 
-        The solver type is emitted at the top level as ``solver_type`` so that
-        the gtopt C++ JSON parser maps it directly to ``Options::solver_type``.
+        The solver type is emitted at the top level as ``method`` so that
+        the gtopt C++ JSON parser maps it directly to ``Options::method``.
         All other SDDP-specific settings are still grouped under the nested
         ``sddp_options`` key.
         """
@@ -134,7 +134,7 @@ class GTOptWriter:
             input_dir_val = str(output_dir)
 
         planning_opts = {
-            "solver_type": solver_type,
+            "method": solver_type,
             "input_directory": input_dir_val,
             "input_format": input_format,
             "output_directory": "results",
@@ -161,7 +161,7 @@ class GTOptWriter:
 
         1. **``stages_phase``** (explicit): A parsed ``--stages-phase`` spec
            (list-of-lists of 1-based PLP stage indices) fully controls the
-           mapping regardless of ``solver_type``.
+           mapping regardless of ``method``.
         2. **``solver_type='monolithic'``**: A single phase spanning all stages.
         3. **``solver_type='sddp'``** (default): One phase per PLP stage.
 
@@ -293,31 +293,6 @@ class GTOptWriter:
                 num_hydro = 1
             return list(range(1, num_hydro + 1))
 
-        if spec == "0":
-            # List available scenarios and exit (informational query)
-            import sys  # noqa: PLC0415
-
-            all_hydros = _all_hydro_indices()
-            source = (
-                "plpidsim.dat"
-                if (idsim_parser is not None and idsim_parser.num_simulations > 0)
-                else "plpaflce.dat"
-            )
-            _logger.info(
-                "Available scenarios (from %s): %d hydrologies",
-                source,
-                len(all_hydros),
-            )
-            _logger.info(
-                "  Hydrology indices (Fortran 1-based): %s",
-                ", ".join(str(h) for h in all_hydros),
-            )
-            _logger.info(
-                "  Use -y <index> or -y <i1>,<i2>,... to select, "
-                "or --first-scenario for the first one"
-            )
-            sys.exit(0)
-
         if spec in ("all", "first"):
             all_hydros = _all_hydro_indices()
             if spec == "first":
@@ -329,6 +304,17 @@ class GTOptWriter:
             # "-y 55,56" = hydrology classes 55 and 56 from plpaflce.dat.
             # No idsim remapping: the user specifies the hydrology numbers directly.
             hydro_indices_1based = parse_index_range(hydro_spec)
+
+            # Validate requested indices against available hydrologies
+            all_hydros = _all_hydro_indices()
+            available_set = set(all_hydros)
+            invalid = sorted(set(hydro_indices_1based) - available_set)
+            if invalid:
+                raise ValueError(
+                    f"Invalid hydrology indices: {invalid}. "
+                    f"Available (1-based): "
+                    f"{', '.join(str(h) for h in all_hydros)}"
+                )
 
         num_scenarios = len(hydro_indices_1based)
 

@@ -1,5 +1,5 @@
 /**
- * @file      app_options.hpp
+ * @file      main_options.hpp
  * @brief     Application command-line option parsing and configuration
  * @date      Wed Feb 12 22:00:00 2026
  * @author    marcelo
@@ -7,7 +7,7 @@
  *
  * This module provides utility functions for parsing command-line options
  * using a modern C++ command-line parser, applying parsed options to Planning
- * configurations, and building FlatOptions from command-line parameters.
+ * configurations, and building LpBuildOptions from command-line parameters.
  */
 
 #pragma once
@@ -90,8 +90,8 @@ template<typename T>
 {
   po::options_description desc("Gtopt options");
   desc.add_options()("help,h", "print this help message and exit")  //
-      ("lp-solvers", "list available LP solver backends and exit")  //
-      ("lp-solver",
+      ("solvers", "list available LP solver backends and exit")  //
+      ("solver",
        po::value<std::string>(),
        "LP solver backend: clp (default), cbc, cplex, highs")  //
       ("verbose,v", "enable maximum log verbosity (trace level)")  //
@@ -103,13 +103,6 @@ template<typename T>
        po::value<std::vector<std::string>>(),
        "planning file(s) (planning.json); may be a JSON file, a stem "
        "(without .json), or a directory name")  //
-      ("lp-file,l",
-       po::value<std::string>(),
-       "write the assembled LP model to this file (stem; .lp extension added)")
-      //
-      ("json-file,j",
-       po::value<std::string>(),
-       "write the merged planning JSON to this file")  //
       ("input-directory,D",
        po::value<std::string>(),
        "root directory for external Parquet/CSV input files (default: input)")
@@ -135,16 +128,38 @@ template<typename T>
        po::value<bool>().implicit_value(/*v=*/true),
        "enforce DC Kirchhoff voltage-law constraints (requires reactance data)")
       //
-      ("use-lp-names,n",
-       po::value<int>().implicit_value(1),
-       "write variable/constraint names to LP file: 1=names, 2=names+map")  //
+      // ---- LP options ----
+      ("lp-file,l",
+       po::value<std::string>(),
+       "write the assembled LP model to this file (stem; .lp extension added)")
+      //
+      ("lp-names-level,n",
+       po::value<std::string>().implicit_value("only_cols"),
+       "LP naming level: 0/minimal, 1/only_cols, 2/cols_and_rows")  //
       ("matrix-eps,e",
        po::value<double>(),
        "epsilon threshold for treating LP matrix coefficients as zero")  //
-      ("build-lp,c",
+      ("lp-build,c",
        po::value<bool>().implicit_value(/*v=*/true),
        "build all LP matrices then exit without solving (combine with -l to "
        "save them)")  //
+      ("lp-debug",
+       po::value<bool>().implicit_value(/*v=*/true),
+       "save debug LP files to the log directory (one per scene/phase for "
+       "monolithic; one per iteration/scene/phase for SDDP)")  //
+      ("lp-compression",
+       po::value<std::string>(),
+       "compression codec for debug LP files: empty=auto, none=uncompressed, "
+       "or gzip/zstd/lz4/bzip2/xz")  //
+      ("lp-coeff-ratio",
+       po::value<double>(),
+       "LP coefficient ratio threshold for conditioning diagnostics: when the "
+       "global max/min |coeff| ratio exceeds this value a per-scene/phase "
+       "table is printed (default: 1e7)")  //
+      // ---- debug / output helpers ----
+      ("json-file,j",
+       po::value<std::string>(),
+       "write the merged planning JSON to this file")  //
       ("fast-parsing,p",
        po::value<bool>().implicit_value(/*v=*/true),
        "use lenient (non-strict) JSON parsing")  //
@@ -155,32 +170,15 @@ template<typename T>
        po::value<bool>().implicit_value(/*v=*/true),
        "print LP coefficient statistics and system stats before/after solving")
       //
-      ("lp-coeff-ratio",
-       po::value<double>(),
-       "LP coefficient ratio threshold for conditioning diagnostics: when the "
-       "global max/min |coeff| ratio exceeds this value a per-scene/phase "
-       "table is printed (default: 1e7)")  //
-      ("lp-debug",
-       po::value<bool>().implicit_value(/*v=*/true),
-       "save debug LP files to the log directory (one per scene/phase for "
-       "monolithic; one per iteration/scene/phase for SDDP)")  //
-      ("lp-compression",
-       po::value<std::string>(),
-       "compression codec for debug LP files: empty=auto, none=uncompressed, "
-       "or gzip/zstd/lz4/bzip2/xz")  //
-      ("lp-algorithm,a",
+      ("algorithm,a",
        po::value<std::string>(),
        "LP solver algorithm: 0/default, 1/primal, 2/dual, 3/barrier "
        "(shorthand for solver_options.algorithm in JSON; default: barrier)")
       //
-      ("lp-threads,t",
+      ("threads,t",
        po::value<int>(),
        "number of LP solver threads, 0=auto (shorthand for "
        "solver_options.threads in JSON)")  //
-      ("lp-presolve",
-       po::value<bool>().implicit_value(/*v=*/true),
-       "enable/disable LP presolve (shorthand for solver_options.presolve "
-       "in JSON; default: true)")  //
       ("trace-log,T",
        po::value<std::string>(),
        "write SPDLOG_TRACE messages to this file (enables trace-level logging)")
@@ -209,7 +207,11 @@ template<typename T>
       ("sddp-num-apertures",
        po::value<int>(),
        "SDDP backward-pass aperture count: 0=disabled (default), -1=all, "
-       "N=first N scenarios");
+       "N=first N scenarios")  //
+      ("recover",
+       po::value<bool>().implicit_value(/*v=*/true),
+       "enable recovery from a previous SDDP run (loads cuts and state "
+       "variables according to JSON recovery_mode; default: off)");
   return desc;
 }
 
@@ -221,7 +223,8 @@ template<typename T>
  * @param planning The Planning object to update
  * @param use_single_bus Optional single-bus mode flag
  * @param use_kirchhoff Optional Kirchhoff mode flag
- * @param use_lp_names Optional LP names level (0=col, 1=col+row, 2=strict)
+ * @param lp_names_level Optional LP naming level
+ * (minimal/only_cols/cols_and_rows)
  * @param input_directory Optional input directory path
  * @param input_format Optional input format string
  * @param output_directory Optional output directory path
@@ -236,15 +239,12 @@ inline void apply_cli_options(
     Planning& planning,  // NOLINT(misc-const-correctness)
     const std::optional<bool>& use_single_bus,
     const std::optional<bool>& use_kirchhoff,
-    const std::optional<int>& use_lp_names,
+    const std::optional<LpNamesLevel>& lp_names_level,
     const std::optional<std::string>& input_directory,
     const std::optional<std::string>& input_format,
     const std::optional<std::string>& output_directory,
     const std::optional<std::string>& output_format,
     const std::optional<std::string>& output_compression,
-    const std::optional<int>& lp_algorithm = {},
-    const std::optional<int>& lp_threads = {},
-    const std::optional<bool>& lp_presolve = {},
     const std::optional<std::string>& cut_directory = {},
     const std::optional<std::string>& log_directory = {},
     const std::optional<int>& sddp_max_iterations = {},
@@ -264,8 +264,8 @@ inline void apply_cli_options(
     planning.options.use_kirchhoff = use_kirchhoff;
   }
 
-  if (use_lp_names) {
-    planning.options.use_lp_names = use_lp_names;
+  if (lp_names_level) {
+    planning.options.lp_build_options.names_level = lp_names_level;
   }
 
   if (output_directory) {
@@ -286,24 +286,6 @@ inline void apply_cli_options(
 
   if (input_format) {
     planning.options.input_format = input_format.value();
-  }
-
-  // Route all three CLI solver shortcuts (--lp-algorithm, --lp-threads,
-  // --lp-presolve) directly into solver_options — the canonical solver
-  // config path.  The deprecated top-level lp_algorithm / lp_threads /
-  // lp_presolve JSON fields in Options are still applied in gtopt_main()
-  // for backward compatibility with existing JSON planning files.
-  if (lp_algorithm) {
-    planning.options.solver_options.algorithm =
-        static_cast<LPAlgo>(*lp_algorithm);
-  }
-
-  if (lp_threads) {
-    planning.options.solver_options.threads = *lp_threads;
-  }
-
-  if (lp_presolve) {
-    planning.options.solver_options.presolve = *lp_presolve;
   }
 
   if (cut_directory) {
@@ -348,7 +330,8 @@ inline void apply_cli_options(
   }
 
   if (lp_coeff_ratio_threshold) {
-    planning.options.lp_coeff_ratio_threshold = lp_coeff_ratio_threshold;
+    planning.options.lp_build_options.lp_coeff_ratio_threshold =
+        lp_coeff_ratio_threshold;
   }
 }
 
@@ -367,15 +350,12 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   apply_cli_options(planning,
                     opts.use_single_bus,
                     opts.use_kirchhoff,
-                    opts.use_lp_names,
+                    opts.lp_names_level,
                     opts.input_directory,
                     opts.input_format,
                     opts.output_directory,
                     opts.output_format,
                     opts.output_compression,
-                    opts.lp_algorithm,
-                    opts.lp_threads,
-                    opts.lp_presolve,
                     opts.cut_directory,
                     opts.log_directory,
                     opts.sddp_max_iterations,
@@ -392,39 +372,83 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     planning.options.sddp_options.min_iterations = opts.sddp_min_iterations;
   }
   if (opts.sddp_hot_start) {
-    planning.options.sddp_options.hot_start = opts.sddp_hot_start;
+    planning.options.sddp_options.cut_recovery_mode =
+        *opts.sddp_hot_start ? Name {"replace"} : Name {"none"};
+  }
+
+  // --recover gates whether recovery happens at all.
+  // When not passed (or explicitly false), force recovery_mode to "none"
+  // so JSON config alone cannot trigger recovery.
+  if (!opts.recover.value_or(false)) {
+    planning.options.sddp_options.recovery_mode = Name {"none"};
+  }
+
+  // CLI solver shortcuts → solver_options
+  if (opts.algorithm) {
+    planning.options.solver_options.algorithm =
+        static_cast<LPAlgo>(*opts.algorithm);
+  }
+  if (opts.threads) {
+    planning.options.solver_options.threads = *opts.threads;
   }
 }
 
 /**
- * @brief Build FlatOptions from command-line parameters
+ * @brief Parse an LP names level from a string (name or integer).
  *
- * @param use_lp_names Optional LP names level (0=col, 1=col+row, 2=strict)
- * @param matrix_eps Optional epsilon tolerance for matrix coefficients
- * @return FlatOptions configured according to the parameters
+ * Accepts "0"–"2" or "minimal"/"only_cols"/"cols_and_rows".
+ *
+ * @param s The string to parse.
+ * @return The corresponding LpNamesLevel value.
+ * @throws cli::parse_error on unrecognised input.
  */
-[[nodiscard]] inline FlatOptions make_flat_options(
-    const std::optional<int>& use_lp_names,
+[[nodiscard]] inline LpNamesLevel parse_lp_names_level(const std::string& s)
+{
+  if (const auto lvl = lp_names_level_from_name(s)) {
+    return *lvl;
+  }
+  if (s.size() == 1 && std::isdigit(static_cast<unsigned char>(s.front())) != 0)
+  {
+    const int v = s.front() - '0';
+    if (v >= 0 && v <= static_cast<int>(LpNamesLevel::cols_and_rows)) {
+      return static_cast<LpNamesLevel>(v);
+    }
+  }
+  throw cli::parse_error(
+      std::format("invalid lp-names-level value: '{}' "
+                  "(expected 0-2 or minimal/only_cols/cols_and_rows)",
+                  s));
+}
+
+/**
+ * @brief Build LpBuildOptions from command-line parameters
+ *
+ * @param lp_names_level Optional LP naming level
+ * @param matrix_eps Optional epsilon tolerance for matrix coefficients
+ * @return LpBuildOptions configured according to the parameters
+ */
+[[nodiscard]] inline LpBuildOptions make_lp_build_options(
+    const std::optional<LpNamesLevel>& lp_names_level,
     const std::optional<double>& matrix_eps,
     bool compute_stats = false,
     const std::optional<std::string>& lp_solver = {})
 {
   const auto eps = matrix_eps.value_or(0);
-  const auto lp_names = use_lp_names.value_or(0);
+  const auto lvl = lp_names_level.value_or(LpNamesLevel::minimal);
 
-  FlatOptions flat_opts;
-  flat_opts.eps = eps;
-  flat_opts.col_with_names = lp_names >= 0;
-  flat_opts.row_with_names = lp_names >= 1;
-  flat_opts.col_with_name_map = lp_names >= 0;
-  flat_opts.row_with_name_map = lp_names >= 1;
-  flat_opts.reserve_matrix = false;
-  flat_opts.reserve_factor = 2;
-  flat_opts.compute_stats = compute_stats;
-  flat_opts.lp_names_level = lp_names;
-  flat_opts.solver_name = lp_solver.value_or("");
+  LpBuildOptions lp_build_opts;
+  lp_build_opts.eps = eps;
+  lp_build_opts.col_with_names = lvl >= LpNamesLevel::minimal;
+  lp_build_opts.row_with_names = lvl >= LpNamesLevel::only_cols;
+  lp_build_opts.col_with_name_map = lvl >= LpNamesLevel::minimal;
+  lp_build_opts.row_with_name_map = lvl >= LpNamesLevel::only_cols;
+  lp_build_opts.reserve_matrix = false;
+  lp_build_opts.reserve_factor = 2;
+  lp_build_opts.compute_stats = compute_stats;
+  lp_build_opts.lp_names_level = lvl;
+  lp_build_opts.solver_name = lp_solver.value_or("");
 
-  return flat_opts;
+  return lp_build_opts;
 }
 
 /**
@@ -451,16 +475,22 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .use_single_bus = get_opt<bool>(vm, "use-single-bus"),
       .use_kirchhoff = get_opt<bool>(vm, "use-kirchhoff"),
       .lp_file = get_opt<std::string>(vm, "lp-file"),
-      .use_lp_names = get_opt<int>(vm, "use-lp-names"),
+      .lp_names_level = [&]() -> std::optional<LpNamesLevel>
+      {
+        if (const auto raw = get_opt<std::string>(vm, "lp-names-level")) {
+          return parse_lp_names_level(*raw);
+        }
+        return std::nullopt;
+      }(),
       .matrix_eps = get_opt<double>(vm, "matrix-eps"),
-      .json_file = get_opt<std::string>(vm, "json-file"),
-      .build_lp = get_opt<bool>(vm, "build-lp"),
-      .fast_parsing = get_opt<bool>(vm, "fast-parsing"),
-      .check_json = get_opt<bool>(vm, "check-json"),
-      .print_stats = get_opt<bool>(vm, "stats"),
+      .lp_build = get_opt<bool>(vm, "lp-build"),
       .lp_debug = get_opt<bool>(vm, "lp-debug"),
       .lp_compression = get_opt<std::string>(vm, "lp-compression"),
       .lp_coeff_ratio_threshold = get_opt<double>(vm, "lp-coeff-ratio"),
+      .json_file = get_opt<std::string>(vm, "json-file"),
+      .fast_parsing = get_opt<bool>(vm, "fast-parsing"),
+      .check_json = get_opt<bool>(vm, "check-json"),
+      .print_stats = get_opt<bool>(vm, "stats"),
       .trace_log = get_opt<std::string>(vm, "trace-log"),
       .cut_directory = get_opt<std::string>(vm, "cut-directory"),
       .log_directory = get_opt<std::string>(vm, "log-directory"),
@@ -470,16 +500,16 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .sddp_elastic_penalty = get_opt<double>(vm, "sddp-elastic-penalty"),
       .sddp_elastic_mode = get_opt<std::string>(vm, "sddp-elastic-mode"),
       .sddp_num_apertures = get_opt<int>(vm, "sddp-num-apertures"),
-      .lp_solver = get_opt<std::string>(vm, "lp-solver"),
-      .lp_algorithm = [&]() -> std::optional<int>
+      .recover = get_opt<bool>(vm, "recover"),
+      .solver = get_opt<std::string>(vm, "solver"),
+      .algorithm = [&]() -> std::optional<int>
       {
-        if (const auto raw = get_opt<std::string>(vm, "lp-algorithm")) {
+        if (const auto raw = get_opt<std::string>(vm, "algorithm")) {
           return parse_lp_algorithm(*raw);
         }
         return std::nullopt;
       }(),
-      .lp_threads = get_opt<int>(vm, "lp-threads"),
-      .lp_presolve = get_opt<bool>(vm, "lp-presolve"),
+      .threads = get_opt<int>(vm, "threads"),
   };
 }
 

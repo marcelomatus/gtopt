@@ -1,8 +1,8 @@
 #include <iostream>
 #include <string>
 
-#include <gtopt/app_options.hpp>
 #include <gtopt/gtopt_main.hpp>
+#include <gtopt/main_options.hpp>
 #include <gtopt/solver_registry.hpp>
 #include <gtopt/version.hpp>
 
@@ -61,7 +61,7 @@ int main(int argc, char** argv)
       return 0;
     }
 
-    if (vm.contains("lp-solvers")) {
+    if (vm.contains("solvers")) {
       const auto& registry = gtopt::SolverRegistry::instance();
       const auto solvers = registry.available_solvers();
       if (solvers.empty()) {
@@ -75,10 +75,10 @@ int main(int argc, char** argv)
       return 0;
     }
 
-    // Validate --lp-solver early so the user gets a clear error
-    if (vm.contains("lp-solver")) {
+    // Validate --solver early so the user gets a clear error
+    if (vm.contains("solver")) {
       const auto& registry = gtopt::SolverRegistry::instance();
-      const auto solver = vm["lp-solver"].as<std::string>();
+      const auto solver = vm["solver"].as<std::string>();
       if (!registry.has_solver(solver)) {
         const auto avail = registry.available_solvers();
         std::cerr << "ERROR: LP solver '" << solver << "' not available.\n";

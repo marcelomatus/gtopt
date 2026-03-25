@@ -47,7 +47,7 @@ CascadePlanningMethod::CascadePlanningMethod(
 // ─── Build SDDPOptions for one level ────────────────────────────────────────
 
 auto CascadePlanningMethod::build_level_sddp_opts(
-    const std::optional<CascadeLevelSolver>& level_solver,
+    const std::optional<CascadeLevelMethod>& level_solver,
     int remaining_budget) const -> SDDPOptions
 {
   auto opts = m_base_opts_;
@@ -102,12 +102,6 @@ auto CascadePlanningMethod::clone_planning_with_overrides(
     const Planning& source, const ModelOptions& model_opts) -> Planning
 {
   Planning copy = source;
-
-  // Ensure LP names are enabled for named state variable transfer
-  if (!copy.options.use_lp_names.has_value() || *copy.options.use_lp_names < 1)
-  {
-    copy.options.use_lp_names = 1;
-  }
 
   merge_opt(copy.options.use_single_bus, model_opts.use_single_bus);
   merge_opt(copy.options.use_kirchhoff, model_opts.use_kirchhoff);
@@ -302,7 +296,7 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     {
       auto modified_planning = clone_planning_with_overrides(
           planning_lp.planning(), effective_model);
-      // Default FlatOptions (level 0) provides col names for state variable
+      // Default LpBuildOptions (level 0) provides col names for state variable
       // transfer — no explicit override needed.
       auto new_lp = std::make_unique<PlanningLP>(std::move(modified_planning));
       current_lp = new_lp.get();

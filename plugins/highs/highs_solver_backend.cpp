@@ -363,7 +363,7 @@ void HighsSolverBackend::apply_options(const SolverOptions& opts)
 
   m_highs_->setOptionValue("presolve", opts.presolve ? "on" : "off");
 
-  if (opts.warm_start) {
+  if (opts.reuse_basis) {
     // For warm start: use simplex (not IPM) and disable presolve
     m_highs_->setOptionValue("solver", "simplex");
     m_highs_->setOptionValue("presolve", "off");
@@ -399,7 +399,11 @@ void HighsSolverBackend::apply_options(const SolverOptions& opts)
 double HighsSolverBackend::get_kappa() const
 {
   double kappa = 1.0;
-  m_highs_->getInfoValue("basis_condition", kappa);
+  // Highs::getKappa(exact=true) computes the exact condition number of
+  // the basis matrix via forward/backward solve.
+  if (m_highs_->getKappa(kappa, /*exact=*/true) != HighsStatus::kOk) {
+    kappa = 1.0;
+  }
   return kappa;
 }
 

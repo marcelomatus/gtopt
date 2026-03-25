@@ -22,6 +22,7 @@ from igtopt.template_builder import (
     _list_sheets,
     SDDP_OPTION_KEYS,
     MONOLITHIC_OPTION_KEYS,
+    SOLVER_OPTION_KEYS,
 )
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -538,6 +539,11 @@ def log_conversion_stats(
 # inside the ``monolithic_options`` sub-object.
 _MONOLITHIC_PREFIX = "monolithic_"
 
+# Solver option keys use a ``solver_`` prefix in the flat Excel sheet.
+# The prefix is stripped when the key is placed inside the
+# ``solver_options`` sub-object.
+_SOLVER_PREFIX = "solver_"
+
 
 def _nest_sub_options(flat: dict[str, Any]) -> dict[str, Any]:
     """Partition flat options into sub-objects.
@@ -545,18 +551,21 @@ def _nest_sub_options(flat: dict[str, Any]) -> dict[str, Any]:
     Keys listed in :data:`SDDP_OPTION_KEYS` are moved into a nested
     ``sddp_options`` dict.  Keys whose name starts with ``monolithic_``
     are moved into a nested ``monolithic_options`` dict with the prefix
-    stripped.  ``cascade_options`` is passed through as-is (it uses a
-    hierarchical ``levels`` array that cannot be flattened).
+    stripped.  Keys whose name starts with ``solver_`` are moved into a
+    nested ``solver_options`` dict with the prefix stripped.
+    ``cascade_options`` is passed through as-is (it uses a hierarchical
+    ``levels`` array that cannot be flattened).
     All remaining keys stay at the top level.
 
     If the flat dict already contains a ``sddp_options``,
-    ``cascade_options``, or ``monolithic_options`` sub-dict (e.g. injected
-    by the boundary_cuts sheet handler), its contents are merged with the
-    keys extracted here.
+    ``cascade_options``, ``monolithic_options``, or ``solver_options``
+    sub-dict (e.g. injected by another handler), its contents are merged
+    with the keys extracted here.
     """
     top: dict[str, Any] = {}
     sddp: dict[str, Any] = {}
     mono: dict[str, Any] = {}
+    solver: dict[str, Any] = {}
 
     for key, value in flat.items():
         if key == "sddp_options" and isinstance(value, dict):
@@ -567,6 +576,8 @@ def _nest_sub_options(flat: dict[str, Any]) -> dict[str, Any]:
             top["cascade_options"] = value
         elif key == "monolithic_options" and isinstance(value, dict):
             mono.update(value)
+        elif key == "solver_options" and isinstance(value, dict):
+            solver.update(value)
         elif key in SDDP_OPTION_KEYS:
             sddp[key] = value
         elif key.startswith(_MONOLITHIC_PREFIX) and key != _MONOLITHIC_PREFIX:
@@ -575,6 +586,13 @@ def _nest_sub_options(flat: dict[str, Any]) -> dict[str, Any]:
             mono[inner_key] = value
         elif key in MONOLITHIC_OPTION_KEYS:
             mono[key] = value
+        elif key.startswith(_SOLVER_PREFIX) and key != _SOLVER_PREFIX:
+            # Strip the ``solver_`` prefix for the nested key name.
+            inner_key = key[len(_SOLVER_PREFIX) :]
+            if inner_key in SOLVER_OPTION_KEYS:
+                solver[inner_key] = value
+            else:
+                top[key] = value
         else:
             top[key] = value
 
@@ -582,6 +600,8 @@ def _nest_sub_options(flat: dict[str, Any]) -> dict[str, Any]:
         top["sddp_options"] = sddp
     if mono:
         top["monolithic_options"] = mono
+    if solver:
+        top["solver_options"] = solver
     return top
 
 

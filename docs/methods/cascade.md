@@ -274,10 +274,10 @@ plain SDDP solver.
 | `uid` | int | (auto) | Unique level identifier |
 | `name` | string | `"level_N"` | Human-readable name (for logging) |
 | `model_options` | ModelOptions | (absent) | LP formulation overrides; absent = reuse previous LP |
-| `sddp_options` | CascadeLevelSolver | (absent) | Per-level solver parameters |
+| `sddp_options` | CascadeLevelMethod | (absent) | Per-level solver parameters |
 | `transition` | CascadeTransition | (absent) | Transfer rules from previous level |
 
-### 4.4 CascadeLevelSolver Fields
+### 4.4 CascadeLevelMethod Fields
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -644,7 +644,7 @@ them.  This is required for named cut/target transfer.
 
 The cascade solver supports two levels of iteration control:
 
-- **Per-level budget**: `CascadeLevelSolver::max_iterations` limits
+- **Per-level budget**: `CascadeLevelMethod::max_iterations` limits
   training iterations within a single level.
 - **Global budget**: `CascadeOptions::sddp_options::max_iterations`
   limits the total training iterations across all levels.

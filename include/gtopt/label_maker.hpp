@@ -8,10 +8,10 @@
  * The LabelMaker class provides functionality to generate labels for linear
  * programming (LP) variables based on various context objects (like stages,
  * scenarios, blocks) and options. It conditionally creates labels based on the
- * use_lp_names level:
- *   - Level 0: column names only (for internal use, e.g. cascade solver)
- *   - Level 1: column + row names (for LP file output)
- *   - Level 2: column + row names + strict duplicate detection
+ * LpNamesLevel:
+ *   - minimal:      state-variable column names only (cascade solver)
+ *   - only_cols:    all column names + name maps
+ *   - cols_and_rows: column + row names + maps + warn on duplicates
  */
 
 #pragma once
@@ -38,20 +38,14 @@ class LabelMaker
 {
 public:
   explicit constexpr LabelMaker(const OptionsLP& options) noexcept
-      : m_lp_names_level_(options.use_lp_names())
+      : m_names_level_(options.names_level())
   {
   }
 
   [[nodiscard]]
-  constexpr bool dont_use_lp_names() const noexcept
+  constexpr LpNamesLevel names_level() const noexcept
   {
-    return m_lp_names_level_ < 0;
-  }
-
-  [[nodiscard]]
-  constexpr int lp_names_level() const noexcept
-  {
-    return m_lp_names_level_;
+    return m_names_level_;
   }
 
   // ── state_col_label: always generates (state variables need names) ──
@@ -116,7 +110,7 @@ public:
   template<typename... Types>
   [[nodiscard]] auto lp_col_label(Types&&... args) const -> std::string
   {
-    if (m_lp_names_level_ < 1) [[likely]] {
+    if (m_names_level_ < LpNamesLevel::only_cols) [[likely]] {
       return {};
     }
     gtopt::as_label_into(label_buf_, std::forward<Types>(args)...);
@@ -129,7 +123,7 @@ public:
   [[nodiscard]] auto lp_col_label(StageLP&& stage, Types&&... args) const
       -> std::string
   {
-    if (m_lp_names_level_ < 1) [[likely]] {
+    if (m_names_level_ < LpNamesLevel::only_cols) [[likely]] {
       return {};
     }
     gtopt::as_label_into(label_buf_,
@@ -146,7 +140,7 @@ public:
                                   StageLP&& stage,
                                   Types&&... args) const -> std::string
   {
-    if (m_lp_names_level_ < 1) [[likely]] {
+    if (m_names_level_ < LpNamesLevel::only_cols) [[likely]] {
       return {};
     }
     gtopt::as_label_into(label_buf_,
@@ -169,7 +163,7 @@ public:
                                   BlockLP&& block,
                                   Types&&... args) const -> std::string
   {
-    if (m_lp_names_level_ < 1) [[likely]] {
+    if (m_names_level_ < LpNamesLevel::only_cols) [[likely]] {
       return {};
     }
     gtopt::as_label_into(label_buf_,
@@ -185,7 +179,7 @@ public:
   template<typename... Types>
   [[nodiscard]] auto lp_row_label(Types&&... args) const -> std::string
   {
-    if (m_lp_names_level_ < 1) [[likely]] {
+    if (m_names_level_ < LpNamesLevel::only_cols) [[likely]] {
       return {};
     }
     gtopt::as_label_into(label_buf_, std::forward<Types>(args)...);
@@ -198,7 +192,7 @@ public:
   [[nodiscard]] auto lp_row_label(StageLP&& stage, Types&&... args) const
       -> std::string
   {
-    if (m_lp_names_level_ < 1) [[likely]] {
+    if (m_names_level_ < LpNamesLevel::only_cols) [[likely]] {
       return {};
     }
     gtopt::as_label_into(label_buf_,
@@ -215,7 +209,7 @@ public:
                                   StageLP&& stage,
                                   Types&&... args) const -> std::string
   {
-    if (m_lp_names_level_ < 1) [[likely]] {
+    if (m_names_level_ < LpNamesLevel::only_cols) [[likely]] {
       return {};
     }
     gtopt::as_label_into(label_buf_,
@@ -238,7 +232,7 @@ public:
                                   BlockLP&& block,
                                   Types&&... args) const -> std::string
   {
-    if (m_lp_names_level_ < 1) [[likely]] {
+    if (m_names_level_ < LpNamesLevel::only_cols) [[likely]] {
       return {};
     }
     gtopt::as_label_into(label_buf_,
@@ -317,7 +311,7 @@ public:
   }
 
 private:
-  int m_lp_names_level_;
+  LpNamesLevel m_names_level_;
   mutable std::string label_buf_;
 };
 

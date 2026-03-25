@@ -75,7 +75,7 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 | `output_directory`   | string  | `"output"`   | Root directory for output result files |
 | `output_format`      | string  | `"parquet"`  | Output format: `"parquet"` or `"csv"` |
 | `output_compression` | string  | `"zstd"`     | Compression codec: `"uncompressed"`, `"gzip"`, `"zstd"`, `"lz4"`, `"bzip2"`, `"xz"` |
-| `use_lp_names`       | integer | `1`          | LP naming level: 0=none, 1=names+warn on duplicates, 2=names+error on duplicates. JSON `true` maps to 1, `false` to 0 |
+| `lp_build_options.names_level` | string/int | `"minimal"` (0) | LP naming level: `"minimal"` (0) = state-variable cols only, `"only_cols"` (1) = all column + row names (required for LP file output), `"cols_and_rows"` (2) = same as 1 + warn on duplicates |
 | `use_uid_fname`      | boolean | `true`       | Use element UIDs instead of names in output filenames |
 
 #### Solver selection
@@ -91,7 +91,7 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 | `log_directory`             | string  | `"logs"` | Directory for log, trace, and error LP files |
 | `lp_debug`                  | boolean | `false`  | Save LP debug files to `log_directory` before solving. Monolithic: one file per `(scene, phase)` named `gtopt_lp_<scene>_<phase>.lp`. SDDP: one file per `(iteration, scene, phase)` named `gtopt_iter_<iter>_<scene>_<phase>.lp` |
 | `lp_compression`            | string  | `""`     | Compression codec for LP debug files: `""` (inherit from output), `"none"` (no compression), or a codec name (`"zstd"`, `"gzip"`, `"lz4"`, `"bzip2"`, `"xz"`) |
-| `build_lp`             | boolean | `false`  | Build all LP matrices but skip solving entirely. Combine with `lp_debug: true` to export every scene/phase LP |
+| `lp_build`             | boolean | `false`  | Build all LP matrices but skip solving entirely. Combine with `lp_debug: true` to export every scene/phase LP |
 | `lp_coeff_ratio_threshold`  | number  | `1e7`    | When the global max/min coefficient ratio exceeds this value, per-scene/phase breakdown is printed |
 
 #### Deprecated LP solver fields
@@ -111,7 +111,6 @@ by the `solver_options` sub-object (see Section 1.1).
 {
   "options": {
     "annual_discount_rate": 0.1,
-    "use_lp_names": true,
     "output_format": "csv",
     "use_single_bus": false,
     "demand_fail_cost": 1000,
@@ -270,8 +269,8 @@ For full algorithmic details, see [SDDP Solver](methods/sddp.md).
 
 | Field            | Type    | Default  | Description |
 |------------------|---------|----------|-------------|
-| `hot_start`      | boolean | `false`  | Load previously saved cuts on startup (deprecated: use `hot_start_mode`) |
-| `hot_start_mode` | string  | `"none"` | Hot-start mode: `"none"`, `"keep"`, `"append"`, or `"replace"`. Takes precedence over boolean `hot_start` |
+| `hot_start`      | boolean | `false`  | Load previously saved cuts on startup (deprecated: use `cut_recovery_mode`) |
+| `cut_recovery_mode` | string  | `"none"` | Hot-start mode: `"none"`, `"keep"`, `"append"`, or `"replace"`. Takes precedence over boolean `hot_start` |
 
 #### Cut pruning
 
@@ -380,7 +379,7 @@ forgetting semantics and the two-phase solve behavior.
       "cut_directory": "cuts",
       "elastic_mode": "single_cut",
       "elastic_penalty": 1e7,
-      "hot_start_mode": "keep",
+      "cut_recovery_mode": "keep",
       "boundary_cuts_file": "boundary_cuts.csv",
       "boundary_cuts_mode": "separated",
       "apertures": []
@@ -461,7 +460,7 @@ forgetting semantics and the two-phase solve behavior.
     "method": "sddp",
     "sddp_options": {
       "simulation_mode": true,
-      "hot_start_mode": "keep",
+      "cut_recovery_mode": "keep",
       "cut_directory": "cuts"
     }
   }

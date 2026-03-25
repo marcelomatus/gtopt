@@ -162,9 +162,9 @@ constexpr auto create_linear_interface(auto& collections,
 
   // Convert and store the flattened LP representation
 
-  auto flat_lp = lp.to_flat(flat_opts);
+  auto flat_lp = lp.lp_build(flat_opts);
   LinearInterface li(flat_opts.solver_name);
-  li.set_lp_names_level(flat_opts.lp_names_level);
+  li.set_lp_names_level(static_cast<int>(flat_opts.lp_names_level));
   li.load_flat(flat_lp);
   return li;
 }
@@ -240,7 +240,7 @@ void create_collections(const auto& system_context,
 
 namespace gtopt
 {
-void SystemLP::create_lp(const FlatOptions& flat_opts)
+void SystemLP::create_lp(const LpBuildOptions& flat_opts)
 {
   m_linear_interface_ = create_linear_interface(
       collections(), system_context(), phase(), scene(), flat_opts);
@@ -250,7 +250,7 @@ SystemLP::SystemLP(const System& system,
                    SimulationLP& simulation,
                    PhaseLP phase,
                    SceneLP scene,
-                   const FlatOptions& flat_opts)
+                   const LpBuildOptions& flat_opts)
     : m_system_(system)
     , m_system_context_(simulation, *this)
     , m_phase_(std::move(phase))

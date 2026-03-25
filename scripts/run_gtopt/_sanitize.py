@@ -22,7 +22,8 @@ _VALID_SOLVER_TYPES = {"monolithic", "sddp", "cascade"}
 _VALID_INPUT_FORMATS = {"parquet", "csv"}
 _VALID_OUTPUT_FORMATS = {"parquet", "csv"}
 _VALID_LP_ALGORITHMS = {0, 1, 2, 3}
-_VALID_HOT_START_MODES = {"none", "keep", "append", "replace"}
+_VALID_CUT_RECOVERY_MODES = {"none", "keep", "append", "replace"}
+_VALID_RECOVERY_MODES = {"none", "cuts", "full"}
 _VALID_CUT_SHARING_MODES = {"none", "expected", "accumulate", "max"}
 _VALID_ELASTIC_MODES = {"single_cut", "multi_cut", "backpropagate", "cut"}
 _VALID_BOUNDARY_MODES = {"noload", "separated", "combined"}
@@ -64,12 +65,10 @@ def _validate_options(opts: dict) -> list[str]:
         if val and val not in valid:
             messages.append(f"WARN: {key}='{val}' not in {valid}")
 
-    # ── Solver type ──
-    solver_type = opts.get("solver_type")
-    if solver_type and solver_type not in _VALID_SOLVER_TYPES:
-        messages.append(
-            f"WARN: solver_type='{solver_type}' not in {_VALID_SOLVER_TYPES}"
-        )
+    # ── Method (solver type) ──
+    method = opts.get("method")
+    if method and method not in _VALID_SOLVER_TYPES:
+        messages.append(f"WARN: method='{method}' not in {_VALID_SOLVER_TYPES}")
 
     # ── Discount rate ──
     rate = opts.get("annual_discount_rate")
@@ -180,7 +179,8 @@ def _validate_sddp_options(sddp: dict, messages: list[str]) -> None:
         sddp["alpha_min"], sddp["alpha_max"] = alpha_max, alpha_min
 
     for mode_key, valid in [
-        ("hot_start_mode", _VALID_HOT_START_MODES),
+        ("cut_recovery_mode", _VALID_CUT_RECOVERY_MODES),
+        ("recovery_mode", _VALID_RECOVERY_MODES),
         ("cut_sharing_mode", _VALID_CUT_SHARING_MODES),
         ("elastic_mode", _VALID_ELASTIC_MODES),
         ("boundary_cuts_mode", _VALID_BOUNDARY_MODES),
@@ -251,7 +251,7 @@ def _validate_cascade_options(cascade: dict, messages: list[str]) -> None:
                 )
                 model_opts["use_kirchhoff"] = False
 
-        # ── sddp_options sub-object (CascadeLevelSolver) ──
+        # ── sddp_options sub-object (CascadeLevelMethod) ──
         sddp = level.get("sddp_options", {})
         if isinstance(sddp, dict):
             max_iter = sddp.get("max_iterations")

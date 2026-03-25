@@ -64,10 +64,10 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
   // After the first iteration the LP already carries a valid basis from the
   // previous solve.  Enable warm-start (dual simplex + no presolve) so the
   // solver pivots from that basis instead of re-solving from scratch with
-  // barrier.  With hot start (offset > 0), warm_start is enabled from the
+  // barrier.  With hot start (offset > 0), reuse_basis is enabled from the
   // first iteration since the LP already has a basis.
   if (iteration > m_iteration_offset_ && m_options_.warm_start) {
-    effective_opts.warm_start = true;
+    effective_opts.reuse_basis = true;
   }
 
   SPDLOG_DEBUG("SDDP forward: scene {} iter {} starting ({} phases)",
@@ -124,7 +124,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
     // Apply saved forward-pass solution from the previous iteration as
     // warm-start hint.  Dimension mismatches (new cut rows) are handled
     // by set_warm_start_solution() via zero-padding.
-    if (effective_opts.warm_start) {
+    if (effective_opts.reuse_basis) {
       li.set_warm_start_solution(state.forward_col_sol, state.forward_row_dual);
     }
 

@@ -381,7 +381,7 @@ enum class HotStartMode : uint8_t
 };
 
 /// Name-value table for HotStartMode
-inline constexpr auto hot_start_mode_entries =
+inline constexpr auto cut_recovery_mode_entries =
     std::to_array<EnumEntry<HotStartMode>>({
         {.name = "none", .value = HotStartMode::none},
         {.name = "keep", .value = HotStartMode::keep},
@@ -391,17 +391,99 @@ inline constexpr auto hot_start_mode_entries =
 
 /// Parse a HotStartMode from a string
 /// ("none", "keep", "append", "replace")
-[[nodiscard]] constexpr auto hot_start_mode_from_name(
+[[nodiscard]] constexpr auto cut_recovery_mode_from_name(
     std::string_view name) noexcept -> std::optional<HotStartMode>
 {
-  return enum_from_name(std::span {hot_start_mode_entries}, name);
+  return enum_from_name(std::span {cut_recovery_mode_entries}, name);
 }
 
 /// Return the canonical name of a HotStartMode
-[[nodiscard]] constexpr auto hot_start_mode_name(HotStartMode value) noexcept
+[[nodiscard]] constexpr auto cut_recovery_mode_name(HotStartMode value) noexcept
     -> std::string_view
 {
-  return enum_name(std::span {hot_start_mode_entries}, value);
+  return enum_name(std::span {cut_recovery_mode_entries}, value);
+}
+
+// ── RecoveryMode
+// ──────────────────────────────────────────────────────────────
+
+/**
+ * @brief Controls what is recovered from a previous SDDP run.
+ *
+ * - `none`:  No recovery — cold start.
+ * - `cuts`:  Recover only Benders cuts from previous run.
+ * - `full`:  Recover Benders cuts AND state variable solutions (default).
+ */
+enum class RecoveryMode : uint8_t
+{
+  none = 0,  ///< No recovery — cold start
+  cuts = 1,  ///< Recover only Benders cuts
+  full = 2,  ///< Recover cuts + state variable solutions (default)
+};
+
+/// Name-value table for RecoveryMode
+inline constexpr auto recovery_mode_entries =
+    std::to_array<EnumEntry<RecoveryMode>>({
+        {.name = "none", .value = RecoveryMode::none},
+        {.name = "cuts", .value = RecoveryMode::cuts},
+        {.name = "full", .value = RecoveryMode::full},
+    });
+
+/// Parse a RecoveryMode from a string ("none", "cuts", "full")
+[[nodiscard]] constexpr auto recovery_mode_from_name(
+    std::string_view name) noexcept -> std::optional<RecoveryMode>
+{
+  return enum_from_name(std::span {recovery_mode_entries}, name);
+}
+
+/// Return the canonical name of a RecoveryMode
+[[nodiscard]] constexpr auto recovery_mode_name(RecoveryMode value) noexcept
+    -> std::string_view
+{
+  return enum_name(std::span {recovery_mode_entries}, value);
+}
+
+// ─── LpNamesLevel ────────────────────────────────────────────────────────────
+
+/**
+ * @brief LP variable/constraint naming level for matrix assembly.
+ *
+ * Controls how much naming information is generated during LP construction.
+ * Higher levels provide better diagnostics but consume more memory.
+ *
+ * - `minimal`:      State-variable column names only (for internal use,
+ *                   e.g. cascade solver state transfer).  Smallest footprint.
+ * - `only_cols`:    All column names + name-to-index maps.
+ * - `cols_and_rows`: Column + row names + maps.  Warns on duplicate names.
+ */
+enum class LpNamesLevel : uint8_t
+{
+  minimal = 0,  ///< State-variable column names only (default)
+  only_cols = 1,  ///< All column names + name maps
+  cols_and_rows = 2,  ///< Column + row names + maps + warn on duplicates
+};
+
+/// Name-value table for LpNamesLevel
+inline constexpr auto lp_names_level_entries =
+    std::to_array<EnumEntry<LpNamesLevel>>({
+        {.name = "minimal", .value = LpNamesLevel::minimal},
+        {.name = "only_cols", .value = LpNamesLevel::only_cols},
+        {.name = "cols_and_rows", .value = LpNamesLevel::cols_and_rows},
+    });
+
+/// Parse an LpNamesLevel from a string
+/// ("minimal", "only_cols", "cols_and_rows")
+[[nodiscard]] constexpr auto lp_names_level_from_name(
+    std::string_view name) noexcept -> std::optional<LpNamesLevel>
+{
+  return enum_from_name(std::span {lp_names_level_entries}, name);
+}
+
+/// Return the canonical name of an LpNamesLevel
+[[nodiscard]] constexpr auto lp_names_level_name(LpNamesLevel value) noexcept
+    -> std::string_view
+{
+  return enum_name(std::span {lp_names_level_entries}, value);
 }
 
 }  // namespace gtopt

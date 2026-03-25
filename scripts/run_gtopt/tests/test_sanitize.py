@@ -222,8 +222,8 @@ def test_warn_invalid_format(tmp_path: Path):
 
 
 def test_warn_invalid_solver_type(tmp_path: Path):
-    """Invalid solver_type produces a warning."""
-    p = _write_plan(tmp_path / "plan.json", {"solver_type": "gurobi"})
+    """Invalid method produces a warning."""
+    p = _write_plan(tmp_path / "plan.json", {"method": "gurobi"})
     result = sanitize_json(p)
     assert result == p
 
@@ -304,7 +304,7 @@ def test_warn_sddp_invalid_mode(tmp_path: Path):
     """Invalid SDDP mode values produce warnings."""
     p = _write_plan(
         tmp_path / "plan.json",
-        {"sddp_options": {"hot_start_mode": "invalid"}},
+        {"sddp_options": {"cut_recovery_mode": "invalid"}},
     )
     result = sanitize_json(p)
     assert result == p
@@ -464,11 +464,11 @@ def test_cascade_multiple_levels_validated(tmp_path: Path):
 
 
 def test_cascade_solver_type_accepted(tmp_path: Path):
-    """solver_type 'cascade' passes validation."""
-    p = _write_plan(tmp_path / "plan.json", {"solver_type": "cascade"})
+    """method 'cascade' passes validation."""
+    p = _write_plan(tmp_path / "plan.json", {"method": "cascade"})
     result = sanitize_json(p)
     data = json.loads(result.read_text())
-    assert data["options"]["solver_type"] == "cascade"
+    assert data["options"]["method"] == "cascade"
 
 
 def test_output_directory_override(tmp_path: Path):

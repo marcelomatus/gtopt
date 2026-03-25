@@ -2071,6 +2071,278 @@ class TestDemandProfileRendering:
         _assert_no_duplicate_node_ids(model)
 
 
+# ---------------------------------------------------------------------------
+# Turbine with flow (alternative to waterway)
+# ---------------------------------------------------------------------------
+
+_TURBINE_FLOW_PLANNING = {
+    "system": {
+        "name": "turbine_flow_test",
+        "bus_array": [{"uid": 1, "name": "B1"}],
+        "junction_array": [
+            {"uid": 1, "name": "J1"},
+            {"uid": 2, "name": "J2"},
+        ],
+        "flow_array": [
+            {"uid": 1, "name": "F1", "junction": 1, "discharge": 50},
+        ],
+        "generator_array": [
+            {"uid": 1, "name": "G1", "bus": 1, "pmax": 30, "type": "pasada"},
+        ],
+        "turbine_array": [
+            {
+                "uid": 1,
+                "name": "T_flow",
+                "flow": 1,
+                "generator": 1,
+                "conversion_rate": 1.0,
+            },
+        ],
+    },
+}
+
+
+class TestTurbineFlowMode:
+    """Verify turbine with ``flow`` instead of ``waterway``."""
+
+    def _build(self, subsystem="hydro"):
+        return _build_model(_TURBINE_FLOW_PLANNING, subsystem=subsystem)
+
+    def _pairs(self, model):
+        return {(e.src, e.dst) for e in model.edges}
+
+    def test_flow_to_turbine_edge(self):
+        """flow → turbine edge must exist when turbine uses flow ref."""
+        model = self._build()
+        pairs = self._pairs(model)
+        assert ("flow_F1_1", "turb_T_flow_1") in pairs
+
+    def test_turbine_to_generator_edge(self):
+        """turbine → generator edge must exist."""
+        model = self._build(subsystem="full")
+        pairs = self._pairs(model)
+        assert ("turb_T_flow_1", "gen_G1_1") in pairs
+
+    def test_no_waterway_edges_when_flow_used(self):
+        """No junction→turbine waterway edges when flow is used."""
+        model = self._build()
+        pairs = self._pairs(model)
+        # Junction-to-turbine edges come from waterway path only
+        junc_turb = {
+            (s, d) for s, d in pairs if s.startswith("junc_") and d.startswith("turb_")
+        }
+        assert not junc_turb
+
+    def test_flow_turbine_node_exists(self):
+        """Turbine node must exist."""
+        model = self._build()
+        node_ids = {n.node_id for n in model.nodes}
+        assert "turb_T_flow_1" in node_ids
+
+    def test_no_dangling_edges(self):
+        model = self._build(subsystem="full")
+        _assert_no_dangling_edges(model)
+
+
+# ---------------------------------------------------------------------------
+# Embedded reservoir features (seepage, discharge_limit, production_factor)
+# ---------------------------------------------------------------------------
+
+_EMBEDDED_RESERVOIR_PLANNING = {
+    "system": {
+        "name": "embedded_reservoir_test",
+        "junction_array": [
+            {"uid": 1, "name": "J1"},
+            {"uid": 2, "name": "J2"},
+            {"uid": 3, "name": "J3"},
+        ],
+        "waterway_array": [
+            {"uid": 1, "name": "W1", "junction_a": 1, "junction_b": 2, "fmax": 500},
+            {"uid": 2, "name": "W2", "junction_a": 1, "junction_b": 3, "fmax": 200},
+        ],
+        "reservoir_array": [
+            {
+                "uid": 1,
+                "name": "Res1",
+                "junction": 1,
+                "emax": 8000,
+                "soft_emin": 500,
+                "soft_emin_cost": 100,
+            },
+        ],
+        "bus_array": [{"uid": 1, "name": "B1"}],
+        "generator_array": [
+            {"uid": 1, "name": "G_hydro", "bus": 1, "pmax": 100},
+        ],
+        "turbine_array": [
+            {
+                "uid": 1,
+                "name": "T1",
+                "waterway": 1,
+                "generator": 1,
+                "conversion_rate": 0.003,
+                "main_reservoir": 1,
+            },
+        ],
+        # These arrays simulate the output of expand_reservoir_constraints():
+        # originally embedded in the reservoir, now flattened to system-level.
+        "reservoir_seepage_array": [
+            {
+                "uid": 100,
+                "name": "Res1_seep_W2",
+                "waterway": 2,
+                "reservoir": 1,
+                "slope": 0.001,
+                "constant": 0.5,
+            },
+        ],
+        "reservoir_discharge_limit_array": [
+            {
+                "uid": 200,
+                "name": "Res1_dlim_W1",
+                "waterway": 1,
+                "reservoir": 1,
+                "segments": [
+                    {"volume": 0.0, "slope": 0.0, "intercept": 300},
+                    {"volume": 4000.0, "slope": 0.05, "intercept": 100},
+                ],
+            },
+        ],
+        "reservoir_production_factor_array": [
+            {
+                "uid": 300,
+                "name": "Res1_pf_T1",
+                "turbine": 1,
+                "reservoir": 1,
+                "mean_production_factor": 0.003,
+                "segments": [
+                    {"volume": 0.0, "slope": 0.0, "constant": 0.002},
+                    {"volume": 4000.0, "slope": 0.0001, "constant": 0.003},
+                ],
+            },
+        ],
+    },
+}
+
+
+class TestEmbeddedReservoirFeatures:
+    """Verify diagram rendering of expanded embedded reservoir constraints.
+
+    The C++ ``expand_reservoir_constraints()`` flattens inline reservoir
+    definitions (seepage, discharge_limit, production_factor) into system-level
+    arrays.  The diagram must render the flattened arrays correctly.
+    """
+
+    def _build(self, subsystem="hydro"):
+        return _build_model(_EMBEDDED_RESERVOIR_PLANNING, subsystem=subsystem)
+
+    def _pairs(self, model):
+        return {(e.src, e.dst) for e in model.edges}
+
+    def _node_ids(self, model):
+        return {n.node_id for n in model.nodes}
+
+    def test_reservoir_node_exists(self):
+        model = self._build()
+        assert "res_Res1_1" in self._node_ids(model)
+
+    def test_seepage_node_from_embedded(self):
+        """Seepage flattened from embedded definition must appear as a node."""
+        model = self._build()
+        assert "filt_Res1_seep_W2_100" in self._node_ids(model)
+
+    def test_seepage_to_reservoir_edge(self):
+        """Seepage → reservoir edge for embedded seepage."""
+        model = self._build()
+        pairs = self._pairs(model)
+        assert ("filt_Res1_seep_W2_100", "res_Res1_1") in pairs
+
+    def test_seepage_waterway_junction_edge(self):
+        """Seepage must connect to the junction_a of its waterway."""
+        model = self._build()
+        pairs = self._pairs(model)
+        # W2's junction_a is J1 (uid=1)
+        assert ("junc_J1_1", "filt_Res1_seep_W2_100") in pairs
+
+    def test_production_factor_reservoir_to_turbine_edge(self):
+        """Embedded production_factor must produce a reservoir → turbine edge."""
+        model = self._build()
+        pairs = self._pairs(model)
+        assert ("res_Res1_1", "turb_T1_1") in pairs
+
+    def test_production_factor_suppresses_main_reservoir(self):
+        """production_factor edge must not duplicate main_reservoir fallback."""
+        model = self._build()
+        res_turb = [
+            e for e in model.edges if e.src == "res_Res1_1" and e.dst == "turb_T1_1"
+        ]
+        assert len(res_turb) == 1
+
+    def test_discharge_limit_counted_as_hydro_element(self):
+        """reservoir_discharge_limit_array must trigger hydro subsystem detection."""
+        # Build with full subsystem — should detect hydro
+        fo = gd.FilterOptions(aggregate="none")
+        builder = gd.TopologyBuilder(
+            _EMBEDDED_RESERVOIR_PLANNING, subsystem="full", opts=fo
+        )
+        model = builder.build()
+        # Hydro nodes must exist (reservoir, turbine, junctions)
+        node_kinds = {n.kind for n in model.nodes}
+        assert "turbine" in node_kinds
+
+    def test_no_dangling_edges(self):
+        model = self._build(subsystem="full")
+        _assert_no_dangling_edges(model)
+
+    def test_no_duplicate_node_ids(self):
+        model = self._build()
+        _assert_no_duplicate_node_ids(model)
+
+
+class TestReservoirDischargeLimitHydroDetection:
+    """Verify that reservoir_discharge_limit_array alone triggers hydro mode."""
+
+    _PLANNING_DL_ONLY = {
+        "system": {
+            "name": "dl_only_test",
+            "bus_array": [{"uid": 1, "name": "B1"}],
+            "junction_array": [{"uid": 1, "name": "J1"}],
+            "waterway_array": [
+                {"uid": 1, "name": "W1", "junction_a": 1, "junction_b": 1, "fmax": 100},
+            ],
+            "reservoir_array": [
+                {"uid": 1, "name": "R1", "junction": 1, "emax": 1000},
+            ],
+            "reservoir_discharge_limit_array": [
+                {
+                    "uid": 1,
+                    "name": "DL1",
+                    "waterway": 1,
+                    "reservoir": 1,
+                    "segments": [{"volume": 0, "slope": 0, "intercept": 50}],
+                },
+            ],
+        },
+    }
+
+    def test_hydro_subsystem_detected(self):
+        """reservoir_discharge_limit_array must trigger hydro subsystem."""
+        fo = gd.FilterOptions(aggregate="none")
+        builder = gd.TopologyBuilder(self._PLANNING_DL_ONLY, subsystem="full", opts=fo)
+        model = builder.build()
+        # Reservoir and junction nodes must be present (hydro was detected)
+        node_kinds = {n.kind for n in model.nodes}
+        assert any("reservoir" in k for k in node_kinds)
+
+    def test_element_count_includes_discharge_limits(self):
+        """_count_elements must include reservoir_discharge_limit_array."""
+        fo = gd.FilterOptions(aggregate="none")
+        builder = gd.TopologyBuilder(self._PLANNING_DL_ONLY, subsystem="full", opts=fo)
+        count = builder._count_elements()  # noqa: SLF001
+        # At least: 1 bus + 1 junction + 1 waterway + 1 reservoir + 1 dl = 5
+        assert count >= 5
+
+
 class TestProfileCompactMode:
     """Verify profile labels in compact mode are shorter."""
 

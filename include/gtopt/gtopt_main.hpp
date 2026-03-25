@@ -18,6 +18,8 @@
 #include <string>
 #include <vector>
 
+#include <gtopt/enum_option.hpp>
+
 namespace gtopt
 {
 
@@ -65,25 +67,15 @@ struct MainOptions
   /** @brief Enable Kirchhoff voltage-law constraints */
   std::optional<bool> use_kirchhoff {};
 
-  // ---- debug / output helpers ----
+  // ---- LP options ----
   /** @brief Path stem for writing the LP model file */
   std::optional<std::string> lp_file {};
-  /** @brief LP variable/row naming level (0=none, 1=names, 2=names+map) */
-  std::optional<int> use_lp_names {};
+  /** @brief LP naming level: minimal, only_cols, cols_and_rows */
+  std::optional<LpNamesLevel> lp_names_level {};
   /** @brief Epsilon tolerance for LP matrix coefficients */
   std::optional<double> matrix_eps {};
-  /** @brief Path stem for writing the merged planning JSON */
-  std::optional<std::string> json_file {};
-
-  // ---- execution control ----
   /** @brief Build all scene/phase LP matrices but skip solving entirely */
-  std::optional<bool> build_lp {};
-  /** @brief Use fast (non-strict) JSON parsing */
-  std::optional<bool> fast_parsing {};
-  /** @brief Warn about JSON fields not recognised by the schema */
-  std::optional<bool> check_json {};
-  /** @brief Print pre- and post-solve system statistics */
-  std::optional<bool> print_stats {};
+  std::optional<bool> lp_build {};
   /** @brief Save debug LP files to the log directory (monolithic: one per
    * scene/phase; SDDP: one per iteration/scene/phase) */
   std::optional<bool> lp_debug {};
@@ -91,11 +83,22 @@ struct MainOptions
    * `""` = auto (let gtopt_compress_lp decide); `"none"` = no compression;
    * `"gzip"`, `"zstd"`, `"lz4"`, `"bzip2"`, `"xz"` = specific codec. */
   std::optional<std::string> lp_compression {};
-
   /** @brief LP coefficient ratio threshold for numerical conditioning
    * diagnostics.  When the global max/min |coefficient| ratio exceeds this
    * value, a per-scene/phase breakdown is printed.  (default: 1e7) */
   std::optional<double> lp_coeff_ratio_threshold {};
+
+  // ---- debug / output helpers ----
+  /** @brief Path stem for writing the merged planning JSON */
+  std::optional<std::string> json_file {};
+
+  // ---- execution control ----
+  /** @brief Use fast (non-strict) JSON parsing */
+  std::optional<bool> fast_parsing {};
+  /** @brief Warn about JSON fields not recognised by the schema */
+  std::optional<bool> check_json {};
+  /** @brief Print pre- and post-solve system statistics */
+  std::optional<bool> print_stats {};
 
   // ---- tracing / diagnostics ----
   /** @brief Path to a file for SPDLOG_TRACE output (enables trace-level
@@ -126,19 +129,27 @@ struct MainOptions
   /** @brief Enable SDDP hot-start from previously saved cuts */
   std::optional<bool> sddp_hot_start {};
 
+  /** @brief Enable recovery from a previous SDDP run.
+   *
+   * When true, the JSON `recovery_mode` setting takes effect (default "full").
+   * When false or unset, `recovery_mode` is forced to "none" regardless of
+   * the JSON configuration — i.e. recovery only happens when the user
+   * explicitly passes `--recover` on the command line.
+   */
+  std::optional<bool> recover {};
+
   // ---- solver selection ----
   /** @brief LP solver backend name ("clp", "cbc", "cplex", "highs").
    * When empty, auto-detects from available plugins. */
-  std::optional<std::string> lp_solver {};
+  std::optional<std::string> solver {};
 
-  // ---- solver algorithm ----
+  // ---- solver algorithm (shortcuts for solver_options fields) ----
   /** @brief LP solution algorithm override (0=default, 1=primal, 2=dual,
-   * 3=barrier) */
-  std::optional<int> lp_algorithm {};
-  /** @brief Number of solver threads override (0=automatic) */
-  std::optional<int> lp_threads {};
-  /** @brief Presolve override */
-  std::optional<bool> lp_presolve {};
+   * 3=barrier).  Mapped to solver_options.algorithm by apply_cli_options. */
+  std::optional<int> algorithm {};
+  /** @brief Number of solver threads override (0=automatic).
+   *  Mapped to solver_options.threads by apply_cli_options. */
+  std::optional<int> threads {};
 };
 
 /**
