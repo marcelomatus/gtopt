@@ -26,13 +26,14 @@ This guide provides detailed instructions for building gtopt from source, includ
 | Boost | 1.70+ | Container library | `libboost-container-dev` |
 | Apache Arrow | 10.0+ | Parquet I/O | `libarrow-dev libparquet-dev` or conda |
 | COIN-OR CBC/CLP | 2.10+ | LP/MIP solver | `coinor-libcbc-dev` |
-| HiGHS | 1.5+ | LP/MIP solver (optional) | `libhighs-dev` |
+| HiGHS | 1.5+ | LP/MIP solver (optional) | build from source (see below) |
 | spdlog | 1.12+ | Logging | `libspdlog-dev` |
 
 **LP Solver Backends**: gtopt loads LP solver backends as dynamic plugins at
 runtime. The default is auto-detected by priority: CPLEX > HiGHS > CBC > CLP.
-Installing `coinor-libcbc-dev` provides CLP/CBC. Installing `libhighs-dev`
-provides HiGHS. Use `--lp-solvers` to list available backends, or `--lp-solver
+Installing `coinor-libcbc-dev` provides CLP/CBC. HiGHS must be built from
+source on Ubuntu 24.04 (it is available via apt starting with Ubuntu 25.04).
+Use `--lp-solvers` to list available backends, or `--lp-solver
 highs` to select a specific one. Set `GTOPT_PLUGIN_DIR` to point to a custom
 plugin directory.
 
@@ -182,16 +183,33 @@ pkg-config --modversion cbc
 
 #### HiGHS Solver (optional)
 
-HiGHS is a high-performance open-source LP/MIP solver:
+HiGHS is a high-performance open-source LP/MIP solver. It is **not
+packaged** in Ubuntu 24.04 (Noble); apt packages (`libhighs-dev`,
+`libhighs1`) are available starting with Ubuntu 25.04 (Plucky).
+
+On Ubuntu 25.04+:
 
 ```bash
 sudo apt-get install -y libhighs-dev
 ```
 
+On Ubuntu 24.04, build from source:
+
+```bash
+git clone --depth 1 --branch v1.10.0 https://github.com/ERGO-Code/HiGHS.git /tmp/HiGHS
+cmake -S /tmp/HiGHS -B /tmp/HiGHS/build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=/usr/local
+cmake --build /tmp/HiGHS/build -j$(nproc)
+sudo cmake --install /tmp/HiGHS/build
+sudo ldconfig
+rm -rf /tmp/HiGHS
+```
+
 Verify:
 
 ```bash
-dpkg -l libhighs-dev
+ls /usr/local/include/highs/Highs.h
 ```
 
 ### macOS

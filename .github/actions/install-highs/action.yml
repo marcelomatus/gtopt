@@ -1,0 +1,65 @@
+name: Install HiGHS from source
+description: >
+  Builds and installs HiGHS LP/MIP solver from source.
+  HiGHS is not packaged in Ubuntu 24.04 (Noble); it is available via apt
+  starting with Ubuntu 25.04 (Plucky).  This action clones a pinned tag,
+  builds with CMake, and installs to the given prefix (default /usr/local).
+
+inputs:
+  version:
+    description: 'HiGHS git tag to checkout (e.g. v1.10.0)'
+    default: 'v1.10.0'
+  install-prefix:
+    description: 'CMAKE_INSTALL_PREFIX for the HiGHS build'
+    default: '/usr/local'
+  build-type:
+    description: 'CMake build type (Release recommended for CI)'
+    default: 'Release'
+
+runs:
+  using: composite
+  steps:
+    - name: build and install HiGHS ${{ inputs.version }}
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        VERSION="${{ inputs.version }}"
+        PREFIX="${{ inputs.install-prefix }}"
+        BUILD_TYPE="${{ inputs.build-type }}"
+
+        # Skip if already installed
+        if pkg-config --exists highs 2>/dev/null; then
+          echo "HiGHS already installed ($(pkg-config --modversion highs))"
+          exit 0
+        fi
+        if [ -f "${PREFIX}/include/highs/Highs.h" ]; then
+          echo "HiGHS headers already present at ${PREFIX}/include/highs/"
+          exit 0
+        fi
+
+        echo "::group::Clone HiGHS ${VERSION}"
+        git clone --depth 1 --branch "${VERSION}" \
+          https://github.com/ERGO-Code/HiGHS.git /tmp/HiGHS
+        echo "::endgroup::"
+
+        echo "::group::Build HiGHS"
+        cmake -S /tmp/HiGHS -B /tmp/HiGHS/build \
+          -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
+          -DCMAKE_INSTALL_PREFIX="${PREFIX}" \
+          -DHIGHS_NO_DEFAULT_THREADS=ON
+        cmake --build /tmp/HiGHS/build -j"$(nproc)"
+        echo "::endgroup::"
+
+        echo "::group::Install HiGHS"
+        sudo cmake --install /tmp/HiGHS/build
+        sudo ldconfig
+        echo "::endgroup::"
+
+        # Verify
+        echo "HiGHS installed to ${PREFIX}"
+        ls -la "${PREFIX}/lib/libhighs"* 2>/dev/null || true
+        ls -la "${PREFIX}/include/highs/Highs.h" 2>/dev/null || true
+
+        # Cleanup
+        rm -rf /tmp/HiGHS
