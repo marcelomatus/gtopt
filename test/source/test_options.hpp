@@ -9,15 +9,15 @@
  */
 
 #include <doctest/doctest.h>
-#include <gtopt/options.hpp>
-#include <gtopt/options_lp.hpp>
+#include <gtopt/planning_options.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/solver_options.hpp>
 
 TEST_CASE("Options - Default construction")
 {
   using namespace gtopt;
 
-  const Options options {};
+  const PlanningOptions options {};
 
   // Check that all optional fields are empty
   CHECK_FALSE(options.input_directory.has_value());
@@ -46,9 +46,9 @@ TEST_CASE("Options - Construction with values")
 {
   using namespace gtopt;
 
-  Options options {
+  PlanningOptions options {
       .input_directory = "input_dir",
-      .input_format = "json",
+      .input_format = DataFormat::csv,
       .demand_fail_cost = 1000.0,
       .reserve_fail_cost = 500.0,
       .use_line_losses = true,
@@ -59,8 +59,8 @@ TEST_CASE("Options - Construction with values")
       .scale_theta = 10.0,
       .annual_discount_rate = 0.05,
       .output_directory = "output_dir",
-      .output_format = "csv",
-      .output_compression = "zip",
+      .output_format = DataFormat::csv,
+      .output_compression = CompressionCodec::gzip,
       .use_uid_fname = false,
       .lp_build_options {
           .names_level = LpNamesLevel::only_cols,
@@ -72,7 +72,7 @@ TEST_CASE("Options - Construction with values")
   CHECK(*options.input_directory == "input_dir");
 
   REQUIRE(options.input_format.has_value());
-  CHECK(*options.input_format == "json");
+  CHECK(*options.input_format == DataFormat::csv);
 
   REQUIRE(options.demand_fail_cost.has_value());
   CHECK(*options.demand_fail_cost == doctest::Approx(1000.0));
@@ -102,10 +102,10 @@ TEST_CASE("Options - Construction with values")
   CHECK(*options.output_directory == "output_dir");
 
   REQUIRE(options.output_format.has_value());
-  CHECK(*options.output_format == "csv");
+  CHECK(*options.output_format == DataFormat::csv);
 
   REQUIRE(options.output_compression.has_value());
-  CHECK(*options.output_compression == "zip");
+  CHECK(*options.output_compression == CompressionCodec::gzip);
 
   REQUIRE(options.lp_build_options.names_level.has_value());
   CHECK(*options.lp_build_options.names_level == LpNamesLevel::only_cols);
@@ -122,7 +122,7 @@ TEST_CASE("Options - Merge operation")
   using namespace gtopt;
 
   // Create a base options object with some values
-  Options base {
+  PlanningOptions base {
       .input_directory = "base_input",
       .use_kirchhoff = true,
       .scale_objective = 1.0,
@@ -130,11 +130,11 @@ TEST_CASE("Options - Merge operation")
   };
 
   // Create options to merge with some overlapping and some new values
-  Options overlay {
+  PlanningOptions overlay {
       .input_directory = "overlay_input",
       .demand_fail_cost = 2000.0,
       .use_kirchhoff = false,
-      .output_format = "parquet",
+      .output_format = DataFormat::parquet,
   };
 
   // Merge overlay into base
@@ -193,7 +193,7 @@ TEST_CASE("Options - Merge operation")
 
   // New values from overlay should be added to base
   if (base.output_format.has_value()) {
-    CHECK(*base.output_format == "parquet");
+    CHECK(*base.output_format == DataFormat::parquet);
   } else {
     FAIL("output_format should have been set");
   }
@@ -204,17 +204,17 @@ TEST_CASE("Options - Merging with empty options")
   using namespace gtopt;
 
   // Create options with values
-  Options filled {
+  PlanningOptions filled {
       .input_directory = "input_dir",
       .demand_fail_cost = 1000.0,
       .use_kirchhoff = true,
   };
 
   // Create empty options
-  Options empty {};
+  PlanningOptions empty {};
 
   // Test merging empty into filled (should not change anything)
-  Options filled_copy = filled;
+  PlanningOptions filled_copy = filled;
   filled_copy.merge(std::move(empty));
 
   if (filled_copy.input_directory.has_value()) {
@@ -236,7 +236,7 @@ TEST_CASE("Options - Merging with empty options")
   }
 
   // Test merging filled into empty (empty should gain all values)
-  empty = Options {};
+  empty = PlanningOptions {};
   empty.merge(std::move(filled));
 
   if (empty.input_directory.has_value()) {
@@ -259,108 +259,126 @@ TEST_CASE("Options - Merging with empty options")
   }
 }
 
-TEST_CASE("OptionsLP - Default construction")
+TEST_CASE("PlanningOptionsLP - Default construction")
 {
   using namespace gtopt;
 
-  // Create OptionsLP with default Options
-  const OptionsLP options_lp {};
+  // Create PlanningOptionsLP with default Options
+  const PlanningOptionsLP options_lp {};
 
   // Check default values
-  CHECK(options_lp.input_directory() == OptionsLP::default_input_directory);
-  CHECK(options_lp.input_format() == OptionsLP::default_input_format);
+  CHECK(options_lp.input_directory()
+        == PlanningOptionsLP::default_input_directory);
+  CHECK(options_lp.input_format_enum()
+        == PlanningOptionsLP::default_input_format);
   CHECK_FALSE(options_lp.demand_fail_cost().has_value());
   CHECK_FALSE(options_lp.reserve_fail_cost().has_value());
-  CHECK(options_lp.use_line_losses() == OptionsLP::default_use_line_losses);
-  CHECK(options_lp.use_kirchhoff() == OptionsLP::default_use_kirchhoff);
-  CHECK(options_lp.use_single_bus() == OptionsLP::default_use_single_bus);
+  CHECK(options_lp.use_line_losses()
+        == PlanningOptionsLP::default_use_line_losses);
+  CHECK(options_lp.use_kirchhoff() == PlanningOptionsLP::default_use_kirchhoff);
+  CHECK(options_lp.use_single_bus()
+        == PlanningOptionsLP::default_use_single_bus);
   CHECK(options_lp.kirchhoff_threshold()
-        == doctest::Approx(OptionsLP::default_kirchhoff_threshold));
+        == doctest::Approx(PlanningOptionsLP::default_kirchhoff_threshold));
   CHECK(options_lp.scale_objective()
-        == doctest::Approx(OptionsLP::default_scale_objective));
+        == doctest::Approx(PlanningOptionsLP::default_scale_objective));
   CHECK(options_lp.scale_theta()
-        == doctest::Approx(OptionsLP::default_scale_theta));
-  CHECK(options_lp.output_directory() == OptionsLP::default_output_directory);
-  CHECK(options_lp.output_format() == OptionsLP::default_output_format);
-  CHECK(options_lp.output_compression()
-        == OptionsLP::default_output_compression);
-  CHECK(options_lp.names_level() == OptionsLP::default_names_level);
-  CHECK(options_lp.use_uid_fname() == OptionsLP::default_use_uid_fname);
+        == doctest::Approx(PlanningOptionsLP::default_scale_theta));
+  CHECK(options_lp.output_directory()
+        == PlanningOptionsLP::default_output_directory);
+  CHECK(options_lp.output_format_enum()
+        == PlanningOptionsLP::default_output_format);
+  CHECK(options_lp.output_compression_enum()
+        == PlanningOptionsLP::default_output_compression);
+  CHECK(options_lp.names_level() == PlanningOptionsLP::default_names_level);
+  CHECK(options_lp.use_uid_fname() == PlanningOptionsLP::default_use_uid_fname);
   CHECK(options_lp.annual_discount_rate()
-        == doctest::Approx(OptionsLP::default_annual_discount_rate));
+        == doctest::Approx(PlanningOptionsLP::default_annual_discount_rate));
 }
 
-TEST_CASE("OptionsLP - Default construction 2")
+TEST_CASE("PlanningOptionsLP - Default construction 2")
 {
   using namespace gtopt;
 
-  // Create OptionsLP with default Options
-  const Options options {};
-  const OptionsLP options_lp {options};
+  // Create PlanningOptionsLP with default Options
+  const PlanningOptions options {};
+  const PlanningOptionsLP options_lp {options};
 
   // Check default values
-  CHECK(options_lp.input_directory() == OptionsLP::default_input_directory);
-  CHECK(options_lp.input_format() == OptionsLP::default_input_format);
+  CHECK(options_lp.input_directory()
+        == PlanningOptionsLP::default_input_directory);
+  CHECK(options_lp.input_format_enum()
+        == PlanningOptionsLP::default_input_format);
   CHECK_FALSE(options_lp.demand_fail_cost().has_value());
   CHECK_FALSE(options_lp.reserve_fail_cost().has_value());
-  CHECK(options_lp.use_line_losses() == OptionsLP::default_use_line_losses);
-  CHECK(options_lp.use_kirchhoff() == OptionsLP::default_use_kirchhoff);
-  CHECK(options_lp.use_single_bus() == OptionsLP::default_use_single_bus);
+  CHECK(options_lp.use_line_losses()
+        == PlanningOptionsLP::default_use_line_losses);
+  CHECK(options_lp.use_kirchhoff() == PlanningOptionsLP::default_use_kirchhoff);
+  CHECK(options_lp.use_single_bus()
+        == PlanningOptionsLP::default_use_single_bus);
   CHECK(options_lp.kirchhoff_threshold()
-        == doctest::Approx(OptionsLP::default_kirchhoff_threshold));
+        == doctest::Approx(PlanningOptionsLP::default_kirchhoff_threshold));
   CHECK(options_lp.scale_objective()
-        == doctest::Approx(OptionsLP::default_scale_objective));
+        == doctest::Approx(PlanningOptionsLP::default_scale_objective));
   CHECK(options_lp.scale_theta()
-        == doctest::Approx(OptionsLP::default_scale_theta));
-  CHECK(options_lp.output_directory() == OptionsLP::default_output_directory);
-  CHECK(options_lp.output_format() == OptionsLP::default_output_format);
-  CHECK(options_lp.output_compression()
-        == OptionsLP::default_output_compression);
-  CHECK(options_lp.names_level() == OptionsLP::default_names_level);
-  CHECK(options_lp.use_uid_fname() == OptionsLP::default_use_uid_fname);
+        == doctest::Approx(PlanningOptionsLP::default_scale_theta));
+  CHECK(options_lp.output_directory()
+        == PlanningOptionsLP::default_output_directory);
+  CHECK(options_lp.output_format_enum()
+        == PlanningOptionsLP::default_output_format);
+  CHECK(options_lp.output_compression_enum()
+        == PlanningOptionsLP::default_output_compression);
+  CHECK(options_lp.names_level() == PlanningOptionsLP::default_names_level);
+  CHECK(options_lp.use_uid_fname() == PlanningOptionsLP::default_use_uid_fname);
   CHECK(options_lp.annual_discount_rate()
-        == doctest::Approx(OptionsLP::default_annual_discount_rate));
+        == doctest::Approx(PlanningOptionsLP::default_annual_discount_rate));
 }
 
-TEST_CASE("OptionsLP - Default construction 3")
+TEST_CASE("PlanningOptionsLP - Default construction 3")
 {
   using namespace gtopt;
 
-  // Create OptionsLP with default Options
-  const OptionsLP options_lp {Options {}};
+  // Create PlanningOptionsLP with default Options
+  const PlanningOptionsLP options_lp {PlanningOptions {}};
 
   // Check default values
-  CHECK(options_lp.input_directory() == OptionsLP::default_input_directory);
-  CHECK(options_lp.input_format() == OptionsLP::default_input_format);
+  CHECK(options_lp.input_directory()
+        == PlanningOptionsLP::default_input_directory);
+  CHECK(options_lp.input_format_enum()
+        == PlanningOptionsLP::default_input_format);
   CHECK_FALSE(options_lp.demand_fail_cost().has_value());
   CHECK_FALSE(options_lp.reserve_fail_cost().has_value());
-  CHECK(options_lp.use_line_losses() == OptionsLP::default_use_line_losses);
-  CHECK(options_lp.use_kirchhoff() == OptionsLP::default_use_kirchhoff);
-  CHECK(options_lp.use_single_bus() == OptionsLP::default_use_single_bus);
+  CHECK(options_lp.use_line_losses()
+        == PlanningOptionsLP::default_use_line_losses);
+  CHECK(options_lp.use_kirchhoff() == PlanningOptionsLP::default_use_kirchhoff);
+  CHECK(options_lp.use_single_bus()
+        == PlanningOptionsLP::default_use_single_bus);
   CHECK(options_lp.kirchhoff_threshold()
-        == doctest::Approx(OptionsLP::default_kirchhoff_threshold));
+        == doctest::Approx(PlanningOptionsLP::default_kirchhoff_threshold));
   CHECK(options_lp.scale_objective()
-        == doctest::Approx(OptionsLP::default_scale_objective));
+        == doctest::Approx(PlanningOptionsLP::default_scale_objective));
   CHECK(options_lp.scale_theta()
-        == doctest::Approx(OptionsLP::default_scale_theta));
-  CHECK(options_lp.output_directory() == OptionsLP::default_output_directory);
-  CHECK(options_lp.output_format() == OptionsLP::default_output_format);
-  CHECK(options_lp.output_compression()
-        == OptionsLP::default_output_compression);
-  CHECK(options_lp.names_level() == OptionsLP::default_names_level);
-  CHECK(options_lp.use_uid_fname() == OptionsLP::default_use_uid_fname);
+        == doctest::Approx(PlanningOptionsLP::default_scale_theta));
+  CHECK(options_lp.output_directory()
+        == PlanningOptionsLP::default_output_directory);
+  CHECK(options_lp.output_format_enum()
+        == PlanningOptionsLP::default_output_format);
+  CHECK(options_lp.output_compression_enum()
+        == PlanningOptionsLP::default_output_compression);
+  CHECK(options_lp.names_level() == PlanningOptionsLP::default_names_level);
+  CHECK(options_lp.use_uid_fname() == PlanningOptionsLP::default_use_uid_fname);
   CHECK(options_lp.annual_discount_rate()
-        == doctest::Approx(OptionsLP::default_annual_discount_rate));
+        == doctest::Approx(PlanningOptionsLP::default_annual_discount_rate));
 }
 
-TEST_CASE("OptionsLP - Construction with Options")
+TEST_CASE("PlanningOptionsLP - Construction with Options")
 {
   using namespace gtopt;
 
   // Create Options with some values
-  const Options options {
+  const PlanningOptions options {
       .input_directory = "custom_input",
-      .input_format = "json",
+      .input_format = DataFormat::csv,
       .demand_fail_cost = 1000.0,
       .use_kirchhoff = false,
       .scale_objective = 2000.0,
@@ -368,12 +386,12 @@ TEST_CASE("OptionsLP - Construction with Options")
       // Leaving some values unset to test defaults
   };
 
-  // Create OptionsLP with custom Options
-  const OptionsLP options_lp {options};
+  // Create PlanningOptionsLP with custom Options
+  const PlanningOptionsLP options_lp {options};
 
   // Check custom values
   CHECK(options_lp.input_directory() == "custom_input");
-  CHECK(options_lp.input_format() == "json");
+  CHECK(options_lp.input_format() == "csv");
   REQUIRE(options_lp.demand_fail_cost().has_value());
   if (options_lp.demand_fail_cost()) {
     CHECK(*options_lp.demand_fail_cost() == doctest::Approx(1000.0));
@@ -384,29 +402,32 @@ TEST_CASE("OptionsLP - Construction with Options")
 
   // Check defaults for unset values
   CHECK_FALSE(options_lp.reserve_fail_cost().has_value());
-  CHECK(options_lp.use_line_losses() == OptionsLP::default_use_line_losses);
-  CHECK(options_lp.use_single_bus() == OptionsLP::default_use_single_bus);
+  CHECK(options_lp.use_line_losses()
+        == PlanningOptionsLP::default_use_line_losses);
+  CHECK(options_lp.use_single_bus()
+        == PlanningOptionsLP::default_use_single_bus);
   CHECK(options_lp.kirchhoff_threshold()
-        == doctest::Approx(OptionsLP::default_kirchhoff_threshold));
+        == doctest::Approx(PlanningOptionsLP::default_kirchhoff_threshold));
   CHECK(options_lp.scale_theta()
-        == doctest::Approx(OptionsLP::default_scale_theta));
-  CHECK(options_lp.output_format() == OptionsLP::default_output_format);
-  CHECK(options_lp.output_compression()
-        == OptionsLP::default_output_compression);
-  CHECK(options_lp.names_level() == OptionsLP::default_names_level);
-  CHECK(options_lp.use_uid_fname() == OptionsLP::default_use_uid_fname);
+        == doctest::Approx(PlanningOptionsLP::default_scale_theta));
+  CHECK(options_lp.output_format_enum()
+        == PlanningOptionsLP::default_output_format);
+  CHECK(options_lp.output_compression_enum()
+        == PlanningOptionsLP::default_output_compression);
+  CHECK(options_lp.names_level() == PlanningOptionsLP::default_names_level);
+  CHECK(options_lp.use_uid_fname() == PlanningOptionsLP::default_use_uid_fname);
   CHECK(options_lp.annual_discount_rate()
-        == doctest::Approx(OptionsLP::default_annual_discount_rate));
+        == doctest::Approx(PlanningOptionsLP::default_annual_discount_rate));
 }
 
-TEST_CASE("OptionsLP - Test all accessor methods")
+TEST_CASE("PlanningOptionsLP - Test all accessor methods")
 {
   using namespace gtopt;
 
   // Create Options with all values set
-  const Options options {
+  const PlanningOptions options {
       .input_directory = "test_input",
-      .input_format = "csv",
+      .input_format = DataFormat::csv,
       .demand_fail_cost = 1500.0,
       .reserve_fail_cost = 750.0,
       .use_line_losses = false,
@@ -417,16 +438,16 @@ TEST_CASE("OptionsLP - Test all accessor methods")
       .scale_theta = 20.0,
       .annual_discount_rate = 0.07,
       .output_directory = "test_output",
-      .output_format = "json",
-      .output_compression = "bzip2",
+      .output_format = DataFormat::parquet,
+      .output_compression = CompressionCodec::bzip2,
       .use_uid_fname = true,
       .lp_build_options {
           .names_level = LpNamesLevel::only_cols,
       },
   };
 
-  // Create OptionsLP with all values set
-  const OptionsLP options_lp {options};
+  // Create PlanningOptionsLP with all values set
+  const PlanningOptionsLP options_lp {options};
 
   // Test all accessor methods
   CHECK(options_lp.input_directory() == "test_input");
@@ -448,7 +469,7 @@ TEST_CASE("OptionsLP - Test all accessor methods")
   CHECK(options_lp.scale_objective() == doctest::Approx(500.0));
   CHECK(options_lp.scale_theta() == doctest::Approx(20.0));
   CHECK(options_lp.output_directory() == "test_output");
-  CHECK(options_lp.output_format() == "json");
+  CHECK(options_lp.output_format() == "parquet");
   CHECK(options_lp.output_compression() == "bzip2");
   CHECK(options_lp.names_level() == LpNamesLevel::only_cols);
   CHECK(options_lp.use_uid_fname() == true);
@@ -459,14 +480,14 @@ TEST_CASE("Options - Merge appends variable_scales")  // NOLINT
 {
   using namespace gtopt;
 
-  Options base {};
+  PlanningOptions base {};
   base.variable_scales.push_back({
       .class_name = "Bus",
       .variable = "theta",
       .scale = 1000.0,
   });
 
-  Options overlay {};
+  PlanningOptions overlay {};
   overlay.variable_scales.push_back({
       .class_name = "Reservoir",
       .variable = "volume",
@@ -491,14 +512,14 @@ TEST_CASE("Options - Merge with empty variable_scales does nothing")  // NOLINT
 {
   using namespace gtopt;
 
-  Options base {};
+  PlanningOptions base {};
   base.variable_scales.push_back({
       .class_name = "Bus",
       .variable = "theta",
       .scale = 1000.0,
   });
 
-  Options overlay {};
+  PlanningOptions overlay {};
 
   base.merge(std::move(overlay));
 
@@ -510,7 +531,7 @@ TEST_CASE("Options - Solver options fields have defaults")  // NOLINT
 {
   using namespace gtopt;
 
-  const Options options {};
+  const PlanningOptions options {};
   CHECK(options.solver_options.algorithm == LPAlgo::barrier);
   CHECK(options.solver_options.threads == 2);
   CHECK(options.solver_options.presolve == true);
@@ -520,7 +541,7 @@ TEST_CASE("Options - Solver options fields construction")  // NOLINT
 {
   using namespace gtopt;
 
-  const Options options {
+  const PlanningOptions options {
       .solver_options =
           {
               .algorithm = LPAlgo::dual,
@@ -538,14 +559,14 @@ TEST_CASE("Options - Solver options merge")  // NOLINT
 {
   using namespace gtopt;
 
-  Options base {
+  PlanningOptions base {
       .solver_options =
           {
               .algorithm = LPAlgo::primal,
               .optimal_eps = 1e-8,
           },
   };
-  Options overlay {
+  PlanningOptions overlay {
       .solver_options =
           {
               .algorithm = LPAlgo::dual,
@@ -569,21 +590,23 @@ TEST_CASE("Options - Solver options merge")  // NOLINT
         == doctest::Approx(1e-7));
 }
 
-TEST_CASE("OptionsLP - Solver options accessor returns defaults")  // NOLINT
+TEST_CASE(
+    "PlanningOptionsLP - Solver options accessor returns defaults")  // NOLINT
 {
   using namespace gtopt;
 
-  const OptionsLP options_lp {};
+  const PlanningOptionsLP options_lp {};
   CHECK(options_lp.solver_options().algorithm == LPAlgo::barrier);
   CHECK(options_lp.solver_options().threads == 2);
   CHECK(options_lp.solver_options().presolve == true);
 }
 
-TEST_CASE("OptionsLP - Solver options accessors with set values")  // NOLINT
+TEST_CASE(
+    "PlanningOptionsLP - Solver options accessors with set values")  // NOLINT
 {
   using namespace gtopt;
 
-  const Options options {
+  const PlanningOptions options {
       .solver_options =
           {
               .algorithm = LPAlgo::barrier,
@@ -591,7 +614,7 @@ TEST_CASE("OptionsLP - Solver options accessors with set values")  // NOLINT
               .presolve = false,
           },
   };
-  const OptionsLP options_lp {options};
+  const PlanningOptionsLP options_lp {options};
 
   CHECK(options_lp.solver_options().algorithm == LPAlgo::barrier);
   CHECK(options_lp.solver_options().threads == 4);

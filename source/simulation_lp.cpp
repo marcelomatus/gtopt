@@ -44,7 +44,8 @@ auto create_block_array(const Simulation& simulation)
       | std::views::join);
 }
 
-auto create_stage_array(const Simulation& simulation, const OptionsLP& options)
+auto create_stage_array(const Simulation& simulation,
+                        const PlanningOptionsLP& options)
 {
   return std::ranges::to<std::vector>(
       enumerate_active<StageIndex>(simulation.stage_array)
@@ -74,7 +75,8 @@ auto create_scenario_array(const Simulation& simulation)
                                           }));
 }
 
-auto create_phase_array(const Simulation& simulation, const OptionsLP& options)
+auto create_phase_array(const Simulation& simulation,
+                        const PlanningOptionsLP& options)
 {
   // When phase_array is empty, use a single default Phase with uid=0 so that
   // file names produced by write_lp() are always based on valid UIDs.
@@ -137,7 +139,7 @@ auto create_scene_array(const Simulation& simulation)
 }  // namespace
 
 SimulationLP::SimulationLP(const Simulation& simulation,
-                           const OptionsLP& options)
+                           const PlanningOptionsLP& options)
     : m_simulation_(simulation)
     , m_options_(options)
     , m_block_array_(create_block_array(simulation))

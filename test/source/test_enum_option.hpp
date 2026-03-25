@@ -9,7 +9,7 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/enum_option.hpp>
-#include <gtopt/options_lp.hpp>
+#include <gtopt/planning_options_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -124,7 +124,16 @@ TEST_CASE("compression_codec_from_name")  // NOLINT
   CHECK(compression_codec_from_name("uncompressed")
             .value_or(CompressionCodec::zstd)
         == CompressionCodec::uncompressed);
-  CHECK_FALSE(compression_codec_from_name("snappy").has_value());
+  CHECK(compression_codec_from_name("snappy").value_or(
+            CompressionCodec::uncompressed)
+        == CompressionCodec::snappy);
+  CHECK(compression_codec_from_name("brotli").value_or(
+            CompressionCodec::uncompressed)
+        == CompressionCodec::brotli);
+  CHECK(compression_codec_from_name("lzo").value_or(
+            CompressionCodec::uncompressed)
+        == CompressionCodec::lzo);
+  CHECK_FALSE(compression_codec_from_name("unknown_codec").has_value());
 }
 
 // ─── CutSharingMode ─────────────────────────────────────────────────────────
@@ -198,11 +207,12 @@ TEST_CASE("lp_names_level_name")  // NOLINT
   CHECK(lp_names_level_name(LpNamesLevel::cols_and_rows) == "cols_and_rows");
 }
 
-// ─── OptionsLP enum accessors ────────────────────────────────────────────────
+// ─── PlanningOptionsLP enum accessors
+// ────────────────────────────────────────────────
 
-TEST_CASE("OptionsLP enum accessors return correct defaults")  // NOLINT
+TEST_CASE("PlanningOptionsLP enum accessors return correct defaults")  // NOLINT
 {
-  const OptionsLP opts;
+  const PlanningOptionsLP opts;
 
   SUBCASE("method_type_enum defaults to monolithic")
   {
@@ -231,16 +241,16 @@ TEST_CASE("OptionsLP enum accessors return correct defaults")  // NOLINT
   }
 }
 
-TEST_CASE("OptionsLP enum accessors parse explicit values")  // NOLINT
+TEST_CASE("PlanningOptionsLP enum accessors parse explicit values")  // NOLINT
 {
-  Options raw;
-  raw.method = "sddp";
-  raw.sddp_options.boundary_cuts_mode = "combined";
-  raw.sddp_options.cut_recovery_mode = "append";
-  raw.monolithic_options.solve_mode = "sequential";
-  raw.monolithic_options.boundary_cuts_mode = "noload";
+  PlanningOptions raw;
+  raw.method = MethodType::sddp;
+  raw.sddp_options.boundary_cuts_mode = BoundaryCutsMode::combined;
+  raw.sddp_options.cut_recovery_mode = HotStartMode::append;
+  raw.monolithic_options.solve_mode = SolveMode::sequential;
+  raw.monolithic_options.boundary_cuts_mode = BoundaryCutsMode::noload;
 
-  const OptionsLP opts(std::move(raw));
+  const PlanningOptionsLP opts(std::move(raw));
 
   CHECK(opts.method_type_enum() == MethodType::sddp);
   CHECK(opts.sddp_boundary_cuts_mode_enum() == BoundaryCutsMode::combined);
@@ -253,7 +263,7 @@ TEST_CASE("OptionsLP enum accessors parse explicit values")  // NOLINT
 
 TEST_CASE("validate_enum_options returns empty for valid defaults")  // NOLINT
 {
-  const OptionsLP opts;
+  const PlanningOptionsLP opts;
   const auto warnings = opts.validate_enum_options();
   CHECK(warnings.empty());
 }
@@ -261,78 +271,82 @@ TEST_CASE("validate_enum_options returns empty for valid defaults")  // NOLINT
 TEST_CASE("validate_enum_options returns empty for valid explicit values")
 // NOLINT
 {
-  Options raw;
-  raw.method = "sddp";
-  raw.input_format = "csv";
-  raw.output_format = "parquet";
-  raw.output_compression = "gzip";
-  raw.sddp_options.cut_sharing_mode = "expected";
-  raw.sddp_options.elastic_mode = "multi_cut";
-  raw.sddp_options.boundary_cuts_mode = "combined";
-  raw.sddp_options.cut_recovery_mode = "replace";
-  raw.monolithic_options.solve_mode = "sequential";
-  raw.monolithic_options.boundary_cuts_mode = "noload";
+  PlanningOptions raw;
+  raw.method = MethodType::sddp;
+  raw.input_format = DataFormat::csv;
+  raw.output_format = DataFormat::parquet;
+  raw.output_compression = CompressionCodec::gzip;
+  raw.sddp_options.cut_sharing_mode = CutSharingMode::expected;
+  raw.sddp_options.elastic_mode = ElasticFilterMode::multi_cut;
+  raw.sddp_options.boundary_cuts_mode = BoundaryCutsMode::combined;
+  raw.sddp_options.cut_recovery_mode = HotStartMode::replace;
+  raw.monolithic_options.solve_mode = SolveMode::sequential;
+  raw.monolithic_options.boundary_cuts_mode = BoundaryCutsMode::noload;
 
-  const OptionsLP opts(std::move(raw));
+  const PlanningOptionsLP opts(std::move(raw));
   const auto warnings = opts.validate_enum_options();
   CHECK(warnings.empty());
 }
 
-TEST_CASE("validate_enum_options warns about unknown method")  // NOLINT
+TEST_CASE(
+    "validate_enum_options returns empty for typed enum "
+    "values")  // NOLINT
 {
-  Options raw;
-  raw.method = "bogus_solver";
-  const OptionsLP opts(std::move(raw));
+  // With typed enum fields, invalid strings are rejected at JSON parse
+  // time.  Validation of already-constructed Options always succeeds.
+  PlanningOptions raw;
+  raw.method = MethodType::sddp;
+  const PlanningOptionsLP opts(std::move(raw));
   const auto warnings = opts.validate_enum_options();
-  REQUIRE(warnings.size() == 1);
-  CHECK(warnings[0].find("method") != std::string::npos);
-  CHECK(warnings[0].find("bogus_solver") != std::string::npos);
+  CHECK(warnings.empty());
 }
 
 TEST_CASE(
-    "validate_enum_options warns about multiple unknown "
+    "validate_enum_options returns empty for multiple typed enum "
     "values")  // NOLINT
 {
-  Options raw;
-  raw.method = "bad";
-  raw.input_format = "xml";
-  raw.sddp_options.cut_sharing_mode = "invalid";
-  const OptionsLP opts(std::move(raw));
+  // With typed enum fields, invalid strings are rejected at JSON parse
+  // time.  Multiple valid enum assignments always pass validation.
+  PlanningOptions raw;
+  raw.method = MethodType::sddp;
+  raw.input_format = DataFormat::csv;
+  raw.sddp_options.cut_sharing_mode = CutSharingMode::expected;
+  const PlanningOptionsLP opts(std::move(raw));
   const auto warnings = opts.validate_enum_options();
-  CHECK(warnings.size() == 3);
+  CHECK(warnings.empty());
 }
 
 TEST_CASE("sddp_cut_recovery_mode explicit values")  // NOLINT
 {
   SUBCASE("cut_recovery_mode=replace maps to replace")
   {
-    Options raw;
-    raw.sddp_options.cut_recovery_mode = "replace";
-    const OptionsLP opts(std::move(raw));
+    PlanningOptions raw;
+    raw.sddp_options.cut_recovery_mode = HotStartMode::replace;
+    const PlanningOptionsLP opts(std::move(raw));
     CHECK(opts.sddp_cut_recovery_mode_enum() == HotStartMode::replace);
   }
 
   SUBCASE("cut_recovery_mode=none maps to none")
   {
-    Options raw;
-    raw.sddp_options.cut_recovery_mode = "none";
-    const OptionsLP opts(std::move(raw));
+    PlanningOptions raw;
+    raw.sddp_options.cut_recovery_mode = HotStartMode::none;
+    const PlanningOptionsLP opts(std::move(raw));
     CHECK(opts.sddp_cut_recovery_mode_enum() == HotStartMode::none);
   }
 
   SUBCASE("cut_recovery_mode=keep maps to keep")
   {
-    Options raw;
-    raw.sddp_options.cut_recovery_mode = "keep";
-    const OptionsLP opts(std::move(raw));
+    PlanningOptions raw;
+    raw.sddp_options.cut_recovery_mode = HotStartMode::keep;
+    const PlanningOptionsLP opts(std::move(raw));
     CHECK(opts.sddp_cut_recovery_mode_enum() == HotStartMode::keep);
   }
 
   SUBCASE("cut_recovery_mode=append maps to append")
   {
-    Options raw;
-    raw.sddp_options.cut_recovery_mode = "append";
-    const OptionsLP opts(std::move(raw));
+    PlanningOptions raw;
+    raw.sddp_options.cut_recovery_mode = HotStartMode::append;
+    const PlanningOptionsLP opts(std::move(raw));
     CHECK(opts.sddp_cut_recovery_mode_enum() == HotStartMode::append);
   }
 }

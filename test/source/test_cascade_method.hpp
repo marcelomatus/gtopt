@@ -9,7 +9,7 @@
 #include <gtopt/cascade_method.hpp>
 #include <gtopt/enum_option.hpp>
 #include <gtopt/json/json_planning.hpp>
-#include <gtopt/options_lp.hpp>
+#include <gtopt/planning_options_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -90,11 +90,12 @@ TEST_CASE("MethodType::cascade enum")  // NOLINT
   }
 }
 
-// ─── OptionsLP accessor tests ───────────────────────────────────────────────
+// ─── PlanningOptionsLP accessor tests
+// ───────────────────────────────────────────────
 
-TEST_CASE("OptionsLP cascade_levels empty by default")  // NOLINT
+TEST_CASE("PlanningOptionsLP cascade_levels empty by default")  // NOLINT
 {
-  const OptionsLP options_lp;
+  const PlanningOptionsLP options_lp;
   CHECK(!options_lp.has_cascade_levels());
   CHECK(options_lp.cascade_levels().empty());
 }
@@ -113,7 +114,7 @@ TEST_CASE("JSON parsing of cascade method")  // NOLINT
 
   const auto planning =
       daw::json::from_json<Planning>(json_str);  // NOLINT(misc-include-cleaner)
-  const OptionsLP options_lp(planning.options);
+  const PlanningOptionsLP options_lp(planning.options);
   CHECK(options_lp.method_type_enum() == MethodType::cascade);
 }
 
@@ -169,7 +170,7 @@ TEST_CASE("JSON parsing of cascade levels")  // NOLINT
 
   const auto planning =
       daw::json::from_json<Planning>(json_str);  // NOLINT(misc-include-cleaner)
-  const OptionsLP options_lp(planning.options);
+  const PlanningOptionsLP options_lp(planning.options);
 
   REQUIRE(options_lp.has_cascade_levels());
   const auto& levels = options_lp.cascade_levels();
@@ -222,7 +223,7 @@ TEST_CASE("JSON cascade options with empty levels uses defaults")  // NOLINT
 
   const auto planning =
       daw::json::from_json<Planning>(json_str);  // NOLINT(misc-include-cleaner)
-  const OptionsLP options_lp(planning.options);
+  const PlanningOptionsLP options_lp(planning.options);
   CHECK(!options_lp.has_cascade_levels());
 }
 
@@ -230,11 +231,11 @@ TEST_CASE("JSON cascade options with empty levels uses defaults")  // NOLINT
 
 TEST_CASE("make_planning_method factory - cascade")  // NOLINT
 {
-  Options opts;
-  opts.method = OptName {"cascade"};
+  PlanningOptions opts;
+  opts.method = MethodType::cascade;
   opts.sddp_options.max_iterations = OptInt {20};
 
-  const OptionsLP options_lp(std::move(opts));
+  const PlanningOptionsLP options_lp(std::move(opts));
   auto solver = make_planning_method(options_lp);
   REQUIRE(solver != nullptr);
 }
@@ -242,9 +243,9 @@ TEST_CASE("make_planning_method factory - cascade")  // NOLINT
 TEST_CASE("make_planning_method factory - cascade single phase falls back")
 // NOLINT
 {
-  Options opts;
-  opts.method = OptName {"cascade"};
-  const OptionsLP options_lp(std::move(opts));
+  PlanningOptions opts;
+  opts.method = MethodType::cascade;
+  const PlanningOptionsLP options_lp(std::move(opts));
 
   auto solver = make_planning_method(options_lp, 1);
   REQUIRE(solver != nullptr);
@@ -1325,13 +1326,13 @@ auto make_3phase_2bus_hydro_planning() -> Planning
       .phase_array = std::move(phase_array),
   };
 
-  Options options;
+  PlanningOptions options;
   options.demand_fail_cost = OptReal {1000.0};
   options.use_single_bus = OptBool {false};
   options.use_kirchhoff = OptBool {true};
   options.scale_objective = OptReal {1.0};
-  options.output_format = OptName {"csv"};
-  options.output_compression = OptName {"uncompressed"};
+  options.output_format = DataFormat::csv;
+  options.output_compression = CompressionCodec::uncompressed;
 
   System system = {
       .name = "cascade_2bus_hydro",
@@ -1503,13 +1504,13 @@ auto make_6phase_2bus_hydro_planning() -> Planning
       .phase_array = std::move(phase_array),
   };
 
-  Options options;
+  PlanningOptions options;
   options.demand_fail_cost = OptReal {1000.0};
   options.use_single_bus = OptBool {false};
   options.use_kirchhoff = OptBool {true};
   options.scale_objective = OptReal {1.0};
-  options.output_format = OptName {"csv"};
-  options.output_compression = OptName {"uncompressed"};
+  options.output_format = DataFormat::csv;
+  options.output_compression = CompressionCodec::uncompressed;
 
   System system = {
       .name = "cascade_6ph_2bus_hydro",

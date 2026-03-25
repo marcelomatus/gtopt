@@ -63,7 +63,7 @@ TEST_CASE("SystemLP 1")
   REQUIRE(system.generator_array.size() == 1);
   REQUIRE(!system.line_array.empty() == false);
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
 
   SystemLP system_lp(system, simulation_lp);
@@ -123,7 +123,7 @@ TEST_CASE("SystemLP - Primal Infeasible Case")
       .generator_array = generator_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
 
   SystemLP system_lp(system, simulation_lp);
@@ -171,7 +171,7 @@ TEST_CASE("SystemLP - Timeout Scenario")
       .generator_array = generator_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
 
   SystemLP system_lp(system, simulation_lp);

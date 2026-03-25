@@ -8,6 +8,7 @@ Detailed usage instructions, examples, and reference for the gtopt solver.
 
 - [Basic Usage](#basic-usage)
 - [Command-Line Reference](#command-line-reference)
+- [Configuration File (`.gtopt.conf`)](#configuration-file-gtoptconf)
 - [System Configuration File](#system-configuration-file)
 - [Input Data Directory](#input-data-directory)
 - [Running the Sample Case](#running-the-sample-case)
@@ -76,6 +77,80 @@ Multiple system files can be provided and will be merged.
 | `-p` | `--fast-parsing` | `[=arg]` | Use fast (non-strict) JSON parsing |
 | | `--solver` | `arg` | LP solver backend: `clp`, `cbc`, `cplex`, `highs` (auto-detected by default) |
 | | `--solvers` | | List available LP solver backends and exit |
+| | `--algorithm` | `arg` | LP algorithm: `primal`, `dual`, `barrier`, `automatic` |
+| | `--threads` | `arg` | Number of solver threads (0 = auto) |
+| | `--method` | `arg` | Planning method: `monolithic`, `sddp`, `cascade` |
+| | `--demand-fail-cost` | `arg` | Penalty $/MWh for unserved demand |
+| | `--scale-objective` | `arg` | Objective function scaling factor |
+| | `--sddp-max-iterations` | `arg` | Maximum SDDP iterations |
+| | `--sddp-min-iterations` | `arg` | Minimum SDDP iterations before convergence check |
+| | `--sddp-convergence-tol` | `arg` | SDDP convergence tolerance |
+| | `--log-directory` | `arg` | Directory for log and LP debug files |
+| | `--lp-debug` | `[=arg]` | Save LP debug files to log directory |
+| | `--lp-compression` | `arg` | Compression codec for LP debug files |
+
+## Configuration File (`.gtopt.conf`)
+
+The C++ binary reads default option values from an INI configuration file.
+CLI flags always take precedence over config file values, which in turn take
+precedence over JSON file values.
+
+### Search order
+
+1. `$GTOPT_CONFIG` environment variable (exact path)
+2. `./.gtopt.conf` (current working directory)
+3. `~/.gtopt.conf` (home directory)
+
+### Format
+
+```ini
+[gtopt]
+solver              = highs
+algorithm           = barrier
+threads             = 4
+output-format       = parquet
+output-compression  = zstd
+sddp-max-iterations = 200
+sddp-convergence-tol = 1e-4
+use-single-bus      = false
+lp-debug            = false
+```
+
+### Supported keys
+
+All keys use kebab-case matching the CLI long flags (without `--`):
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `solver` | string | LP solver backend |
+| `algorithm` | string | LP algorithm (`primal`, `dual`, `barrier`) |
+| `threads` | int | Number of solver threads |
+| `output-format` | string | Output format (`parquet`, `csv`) |
+| `output-compression` | string | Compression codec |
+| `sddp-max-iterations` | int | Maximum SDDP iterations |
+| `sddp-min-iterations` | int | Minimum SDDP iterations |
+| `sddp-convergence-tol` | float | SDDP convergence tolerance |
+| `use-single-bus` | bool | Single-bus mode |
+| `lp-debug` | bool | Save LP debug files |
+| `demand-fail-cost` | float | Penalty for unserved demand |
+| `scale-objective` | float | Objective scaling factor |
+| `method` | string | Planning method |
+| `input-directory` | string | Input data directory |
+| `output-directory` | string | Output directory |
+
+### Precedence
+
+Values are resolved in this order (highest priority first):
+
+1. **CLI flags** (`--solver highs`)
+2. **Config file** (`~/.gtopt.conf` `[gtopt]` section)
+3. **JSON files** (`"options"` section in planning JSON)
+4. **Built-in defaults** (compiled into the binary)
+
+> **Note**: The Python scripts (`run_gtopt`, `gtopt_check_output`, etc.) also
+> read `~/.gtopt.conf` but use different sections (`[global]`, `[run_gtopt]`,
+> etc.).  The `[gtopt]` section is used exclusively by the C++ binary.  See
+> [Scripts Guide](scripts-guide.md#gtopt_config) for Python configuration.
 
 ## System Configuration File
 
@@ -741,6 +816,8 @@ if __name__ == "__main__":
 
 - **[Mathematical Formulation](formulation/mathematical-formulation.md)**
   — Full LP/MIP optimization formulation with academic references
+- **[Planning Options Reference](planning-options.md)** — Full option
+  hierarchy, merge semantics, and solver configuration
 - **[Planning Guide](planning-guide.md)** — Step-by-step planning guide
   with worked examples
 - **[Input Data Reference](input-data.md)** — Input data structure and file format

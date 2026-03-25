@@ -2416,7 +2416,7 @@ def _build_planning_mermaid(_planning: dict) -> str:  # noqa: ARG001
         "",
         "    class Planning {",
         "        +string name",
-        "        +Options options",
+        "        +PlanningOptions options",
         "    }",
         "    class Simulation {",
         "        +Scenario[] scenario_array",

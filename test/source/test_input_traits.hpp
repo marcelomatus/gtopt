@@ -227,10 +227,10 @@ TEST_CASE("InputTraits FileSched double - TBRealSched via Parquet")
       input_dir, "TestGen", "gcost", "uid:1", 10.0, 20.0, 30.0);
 
   const auto sim = make_test_simulation();
-  const Options opts {
+  const PlanningOptions opts {
       .input_directory = input_dir.string(),
   };
-  const OptionsLP options {
+  const PlanningOptionsLP options {
       opts,
   };
   SimulationLP simulation {sim, options};
@@ -266,10 +266,10 @@ TEST_CASE("InputTraits FileSched double - STBRealSched via Parquet")
       input_dir, "TestGen", "profile", "uid:1", 100.0, 200.0, 300.0);
 
   const auto sim = make_test_simulation();
-  const Options opts {
+  const PlanningOptions opts {
       .input_directory = input_dir.string(),
   };
-  const OptionsLP options {
+  const PlanningOptionsLP options {
       opts,
   };
   SimulationLP simulation {sim, options};
@@ -325,10 +325,10 @@ TEST_CASE("InputTraits FileSched double - TRealSched via Parquet")
   }
 
   const auto sim = make_test_simulation();
-  const Options opts {
+  const PlanningOptions opts {
       .input_directory = input_dir.string(),
   };
-  const OptionsLP options {
+  const PlanningOptionsLP options {
       opts,
   };
   SimulationLP simulation {sim, options};
@@ -362,10 +362,10 @@ TEST_CASE("InputTraits FileSched int32 - ActiveSched via Parquet")
   write_t_int_parquet(input_dir, "TestAct", "active", "uid:1", 1, 0);
 
   const auto sim = make_test_simulation();
-  const Options opts {
+  const PlanningOptions opts {
       .input_directory = input_dir.string(),
   };
-  const OptionsLP options {
+  const PlanningOptionsLP options {
       opts,
   };
   SimulationLP simulation {sim, options};
@@ -400,10 +400,10 @@ TEST_CASE("InputTraits FileSched - OptSchedule via Parquet")
       input_dir, "TestOpt", "limit", "uid:1", 5.0, 15.0, 25.0);
 
   const auto sim = make_test_simulation();
-  const Options opts {
+  const PlanningOptions opts {
       .input_directory = input_dir.string(),
   };
-  const OptionsLP options {
+  const PlanningOptionsLP options {
       opts,
   };
   SimulationLP simulation {sim, options};
@@ -458,10 +458,10 @@ TEST_CASE("InputTraits FileSched - column found by name")
       input_dir, "TestName", "field1", "myval", 7.0, 8.0, 9.0);
 
   const auto sim = make_test_simulation();
-  const Options opts {
+  const PlanningOptions opts {
       .input_directory = input_dir.string(),
   };
-  const OptionsLP options {
+  const PlanningOptionsLP options {
       opts,
   };
   SimulationLP simulation {sim, options};
@@ -497,7 +497,7 @@ TEST_CASE("InputTraits scalar path via Schedule")
 TEST_CASE("InputTraits vector path via Schedule with InputContext")
 {
   const auto sim = make_test_simulation();
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation {sim, options};
 
   const System sys;
@@ -548,10 +548,10 @@ TEST_CASE("InputTraits FileSched - float32 widened to double")
   }
 
   const auto sim = make_test_simulation();
-  const Options opts {
+  const PlanningOptions opts {
       .input_directory = input_dir.string(),
   };
-  const OptionsLP options {
+  const PlanningOptionsLP options {
       opts,
   };
   SimulationLP simulation {sim, options};
@@ -604,10 +604,10 @@ TEST_CASE("InputTraits FileSched - int16 widened to int32")
   }
 
   const auto sim = make_test_simulation();
-  const Options opts {
+  const PlanningOptions opts {
       .input_directory = input_dir.string(),
   };
-  const OptionsLP options {
+  const PlanningOptionsLP options {
       opts,
   };
   SimulationLP simulation {sim, options};
@@ -650,10 +650,10 @@ TEST_CASE("InputTraits FileSched - CSV fallback")
   }
 
   const auto sim = make_test_simulation();
-  const Options opts {
+  const PlanningOptions opts {
       .input_directory = input_dir.string(),
   };
-  const OptionsLP options {
+  const PlanningOptionsLP options {
       opts,
   };
   SimulationLP simulation {sim, options};

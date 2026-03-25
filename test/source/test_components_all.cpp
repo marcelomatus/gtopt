@@ -25,8 +25,8 @@
 #include <gtopt/line.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
-#include <gtopt/options.hpp>
-#include <gtopt/options_lp.hpp>
+#include <gtopt/planning_options.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/simulation.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/stage.hpp>

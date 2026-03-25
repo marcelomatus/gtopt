@@ -15,7 +15,7 @@
 #include <gtopt/converter.hpp>
 #include <gtopt/demand.hpp>
 #include <gtopt/generator.hpp>
-#include <gtopt/options_lp.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
@@ -122,7 +122,7 @@ template<typename T>
 namespace gtopt
 {
 
-void System::setup_reference_bus(const OptionsLP& options)
+void System::setup_reference_bus(const PlanningOptionsLP& options)
 {
   if (needs_ref_theta(bus_array, options)) {
     auto& bus = bus_array.front();

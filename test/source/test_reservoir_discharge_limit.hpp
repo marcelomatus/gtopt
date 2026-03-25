@@ -241,7 +241,7 @@ TEST_CASE("ReservoirDischargeLimitLP - basic single-block LP constraint")
       .turbine_array = turbine_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -393,7 +393,7 @@ TEST_CASE("ReservoirDischargeLimitLP - multi-block averaging constraint")
       .turbine_array = turbine_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -525,7 +525,7 @@ TEST_CASE("ReservoirDischargeLimitLP - empty segments is a no-op")
       .turbine_array = turbine_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
 
   SimulationLP sim1(simulation, options);
   SystemLP sys1(system_no_ddl, sim1);
@@ -673,7 +673,7 @@ TEST_CASE("ReservoirDischargeLimitLP - binding discharge limit")
       .turbine_array = turbine_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
 
   SimulationLP sim1(simulation, options);
   SystemLP sys1(system_ddl, sim1);
@@ -809,9 +809,9 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp with piecewise segments")
       .turbine_array = turbine_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.demand_fail_cost = OptReal {1000.0};
-  const OptionsLP options_lp(opts);
+  const PlanningOptionsLP options_lp(opts);
   SimulationLP simulation_lp(simulation, options_lp);
   SystemLP system_lp(system, simulation_lp);
 
@@ -951,9 +951,9 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp with different eini segment")
       .turbine_array = turbine_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.demand_fail_cost = OptReal {1000.0};
-  const OptionsLP options_lp(opts);
+  const PlanningOptionsLP options_lp(opts);
   SimulationLP simulation_lp(simulation, options_lp);
   SystemLP system_lp(system, simulation_lp);
 
@@ -1085,9 +1085,9 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp is a no-op without segments")
       .turbine_array = turbine_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.demand_fail_cost = OptReal {1000.0};
-  const OptionsLP options_lp(opts);
+  const PlanningOptionsLP options_lp(opts);
   SimulationLP simulation_lp(simulation, options_lp);
   SystemLP system_lp(system, simulation_lp);
 
