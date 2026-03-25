@@ -236,8 +236,33 @@ struct SddpOptions
    * When set, these options are merged with (and override) the global
    * `Options::solver_options`.  Allows SDDP to use a different algorithm,
    * time limit, or warm-start setting than the monolithic solver.
+   *
+   * Acts as the base for both forward and backward passes unless
+   * `forward_solver_options` or `backward_solver_options` are set.
    */
   std::optional<SolverOptions> solver_options {};
+
+  /** @brief Optional LP solver configuration for SDDP forward pass.
+   *
+   * When set, these options are merged with `solver_options` (SDDP-level),
+   * which is itself merged with the global `Options::solver_options`.
+   * Forward-pass-specific options take highest precedence.
+   *
+   * Typical use: use barrier for the forward pass (fresh solves) while
+   * using dual simplex for the backward pass (warm-started resolves).
+   */
+  std::optional<SolverOptions> forward_solver_options {};
+
+  /** @brief Optional LP solver configuration for SDDP backward pass.
+   *
+   * When set, these options are merged with `solver_options` (SDDP-level),
+   * which is itself merged with the global `Options::solver_options`.
+   * Backward-pass-specific options take highest precedence.
+   *
+   * Typical use: use dual simplex with reuse_basis for the backward pass
+   * (warm-started resolves after adding cuts).
+   */
+  std::optional<SolverOptions> backward_solver_options {};
 
   void merge(SddpOptions&& opts)
   {
@@ -283,6 +308,20 @@ struct SddpOptions
         solver_options->merge(*opts.solver_options);
       } else {
         solver_options = opts.solver_options;
+      }
+    }
+    if (opts.forward_solver_options.has_value()) {
+      if (forward_solver_options.has_value()) {
+        forward_solver_options->merge(*opts.forward_solver_options);
+      } else {
+        forward_solver_options = opts.forward_solver_options;
+      }
+    }
+    if (opts.backward_solver_options.has_value()) {
+      if (backward_solver_options.has_value()) {
+        backward_solver_options->merge(*opts.backward_solver_options);
+      } else {
+        backward_solver_options = opts.backward_solver_options;
       }
     }
 

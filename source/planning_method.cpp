@@ -144,6 +144,11 @@ std::unique_ptr<PlanningMethod> make_planning_method(const OptionsLP& options,
         }
       }
 
+      // Wire forward/backward solver options (pre-merged with global)
+      sddp_opts.forward_solver_options = options.sddp_forward_solver_options();
+      sddp_opts.backward_solver_options =
+          options.sddp_backward_solver_options();
+
       return std::make_unique<SDDPPlanningMethod>(std::move(sddp_opts));
     }  // else (num_phases >= 2)
   }  // method == "sddp"
@@ -251,6 +256,11 @@ std::unique_ptr<PlanningMethod> make_planning_method(const OptionsLP& options,
           sddp_opts.solve_timeout = *method_solver.time_limit;
         }
       }
+
+      // Wire forward/backward solver options (pre-merged with global)
+      sddp_opts.forward_solver_options = options.sddp_forward_solver_options();
+      sddp_opts.backward_solver_options =
+          options.sddp_backward_solver_options();
 
       // Get cascade options (user-configured or defaults)
       CascadeOptions cascade_opts;

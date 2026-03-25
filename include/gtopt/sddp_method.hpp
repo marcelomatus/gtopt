@@ -391,6 +391,18 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// Number of iterations to look back when checking gap stationarity.
   /// Only used when stationary_tol > 0.0.  Default: 10.
   int stationary_window {10};
+
+  /// Optional LP solver options for the forward pass.
+  /// When set, these override the global solver options for forward-pass
+  /// solves.  The options are pre-merged with the global solver options at
+  /// construction time (forward takes precedence).
+  std::optional<SolverOptions> forward_solver_options {};
+
+  /// Optional LP solver options for the backward pass.
+  /// When set, these override the global solver options for backward-pass
+  /// solves.  The options are pre-merged with the global solver options at
+  /// construction time (backward takes precedence).
+  std::optional<SolverOptions> backward_solver_options {};
 };
 
 // ─── Iteration result ───────────────────────────────────────────────────────
