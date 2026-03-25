@@ -15,8 +15,8 @@
 #include <functional>
 
 #include <gtopt/basic_types.hpp>
-#include <gtopt/options_lp.hpp>
 #include <gtopt/phase.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/simulation.hpp>
 #include <gtopt/stage.hpp>
 #include <gtopt/stage_lp.hpp>
@@ -42,7 +42,7 @@ namespace detail
 [[nodiscard]] constexpr auto create_stage_array(
     const Phase& phase,
     PhaseIndex phase_index,
-    const OptionsLP& options,
+    const PlanningOptionsLP& options,
     std::span<const Stage> stage_array,
     std::span<const Block> all_blocks)
 {
@@ -84,7 +84,7 @@ public:
    * @note The phase will contain stages[first_stage..first_stage+count_stage-1]
    */
   explicit PhaseLP(Phase phase,
-                   const OptionsLP& options,
+                   const PlanningOptionsLP& options,
                    std::span<const Stage> stages = {},
                    std::span<const Block> blocks = {},
                    PhaseIndex phase_index = PhaseIndex {unknown_index})
@@ -100,7 +100,7 @@ public:
   }
 
   explicit PhaseLP(Phase phase,
-                   const OptionsLP& options,
+                   const PlanningOptionsLP& options,
                    const Simulation& simulation,
                    PhaseIndex phase_index = PhaseIndex {unknown_index})
       : PhaseLP(std::move(phase),

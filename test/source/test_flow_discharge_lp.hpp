@@ -157,11 +157,11 @@ TEST_CASE("Flow discharge scalar loaded into LP bounds")  // NOLINT
       .turbine_array = turbine_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = true;
   opts.demand_fail_cost = OptReal {1000.0};
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP sim_lp(simulation, options);
   SystemLP sys_lp(system, sim_lp);
 
@@ -331,11 +331,11 @@ TEST_CASE("Flow discharge per-block vector loaded into LP bounds")  // NOLINT
       .turbine_array = turbine_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = true;
   opts.demand_fail_cost = OptReal {1000.0};
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP sim_lp(simulation, options);
   SystemLP sys_lp(system, sim_lp);
 
@@ -512,11 +512,11 @@ TEST_CASE(  // NOLINT
       .turbine_array = turbine_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = true;
   opts.demand_fail_cost = OptReal {1000.0};
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP sim_lp(simulation, options);
   SystemLP sys_lp(system, sim_lp);
 
@@ -683,12 +683,12 @@ TEST_CASE(  // NOLINT
         .turbine_array = turbine_array,
     };
 
-    Options opts;
+    PlanningOptions opts;
     opts.use_single_bus = true;
     opts.demand_fail_cost = OptReal {1000.0};
     opts.scale_objective = OptReal {1.0};
 
-    const OptionsLP options(opts);
+    const PlanningOptionsLP options(opts);
     SimulationLP sim_lp(simulation, options);
     SystemLP sys_lp(system, sim_lp);
 
@@ -855,11 +855,11 @@ TEST_CASE(  // NOLINT
       .turbine_array = turbine_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = true;
   opts.demand_fail_cost = OptReal {1000.0};
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP sim_lp(simulation, options);
   SystemLP sys_lp(system, sim_lp);
 
@@ -1106,11 +1106,11 @@ TEST_CASE(  // NOLINT
       .turbine_array = turbine_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = true;
   opts.demand_fail_cost = OptReal {1000.0};
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP sim_lp(simulation, options);
   SystemLP sys_lp(system, sim_lp);
 
@@ -1303,12 +1303,12 @@ TEST_CASE(  // NOLINT
       .turbine_array = turbine_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = true;
   opts.demand_fail_cost = OptReal {1000.0};
   opts.scale_objective = OptReal {1.0};
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP sim_lp(simulation, options);
   SystemLP sys_lp(system, sim_lp);
 

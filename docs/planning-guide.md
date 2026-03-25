@@ -975,6 +975,10 @@ In summary tables below, ✱ marks required fields.
 
 ### 9.1 Options (key fields)
 
+> **C++ class**: `PlanningOptions` (header: `planning_options.hpp`).
+> The JSON key remains `"options"`.  See [Planning Options
+> Reference](planning-options.md) for the full option hierarchy.
+
 | Field | Default | Description |
 |-------|---------|-------------|
 | `demand_fail_cost` | — | Penalty $/MWh for unserved load (value of lost load) |

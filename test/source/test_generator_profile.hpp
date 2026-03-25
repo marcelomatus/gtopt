@@ -122,7 +122,7 @@ TEST_CASE("GeneratorProfileLP - basic generator profile with capacity")
       .generator_profile_array = generator_profile_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -185,7 +185,7 @@ TEST_CASE("GeneratorProfileLP - multi-stage generator profile")
       .generator_profile_array = generator_profile_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -244,7 +244,7 @@ TEST_CASE("GeneratorProfileLP - generator profile with spillover cost")
       .generator_profile_array = generator_profile_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 

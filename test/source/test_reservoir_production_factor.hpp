@@ -278,7 +278,7 @@ TEST_CASE("SystemLP with reservoir production factor element")
       .reservoir_production_factor_array = reservoir_production_factor_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -446,7 +446,7 @@ TEST_CASE("ReservoirProductionFactorLP - update_lp with different eini segment")
       .reservoir_production_factor_array = reservoir_production_factor_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -582,7 +582,7 @@ TEST_CASE(
       .reservoir_production_factor_array = reservoir_production_factor_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 

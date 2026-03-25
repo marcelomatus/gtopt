@@ -273,7 +273,7 @@ TEST_CASE("User constraint - dual values written to output (CSV)")
   planning.options.output_directory = tmpdir.string();
 
   // Directly construct SimulationLP + SystemLP and run solve + write_out.
-  const OptionsLP options(planning.options);
+  const PlanningOptionsLP options(planning.options);
   SimulationLP sim_lp(planning.simulation, options);
 
   SystemLP sys_lp(planning.system, sim_lp);
@@ -377,7 +377,7 @@ TEST_CASE("User constraint - raw/unitless type produces output CSV")
   auto planning = daw::json::from_json<Planning>(single_bus_uc_raw_json);
   planning.options.output_directory = tmpdir.string();
 
-  const OptionsLP options(planning.options);
+  const PlanningOptionsLP options(planning.options);
   SimulationLP sim_lp(planning.simulation, options);
   SystemLP sys_lp(planning.system, sim_lp);
 
@@ -1258,7 +1258,7 @@ TEST_CASE("User constraint - energy constraint_type dual output")
   auto planning = daw::json::from_json<Planning>(uc_energy_type_json);
   planning.options.output_directory = tmpdir.string();
 
-  const OptionsLP options(planning.options);
+  const PlanningOptionsLP options(planning.options);
   SimulationLP sim_lp(planning.simulation, options);
   SystemLP sys_lp(planning.system, sim_lp);
 

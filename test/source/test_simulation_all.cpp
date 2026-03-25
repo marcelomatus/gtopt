@@ -17,9 +17,9 @@
 #include <gtopt/flat_helper.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/linear_interface.hpp>
-#include <gtopt/options_lp.hpp>
 #include <gtopt/planning.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/simulation.hpp>
 #include <gtopt/simulation_lp.hpp>

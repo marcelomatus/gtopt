@@ -82,7 +82,7 @@ double cplex_row_lb(char sense, double rhs, double range, double cpx_inf)
     case 'E':
       return rhs;
     case 'R':
-      return rhs;
+      return (range > 0) ? rhs : rhs + range;
     default:
       return -cpx_inf;
   }
@@ -326,7 +326,8 @@ void CplexSolverBackend::set_row_lower(int index, double value)
   char old_sense {};
   double old_rhs {};
   double old_range {};
-  CPXgetrowinfeas(m_env_, m_lp_, nullptr, 0, 0);  // ensure internal state
+  CPXgetrowinfeas(
+      m_env_, m_lp_, nullptr, nullptr, 0, 0);  // ensure internal state
   CPXgetsense(m_env_, m_lp_, &old_sense, index, index);
   CPXgetrhs(m_env_, m_lp_, &old_rhs, index, index);
   CPXgetrngval(m_env_, m_lp_, &old_range, index, index);
@@ -590,7 +591,7 @@ void CplexSolverBackend::set_col_solution(const double* sol)
     return;
   }
   m_sol_cached_ = false;
-  const int ncols = CPXgetnumcols(m_env_, m_lp_);
+  // const int ncols = CPXgetnumcols(m_env_, m_lp_);
   // Use CPXcopystart to provide a starting solution
   CPXcopystart(m_env_,
                m_lp_,

@@ -1,16 +1,16 @@
 #include <doctest/doctest.h>
 #include <gtopt/block_lp.hpp>
 #include <gtopt/label_maker.hpp>
-#include <gtopt/options_lp.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/stage_lp.hpp>
 
 TEST_CASE("LabelMaker basic functionality")
 {
   using namespace gtopt;
-  Options options;
+  PlanningOptions options;
   options.lp_build_options.names_level = LpNamesLevel::only_cols;
-  const OptionsLP options_lp(options);
+  const PlanningOptionsLP options_lp(options);
   const LabelMaker maker(options_lp);
 
   SUBCASE("Simple labels")
@@ -22,9 +22,9 @@ TEST_CASE("LabelMaker basic functionality")
 
   SUBCASE("Empty labels when disabled")
   {
-    Options disabled_options;
+    PlanningOptions disabled_options;
     disabled_options.lp_build_options.names_level = LpNamesLevel::minimal;
-    const OptionsLP disabled_options_lp(disabled_options);
+    const PlanningOptionsLP disabled_options_lp(disabled_options);
     const LabelMaker disabled_maker(disabled_options_lp);
 
     CHECK(disabled_maker.lp_label("var").empty());
@@ -34,9 +34,9 @@ TEST_CASE("LabelMaker basic functionality")
 
 TEST_CASE("LabelMaker with StageLP")
 {
-  Options options;
+  PlanningOptions options;
   options.lp_build_options.names_level = LpNamesLevel::only_cols;
-  const OptionsLP options_lp(options);
+  const PlanningOptionsLP options_lp(options);
   const LabelMaker maker(options_lp);
 
   const Stage stage1 {.uid = Uid {1}, .name = "stage1"};
@@ -53,9 +53,9 @@ TEST_CASE("LabelMaker with StageLP")
 
 TEST_CASE("LabelMaker with ScenarioLP and StageLP")
 {
-  Options options;
+  PlanningOptions options;
   options.lp_build_options.names_level = LpNamesLevel::only_cols;
-  const OptionsLP options_lp(options);
+  const PlanningOptionsLP options_lp(options);
   const LabelMaker maker(options_lp);
 
   const Scenario scenario1 {.uid = Uid {1}, .name = "scenario1"};
@@ -79,9 +79,9 @@ TEST_CASE("LabelMaker with ScenarioLP and StageLP")
 
 TEST_CASE("LabelMaker with BlockLP")
 {
-  Options options;
+  PlanningOptions options;
   options.lp_build_options.names_level = LpNamesLevel::only_cols;
-  const OptionsLP options_lp(options);
+  const PlanningOptionsLP options_lp(options);
   const LabelMaker maker(options_lp);
 
   const Scenario scenario1 {.uid = Uid {1}, .name = "scenario1"};
@@ -100,9 +100,9 @@ TEST_CASE("LabelMaker with BlockLP")
 
 TEST_CASE("LabelMaker edge cases")
 {
-  Options options;
+  PlanningOptions options;
   options.lp_build_options.names_level = LpNamesLevel::only_cols;
-  const OptionsLP options_lp(options);
+  const PlanningOptionsLP options_lp(options);
   const LabelMaker maker(options_lp);
 
   SUBCASE("Empty label")
