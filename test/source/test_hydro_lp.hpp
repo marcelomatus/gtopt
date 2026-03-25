@@ -92,7 +92,7 @@ TEST_CASE("SystemLP with hydro components - junction, waterway, reservoir")
       .turbine_array = turbine_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -175,7 +175,7 @@ TEST_CASE("SystemLP with flow component")
       .turbine_array = turbine_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -285,7 +285,7 @@ TEST_CASE("SystemLP with multi-stage hydro system")
       .turbine_array = turbine_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -448,7 +448,7 @@ TEST_CASE(  // NOLINT
         .turbine_array = turbine_array,
     };
 
-    const OptionsLP options;
+    const PlanningOptionsLP options;
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(system, simulation_lp);
 
@@ -471,10 +471,10 @@ TEST_CASE(  // NOLINT
   CHECK(obj_scale_1000 == doctest::Approx(obj_scale_1).epsilon(1e-8));
 }
 
-/// Verify that Options::variable_scales affects the Reservoir energy scale
-/// the same way as the per-element Reservoir::energy_scale field.
-/// This confirms the JSON variable_scales mechanism is not ignored by
-/// checking both solution invariance AND that LP column bounds actually change.
+/// Verify that PlanningOptions::variable_scales affects the Reservoir energy
+/// scale the same way as the per-element Reservoir::energy_scale field. This
+/// confirms the JSON variable_scales mechanism is not ignored by checking both
+/// solution invariance AND that LP column bounds actually change.
 TEST_CASE(  // NOLINT
     "Reservoir variable_scales option – invariance and LP coefficient change")
 {
@@ -484,7 +484,7 @@ TEST_CASE(  // NOLINT
     double max_col_upper;  // max upper bound among columns with the scale
   };
 
-  // Helper: builds and solves a hydro LP using Options::variable_scales
+  // Helper: builds and solves a hydro LP using PlanningOptions::variable_scales
   // (NOT Reservoir::energy_scale) and returns the objective + max scaled bound.
   auto solve_with_variable_scales = [](double scale) -> ScaleResult
   {
@@ -631,7 +631,7 @@ TEST_CASE(  // NOLINT
         .turbine_array = turbine_array,
     };
 
-    Options opts;
+    PlanningOptions opts;
     // Set energy scale via variable_scales option (not per-element field)
     opts.variable_scales = {
         {
@@ -642,7 +642,7 @@ TEST_CASE(  // NOLINT
             .name = "rsv1",
         },
     };
-    const OptionsLP options {opts};
+    const PlanningOptionsLP options {opts};
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(system, simulation_lp);
 
@@ -831,7 +831,7 @@ TEST_CASE(  // NOLINT
         .turbine_array = turbine_array,
     };
 
-    Options opts;
+    PlanningOptions opts;
     // Set both energy and flow scales via variable_scales
     opts.variable_scales = {
         {
@@ -849,7 +849,7 @@ TEST_CASE(  // NOLINT
             .name = "rsv1",
         },
     };
-    const OptionsLP options {opts};
+    const PlanningOptionsLP options {opts};
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(system, simulation_lp);
 

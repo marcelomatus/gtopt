@@ -295,7 +295,9 @@ void log_pre_solve_stats(
   spdlog::info(std::format("  output_directory: {}",
                            plan_opts.output_directory.value_or("(default)")));
   spdlog::info(std::format("  output_format   : {}",
-                           plan_opts.output_format.value_or("csv")));
+                           plan_opts.output_format
+                               ? data_format_name(*plan_opts.output_format)
+                               : "(default)"));
 }
 
 /**
@@ -440,8 +442,9 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     // codec for the requested output_compression.  Stores the result back so
     // every downstream write (parquet + csv, across all scenes/phases) uses
     // the same pre-validated codec without re-probing on each file.
-    my_planning.options.output_compression = probe_parquet_codec(
-        OptionsLP(my_planning.options).output_compression());
+    my_planning.options.output_compression =
+        compression_codec_from_name(probe_parquet_codec(
+            PlanningOptionsLP(my_planning.options).output_compression()));
 
     // Propagate lp_build into planning options so the SDDP solver
     // also sees it when called via planning_lp.resolve().
@@ -609,7 +612,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
         const auto method = plp_opts_ref.method_type_enum();
         const SolverOptions solver_opts =
             (method == MethodType::sddp || method == MethodType::cascade)
-            ? plp_opts_ref.sddp_solver_options()
+            ? plp_opts_ref.sddp_forward_solver_options()
             : plp_opts_ref.monolithic_solver_options();
         const auto result = planning_lp.resolve(solver_opts);
         const auto solve_elapsed =

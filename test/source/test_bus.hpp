@@ -4,7 +4,7 @@
 #include <gtopt/input_context.hpp>
 #include <gtopt/json/json_bus.hpp>
 #include <gtopt/linear_problem.hpp>
-#include <gtopt/options.hpp>
+#include <gtopt/planning_options.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
@@ -158,7 +158,7 @@ TEST_CASE("BusLP construction and basic properties")
 
   SUBCASE("LP wrapper construction")
   {
-    const OptionsLP options({});
+    const PlanningOptionsLP options({});
     const Simulation simu = {
         .block_array = {{.uid = Uid {1}, .duration = 1}},
         .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
@@ -191,8 +191,8 @@ TEST_CASE("BusLP needs_kirchhoff method")
 
   SUBCASE("Default behavior")
   {
-    const Options opt;
-    const OptionsLP options(opt);
+    const PlanningOptions opt;
+    const PlanningOptionsLP options(opt);
     const Simulation simu = {
         .block_array = {{.uid = Uid {1}, .duration = 1}},
         .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
@@ -215,12 +215,12 @@ TEST_CASE("BusLP needs_kirchhoff method")
 
   SUBCASE("When single bus is enabled")
   {
-    Options opt;
+    PlanningOptions opt;
 
     // Create system with single bus mode
     opt.use_single_bus = true;
 
-    const OptionsLP options(opt);
+    const PlanningOptionsLP options(opt);
     const Simulation simu = {
         .block_array = {{.uid = Uid {1}, .duration = 1}},
         .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
@@ -242,12 +242,12 @@ TEST_CASE("BusLP needs_kirchhoff method")
 
   SUBCASE("When kirchhoff is disabled in options")
   {
-    Options opt;
+    PlanningOptions opt;
 
     // Create system with single bus mode
     opt.use_kirchhoff = false;
 
-    const OptionsLP options(opt);
+    const PlanningOptionsLP options(opt);
     const Simulation simu = {
         .block_array = {{.uid = Uid {1}, .duration = 1}},
         .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
@@ -269,12 +269,12 @@ TEST_CASE("BusLP needs_kirchhoff method")
 
   SUBCASE("When kirchhoff threshold is higher than voltage")
   {
-    Options opt;
+    PlanningOptions opt;
 
     // Create system with single bus mode
     opt.kirchhoff_threshold = 1.5;
 
-    const OptionsLP options(opt);
+    const PlanningOptionsLP options(opt);
 
     const Simulation simu = {
         .block_array = {{.uid = Uid {1}, .duration = 1}},
@@ -300,8 +300,8 @@ TEST_CASE("BusLP needs_kirchhoff method")
 TEST_CASE("BusLP add_to_lp method")
 {
   // Basic setup for add_to_lp test
-  const Options opt;
-  const OptionsLP options(opt);
+  const PlanningOptions opt;
+  const PlanningOptionsLP options(opt);
 
   const Simulation simu = {
       .block_array = {{.uid = Uid {1}, .duration = 1}},

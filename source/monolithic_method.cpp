@@ -17,8 +17,8 @@
 #include <gtopt/label_maker.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/monolithic_method.hpp>
-#include <gtopt/options_lp.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/work_pool.hpp>

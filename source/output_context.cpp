@@ -177,7 +177,7 @@ auto make_table(FieldVector&& field_vector)
 // at program startup and stored in Options::output_compression.  This
 // function only does the name→enum translation; no runtime availability
 // check is needed here.
-[[nodiscard]] auto resolve_parquet_codec(const std::string& zfmt)
+[[nodiscard]] auto resolve_parquet_codec(std::string_view zfmt)
 {
   using codec_t = decltype(parquet::Compression::UNCOMPRESSED);
   static const std::unordered_map<std::string, codec_t> codec_map {
@@ -188,7 +188,7 @@ auto make_table(FieldVector&& field_vector)
       {"zstd", parquet::Compression::ZSTD},
       {"lzo", parquet::Compression::LZO},
   };
-  const auto it = codec_map.find(zfmt);
+  const auto it = codec_map.find(std::string(zfmt));
   return it != codec_map.end() ? it->second
                                : parquet::Compression::UNCOMPRESSED;
 }
@@ -280,7 +280,7 @@ auto csv_write_table(const auto& fpath, const auto& table, const auto& zfmt)
 auto write_table(std::string_view fmt,
                  const auto& fpath,
                  const auto& table,
-                 const std::string& zfmt)
+                 std::string_view zfmt)
 {
   arrow::Status status;
   if (fmt == "parquet") {

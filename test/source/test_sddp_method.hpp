@@ -198,13 +198,13 @@ auto make_3phase_hydro_planning() -> Planning
       .phase_array = std::move(phase_array),
   };
 
-  // ── Options ──
-  Options options;
+  // ── PlanningOptions ──
+  PlanningOptions options;
   options.demand_fail_cost = OptReal {1000.0};
   options.use_single_bus = OptBool {true};
   options.scale_objective = OptReal {1.0};
-  options.output_format = OptName {"csv"};
-  options.output_compression = OptName {"uncompressed"};
+  options.output_format = DataFormat::csv;
+  options.output_compression = CompressionCodec::uncompressed;
 
   // ── System ──
   System system = {
@@ -283,7 +283,7 @@ auto make_single_phase_planning() -> Planning
           },
   };
 
-  Options options;
+  PlanningOptions options;
   options.demand_fail_cost = OptReal {1000.0};
 
   return Planning {
@@ -549,7 +549,7 @@ TEST_CASE("MonolithicMethod - solves 3-phase problem")  // NOLINT
 
 TEST_CASE("make_planning_method factory - monolithic")  // NOLINT
 {
-  const OptionsLP options_lp;
+  const PlanningOptionsLP options_lp;
   auto solver = make_planning_method(options_lp);
   REQUIRE(solver != nullptr);
 
@@ -563,9 +563,9 @@ TEST_CASE("make_planning_method factory - monolithic")  // NOLINT
 
 TEST_CASE("make_planning_method factory - sddp")  // NOLINT
 {
-  Options opts;
-  opts.method = OptName {"sddp"};
-  const OptionsLP options_lp(std::move(opts));
+  PlanningOptions opts;
+  opts.method = MethodType::sddp;
+  const PlanningOptionsLP options_lp(std::move(opts));
   auto solver = make_planning_method(options_lp);
   REQUIRE(solver != nullptr);
 }
@@ -581,34 +581,34 @@ TEST_CASE("PlanningLP::resolve uses method option")  // NOLINT
   CHECK(*result == 1);
 }
 
-TEST_CASE("Options method and sddp_cut_sharing_mode")  // NOLINT
+TEST_CASE("PlanningOptions method and sddp_cut_sharing_mode")  // NOLINT
 {
-  Options opts;
-  opts.method = OptName {"sddp"};
-  opts.sddp_options.cut_sharing_mode = OptName {"expected"};
+  PlanningOptions opts;
+  opts.method = MethodType::sddp;
+  opts.sddp_options.cut_sharing_mode = CutSharingMode::expected;
 
-  const OptionsLP options_lp(std::move(opts));
+  const PlanningOptionsLP options_lp(std::move(opts));
   CHECK(options_lp.method_type_enum() == MethodType::sddp);
   CHECK(options_lp.sddp_cut_sharing_mode() == "expected");
 }
 
-TEST_CASE("Options method defaults")  // NOLINT
+TEST_CASE("PlanningOptions method defaults")  // NOLINT
 {
-  const OptionsLP options_lp;
+  const PlanningOptionsLP options_lp;
   CHECK(options_lp.method_type_enum() == MethodType::monolithic);
   CHECK(options_lp.sddp_cut_sharing_mode() == "none");
 }
 
-TEST_CASE("Options top-level method")  // NOLINT
+TEST_CASE("PlanningOptions top-level method")  // NOLINT
 {
-  Options opts;
-  opts.method = OptName {"sddp"};
+  PlanningOptions opts;
+  opts.method = MethodType::sddp;
 
-  const OptionsLP options_lp(std::move(opts));
+  const PlanningOptionsLP options_lp(std::move(opts));
   CHECK(options_lp.method_type_enum() == MethodType::sddp);
 }
 
-TEST_CASE("Options method from JSON top-level field")  // NOLINT
+TEST_CASE("PlanningOptions method from JSON top-level field")  // NOLINT
 {
   // Verify that "method": "sddp" in the top-level options block is
   // correctly parsed — this is the only supported way to select the solver.
@@ -622,7 +622,7 @@ TEST_CASE("Options method from JSON top-level field")  // NOLINT
 
   const auto planning =
       daw::json::from_json<Planning>(json_str);  // NOLINT(misc-include-cleaner)
-  const OptionsLP options_lp(planning.options);
+  const PlanningOptionsLP options_lp(planning.options);
   CHECK(options_lp.method_type_enum() == MethodType::sddp);
 }
 
@@ -782,12 +782,12 @@ auto make_5phase_reservoir_planning() -> Planning
       .phase_array = std::move(phase_array),
   };
 
-  Options options;
+  PlanningOptions options;
   options.demand_fail_cost = OptReal {5000.0};
   options.use_single_bus = OptBool {true};
   options.scale_objective = OptReal {1.0};
-  options.output_format = OptName {"csv"};
-  options.output_compression = OptName {"uncompressed"};
+  options.output_format = DataFormat::csv;
+  options.output_compression = CompressionCodec::uncompressed;
 
   System system = {
       .name = "sddp_reservoir_5phase",
@@ -966,12 +966,12 @@ auto make_5phase_small_reservoir_planning() -> Planning
       .phase_array = std::move(phase_array),
   };
 
-  Options options;
+  PlanningOptions options;
   options.demand_fail_cost = OptReal {5000.0};
   options.use_single_bus = OptBool {true};
   options.scale_objective = OptReal {1.0};
-  options.output_format = OptName {"csv"};
-  options.output_compression = OptName {"uncompressed"};
+  options.output_format = DataFormat::csv;
+  options.output_compression = CompressionCodec::uncompressed;
 
   System system = {
       .name = "sddp_small_reservoir_5phase",
@@ -1091,12 +1091,12 @@ auto make_5phase_expansion_planning() -> Planning
       .phase_array = std::move(phase_array),
   };
 
-  Options options;
+  PlanningOptions options;
   options.demand_fail_cost = OptReal {5000.0};
   options.use_single_bus = OptBool {true};
   options.scale_objective = OptReal {1.0};
-  options.output_format = OptName {"csv"};
-  options.output_compression = OptName {"uncompressed"};
+  options.output_format = DataFormat::csv;
+  options.output_compression = CompressionCodec::uncompressed;
 
   System system = {
       .name = "sddp_expansion_5phase",
@@ -1266,12 +1266,12 @@ auto make_12phase_yearly_hydro_planning() -> Planning
       .phase_array = std::move(phase_array),
   };
 
-  Options options;
+  PlanningOptions options;
   options.demand_fail_cost = OptReal {5000.0};
   options.use_single_bus = OptBool {true};
   options.scale_objective = OptReal {1.0};
-  options.output_format = OptName {"csv"};
-  options.output_compression = OptName {"uncompressed"};
+  options.output_format = DataFormat::csv;
+  options.output_compression = CompressionCodec::uncompressed;
 
   System system = {
       .name = "sddp_yearly_hydro_12phase",
@@ -2010,12 +2010,12 @@ inline auto make_2scene_3phase_hydro_planning(double prob1 = 0.7,
       .turbine_array = turbine_array,
   };
 
-  Options options;
+  PlanningOptions options;
   options.demand_fail_cost = OptReal {1000.0};
   options.use_single_bus = OptBool {true};
   options.scale_objective = OptReal {1.0};
-  options.output_format = OptName {"csv"};
-  options.output_compression = OptName {"uncompressed"};
+  options.output_format = DataFormat::csv;
+  options.output_compression = CompressionCodec::uncompressed;
 
   return Planning {
       .options = std::move(options),
@@ -2217,9 +2217,9 @@ TEST_CASE("update_lp - no-op when no updatable elements")  // NOLINT
       .turbine_array = turbine_array,
   };
 
-  Options options;
+  PlanningOptions options;
   options.demand_fail_cost = OptReal {1000.0};
-  const OptionsLP options_lp(options);
+  const PlanningOptionsLP options_lp(options);
   SimulationLP sim_lp(simulation, options_lp);
   SystemLP system_lp(system, sim_lp);
 
@@ -2323,9 +2323,9 @@ TEST_CASE(
       .turbine_array = turbine_array,
   };
 
-  Options options;
+  PlanningOptions options;
   options.demand_fail_cost = OptReal {1000.0};
-  const OptionsLP options_lp(options);
+  const PlanningOptionsLP options_lp(options);
   SimulationLP sim_lp(simulation, options_lp);
   SystemLP system_lp(system, sim_lp);
 
@@ -3246,12 +3246,12 @@ auto make_2phase_linear_planning() -> Planning
       .phase_array = std::move(phase_array),
   };
 
-  Options options;
+  PlanningOptions options;
   options.demand_fail_cost = OptReal {1000.0};
   options.use_single_bus = OptBool {true};
   options.scale_objective = OptReal {1.0};
-  options.output_format = OptName {"csv"};
-  options.output_compression = OptName {"uncompressed"};
+  options.output_format = DataFormat::csv;
+  options.output_compression = CompressionCodec::uncompressed;
 
   System system = {
       .name = "sddp_linear_2phase",
@@ -3486,7 +3486,7 @@ TEST_CASE("SDDPMethod - lp_build=true builds LP only, no solving")  // NOLINT
 TEST_CASE("SDDPPlanningMethod - lp_build=true returns 0")  // NOLINT
 {
   auto planning = make_3phase_hydro_planning();
-  planning.options.method = OptName {"sddp"};
+  planning.options.method = MethodType::sddp;
   planning.options.lp_build = OptBool {true};
 
   PlanningLP planning_lp(std::move(planning));
@@ -3716,12 +3716,12 @@ auto make_nphase_simple_hydro_planning(int num_phases) -> Planning
       },
   };
 
-  Options options;
+  PlanningOptions options;
   options.demand_fail_cost = OptReal {1000.0};
   options.use_single_bus = OptBool {true};
   options.scale_objective = OptReal {1.0};
-  options.output_format = OptName {"csv"};
-  options.output_compression = OptName {"uncompressed"};
+  options.output_format = DataFormat::csv;
+  options.output_compression = CompressionCodec::uncompressed;
 
   const System system = {
       .name = "sddp_nphase_simple",
@@ -4652,9 +4652,9 @@ TEST_CASE(
       .reservoir_production_factor_array = reservoir_production_factor_array,
   };
 
-  Options options;
+  PlanningOptions options;
   options.demand_fail_cost = OptReal {1000.0};
-  const OptionsLP options_lp(options);
+  const PlanningOptionsLP options_lp(options);
   SimulationLP sim_lp(simulation, options_lp);
   SystemLP system_lp(system, sim_lp);
 

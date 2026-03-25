@@ -64,7 +64,7 @@ class GTOptWriter:
         """Process options data to include input and output paths.
 
         The solver type is emitted at the top level as ``method`` so that
-        the gtopt C++ JSON parser maps it directly to ``Options::method``.
+        the gtopt C++ JSON parser maps it directly to ``PlanningOptions::method``.
         All other SDDP-specific settings are still grouped under the nested
         ``sddp_options`` key.
         """
@@ -974,7 +974,7 @@ class GTOptWriter:
 
         Generates VariableScale JSON entries for reservoir energy scaling
         and battery energy scaling, using the ``variable_scales`` mechanism
-        in ``Options`` rather than per-element fields.
+        in ``PlanningOptions`` rather than per-element fields.
 
         Scale priority (highest to lowest):
         1. Explicit ``--rsv-energy-scale`` / ``--energy-scale`` name:value.
