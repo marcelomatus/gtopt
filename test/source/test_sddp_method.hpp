@@ -588,14 +588,14 @@ TEST_CASE("Options method and sddp_cut_sharing_mode")  // NOLINT
   opts.sddp_options.cut_sharing_mode = OptName {"expected"};
 
   const OptionsLP options_lp(std::move(opts));
-  CHECK(options_lp.method() == "sddp");
+  CHECK(options_lp.method_type_enum() == MethodType::sddp);
   CHECK(options_lp.sddp_cut_sharing_mode() == "expected");
 }
 
 TEST_CASE("Options method defaults")  // NOLINT
 {
   const OptionsLP options_lp;
-  CHECK(options_lp.method() == "monolithic");
+  CHECK(options_lp.method_type_enum() == MethodType::monolithic);
   CHECK(options_lp.sddp_cut_sharing_mode() == "none");
 }
 
@@ -605,7 +605,7 @@ TEST_CASE("Options top-level method")  // NOLINT
   opts.method = OptName {"sddp"};
 
   const OptionsLP options_lp(std::move(opts));
-  CHECK(options_lp.method() == "sddp");
+  CHECK(options_lp.method_type_enum() == MethodType::sddp);
 }
 
 TEST_CASE("Options method from JSON top-level field")  // NOLINT
@@ -623,7 +623,7 @@ TEST_CASE("Options method from JSON top-level field")  // NOLINT
   const auto planning =
       daw::json::from_json<Planning>(json_str);  // NOLINT(misc-include-cleaner)
   const OptionsLP options_lp(planning.options);
-  CHECK(options_lp.method() == "sddp");
+  CHECK(options_lp.method_type_enum() == MethodType::sddp);
 }
 
 // ─── Integration: monolithic vs SDDP comparison ────────────────────────────

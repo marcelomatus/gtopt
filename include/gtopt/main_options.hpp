@@ -442,8 +442,6 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   lp_build_opts.row_with_names = lvl >= LpNamesLevel::only_cols;
   lp_build_opts.col_with_name_map = lvl >= LpNamesLevel::minimal;
   lp_build_opts.row_with_name_map = lvl >= LpNamesLevel::only_cols;
-  lp_build_opts.reserve_matrix = false;
-  lp_build_opts.reserve_factor = 2;
   lp_build_opts.compute_stats = compute_stats;
   lp_build_opts.lp_names_level = lvl;
   lp_build_opts.solver_name = lp_solver.value_or("");
