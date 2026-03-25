@@ -4,6 +4,7 @@ find_library(
   COIN_CBC_LIBRARY
   NAMES Cbc libCbc
   HINTS ${COIN_ROOT_DIR}/lib/coin ${COIN_ROOT_DIR}/lib
+  NO_DEFAULT_PATH
 )
 
 include(FindPackageHandleStandardArgs)
