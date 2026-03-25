@@ -96,18 +96,24 @@ void SolverRegistry::discover_default_paths()
     discover_plugins(exe_dir);
   }
 
-  // 5. /usr/local/lib/gtopt/plugins/
+  // 6. /usr/local/lib/gtopt/plugins/
   discover_plugins("/usr/local/lib/gtopt/plugins");
 }
 
 void SolverRegistry::discover_plugins(const std::filesystem::path& dir)
 {
   std::error_code ec;
-  if (!std::filesystem::is_directory(dir, ec)) {
+  const auto canonical_dir = std::filesystem::weakly_canonical(dir, ec);
+  const auto& search_dir = ec ? dir : canonical_dir;
+
+  m_searched_dirs_.push_back(search_dir.string());
+
+  if (!std::filesystem::is_directory(search_dir, ec)) {
     return;
   }
 
-  for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+  for (const auto& entry : std::filesystem::directory_iterator(search_dir, ec))
+  {
     if (!entry.is_regular_file()) {
       continue;
     }
@@ -127,7 +133,13 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
   // dlopen with RTLD_LOCAL so symbols don't leak between plugins
   auto* handle = ::dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
   if (handle == nullptr) {
-    SPDLOG_DEBUG("Failed to load plugin {}: {}", path.string(), ::dlerror());
+    const auto* err =
+        ::dlerror();  // NOLINT(concurrency-mt-unsafe) — dlerror is per-thread
+    const auto msg = std::format("Failed to load plugin {}: {}",
+                                 path.string(),
+                                 (err != nullptr) ? err : "unknown");
+    SPDLOG_WARN("{}", msg);
+    m_load_errors_.push_back(msg);
     return false;
   }
 
@@ -140,7 +152,10 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
       ::dlsym(handle, "gtopt_create_backend"));
 
   if (name_fn == nullptr || names_fn == nullptr || factory_fn == nullptr) {
-    SPDLOG_DEBUG("Plugin {} missing required symbols", path.string());
+    const auto msg =
+        std::format("Plugin {} missing required symbols", path.string());
+    SPDLOG_WARN("{}", msg);
+    m_load_errors_.push_back(msg);
     ::dlclose(handle);
     return false;
   }
@@ -248,6 +263,16 @@ bool SolverRegistry::has_solver(std::string_view name) const
                                    [name](const std::string& s)
                                    { return s == name; });
                              });
+}
+
+const std::vector<std::string>& SolverRegistry::searched_directories() const
+{
+  return m_searched_dirs_;
+}
+
+const std::vector<std::string>& SolverRegistry::load_errors() const
+{
+  return m_load_errors_;
 }
 
 }  // namespace gtopt
