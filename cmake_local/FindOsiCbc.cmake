@@ -4,6 +4,7 @@ find_library(
   COIN_OSICBC_LIBRARY
   NAMES OsiCbc libOsiCbc
   HINTS ${COIN_ROOT_DIR}/lib/coin ${COIN_ROOT_DIR}/lib
+  NO_DEFAULT_PATH
 )
 
 include(FindPackageHandleStandardArgs)
