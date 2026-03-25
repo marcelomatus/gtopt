@@ -725,7 +725,7 @@ TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
   };
 
   SolverOptions opts;
-  opts.warm_start = true;
+  opts.reuse_basis = true;
 
   auto elastic = elastic_filter_solve(li, links, 1e6, opts);
   // The result depends on whether the column is truly fixed (low==upp)

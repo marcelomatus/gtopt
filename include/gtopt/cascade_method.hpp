@@ -94,7 +94,7 @@ private:
   /// Build SDDPOptions for a level, overriding base with level solver opts.
   /// @param remaining_budget  Global iteration budget remaining (-1 = no cap).
   [[nodiscard]] auto build_level_sddp_opts(
-      const std::optional<CascadeLevelSolver>& level_solver,
+      const std::optional<CascadeLevelMethod>& level_solver,
       int remaining_budget) const -> SDDPOptions;
 
   /// Clone Planning data with model option overrides applied.

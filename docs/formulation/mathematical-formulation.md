@@ -1595,7 +1595,7 @@ solution trajectory without creating hard infeasibility.
 
 The cascade supports two levels of iteration control:
 
-- **Per-level budget**: $k^{\ell}_{\max}$ = `CascadeLevelSolver::max_iterations`
+- **Per-level budget**: $k^{\ell}_{\max}$ = `CascadeLevelMethod::max_iterations`
 - **Global budget**: $K_{\max}$ = `CascadeOptions::sddp_options::max_iterations`
 
 The effective per-level limit is:

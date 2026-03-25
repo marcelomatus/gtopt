@@ -23,9 +23,11 @@ TEST_CASE("json_options - Deserialization of Options from JSON")
     "output_directory": "output_dir",
     "output_format": "csv",
     "output_compression": "gzip",
-    "use_lp_names": 1,
     "use_uid_fname": false,
-    "annual_discount_rate": 0.05
+    "annual_discount_rate": 0.05,
+    "lp_build_options": {
+      "names_level": 1
+    }
   })";
 
   // Deserialize from JSON
@@ -97,9 +99,9 @@ TEST_CASE("json_options - Deserialization of Options from JSON")
     CHECK(*options.output_compression == "gzip");
   }
 
-  REQUIRE(options.use_lp_names.has_value());
-  if (options.use_lp_names) {
-    CHECK(*options.use_lp_names == 1);
+  REQUIRE(options.lp_build_options.names_level.has_value());
+  if (options.lp_build_options.names_level) {
+    CHECK(*options.lp_build_options.names_level == LpNamesLevel::only_cols);
   }
 
   REQUIRE(options.use_uid_fname.has_value());
@@ -155,7 +157,7 @@ TEST_CASE(
   CHECK_FALSE(options.scale_theta.has_value());
   CHECK_FALSE(options.output_format.has_value());
   CHECK_FALSE(options.output_compression.has_value());
-  CHECK_FALSE(options.use_lp_names.has_value());
+  CHECK_FALSE(options.lp_build_options.names_level.has_value());
   CHECK_FALSE(options.use_uid_fname.has_value());
   CHECK_FALSE(options.annual_discount_rate.has_value());
 }
@@ -171,7 +173,9 @@ TEST_CASE("json_options - Round-trip serialization and deserialization")
       .use_kirchhoff = true,
       .scale_objective = 100.0,
       .output_directory = "output_dir",
-      .use_lp_names = 0,
+      .lp_build_options {
+          .names_level = LpNamesLevel::minimal,
+      },
   };
 
   // Serialize to JSON
@@ -186,7 +190,8 @@ TEST_CASE("json_options - Round-trip serialization and deserialization")
   CHECK(deserialized.use_kirchhoff == original.use_kirchhoff);
   CHECK(deserialized.scale_objective == original.scale_objective);
   CHECK(deserialized.output_directory == original.output_directory);
-  CHECK(deserialized.use_lp_names == original.use_lp_names);
+  CHECK(deserialized.lp_build_options.names_level
+        == original.lp_build_options.names_level);
 
   // Check that unpopulated fields remain empty
   CHECK_FALSE(deserialized.input_format.has_value());
@@ -201,46 +206,48 @@ TEST_CASE("json_options - Round-trip serialization and deserialization")
   CHECK_FALSE(deserialized.annual_discount_rate.has_value());
 }
 
-TEST_CASE("json_options - Solver algorithm fields JSON round-trip")  // NOLINT
+TEST_CASE("json_options - Solver options fields JSON round-trip")  // NOLINT
 {
   using namespace gtopt;
-  // Verify that lp_algorithm, lp_threads, and lp_presolve are serialized and
-  // deserialized correctly.
+  // Verify that solver_options.algorithm, .threads, and .presolve are
+  // serialized and deserialized correctly via the nested sub-object.
   const Options original {
-      .lp_algorithm = 2,  // LPAlgo::dual
-      .lp_threads = 4,
-      .lp_presolve = false,
+      .solver_options =
+          SolverOptions {
+              .algorithm = LPAlgo::dual,
+              .threads = 4,
+              .presolve = false,
+          },
   };
 
   const auto json_data = daw::json::to_json(original);
   const auto deserialized = daw::json::from_json<Options>(json_data);
 
-  REQUIRE(deserialized.lp_algorithm.has_value());
-  CHECK(deserialized.lp_algorithm.value_or(-1) == 2);
-  REQUIRE(deserialized.lp_threads.has_value());
-  CHECK(deserialized.lp_threads.value_or(-1) == 4);
-  REQUIRE(deserialized.lp_presolve.has_value());
-  CHECK(deserialized.lp_presolve.value_or(true) == false);
+  CHECK(deserialized.solver_options.algorithm == LPAlgo::dual);
+  CHECK(deserialized.solver_options.threads == 4);
+  CHECK(deserialized.solver_options.presolve == false);
 }
 
 TEST_CASE(
-    "json_options - lp_algorithm deserialization from JSON string")  // NOLINT
+    "json_options - solver_options deserialization from JSON "
+    "string")  // NOLINT
 {
   using namespace gtopt;
   const std::string json_string = R"({
-    "lp_algorithm": 1,
-    "lp_threads": 2,
-    "lp_presolve": true
+    "solver_options": {
+      "algorithm": 1,
+      "threads": 2,
+      "presolve": true,
+      "log_level": 0,
+      "reuse_basis": false
+    }
   })";
 
   const auto options = daw::json::from_json<Options>(json_string);
 
-  REQUIRE(options.lp_algorithm.has_value());
-  CHECK(options.lp_algorithm.value_or(-1) == 1);
-  REQUIRE(options.lp_threads.has_value());
-  CHECK(options.lp_threads.value_or(-1) == 2);
-  REQUIRE(options.lp_presolve.has_value());
-  CHECK(options.lp_presolve.value_or(-1) == true);
+  CHECK(options.solver_options.algorithm == LPAlgo::primal);
+  CHECK(options.solver_options.threads == 2);
+  CHECK(options.solver_options.presolve == true);
 
   // Other fields should be null
   CHECK_FALSE(options.use_single_bus.has_value());

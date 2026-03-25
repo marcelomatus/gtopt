@@ -205,6 +205,9 @@ def _make_mock_parser():
     demand_p = MagicMock(spec=DemandParser)
     demand_p.get_all = MagicMock(return_value=[])
 
+    aflce_p = MagicMock()
+    aflce_p.items = [{"num_hydrologies": 10}]
+
     parser = MagicMock()
     parser.parsed_data = {
         "block_parser": block_p,
@@ -215,7 +218,8 @@ def _make_mock_parser():
         "demand_parser": demand_p,
         "cost_parser": MagicMock(),
         "mance_parser": MagicMock(),
-        "aflce_parser": MagicMock(),
+        "aflce_parser": aflce_p,
+        "idsim_parser": None,
         "extrac_parser": MagicMock(),
         "manem_parser": MagicMock(),
         "manli_parser": MagicMock(),
@@ -275,11 +279,19 @@ def test_gtopt_writer_process_options_discount():
     assert writer.planning["options"]["annual_discount_rate"] == pytest.approx(0.05)
 
 
+def _make_scenario_mock(num_hydrologies=10):
+    """Create a mock parser with enough hydrologies for scenario tests."""
+    mock = MagicMock()
+    aflce = MagicMock()
+    aflce.items = [{"num_hydrologies": num_hydrologies}]
+    mock.parsed_data = {"idsim_parser": None, "aflce_parser": aflce}
+    return mock
+
+
 def test_gtopt_writer_process_scenarios_equal_weights():
     """process_scenarios assigns equal weights when probability_factors is None."""
-    mock_parser = MagicMock()
-    writer = GTOptWriter(mock_parser)
-    writer.process_scenarios({"hydrologies": "0,1", "probability_factors": None})
+    writer = GTOptWriter(_make_scenario_mock())
+    writer.process_scenarios({"hydrologies": "1,2", "probability_factors": None})
     scenarios = writer.planning["simulation"]["scenario_array"]
     assert len(scenarios) == 2
     assert scenarios[0]["probability_factor"] == pytest.approx(0.5)
@@ -288,9 +300,8 @@ def test_gtopt_writer_process_scenarios_equal_weights():
 
 def test_gtopt_writer_process_scenarios_explicit_weights():
     """process_scenarios uses explicit probability_factors."""
-    mock_parser = MagicMock()
-    writer = GTOptWriter(mock_parser)
-    writer.process_scenarios({"hydrologies": "0,1", "probability_factors": "0.3,0.7"})
+    writer = GTOptWriter(_make_scenario_mock())
+    writer.process_scenarios({"hydrologies": "1,2", "probability_factors": "0.3,0.7"})
     scenarios = writer.planning["simulation"]["scenario_array"]
     assert scenarios[0]["probability_factor"] == pytest.approx(0.3)
     assert scenarios[1]["probability_factor"] == pytest.approx(0.7)

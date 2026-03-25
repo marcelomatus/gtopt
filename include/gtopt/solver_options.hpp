@@ -115,8 +115,8 @@ struct SolverOptions
   /** @brief The solution algorithm to use */
   LPAlgo algorithm {LPAlgo::barrier};
 
-  /** @brief Number of parallel threads to use (0 = automatic) */
-  int threads {0};
+  /** @brief Number of parallel threads to use (0 = solver default) */
+  int threads {2};
 
   /** @brief Whether to apply presolve optimizations (default: true) */
   bool presolve {true};
@@ -143,10 +143,10 @@ struct SolverOptions
    */
   std::optional<double> time_limit {};
 
-  /** @brief Enable warm-start optimizations for resolve on cloned LPs.
+  /** @brief Enable basis-reuse optimizations for resolve on cloned LPs.
    *
    *  When true, set_solver_opts() overrides the algorithm to dual simplex
-   *  and disables presolve — both critical for warm-started resolves.
+   *  and disables presolve — both critical for basis-reuse resolves.
    *  This is especially important when the original LP was solved with
    *  barrier: barrier solutions carry no simplex basis, so resolving
    *  a clone with barrier would restart from scratch, whereas dual simplex
@@ -155,7 +155,7 @@ struct SolverOptions
    *  On CLP, additional specialOptions bits are set to retain the
    *  factorization and work arrays from the cloned LP.
    */
-  bool warm_start {false};
+  bool reuse_basis {false};
 
   /**
    * @brief Merge another SolverOptions into this one (first-value-wins for

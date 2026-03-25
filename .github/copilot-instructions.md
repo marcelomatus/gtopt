@@ -1072,7 +1072,7 @@ gtopt/
 | `simulation_lp.hpp` | LP formulation of a single simulation |
 | `system_context.hpp` | `SystemContext` – central LP context (costs, labels, element access) |
 | `gtopt_main.hpp` | `MainOptions` struct + `gtopt_main(const MainOptions&)` entry point |
-| `app_options.hpp` | `parse_main_options(vm, files)` → `MainOptions`; `apply_cli_options` |
+| `main_options.hpp` | `parse_main_options(vm, files)` → `MainOptions`; `apply_cli_options` |
 | `cli_options.hpp` | Lightweight custom CLI parser (`gtopt::cli` namespace); mirrors boost::program_options surface |
 | `work_pool.hpp` | Adaptive thread pool with CPU-load–aware scheduling |
 | `cpu_monitor.hpp` | Real-time CPU usage monitoring via `/proc/stat` |
@@ -1119,7 +1119,7 @@ gtopt/
       .print_stats      = true,
   });
   ```
-- **`parse_main_options(vm, files)`** in `app_options.hpp` builds a
+- **`parse_main_options(vm, files)`** in `main_options.hpp` builds a
   `MainOptions` from a parsed CLI `variables_map` — use in `main()` wrappers.
   The `variables_map` type lives in `namespace gtopt::cli` (a custom
   lightweight parser, not boost::program_options).

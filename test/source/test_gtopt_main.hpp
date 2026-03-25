@@ -8,7 +8,7 @@
  * Covers source/gtopt_main.cpp:
  *   - error path when a planning file does not exist
  *   - fast-parsing path
- *   - build_lp=true (build all LPs but skip solve)
+ *   - lp_build=true (build all LPs but skip solve)
  *   - json_file output
  *   - stats=true (pre- and post-solve statistics)
  *   - json_file write failure (invalid output path)
@@ -75,23 +75,23 @@ TEST_CASE("gtopt_main - returns error for nonexistent file")
   CHECK(!result.error().empty());
 }
 
-TEST_CASE("gtopt_main - build_lp=true completes successfully")
+TEST_CASE("gtopt_main - lp_build=true completes successfully")
 {
-  const auto stem = write_tmp_json("gtopt_main_build_lp", minimal_json);
+  const auto stem = write_tmp_json("gtopt_main_lp_build", minimal_json);
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
-      .build_lp = true,
+      .lp_build = true,
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
 }
 
-TEST_CASE("gtopt_main - fast_parsing path, build_lp=true")
+TEST_CASE("gtopt_main - fast_parsing path, lp_build=true")
 {
   const auto stem = write_tmp_json("gtopt_main_fast_parse", minimal_json);
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
-      .build_lp = true,
+      .lp_build = true,
       .fast_parsing = true,
   });
   REQUIRE(result.has_value());
@@ -106,8 +106,8 @@ TEST_CASE("gtopt_main - json_file output written")
 
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
+      .lp_build = true,
       .json_file = json_out,
-      .build_lp = true,
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
@@ -133,12 +133,12 @@ TEST_CASE("gtopt_main - full solve with single-bus override")
   CHECK(*result == 0);
 }
 
-TEST_CASE("gtopt_main - stats=true, build_lp (no crash)")
+TEST_CASE("gtopt_main - stats=true, lp_build (no crash)")
 {
   const auto stem = write_tmp_json("gtopt_main_stats_create", minimal_json);
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
-      .build_lp = true,
+      .lp_build = true,
       .print_stats = true,
   });
   REQUIRE(result.has_value());
@@ -191,10 +191,10 @@ TEST_CASE("gtopt_main - multiple planning files merged")
   const auto stem1 = write_tmp_json("gtopt_main_merge1", part1);
   const auto stem2 = write_tmp_json("gtopt_main_merge2", part2);
 
-  // build_lp=true validates parsing + merging without needing a full solve
+  // lp_build=true validates parsing + merging without needing a full solve
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem1.string(), stem2.string()},
-      .build_lp = true,
+      .lp_build = true,
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
@@ -210,7 +210,7 @@ TEST_CASE("gtopt_main - returns error for invalid JSON content")
   CHECK(!result.error().empty());
 }
 
-TEST_CASE("gtopt_main - stats=true, build_lp (covers log_pre_solve_stats)")
+TEST_CASE("gtopt_main - stats=true, lp_build (covers log_pre_solve_stats)")
 {
   // Richer system to exercise more stat counters
   constexpr auto rich_json = R"({
@@ -239,7 +239,7 @@ TEST_CASE("gtopt_main - stats=true, build_lp (covers log_pre_solve_stats)")
   const auto stem = write_tmp_json("gtopt_main_rich_stats", rich_json);
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
-      .build_lp = true,
+      .lp_build = true,
       .print_stats = true,
   });
   REQUIRE(result.has_value());
@@ -258,8 +258,8 @@ TEST_CASE("gtopt_main - json_file output fails for invalid output path")
   const auto stem = write_tmp_json("gtopt_main_json_fail_path", minimal_json);
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
+      .lp_build = true,
       .json_file = "/nonexistent_directory_xyz_abc/out_file",
-      .build_lp = true,
   });
   CHECK_FALSE(result.has_value());
   CHECK(!result.error().empty());
@@ -267,15 +267,15 @@ TEST_CASE("gtopt_main - json_file output fails for invalid output path")
 
 TEST_CASE("gtopt_main - lp_file option writes LP file successfully")
 {
-  // Setting lp_file together with build_lp=true causes write_lp() to be
-  // called (line 322) before the build_lp early return.
+  // Setting lp_file together with lp_build=true causes write_lp() to be
+  // called (line 322) before the lp_build early return.
   const auto stem = write_tmp_json("gtopt_main_lp_file_ok", minimal_json);
   const auto lp_out =
       (std::filesystem::temp_directory_path() / "gtopt_main_lp_out").string();
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
       .lp_file = lp_out,
-      .build_lp = true,
+      .lp_build = true,
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
@@ -293,7 +293,7 @@ TEST_CASE("gtopt_main - lp_file with invalid path silently fails (no throw)")
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
       .lp_file = lp_path,
-      .build_lp = true,
+      .lp_build = true,
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
@@ -329,7 +329,7 @@ TEST_CASE("gtopt_main - solver non-optimal for infeasible LP (pmin > pmax)")
       .planning_files = {stem.string()},
       .output_directory = out_dir,
       .use_single_bus = true,
-      .lp_solver = "clp",
+      .solver = "clp",
   });
   REQUIRE(result.has_value());
   CHECK(*result == 1);  // non-optimal → gtopt_main returns 1
@@ -361,7 +361,7 @@ TEST_CASE("gtopt_main - solver non-optimal with stats=true")
       .planning_files = {stem.string()},
       .use_single_bus = true,
       .print_stats = true,
-      .lp_solver = "clp",
+      .solver = "clp",
   });
   REQUIRE(result.has_value());
   CHECK(*result == 1);
@@ -447,7 +447,7 @@ TEST_CASE("gtopt_main - lp_algorithm primal solves correctly")  // NOLINT
       .planning_files = {stem.string()},
       .output_directory = out_dir,
       .use_single_bus = true,
-      .lp_algorithm = std::to_underlying(LPAlgo::primal),
+      .algorithm = std::to_underlying(LPAlgo::primal),
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
@@ -465,7 +465,7 @@ TEST_CASE("gtopt_main - lp_algorithm dual solves correctly")  // NOLINT
       .planning_files = {stem.string()},
       .output_directory = out_dir,
       .use_single_bus = true,
-      .lp_algorithm = std::to_underlying(LPAlgo::dual),
+      .algorithm = std::to_underlying(LPAlgo::dual),
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
@@ -511,10 +511,34 @@ TEST_CASE("gtopt_main - lp_algorithm from JSON options")  // NOLINT
   CHECK(*result == 0);
 }
 
-TEST_CASE("gtopt_main - lp_presolve=false solves correctly")  // NOLINT
+TEST_CASE("gtopt_main - presolve=false solves correctly")  // NOLINT
 {
-  // Verify that disabling presolve still produces an optimal solution.
-  const auto stem = write_tmp_json("gtopt_main_no_presolve", minimal_json);
+  // Verify that disabling presolve (via JSON solver_options) still produces
+  // an optimal solution.  presolve is not a CLI flag — it is configured
+  // exclusively through the JSON solver_options block.
+  constexpr auto json_no_presolve = R"({
+    "options": {
+      "demand_fail_cost": 1000,
+      "output_compression": "uncompressed",
+      "lp_presolve": false
+    },
+    "simulation": {
+      "block_array": [{"uid": 1, "duration": 1}],
+      "stage_array":  [{"uid": 1, "first_block": 0, "count_block": 1}],
+      "scenario_array": [{"uid": 1}]
+    },
+    "system": {
+      "name": "no_presolve",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}
+      ]
+    }
+  })";
+  const auto stem = write_tmp_json("gtopt_main_no_presolve", json_no_presolve);
   const auto out_dir =
       (std::filesystem::temp_directory_path() / "gtopt_main_no_presolve_out")
           .string();
@@ -522,8 +546,10 @@ TEST_CASE("gtopt_main - lp_presolve=false solves correctly")  // NOLINT
       .planning_files = {stem.string()},
       .output_directory = out_dir,
       .use_single_bus = true,
-      .lp_presolve = false,
   });
+  if (!result.has_value()) {
+    MESSAGE(result.error());
+  }
   REQUIRE(result.has_value());
   CHECK(*result == 0);
 }
@@ -540,7 +566,7 @@ TEST_CASE("gtopt_main - lp_debug writes LP files to log directory")  // NOLINT
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
       .use_single_bus = true,
-      .use_lp_names = 1,
+      .lp_names_level = LpNamesLevel::only_cols,
       .lp_debug = true,
       .lp_compression = "none",
       .log_directory = log_dir.string(),
@@ -593,7 +619,7 @@ TEST_CASE("gtopt_main - check_json=true warns on unknown fields")  // NOLINT
   const auto stem = write_tmp_json("gtopt_main_check_json", json_with_unknown);
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
-      .build_lp = true,
+      .lp_build = true,
       .check_json = true,
   });
   // The unknown field triggers a warning but parsing still succeeds
@@ -662,7 +688,7 @@ TEST_CASE("gtopt_main - explicit trace_log path")  // NOLINT
 
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
-      .build_lp = true,
+      .lp_build = true,
       .trace_log = trace_path,
   });
   REQUIRE(result.has_value());
@@ -673,7 +699,7 @@ TEST_CASE("gtopt_main - explicit trace_log path")  // NOLINT
 TEST_CASE("gtopt_main - multiple files full solve")  // NOLINT
 {
   // Two files that merge into a complete planning, then do a full solve
-  // (not build_lp) to cover the output-writing path with merged data.
+  // (not lp_build) to cover the output-writing path with merged data.
   constexpr auto merge_part1 = R"({
     "options": {
       "demand_fail_cost": 1000,
@@ -807,22 +833,22 @@ TEST_CASE("gtopt_main - empty planning_files returns error")  // NOLINT
   // doesn't crash.
   auto result = gtopt_main(MainOptions {
       .planning_files = {},
-      .build_lp = true,
+      .lp_build = true,
   });
   // An empty planning may fail during LP build; either way, no crash.
   // We just check it returns (success or error).
   (void)result;
 }
 
-TEST_CASE("gtopt_main - use_lp_names=2 with stats")  // NOLINT
+TEST_CASE("gtopt_main - names_level=cols_and_rows with stats")  // NOLINT
 {
-  // Exercise use_lp_names=2 (names + map) with stats to cover the
-  // make_flat_options paths for higher naming levels.
+  // Exercise names_level=cols_and_rows (names + map) with stats to cover the
+  // make_lp_build_options paths for higher naming levels.
   const auto stem = write_tmp_json("gtopt_main_lp_names2", minimal_json);
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
-      .use_lp_names = 2,
-      .build_lp = true,
+      .lp_names_level = LpNamesLevel::cols_and_rows,
+      .lp_build = true,
       .print_stats = true,
   });
   REQUIRE(result.has_value());
@@ -842,7 +868,7 @@ TEST_CASE(
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
       .use_single_bus = true,
-      .use_lp_names = 1,
+      .lp_names_level = LpNamesLevel::only_cols,
       .lp_debug = true,
       .lp_compression = "gzip",
       .log_directory = log_dir.string(),
@@ -955,7 +981,7 @@ TEST_CASE("gtopt_main - demand_fail_cost=0 triggers warning")  // NOLINT
   const auto stem = write_tmp_json("gtopt_main_no_dfc", no_dfc_json);
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
-      .build_lp = true,
+      .lp_build = true,
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
@@ -980,7 +1006,7 @@ TEST_CASE(  // NOLINT
   auto result = gtopt_main(MainOptions {
       .planning_files = {"alt_plan"},
       .input_directory = input_dir.string(),
-      .build_lp = true,
+      .lp_build = true,
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
@@ -1000,7 +1026,7 @@ TEST_CASE(  // NOLINT
 
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
-      .build_lp = true,
+      .lp_build = true,
       .log_directory = log_dir.string(),
   });
   REQUIRE(result.has_value());

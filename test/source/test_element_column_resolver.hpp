@@ -28,7 +28,7 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 static constexpr std::string_view resolver_diverse_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -107,7 +107,7 @@ static constexpr std::string_view resolver_diverse_json = R"json({
 static constexpr std::string_view resolver_uid_ref_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -141,7 +141,7 @@ static constexpr std::string_view resolver_uid_ref_json = R"json({
 static constexpr std::string_view resolver_unknown_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -265,7 +265,7 @@ TEST_CASE(  // NOLINT
   static constexpr std::string_view bat_energy_json = R"json({
     "options": {
       "annual_discount_rate": 0.0,
-      "use_lp_names": 1,
+      "lp_build_options": {"names_level": 1},
       "output_format": "csv",
       "output_compression": "uncompressed",
       "use_single_bus": true,

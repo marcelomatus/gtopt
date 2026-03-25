@@ -200,7 +200,13 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// - `keep`:    load cuts; keep original output file unchanged
   /// - `append`:  load cuts; append new cuts to original file
   /// - `replace`: load cuts; replace original file with all cuts
-  HotStartMode hot_start_mode {HotStartMode::none};
+  HotStartMode cut_recovery_mode {HotStartMode::none};
+
+  /// Controls what is recovered from a previous SDDP run:
+  /// - `none`:  no recovery (cold start)
+  /// - `cuts`:  recover only Benders cuts
+  /// - `full`:  recover cuts + state variable solutions (default)
+  RecoveryMode recovery_mode {RecoveryMode::full};
 
   /// Path to a sentinel file: if the file exists, the solver stops
   /// gracefully after the current iteration (analogous to PLP's userstop).
@@ -221,7 +227,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// and SDDP solvers.  If lp_debug is also true, every LP file is saved
   /// before returning.  Useful for profiling LP build time without solver
   /// overhead.
-  bool build_lp {false};
+  bool lp_build {false};
 
   /// Compression format for LP debug files ("gzip" / "uncompressed" / "").
   /// Empty or "uncompressed" means no compression; any other value uses gzip.
@@ -1133,7 +1139,7 @@ private:
   /// Write a JSON status file for the monitoring API.
   /// Called after each iteration.
   /// @param status_file  Path to write the JSON file.
-  /// Generate an LP name only when use_lp_names is enabled.
+  /// Generate an LP name only when names_level >= only_cols.
   template<typename... Args>
   [[nodiscard]] auto sddp_label(Args&&... args) const -> std::string
   {

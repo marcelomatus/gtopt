@@ -1074,10 +1074,10 @@ class TestDfToOpts:
     def test_basic_options(self):
         """Parses option/value columns correctly."""
         df = pd.DataFrame(
-            {"option": ["solver_type", "scale_objective"], "value": ["sddp", 1000.0]}
+            {"option": ["method", "scale_objective"], "value": ["sddp", 1000.0]}
         )
         result = _igtopt_mod.df_to_opts(df, {})
-        assert result.get("solver_type") == "sddp"
+        assert result.get("method") == "sddp"
         assert result.get("scale_objective") == pytest.approx(1000.0)
 
     def test_numeric_option_preserved(self):

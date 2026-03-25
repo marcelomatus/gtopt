@@ -29,7 +29,7 @@
 static constexpr std::string_view ieee4b_with_constraints_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": false,
@@ -225,7 +225,7 @@ TEST_CASE("User constraint - user_constraint_file in Planning JSON")
 static constexpr std::string_view single_bus_uc_dual_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -325,7 +325,7 @@ TEST_CASE("User constraint - constraint_type field preserved")
 static constexpr std::string_view single_bus_uc_raw_json = R"json({
   "options": {
     "annual_discount_rate": 0.1,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -432,7 +432,7 @@ TEST_CASE("User constraint - parse_constraint_scale_type from constraint_type")
 static constexpr std::string_view uc_multi_component_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": false,
@@ -541,7 +541,7 @@ TEST_CASE("User constraint - resolve_single_col multi-component")
 static constexpr std::string_view uc_line_loss_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": false,
@@ -604,7 +604,7 @@ TEST_CASE("User constraint - line loss attributes (lossp/lossn)")
 static constexpr std::string_view uc_sum_ref_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -676,7 +676,7 @@ TEST_CASE("User constraint - sum references (all and explicit list)")
 static constexpr std::string_view uc_domain_filter_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -753,7 +753,7 @@ TEST_CASE("User constraint - domain filtering (stage/block/scenario)")
 static constexpr std::string_view uc_hydro_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -872,7 +872,7 @@ TEST_CASE(
 static constexpr std::string_view uc_hydro_sum_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -969,7 +969,7 @@ TEST_CASE("User constraint - sum references over hydro elements")
 static constexpr std::string_view uc_reservoir_extraction_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -1037,7 +1037,7 @@ TEST_CASE("User constraint - reservoir extraction attribute")
 static constexpr std::string_view uc_unknown_ref_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -1097,7 +1097,7 @@ TEST_CASE(
 static constexpr std::string_view uc_empty_expr_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -1151,7 +1151,7 @@ TEST_CASE("User constraint - empty and invalid expressions (graceful skip)")
 static constexpr std::string_view uc_uid_ref_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -1204,7 +1204,7 @@ TEST_CASE("User constraint - UID-based element references")
 static constexpr std::string_view uc_energy_type_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -1279,7 +1279,7 @@ TEST_CASE("User constraint - energy constraint_type dual output")
 static constexpr std::string_view uc_ge_eq_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -1337,7 +1337,7 @@ TEST_CASE("User constraint - greater-equal and equality constraints")
 static constexpr std::string_view uc_coefficients_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -1391,7 +1391,7 @@ TEST_CASE("User constraint - non-unit coefficients and subtraction")
 static constexpr std::string_view uc_type_filter_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -1448,7 +1448,7 @@ TEST_CASE("User constraint - sum with type filter")
 static constexpr std::string_view uc_bat_drain_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -1514,7 +1514,7 @@ TEST_CASE("User constraint - battery drain alias for spill")
 static constexpr std::string_view uc_converter_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -1596,7 +1596,7 @@ TEST_CASE("User constraint - converter discharge and charge attributes")
 static constexpr std::string_view uc_seepage_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -1682,7 +1682,7 @@ TEST_CASE("User constraint - seepage flow attribute")
 static constexpr std::string_view uc_reserve_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -1789,7 +1789,7 @@ TEST_CASE(
 static constexpr std::string_view uc_range_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -1841,7 +1841,7 @@ TEST_CASE("User constraint - RANGE constraint type (double-sided bound)")
 static constexpr std::string_view uc_demand_unknown_attr_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
