@@ -6,16 +6,25 @@
  * @copyright BSD-3-Clause
  *
  * Loads all parquet files from the aperture_directory at construction
- * time and provides O(1) lookup of flow/profile values by
- * (element_name, scenario_uid, stage, block).  This avoids reopening
- * parquet files during each SDDP backward-pass iteration.
+ * time and provides fast lookup of flow/profile values by
+ * (class_name, element_name, scenario_uid, stage, block).
+ *
+ * Internally uses a two-level structure:
+ *   outer: unordered_map<(class, element), inner>
+ *   inner: flat_map<(scenario, stage, block), double>
+ *
+ * This avoids storing redundant class/element strings per entry
+ * (only ~334 unique pairs vs 1.6M entries) and makes the per-element
+ * flat_map small enough to sort and search efficiently.
  */
 
 #pragma once
 
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include <gtopt/basic_types.hpp>
@@ -43,6 +52,40 @@ namespace gtopt
 class ApertureDataCache
 {
 public:
+  /// Inner key: pure integer triple — fast comparison and sorting.
+  struct InnerKey
+  {
+    ScenarioUid scenario_uid;
+    StageUid stage_uid;
+    BlockUid block_uid;
+
+    auto operator<=>(const InnerKey&) const = default;
+  };
+
+  /// Outer key: (class_name, element_name) — only ~hundreds of unique pairs.
+  struct ElementKey
+  {
+    Name class_name;
+    Name element_name;
+
+    bool operator==(const ElementKey&) const = default;
+  };
+
+  /// Hash for ElementKey using string hashes combined.
+  struct ElementKeyHash
+  {
+    auto operator()(const ElementKey& k) const noexcept -> std::size_t
+    {
+      const std::size_t h1 = std::hash<Name> {}(k.class_name);
+      const std::size_t h2 = std::hash<Name> {}(k.element_name);
+      // NOLINTBEGIN(hicpp-signed-bitwise)
+      return h1
+          ^ ((h2 * std::size_t {0x9e3779b97f4a7c15ULL})
+             + std::size_t {0x9e3779b9} + (h1 << 6) + (h1 >> 2));
+      // NOLINTEND(hicpp-signed-bitwise)
+    }
+  };
+
   ApertureDataCache() = default;
 
   /// Load all parquet files from the given directory tree.
@@ -58,25 +101,16 @@ public:
                             BlockUid block_uid) const -> std::optional<double>;
 
   /// Check if any data was loaded.
-  [[nodiscard]] bool empty() const noexcept { return m_data_.empty(); }
+  [[nodiscard]] bool empty() const noexcept { return m_elements_.empty(); }
 
-  /// Number of scenario UIDs loaded.
+  /// All scenario UIDs loaded across all elements.
   [[nodiscard]] auto scenario_uids() const -> std::vector<ScenarioUid>;
 
 private:
-  /// Key: (class_name, element_name, scenario_uid, stage_uid, block_uid)
-  struct Key
-  {
-    Name class_name;
-    Name element_name;
-    ScenarioUid scenario_uid;
-    StageUid stage_uid;
-    BlockUid block_uid;
+  /// Per-element data: small flat_map (~4800 entries), integer-only keys.
+  using ElementData = flat_map<InnerKey, double>;
 
-    auto operator<=>(const Key&) const = default;
-  };
-
-  flat_map<Key, double> m_data_;
+  std::unordered_map<ElementKey, ElementData, ElementKeyHash> m_elements_;
 };
 
 }  // namespace gtopt
