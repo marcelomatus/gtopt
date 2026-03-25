@@ -1,6 +1,6 @@
 name: Install APT build dependencies
 description: >
-  Installs C++ build dependencies (COIN-OR, Boost, spdlog) and Apache
+  Installs C++ build dependencies (COIN-OR, HiGHS, Boost, spdlog) and Apache
   Arrow/Parquet from the official Apache Arrow APT repository.
   Uses awalsh128/cache-apt-pkgs-action for APT package caching to speed
   up repeated runs. Sets DEBIAN_FRONTEND=noninteractive for the Arrow
@@ -19,7 +19,7 @@ runs:
     - name: install base packages (cached)
       uses: awalsh128/cache-apt-pkgs-action@latest
       with:
-        packages: ccache coinor-libcbc-dev libboost-container-dev libspdlog-dev liblapack-dev libblas-dev liblapack3 libblas3 zlib1g-dev libzstd-dev zstd ca-certificates lsb-release wget ${{ inputs.extra-packages }}
+        packages: ccache coinor-libcbc-dev libhighs-dev libboost-container-dev libspdlog-dev liblapack-dev libblas-dev liblapack3 libblas3 zlib1g-dev libzstd-dev zstd ca-certificates lsb-release wget ${{ inputs.extra-packages }}
         version: 1.1
         execute_install_scripts: true
 

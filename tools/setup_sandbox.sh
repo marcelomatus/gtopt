@@ -101,6 +101,7 @@ sudo apt-get update -q
 sudo apt-get install -y --no-install-recommends \
   ccache \
   coinor-libcbc-dev \
+  libhighs-dev \
   libboost-container-dev \
   libspdlog-dev \
   liblapack-dev libblas-dev \
