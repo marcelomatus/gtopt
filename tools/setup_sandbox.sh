@@ -101,7 +101,6 @@ sudo apt-get update -q
 sudo apt-get install -y --no-install-recommends \
   ccache \
   coinor-libcbc-dev \
-  libhighs-dev \
   libboost-container-dev \
   libspdlog-dev \
   liblapack-dev libblas-dev \
@@ -109,6 +108,28 @@ sudo apt-get install -y --no-install-recommends \
   libzstd-dev zstd \
   ca-certificates lsb-release wget
 ok "ccache and base packages installed"
+
+# ── Step 1b: HiGHS LP solver ─────────────────────────────────────────────────
+# HiGHS is not packaged in Ubuntu 24.04 (Noble); it is available via apt
+# starting with Ubuntu 25.04 (Plucky).  Build from source and install to
+# /usr/local so that FindHiGHS.cmake finds it.
+if [ -f /usr/local/include/highs/Highs.h ]; then
+  log "HiGHS already installed, skipping build."
+else
+  log "Building HiGHS from source..."
+  HIGHS_VERSION="v1.10.0"
+  git clone --depth 1 --branch "${HIGHS_VERSION}" \
+    https://github.com/ERGO-Code/HiGHS.git /tmp/HiGHS
+  cmake -S /tmp/HiGHS -B /tmp/HiGHS/build \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr/local \
+    -DHIGHS_NO_DEFAULT_THREADS=ON
+  cmake --build /tmp/HiGHS/build -j"$(nproc)"
+  sudo cmake --install /tmp/HiGHS/build
+  sudo ldconfig
+  rm -rf /tmp/HiGHS
+  ok "HiGHS installed to /usr/local"
+fi
 
 # ── Step 2: Arrow / Parquet ───────────────────────────────────────────────────
 # Always use conda-forge.  The APT Arrow packages (packages.apache.org) are
