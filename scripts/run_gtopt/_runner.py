@@ -4,11 +4,37 @@
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 log = logging.getLogger(__name__)
+
+
+def _build_ld_library_path(gtopt_bin: str) -> str:
+    """Build LD_LIBRARY_PATH from the gtopt binary location.
+
+    Adds directories where solver plugins and their shared-library
+    dependencies are expected to live, mirroring the search order used
+    by ``SolverRegistry::discover_default_paths`` in the C++ code.
+    """
+    exe_dir = Path(gtopt_bin).resolve().parent
+    candidates = [
+        exe_dir / ".." / "lib" / "gtopt" / "plugins",
+        exe_dir / ".." / "lib",
+        exe_dir / "plugins",
+        exe_dir / ".." / "plugins",
+        exe_dir,
+        Path("/usr/local/lib/gtopt/plugins"),
+        Path("/usr/local/lib"),
+    ]
+    lib_dirs = [str(p.resolve()) for p in candidates if p.is_dir()]
+
+    existing = os.environ.get("LD_LIBRARY_PATH", "")
+    if existing:
+        lib_dirs.append(existing)
+    return ":".join(lib_dirs)
 
 
 def run_plp2gtopt(
@@ -32,6 +58,83 @@ def run_plp2gtopt(
     return result.returncode
 
 
+def _build_gtopt_cmd(
+    gtopt_bin: str,
+    case_dir: Path,
+    threads: int | None = None,
+    compression: str | None = None,
+    extra_args: list[str] | None = None,
+) -> list[str]:
+    """Build the gtopt command line."""
+    cmd = [gtopt_bin, str(case_dir)]
+    if threads is not None and threads > 0:
+        cmd.extend(["--lp-threads", str(threads)])
+    if compression:
+        cmd.extend(["--output-compression", compression])
+    if extra_args:
+        cmd.extend(extra_args)
+    return cmd
+
+
+def _run_batch(cmd: list[str], env: dict[str, str]) -> int:
+    """Run gtopt as a plain subprocess (non-interactive / background)."""
+    log.info("running: %s", " ".join(cmd))
+    result = subprocess.run(cmd, check=False, env=env)
+    return result.returncode
+
+
+def _run_interactive(cmd: list[str], env: dict[str, str], case_dir: Path) -> int:
+    """Run gtopt with a live Rich terminal dashboard.
+
+    The dashboard runs in a background thread while the solver
+    subprocess runs in the foreground.  Solver stdout/stderr is
+    captured line-by-line and displayed in the dashboard log panel.
+
+    Interactive commands (single-key):
+      s  Graceful stop — create stop-request file (saves cuts)
+      i  Toggle system stats overlay
+      h  Toggle help overlay
+      q  Quit — terminate the solver process immediately
+    """
+    import signal  # noqa: PLC0415
+
+    from ._tui import SolverDisplay  # noqa: PLC0415
+
+    case_path = Path(case_dir)
+    case_name = case_path.stem if case_path.is_file() else case_path.name
+
+    display = SolverDisplay(
+        case_name=case_name,
+        case_dir=case_path,
+    )
+    display.start()
+
+    log.info("running (interactive): %s", " ".join(cmd))
+    with subprocess.Popen(
+        cmd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    ) as proc:
+        try:
+            assert proc.stdout is not None  # noqa: S101
+            for line in iter(proc.stdout.readline, ""):
+                display.add_log_line(line)
+                # Check if the TUI requested a quit (user pressed 'q')
+                if display.quit_requested.is_set():
+                    log.info("quit requested via TUI — terminating solver")
+                    proc.send_signal(signal.SIGTERM)
+                    break
+        finally:
+            proc.wait()
+            display.stop()
+            display.print_final(proc.returncode)
+
+        return proc.returncode
+
+
 def run_gtopt(
     gtopt_bin: str,
     case_dir: Path,
@@ -41,19 +144,23 @@ def run_gtopt(
 ) -> int:
     """Run the gtopt binary on a case directory.
 
+    When stdout is an interactive terminal, a Rich live dashboard is
+    shown in a background thread.  Otherwise the solver runs as a
+    plain subprocess with output flowing to stdout.
+
     Returns the process exit code.
     """
-    cmd = [gtopt_bin, str(case_dir)]
-    if threads is not None and threads > 0:
-        cmd.extend(["--lp-threads", str(threads)])
-    if compression:
-        cmd.extend(["--output-compression", compression])
-    if extra_args:
-        cmd.extend(extra_args)
+    from ._tui import is_interactive  # noqa: PLC0415
 
-    log.info("running: %s", " ".join(cmd))
-    result = subprocess.run(cmd, check=False)
-    return result.returncode
+    cmd = _build_gtopt_cmd(gtopt_bin, case_dir, threads, compression, extra_args)
+
+    env = os.environ.copy()
+    env["LD_LIBRARY_PATH"] = _build_ld_library_path(gtopt_bin)
+    log.info("LD_LIBRARY_PATH=%s", env["LD_LIBRARY_PATH"])
+
+    if is_interactive():
+        return _run_interactive(cmd, env, case_dir)
+    return _run_batch(cmd, env)
 
 
 # ---------------------------------------------------------------------------
