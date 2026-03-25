@@ -32,18 +32,21 @@ include_guard(GLOBAL)
 find_path(
   COIN_INCLUDE_DIR coin/CoinUtilsConfig.h
   HINTS ${COIN_ROOT_DIR}/include
+  NO_DEFAULT_PATH
 )
 
 find_library(
   COIN_COIN_UTILS_LIBRARY
   NAMES CoinUtils libCoinUtils
   HINTS ${COIN_ROOT_DIR}/lib/coin ${COIN_ROOT_DIR}/lib
+  NO_DEFAULT_PATH
 )
 
 find_library(
   COIN_OSI_LIBRARY
   NAMES Osi libOsi
   HINTS ${COIN_ROOT_DIR}/lib/coin ${COIN_ROOT_DIR}/lib
+  NO_DEFAULT_PATH
 )
 
 include(FindPackageHandleStandardArgs)
