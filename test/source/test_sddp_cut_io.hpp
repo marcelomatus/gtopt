@@ -280,7 +280,7 @@ TEST_CASE("save and load cuts round-trip via SDDPMethod")  // NOLINT
     load_opts.max_iterations = 1;
     load_opts.convergence_tol = 1e-6;
     load_opts.cuts_input_file = cuts_file;
-    load_opts.hot_start_mode = HotStartMode::replace;
+    load_opts.cut_recovery_mode = HotStartMode::replace;
 
     // Solve with hot-start — should converge faster or at least not crash
     SDDPMethod sddp2(planning_lp2, load_opts);
@@ -524,7 +524,7 @@ TEST_CASE(
   auto planning = make_3phase_hydro_planning();
   // Enable LP names at level 1 so SDDP cuts get named (required for CSV
   // round-trip: the loader rejects rows with empty name columns).
-  planning.options.use_lp_names = OptInt {1};
+  planning.options.lp_build_options.names_level = LpNamesLevel::only_cols;
   PlanningLP planning_lp(std::move(planning));
 
   // Run SDDP to generate and save per-scene cuts

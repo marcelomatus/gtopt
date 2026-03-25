@@ -254,7 +254,7 @@ auto solve_apertures_for_phase(
           }
 
           // Apply warm-start hint
-          if (aperture_opts.warm_start) {
+          if (aperture_opts.reuse_basis) {
             clone.set_warm_start_solution(forward_col_sol, forward_row_dual);
           }
 

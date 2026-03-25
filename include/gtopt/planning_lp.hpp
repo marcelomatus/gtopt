@@ -44,7 +44,7 @@ private:
   static auto create_systems(System& system,
                              SimulationLP& simulation,
                              const OptionsLP& options,
-                             const FlatOptions& flat_opts)
+                             const LpBuildOptions& flat_opts)
       -> scene_phase_systems_t;
 
 public:
@@ -55,7 +55,8 @@ public:
    */
   template<typename PlanningT>
     requires(std::is_same_v<std::remove_cvref_t<PlanningT>, gtopt::Planning>)
-  explicit PlanningLP(PlanningT&& planning, const FlatOptions& flat_opts = {})
+  explicit PlanningLP(PlanningT&& planning,
+                      const LpBuildOptions& flat_opts = {})
       : m_planning_(std::forward<PlanningT>(planning))  // NOLINT
       , m_options_(m_planning_.options)
       , m_simulation_(m_planning_.simulation, m_options_)

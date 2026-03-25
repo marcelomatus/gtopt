@@ -37,10 +37,10 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     return std::unexpected(std::move(*err));
   }
 
-  // build_lp: the LP matrix is already built (PlanningLP constructor).
+  // lp_build: the LP matrix is already built (PlanningLP constructor).
   // Return an empty results vector immediately — no solving, no initialization.
-  if (m_options_.build_lp) {
-    SPDLOG_INFO("SDDP: build_lp mode — LP built, skipping all solving");
+  if (m_options_.lp_build) {
+    SPDLOG_INFO("SDDP: lp_build mode — LP built, skipping all solving");
     return std::vector<SDDPIterationResult> {};
   }
 
@@ -320,11 +320,11 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         static_cast<std::size_t>(num_scenes_final), 1U);
     save_cuts_for_iteration(results.back().iteration, final_feasible);
 
-    // Write the combined output file based on hot_start_mode:
+    // Write the combined output file based on cut_recovery_mode:
     //  - none/replace: write all cuts to the combined file
     //  - keep:         do not modify the combined file
     //  - append:       append new cuts to the existing file
-    const auto mode = m_options_.hot_start_mode;
+    const auto mode = m_options_.cut_recovery_mode;
     if (mode == HotStartMode::append) {
       // Append mode: add newly generated cuts to the existing file.
       const auto& cuts_to_append = m_options_.single_cut_storage
@@ -346,7 +346,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
                     result.error().message);
       }
     } else {
-      SPDLOG_INFO("SDDP: hot_start_mode=keep — combined file not modified");
+      SPDLOG_INFO("SDDP: cut_recovery_mode=keep — combined file not modified");
     }
   }
 

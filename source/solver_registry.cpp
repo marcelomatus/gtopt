@@ -233,8 +233,8 @@ std::vector<std::string> SolverRegistry::available_solvers() const
 
 std::string_view SolverRegistry::default_solver() const
 {
-  // Priority order: cplex > highs > cbc > clp
-  static constexpr std::array preferred = {"cplex", "highs", "cbc", "clp"};
+  // Priority order: highs > cplex > cbc > clp
+  static constexpr std::array preferred = {"highs", "cplex", "cbc", "clp"};
   for (const auto* name : preferred) {
     if (has_solver(name)) {
       return name;

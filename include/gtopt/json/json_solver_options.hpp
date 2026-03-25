@@ -32,7 +32,7 @@ struct json_data_contract<SolverOptions>
                                 json_number_null<"barrier_eps", OptReal>,
                                 json_number<"log_level", int>,
                                 json_number_null<"time_limit", OptReal>,
-                                json_bool<"warm_start", bool>>;
+                                json_bool<"reuse_basis", bool>>;
 
   constexpr static auto to_json_data(SolverOptions const& opt)
   {
@@ -44,7 +44,7 @@ struct json_data_contract<SolverOptions>
                                  opt.barrier_eps,
                                  opt.log_level,
                                  opt.time_limit,
-                                 opt.warm_start);
+                                 opt.reuse_basis);
   }
 };
 

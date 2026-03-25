@@ -138,11 +138,11 @@ public:
                     SimulationLP& simulation,
                     PhaseLP phase,
                     SceneLP scene,
-                    const FlatOptions& flat_opts = {});
+                    const LpBuildOptions& flat_opts = {});
 
   explicit SystemLP(const System& system,
                     SimulationLP& simulation,
-                    const FlatOptions& flat_opts = {})
+                    const LpBuildOptions& flat_opts = {})
       : SystemLP(system,
                  simulation,
                  PhaseLP {
@@ -299,7 +299,7 @@ public:
     return system().name;
   }
 
-  void create_lp(const FlatOptions& flat_opts = {});
+  void create_lp(const LpBuildOptions& flat_opts = {});
 
   /**
    * @brief Update LP elements for all (scenario, stage) pairs in this system.

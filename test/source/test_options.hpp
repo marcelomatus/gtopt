@@ -33,12 +33,13 @@ TEST_CASE("Options - Default construction")
   CHECK_FALSE(options.output_directory.has_value());
   CHECK_FALSE(options.output_format.has_value());
   CHECK_FALSE(options.output_compression.has_value());
-  CHECK_FALSE(options.use_lp_names.has_value());
+  CHECK_FALSE(options.lp_build_options.names_level.has_value());
   CHECK_FALSE(options.use_uid_fname.has_value());
   CHECK_FALSE(options.annual_discount_rate.has_value());
-  CHECK_FALSE(options.lp_algorithm.has_value());
-  CHECK_FALSE(options.lp_threads.has_value());
-  CHECK_FALSE(options.lp_presolve.has_value());
+  // Check solver_options defaults
+  CHECK(options.solver_options.algorithm == LPAlgo::barrier);
+  CHECK(options.solver_options.threads == 2);
+  CHECK(options.solver_options.presolve == true);
 }
 
 TEST_CASE("Options - Construction with values")
@@ -60,8 +61,10 @@ TEST_CASE("Options - Construction with values")
       .output_directory = "output_dir",
       .output_format = "csv",
       .output_compression = "zip",
-      .use_lp_names = 1,
       .use_uid_fname = false,
+      .lp_build_options {
+          .names_level = LpNamesLevel::only_cols,
+      },
   };
 
   // Check that all fields have the expected values
@@ -104,8 +107,8 @@ TEST_CASE("Options - Construction with values")
   REQUIRE(options.output_compression.has_value());
   CHECK(*options.output_compression == "zip");
 
-  REQUIRE(options.use_lp_names.has_value());
-  CHECK(*options.use_lp_names == 1);
+  REQUIRE(options.lp_build_options.names_level.has_value());
+  CHECK(*options.lp_build_options.names_level == LpNamesLevel::only_cols);
 
   REQUIRE(options.use_uid_fname.has_value());
   CHECK(*options.use_uid_fname == false);
@@ -281,7 +284,7 @@ TEST_CASE("OptionsLP - Default construction")
   CHECK(options_lp.output_format() == OptionsLP::default_output_format);
   CHECK(options_lp.output_compression()
         == OptionsLP::default_output_compression);
-  CHECK(options_lp.use_lp_names() == OptionsLP::default_use_lp_names);
+  CHECK(options_lp.names_level() == OptionsLP::default_names_level);
   CHECK(options_lp.use_uid_fname() == OptionsLP::default_use_uid_fname);
   CHECK(options_lp.annual_discount_rate()
         == doctest::Approx(OptionsLP::default_annual_discount_rate));
@@ -313,7 +316,7 @@ TEST_CASE("OptionsLP - Default construction 2")
   CHECK(options_lp.output_format() == OptionsLP::default_output_format);
   CHECK(options_lp.output_compression()
         == OptionsLP::default_output_compression);
-  CHECK(options_lp.use_lp_names() == OptionsLP::default_use_lp_names);
+  CHECK(options_lp.names_level() == OptionsLP::default_names_level);
   CHECK(options_lp.use_uid_fname() == OptionsLP::default_use_uid_fname);
   CHECK(options_lp.annual_discount_rate()
         == doctest::Approx(OptionsLP::default_annual_discount_rate));
@@ -344,7 +347,7 @@ TEST_CASE("OptionsLP - Default construction 3")
   CHECK(options_lp.output_format() == OptionsLP::default_output_format);
   CHECK(options_lp.output_compression()
         == OptionsLP::default_output_compression);
-  CHECK(options_lp.use_lp_names() == OptionsLP::default_use_lp_names);
+  CHECK(options_lp.names_level() == OptionsLP::default_names_level);
   CHECK(options_lp.use_uid_fname() == OptionsLP::default_use_uid_fname);
   CHECK(options_lp.annual_discount_rate()
         == doctest::Approx(OptionsLP::default_annual_discount_rate));
@@ -390,7 +393,7 @@ TEST_CASE("OptionsLP - Construction with Options")
   CHECK(options_lp.output_format() == OptionsLP::default_output_format);
   CHECK(options_lp.output_compression()
         == OptionsLP::default_output_compression);
-  CHECK(options_lp.use_lp_names() == OptionsLP::default_use_lp_names);
+  CHECK(options_lp.names_level() == OptionsLP::default_names_level);
   CHECK(options_lp.use_uid_fname() == OptionsLP::default_use_uid_fname);
   CHECK(options_lp.annual_discount_rate()
         == doctest::Approx(OptionsLP::default_annual_discount_rate));
@@ -416,8 +419,10 @@ TEST_CASE("OptionsLP - Test all accessor methods")
       .output_directory = "test_output",
       .output_format = "json",
       .output_compression = "bzip2",
-      .use_lp_names = 1,
       .use_uid_fname = true,
+      .lp_build_options {
+          .names_level = LpNamesLevel::only_cols,
+      },
   };
 
   // Create OptionsLP with all values set
@@ -445,7 +450,7 @@ TEST_CASE("OptionsLP - Test all accessor methods")
   CHECK(options_lp.output_directory() == "test_output");
   CHECK(options_lp.output_format() == "json");
   CHECK(options_lp.output_compression() == "bzip2");
-  CHECK(options_lp.use_lp_names() == 1);
+  CHECK(options_lp.names_level() == LpNamesLevel::only_cols);
   CHECK(options_lp.use_uid_fname() == true);
   CHECK(options_lp.annual_discount_rate() == doctest::Approx(0.07));
 }
@@ -501,80 +506,94 @@ TEST_CASE("Options - Merge with empty variable_scales does nothing")  // NOLINT
   CHECK(base.variable_scales[0].class_name == "Bus");
 }
 
-TEST_CASE("Options - Solver algorithm fields default to empty")  // NOLINT
+TEST_CASE("Options - Solver options fields have defaults")  // NOLINT
 {
   using namespace gtopt;
 
   const Options options {};
-  CHECK_FALSE(options.lp_algorithm.has_value());
-  CHECK_FALSE(options.lp_threads.has_value());
-  CHECK_FALSE(options.lp_presolve.has_value());
+  CHECK(options.solver_options.algorithm == LPAlgo::barrier);
+  CHECK(options.solver_options.threads == 2);
+  CHECK(options.solver_options.presolve == true);
 }
 
-TEST_CASE("Options - Solver algorithm fields construction")  // NOLINT
+TEST_CASE("Options - Solver options fields construction")  // NOLINT
 {
   using namespace gtopt;
 
   const Options options {
-      .lp_algorithm = std::to_underlying(LPAlgo::dual),
-      .lp_threads = 2,
-      .lp_presolve = false,
+      .solver_options =
+          {
+              .algorithm = LPAlgo::dual,
+              .threads = 2,
+              .presolve = false,
+          },
   };
 
-  REQUIRE(options.lp_algorithm.has_value());
-  CHECK(*options.lp_algorithm == std::to_underlying(LPAlgo::dual));
-  REQUIRE(options.lp_threads.has_value());
-  CHECK(*options.lp_threads == 2);
-  REQUIRE(options.lp_presolve.has_value());
-  CHECK(*options.lp_presolve == false);
+  CHECK(options.solver_options.algorithm == LPAlgo::dual);
+  CHECK(options.solver_options.threads == 2);
+  CHECK(options.solver_options.presolve == false);
 }
 
-TEST_CASE("Options - Solver algorithm fields merge")  // NOLINT
+TEST_CASE("Options - Solver options merge")  // NOLINT
 {
   using namespace gtopt;
 
-  Options base {.lp_algorithm = std::to_underlying(LPAlgo::primal)};
+  Options base {
+      .solver_options =
+          {
+              .algorithm = LPAlgo::primal,
+              .optimal_eps = 1e-8,
+          },
+  };
   Options overlay {
-      .lp_algorithm = std::to_underlying(LPAlgo::dual),
-      .lp_threads = 4,
+      .solver_options =
+          {
+              .algorithm = LPAlgo::dual,
+              .threads = 4,
+              .optimal_eps = 1e-6,
+              .feasible_eps = 1e-7,
+          },
   };
   base.merge(std::move(overlay));
 
-  REQUIRE(base.lp_algorithm.has_value());
-  CHECK(base.lp_algorithm.value_or(std::to_underlying(LPAlgo::primal))
-        == std::to_underlying(LPAlgo::dual));
-  REQUIRE(base.lp_threads.has_value());
-  CHECK(base.lp_threads.value_or(0) == 4);
-  CHECK_FALSE(base.lp_presolve.has_value());
+  // Non-optional fields keep base values (merge only touches optional fields)
+  CHECK(base.solver_options.algorithm == LPAlgo::primal);
+  CHECK(base.solver_options.threads == 2);
+  CHECK(base.solver_options.presolve == true);
+  // Optional field already set in base: keeps base value
+  REQUIRE(base.solver_options.optimal_eps.has_value());
+  CHECK(base.solver_options.optimal_eps.value_or(0.0) == doctest::Approx(1e-8));
+  // Optional field not set in base: gains overlay value
+  REQUIRE(base.solver_options.feasible_eps.has_value());
+  CHECK(base.solver_options.feasible_eps.value_or(0.0)
+        == doctest::Approx(1e-7));
 }
 
-TEST_CASE(
-    "OptionsLP - Solver algorithm accessor returns nullopt by default")  // NOLINT
+TEST_CASE("OptionsLP - Solver options accessor returns defaults")  // NOLINT
 {
   using namespace gtopt;
 
   const OptionsLP options_lp {};
-  CHECK_FALSE(options_lp.lp_algorithm().has_value());
-  CHECK_FALSE(options_lp.lp_threads().has_value());
-  CHECK_FALSE(options_lp.lp_presolve().has_value());
+  CHECK(options_lp.solver_options().algorithm == LPAlgo::barrier);
+  CHECK(options_lp.solver_options().threads == 2);
+  CHECK(options_lp.solver_options().presolve == true);
 }
 
-TEST_CASE("OptionsLP - Solver algorithm accessors with set values")  // NOLINT
+TEST_CASE("OptionsLP - Solver options accessors with set values")  // NOLINT
 {
   using namespace gtopt;
 
   const Options options {
-      .lp_algorithm = std::to_underlying(LPAlgo::barrier),
-      .lp_threads = 4,
-      .lp_presolve = false,
+      .solver_options =
+          {
+              .algorithm = LPAlgo::barrier,
+              .threads = 4,
+              .presolve = false,
+          },
   };
   const OptionsLP options_lp {options};
 
-  REQUIRE(options_lp.lp_algorithm().has_value());
-  CHECK(options_lp.lp_algorithm().value_or(std::to_underlying(LPAlgo::primal))
-        == std::to_underlying(LPAlgo::barrier));
-  REQUIRE(options_lp.lp_threads().has_value());
-  CHECK(options_lp.lp_threads().value_or(0) == 4);
-  REQUIRE(options_lp.lp_presolve().has_value());
-  CHECK_FALSE(options_lp.lp_presolve().value_or(true));
+  CHECK(options_lp.solver_options().algorithm == LPAlgo::barrier);
+  CHECK(options_lp.solver_options().threads == 4);
+  CHECK(options_lp.solver_options().presolve == false);
 }

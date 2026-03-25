@@ -329,7 +329,7 @@ def make_parser() -> argparse.ArgumentParser:
             "indices.  Accepts 'all' (default), 'first' (first available), "
             "a single index, comma-separated values, or ranges: "
             "'51', '51,52', '51,52,55-60'. "
-            "Use '-y 0' to list available scenarios and exit. "
+            "Use '--info' to list available scenarios. "
             "When plpidsim.dat is present the indices are the hydrology "
             "columns from plpidsim.dat; otherwise raw 1-based hydrology "
             "column indices from plpaflce.dat.  (default: %(default)s)"

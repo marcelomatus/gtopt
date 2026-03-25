@@ -21,12 +21,8 @@
 #  include <coin/OsiCbcSolverInterface.hpp>
 #endif
 
-#ifdef GTOPT_OSI_HAS_CPX
-#  include <coin/OsiCpxSolverInterface.hpp>
-#  include <ilcplex/cplex.h>
-#endif
-
 // Check if ClpSimplex is available for CLP-specific optimizations
+#include <coin/ClpFactorization.hpp>
 #include <coin/ClpSimplex.hpp>
 
 namespace gtopt
@@ -44,10 +40,6 @@ std::shared_ptr<OsiSolverInterface> make_osi_solver(
 #ifdef GTOPT_OSI_HAS_CBC
     case OsiSolverBackend::OsiSolverType::cbc:
       return std::make_shared<OsiCbcSolverInterface>();
-#endif
-#ifdef GTOPT_OSI_HAS_CPX
-    case OsiSolverBackend::OsiSolverType::cplex:
-      return std::make_shared<OsiCpxSolverInterface>();
 #endif
     default:
       throw std::runtime_error("Unsupported OSI solver type");
@@ -103,8 +95,6 @@ std::string_view OsiSolverBackend::solver_name() const noexcept
       return "clp";
     case OsiSolverType::cbc:
       return "cbc";
-    case OsiSolverType::cplex:
-      return "cplex";
   }
   return "osi";
 }
@@ -224,15 +214,6 @@ void OsiSolverBackend::set_coeff(int row, int col, double value)
       if (clp != nullptr) {
         clp->modifyCoefficient(row, col, value, false);
       }
-      break;
-    }
-    case OsiSolverType::cplex: {
-#ifdef GTOPT_OSI_HAS_CPX
-      auto* cpx = dynamic_cast<OsiCpxSolverInterface*>(m_solver_.get());
-      if (cpx != nullptr) {
-        cpx->setCoefficient(row, col, value);
-      }
-#endif
       break;
     }
   }
@@ -367,7 +348,7 @@ void OsiSolverBackend::apply_options(const SolverOptions& opts)
   }
 
   // ── Warm-start override ──
-  if (opts.warm_start) {
+  if (opts.reuse_basis) {
     m_solver_->setHintParam(OsiDoPresolveInInitial, false, OsiHintDo);
     m_solver_->setHintParam(OsiDoPresolveInResolve, false, OsiHintDo);
     m_solver_->setHintParam(OsiDoDualInInitial, true, OsiHintDo);
@@ -433,14 +414,23 @@ void OsiSolverBackend::apply_options(const SolverOptions& opts)
 
 double OsiSolverBackend::get_kappa() const
 {
+  // CLP/CBC: CoinFactorization::conditionNumber() computes the product
+  // of pivot values from the LU decomposition.  In practice this often
+  // returns 1.0 because CLP rescales internally, so the result is only
+  // a rough indicator; it is NOT a true condition number estimate.
+  // Values <= 0 indicate the factorization state is unusable; fall back
+  // to 1.0 in that case.
   auto* clp =
       as_clp(const_cast<OsiSolverInterface*>(m_solver_.get()),  // NOLINT
              m_type_);
   if (clp != nullptr) {
     try {
       auto* model = clp->getModelPtr();
-      if (model != nullptr) {
-        return model->largestDualError();
+      if (model != nullptr && model->factorization() != nullptr) {
+        double kappa = model->factorization()->conditionNumber();
+        if (kappa >= 1.0) {
+          return kappa;
+        }
       }
     } catch (...) {
     }
@@ -474,51 +464,6 @@ void OsiSolverBackend::push_names(const std::vector<std::string>& col_names,
     clp->getModelPtr()->copyNames(row_names, col_names);
     return;
   }
-
-#ifdef GTOPT_OSI_HAS_CPX
-  if (m_type_ == OsiSolverType::cplex) {
-    auto* cpx = dynamic_cast<OsiCpxSolverInterface*>(m_solver_.get());
-    if (cpx != nullptr) {
-      auto* env = cpx->getEnvironmentPtr();
-      auto* lp = cpx->getLpPtr(OsiCpxSolverInterface::KEEPCACHED_ALL);
-
-      std::vector<int> col_indices;
-      std::vector<char*> col_cnames;
-      for (int i = 0; i < static_cast<int>(col_names.size()); ++i) {
-        if (!col_names[static_cast<size_t>(i)].empty()) {
-          col_indices.push_back(i);
-          col_cnames.push_back(const_cast<char*>(  // NOLINT
-              col_names[static_cast<size_t>(i)].data()));
-        }
-      }
-      if (!col_indices.empty()) {
-        CPXchgcolname(env,
-                      lp,
-                      static_cast<int>(col_indices.size()),
-                      col_indices.data(),
-                      col_cnames.data());
-      }
-
-      std::vector<int> row_indices;
-      std::vector<char*> row_cnames;
-      for (int i = 0; i < static_cast<int>(row_names.size()); ++i) {
-        if (!row_names[static_cast<size_t>(i)].empty()) {
-          row_indices.push_back(i);
-          row_cnames.push_back(const_cast<char*>(  // NOLINT
-              row_names[static_cast<size_t>(i)].data()));
-        }
-      }
-      if (!row_indices.empty()) {
-        CPXchgrowname(env,
-                      lp,
-                      static_cast<int>(row_indices.size()),
-                      row_indices.data(),
-                      row_cnames.data());
-      }
-      return;
-    }
-  }
-#endif
 
   // Generic fallback: per-element via OSI
   m_solver_->setIntParam(OsiNameDiscipline, 2);

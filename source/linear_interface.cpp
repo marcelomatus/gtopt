@@ -182,7 +182,7 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   // Preserve per-column scale factors from LinearProblem.
   m_col_scales_ = flat_lp.col_scales;
 
-  // Preserve coefficient statistics computed during to_flat().
+  // Preserve coefficient statistics computed during lp_build().
   m_stats_nnz_ = flat_lp.stats_nnz;
   m_stats_zeroed_ = flat_lp.stats_zeroed;
   m_stats_max_abs_ = flat_lp.stats_max_abs;
@@ -494,10 +494,10 @@ auto LinearInterface::write_lp(const std::string& filename) const
   if (m_row_index_to_name_.empty()) {
     return std::unexpected(Error {
         .code = ErrorCode::InvalidInput,
-        .message =
-            std::format("LP file '{}' not saved: row names are not available. "
-                        "Set use_lp_names >= 1 to enable LP file output.",
-                        filename),
+        .message = std::format(
+            "LP file '{}' not saved: row names are not available. "
+            "Set names_level >= only_cols to enable LP file output.",
+            filename),
     });
   }
 

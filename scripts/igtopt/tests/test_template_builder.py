@@ -278,9 +278,9 @@ class TestSddpOptionKeysSync:
         """All fields in json_options.hpp SddpOptions appear in SDDP_OPTION_KEYS."""
         import re
 
-        header = repo_root / "include" / "gtopt" / "json" / "json_options.hpp"
+        header = repo_root / "include" / "gtopt" / "json" / "json_sddp_options.hpp"
         if not header.exists():
-            pytest.skip("json_options.hpp not found")
+            pytest.skip("json_sddp_options.hpp not found")
 
         text = header.read_text()
         # Extract the SddpOptions contract block
@@ -364,9 +364,9 @@ class TestCascadeOptionKeys:
         """CascadeOptions fields in json_options.hpp are well-formed."""
         import re
 
-        header = repo_root / "include" / "gtopt" / "json" / "json_options.hpp"
+        header = repo_root / "include" / "gtopt" / "json" / "json_cascade_options.hpp"
         if not header.exists():
-            pytest.skip("json_options.hpp not found")
+            pytest.skip("json_cascade_options.hpp not found")
 
         text = header.read_text()
 
@@ -385,9 +385,9 @@ class TestCascadeOptionKeys:
         """CascadeLevel fields in json_options.hpp match expected structure."""
         import re
 
-        header = repo_root / "include" / "gtopt" / "json" / "json_options.hpp"
+        header = repo_root / "include" / "gtopt" / "json" / "json_cascade_options.hpp"
         if not header.exists():
-            pytest.skip("json_options.hpp not found")
+            pytest.skip("json_cascade_options.hpp not found")
 
         text = header.read_text()
 
@@ -405,9 +405,9 @@ class TestCascadeOptionKeys:
         """CascadeTransition fields in json_options.hpp match expected structure."""
         import re
 
-        header = repo_root / "include" / "gtopt" / "json" / "json_options.hpp"
+        header = repo_root / "include" / "gtopt" / "json" / "json_cascade_options.hpp"
         if not header.exists():
-            pytest.skip("json_options.hpp not found")
+            pytest.skip("json_cascade_options.hpp not found")
 
         text = header.read_text()
 
@@ -432,25 +432,25 @@ class TestCascadeOptionKeys:
         )
 
     def test_cascade_level_solver_fields_sync_with_cpp(self, repo_root):
-        """CascadeLevelSolver fields in json_options.hpp match expected structure."""
+        """CascadeLevelMethod fields in json_options.hpp match expected structure."""
         import re
 
-        header = repo_root / "include" / "gtopt" / "json" / "json_options.hpp"
+        header = repo_root / "include" / "gtopt" / "json" / "json_cascade_options.hpp"
         if not header.exists():
-            pytest.skip("json_options.hpp not found")
+            pytest.skip("json_cascade_options.hpp not found")
 
         text = header.read_text()
 
         match = re.search(
-            r"json_data_contract<CascadeLevelSolver>.*?>;", text, re.DOTALL
+            r"json_data_contract<CascadeLevelMethod>.*?>;", text, re.DOTALL
         )
-        assert match, "Could not find json_data_contract<CascadeLevelSolver>"
+        assert match, "Could not find json_data_contract<CascadeLevelMethod>"
 
         block = match.group()
         cpp_fields = set(re.findall(r'json_\w+<"(\w+)"', block))
         expected = {"max_iterations", "min_iterations", "apertures", "convergence_tol"}
         assert expected == cpp_fields, (
-            f"CascadeLevelSolver fields mismatch: expected {expected}, got {cpp_fields}"
+            f"CascadeLevelMethod fields mismatch: expected {expected}, got {cpp_fields}"
         )
 
 
@@ -466,7 +466,7 @@ class TestNestSubOptionsCascade:
         """simulation_mode is placed inside sddp_options by _nest_sub_options."""
         from igtopt.igtopt import _nest_sub_options
 
-        flat = {"solver_type": "sddp", "simulation_mode": True}
+        flat = {"method": "sddp", "simulation_mode": True}
         result = _nest_sub_options(flat)
         assert "simulation_mode" not in result
         assert result["sddp_options"]["simulation_mode"] is True
@@ -485,7 +485,7 @@ class TestNestSubOptionsCascade:
                 }
             ]
         }
-        flat = {"solver_type": "sddp", "cascade_options": cascade}
+        flat = {"method": "sddp", "cascade_options": cascade}
         result = _nest_sub_options(flat)
         assert result["cascade_options"] == cascade
         assert result["cascade_options"]["levels"][0]["name"] == "copper_plate"
@@ -503,7 +503,7 @@ class TestNestSubOptionsCascade:
             ]
         }
         flat = {
-            "solver_type": "sddp",
+            "method": "sddp",
             "max_iterations": 100,
             "simulation_mode": False,
             "cascade_options": cascade,
@@ -517,7 +517,105 @@ class TestNestSubOptionsCascade:
         """apertures list is placed inside sddp_options by _nest_sub_options."""
         from igtopt.igtopt import _nest_sub_options
 
-        flat = {"solver_type": "sddp", "apertures": [1, 2, 3]}
+        flat = {"method": "sddp", "apertures": [1, 2, 3]}
         result = _nest_sub_options(flat)
         assert "apertures" not in result
         assert result["sddp_options"]["apertures"] == [1, 2, 3]
+
+
+# ---------------------------------------------------------------------------
+# _nest_sub_options — solver_options
+# ---------------------------------------------------------------------------
+
+
+class TestNestSubOptionsSolver:
+    """Tests for _nest_sub_options handling of solver_options."""
+
+    def test_solver_prefix_time_limit(self):
+        """solver_time_limit is placed inside solver_options as time_limit."""
+        from igtopt.igtopt import _nest_sub_options
+
+        flat = {"solver_time_limit": 300.0}
+        result = _nest_sub_options(flat)
+        assert "solver_time_limit" not in result
+        assert result["solver_options"]["time_limit"] == 300.0
+
+    def test_solver_prefix_algorithm(self):
+        """solver_algorithm is placed inside solver_options as algorithm."""
+        from igtopt.igtopt import _nest_sub_options
+
+        flat = {"solver_algorithm": 2}
+        result = _nest_sub_options(flat)
+        assert "solver_algorithm" not in result
+        assert result["solver_options"]["algorithm"] == 2
+
+    def test_solver_prefix_multiple_keys(self):
+        """Multiple solver_ keys are all nested correctly."""
+        from igtopt.igtopt import _nest_sub_options
+
+        flat = {
+            "solver_algorithm": 3,
+            "solver_threads": 4,
+            "solver_presolve": True,
+            "solver_time_limit": 600.0,
+            "solver_optimal_eps": 1e-8,
+            "solver_feasible_eps": 1e-7,
+            "solver_barrier_eps": 1e-6,
+            "solver_log_level": 1,
+            "solver_reuse_basis": False,
+        }
+        result = _nest_sub_options(flat)
+        so = result["solver_options"]
+        assert so["algorithm"] == 3
+        assert so["threads"] == 4
+        assert so["presolve"] is True
+        assert so["time_limit"] == 600.0
+        assert so["optimal_eps"] == 1e-8
+        assert so["feasible_eps"] == 1e-7
+        assert so["barrier_eps"] == 1e-6
+        assert so["log_level"] == 1
+        assert so["reuse_basis"] is False
+
+    def test_solver_options_passthrough(self):
+        """Pre-nested solver_options dict is passed through."""
+        from igtopt.igtopt import _nest_sub_options
+
+        nested = {"algorithm": 1, "time_limit": 120.0}
+        flat = {"solver_options": nested}
+        result = _nest_sub_options(flat)
+        assert result["solver_options"]["algorithm"] == 1
+        assert result["solver_options"]["time_limit"] == 120.0
+
+    def test_solver_options_merged_with_prefix(self):
+        """Pre-nested and prefixed solver options are merged."""
+        from igtopt.igtopt import _nest_sub_options
+
+        flat = {
+            "solver_options": {"algorithm": 1},
+            "solver_time_limit": 300.0,
+        }
+        result = _nest_sub_options(flat)
+        assert result["solver_options"]["algorithm"] == 1
+        assert result["solver_options"]["time_limit"] == 300.0
+
+    def test_solver_coexists_with_sddp_and_monolithic(self):
+        """solver_options coexists with sddp_options and monolithic_options."""
+        from igtopt.igtopt import _nest_sub_options
+
+        flat = {
+            "solver_time_limit": 300.0,
+            "monolithic_solve_mode": "relaxed",
+        }
+        result = _nest_sub_options(flat)
+        assert result["solver_options"]["time_limit"] == 300.0
+        assert result["monolithic_options"]["solve_mode"] == "relaxed"
+
+    def test_unknown_solver_prefix_stays_toplevel(self):
+        """Keys with solver_ prefix but not in SOLVER_OPTION_KEYS stay top-level."""
+        from igtopt.igtopt import _nest_sub_options
+
+        flat = {"method": "sddp", "solver_time_limit": 60.0}
+        result = _nest_sub_options(flat)
+        # method is a top-level option (not in SOLVER_OPTION_KEYS)
+        assert result["method"] == "sddp"
+        assert result["solver_options"]["time_limit"] == 60.0

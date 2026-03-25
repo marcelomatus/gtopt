@@ -1187,8 +1187,8 @@ def test_min_hydro_ms_monolithic_structure(tmp_path):
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
     sim = data["simulation"]
 
-    # solver_type in options must be "monolithic" (top-level field)
-    assert data["options"]["solver_type"] == "monolithic"
+    # method in options must be "monolithic" (top-level field)
+    assert data["options"]["method"] == "monolithic"
 
     # 2 scenarios with equal probability
     scenarios = sim["scenario_array"]
@@ -1224,7 +1224,7 @@ def test_min_hydro_ms_sddp_options_key(tmp_path):
     convert_plp_case(opts)
 
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
-    assert data["options"]["solver_type"] == "sddp"
+    assert data["options"]["method"] == "sddp"
 
     sim = data["simulation"]
     # SDDP: one scene per scenario
@@ -1244,7 +1244,7 @@ def test_min_hydro_ms_num_apertures(tmp_path):
 
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
     sddp = data["options"]["sddp_options"]
-    assert data["options"]["solver_type"] == "sddp"
+    assert data["options"]["method"] == "sddp"
     # num_apertures is NOT emitted — apertures are configured via aperture_array
     assert "num_apertures" not in sddp
 
@@ -1750,7 +1750,7 @@ def test_plp_case_2y_4h_partial_hydrology(tmp_path):
     )
 
     opts = _make_opts_2y(tmp_path, "gtopt_case_2y_4h")
-    opts["hydrologies"] = "1,2,3,4"
+    opts["hydrologies"] = "51,52,53,54"
     convert_plp_case(opts)
 
     parser = PLPParser({"input_dir": _PLPCase2Y})
@@ -1760,7 +1760,7 @@ def test_plp_case_2y_4h_partial_hydrology(tmp_path):
     scenarios = data["simulation"]["scenario_array"]
     forward_scenarios = [s for s in scenarios if "input_directory" not in s]
     assert len(forward_scenarios) == 4, (
-        "Expected 4 forward scenarios for hydrologies 1,2,3,4"
+        "Expected 4 forward scenarios for hydrologies 51,52,53,54"
     )
 
     # Verify flow names exist
@@ -1821,7 +1821,7 @@ def test_plp_case_2y_4h_4s_partial_stages(tmp_path):
     )
 
     opts = _make_opts_2y(tmp_path, "gtopt_case_2y_4h_4s")
-    opts["hydrologies"] = "1,2,3,4"
+    opts["hydrologies"] = "51,52,53,54"
     opts["last_stage"] = 4
     convert_plp_case(opts)
 
@@ -2223,7 +2223,7 @@ def test_hydro_4b_sddp_conversion(tmp_path):
 
     # SDDP options
     sddp_opts = data["options"]["sddp_options"]
-    assert data["options"]["solver_type"] == "sddp"
+    assert data["options"]["method"] == "sddp"
     assert "num_apertures" not in sddp_opts
 
 
@@ -2237,7 +2237,7 @@ def test_hydro_4b_mono_conversion(tmp_path):
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
     sim = data["simulation"]
 
-    assert data["options"]["solver_type"] == "monolithic"
+    assert data["options"]["method"] == "monolithic"
 
     # 3 scenarios with equal probability
     scenarios = sim["scenario_array"]

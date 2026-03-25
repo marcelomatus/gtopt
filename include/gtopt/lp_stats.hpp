@@ -12,8 +12,8 @@
  * is below a configurable threshold the output is a single summary line;
  * otherwise a per-scene/phase table is printed.
  *
- * The actual min/max/nnz values are computed inside LinearProblem::to_flat()
- * when FlatOptions::compute_stats is true, and stored in the
+ * The actual min/max/nnz values are computed inside LinearProblem::lp_build()
+ * when LpBuildOptions::compute_stats is true, and stored in the
  * FlatLinearProblem struct.
  */
 

@@ -383,7 +383,7 @@ std::optional<SDDPMethod::ElasticResult> SDDPMethod::elastic_solve(
   // Enable warm-start on the clone resolve when configured.
   // Use the previous iteration's forward-pass solution (if any) as hint.
   auto elastic_opts = opts;
-  elastic_opts.warm_start = m_options_.warm_start;
+  elastic_opts.reuse_basis = m_options_.warm_start;
   const auto& cur_state = m_scene_phase_states_[scene][phase];
 
   auto result = m_benders_cut_.elastic_filter_solve(li,
@@ -1115,7 +1115,8 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
       SPDLOG_WARN("SDDP hot-start: could not load cuts: {}",
                   result.error().message);
     }
-  } else if (m_options_.hot_start_mode != HotStartMode::none
+  } else if (m_options_.recovery_mode >= RecoveryMode::cuts
+             && m_options_.cut_recovery_mode != HotStartMode::none
              && !m_options_.cuts_output_file.empty())
   {
     const auto cut_dir =
@@ -1170,17 +1171,22 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
                 m_iteration_offset_);
   }
 
-  // ── Load hot-start state variable column solutions ────────────────────────
-  if (m_iteration_offset_ > 0 && !m_options_.cuts_output_file.empty()) {
+  // ── Load state variable column solutions ──────────────────────────────────
+  // Recover state when recovery_mode is "full" and cuts were loaded.
+  if (m_options_.recovery_mode == RecoveryMode::full
+      && (m_options_.cut_recovery_mode != HotStartMode::none
+          || m_iteration_offset_ > 0)
+      && !m_options_.cuts_output_file.empty())
+  {
     const auto cut_dir =
         std::filesystem::path(m_options_.cuts_output_file).parent_path();
     const auto state_file = (cut_dir / sddp_file::state_cols).string();
     if (std::filesystem::exists(state_file)) {
       auto result = load_state(state_file);
       if (result.has_value()) {
-        SPDLOG_INFO("SDDP hot-start: loaded state from {}", state_file);
+        SPDLOG_INFO("SDDP: loaded state variables from {}", state_file);
       } else {
-        SPDLOG_WARN("SDDP hot-start: could not load state: {}",
+        SPDLOG_WARN("SDDP: could not load state variables: {}",
                     result.error().message);
       }
     }
@@ -1311,7 +1317,7 @@ auto SDDPMethod::run_backward_pass_all_scenes(
   // default algorithm, since barrier would ignore the basis entirely.
   auto bwd_opts = opts;
   if (m_options_.warm_start) {
-    bwd_opts.warm_start = true;
+    bwd_opts.reuse_basis = true;
   }
 
   m_current_pass_.store(2);
@@ -1781,10 +1787,10 @@ auto SDDPPlanningMethod::solve(PlanningLP& planning_lp,
   SPDLOG_INFO(
       "SDDPMethod: starting {} scene(s) × {} phase(s)", num_scenes, num_phases);
 
-  // build_lp: LP already built in PlanningLP constructor — skip all
+  // lp_build: LP already built in PlanningLP constructor — skip all
   // solving.
-  if (m_sddp_opts_.build_lp) {
-    SPDLOG_INFO("SDDP: build_lp mode — LP built, skipping solve");
+  if (m_sddp_opts_.lp_build) {
+    SPDLOG_INFO("SDDP: lp_build mode — LP built, skipping solve");
     return 0;
   }
 

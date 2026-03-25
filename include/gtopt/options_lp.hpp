@@ -66,8 +66,8 @@ public:
   static constexpr auto default_output_format = "parquet";
   /** @brief Default compression codec for output files */
   static constexpr auto default_output_compression = "zstd";
-  /** @brief Default LP naming level (0 = col names only for internal use) */
-  static constexpr Int default_use_lp_names = 0;
+  /** @brief Default LP naming level (minimal = state-var col names only) */
+  static constexpr LpNamesLevel default_names_level = LpNamesLevel::minimal;
   /** @brief Default setting for using UIDs in filenames */
   static constexpr Bool default_use_uid_fname = true;
   /** @brief Default annual discount rate for multi-year planning */
@@ -197,12 +197,12 @@ public:
 
   /**
    * @brief Gets the LP naming level, using default if not set
-   * @return LP naming level: 0=none, 1=names+warn-on-dup,
-   *         2=names+error-on-dup
+   * @return LP naming level: minimal, only_cols, or cols_and_rows
    */
-  [[nodiscard]] constexpr auto use_lp_names() const
+  [[nodiscard]] constexpr auto names_level() const -> LpNamesLevel
   {
-    return m_options_.use_lp_names.value_or(default_use_lp_names);
+    return m_options_.lp_build_options.names_level.value_or(
+        default_names_level);
   }
 
   /**
@@ -255,40 +255,10 @@ public:
   }
 
   /**
-   * @brief Gets the LP algorithm option (raw optional, no default applied)
-   * @return The LP algorithm index as an optional int
-   */
-  [[nodiscard]] constexpr auto lp_algorithm() const
-  {
-    return m_options_.lp_algorithm;
-  }
-
-  /**
-   * @brief Gets the LP solver threads option (raw optional, no default
-   * applied)
-   * @return The number of solver threads as an optional int
-   */
-  [[nodiscard]] constexpr auto lp_threads() const
-  {
-    return m_options_.lp_threads;
-  }
-
-  /**
-   * @brief Gets the LP presolve option (raw optional, no default applied)
-   * @return Whether to use presolve as an optional bool
-   */
-  [[nodiscard]] constexpr auto lp_presolve() const
-  {
-    return m_options_.lp_presolve;
-  }
-
-  /**
-   * @brief Gets the LP solver options sub-object.
+   * @brief Gets the global LP solver options sub-object.
    *
    * Returns the @c SolverOptions sub-object embedded in the planning JSON
-   * @c options block.  The @c SolverOptions fields are the primary way to
-   * configure the LP solver; the top-level @c lp_algorithm, @c lp_threads,
-   * @c lp_presolve fields in @c Options are deprecated aliases.
+   * @c options block.
    *
    * @return Const reference to the @c SolverOptions from the wrapped Options
    */
@@ -325,7 +295,7 @@ public:
   }
 
   /**
-   * @brief Gets the build_lp flag, using default if not set.
+   * @brief Gets the lp_build flag, using default if not set.
    *
    * When true, the solver builds all scene×phase LP matrices but skips
    * solving entirely.  Applies uniformly to both the monolithic solver and
@@ -334,9 +304,9 @@ public:
    *
    * @return Whether to stop after LP building
    */
-  [[nodiscard]] constexpr auto build_lp() const
+  [[nodiscard]] constexpr auto lp_build() const
   {
-    return m_options_.build_lp.value_or(false);
+    return m_options_.lp_build.value_or(false);
   }
 
   /**
@@ -348,22 +318,32 @@ public:
   [[nodiscard]] constexpr auto lp_coeff_ratio_threshold() const
   {
     static constexpr double default_lp_coeff_ratio_threshold = 1e7;
-    return m_options_.lp_coeff_ratio_threshold.value_or(
+    return m_options_.lp_build_options.lp_coeff_ratio_threshold.value_or(
         default_lp_coeff_ratio_threshold);
   }
 
-  /**
-   * @brief Gets the global solve timeout in seconds (0 = no timeout).
-   *
-   * Applies to both monolithic and SDDP forward-pass LP solves.
-   * When non-zero, LP solves exceeding this time trigger a CRITICAL log
-   * and an error return.
-   *
-   * @return SDDP solve timeout (default 180s = 3 min)
-   */
-  [[nodiscard]] constexpr auto sddp_solve_timeout() const
+  /** @brief Whether per-method SDDP solver options are explicitly set. */
+  [[nodiscard]] constexpr bool has_sddp_solver_options() const noexcept
   {
-    return m_options_.sddp_options.solve_timeout.value_or(180.0);
+    return m_options_.sddp_options.solver_options.has_value();
+  }
+
+  /**
+   * @brief Gets the effective SDDP solver options.
+   *
+   * Merges the per-method SDDP solver options (if set) with the global
+   * solver_options.  Per-method options override the global ones.
+   *
+   * @return Resolved SolverOptions for SDDP
+   */
+  [[nodiscard]] auto sddp_solver_options() const -> SolverOptions
+  {
+    if (m_options_.sddp_options.solver_options.has_value()) {
+      auto opts = *m_options_.sddp_options.solver_options;
+      opts.merge(m_options_.solver_options);
+      return opts;
+    }
+    return m_options_.solver_options;
   }
 
   /** @brief Aperture LP timeout in seconds.
@@ -382,32 +362,22 @@ public:
     return m_options_.sddp_options.save_aperture_lp.value_or(false);
   }
 
-  /** @brief Whether SDDP resolves use warm-start optimizations.
+  /**
+   * @brief Gets the effective monolithic solver options.
    *
-   * Default: true when the solver algorithm is barrier (the default),
-   * false otherwise.  Barrier solutions carry no simplex basis, so
-   * warm-start (switching to dual simplex for re-solves) is essential
-   * to avoid restarting from scratch.  For simplex algorithms the
-   * existing basis is already reused implicitly, so warm-start is
-   * less critical — but explicitly enabled by default for barrier.
+   * Merges the per-method monolithic solver options (if set) with the global
+   * solver_options.  Per-method options override the global ones.
    *
-   * @return true to enable warm-start optimizations
+   * @return Resolved SolverOptions for the monolithic solver
    */
-  [[nodiscard]] constexpr auto sddp_warm_start() const
+  [[nodiscard]] auto monolithic_solver_options() const -> SolverOptions
   {
-    if (m_options_.sddp_options.warm_start.has_value()) {
-      return *m_options_.sddp_options.warm_start;
+    if (m_options_.monolithic_options.solver_options.has_value()) {
+      auto opts = *m_options_.monolithic_options.solver_options;
+      opts.merge(m_options_.solver_options);
+      return opts;
     }
-    // Auto-enable warm-start when barrier is the algorithm
-    return m_options_.solver_options.algorithm == LPAlgo::barrier;
-  }
-
-  /** @brief Monolithic LP solve timeout in seconds.
-   * @return Monolithic solve timeout (default 18000s = 300 min)
-   */
-  [[nodiscard]] constexpr auto monolithic_solve_timeout() const
-  {
-    return m_options_.monolithic_options.solve_timeout.value_or(18000.0);
+    return m_options_.solver_options;
   }
 
   // ── Monolithic solver accessors ─────────────────────────────────────────
@@ -604,31 +574,12 @@ public:
   }
 
   /**
-   * @brief Whether to hot-start from previously saved cuts (default: false)
-   * @deprecated Use sddp_hot_start_mode_enum() for finer control.
-   */
-  [[nodiscard]] constexpr auto sddp_hot_start() const
-  {
-    return m_options_.sddp_options.hot_start.value_or(false);
-  }
-
-  /**
    * @brief Gets the hot-start mode string.
-   *
-   * Returns the `hot_start_mode` option.  When not set, falls back to
-   * the boolean `hot_start` field for backward compatibility:
-   *  - `hot_start = true`  → `"replace"` (original hot-start behavior)
-   *  - `hot_start = false` → `"none"` (cold start)
-   *
-   * @return "none", "keep", "append", or "replace"
+   * @return "none" (default), "keep", "append", or "replace"
    */
-  [[nodiscard]] auto sddp_hot_start_mode() const -> Name
+  [[nodiscard]] auto sddp_cut_recovery_mode() const -> Name
   {
-    if (m_options_.sddp_options.hot_start_mode.has_value()) {
-      return m_options_.sddp_options.hot_start_mode.value();
-    }
-    // Backward compat: bool hot_start → "replace" or "none"
-    return Name {sddp_hot_start() ? "replace" : "none"};
+    return m_options_.sddp_options.cut_recovery_mode.value_or(Name {"none"});
   }
 
   /**
@@ -763,6 +714,12 @@ public:
     return m_options_.sddp_options.use_clone_pool.value_or(true);
   }
 
+  /** @brief Whether SDDP resolves use warm-start (default: true). */
+  [[nodiscard]] constexpr auto sddp_warm_start() const
+  {
+    return m_options_.sddp_options.warm_start.value_or(true);
+  }
+
   /**
    * @brief Gets the stationary-gap convergence tolerance.
    *
@@ -879,11 +836,24 @@ public:
         .value_or(BoundaryCutsMode::separated);
   }
 
-  /// SDDP hot-start mode as an enum.
-  [[nodiscard]] auto sddp_hot_start_mode_enum() const -> HotStartMode
+  /// SDDP cut recovery mode as an enum.
+  [[nodiscard]] auto sddp_cut_recovery_mode_enum() const -> HotStartMode
   {
-    return hot_start_mode_from_name(sddp_hot_start_mode())
+    return cut_recovery_mode_from_name(sddp_cut_recovery_mode())
         .value_or(HotStartMode::none);
+  }
+
+  /// SDDP recovery mode: what to load from a previous run (default: full).
+  [[nodiscard]] auto sddp_recovery_mode() const -> Name
+  {
+    return m_options_.sddp_options.recovery_mode.value_or(Name {"full"});
+  }
+
+  /// SDDP recovery mode as an enum.
+  [[nodiscard]] auto sddp_recovery_mode_enum() const -> RecoveryMode
+  {
+    return recovery_mode_from_name(sddp_recovery_mode())
+        .value_or(RecoveryMode::full);
   }
 
   /// Monolithic solve mode as an enum.
@@ -961,13 +931,19 @@ public:
             elastic_filter_mode_from_name(v),
             "single_cut");
     }
-    // sddp hot_start_mode
-    if (m_options_.sddp_options.hot_start_mode.has_value()) {
-      const auto v = m_options_.sddp_options.hot_start_mode.value();
-      check("sddp_options.hot_start_mode",
+    // sddp cut_recovery_mode
+    if (m_options_.sddp_options.cut_recovery_mode.has_value()) {
+      const auto v = m_options_.sddp_options.cut_recovery_mode.value();
+      check("sddp_options.cut_recovery_mode",
             v,
-            hot_start_mode_from_name(v),
+            cut_recovery_mode_from_name(v),
             "none");
+    }
+    // sddp recovery_mode
+    if (m_options_.sddp_options.recovery_mode.has_value()) {
+      const auto v = m_options_.sddp_options.recovery_mode.value();
+      check(
+          "sddp_options.recovery_mode", v, recovery_mode_from_name(v), "full");
     }
     // sddp boundary_cuts_mode
     if (m_options_.sddp_options.boundary_cuts_mode.has_value()) {
