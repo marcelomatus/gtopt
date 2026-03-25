@@ -81,8 +81,7 @@ int main(int argc, char** argv)
             << "\nHints:\n"
             << "  - Set GTOPT_PLUGIN_DIR to the directory containing solver "
                "plugin libraries\n"
-            << "  - Ensure libgtopt_solver_osi.so and/or "
-               "libgtopt_solver_highs.so are installed\n"
+            << "  - Ensure solver plugins (osi and/or highs) are installed\n"
             << "  - Install COIN-OR (coinor-libcbc-dev) for CLP/CBC support\n"
             << "  - Install HiGHS for HiGHS support\n";
       } else {
