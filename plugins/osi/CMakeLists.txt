@@ -69,7 +69,15 @@ endif()
 set_target_properties(gtopt_solver_osi PROPERTIES
   LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/plugins"
   PREFIX "lib"
+  INSTALL_RPATH_USE_LINK_PATH TRUE
 )
+
+# ---- RPATH for installed plugin ----
+# Preserve RPATH to non-system solver libraries (e.g. COIN-OR at /opt/coinor)
+# so that dlopen() can find them after installation.
+
+include(InstallRpath)
+configure_install_rpath(gtopt_solver_osi)
 
 # ---- Install ----
 

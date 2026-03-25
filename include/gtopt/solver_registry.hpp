@@ -77,6 +77,12 @@ public:
    */
   [[nodiscard]] std::string_view default_solver() const;
 
+  /** @brief Return the directories that were searched for plugins. */
+  [[nodiscard]] const std::vector<std::string>& searched_directories() const;
+
+  /** @brief Return diagnostic messages for plugins that failed to load. */
+  [[nodiscard]] const std::vector<std::string>& load_errors() const;
+
   ~SolverRegistry();
 
   SolverRegistry(const SolverRegistry&) = delete;
@@ -95,6 +101,8 @@ private:
   };
 
   std::vector<PluginHandle> m_plugins_;
+  std::vector<std::string> m_searched_dirs_;
+  std::vector<std::string> m_load_errors_;
 };
 
 }  // namespace gtopt
