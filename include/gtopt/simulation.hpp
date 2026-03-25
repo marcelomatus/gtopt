@@ -25,8 +25,8 @@
 #include <gtopt/aperture.hpp>
 #include <gtopt/block.hpp>
 #include <gtopt/iteration.hpp>
-#include <gtopt/options.hpp>
 #include <gtopt/phase.hpp>
+#include <gtopt/planning_options.hpp>
 #include <gtopt/scenario.hpp>
 #include <gtopt/scene.hpp>
 #include <gtopt/stage.hpp>

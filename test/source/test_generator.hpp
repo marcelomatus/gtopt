@@ -85,7 +85,7 @@ TEST_CASE("GeneratorLP - basic generation")
       .generator_array = generator_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -135,7 +135,7 @@ TEST_CASE("GeneratorLP - multiple generators merit order")
       .generator_array = generator_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -186,7 +186,7 @@ TEST_CASE("GeneratorLP - generator with expansion")
       .generator_array = generator_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -228,7 +228,7 @@ TEST_CASE("GeneratorLP - generator with pmin/pmax constraints")
       .generator_array = generator_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 

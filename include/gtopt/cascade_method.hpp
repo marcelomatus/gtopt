@@ -26,8 +26,8 @@
 #include <string>
 #include <vector>
 
-#include <gtopt/options.hpp>
 #include <gtopt/planning_method.hpp>
+#include <gtopt/planning_options.hpp>
 #include <gtopt/sddp_method.hpp>
 
 namespace gtopt

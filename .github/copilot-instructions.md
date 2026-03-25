@@ -1064,7 +1064,7 @@ gtopt/
 | `arrow_types.hpp` | `ArrowTable`, `ArrowArray`, `ArrowTraits<T>`, `cast_to_int32_array`, `cast_to_double_array` |
 | `input_context.hpp` | `InputContext` – wires `SystemContext` to the Arrow/CSV table cache |
 | `output_context.hpp` | `OutputContext` – writes LP solution arrays to Parquet/CSV files |
-| `options_lp.hpp` | `OptionsLP` – typed accessors with defaults for every option field |
+| `planning_options_lp.hpp` | `PlanningOptionsLP` – typed accessors with defaults for every option field |
 | `linear_problem.hpp` | `LinearProblem`, `SparseCol`, `SparseRow`, `FlatLinearProblem` |
 | `system.hpp` | Top-level power system model |
 | `planning.hpp` | Multi-stage planning problem |
@@ -1465,7 +1465,7 @@ objects; calling `planning_lp.resolve()` assembles and solves the full LP.
 | **flat_map** | `gtopt::flat_map` alias (backed by `boost::container::flat_map`; or `std::flat_map` in C++23 when available) — used instead of `std::map` for 10–27× faster iteration in LP assembly |
 | **`FieldSched<T>`** | `std::variant<T, std::vector<T>, FileSched>` — holds a scalar, an inline vector, or a filename pointing to an Arrow/Parquet table |
 | **`FileSched`** | `std::string` alias used as the filename arm of `FieldSched`; triggers Arrow I/O at construction time |
-| **`OptionsLP`** | Wrapper around `Options` providing typed accessors with compile-time defaults (e.g. `input_format()` → `"parquet"`, `output_format()` → `"parquet"`) |
+| **`PlanningOptionsLP`** | Wrapper around `PlanningOptions` providing typed accessors with compile-time defaults (e.g. `input_format()` → `"parquet"`, `output_format()` → `"parquet"`). Backward-compat alias: `OptionsLP` |
 
 ---
 

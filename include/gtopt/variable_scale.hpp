@@ -13,7 +13,7 @@
  * {"class_name": "Reservoir", "variable": "energy", "scale": 1000.0}
  * ```
  *
- * An array of these entries lives in `Options::variable_scales` and is
+ * An array of these entries lives in `PlanningOptions::variable_scales` and is
  * resolved at runtime by `VariableScaleMap::lookup()` with the following
  * priority:
  *
@@ -22,9 +22,9 @@
  *   3. Fallback default    (1.0 = no scaling)
  *
  * Per-element fields (`Battery::energy_scale`, `Reservoir::energy_scale`) and
- * global options (`Options::scale_theta`) take precedence over entries in
- * `variable_scales` — the array provides a uniform, extensible mechanism
- * for cases not covered by dedicated fields.
+ * global options (`PlanningOptions::scale_theta`) take precedence over entries
+ * in `variable_scales` — the array provides a uniform, extensible mechanism for
+ * cases not covered by dedicated fields.
  */
 
 #pragma once

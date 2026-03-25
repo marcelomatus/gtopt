@@ -46,8 +46,8 @@
 #include <gtopt/label_maker.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/lp_element_types.hpp>
-#include <gtopt/options_lp.hpp>
 #include <gtopt/overload.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/single_id.hpp>

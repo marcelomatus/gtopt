@@ -22,9 +22,9 @@
 #include <gtopt/json/json_aperture.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/linear_interface.hpp>
-#include <gtopt/options_lp.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_method.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>

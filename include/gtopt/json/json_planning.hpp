@@ -20,11 +20,12 @@ namespace daw::json
 {
 
 using gtopt::Planning;
+using gtopt::PlanningOptions;
 
 template<>
 struct json_data_contract<Planning>
 {
-  using type = json_member_list<json_class_null<"options", Options>,
+  using type = json_member_list<json_class_null<"options", PlanningOptions>,
                                 json_class_null<"simulation", Simulation>,
                                 json_class_null<"system", System>>;
 

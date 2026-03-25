@@ -17,6 +17,7 @@
 #include <vector>
 
 #include <gtopt/cli_options.hpp>
+#include <gtopt/config_file.hpp>
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/planning.hpp>
@@ -277,15 +278,17 @@ inline void apply_cli_options(
   }
 
   if (output_format) {
-    planning.options.output_format = output_format.value();
+    planning.options.output_format =
+        data_format_from_name(output_format.value());
   }
 
   if (output_compression) {
-    planning.options.output_compression = output_compression.value();
+    planning.options.output_compression =
+        compression_codec_from_name(output_compression.value());
   }
 
   if (input_format) {
-    planning.options.input_format = input_format.value();
+    planning.options.input_format = data_format_from_name(input_format.value());
   }
 
   if (cut_directory) {
@@ -309,7 +312,8 @@ inline void apply_cli_options(
   }
 
   if (sddp_elastic_mode) {
-    planning.options.sddp_options.elastic_mode = sddp_elastic_mode.value();
+    planning.options.sddp_options.elastic_mode =
+        elastic_filter_mode_from_name(sddp_elastic_mode.value());
   }
 
   if (sddp_num_apertures) {
@@ -326,7 +330,8 @@ inline void apply_cli_options(
   }
 
   if (lp_compression) {
-    planning.options.lp_compression = lp_compression;
+    planning.options.lp_compression =
+        compression_codec_from_name(lp_compression.value());
   }
 
   if (lp_coeff_ratio_threshold) {
@@ -373,14 +378,14 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   }
   if (opts.sddp_hot_start) {
     planning.options.sddp_options.cut_recovery_mode =
-        *opts.sddp_hot_start ? Name {"replace"} : Name {"none"};
+        *opts.sddp_hot_start ? HotStartMode::replace : HotStartMode::none;
   }
 
   // --recover gates whether recovery happens at all.
   // When not passed (or explicitly false), force recovery_mode to "none"
   // so JSON config alone cannot trigger recovery.
   if (!opts.recover.value_or(false)) {
-    planning.options.sddp_options.recovery_mode = Name {"none"};
+    planning.options.sddp_options.recovery_mode = RecoveryMode::none;
   }
 
   // CLI solver shortcuts → solver_options
@@ -509,6 +514,194 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       }(),
       .threads = get_opt<int>(vm, "threads"),
   };
+}
+
+// ── Config file support ────────────────────────────────────────────────────
+
+/**
+ * @brief Load a MainOptions from the `[gtopt]` section of `.gtopt.conf`.
+ *
+ * Reads the config file found by @c find_config_file() and extracts
+ * values from the `[gtopt]` section.  Keys use kebab-case matching
+ * the CLI flag names (e.g. `output-format`, `sddp-max-iterations`).
+ *
+ * @return MainOptions with fields populated from the config file.
+ *         Fields not present in the config file remain as nullopt.
+ */
+[[nodiscard]] inline MainOptions load_gtopt_config()
+{
+  MainOptions opts;
+
+  const auto config_path = find_config_file();
+  if (config_path.empty()) {
+    return opts;
+  }
+
+  const auto ini = parse_ini_file(config_path);
+  const auto it = ini.find("gtopt");
+  if (it == ini.end()) {
+    return opts;
+  }
+
+  const auto& section = it->second;
+
+  // Helper: get string value if present
+  auto get_str = [&](const std::string& key) -> std::optional<std::string>
+  {
+    if (const auto kv = section.find(key); kv != section.end()) {
+      if (!kv->second.empty()) {
+        return kv->second;
+      }
+    }
+    return std::nullopt;
+  };
+
+  // Helper: get bool value if present
+  auto get_bool = [&](const std::string& key) -> std::optional<bool>
+  {
+    if (const auto kv = section.find(key); kv != section.end()) {
+      const auto& v = kv->second;
+      if (v == "true" || v == "1" || v == "yes") {
+        return true;
+      }
+      if (v == "false" || v == "0" || v == "no") {
+        return false;
+      }
+    }
+    return std::nullopt;
+  };
+
+  // Helper: get int value if present
+  auto get_int = [&](const std::string& key) -> std::optional<int>
+  {
+    if (const auto kv = section.find(key); kv != section.end()) {
+      try {
+        return std::stoi(kv->second);
+      } catch (...) {
+      }
+    }
+    return std::nullopt;
+  };
+
+  // Helper: get double value if present
+  auto get_dbl = [&](const std::string& key) -> std::optional<double>
+  {
+    if (const auto kv = section.find(key); kv != section.end()) {
+      try {
+        return std::stod(kv->second);
+      } catch (...) {
+      }
+    }
+    return std::nullopt;
+  };
+
+  // I/O directories / formats
+  opts.input_directory = get_str("input-directory");
+  opts.input_format = get_str("input-format");
+  opts.output_directory = get_str("output-directory");
+  opts.output_format = get_str("output-format");
+  opts.output_compression = get_str("output-compression");
+
+  // Modelling flags
+  opts.use_single_bus = get_bool("use-single-bus");
+  opts.use_kirchhoff = get_bool("use-kirchhoff");
+
+  // LP options
+  opts.lp_file = get_str("lp-file");
+  if (const auto raw = get_str("lp-names-level")) {
+    try {
+      opts.lp_names_level = parse_lp_names_level(*raw);
+    } catch (...) {
+    }
+  }
+  opts.matrix_eps = get_dbl("matrix-eps");
+  opts.lp_build = get_bool("lp-build");
+  opts.lp_debug = get_bool("lp-debug");
+  opts.lp_compression = get_str("lp-compression");
+  opts.lp_coeff_ratio_threshold = get_dbl("lp-coeff-ratio");
+
+  // Debug / output
+  opts.json_file = get_str("json-file");
+  opts.fast_parsing = get_bool("fast-parsing");
+  opts.check_json = get_bool("check-json");
+  opts.print_stats = get_bool("stats");
+  opts.trace_log = get_str("trace-log");
+
+  // SDDP directories
+  opts.cut_directory = get_str("cut-directory");
+  opts.log_directory = get_str("log-directory");
+
+  // SDDP tuning
+  opts.sddp_max_iterations = get_int("sddp-max-iterations");
+  opts.sddp_min_iterations = get_int("sddp-min-iterations");
+  opts.sddp_convergence_tol = get_dbl("sddp-convergence-tol");
+  opts.sddp_elastic_penalty = get_dbl("sddp-elastic-penalty");
+  opts.sddp_elastic_mode = get_str("sddp-elastic-mode");
+  opts.sddp_num_apertures = get_int("sddp-num-apertures");
+
+  // Solver
+  opts.solver = get_str("solver");
+  if (const auto raw = get_str("algorithm")) {
+    try {
+      opts.algorithm = parse_lp_algorithm(*raw);
+    } catch (...) {
+    }
+  }
+  opts.threads = get_int("threads");
+
+  return opts;
+}
+
+/**
+ * @brief Merge config-file defaults into a MainOptions struct.
+ *
+ * For each field in @p opts that is not set (nullopt / empty), copies
+ * the value from @p defaults.  CLI-set fields are never overwritten.
+ *
+ * @param opts     The primary options (typically from CLI parsing).
+ * @param defaults The fallback options (typically from config file).
+ */
+inline void merge_config_defaults(MainOptions& opts,
+                                  const MainOptions& defaults)
+{
+  auto merge =
+      []<typename T>(std::optional<T>& dst, const std::optional<T>& src)
+  {
+    if (!dst.has_value() && src.has_value()) {
+      dst = src;
+    }
+  };
+
+  merge(opts.input_directory, defaults.input_directory);
+  merge(opts.input_format, defaults.input_format);
+  merge(opts.output_directory, defaults.output_directory);
+  merge(opts.output_format, defaults.output_format);
+  merge(opts.output_compression, defaults.output_compression);
+  merge(opts.use_single_bus, defaults.use_single_bus);
+  merge(opts.use_kirchhoff, defaults.use_kirchhoff);
+  merge(opts.lp_file, defaults.lp_file);
+  merge(opts.lp_names_level, defaults.lp_names_level);
+  merge(opts.matrix_eps, defaults.matrix_eps);
+  merge(opts.lp_build, defaults.lp_build);
+  merge(opts.lp_debug, defaults.lp_debug);
+  merge(opts.lp_compression, defaults.lp_compression);
+  merge(opts.lp_coeff_ratio_threshold, defaults.lp_coeff_ratio_threshold);
+  merge(opts.json_file, defaults.json_file);
+  merge(opts.fast_parsing, defaults.fast_parsing);
+  merge(opts.check_json, defaults.check_json);
+  merge(opts.print_stats, defaults.print_stats);
+  merge(opts.trace_log, defaults.trace_log);
+  merge(opts.cut_directory, defaults.cut_directory);
+  merge(opts.log_directory, defaults.log_directory);
+  merge(opts.sddp_max_iterations, defaults.sddp_max_iterations);
+  merge(opts.sddp_min_iterations, defaults.sddp_min_iterations);
+  merge(opts.sddp_convergence_tol, defaults.sddp_convergence_tol);
+  merge(opts.sddp_elastic_penalty, defaults.sddp_elastic_penalty);
+  merge(opts.sddp_elastic_mode, defaults.sddp_elastic_mode);
+  merge(opts.sddp_num_apertures, defaults.sddp_num_apertures);
+  merge(opts.solver, defaults.solver);
+  merge(opts.algorithm, defaults.algorithm);
+  merge(opts.threads, defaults.threads);
 }
 
 }  // namespace gtopt

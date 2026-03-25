@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include <gtopt/options.hpp>
+#include <gtopt/planning_options.hpp>
 #include <gtopt/simulation.hpp>
 #include <gtopt/system.hpp>
 
@@ -23,7 +23,7 @@ namespace gtopt
  */
 struct Planning
 {
-  Options options {};
+  PlanningOptions options {};
   Simulation simulation {};
   System system {};
 

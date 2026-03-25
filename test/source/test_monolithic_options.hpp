@@ -10,6 +10,8 @@
 #include <doctest/doctest.h>
 #include <gtopt/monolithic_options.hpp>
 
+using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
 TEST_CASE("MonolithicOptions - Default construction")
 {
   const MonolithicOptions opts {};
@@ -24,9 +26,9 @@ TEST_CASE("MonolithicOptions - Default construction")
 TEST_CASE("MonolithicOptions - Construction with all fields")
 {
   const MonolithicOptions opts {
-      .solve_mode = "sequential",
+      .solve_mode = SolveMode::sequential,
       .boundary_cuts_file = "boundary.csv",
-      .boundary_cuts_mode = "combined",
+      .boundary_cuts_mode = BoundaryCutsMode::combined,
       .boundary_max_iterations = 10,
       .solver_options =
           SolverOptions {
@@ -37,11 +39,11 @@ TEST_CASE("MonolithicOptions - Construction with all fields")
   };
 
   REQUIRE(opts.solve_mode.has_value());
-  CHECK(*opts.solve_mode == "sequential");
+  CHECK(*opts.solve_mode == SolveMode::sequential);
   REQUIRE(opts.boundary_cuts_file.has_value());
   CHECK(*opts.boundary_cuts_file == "boundary.csv");
   REQUIRE(opts.boundary_cuts_mode.has_value());
-  CHECK(*opts.boundary_cuts_mode == "combined");
+  CHECK(*opts.boundary_cuts_mode == BoundaryCutsMode::combined);
   REQUIRE(opts.boundary_max_iterations.has_value());
   CHECK(*opts.boundary_max_iterations == 10);
   REQUIRE(opts.solver_options.has_value());
@@ -55,23 +57,23 @@ TEST_CASE("MonolithicOptions - Construction with all fields")
 TEST_CASE("MonolithicOptions - Merge fills missing fields")
 {
   MonolithicOptions base {
-      .solve_mode = "monolithic",
+      .solve_mode = SolveMode::monolithic,
   };
 
   MonolithicOptions overlay {
       .boundary_cuts_file = "cuts.csv",
-      .boundary_cuts_mode = "separated",
+      .boundary_cuts_mode = BoundaryCutsMode::separated,
       .boundary_max_iterations = 5,
   };
 
   base.merge(std::move(overlay));
 
   REQUIRE(base.solve_mode.has_value());
-  CHECK(*base.solve_mode == "monolithic");
+  CHECK(*base.solve_mode == SolveMode::monolithic);
   REQUIRE(base.boundary_cuts_file.has_value());
   CHECK(*base.boundary_cuts_file == "cuts.csv");
   REQUIRE(base.boundary_cuts_mode.has_value());
-  CHECK(*base.boundary_cuts_mode == "separated");
+  CHECK(*base.boundary_cuts_mode == BoundaryCutsMode::separated);
   REQUIRE(base.boundary_max_iterations.has_value());
   CHECK(*base.boundary_max_iterations == 5);
 }
@@ -79,22 +81,22 @@ TEST_CASE("MonolithicOptions - Merge fills missing fields")
 TEST_CASE("MonolithicOptions - Merge overwrites existing (overlay wins)")
 {
   MonolithicOptions base {
-      .solve_mode = "sequential",
-      .boundary_cuts_mode = "combined",
+      .solve_mode = SolveMode::sequential,
+      .boundary_cuts_mode = BoundaryCutsMode::combined,
   };
 
   MonolithicOptions overlay {
-      .solve_mode = "monolithic",
-      .boundary_cuts_mode = "noload",
+      .solve_mode = SolveMode::monolithic,
+      .boundary_cuts_mode = BoundaryCutsMode::noload,
   };
 
   base.merge(std::move(overlay));
 
   // Overlay wins: set fields overwrite base
   REQUIRE(base.solve_mode.has_value());
-  CHECK(*base.solve_mode == "monolithic");
+  CHECK(*base.solve_mode == SolveMode::monolithic);
   REQUIRE(base.boundary_cuts_mode.has_value());
-  CHECK(*base.boundary_cuts_mode == "noload");
+  CHECK(*base.boundary_cuts_mode == BoundaryCutsMode::noload);
 }
 
 TEST_CASE("MonolithicOptions - Merge nested solver_options")
