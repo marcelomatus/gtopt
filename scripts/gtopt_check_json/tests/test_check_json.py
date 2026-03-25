@@ -1132,11 +1132,11 @@ class TestSddpOptions:
         findings = check_sddp_options(case)
         assert not any("untrained" in f.message for f in findings)
 
-    def test_max_iter_zero_with_hot_start_mode_ok(self) -> None:
+    def test_max_iter_zero_with_cut_recovery_mode_ok(self) -> None:
         case = json.loads(json.dumps(_VALID_CASE))
         case["options"]["sddp_options"] = {
             "max_iterations": 0,
-            "hot_start_mode": "keep",
+            "cut_recovery_mode": "keep",
         }
         findings = check_sddp_options(case)
         assert not any("untrained" in f.message for f in findings)
@@ -1189,7 +1189,7 @@ class TestSddpOptions:
         assert not check_sddp_options(case)
 
 
-# ── Cascade + solver_type consistency ─────────────────────────────────────
+# ── Cascade + method consistency ──────────────────────────────────────────
 
 
 class TestCascadeSolverType:
@@ -1198,9 +1198,9 @@ class TestCascadeSolverType:
     def test_no_cascade_no_findings(self) -> None:
         assert not check_cascade_solver_type(_VALID_CASE)
 
-    def test_levels_with_wrong_solver_type(self) -> None:
+    def test_levels_with_wrong_method(self) -> None:
         case = json.loads(json.dumps(_VALID_CASE))
-        case["options"]["solver_type"] = "sddp"
+        case["options"]["method"] = "sddp"
         case["options"]["cascade_options"] = {
             "level_array": [
                 {"name": "coarse"},
@@ -1212,33 +1212,33 @@ class TestCascadeSolverType:
         assert findings[0].severity == Severity.WARNING
         assert "sddp" in findings[0].message
 
-    def test_cascade_solver_no_levels_note(self) -> None:
+    def test_cascade_method_no_levels_note(self) -> None:
         case = json.loads(json.dumps(_VALID_CASE))
-        case["options"]["solver_type"] = "cascade"
+        case["options"]["method"] = "cascade"
         case["options"]["cascade_options"] = {"level_array": []}
         findings = check_cascade_solver_type(case)
         assert len(findings) == 1
         assert findings[0].severity == Severity.NOTE
         assert "default level" in findings[0].message
 
-    def test_cascade_solver_with_levels_ok(self) -> None:
+    def test_cascade_method_with_levels_ok(self) -> None:
         case = json.loads(json.dumps(_VALID_CASE))
-        case["options"]["solver_type"] = "cascade"
+        case["options"]["method"] = "cascade"
         case["options"]["cascade_options"] = {
             "level_array": [{"name": "coarse"}, {"name": "fine"}],
         }
         assert not check_cascade_solver_type(case)
 
-    def test_no_solver_type_no_cascade_no_findings(self) -> None:
-        """No solver_type and no cascade → no findings."""
+    def test_no_method_no_cascade_no_findings(self) -> None:
+        """No method and no cascade → no findings."""
         assert not check_cascade_solver_type(_VALID_CASE)
 
-    def test_levels_without_solver_type_no_findings(self) -> None:
-        """Levels present but solver_type empty string → no finding."""
+    def test_levels_without_method_no_findings(self) -> None:
+        """Levels present but method empty string → no finding."""
         case = json.loads(json.dumps(_VALID_CASE))
         case["options"]["cascade_options"] = {
             "level_array": [{"name": "coarse"}],
         }
-        # solver_type not set at all → empty string → no warning
+        # method not set at all → empty string → no warning
         findings = check_cascade_solver_type(case)
         assert not findings

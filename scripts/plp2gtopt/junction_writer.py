@@ -727,7 +727,7 @@ class JunctionWriter(BaseWriter):
 
             seep_idx = len(rsv.get("seepage", []))
             seepage: Dict[str, Any] = {
-                "uid": seep_idx + 1,
+                "uid": rsv["uid"],
                 "name": f"{rsv['name']}_seepage_{seep_idx + 1}",
                 "waterway": ww_uid,
                 "reservoir": rsv["name"],
@@ -838,7 +838,7 @@ class JunctionWriter(BaseWriter):
 
             seep_idx = len(rsv.get("seepage", []))
             seepage: Dict[str, Any] = {
-                "uid": seep_idx + 1,
+                "uid": rsv["uid"],
                 "name": f"{rsv['name']}_seepage_{seep_idx + 1}",
                 "waterway": filt_waterway["name"],
                 "reservoir": rsv["name"],
@@ -900,7 +900,7 @@ class JunctionWriter(BaseWriter):
 
             ddl_idx = len(rsv.get("discharge_limit", []))
             ddl: Dict[str, Any] = {
-                "uid": ddl_idx + 1,
+                "uid": rsv["uid"],
                 "name": f"{rsv['name']}_dlim_{ddl_idx + 1}",
                 "waterway": ww_name,
                 "reservoir": rsv["name"],
@@ -976,7 +976,7 @@ class JunctionWriter(BaseWriter):
 
             pfac_idx = len(rsv.get("production_factor", []))
             pfac: Dict[str, Any] = {
-                "uid": pfac_idx + 1,
+                "uid": rsv["uid"],
                 "name": f"{rsv['name']}_pfac_{pfac_idx + 1}",
                 "turbine": turb_uid,
                 "reservoir": rsv["name"],

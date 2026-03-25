@@ -29,7 +29,7 @@ namespace gtopt
 auto PlanningLP::create_systems(System& system,
                                 SimulationLP& simulation,
                                 const OptionsLP& options,
-                                const FlatOptions& flat_opts)
+                                const LpBuildOptions& flat_opts)
     -> scene_phase_systems_t
 {
   system.expand_batteries();

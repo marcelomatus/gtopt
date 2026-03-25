@@ -18,6 +18,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include <gtopt/lp_build_options.hpp>
 #include <gtopt/sparse_row.hpp>
 #include <gtopt/strong_index_vector.hpp>
 
@@ -58,7 +59,8 @@ struct FlatLinearProblem
 
   std::string name;  ///< Problem name
 
-  /// @name Coefficient statistics (populated when FlatOptions::compute_stats)
+  /// @name Coefficient statistics (populated when
+  /// LpBuildOptions::compute_stats)
   /// @{
   size_t stats_nnz {};  ///< Non-zero count for the constraint matrix A
   size_t stats_zeroed {};  ///< Count of non-zero entries filtered out by eps
@@ -86,33 +88,6 @@ struct FlatLinearProblem
     return stats_max_abs / stats_min_abs;
   }
   /// @}
-};
-
-/**
- * @struct FlatOptions
- * @brief Configuration options for converting to flat representation
- */
-struct FlatOptions
-{
-  constexpr static auto default_reserve_factor = 1.25;
-
-  double eps {0};  ///< Coefficient epsilon: |v| <= eps is treated as zero.
-                   ///< If negative, no filtering is applied.
-  double stats_eps {1e-10};  ///< Minimum |coefficient| tracked in stats
-                             ///< min/max. Applied in addition to eps: only
-                             ///< values with |v| > max(eps, stats_eps) update
-                             ///< stats_min_abs. Defaults to 1e-10 for
-                             ///< consistency with external LP analysis tools.
-  bool col_with_names {true};  ///< Include column names (state vars at level 0)
-  bool row_with_names {false};  ///< Include row names (level >= 1)
-  bool col_with_name_map {true};  ///< Include column name mapping
-  bool row_with_name_map {false};  ///< Include row name mapping
-  bool move_names {true};  ///< Move instead of copy names
-  bool reserve_matrix {false};  ///< Pre-reserve matrix memory
-  double reserve_factor {default_reserve_factor};  ///< Reserve factor
-  bool compute_stats {false};  ///< Compute coefficient min/max/ratio
-  int lp_names_level {0};  ///< LP name level: 0=col only, 1=col+row, 2=strict
-  std::string solver_name {};  ///< Solver backend name (empty = auto-detect)
 };
 
 /**
@@ -296,11 +271,11 @@ public:
   }
 
   /**
-   * Converts the problem to a flat representation
-   * @param opts Conversion options
+   * Builds the flat (column-major) LP representation
+   * @param opts LP build options
    * @return Flat representation of the problem
    */
-  [[nodiscard]] FlatLinearProblem to_flat(const FlatOptions& opts = {});
+  [[nodiscard]] FlatLinearProblem lp_build(const LpBuildOptions& opts = {});
 
 private:
   std::string pname;  ///< Problem name

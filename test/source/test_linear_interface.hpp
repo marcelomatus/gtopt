@@ -214,10 +214,10 @@ TEST_CASE("LinearInterface - Loading from FlatLinearProblem")
   lp.set_coeff(row1, col2, 1.0);
 
   // Convert to flat format
-  FlatOptions flat_opts;
+  LpBuildOptions flat_opts;
   flat_opts.col_with_names = true;
   flat_opts.row_with_names = true;
-  auto flat_lp = lp.to_flat(flat_opts);
+  auto flat_lp = lp.lp_build(flat_opts);
 
   // Create interface and load the problem
   LinearInterface interface;
@@ -428,7 +428,118 @@ TEST_CASE("LinearInterface - get_status and status checks")
   CHECK_FALSE(interface.is_dual_infeasible());
   CHECK_FALSE(interface.is_prim_infeasible());
   CHECK(interface.get_status() == 0);
-  CHECK(interface.get_kappa() >= 0.0);
+  CHECK(interface.get_kappa() >= 1.0);
+}
+
+TEST_CASE("LinearInterface - get_kappa returns meaningful condition number")
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Build a problem with a non-trivial basis matrix to get kappa > 1.
+  // Use coefficients with different magnitudes to create a condition
+  // number that is clearly not the default 1.0.
+  //
+  // min -x1 - 2*x2 - x3
+  // s.t. 1000*x1 +    x2 +    x3 <= 5000
+  //         x1 + 1000*x2 +    x3 <= 5000
+  //         x1 +    x2 + 1000*x3 <= 5000
+  //      0 <= x1,x2,x3 <= 100
+  LinearInterface interface;
+
+  const auto x1 = interface.add_col("x1", 0.0, 100.0);
+  const auto x2 = interface.add_col("x2", 0.0, 100.0);
+  const auto x3 = interface.add_col("x3", 0.0, 100.0);
+
+  interface.set_obj_coeff(x1, -1.0);
+  interface.set_obj_coeff(x2, -2.0);
+  interface.set_obj_coeff(x3, -1.0);
+
+  SparseRow r1("c1");
+  r1[x1] = 1000.0;
+  r1[x2] = 1.0;
+  r1[x3] = 1.0;
+  r1.uppb = 5000.0;
+  interface.add_row(r1);
+
+  SparseRow r2("c2");
+  r2[x1] = 1.0;
+  r2[x2] = 1000.0;
+  r2[x3] = 1.0;
+  r2.uppb = 5000.0;
+  interface.add_row(r2);
+
+  SparseRow r3("c3");
+  r3[x1] = 1.0;
+  r3[x2] = 1.0;
+  r3[x3] = 1000.0;
+  r3.uppb = 5000.0;
+  interface.add_row(r3);
+
+  auto result = interface.initial_solve();
+  REQUIRE(result.has_value());
+  CHECK(interface.is_optimal());
+
+  const double kappa = interface.get_kappa();
+  // Condition number must be >= 1.0 for any non-singular basis matrix.
+  CHECK(kappa >= 1.0);
+
+  // Log the kappa value for diagnostics
+  MESSAGE("Solver kappa = ", kappa);
+}
+
+TEST_CASE("LinearInterface - get_kappa with explicit solver")
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Test kappa with each available solver backend.
+  // HiGHS uses Highs::getKappa(exact=true) which computes the actual
+  // condition number. CLP/CBC uses CoinFactorization::conditionNumber()
+  // which may return 1.0 due to internal scaling.
+  for (std::string_view solver : {"highs", "clp"}) {
+    CAPTURE(solver);
+    try {
+      LinearInterface interface(solver);
+
+      const auto x1 = interface.add_col("x1", 0.0, 100.0);
+      const auto x2 = interface.add_col("x2", 0.0, 100.0);
+      const auto x3 = interface.add_col("x3", 0.0, 100.0);
+
+      interface.set_obj_coeff(x1, -1.0);
+      interface.set_obj_coeff(x2, -2.0);
+      interface.set_obj_coeff(x3, -1.0);
+
+      SparseRow r1("c1");
+      r1[x1] = 1000.0;
+      r1[x2] = 1.0;
+      r1[x3] = 1.0;
+      r1.uppb = 5000.0;
+      interface.add_row(r1);
+
+      SparseRow r2("c2");
+      r2[x1] = 1.0;
+      r2[x2] = 1000.0;
+      r2[x3] = 1.0;
+      r2.uppb = 5000.0;
+      interface.add_row(r2);
+
+      SparseRow r3("c3");
+      r3[x1] = 1.0;
+      r3[x2] = 1.0;
+      r3[x3] = 1000.0;
+      r3.uppb = 5000.0;
+      interface.add_row(r3);
+
+      auto result = interface.initial_solve();
+      REQUIRE(result.has_value());
+      CHECK(interface.is_optimal());
+
+      const double kappa = interface.get_kappa();
+      CHECK(kappa >= 1.0);
+      MESSAGE(solver, " kappa = ", kappa);
+    } catch (const std::exception& e) {
+      MESSAGE("Solver '", solver, "' not available: ", e.what());
+    }
+  }
 }
 
 TEST_CASE("LinearInterface - set_col_sol and set_row_dual")
@@ -534,10 +645,10 @@ TEST_CASE("LinearInterface - FlatLinearProblem constructor")
   lp.set_coeff(row1, col1, 1.0);
   lp.set_coeff(row1, col2, 1.0);
 
-  FlatOptions flat_opts;
+  LpBuildOptions flat_opts;
   flat_opts.col_with_names = true;
   flat_opts.row_with_names = true;
-  auto flat_lp = lp.to_flat(flat_opts);
+  auto flat_lp = lp.lp_build(flat_opts);
 
   // Construct directly from FlatLinearProblem
   LinearInterface interface("clp", flat_lp);
@@ -733,7 +844,7 @@ TEST_CASE("LinearInterface - warm-start clone resolves after bound change")
   cloned.set_col_low(x1, 6.0);
 
   SolverOptions ws_opts;
-  ws_opts.warm_start = true;
+  ws_opts.reuse_basis = true;
   auto r = cloned.resolve(ws_opts);
   REQUIRE(r.has_value());
   REQUIRE(cloned.is_optimal());
@@ -783,7 +894,7 @@ TEST_CASE(
   cloned.set_col_low(x1, 3.0);
 
   SolverOptions ws_opts;
-  ws_opts.warm_start = true;
+  ws_opts.reuse_basis = true;
   auto r = cloned.resolve(ws_opts);
   REQUIRE(r.has_value());
   REQUIRE(cloned.is_optimal());
@@ -828,7 +939,7 @@ TEST_CASE("LinearInterface - set_warm_start_solution exact dimensions")
   cloned.set_warm_start_solution(saved_sol, saved_dual);
 
   SolverOptions ws_opts;
-  ws_opts.warm_start = true;
+  ws_opts.reuse_basis = true;
   auto r = cloned.resolve(ws_opts);
   REQUIRE(r.has_value());
   REQUIRE(cloned.is_optimal());
@@ -880,7 +991,7 @@ TEST_CASE("LinearInterface - set_warm_start_solution pads extra rows")
   li.set_warm_start_solution(saved_sol, saved_dual);
 
   SolverOptions ws_opts;
-  ws_opts.warm_start = true;
+  ws_opts.reuse_basis = true;
   auto r = li.resolve(ws_opts);
   REQUIRE(r.has_value());
   REQUIRE(li.is_optimal());
@@ -925,7 +1036,7 @@ TEST_CASE("LinearInterface - set_warm_start_solution pads extra columns")
   li.set_warm_start_solution(saved_sol, {});
 
   SolverOptions ws_opts;
-  ws_opts.warm_start = true;
+  ws_opts.reuse_basis = true;
   auto r = li.resolve(ws_opts);
   REQUIRE(r.has_value());
   REQUIRE(li.is_optimal());
@@ -1012,10 +1123,10 @@ TEST_CASE(  // NOLINT
   lp.set_coeff(row1, col2, 1.0);
 
   // Convert to flat with names
-  FlatOptions flat_opts;
+  LpBuildOptions flat_opts;
   flat_opts.col_with_names = true;
   flat_opts.row_with_names = true;
-  auto flat_lp = lp.to_flat(flat_opts);
+  auto flat_lp = lp.lp_build(flat_opts);
 
   // Load with name tracking enabled
   LinearInterface li;
@@ -1049,15 +1160,15 @@ TEST_CASE("LinearInterface - load_flat without names (level 0)")  // NOLINT
   const auto col =
       lp.add_col({.name = "x1", .lowb = 0.0, .uppb = 5.0, .cost = 1.0});
 
-  // Add a row so to_flat() does not early-return (needs ncols>0 AND nrows>0).
+  // Add a row so lp_build() does not early-return (needs ncols>0 AND nrows>0).
   auto row = SparseRow {.name = "r1", .uppb = 10.0};
   row[col] = 1.0;
   [[maybe_unused]] const auto row_idx = lp.add_row(row);
 
-  FlatOptions flat_opts;
+  LpBuildOptions flat_opts;
   flat_opts.col_with_names = true;
   flat_opts.row_with_names = true;
-  auto flat_lp = lp.to_flat(flat_opts);
+  auto flat_lp = lp.lp_build(flat_opts);
 
   LinearInterface li;
   li.set_lp_names_level(0);
@@ -1236,10 +1347,10 @@ TEST_CASE("LinearInterface - row_index_to_name via load_flat")  // NOLINT
   });
   lp.set_coeff(r2, c1, 1.0);
 
-  FlatOptions flat_opts;
+  LpBuildOptions flat_opts;
   flat_opts.col_with_names = true;
   flat_opts.row_with_names = true;
-  auto flat_lp = lp.to_flat(flat_opts);
+  auto flat_lp = lp.lp_build(flat_opts);
 
   LinearInterface li;
   li.set_lp_names_level(2);

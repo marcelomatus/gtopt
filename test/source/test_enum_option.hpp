@@ -164,17 +164,38 @@ TEST_CASE("elastic_filter_mode_from_name")  // NOLINT
 
 // ─── HotStartMode ───────────────────────────────────────────────────────────
 
-TEST_CASE("hot_start_mode_from_name")  // NOLINT
+TEST_CASE("cut_recovery_mode_from_name")  // NOLINT
 {
-  CHECK(hot_start_mode_from_name("none").value_or(HotStartMode::replace)
+  CHECK(cut_recovery_mode_from_name("none").value_or(HotStartMode::replace)
         == HotStartMode::none);
-  CHECK(hot_start_mode_from_name("keep").value_or(HotStartMode::none)
+  CHECK(cut_recovery_mode_from_name("keep").value_or(HotStartMode::none)
         == HotStartMode::keep);
-  CHECK(hot_start_mode_from_name("append").value_or(HotStartMode::none)
+  CHECK(cut_recovery_mode_from_name("append").value_or(HotStartMode::none)
         == HotStartMode::append);
-  CHECK(hot_start_mode_from_name("replace").value_or(HotStartMode::none)
+  CHECK(cut_recovery_mode_from_name("replace").value_or(HotStartMode::none)
         == HotStartMode::replace);
-  CHECK_FALSE(hot_start_mode_from_name("bad").has_value());
+  CHECK_FALSE(cut_recovery_mode_from_name("bad").has_value());
+}
+
+// ─── LpNamesLevel ───────────────────────────────────────────────────────────
+
+TEST_CASE("lp_names_level_from_name")  // NOLINT
+{
+  CHECK(lp_names_level_from_name("minimal").value_or(LpNamesLevel::only_cols)
+        == LpNamesLevel::minimal);
+  CHECK(lp_names_level_from_name("only_cols").value_or(LpNamesLevel::minimal)
+        == LpNamesLevel::only_cols);
+  CHECK(
+      lp_names_level_from_name("cols_and_rows").value_or(LpNamesLevel::minimal)
+      == LpNamesLevel::cols_and_rows);
+  CHECK_FALSE(lp_names_level_from_name("bogus").has_value());
+}
+
+TEST_CASE("lp_names_level_name")  // NOLINT
+{
+  CHECK(lp_names_level_name(LpNamesLevel::minimal) == "minimal");
+  CHECK(lp_names_level_name(LpNamesLevel::only_cols) == "only_cols");
+  CHECK(lp_names_level_name(LpNamesLevel::cols_and_rows) == "cols_and_rows");
 }
 
 // ─── OptionsLP enum accessors ────────────────────────────────────────────────
@@ -218,9 +239,9 @@ TEST_CASE("OptionsLP enum accessors return correct defaults")  // NOLINT
     CHECK(opts.sddp_boundary_cuts_mode_enum() == BoundaryCutsMode::separated);
   }
 
-  SUBCASE("sddp_hot_start_mode_enum defaults to none")
+  SUBCASE("sddp_cut_recovery_mode_enum defaults to none")
   {
-    CHECK(opts.sddp_hot_start_mode_enum() == HotStartMode::none);
+    CHECK(opts.sddp_cut_recovery_mode_enum() == HotStartMode::none);
   }
 
   SUBCASE("monolithic_solve_mode_enum defaults to monolithic")
@@ -245,7 +266,7 @@ TEST_CASE("OptionsLP enum accessors parse explicit values")  // NOLINT
   raw.sddp_options.cut_sharing_mode = "expected";
   raw.sddp_options.elastic_mode = "multi_cut";
   raw.sddp_options.boundary_cuts_mode = "combined";
-  raw.sddp_options.hot_start_mode = "append";
+  raw.sddp_options.cut_recovery_mode = "append";
   raw.monolithic_options.solve_mode = "sequential";
   raw.monolithic_options.boundary_cuts_mode = "noload";
 
@@ -258,7 +279,7 @@ TEST_CASE("OptionsLP enum accessors parse explicit values")  // NOLINT
   CHECK(opts.sddp_cut_sharing_mode_enum() == CutSharingMode::expected);
   CHECK(opts.sddp_elastic_mode_enum() == ElasticFilterMode::multi_cut);
   CHECK(opts.sddp_boundary_cuts_mode_enum() == BoundaryCutsMode::combined);
-  CHECK(opts.sddp_hot_start_mode_enum() == HotStartMode::append);
+  CHECK(opts.sddp_cut_recovery_mode_enum() == HotStartMode::append);
   CHECK(opts.monolithic_solve_mode_enum() == SolveMode::sequential);
   CHECK(opts.monolithic_boundary_cuts_mode_enum() == BoundaryCutsMode::noload);
 }
@@ -283,7 +304,7 @@ TEST_CASE("validate_enum_options returns empty for valid explicit values")
   raw.sddp_options.cut_sharing_mode = "expected";
   raw.sddp_options.elastic_mode = "multi_cut";
   raw.sddp_options.boundary_cuts_mode = "combined";
-  raw.sddp_options.hot_start_mode = "replace";
+  raw.sddp_options.cut_recovery_mode = "replace";
   raw.monolithic_options.solve_mode = "sequential";
   raw.monolithic_options.boundary_cuts_mode = "noload";
 
@@ -316,30 +337,37 @@ TEST_CASE(
   CHECK(warnings.size() == 3);
 }
 
-TEST_CASE("sddp_hot_start_mode backward compat: bool hot_start")  // NOLINT
+TEST_CASE("sddp_cut_recovery_mode explicit values")  // NOLINT
 {
-  SUBCASE("hot_start=true maps to replace")
+  SUBCASE("cut_recovery_mode=replace maps to replace")
   {
     Options raw;
-    raw.sddp_options.hot_start = true;
+    raw.sddp_options.cut_recovery_mode = "replace";
     const OptionsLP opts(std::move(raw));
-    CHECK(opts.sddp_hot_start_mode_enum() == HotStartMode::replace);
+    CHECK(opts.sddp_cut_recovery_mode_enum() == HotStartMode::replace);
   }
 
-  SUBCASE("hot_start=false maps to none")
+  SUBCASE("cut_recovery_mode=none maps to none")
   {
     Options raw;
-    raw.sddp_options.hot_start = false;
+    raw.sddp_options.cut_recovery_mode = "none";
     const OptionsLP opts(std::move(raw));
-    CHECK(opts.sddp_hot_start_mode_enum() == HotStartMode::none);
+    CHECK(opts.sddp_cut_recovery_mode_enum() == HotStartMode::none);
   }
 
-  SUBCASE("hot_start_mode takes precedence over hot_start")
+  SUBCASE("cut_recovery_mode=keep maps to keep")
   {
     Options raw;
-    raw.sddp_options.hot_start = true;
-    raw.sddp_options.hot_start_mode = "keep";
+    raw.sddp_options.cut_recovery_mode = "keep";
     const OptionsLP opts(std::move(raw));
-    CHECK(opts.sddp_hot_start_mode_enum() == HotStartMode::keep);
+    CHECK(opts.sddp_cut_recovery_mode_enum() == HotStartMode::keep);
+  }
+
+  SUBCASE("cut_recovery_mode=append maps to append")
+  {
+    Options raw;
+    raw.sddp_options.cut_recovery_mode = "append";
+    const OptionsLP opts(std::move(raw));
+    CHECK(opts.sddp_cut_recovery_mode_enum() == HotStartMode::append);
   }
 }

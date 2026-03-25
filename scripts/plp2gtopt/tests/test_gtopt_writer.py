@@ -70,7 +70,7 @@ class TestGTOptWriterWithRealParser:
         parser.parse_all()
         writer = GTOptWriter(parser)
         opts = _make_opts(tmp_path)
-        opts["hydrologies"] = "1,2,3"
+        opts["hydrologies"] = "1"
         opts["solver_type"] = "mono"
         result = writer.to_json(opts)
         sim = result["simulation"]
@@ -83,10 +83,10 @@ class TestGTOptWriterWithRealParser:
         assert sim["phase_array"][0]["first_stage"] == 0
         assert sim["phase_array"][0]["count_stage"] == num_stages
 
-        # Monolithic: exactly one scene containing all 3 scenarios
+        # Monolithic: exactly one scene containing all scenarios
         assert len(sim["scene_array"]) == 1
         assert sim["scene_array"][0]["first_scenario"] == 0
-        assert sim["scene_array"][0]["count_scenario"] == 3
+        assert sim["scene_array"][0]["count_scenario"] == 1
 
     def test_to_json_system_has_generators(self, tmp_path):
         """system block must contain a non-empty generator_array."""
@@ -123,7 +123,7 @@ class TestGTOptWriterWithRealParser:
         assert "output_directory" in opts
         assert "demand_fail_cost" in opts
         # Default solver type is sddp (top-level field)
-        assert opts["solver_type"] == "sddp"
+        assert opts["method"] == "sddp"
 
     def test_to_json_options_monolithic_solver(self, tmp_path):
         """options block contains solver_type=monolithic when requested."""
@@ -134,7 +134,7 @@ class TestGTOptWriterWithRealParser:
         opts = _make_opts(tmp_path)
         opts["solver_type"] = "mono"
         result = writer.to_json(opts)
-        assert result["options"]["solver_type"] == "monolithic"
+        assert result["options"]["method"] == "monolithic"
 
 
 class TestGTOptWriterProcessMethods:
@@ -147,16 +147,16 @@ class TestGTOptWriterProcessMethods:
         assert writer.planning["options"]["annual_discount_rate"] == 0.0
 
     def test_process_options_default_solver_type(self):
-        """process_options defaults to solver_type='sddp' at top level."""
+        """process_options defaults to method='sddp' at top level."""
         writer = GTOptWriter(MagicMock())
         writer.process_options({"output_dir": "out"})
-        assert writer.planning["options"]["solver_type"] == "sddp"
+        assert writer.planning["options"]["method"] == "sddp"
 
     def test_process_options_monolithic_solver_type(self):
         """process_options normalizes 'mono' to 'monolithic' in JSON output."""
         writer = GTOptWriter(MagicMock())
         writer.process_options({"output_dir": "out", "solver_type": "mono"})
-        assert writer.planning["options"]["solver_type"] == "monolithic"
+        assert writer.planning["options"]["method"] == "monolithic"
 
     def test_process_options_no_num_apertures_in_sddp(self):
         """num_apertures is never emitted in sddp_options (C++ has no such field)."""
@@ -272,9 +272,18 @@ class TestGTOptWriterProcessMethods:
 
     # ---- SDDP (default) scenario/scene tests --------------------------------
 
+    @staticmethod
+    def _make_scenario_mock(num_hydrologies=10):
+        """Create a mock parser with enough hydrologies for scenario tests."""
+        mock = MagicMock()
+        aflce = MagicMock()
+        aflce.items = [{"num_hydrologies": num_hydrologies}]
+        mock.parsed_data = {"idsim_parser": None, "aflce_parser": aflce}
+        return mock
+
     def test_process_scenarios_single_hydrology(self):
         """Single hydrology → probability_factor = 1.0, uid = Fortran index."""
-        writer = GTOptWriter(MagicMock())
+        writer = GTOptWriter(self._make_scenario_mock())
         writer.process_scenarios({"hydrologies": "2", "probability_factors": None})
         scenarios = writer.planning["simulation"]["scenario_array"]
         assert len(scenarios) == 1
@@ -291,7 +300,7 @@ class TestGTOptWriterProcessMethods:
 
     def test_process_scenarios_two_hydrologies_equal(self):
         """Two hydrologies with no explicit weights → 0.5 each, unique UIDs, 2 scenes."""
-        writer = GTOptWriter(MagicMock())
+        writer = GTOptWriter(self._make_scenario_mock())
         writer.process_scenarios({"hydrologies": "1,3", "probability_factors": None})
         scenarios = writer.planning["simulation"]["scenario_array"]
         assert len(scenarios) == 2
@@ -310,7 +319,7 @@ class TestGTOptWriterProcessMethods:
 
     def test_process_scenarios_explicit_weights(self):
         """Explicit probability_factors are parsed as floats, 3 unique UIDs, 3 scenes."""
-        writer = GTOptWriter(MagicMock())
+        writer = GTOptWriter(self._make_scenario_mock())
         writer.process_scenarios(
             {"hydrologies": "1,2,3", "probability_factors": "0.2,0.5,0.3"}
         )
@@ -333,7 +342,7 @@ class TestGTOptWriterProcessMethods:
 
     def test_process_scenarios_monolithic_two_hydrologies(self):
         """Monolithic solver: 2 scenarios → 1 scene containing both."""
-        writer = GTOptWriter(MagicMock())
+        writer = GTOptWriter(self._make_scenario_mock())
         writer.process_scenarios({"hydrologies": "1,2", "solver_type": "monolithic"})
         scenarios = writer.planning["simulation"]["scenario_array"]
         assert len(scenarios) == 2
@@ -348,11 +357,23 @@ class TestGTOptWriterProcessMethods:
 
     def test_process_scenarios_mono_alias(self):
         """'mono' is accepted as an alias for 'monolithic'."""
-        writer = GTOptWriter(MagicMock())
+        writer = GTOptWriter(self._make_scenario_mock())
         writer.process_scenarios({"hydrologies": "1,2,3", "solver_type": "mono"})
         scenes = writer.planning["simulation"]["scene_array"]
         assert len(scenes) == 1
         assert scenes[0]["count_scenario"] == 3
+
+    def test_process_scenarios_invalid_index_zero(self):
+        """Index 0 is not a valid 1-based hydrology index."""
+        writer = GTOptWriter(self._make_scenario_mock(num_hydrologies=10))
+        with pytest.raises(ValueError, match="Invalid hydrology indices"):
+            writer.process_scenarios({"hydrologies": "0", "probability_factors": None})
+
+    def test_process_scenarios_invalid_index_out_of_range(self):
+        """Index beyond available hydrologies raises ValueError."""
+        writer = GTOptWriter(self._make_scenario_mock(num_hydrologies=10))
+        with pytest.raises(ValueError, match="Invalid hydrology indices"):
+            writer.process_scenarios({"hydrologies": "50", "probability_factors": None})
 
     def test_process_buses_empty(self):
         """process_buses handles missing bus_parser gracefully."""

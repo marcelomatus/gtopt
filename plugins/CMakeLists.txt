@@ -10,7 +10,7 @@ Plugins are discovered at runtime by SolverRegistry, which scans for
 
 #]=======================================================================]
 
-# ---- OSI plugin (CLP / CBC / CPLEX) ----
+# ---- OSI plugin (CLP / CBC) ----
 # Always attempt to build if COIN-OR is available (it was found by the
 # parent project's Solver.cmake).
 
@@ -18,6 +18,15 @@ if(COIN_FOUND)
   add_subdirectory(osi)
 else()
   message(STATUS "Solver plugin: OSI skipped (COIN-OR not found)")
+endif()
+
+# ---- CPLEX plugin (direct C Callable Library, no OSI) ----
+
+find_package(CPLEX QUIET)
+if(CPLEX_FOUND)
+  add_subdirectory(cplex)
+else()
+  message(STATUS "Solver plugin: CPLEX skipped (CPLEX not found)")
 endif()
 
 # ---- HiGHS plugin ----

@@ -12,6 +12,8 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_solver_options.hpp>
 
+using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
 TEST_CASE("SolverOptions JSON basic parsing")
 {
   const std::string_view json_data = R"({
@@ -19,7 +21,7 @@ TEST_CASE("SolverOptions JSON basic parsing")
     "threads": 4,
     "presolve": true,
     "log_level": 1,
-    "warm_start": false
+    "reuse_basis": false
   })";
 
   const SolverOptions opts = daw::json::from_json<SolverOptions>(json_data);
@@ -43,7 +45,7 @@ TEST_CASE("SolverOptions JSON with tolerances")
     "feasible_eps": 1e-7,
     "barrier_eps": 1e-10,
     "log_level": 0,
-    "warm_start": false
+    "reuse_basis": false
   })";
 
   const SolverOptions opts = daw::json::from_json<SolverOptions>(json_data);
