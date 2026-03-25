@@ -54,6 +54,14 @@ find_package_handle_standard_args(
 
 if(COIN_FOUND)
   set(COIN_INCLUDE_DIRS "${COIN_INCLUDE_DIR}")
+
+  # Export the directory containing the found Osi library so that downstream
+  # Find modules (FindCbc, FindOsiCbc, …) can prefer the same installation
+  # prefix and avoid mixing COIN-OR libraries from different builds (which
+  # causes ABI-incompatible undefined-symbol errors at runtime).
+  get_filename_component(COIN_LIBRARY_DIR "${COIN_OSI_LIBRARY}" DIRECTORY)
+  set(COIN_LIBRARY_DIR "${COIN_LIBRARY_DIR}" CACHE PATH
+      "Directory containing the found COIN-OR Osi library" FORCE)
   set(COIN_OSI_LIBRARIES "${COIN_OSI_LIBRARY};${COIN_COIN_UTILS_LIBRARY}")
   set(COIN_LIBRARIES "${COIN_OSI_LIBRARIES}")
 
