@@ -706,7 +706,8 @@ TEST_CASE("lp_build name map skips empty column names")
 {
   gtopt::LinearProblem lp("empty_names_test");
 
-  // Add columns where some have empty names (simulating minimal names_level)
+  // Add multiple columns with empty names to verify the name map skips them
+  // (simulates minimal names_level where non-state columns get empty names)
   [[maybe_unused]] const auto c0 = lp.add_col(gtopt::SparseCol {.name = ""});
   [[maybe_unused]] const auto c1 =
       lp.add_col(gtopt::SparseCol {.name = "named_col"});
