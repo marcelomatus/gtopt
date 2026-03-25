@@ -3,7 +3,7 @@ include_guard(GLOBAL)
 find_library(
   COIN_OSICLP_LIBRARY
   NAMES OsiClp libOsiClp
-  HINTS ${COIN_ROOT_DIR}/lib/coin ${COIN_ROOT_DIR}/lib
+  HINTS ${COIN_LIBRARY_DIR} ${COIN_ROOT_DIR}/lib/coin ${COIN_ROOT_DIR}/lib
 )
 
 include(FindPackageHandleStandardArgs)

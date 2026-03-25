@@ -583,6 +583,53 @@ sudo apt-get install -y coinor-libcbc-dev
 pkg-config --modversion cbc
 ```
 
+### COIN-OR ABI Mismatch (undefined symbol errors)
+
+**Error**: `Failed to load plugin libgtopt_solver_osi.so: undefined symbol: _ZTv0_n24_N21OsiClpSolverInterface12initialSolveEv` (or similar undefined symbol errors involving COIN-OR classes)
+
+**Cause**: COIN-OR libraries (Osi, CoinUtils, Clp, OsiClp, Cbc, OsiCbc, Cgl)
+are loaded from different installations with incompatible ABIs. For example,
+CLP from a custom build at `/opt/coinor/lib` mixed with CBC from system
+packages at `/lib/x86_64-linux-gnu/`. Use `ldd` to diagnose:
+
+```bash
+ldd /path/to/lib/gtopt/plugins/libgtopt_solver_osi.so | grep -E 'Osi|Clp|Cbc|Cgl|Coin'
+```
+
+If some libraries resolve to `/opt/coinor/lib` and others to system paths,
+that's the conflict.
+
+**Solution A** — Use all system packages (simplest):
+
+```bash
+sudo apt-get install -y coinor-libcbc-dev
+```
+
+Ensure `COIN_ROOT_DIR` is not set (or points to `/usr`) so CMake finds
+everything from the system.
+
+**Solution B** — Build all COIN-OR from source to a custom prefix:
+
+```bash
+cd /tmp
+wget https://raw.githubusercontent.com/coin-or/coinbrew/master/coinbrew
+chmod u+x coinbrew
+./coinbrew fetch Cbc@master
+./coinbrew build Cbc --prefix=/opt/coinor --tests=none
+sudo ./coinbrew install Cbc --prefix=/opt/coinor
+```
+
+Then configure gtopt with:
+
+```bash
+cmake -S all -B build -DCOIN_ROOT_DIR=/opt/coinor ...
+```
+
+> **Note**: CMake will now detect and warn about COIN-OR ABI mismatches at
+> configure time. If CBC/OsiCbc are found from a different directory than the
+> core Osi/CoinUtils, CBC support is automatically disabled with a warning to
+> prevent runtime crashes.
+
 ### Build Fails with Compilation Errors
 
 **Error**: Various C++ compilation errors
