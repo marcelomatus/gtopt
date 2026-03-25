@@ -101,9 +101,6 @@ jobs:
         with:
           extra-packages: lcov
 
-      - name: install HiGHS solver
-        uses: ./.github/actions/install-highs
-
       # GCC 14 is pre-installed on ubuntu-latest; register unversioned
       # alternatives so 'gcc', 'g++', and 'gcov' resolve to gcc-14.
       - name: setup gcc
@@ -337,9 +334,6 @@ jobs:
 
       - name: install dependencies
         uses: ./.github/actions/install-apt-deps
-
-      - name: install HiGHS solver
-        uses: ./.github/actions/install-highs
 
       - name: set up clang-tidy-cache
         uses: silicon-heaven/clang-tidy-cache-action@v1.2.0
