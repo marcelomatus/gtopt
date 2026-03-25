@@ -10,6 +10,7 @@
  */
 
 #include <algorithm>
+#include <set>
 
 #include <gtopt/converter.hpp>
 #include <gtopt/demand.hpp>
@@ -80,6 +81,40 @@ template<typename T>
   auto max_it = std::ranges::max_element(
       arr, {}, [](const auto& elem) { return elem.uid; });
   return max_it->uid + 1;
+}
+
+/**
+ * @brief Build a set of UIDs from an element array
+ * @tparam T Element type (must have .uid member)
+ * @param arr Array of elements
+ * @return Set of existing UIDs
+ */
+template<typename T>
+[[nodiscard]] auto build_uid_set(const gtopt::Array<T>& arr)
+    -> std::set<gtopt::Uid>
+{
+  std::set<gtopt::Uid> result;
+  for (const auto& elem : arr) {
+    result.insert(elem.uid);
+  }
+  return result;
+}
+
+/**
+ * @brief Build a set of names from an element array
+ * @tparam T Element type (must have .name member)
+ * @param arr Array of elements
+ * @return Set of existing names
+ */
+template<typename T>
+[[nodiscard]] auto build_name_set(const gtopt::Array<T>& arr)
+    -> std::set<std::string>
+{
+  std::set<std::string> result;
+  for (const auto& elem : arr) {
+    result.insert(elem.name);
+  }
+  return result;
 }
 
 }  // namespace
@@ -197,41 +232,55 @@ void System::expand_reservoir_constraints()
   auto dlim_uid = next_uid(reservoir_discharge_limit_array);
   auto pfac_uid = next_uid(reservoir_production_factor_array);
 
+  // Build sets of existing UIDs/names for O(1) duplicate detection
+  auto seep_uids = build_uid_set(reservoir_seepage_array);
+  auto seep_names = build_name_set(reservoir_seepage_array);
+  auto dlim_uids = build_uid_set(reservoir_discharge_limit_array);
+  auto dlim_names = build_name_set(reservoir_discharge_limit_array);
+  auto pfac_uids = build_uid_set(reservoir_production_factor_array);
+  auto pfac_names = build_name_set(reservoir_production_factor_array);
+
   for (auto& rsv : reservoir_array) {
     const SingleId rsv_id {rsv.uid};
 
     for (auto& s : rsv.seepage) {
-      if (s.uid == unknown_uid) {
+      if (s.uid == unknown_uid || seep_uids.contains(s.uid)) {
         s.uid = seep_uid++;
       }
-      if (s.name.empty()) {
+      if (s.name.empty() || seep_names.contains(s.name)) {
         s.name = rsv.name + "_seepage_" + std::to_string(s.uid);
       }
       s.reservoir = rsv_id;
+      seep_uids.insert(s.uid);
+      seep_names.insert(s.name);
       reservoir_seepage_array.push_back(std::move(s));
     }
     rsv.seepage.clear();
 
     for (auto& d : rsv.discharge_limit) {
-      if (d.uid == unknown_uid) {
+      if (d.uid == unknown_uid || dlim_uids.contains(d.uid)) {
         d.uid = dlim_uid++;
       }
-      if (d.name.empty()) {
+      if (d.name.empty() || dlim_names.contains(d.name)) {
         d.name = rsv.name + "_dlim_" + std::to_string(d.uid);
       }
       d.reservoir = rsv_id;
+      dlim_uids.insert(d.uid);
+      dlim_names.insert(d.name);
       reservoir_discharge_limit_array.push_back(std::move(d));
     }
     rsv.discharge_limit.clear();
 
     for (auto& p : rsv.production_factor) {
-      if (p.uid == unknown_uid) {
+      if (p.uid == unknown_uid || pfac_uids.contains(p.uid)) {
         p.uid = pfac_uid++;
       }
-      if (p.name.empty()) {
+      if (p.name.empty() || pfac_names.contains(p.name)) {
         p.name = rsv.name + "_pfac_" + std::to_string(p.uid);
       }
       p.reservoir = rsv_id;
+      pfac_uids.insert(p.uid);
+      pfac_names.insert(p.name);
       reservoir_production_factor_array.push_back(std::move(p));
     }
     rsv.production_factor.clear();

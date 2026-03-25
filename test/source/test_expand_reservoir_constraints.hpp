@@ -267,3 +267,86 @@ TEST_CASE("expand_reservoir_constraints is idempotent")
   system.expand_reservoir_constraints();
   CHECK(system.reservoir_seepage_array.size() == 1);
 }
+
+TEST_CASE(
+    "expand_reservoir_constraints reassigns duplicate uid from inline entry")
+{
+  System system;
+  // Pre-existing system-level seepage with uid=1
+  system.reservoir_seepage_array = {
+      {
+          .uid = 1,
+          .name = "existing_seep",
+          .waterway = Uid {1},
+          .reservoir = Uid {1},
+      },
+  };
+  system.reservoir_array = {
+      {
+          .uid = Uid {2},
+          .name = "COLBUN",
+          .junction = Uid {20},
+          .seepage =
+              {
+                  {
+                      // Inline entry with uid=1 that conflicts with existing
+                      .uid = 1,
+                      .waterway = Uid {5},
+                      .slope = 0.001,
+                  },
+              },
+      },
+  };
+
+  // Should NOT throw — duplicate uid is reassigned
+  system.expand_reservoir_constraints();
+
+  REQUIRE(system.reservoir_seepage_array.size() == 2);
+  // The existing entry keeps uid=1
+  CHECK(system.reservoir_seepage_array[0].uid == 1);
+  CHECK(system.reservoir_seepage_array[0].name == "existing_seep");
+  // The inline entry gets a new uid (next_uid=2) since uid=1 was taken
+  CHECK(system.reservoir_seepage_array[1].uid == 2);
+  // Name is auto-generated with the new uid
+  CHECK(system.reservoir_seepage_array[1].name == "COLBUN_seepage_2");
+}
+
+TEST_CASE(
+    "expand_reservoir_constraints reassigns duplicate name from inline entry")
+{
+  System system;
+  // Pre-existing system-level seepage with name="COLBUN_seepage_1"
+  system.reservoir_seepage_array = {
+      {
+          .uid = 1,
+          .name = "COLBUN_seepage_1",
+          .waterway = Uid {1},
+          .reservoir = Uid {1},
+      },
+  };
+  system.reservoir_array = {
+      {
+          .uid = Uid {2},
+          .name = "COLBUN",
+          .junction = Uid {20},
+          .seepage =
+              {
+                  {
+                      // Inline entry with conflicting name
+                      .uid = unknown_uid,
+                      .name = "COLBUN_seepage_1",
+                      .waterway = Uid {5},
+                      .slope = 0.002,
+                  },
+              },
+      },
+  };
+
+  // Should NOT throw — duplicate name is reassigned
+  system.expand_reservoir_constraints();
+
+  REQUIRE(system.reservoir_seepage_array.size() == 2);
+  CHECK(system.reservoir_seepage_array[0].name == "COLBUN_seepage_1");
+  // The inline entry gets a new auto-generated name
+  CHECK(system.reservoir_seepage_array[1].name != "COLBUN_seepage_1");
+}
