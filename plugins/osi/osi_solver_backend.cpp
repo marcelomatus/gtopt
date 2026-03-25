@@ -22,7 +22,6 @@
 #endif
 
 // Check if ClpSimplex is available for CLP-specific optimizations
-#include <coin/ClpFactorization.hpp>
 #include <coin/ClpSimplex.hpp>
 
 namespace gtopt
@@ -414,23 +413,18 @@ void OsiSolverBackend::apply_options(const SolverOptions& opts)
 
 double OsiSolverBackend::get_kappa() const
 {
-  // CLP/CBC: CoinFactorization::conditionNumber() computes the product
-  // of pivot values from the LU decomposition.  In practice this often
-  // returns 1.0 because CLP rescales internally, so the result is only
-  // a rough indicator; it is NOT a true condition number estimate.
-  // Values <= 0 indicate the factorization state is unusable; fall back
-  // to 1.0 in that case.
+  // Return the largest dual error as a rough proxy for the condition
+  // number.  ClpFactorization::conditionNumber() is only available when
+  // CLP is built without CLP_MULTIPLE_FACTORIZATIONS; in multi-factorization
+  // builds (the default on Ubuntu) the method is absent.
   auto* clp =
       as_clp(const_cast<OsiSolverInterface*>(m_solver_.get()),  // NOLINT
              m_type_);
   if (clp != nullptr) {
     try {
       auto* model = clp->getModelPtr();
-      if (model != nullptr && model->factorization() != nullptr) {
-        double kappa = model->factorization()->conditionNumber();
-        if (kappa >= 1.0) {
-          return kappa;
-        }
+      if (model != nullptr) {
+        return model->largestDualError();
       }
     } catch (...) {
     }
