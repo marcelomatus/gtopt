@@ -305,10 +305,10 @@ TEST_CASE(
   // The existing entry keeps uid=1
   CHECK(system.reservoir_seepage_array[0].uid == 1);
   CHECK(system.reservoir_seepage_array[0].name == "existing_seep");
-  // The inline entry gets a new uid (2, since max existing is 1)
+  // The inline entry gets a new uid (next_uid=2) since uid=1 was taken
   CHECK(system.reservoir_seepage_array[1].uid == 2);
-  // Name is regenerated because the old name "existing_seep" doesn't conflict
-  // but an empty name would be auto-generated with the new uid
+  // Name is auto-generated with the new uid
+  CHECK(system.reservoir_seepage_array[1].name == "COLBUN_seepage_2");
 }
 
 TEST_CASE(
