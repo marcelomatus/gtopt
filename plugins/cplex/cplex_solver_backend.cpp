@@ -30,6 +30,13 @@ namespace
 ///   'G' : row >= rhs
 ///   'E' : row == rhs
 ///   'R' : rhs <= row <= rhs + |rangeval|
+///
+/// @param lb       Row lower bound (use -cpx_inf for no lower bound)
+/// @param ub       Row upper bound (use +cpx_inf for no upper bound)
+/// @param cpx_inf  CPLEX infinity constant (CPX_INFBOUND)
+/// @param sense    [out] CPLEX constraint sense character
+/// @param rhs      [out] CPLEX right-hand-side value
+/// @param range    [out] CPLEX range value (only used for 'R' sense)
 void bounds_to_cplex(double lb,
                      double ub,
                      double cpx_inf,
@@ -388,7 +395,8 @@ void CplexSolverBackend::delete_rows(int num, const int* indices)
   const int nrows = CPXgetnumrows(m_env_, m_lp_);
   std::vector<int> delstat(static_cast<size_t>(nrows), 0);
   for (int i = 0; i < num; ++i) {
-    const auto idx = static_cast<size_t>(indices[i]);  // NOLINT
+    const auto idx = static_cast<size_t>(
+        indices[i]);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     if (idx < delstat.size()) {
       delstat[idx] = 1;
     }
@@ -737,20 +745,22 @@ void CplexSolverBackend::close_log()
 void CplexSolverBackend::push_names(const std::vector<std::string>& col_names,
                                     const std::vector<std::string>& row_names)
 {
-  // Set column names
+  // Set column names — copy to mutable buffer because older CPLEX APIs
+  // declare the name parameter as char** (non-const).
   for (int i = 0; i < static_cast<int>(col_names.size()); ++i) {
     if (!col_names[static_cast<size_t>(i)].empty()) {
-      // CPXchgcolname expects a char* (non-const in older API)
-      auto* name = const_cast<char*>(col_names[static_cast<size_t>(i)].c_str());
-      CPXchgcolname(m_env_, m_lp_, 1, &i, &name);
+      std::string name_buf = col_names[static_cast<size_t>(i)];
+      auto* name_ptr = name_buf.data();
+      CPXchgcolname(m_env_, m_lp_, 1, &i, &name_ptr);
     }
   }
 
   // Set row names
   for (int i = 0; i < static_cast<int>(row_names.size()); ++i) {
     if (!row_names[static_cast<size_t>(i)].empty()) {
-      auto* name = const_cast<char*>(row_names[static_cast<size_t>(i)].c_str());
-      CPXchgrowname(m_env_, m_lp_, 1, &i, &name);
+      std::string name_buf = row_names[static_cast<size_t>(i)];
+      auto* name_ptr = name_buf.data();
+      CPXchgrowname(m_env_, m_lp_, 1, &i, &name_ptr);
     }
   }
 }
