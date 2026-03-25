@@ -1252,7 +1252,8 @@ Reads and writes a single INI-format configuration file shared across tools.
 ### Configuration file
 
 Default location: `~/.gtopt.conf`.  The file uses INI format with a `[global]`
-section for shared settings and per-tool sections:
+section for shared settings, per-tool sections, and a `[gtopt]` section for the
+C++ binary:
 
 ```ini
 [global]
@@ -1260,6 +1261,13 @@ ai_enabled  = false
 ai_provider = claude
 ai_model    =
 color       = auto
+
+[gtopt]
+solver              = highs
+algorithm           = barrier
+threads             = 4
+output-format       = parquet
+output-compression  = zstd
 
 [gtopt_check_json]
 check_uid_uniqueness = true
@@ -1270,6 +1278,11 @@ congestion_top_n = 10
 [run_gtopt]
 default_threads = 0
 ```
+
+The `[gtopt]` section provides default values for the C++ binary's command-line
+options.  CLI flags always take precedence.  See [Usage
+Guide](usage.md#configuration-file-gtoptconf) for the full list of supported
+keys.
 
 ### Initializing configuration
 

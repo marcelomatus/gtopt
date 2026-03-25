@@ -28,7 +28,7 @@ namespace gtopt
 
 auto PlanningLP::create_systems(System& system,
                                 SimulationLP& simulation,
-                                const OptionsLP& options,
+                                const PlanningOptionsLP& options,
                                 const LpBuildOptions& flat_opts)
     -> scene_phase_systems_t
 {

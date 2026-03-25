@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <gtopt/enum_option.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/utils.hpp>
 
@@ -21,13 +22,12 @@ namespace gtopt
  * JSON organization.  Field names omit the `sddp_` prefix since they
  * already live inside the `sddp_options` namespace.
  *
- * All fields are optional — defaults are applied via `OptionsLP`.
+ * All fields are optional — defaults are applied via `PlanningOptionsLP`.
  */
 struct SddpOptions
 {
-  /** @brief Cut sharing mode: `"none"` (default), `"expected"`,
-   *  `"accumulate"`, or `"max"` */
-  OptName cut_sharing_mode {};
+  /** @brief Cut sharing mode: none (default), expected, accumulate, or max */
+  std::optional<CutSharingMode> cut_sharing_mode {};
   /** @brief Directory for Benders cut files (default: `"cuts"`) */
   OptName cut_directory {};
   /** @brief Enable the SDDP monitoring API (writes JSON status file each
@@ -56,16 +56,16 @@ struct SddpOptions
   OptReal alpha_max {};
 
   // ── Cut file management ────────────────────────────────────────────────────
-  /** @brief Cut persistence mode: `"none"` (default), `"keep"`, `"append"`,
-   *  or `"replace"`.  Controls whether to load cuts from a previous
-   *  run and how to handle the combined output file on completion. */
-  OptName cut_recovery_mode {};
-  /** @brief Recovery mode: `"none"` (0), `"cuts"` (1), or `"full"` (2).
+  /** @brief Cut persistence mode: none (default), keep, append, or replace.
+   *  Controls whether to load cuts from a previous run and how to handle
+   *  the combined output file on completion. */
+  std::optional<HotStartMode> cut_recovery_mode {};
+  /** @brief Recovery mode: none (0), cuts (1), or full (2).
    *  Controls what is recovered from a previous run:
-   *  - `"none"`:  no recovery (cold start).
-   *  - `"cuts"`:  recover only Benders cuts.
-   *  - `"full"`:  recover cuts + state variable solutions (default). */
-  OptName recovery_mode {};
+   *  - none:  no recovery (cold start).
+   *  - cuts:  recover only Benders cuts.
+   *  - full:  recover cuts + state variable solutions (default). */
+  std::optional<RecoveryMode> recovery_mode {};
   /** @brief Save cuts to CSV after each iteration (default: true).
    *  When false, cuts are only saved at the end of the solve or on stop. */
   OptBool save_per_iteration {};
@@ -75,9 +75,9 @@ struct SddpOptions
   /** @brief Path to a sentinel file; if it exists, the solver stops gracefully
    * after the current iteration (analogous to PLP's userstop) */
   OptName sentinel_file {};
-  /** @brief Elastic filter mode: `"single_cut"` (default, alias `"cut"`) or
-   *         `"multi_cut"` or `"backpropagate"` */
-  OptName elastic_mode {};
+  /** @brief Elastic filter mode: single_cut (default, alias "cut") or
+   *         multi_cut or backpropagate */
+  std::optional<ElasticFilterMode> elastic_mode {};
   /** @brief Forward-pass infeasibility count threshold for switching from
    *         single_cut to multi_cut (default: 10; 0 = never auto-switch) */
   OptInt multi_cut_threshold {};
@@ -149,15 +149,14 @@ struct SddpOptions
    */
   OptName boundary_cuts_file {};
 
-  /** @brief How boundary cuts are loaded: `"noload"`, `"separated"` (default),
-   * or `"combined"`.
+  /** @brief How boundary cuts are loaded: noload, separated (default),
+   * or combined.
    *
-   * - `"noload"` — do not load boundary cuts even if a file is given.
-   * - `"separated"` — load cuts per scene: each cut is assigned to the
-   *   scene matching its `scene` column (scene UID from `scene_array`).
-   * - `"combined"` — load all cuts into all scenes (broadcast).
+   * - noload — do not load boundary cuts even if a file is given.
+   * - separated — load cuts per scene (scene UID matching; default).
+   * - combined — load all cuts into all scenes (broadcast).
    */
-  OptName boundary_cuts_mode {};
+  std::optional<BoundaryCutsMode> boundary_cuts_mode {};
 
   /** @brief Maximum number of SDDP iterations to load from the boundary
    * cuts file.  Only cuts from the last N iterations (by `iteration`
@@ -230,23 +229,13 @@ struct SddpOptions
    */
   OptInt stationary_window {};
 
-  // ── LP solver options (per-method override) ────────────────────────────────
-  /** @brief Optional LP solver configuration for SDDP.
-   *
-   * When set, these options are merged with (and override) the global
-   * `Options::solver_options`.  Allows SDDP to use a different algorithm,
-   * time limit, or warm-start setting than the monolithic solver.
-   *
-   * Acts as the base for both forward and backward passes unless
-   * `forward_solver_options` or `backward_solver_options` are set.
-   */
-  std::optional<SolverOptions> solver_options {};
-
+  // ── LP solver options (per-pass override)
+  // ───────────────────────────────────
   /** @brief Optional LP solver configuration for SDDP forward pass.
    *
-   * When set, these options are merged with `solver_options` (SDDP-level),
-   * which is itself merged with the global `Options::solver_options`.
-   * Forward-pass-specific options take highest precedence.
+   * When set, these options are merged with the global
+   * `PlanningOptions::solver_options`.  Forward-pass-specific options
+   * take precedence over the global ones.
    *
    * Typical use: use barrier for the forward pass (fresh solves) while
    * using dual simplex for the backward pass (warm-started resolves).
@@ -255,9 +244,9 @@ struct SddpOptions
 
   /** @brief Optional LP solver configuration for SDDP backward pass.
    *
-   * When set, these options are merged with `solver_options` (SDDP-level),
-   * which is itself merged with the global `Options::solver_options`.
-   * Backward-pass-specific options take highest precedence.
+   * When set, these options are merged with the global
+   * `PlanningOptions::solver_options`.  Backward-pass-specific options
+   * take precedence over the global ones.
    *
    * Typical use: use dual simplex with reuse_basis for the backward pass
    * (warm-started resolves after adding cuts).
@@ -266,7 +255,7 @@ struct SddpOptions
 
   void merge(SddpOptions&& opts)
   {
-    merge_opt(cut_sharing_mode, std::move(opts.cut_sharing_mode));
+    merge_opt(cut_sharing_mode, opts.cut_sharing_mode);
     merge_opt(cut_directory, std::move(opts.cut_directory));
     merge_opt(api_enabled, opts.api_enabled);
     merge_opt(update_lp_skip, opts.update_lp_skip);
@@ -276,12 +265,12 @@ struct SddpOptions
     merge_opt(elastic_penalty, opts.elastic_penalty);
     merge_opt(alpha_min, opts.alpha_min);
     merge_opt(alpha_max, opts.alpha_max);
-    merge_opt(cut_recovery_mode, std::move(opts.cut_recovery_mode));
-    merge_opt(recovery_mode, std::move(opts.recovery_mode));
+    merge_opt(cut_recovery_mode, opts.cut_recovery_mode);
+    merge_opt(recovery_mode, opts.recovery_mode);
     merge_opt(save_per_iteration, opts.save_per_iteration);
     merge_opt(cuts_input_file, std::move(opts.cuts_input_file));
     merge_opt(sentinel_file, std::move(opts.sentinel_file));
-    merge_opt(elastic_mode, std::move(opts.elastic_mode));
+    merge_opt(elastic_mode, opts.elastic_mode);
     merge_opt(multi_cut_threshold, opts.multi_cut_threshold);
     if (opts.apertures.has_value()) {
       apertures = std::move(opts.apertures);
@@ -290,7 +279,7 @@ struct SddpOptions
     merge_opt(aperture_timeout, opts.aperture_timeout);
     merge_opt(save_aperture_lp, opts.save_aperture_lp);
     merge_opt(boundary_cuts_file, std::move(opts.boundary_cuts_file));
-    merge_opt(boundary_cuts_mode, std::move(opts.boundary_cuts_mode));
+    merge_opt(boundary_cuts_mode, opts.boundary_cuts_mode);
     merge_opt(boundary_max_iterations, opts.boundary_max_iterations);
     merge_opt(named_cuts_file, std::move(opts.named_cuts_file));
     merge_opt(max_cuts_per_phase, opts.max_cuts_per_phase);
@@ -303,13 +292,6 @@ struct SddpOptions
     merge_opt(warm_start, opts.warm_start);
     merge_opt(stationary_tol, opts.stationary_tol);
     merge_opt(stationary_window, opts.stationary_window);
-    if (opts.solver_options.has_value()) {
-      if (solver_options.has_value()) {
-        solver_options->merge(*opts.solver_options);
-      } else {
-        solver_options = opts.solver_options;
-      }
-    }
     if (opts.forward_solver_options.has_value()) {
       if (forward_solver_options.has_value()) {
         forward_solver_options->merge(*opts.forward_solver_options);

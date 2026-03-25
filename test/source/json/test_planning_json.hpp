@@ -72,7 +72,7 @@ TEST_CASE("Planning daw json test 2 - large scale")
   }
 
   const Planning planning {
-      .options = Options {.input_directory = "large_test"},
+      .options = PlanningOptions {.input_directory = "large_test"},
       .simulation = Simulation(),
       .system =
           System {

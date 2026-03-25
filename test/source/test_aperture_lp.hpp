@@ -11,7 +11,7 @@
  *  3. FlowLP::update_aperture – bound updates per-block
  *  4. update_aperture – inactive flow returns true (no-op)
  *  5. update_aperture – missing scenario/stage returns true
- *  6. OptionsLP::sddp_aperture_directory accessor
+ *  6. PlanningOptionsLP::sddp_aperture_directory accessor
  *  7. End-to-end aperture LP update with multi-scenario hydro system
  *  8. Explicit aperture_array in SDDP planning
  */
@@ -28,9 +28,9 @@
 #include <gtopt/json/json_aperture.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/linear_interface.hpp>
-#include <gtopt/options_lp.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_method.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
@@ -316,11 +316,11 @@ TEST_CASE("FlowLP update_aperture updates bounds correctly")  // NOLINT
       .turbine_array = turbine_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = true;
   opts.demand_fail_cost = OptReal {1000.0};
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP sim_lp(simulation, options);
   SystemLP sys_lp(system, sim_lp);
 
@@ -682,11 +682,11 @@ TEST_CASE(
       .turbine_array = turbine_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = true;
   opts.demand_fail_cost = OptReal {1000.0};
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP sim_lp(simulation, options);
   SystemLP sys_lp(system, sim_lp);
 
@@ -955,9 +955,9 @@ TEST_CASE("FlowLP update_aperture with inactive flow")  // NOLINT
       .turbine_array = turbine_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = true;
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP sim_lp(simulation, options);
   SystemLP sys_lp(system, sim_lp);
 
@@ -1091,9 +1091,9 @@ TEST_CASE("FlowLP update_aperture with non-matching scenario key")  // NOLINT
       .turbine_array = turbine_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = true;
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP sim_lp(simulation, options);
   SystemLP sys_lp(system, sim_lp);
 
@@ -1131,31 +1131,32 @@ TEST_CASE("FlowLP update_aperture with non-matching scenario key")  // NOLINT
   CHECK(ok);
 }
 
-// ─── 6. OptionsLP::sddp_aperture_directory ──────────────────────────────────
+// ─── 6. PlanningOptionsLP::sddp_aperture_directory
+// ──────────────────────────────────
 
-TEST_CASE("OptionsLP sddp_aperture_directory accessor")  // NOLINT
+TEST_CASE("PlanningOptionsLP sddp_aperture_directory accessor")  // NOLINT
 {
   SUBCASE("default is empty string")
   {
-    const OptionsLP options;
+    const PlanningOptionsLP options;
     CHECK(options.sddp_aperture_directory().empty());
   }
 
   SUBCASE("set via SddpOptions")
   {
-    Options opts;
+    PlanningOptions opts;
     opts.sddp_options = SddpOptions {
         .aperture_directory = OptName {"/data/apertures"},
     };
-    const OptionsLP options(opts);
+    const PlanningOptionsLP options(opts);
     CHECK(options.sddp_aperture_directory() == "/data/apertures");
   }
 
   SUBCASE("empty when sddp_options present but directory not set")
   {
-    Options opts;
+    PlanningOptions opts;
     opts.sddp_options = SddpOptions {};
-    const OptionsLP options(opts);
+    const PlanningOptionsLP options(opts);
     CHECK(options.sddp_aperture_directory().empty());
   }
 }
@@ -1296,12 +1297,12 @@ TEST_CASE("FlowLP aperture bound update affects LP objective value")  // NOLINT
       .turbine_array = turbine_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = true;
   opts.demand_fail_cost = OptReal {1000.0};
   opts.scale_objective = OptReal {1.0};
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP sim_lp(simulation, options);
   SystemLP sys_lp(system, sim_lp);
 
@@ -1520,12 +1521,12 @@ auto make_2phase_aperture_planning() -> Planning
       .aperture_array = std::move(aperture_array),
   };
 
-  Options options;
+  PlanningOptions options;
   options.demand_fail_cost = OptReal {1000.0};
   options.use_single_bus = OptBool {true};
   options.scale_objective = OptReal {1.0};
-  options.output_format = OptName {"csv"};
-  options.output_compression = OptName {"uncompressed"};
+  options.output_format = DataFormat::csv;
+  options.output_compression = CompressionCodec::uncompressed;
 
   System system = {
       .name = "sddp_aperture_explicit",
@@ -1797,11 +1798,11 @@ TEST_CASE("Aperture clone LP feasibility diagnostics")  // NOLINT
       .turbine_array = turbine_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = true;
   opts.demand_fail_cost = OptReal {1000.0};
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP sim_lp(simulation, options);
   SystemLP sys_lp(system, sim_lp);
 

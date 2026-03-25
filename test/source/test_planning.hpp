@@ -3,9 +3,9 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/json/json_planning.hpp>
-#include <gtopt/options_lp.hpp>
 #include <gtopt/planning.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
@@ -24,7 +24,7 @@ TEST_CASE("Planning - Construction with properties")
   using namespace gtopt;
 
   // Create basic components
-  const Options options {};
+  const PlanningOptions options {};
   const Simulation simulation {};
 
   // Create minimal system
@@ -93,7 +93,7 @@ TEST_CASE("PlanningLP - Default construction base")
 {
   using namespace gtopt;
   // Create minimal components
-  const Options options {};
+  const PlanningOptions options {};
   const Simulation simulation {};
   const Planning planning {};
 
@@ -109,7 +109,7 @@ TEST_CASE("PlanningLP - Default construction base")
 TEST_CASE("PlanningLP - Default construction")
 {
   // Create minimal components
-  const Options options {};
+  const PlanningOptions options {};
   const Simulation simulation {};
 
   // Create minimal system with one bus

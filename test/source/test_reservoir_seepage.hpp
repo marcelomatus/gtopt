@@ -152,7 +152,7 @@ TEST_CASE("ReservoirSeepageLP - basic seepage constraint")
       .turbine_array = turbine_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -266,7 +266,7 @@ TEST_CASE("ReservoirSeepageLP - multi-block seepage")
       .turbine_array = turbine_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -513,7 +513,7 @@ TEST_CASE("ReservoirSeepageLP - piecewise segments LP constraint")
       .turbine_array = turbine_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -668,7 +668,7 @@ TEST_CASE("ReservoirSeepageLP - per-stage slope/constant schedule")
       .turbine_array = turbine_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -809,7 +809,7 @@ TEST_CASE("ReservoirSeepageLP - seepage_cols_at accessor")
       .turbine_array = turbine_array,
   };
 
-  const OptionsLP opts;
+  const PlanningOptionsLP opts;
   SimulationLP simulation_lp(simulation, opts);
   SystemLP system_lp(system, simulation_lp);
 
@@ -947,9 +947,9 @@ TEST_CASE("ReservoirSeepageLP - add_to_output via write_out")
           },
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.output_directory = tmpdir.string();
-  opts.output_format = std::string {"parquet"};
+  opts.output_format = DataFormat::parquet;
 
   const System system = {
       .name = "FiltOutputTest",
@@ -963,7 +963,7 @@ TEST_CASE("ReservoirSeepageLP - add_to_output via write_out")
       .turbine_array = turbine_array,
   };
 
-  const OptionsLP options_lp(opts);
+  const PlanningOptionsLP options_lp(opts);
   SimulationLP simulation_lp(simulation, options_lp);
   SystemLP system_lp(system, simulation_lp);
 
@@ -1124,9 +1124,9 @@ TEST_CASE("ReservoirSeepageLP - update_lp with piecewise segments")
       .turbine_array = turbine_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.demand_fail_cost = OptReal {1000.0};
-  const OptionsLP options_lp(opts);
+  const PlanningOptionsLP options_lp(opts);
   SimulationLP simulation_lp(simulation, options_lp);
   SystemLP system_lp(system, simulation_lp);
 
@@ -1297,9 +1297,9 @@ TEST_CASE("ReservoirSeepageLP - update_lp with different eini segment")
       .turbine_array = turbine_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.demand_fail_cost = OptReal {1000.0};
-  const OptionsLP options_lp(opts);
+  const PlanningOptionsLP options_lp(opts);
   SimulationLP simulation_lp(simulation, options_lp);
   SystemLP system_lp(system, simulation_lp);
 
@@ -1455,9 +1455,9 @@ TEST_CASE("ReservoirSeepageLP - zero-slope segment edge case")
       .turbine_array = turbine_array,
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.demand_fail_cost = OptReal {1000.0};
-  const OptionsLP options_lp(opts);
+  const PlanningOptionsLP options_lp(opts);
   SimulationLP simulation_lp(simulation, options_lp);
   SystemLP system_lp(system, simulation_lp);
 
@@ -1624,9 +1624,9 @@ TEST_CASE("ReservoirSeepageLP - multi-stage segments with output")
           },
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.output_directory = tmpdir.string();
-  opts.output_format = std::string {"parquet"};
+  opts.output_format = DataFormat::parquet;
 
   const System system = {
       .name = "MultiStagePiecewiseFilt",
@@ -1640,7 +1640,7 @@ TEST_CASE("ReservoirSeepageLP - multi-stage segments with output")
       .turbine_array = turbine_array,
   };
 
-  const OptionsLP options_lp(opts);
+  const PlanningOptionsLP options_lp(opts);
   SimulationLP simulation_lp(simulation, options_lp);
   SystemLP system_lp(system, simulation_lp);
 

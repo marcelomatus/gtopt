@@ -26,7 +26,7 @@
 #pragma once
 
 #include <gtopt/index_holder.hpp>
-#include <gtopt/options_lp.hpp>
+#include <gtopt/planning_options_lp.hpp>
 
 namespace gtopt::detail
 {
@@ -62,7 +62,7 @@ namespace gtopt
 class CostHelper
 {
 public:
-  explicit CostHelper(const OptionsLP& options,
+  explicit CostHelper(const PlanningOptionsLP& options,
                       const std::vector<ScenarioLP>& scenarios,
                       const std::vector<StageLP>& stages)
       : m_options_(options)
@@ -237,7 +237,7 @@ public:
       const;
 
 private:
-  std::reference_wrapper<const OptionsLP> m_options_;
+  std::reference_wrapper<const PlanningOptionsLP> m_options_;
   std::reference_wrapper<const std::vector<ScenarioLP>> m_scenarios_;
   std::reference_wrapper<const std::vector<StageLP>> m_stages_;
 };

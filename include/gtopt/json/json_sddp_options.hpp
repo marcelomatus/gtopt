@@ -15,12 +15,151 @@
 
 namespace daw::json
 {
+using gtopt::BoundaryCutsMode;
+using gtopt::CutSharingMode;
+using gtopt::ElasticFilterMode;
+using gtopt::HotStartMode;
+using gtopt::RecoveryMode;
 using gtopt::SddpOptions;
 using gtopt::SolverOptions;
+
+/// Custom constructor: converts JSON strings → typed enums
+struct SddpOptionsConstructor
+{
+  [[nodiscard]] SddpOptions operator()(
+      OptName cut_sharing_mode_str,
+      OptName cut_directory,
+      OptBool api_enabled,
+      OptInt update_lp_skip,
+      OptInt max_iterations,
+      OptInt min_iterations,
+      OptReal convergence_tol,
+      OptReal elastic_penalty,
+      OptReal alpha_min,
+      OptReal alpha_max,
+      OptName cut_recovery_mode_str,
+      OptName recovery_mode_str,
+      OptBool save_per_iteration,
+      OptName cuts_input_file,
+      OptName sentinel_file,
+      OptName elastic_mode_str,
+      OptInt multi_cut_threshold,
+      std::optional<Array<Uid>> apertures,
+      OptName aperture_directory,
+      OptReal aperture_timeout,
+      OptBool save_aperture_lp,
+      OptBool warm_start,
+      OptName boundary_cuts_file,
+      OptName boundary_cuts_mode_str,
+      OptInt boundary_max_iterations,
+      OptName named_cuts_file,
+      OptInt max_cuts_per_phase,
+      OptInt cut_prune_interval,
+      OptReal prune_dual_threshold,
+      OptBool single_cut_storage,
+      OptInt max_stored_cuts,
+      OptBool use_clone_pool,
+      OptBool simulation_mode,
+      OptReal stationary_tol,
+      OptInt stationary_window,
+      std::optional<SolverOptions> forward_solver_options,
+      std::optional<SolverOptions> backward_solver_options) const
+  {
+    SddpOptions opts;
+    if (cut_sharing_mode_str) {
+      opts.cut_sharing_mode =
+          gtopt::cut_sharing_mode_from_name(*cut_sharing_mode_str);
+    }
+    opts.cut_directory = std::move(cut_directory);
+    opts.api_enabled = api_enabled;
+    opts.update_lp_skip = update_lp_skip;
+    opts.max_iterations = max_iterations;
+    opts.min_iterations = min_iterations;
+    opts.convergence_tol = convergence_tol;
+    opts.elastic_penalty = elastic_penalty;
+    opts.alpha_min = alpha_min;
+    opts.alpha_max = alpha_max;
+    if (cut_recovery_mode_str) {
+      opts.cut_recovery_mode =
+          gtopt::cut_recovery_mode_from_name(*cut_recovery_mode_str);
+    }
+    if (recovery_mode_str) {
+      opts.recovery_mode = gtopt::recovery_mode_from_name(*recovery_mode_str);
+    }
+    opts.save_per_iteration = save_per_iteration;
+    opts.cuts_input_file = std::move(cuts_input_file);
+    opts.sentinel_file = std::move(sentinel_file);
+    if (elastic_mode_str) {
+      opts.elastic_mode =
+          gtopt::elastic_filter_mode_from_name(*elastic_mode_str);
+    }
+    opts.multi_cut_threshold = multi_cut_threshold;
+    opts.apertures = std::move(apertures);
+    opts.aperture_directory = std::move(aperture_directory);
+    opts.aperture_timeout = aperture_timeout;
+    opts.save_aperture_lp = save_aperture_lp;
+    opts.warm_start = warm_start;
+    opts.boundary_cuts_file = std::move(boundary_cuts_file);
+    if (boundary_cuts_mode_str) {
+      opts.boundary_cuts_mode =
+          gtopt::boundary_cuts_mode_from_name(*boundary_cuts_mode_str);
+    }
+    opts.boundary_max_iterations = boundary_max_iterations;
+    opts.named_cuts_file = std::move(named_cuts_file);
+    opts.max_cuts_per_phase = max_cuts_per_phase;
+    opts.cut_prune_interval = cut_prune_interval;
+    opts.prune_dual_threshold = prune_dual_threshold;
+    opts.single_cut_storage = single_cut_storage;
+    opts.max_stored_cuts = max_stored_cuts;
+    opts.use_clone_pool = use_clone_pool;
+    opts.simulation_mode = simulation_mode;
+    opts.stationary_tol = stationary_tol;
+    opts.stationary_window = stationary_window;
+    opts.forward_solver_options = std::move(forward_solver_options);
+    opts.backward_solver_options = std::move(backward_solver_options);
+    return opts;
+  }
+};
+
+namespace detail
+{
+
+inline OptName enum_to_opt_name(const std::optional<CutSharingMode>& e)
+{
+  return e ? OptName {std::string(gtopt::cut_sharing_mode_name(*e))}
+           : OptName {};
+}
+
+inline OptName enum_to_opt_name(const std::optional<HotStartMode>& e)
+{
+  return e ? OptName {std::string(gtopt::cut_recovery_mode_name(*e))}
+           : OptName {};
+}
+
+inline OptName enum_to_opt_name(const std::optional<RecoveryMode>& e)
+{
+  return e ? OptName {std::string(gtopt::recovery_mode_name(*e))} : OptName {};
+}
+
+inline OptName enum_to_opt_name(const std::optional<ElasticFilterMode>& e)
+{
+  return e ? OptName {std::string(gtopt::elastic_filter_mode_name(*e))}
+           : OptName {};
+}
+
+inline OptName enum_to_opt_name(const std::optional<BoundaryCutsMode>& e)
+{
+  return e ? OptName {std::string(gtopt::boundary_cuts_mode_name(*e))}
+           : OptName {};
+}
+
+}  // namespace detail
 
 template<>
 struct json_data_contract<SddpOptions>
 {
+  using constructor_t = SddpOptionsConstructor;
+
   using type = json_member_list<
       json_string_null<"cut_sharing_mode", OptName>,
       json_string_null<"cut_directory", OptName>,
@@ -59,50 +198,48 @@ struct json_data_contract<SddpOptions>
       json_bool_null<"simulation_mode", OptBool>,
       json_number_null<"stationary_tol", OptReal>,
       json_number_null<"stationary_window", OptInt>,
-      json_class_null<"solver_options", SolverOptions>,
       json_class_null<"forward_solver_options", SolverOptions>,
       json_class_null<"backward_solver_options", SolverOptions>>;
 
-  constexpr static auto to_json_data(SddpOptions const& opt)
+  static auto to_json_data(SddpOptions const& opt)
   {
-    return std::forward_as_tuple(opt.cut_sharing_mode,
-                                 opt.cut_directory,
-                                 opt.api_enabled,
-                                 opt.update_lp_skip,
-                                 opt.max_iterations,
-                                 opt.min_iterations,
-                                 opt.convergence_tol,
-                                 opt.elastic_penalty,
-                                 opt.alpha_min,
-                                 opt.alpha_max,
-                                 opt.cut_recovery_mode,
-                                 opt.recovery_mode,
-                                 opt.save_per_iteration,
-                                 opt.cuts_input_file,
-                                 opt.sentinel_file,
-                                 opt.elastic_mode,
-                                 opt.multi_cut_threshold,
-                                 opt.apertures,
-                                 opt.aperture_directory,
-                                 opt.aperture_timeout,
-                                 opt.save_aperture_lp,
-                                 opt.warm_start,
-                                 opt.boundary_cuts_file,
-                                 opt.boundary_cuts_mode,
-                                 opt.boundary_max_iterations,
-                                 opt.named_cuts_file,
-                                 opt.max_cuts_per_phase,
-                                 opt.cut_prune_interval,
-                                 opt.prune_dual_threshold,
-                                 opt.single_cut_storage,
-                                 opt.max_stored_cuts,
-                                 opt.use_clone_pool,
-                                 opt.simulation_mode,
-                                 opt.stationary_tol,
-                                 opt.stationary_window,
-                                 opt.solver_options,
-                                 opt.forward_solver_options,
-                                 opt.backward_solver_options);
+    return std::make_tuple(detail::enum_to_opt_name(opt.cut_sharing_mode),
+                           opt.cut_directory,
+                           opt.api_enabled,
+                           opt.update_lp_skip,
+                           opt.max_iterations,
+                           opt.min_iterations,
+                           opt.convergence_tol,
+                           opt.elastic_penalty,
+                           opt.alpha_min,
+                           opt.alpha_max,
+                           detail::enum_to_opt_name(opt.cut_recovery_mode),
+                           detail::enum_to_opt_name(opt.recovery_mode),
+                           opt.save_per_iteration,
+                           opt.cuts_input_file,
+                           opt.sentinel_file,
+                           detail::enum_to_opt_name(opt.elastic_mode),
+                           opt.multi_cut_threshold,
+                           opt.apertures,
+                           opt.aperture_directory,
+                           opt.aperture_timeout,
+                           opt.save_aperture_lp,
+                           opt.warm_start,
+                           opt.boundary_cuts_file,
+                           detail::enum_to_opt_name(opt.boundary_cuts_mode),
+                           opt.boundary_max_iterations,
+                           opt.named_cuts_file,
+                           opt.max_cuts_per_phase,
+                           opt.cut_prune_interval,
+                           opt.prune_dual_threshold,
+                           opt.single_cut_storage,
+                           opt.max_stored_cuts,
+                           opt.use_clone_pool,
+                           opt.simulation_mode,
+                           opt.stationary_tol,
+                           opt.stationary_window,
+                           opt.forward_solver_options,
+                           opt.backward_solver_options);
   }
 };
 
