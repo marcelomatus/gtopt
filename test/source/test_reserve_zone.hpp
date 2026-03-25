@@ -154,7 +154,7 @@ TEST_CASE("ReserveZoneLP - basic reserve zone with up requirement")
       .scenario_array = {{.uid = Uid {0}}},
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.reserve_fail_cost = 10000.0;
 
   const System system = {
@@ -166,7 +166,7 @@ TEST_CASE("ReserveZoneLP - basic reserve zone with up requirement")
       .reserve_provision_array = reserve_provision_array,
   };
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -227,7 +227,7 @@ TEST_CASE("ReserveZoneLP - up and down reserve requirements")
       .scenario_array = {{.uid = Uid {0}}},
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.reserve_fail_cost = 10000.0;
 
   const System system = {
@@ -239,7 +239,7 @@ TEST_CASE("ReserveZoneLP - up and down reserve requirements")
       .reserve_provision_array = reserve_provision_array,
   };
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -318,7 +318,7 @@ TEST_CASE("ReserveZoneLP - multi-stage reserve with provision")
       .scenario_array = {{.uid = Uid {0}}},
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.reserve_fail_cost = 10000.0;
 
   const System system = {
@@ -330,7 +330,7 @@ TEST_CASE("ReserveZoneLP - multi-stage reserve with provision")
       .reserve_provision_array = reserve_provision_array,
   };
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -385,7 +385,7 @@ TEST_CASE("ReserveProvisionLP - capacity factor constraint")
       .scenario_array = {{.uid = Uid {0}}},
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.reserve_fail_cost = 10000.0;
 
   const System system = {
@@ -397,7 +397,7 @@ TEST_CASE("ReserveProvisionLP - capacity factor constraint")
       .reserve_provision_array = reserve_provision_array,
   };
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -447,7 +447,7 @@ TEST_CASE("ReserveZoneLP - reserve zone without requirement (no-op)")
       .reserve_zone_array = reserve_zone_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -503,7 +503,7 @@ TEST_CASE("ReserveZoneLP - down-reserve provision (dprov)")
       .scenario_array = {{.uid = Uid {0}}},
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.reserve_fail_cost = 10000.0;
 
   const System system = {
@@ -515,7 +515,7 @@ TEST_CASE("ReserveZoneLP - down-reserve provision (dprov)")
       .reserve_provision_array = reserve_provision_array,
   };
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -577,7 +577,7 @@ TEST_CASE("ReserveZoneLP - both up and down reserve with capacity factor")
       .scenario_array = {{.uid = Uid {0}}},
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.reserve_fail_cost = 10000.0;
 
   const System system = {
@@ -589,7 +589,7 @@ TEST_CASE("ReserveZoneLP - both up and down reserve with capacity factor")
       .reserve_provision_array = reserve_provision_array,
   };
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -681,9 +681,9 @@ TEST_CASE("ReserveZoneLP - add_to_output writes reserve output files")
       std::filesystem::temp_directory_path() / "gtopt_test_reserve_output";
   std::filesystem::create_directories(tmpdir);
 
-  Options opts;
+  PlanningOptions opts;
   opts.output_directory = tmpdir.string();
-  opts.output_format = "parquet";
+  opts.output_format = DataFormat::parquet;
   opts.reserve_fail_cost = 10000.0;
 
   const System system = {
@@ -695,7 +695,7 @@ TEST_CASE("ReserveZoneLP - add_to_output writes reserve output files")
       .reserve_provision_array = reserve_provision_array,
   };
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -791,7 +791,7 @@ TEST_CASE("ReserveZoneLP - lookup methods on LP objects")
           },
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.reserve_fail_cost = 10000.0;
 
   const System system = {
@@ -803,7 +803,7 @@ TEST_CASE("ReserveZoneLP - lookup methods on LP objects")
       .reserve_provision_array = reserve_provision_array,
   };
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -955,7 +955,7 @@ TEST_CASE("ReserveZoneLP - reserve fail cost with insufficient provision")
           },
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.reserve_fail_cost = 5000.0;
 
   const System system = {
@@ -967,7 +967,7 @@ TEST_CASE("ReserveZoneLP - reserve fail cost with insufficient provision")
       .reserve_provision_array = reserve_provision_array,
   };
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -1078,7 +1078,7 @@ TEST_CASE("ReserveZoneLP - no reserve_fail_cost (fixed requirement)")
   };
 
   // No reserve_fail_cost set -> fixed requirement (no shortage variable)
-  const Options opts;
+  const PlanningOptions opts;
 
   const System system = {
       .name = "FixedReqTest",
@@ -1089,7 +1089,7 @@ TEST_CASE("ReserveZoneLP - no reserve_fail_cost (fixed requirement)")
       .reserve_provision_array = reserve_provision_array,
   };
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -1192,7 +1192,7 @@ TEST_CASE(
           },
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.reserve_fail_cost = 10000.0;
 
   const System system = {
@@ -1204,7 +1204,7 @@ TEST_CASE(
       .reserve_provision_array = reserve_provision_array,
   };
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -1313,7 +1313,7 @@ TEST_CASE("ReserveZoneLP - multiple blocks with reserve duals")
           },
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.reserve_fail_cost = 10000.0;
 
   const System system = {
@@ -1325,7 +1325,7 @@ TEST_CASE("ReserveZoneLP - multiple blocks with reserve duals")
       .reserve_provision_array = reserve_provision_array,
   };
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -1444,7 +1444,7 @@ TEST_CASE("ReserveZoneLP - reserve provision by zone name")
           },
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.reserve_fail_cost = 10000.0;
 
   const System system = {
@@ -1456,7 +1456,7 @@ TEST_CASE("ReserveZoneLP - reserve provision by zone name")
       .reserve_provision_array = reserve_provision_array,
   };
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -1563,9 +1563,9 @@ TEST_CASE(
       std::filesystem::temp_directory_path() / "gtopt_test_reserve_csv_out";
   std::filesystem::create_directories(tmpdir);
 
-  Options opts;
+  PlanningOptions opts;
   opts.output_directory = tmpdir.string();
-  opts.output_format = "csv";
+  opts.output_format = DataFormat::csv;
   opts.reserve_fail_cost = 10000.0;
 
   const System system = {
@@ -1577,7 +1577,7 @@ TEST_CASE(
       .reserve_provision_array = reserve_provision_array,
   };
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 

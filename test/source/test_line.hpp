@@ -3,7 +3,7 @@
 #include <gtopt/field_sched.hpp>
 #include <gtopt/line.hpp>
 #include <gtopt/linear_interface.hpp>
-#include <gtopt/options_lp.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/stage.hpp>
 #include <gtopt/system_lp.hpp>
@@ -165,7 +165,7 @@ TEST_CASE("SystemLP with transmission line - two bus system")
       .scenario_array = {{.uid = Uid {0}}},
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.demand_fail_cost = 1000.0;
 
   System system = {
@@ -176,7 +176,7 @@ TEST_CASE("SystemLP with transmission line - two bus system")
       .line_array = line_array,
   };
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
 
   system.setup_reference_bus(options);
@@ -231,7 +231,7 @@ TEST_CASE("SystemLP with line - single bus mode")
       .scenario_array = {{.uid = Uid {0}}},
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = true;
 
   System system = {
@@ -242,7 +242,7 @@ TEST_CASE("SystemLP with line - single bus mode")
       .line_array = line_array,
   };
 
-  const OptionsLP options_lp(opts);
+  const PlanningOptionsLP options_lp(opts);
   SimulationLP simulation_lp(simulation, options_lp);
 
   system.setup_reference_bus(options_lp);
@@ -299,7 +299,7 @@ TEST_CASE("SystemLP with loop line is skipped")
       .line_array = line_array,
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
 
   SystemLP system_lp(system, simulation_lp);
@@ -353,7 +353,7 @@ TEST_CASE("LineLP - Kirchhoff (theta) constraints with reactance")
       .scenario_array = {{.uid = Uid {0}}},
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_kirchhoff = true;
   opts.use_single_bus = false;
 
@@ -365,7 +365,7 @@ TEST_CASE("LineLP - Kirchhoff (theta) constraints with reactance")
       .line_array = line_array,
   };
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -418,7 +418,7 @@ TEST_CASE("LineLP - line losses (lossfactor > 0)")
       .scenario_array = {{.uid = Uid {0}}},
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = false;
   opts.use_kirchhoff = false;
 
@@ -430,7 +430,7 @@ TEST_CASE("LineLP - line losses (lossfactor > 0)")
       .line_array = line_array,
   };
 
-  const OptionsLP options(opts);
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -516,7 +516,7 @@ TEST_CASE("LineLP - quadratic losses (piecewise-linear with resistance)")
           },
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = false;
   opts.use_kirchhoff = false;
   opts.use_line_losses = true;
@@ -529,7 +529,7 @@ TEST_CASE("LineLP - quadratic losses (piecewise-linear with resistance)")
       .line_array = line_array,
   };
 
-  const OptionsLP options_ql(opts);
+  const PlanningOptionsLP options_ql(opts);
   SimulationLP simulation_lp(simulation, options_ql);
   SystemLP system_lp(system, simulation_lp);
 
@@ -624,7 +624,7 @@ TEST_CASE("LineLP - quadratic losses with Kirchhoff constraints")
           },
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = false;
   opts.use_kirchhoff = true;
   opts.use_line_losses = true;
@@ -637,7 +637,7 @@ TEST_CASE("LineLP - quadratic losses with Kirchhoff constraints")
       .line_array = line_array,
   };
 
-  const OptionsLP options_qk(opts);
+  const PlanningOptionsLP options_qk(opts);
   SimulationLP simulation_lp(simulation, options_qk);
   SystemLP system_lp(system, simulation_lp);
 
@@ -721,7 +721,7 @@ TEST_CASE(
           },
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = false;
   opts.use_kirchhoff = false;
   opts.use_line_losses = true;
@@ -735,7 +735,7 @@ TEST_CASE(
       .line_array = line_array,
   };
 
-  const OptionsLP options_gs(opts);
+  const PlanningOptionsLP options_gs(opts);
   SimulationLP simulation_lp(simulation, options_gs);
   SystemLP system_lp(system, simulation_lp);
 
@@ -829,7 +829,7 @@ TEST_CASE("LineLP - per-line use_line_losses overrides global option")
         },
     };
 
-    Options opts;
+    PlanningOptions opts;
     opts.use_single_bus = false;
     opts.use_kirchhoff = false;
     opts.use_line_losses = false;  // global: disabled
@@ -842,7 +842,7 @@ TEST_CASE("LineLP - per-line use_line_losses overrides global option")
         .line_array = line_array,
     };
 
-    const OptionsLP options_a(opts);
+    const PlanningOptionsLP options_a(opts);
     SimulationLP simulation_lp(simulation, options_a);
     SystemLP system_lp(system, simulation_lp);
 
@@ -876,7 +876,7 @@ TEST_CASE("LineLP - per-line use_line_losses overrides global option")
         },
     };
 
-    Options opts;
+    PlanningOptions opts;
     opts.use_single_bus = false;
     opts.use_kirchhoff = false;
     opts.use_line_losses = true;  // global: enabled
@@ -890,7 +890,7 @@ TEST_CASE("LineLP - per-line use_line_losses overrides global option")
         .line_array = line_array,
     };
 
-    const OptionsLP options_b(opts);
+    const PlanningOptionsLP options_b(opts);
     SimulationLP simulation_lp(simulation, options_b);
     SystemLP system_lp(system, simulation_lp);
 
@@ -976,11 +976,11 @@ TEST_CASE(
       },
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = false;
   opts.use_kirchhoff = true;
   opts.use_line_losses = false;
-  const OptionsLP options_lp(opts);
+  const PlanningOptionsLP options_lp(opts);
 
   // Nominal tap test
   {
@@ -1075,11 +1075,11 @@ TEST_CASE("Phase-shifting transformer modifies Kirchhoff RHS")
       },
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = false;
   opts.use_kirchhoff = true;
   opts.use_line_losses = false;
-  const OptionsLP options_lp(opts);
+  const PlanningOptionsLP options_lp(opts);
 
   System system = {
       .name = "PSTTwoBus",
@@ -1184,7 +1184,7 @@ TEST_CASE("LineLP - quadratic losses with capacity expansion")
           },
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = false;
   opts.use_kirchhoff = false;
   opts.use_line_losses = true;
@@ -1197,7 +1197,7 @@ TEST_CASE("LineLP - quadratic losses with capacity expansion")
       .line_array = line_array,
   };
 
-  const OptionsLP options_qe(opts);
+  const PlanningOptionsLP options_qe(opts);
   SimulationLP simulation_lp(simulation, options_qe);
   SystemLP system_lp(system, simulation_lp);
 
@@ -1292,7 +1292,7 @@ TEST_CASE("LineLP - linear losses (lossfactor) with capacity expansion")
           },
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = false;
   opts.use_kirchhoff = false;
 
@@ -1304,7 +1304,7 @@ TEST_CASE("LineLP - linear losses (lossfactor) with capacity expansion")
       .line_array = line_array,
   };
 
-  const OptionsLP options_le(opts);
+  const PlanningOptionsLP options_le(opts);
   SimulationLP simulation_lp(simulation, options_le);
   SystemLP system_lp(system, simulation_lp);
 
@@ -1400,7 +1400,7 @@ TEST_CASE("LineLP - inactive line is skipped")
           },
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = false;
   opts.use_kirchhoff = false;
   opts.demand_fail_cost = 1000.0;
@@ -1413,7 +1413,7 @@ TEST_CASE("LineLP - inactive line is skipped")
       .line_array = line_array,
   };
 
-  const OptionsLP options_il(opts);
+  const PlanningOptionsLP options_il(opts);
   SimulationLP simulation_lp(simulation, options_il);
   SystemLP system_lp(system, simulation_lp);
 
@@ -1508,7 +1508,7 @@ TEST_CASE("LineLP - transfer cost is applied to flow")
           },
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = false;
   opts.use_kirchhoff = false;
 
@@ -1520,7 +1520,7 @@ TEST_CASE("LineLP - transfer cost is applied to flow")
       .line_array = line_array,
   };
 
-  const OptionsLP options_tc(opts);
+  const PlanningOptionsLP options_tc(opts);
   SimulationLP simulation_lp(simulation, options_tc);
   SystemLP system_lp(system, simulation_lp);
 
@@ -1622,7 +1622,7 @@ TEST_CASE("LineLP - multi-stage capacity expansion with quadratic losses")
           },
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = false;
   opts.use_kirchhoff = false;
   opts.use_line_losses = true;
@@ -1635,7 +1635,7 @@ TEST_CASE("LineLP - multi-stage capacity expansion with quadratic losses")
       .line_array = line_array,
   };
 
-  const OptionsLP options_ms(opts);
+  const PlanningOptionsLP options_ms(opts);
   SimulationLP simulation_lp(simulation, options_ms);
   SystemLP system_lp(system, simulation_lp);
 
@@ -1728,7 +1728,7 @@ TEST_CASE(
           },
   };
 
-  Options opts;
+  PlanningOptions opts;
   opts.use_single_bus = false;
   opts.use_kirchhoff = true;
   opts.use_line_losses = true;
@@ -1741,7 +1741,7 @@ TEST_CASE(
       .line_array = line_array,
   };
 
-  const OptionsLP options_qke(opts);
+  const PlanningOptionsLP options_qke(opts);
   SimulationLP simulation_lp(simulation, options_qke);
   system.setup_reference_bus(options_qke);
   SystemLP system_lp(system, simulation_lp);

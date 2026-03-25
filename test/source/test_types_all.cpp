@@ -28,8 +28,8 @@
 #include <gtopt/error.hpp>
 #include <gtopt/fmap.hpp>
 #include <gtopt/label_maker.hpp>
-#include <gtopt/options_lp.hpp>
 #include <gtopt/overload.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/single_id.hpp>
 #include <gtopt/stage_lp.hpp>

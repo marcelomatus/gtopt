@@ -50,13 +50,6 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
     "simulation_mode": true,
     "stationary_tol": 0.01,
     "stationary_window": 15,
-    "solver_options": {
-      "algorithm": 2,
-      "threads": 1,
-      "presolve": false,
-      "log_level": 0,
-      "reuse_basis": true
-    },
     "forward_solver_options": {
       "algorithm": 3,
       "threads": 4,
@@ -76,7 +69,7 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
   const auto opts = daw::json::from_json<SddpOptions>(json_data);
 
   REQUIRE(opts.cut_sharing_mode.has_value());
-  CHECK(*opts.cut_sharing_mode == "expected");
+  CHECK(*opts.cut_sharing_mode == CutSharingMode::expected);
   REQUIRE(opts.cut_directory.has_value());
   CHECK(*opts.cut_directory == "my_cuts");
   REQUIRE(opts.api_enabled.has_value());
@@ -96,9 +89,9 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
   REQUIRE(opts.alpha_max.has_value());
   CHECK(*opts.alpha_max == doctest::Approx(1e10));
   REQUIRE(opts.cut_recovery_mode.has_value());
-  CHECK(*opts.cut_recovery_mode == "append");
+  CHECK(*opts.cut_recovery_mode == HotStartMode::append);
   REQUIRE(opts.recovery_mode.has_value());
-  CHECK(*opts.recovery_mode == "cuts");
+  CHECK(*opts.recovery_mode == RecoveryMode::cuts);
   REQUIRE(opts.save_per_iteration.has_value());
   CHECK(*opts.save_per_iteration == false);
   REQUIRE(opts.cuts_input_file.has_value());
@@ -106,7 +99,7 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
   REQUIRE(opts.sentinel_file.has_value());
   CHECK(*opts.sentinel_file == "stop.flag");
   REQUIRE(opts.elastic_mode.has_value());
-  CHECK(*opts.elastic_mode == "multi_cut");
+  CHECK(*opts.elastic_mode == ElasticFilterMode::multi_cut);
   REQUIRE(opts.multi_cut_threshold.has_value());
   CHECK(*opts.multi_cut_threshold == 20);
   REQUIRE(opts.apertures.has_value());
@@ -125,7 +118,7 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
   REQUIRE(opts.boundary_cuts_file.has_value());
   CHECK(*opts.boundary_cuts_file == "boundary.csv");
   REQUIRE(opts.boundary_cuts_mode.has_value());
-  CHECK(*opts.boundary_cuts_mode == "combined");
+  CHECK(*opts.boundary_cuts_mode == BoundaryCutsMode::combined);
   REQUIRE(opts.boundary_max_iterations.has_value());
   CHECK(*opts.boundary_max_iterations == 50);
   REQUIRE(opts.named_cuts_file.has_value());
@@ -148,11 +141,6 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
   CHECK(*opts.stationary_tol == doctest::Approx(0.01));
   REQUIRE(opts.stationary_window.has_value());
   CHECK(*opts.stationary_window == 15);
-  REQUIRE(opts.solver_options.has_value());
-  CHECK(opts.solver_options->algorithm == LPAlgo::dual);
-  CHECK(opts.solver_options->threads == 1);
-  CHECK(opts.solver_options->presolve == false);
-  CHECK(opts.solver_options->reuse_basis == true);
   REQUIRE(opts.forward_solver_options.has_value());
   CHECK(opts.forward_solver_options->algorithm == LPAlgo::barrier);
   CHECK(opts.forward_solver_options->threads == 4);
@@ -177,7 +165,7 @@ TEST_CASE("SddpOptions JSON - Missing fields stay nullopt")
   REQUIRE(opts.max_iterations.has_value());
   CHECK(*opts.max_iterations == 50);
   REQUIRE(opts.elastic_mode.has_value());
-  CHECK(*opts.elastic_mode == "single_cut");
+  CHECK(*opts.elastic_mode == ElasticFilterMode::single_cut);
 
   CHECK_FALSE(opts.cut_sharing_mode.has_value());
   CHECK_FALSE(opts.min_iterations.has_value());
@@ -202,10 +190,10 @@ TEST_CASE("SddpOptions JSON - Empty apertures array")
 TEST_CASE("SddpOptions JSON - Round-trip serialization")
 {
   const SddpOptions original {
-      .cut_sharing_mode = "accumulate",
+      .cut_sharing_mode = CutSharingMode::accumulate,
       .max_iterations = 150,
       .convergence_tol = 1e-5,
-      .elastic_mode = "backpropagate",
+      .elastic_mode = ElasticFilterMode::backpropagate,
       .apertures =
           Array<Uid> {
               10,

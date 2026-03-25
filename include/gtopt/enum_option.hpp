@@ -242,6 +242,9 @@ enum class CompressionCodec : uint8_t
   lz4 = 3,  ///< LZ4 compression
   bzip2 = 4,  ///< bzip2 compression
   xz = 5,  ///< xz/LZMA compression
+  snappy = 6,  ///< Snappy compression (Arrow/Parquet)
+  brotli = 7,  ///< Brotli compression (Arrow/Parquet)
+  lzo = 8,  ///< LZO compression (Arrow/Parquet)
 };
 
 /// Name-value table for CompressionCodec
@@ -253,6 +256,9 @@ inline constexpr auto compression_codec_entries =
         {.name = "lz4", .value = CompressionCodec::lz4},
         {.name = "bzip2", .value = CompressionCodec::bzip2},
         {.name = "xz", .value = CompressionCodec::xz},
+        {.name = "snappy", .value = CompressionCodec::snappy},
+        {.name = "brotli", .value = CompressionCodec::brotli},
+        {.name = "lzo", .value = CompressionCodec::lzo},
     });
 
 /// Parse a CompressionCodec from a string

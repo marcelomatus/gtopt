@@ -9,8 +9,8 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/linear_interface.hpp>
-#include <gtopt/options_lp.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/simulation.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
@@ -37,7 +37,7 @@ TEST_CASE("Simulation - Constructor initialization")
   };
 
   // Create minimal system
-  const Options options = {};
+  const PlanningOptions options = {};
 
   const Simulation simulation = {
       .block_array = {{.uid = Uid {1}, .duration = 1}},
@@ -54,7 +54,7 @@ TEST_CASE("Simulation - Constructor initialization")
   };
 
   // Test constructor
-  const OptionsLP options_lp(options);
+  const PlanningOptionsLP options_lp(options);
   SimulationLP simulation_lp(simulation, options_lp);
 
   SystemLP system_lp(system, simulation_lp);
@@ -90,7 +90,7 @@ TEST_CASE("Simulation - Basic LP run without solving")
       },
   };
 
-  const Options options = {};
+  const PlanningOptions options = {};
 
   const Simulation simulation = {
       .block_array = {{.uid = Uid {1}, .duration = 1}},
@@ -107,7 +107,7 @@ TEST_CASE("Simulation - Basic LP run without solving")
   };
 
   // Test constructor
-  const OptionsLP options_lp(options);
+  const PlanningOptionsLP options_lp(options);
   SimulationLP simulation_lp(simulation, options_lp);
 
   SystemLP system_lp(system, simulation_lp);
@@ -126,7 +126,7 @@ TEST_CASE("SimulationLP - empty phase_array falls back to default Phase")
   // member is empty, overriding the struct default {Phase{}}.
   // SimulationLP must still produce exactly one active phase.
 
-  const OptionsLP options_lp({});
+  const PlanningOptionsLP options_lp({});
 
   const Simulation simulation {
       .block_array = {{.uid = Uid {1}, .duration = 1}},
@@ -148,7 +148,7 @@ TEST_CASE("SimulationLP - empty scene_array falls back to default Scene")
   // member is empty, overriding the struct default {Scene{}}.
   // SimulationLP must still produce exactly one active scene.
 
-  const OptionsLP options_lp({});
+  const PlanningOptionsLP options_lp({});
 
   const Simulation simulation {
       .block_array = {{.uid = Uid {1}, .duration = 1}},
@@ -168,7 +168,7 @@ TEST_CASE(
     "SimulationLP - both phase_array and scene_array empty fall back to "
     "defaults")
 {  // NOLINT
-  const OptionsLP options_lp({});
+  const PlanningOptionsLP options_lp({});
 
   const Simulation simulation {
       .block_array = {{.uid = Uid {1}, .duration = 1}},

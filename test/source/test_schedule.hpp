@@ -29,7 +29,7 @@ TEST_CASE("schedule test vector")
           },
   };
 
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   SimulationLP simulation {sim, options};
 
   SystemLP system {sys, simulation};

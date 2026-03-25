@@ -1,14 +1,14 @@
 #include <doctest/doctest.h>
 #include <gtopt/block_lp.hpp>
 #include <gtopt/cost_helper.hpp>
-#include <gtopt/options_lp.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/stage_lp.hpp>
 
 TEST_CASE("CostHelper construction and basic properties")
 {
   using namespace gtopt;
-  const OptionsLP options;
+  const PlanningOptionsLP options;
   const std::vector<ScenarioLP> scenarios;
   const std::vector<StageLP> stages;
 
@@ -22,9 +22,9 @@ TEST_CASE("CostHelper construction and basic properties")
 
 TEST_CASE("block_cost calculation")
 {
-  Options opt;
+  PlanningOptions opt;
   opt.scale_objective = 1.0;
-  const OptionsLP options {opt};
+  const PlanningOptionsLP options {opt};
 
   Scenario scenario;
   scenario.probability_factor = 0.5;
@@ -55,10 +55,10 @@ TEST_CASE("block_cost calculation")
 
 TEST_CASE("stage_cost calculation")
 {
-  Options opt;
+  PlanningOptions opt;
   opt.scale_objective = 1.0;
 
-  const OptionsLP options {opt};
+  const PlanningOptionsLP options {opt};
 
   Scenario scenario;
   scenario.probability_factor = 1.0;
@@ -104,9 +104,9 @@ TEST_CASE("stage_cost calculation")
 
 TEST_CASE("scenario_stage_cost calculation")
 {
-  Options opt;
+  PlanningOptions opt;
   opt.scale_objective = 1.0;
-  const OptionsLP options {opt};
+  const PlanningOptionsLP options {opt};
 
   std::vector<Scenario> scenarios(2);
   scenarios[0].probability_factor = 0.6;
@@ -154,9 +154,9 @@ TEST_CASE("scenario_stage_cost calculation")
 
 TEST_CASE("Factor matrix generation")
 {
-  Options opt;
+  PlanningOptions opt;
   opt.scale_objective = 1.0;
-  const OptionsLP options {opt};
+  const PlanningOptionsLP options {opt};
 
   std::vector<Scenario> scenarios(2);
   scenarios[0].probability_factor = 0.6;

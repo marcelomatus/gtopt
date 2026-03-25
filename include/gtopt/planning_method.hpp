@@ -70,16 +70,16 @@ public:
 
 // ─── Factory ────────────────────────────────────────────────────────────────
 
-class OptionsLP;
+class PlanningOptionsLP;
 
 /**
  * @brief Create a solver instance based on options
- * @param options The OptionsLP with all resolved SDDP configuration
+ * @param options The PlanningOptionsLP with all resolved SDDP configuration
  * @param num_phases Number of phases in the simulation (used to validate
  *        SDDP requirements; falls back to monolithic when < 2)
  * @return Unique pointer to the selected solver
  */
 [[nodiscard]] std::unique_ptr<PlanningMethod> make_planning_method(
-    const OptionsLP& options, size_t num_phases = 0);
+    const PlanningOptionsLP& options, size_t num_phases = 0);
 
 }  // namespace gtopt

@@ -21,7 +21,7 @@
 
 #pragma once
 
-#include <gtopt/options_lp.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/reservoir_lp.hpp>
 #include <gtopt/reservoir_production_factor.hpp>
 #include <gtopt/sddp_common.hpp>
