@@ -68,14 +68,14 @@ Multiple system files can be provided and will be merged.
 | `-C` | `--output-compression` | `arg` | Output compression: `uncompressed`, `zstd` (default), `gzip`, `lzo` |
 | `-b` | `--use-single-bus` | `[=arg]` | Use single-bus mode (ignore network topology) |
 | `-k` | `--use-kirchhoff` | `[=arg]` | Use Kirchhoff (DC power flow) mode |
-| `-n` | `--use-lp-names` | `[=arg]` | Use named rows/columns in LP (0=off, 1=names, 2=names+map) |
+| `-n` | `--lp-names-level` | `[=arg]` | LP naming level: `0`/`minimal`, `1`/`only_cols`, `2`/`cols_and_rows` (see below) |
 | `-l` | `--lp-file` | `arg` | Save the LP model to a file |
 | `-j` | `--json-file` | `arg` | Save the merged system configuration to a JSON file |
 | `-e` | `--matrix-eps` | `arg` | Epsilon for matrix sparsity (coefficients below this are zero) |
-| `-c` | `--just-create` | `[=arg]` | Build the LP model and exit without solving |
+| `-c` | `--lp-build` | `[=arg]` | Build the LP model and exit without solving |
 | `-p` | `--fast-parsing` | `[=arg]` | Use fast (non-strict) JSON parsing |
-| | `--lp-solver` | `arg` | LP solver backend: `clp`, `cbc`, `cplex`, `highs` (auto-detected by default) |
-| | `--lp-solvers` | | List available LP solver backends and exit |
+| | `--solver` | `arg` | LP solver backend: `clp`, `cbc`, `cplex`, `highs` (auto-detected by default) |
+| | `--solvers` | | List available LP solver backends and exit |
 
 ## System Configuration File
 
@@ -97,21 +97,23 @@ Solver and I/O settings:
 ```json
 "options": {
   "annual_discount_rate": 0.1,
-  "use_lp_names": true,
   "output_format": "csv",
   "input_format": "parquet",
   "input_directory": "system_c0",
   "use_single_bus": false,
   "use_kirchhoff": true,
   "demand_fail_cost": 1000,
-  "scale_objective": 1000
+  "scale_objective": 1000,
+  "lp_build_options": {
+    "names_level": "only_cols"
+  }
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `annual_discount_rate` | float | Discount rate for investment costs |
-| `use_lp_names` | bool | Use named variables in LP formulation |
+| `lp_build_options.names_level` | string/int | LP naming level (see [LP naming levels](#lp-naming-levels)) |
 | `output_format` | string | Output format: `"csv"` or `"parquet"` |
 | `input_format` | string | Input data format: `"csv"` or `"parquet"` |
 | `input_directory` | string | Path to the data directory (relative to the JSON file) |
@@ -147,6 +149,47 @@ Via JSON:
 Via CLI:
 ```
 gtopt mycase --lp-debug --log-directory logs --output-compression zstd
+```
+
+> **Important**: LP file output (`--lp-file`, `--lp-debug`, and error LP files)
+> requires `names_level >= only_cols`.  At the default `minimal` level, row
+> names are not populated and `write_lp()` will fail silently.  Always set
+> `--lp-names-level only_cols` (or higher) when you need LP file output.
+
+#### LP naming levels
+
+The `names_level` option (CLI: `--lp-names-level`, JSON:
+`lp_build_options.names_level`) controls how much naming metadata gtopt tracks
+during LP assembly.  Higher levels consume more memory but enable richer
+diagnostics.
+
+| Level | Name | Column names | Row names | Name maps | LP file output | Notes |
+|-------|------|:------------:|:---------:|:---------:|:--------------:|-------|
+| 0 | `minimal` | state vars only | no | no | **no** | Default. Smallest footprint. |
+| 1 | `only_cols` | all | yes | yes | **yes** | Required for `--lp-file`, `--lp-debug`, and error LP output. |
+| 2 | `cols_and_rows` | all | yes | yes | **yes** | Same as 1, plus warns on duplicate names. Useful for catching formulation bugs. |
+
+**CLI examples:**
+```bash
+# Save LP with named variables and constraints
+gtopt mycase --lp-file model --lp-names-level only_cols
+
+# Debug LP files with full names
+gtopt mycase --lp-debug --lp-names-level 1
+
+# Just pass -n (implicit value: only_cols)
+gtopt mycase --lp-file model -n
+```
+
+**JSON example:**
+```json
+{
+  "options": {
+    "lp_build_options": {
+      "names_level": "only_cols"
+    }
+  }
+}
 ```
 
 ### Simulation
@@ -401,7 +444,7 @@ gtopt system_c0.json --lp-file model.lp
 Create the LP and exit (useful for validation or LP export):
 
 ```bash
-gtopt system_c0.json --lp-file model.lp --just-create
+gtopt system_c0.json --lp-file model.lp --lp-build
 ```
 
 ### Single-bus mode
@@ -582,8 +625,8 @@ When the LP is too large to fit in memory:
   smaller per-scene LPs.
 - **Reduce reserve zones**: spinning reserve constraints add rows per bus
   per block; consolidating reserve zones reduces LP size.
-- **Disable LP names**: set `use_lp_names: 0` to reduce memory overhead from
-  name storage and lookup maps.
+- **Disable LP names**: set `names_level` to `"minimal"` (or `0`) to reduce
+  memory overhead from name storage and lookup maps.
 
 ### File not found errors
 
@@ -636,17 +679,17 @@ You can:
 - Load it into an external solver (e.g., GLPK, Gurobi, CPLEX) for
   independent verification.
 - Use `grep` to search for specific variable or constraint names (enabled
-  when `use_lp_names` is 1 or 2).
+  when `names_level` is `only_cols` or `cols_and_rows`).
 
 **Additional debug options:**
 
-- `build_lp: true` builds all LP matrices without solving, useful for
+- `lp_build: true` builds all LP matrices without solving, useful for
   inspecting the formulation without waiting for the solve.
 - `lp_coeff_ratio_threshold` (default: `1e7`) controls when per-scene/phase
   coefficient ratio diagnostics are printed.  Lower the threshold to detect
   numerical conditioning issues.
-- `use_lp_names: 2` assigns names and throws on duplicate row/column names,
-  useful for catching formulation bugs.
+- `names_level: "cols_and_rows"` assigns column and row names and warns on
+  duplicate names, useful for catching formulation bugs.
 
 ---
 

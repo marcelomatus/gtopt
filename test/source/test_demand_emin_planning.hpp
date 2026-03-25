@@ -18,7 +18,7 @@
 static constexpr std::string_view demand_emin_json = R"({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -78,7 +78,7 @@ TEST_CASE("Demand emin - minimum energy constraint exercised")
 static constexpr std::string_view demand_lossfactor_json = R"({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -137,7 +137,7 @@ TEST_CASE("Demand lossfactor - loss factor applied in bus balance")
 static constexpr std::string_view line_losses_json = R"({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": false,
@@ -202,7 +202,7 @@ TEST_CASE("Line losses - resistive losses exercised in LP")
 static constexpr std::string_view demand_capacity_expansion_json = R"({
   "options": {
     "annual_discount_rate": 0.1,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -257,7 +257,7 @@ TEST_CASE("Capacity expansion - generator expansion modules exercised")
 static constexpr std::string_view inactive_demand_json = R"({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -290,7 +290,7 @@ static constexpr std::string_view inactive_demand_json = R"({
 static constexpr std::string_view reserve_provision_json = R"({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -376,7 +376,7 @@ TEST_CASE("Inactive demand - inactive demand skipped in LP")
 static constexpr std::string_view generator_profile_json = R"({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -442,7 +442,7 @@ TEST_CASE("Generator profile - solar profile applied to capacity")
 static constexpr std::string_view multi_scenario_json = R"({
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,

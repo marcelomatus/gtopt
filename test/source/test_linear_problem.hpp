@@ -86,7 +86,7 @@ TEST_CASE("Linear problem matrix operations")
   // Test flat conversion with different options
   SUBCASE("Flat conversion options")
   {
-    auto flat_full = lp.to_flat({
+    auto flat_full = lp.lp_build({
         .col_with_names = true,
         .row_with_names = true,
         .col_with_name_map = true,
@@ -96,10 +96,10 @@ TEST_CASE("Linear problem matrix operations")
     CHECK(flat_full.nrows == 3);
     CHECK(flat_full.matval.size() == 5);
 
-    auto flat_minimal = lp.to_flat({.col_with_names = false,
-                                    .row_with_names = false,
-                                    .col_with_name_map = false,
-                                    .row_with_name_map = false});
+    auto flat_minimal = lp.lp_build({.col_with_names = false,
+                                     .row_with_names = false,
+                                     .col_with_name_map = false,
+                                     .row_with_name_map = false});
 
     CHECK(flat_minimal.colnm.empty());
     CHECK(flat_minimal.rownm.empty());
@@ -125,7 +125,7 @@ TEST_CASE("Linear problem edge cases")
   // Test empty problem conversions
   SUBCASE("Empty problem to flat")
   {
-    auto flat = lp.to_flat();
+    auto flat = lp.lp_build();
     CHECK(flat.ncols == 0);
     CHECK(flat.nrows == 0);
     CHECK(flat.matbeg.empty());
@@ -163,7 +163,7 @@ TEST_CASE("Linear problem advanced operations")
 
   {
     gtopt::LinearProblem lp;
-    auto&& flat_lp = lp.to_flat();
+    auto&& flat_lp = lp.lp_build();
 
     REQUIRE(flat_lp.ncols == 0);
     REQUIRE(flat_lp.nrows == 0);
@@ -257,7 +257,7 @@ TEST_CASE("Linear problem advanced operations")
   lp.col_at(col2).cost = 20;
 
   {
-    const auto flat_lp = lp.to_flat({
+    const auto flat_lp = lp.lp_build({
         .col_with_names = true,
         .row_with_names = true,
         .col_with_name_map = true,
@@ -308,7 +308,7 @@ TEST_CASE("Linear problem advanced operations")
 
   {
     const auto flat_lp =
-        lp.to_flat({.col_with_names = false, .col_with_name_map = false});
+        lp.lp_build({.col_with_names = false, .col_with_name_map = false});
 
     REQUIRE(flat_lp.ncols == 2);
     REQUIRE(flat_lp.nrows == 2);
@@ -353,7 +353,7 @@ TEST_CASE("Linear problem advanced operations")
   }
 }
 
-TEST_CASE("Linear problem to_flat row ordering")
+TEST_CASE("Linear problem lp_build row ordering")
 {
   // Verify that the two-pass algorithm produces correctly sorted row
   // indices within each column, matching the expected column-major format.
@@ -374,7 +374,7 @@ TEST_CASE("Linear problem to_flat row ordering")
   lp.set_coeff(r1, c1, 5.0);
   lp.set_coeff(r2, c1, 6.0);
 
-  const auto flat = lp.to_flat();
+  const auto flat = lp.lp_build();
 
   REQUIRE(flat.ncols == 2);
   REQUIRE(flat.nrows == 3);
@@ -400,7 +400,7 @@ TEST_CASE("Linear problem to_flat row ordering")
   CHECK(flat.matval[4] == 6.0);
 }
 
-TEST_CASE("Linear problem to_flat column and row names")
+TEST_CASE("Linear problem lp_build column and row names")
 {
   gtopt::LinearProblem lp("names_test");
 
@@ -418,7 +418,7 @@ TEST_CASE("Linear problem to_flat column and row names")
   SUBCASE("col_with_names only (no maps)")
   {
     const auto flat =
-        lp.to_flat({.col_with_names = true, .col_with_name_map = false});
+        lp.lp_build({.col_with_names = true, .col_with_name_map = false});
 
     REQUIRE(flat.colnm.size() == 3);
     CHECK(flat.colnm[0] == "alpha");
@@ -432,9 +432,9 @@ TEST_CASE("Linear problem to_flat column and row names")
 
   SUBCASE("row_with_names only (no maps)")
   {
-    const auto flat = lp.to_flat({.col_with_names = false,
-                                  .row_with_names = true,
-                                  .col_with_name_map = false});
+    const auto flat = lp.lp_build({.col_with_names = false,
+                                   .row_with_names = true,
+                                   .col_with_name_map = false});
 
     CHECK(flat.colnm.empty());
 
@@ -448,7 +448,7 @@ TEST_CASE("Linear problem to_flat column and row names")
 
   SUBCASE("both names enabled (no maps)")
   {
-    const auto flat = lp.to_flat({
+    const auto flat = lp.lp_build({
         .col_with_names = true,
         .row_with_names = true,
         .col_with_name_map = false,
@@ -470,7 +470,7 @@ TEST_CASE("Linear problem to_flat column and row names")
 
   SUBCASE("col_with_name_map implies colnm populated")
   {
-    const auto flat = lp.to_flat({.col_with_name_map = true});
+    const auto flat = lp.lp_build({.col_with_name_map = true});
 
     REQUIRE(flat.colnm.size() == 3);
     CHECK(flat.colnm[0] == "alpha");
@@ -488,9 +488,9 @@ TEST_CASE("Linear problem to_flat column and row names")
 
   SUBCASE("row_with_name_map implies rownm populated")
   {
-    const auto flat = lp.to_flat({.col_with_names = false,
-                                  .col_with_name_map = false,
-                                  .row_with_name_map = true});
+    const auto flat = lp.lp_build({.col_with_names = false,
+                                   .col_with_name_map = false,
+                                   .row_with_name_map = true});
 
     CHECK(flat.colnm.empty());
     CHECK(flat.colmp.empty());
@@ -506,7 +506,7 @@ TEST_CASE("Linear problem to_flat column and row names")
 
   SUBCASE("all names and maps enabled")
   {
-    const auto flat = lp.to_flat({
+    const auto flat = lp.lp_build({
         .col_with_names = true,
         .row_with_names = true,
         .col_with_name_map = true,
@@ -532,11 +532,11 @@ TEST_CASE("Linear problem to_flat column and row names")
     CHECK(flat.rowmp.at("con2") == 1);
   }
 
-  SUBCASE("default FlatOptions (level 0: col names for state vars)")
+  SUBCASE("default LpBuildOptions (level 0: col names for state vars)")
   {
-    const auto flat = lp.to_flat();
+    const auto flat = lp.lp_build();
 
-    // Default FlatOptions has col_with_names=true, col_with_name_map=true
+    // Default LpBuildOptions has col_with_names=true, col_with_name_map=true
     REQUIRE(flat.colnm.size() == 3);
     CHECK(flat.colnm[0] == "alpha");
     CHECK(flat.colnm[1] == "beta");
@@ -553,7 +553,7 @@ TEST_CASE("Linear problem to_flat column and row names")
   }
 }
 
-TEST_CASE("Linear problem to_flat with epsilon filtering")
+TEST_CASE("Linear problem lp_build with epsilon filtering")
 {
   gtopt::LinearProblem lp("eps_test");
 
@@ -569,7 +569,7 @@ TEST_CASE("Linear problem to_flat with epsilon filtering")
   lp.set_coeff(r1, c1, 0.0005);  // Even smaller
 
   // With eps=0.01, both c1 entries should be filtered out
-  const auto flat = lp.to_flat({.eps = 0.01});
+  const auto flat = lp.lp_build({.eps = 0.01});
 
   REQUIRE(flat.ncols == 2);
   CHECK(flat.matbeg[0] == 0);  // col0 starts at 0
@@ -583,7 +583,7 @@ TEST_CASE("Linear problem to_flat with epsilon filtering")
 }
 
 TEST_CASE(
-    "Linear problem to_flat compute_stats with col names and zeroed count")  // NOLINT
+    "Linear problem lp_build compute_stats with col names and zeroed count")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -603,7 +603,7 @@ TEST_CASE(
 
   SUBCASE("compute_stats=true with default stats_eps=1e-10")
   {
-    const auto flat = lp.to_flat({
+    const auto flat = lp.lp_build({
         .col_with_names = true,
         .compute_stats = true,
     });
@@ -627,7 +627,7 @@ TEST_CASE(
 
   SUBCASE("compute_stats=true with eps=1.0 (filters 0.5 and 1e-12)")
   {
-    const auto flat = lp.to_flat({
+    const auto flat = lp.lp_build({
         .eps = 1.0,
         .col_with_names = true,
         .compute_stats = true,
@@ -651,7 +651,7 @@ TEST_CASE(
   {
     // col_with_names=false AND col_with_name_map=false: indices available,
     // names empty
-    const auto flat = lp.to_flat({
+    const auto flat = lp.lp_build({
         .col_with_names = false,
         .col_with_name_map = false,
         .compute_stats = true,
@@ -665,7 +665,7 @@ TEST_CASE(
 
   SUBCASE("compute_stats=false — stats fields stay default")
   {
-    const auto flat = lp.to_flat({
+    const auto flat = lp.lp_build({
         .col_with_names = true,
         .compute_stats = false,
     });
@@ -695,7 +695,7 @@ TEST_CASE("Linear problem set_coeff overwrite preserves correctness")
   CHECK(lp.get_coeff(r0, c0) == doctest::Approx(5.0));
 
   // Verify flat conversion has exactly one entry, not two
-  const auto flat = lp.to_flat();
+  const auto flat = lp.lp_build();
   CHECK(flat.ncols == 1);
   CHECK(flat.nrows == 1);
   CHECK(flat.matval.size() == 1);

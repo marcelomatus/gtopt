@@ -17,7 +17,7 @@
 namespace gtopt
 {
 
-auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
+auto LinearProblem::lp_build(const LpBuildOptions& opts) -> FlatLinearProblem
 {
   const size_t ncols = get_numcols();
   const size_t nrows = get_numrows();
@@ -228,7 +228,8 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
       .rownm = std::move(rownm),
       .colmp = std::move(colmp),
       .rowmp = std::move(rowmp),
-      .name = pname,  // always copy (trivially small, enables multiple to_flat)
+      .name =
+          pname,  // always copy (trivially small, enables multiple lp_build)
       .stats_nnz = stats_nnz,
       .stats_zeroed = stats_zeroed,
       .stats_max_abs = stats_max,

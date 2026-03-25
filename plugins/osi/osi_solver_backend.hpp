@@ -1,6 +1,6 @@
 /**
  * @file      osi_solver_backend.hpp
- * @brief     OSI-based solver backend for CLP, CBC, and CPLEX
+ * @brief     OSI-based solver backend for CLP and CBC
  * @date      Sun Mar 23 2026
  * @author    marcelo
  * @copyright BSD-3-Clause
@@ -22,9 +22,8 @@ namespace gtopt
 /**
  * @brief Solver backend using COIN-OR Open Solver Interface.
  *
- * Wraps OsiClpSolverInterface, OsiCbcSolverInterface, or
- * OsiCpxSolverInterface depending on the solver name passed
- * to the constructor.
+ * Wraps OsiClpSolverInterface or OsiCbcSolverInterface depending
+ * on the solver name passed to the constructor.
  */
 class OsiSolverBackend final : public SolverBackend
 {
@@ -33,7 +32,6 @@ public:
   {
     clp,
     cbc,
-    cplex,
   };
 
   explicit OsiSolverBackend(OsiSolverType type);

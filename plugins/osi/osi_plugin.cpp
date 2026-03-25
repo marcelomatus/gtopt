@@ -1,17 +1,14 @@
 /**
  * @file      osi_plugin.cpp
- * @brief     Plugin entry point for OSI solver backends (CLP/CBC/CPLEX)
+ * @brief     Plugin entry point for OSI solver backends (CLP/CBC)
  * @date      Sun Mar 23 2026
  * @author    marcelo
  * @copyright BSD-3-Clause
  */
 
 #include <cstring>
-#include <stdexcept>
 
 #include "osi_solver_backend.hpp"
-
-// NOLINTBEGIN(cppcoreguidelines-pro-type-const-cast)
 
 namespace
 {
@@ -22,9 +19,6 @@ const char* const k_solver_names[] = {
     "clp",
 #ifdef GTOPT_OSI_HAS_CBC
     "cbc",
-#endif
-#ifdef GTOPT_OSI_HAS_CPX
-    "cplex",
 #endif
     nullptr,
 };
@@ -58,14 +52,6 @@ gtopt::SolverBackend* gtopt_create_backend(  // NOLINT
         OsiSolverBackend::OsiSolverType::cbc);
   }
 #endif
-#ifdef GTOPT_OSI_HAS_CPX
-  if (std::strcmp(solver_name, "cplex") == 0) {
-    return new OsiSolverBackend(  // NOLINT
-        OsiSolverBackend::OsiSolverType::cplex);
-  }
-#endif
   return nullptr;
 }
 }
-
-// NOLINTEND(cppcoreguidelines-pro-type-const-cast)

@@ -1231,11 +1231,11 @@ def check_sddp_options(planning: dict[str, Any]) -> list[Finding]:
     # max_iterations=0 without hot-start cuts
     if max_iter is not None and max_iter == 0:
         hot_start = sddp.get("hot_start", False)
-        hot_start_mode = sddp.get("hot_start_mode", "none")
+        cut_recovery_mode = sddp.get("cut_recovery_mode", "none")
         cuts_input = sddp.get("cuts_input_file", "")
         has_cuts = (
             hot_start is True
-            or (hot_start_mode and hot_start_mode != "none")
+            or (cut_recovery_mode and cut_recovery_mode != "none")
             or bool(cuts_input)
         )
         if not has_cuts:
@@ -1266,46 +1266,46 @@ def check_sddp_options(planning: dict[str, Any]) -> list[Finding]:
 
 
 # ---------------------------------------------------------------------------
-# Cascade + solver_type consistency
+# Cascade + method consistency
 # ---------------------------------------------------------------------------
 
 
 def check_cascade_solver_type(planning: dict[str, Any]) -> list[Finding]:
-    """Check cascade_options and solver_type consistency.
+    """Check cascade_options and method consistency.
 
     Validates:
-    - ``cascade_options.level_array`` non-empty but ``solver_type`` is not
+    - ``cascade_options.level_array`` non-empty but ``method`` is not
       ``"cascade"`` — warn about mismatch.
-    - ``solver_type == "cascade"`` but no ``cascade_options.level_array``
+    - ``method == "cascade"`` but no ``cascade_options.level_array``
       — info note that defaults will be used.
     """
     findings: list[Finding] = []
     opts = planning.get("options", {})
 
-    solver_type = opts.get("solver_type", "")
+    method = opts.get("method", "")
     cascade = opts.get("cascade_options", {})
     levels = cascade.get("level_array", [])
 
-    if levels and solver_type and solver_type != "cascade":
+    if levels and method and method != "cascade":
         findings.append(
             Finding(
                 check_id="cascade_solver_type",
                 severity=Severity.WARNING,
                 message=(
                     f"cascade_options.level_array has {len(levels)} "
-                    f"level(s) but solver_type='{solver_type}' "
+                    f"level(s) but method='{method}' "
                     f"(expected 'cascade')"
                 ),
             )
         )
 
-    if solver_type == "cascade" and not levels:
+    if method == "cascade" and not levels:
         findings.append(
             Finding(
                 check_id="cascade_solver_type",
                 severity=Severity.NOTE,
                 message=(
-                    "solver_type='cascade' but "
+                    "method='cascade' but "
                     "cascade_options.level_array is empty; "
                     "a single default level will be used"
                 ),

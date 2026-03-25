@@ -93,7 +93,7 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
 
   // Enable warm-start on aperture clone resolves when configured.
   auto aperture_solve_opts = opts;
-  aperture_solve_opts.warm_start = m_options_.warm_start;
+  aperture_solve_opts.reuse_basis = m_options_.warm_start;
 
   // Forward-pass solution for the target phase — used as warm-start hint
   const auto& target_state = phase_states[phase];
@@ -359,7 +359,7 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene,
 
     // Enable warm-start on aperture clone resolves when configured.
     auto ws_opts = opts;
-    ws_opts.warm_start = m_options_.warm_start;
+    ws_opts.reuse_basis = m_options_.warm_start;
 
     // Forward-pass solution for the target phase — warm-start hint
     const auto& target_state = phase_states[phase];

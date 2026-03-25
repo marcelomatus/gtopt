@@ -144,7 +144,7 @@ auto elastic_filter_solve(const LinearInterface& li,
 
   // Apply forward-pass solution as warm-start hint.  The clone now has
   // extra columns (elastic slacks) — the helper pads with zeros.
-  if (opts.warm_start) {
+  if (opts.reuse_basis) {
     cloned.set_warm_start_solution(forward_col_sol, forward_row_dual);
   }
 
@@ -409,7 +409,7 @@ auto BendersCut::elastic_filter_solve(const LinearInterface& li,
   }
 
   // Apply forward-pass solution as warm-start hint (pads extra cols/rows)
-  if (opts.warm_start) {
+  if (opts.reuse_basis) {
     cloned.set_warm_start_solution(forward_col_sol, forward_row_dual);
   }
 

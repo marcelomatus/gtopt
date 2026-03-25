@@ -436,7 +436,7 @@ public:
    * Row name-to-index maps are populated at level >= 1.
    * The overhead is a single map insert per add_row/add_col call.
    *
-   * @param level The LP name check level (matches use_lp_names semantics)
+   * @param level The LP name check level (matches names_level semantics)
    */
   void set_lp_names_level(int level) noexcept { m_lp_names_level_ = level; }
 
@@ -501,7 +501,7 @@ public:
 
   /// @name LP coefficient statistics (populated during load_flat from
   ///       FlatLinearProblem::stats_* fields, which are computed in
-  ///       LinearProblem::to_flat when FlatOptions::compute_stats is true).
+  ///       LinearProblem::lp_build when LpBuildOptions::compute_stats is true).
   /// @{
   [[nodiscard]] constexpr size_t lp_stats_nnz() const noexcept
   {

@@ -1,12 +1,13 @@
 /**
- * @file      test_app_options.hpp
- * @brief     Unit tests for application command-line option utilities
+ * @file      test_main_options.hpp
+ * @brief     Unit tests for main command-line option utilities
  * @date      Wed Feb 12 22:00:00 2026
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module contains unit tests for the functions in app_options.hpp:
- * get_opt, make_options_description, apply_cli_options, and make_flat_options.
+ * This module contains unit tests for the functions in main_options.hpp:
+ * get_opt, make_options_description, apply_cli_options, and
+ * make_lp_build_options.
  */
 
 #include <optional>
@@ -14,7 +15,7 @@
 #include <vector>
 
 #include <doctest/doctest.h>
-#include <gtopt/app_options.hpp>
+#include <gtopt/main_options.hpp>
 #include <gtopt/solver_options.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
@@ -70,14 +71,14 @@ TEST_CASE("get_opt - works with bool type")
   CHECK((result && *result == true));
 }
 
-TEST_CASE("get_opt - works with int type")
+TEST_CASE("get_opt - works with string type for names-level")
 {
   auto desc = make_options_description();
-  auto vm = parse_args({"--use-lp-names", "2"}, desc);
+  auto vm = parse_args({"--lp-names-level", "cols_and_rows"}, desc);
 
-  auto result = get_opt<int>(vm, "use-lp-names");
+  auto result = get_opt<std::string>(vm, "lp-names-level");
   REQUIRE(result.has_value());
-  CHECK(result.value_or(0) == 2);
+  CHECK(result.value_or("") == "cols_and_rows");
 }
 
 TEST_CASE("get_opt - works with double type")
@@ -100,14 +101,14 @@ TEST_CASE("get_opt - implicit bool value")
   CHECK(result.value_or(false) == true);
 }
 
-TEST_CASE("get_opt - implicit int value")
+TEST_CASE("get_opt - implicit string value for names-level")
 {
   auto desc = make_options_description();
-  auto vm = parse_args({"--use-lp-names"}, desc);
+  auto vm = parse_args({"--lp-names-level"}, desc);
 
-  auto result = get_opt<int>(vm, "use-lp-names");
+  auto result = get_opt<std::string>(vm, "lp-names-level");
   REQUIRE(result.has_value());
-  CHECK(result.value_or(0) == 1);
+  CHECK(result.value_or("") == "only_cols");
 }
 
 // ---- Tests for make_options_description ----
@@ -123,7 +124,7 @@ TEST_CASE("make_options_description - contains expected options")
   CHECK_NOTHROW(parse_args({"--quiet"}, desc));
   CHECK_NOTHROW(parse_args({"--use-single-bus"}, desc));
   CHECK_NOTHROW(parse_args({"--use-kirchhoff"}, desc));
-  CHECK_NOTHROW(parse_args({"--just-create"}, desc));
+  CHECK_NOTHROW(parse_args({"--lp-build"}, desc));
   CHECK_NOTHROW(parse_args({"--fast-parsing"}, desc));
 }
 
@@ -137,8 +138,8 @@ TEST_CASE("make_options_description - short options work")
   vm = parse_args({"-k"}, desc);
   CHECK(vm.contains("use-kirchhoff"));
 
-  vm = parse_args({"-n", "1"}, desc);
-  CHECK(vm.contains("use-lp-names"));
+  vm = parse_args({"-n", "only_cols"}, desc);
+  CHECK(vm.contains("lp-names-level"));
 
   vm = parse_args({"-e", "0.01"}, desc);
   CHECK(vm.contains("matrix-eps"));
@@ -215,7 +216,7 @@ TEST_CASE("apply_cli_options - no options applied")
 
   CHECK_FALSE(planning.options.use_single_bus.has_value());
   CHECK_FALSE(planning.options.use_kirchhoff.has_value());
-  CHECK_FALSE(planning.options.use_lp_names.has_value());
+  CHECK_FALSE(planning.options.lp_build_options.names_level.has_value());
   CHECK_FALSE(planning.options.input_directory.has_value());
   CHECK_FALSE(planning.options.input_format.has_value());
   CHECK_FALSE(planning.options.output_directory.has_value());
@@ -229,7 +230,7 @@ TEST_CASE("apply_cli_options - all options applied")
   apply_cli_options(planning,
                     true,
                     false,
-                    std::optional<int>(1),
+                    std::optional<LpNamesLevel>(LpNamesLevel::only_cols),
                     std::optional<std::string>("/input"),
                     std::optional<std::string>("parquet"),
                     std::optional<std::string>("/output"),
@@ -244,8 +245,10 @@ TEST_CASE("apply_cli_options - all options applied")
   CHECK((planning.options.use_kirchhoff
          && *planning.options.use_kirchhoff == false));
 
-  REQUIRE(planning.options.use_lp_names.has_value());
-  CHECK((planning.options.use_lp_names && *planning.options.use_lp_names == 1));
+  REQUIRE(planning.options.lp_build_options.names_level.has_value());
+  CHECK((planning.options.lp_build_options.names_level
+         && *planning.options.lp_build_options.names_level
+             == LpNamesLevel::only_cols));
 
   REQUIRE(planning.options.input_directory.has_value());
   CHECK((planning.options.input_directory
@@ -286,7 +289,7 @@ TEST_CASE("apply_cli_options - partial options applied")
          && *planning.options.use_single_bus == true));
 
   CHECK_FALSE(planning.options.use_kirchhoff.has_value());
-  CHECK_FALSE(planning.options.use_lp_names.has_value());
+  CHECK_FALSE(planning.options.lp_build_options.names_level.has_value());
 
   REQUIRE(planning.options.output_directory.has_value());
   CHECK((planning.options.output_directory
@@ -349,7 +352,7 @@ TEST_CASE("apply_cli_options(MainOptions) - no options applied")
 
   CHECK_FALSE(planning.options.use_single_bus.has_value());
   CHECK_FALSE(planning.options.use_kirchhoff.has_value());
-  CHECK_FALSE(planning.options.use_lp_names.has_value());
+  CHECK_FALSE(planning.options.lp_build_options.names_level.has_value());
   CHECK_FALSE(planning.options.input_directory.has_value());
   CHECK_FALSE(planning.options.output_directory.has_value());
   CHECK_FALSE(planning.options.output_format.has_value());
@@ -368,7 +371,7 @@ TEST_CASE("apply_cli_options(MainOptions) - all options applied")
                         .output_compression = "gzip",
                         .use_single_bus = true,
                         .use_kirchhoff = false,
-                        .use_lp_names = 1,
+                        .lp_names_level = LpNamesLevel::only_cols,
                     });
 
   REQUIRE(planning.options.use_single_bus.has_value());
@@ -425,11 +428,11 @@ TEST_CASE("apply_cli_options(MainOptions) - overwrites existing when provided")
          && *planning.options.output_directory == "replaced"));
 }
 
-// ---- Tests for make_flat_options ----
+// ---- Tests for make_lp_build_options ----
 
-TEST_CASE("make_flat_options - defaults when both nullopt")
+TEST_CASE("make_lp_build_options - defaults when both nullopt")
 {
-  auto opts = make_flat_options(std::nullopt, std::nullopt);
+  auto opts = make_lp_build_options(std::nullopt, std::nullopt);
 
   CHECK(opts.eps == doctest::Approx(0.0));
   CHECK(opts.col_with_names == true);
@@ -438,12 +441,14 @@ TEST_CASE("make_flat_options - defaults when both nullopt")
   CHECK(opts.row_with_name_map == false);
   CHECK(opts.reserve_matrix == false);
   CHECK(opts.reserve_factor == doctest::Approx(2.0));
-  CHECK(opts.lp_names_level == 0);
+  CHECK(opts.lp_names_level == LpNamesLevel::minimal);
 }
 
-TEST_CASE("make_flat_options - lp_names level 0 col names for state vars")
+TEST_CASE(
+    "make_lp_build_options - names_level minimal col names for state vars")
 {
-  auto opts = make_flat_options(std::optional<int>(0), std::nullopt);
+  auto opts = make_lp_build_options(
+      std::optional<LpNamesLevel>(LpNamesLevel::minimal), std::nullopt);
 
   CHECK(opts.col_with_names == true);
   CHECK(opts.row_with_names == false);
@@ -451,9 +456,11 @@ TEST_CASE("make_flat_options - lp_names level 0 col names for state vars")
   CHECK(opts.row_with_name_map == false);
 }
 
-TEST_CASE("make_flat_options - lp_names level 1 enables col and row names")
+TEST_CASE(
+    "make_lp_build_options - names_level only_cols enables col and row names")
 {
-  auto opts = make_flat_options(std::optional<int>(1), std::nullopt);
+  auto opts = make_lp_build_options(
+      std::optional<LpNamesLevel>(LpNamesLevel::only_cols), std::nullopt);
 
   CHECK(opts.col_with_names == true);
   CHECK(opts.row_with_names == true);
@@ -461,9 +468,12 @@ TEST_CASE("make_flat_options - lp_names level 1 enables col and row names")
   CHECK(opts.row_with_name_map == true);
 }
 
-TEST_CASE("make_flat_options - lp_names level 2 enables names and errors")
+TEST_CASE(
+    "make_lp_build_options - names_level cols_and_rows enables names and "
+    "errors")
 {
-  auto opts = make_flat_options(std::optional<int>(2), std::nullopt);
+  auto opts = make_lp_build_options(
+      std::optional<LpNamesLevel>(LpNamesLevel::cols_and_rows), std::nullopt);
 
   CHECK(opts.col_with_names == true);
   CHECK(opts.row_with_names == true);
@@ -471,17 +481,18 @@ TEST_CASE("make_flat_options - lp_names level 2 enables names and errors")
   CHECK(opts.row_with_name_map == true);
 }
 
-TEST_CASE("make_flat_options - custom eps value")
+TEST_CASE("make_lp_build_options - custom eps value")
 {
-  auto opts = make_flat_options(std::nullopt, std::optional<double>(0.001));
+  auto opts = make_lp_build_options(std::nullopt, std::optional<double>(0.001));
 
   CHECK(opts.eps == doctest::Approx(0.001));
 }
 
-TEST_CASE("make_flat_options - both parameters provided")
+TEST_CASE("make_lp_build_options - both parameters provided")
 {
-  auto opts =
-      make_flat_options(std::optional<int>(2), std::optional<double>(1e-6));
+  auto opts = make_lp_build_options(
+      std::optional<LpNamesLevel>(LpNamesLevel::cols_and_rows),
+      std::optional<double>(1e-6));
 
   CHECK(opts.eps == doctest::Approx(1e-6));
   CHECK(opts.col_with_names == true);
@@ -501,8 +512,8 @@ TEST_CASE("Integration - parse and extract all option types")
       {
           "system.json",
           "--use-single-bus",
-          "--use-lp-names",
-          "2",
+          "--lp-names-level",
+          "cols_and_rows",
           "--matrix-eps",
           "0.01",
           "--output-directory",
@@ -515,7 +526,13 @@ TEST_CASE("Integration - parse and extract all option types")
       desc);
 
   auto use_single_bus = get_opt<bool>(vm, "use-single-bus");
-  auto use_lp_names = get_opt<int>(vm, "use-lp-names");
+  auto names_level = [&]() -> std::optional<LpNamesLevel>
+  {
+    if (auto raw = get_opt<std::string>(vm, "lp-names-level")) {
+      return parse_lp_names_level(*raw);
+    }
+    return std::nullopt;
+  }();
   auto matrix_eps = get_opt<double>(vm, "matrix-eps");
   auto output_directory = get_opt<std::string>(vm, "output-directory");
   auto output_format = get_opt<std::string>(vm, "output-format");
@@ -524,8 +541,8 @@ TEST_CASE("Integration - parse and extract all option types")
   REQUIRE(use_single_bus.has_value());
   CHECK((use_single_bus && *use_single_bus == true));
 
-  REQUIRE(use_lp_names.has_value());
-  CHECK((use_lp_names && *use_lp_names == 2));
+  REQUIRE(names_level.has_value());
+  CHECK((names_level && *names_level == LpNamesLevel::cols_and_rows));
 
   REQUIRE(matrix_eps.has_value());
   CHECK((matrix_eps && *matrix_eps == doctest::Approx(0.01)));
@@ -544,7 +561,7 @@ TEST_CASE("Integration - parse and extract all option types")
   apply_cli_options(planning,
                     use_single_bus,
                     get_opt<bool>(vm, "use-kirchhoff"),
-                    use_lp_names,
+                    names_level,
                     get_opt<std::string>(vm, "input-directory"),
                     get_opt<std::string>(vm, "input-format"),
                     output_directory,
@@ -557,7 +574,7 @@ TEST_CASE("Integration - parse and extract all option types")
   CHECK_FALSE(planning.options.use_kirchhoff.has_value());
 
   // Build flat options
-  auto flat_opts = make_flat_options(use_lp_names, matrix_eps);
+  auto flat_opts = make_lp_build_options(names_level, matrix_eps);
   CHECK(flat_opts.eps == doctest::Approx(0.01));
   CHECK(flat_opts.col_with_names == true);
   CHECK(flat_opts.col_with_name_map == true);
@@ -627,50 +644,50 @@ TEST_CASE(
   CHECK_THROWS_AS(throws("abc"), cli::parse_error);
 }
 
-// ---- Tests for --lp-algorithm CLI option ----
+// ---- Tests for --algorithm CLI option ----
 
-TEST_CASE("--lp-algorithm - accepts name via CLI")  // NOLINT
+TEST_CASE("--algorithm - accepts name via CLI")  // NOLINT
 {
   auto desc = make_options_description();
 
   SUBCASE("barrier name")
   {
-    auto vm = parse_args({"--lp-algorithm", "barrier"}, desc);
-    REQUIRE(vm.contains("lp-algorithm"));
+    auto vm = parse_args({"--algorithm", "barrier"}, desc);
+    REQUIRE(vm.contains("algorithm"));
     const auto opts = parse_main_options(vm, {});
-    REQUIRE(opts.lp_algorithm.has_value());
-    CHECK(opts.lp_algorithm.value_or(-1) == 3);
+    REQUIRE(opts.algorithm.has_value());
+    CHECK(opts.algorithm.value_or(-1) == 3);
   }
 
   SUBCASE("primal name")
   {
-    auto vm = parse_args({"--lp-algorithm", "primal"}, desc);
+    auto vm = parse_args({"--algorithm", "primal"}, desc);
     const auto opts = parse_main_options(vm, {});
-    CHECK(opts.lp_algorithm.value_or(-1) == 1);
+    CHECK(opts.algorithm.value_or(-1) == 1);
   }
 
   SUBCASE("dual name")
   {
-    auto vm = parse_args({"--lp-algorithm", "dual"}, desc);
+    auto vm = parse_args({"--algorithm", "dual"}, desc);
     const auto opts = parse_main_options(vm, {});
-    CHECK(opts.lp_algorithm.value_or(-1) == 2);
+    CHECK(opts.algorithm.value_or(-1) == 2);
   }
 
   SUBCASE("default name")
   {
-    auto vm = parse_args({"--lp-algorithm", "default"}, desc);
+    auto vm = parse_args({"--algorithm", "default"}, desc);
     const auto opts = parse_main_options(vm, {});
-    CHECK(opts.lp_algorithm.value_or(-1) == 0);
+    CHECK(opts.algorithm.value_or(-1) == 0);
   }
 }
 
-TEST_CASE("--lp-algorithm - accepts numeric value via CLI")  // NOLINT
+TEST_CASE("--algorithm - accepts numeric value via CLI")  // NOLINT
 {
   auto desc = make_options_description();
-  auto vm = parse_args({"--lp-algorithm", "2"}, desc);
+  auto vm = parse_args({"--algorithm", "2"}, desc);
   const auto opts = parse_main_options(vm, {});
-  REQUIRE(opts.lp_algorithm.has_value());
-  CHECK(opts.lp_algorithm.value_or(-1) == 2);
+  REQUIRE(opts.algorithm.has_value());
+  CHECK(opts.algorithm.value_or(-1) == 2);
 }
 
 TEST_CASE("-a short option - accepts name")  // NOLINT
@@ -678,17 +695,94 @@ TEST_CASE("-a short option - accepts name")  // NOLINT
   auto desc = make_options_description();
   auto vm = parse_args({"-a", "barrier"}, desc);
   const auto opts = parse_main_options(vm, {});
-  REQUIRE(opts.lp_algorithm.has_value());
-  CHECK(opts.lp_algorithm.value_or(-1) == 3);
+  REQUIRE(opts.algorithm.has_value());
+  CHECK(opts.algorithm.value_or(-1) == 3);
 }
 
-TEST_CASE(
-    "--lp-algorithm - invalid name throws at parse_main_options")  // NOLINT
+TEST_CASE("--algorithm - invalid name throws at parse_main_options")  // NOLINT
 {
   auto desc = make_options_description();
-  auto vm = parse_args({"--lp-algorithm", "unknown_algo"}, desc);
+  auto vm = parse_args({"--algorithm", "unknown_algo"}, desc);
   // Wrap in lambda to avoid [[nodiscard]] warning on the throw path
   CHECK_THROWS_AS([&]
                   { [[maybe_unused]] auto r = parse_main_options(vm, {}); }(),
                   cli::parse_error);
+}
+
+// ---- Tests for --recover CLI flag ----
+
+TEST_CASE("--recover flag - parsed via CLI")  // NOLINT
+{
+  auto desc = make_options_description();
+
+  SUBCASE("not passed → recover is nullopt")
+  {
+    auto vm = parse_args({}, desc);
+    const auto opts = parse_main_options(vm, {});
+    CHECK_FALSE(opts.recover.has_value());
+  }
+
+  SUBCASE("--recover → recover is true")
+  {
+    auto vm = parse_args({"--recover"}, desc);
+    const auto opts = parse_main_options(vm, {});
+    REQUIRE(opts.recover.has_value());
+    CHECK(opts.recover.value_or(false) == true);
+  }
+
+  SUBCASE("--recover false → recover is false")
+  {
+    auto vm = parse_args({"--recover", "false"}, desc);
+    const auto opts = parse_main_options(vm, {});
+    REQUIRE(opts.recover.has_value());
+    CHECK(opts.recover.value_or(true) == false);
+  }
+}
+
+TEST_CASE("--recover gates recovery_mode in apply_cli_options")  // NOLINT
+{
+  SUBCASE("without --recover, recovery_mode forced to none")
+  {
+    Planning planning {};
+    planning.options.sddp_options.recovery_mode = Name {"full"};
+    apply_cli_options(planning, MainOptions {});
+    REQUIRE(planning.options.sddp_options.recovery_mode.has_value());
+    CHECK(planning.options.sddp_options.recovery_mode.value_or("") == "none");
+  }
+
+  SUBCASE("with --recover=true, recovery_mode preserved from JSON")
+  {
+    Planning planning {};
+    planning.options.sddp_options.recovery_mode = Name {"full"};
+    apply_cli_options(planning,
+                      MainOptions {
+                          .recover = true,
+                      });
+    REQUIRE(planning.options.sddp_options.recovery_mode.has_value());
+    CHECK(planning.options.sddp_options.recovery_mode.value_or("") == "full");
+  }
+
+  SUBCASE("with --recover=true and no JSON recovery_mode, default applies")
+  {
+    Planning planning {};
+    apply_cli_options(planning,
+                      MainOptions {
+                          .recover = true,
+                      });
+    // recovery_mode not set in JSON → stays nullopt, OptionsLP default is
+    // "full"
+    CHECK_FALSE(planning.options.sddp_options.recovery_mode.has_value());
+  }
+
+  SUBCASE("with --recover=false, recovery_mode forced to none")
+  {
+    Planning planning {};
+    planning.options.sddp_options.recovery_mode = Name {"cuts"};
+    apply_cli_options(planning,
+                      MainOptions {
+                          .recover = false,
+                      });
+    REQUIRE(planning.options.sddp_options.recovery_mode.has_value());
+    CHECK(planning.options.sddp_options.recovery_mode.value_or("") == "none");
+  }
 }

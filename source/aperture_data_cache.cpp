@@ -31,6 +31,8 @@ ApertureDataCache::ApertureDataCache(const std::filesystem::path& aperture_dir)
   // Collect all entries into a vector first, then bulk-insert into
   // the flat_map.  Inserting one-by-one into a flat_map is O(n) per
   // insert (element shifting), making 340K inserts O(n²) — too slow.
+  // NOTE: do NOT call entries.reserve() incrementally inside the loop —
+  // that defeats vector's doubling strategy and causes O(n²) copies.
   std::vector<std::pair<Key, double>> entries;
 
   for (const auto& class_entry :
@@ -107,7 +109,6 @@ ApertureDataCache::ApertureDataCache(const std::filesystem::path& aperture_dir)
         auto val_arr =
             std::static_pointer_cast<arrow::DoubleArray>(val_col->chunk(0));
 
-        entries.reserve(entries.size() + static_cast<size_t>(num_rows));
         for (int64_t row = 0; row < num_rows; ++row) {
           entries.emplace_back(
               Key {

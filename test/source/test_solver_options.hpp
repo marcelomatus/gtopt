@@ -23,7 +23,7 @@ TEST_CASE("SolverOptions - Default construction")
 
   // Non-optional fields keep their defaults
   CHECK(options.algorithm == LPAlgo::barrier);
-  CHECK(options.threads == 0);
+  CHECK(options.threads == 2);
   CHECK(options.presolve == true);
   CHECK(options.log_level == 0);
 
