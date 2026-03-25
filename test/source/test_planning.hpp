@@ -124,7 +124,7 @@ TEST_CASE("PlanningLP - Default construction")
   };
 
   // Convert options to flat options
-  const FlatOptions flat_options;
+  const LpBuildOptions flat_options;
 
   // Test constructor
   const PlanningLP planning_lp(planning, flat_options);
@@ -174,7 +174,7 @@ TEST_CASE("PlanningLP - Create simulations")
   };
 
   // Create flat options
-  const FlatOptions flat_options;
+  const LpBuildOptions flat_options;
 
   // Create planning_lp
   const PlanningLP planning_lp(planning, flat_options);
@@ -221,10 +221,10 @@ TEST_CASE("PlanningLP - Write LP file")
   };
 
   // Create flat options with lp_names_level=1 so row names are tracked.
-  FlatOptions flat_options;
+  LpBuildOptions flat_options;
   flat_options.row_with_names = true;
   flat_options.row_with_name_map = true;
-  flat_options.lp_names_level = 1;
+  flat_options.lp_names_level = LpNamesLevel::only_cols;
 
   // Create planning_lp
   const PlanningLP planning_lp(planning, flat_options);
@@ -283,7 +283,7 @@ TEST_CASE("PlanningLP - Run LP")
   };
 
   // Create flat options
-  const FlatOptions flat_options;
+  const LpBuildOptions flat_options;
 
   // Create planning_lp
   PlanningLP planning_lp(planning, flat_options);
@@ -325,17 +325,17 @@ TEST_CASE("PlanningLP - Run with write_only flag")
       .generator_array = generator_array,
   };
 
-  // Create planning with use_lp_names=1 so LP files include row names.
+  // Create planning with names_level=1 so LP files include row names.
   const Planning planning {
       .simulation = simulation,
       .system = system,
   };
 
   // Create flat options with lp_names_level=1 so row names are tracked.
-  FlatOptions flat_options;
+  LpBuildOptions flat_options;
   flat_options.row_with_names = true;
   flat_options.row_with_name_map = true;
-  flat_options.lp_names_level = 1;
+  flat_options.lp_names_level = LpNamesLevel::only_cols;
 
   // Create planning_lp
   PlanningLP planning_lp(planning, flat_options);
@@ -487,7 +487,7 @@ TEST_CASE("PlanningLP - Solver test")
 static constexpr std::string_view planning_json = R"({
   "options": {
     "annual_discount_rate": 0.1,
-    "use_lp_names": 1,
+    "lp_build_options": {"names_level": 1},
     "output_compression": "uncompressed",
     "demand_fail_cost": 1000,
     "scale_objective": 1000

@@ -1,6 +1,6 @@
 /**
  * @file      options.hpp
- * @brief     Configuration options for power system optimization
+ * @brief     Global configuration parameters for power system optimization
  * @date      Sun Mar 23 21:39:24 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
@@ -35,517 +35,16 @@
 
 #pragma once
 
+#include <gtopt/cascade_options.hpp>
+#include <gtopt/lp_build_options.hpp>
+#include <gtopt/model_options.hpp>
+#include <gtopt/monolithic_options.hpp>
+#include <gtopt/sddp_options.hpp>
 #include <gtopt/solver_options.hpp>
-#include <gtopt/utils.hpp>
 #include <gtopt/variable_scale.hpp>
 
 namespace gtopt
 {
-
-/**
- * @brief SDDP-specific solver configuration parameters
- *
- * Groups all SDDP-related options into a single sub-object for clearer
- * JSON organization.  Field names omit the `sddp_` prefix since they
- * already live inside the `sddp_options` namespace.
- *
- * All fields are optional — defaults are applied via `OptionsLP`.
- */
-struct SddpOptions
-{
-  /** @brief Cut sharing mode: `"none"` (default), `"expected"`,
-   *  `"accumulate"`, or `"max"` */
-  OptName cut_sharing_mode {};
-  /** @brief Directory for Benders cut files (default: `"cuts"`) */
-  OptName cut_directory {};
-  /** @brief Enable the SDDP monitoring API (writes JSON status file each
-   * iteration; default: true) */
-  OptBool api_enabled {};
-  /** @brief Iterations to skip between update_lp dispatches.
-   * 0 = update every iteration (default).  Applies to all volume-dependent
-   * LP element updates (seepage, discharge limit, production factor). */
-  OptInt update_lp_skip {};
-
-  // ── Iteration control ──────────────────────────────────────────────────────
-  /** @brief Maximum number of forward/backward iterations (default: 100) */
-  OptInt max_iterations {};
-  /** @brief Minimum iterations before declaring convergence (default: 2) */
-  OptInt min_iterations {};
-  /** @brief Relative gap tolerance for convergence (default: 1e-4) */
-  OptReal convergence_tol {};
-
-  // ── Advanced tuning ────────────────────────────────────────────────────────
-  /** @brief Penalty for elastic slack variables in feasibility (default: 1e6)
-   */
-  OptReal elastic_penalty {};
-  /** @brief Lower bound for future cost variable α (default: 0.0) */
-  OptReal alpha_min {};
-  /** @brief Upper bound for future cost variable α (default: 1e12) */
-  OptReal alpha_max {};
-
-  // ── Cut file management ────────────────────────────────────────────────────
-  /** @brief Enable hot-start from previously saved cuts (default: false).
-   *  When true and no explicit `cuts_input_file` is given, the solver
-   *  loads cuts from the `cut_directory`.
-   *  @deprecated Use `hot_start_mode` instead for finer control. */
-  OptBool hot_start {};
-  /** @brief Hot-start mode: `"none"` (default), `"keep"`, `"append"`,
-   *  or `"replace"`.  Controls both whether to load cuts from a previous
-   *  run and how to handle the combined output file on completion.
-   *  Takes precedence over the boolean `hot_start` field. */
-  OptName hot_start_mode {};
-  /** @brief Save cuts to CSV after each iteration (default: true).
-   *  When false, cuts are only saved at the end of the solve or on stop. */
-  OptBool save_per_iteration {};
-  /** @brief File path for loading initial cuts (hot-start; empty = cold start)
-   */
-  OptName cuts_input_file {};
-  /** @brief Path to a sentinel file; if it exists, the solver stops gracefully
-   * after the current iteration (analogous to PLP's userstop) */
-  OptName sentinel_file {};
-  /** @brief Elastic filter mode: `"single_cut"` (default, alias `"cut"`) or
-   *         `"multi_cut"` or `"backpropagate"` */
-  OptName elastic_mode {};
-  /** @brief Forward-pass infeasibility count threshold for switching from
-   *         single_cut to multi_cut (default: 10; 0 = never auto-switch) */
-  OptInt multi_cut_threshold {};
-  /** @brief Aperture UIDs for the backward pass.
-   *
-   * - absent (nullopt) – use per-phase `Phase::apertures` (default)
-   * - empty array `[]` – no apertures (pure Benders)
-   * - non-empty `[1,2,3]` – use exactly these aperture UIDs,
-   *   overriding per-phase apertures
-   */
-  std::optional<Array<Uid>> apertures {};
-  /** @brief Directory for aperture-specific scenario data.
-   *
-   * When present, scenarios referenced by `Aperture::source_scenario` are
-   * first looked up in this directory.  If not found there, they fall back
-   * to the regular `input_directory`.  This allows backward-pass apertures
-   * to use different affluent data than the forward-pass scenarios.
-   */
-  OptName aperture_directory {};
-
-  /** @brief Timeout in seconds for individual aperture LP solves in the
-   *  SDDP backward pass.
-   *
-   * When an aperture LP exceeds this time, it is treated as infeasible
-   * (skipped), a WARNING is logged, and the solver continues with the
-   * remaining apertures.  Default 15 seconds.  0 = no timeout.
-   */
-  OptReal aperture_timeout {};
-
-  /** @brief Save LP files for infeasible apertures to the log directory.
-   *
-   * When true, each infeasible aperture clone is written as
-   * ``error_aperture_sc_<scene>_ph_<phase>_ap_<uid>.lp`` in the log
-   * directory.  Useful for debugging but expensive in large cases.
-   * Default: false (disabled).
-   */
-  OptBool save_aperture_lp {};
-
-  /** @brief Enable warm-start optimizations for aperture and elastic clone
-   *  resolves.
-   *
-   * When true (default), SDDP resolves use dual simplex with presolve
-   * disabled, pivoting from the saved forward-pass solution instead of
-   * restarting.  CLP specialOptions are tuned for factorization and
-   * work-area reuse.  This is especially important when the original
-   * solve used barrier.
-   */
-  OptBool warm_start {};
-
-  /** @brief Timeout in seconds for each forward-pass LP solve.
-   *
-   * When a forward-pass LP exceeds this time, the solver writes the
-   * LP to a debug file and treats the scene as failed.
-   * Default 180 seconds (3 minutes).  0 = no timeout.
-   */
-  OptReal solve_timeout {};
-
-  /** @brief CSV file with boundary (future-cost) cuts for the last phase.
-   *
-   * These are analogous to PLP's "planos de embalse" — external optimality
-   * cuts that approximate the expected future cost beyond the planning
-   * horizon.  Each cut is of the form:
-   *
-   *   α ≥ rhs + Σ_i  coeff_i · state_var_i
-   *
-   * The CSV header row names the state variables (reservoir / battery);
-   * subsequent rows provide the cut name, iteration, scene UID,
-   * RHS, and gradient coefficients.
-   *
-   * Format:
-   * ```
-   * name,iteration,scene,rhs,Reservoir1,Reservoir2,...
-   * cut_001,1,1,-5000.0,0.25,0.75,...
-   * ```
-   *
-   * The `scene` column contains the scene UID (matching the `uid` field
-   * in gtopt's `scene_array`).  The solver maps column headers to the LP
-   * state-variable columns in the last phase and adds each cut as a
-   * lower-bound constraint on the future cost variable α.
-   * If empty, no boundary cuts are loaded.
-   */
-  OptName boundary_cuts_file {};
-
-  /** @brief How boundary cuts are loaded: `"noload"`, `"separated"` (default),
-   * or `"combined"`.
-   *
-   * - `"noload"` — do not load boundary cuts even if a file is given.
-   * - `"separated"` — load cuts per scene: each cut is assigned to the
-   *   scene matching its `scene` column (scene UID from `scene_array`).
-   * - `"combined"` — load all cuts into all scenes (broadcast).
-   */
-  OptName boundary_cuts_mode {};
-
-  /** @brief Maximum number of SDDP iterations to load from the boundary
-   * cuts file.  Only cuts from the last N iterations (by `iteration`
-   * column, i.e. PLP's IPDNumIte) are loaded.  0 = load all (default).
-   */
-  OptInt boundary_max_iterations {};
-
-  /** @brief CSV file with named-variable cuts for hot-start across all phases.
-   *
-   * Unlike boundary cuts (which apply only to the last phase), these cuts
-   * include a `phase` column indicating which phase they belong to.  The
-   * solver resolves named state-variable headers (reservoir / battery /
-   * junction) to LP column indices in the specified phase, then adds each cut
-   * as:
-   *
-   *   α_phase ≥ rhs + Σ_i coeff_i · state_var_i[phase]
-   *
-   * Format:
-   * ```
-   * name,iteration,scene,phase,rhs,Reservoir1,Reservoir2,...
-   * hs_1_1_3,1,1,3,-5000.0,0.25,0.75,...
-   * ```
-   *
-   * If empty, no named hot-start cuts are loaded.
-   */
-  OptName named_cuts_file {};
-
-  /// Maximum retained cuts per (scene, phase) LP.  0 = unlimited (default).
-  OptInt max_cuts_per_phase {};
-  /// Iterations between cut pruning passes.  Default: 10.
-  OptInt cut_prune_interval {};
-  /// Dual threshold for inactive cut detection.  Default: 1e-8.
-  OptReal prune_dual_threshold {};
-
-  /// Use single cut storage: store in per-scene vectors only.  Default: false.
-  OptBool single_cut_storage {};
-  /// Maximum total stored cuts per scene (0 = unlimited).  Default: 0.
-  OptInt max_stored_cuts {};
-  /// Reuse cached LP clones for aperture solves.  Default: true.
-  OptBool use_clone_pool {};
-
-  /// Run in simulation mode: no training iterations (max_iterations=0),
-  /// forward-only evaluation of the policy from loaded cuts.
-  /// No cuts are saved.  Default: false.
-  OptBool simulation_mode {};
-
-  // ── Secondary (stationary gap) convergence ─────────────────────────────────
-  /** @brief Tolerance for secondary stationary-gap convergence criterion.
-   *
-   * When the relative change in the convergence gap over the last
-   * `stationary_window` iterations falls below this value, the solver
-   * declares convergence even if the gap is above `convergence_tol`.
-   * This handles problems where the gap converges to a non-zero stationary
-   * value (a known theoretical limitation of SDDP/Benders on certain
-   * stochastic programs).
-   *
-   * Formula (after at least `min_iterations` and `stationary_window`
-   * iterations have completed):
-   *   gap_change = |gap[i] − gap[i − window]| / max(1e-10, gap[i − window])
-   *   if gap_change < stationary_tol → declare convergence
-   *
-   * Default: 0.0 (disabled; secondary criterion is off).
-   * Set to a small positive value (e.g. 0.01) to enable.
-   */
-  OptReal stationary_tol {};
-
-  /** @brief Number of iterations to look back when checking for a stationary
-   * gap (secondary convergence criterion).  Only used when `stationary_tol`
-   * is positive.  Default: 10.
-   */
-  OptInt stationary_window {};
-
-  void merge(SddpOptions&& opts)
-  {
-    merge_opt(cut_sharing_mode, std::move(opts.cut_sharing_mode));
-    merge_opt(cut_directory, std::move(opts.cut_directory));
-    merge_opt(api_enabled, opts.api_enabled);
-    merge_opt(update_lp_skip, opts.update_lp_skip);
-    merge_opt(max_iterations, opts.max_iterations);
-    merge_opt(min_iterations, opts.min_iterations);
-    merge_opt(convergence_tol, opts.convergence_tol);
-    merge_opt(elastic_penalty, opts.elastic_penalty);
-    merge_opt(alpha_min, opts.alpha_min);
-    merge_opt(alpha_max, opts.alpha_max);
-    merge_opt(hot_start, opts.hot_start);
-    merge_opt(hot_start_mode, std::move(opts.hot_start_mode));
-    merge_opt(save_per_iteration, opts.save_per_iteration);
-    merge_opt(cuts_input_file, std::move(opts.cuts_input_file));
-    merge_opt(sentinel_file, std::move(opts.sentinel_file));
-    merge_opt(elastic_mode, std::move(opts.elastic_mode));
-    merge_opt(multi_cut_threshold, opts.multi_cut_threshold);
-    if (opts.apertures.has_value()) {
-      apertures = std::move(opts.apertures);
-    }
-    merge_opt(aperture_directory, std::move(opts.aperture_directory));
-    merge_opt(aperture_timeout, opts.aperture_timeout);
-    merge_opt(save_aperture_lp, opts.save_aperture_lp);
-    merge_opt(warm_start, opts.warm_start);
-    merge_opt(solve_timeout, opts.solve_timeout);
-    merge_opt(boundary_cuts_file, std::move(opts.boundary_cuts_file));
-    merge_opt(boundary_cuts_mode, std::move(opts.boundary_cuts_mode));
-    merge_opt(boundary_max_iterations, opts.boundary_max_iterations);
-    merge_opt(named_cuts_file, std::move(opts.named_cuts_file));
-    merge_opt(max_cuts_per_phase, opts.max_cuts_per_phase);
-    merge_opt(cut_prune_interval, opts.cut_prune_interval);
-    merge_opt(prune_dual_threshold, opts.prune_dual_threshold);
-    merge_opt(single_cut_storage, opts.single_cut_storage);
-    merge_opt(max_stored_cuts, opts.max_stored_cuts);
-    merge_opt(use_clone_pool, opts.use_clone_pool);
-    merge_opt(simulation_mode, opts.simulation_mode);
-    merge_opt(stationary_tol, opts.stationary_tol);
-    merge_opt(stationary_window, opts.stationary_window);
-
-    auto _ = std::move(opts);
-  }
-};
-
-/**
- * @brief Power system model configuration for LP construction.
- *
- * Groups all options that affect how the mathematical model is
- * formulated: network topology, Kirchhoff constraints, line losses,
- * scaling factors, penalty costs, and discount rate.
- *
- * Used both as a global sub-object in Options (`model_options`) and
- * as per-level overrides in CascadeLevel (`model_options`).
- * When used in a cascade level, only set fields override the global;
- * absent fields inherit from the global configuration.
- */
-struct ModelOptions
-{
-  /// Collapse the network to a single bus (copper-plate model).
-  OptBool use_single_bus {};
-  /// Apply DC Kirchhoff voltage-law constraints.
-  OptBool use_kirchhoff {};
-  /// Model resistive line losses.
-  OptBool use_line_losses {};
-  /// Minimum bus voltage [kV] below which Kirchhoff is not applied.
-  OptReal kirchhoff_threshold {};
-  /// Number of piecewise-linear segments for quadratic line losses.
-  OptInt loss_segments {};
-  /// Divisor for all objective coefficients (numerical stability).
-  OptReal scale_objective {};
-  /// Scaling factor for voltage-angle variables.
-  OptReal scale_theta {};
-  /// Penalty cost for unserved demand [$/MWh].
-  OptReal demand_fail_cost {};
-  /// Penalty cost for unserved spinning-reserve [$/MWh].
-  OptReal reserve_fail_cost {};
-  /// Annual discount rate for multi-stage CAPEX [p.u./year].
-  OptReal annual_discount_rate {};
-
-  void merge(const ModelOptions& opts)
-  {
-    merge_opt(use_single_bus, opts.use_single_bus);
-    merge_opt(use_kirchhoff, opts.use_kirchhoff);
-    merge_opt(use_line_losses, opts.use_line_losses);
-    merge_opt(kirchhoff_threshold, opts.kirchhoff_threshold);
-    merge_opt(loss_segments, opts.loss_segments);
-    merge_opt(scale_objective, opts.scale_objective);
-    merge_opt(scale_theta, opts.scale_theta);
-    merge_opt(demand_fail_cost, opts.demand_fail_cost);
-    merge_opt(reserve_fail_cost, opts.reserve_fail_cost);
-    merge_opt(annual_discount_rate, opts.annual_discount_rate);
-  }
-
-  /// True if any field is set.
-  [[nodiscard]] bool has_any() const noexcept
-  {
-    return use_single_bus.has_value() || use_kirchhoff.has_value()
-        || use_line_losses.has_value() || kirchhoff_threshold.has_value()
-        || loss_segments.has_value() || scale_objective.has_value()
-        || scale_theta.has_value() || demand_fail_cost.has_value()
-        || reserve_fail_cost.has_value() || annual_discount_rate.has_value();
-  }
-};
-
-/**
- * @brief Transition configuration: how a cascade level receives
- *        information from the previous level.
- */
-struct CascadeTransition
-{
-  /// Carry forward optimality cuts (Benders cuts) from previous level.
-  /// The value controls when inherited cuts are dropped ("forgotten"):
-  ///   - absent or 0: do not inherit
-  ///   - -1:          inherit and keep forever
-  ///   - N > 0:       inherit but forget after N training iterations,
-  ///                  then re-solve with only self-generated cuts
-  OptInt inherit_optimality_cuts {};
-  /// Carry forward feasibility cuts from previous level.
-  /// Same semantics as inherit_optimality_cuts.
-  OptInt inherit_feasibility_cuts {};
-  /// Add elastic state variable target constraints from previous
-  /// solution.  Same semantics as inherit_optimality_cuts:
-  ///   - absent or 0: do not inherit
-  ///   - -1:          inherit and keep forever
-  ///   - N > 0:       inherit but remove target constraints after N
-  ///                  training iterations
-  OptInt inherit_targets {};
-  /// Relative tolerance for target band.  Default: 0.05 (5%).
-  OptReal target_rtol {};
-  /// Minimum absolute tolerance for target band.  Default: 1.0.
-  OptReal target_min_atol {};
-  /// Elastic penalty cost per unit violation of target.  Default: 500.
-  OptReal target_penalty {};
-  /// Minimum |dual| threshold for transferring cuts.  Cuts with
-  /// |dual| < threshold are considered inactive and skipped.
-  /// Default: 0.0 (transfer all cuts regardless of dual).
-  OptReal optimality_dual_threshold {};
-
-  void merge(const CascadeTransition& opts)
-  {
-    merge_opt(inherit_optimality_cuts, opts.inherit_optimality_cuts);
-    merge_opt(inherit_feasibility_cuts, opts.inherit_feasibility_cuts);
-    merge_opt(inherit_targets, opts.inherit_targets);
-    merge_opt(target_rtol, opts.target_rtol);
-    merge_opt(target_min_atol, opts.target_min_atol);
-    merge_opt(target_penalty, opts.target_penalty);
-    merge_opt(optimality_dual_threshold, opts.optimality_dual_threshold);
-  }
-};
-
-/**
- * @brief Solver options for one cascade level.
- */
-struct CascadeLevelSolver
-{
-  /// Maximum iterations for this level.
-  OptInt max_iterations {};
-  /// Minimum iterations before convergence can be declared.
-  OptInt min_iterations {};
-  /// Aperture UIDs for this level (nullopt = inherit, empty = Benders).
-  std::optional<Array<Uid>> apertures {};
-  /// Convergence tolerance for this level.
-  OptReal convergence_tol {};
-
-  void merge(const CascadeLevelSolver& opts)
-  {
-    merge_opt(max_iterations, opts.max_iterations);
-    merge_opt(min_iterations, opts.min_iterations);
-    if (opts.apertures.has_value()) {
-      apertures = opts.apertures;
-    }
-    merge_opt(convergence_tol, opts.convergence_tol);
-  }
-};
-
-/**
- * @brief One cascade level configuration.
- *
- * LP is automatically rebuilt when `model_options` is present.
- * When absent, the previous level's LP and solver are reused.
- */
-struct CascadeLevel
-{
-  /// Unique identifier for this level.
-  OptUid uid {};
-  /// Human-readable level name (for logging).
-  OptName name {};
-  /// Model overrides for this level (absent → reuse previous LP).
-  std::optional<ModelOptions> model_options {};
-  /// SDDP solver options for this level.
-  std::optional<CascadeLevelSolver> sddp_options {};
-  /// Transition from the previous level.
-  std::optional<CascadeTransition> transition {};
-};
-
-/**
- * @brief Cascade solver configuration: variable number of levels.
- *
- * Contains an `SddpOptions` sub-object (`sddp_options`) so that all SDDP
- * options (convergence_tol, cut_sharing_mode, elastic_mode, etc.) can be
- * set at the cascade level and serve as defaults for each level solver.
- *
- * `sddp_options.max_iterations` is used as the **global iteration budget**
- * across all levels (not per-level).  Per-level
- * `CascadeLevelSolver::max_iterations` controls iterations within each level.
- *
- * Each level can have different LP formulation options, solver
- * parameters, and transition rules.  When `level_array` is empty,
- * a single default level is created that passes through all options.
- */
-struct CascadeOptions
-{
-  /// Global model options — serve as defaults for all levels.
-  /// Per-level model_options override these when set.
-  ModelOptions model_options {};
-  /// Global SDDP options — serve as defaults for all levels.
-  /// max_iterations here is the global iteration budget across all levels.
-  SddpOptions sddp_options {};
-  /// Array of cascade level configurations.
-  Array<CascadeLevel> level_array {};
-
-  void merge(
-      CascadeOptions&&
-          opts)  // NOLINT(cppcoreguidelines-rvalue-reference-param-not-moved)
-  {
-    model_options.merge(opts.model_options);
-    sddp_options.merge(std::move(opts.sddp_options));
-    if (!opts.level_array.empty()) {
-      level_array = std::move(opts.level_array);
-    }
-  }
-};
-
-/**
- * @brief Monolithic solver configuration parameters
- *
- * Groups monolithic-solver-specific options into a single sub-object for
- * clearer JSON organization.  All fields are optional — defaults are
- * applied via `OptionsLP`.
- */
-struct MonolithicOptions
-{
-  /** @brief Solve mode: `"monolithic"` (default) or `"sequential"` */
-  OptName solve_mode {};
-  /** @brief CSV file with boundary (future-cost) cuts.
-   *
-   * When non-empty, the monolithic solver loads boundary cuts from this
-   * file before solving.  The cuts approximate the expected future cost
-   * beyond the planning horizon (analogous to SDDP boundary cuts).
-   */
-  OptName boundary_cuts_file {};
-  /** @brief Boundary cuts load mode: `"noload"`, `"separated"` (default),
-   * or `"combined"` */
-  OptName boundary_cuts_mode {};
-
-  /** @brief Timeout in seconds for each LP solve.
-   *
-   * Default 18000 seconds (300 minutes).  0 = no timeout.
-   * When exceeded, the solver writes the LP to a debug file and exits.
-   */
-  OptReal solve_timeout {};
-  /** @brief Maximum iterations to load from boundary cuts file (0 = all) */
-  OptInt boundary_max_iterations {};
-
-  void merge(MonolithicOptions&& opts)
-  {
-    merge_opt(solve_mode, std::move(opts.solve_mode));
-    merge_opt(boundary_cuts_file, std::move(opts.boundary_cuts_file));
-    merge_opt(boundary_cuts_mode, std::move(opts.boundary_cuts_mode));
-    merge_opt(solve_timeout, opts.solve_timeout);
-    merge_opt(boundary_max_iterations, opts.boundary_max_iterations);
-
-    auto _ = std::move(opts);
-  }
-};
 
 /**
  * @brief Global configuration parameters for the optimization model
@@ -599,30 +98,8 @@ struct Options
   /** @brief Compression codec for Parquet output: `"gzip"` (default), `"zstd"`,
    * `"uncompressed"` */
   OptName output_compression {};
-  /** @brief LP naming level: 0=none, 1=names+warn (default),
-   * 2=names+error.
-   *
-   * Level 0 disables LP names entirely (smallest memory footprint).
-   * Level 1 assigns names, populates name-to-index maps, and warns on
-   *   duplicate row/column names.
-   * Level 2 assigns names, populates maps, and throws on duplicates.
-   *
-   * Backward-compatible: JSON `true` maps to 1, `false` to 0.
-   */
-  OptInt use_lp_names {};
   /** @brief Use element UIDs instead of names in output filenames */
   OptBool use_uid_fname {};
-
-  // ── Solver algorithm settings (deprecated: use solver_options instead) ────
-  /** @brief @deprecated Use `solver_options.algorithm` instead.
-   * LP algorithm: 0=auto, 1=primal simplex, 2=dual simplex, 3=barrier */
-  OptInt lp_algorithm {};
-  /** @brief @deprecated Use `solver_options.threads` instead.
-   * Number of solver threads (0=automatic) [dimensionless] */
-  OptInt lp_threads {};
-  /** @brief @deprecated Use `solver_options.presolve` instead.
-   * Whether to apply the solver's built-in presolve (default: true) */
-  OptBool lp_presolve {};
 
   /** @brief Planning solver type: `"monolithic"` (default), `"sddp"`,
    * or `"cascade"`.
@@ -664,12 +141,7 @@ struct Options
    * Both the monolithic and SDDP solvers exit immediately after LP matrix
    * assembly — no solving occurs at all.
    * Combine with `lp_debug=true` to save every scene/phase LP file. */
-  OptBool build_lp {};
-
-  /** @brief LP coefficient ratio threshold for numerical conditioning
-   * diagnostics.  When the global max/min |coefficient| ratio exceeds this
-   * value, a per-scene/phase breakdown is printed.  (default: 1e7) */
-  OptReal lp_coeff_ratio_threshold {};
+  OptBool lp_build {};
 
   // Note: solve_timeout is per-solver (sddp_options and monolithic_options)
   // with different defaults: 180s for SDDP, 18000s for monolithic.
@@ -714,6 +186,19 @@ struct Options
    * precedence over the corresponding @c solver_options sub-fields.
    */
   SolverOptions solver_options {};
+
+  // ── LP build options (grouped sub-object) ──────────────────────────────
+  /** @brief LP matrix assembly configuration (epsilon, naming, stats, etc.)
+   *
+   * Exposes the full @c LpBuildOptions struct as a JSON sub-object so that
+   * users can set LP assembly parameters directly in the planning JSON:
+   *
+   * ```json
+   * { "options": { "lp_build_options": { "eps": 1e-10,
+   *                                      "compute_stats": true } } }
+   * ```
+   */
+  LpBuildOptions lp_build_options {};
 
   // ── Variable scaling ──────────────────────────────────────────────────────
   /** @brief Per-class/variable LP scale overrides.
@@ -766,20 +251,15 @@ struct Options
     merge_opt(output_format, std::move(opts.output_format));
     merge_opt(output_compression, std::move(opts.output_compression));
 
-    merge_opt(use_lp_names, opts.use_lp_names);
     merge_opt(use_uid_fname, opts.use_uid_fname);
     merge_opt(annual_discount_rate, opts.annual_discount_rate);
 
-    // Merge solver algorithm settings
-    merge_opt(lp_algorithm, opts.lp_algorithm);
-    merge_opt(lp_threads, opts.lp_threads);
-    merge_opt(lp_presolve, opts.lp_presolve);
+    // Merge solver settings
     merge_opt(method, std::move(opts.method));
     merge_opt(log_directory, std::move(opts.log_directory));
     merge_opt(lp_debug, opts.lp_debug);
     merge_opt(lp_compression, std::move(opts.lp_compression));
-    merge_opt(build_lp, opts.build_lp);
-    merge_opt(lp_coeff_ratio_threshold, opts.lp_coeff_ratio_threshold);
+    merge_opt(lp_build, opts.lp_build);
     // solve_timeout is per-solver (sddp_options, monolithic_options)
 
     // Merge model options
@@ -797,6 +277,11 @@ struct Options
     // Merge LP solver options (only optional tolerance fields are merged;
     // non-optional fields in the first file win)
     solver_options.merge(opts.solver_options);
+
+    // Merge LP build options
+    merge_opt(lp_build_options.names_level, opts.lp_build_options.names_level);
+    merge_opt(lp_build_options.lp_coeff_ratio_threshold,
+              opts.lp_build_options.lp_coeff_ratio_threshold);
 
     // Merge variable scales (append incoming entries)
     if (!opts.variable_scales.empty()) {

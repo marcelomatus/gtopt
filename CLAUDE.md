@@ -239,8 +239,8 @@ at runtime. The default is auto-detected by priority: cplex > highs > cbc > clp.
 
 | CLI flag | Effect |
 |----------|--------|
-| `--lp-solver highs` | Use a specific LP solver backend |
-| `--lp-solvers` | List available LP solver plugins |
+| `--solver highs` | Use a specific LP solver backend |
+| `--solvers` | List available LP solver plugins |
 
 Plugin search path: `$GTOPT_PLUGIN_DIR`, `<exe>/../lib/gtopt/plugins/`,
 `<exe>/plugins/`, `/usr/local/lib/gtopt/plugins/`.

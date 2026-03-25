@@ -9,7 +9,7 @@ TEST_CASE("LabelMaker basic functionality")
 {
   using namespace gtopt;
   Options options;
-  options.use_lp_names = 1;
+  options.lp_build_options.names_level = LpNamesLevel::only_cols;
   const OptionsLP options_lp(options);
   const LabelMaker maker(options_lp);
 
@@ -23,7 +23,7 @@ TEST_CASE("LabelMaker basic functionality")
   SUBCASE("Empty labels when disabled")
   {
     Options disabled_options;
-    disabled_options.use_lp_names = 0;
+    disabled_options.lp_build_options.names_level = LpNamesLevel::minimal;
     const OptionsLP disabled_options_lp(disabled_options);
     const LabelMaker disabled_maker(disabled_options_lp);
 
@@ -35,7 +35,7 @@ TEST_CASE("LabelMaker basic functionality")
 TEST_CASE("LabelMaker with StageLP")
 {
   Options options;
-  options.use_lp_names = 1;
+  options.lp_build_options.names_level = LpNamesLevel::only_cols;
   const OptionsLP options_lp(options);
   const LabelMaker maker(options_lp);
 
@@ -54,7 +54,7 @@ TEST_CASE("LabelMaker with StageLP")
 TEST_CASE("LabelMaker with ScenarioLP and StageLP")
 {
   Options options;
-  options.use_lp_names = 1;
+  options.lp_build_options.names_level = LpNamesLevel::only_cols;
   const OptionsLP options_lp(options);
   const LabelMaker maker(options_lp);
 
@@ -80,7 +80,7 @@ TEST_CASE("LabelMaker with ScenarioLP and StageLP")
 TEST_CASE("LabelMaker with BlockLP")
 {
   Options options;
-  options.use_lp_names = 1;
+  options.lp_build_options.names_level = LpNamesLevel::only_cols;
   const OptionsLP options_lp(options);
   const LabelMaker maker(options_lp);
 
@@ -101,7 +101,7 @@ TEST_CASE("LabelMaker with BlockLP")
 TEST_CASE("LabelMaker edge cases")
 {
   Options options;
-  options.use_lp_names = 1;
+  options.lp_build_options.names_level = LpNamesLevel::only_cols;
   const OptionsLP options_lp(options);
   const LabelMaker maker(options_lp);
 

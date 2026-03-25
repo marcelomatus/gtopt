@@ -277,13 +277,13 @@ def test_load_system_stats(tmp_path: Path):
 
 
 def test_load_system_stats_missing():
-    assert _load_system_stats(None) == {}
+    assert not _load_system_stats(None)
 
 
 def test_load_system_stats_corrupt(tmp_path: Path):
     f = tmp_path / "bad.json"
     f.write_text("not json")
-    assert _load_system_stats(f) == {}
+    assert not _load_system_stats(f)
 
 
 # ---------------------------------------------------------------------------

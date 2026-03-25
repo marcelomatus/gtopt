@@ -84,6 +84,13 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             0,
         ),
         ("count_stage", _J_INT, True, "Number of stages in this phase", 1),
+        (
+            "apertures",
+            _J_STR,
+            False,
+            "Comma-separated aperture UIDs for this phase (empty = use all global apertures)",
+            None,
+        ),
     ],
     "scene_array": [
         ("uid", _J_INT, True, "Unique scene identifier (SDDP)", 1),
@@ -441,6 +448,14 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
         ("bus", _J_ID, False, "Connected bus uid or name (optional)", None),
         (
+            "source_generator",
+            _J_ID,
+            False,
+            "Co-located generator uid or name for generation-coupled mode "
+            "(solar+battery); when set, the generator feeds the battery directly",
+            None,
+        ),
+        (
             "input_efficiency",
             _J_SCHED,
             False,
@@ -482,6 +497,20 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             _J_NUM,
             False,
             "Required final state-of-charge [MWh] (default: free)",
+            None,
+        ),
+        (
+            "soft_emin",
+            _J_SCHED,
+            False,
+            "Soft minimum SoC [MWh] — allows SoC to drop below at a penalty cost",
+            None,
+        ),
+        (
+            "soft_emin_cost",
+            _J_SCHED,
+            False,
+            "Penalty cost [$/MWh] for SoC below soft_emin",
             None,
         ),
         (
@@ -829,6 +858,20 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("eini", _J_NUM, False, "Initial reservoir volume [hm³]", None),
         ("efin", _J_NUM, False, "Required final reservoir volume [hm³]", None),
         (
+            "soft_emin",
+            _J_SCHED,
+            False,
+            "Soft minimum volume [hm³] — allows volume to drop below at a penalty cost",
+            None,
+        ),
+        (
+            "soft_emin_cost",
+            _J_SCHED,
+            False,
+            "Penalty cost [$/hm³] for volume below soft_emin",
+            None,
+        ),
+        (
             "fmin",
             _J_NUM,
             False,
@@ -958,9 +1001,16 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         (
             "waterway",
             _J_ID,
-            True,
-            "Waterway uid or name associated with this turbine",
+            False,
+            "Waterway uid or name associated with this turbine (optional if flow set)",
             "ww1",
+        ),
+        (
+            "flow",
+            _J_ID,
+            False,
+            "Flow uid or name (alternative to waterway for pasada/run-of-river mode)",
+            None,
         ),
         (
             "generator",
@@ -1098,6 +1148,19 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
     ],
     # ------------------------------------------------------------------
+    # Simulation — iteration overrides (SDDP per-iteration control)
+    # ------------------------------------------------------------------
+    "iteration_array": [
+        ("index", _J_INT, True, "0-based iteration index", 0),
+        (
+            "update_lp",
+            _J_BOOL,
+            False,
+            "Whether to dispatch update_lp for this iteration (default: true)",
+            None,
+        ),
+    ],
+    # ------------------------------------------------------------------
     # Options — variable scales
     # ------------------------------------------------------------------
     "variable_scales": [
@@ -1183,6 +1246,14 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Solver output verbosity (0 = none, default: 0)",
             0,
         ),
+        (
+            "time_limit",
+            _J_NUM,
+            False,
+            "Per-solve time limit in seconds (0 = no limit); passed to the LP backend "
+            "(CLP setMaximumSeconds, HiGHS time_limit)",
+            None,
+        ),
     ],
 }
 
@@ -1216,8 +1287,8 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "elastic_penalty",
         "alpha_min",
         "alpha_max",
-        "hot_start",
-        "hot_start_mode",
+        "cut_recovery_mode",
+        "recovery_mode",
         "save_per_iteration",
         "cuts_input_file",
         "sentinel_file",
@@ -1228,8 +1299,6 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "aperture_directory",
         "aperture_timeout",
         "save_aperture_lp",
-        "warm_start",
-        "solve_timeout",
         "boundary_cuts_file",
         "boundary_cuts_mode",
         "boundary_max_iterations",
@@ -1241,9 +1310,11 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "max_stored_cuts",
         "use_clone_pool",
         "simulation_mode",
+        "warm_start",
         "stationary_tol",
         "stationary_window",
         "update_lp_skip",
+        "solver_options",
     }
 )
 
@@ -1264,6 +1335,27 @@ MONOLITHIC_OPTION_KEYS: frozenset[str] = frozenset(
         "boundary_cuts_file",
         "boundary_cuts_mode",
         "boundary_max_iterations",
+        "solver_options",
+    }
+)
+
+# Keys that belong inside the ``solver_options`` JSON sub-object.
+# Must match the fields in ``json_data_contract<SolverOptions>`` in
+# ``include/gtopt/json/json_solver_options.hpp``.
+# In the flat Excel sheet these are prefixed with ``solver_`` to
+# distinguish them from other options (e.g.
+# ``solver_time_limit`` → ``time_limit``).
+SOLVER_OPTION_KEYS: frozenset[str] = frozenset(
+    {
+        "algorithm",
+        "threads",
+        "presolve",
+        "optimal_eps",
+        "feasible_eps",
+        "barrier_eps",
+        "log_level",
+        "time_limit",
+        "reuse_basis",
     }
 )
 
@@ -1328,12 +1420,9 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         "Use uid-based filenames for output (true/false)",
         None,
     ),
-    ("lp_algorithm", "LP solver algorithm code (0=auto)", None),
-    ("lp_threads", "Number of LP solver threads (0=auto)", None),
-    ("lp_presolve", "Enable LP presolve (true/false)", None),
     (
-        "solver_type",
-        "Planning solver type: 'monolithic' (default) or 'sddp'",
+        "method",
+        "Planning method: 'monolithic' (default), 'sddp', or 'cascade'",
         None,
     ),
     ("log_directory", "Directory for solver log files", "logs"),
@@ -1347,10 +1436,62 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         "Compression codec for debug LP files (e.g. 'gzip')",
         None,
     ),
-    ("build_lp", "Build LP without solving (true/false)", None),
+    ("lp_build", "Build LP without solving (true/false)", None),
     (
         "lp_coeff_ratio_threshold",
         "Warn when LP coefficient ratio exceeds this value",
+        None,
+    ),
+    # ------------------------------------------------------------------
+    # Solver options (nested into "solver_options" in JSON output)
+    # In the flat Excel sheet these use a "solver_" prefix.
+    # The prefix is stripped when writing the JSON sub-object.
+    # ------------------------------------------------------------------
+    (
+        "solver_algorithm",
+        "[solver] LP algorithm: 0=default, 1=primal, 2=dual, 3=barrier (default: 3)",
+        3,
+    ),
+    (
+        "solver_threads",
+        "[solver] Number of parallel LP threads (0 = automatic, default: 0)",
+        0,
+    ),
+    (
+        "solver_presolve",
+        "[solver] Apply LP presolve optimizations (true/false, default: true)",
+        True,
+    ),
+    (
+        "solver_time_limit",
+        "[solver] Per-solve time limit in seconds; "
+        "passed to LP backend (CLP setMaximumSeconds, HiGHS time_limit). "
+        "0 = no limit",
+        None,
+    ),
+    (
+        "solver_optimal_eps",
+        "[solver] Optimality tolerance (blank = use solver default)",
+        None,
+    ),
+    (
+        "solver_feasible_eps",
+        "[solver] Feasibility tolerance (blank = use solver default)",
+        None,
+    ),
+    (
+        "solver_barrier_eps",
+        "[solver] Barrier convergence tolerance (blank = use solver default)",
+        None,
+    ),
+    (
+        "solver_log_level",
+        "[solver] Solver output verbosity (0 = none, default: 0)",
+        0,
+    ),
+    (
+        "solver_reuse_basis",
+        "[solver] Enable basis-reuse for resolves (true/false, default: false)",
         None,
     ),
     # ------------------------------------------------------------------
@@ -1390,10 +1531,19 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     ),
     ("alpha_min", "[sddp] Minimum alpha (future cost) lower bound", None),
     ("alpha_max", "[sddp] Maximum alpha (future cost) upper bound", None),
-    ("hot_start", "[sddp] Resume SDDP from existing cuts (true/false)", None),
     (
-        "hot_start_mode",
-        "[sddp] Hot-start mode: 'none' (default), 'keep', 'append', or 'replace'",
+        "cut_recovery_mode",
+        "[sddp] Cut persistence mode: 'none' (default), 'keep', 'append', or 'replace'",
+        None,
+    ),
+    (
+        "recovery_mode",
+        "[sddp] Recovery mode: 'none' (0), 'cuts' (1), or 'full' (2, default)",
+        None,
+    ),
+    (
+        "warm_start",
+        "[sddp] Enable warm-start for SDDP resolves (true/false, default: true)",
         None,
     ),
     (
@@ -1439,16 +1589,6 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     (
         "save_aperture_lp",
         "[sddp] Save LP files for infeasible apertures (true/false)",
-        None,
-    ),
-    (
-        "warm_start",
-        "[sddp] Enable warm-start for aperture/elastic resolves (true/false)",
-        None,
-    ),
-    (
-        "solve_timeout",
-        "[sddp] Timeout in seconds for each LP solve",
         None,
     ),
     (
@@ -1548,6 +1688,7 @@ _TEMPLATE_SIMULATION_SHEETS = [
     "phase_array",
     "scene_array",
     "aperture_array",
+    "iteration_array",
 ]
 
 _TEMPLATE_SYSTEM_SHEETS = [
@@ -1626,6 +1767,12 @@ _INTRO_LINES = [
         "aperture_array",
         "Simulation",
         "SDDP backward-pass apertures (scenario sampling) — leave empty for default",
+        "TABLE",
+    ),
+    (
+        "iteration_array",
+        "Simulation",
+        "SDDP per-iteration control flags — leave empty for defaults",
         "TABLE",
     ),
     ("bus_array", "System", "Electrical busbars (nodes)", "TABLE"),

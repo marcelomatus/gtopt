@@ -793,27 +793,31 @@ def _find_gtopt_binary() -> str | None:
 
     Checks (in order):
     1. ``GTOPT_BIN`` environment variable
-    2. ``shutil.which("gtopt")``
-    3. ``../../build/gtopt`` (relative to the scripts/ directory)
-    4. ``../../build-standalone/gtopt``
-    5. ``../../all/build/gtopt``
+    2. Build directories relative to the repo root (preferred over PATH
+       so that a freshly built binary is used instead of a stale install)
+    3. ``shutil.which("gtopt")``
     """
     env_bin = os.environ.get("GTOPT_BIN")
     if env_bin and Path(env_bin).exists():
         return env_bin
 
-    which_bin = shutil.which("gtopt")
-    if which_bin:
-        return which_bin
-
     # Try build directories relative to the repo root
     # __file__ = scripts/ts2gtopt/tests/test_bat4b_annual.py
     # parents[3] = repo root (scripts/../..)
     repo_root = Path(__file__).resolve().parents[3]
-    for rel in ("build/gtopt", "build-standalone/gtopt", "all/build/gtopt"):
+    for rel in (
+        "build/standalone/gtopt",
+        "build/gtopt",
+        "build-standalone/gtopt",
+        "all/build/gtopt",
+    ):
         candidate = repo_root / rel
         if candidate.exists():
             return str(candidate)
+
+    which_bin = shutil.which("gtopt")
+    if which_bin:
+        return which_bin
 
     return None
 

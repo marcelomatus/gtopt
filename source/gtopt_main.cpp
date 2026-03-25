@@ -11,7 +11,7 @@
  * Key options handled here:
  *  - `planning_files`: list of JSON case file stems to load and merge.
  *  - `fast_parsing`: use lenient (non-strict) JSON parsing.
- *  - `build_lp`: build all scene/phase LP matrices but skip solving;
+ *  - `lp_build`: build all scene/phase LP matrices but skip solving;
  *    validating input without running the solver.
  *  - `json_file`: write the merged Planning to a JSON file before solving.
  *  - `lp_file`: write the flat LP model to a `.lp` file before solving.
@@ -35,12 +35,12 @@
 #include <vector>
 
 #include <daw/daw_read_file.h>
-#include <gtopt/app_options.hpp>
 #include <gtopt/error.hpp>
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/json/json_user_constraint.hpp>
 #include <gtopt/lp_stats.hpp>
+#include <gtopt/main_options.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/pampl_parser.hpp>
 #include <gtopt/planning_lp.hpp>
@@ -443,10 +443,10 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     my_planning.options.output_compression = probe_parquet_codec(
         OptionsLP(my_planning.options).output_compression());
 
-    // Propagate build_lp into planning options so the SDDP solver
+    // Propagate lp_build into planning options so the SDDP solver
     // also sees it when called via planning_lp.resolve().
-    if (opts.build_lp) {
-      my_planning.options.build_lp = opts.build_lp;
+    if (opts.lp_build) {
+      my_planning.options.lp_build = opts.lp_build;
     }
 
     //
@@ -542,8 +542,8 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     //
     try {
       const bool do_stats = opts.print_stats.value_or(true);
-      const auto flat_opts = make_flat_options(
-          opts.use_lp_names, opts.matrix_eps, do_stats, opts.lp_solver);
+      const auto flat_opts = make_lp_build_options(
+          opts.lp_names_level, opts.matrix_eps, do_stats, opts.solver);
 
       if (do_stats) {
         log_pre_solve_stats(opts.planning_files, my_planning);
@@ -561,7 +561,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
       }
 
       // LP coefficient static analysis: the stats were computed during
-      // to_flat() and stored in the LinearInterface of each scene×phase LP.
+      // lp_build() and stored in the LinearInterface of each scene×phase LP.
       // When the global coefficient ratio is below lp_coeff_ratio_threshold
       // only a one-line summary is emitted; otherwise per-scene/phase details.
       if (do_stats) {
@@ -591,12 +591,12 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
                              planning_lp.options().lp_coeff_ratio_threshold());
       }
 
-      // build_lp: LP matrix assembly is done (all scene×phase LPs exist
+      // lp_build: LP matrix assembly is done (all scene×phase LPs exist
       // in memory and, if lp_file was set, are saved to disk).  Exit before
       // ANY solving — this applies to both the monolithic and SDDP solvers.
       // Check both the CLI flag and the JSON option (planning_lp.options()).
-      if (opts.build_lp.value_or(false) || planning_lp.options().build_lp()) {
-        spdlog::info("build_lp: all LP matrices built, skipping solve");
+      if (opts.lp_build.value_or(false) || planning_lp.options().lp_build()) {
+        spdlog::info("lp_build: all LP matrices built, skipping solve");
         return 0;
       }
 
@@ -605,25 +605,12 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
       {
         const spdlog::stopwatch solve_sw;
 
-        // Build SolverOptions from Planning options (JSON) merged with any
-        // CLI overrides already applied via apply_cli_options.
-        // CLI options (--lp-algorithm, --lp-threads, --lp-presolve) are
-        // now written to solver_options directly by apply_cli_options.
-        // The deprecated top-level lp_algorithm/lp_threads/lp_presolve JSON
-        // fields still take precedence over solver_options for backward compat.
         const auto& plp_opts_ref = planning_lp.options();
-        SolverOptions solver_opts = plp_opts_ref.solver_options();
-        // Backward-compat: deprecated JSON top-level fields override
-        // solver_options.
-        if (const auto algo = plp_opts_ref.lp_algorithm()) {
-          solver_opts.algorithm = static_cast<LPAlgo>(*algo);
-        }
-        if (const auto thr = plp_opts_ref.lp_threads()) {
-          solver_opts.threads = *thr;
-        }
-        if (const auto pre = plp_opts_ref.lp_presolve()) {
-          solver_opts.presolve = *pre;
-        }
+        const auto method = plp_opts_ref.method_type_enum();
+        const SolverOptions solver_opts =
+            (method == MethodType::sddp || method == MethodType::cascade)
+            ? plp_opts_ref.sddp_solver_options()
+            : plp_opts_ref.monolithic_solver_options();
         const auto result = planning_lp.resolve(solver_opts);
         const auto solve_elapsed =
             std::chrono::duration<double>(solve_sw.elapsed()).count();

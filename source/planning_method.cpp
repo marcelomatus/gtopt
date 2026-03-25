@@ -1,227 +1,22 @@
 /**
  * @file      planning_method.cpp
- * @brief     Implementation of PlanningMethod interface and MonolithicMethod
+ * @brief     Factory for planning method instances (monolithic, SDDP, cascade)
  * @date      2026-03-09
  * @author    marcelo
  * @copyright BSD-3-Clause
  */
 
-#include <atomic>
-#include <chrono>
 #include <filesystem>
-#include <format>
-#include <future>
-#include <mutex>
-#include <vector>
 
 #include <gtopt/cascade_method.hpp>
-#include <gtopt/lp_debug_writer.hpp>
+#include <gtopt/monolithic_method.hpp>
 #include <gtopt/options_lp.hpp>
-#include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_method.hpp>
-#include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_method.hpp>
-#include <gtopt/solver_monitor.hpp>
-#include <gtopt/work_pool.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
 {
-
-// ─── MonolithicMethod ───────────────────────────────────────────────────────
-
-auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
-    -> std::expected<int, Error>
-{
-  auto pool = make_solver_work_pool();
-
-  // ── Monitoring setup ──
-  const auto solve_start = std::chrono::steady_clock::now();
-  const auto num_scenes = static_cast<int>(planning_lp.systems().size());
-
-  SPDLOG_INFO("MonolithicMethod: starting {} scene(s)", num_scenes);
-
-  // ── Boundary cuts ──
-  if (!boundary_cuts_file.empty()
-      && boundary_cuts_mode != BoundaryCutsMode::noload)
-  {
-    SPDLOG_INFO("MonolithicMethod: loading boundary cuts from '{}'",
-                boundary_cuts_file);
-
-    // Build temporary SDDPOptions with boundary cut settings
-    SDDPOptions bc_opts;
-    bc_opts.boundary_cuts_file = boundary_cuts_file;
-    bc_opts.boundary_cuts_mode = boundary_cuts_mode;
-    bc_opts.boundary_max_iterations = boundary_max_iterations;
-
-    // Build per-scene phase state info (alpha columns + outgoing links)
-    const auto num_phases_bc = planning_lp.systems().empty()
-        ? 0UZ
-        : planning_lp.systems().front().size();
-    StrongIndexVector<SceneIndex, StrongIndexVector<PhaseIndex, PhaseStateInfo>>
-        scene_phase_states;
-    scene_phase_states.resize(
-        static_cast<std::size_t>(num_scenes),
-        StrongIndexVector<PhaseIndex, PhaseStateInfo>(num_phases_bc));
-
-    const LabelMaker label_maker(planning_lp.options());
-
-    auto bc_result = load_boundary_cuts_csv(planning_lp,
-                                            boundary_cuts_file,
-                                            bc_opts,
-                                            label_maker,
-                                            scene_phase_states);
-    if (bc_result) {
-      SPDLOG_INFO(
-          "MonolithicMethod: loaded {} boundary cuts (max iteration {})",
-          bc_result->count,
-          bc_result->max_iteration);
-    } else {
-      SPDLOG_WARN("MonolithicMethod: failed to load boundary cuts: {}",
-                  bc_result.error().message);
-    }
-  }
-
-  // Apply solve_timeout to the solver options if configured
-  auto effective_opts = opts;
-  if (solve_timeout > 0.0) {
-    effective_opts.time_limit = solve_timeout;
-    SPDLOG_INFO("MonolithicMethod: solve_timeout={:.1f}s", solve_timeout);
-  }
-
-  std::atomic<int> scenes_done {0};
-  std::mutex times_mutex;
-  std::vector<double> scene_times(num_scenes, 0.0);
-
-  SolverMonitor monitor(api_update_interval);
-  if (enable_api && !api_status_file.empty()) {
-    monitor.start(*pool, solve_start, "MonolithicMonitor");
-  }
-
-  try {
-    using future_t = std::future<std::expected<void, Error>>;
-
-    LpDebugWriter lp_writer(lp_debug ? lp_debug_directory : std::string {},
-                            lp_debug_compression,
-                            pool.get());
-    if (lp_writer.is_active()) {
-      std::filesystem::create_directories(lp_debug_directory);
-      const auto lp_stem =
-          (std::filesystem::path(lp_debug_directory) / "gtopt_lp").string();
-      for (const auto& phase_systems : planning_lp.systems()) {
-        for (const auto& system : phase_systems) {
-          if (auto lp_result = system.write_lp(lp_stem)) {
-            lp_writer.compress_async(*lp_result);
-          } else {
-            spdlog::warn("{}", lp_result.error().message);
-          }
-        }
-      }
-      spdlog::info(
-          "MonolithicMethod: wrote LP debug file(s) to {}_*.lp{}",
-          lp_stem,
-          (lp_debug_compression.empty() || lp_debug_compression == "none"
-           || lp_debug_compression == "uncompressed")
-              ? ""
-              : " (compressing async)");
-    }
-
-    std::vector<future_t> futures;
-    futures.reserve(planning_lp.systems().size());
-
-    for (auto&& [scene_index, phase_systems] :
-         enumerate<SceneIndex>(planning_lp.systems()))
-    {
-      auto result = pool->submit(
-          [&, scene_index]
-          {
-            SPDLOG_TRACE("MonolithicMethod: scene {} starting", scene_index);
-            const auto t_scene = std::chrono::steady_clock::now();
-            auto r = planning_lp.resolve_scene_phases(
-                scene_index, phase_systems, effective_opts);
-            const double elapsed =
-                std::chrono::duration<double>(std::chrono::steady_clock::now()
-                                              - t_scene)
-                    .count();
-            {
-              const std::scoped_lock lk(times_mutex);
-              scene_times[static_cast<std::size_t>(scene_index)] = elapsed;
-            }
-            ++scenes_done;
-            SPDLOG_INFO("MonolithicMethod: scene {} done in {:.3f}s ({}/{})",
-                        scene_index,
-                        elapsed,
-                        scenes_done.load(),
-                        num_scenes);
-            return r;
-          });
-      futures.push_back(std::move(result.value()));
-    }
-
-    // Check all futures for errors
-    for (auto& future : futures) {
-      if (auto result = future.get(); !result) {
-        monitor.stop();
-        return std::unexpected(std::move(result.error()));
-      }
-    }
-
-    // Drain LP compression tasks (run in parallel with solve)
-    lp_writer.drain();
-
-    // ── Write monitoring status file ──
-    monitor.stop();
-    {
-      const double total_elapsed =
-          std::chrono::duration<double>(std::chrono::steady_clock::now()
-                                        - solve_start)
-              .count();
-      SPDLOG_INFO("MonolithicMethod: all {} scene(s) done in {:.3f}s",
-                  num_scenes,
-                  total_elapsed);
-    }
-    if (enable_api && !api_status_file.empty()) {
-      const double elapsed = std::chrono::duration<double>(
-                                 std::chrono::steady_clock::now() - solve_start)
-                                 .count();
-
-      std::string json;
-      json.reserve(1024);
-      json += "{\n";
-      json += std::format("  \"version\": 1,\n");
-      json += std::format("  \"status\": \"done\",\n");
-      json += std::format("  \"elapsed_s\": {:.3f},\n", elapsed);
-      json += std::format("  \"total_scenes\": {},\n", num_scenes);
-      json += std::format("  \"scenes_done\": {},\n", scenes_done.load());
-
-      json += "  \"scene_times\": [";
-      {
-        const std::scoped_lock lk(times_mutex);
-        for (int i = 0; i < num_scenes; ++i) {
-          if (i > 0) {
-            json += ", ";
-          }
-          json += std::format("{:.4f}", scene_times[i]);
-        }
-      }
-      json += "],\n";
-
-      monitor.append_history_json(json);
-      json += "}\n";
-
-      SolverMonitor::write_status(json, api_status_file);
-    }
-
-    return static_cast<int>(futures.size());
-
-  } catch (const std::exception& e) {
-    monitor.stop();
-    return std::unexpected(Error {
-        .code = ErrorCode::InternalError,
-        .message = std::format("Unexpected error in resolve: {}", e.what()),
-    });
-  }
-}
 
 // ─── Factory ────────────────────────────────────────────────────────────────
 
@@ -264,8 +59,6 @@ std::unique_ptr<PlanningMethod> make_planning_method(const OptionsLP& options,
       sddp_opts.apertures = options.sddp_apertures();
       sddp_opts.aperture_timeout = options.sddp_aperture_timeout();
       sddp_opts.save_aperture_lp = options.sddp_save_aperture_lp();
-      sddp_opts.warm_start = options.sddp_warm_start();
-      sddp_opts.solve_timeout = options.sddp_solve_timeout();
       sddp_opts.max_cuts_per_phase = options.sddp_max_cuts_per_phase();
       sddp_opts.cut_prune_interval = options.sddp_cut_prune_interval();
       sddp_opts.prune_dual_threshold = options.sddp_prune_dual_threshold();
@@ -289,7 +82,8 @@ std::unique_ptr<PlanningMethod> make_planning_method(const OptionsLP& options,
       sddp_opts.cuts_output_file =
           (std::filesystem::path(cut_dir) / sddp_file::combined_cuts).string();
 
-      sddp_opts.hot_start_mode = options.sddp_hot_start_mode_enum();
+      sddp_opts.cut_recovery_mode = options.sddp_cut_recovery_mode_enum();
+      sddp_opts.recovery_mode = options.sddp_recovery_mode_enum();
       sddp_opts.save_per_iteration = options.sddp_save_per_iteration();
       const auto cuts_input = options.sddp_cuts_input_file();
       if (!cuts_input.empty()) {
@@ -319,7 +113,7 @@ std::unique_ptr<PlanningMethod> make_planning_method(const OptionsLP& options,
       // Logging and API
       sddp_opts.log_directory = std::string(options.log_directory());
       sddp_opts.lp_debug = options.lp_debug();
-      sddp_opts.build_lp = options.build_lp();
+      sddp_opts.lp_build = options.lp_build();
       sddp_opts.lp_debug_compression = std::string(options.lp_compression());
       sddp_opts.enable_api = options.sddp_api_enabled();
       if (!output_dir.empty()) {
@@ -337,6 +131,17 @@ std::unique_ptr<PlanningMethod> make_planning_method(const OptionsLP& options,
       // Simulation mode: clear output file to suppress all cut persistence
       if (options.sddp_simulation_mode()) {
         sddp_opts.cuts_output_file.clear();
+      }
+
+      // Wire warm_start from SddpOptions config (default: true)
+      sddp_opts.warm_start = options.sddp_warm_start();
+
+      // Wire per-method solver_options into internal SDDPOptions
+      if (options.has_sddp_solver_options()) {
+        const auto method_solver = options.sddp_solver_options();
+        if (method_solver.time_limit) {
+          sddp_opts.solve_timeout = *method_solver.time_limit;
+        }
       }
 
       return std::make_unique<SDDPPlanningMethod>(std::move(sddp_opts));
@@ -372,8 +177,6 @@ std::unique_ptr<PlanningMethod> make_planning_method(const OptionsLP& options,
       sddp_opts.apertures = options.sddp_apertures();
       sddp_opts.aperture_timeout = options.sddp_aperture_timeout();
       sddp_opts.save_aperture_lp = options.sddp_save_aperture_lp();
-      sddp_opts.warm_start = options.sddp_warm_start();
-      sddp_opts.solve_timeout = options.sddp_solve_timeout();
       sddp_opts.max_cuts_per_phase = options.sddp_max_cuts_per_phase();
       sddp_opts.cut_prune_interval = options.sddp_cut_prune_interval();
       sddp_opts.prune_dual_threshold = options.sddp_prune_dual_threshold();
@@ -394,7 +197,8 @@ std::unique_ptr<PlanningMethod> make_planning_method(const OptionsLP& options,
       sddp_opts.cuts_output_file =
           (std::filesystem::path(cut_dir) / sddp_file::combined_cuts).string();
 
-      sddp_opts.hot_start_mode = options.sddp_hot_start_mode_enum();
+      sddp_opts.cut_recovery_mode = options.sddp_cut_recovery_mode_enum();
+      sddp_opts.recovery_mode = options.sddp_recovery_mode_enum();
       if (!options.sddp_simulation_mode()) {
         sddp_opts.save_per_iteration = options.sddp_save_per_iteration();
       } else {
@@ -426,7 +230,7 @@ std::unique_ptr<PlanningMethod> make_planning_method(const OptionsLP& options,
 
       sddp_opts.log_directory = std::string(options.log_directory());
       sddp_opts.lp_debug = options.lp_debug();
-      sddp_opts.build_lp = options.build_lp();
+      sddp_opts.lp_build = options.lp_build();
       sddp_opts.lp_debug_compression = std::string(options.lp_compression());
       sddp_opts.enable_api = options.sddp_api_enabled();
       if (!output_dir.empty()) {
@@ -435,6 +239,17 @@ std::unique_ptr<PlanningMethod> make_planning_method(const OptionsLP& options,
         sddp_opts.api_stop_request_file =
             (std::filesystem::path(output_dir) / sddp_file::stop_request)
                 .string();
+      }
+
+      // Wire warm_start from SddpOptions config (default: true)
+      sddp_opts.warm_start = options.sddp_warm_start();
+
+      // Wire per-method solver_options into internal SDDPOptions
+      if (options.has_sddp_solver_options()) {
+        const auto method_solver = options.sddp_solver_options();
+        if (method_solver.time_limit) {
+          sddp_opts.solve_timeout = *method_solver.time_limit;
+        }
       }
 
       // Get cascade options (user-configured or defaults)
@@ -462,7 +277,6 @@ std::unique_ptr<PlanningMethod> make_planning_method(const OptionsLP& options,
   solver->lp_debug = options.lp_debug();
   solver->lp_debug_directory = std::string(options.log_directory());
   solver->lp_debug_compression = std::string(options.lp_compression());
-  solver->solve_timeout = options.monolithic_solve_timeout();
   solver->solve_mode = options.monolithic_solve_mode_enum();
   solver->boundary_cuts_file =
       std::string(options.monolithic_boundary_cuts_file());
