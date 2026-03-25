@@ -133,8 +133,8 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
   // dlopen with RTLD_LOCAL so symbols don't leak between plugins
   auto* handle = ::dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
   if (handle == nullptr) {
-    const auto* err =
-        ::dlerror();  // NOLINT(concurrency-mt-unsafe) - dlerror is per-thread
+    const auto* err = ::dlerror();  // NOLINT(concurrency-mt-unsafe) - called
+                                    // single-threaded at init
     const auto msg = std::format("Failed to load plugin {}: {}",
                                  path.string(),
                                  (err != nullptr) ? err : "unknown");
