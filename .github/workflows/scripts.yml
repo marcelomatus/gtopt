@@ -132,12 +132,14 @@ jobs:
 
       - name: Install solver runtime dependencies
         run: |
-          # The gtopt solver plugins (libgtopt_solver_osi.so) need COIN-OR
-          # runtime libraries.  Install them before downloading the binary
-          # so that _ensure_binary_libs() succeeds without needing sudo.
+          # The gtopt solver plugins (libgtopt_solver_osi.so, libgtopt_solver_highs.so)
+          # need COIN-OR and HiGHS runtime libraries.  Install them before
+          # downloading the binary so that _ensure_binary_libs() succeeds
+          # without needing sudo.
           sudo apt-get update -q
           sudo apt-get install -y --no-install-recommends \
             coinor-libclp1 coinor-libosi1v5 coinor-libcoinutils3v5 \
+            libhighs2t64 \
             liblapack3 libblas3
 
       - name: Download gtopt binary and install runtime libraries
@@ -299,7 +301,7 @@ jobs:
             -i scripts/cases/plp_min_hydro \
             -o /tmp/out_min_hydro \
             -f /tmp/out_min_hydro/gtopt_case.json \
-            -y 0,1
+            -y 1,2
           python3 - <<'EOF'
           import json
           d = json.load(open("/tmp/out_min_hydro/gtopt_case.json"))
