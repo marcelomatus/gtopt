@@ -346,6 +346,46 @@ public:
     return m_options_.solver_options;
   }
 
+  /**
+   * @brief Gets the effective SDDP forward-pass solver options.
+   *
+   * Merges the per-pass forward solver options (if set) with the SDDP-level
+   * solver options, which are themselves merged with global solver_options.
+   * Forward-pass-specific options take highest precedence.
+   *
+   * @return Resolved SolverOptions for SDDP forward pass
+   */
+  [[nodiscard]] auto sddp_forward_solver_options() const -> SolverOptions
+  {
+    auto base = sddp_solver_options();
+    if (m_options_.sddp_options.forward_solver_options.has_value()) {
+      auto opts = *m_options_.sddp_options.forward_solver_options;
+      opts.merge(base);
+      return opts;
+    }
+    return base;
+  }
+
+  /**
+   * @brief Gets the effective SDDP backward-pass solver options.
+   *
+   * Merges the per-pass backward solver options (if set) with the SDDP-level
+   * solver options, which are themselves merged with global solver_options.
+   * Backward-pass-specific options take highest precedence.
+   *
+   * @return Resolved SolverOptions for SDDP backward pass
+   */
+  [[nodiscard]] auto sddp_backward_solver_options() const -> SolverOptions
+  {
+    auto base = sddp_solver_options();
+    if (m_options_.sddp_options.backward_solver_options.has_value()) {
+      auto opts = *m_options_.sddp_options.backward_solver_options;
+      opts.merge(base);
+      return opts;
+    }
+    return base;
+  }
+
   /** @brief Aperture LP timeout in seconds.
    * @return Aperture timeout (default 15s)
    */
