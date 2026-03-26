@@ -15,8 +15,10 @@ from gtopt_check_solvers._solver_tests import (
     BUILTIN_TESTS,
     SolverTestReport,
     SolverTestResult,
+    _parse_cpp_check_output,
     _read_solution_csv,
     list_available_solvers,
+    run_cpp_solver_tests,
     run_solver_tests,
 )
 from gtopt_check_solvers.gtopt_check_solvers import (
@@ -381,3 +383,232 @@ class TestMain:
         with pytest.raises(SystemExit) as exc:
             main(["--version"])
         assert exc.value.code == 0
+
+
+# ---------------------------------------------------------------------------
+# _parse_cpp_check_output
+# ---------------------------------------------------------------------------
+
+# Typical output produced by `gtopt --check-solvers clp` (all passing).
+_CPP_ALL_PASS_OUTPUT = """\
+  ✓ construction                 0.001s
+  ✓ add_col                      0.002s
+  ✓ add_row                      0.001s
+
+  3 passed, 0 failed
+"""
+
+# Output with one failing test and a detail line.
+_CPP_ONE_FAIL_OUTPUT = """\
+  ✓ construction                 0.001s
+  ✗ add_col                      0.003s
+    FAILED: lp.get_numcols() == 2 (check_solvers.cpp:204)
+  ✓ add_row                      0.001s
+
+  2 passed, 1 failed
+"""
+
+
+class TestParseCppCheckOutput:
+    def test_all_passing(self):
+        report = _parse_cpp_check_output(_CPP_ALL_PASS_OUTPUT, "clp")
+        assert report.solver == "clp"
+        assert len(report.results) == 3
+        assert all(r.passed for r in report.results)
+        assert report.results[0].name == "construction"
+        assert report.results[0].duration_s == pytest.approx(0.001)
+        assert report.results[0].message == "ok"
+
+    def test_one_failure_with_detail(self):
+        report = _parse_cpp_check_output(_CPP_ONE_FAIL_OUTPUT, "clp")
+        assert len(report.results) == 3
+        assert report.results[0].passed
+        assert not report.results[1].passed
+        assert report.results[1].name == "add_col"
+        assert "FAILED" in report.results[1].details
+        # Detail must NOT be accumulated onto the passing result that follows.
+        assert report.results[2].passed
+        assert not report.results[2].details
+
+    def test_empty_output_yields_empty_results(self):
+        report = _parse_cpp_check_output("", "clp")
+        assert report.solver == "clp"
+        assert not report.results
+
+    def test_summary_line_not_included_as_detail(self):
+        report = _parse_cpp_check_output(_CPP_ONE_FAIL_OUTPUT, "clp")
+        for r in report.results:
+            assert "passed" not in (r.details or "")
+
+    def test_duration_parsed_correctly(self):
+        output = "  ✓ resolve                       0.123s\n"
+        report = _parse_cpp_check_output(output, "clp")
+        assert report.results[0].duration_s == pytest.approx(0.123)
+
+    def test_multiline_detail_accumulated(self):
+        output = (
+            "  ✗ warm_start                    0.005s\n"
+            "    line one\n"
+            "    line two\n"
+            "  ✓ clone                         0.001s\n"
+        )
+        report = _parse_cpp_check_output(output, "clp")
+        assert not report.results[0].passed
+        assert "line one" in report.results[0].details
+        assert "line two" in report.results[0].details
+        assert report.results[1].passed
+
+    def test_passed_property_reflects_results(self):
+        report = _parse_cpp_check_output(_CPP_ALL_PASS_OUTPUT, "clp")
+        assert report.passed
+        report2 = _parse_cpp_check_output(_CPP_ONE_FAIL_OUTPUT, "clp")
+        assert not report2.passed
+
+
+# ---------------------------------------------------------------------------
+# run_cpp_solver_tests
+# ---------------------------------------------------------------------------
+
+
+class TestRunCppSolverTests:
+    def test_returns_report_when_output_has_markers(self):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout=_CPP_ALL_PASS_OUTPUT, stderr=""
+            )
+            report = run_cpp_solver_tests("/fake/gtopt", "clp")
+
+        assert report is not None
+        assert report.solver == "clp"
+        assert len(report.results) == 3
+        assert report.passed
+
+    def test_returns_none_when_no_markers(self):
+        """Binary without --check-solvers support returns empty stdout."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            report = run_cpp_solver_tests("/fake/gtopt", "clp")
+
+        assert report is None
+
+    def test_returns_none_on_file_not_found(self):
+        with patch("subprocess.run", side_effect=FileNotFoundError()):
+            report = run_cpp_solver_tests("/nonexistent/gtopt", "clp")
+
+        assert report is None
+
+    def test_returns_failed_report_on_timeout(self):
+        import subprocess  # noqa: PLC0415
+
+        with patch(
+            "subprocess.run",
+            side_effect=subprocess.TimeoutExpired("/fake/gtopt", 60),
+        ):
+            report = run_cpp_solver_tests("/fake/gtopt", "clp")
+
+        assert report is not None
+        assert not report.passed
+        assert any("timed out" in r.message for r in report.results)
+
+    def test_returns_failed_report_when_markers_but_no_results(self):
+        """Markers present but no parseable result lines → failure."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=1,
+                # Contains a marker character but no properly formatted lines.
+                stdout="  ✓\n  ✗\n",
+                stderr="something went wrong",
+            )
+            report = run_cpp_solver_tests("/fake/gtopt", "clp")
+
+        # _parse_cpp_check_output yields no results → synthetic failure added.
+        assert report is not None
+        assert not report.passed
+
+    def test_failure_output_captured(self):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=1, stdout=_CPP_ONE_FAIL_OUTPUT, stderr=""
+            )
+            report = run_cpp_solver_tests("/fake/gtopt", "clp")
+
+        assert report is not None
+        assert not report.passed
+        assert report.n_failed == 1
+        assert report.n_passed == 2
+
+
+# ---------------------------------------------------------------------------
+# run_solver_tests — dispatch logic
+# ---------------------------------------------------------------------------
+
+
+class TestRunSolverTestsDispatch:
+    """Verify that run_solver_tests dispatches to C++ first and falls back."""
+
+    def test_uses_cpp_when_markers_present(self):
+        """C++ path is taken when gtopt outputs ✓/✗ markers."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout=_CPP_ALL_PASS_OUTPUT, stderr=""
+            )
+            report = run_solver_tests("/fake/gtopt", "clp")
+
+        assert report.solver == "clp"
+        # C++ path produces 3 results (from _CPP_ALL_PASS_OUTPUT).
+        assert len(report.results) == 3
+        assert report.passed
+
+    def test_falls_back_to_python_lp_tests_when_no_markers(self, tmp_path):
+        """No ✓/✗ in stdout → fall back to Python LP tests."""
+
+        def _side_effect(cmd, **kwargs):
+            json_arg = next(
+                (a for a in cmd if a.endswith(".json") and Path(a).exists()), None
+            )
+            if json_arg:
+                with open(json_arg, encoding="utf-8") as fh:
+                    plan = json.load(fh)
+                out_dir = Path(plan["options"].get("output_directory", str(tmp_path)))
+                out_dir.mkdir(parents=True, exist_ok=True)
+                sol = out_dir / "solution.csv"
+                sol.write_text("obj_value,kappa,status\n5.0,1.0,0\n", encoding="utf-8")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=_side_effect):
+            report = run_solver_tests("/fake/gtopt", "clp")
+
+        # Python LP fallback runs BUILTIN_TESTS (3 cases).
+        assert len(report.results) == len(BUILTIN_TESTS)
+        assert report.passed
+
+    def test_test_names_forces_python_lp_path(self, tmp_path):
+        """When test_names is given, Python LP runner is used directly."""
+        cpp_called = []
+
+        def _side_effect(cmd, **kwargs):
+            if "--check-solvers" in cmd:
+                cpp_called.append(True)
+                return MagicMock(returncode=0, stdout=_CPP_ALL_PASS_OUTPUT, stderr="")
+            json_arg = next(
+                (a for a in cmd if a.endswith(".json") and Path(a).exists()), None
+            )
+            if json_arg:
+                with open(json_arg, encoding="utf-8") as fh:
+                    plan = json.load(fh)
+                out_dir = Path(plan["options"].get("output_directory", str(tmp_path)))
+                out_dir.mkdir(parents=True, exist_ok=True)
+                (out_dir / "solution.csv").write_text(
+                    "obj_value,kappa,status\n5.0,1.0,0\n", encoding="utf-8"
+                )
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=_side_effect):
+            report = run_solver_tests(
+                "/fake/gtopt", "clp", test_names=["single_bus_lp"]
+            )
+
+        # C++ path must NOT have been called.
+        assert not cpp_called
+        assert len(report.results) == 1
+        assert report.results[0].name == "single_bus_lp"
