@@ -1310,6 +1310,7 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "max_stored_cuts",
         "use_clone_pool",
         "simulation_mode",
+        "state_propagation",
         "warm_start",
         "stationary_tol",
         "stationary_window",
