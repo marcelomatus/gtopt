@@ -92,6 +92,10 @@ template<typename T>
   po::options_description desc("Gtopt options");
   desc.add_options()("help,h", "print this help message and exit")  //
       ("solvers", "list available LP solver backends and exit")  //
+      ("check-solvers",
+       po::value<std::string>().implicit_value(""),
+       "run the LinearInterface test suite against all solvers, or a specific "
+       "solver if a name is given (e.g. --check-solvers clp), then exit")  //
       ("solver",
        po::value<std::string>(),
        "LP solver backend: clp (default), cbc, cplex, highs")  //

@@ -26,6 +26,7 @@ preparing, converting, visualising, and post-processing data for use with gtopt.
   - [gtopt_check_json](#gtopt_check_json) — validate JSON planning files
   - [gtopt_check_lp](#gtopt_check_lp) — diagnose infeasible LP files
   - [gtopt_check_output](#gtopt_check_output) — analyze solver output
+  - [gtopt_check_solvers](#gtopt_check_solvers) — discover and validate LP solver plugins
   - [gtopt_compress_lp](#gtopt_compress_lp) — compress LP debug files
 - **Utilities**
   - [gtopt_config](#gtopt_config) — unified configuration for all tools
@@ -43,11 +44,11 @@ Install all tools with a single `pip` command from the repository root:
 pip install ./scripts
 ```
 
-This registers all 15 command-line tools on your `PATH`:
+This registers all 16 command-line tools on your `PATH`:
 `gtopt_diagram`, `plp2gtopt`, `pp2gtopt`, `gtopt2pp`, `igtopt`,
 `cvs2parquet`, `ts2gtopt`, `gtopt_compare`, `run_gtopt`,
 `sddp_monitor`, `gtopt_check_json`, `gtopt_check_lp`,
-`gtopt_check_output`, `gtopt_compress_lp`, and
+`gtopt_check_output`, `gtopt_check_solvers`, `gtopt_compress_lp`, and
 `gtopt_field_extractor`.  An editable install is useful during
 development:
 
@@ -81,6 +82,7 @@ Each command-line tool lives in its own Python package directory under
 | `gtopt_check_json/` | `gtopt_check_json` | JSON planning file validator |
 | `gtopt_check_lp/` | `gtopt_check_lp` | Infeasible LP file diagnostic tool |
 | `gtopt_check_output/` | `gtopt_check_output` | Solver output analyzer |
+| `gtopt_check_solvers/` | `gtopt_check_solvers` | LP solver plugin discovery & validation |
 | `gtopt_compress_lp/` | `gtopt_compress_lp` | LP debug file compressor |
 | `gtopt_config/` | *(library)* | Unified configuration management |
 | `sddp_monitor/` | `sddp_monitor` | SDDP solver live monitoring dashboard |
@@ -1178,6 +1180,82 @@ gtopt_check_output --init-config
 | `--config FILE` | `~/.gtopt.conf` | Config file path |
 | `--init-config` | off | Initialize config section |
 | `-V, --version` | — | Print version and exit |
+
+---
+
+## gtopt_check_solvers
+
+Discovers and validates **gtopt LP solver plugins** by running a built-in
+test suite against each available solver.  Useful for quickly verifying that
+solver backends (CLP, CBC, HiGHS, CPLEX, …) are correctly installed and
+produce correct results.
+
+### Basic usage
+
+```bash
+# List all available LP solver plugins
+gtopt_check_solvers --list
+
+# Check all available solvers (default)
+gtopt_check_solvers
+
+# Check a specific solver
+gtopt_check_solvers --solver clp
+
+# Check multiple specific solvers
+gtopt_check_solvers --solver clp --solver highs
+
+# Use an explicit gtopt binary path
+gtopt_check_solvers --gtopt-bin /opt/gtopt/bin/gtopt
+
+# Run only a subset of built-in tests
+gtopt_check_solvers --test single_bus_lp --test kirchhoff_lp
+
+# Verbose output (show failure details)
+gtopt_check_solvers --verbose
+```
+
+### Built-in test cases
+
+| Test name | Description | Expected status |
+|-----------|-------------|-----------------|
+| `single_bus_lp` | Single-bus copper-plate LP: 1 generator, 1 demand | 0 (optimal) |
+| `kirchhoff_lp` | 4-bus DC OPF with Kirchhoff voltage-angle constraints | 0 (optimal) |
+| `feasibility_lp` | Feasibility check: demand exactly at generator capacity | 0 (optimal) |
+
+For each test the tool:
+1. Writes the problem as a temporary gtopt JSON file
+2. Calls `gtopt <file> --solver <name>` with a per-test timeout
+3. Reads `output/solution.csv` and validates `status` and `obj_value`
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | All solvers and all tests passed |
+| 1 | At least one test failed (or no solvers found) |
+| 2 | Error: gtopt binary not found or invalid path |
+
+### All options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--list`, `-l` | off | List available solvers and exit |
+| `--solver SOLVER`, `-s` | all | Solver to test (repeatable) |
+| `--test TEST`, `-t` | all | Test case to run (repeatable; choices: `single_bus_lp`, `kirchhoff_lp`, `feasibility_lp`) |
+| `--gtopt-bin PATH` | auto-detect | Path to the `gtopt` binary |
+| `--timeout SECONDS` | `60` | Per-test timeout in seconds |
+| `--no-color` | off | Disable colored output |
+| `-v, --verbose` | off | Show failure details |
+| `-V, --version` | — | Print version and exit |
+
+### Binary discovery
+
+The tool searches for the `gtopt` binary in this order:
+
+1. `GTOPT_BIN` environment variable
+2. `gtopt` on `PATH`
+3. Standard build directories (`build/standalone/gtopt`, etc.)
 
 ---
 
