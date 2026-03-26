@@ -193,3 +193,63 @@ TEST_CASE(  // NOLINT
 
   std::filesystem::remove_all(dir);
 }
+
+TEST_CASE(  // NOLINT
+    "load_state_csv handles Windows \\r\\n line endings")
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  // Solve to get optimal column values
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 3;
+  sddp_opts.convergence_tol = 1e-6;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+
+  const auto dir = make_state_test_dir("crlf");
+  const auto unix_file = (dir / "state_unix.csv").string();
+  const auto dos_file = (dir / "state_dos.csv").string();
+
+  // Save state (Unix line endings)
+  auto save_result = save_state_csv(planning_lp, unix_file, IterationIndex {0});
+  REQUIRE(save_result.has_value());
+
+  // Convert to DOS line endings
+  {
+    std::ifstream ifs(unix_file);
+    std::ofstream ofs(dos_file, std::ios::binary);
+    std::string line;
+    while (std::getline(ifs, line)) {
+      ofs << line << "\r\n";
+    }
+  }
+
+  // Load the DOS file into a fresh PlanningLP
+  auto planning2 = make_3phase_hydro_planning();
+  PlanningLP planning_lp2(std::move(planning2));
+
+  auto load_result = load_state_csv(planning_lp2, dos_file);
+  REQUIRE(load_result.has_value());
+
+  // Verify warm solutions were loaded despite \r\n endings
+  bool found_warm = false;
+  const auto& sim = planning_lp2.simulation();
+  for (auto&& [si, _sc] : enumerate<SceneIndex>(sim.scenes())) {
+    for (auto&& [pi, _ph] : enumerate<PhaseIndex>(sim.phases())) {
+      const auto& li = planning_lp2.system(si, pi).linear_interface();
+      if (!li.warm_col_sol().empty()) {
+        found_warm = true;
+        break;
+      }
+    }
+    if (found_warm) {
+      break;
+    }
+  }
+  CHECK(found_warm);
+
+  std::filesystem::remove_all(dir);
+}

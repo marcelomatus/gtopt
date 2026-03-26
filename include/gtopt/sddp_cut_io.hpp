@@ -29,6 +29,14 @@
 namespace gtopt
 {
 
+/// Strip trailing carriage-return left by std::getline on DOS text files.
+inline void strip_cr(std::string& s) noexcept
+{
+  if (!s.empty() && s.back() == '\r') {
+    s.pop_back();
+  }
+}
+
 // Forward declarations
 class PlanningLP;
 

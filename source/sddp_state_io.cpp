@@ -154,6 +154,7 @@ auto load_state_csv(PlanningLP& planning_lp, const std::string& filepath)
     int loaded = 0;
 
     while (std::getline(ifs, line)) {
+      strip_cr(line);
       if (line.empty() || line[0] == '#') {
         continue;
       }

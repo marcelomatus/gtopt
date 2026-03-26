@@ -1527,3 +1527,96 @@ TEST_CASE(
 
   std::filesystem::remove(tmp_file);
 }
+
+TEST_CASE(
+    "load_cuts_csv handles Windows \\r\\n line endings in "
+    "data lines")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  const auto tmp_file =
+      (std::filesystem::temp_directory_path() / "gtopt_test_cuts_crlf.csv")
+          .string();
+
+  // Write CSV with DOS \r\n line endings in both header and data
+  {
+    std::ofstream ofs(tmp_file, std::ios::binary);
+    ofs << "# scale_objective=1\r\n";
+    ofs << "phase,scene,name,rhs,coefficients\r\n";
+    ofs << "1,1,cut_crlf1,50.0,0:1.5\r\n";
+    ofs << "2,1,cut_crlf2,30.0,0:0.5\r\n";
+  }
+
+  const LabelMaker label_maker(planning_lp.options());
+  auto result = load_cuts_csv(planning_lp, tmp_file, label_maker);
+  REQUIRE(result.has_value());
+  CHECK(result->count == 2);
+
+  std::filesystem::remove(tmp_file);
+}
+
+TEST_CASE(
+    "load_boundary_cuts_csv handles Windows \\r\\n line "
+    "endings in data lines")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  const auto tmp_file =
+      (std::filesystem::temp_directory_path() / "gtopt_test_bdr_crlf_data.csv")
+          .string();
+
+  // Write CSV with DOS \r\n in header AND data lines
+  {
+    std::ofstream ofs(tmp_file, std::ios::binary);
+    ofs << "name,iteration,scene,rhs,j_up\r\n";
+    ofs << "bdr1,1,0,100.0,5.0\r\n";
+    ofs << "bdr2,2,0,200.0,10.0\r\n";
+  }
+
+  SDDPOptions opts;
+  opts.boundary_cuts_mode = BoundaryCutsMode::separated;
+  opts.boundary_max_iterations = 0;
+
+  const LabelMaker label_maker(planning_lp.options());
+  auto states = make_scene_phase_states(planning_lp);
+
+  auto result =
+      load_boundary_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
+  REQUIRE(result.has_value());
+  CHECK(result->count == 2);
+
+  std::filesystem::remove(tmp_file);
+}
+
+TEST_CASE(
+    "load_named_cuts_csv handles Windows \\r\\n line "
+    "endings in data lines")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  const auto tmp_file = (std::filesystem::temp_directory_path()
+                         / "gtopt_test_named_crlf_data.csv")
+                            .string();
+
+  // Write CSV with DOS \r\n in header AND data lines
+  {
+    std::ofstream ofs(tmp_file, std::ios::binary);
+    ofs << "name,iteration,scene,phase,rhs,j_up\r\n";
+    ofs << "cut1,1,1,1,10.0,1.0\r\n";
+    ofs << "cut2,2,1,1,20.0,2.0\r\n";
+  }
+
+  const SDDPOptions opts;
+  const LabelMaker label_maker(planning_lp.options());
+  auto states = make_scene_phase_states(planning_lp);
+
+  auto result =
+      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
+  REQUIRE(result.has_value());
+  CHECK(result->count == 2);
+
+  std::filesystem::remove(tmp_file);
+}
