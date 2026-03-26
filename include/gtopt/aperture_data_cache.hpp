@@ -11,11 +11,10 @@
  *
  * Internally uses a two-level structure:
  *   outer: unordered_map<(class, element), inner>
- *   inner: flat_map<(scenario, stage, block), double>
+ *   inner: unordered_map<(scenario, stage, block), double>
  *
  * This avoids storing redundant class/element strings per entry
- * (only ~334 unique pairs vs 1.6M entries) and makes the per-element
- * flat_map small enough to sort and search efficiently.
+ * (only ~334 unique pairs vs 1.6M entries) and gives O(1) lookup.
  */
 
 #pragma once
@@ -29,7 +28,6 @@
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/block.hpp>
-#include <gtopt/fmap.hpp>
 #include <gtopt/scenario.hpp>
 #include <gtopt/stage.hpp>
 
@@ -52,14 +50,33 @@ namespace gtopt
 class ApertureDataCache
 {
 public:
-  /// Inner key: pure integer triple — fast comparison and sorting.
+  /// Inner key: pure integer triple — O(1) hashed lookup.
   struct InnerKey
   {
     ScenarioUid scenario_uid;
     StageUid stage_uid;
     BlockUid block_uid;
 
-    auto operator<=>(const InnerKey&) const = default;
+    bool operator==(const InnerKey&) const = default;
+  };
+
+  /// Hash for InnerKey combining three integer hashes.
+  struct InnerKeyHash
+  {
+    auto operator()(const InnerKey& k) const noexcept -> std::size_t
+    {
+      const std::size_t h1 = std::hash<ScenarioUid> {}(k.scenario_uid);
+      const std::size_t h2 = std::hash<StageUid> {}(k.stage_uid);
+      const std::size_t h3 = std::hash<BlockUid> {}(k.block_uid);
+      // NOLINTBEGIN(hicpp-signed-bitwise)
+      auto combined = h1
+          ^ ((h2 * std::size_t {0x9e3779b97f4a7c15ULL})
+             + std::size_t {0x9e3779b9} + (h1 << 6) + (h1 >> 2));
+      return combined
+          ^ ((h3 * std::size_t {0x9e3779b97f4a7c15ULL})
+             + std::size_t {0x9e3779b9} + (combined << 6) + (combined >> 2));
+      // NOLINTEND(hicpp-signed-bitwise)
+    }
   };
 
   /// Outer key: (class_name, element_name) — only ~hundreds of unique pairs.
@@ -106,10 +123,10 @@ public:
   /// All scenario UIDs loaded across all elements.
   [[nodiscard]] auto scenario_uids() const -> std::vector<ScenarioUid>;
 
-private:
-  /// Per-element data: small flat_map (~4800 entries), integer-only keys.
-  using ElementData = flat_map<InnerKey, double>;
+  /// Per-element data: unordered_map (~4800 entries), O(1) lookup.
+  using ElementData = std::unordered_map<InnerKey, double, InnerKeyHash>;
 
+private:
   std::unordered_map<ElementKey, ElementData, ElementKeyHash> m_elements_;
 };
 
