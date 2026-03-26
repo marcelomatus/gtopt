@@ -203,6 +203,16 @@ struct SddpOptions
   /// No cuts are saved.  Default: false.
   OptBool simulation_mode {};
 
+  /** @brief State variable propagation mode between SDDP phases.
+   *
+   * - `last_iteration` (default): state vars are NOT pinned to the
+   *   previous phase's solution.  Values come from the previous
+   *   iteration's warm-start, recovered file state, or vini default.
+   * - `inter_phase`: state vars are pinned to the previous phase's
+   *   solution within the same forward pass (classic chaining).
+   */
+  std::optional<StatePropagation> state_propagation {};
+
   // ── Secondary (stationary gap) convergence ─────────────────────────────────
   /** @brief Tolerance for secondary stationary-gap convergence criterion.
    *
@@ -289,6 +299,7 @@ struct SddpOptions
     merge_opt(max_stored_cuts, opts.max_stored_cuts);
     merge_opt(use_clone_pool, opts.use_clone_pool);
     merge_opt(simulation_mode, opts.simulation_mode);
+    merge_opt(state_propagation, opts.state_propagation);
     merge_opt(warm_start, opts.warm_start);
     merge_opt(stationary_tol, opts.stationary_tol);
     merge_opt(stationary_window, opts.stationary_window);

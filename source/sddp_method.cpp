@@ -464,8 +464,12 @@ void SDDPMethod::dispatch_update_lp(SceneIndex scene, IterationIndex iteration)
     auto& sys = planning_lp().system(scene, phase);
 
     // Set previous phase's SystemLP so that update_lp elements can
-    // look up the previous phase's efin for cross-phase boundaries.
-    if (phase > PhaseIndex {0}) {
+    // look up the previous phase's efin for cross-phase boundaries
+    // (physical_eini cross-phase fallback).
+    // In last_iteration mode, skip this — physical_eini falls back
+    // to warm solution or default_eini instead of the previous phase.
+    const auto prop = planning_lp().options().sddp_state_propagation();
+    if (phase > PhaseIndex {0} && prop == StatePropagation::inter_phase) {
       const auto prev = PhaseIndex {static_cast<Index>(phase) - 1};
       sys.set_prev_phase_sys(&planning_lp().system(scene, prev));
     } else {

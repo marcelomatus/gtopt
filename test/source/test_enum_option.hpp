@@ -350,3 +350,34 @@ TEST_CASE("sddp_cut_recovery_mode explicit values")  // NOLINT
     CHECK(opts.sddp_cut_recovery_mode_enum() == HotStartMode::append);
   }
 }
+
+// ─── StatePropagation ───────────────────────────────────────────────────────
+
+TEST_CASE("StatePropagation enum from_name and name round-trip")  // NOLINT
+{
+  CHECK(state_propagation_from_name("last_iteration")
+            .value_or(StatePropagation::inter_phase)
+        == StatePropagation::last_iteration);
+  CHECK(state_propagation_from_name("inter_phase")
+            .value_or(StatePropagation::last_iteration)
+        == StatePropagation::inter_phase);
+  CHECK_FALSE(state_propagation_from_name("unknown").has_value());
+
+  CHECK(state_propagation_name(StatePropagation::last_iteration)
+        == "last_iteration");
+  CHECK(state_propagation_name(StatePropagation::inter_phase) == "inter_phase");
+}
+
+TEST_CASE("sddp_state_propagation default is last_iteration")  // NOLINT
+{
+  const PlanningOptionsLP opts(PlanningOptions {});
+  CHECK(opts.sddp_state_propagation() == StatePropagation::last_iteration);
+}
+
+TEST_CASE("sddp_state_propagation inter_phase when set")  // NOLINT
+{
+  PlanningOptions raw;
+  raw.sddp_options.state_propagation = StatePropagation::inter_phase;
+  const PlanningOptionsLP opts(std::move(raw));
+  CHECK(opts.sddp_state_propagation() == StatePropagation::inter_phase);
+}
