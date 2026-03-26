@@ -1101,68 +1101,72 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   }
 
   // ── Load hot-start cuts and track max iteration for offset ────────────────
+  // All cut loading (explicit input, scene recovery, boundary, named) requires
+  // recovery_mode >= cuts.  Without --recover, the solver starts cold.
   m_iteration_offset_ = IterationIndex {};
 
-  if (!m_options_.cuts_input_file.empty()) {
-    auto result = load_cuts(m_options_.cuts_input_file);
-    if (result.has_value()) {
-      m_iteration_offset_ =
-          std::max(m_iteration_offset_, result->max_iteration);
-      SPDLOG_INFO("SDDP hot-start: loaded {} cuts (max_iter={})",
-                  result->count,
-                  result->max_iteration);
-    } else {
-      SPDLOG_WARN("SDDP hot-start: could not load cuts: {}",
-                  result.error().message);
-    }
-  } else if (m_options_.recovery_mode >= RecoveryMode::cuts
-             && m_options_.cut_recovery_mode != HotStartMode::none
-             && !m_options_.cuts_output_file.empty())
-  {
-    const auto cut_dir =
-        std::filesystem::path(m_options_.cuts_output_file).parent_path();
-    if (!cut_dir.empty() && std::filesystem::exists(cut_dir)) {
-      auto result = load_scene_cuts_from_directory(cut_dir.string());
-      if (result.has_value() && result->count > 0) {
-        m_iteration_offset_ = std::max(m_iteration_offset_,
-                                       IterationIndex {result->max_iteration});
-        SPDLOG_INFO("SDDP hot-start: loaded {} cuts from {} (max_iter={})",
+  if (m_options_.recovery_mode >= RecoveryMode::cuts) {
+    if (!m_options_.cuts_input_file.empty()) {
+      auto result = load_cuts(m_options_.cuts_input_file);
+      if (result.has_value()) {
+        m_iteration_offset_ =
+            std::max(m_iteration_offset_, result->max_iteration);
+        SPDLOG_INFO("SDDP hot-start: loaded {} cuts (max_iter={})",
                     result->count,
-                    cut_dir.string(),
                     result->max_iteration);
+      } else {
+        SPDLOG_WARN("SDDP hot-start: could not load cuts: {}",
+                    result.error().message);
+      }
+    } else if (m_options_.cut_recovery_mode != HotStartMode::none
+               && !m_options_.cuts_output_file.empty())
+    {
+      const auto cut_dir =
+          std::filesystem::path(m_options_.cuts_output_file).parent_path();
+      if (!cut_dir.empty() && std::filesystem::exists(cut_dir)) {
+        auto result = load_scene_cuts_from_directory(cut_dir.string());
+        if (result.has_value() && result->count > 0) {
+          m_iteration_offset_ = std::max(
+              m_iteration_offset_, IterationIndex {result->max_iteration});
+          SPDLOG_INFO("SDDP hot-start: loaded {} cuts from {} (max_iter={})",
+                      result->count,
+                      cut_dir.string(),
+                      result->max_iteration);
+        }
       }
     }
-  }
 
-  // ── Load boundary cuts (future-cost function for last phase) ──────────────
-  if (!m_options_.boundary_cuts_file.empty()) {
-    auto result = load_boundary_cuts(m_options_.boundary_cuts_file);
-    if (result.has_value()) {
-      m_iteration_offset_ =
-          std::max(m_iteration_offset_, result->max_iteration);
-      SPDLOG_INFO("SDDP: loaded {} boundary cuts from {} (max_iter={})",
-                  result->count,
-                  m_options_.boundary_cuts_file,
-                  result->max_iteration);
-    } else {
-      SPDLOG_WARN("SDDP: could not load boundary cuts: {}",
-                  result.error().message);
+    // ── Load boundary cuts (future-cost function for last phase) ────────
+    if (!m_options_.boundary_cuts_file.empty()) {
+      auto result = load_boundary_cuts(m_options_.boundary_cuts_file);
+      if (result.has_value()) {
+        m_iteration_offset_ =
+            std::max(m_iteration_offset_, result->max_iteration);
+        SPDLOG_INFO("SDDP: loaded {} boundary cuts from {} (max_iter={})",
+                    result->count,
+                    m_options_.boundary_cuts_file,
+                    result->max_iteration);
+      } else {
+        SPDLOG_WARN("SDDP: could not load boundary cuts: {}",
+                    result.error().message);
+      }
     }
-  }
 
-  // ── Load named hot-start cuts (all phases, named state variables) ─────────
-  if (!m_options_.named_cuts_file.empty()) {
-    auto result = load_named_cuts(m_options_.named_cuts_file);
-    if (result.has_value()) {
-      m_iteration_offset_ =
-          std::max(m_iteration_offset_, result->max_iteration);
-      SPDLOG_INFO("SDDP: loaded {} named hot-start cuts from {} (max_iter={})",
-                  result->count,
-                  m_options_.named_cuts_file,
-                  result->max_iteration);
-    } else {
-      SPDLOG_WARN("SDDP: could not load named hot-start cuts: {}",
-                  result.error().message);
+    // ── Load named hot-start cuts (all phases, named state variables) ───
+    if (!m_options_.named_cuts_file.empty()) {
+      auto result = load_named_cuts(m_options_.named_cuts_file);
+      if (result.has_value()) {
+        m_iteration_offset_ =
+            std::max(m_iteration_offset_, result->max_iteration);
+        SPDLOG_INFO(
+            "SDDP: loaded {} named hot-start cuts from {} (max_iter={})",
+            result->count,
+            m_options_.named_cuts_file,
+            result->max_iteration);
+      } else {
+        SPDLOG_WARN("SDDP: could not load named hot-start cuts: {}",
+                    result.error().message);
+      }
     }
   }
 
