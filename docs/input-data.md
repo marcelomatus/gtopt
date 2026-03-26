@@ -264,6 +264,7 @@ For full algorithmic details, see [SDDP Solver](methods/sddp.md).
 |------------------|---------|---------|-------------|
 | `solve_timeout`  | number  | `180.0` | Forward-pass LP solve timeout in seconds (0 = no timeout) |
 | `warm_start`     | boolean | `true`  | Enable warm-start (dual simplex from saved basis) for aperture and elastic resolves |
+| `state_propagation` | integer | `0` | How `update_lp` elements (seepage, production factor, discharge limit) obtain reservoir volume: `0` = last_iteration (warm-start / vini, no cross-phase lookup), `1` = inter_phase (use previous phase's efin) |
 
 #### Hot-start modes
 

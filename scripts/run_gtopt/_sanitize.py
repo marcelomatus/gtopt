@@ -189,6 +189,13 @@ def _validate_sddp_options(sddp: dict, messages: list[str]) -> None:
         if val and val not in valid:
             messages.append(f"WARN: sddp {mode_key}='{val}' not in {valid}")
 
+    sp = sddp.get("state_propagation")
+    if sp is not None and sp not in (0, 1):
+        messages.append(
+            f"WARN: sddp state_propagation={sp} not in {{0, 1}} "
+            "(0=last_iteration, 1=inter_phase)"
+        )
+
     timeout = sddp.get("aperture_timeout")
     if timeout is not None and timeout < 0:
         messages.append("FIX: sddp aperture_timeout must be >= 0, setting to 0")

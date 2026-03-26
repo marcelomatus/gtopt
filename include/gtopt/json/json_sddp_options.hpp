@@ -60,6 +60,7 @@ struct SddpOptionsConstructor
       OptInt max_stored_cuts,
       OptBool use_clone_pool,
       OptBool simulation_mode,
+      OptInt state_propagation_int,
       OptReal stationary_tol,
       OptInt stationary_window,
       std::optional<SolverOptions> forward_solver_options,
@@ -113,6 +114,10 @@ struct SddpOptionsConstructor
     opts.max_stored_cuts = max_stored_cuts;
     opts.use_clone_pool = use_clone_pool;
     opts.simulation_mode = simulation_mode;
+    if (state_propagation_int) {
+      opts.state_propagation =
+          static_cast<gtopt::StatePropagation>(*state_propagation_int);
+    }
     opts.stationary_tol = stationary_tol;
     opts.stationary_window = stationary_window;
     opts.forward_solver_options = std::move(forward_solver_options);
@@ -196,6 +201,7 @@ struct json_data_contract<SddpOptions>
       json_number_null<"max_stored_cuts", OptInt>,
       json_bool_null<"use_clone_pool", OptBool>,
       json_bool_null<"simulation_mode", OptBool>,
+      json_number_null<"state_propagation", OptInt>,
       json_number_null<"stationary_tol", OptReal>,
       json_number_null<"stationary_window", OptInt>,
       json_class_null<"forward_solver_options", SolverOptions>,
@@ -203,43 +209,47 @@ struct json_data_contract<SddpOptions>
 
   static auto to_json_data(SddpOptions const& opt)
   {
-    return std::make_tuple(detail::enum_to_opt_name(opt.cut_sharing_mode),
-                           opt.cut_directory,
-                           opt.api_enabled,
-                           opt.update_lp_skip,
-                           opt.max_iterations,
-                           opt.min_iterations,
-                           opt.convergence_tol,
-                           opt.elastic_penalty,
-                           opt.alpha_min,
-                           opt.alpha_max,
-                           detail::enum_to_opt_name(opt.cut_recovery_mode),
-                           detail::enum_to_opt_name(opt.recovery_mode),
-                           opt.save_per_iteration,
-                           opt.cuts_input_file,
-                           opt.sentinel_file,
-                           detail::enum_to_opt_name(opt.elastic_mode),
-                           opt.multi_cut_threshold,
-                           opt.apertures,
-                           opt.aperture_directory,
-                           opt.aperture_timeout,
-                           opt.save_aperture_lp,
-                           opt.warm_start,
-                           opt.boundary_cuts_file,
-                           detail::enum_to_opt_name(opt.boundary_cuts_mode),
-                           opt.boundary_max_iterations,
-                           opt.named_cuts_file,
-                           opt.max_cuts_per_phase,
-                           opt.cut_prune_interval,
-                           opt.prune_dual_threshold,
-                           opt.single_cut_storage,
-                           opt.max_stored_cuts,
-                           opt.use_clone_pool,
-                           opt.simulation_mode,
-                           opt.stationary_tol,
-                           opt.stationary_window,
-                           opt.forward_solver_options,
-                           opt.backward_solver_options);
+    return std::make_tuple(
+        detail::enum_to_opt_name(opt.cut_sharing_mode),
+        opt.cut_directory,
+        opt.api_enabled,
+        opt.update_lp_skip,
+        opt.max_iterations,
+        opt.min_iterations,
+        opt.convergence_tol,
+        opt.elastic_penalty,
+        opt.alpha_min,
+        opt.alpha_max,
+        detail::enum_to_opt_name(opt.cut_recovery_mode),
+        detail::enum_to_opt_name(opt.recovery_mode),
+        opt.save_per_iteration,
+        opt.cuts_input_file,
+        opt.sentinel_file,
+        detail::enum_to_opt_name(opt.elastic_mode),
+        opt.multi_cut_threshold,
+        opt.apertures,
+        opt.aperture_directory,
+        opt.aperture_timeout,
+        opt.save_aperture_lp,
+        opt.warm_start,
+        opt.boundary_cuts_file,
+        detail::enum_to_opt_name(opt.boundary_cuts_mode),
+        opt.boundary_max_iterations,
+        opt.named_cuts_file,
+        opt.max_cuts_per_phase,
+        opt.cut_prune_interval,
+        opt.prune_dual_threshold,
+        opt.single_cut_storage,
+        opt.max_stored_cuts,
+        opt.use_clone_pool,
+        opt.simulation_mode,
+        opt.state_propagation
+            ? OptInt {static_cast<int>(*opt.state_propagation)}
+            : OptInt {},
+        opt.stationary_tol,
+        opt.stationary_window,
+        opt.forward_solver_options,
+        opt.backward_solver_options);
   }
 };
 

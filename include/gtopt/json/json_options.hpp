@@ -18,6 +18,7 @@
 #include <gtopt/json/json_solver_options.hpp>
 #include <gtopt/json/json_variable_scale.hpp>
 #include <gtopt/planning_options.hpp>
+#include <spdlog/spdlog.h>
 
 namespace daw::json
 {
@@ -85,11 +86,16 @@ struct PlanningOptionsConstructor
       opts.output_compression =
           gtopt::compression_codec_from_name(*output_compression_str);
     }
-    // Backward compat: "use_lp_names" maps to lp_build_options.names_level
-    // when lp_build_options.names_level is not explicitly set.
-    if (use_lp_names && !lp_build_options.names_level) {
-      lp_build_options.names_level =
-          static_cast<gtopt::LpNamesLevel>(*use_lp_names);
+    // Backward compat: deprecated "use_lp_names" maps to
+    // lp_build_options.names_level when the new field is not set.
+    if (use_lp_names) {
+      spdlog::warn(
+          "deprecated option 'use_lp_names': "
+          "use 'lp_build_options.names_level' instead");
+      if (!lp_build_options.names_level) {
+        lp_build_options.names_level =
+            static_cast<gtopt::LpNamesLevel>(*use_lp_names);
+      }
     }
     opts.use_uid_fname = use_uid_fname;
     if (method_str) {

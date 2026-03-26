@@ -759,6 +759,14 @@ public:
     return m_options_.sddp_options.warm_start.value_or(true);
   }
 
+  /** @brief Gets the state variable propagation mode for SDDP forward pass.
+   *  Default: last_iteration (no inter-phase chaining). */
+  [[nodiscard]] constexpr auto sddp_state_propagation() const
+  {
+    return m_options_.sddp_options.state_propagation.value_or(
+        StatePropagation::last_iteration);
+  }
+
   /**
    * @brief Gets the stationary-gap convergence tolerance.
    *

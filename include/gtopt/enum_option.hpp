@@ -492,4 +492,43 @@ inline constexpr auto lp_names_level_entries =
   return enum_name(std::span {lp_names_level_entries}, value);
 }
 
+// ─── StatePropagation ────────────────────────────────────────────────────────
+
+/**
+ * @brief Controls how SDDP forward-pass state variables propagate between
+ * phases.
+ *
+ * - `last_iteration`: state vars take values from the previous iteration's
+ *   warm-start, recovered file, or default (vini).  The previous phase's
+ *   solution within the same iteration is NOT used (default).
+ * - `inter_phase`: state vars are pinned to the previous phase's solution
+ *   within the same forward pass (classic chaining).
+ */
+enum class StatePropagation : uint8_t
+{
+  last_iteration = 0,  ///< Previous iteration / recovery / vini (default)
+  inter_phase = 1,  ///< Pin to previous phase's solution
+};
+
+/// Name-value table for StatePropagation
+inline constexpr auto state_propagation_entries =
+    std::to_array<EnumEntry<StatePropagation>>({
+        {.name = "last_iteration", .value = StatePropagation::last_iteration},
+        {.name = "inter_phase", .value = StatePropagation::inter_phase},
+    });
+
+/// Parse a StatePropagation from a string ("last_iteration", "inter_phase")
+[[nodiscard]] constexpr auto state_propagation_from_name(
+    std::string_view name) noexcept -> std::optional<StatePropagation>
+{
+  return enum_from_name(std::span {state_propagation_entries}, name);
+}
+
+/// Return the canonical name of a StatePropagation
+[[nodiscard]] constexpr auto state_propagation_name(
+    StatePropagation value) noexcept -> std::string_view
+{
+  return enum_name(std::span {state_propagation_entries}, value);
+}
+
 }  // namespace gtopt
