@@ -691,6 +691,10 @@ auto load_boundary_cuts_csv(
     // (Legacy format without iteration column is auto-detected.)
     std::string header_line;
     std::getline(ifs, header_line);
+    // Strip trailing \r from Windows line endings
+    if (!header_line.empty() && header_line.back() == '\r') {
+      header_line.pop_back();
+    }
 
     std::vector<std::string> headers;
     {
@@ -993,6 +997,10 @@ auto load_named_cuts_csv(
     // Format: name,iteration,scene,phase,rhs,StateVar1,...
     std::string header_line;
     std::getline(ifs, header_line);
+    // Strip trailing \r from Windows line endings
+    if (!header_line.empty() && header_line.back() == '\r') {
+      header_line.pop_back();
+    }
 
     std::vector<std::string> headers;
     {
