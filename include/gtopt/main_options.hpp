@@ -445,7 +445,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   lp_build_opts.eps = eps;
   lp_build_opts.col_with_names = lvl >= LpNamesLevel::minimal;
   lp_build_opts.row_with_names = lvl >= LpNamesLevel::only_cols;
-  lp_build_opts.col_with_name_map = lvl >= LpNamesLevel::minimal;
+  lp_build_opts.col_with_name_map = lvl >= LpNamesLevel::only_cols;
   lp_build_opts.row_with_name_map = lvl >= LpNamesLevel::only_cols;
   lp_build_opts.compute_stats = compute_stats;
   lp_build_opts.lp_names_level = lvl;

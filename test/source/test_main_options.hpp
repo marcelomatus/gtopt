@@ -437,7 +437,7 @@ TEST_CASE("make_lp_build_options - defaults when both nullopt")
   CHECK(opts.eps == doctest::Approx(0.0));
   CHECK(opts.col_with_names == true);
   CHECK(opts.row_with_names == false);
-  CHECK(opts.col_with_name_map == true);
+  CHECK(opts.col_with_name_map == false);
   CHECK(opts.row_with_name_map == false);
   CHECK(opts.lp_names_level == LpNamesLevel::minimal);
 }
@@ -450,7 +450,7 @@ TEST_CASE(
 
   CHECK(opts.col_with_names == true);
   CHECK(opts.row_with_names == false);
-  CHECK(opts.col_with_name_map == true);
+  CHECK(opts.col_with_name_map == false);
   CHECK(opts.row_with_name_map == false);
 }
 
