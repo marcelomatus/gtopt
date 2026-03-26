@@ -699,6 +699,20 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--embed-reservoir-constraints",
+        dest="embed_reservoir_constraints",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "embed seepage, discharge_limit, and production_factor arrays "
+            "inside each reservoir definition instead of using system-level "
+            "reservoir_seepage_array / reservoir_discharge_limit_array / "
+            "reservoir_production_factor_array.  The embedded form requires "
+            "expand_reservoir_constraints() at load time. "
+            "(default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
         "--check",
         dest="run_check",
         action=argparse.BooleanOptionalAction,
@@ -880,6 +894,7 @@ def build_options(args: argparse.Namespace) -> dict:
     if args.variable_scales_file is not None:
         opts["variable_scales_file"] = args.variable_scales_file
     opts["soft_emin_cost"] = args.soft_emin_cost
+    opts["embed_reservoir_constraints"] = args.embed_reservoir_constraints
     opts["run_check"] = args.run_check
     # Technology detection
     opts["auto_detect_tech"] = args.auto_detect_tech

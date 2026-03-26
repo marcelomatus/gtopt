@@ -210,6 +210,9 @@ class HydroSystemOutput(TypedDict):
     flow_array: List[Flow]
     reservoir_array: List[Reservoir]
     turbine_array: List[Turbine]
+    reservoir_seepage_array: List[Dict[str, Any]]
+    reservoir_discharge_limit_array: List[Dict[str, Any]]
+    reservoir_production_factor_array: List[Dict[str, Any]]
 
 
 class JunctionWriter(BaseWriter):
@@ -257,6 +260,9 @@ class JunctionWriter(BaseWriter):
         self.filemb_parser = filemb_parser
         self.ralco_parser = ralco_parser
         self.minembh_parser = minembh_parser
+        self._embed_reservoir_constraints = bool(
+            self.options.get("embed_reservoir_constraints", False)
+        )
         self._waterway_counter = 0
         self._ocean_junction_counter = 0
         self._junction_names: dict[int, str] = {}
@@ -351,6 +357,9 @@ class JunctionWriter(BaseWriter):
             "flow_array": [],
             "reservoir_array": [],
             "turbine_array": [],
+            "reservoir_seepage_array": [],
+            "reservoir_discharge_limit_array": [],
+            "reservoir_production_factor_array": [],
         }
 
         # Track isolated centrals that were skipped
@@ -678,15 +687,29 @@ class JunctionWriter(BaseWriter):
                 return r
         return None
 
+    def _append_reservoir_constraint(
+        self,
+        system: HydroSystemOutput,
+        rsv: Reservoir,
+        element: Dict[str, Any],
+        system_key: str,
+        embedded_key: str,
+    ) -> None:
+        """Append a reservoir constraint to system-level array or embedded."""
+        if self._embed_reservoir_constraints:
+            rsv.setdefault(embedded_key, []).append(element)  # type: ignore[arg-type]
+        else:
+            system[system_key].append(element)  # type: ignore[literal-required]
+
     def _process_seepages(
         self,
         system: HydroSystemOutput,
         central_parser: CentralParser,
     ) -> None:
-        """Process seepage data and embed inside reservoir definitions.
+        """Process seepage data from plpcenfi.dat.
 
-        Each entry in plpcenfi.dat links a central (waterway source) to a
-        receiving reservoir with a slope/constant seepage model.
+        Each entry links a central (waterway source) to a receiving
+        reservoir with a slope/constant seepage model.
         """
         if not self.cenfi_parser:
             return
@@ -695,6 +718,8 @@ class JunctionWriter(BaseWriter):
         turbine_waterway: Dict[str, str] = {
             t["name"]: t["waterway"] for t in system["turbine_array"]
         }
+
+        seep_array = system["reservoir_seepage_array"]
 
         for entry in self.cenfi_parser.seepages:
             central_name = entry["name"]
@@ -725,10 +750,10 @@ class JunctionWriter(BaseWriter):
                     )
                     continue
 
-            seep_idx = len(rsv.get("seepage", []))
+            seep_idx = len(seep_array) + len(rsv.get("seepage", [])) + 1
             seepage: Dict[str, Any] = {
                 "uid": rsv["uid"],
-                "name": f"{rsv['name']}_seepage_{seep_idx + 1}",
+                "name": f"{rsv['name']}_seepage_{seep_idx}",
                 "waterway": ww_uid,
                 "reservoir": rsv["name"],
                 "slope": entry["slope"],
@@ -747,7 +772,9 @@ class JunctionWriter(BaseWriter):
                     for seg in segments
                 ]
 
-            rsv.setdefault("seepage", []).append(seepage)
+            self._append_reservoir_constraint(
+                system, rsv, seepage, "reservoir_seepage_array", "seepage"
+            )
 
     def _process_seepages_filemb(
         self,
@@ -830,16 +857,17 @@ class JunctionWriter(BaseWriter):
             default_slope = segments[0]["slope"] if segments else 0.0
             default_constant = segments[0]["constant"] if segments else 0.0
 
-            # Find the source reservoir and embed seepage
+            # Find the source reservoir
             rsv = self._find_reservoir(system, rsv_name)
             if rsv is None:
                 _logger.warning("Filemb reservoir '%s' not found; skipping.", rsv_name)
                 continue
 
-            seep_idx = len(rsv.get("seepage", []))
+            seep_array = system["reservoir_seepage_array"]
+            seep_idx = len(seep_array) + len(rsv.get("seepage", [])) + 1
             seepage: Dict[str, Any] = {
                 "uid": rsv["uid"],
-                "name": f"{rsv['name']}_seepage_{seep_idx + 1}",
+                "name": f"{rsv['name']}_seepage_{seep_idx}",
                 "waterway": filt_waterway["name"],
                 "reservoir": rsv["name"],
                 "slope": default_slope,
@@ -856,7 +884,9 @@ class JunctionWriter(BaseWriter):
                     for seg in segments
                 ]
 
-            rsv.setdefault("seepage", []).append(seepage)
+            self._append_reservoir_constraint(
+                system, rsv, seepage, "reservoir_seepage_array", "seepage"
+            )
 
     def _process_reservoir_discharge_limits(
         self,
@@ -898,10 +928,11 @@ class JunctionWriter(BaseWriter):
                 )
                 continue
 
-            ddl_idx = len(rsv.get("discharge_limit", []))
+            ddl_array = system["reservoir_discharge_limit_array"]
+            ddl_idx = len(ddl_array) + len(rsv.get("discharge_limit", [])) + 1
             ddl: Dict[str, Any] = {
                 "uid": rsv["uid"],
-                "name": f"{rsv['name']}_dlim_{ddl_idx + 1}",
+                "name": f"{rsv['name']}_dlim_{ddl_idx}",
                 "waterway": ww_name,
                 "reservoir": rsv["name"],
             }
@@ -916,7 +947,9 @@ class JunctionWriter(BaseWriter):
                     for seg in segments
                 ]
 
-            rsv.setdefault("discharge_limit", []).append(ddl)
+            self._append_reservoir_constraint(
+                system, rsv, ddl, "reservoir_discharge_limit_array", "discharge_limit"
+            )
 
     def _process_reservoir_efficiencies(
         self,
@@ -974,16 +1007,23 @@ class JunctionWriter(BaseWriter):
                 for seg in entry["segments"]
             ]
 
-            pfac_idx = len(rsv.get("production_factor", []))
+            pfac_array = system["reservoir_production_factor_array"]
+            pfac_idx = len(pfac_array) + len(rsv.get("production_factor", [])) + 1
             pfac: Dict[str, Any] = {
                 "uid": rsv["uid"],
-                "name": f"{rsv['name']}_pfac_{pfac_idx + 1}",
+                "name": f"{rsv['name']}_pfac_{pfac_idx}",
                 "turbine": turb_uid,
                 "reservoir": rsv["name"],
                 "mean_production_factor": entry["mean_production_factor"],
                 "segments": segments,
             }
-            rsv.setdefault("production_factor", []).append(pfac)
+            self._append_reservoir_constraint(
+                system,
+                rsv,
+                pfac,
+                "reservoir_production_factor_array",
+                "production_factor",
+            )
 
     def _write_parquet_files(self) -> Dict[str, List[str]]:
         """Write demand data to Parquet file format."""

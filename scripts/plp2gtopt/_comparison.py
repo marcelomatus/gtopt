@@ -442,11 +442,16 @@ def _gtopt_element_counts(planning: dict[str, Any]) -> dict[str, Any]:
         "waterways": len(psys.get("waterway_array", [])),
         "flows": len(psys.get("flow_array", [])),
         "reservoirs": len(psys.get("reservoir_array", [])),
-        "reservoir_efficiencies": sum(
-            len(r.get("production_factor", [])) for r in psys.get("reservoir_array", [])
+        "reservoir_efficiencies": (
+            len(psys.get("reservoir_production_factor_array", []))
+            + sum(
+                len(r.get("production_factor", []))
+                for r in psys.get("reservoir_array", [])
+            )
         ),
-        "seepages": sum(
-            len(r.get("seepage", [])) for r in psys.get("reservoir_array", [])
+        "seepages": (
+            len(psys.get("reservoir_seepage_array", []))
+            + sum(len(r.get("seepage", [])) for r in psys.get("reservoir_array", []))
         ),
         "turbines": len(psys.get("turbine_array", [])),
         "blocks": len(sim.get("block_array", [])),
