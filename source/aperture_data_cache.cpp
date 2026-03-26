@@ -30,11 +30,11 @@ struct FileInfo
   Name element_name;
 };
 
-/// Result of loading one parquet file: its ElementKey and inner entries.
+/// Result of loading one parquet file: its ElementKey and pre-built map.
 struct FileResult
 {
   ApertureDataCache::ElementKey key;
-  std::vector<std::pair<ApertureDataCache::InnerKey, double>> entries;
+  ApertureDataCache::ElementData data;
 };
 
 /// Load a single parquet file and return its entries.
@@ -74,13 +74,10 @@ auto load_one_file(const FileInfo& info) -> std::optional<FileResult>
     }
   }
 
-  FileResult result;
-  result.key = {
-      .class_name = info.class_name,
-      .element_name = info.element_name,
-  };
-  result.entries.reserve(static_cast<size_t>(num_rows)
-                         * static_cast<size_t>(uid_col_count));
+  // Build unordered_map directly — no sorting needed, O(1) per insert.
+  ApertureDataCache::ElementData data;
+  data.reserve(static_cast<size_t>(num_rows)
+               * static_cast<size_t>(uid_col_count));
 
   for (int c = 0; c < table->num_columns(); ++c) {
     const auto& col_name = table->schema()->field(c)->name();
@@ -104,7 +101,7 @@ auto load_one_file(const FileInfo& info) -> std::optional<FileResult>
         std::static_pointer_cast<arrow::DoubleArray>(val_col->chunk(0));
 
     for (int64_t row = 0; row < num_rows; ++row) {
-      result.entries.emplace_back(
+      data.try_emplace(
           ApertureDataCache::InnerKey {
               .scenario_uid = scen_uid,
               .stage_uid = StageUid {stage_arr->Value(row)},
@@ -114,7 +111,14 @@ auto load_one_file(const FileInfo& info) -> std::optional<FileResult>
     }
   }
 
-  return result;
+  return FileResult {
+      .key =
+          {
+              .class_name = info.class_name,
+              .element_name = info.element_name,
+          },
+      .data = std::move(data),
+  };
 }
 
 }  // namespace
@@ -191,33 +195,21 @@ ApertureDataCache::ApertureDataCache(const std::filesystem::path& aperture_dir)
     }
   }
 
-  // Phase 3: merge results into two-level structure (single-threaded)
-  // Pre-aggregate entries per element, then sort each small flat_map.
+  // Phase 3: merge pre-built flat_maps into two-level structure
+  // Each file's data is already sorted and deduplicated from Phase 2.
   size_t total_entries = 0;
   for (auto& opt_result : results) {
     if (!opt_result) {
       continue;
     }
-    auto& [key, entries] = *opt_result;
-    total_entries += entries.size();
+    auto& [key, data] = *opt_result;
+    total_entries += data.size();
 
-    auto& elem_entries = m_elements_[key];
-
-    // Sort and bulk-insert this element's entries
-    std::ranges::sort(entries,
-                      [](const auto& a, const auto& b)
-                      { return a.first < b.first; });
-    const auto [first, last] = std::ranges::unique(
-        entries,
-        [](const auto& a, const auto& b) { return a.first == b.first; });
-    entries.erase(first, last);
-
-    if (elem_entries.empty()) {
-      map_insert_sorted_unique(elem_entries, entries.begin(), entries.end());
-    } else {
+    auto [it, inserted] = m_elements_.try_emplace(key, std::move(data));
+    if (!inserted) {
       // Multiple files for the same element: merge
-      for (const auto& [k, v] : entries) {
-        elem_entries.try_emplace(k, v);
+      for (const auto& [k, v] : data) {
+        it->second.try_emplace(k, v);
       }
     }
   }
@@ -251,7 +243,7 @@ auto ApertureDataCache::lookup(std::string_view class_name,
     return std::nullopt;
   }
 
-  // Inner lookup: find (scenario, stage, block) in the small flat_map
+  // Inner lookup: find (scenario, stage, block) — O(1) hash lookup
   const auto& data = elem_it->second;
   const auto it = data.find(InnerKey {
       .scenario_uid = scenario_uid,
