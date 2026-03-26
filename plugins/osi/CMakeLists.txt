@@ -43,24 +43,100 @@ target_link_libraries(gtopt_solver_osi
 
 # ---- Solver-specific compile definitions and libraries ----
 
+# Resolve COIN_LIBRARY_DIR to its real path (follow symlinks) for robust
+# comparison on systems where /usr/lib → /usr/lib/x86_64-linux-gnu etc.
+if(COIN_LIBRARY_DIR)
+  get_filename_component(_coin_real_lib_dir "${COIN_LIBRARY_DIR}" REALPATH)
+else()
+  set(_coin_real_lib_dir "")
+endif()
+
 # CLP is always available when COIN_FOUND
 find_package(OsiClp QUIET)
 if(OSICLP_FOUND)
   find_package(Clp QUIET)
-  target_link_libraries(gtopt_solver_osi PRIVATE
-    ${COIN_OSICLP_LIBRARY} ${COIN_CLP_LIBRARIES}
-  )
-  target_compile_definitions(gtopt_solver_osi PRIVATE COIN_USE_CLP)
+
+  # ---- ABI consistency check ----
+  # Verify CLP/OsiClp come from the same installation as core Osi/CoinUtils.
+  set(_coin_clp_ok TRUE)
+  if(_coin_real_lib_dir AND COIN_OSICLP_LIBRARY)
+    get_filename_component(_osiclp_dir "${COIN_OSICLP_LIBRARY}" DIRECTORY)
+    get_filename_component(_osiclp_dir "${_osiclp_dir}" REALPATH)
+    if(NOT _osiclp_dir STREQUAL "${_coin_real_lib_dir}")
+      message(WARNING
+        "COIN-OR ABI mismatch: OsiClp found at ${COIN_OSICLP_LIBRARY} "
+        "but core Osi/CoinUtils are at ${COIN_LIBRARY_DIR}. "
+        "Skipping CLP support. To fix: install all COIN-OR packages from "
+        "the same source."
+      )
+      set(_coin_clp_ok FALSE)
+    endif()
+  endif()
+
+  if(_coin_clp_ok)
+    target_link_libraries(gtopt_solver_osi PRIVATE
+      ${COIN_OSICLP_LIBRARY} ${COIN_CLP_LIBRARIES}
+    )
+    target_compile_definitions(gtopt_solver_osi PRIVATE COIN_USE_CLP)
+  else()
+    message(STATUS "Solver plugin: CLP disabled due to COIN-OR ABI mismatch")
+  endif()
 endif()
 
 # CBC
 find_package(OsiCbc QUIET)
 if(OSICBC_FOUND)
   find_package(Cbc QUIET)
-  target_link_libraries(gtopt_solver_osi PRIVATE
-    ${COIN_OSICBC_LIBRARY} ${COIN_CBC_LIBRARIES}
-  )
-  target_compile_definitions(gtopt_solver_osi PRIVATE GTOPT_OSI_HAS_CBC)
+
+  # ---- ABI consistency check ----
+  # Verify that CBC/OsiCbc libraries come from the same COIN-OR installation
+  # as the core Osi/CoinUtils libraries.  Mixing libraries from different
+  # builds (e.g. CLP from /opt/coinor + CBC from system /usr/lib) causes
+  # ABI-incompatible undefined-symbol errors at runtime such as:
+  #   undefined symbol: _ZTv0_n24_N21OsiClpSolverInterface12initialSolveEv
+  # See: https://github.com/marcelomatus/gtopt/issues/302
+  set(_coin_cbc_ok TRUE)
+  if(_coin_real_lib_dir AND COIN_OSICBC_LIBRARY)
+    get_filename_component(_osicbc_dir "${COIN_OSICBC_LIBRARY}" DIRECTORY)
+    get_filename_component(_osicbc_dir "${_osicbc_dir}" REALPATH)
+    if(NOT _osicbc_dir STREQUAL "${_coin_real_lib_dir}")
+      message(WARNING
+        "COIN-OR ABI mismatch: OsiCbc found at ${COIN_OSICBC_LIBRARY} "
+        "but core Osi/CoinUtils are at ${COIN_LIBRARY_DIR}. "
+        "Mixing COIN-OR libraries from different installations causes "
+        "undefined-symbol errors at runtime. "
+        "Skipping CBC support. To fix: install all COIN-OR packages from "
+        "the same source (either all from system packages, or all from "
+        "a custom build with -DCOIN_ROOT_DIR=/path/to/coinor)."
+      )
+      set(_coin_cbc_ok FALSE)
+    endif()
+  endif()
+  if(_coin_real_lib_dir AND COIN_CBC_LIBRARY AND _coin_cbc_ok)
+    get_filename_component(_cbc_dir "${COIN_CBC_LIBRARY}" DIRECTORY)
+    get_filename_component(_cbc_dir "${_cbc_dir}" REALPATH)
+    if(NOT _cbc_dir STREQUAL "${_coin_real_lib_dir}")
+      message(WARNING
+        "COIN-OR ABI mismatch: Cbc found at ${COIN_CBC_LIBRARY} "
+        "but core Osi/CoinUtils are at ${COIN_LIBRARY_DIR}. "
+        "Mixing COIN-OR libraries from different installations causes "
+        "undefined-symbol errors at runtime. "
+        "Skipping CBC support. To fix: install all COIN-OR packages from "
+        "the same source (either all from system packages, or all from "
+        "a custom build with -DCOIN_ROOT_DIR=/path/to/coinor)."
+      )
+      set(_coin_cbc_ok FALSE)
+    endif()
+  endif()
+
+  if(_coin_cbc_ok)
+    target_link_libraries(gtopt_solver_osi PRIVATE
+      ${COIN_OSICBC_LIBRARY} ${COIN_CBC_LIBRARIES}
+    )
+    target_compile_definitions(gtopt_solver_osi PRIVATE GTOPT_OSI_HAS_CBC)
+  else()
+    message(STATUS "Solver plugin: CBC disabled due to COIN-OR ABI mismatch")
+  endif()
 endif()
 
 # ---- Output location ----
