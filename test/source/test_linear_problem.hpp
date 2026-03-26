@@ -532,24 +532,31 @@ TEST_CASE("Linear problem lp_build column and row names")
     CHECK(flat.rowmp.at("con2") == 1);
   }
 
-  SUBCASE("default LpBuildOptions (level 0: col names for state vars)")
+  SUBCASE("default LpBuildOptions (level 0: col names only, no name map)")
   {
     const auto flat = lp.lp_build();
 
-    // Default LpBuildOptions has col_with_names=true, col_with_name_map=true
+    // Default LpBuildOptions has col_with_names=true, col_with_name_map=false
     REQUIRE(flat.colnm.size() == 3);
     CHECK(flat.colnm[0] == "alpha");
     CHECK(flat.colnm[1] == "beta");
     CHECK(flat.colnm[2] == "gamma");
 
     CHECK(flat.rownm.empty());
+    CHECK(flat.colmp.empty());
+    CHECK(flat.rowmp.empty());
+  }
+
+  SUBCASE("col_with_name_map builds name-to-index map")
+  {
+    const auto flat = lp.lp_build({
+        .col_with_name_map = true,
+    });
 
     REQUIRE(flat.colmp.size() == 3);
     CHECK(flat.colmp.at("alpha") == 0);
     CHECK(flat.colmp.at("beta") == 1);
     CHECK(flat.colmp.at("gamma") == 2);
-
-    CHECK(flat.rowmp.empty());
   }
 }
 
