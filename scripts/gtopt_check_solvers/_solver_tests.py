@@ -372,30 +372,18 @@ BUILTIN_TESTS: list[tuple[str, dict[str, Any], int]] = [
 ]
 
 
-def run_solver_tests(
+def _run_builtin_solver_tests(
     gtopt_bin: str,
     solver: str,
     *,
     timeout: float = 60.0,
     test_names: list[str] | None = None,
 ) -> SolverTestReport:
-    """Run the built-in LP test suite for *solver*.
+    """Run the built-in Python LP test suite for *solver* (end-to-end JSON tests).
 
-    Parameters
-    ----------
-    gtopt_bin
-        Absolute path to the ``gtopt`` binary.
-    solver
-        Solver name (e.g. ``"clp"``, ``"highs"``).
-    timeout
-        Per-test timeout in seconds.
-    test_names
-        Optional list of test names to run; defaults to all built-in tests.
-
-    Returns
-    -------
-    SolverTestReport
-        Aggregated pass/fail results for the solver.
+    This is the legacy runner used as a fallback when the gtopt binary does
+    not support ``--check-solvers``, or when specific test case names are
+    requested via ``--test``.
     """
     report = SolverTestReport(solver=solver)
     for name, planning, expected_status in BUILTIN_TESTS:
@@ -407,6 +395,202 @@ def run_solver_tests(
             result.message = f"expected status {expected_status}, got {result.status}"
         report.results.append(result)
     return report
+
+
+def _parse_cpp_check_output(stdout: str, solver: str) -> SolverTestReport:
+    """Parse the structured text output of ``gtopt --check-solvers <solver>``.
+
+    The expected format for each result line is::
+
+        ✓ test_name                    0.001s
+        ✗ failing_test                 0.002s
+          detail text for the failure
+
+    The trailing summary line ``N passed, M failed`` is ignored (computed
+    from the results themselves).
+
+    Parameters
+    ----------
+    stdout
+        The combined stdout produced by ``gtopt --check-solvers <solver>``.
+    solver
+        Solver name used to populate :attr:`SolverTestReport.solver`.
+
+    Returns
+    -------
+    SolverTestReport
+        Parsed results.  ``results`` is empty when *stdout* contains no
+        recognisable result lines.
+    """
+    report = SolverTestReport(solver=solver)
+    current_result: SolverTestResult | None = None
+
+    for line in stdout.splitlines():
+        # Match result lines:
+        #   "  ✓ construction                 0.001s"
+        #   "  ✗ some_test                    0.002s"
+        m = re.match(r"^\s+([✓✗])\s+(\S+)\s+([\d.]+)s\s*$", line)
+        if m:
+            passed = m.group(1) == "✓"
+            name = m.group(2)
+            duration = float(m.group(3))
+            current_result = SolverTestResult(
+                name=name,
+                passed=passed,
+                message="ok" if passed else "FAILED",
+                duration_s=duration,
+            )
+            report.results.append(current_result)
+            continue
+
+        # Accumulate detail lines that follow a failing test result.
+        if current_result is not None and not current_result.passed:
+            stripped = line.strip()
+            # Skip the summary line and any blank lines.
+            if stripped and not re.match(r"^\d+ passed", stripped):
+                current_result.details = (
+                    f"{current_result.details}\n{stripped}"
+                    if current_result.details
+                    else stripped
+                )
+
+    return report
+
+
+def run_cpp_solver_tests(
+    gtopt_bin: str,
+    solver: str,
+    *,
+    timeout: float = 60.0,
+) -> SolverTestReport | None:
+    """Invoke ``gtopt --check-solvers <solver>`` and return a :class:`SolverTestReport`.
+
+    This calls the C++ built-in test suite that exercises every
+    :class:`~gtopt.LinearInterface` method directly against the solver
+    plugin — no temporary JSON files or output directories are needed.
+
+    Parameters
+    ----------
+    gtopt_bin
+        Absolute path to the ``gtopt`` binary.
+    solver
+        Solver name (e.g. ``"clp"``, ``"highs"``).
+    timeout
+        Timeout in seconds for the entire ``--check-solvers`` run.
+
+    Returns
+    -------
+    SolverTestReport or None
+        Parsed report when the binary supports ``--check-solvers``.
+        Returns ``None`` when the binary is not found or its output does not
+        contain the expected result markers (``✓``/``✗``), which indicates
+        the binary predates the ``--check-solvers`` feature.
+    """
+    import time  # noqa: PLC0415
+
+    cmd = [gtopt_bin, "--check-solvers", solver]
+    log.debug("Running: %s", " ".join(cmd))
+
+    t0 = time.monotonic()
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+            env={**os.environ, "SPDLOG_LEVEL": "off"},
+        )
+    except subprocess.TimeoutExpired:
+        report = SolverTestReport(solver=solver)
+        report.results.append(
+            SolverTestResult(
+                name="check_solvers",
+                passed=False,
+                message=f"timed out after {timeout:.0f}s",
+            )
+        )
+        return report
+    except FileNotFoundError:
+        return None
+
+    duration = time.monotonic() - t0
+    log.debug("--check-solvers finished in %.3fs (exit %d)", duration, proc.returncode)
+
+    # If the output contains result markers the binary supports --check-solvers.
+    if "✓" not in proc.stdout and "✗" not in proc.stdout:
+        log.debug("Binary does not appear to support --check-solvers; falling back")
+        return None
+
+    report = _parse_cpp_check_output(proc.stdout, solver)
+
+    if not report.results:
+        # Markers were present but parsing yielded nothing — treat as failure.
+        report.results.append(
+            SolverTestResult(
+                name="check_solvers",
+                passed=False,
+                message=f"no test results found (exit {proc.returncode})",
+                details=(proc.stderr or "")[:_MAX_ERROR_DETAIL_LENGTH],
+            )
+        )
+
+    return report
+
+
+def run_solver_tests(
+    gtopt_bin: str,
+    solver: str,
+    *,
+    timeout: float = 60.0,
+    test_names: list[str] | None = None,
+) -> SolverTestReport:
+    """Run the LP solver test suite for *solver*.
+
+    Dispatch order
+    --------------
+    1. **C++ built-in tests** — if *test_names* is ``None`` (the default),
+       call ``gtopt --check-solvers <solver>`` which exercises every
+       :class:`~gtopt.LinearInterface` method directly inside the binary.
+       This is the preferred path: no temporary files, no CSV parsing, and
+       the test coverage is much wider (18 tests vs 3).
+
+    2. **Python LP tests (fallback)** — used when:
+       - The binary does not support ``--check-solvers`` (old builds), or
+       - *test_names* is specified explicitly (the user requested specific
+         :data:`BUILTIN_TESTS` cases via ``--test``).
+
+    Parameters
+    ----------
+    gtopt_bin
+        Absolute path to the ``gtopt`` binary.
+    solver
+        Solver name (e.g. ``"clp"``, ``"highs"``).
+    timeout
+        Per-test timeout in seconds.
+    test_names
+        Optional list of :data:`BUILTIN_TESTS` names to run; forces the
+        Python LP runner regardless of binary capabilities.
+
+    Returns
+    -------
+    SolverTestReport
+        Aggregated pass/fail results for the solver.
+    """
+    # When specific Python LP test names are requested, bypass the C++ path.
+    if test_names is not None:
+        return _run_builtin_solver_tests(
+            gtopt_bin, solver, timeout=timeout, test_names=test_names
+        )
+
+    # Primary path: C++ --check-solvers.
+    cpp_report = run_cpp_solver_tests(gtopt_bin, solver, timeout=timeout)
+    if cpp_report is not None:
+        return cpp_report
+
+    # Fallback: Python LP end-to-end tests.
+    log.debug("Falling back to Python LP test suite for solver '%s'", solver)
+    return _run_builtin_solver_tests(gtopt_bin, solver, timeout=timeout)
 
 
 def list_available_solvers(gtopt_bin: str, *, timeout: float = 10.0) -> list[str]:
