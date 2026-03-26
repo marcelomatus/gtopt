@@ -26,12 +26,14 @@ This guide provides detailed instructions for building gtopt from source, includ
 | Boost | 1.70+ | Container library | `libboost-container-dev` |
 | Apache Arrow | 10.0+ | Parquet I/O | `libarrow-dev libparquet-dev` or conda |
 | COIN-OR CBC/CLP | 2.10+ | LP/MIP solver | `coinor-libcbc-dev` |
+| HiGHS | 1.5+ | LP/MIP solver (optional) | build from source (see below) |
 | spdlog | 1.12+ | Logging | `libspdlog-dev` |
 
 **LP Solver Backends**: gtopt loads LP solver backends as dynamic plugins at
 runtime. The default is auto-detected by priority: CPLEX > HiGHS > CBC > CLP.
-Installing `coinor-libcbc-dev` provides CLP/CBC. HiGHS can be installed
-separately. Use `--lp-solvers` to list available backends, or `--lp-solver
+Installing `coinor-libcbc-dev` provides CLP/CBC. HiGHS must be built from
+source on Ubuntu 24.04 (it is available via apt starting with Ubuntu 25.04).
+Use `--lp-solvers` to list available backends, or `--lp-solver
 highs` to select a specific one. Set `GTOPT_PLUGIN_DIR` to point to a custom
 plugin directory.
 
@@ -177,6 +179,37 @@ Verify:
 
 ```bash
 pkg-config --modversion cbc
+```
+
+#### HiGHS Solver (optional)
+
+HiGHS is a high-performance open-source LP/MIP solver. It is **not
+packaged** in Ubuntu 24.04 (Noble); apt packages (`libhighs-dev`,
+`libhighs1`) are available starting with Ubuntu 25.04 (Plucky).
+
+On Ubuntu 25.04+:
+
+```bash
+sudo apt-get install -y libhighs-dev
+```
+
+On Ubuntu 24.04, build from source:
+
+```bash
+git clone --depth 1 --branch v1.10.0 https://github.com/ERGO-Code/HiGHS.git /tmp/HiGHS
+cmake -S /tmp/HiGHS -B /tmp/HiGHS/build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=/usr/local
+cmake --build /tmp/HiGHS/build -j$(nproc)
+sudo cmake --install /tmp/HiGHS/build
+sudo ldconfig
+rm -rf /tmp/HiGHS
+```
+
+Verify:
+
+```bash
+ls /usr/local/include/highs/Highs.h
 ```
 
 ### macOS
@@ -582,6 +615,53 @@ cmake -S test -B build -DCMAKE_PREFIX_PATH=/path/to/arrow
 sudo apt-get install -y coinor-libcbc-dev
 pkg-config --modversion cbc
 ```
+
+### COIN-OR ABI Mismatch (undefined symbol errors)
+
+**Error**: `Failed to load plugin libgtopt_solver_osi.so: undefined symbol: _ZTv0_n24_N21OsiClpSolverInterface12initialSolveEv` (or similar undefined symbol errors involving COIN-OR classes)
+
+**Cause**: COIN-OR libraries (Osi, CoinUtils, Clp, OsiClp, Cbc, OsiCbc, Cgl)
+are loaded from different installations with incompatible ABIs. For example,
+CLP from a custom build at `/opt/coinor/lib` mixed with CBC from system
+packages at `/lib/x86_64-linux-gnu/`. Use `ldd` to diagnose:
+
+```bash
+ldd /path/to/lib/gtopt/plugins/libgtopt_solver_osi.so | grep -E 'Osi|Clp|Cbc|Cgl|Coin'
+```
+
+If some libraries resolve to `/opt/coinor/lib` and others to system paths,
+that's the conflict.
+
+**Solution A** — Use all system packages (simplest):
+
+```bash
+sudo apt-get install -y coinor-libcbc-dev
+```
+
+Ensure `COIN_ROOT_DIR` is not set (or points to `/usr`) so CMake finds
+everything from the system.
+
+**Solution B** — Build all COIN-OR from source to a custom prefix:
+
+```bash
+cd /tmp
+wget https://raw.githubusercontent.com/coin-or/coinbrew/master/coinbrew
+chmod u+x coinbrew
+./coinbrew fetch Cbc@master
+./coinbrew build Cbc --prefix=/opt/coinor --tests=none
+sudo ./coinbrew install Cbc --prefix=/opt/coinor
+```
+
+Then configure gtopt with:
+
+```bash
+cmake -S all -B build -DCOIN_ROOT_DIR=/opt/coinor ...
+```
+
+> **Note**: CMake will now detect and warn about COIN-OR ABI mismatches at
+> configure time. If CBC/OsiCbc are found from a different directory than the
+> core Osi/CoinUtils, CBC support is automatically disabled with a warning to
+> prevent runtime crashes.
 
 ### Build Fails with Compilation Errors
 

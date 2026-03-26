@@ -135,6 +135,9 @@ jobs:
           # The gtopt solver plugins (libgtopt_solver_osi.so) need COIN-OR
           # runtime libraries.  Install them before downloading the binary
           # so that _ensure_binary_libs() succeeds without needing sudo.
+          # Note: HiGHS is not packaged in Ubuntu 24.04; if the HiGHS plugin
+          # is present in the artifact, it will fail to load gracefully and
+          # the OSI plugin (CLP/CBC) will be used instead.
           sudo apt-get update -q
           sudo apt-get install -y --no-install-recommends \
             coinor-libclp1 coinor-libosi1v5 coinor-libcoinutils3v5 \
