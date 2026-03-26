@@ -36,7 +36,7 @@ struct LpBuildOptions
                              ///< consistency with external LP analysis tools.
   bool col_with_names {true};  ///< Include column names (state vars at level 0)
   bool row_with_names {false};  ///< Include row names (level >= 1)
-  bool col_with_name_map {true};  ///< Include column name mapping
+  bool col_with_name_map {false};  ///< Include column name mapping (level >= 1)
   bool row_with_name_map {false};  ///< Include row name mapping
   bool move_names {true};  ///< Move instead of copy names
   bool compute_stats {false};  ///< Compute coefficient min/max/ratio
