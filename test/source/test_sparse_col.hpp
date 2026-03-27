@@ -1,4 +1,5 @@
 #include <doctest/doctest.h>
+#include <gtopt/linear_problem.hpp>
 #include <gtopt/sparse_col.hpp>
 
 TEST_SUITE("SparseCol")
@@ -9,7 +10,7 @@ TEST_SUITE("SparseCol")
     const SparseCol col;
     CHECK(col.name.empty());
     CHECK(col.lowb == 0.0);
-    CHECK(col.uppb == CoinDblMax);
+    CHECK(col.uppb == LinearProblem::DblMax);
     CHECK(col.cost == 0.0);
     CHECK(col.is_integer == false);
   }
@@ -28,8 +29,8 @@ TEST_SUITE("SparseCol")
     SUBCASE("Free")
     {
       col.free();
-      CHECK(col.lowb == -CoinDblMax);
-      CHECK(col.uppb == CoinDblMax);
+      CHECK(col.lowb == -LinearProblem::DblMax);
+      CHECK(col.uppb == LinearProblem::DblMax);
     }
 
     SUBCASE("Integer")
@@ -112,8 +113,8 @@ TEST_SUITE("SparseCol")
     SUBCASE("free then integer")
     {
       col.free().integer();
-      CHECK(col.lowb == -CoinDblMax);
-      CHECK(col.uppb == CoinDblMax);
+      CHECK(col.lowb == -LinearProblem::DblMax);
+      CHECK(col.uppb == LinearProblem::DblMax);
       CHECK(col.is_integer == true);
     }
 
@@ -129,8 +130,8 @@ TEST_SUITE("SparseCol")
     {
       col.equal(42.0);
       col.free();
-      CHECK(col.lowb == -CoinDblMax);
-      CHECK(col.uppb == CoinDblMax);
+      CHECK(col.lowb == -LinearProblem::DblMax);
+      CHECK(col.uppb == LinearProblem::DblMax);
     }
   }
 

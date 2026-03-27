@@ -49,7 +49,8 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
   const auto& balance_rows_a = junction_a.balance_rows_at(scenario, stage);
   const auto& balance_rows_b = junction_b.balance_rows_at(scenario, stage);
 
-  const auto stage_capacity = capacity.at(stage.uid()).value_or(CoinDblMax);
+  const auto stage_capacity =
+      capacity.at(stage.uid()).value_or(LinearProblem::DblMax);
   const auto stage_lossfactor = sc.stage_lossfactor(stage, lossfactor);
 
   const auto& blocks = stage.blocks();

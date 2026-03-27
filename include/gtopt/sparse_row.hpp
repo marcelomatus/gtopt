@@ -46,7 +46,8 @@ namespace gtopt
  */
 struct SparseRow
 {
-  static constexpr double const CoinDblMax = std::numeric_limits<double>::max();
+  /// Maximum representable double, same as gtopt::DblMax.
+  static constexpr double DblMax = std::numeric_limits<double>::max();
 
   using cmap_t = flat_map<ColIndex, double>;  ///< Type for coefficient storage
   using size_type = cmap_t::size_type;
@@ -76,7 +77,7 @@ struct SparseRow
    */
   constexpr SparseRow& less_equal(double ub) noexcept
   {
-    return bound(-CoinDblMax, ub);
+    return bound(-DblMax, ub);
   }
 
   /**
@@ -86,7 +87,7 @@ struct SparseRow
    */
   constexpr SparseRow& greater_equal(double lb) noexcept
   {
-    return bound(lb, CoinDblMax);
+    return bound(lb, DblMax);
   }
 
   /**

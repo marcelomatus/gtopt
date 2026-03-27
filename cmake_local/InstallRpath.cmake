@@ -62,7 +62,7 @@ function(_resolve_imported_location _target _out_var)
 endfunction()
 
 function(configure_install_rpath _target)
-  set(_system_lib_dirs "^(/usr/lib|/usr/lib64|/lib|/lib64|/usr/lib/x86_64-linux-gnu)$")
+  set(_system_lib_dirs "^(/usr/lib|/usr/lib64|/lib|/lib64|/usr/lib/x86_64-linux-gnu|/usr/lib/aarch64-linux-gnu|/usr/lib/arm-linux-gnueabihf|/usr/lib/powerpc64le-linux-gnu|/usr/lib/s390x-linux-gnu)$")
   set(_install_rpaths "")
 
   # Determine which targets to inspect for link libraries

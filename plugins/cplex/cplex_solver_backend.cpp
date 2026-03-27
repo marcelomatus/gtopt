@@ -140,6 +140,14 @@ std::string_view CplexSolverBackend::solver_name() const noexcept
   return "cplex";
 }
 
+std::string CplexSolverBackend::solver_version() const
+{
+  // CPX_VERSION format: VVRRMMFF (e.g. 22010100 → 22.1.1)
+  constexpr int ver = CPX_VERSION;
+  return std::format(
+      "{}.{}.{}", ver / 1000000, (ver / 10000) % 100, (ver / 100) % 100);
+}
+
 double CplexSolverBackend::infinity() const noexcept
 {
   return CPX_INFBOUND;
@@ -203,23 +211,45 @@ void CplexSolverBackend::load_problem(int ncols,
         rowlb[i], rowub[i], cpx_inf, sense[idx], rhs[idx], range[idx]);
   }
 
+  // CPLEX requires all pointers to be non-null, even for zero-element
+  // matrices.  Provide safe defaults when the caller passes nullptr.
+  const auto ncols_sz = static_cast<size_t>(ncols);
+
+  std::vector<int> buf_matbeg(ncols_sz + 1, 0);
+  std::vector<int> buf_matind(1, 0);
+  std::vector<double> buf_matval(1, 0.0);
+  std::vector<double> buf_obj(ncols_sz, 0.0);
+  std::vector<double> buf_collb(ncols_sz, 0.0);
+  std::vector<double> buf_colub(ncols_sz, 0.0);
+
+  const int* safe_matbeg = matbeg != nullptr ? matbeg : buf_matbeg.data();
+  const int* safe_matind = matind != nullptr ? matind : buf_matind.data();
+  const double* safe_matval = matval != nullptr ? matval : buf_matval.data();
+  const double* safe_obj = obj != nullptr ? obj : buf_obj.data();
+  const double* safe_collb = collb != nullptr ? collb : buf_collb.data();
+  const double* safe_colub = colub != nullptr ? colub : buf_colub.data();
+
+  // Compute matcnt from matbeg differences (CPLEX 22.1 requires it).
+  std::vector<int> matcnt(ncols_sz, 0);
+  for (int c = 0; c < ncols; ++c) {
+    matcnt[static_cast<size_t>(c)] = safe_matbeg[c + 1] - safe_matbeg[c];
+  }
+
   // CPLEX expects column-sparse format via CPXcopylp
-  // matbeg is size ncols+1 (CSC start array)
   status = CPXcopylp(m_env_,
                      m_lp_,
                      ncols,
                      nrows,
                      CPX_MIN,  // minimization
-                     obj,
+                     safe_obj,
                      rhs.data(),
                      sense.data(),
-                     matbeg,
-                     // matcnt is nullptr → computed from matbeg diffs
-                     nullptr,
-                     matind,
-                     matval,
-                     collb,
-                     colub,
+                     safe_matbeg,
+                     matcnt.data(),
+                     safe_matind,
+                     safe_matval,
+                     safe_collb,
+                     safe_colub,
                      range.data());
 
   if (status != 0) {
@@ -590,9 +620,12 @@ void CplexSolverBackend::set_col_solution(const double* sol)
   if (sol == nullptr) {
     return;
   }
-  m_sol_cached_ = false;
-  // const int ncols = CPXgetnumcols(m_env_, m_lp_);
-  // Use CPXcopystart to provide a starting solution
+  const auto ncols = static_cast<size_t>(CPXgetnumcols(m_env_, m_lp_));
+  // Cache the provided solution so that col_solution() returns it
+  // immediately, without requiring a re-solve.
+  m_col_solution_.assign(sol, sol + ncols);
+  m_sol_cached_ = true;
+  // Also provide it to CPLEX as a warm-start hint.
   CPXcopystart(m_env_,
                m_lp_,
                nullptr,  // cstat (basis statuses for columns)

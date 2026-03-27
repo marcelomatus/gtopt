@@ -47,6 +47,9 @@ public:
   /** @brief Human-readable solver name (e.g. "clp", "highs") */
   [[nodiscard]] virtual std::string_view solver_name() const noexcept = 0;
 
+  /** @brief Solver library version string (e.g. "1.17.3", "22.1.1") */
+  [[nodiscard]] virtual std::string solver_version() const = 0;
+
   /** @brief Solver's representation of +infinity */
   [[nodiscard]] virtual double infinity() const noexcept = 0;
 
