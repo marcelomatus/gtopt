@@ -138,7 +138,7 @@ public:
       const StageLP& stage,
       const BlockLP& block,
       const Max& lmax,
-      const double capacity_max = CoinDblMax) const
+      const double capacity_max = LinearProblem::DblMax) const
   {
     const auto lmax_at =
         lmax.at(stage.uid(), block.uid()).value_or(capacity_max);

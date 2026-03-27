@@ -20,10 +20,8 @@
 namespace gtopt
 {
 
-/**
- * Maximum representable double value used for unbounded constraints
- */
-constexpr double const CoinDblMax = std::numeric_limits<double>::max();
+/// Maximum representable double value used for unbounded variable bounds.
+constexpr double DblMax = std::numeric_limits<double>::max();
 
 /**
  * @class SparseCol
@@ -57,7 +55,7 @@ struct SparseCol
 {
   std::string name;  ///< Variable name (empty for anonymous variables)
   double lowb {0.0};  ///< Lower bound (default: 0.0)
-  double uppb {CoinDblMax};  ///< Upper bound (default: +infinity)
+  double uppb {DblMax};  ///< Upper bound (default: +infinity)
   double cost {0.0};  ///< Objective coefficient (default: 0.0)
   bool is_integer {false};  ///< is integer-constrained (default: false)
   double scale {1.0};  ///< Physical-to-LP scale: physical_value = LP_value ×
@@ -81,8 +79,8 @@ struct SparseCol
    */
   constexpr SparseCol& free() noexcept
   {
-    lowb = -CoinDblMax;
-    uppb = CoinDblMax;
+    lowb = -DblMax;
+    uppb = DblMax;
     return *this;
   }
 

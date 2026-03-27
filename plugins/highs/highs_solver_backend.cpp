@@ -11,6 +11,7 @@
 
 #include "highs_solver_backend.hpp"
 
+#include <HConfig.h>
 #include <Highs.h>
 #include <gtopt/solver_options.hpp>
 
@@ -29,6 +30,14 @@ HighsSolverBackend::~HighsSolverBackend() = default;
 std::string_view HighsSolverBackend::solver_name() const noexcept
 {
   return "highs";
+}
+
+std::string HighsSolverBackend::solver_version() const
+{
+  return std::format("{}.{}.{}",
+                     HIGHS_VERSION_MAJOR,
+                     HIGHS_VERSION_MINOR,
+                     HIGHS_VERSION_PATCH);
 }
 
 double HighsSolverBackend::infinity() const noexcept

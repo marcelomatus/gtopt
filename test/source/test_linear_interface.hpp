@@ -297,7 +297,7 @@ TEST_CASE("LinearInterface - add_col without bounds (default)")
   auto col_upp = interface.get_col_upp();
 
   CHECK(col_low[col] == doctest::Approx(0.0));
-  CHECK(col_upp[col] > 1.0e20);
+  CHECK(interface.is_pos_inf(col_upp[col]));
 }
 
 TEST_CASE("LinearInterface - row bounds modification")
