@@ -1,0 +1,8 @@
+# Archivo que controla la partida en caliente
+# Nombre del archivo
+plpplanos.csv
+# Rango de iteraciones a incluir (beg, end)
+0 9999
+# Open Mode (0, no cortes. 1, cortes plpplanos.csv. 2, append cortes a archivo)
+0
+
