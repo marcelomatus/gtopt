@@ -1316,6 +1316,173 @@ def check_cascade_solver_type(planning: dict[str, Any]) -> list[Finding]:
 
 
 # ---------------------------------------------------------------------------
+# Boundary cuts consistency
+# ---------------------------------------------------------------------------
+
+
+def _build_state_variable_names(
+    planning: dict[str, Any],
+) -> set[str]:
+    """Return the set of element names that are SDDP state variables.
+
+    State variables come from:
+    - Junctions referenced by reservoirs whose ``use_state_variable``
+      is not explicitly ``false``.
+    - Batteries (always state variables when present).
+    """
+    sys = planning.get("system", {})
+
+    # Build junction uid -> name map
+    junction_name: dict[Any, str] = {}
+    for junc in sys.get("junction_array", []):
+        uid = junc.get("uid")
+        name = junc.get("name", "")
+        if uid is not None and name:
+            junction_name[uid] = name
+
+    # Build junction name -> name (for name-based reservoir references)
+    junction_by_name: set[str] = set(junction_name.values())
+
+    state_names: set[str] = set()
+
+    for res in sys.get("reservoir_array", []):
+        if res.get("use_state_variable") is False:
+            continue
+        # Reservoir references a junction by uid or name
+        junc_ref = res.get("junction")
+        if junc_ref is None:
+            # Reservoir name is itself the state variable
+            name = res.get("name", "")
+            if name:
+                state_names.add(name)
+            continue
+        if isinstance(junc_ref, str):
+            if junc_ref in junction_by_name:
+                state_names.add(junc_ref)
+        elif junc_ref in junction_name:
+            state_names.add(junction_name[junc_ref])
+
+    for bat in sys.get("battery_array", []):
+        name = bat.get("name", "")
+        if name:
+            state_names.add(name)
+
+    return state_names
+
+
+def check_boundary_cuts(
+    planning: dict[str, Any],
+    base_dir: str = "",
+) -> list[Finding]:
+    """Check that boundary-cuts CSV headers match known state variables.
+
+    Reads the ``boundary_cuts_file`` referenced in ``sddp_options``,
+    parses its CSV header, and warns about column names that do not
+    correspond to any known state variable in the model.
+    """
+    findings: list[Finding] = []
+    opts = planning.get("options", {})
+    sddp = opts.get("sddp_options", {})
+    cuts_file = sddp.get("boundary_cuts_file", "")
+
+    if not cuts_file:
+        return findings
+
+    # Resolve path relative to input_directory, then base_dir
+    from pathlib import Path  # noqa: PLC0415
+
+    # boundary_cuts_file is resolved relative to the working directory.
+    # Try: as-is, relative to base_dir, relative to base_dir's parent.
+    cuts_path = Path(cuts_file)
+    if not cuts_path.is_absolute() and base_dir:
+        base = Path(base_dir)
+        for candidate in (cuts_path, base / cuts_path, base.parent / cuts_path):
+            if candidate.exists():
+                cuts_path = candidate
+                break
+
+    if not cuts_path.exists():
+        findings.append(
+            Finding(
+                check_id="boundary_cuts",
+                severity=Severity.WARNING,
+                message=f"boundary_cuts_file not found: {cuts_path}",
+            )
+        )
+        return findings
+
+    # Read CSV header
+    try:
+        with open(cuts_path, encoding="utf-8") as fh:
+            header_line = fh.readline().strip()
+    except OSError as exc:
+        findings.append(
+            Finding(
+                check_id="boundary_cuts",
+                severity=Severity.WARNING,
+                message=f"cannot read boundary_cuts_file: {exc}",
+            )
+        )
+        return findings
+
+    if not header_line:
+        return findings
+
+    columns = [c.strip() for c in header_line.split(",")]
+
+    # Determine where state-variable columns start.
+    # Format: name,[iteration,]scene,rhs,StateVar1,...
+    # Detect "iteration" column presence.
+    fixed_cols = {"name", "iteration", "scene", "rhs"}
+    state_var_start = 0
+    for i, col_name in enumerate(columns):
+        if col_name.lower() not in fixed_cols:
+            state_var_start = i
+            break
+    else:
+        # All columns are fixed — no state variables
+        return findings
+
+    csv_state_names = columns[state_var_start:]
+
+    # Build known state variable names from the model
+    known = _build_state_variable_names(planning)
+
+    if not known:
+        # No state variables in the model at all — every column is
+        # unknown, but that may just mean the model has none.
+        if csv_state_names:
+            findings.append(
+                Finding(
+                    check_id="boundary_cuts",
+                    severity=Severity.WARNING,
+                    message=(
+                        f"boundary_cuts_file has {len(csv_state_names)} "
+                        f"state variable column(s) but the model defines "
+                        f"no state variables"
+                    ),
+                )
+            )
+        return findings
+
+    unknown = [n for n in csv_state_names if n not in known]
+    if unknown:
+        names_str = ", ".join(unknown)
+        findings.append(
+            Finding(
+                check_id="boundary_cuts",
+                severity=Severity.WARNING,
+                message=(
+                    f"boundary_cuts_file references {len(unknown)} "
+                    f"unknown state variable(s): {names_str}"
+                ),
+            )
+        )
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
 # Registry and runner
 # ---------------------------------------------------------------------------
 
@@ -1334,6 +1501,7 @@ _CHECK_REGISTRY: list[tuple[str, Any, bool]] = [
     ("simulation_mode", check_simulation_mode, False),
     ("sddp_options", check_sddp_options, False),
     ("cascade_solver_type", check_cascade_solver_type, False),
+    ("boundary_cuts", check_boundary_cuts, False),
     ("ai_system_analysis", check_ai_system_analysis, True),
 ]
 
@@ -1342,6 +1510,7 @@ def run_all_checks(
     planning: dict[str, Any],
     enabled_checks: set[str] | None = None,
     ai_options: Any = None,
+    base_dir: str = "",
 ) -> list[Finding]:
     """Run all enabled checks and return combined findings.
 
@@ -1353,14 +1522,21 @@ def run_all_checks(
         Set of check IDs to run.  ``None`` means all non-AI checks.
     ai_options:
         AI options for the AI system analysis check.  ``None`` disables it.
+    base_dir:
+        Case directory for resolving relative file paths.
     """
     findings: list[Finding] = []
+
+    # Checks that accept a base_dir keyword argument.
+    _NEEDS_BASE_DIR = {"boundary_cuts"}
 
     for check_id, check_fn, needs_ai in _CHECK_REGISTRY:
         if enabled_checks is not None and check_id not in enabled_checks:
             continue
         if needs_ai:
             findings.extend(check_fn(planning, ai_options=ai_options))
+        elif check_id in _NEEDS_BASE_DIR:
+            findings.extend(check_fn(planning, base_dir=base_dir))
         else:
             findings.extend(check_fn(planning))
 

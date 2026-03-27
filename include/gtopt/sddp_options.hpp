@@ -164,6 +164,14 @@ struct SddpOptions
    */
   OptInt boundary_max_iterations {};
 
+  /** @brief How to handle cuts referencing state variables not in the model.
+   *
+   * - `skip_coeff` (default): drop the missing coefficient, load the cut.
+   * - `skip_cut`: skip the entire cut if any missing variable has a
+   *   non-zero coefficient.
+   */
+  std::optional<MissingCutVarMode> missing_cut_var_mode {};
+
   /** @brief CSV file with named-variable cuts for hot-start across all phases.
    *
    * Unlike boundary cuts (which apply only to the last phase), these cuts
@@ -291,6 +299,7 @@ struct SddpOptions
     merge_opt(boundary_cuts_file, std::move(opts.boundary_cuts_file));
     merge_opt(boundary_cuts_mode, opts.boundary_cuts_mode);
     merge_opt(boundary_max_iterations, opts.boundary_max_iterations);
+    merge_opt(missing_cut_var_mode, opts.missing_cut_var_mode);
     merge_opt(named_cuts_file, std::move(opts.named_cuts_file));
     merge_opt(max_cuts_per_phase, opts.max_cuts_per_phase);
     merge_opt(cut_prune_interval, opts.cut_prune_interval);

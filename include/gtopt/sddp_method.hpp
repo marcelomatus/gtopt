@@ -355,6 +355,9 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// `iteration` column / PLP IPDNumIte) are retained.  0 = load all.
   int boundary_max_iterations {0};
 
+  /// How to handle cut rows referencing state variables not in the model.
+  MissingCutVarMode missing_cut_var_mode {MissingCutVarMode::skip_coeff};
+
   /// CSV file with named-variable hot-start cuts for all phases.
   ///
   /// Unlike boundary cuts (which apply only to the last phase), these

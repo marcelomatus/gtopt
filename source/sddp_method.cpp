@@ -1142,36 +1142,33 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   }
 
   // ── Load boundary cuts (future-cost function for last phase) ──────────
-  // Boundary cuts are part of the problem specification, not recovery
-  // state — always load when specified, regardless of recovery_mode.
+  // Boundary cuts are part of the problem specification (analogous to
+  // PLP's "planos de embalse"), NOT recovery state.  They do NOT
+  // affect the iteration offset — the solver always starts from
+  // iteration 0 (or from the recovery offset if recovery cuts exist).
   if (!m_options_.boundary_cuts_file.empty()) {
     auto result = load_boundary_cuts(m_options_.boundary_cuts_file);
     if (result.has_value()) {
-      m_iteration_offset_ =
-          std::max(m_iteration_offset_, result->max_iteration);
-      SPDLOG_INFO("SDDP: loaded {} boundary cuts from {} (max_iter={})",
+      SPDLOG_INFO("SDDP: loaded {} boundary cuts from {}",
                   result->count,
-                  m_options_.boundary_cuts_file,
-                  result->max_iteration);
+                  m_options_.boundary_cuts_file);
     } else {
       SPDLOG_WARN("SDDP: could not load boundary cuts: {}",
                   result.error().message);
     }
   }
 
-  // ── Load named hot-start cuts (all phases, named state variables) ─────
-  // Named cuts are also part of the problem specification — always load.
+  // ── Load named cuts (all phases, named state variables) ────────────────
+  // Named cuts are also part of the problem specification — always load,
+  // but do NOT affect the iteration offset.
   if (!m_options_.named_cuts_file.empty()) {
     auto result = load_named_cuts(m_options_.named_cuts_file);
     if (result.has_value()) {
-      m_iteration_offset_ =
-          std::max(m_iteration_offset_, result->max_iteration);
-      SPDLOG_INFO("SDDP: loaded {} named hot-start cuts from {} (max_iter={})",
+      SPDLOG_INFO("SDDP: loaded {} named cuts from {}",
                   result->count,
-                  m_options_.named_cuts_file,
-                  result->max_iteration);
+                  m_options_.named_cuts_file);
     } else {
-      SPDLOG_WARN("SDDP: could not load named hot-start cuts: {}",
+      SPDLOG_WARN("SDDP: could not load named cuts: {}",
                   result.error().message);
     }
   }
