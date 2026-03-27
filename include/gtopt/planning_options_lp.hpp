@@ -711,6 +711,14 @@ public:
     return m_options_.sddp_options.boundary_max_iterations.value_or(0);
   }
 
+  /// How to handle cut rows referencing missing state variables.
+  [[nodiscard]] constexpr auto sddp_missing_cut_var_mode() const
+      -> MissingCutVarMode
+  {
+    return m_options_.sddp_options.missing_cut_var_mode.value_or(
+        MissingCutVarMode::skip_coeff);
+  }
+
   /// CSV file with named-variable cuts for hot-start across all phases.
   [[nodiscard]] auto sddp_named_cuts_file() const -> Name
   {

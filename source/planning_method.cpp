@@ -95,6 +95,7 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       sddp_opts.boundary_cuts_mode = options.sddp_boundary_cuts_mode_enum();
       sddp_opts.boundary_max_iterations =
           options.sddp_boundary_max_iterations();
+      sddp_opts.missing_cut_var_mode = options.sddp_missing_cut_var_mode();
 
       const auto named_cuts = options.sddp_named_cuts_file();
       if (!named_cuts.empty()) {
@@ -217,6 +218,7 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       sddp_opts.boundary_cuts_mode = options.sddp_boundary_cuts_mode_enum();
       sddp_opts.boundary_max_iterations =
           options.sddp_boundary_max_iterations();
+      sddp_opts.missing_cut_var_mode = options.sddp_missing_cut_var_mode();
 
       const auto named_cuts = options.sddp_named_cuts_file();
       if (!named_cuts.empty()) {

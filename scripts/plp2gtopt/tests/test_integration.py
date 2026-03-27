@@ -2075,10 +2075,9 @@ def test_plp_case_2y_boundary_cuts_loaded(tmp_path):
 
     1. plp2gtopt generates a boundary_cuts.csv from the PLP planos data.
     2. gtopt loads the boundary cuts (visible in the log output).
-    3. The SDDP iteration offset is > 0 (from the loaded boundary cuts).
 
-    Regression test for the bug where boundary cut loading was incorrectly
-    gated behind recovery_mode >= cuts, causing them to be silently skipped.
+    Boundary cuts are problem specification (future-cost approximation),
+    NOT recovery state — they do NOT affect the iteration offset.
     """
     gtopt_bin = _find_gtopt_binary()
     if gtopt_bin is None:
@@ -2115,8 +2114,10 @@ def test_plp_case_2y_boundary_cuts_loaded(tmp_path):
         f"Expected 'loaded ... boundary cuts' in output.\n"
         f"output (last 500 chars):\n{output[-500:]}"
     )
-    assert "iteration offset" in output, (
-        f"SDDP iteration offset not set from boundary cuts.\n"
+    # Boundary cuts are problem specification, not recovery — they must
+    # NOT set the iteration offset.
+    assert "iteration offset" not in output, (
+        f"Boundary cuts should not set iteration offset.\n"
         f"output (last 500 chars):\n{output[-500:]}"
     )
 

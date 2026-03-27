@@ -19,6 +19,7 @@ using gtopt::BoundaryCutsMode;
 using gtopt::CutSharingMode;
 using gtopt::ElasticFilterMode;
 using gtopt::HotStartMode;
+using gtopt::MissingCutVarMode;
 using gtopt::RecoveryMode;
 using gtopt::SddpOptions;
 using gtopt::SolverOptions;
@@ -52,6 +53,7 @@ struct SddpOptionsConstructor
       OptName boundary_cuts_file,
       OptName boundary_cuts_mode_str,
       OptInt boundary_max_iterations,
+      OptName missing_cut_var_mode_str,
       OptName named_cuts_file,
       OptInt max_cuts_per_phase,
       OptInt cut_prune_interval,
@@ -106,6 +108,10 @@ struct SddpOptionsConstructor
           gtopt::boundary_cuts_mode_from_name(*boundary_cuts_mode_str);
     }
     opts.boundary_max_iterations = boundary_max_iterations;
+    if (missing_cut_var_mode_str) {
+      opts.missing_cut_var_mode =
+          gtopt::missing_cut_var_mode_from_name(*missing_cut_var_mode_str);
+    }
     opts.named_cuts_file = std::move(named_cuts_file);
     opts.max_cuts_per_phase = max_cuts_per_phase;
     opts.cut_prune_interval = cut_prune_interval;
@@ -158,6 +164,12 @@ inline OptName enum_to_opt_name(const std::optional<BoundaryCutsMode>& e)
            : OptName {};
 }
 
+inline OptName enum_to_opt_name(const std::optional<MissingCutVarMode>& e)
+{
+  return e ? OptName {std::string(gtopt::missing_cut_var_mode_name(*e))}
+           : OptName {};
+}
+
 }  // namespace detail
 
 template<>
@@ -193,6 +205,7 @@ struct json_data_contract<SddpOptions>
       json_string_null<"boundary_cuts_file", OptName>,
       json_string_null<"boundary_cuts_mode", OptName>,
       json_number_null<"boundary_max_iterations", OptInt>,
+      json_string_null<"missing_cut_var_mode", OptName>,
       json_string_null<"named_cuts_file", OptName>,
       json_number_null<"max_cuts_per_phase", OptInt>,
       json_number_null<"cut_prune_interval", OptInt>,
@@ -235,6 +248,7 @@ struct json_data_contract<SddpOptions>
         opt.boundary_cuts_file,
         detail::enum_to_opt_name(opt.boundary_cuts_mode),
         opt.boundary_max_iterations,
+        detail::enum_to_opt_name(opt.missing_cut_var_mode),
         opt.named_cuts_file,
         opt.max_cuts_per_phase,
         opt.cut_prune_interval,

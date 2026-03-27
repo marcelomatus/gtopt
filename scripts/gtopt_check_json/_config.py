@@ -27,6 +27,7 @@ CHECK_DEFAULTS: dict[str, str] = {
     "simulation_mode": "true",
     "sddp_options": "true",
     "cascade_solver_type": "true",
+    "boundary_cuts": "true",
     "ai_system_analysis": "false",
 }
 
