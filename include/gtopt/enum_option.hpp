@@ -197,6 +197,44 @@ inline constexpr auto boundary_cuts_mode_entries =
   return enum_name(std::span {boundary_cuts_mode_entries}, value);
 }
 
+// ─── MissingCutVarMode ───────────────────────────────────────────────────────
+
+/**
+ * @brief How to handle boundary/named cut rows that reference state variables
+ *        not present in the current model.
+ *
+ * - `skip_coeff`: Drop the missing variable's coefficient from the cut but
+ *                 still load the cut (default).
+ * - `skip_cut`:   Skip the entire cut if any missing variable has a non-zero
+ *                 coefficient.
+ */
+enum class MissingCutVarMode : uint8_t
+{
+  skip_coeff = 0,  ///< Drop the coefficient, load the cut
+  skip_cut = 1,  ///< Skip the entire cut
+};
+
+/// Name-value table for MissingCutVarMode
+inline constexpr auto missing_cut_var_mode_entries =
+    std::to_array<EnumEntry<MissingCutVarMode>>({
+        {.name = "skip_coeff", .value = MissingCutVarMode::skip_coeff},
+        {.name = "skip_cut", .value = MissingCutVarMode::skip_cut},
+    });
+
+/// Parse a MissingCutVarMode from a string
+[[nodiscard]] constexpr auto missing_cut_var_mode_from_name(
+    std::string_view name) noexcept -> std::optional<MissingCutVarMode>
+{
+  return enum_from_name(std::span {missing_cut_var_mode_entries}, name);
+}
+
+/// Return the canonical name of a MissingCutVarMode
+[[nodiscard]] constexpr auto missing_cut_var_mode_name(
+    MissingCutVarMode value) noexcept -> std::string_view
+{
+  return enum_name(std::span {missing_cut_var_mode_entries}, value);
+}
+
 // ─── DataFormat ──────────────────────────────────────────────────────────────
 
 /**

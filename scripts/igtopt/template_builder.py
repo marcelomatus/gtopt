@@ -1302,6 +1302,7 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "boundary_cuts_file",
         "boundary_cuts_mode",
         "boundary_max_iterations",
+        "missing_cut_var_mode",
         "named_cuts_file",
         "max_cuts_per_phase",
         "cut_prune_interval",

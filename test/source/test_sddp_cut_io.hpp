@@ -918,8 +918,8 @@ TEST_CASE(
   auto result =
       load_boundary_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
   REQUIRE(result.has_value());
-  // Cut is still loaded, but the coefficient is ignored since the
-  // column mapping is nullopt
+  // Default mode is skip_coeff: cut is loaded with the missing
+  // coefficient dropped (only the alpha term remains).
   CHECK(result->count == 1);
 
   std::filesystem::remove(tmp_file);
@@ -984,7 +984,7 @@ TEST_CASE(
   auto result =
       load_boundary_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
   REQUIRE(result.has_value());
-  // The cut is loaded but the coefficient is ignored (class mismatch)
+  // Default skip_coeff: cut loaded with coefficient dropped.
   CHECK(result->count == 1);
 
   std::filesystem::remove(tmp_file);
@@ -1330,7 +1330,7 @@ TEST_CASE(
   auto result =
       load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
   REQUIRE(result.has_value());
-  // Cut is loaded but with the coefficient ignored (class mismatch)
+  // Default skip_coeff: cut loaded with coefficient dropped.
   CHECK(result->count == 1);
 
   std::filesystem::remove(tmp_file);
@@ -1390,6 +1390,7 @@ TEST_CASE(
   auto result =
       load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
   REQUIRE(result.has_value());
+  // Default skip_coeff: cut loaded, "nonexistent" coefficient dropped.
   CHECK(result->count == 1);
 
   std::filesystem::remove(tmp_file);

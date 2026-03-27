@@ -170,6 +170,7 @@ def check_json(
         planning,
         enabled_checks=enabled,
         ai_options=ai_options,
+        base_dir=_case_dir,
     )
 
     # Report
