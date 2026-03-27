@@ -35,7 +35,7 @@ TEST_CASE("Linear problem test 2")
     REQUIRE(col.name == "c1");
 
     REQUIRE(col.lowb == doctest::Approx(0));
-    REQUIRE(col.uppb == doctest::Approx(gtopt::CoinDblMax));
+    REQUIRE(col.uppb == doctest::Approx(LinearProblem::DblMax));
   }
 
   {
@@ -114,7 +114,7 @@ TEST_CASE("Linear problem matrix operations")
 
     lp.col_at(col_indices[1]).free();
     CHECK(lp.get_col_lowb(col_indices[1])
-          == doctest::Approx(-gtopt::CoinDblMax));
+          == doctest::Approx(-LinearProblem::DblMax));
   }
 }
 
@@ -201,11 +201,11 @@ TEST_CASE("Linear problem advanced operations")
 
   REQUIRE(lp.col_at(col1).name == "col1");
   REQUIRE(lp.col_at(col1).lowb == doctest::Approx(0));
-  REQUIRE(lp.col_at(col1).uppb == doctest::Approx(gtopt::CoinDblMax));
+  REQUIRE(lp.col_at(col1).uppb == doctest::Approx(LinearProblem::DblMax));
 
   REQUIRE(lp.col_at(col2).name == "col2");
-  REQUIRE(lp.col_at(col2).lowb == doctest::Approx(-gtopt::CoinDblMax));
-  REQUIRE(lp.col_at(col2).uppb == doctest::Approx(gtopt::CoinDblMax));
+  REQUIRE(lp.col_at(col2).lowb == doctest::Approx(-LinearProblem::DblMax));
+  REQUIRE(lp.col_at(col2).uppb == doctest::Approx(LinearProblem::DblMax));
 
   lp.col_at(col1).lowb = -10;
   lp.col_at(col2).lowb = 0;

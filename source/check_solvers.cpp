@@ -104,22 +104,23 @@ struct TestContext
 ///         x1, x2 >= 0
 ///
 ///  Default: min x+y  s.t. x+y >= 4, optimal = (4,0) or (2,2), obj=4.
-[[nodiscard]] FlatLinearProblem make_2x2_flat(double c1 = 1.0,
-                                              double c2 = 1.0,
-                                              double lb_row = 4.0,
-                                              double ub_row = 1e30)
+[[nodiscard]] FlatLinearProblem make_2x2_flat(
+    double c1 = 1.0,
+    double c2 = 1.0,
+    double lb_row = 4.0,
+    double ub_row = LinearProblem::DblMax)
 {
   LinearProblem lp("2x2");
   const auto x1 = lp.add_col(SparseCol {
       .name = "x1",
       .lowb = 0.0,
-      .uppb = 1e30,
+      .uppb = LinearProblem::DblMax,
       .cost = c1,
   });
   const auto x2 = lp.add_col(SparseCol {
       .name = "x2",
       .lowb = 0.0,
-      .uppb = 1e30,
+      .uppb = LinearProblem::DblMax,
       .cost = c2,
   });
   const auto r1 = lp.add_row(SparseRow {
@@ -166,8 +167,11 @@ SolverTestResult test_construction(std::string_view solver)
     TC_CHECK(ctx, lp_default.get_numcols() == 0);
     TC_CHECK(ctx, lp_default.get_numrows() == 0);
 
-    // Named construction.
+    // Named construction — verify solver identity.
     LinearInterface lp(solver);
+    TC_CHECK(ctx, lp.solver_name() == solver);
+    TC_CHECK(ctx, !lp.solver_version().empty());
+    TC_CHECK(ctx, lp.solver_id().starts_with(solver));
     TC_CHECK(ctx, lp.get_numcols() == 0);
     TC_CHECK(ctx, lp.get_numrows() == 0);
 
@@ -210,11 +214,9 @@ SolverTestResult test_add_col(std::string_view solver)
     TC_CHECK_APPROX(ctx, col_low[x2], -5.0, 1e-12);
     TC_CHECK_APPROX(ctx, col_upp[x2], 5.0, 1e-12);
 
-    // Free variable lower bound must be a large negative (solver's -infinity).
-    // All LP solver backends use at least 1e20 as their infinity value.
-    constexpr double kSolverInfinityThreshold = 1e20;
-    const double free_lb = lp.get_col_low()[x3];
-    TC_CHECK(ctx, free_lb < -kSolverInfinityThreshold);
+    // Free variable bounds must be the solver's ±infinity.
+    TC_CHECK(ctx, lp.is_neg_inf(lp.get_col_low()[x3]));
+    TC_CHECK(ctx, lp.is_pos_inf(lp.get_col_upp()[x3]));
 
     // set_col_low / set_col_upp.
     lp.set_col_low(x1, 1.0);
@@ -514,7 +516,7 @@ SolverTestResult test_primal_infeasible(std::string_view solver)
     SparseRow row("r1");
     row[x] = 1.0;
     row.lowb = 10.0;
-    row.uppb = 1e30;
+    row.uppb = LinearProblem::DblMax;
     lp.add_row(row);
 
     const auto result = lp.initial_solve(SolverOptions {
@@ -756,7 +758,7 @@ SolverTestResult test_maximisation(std::string_view solver)
     });
     const auto r1 = lp_model.add_row(SparseRow {
         .name = "sum",
-        .lowb = -1e30,
+        .lowb = -LinearProblem::DblMax,
         .uppb = 7.0,
     });
     lp_model.set_coeff(r1, x1, 1.0);
@@ -977,7 +979,9 @@ int check_all_solvers(bool verbose)
 
   int overall = 0;
   for (const auto& solver_name : available) {
-    std::cout << std::format("\n  Solver: {}\n", solver_name);
+    // Show solver identity (name + version) before running tests.
+    const LinearInterface probe(solver_name);
+    std::cout << std::format("\n  Solver: {}\n", probe.solver_id());
     const auto report = run_solver_tests(solver_name, verbose);
 
     for (const auto& r : report.results) {

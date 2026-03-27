@@ -131,7 +131,7 @@ LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
       .name =
           sc.lp_col_label(scenario, stage, block, cname, labels.loss, uid()),
       .lowb = 0,
-      .uppb = CoinDblMax,
+      .uppb = LinearProblem::DblMax,
   });
 
   // Loss linking: loss − Σ loss_k · f_seg_k = 0

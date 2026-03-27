@@ -1,4 +1,5 @@
 #include <doctest/doctest.h>
+#include <gtopt/linear_problem.hpp>
 #include <gtopt/sparse_row.hpp>
 
 TEST_SUITE("SparseRow")
@@ -27,7 +28,7 @@ TEST_SUITE("SparseRow")
     SUBCASE("Less Equal")
     {
       row.less_equal(5.0);
-      CHECK(row.lowb == -SparseRow::CoinDblMax);
+      CHECK(row.lowb == -LinearProblem::DblMax);
       CHECK(row.uppb == 5.0);
     }
 
@@ -35,7 +36,7 @@ TEST_SUITE("SparseRow")
     {
       row.greater_equal(3.0);
       CHECK(row.lowb == 3.0);
-      CHECK(row.uppb == SparseRow::CoinDblMax);
+      CHECK(row.uppb == LinearProblem::DblMax);
     }
 
     SUBCASE("Equal")
@@ -188,7 +189,7 @@ TEST_SUITE("SparseRow")
     {
       row.equal(5.0);
       row.less_equal(10.0);
-      CHECK(row.lowb == -SparseRow::CoinDblMax);
+      CHECK(row.lowb == -LinearProblem::DblMax);
       CHECK(row.uppb == 10.0);
     }
 
@@ -197,7 +198,7 @@ TEST_SUITE("SparseRow")
       row.less_equal(10.0);
       row.greater_equal(3.0);
       CHECK(row.lowb == 3.0);
-      CHECK(row.uppb == SparseRow::CoinDblMax);
+      CHECK(row.uppb == LinearProblem::DblMax);
     }
 
     SUBCASE("bound with negative values")
