@@ -7,6 +7,7 @@
  */
 
 #include <algorithm>
+#include <cstdio>
 #include <format>
 #include <stdexcept>
 
@@ -14,16 +15,47 @@
 
 #include <HConfig.h>
 #include <Highs.h>
+#include <fcntl.h>
 #include <gtopt/solver_options.hpp>
+#include <unistd.h>
 
 namespace gtopt
 {
 
-HighsSolverBackend::HighsSolverBackend()
-    : m_highs_(std::make_unique<Highs>())
+namespace
 {
-  // Suppress output by default
-  m_highs_->setOptionValue("output_flag", false);
+
+/// Create a Highs instance with stdout suppressed to avoid the banner
+/// message ("Running HiGHS ...") that Highs prints in its constructor.
+auto make_quiet_highs() -> std::unique_ptr<Highs>
+{
+  // Save stdout, redirect to /dev/null, construct, then restore
+  std::fflush(stdout);
+  const int saved_fd = ::dup(STDOUT_FILENO);
+  const int null_fd = ::open("/dev/null", O_WRONLY);  // NOLINT
+  if (null_fd >= 0) {
+    ::dup2(null_fd, STDOUT_FILENO);
+    ::close(null_fd);
+  }
+
+  auto highs = std::make_unique<Highs>();
+
+  // Restore stdout
+  if (saved_fd >= 0) {
+    std::fflush(stdout);
+    ::dup2(saved_fd, STDOUT_FILENO);
+    ::close(saved_fd);
+  }
+
+  highs->setOptionValue("output_flag", false);
+  return highs;
+}
+
+}  // namespace
+
+HighsSolverBackend::HighsSolverBackend()
+    : m_highs_(make_quiet_highs())
+{
 }
 
 HighsSolverBackend::~HighsSolverBackend() = default;

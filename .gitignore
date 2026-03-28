@@ -42,6 +42,7 @@ output/
 LastTest.log
 node_modules/
 error_*.lp
+*.iis.lp
 fecha-corrida
 plpfact.log
 plpwarn.log
