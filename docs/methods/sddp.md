@@ -736,7 +736,7 @@ hs_2_1_4,2,1,4,-4800.0,0.30,0.60,...
 | `max_iterations` | int | 100 | Maximum SDDP iterations |
 | `min_iterations` | int | 2 | Minimum iterations before declaring convergence |
 | `convergence_tol` | double | 1e-4 | Relative gap tolerance |
-| `elastic_penalty` | double | 1000 | Penalty cost for elastic slack variables |
+| `elastic_penalty` | double | 1e6 | Penalty cost for elastic slack variables |
 | `elastic_filter_mode` | ElasticFilterMode | single_cut | Elastic filter strategy (see S5.4) |
 | `multi_cut_threshold` | int | 10 | Infeasibility count before auto-switching to multi_cut (0 = always multi_cut, <0 = disabled) |
 | `alpha_min` | double | 0.0 | Lower bound for α variables |

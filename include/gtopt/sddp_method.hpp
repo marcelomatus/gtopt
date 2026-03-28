@@ -152,7 +152,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   int max_iterations {100};  ///< Maximum forward/backward iterations
   int min_iterations {2};  ///< Minimum iterations before convergence
   double convergence_tol {1e-4};  ///< Relative gap tolerance for convergence
-  double elastic_penalty {1000.0};  ///< Penalty for elastic slack variables
+  double elastic_penalty {1e6};  ///< Penalty for elastic slack variables
   double alpha_min {0.0};  ///< Lower bound for future cost variable α ($)
   double alpha_max {1e12};  ///< Upper bound for future cost variable α ($)
   CutSharingMode cut_sharing {CutSharingMode::none};  ///< Cut sharing mode
@@ -393,12 +393,23 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   ///   gap_change = |gap[i] − gap[i − window]| / max(1e-10, gap[i − window])
   ///   gap_change < stationary_tol → declare convergence
   ///
-  /// Default: 0.0 (disabled).  Set to e.g. 0.01 to enable.
-  double stationary_tol {0.0};
+  /// Convergence criterion mode.  Default: statistical (PLP-style).
+  ConvergenceMode convergence_mode {ConvergenceMode::statistical};
+
+  /// Default: 0.01 (1%).  Set to 0.0 to disable.
+  double stationary_tol {0.01};
 
   /// Number of iterations to look back when checking gap stationarity.
   /// Only used when stationary_tol > 0.0.  Default: 10.
   int stationary_window {10};
+
+  /// Confidence level for statistical convergence criterion (0-1).
+  /// When > 0 and multiple scenes exist, convergence is also checked via
+  /// confidence interval: UB - LB <= z_{α/2} * σ (PLP-style).
+  /// Combined with stationary_tol, also declares convergence when the
+  /// gap stabilises above the CI threshold (non-zero gap case).
+  /// Default: 0.95 (95% CI).
+  double convergence_confidence {0.95};
 
   /// Optional LP solver options for the forward pass.
   /// When set, these override the global solver options for forward-pass
@@ -430,6 +441,9 @@ struct SDDPIterationResult
   /// True when convergence was declared by the stationary-gap criterion
   /// (gap_change < stationary_tol) rather than the primary criterion.
   bool stationary_converged {};
+  /// True when convergence was declared by the statistical CI criterion
+  /// (|UB - LB| <= z_{α/2} * σ / √N) rather than the primary criterion.
+  bool statistical_converged {};
   int cuts_added {};  ///< Number of Benders cuts added this iteration
   bool feasibility_issue {};  ///< True if elastic filter was activated
 
@@ -924,10 +938,14 @@ private:
   /// Create a submit function that submits complete aperture tasks to
   /// the work pool for parallel execution.
   ///
-  /// @param iteration  SDDP iteration index (for pool priority ordering)
+  /// When the SDDP work pool is available, aperture tasks are submitted
+  /// to the pool for concurrent execution across available threads.
+  /// When the pool is unavailable, tasks run synchronously in the caller.
+  ///
   /// @param phase      Phase index (for pool priority ordering)
-  [[nodiscard]] static auto make_aperture_submit_fn(PhaseIndex phase,
-                                                    IterationIndex iteration)
+  /// @param iteration  SDDP iteration index (for pool priority ordering)
+  [[nodiscard]] auto make_aperture_submit_fn(PhaseIndex phase,
+                                             IterationIndex iteration)
       -> ApertureSubmitFunc;
 
   /// Prune inactive cuts from all (scene, phase) LPs.

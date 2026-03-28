@@ -470,7 +470,7 @@ public:
   /** @brief Default relative convergence tolerance */
   static constexpr Real default_sddp_convergence_tol = 1e-4;
   /** @brief Default elastic slack penalty */
-  static constexpr Real default_sddp_elastic_penalty = 1000.0;
+  static constexpr Real default_sddp_elastic_penalty = 1e6;
   /** @brief Default lower bound for future cost variable α */
   static constexpr Real default_sddp_alpha_min = 0.0;
   /** @brief Default upper bound for future cost variable α */
@@ -481,10 +481,19 @@ public:
   /** @brief Default multi_cut threshold (auto-switch after this many
    *         consecutive forward-pass infeasibilities at a phase) */
   static constexpr int default_sddp_multi_cut_threshold = 10;
-  /** @brief Default stationary-gap tolerance (0.0 = disabled) */
-  static constexpr Real default_sddp_stationary_tol = 0.0;
+  /** @brief Default stationary-gap tolerance.
+   * When the relative gap change over the look-back window is below this
+   * value, the gap is considered stationary.  Used by the stationary and
+   * statistical+stationary convergence criteria.  Default: 0.01 (1%). */
+  static constexpr Real default_sddp_stationary_tol = 0.01;
   /** @brief Default look-back window for stationary gap check */
   static constexpr Int default_sddp_stationary_window = 10;
+  /** @brief Default confidence level for statistical convergence.
+   * Enables PLP-style CI-based convergence for multi-scene problems.
+   * Combined with stationary_tol, also handles the non-zero-gap case
+   * where the gap stabilises above the CI threshold.
+   * Default: 0.95 (95% confidence interval). */
+  static constexpr Real default_sddp_convergence_confidence = 0.95;
 
   /**
    * @brief Gets the SDDP cut sharing mode as a string name
@@ -586,7 +595,7 @@ public:
 
   /**
    * @brief Gets the elastic slack penalty
-   * @return Penalty for elastic slack variables (default: 1000)
+   * @return Penalty for elastic slack variables (default: 1e6)
    */
   [[nodiscard]] constexpr auto sddp_elastic_penalty() const
   {
@@ -787,6 +796,16 @@ public:
   }
 
   /**
+   * @brief Gets the SDDP convergence mode.
+   * @return ConvergenceMode enum (default: statistical)
+   */
+  [[nodiscard]] constexpr auto sddp_convergence_mode() const
+  {
+    return m_options_.sddp_options.convergence_mode.value_or(
+        ConvergenceMode::statistical);
+  }
+
+  /**
    * @brief Gets the stationary-gap convergence tolerance.
    *
    * When positive, enables the secondary convergence criterion: if the
@@ -808,6 +827,16 @@ public:
   {
     return m_options_.sddp_options.stationary_window.value_or(
         default_sddp_stationary_window);
+  }
+
+  /**
+   * @brief Gets the confidence level for statistical convergence.
+   * @return Confidence level (0-1), 0.0 = disabled (default)
+   */
+  [[nodiscard]] constexpr auto sddp_convergence_confidence() const
+  {
+    return m_options_.sddp_options.convergence_confidence.value_or(
+        default_sddp_convergence_confidence);
   }
 
   // ── Cascade options ─────────────────────────────────────────────────────

@@ -1277,6 +1277,8 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
   m_current_pass_.store(1);
   m_scenes_done_.store(0);
 
+  SPDLOG_INFO("SDDP forward: dispatching {} scene(s) to work pool", num_scenes);
+
   const auto fwd_start = std::chrono::steady_clock::now();
   std::vector<std::future<std::expected<double, Error>>> futures;
   futures.reserve(num_scenes);
@@ -1362,6 +1364,13 @@ auto SDDPMethod::run_backward_pass_all_scenes(
 
   const auto num_scenes =
       static_cast<Index>(planning_lp().simulation().scenes().size());
+
+  SPDLOG_INFO(
+      "SDDP backward: dispatching {} scene(s) to work pool "
+      "(cut_sharing=none, apertures={})",
+      num_scenes,
+      !m_options_.apertures || !m_options_.apertures->empty() ? "enabled"
+                                                              : "disabled");
 
   const auto bwd_start = std::chrono::steady_clock::now();
   std::vector<std::future<std::expected<int, Error>>> futures;
@@ -1844,6 +1853,7 @@ auto SDDPPlanningMethod::solve(PlanningLP& planning_lp,
         .iterations = training_iters,
         .converged = last.converged,
         .stationary_converged = last.stationary_converged,
+        .statistical_converged = last.statistical_converged,
     });
   }
 

@@ -167,8 +167,8 @@ def _validate_sddp_options(sddp: dict, messages: list[str]) -> None:
 
     penalty = sddp.get("elastic_penalty")
     if penalty is not None and penalty <= 0:
-        messages.append("FIX: sddp elastic_penalty must be > 0, setting to 1000")
-        sddp["elastic_penalty"] = 1000
+        messages.append("FIX: sddp elastic_penalty must be > 0, setting to 1e6")
+        sddp["elastic_penalty"] = 1e6
 
     alpha_min = sddp.get("alpha_min")
     alpha_max = sddp.get("alpha_max")
