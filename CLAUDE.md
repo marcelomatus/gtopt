@@ -211,6 +211,8 @@ Each `.dat` file has a `lee*.f` reader (e.g. `leefilemb.f` → `plpfilemb.dat`).
 - **`plpmaness.dat`**: 5-6 fields: `IBind Emin Emax DCMin DCMax [DCMod]`
 - **`plpess.dat`**: `Nombre nd nc mloss Emax DCMax [DCMod] [CenCarga]`
   (discharge eff `nd` first, charge eff `nc` second)
+  - DCMod=0: standalone battery; DCMod=1: `source_generator` (internal bus)
+  - DCMod=2: regulation tank → mapped to hydro Reservoir (not Battery)
 - **`plpfilemb.dat`**: filtration model with segments and unit conversions
 
 ### What gtopt optimizes
