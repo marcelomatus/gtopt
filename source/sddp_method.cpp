@@ -432,7 +432,7 @@ bool SDDPMethod::should_stop() const
 
 // ── Coefficient updates ─────────────────────────────────────────────────────
 
-void SDDPMethod::dispatch_update_lp(SceneIndex scene, IterationIndex iteration)
+bool SDDPMethod::should_dispatch_update_lp(IterationIndex iteration) const
 {
   // Three-way logic from the preallocated iteration vector:
   //  - update_lp == false  → explicitly skip
@@ -442,44 +442,51 @@ void SDDPMethod::dispatch_update_lp(SceneIndex scene, IterationIndex iteration)
     const auto& iter_lp = m_iterations_[iteration];
 
     if (iter_lp.has_explicit_update_lp()) {
-      if (!iter_lp.should_update_lp()) {
-        return;  // explicitly disabled for this iteration
-      }
-      // Explicitly enabled — bypass skip count below
-    } else {
-      // Default: apply global skip count using relative iteration
-      const auto skip = planning_lp().options().sddp_update_lp_skip();
-      const auto rel =
-          static_cast<int>(iteration) - static_cast<int>(m_iteration_offset_);
-      if (skip > 0 && rel > 0 && (rel % (skip + 1)) != 0) {
-        return;
-      }
+      return iter_lp.should_update_lp();
     }
+    // Default: apply global skip count using relative iteration
+    const auto skip = planning_lp().options().sddp_update_lp_skip();
+    const auto rel =
+        static_cast<int>(iteration) - static_cast<int>(m_iteration_offset_);
+    if (skip > 0 && rel > 0 && (rel % (skip + 1)) != 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+int SDDPMethod::update_lp_for_phase(SceneIndex scene, PhaseIndex phase)
+{
+  auto& sys = planning_lp().system(scene, phase);
+
+  // Set previous phase's SystemLP so that update_lp elements
+  // (seepage, production factor, discharge limit) can look up the
+  // previous phase's efin when computing reservoir volume via
+  // physical_eini.  In warm_start mode, skip this — physical_eini
+  // falls back to the warm solution or vini instead.
+  const auto lookup = planning_lp().options().sddp_state_variable_lookup_mode();
+  if (phase > PhaseIndex {0} && lookup == StateVariableLookupMode::cross_phase)
+  {
+    const auto prev = PhaseIndex {static_cast<Index>(phase) - 1};
+    sys.set_prev_phase_sys(&planning_lp().system(scene, prev));
+  } else {
+    sys.set_prev_phase_sys(nullptr);
+  }
+
+  return sys.update_lp();
+}
+
+void SDDPMethod::dispatch_update_lp(SceneIndex scene, IterationIndex iteration)
+{
+  if (!should_dispatch_update_lp(iteration)) {
+    return;
   }
 
   const auto num_phases =
       static_cast<Index>(planning_lp().simulation().phases().size());
 
   for (const auto phase : iota_range<PhaseIndex>(0, num_phases)) {
-    auto& sys = planning_lp().system(scene, phase);
-
-    // Set previous phase's SystemLP so that update_lp elements
-    // (seepage, production factor, discharge limit) can look up the
-    // previous phase's efin when computing reservoir volume via
-    // physical_eini.  In warm_start mode, skip this — physical_eini
-    // falls back to the warm solution or vini instead.
-    const auto lookup =
-        planning_lp().options().sddp_state_variable_lookup_mode();
-    if (phase > PhaseIndex {0}
-        && lookup == StateVariableLookupMode::cross_phase)
-    {
-      const auto prev = PhaseIndex {static_cast<Index>(phase) - 1};
-      sys.set_prev_phase_sys(&planning_lp().system(scene, prev));
-    } else {
-      sys.set_prev_phase_sys(nullptr);
-    }
-
-    const auto updated = sys.update_lp();
+    const auto updated = update_lp_for_phase(scene, phase);
 
     if (updated > 0) {
       SPDLOG_TRACE(
