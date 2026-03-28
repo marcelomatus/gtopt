@@ -166,4 +166,25 @@ struct MainOptions
 [[nodiscard]] std::expected<int, std::string> gtopt_main(
     const MainOptions& raw_opts);
 
+/**
+ * @brief Classify an error string into an exit code.
+ *
+ * Examines @p error for keywords indicating input-related errors vs
+ * internal/solver errors.
+ *
+ * @return 2 for input errors (missing file, parse error, invalid JSON),
+ *         3 for internal/solver errors.
+ */
+[[nodiscard]] inline int classify_error_exit_code(
+    std::string_view error) noexcept
+{
+  if (error.contains("not found") || error.contains("not exist")
+      || error.contains("Cannot open") || error.contains("parse")
+      || error.contains("Invalid") || error.contains("JSON"))
+  {
+    return 2;  // input error
+  }
+  return 3;  // internal/solver error
+}
+
 }  // namespace gtopt

@@ -474,3 +474,68 @@ TEST_CASE("compress_lp_file with nonexistent file")  // NOLINT
   // Falls through entire cascade; returns the original path
   CHECK_FALSE(result.empty());
 }
+
+// ─── LpDebugWriter class tests ──────────────────────────────────────────────
+
+TEST_CASE("LpDebugWriter inactive when directory empty")  // NOLINT
+{
+  LpDebugWriter writer("", "", nullptr);
+  CHECK_FALSE(writer.is_active());
+}
+
+TEST_CASE("LpDebugWriter active when directory set")  // NOLINT
+{
+  const auto tmp = std::filesystem::temp_directory_path() / "lp_debug_test";
+  LpDebugWriter writer(tmp.string(), "none", nullptr);
+  CHECK(writer.is_active());
+  std::filesystem::remove_all(tmp);
+}
+
+TEST_CASE("LpDebugWriter drain with no futures is safe")  // NOLINT
+{
+  LpDebugWriter writer("", "", nullptr);
+  writer.drain();  // should not throw
+}
+
+TEST_CASE("compress_lp_file with codec none returns path")  // NOLINT
+{
+  const TmpFile tmp("test_codec_none.lp");
+  const auto result = compress_lp_file(tmp.path.string(), "none");
+  CHECK(result == tmp.path.string());
+}
+
+TEST_CASE("gzip_lp_file_inline compresses and removes source")  // NOLINT
+{
+  const TmpFile tmp("test_gzip_inline.lp");
+  const auto result = gzip_lp_file_inline(tmp.path.string());
+  CHECK_FALSE(result.empty());
+  CHECK(result.ends_with(".gz"));
+  CHECK(std::filesystem::exists(result));
+  CHECK_FALSE(std::filesystem::exists(tmp.path));
+  std::filesystem::remove(result);
+}
+
+TEST_CASE("zstd_lp_file_inline compresses and removes source")  // NOLINT
+{
+  const TmpFile tmp("test_zstd_inline.lp");
+  const auto result = zstd_lp_file_inline(tmp.path.string());
+  CHECK_FALSE(result.empty());
+  CHECK(result.ends_with(".zst"));
+  CHECK(std::filesystem::exists(result));
+  CHECK_FALSE(std::filesystem::exists(tmp.path));
+  std::filesystem::remove(result);
+}
+
+TEST_CASE("gzip_lp_file_inline with nonexistent file returns empty")  // NOLINT
+{
+  const auto result =
+      gzip_lp_file_inline("/tmp/nonexistent_gzip_test_12345.lp");
+  CHECK(result.empty());
+}
+
+TEST_CASE("zstd_lp_file_inline with nonexistent file returns empty")  // NOLINT
+{
+  const auto result =
+      zstd_lp_file_inline("/tmp/nonexistent_zstd_test_12345.lp");
+  CHECK(result.empty());
+}
