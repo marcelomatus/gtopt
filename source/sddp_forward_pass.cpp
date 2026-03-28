@@ -99,14 +99,22 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
       auto& prev_st = phase_states[prev];
       const auto& prev_sol =
           planning_lp().system(scene, prev).linear_interface().get_col_sol();
-      propagate_trial_values(prev_st.outgoing_links, prev_sol, li);
+
+      const auto coeff_mode = m_options_.cut_coeff_mode;
+      if (coeff_mode == CutCoeffMode::row_dual) {
+        propagate_trial_values_row_dual(prev_st.outgoing_links, prev_sol, li);
+      } else {
+        propagate_trial_values(prev_st.outgoing_links, prev_sol, li);
+      }
+
       SPDLOG_TRACE(
           "SDDP forward: scene {} phase {} propagated {} state vars from "
-          "phase {}",
+          "phase {} ({})",
           scene_uid(scene),
           phase_uid(phase),
           prev_st.outgoing_links.size(),
-          phase_uid(prev));
+          phase_uid(prev),
+          cut_coeff_mode_name(coeff_mode));
     }
 
     // If lp_debug is enabled, write LP file (pre-solve state) then optionally

@@ -121,18 +121,27 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
                                 target_state.forward_col_sol,
                                 target_state.forward_row_dual,
                                 get_pooled_clone_ptr(scene, phase),
-                                iteration);
+                                iteration,
+                                m_options_.cut_coeff_mode);
 
   if (!expected_cut.has_value()) {
     // Fallback: build a regular Benders cut from the cached
-    // forward-pass reduced costs and objective (same as backward_pass).
+    // forward-pass data (same as backward_pass).
     const auto& target_state = phase_states[phase];
-    auto fallback_cut = build_benders_cut(
-        src_state.alpha_col,
-        src_state.outgoing_links,
-        target_state.forward_col_cost,
-        target_state.forward_full_obj,
-        sddp_label("sddp", "fcut", scene, phase, iteration, cut_offset));
+    const auto coeff_mode = m_options_.cut_coeff_mode;
+    auto fallback_cut = (coeff_mode == CutCoeffMode::row_dual)
+        ? build_benders_cut_from_row_duals(
+              src_state.alpha_col,
+              src_state.outgoing_links,
+              target_state.forward_row_dual,
+              target_state.forward_full_obj,
+              sddp_label("sddp", "fcut", scene, phase, iteration, cut_offset))
+        : build_benders_cut(
+              src_state.alpha_col,
+              src_state.outgoing_links,
+              target_state.forward_col_cost,
+              target_state.forward_full_obj,
+              sddp_label("sddp", "fcut", scene, phase, iteration, cut_offset));
 
     {
       const auto cut_row = src_li.add_row(fallback_cut);
@@ -387,16 +396,26 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene,
                                   target_state.forward_col_sol,
                                   target_state.forward_row_dual,
                                   get_pooled_clone_ptr(scene, phase),
-                                  iteration);
+                                  iteration,
+                                  m_options_.cut_coeff_mode);
 
     if (!expected_cut.has_value()) {
       infeasible_phases.push_back(phase_uid(phase));
-      auto fallback_cut = build_benders_cut(
-          src_state.alpha_col,
-          src_state.outgoing_links,
-          target_state.forward_col_cost,
-          target_state.forward_full_obj,
-          sddp_label("sddp", "fcut", scene, phase, iteration, total_cuts));
+      const auto coeff_mode2 = m_options_.cut_coeff_mode;
+      auto fallback_cut = (coeff_mode2 == CutCoeffMode::row_dual)
+          ? build_benders_cut_from_row_duals(
+                src_state.alpha_col,
+                src_state.outgoing_links,
+                target_state.forward_row_dual,
+                target_state.forward_full_obj,
+                sddp_label("sddp", "fcut", scene, phase, iteration, total_cuts))
+          : build_benders_cut(
+                src_state.alpha_col,
+                src_state.outgoing_links,
+                target_state.forward_col_cost,
+                target_state.forward_full_obj,
+                sddp_label(
+                    "sddp", "fcut", scene, phase, iteration, total_cuts));
 
       {
         const auto cut_row = src_li.add_row(fallback_cut);

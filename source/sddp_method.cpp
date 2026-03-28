@@ -463,13 +463,16 @@ void SDDPMethod::dispatch_update_lp(SceneIndex scene, IterationIndex iteration)
   for (const auto phase : iota_range<PhaseIndex>(0, num_phases)) {
     auto& sys = planning_lp().system(scene, phase);
 
-    // Set previous phase's SystemLP so that update_lp elements can
-    // look up the previous phase's efin for cross-phase boundaries
-    // (physical_eini cross-phase fallback).
-    // In last_iteration mode, skip this — physical_eini falls back
-    // to warm solution or default_eini instead of the previous phase.
-    const auto prop = planning_lp().options().sddp_state_propagation();
-    if (phase > PhaseIndex {0} && prop == StatePropagation::inter_phase) {
+    // Set previous phase's SystemLP so that update_lp elements
+    // (seepage, production factor, discharge limit) can look up the
+    // previous phase's efin when computing reservoir volume via
+    // physical_eini.  In warm_start mode, skip this — physical_eini
+    // falls back to the warm solution or vini instead.
+    const auto lookup =
+        planning_lp().options().sddp_state_variable_lookup_mode();
+    if (phase > PhaseIndex {0}
+        && lookup == StateVariableLookupMode::cross_phase)
+    {
       const auto prev = PhaseIndex {static_cast<Index>(phase) - 1};
       sys.set_prev_phase_sys(&planning_lp().system(scene, prev));
     } else {
@@ -638,12 +641,21 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene,
   // Use cached forward-pass solution for cut generation.
   const auto& target_state = phase_states[phase];
 
-  auto cut = build_benders_cut(
-      src_state.alpha_col,
-      src_state.outgoing_links,
-      target_state.forward_col_cost,
-      target_state.forward_full_obj,
-      sddp_label("sddp", "scut", scene, phase, iteration, cut_offset));
+  const auto coeff_mode = m_options_.cut_coeff_mode;
+
+  auto cut = (coeff_mode == CutCoeffMode::row_dual)
+      ? build_benders_cut_from_row_duals(
+            src_state.alpha_col,
+            src_state.outgoing_links,
+            target_state.forward_row_dual,
+            target_state.forward_full_obj,
+            sddp_label("sddp", "scut", scene, phase, iteration, cut_offset))
+      : build_benders_cut(
+            src_state.alpha_col,
+            src_state.outgoing_links,
+            target_state.forward_col_cost,
+            target_state.forward_full_obj,
+            sddp_label("sddp", "scut", scene, phase, iteration, cut_offset));
 
   const auto cut_row = src_li.add_row(cut);
   store_cut(scene, prev_phase, cut, CutType::Optimality, cut_row);
