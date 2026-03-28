@@ -264,7 +264,7 @@ For full algorithmic details, see [SDDP Solver](methods/sddp.md).
 |------------------|---------|---------|-------------|
 | `solve_timeout`  | number  | `180.0` | Forward-pass LP solve timeout in seconds (0 = no timeout) |
 | `warm_start`     | boolean | `true`  | Enable warm-start (dual simplex from saved basis) for aperture and elastic resolves |
-| `state_propagation` | integer | `0` | How `update_lp` elements (seepage, production factor, discharge limit) obtain reservoir volume: `0` = last_iteration (warm-start / vini, no cross-phase lookup), `1` = inter_phase (use previous phase's efin) |
+| `state_variable_lookup_mode` | string | `"warm_start"` | How `update_lp` elements (seepage, production factor, discharge limit) obtain reservoir volume between phases: `"warm_start"` (warm solution / vini, no cross-phase lookup) or `"cross_phase"` (previous phase's efin). Does **not** affect SDDP state-variable chaining or cut generation. |
 
 #### Hot-start modes
 
@@ -724,9 +724,9 @@ A transmission line connecting two buses.
 | `bus_a`            | integer\|string     | —            | Yes      | Sending-end (from) bus |
 | `bus_b`            | integer\|string     | —            | Yes      | Receiving-end (to) bus |
 | `active`           | boolean             | —            | No       | Whether the line is active |
-| `voltage`          | number\|array\|string| kV          | No       | Nominal voltage level |
-| `resistance`       | number\|array\|string| p.u.        | No       | Series resistance |
-| `reactance`        | number\|array\|string| p.u.        | No       | Series reactance (DC power flow) |
+| `voltage`          | number\|array\|string| kV          | No       | Nominal voltage level. Omit or set to 1.0 for per-unit mode |
+| `resistance`       | number\|array\|string| Ω (p.u.)    | No       | Series resistance. Use Ω when voltage is in kV; p.u. when voltage is omitted |
+| `reactance`        | number\|array\|string| Ω (p.u.)    | No       | Series reactance (DC power flow). Use Ω when voltage is in kV; p.u. when voltage is omitted. Susceptance: $B = V^2 / X$ |
 | `lossfactor`       | number\|array\|string| p.u.        | No       | Lumped loss factor |
 | `type`             | string              | —            | No       | Element type tag; use `"transformer"` for transformers |
 | `tap_ratio`        | number\|array\|string| p.u.        | No       | Off-nominal tap ratio τ (default 1.0). A tap-changing transformer with τ ≠ 1 has effective susceptance $B/\tau$. Supports per-stage schedule. |
