@@ -404,3 +404,260 @@ TEST_CASE(  // NOLINT
   auto result = planning_lp.resolve();
   REQUIRE(result.has_value());
 }
+
+// ---------------------------------------------------------------------------
+// Tests for new attributes: capainst (capacity expansion), eini/efin, soft_emin
+// ---------------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "element_column_resolver - generator.capainst stage-level variable")
+{
+  // Test that generator.capainst resolves to the capacity expansion column.
+  // The constraint generator("g1").capainst <= 300 should bind since
+  // g1 has expcap=100, expmod=5 (max 500 MW expansion) and capainst <= 300.
+  static constexpr std::string_view capainst_json = R"json({
+    "options": {
+      "annual_discount_rate": 0.0,
+      "lp_build_options": {"names_level": 1},
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "use_single_bus": true,
+      "demand_fail_cost": 1000,
+      "scale_objective": 1000
+    },
+    "simulation": {
+      "block_array": [{"uid": 1, "duration": 1}],
+      "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
+      "scenario_array": [{"uid": 1, "probability_factor": 1}]
+    },
+    "system": {
+      "name": "capainst_test",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {
+          "uid": 1, "name": "g1", "bus": "b1",
+          "pmin": 0, "pmax": 300, "gcost": 20,
+          "capacity": 100, "expcap": 100, "expmod": 5,
+          "annual_capcost": 8760
+        }
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[150]]}
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1, "name": "gen_capainst_limit",
+          "expression": "generator(\"g1\").capainst <= 300"
+        }
+      ]
+    }
+  })json";
+
+  Planning base;
+  base.merge(daw::json::from_json<Planning>(capainst_json));
+  PlanningLP planning_lp(std::move(base));
+  auto result = planning_lp.resolve();
+
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 1);
+
+  const auto& li = planning_lp.systems().front().front().linear_interface();
+  CHECK(li.is_optimal());
+}
+
+TEST_CASE(  // NOLINT
+    "element_column_resolver - battery.eini and battery.efin state variables")
+{
+  // Test that battery.eini and battery.efin resolve to the initial/final
+  // energy state columns.  These are stage-level variables.
+  static constexpr std::string_view bat_state_json = R"json({
+    "options": {
+      "annual_discount_rate": 0.0,
+      "lp_build_options": {"names_level": 1},
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "use_single_bus": true,
+      "demand_fail_cost": 1000,
+      "scale_objective": 1000
+    },
+    "simulation": {
+      "block_array": [
+        {"uid": 1, "duration": 1},
+        {"uid": 2, "duration": 1}
+      ],
+      "stage_array": [{"uid": 1, "first_block": 0, "count_block": 2, "active": 1}],
+      "scenario_array": [{"uid": 1, "probability_factor": 1}]
+    },
+    "system": {
+      "name": "bat_state_test",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 200,
+         "gcost": 20, "capacity": 200}
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[50, 50]]}
+      ],
+      "battery_array": [
+        {
+          "uid": 1, "name": "bat1", "bus": "b1",
+          "input_efficiency": 0.9, "output_efficiency": 0.9,
+          "emin": 0, "emax": 100, "eini": 50,
+          "pmax_charge": 30, "pmax_discharge": 30,
+          "gcost": 0, "capacity": 100
+        }
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1, "name": "bat_eini_lower",
+          "expression": "battery(\"bat1\").eini >= 10"
+        },
+        {
+          "uid": 2, "name": "bat_efin_upper",
+          "expression": "battery(\"bat1\").efin <= 90"
+        }
+      ]
+    }
+  })json";
+
+  Planning base;
+  base.merge(daw::json::from_json<Planning>(bat_state_json));
+  PlanningLP planning_lp(std::move(base));
+  auto result = planning_lp.resolve();
+
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 1);
+
+  const auto& li = planning_lp.systems().front().front().linear_interface();
+  CHECK(li.is_optimal());
+}
+
+TEST_CASE(  // NOLINT
+    "element_column_resolver - reservoir.eini and reservoir.efin state "
+    "variables")
+{
+  // Test that reservoir.eini and reservoir.efin resolve to the initial/final
+  // volume state columns for reservoir objects.
+  static constexpr std::string_view rsv_state_json = R"json({
+    "options": {
+      "annual_discount_rate": 0.0,
+      "lp_build_options": {"names_level": 1},
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "use_single_bus": true,
+      "demand_fail_cost": 1000,
+      "scale_objective": 1000
+    },
+    "simulation": {
+      "block_array": [{"uid": 1, "duration": 1}],
+      "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
+      "scenario_array": [{"uid": 1, "probability_factor": 1}]
+    },
+    "system": {
+      "name": "rsv_state_test",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 200,
+         "gcost": 20, "capacity": 200}
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[50]]}
+      ],
+      "junction_array": [
+        {"uid": 1, "name": "j_up"},
+        {"uid": 2, "name": "j_down", "drain": true}
+      ],
+      "waterway_array": [
+        {"uid": 1, "name": "ww1", "junction_a": "j_up", "junction_b": "j_down",
+         "fmin": 0, "fmax": 100}
+      ],
+      "reservoir_array": [
+        {"uid": 1, "name": "rsv1", "junction": "j_up",
+         "capacity": 1000, "emin": 0, "emax": 1000, "eini": 500}
+      ],
+      "turbine_array": [
+        {"uid": 1, "name": "tur1", "waterway": "ww1", "generator": "g1"}
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1, "name": "rsv_eini_lower",
+          "expression": "reservoir(\"rsv1\").eini >= 100"
+        },
+        {
+          "uid": 2, "name": "rsv_efin_upper",
+          "expression": "reservoir(\"rsv1\").efin <= 900"
+        }
+      ]
+    }
+  })json";
+
+  Planning base;
+  base.merge(daw::json::from_json<Planning>(rsv_state_json));
+  PlanningLP planning_lp(std::move(base));
+  auto result = planning_lp.resolve();
+
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 1);
+
+  const auto& li = planning_lp.systems().front().front().linear_interface();
+  CHECK(li.is_optimal());
+}
+
+TEST_CASE(  // NOLINT
+    "element_column_resolver - sum(bus(all).theta) collects all buses")
+{
+  // Test that sum over bus theta works via collect_sum_cols.
+  // sum(bus.theta) includes all bus theta variables.
+  static constexpr std::string_view sum_bus_json = R"json({
+    "options": {
+      "annual_discount_rate": 0.0,
+      "lp_build_options": {"names_level": 1},
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "use_single_bus": false,
+      "use_kirchhoff": true,
+      "demand_fail_cost": 1000,
+      "scale_objective": 1000
+    },
+    "simulation": {
+      "block_array": [{"uid": 1, "duration": 1}],
+      "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
+      "scenario_array": [{"uid": 1, "probability_factor": 1}]
+    },
+    "system": {
+      "name": "sum_bus_test",
+      "bus_array": [
+        {"uid": 1, "name": "b1"},
+        {"uid": 2, "name": "b2"}
+      ],
+      "generator_array": [
+        {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 300,
+         "gcost": 20, "capacity": 300}
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": "b2", "lmax": [[100]]}
+      ],
+      "line_array": [
+        {"uid": 1, "name": "l1", "bus_a": "b1", "bus_b": "b2",
+         "reactance": 0.1, "tmax_ab": 200, "tmax_ba": 200}
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1, "name": "sum_theta_bound",
+          "expression": "sum(bus.theta) <= 10"
+        }
+      ]
+    }
+  })json";
+
+  Planning base;
+  base.merge(daw::json::from_json<Planning>(sum_bus_json));
+  PlanningLP planning_lp(std::move(base));
+  auto result = planning_lp.resolve();
+
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 1);
+
+  const auto& li = planning_lp.systems().front().front().linear_interface();
+  CHECK(li.is_optimal());
+}
