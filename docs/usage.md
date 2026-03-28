@@ -34,10 +34,10 @@ output is written to the current directory.
 
 ```bash
 # Run with a specific output directory
-gtopt system_c0.json --output-directory results/
+gtopt system_c0.json --set output_directory=results/
 
 # Run with a separate input directory
-gtopt --system-file config.json --input-directory data/
+gtopt --system-file config.json --set input_directory=data/
 
 # Run quietly (no log output)
 gtopt system_c0.json --quiet
@@ -46,7 +46,7 @@ gtopt system_c0.json --quiet
 gtopt system_c0.json --verbose
 
 # Output results in Parquet format instead of CSV
-gtopt system_c0.json --output-format parquet
+gtopt system_c0.json --set output_format=parquet
 ```
 
 ## Command-Line Reference
@@ -62,13 +62,6 @@ Multiple system files can be provided and will be merged.
 | `-q` | `--quiet` | `[=arg]` | Suppress all log output to stdout |
 | `-S` | `--stats` | | Print pre-solve system statistics and post-solve results summary |
 | `-s` | `--system-file` | `arg` | System JSON file(s) to process (also accepted as positional args) |
-| `-D` | `--input-directory` | `arg` | Override the input data directory |
-| `-F` | `--input-format` | `arg` | Input data format: `parquet`, `csv` |
-| `-d` | `--output-directory` | `arg` | Directory for output files (created if needed) |
-| `-f` | `--output-format` | `arg` | Output format: `parquet`, `csv` |
-| `-C` | `--output-compression` | `arg` | Output compression: `uncompressed`, `zstd` (default), `gzip`, `lzo` |
-| `-b` | `--use-single-bus` | `[=arg]` | Use single-bus mode (ignore network topology) |
-| `-k` | `--use-kirchhoff` | `[=arg]` | Use Kirchhoff (DC power flow) mode |
 | `-n` | `--lp-names-level` | `[=arg]` | LP naming level: `0`/`minimal`, `1`/`only_cols`, `2`/`cols_and_rows` (see below) |
 | `-l` | `--lp-file` | `arg` | Save the LP model to a file |
 | `-j` | `--json-file` | `arg` | Save the merged system configuration to a JSON file |
@@ -77,17 +70,37 @@ Multiple system files can be provided and will be merged.
 | `-p` | `--fast-parsing` | `[=arg]` | Use fast (non-strict) JSON parsing |
 | | `--solver` | `arg` | LP solver backend: `clp`, `cbc`, `cplex`, `highs` (auto-detected by default) |
 | | `--solvers` | | List available LP solver backends and exit |
-| | `--algorithm` | `arg` | LP algorithm: `primal`, `dual`, `barrier`, `automatic` |
-| | `--threads` | `arg` | Number of solver threads (0 = auto) |
 | | `--method` | `arg` | Planning method: `monolithic`, `sddp`, `cascade` |
 | | `--demand-fail-cost` | `arg` | Penalty $/MWh for unserved demand |
 | | `--scale-objective` | `arg` | Objective function scaling factor |
-| | `--sddp-max-iterations` | `arg` | Maximum SDDP iterations |
-| | `--sddp-min-iterations` | `arg` | Minimum SDDP iterations before convergence check |
-| | `--sddp-convergence-tol` | `arg` | SDDP convergence tolerance |
-| | `--log-directory` | `arg` | Directory for log and LP debug files |
-| | `--lp-debug` | `[=arg]` | Save LP debug files to log directory |
-| | `--lp-compression` | `arg` | Compression codec for LP debug files |
+| | `--set` | `key=value` | Set any planning option (see below) |
+
+> **`--set` key=value**: The recommended way to pass planning options
+> from the CLI. Any option that can appear in the JSON `"options"`
+> section can be set via `--set`. Nested keys use dot notation.
+> Examples:
+>
+> ```bash
+> gtopt case.json --set output_directory=results/
+> gtopt case.json --set use_single_bus=true
+> gtopt case.json --set solver_options.algorithm=barrier
+> gtopt case.json --set solver_options.threads=4
+> gtopt case.json --set sddp_options.max_iterations=300
+> gtopt case.json --set sddp_options.convergence_tol=1e-5
+> gtopt case.json --set input_directory=data/ --set input_format=parquet
+> gtopt case.json --set lp_debug=true --set log_directory=logs
+> ```
+>
+> **Deprecated aliases** (still work, emit a warning): `-b`
+> (`--use-single-bus`), `-k` (`--use-kirchhoff`), `-D`
+> (`--input-directory`), `-F` (`--input-format`), `-d`
+> (`--output-directory`), `-f` (`--output-format`), `-C`
+> (`--output-compression`), `--algorithm`, `--threads`,
+> `--sddp-max-iterations`, `--sddp-min-iterations`,
+> `--sddp-convergence-tol`, `--sddp-elastic-penalty`,
+> `--sddp-elastic-mode`, `--sddp-cut-coeff-mode`,
+> `--log-directory`, `--cut-directory`, `--lp-debug`,
+> `--lp-compression`, `--lp-coeff-ratio`.
 
 ## Configuration File (`.gtopt.conf`)
 
@@ -142,7 +155,7 @@ All keys use kebab-case matching the CLI long flags (without `--`):
 
 Values are resolved in this order (highest priority first):
 
-1. **CLI flags** (`--solver highs`)
+1. **CLI flags** (`--solver highs`, `--set key=value`)
 2. **Config file** (`~/.gtopt.conf` `[gtopt]` section)
 3. **JSON files** (`"options"` section in planning JSON)
 4. **Built-in defaults** (compiled into the binary)
@@ -223,7 +236,8 @@ Via JSON:
 
 Via CLI:
 ```
-gtopt mycase --lp-debug --log-directory logs --output-compression zstd
+gtopt mycase --set lp_debug=true --set log_directory=logs \
+  --set output_compression=zstd
 ```
 
 > **Important**: LP file output (`--lp-file`, `--lp-debug`, and error LP files)
@@ -395,7 +409,7 @@ gtopt system_c0.json
 Or specify a separate output directory:
 
 ```bash
-gtopt system_c0.json --output-directory /tmp/c0_results
+gtopt system_c0.json --set output_directory=/tmp/c0_results
 ```
 
 ### Expected output
@@ -502,8 +516,8 @@ The bus balance dual represents the marginal cost of energy at each bus
 For large cases, Parquet format is more compact and faster to read:
 
 ```bash
-gtopt system_c0.json --output-format parquet
-gtopt system_c0.json --output-format parquet --output-compression zstd
+gtopt system_c0.json --set output_format=parquet
+gtopt system_c0.json --set output_format=parquet --set output_compression=zstd
 ```
 
 ### Export the LP model
@@ -527,7 +541,7 @@ gtopt system_c0.json --lp-file model.lp --lp-build
 Ignore network topology and solve as a single-bus (copper-plate) system:
 
 ```bash
-gtopt system_c0.json --use-single-bus
+gtopt system_c0.json --set use_single_bus=true
 ```
 
 ### Kirchhoff (DC power flow) mode
@@ -535,7 +549,7 @@ gtopt system_c0.json --use-single-bus
 Enable DC power flow constraints for multi-bus systems:
 
 ```bash
-gtopt system_c0.json --use-kirchhoff
+gtopt system_c0.json --set use_kirchhoff=true
 ```
 
 ### Merging multiple system files
@@ -560,7 +574,7 @@ gtopt base.json extensions.json --json-file merged_system.json
 If the data files are in a different location than specified in the JSON:
 
 ```bash
-gtopt system.json --input-directory /data/case_inputs
+gtopt system.json --set input_directory=/data/case_inputs
 ```
 
 ### Control logging
@@ -719,8 +733,8 @@ When the LP is too large to fit in memory:
   preferred format first, then falls back to the other format.
 - **Case sensitivity**: file names and component type subdirectories are
   case-sensitive on Linux (e.g., `Demand/` not `demand/`).
-- **CLI override**: use `--input-directory <path>` to override the directory
-  specified in the JSON file.
+- **CLI override**: use `--set input_directory=<path>` to override the
+  directory specified in the JSON file.
 
 ### LP debug files
 
@@ -779,7 +793,7 @@ for f in cases/*/system_*.json; do
   echo "=== Running $f ==="
   dir=$(dirname "$f")
   name=$(basename "$dir")
-  gtopt "$f" --output-directory "results/$name"
+  gtopt "$f" --set output_directory="results/$name"
 done
 ```
 
@@ -793,7 +807,7 @@ def run_case(system_file, output_dir=None):
     """Run a single gtopt case and return the exit code."""
     cmd = ["gtopt", str(system_file)]
     if output_dir:
-        cmd += ["--output-directory", str(output_dir)]
+        cmd += ["--set", f"output_directory={output_dir}"]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"FAILED: {system_file}")

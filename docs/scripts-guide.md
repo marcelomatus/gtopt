@@ -958,7 +958,7 @@ run_gtopt cases/ieee_9b
 run_gtopt cases/ieee_9b/ieee_9b.json
 
 # Pass extra arguments to the gtopt binary after --
-run_gtopt cases/ieee_9b -- --use-single-bus --stats
+run_gtopt cases/ieee_9b -- --set use_single_bus=true --stats
 ```
 
 ### Pre-flight checks (enabled by default)

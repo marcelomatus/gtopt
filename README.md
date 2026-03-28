@@ -94,13 +94,13 @@ Common options:
 
 ```bash
 # Output results to a specific directory
-gtopt system_c0.json --output-directory results/
+gtopt system_c0.json --set output_directory=results/
 
 # Single-bus mode (ignore network topology)
-gtopt system_c0.json --use-single-bus
+gtopt system_c0.json --set use_single_bus=true
 
 # Enable DC power flow (Kirchhoff's laws)
-gtopt system_c0.json --use-kirchhoff
+gtopt system_c0.json --set use_kirchhoff=true
 ```
 
 For complete command-line reference, advanced examples, and detailed usage instructions, see **[Usage Guide](docs/usage.md)**.
