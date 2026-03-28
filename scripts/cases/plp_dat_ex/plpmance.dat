@@ -1,19 +1,3 @@
-# Archivo de mantenimientos de centrales (plpmance.dat)
-# numero de centrales con matenimientos
- 2
-# Nombre de la central
-'ABANICO'
-#   Numero de Bloques e Intervalos
-   4                 01
-#   Mes    Bloque  NIntPot   PotMin   PotMax
-     03      001        1     5.00    69.75
-     03      002        1     5.00    69.75
-     03      003        1     5.00    69.75
-     03      004        1     5.00    69.75
-# Nombre de la central
-'ABASTIBLE_CONCON_FV'
-#   Numero de Bloques e Intervalos
-  2                 01
-#   Mes    Bloque  NIntPot   PotMin   PotMax
-     03      001        1     0.00     0.00
-     03      002        1     0.00     0.00
+version https://git-lfs.github.com/spec/v1
+oid sha256:d1814d626bfd3af93f78f8dfcda939fbb02995ab7f580afc89d9c66634f9e322
+size 648
