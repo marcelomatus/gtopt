@@ -33,10 +33,21 @@ Requirements
 
 import argparse
 import json
+import logging
 import sys
 import time
 from pathlib import Path
 from typing import Any
+
+try:
+    from importlib.metadata import version as _pkg_version, PackageNotFoundError
+
+    try:
+        __version__ = _pkg_version("gtopt-scripts")
+    except PackageNotFoundError:
+        __version__ = "dev"
+except ImportError:
+    __version__ = "dev"
 
 
 # ---------------------------------------------------------------------------
@@ -278,7 +289,7 @@ def run_text(status_file: Path, poll_interval: float) -> None:
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     """Parse arguments and start the appropriate monitoring mode."""
     parser = argparse.ArgumentParser(
         description="Interactive SDDP solver monitoring dashboard",
@@ -302,7 +313,32 @@ def main() -> None:
         action="store_true",
         help="Print status to stdout instead of opening a GUI window",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--no-color",
+        action="store_true",
+        default=False,
+        help="Disable coloured output.",
+    )
+    parser.add_argument(
+        "-l",
+        "--log-level",
+        default="WARNING",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        metavar="LEVEL",
+        help="Logging verbosity (default: %(default)s).",
+    )
+    parser.add_argument(
+        "-V",
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
+    args = parser.parse_args(argv)
+
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(levelname)s: %(message)s",
+    )
 
     status_file = Path(args.status_file)
 

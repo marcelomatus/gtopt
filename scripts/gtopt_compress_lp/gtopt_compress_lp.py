@@ -50,6 +50,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import logging
 import shlex
 import subprocess
 import sys
@@ -65,7 +66,15 @@ from ._config import (
     run_interactive_setup,
 )
 
-__version__ = "0.1.0"
+try:
+    from importlib.metadata import version as _pkg_version, PackageNotFoundError
+
+    try:
+        __version__ = _pkg_version("gtopt-scripts")
+    except PackageNotFoundError:
+        __version__ = "dev"
+except ImportError:
+    __version__ = "dev"
 
 # ---------------------------------------------------------------------------
 # Output extension mapping per compressor
@@ -292,13 +301,27 @@ def _build_parser() -> argparse.ArgumentParser:
         "--config",
         default=None,
         metavar="PATH",
-        help="Path to the config file (default: ~/.gtopt_compress_lp.conf).",
+        help="Path to the config file (default: ~/.gtopt.conf).",
     )
     parser.add_argument(
         "--color",
         default=None,
         choices=["auto", "always", "never"],
         help="Terminal colour output (default: auto).",
+    )
+    parser.add_argument(
+        "--show-config",
+        action="store_true",
+        default=False,
+        help="Print the active configuration and exit.",
+    )
+    parser.add_argument(
+        "-l",
+        "--log-level",
+        default="WARNING",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        metavar="LEVEL",
+        help="Logging verbosity (default: %(default)s).",
     )
     parser.add_argument(
         "--version",
@@ -327,8 +350,23 @@ def main(argv: Optional[list[str]] = None) -> int:
     def _c(code: str, text: str) -> str:
         return f"{code}{text}{col._RESET}" if use_color else text  # noqa: SLF001
 
+    # ── Logging setup ─────────────────────────────────────────────────────
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(levelname)s: %(message)s",
+    )
+
     # ── Config path ────────────────────────────────────────────────────────
     config_path = Path(args.config) if args.config else default_config_path()
+
+    # ── --show-config ─────────────────────────────────────────────────────
+    if args.show_config:
+        cfg = load_config(config_path)
+        if args.compressor is not None:
+            cfg["compressor"] = args.compressor
+        for key, value in sorted(cfg.items()):
+            print(f"{key} = {value}")
+        return 0
 
     # ── --list-tools ───────────────────────────────────────────────────────
     if args.list_tools:
