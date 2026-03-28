@@ -75,10 +75,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
                iteration,
                phases.size());
 
-  // Update LP elements for all phases in this scene before solving.
-  // Checks iteration skip/force flags and calls SystemLP::update_lp()
-  // per phase.  Runs in the per-scene thread.
-  dispatch_update_lp(scene, iteration);
+  // Check once whether update_lp should run for this iteration
+  // (respects explicit skip/force flags and global skip count).
+  const bool do_update = should_dispatch_update_lp(iteration);
 
   for (auto&& [phase, _ph] : enumerate<PhaseIndex>(phases)) {
     if (should_stop()) {
@@ -115,6 +114,23 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
           prev_st.outgoing_links.size(),
           phase_uid(prev),
           cut_coeff_mode_name(coeff_mode));
+    }
+
+    // Update volume-dependent LP coefficients (discharge limits, turbine
+    // efficiency, seepage, production factor) AFTER state propagation so
+    // that physical_eini reflects the actual forward-pass reservoir volume
+    // rather than default_volume.
+    if (do_update) {
+      const auto updated = update_lp_for_phase(scene, phase);
+      if (updated > 0) {
+        SPDLOG_TRACE(
+            "SDDP forward: updated {} LP elements for scene {} phase {} "
+            "(iter {})",
+            updated,
+            scene_uid(scene),
+            phase_uid(phase),
+            iteration);
+      }
     }
 
     // If lp_debug is enabled, write LP file (pre-solve state) then optionally

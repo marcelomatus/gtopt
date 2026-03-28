@@ -862,10 +862,20 @@ private:
                                                   IterationIndex iteration = {})
       -> std::expected<int, Error>;
 
+  /// Check whether update_lp should be dispatched for this iteration.
+  /// Returns false when the iteration is explicitly disabled or skipped
+  /// by the global skip count.
+  [[nodiscard]] bool should_dispatch_update_lp(IterationIndex iteration) const;
+
+  /// Run update_lp for a single phase, setting prev_phase_sys for
+  /// cross-phase physical_eini lookup.  Returns the number of updated
+  /// LP elements.
+  int update_lp_for_phase(SceneIndex scene, PhaseIndex phase);
+
   /// Conditionally dispatch update_lp for all phases in a scene.
   /// Checks the preallocated iteration vector for explicit skip/force
   /// flags and the global skip count before calling SystemLP::update_lp()
-  /// on each phase.  Called once per scene before the forward pass.
+  /// on each phase.
   void dispatch_update_lp(SceneIndex scene, IterationIndex iteration);
 
   /// Clone the LP, apply elastic filter on the clone, and solve it.
