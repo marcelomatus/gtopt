@@ -71,6 +71,9 @@ auto CascadePlanningMethod::build_level_sddp_opts(
   if (cs.alpha_max.has_value()) {
     opts.alpha_max = *cs.alpha_max;
   }
+  if (cs.scale_alpha.has_value()) {
+    opts.scale_alpha = *cs.scale_alpha;
+  }
 
   // Apply per-level overrides
   if (level_solver) {

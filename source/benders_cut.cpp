@@ -84,14 +84,15 @@ auto build_benders_cut(ColIndex alpha_col,
                        std::span<const StateVarLink> links,
                        std::span<const double> reduced_costs,
                        double objective_value,
-                       std::string_view name) -> SparseRow
+                       std::string_view name,
+                       double scale_alpha) -> SparseRow
 {
   auto row = SparseRow {
       .name = std::string(name),
       .lowb = objective_value,
       .uppb = LinearProblem::DblMax,
   };
-  row[alpha_col] = 1.0;
+  row[alpha_col] = scale_alpha;
 
   for (const auto& link : links) {
     const auto rc = reduced_costs[link.dependent_col];
@@ -106,14 +107,15 @@ auto build_benders_cut_from_row_duals(ColIndex alpha_col,
                                       std::span<const StateVarLink> links,
                                       std::span<const double> row_duals,
                                       double objective_value,
-                                      std::string_view name) -> SparseRow
+                                      std::string_view name,
+                                      double scale_alpha) -> SparseRow
 {
   auto row = SparseRow {
       .name = std::string(name),
       .lowb = objective_value,
       .uppb = LinearProblem::DblMax,
   };
-  row[alpha_col] = 1.0;
+  row[alpha_col] = scale_alpha;
 
   for (const auto& link : links) {
     const auto pi = row_duals[link.coupling_row];
@@ -226,7 +228,8 @@ auto build_feasibility_cut(const LinearInterface& li,
                            std::span<const StateVarLink> links,
                            double penalty,
                            const SolverOptions& opts,
-                           std::string_view name)
+                           std::string_view name,
+                           double scale_alpha)
     -> std::optional<FeasibilityCutResult>
 {
   auto elastic = elastic_filter_solve(li, links, penalty, opts);
@@ -238,7 +241,8 @@ auto build_feasibility_cut(const LinearInterface& li,
                                links,
                                elastic->clone.get_col_cost(),
                                elastic->clone.get_obj_value(),
-                               name);
+                               name,
+                               scale_alpha);
 
   return FeasibilityCutResult {
       .cut = std::move(cut),
@@ -518,7 +522,8 @@ auto BendersCut::build_feasibility_cut(const LinearInterface& li,
                                        std::span<const StateVarLink> links,
                                        double penalty,
                                        const SolverOptions& opts,
-                                       std::string_view name)
+                                       std::string_view name,
+                                       double scale_alpha)
     -> std::optional<FeasibilityCutResult>
 {
   auto elastic = this->elastic_filter_solve(li, links, penalty, opts);
@@ -530,7 +535,8 @@ auto BendersCut::build_feasibility_cut(const LinearInterface& li,
                                links,
                                elastic->clone.get_col_cost(),
                                elastic->clone.get_obj_value(),
-                               name);
+                               name,
+                               scale_alpha);
 
   return FeasibilityCutResult {
       .cut = std::move(cut),
