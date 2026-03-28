@@ -196,8 +196,8 @@ void CascadePlanningMethod::add_elastic_targets(
     // Add slack columns for elastic penalty
     const auto sup_name = std::format("tgt_sup_{}", t.var_name);
     const auto sdn_name = std::format("tgt_sdn_{}", t.var_name);
-    const auto sup_col = li.add_col(sup_name, 0.0, 1e20);
-    const auto sdn_col = li.add_col(sdn_name, 0.0, 1e20);
+    const auto sup_col = li.add_col(sup_name, 0.0, li.infinity());
+    const auto sdn_col = li.add_col(sdn_name, 0.0, li.infinity());
     li.set_obj_coeff(sup_col, penalty);
     li.set_obj_coeff(sdn_col, penalty);
 

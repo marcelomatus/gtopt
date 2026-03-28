@@ -144,10 +144,10 @@ RelaxedVarInfo relax_fixed_state_variable(LinearInterface& li,
   li.set_col_upp(dep, link.source_upp);
 
   // Penalised slack variables: up (overshoot) and dn (undershoot)
-  const auto sup = li.add_col({}, 0.0, LinearProblem::DblMax);
+  const auto sup = li.add_col({}, 0.0, li.infinity());
   li.set_obj_coeff(sup, penalty);
 
-  const auto sdn = li.add_col({}, 0.0, LinearProblem::DblMax);
+  const auto sdn = li.add_col({}, 0.0, li.infinity());
   li.set_obj_coeff(sdn, penalty);
 
   // dep + sup − sdn = trial_value
