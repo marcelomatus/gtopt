@@ -14,6 +14,7 @@ from pathlib import Path
 
 from . import _colors as col
 from ._compress import as_plain_lp
+from ._solvers import find_cplex_binary
 
 log = logging.getLogger(__name__)
 
@@ -123,7 +124,7 @@ def _run_cplex(
     timeout: int,
 ) -> BenchmarkResult | None:
     """Solve with CPLEX and return timing."""
-    cplex_bin = shutil.which("cplex")
+    cplex_bin = find_cplex_binary()
     if cplex_bin is None:
         return None
 

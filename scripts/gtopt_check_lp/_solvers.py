@@ -3,14 +3,15 @@
 
 CPLEX command note
 ------------------
-The CPLEX Interactive Optimizer command ``conflict`` does **not** exist in
-CPLEX v20.1+ (the interactive session reports "Command 'conflict' does not
-exist").  The correct command is ``refineconflict``, followed by
-``display conflict all`` to show the minimal infeasible subset.
+The CPLEX Interactive Optimizer command for the conflict refiner is
+``tools conflict``, followed by ``display conflict all`` to show the minimal
+infeasible subset.  In CPLEX 22.1+ the conflict refiner lives under the
+``tools`` submenu; neither bare ``conflict`` nor ``refineconflict`` are
+top-level commands.
 
 To ensure the conflict refiner has a working LP basis, presolve must be
-disabled *before* solving (``set preprocessing presolve 0``); otherwise CPLEX
-terminates in presolve and ``refineconflict`` has nothing to work with.
+disabled *before* solving (``set preprocessing presolve n``); otherwise CPLEX
+terminates in presolve and the conflict refiner has nothing to work with.
 """
 
 import logging
@@ -31,6 +32,46 @@ _NEOS_DEFAULT_URL = "https://neos-server.org:3333"
 
 
 # ---------------------------------------------------------------------------
+# Well-known CPLEX installation directories (checked when not on PATH)
+# ---------------------------------------------------------------------------
+
+_CPLEX_WELL_KNOWN_DIRS: list[str] = [
+    "/opt/cplex/bin/x86-64_linux",
+    "/opt/ibm/ILOG/CPLEX_Studio*/cplex/bin/x86-64_linux",
+    "/opt/ibm/cplex/bin/x86-64_linux",
+]
+
+
+def find_cplex_binary() -> str | None:
+    """Locate the ``cplex`` binary on PATH or in well-known directories.
+
+    Returns the full path as a string, or *None* if not found.
+    """
+    # 1. Check PATH
+    on_path = shutil.which("cplex")
+    if on_path:
+        return on_path
+
+    # 2. Check well-known installation directories
+    import glob as _glob  # noqa: PLC0415
+
+    for pattern in _CPLEX_WELL_KNOWN_DIRS:
+        for directory in _glob.glob(pattern):
+            candidate = Path(directory) / "cplex"
+            if candidate.is_file() and _is_executable(candidate):
+                return str(candidate)
+
+    return None
+
+
+def _is_executable(path: Path) -> bool:
+    """Return True if *path* is an executable file."""
+    import os  # noqa: PLC0415
+
+    return os.access(path, os.X_OK)
+
+
+# ---------------------------------------------------------------------------
 # Solver detection
 # ---------------------------------------------------------------------------
 
@@ -38,11 +79,11 @@ _NEOS_DEFAULT_URL = "https://neos-server.org:3333"
 def detect_local_solvers() -> list[str]:
     """Return human-readable labels for every locally available solver."""
     available = []
+    if find_cplex_binary():
+        available.append("CPLEX")
     for binary, label in [
-        ("cplex", "CPLEX"),
         ("clp", "CLP (COIN-OR)"),
         ("cbc", "CBC (COIN-OR)"),
-        ("glpsol", "GLPK"),
     ]:
         if shutil.which(binary):
             available.append(label)
@@ -93,17 +134,17 @@ def _cplex_script(
 
     Command sequence rationale
     --------------------------
-    ``conflict`` is **not** a valid CPLEX Interactive Optimizer command in
-    v20.1+ — the session reports "Command 'conflict' does not exist".
-
-    The correct approach:
     1. Disable presolve so the simplex method (not presolve) detects
        infeasibility and builds an infeasibility certificate.
     2. Optionally set the LP method (barrier, primal, or dual).
     3. Optionally set numerical tolerances.
     4. Re-solve with ``optimize``.
-    5. Invoke the CPLEX conflict refiner with ``refineconflict``.
+    5. Invoke the CPLEX conflict refiner with ``tools conflict``.
     6. Display the minimal conflict set with ``display conflict all``.
+
+    Note: In CPLEX 22.1+, the conflict refiner lives under the ``tools``
+    submenu (``tools conflict``).  Neither bare ``conflict`` nor
+    ``refineconflict`` are top-level interactive commands.
     """
     # Map algo names to CPLEX lpmethod values:
     #   0 = automatic, 1 = primal simplex, 2 = dual simplex, 4 = barrier
@@ -126,11 +167,11 @@ def _cplex_script(
 
     return (
         f"read {lp_path}\n"
-        "set preprocessing presolve 0\n"
+        "set preprocessing presolve n\n"
         f"{method_cmd}"
         f"{tol_cmds}"
         "optimize\n"
-        "refineconflict\n"
+        "tools conflict\n"
         "display conflict all\n"
         "quit\n"
     )
@@ -164,9 +205,9 @@ def run_local_cplex(
     Returns ``(success, output)`` where *success* is True when CPLEX was
     found and executed without crashing.
     """
-    cplex_bin = shutil.which("cplex")
+    cplex_bin = find_cplex_binary()
     if cplex_bin is None:
-        return False, "cplex binary not found on PATH."
+        return False, "cplex binary not found on PATH or well-known locations."
 
     log.debug("Running CPLEX from: %s", cplex_bin)
 
@@ -275,64 +316,126 @@ def run_local_highs_python(lp_path: Path, timeout: int = 30) -> tuple[bool, str]
 
     result_holder: list[tuple[bool, str]] = []
 
-    def _run(plain_lp_path: Path) -> None:  # noqa: PLR0912
+    def _get_name(  # noqa: PLR0911
+        h: "highspy.Highs",
+        getter: str,
+        idx: int,
+    ) -> str:
+        """Retrieve a column/row name, handling the (status, name) tuple API."""
+        try:
+            result = getattr(h, getter)(idx)
+            if isinstance(result, tuple):
+                return str(result[1])
+            return str(result)
+        except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            return str(idx)
+
+    def _try_iis(  # noqa: PLR0912
+        h: "highspy.Highs",
+        lines: list[str],
+    ) -> bool:
+        """Try IIS computation.  Return True if IIS members were found."""
+        try:
+            h.setOptionValue("iis_strategy", 2)  # kIisStrategyFromLp
+        except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            pass
+
+        _iis_status, iis = h.getIis()  # pylint: disable=no-value-for-parameter,unpacking-non-sequence
+        col_idx = getattr(iis, "col_index_", []) or []
+        row_idx = getattr(iis, "row_index_", []) or []
+
+        if not col_idx and not row_idx:
+            return False
+
+        lines.append("\n-- HiGHS IIS (Irreducible Infeasible Subsystem) --")
+
+        if col_idx:
+            lines.append(f"  Infeasible variable bounds ({len(col_idx)}):")
+            col_bounds = getattr(iis, "col_bound_", [])
+            for ci in col_idx:
+                name = _get_name(h, "getColName", ci)
+                bound_info = ""
+                if col_bounds and ci < len(col_bounds):
+                    bound_info = f"  [{col_bounds[ci]}]"
+                lines.append(f"    • {name}{bound_info}")
+
+        if row_idx:
+            lines.append(f"  Infeasible constraints ({len(row_idx)}):")
+            row_bounds = getattr(iis, "row_bound_", [])
+            for ri in row_idx:
+                name = _get_name(h, "getRowName", ri)
+                bound_info = ""
+                if row_bounds and ri < len(row_bounds):
+                    bound_info = f"  [{row_bounds[ri]}]"
+                lines.append(f"    • {name}{bound_info}")
+
+        return True
+
+    def _try_feasibility_relaxation(
+        h: "highspy.Highs",
+        lines: list[str],
+    ) -> bool:
+        """Fall back to feasibilityRelaxation when IIS is empty."""
+        if not hasattr(h, "feasibilityRelaxation"):
+            return False
+
+        fr_status = h.feasibilityRelaxation(1.0, 1.0, 1.0)
+        if str(fr_status) != "HighsStatus.kOk":
+            return False
+
+        sol = h.getSolution()
+        row_duals = sol.row_dual
+        num_rows = h.getNumRow()
+
+        violations: list[tuple[str, float]] = []
+        for i in range(num_rows):
+            if abs(row_duals[i]) > 1e-6:
+                name = _get_name(h, "getRowName", i)
+                violations.append((name, row_duals[i]))
+
+        if not violations:
+            return False
+
+        violations.sort(key=lambda x: abs(x[1]), reverse=True)
+        lines.append(
+            "\n-- HiGHS Feasibility Relaxation (constraints requiring relaxation) --"
+        )
+        lines.append(f"  {len(violations)} constraint(s) involved in infeasibility:")
+        for name, dual in violations[:50]:
+            lines.append(f"    • {name}  (dual={dual:+.6g})")
+        if len(violations) > 50:
+            lines.append(f"    … and {len(violations) - 50} more")
+        return True
+
+    def _run(plain_lp_path: Path) -> None:
         lines: list[str] = []
         try:
             h = highspy.Highs()
             h.silent()
             h.readModel(str(plain_lp_path))
+            h.setOptionValue("presolve", "off")
             h.run()
             model_status = str(h.getModelStatus())
             lines.append(f"HiGHS model status: {model_status}")
 
-            # Try IIS via conflict analysis (available in highspy >= 1.7)
+            if "infeasible" not in model_status.lower():
+                result_holder.append((True, "\n".join(lines)))
+                return
+
+            # Try IIS first, then feasibility relaxation as fallback
             try:
-                _iis_status, iis = h.getIis()  # pylint: disable=no-value-for-parameter,unpacking-non-sequence
-                col_idx = getattr(iis, "col_index", []) or []
-                row_idx = getattr(iis, "row_index", []) or []
-
-                if col_idx or row_idx:
-                    lines.append("\n-- HiGHS IIS (Irreducible Infeasible Subsystem) --")
-
-                    if col_idx:
-                        lines.append(f"  Infeasible variable bounds ({len(col_idx)}):")
-                        # Try to retrieve column names for readability
-                        try:
-                            num_cols = h.getNumCol()
-                            col_names = [h.getColName(c) for c in range(num_cols)]
-                        except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
-                            col_names = []
-                        for ci in col_idx:
-                            name = col_names[ci] if ci < len(col_names) else str(ci)
-                            bound_type = ""
-                            if hasattr(iis, "col_bound") and ci < len(iis.col_bound):
-                                bound_type = f"  [{iis.col_bound[ci]}]"
-                            lines.append(f"    • {name}{bound_type}")
-
-                    if row_idx:
-                        lines.append(f"  Infeasible constraints ({len(row_idx)}):")
-                        # Try to retrieve row names for readability
-                        try:
-                            num_rows = h.getNumRow()
-                            row_names = [h.getRowName(r) for r in range(num_rows)]
-                        except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
-                            row_names = []
-                        for ri in row_idx:
-                            name = row_names[ri] if ri < len(row_names) else str(ri)
-                            bound_type = ""
-                            if hasattr(iis, "row_bound") and ri < len(iis.row_bound):
-                                bound_type = f"  [{iis.row_bound[ri]}]"
-                            lines.append(f"    • {name}{bound_type}")
-                else:
+                found = _try_iis(h, lines)
+                if not found:
+                    found = _try_feasibility_relaxation(h, lines)
+                if not found:
                     lines.append(
                         "\n-- HiGHS IIS --\n"
-                        "  IIS computation returned no members.\n"
-                        "  The infeasibility may have been detected by presolve.\n"
+                        "  Could not identify specific infeasible members.\n"
                         "  Try running with the HiGHS binary (--solver highs) for\n"
                         "  more detailed output."
                     )
             except (AttributeError, Exception) as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
-                lines.append(f"\n  IIS not available (highspy < 1.7?): {exc}")
+                lines.append(f"\n  IIS/relaxation analysis failed: {exc}")
 
             result_holder.append((True, "\n".join(lines)))
         except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
@@ -492,48 +595,6 @@ def run_local_coinor(
 
 
 # ---------------------------------------------------------------------------
-# GLPK
-# ---------------------------------------------------------------------------
-
-
-def run_local_glpk(lp_path: Path, timeout: int = 120) -> tuple[bool, str]:
-    """
-    Run ``glpsol`` (GLPK) to confirm LP infeasibility.
-
-    Accepts plain or gzip-compressed LP files.
-
-    GLPK does not support IIS finding directly, but confirms infeasibility
-    and reports which constraints are violated at termination.
-
-    Note: the ``--ranges`` flag is intentionally omitted — it triggers a
-    sensitivity-analysis report that is not possible for infeasible problems
-    and produces a misleading "Cannot produce sensitivity analysis report"
-    warning in the output.
-
-    Returns ``(success, output)``.
-    """
-    glpsol_bin = shutil.which("glpsol")
-    if glpsol_bin is None:
-        return False, "glpsol binary not found on PATH."
-
-    log.debug("Running GLPK from: %s", glpsol_bin)
-    try:
-        with as_sanitized_lp(lp_path) as plain_path:
-            result = subprocess.run(
-                [glpsol_bin, "--lp", str(plain_path)],
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
-            )
-        return True, result.stdout + result.stderr
-    except subprocess.TimeoutExpired:
-        return False, f"glpsol timed out after {timeout}s."
-    except OSError as exc:
-        return False, f"Failed to run glpsol: {exc}"
-
-
-# ---------------------------------------------------------------------------
 # Dispatcher: run_iis / run_all_solvers
 # ---------------------------------------------------------------------------
 
@@ -617,12 +678,9 @@ def run_all_solvers(
         any_success = any_success or ok
         parts.append(_format_solver_block("COIN-OR (clp/cbc)", ok, out))
 
-    # GLPK — skipped in "all" mode because glpsol cannot parse the CPLEX LP
-    # format produced by COIN-OR / gtopt (it fails with "missing variable
-    # name").  Users who need GLPK can still request it with --solver glpk.
-
-    # CPLEX (local)
-    if shutil.which("cplex"):
+    # CPLEX (local) — when available, replaces the NEOS remote call
+    has_local_cplex = find_cplex_binary() is not None
+    if has_local_cplex:
         ok, out = run_local_cplex(
             lp_path,
             timeout=timeout,
@@ -634,8 +692,8 @@ def run_all_solvers(
         any_success = any_success or ok
         parts.append(_format_solver_block("CPLEX (local)", ok, out))
 
-    # NEOS (if email provided)
-    if email:
+    # NEOS (only if no local CPLEX and email provided)
+    if not has_local_cplex and email:
         client = NeosClient(url=neos_url, timeout=max(timeout, 120))
         ok, out = client.submit_and_wait(lp_path, email)
         any_success = any_success or ok
@@ -673,7 +731,7 @@ def run_iis(
     solver:
         One of ``"all"`` (default — runs every available solver),
         ``"auto"`` (first available), ``"cplex"``, ``"highs"``,
-        ``"coinor"``, ``"glpk"``, ``"neos"``.
+        ``"coinor"``, ``"neos"``.
     algo:
         LP algorithm passed to COIN-OR and CPLEX: ``"barrier"`` (default
         when empty), ``"primal"``, ``"dual"``, or ``"default"``.
@@ -732,10 +790,6 @@ def run_iis(
             barrier_eps=barrier_eps,
         )
         return ok, "COIN-OR (clp/cbc)", out
-
-    if solver_lower == "glpk":
-        ok, out = run_local_glpk(lp_path, timeout=timeout)
-        return ok, "GLPK", out
 
     if solver_lower == "neos":
         if not email:
