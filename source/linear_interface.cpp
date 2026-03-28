@@ -240,7 +240,7 @@ ColIndex LinearInterface::add_col(const std::string& name,
   const auto index = m_backend_->get_num_cols();
   check_name_unique(m_col_names_, name, index, "column", m_lp_names_level_, 0);
 
-  m_backend_->add_col(collb, colub, 0.0);
+  m_backend_->add_col(normalize_bound(collb), normalize_bound(colub), 0.0);
 
   if (m_lp_names_level_ >= 0 && !name.empty()) {
     if (m_col_index_to_name_.size() <= static_cast<size_t>(index)) {
@@ -277,8 +277,8 @@ RowIndex LinearInterface::add_row(const std::string& name,
   m_backend_->add_row(static_cast<int>(numberElements),
                       columns.data(),
                       elements.data(),
-                      rowlb,
-                      rowub);
+                      normalize_bound(rowlb),
+                      normalize_bound(rowub));
 
   if (m_lp_names_level_ >= 1 && !name.empty()) {
     if (m_row_index_to_name_.size() <= static_cast<size_t>(index)) {
@@ -396,22 +396,22 @@ void LinearInterface::set_obj_coeff(const ColIndex index, const double value)
 
 void LinearInterface::set_col_low(const ColIndex index, const double value)
 {
-  m_backend_->set_col_lower(static_cast<int>(index), value);
+  m_backend_->set_col_lower(static_cast<int>(index), normalize_bound(value));
 }
 
 void LinearInterface::set_col_upp(const ColIndex index, const double value)
 {
-  m_backend_->set_col_upper(static_cast<int>(index), value);
+  m_backend_->set_col_upper(static_cast<int>(index), normalize_bound(value));
 }
 
 void LinearInterface::set_row_low(const RowIndex index, const double value)
 {
-  m_backend_->set_row_lower(static_cast<int>(index), value);
+  m_backend_->set_row_lower(static_cast<int>(index), normalize_bound(value));
 }
 
 void LinearInterface::set_row_upp(const RowIndex index, const double value)
 {
-  m_backend_->set_row_upper(static_cast<int>(index), value);
+  m_backend_->set_row_upper(static_cast<int>(index), normalize_bound(value));
 }
 
 void LinearInterface::set_col(const ColIndex index, const double value)

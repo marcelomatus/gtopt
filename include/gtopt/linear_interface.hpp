@@ -210,6 +210,24 @@ public:
     return m_backend_->infinity();
   }
 
+  /// Normalize a bound value: map gtopt::DblMax to the solver's infinity.
+  ///
+  /// SparseCol/SparseRow use `std::numeric_limits<double>::max()` as default
+  /// unbounded markers, but solver backends (e.g. HiGHS) may use a smaller
+  /// infinity threshold (e.g. 1e30).  This method translates at the
+  /// LinearInterface boundary so that formulation code and solver agree.
+  [[nodiscard]] double normalize_bound(double value) const noexcept
+  {
+    const auto inf = m_backend_->infinity();
+    if (value >= DblMax) {
+      return inf;
+    }
+    if (value <= -DblMax) {
+      return -inf;
+    }
+    return value;
+  }
+
   /// True if @p value represents positive infinity for the active solver.
   [[nodiscard]] bool is_pos_inf(double value) const noexcept
   {

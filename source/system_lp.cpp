@@ -132,7 +132,15 @@ constexpr auto create_linear_interface(auto& collections,
 {
   // Use scene/phase UIDs in the problem name so that CoinLpIO does not
   // warn about "missing objective function name" when writing .lp files.
+  // Create the solver interface first so we can query its infinity value.
+  LinearInterface li(flat_opts.solver_name);
+  li.set_lp_names_level(static_cast<int>(flat_opts.lp_names_level));
+
   LinearProblem lp(std::format("gtopt_s{}_p{}", scene.uid(), phase.uid()));
+
+  // Set the target infinity from the solver backend so that add_col/add_row
+  // normalize DblMax bounds before flattening, avoiding solver warnings.
+  lp.set_infinity(li.infinity());
 
   // Pre-reserve capacity to avoid repeated reallocations during build.
   // Each element typically adds ~2 cols and ~2 rows per block per scenario.
@@ -161,10 +169,7 @@ constexpr auto create_linear_interface(auto& collections,
   }
 
   // Convert and store the flattened LP representation
-
   auto flat_lp = lp.lp_build(flat_opts);
-  LinearInterface li(flat_opts.solver_name);
-  li.set_lp_names_level(static_cast<int>(flat_opts.lp_names_level));
   li.load_flat(flat_lp);
   return li;
 }
