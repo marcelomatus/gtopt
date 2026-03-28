@@ -12,26 +12,30 @@
  *
  * ### Supported element types and attributes
  *
- * | Element type       | Attributes                                    |
- * |-------------------|-----------------------------------------------|
- * | generator          | generation, cost                              |
- * | demand             | load, fail                                    |
- * | line               | flow, flowp, flown, lossp, lossn              |
- * | battery            | energy, charge, discharge, spill (alias: drain)|
- * | converter          | charge, discharge                             |
- * | reservoir          | volume (alias: energy), extraction,            |
- * |                    | spill (alias: drain)                          |
- * | bus                | theta (alias: angle)                          |
- * | waterway           | flow                                          |
- * | turbine            | generation                                    |
- * | junction           | drain                                         |
- * | flow               | flow (alias: discharge)                       |
- * | seepage            | flow (alias: seepage)                      |
- * | reserve_provision  | up (aliases: uprovision, up_provision),       |
- * |                    | dn (aliases: dprovision, dn_provision, down)  |
- * | reserve_zone       | up (aliases: urequirement, up_requirement),   |
- * |                    | dn (aliases: drequirement, dn_requirement,    |
- * |                    |     down)                                     |
+ * | Element type       | Attributes                                          |
+ * |-------------------|-----------------------------------------------------|
+ * | generator          | generation, capainst (alias: capacity)              |
+ * | demand             | load, fail, capainst (alias: capacity)              |
+ * | line               | flow, flowp, flown, lossp, lossn,                   |
+ * |                    | capainst (alias: capacity)                          |
+ * | battery            | energy, charge, discharge, spill (alias: drain),    |
+ * |                    | eini, efin, soft_emin,                              |
+ * |                    | capainst (alias: capacity)                          |
+ * | converter          | charge, discharge                                   |
+ * | reservoir          | volume (alias: energy), extraction,                  |
+ * |                    | spill (alias: drain),                               |
+ * |                    | eini, efin, soft_emin                               |
+ * | bus                | theta (alias: angle)                                |
+ * | waterway           | flow                                                |
+ * | turbine            | generation                                          |
+ * | junction           | drain                                               |
+ * | flow               | flow (alias: discharge)                             |
+ * | seepage            | flow (alias: seepage)                               |
+ * | reserve_provision  | up (aliases: uprovision, up_provision),             |
+ * |                    | dn (aliases: dprovision, dn_provision, down)        |
+ * | reserve_zone       | up (aliases: urequirement, up_requirement),         |
+ * |                    | dn (aliases: drequirement, dn_requirement,          |
+ * |                    |     down)                                           |
  *
  * ### Variable scaling
  *
@@ -40,15 +44,44 @@
  * automatically applies the correct scale factor to each coefficient so
  * that the LP constraint is dimensionally correct.
  *
- * | Variable             | Scale (physical = LP × scale)            |
- * |---------------------|------------------------------------------|
- * | reservoir.volume     | energy_scale (default 1000)               |
- * | reservoir.extraction | flow_scale   (default 1000)               |
- * | reservoir.spill      | flow_scale   (default 1000)               |
- * | battery.energy       | energy_scale (default 1.0)               |
- * | battery.spill        | flow_scale   (default 1.0)               |
- * | bus.theta            | 1 / scale_theta (default 1/1000)         |
- * | all others           | 1.0 (no scaling)                         |
+ * The resolver uses `LinearProblem::get_col_scale()` to read the scale
+ * factor that was stored at variable-creation time, so all current and
+ * future scaled variables are handled uniformly.
+ *
+ * | Variable             | Scale (physical = LP × scale)                  |
+ * |---------------------|------------------------------------------------|
+ * | reservoir.volume     | energy_scale: auto-computed from capacity      |
+ * |                      | (capacity/1000 rounded to next power of 10),   |
+ * |                      | or set explicitly via `energy_scale` JSON field |
+ * | reservoir.extraction | flow_scale (default 1.0; overridable via       |
+ * |                      | `variable_scales` option)                      |
+ * | reservoir.spill      | flow_scale (same)                              |
+ * | reservoir.eini       | energy_scale (same as reservoir.volume)        |
+ * | reservoir.efin       | energy_scale (same as reservoir.volume)        |
+ * | reservoir.soft_emin  | energy_scale (same as reservoir.volume)        |
+ * | battery.energy       | energy_scale (default 1.0)                     |
+ * | battery.charge       | flow_scale   (default 1.0)                     |
+ * | battery.discharge    | flow_scale   (default 1.0)                     |
+ * | battery.spill        | flow_scale   (default 1.0)                     |
+ * | battery.eini         | energy_scale (default 1.0)                     |
+ * | battery.efin         | energy_scale (default 1.0)                     |
+ * | battery.soft_emin    | energy_scale (default 1.0)                     |
+ * | bus.theta            | 1 / scale_theta (default 1/1000)               |
+ * | all others           | 1.0 (no scaling)                               |
+ *
+ * ### Stage-level vs block-level attributes
+ *
+ * Most attributes are block-level variables (one value per block per stage).
+ * Some are stage-level (one value per stage), returned for every block:
+ *
+ * | Stage-level attributes                                        |
+ * |---------------------------------------------------------------|
+ * | generator.capainst, demand.capainst, line.capainst            |
+ * | battery.capainst, battery.eini, battery.efin, battery.soft_emin |
+ * | reservoir.eini, reservoir.efin, reservoir.soft_emin           |
+ *
+ * Stage-level attributes may appear in any per-block constraint expression;
+ * the same LP column is referenced across all blocks in the stage.
  *
  * ### Grammar (pseudo-BNF)
  *
