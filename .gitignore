@@ -55,3 +55,4 @@ tools/compile_commands.json
 reports
 scripts/Testing/
 scripts/results/
+scripts/Highs.log
