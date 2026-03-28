@@ -882,11 +882,12 @@ auto load_boundary_cuts_csv(
       auto& state = scene_phase_states[scene][last_phase];
       if (state.alpha_col == ColIndex {unknown_index}) {
         auto& li = planning_lp.system(scene, last_phase).linear_interface();
+        const auto sa = options.scale_alpha;
         state.alpha_col =
             li.add_col(gtopt::as_label("sddp", "alpha", scene, last_phase),
-                       options.alpha_min,
-                       options.alpha_max);
-        li.set_obj_coeff(state.alpha_col, 1.0);
+                       options.alpha_min / sa,
+                       options.alpha_max / sa);
+        li.set_obj_coeff(state.alpha_col, sa);
       }
     }
 
@@ -954,7 +955,7 @@ auto load_boundary_cuts_csv(
             .lowb = rc.rhs / scale_obj,
             .uppb = LinearProblem::DblMax,
         };
-        row[state.alpha_col] = 1.0;
+        row[state.alpha_col] = options.scale_alpha;
 
         auto& li = planning_lp.system(scene, last_phase).linear_interface();
         std::istringstream coeff_ss(rc.coeff_line);
@@ -1204,11 +1205,12 @@ auto load_named_cuts_csv(
         auto& state = scene_phase_states[scene][phase];
         if (state.alpha_col == ColIndex {unknown_index}) {
           auto& li = planning_lp.system(scene, phase).linear_interface();
+          const auto sa = options.scale_alpha;
           state.alpha_col =
               li.add_col(gtopt::as_label("sddp", "alpha", scene, phase),
-                         options.alpha_min,
-                         options.alpha_max);
-          li.set_obj_coeff(state.alpha_col, 1.0);
+                         options.alpha_min / sa,
+                         options.alpha_max / sa);
+          li.set_obj_coeff(state.alpha_col, sa);
         }
       }
 
@@ -1259,7 +1261,7 @@ auto load_named_cuts_csv(
             .lowb = rhs / scale_obj,
             .uppb = LinearProblem::DblMax,
         };
-        row[state.alpha_col] = 1.0;
+        row[state.alpha_col] = options.scale_alpha;
 
         auto& li = planning_lp.system(scene, phase).linear_interface();
         std::istringstream coeff_ss(remainder);

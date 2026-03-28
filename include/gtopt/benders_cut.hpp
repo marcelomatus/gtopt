@@ -123,23 +123,26 @@ void propagate_trial_values_row_dual(std::span<StateVarLink> links,
 
 /// Build a Benders optimality cut from reduced costs of dependent columns.
 ///
-///   α_{t-1} ≥ z_t + Σ_i rc_i · (x_{t-1,i} − v̂_i)
+///   scale_alpha · α_lp ≥ z_t + Σ_i rc_i · (x_{t-1,i} − v̂_i)
 ///
+/// @param scale_alpha  Scale divisor for α (PLP varphi scale; default 1.0).
 /// Returns the cut as a SparseRow ready to add to the source phase.
 [[nodiscard]] auto build_benders_cut(ColIndex alpha_col,
                                      std::span<const StateVarLink> links,
                                      std::span<const double> reduced_costs,
                                      double objective_value,
-                                     std::string_view name) -> SparseRow;
+                                     std::string_view name,
+                                     double scale_alpha = 1.0) -> SparseRow;
 
 /// Build a Benders optimality cut from row duals of coupling constraints
 /// (PLP-style).
 ///
-///   α_{t-1} ≥ z_t + Σ_i π_i · (x_{t-1,i} − v̂_i)
+///   scale_alpha · α_lp ≥ z_t + Σ_i π_i · (x_{t-1,i} − v̂_i)
 ///
 /// where π_i = row_duals[link.coupling_row] is the dual of the explicit
 /// equality constraint that fixes the dependent column.
 ///
+/// @param scale_alpha  Scale divisor for α (PLP varphi scale; default 1.0).
 /// Requires that propagate_trial_values_row_dual() was called first so that
 /// each link has a valid coupling_row index.
 [[nodiscard]] auto build_benders_cut_from_row_duals(
@@ -147,7 +150,8 @@ void propagate_trial_values_row_dual(std::span<StateVarLink> links,
     std::span<const StateVarLink> links,
     std::span<const double> row_duals,
     double objective_value,
-    std::string_view name) -> SparseRow;
+    std::string_view name,
+    double scale_alpha = 1.0) -> SparseRow;
 
 // ─── Elastic filter ─────────────────────────────────────────────────────────
 
@@ -212,7 +216,8 @@ struct FeasibilityCutResult
                                          std::span<const StateVarLink> links,
                                          double penalty,
                                          const SolverOptions& opts,
-                                         std::string_view name)
+                                         std::string_view name,
+                                         double scale_alpha = 1.0)
     -> std::optional<FeasibilityCutResult>;
 
 /// Build per-slack bound-constraint cuts from a solved elastic clone.
@@ -373,7 +378,8 @@ public:
                                            std::span<const StateVarLink> links,
                                            double penalty,
                                            const SolverOptions& opts,
-                                           std::string_view name)
+                                           std::string_view name,
+                                           double scale_alpha = 1.0)
       -> std::optional<FeasibilityCutResult>;
 
 private:

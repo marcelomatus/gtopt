@@ -54,6 +54,14 @@ struct SddpOptions
   OptReal alpha_min {};
   /** @brief Upper bound for future cost variable α (default: 1e12) */
   OptReal alpha_max {};
+  /** @brief Scale divisor for future cost variable α (default: 1000).
+   *
+   * The LP alpha variable is α_lp = α / scale_alpha, with an objective
+   * coefficient of scale_alpha so that the physical contribution is
+   * preserved.  Analogous to PLP's varphi scale — improves numerical
+   * conditioning when α values are orders of magnitude larger than other
+   * LP variables. */
+  OptReal scale_alpha {};
 
   // ── Cut file management ────────────────────────────────────────────────────
   /** @brief Cut persistence mode: none (default), keep, append, or replace.
@@ -325,6 +333,7 @@ struct SddpOptions
     merge_opt(elastic_penalty, opts.elastic_penalty);
     merge_opt(alpha_min, opts.alpha_min);
     merge_opt(alpha_max, opts.alpha_max);
+    merge_opt(scale_alpha, opts.scale_alpha);
     merge_opt(cut_recovery_mode, opts.cut_recovery_mode);
     merge_opt(recovery_mode, opts.recovery_mode);
     merge_opt(save_per_iteration, opts.save_per_iteration);

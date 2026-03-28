@@ -314,10 +314,11 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene)
     auto& state = phase_states[pi];
     auto& li = planning_lp().system(scene, pi).linear_interface();
 
+    const auto sa = m_options_.scale_alpha;
     state.alpha_col = li.add_col(sddp_label("sddp", "alpha", scene, pi),
-                                 m_options_.alpha_min,
-                                 m_options_.alpha_max);
-    li.set_obj_coeff(state.alpha_col, 1.0);
+                                 m_options_.alpha_min / sa,
+                                 m_options_.alpha_max / sa);
+    li.set_obj_coeff(state.alpha_col, sa);
   }
 
   // Last phase: no future cost
@@ -650,19 +651,22 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene,
 
   const auto coeff_mode = m_options_.cut_coeff_mode;
 
+  const auto sa = m_options_.scale_alpha;
   auto cut = (coeff_mode == CutCoeffMode::row_dual)
       ? build_benders_cut_from_row_duals(
             src_state.alpha_col,
             src_state.outgoing_links,
             target_state.forward_row_dual,
             target_state.forward_full_obj,
-            sddp_label("sddp", "scut", scene, phase, iteration, cut_offset))
+            sddp_label("sddp", "scut", scene, phase, iteration, cut_offset),
+            sa)
       : build_benders_cut(
             src_state.alpha_col,
             src_state.outgoing_links,
             target_state.forward_col_cost,
             target_state.forward_full_obj,
-            sddp_label("sddp", "scut", scene, phase, iteration, cut_offset));
+            sddp_label("sddp", "scut", scene, phase, iteration, cut_offset),
+            sa);
 
   const auto cut_row = src_li.add_row(cut);
   store_cut(scene, prev_phase, cut, CutType::Optimality, cut_row);
