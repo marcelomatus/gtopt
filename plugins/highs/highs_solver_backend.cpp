@@ -6,6 +6,7 @@
  * @copyright BSD-3-Clause
  */
 
+#include <algorithm>
 #include <format>
 #include <stdexcept>
 
@@ -84,6 +85,19 @@ void HighsSolverBackend::load_problem(int ncols,
   lp.col_upper_.assign(colub, colub + ncols);
   lp.row_lower_.assign(rowlb, rowlb + nrows);
   lp.row_upper_.assign(rowub, rowub + nrows);
+
+  // Normalize bounds: clamp any value beyond ±kHighsInf to avoid
+  // HiGHS warnings ("bounds >= 1e20 treated as +Infinity").
+  // This is a safety net for callers that did not set
+  // LinearProblem::set_infinity() before building.
+  auto clamp_inf = [](double v)
+  {
+    return v >= kHighsInf ? kHighsInf : v <= -kHighsInf ? -kHighsInf : v;
+  };
+  std::ranges::transform(lp.col_lower_, lp.col_lower_.begin(), clamp_inf);
+  std::ranges::transform(lp.col_upper_, lp.col_upper_.begin(), clamp_inf);
+  std::ranges::transform(lp.row_lower_, lp.row_lower_.begin(), clamp_inf);
+  std::ranges::transform(lp.row_upper_, lp.row_upper_.begin(), clamp_inf);
 
   // CSC matrix
   lp.a_matrix_.format_ = MatrixFormat::kColwise;

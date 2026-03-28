@@ -114,12 +114,30 @@ public:
   /**
    * Constructs a new linear problem
    * @param name Problem name
-   * @param rsize Initial reserve size for rows/columns
    */
   [[nodiscard]]
   constexpr explicit LinearProblem(std::string name = {}) noexcept
       : pname(std::move(name))
   {
+  }
+
+  /**
+   * Sets the infinity value used for bound normalization.
+   *
+   * When set to a value smaller than DblMax (e.g. from the solver backend's
+   * infinity()), add_col()/add_row() will clamp DblMax bounds to ±infinity.
+   * This ensures that flattened LP vectors never contain raw DblMax values,
+   * avoiding noisy solver warnings (e.g. HiGHS "bounds >= 1e20 treated as
+   * +Infinity").
+   *
+   * @param inf Target infinity value (e.g. LinearInterface::infinity())
+   */
+  constexpr void set_infinity(double inf) noexcept { m_infinity_ = inf; }
+
+  /// Current infinity value (DblMax if not explicitly set).
+  [[nodiscard]] constexpr double infinity() const noexcept
+  {
+    return m_infinity_;
   }
 
   /**
@@ -149,6 +167,10 @@ public:
       ++colints;
     }
 
+    // Normalize DblMax bounds to the configured infinity.
+    normalize_bound(col.lowb);
+    normalize_bound(col.uppb);
+
     cols.emplace_back(std::forward<SparseCol>(col));
     return index;
   }
@@ -163,6 +185,10 @@ public:
   constexpr RowIndex add_row(SparseRow&& row)
   {
     const auto index = RowIndex {static_cast<Index>(rows.size())};
+
+    // Normalize DblMax bounds to the configured infinity.
+    normalize_bound(row.lowb);
+    normalize_bound(row.uppb);
 
     ncoeffs += row.size();
     rows.emplace_back(std::forward<SparseRow>(row));
@@ -278,11 +304,22 @@ public:
   [[nodiscard]] FlatLinearProblem lp_build(const LpBuildOptions& opts = {});
 
 private:
+  /// Clamp a bound in-place: DblMax → +infinity, -DblMax → -infinity.
+  constexpr void normalize_bound(double& value) const noexcept
+  {
+    if (value >= DblMax) {
+      value = m_infinity_;
+    } else if (value <= -DblMax) {
+      value = -m_infinity_;
+    }
+  }
+
   std::string pname;  ///< Problem name
   cols_t cols;  ///< Variables (columns)
   rows_t rows;  ///< Constraints (rows)
   size_t ncoeffs {};  ///< Total number of coefficients
   size_t colints {};  ///< Number of integer variables
+  double m_infinity_ {DblMax};  ///< Target infinity for bound normalization
 };
 
 }  // namespace gtopt
