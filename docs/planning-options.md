@@ -173,7 +173,7 @@ merged left to right.  For each field:
 
 ### Precedence layers
 
-1. **CLI flags** (`--solver highs`, `--use-single-bus`)
+1. **CLI flags** (`--solver highs`, `--set use_single_bus=true`)
 2. **Config file** (`~/.gtopt.conf` `[gtopt]` section)
 3. **JSON files** (first file wins for each field)
 4. **Built-in defaults** (`PlanningOptionsLP` compile-time defaults)
@@ -188,21 +188,21 @@ files.
 |-------|----------|-------------|
 | `planning_files` | positional / `-s` | System JSON file paths |
 | `solver` | `--solver` | LP solver backend |
-| `algorithm` | `--algorithm` | LP algorithm |
-| `threads` | `--threads` | Solver thread count |
-| `output_format` | `-f` | Output format |
-| `output_compression` | `-C` | Output compression |
-| `input_directory` | `-D` | Input data directory |
-| `output_directory` | `-d` | Output directory |
-| `use_single_bus` | `-b` | Single-bus mode |
-| `use_kirchhoff` | `-k` | Kirchhoff mode |
-| `sddp_max_iterations` | `--sddp-max-iterations` | Max SDDP iterations |
-| `sddp_min_iterations` | `--sddp-min-iterations` | Min SDDP iterations |
-| `sddp_convergence_tol` | `--sddp-convergence-tol` | SDDP convergence tolerance |
+| `method` | `--method` | Planning method |
 | `demand_fail_cost` | `--demand-fail-cost` | Unserved demand penalty |
 | `scale_objective` | `--scale-objective` | Objective scaling factor |
-| `method` | `--method` | Planning method |
-| `lp_debug` | `--lp-debug` | LP debug output |
+| *(any option)* | `--set key=value` | Set any planning option (see below) |
+
+> **`--set` key=value**: all other options are now set via `--set`.
+> Examples: `--set use_single_bus=true`, `--set output_directory=results/`,
+> `--set solver_options.algorithm=barrier`,
+> `--set sddp_options.max_iterations=300`.
+>
+> **Deprecated aliases** (still work, emit a warning): `-b`, `-k`,
+> `-D`, `-F`, `-d`, `-f`, `-C`, `--algorithm`, `--threads`,
+> `--sddp-max-iterations`, `--sddp-min-iterations`,
+> `--sddp-convergence-tol`, `--lp-debug`, `--log-directory`,
+> `--cut-directory`, `--lp-compression`, `--lp-coeff-ratio`.
 
 ## Full JSON Example
 

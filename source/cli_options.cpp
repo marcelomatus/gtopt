@@ -78,6 +78,10 @@ std::ostream& operator<<(std::ostream& os, const options_description& desc)
 {
   os << std::format("{}:\n", desc.caption_);
   for (const auto& opt : desc.options_) {
+    // Skip deprecated options (empty description)
+    if (opt.description.empty()) {
+      continue;
+    }
     const auto name_part = (opt.short_name != '\0')
         ? std::format("-{} [ --{} ]", opt.short_name, opt.long_name)
         : std::format("     --{}", opt.long_name);
