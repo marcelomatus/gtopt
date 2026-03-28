@@ -106,6 +106,7 @@ sudo apt-get install -y --no-install-recommends \
   liblapack-dev libblas-dev \
   zlib1g-dev \
   libzstd-dev zstd \
+  lcov \
   ca-certificates lsb-release wget
 ok "ccache and base packages installed"
 

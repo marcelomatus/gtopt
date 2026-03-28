@@ -1,0 +1,53 @@
+# Archivo de Rendimiento de Embalses (plpcenre.dat)
+# Número de Embalses con Rendimiento
+5
+# Nombre de Central
+'COLBUN'
+# Nombre del Embalse
+'COLBUN'
+# Rendimiento Medio
+1.530
+# Número de Tramos
+1
+#Tramo      Volumen     Pendiente    Constante  F.Escala
+     1    0.0000000     0.0002294    1.2558000   1.0E9
+# Nombre de Central
+'ELTORO'
+# Nombre del Embalse
+'ELTORO'
+# Rendimiento Medio
+4.800
+# Número de Tramos
+1
+#Tramo      Volumen     Pendiente    Constante  F.Escala
+     1    0.0000000     0.0000900    4.5252000   1.0E10
+# Nombre de Central
+'RAPEL'
+# Nombre del Embalse
+'RAPEL'
+# Rendimiento Medio
+0.635
+# Número de Tramos
+1
+#Tramo      Volumen     Pendiente    Constante  F.Escala
+     1    0.0000000     0.0001000    0.5734000   1.0E9
+# Nombre de Central
+'CANUTILLAR'
+# Nombre del Embalse
+'CANUTILLAR'
+# Rendimiento Medio
+2.000
+# Número de Tramos
+1
+#Tramo      Volumen     Pendiente    Constante  F.Escala
+     1    0.0000000     0.0002000    1.8616000   1.0E9
+# Nombre de Central
+'RALCO'
+# Nombre del Embalse
+'RALCO'
+# Rendimiento Medio
+1.600
+# Número de Tramos
+1
+#Tramo      Volumen     Pendiente    Constante  F.Escala
+     1    0.0000000     0.0003850    1.2940410   1.0E9

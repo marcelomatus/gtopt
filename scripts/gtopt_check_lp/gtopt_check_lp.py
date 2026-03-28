@@ -29,13 +29,20 @@ tool helps diagnose the cause by performing several complementary analyses:
 
 Configuration
 -------------
-User preferences are stored in ``~/.gtopt_check_lp.conf`` (INI format).
+User preferences are stored in the unified ``~/.gtopt.conf`` (INI format).
+AI settings live in the ``[global]`` section (shared with other gtopt tools);
+tool-specific settings (email, solver, timeout) live in the
+``[gtopt_check_lp]`` section.
+
 On the first run the tool will prompt for these values interactively (when
 stdin is a TTY) and suggest solver installation commands for any missing
 open-source solvers.
 
 Run ``gtopt_check_lp --init-config`` at any time to create or update the
 configuration file.
+
+**Migration**: if ``~/.gtopt_check_lp.conf`` exists and ``~/.gtopt.conf``
+does not, settings are migrated automatically on first use.
 
 Quiet mode (``--quiet``)
 ------------------------
@@ -112,6 +119,10 @@ from ._neos import (
     _NEOS_DEFAULT_URL,
     _NEOS_LP_CPLEX_XML,  # noqa: F401  (re-exported for tests)
 )
+from ._benchmark import (
+    format_benchmark_table,
+    run_benchmark,
+)
 from ._solvers import (
     _parse_coinor_infeasibility,  # noqa: F401  (re-exported for tests)
     detect_local_solvers,
@@ -123,7 +134,15 @@ from ._solvers import (
     run_all_solvers as _run_all_solvers,
 )
 
-__version__ = "0.1.0"
+try:
+    from importlib.metadata import version as _pkg_version, PackageNotFoundError
+
+    try:
+        __version__ = _pkg_version("gtopt-scripts")
+    except PackageNotFoundError:
+        __version__ = "dev"
+except ImportError:
+    __version__ = "dev"
 
 log = logging.getLogger(__name__)
 
@@ -611,21 +630,21 @@ def _build_parser() -> argparse.ArgumentParser:
             "online server.\n\n"
             "Configuration file\n"
             "------------------\n"
-            "User preferences are stored in ~/.gtopt_check_lp.conf (INI format)\n"
-            "under the [gtopt_check_lp] section.  Run --init-config to create or\n"
-            "update the file interactively.  Recognised keys:\n\n"
+            "Uses the unified ~/.gtopt.conf (INI format).  AI settings go in\n"
+            "[global] (shared with other gtopt tools); tool-specific settings\n"
+            "go in [gtopt_check_lp].  Run --init-config to create or update.\n\n"
+            "[global] keys:\n"
+            "  ai_enabled   Enable AI diagnostics: true/false (default: true)\n"
+            "  ai_provider  AI provider: claude, openai, deepseek, github\n"
+            "  ai_model     Model name override (default: provider-specific)\n"
+            "  color        Terminal color: auto, always, never (default: auto)\n\n"
+            "[gtopt_check_lp] keys:\n"
             "  email        E-mail for NEOS submissions (default: empty)\n"
             "  solver       Solver strategy: all, auto, cplex, highs, coinor,\n"
             "               glpk, neos (default: all)\n"
             "  timeout      Max seconds to wait for any solver (default: 5)\n"
             "  neos_url     NEOS XML-RPC endpoint\n"
-            "               (default: https://neos-server.org:3333)\n"
-            "  color        Terminal color: auto, always, never (default: auto)\n"
-            "  ai_enabled   Enable AI diagnostics: true/false (default: true)\n"
-            "  ai_provider  AI provider: claude, openai, deepseek, github\n"
-            "               (default: claude)\n"
-            "  ai_model     Model name override (default: provider-specific)\n"
-            "  ai_prompt    Custom prompt template with {report} placeholder\n\n"
+            "               (default: https://neos-server.org:3333)\n\n"
             "CLI flags override config-file values for the current run."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -800,6 +819,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Enable verbose / debug logging.",
     )
     parser.add_argument(
+        "-l",
+        "--log-level",
+        default=None,
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        metavar="LEVEL",
+        help="Logging verbosity. Overrides --verbose when both are given.",
+    )
+    parser.add_argument(
         "--config",
         default=None,
         metavar="FILE",
@@ -811,7 +838,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=False,
         help=(
             "Run the interactive configuration wizard to create or update "
-            "~/.gtopt_check_lp.conf, then exit."
+            "~/.gtopt.conf, then exit."
         ),
     )
     parser.add_argument(
@@ -828,6 +855,16 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Print the active configuration (from file + CLI overrides) and exit.",
+    )
+    parser.add_argument(
+        "--benchmark",
+        action="store_true",
+        default=False,
+        help=(
+            "Benchmark mode: solve the LP file with every available solver\n"
+            "using dual and barrier algorithms with threads 0, 2, 4.\n"
+            "Reports a timing table instead of infeasibility analysis."
+        ),
     )
 
     # ── AI diagnostics ────────────────────────────────────────────────────────
@@ -902,8 +939,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     config_path = Path(args.config) if args.config else _default_config_path()
 
     # ── Logging ───────────────────────────────────────────────────────────────
+    log_level = args.log_level or ("DEBUG" if args.verbose else "WARNING")
     logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.WARNING,
+        level=getattr(logging, log_level),
         format="%(levelname)s: %(message)s",
     )
 
@@ -1024,6 +1062,19 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 1
 
     output_file = Path(args.output) if args.output else None
+
+    # ── Benchmark mode ────────────────────────────────────────────────────────
+    if args.benchmark:
+        print(f"\nBenchmarking: {_c(_BOLD, str(lp_path))}")
+        report = run_benchmark(
+            lp_path,
+            timeout=effective_timeout,
+        )
+        table = format_benchmark_table(report, use_color=_USE_COLOR)
+        print(table)
+        if output_file:
+            _write_report(output_file, [table])
+        return 0
 
     return check_lp(
         lp_path,

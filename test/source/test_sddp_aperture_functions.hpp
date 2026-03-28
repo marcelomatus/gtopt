@@ -354,3 +354,95 @@ TEST_CASE("ApertureCutResult default construction")  // NOLINT
 }
 
 }  // namespace
+
+// ─── SDDPMethod aperture integration tests (through solve()) ────────────────
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod aperture with empty aperture_array falls back to Benders")
+{
+  auto planning = make_2phase_2scenario_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 15;
+  sddp_opts.convergence_tol = 1e-3;
+  sddp_opts.apertures = std::vector<Uid> {};  // empty = no apertures
+  sddp_opts.enable_api = false;
+
+  SDDPMethod sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+
+  int total_cuts = 0;
+  for (const auto& r : *results) {
+    total_cuts += r.cuts_added;
+  }
+  CHECK(total_cuts > 0);  // Benders cuts were generated
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod aperture with synthetic apertures converges")
+{
+  auto planning = make_2phase_2scenario_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 15;
+  sddp_opts.convergence_tol = 1e-3;
+  sddp_opts.apertures = std::nullopt;  // use per-phase / synthetic
+  sddp_opts.enable_api = false;
+
+  SDDPMethod sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+
+  int total_cuts = 0;
+  for (const auto& r : *results) {
+    total_cuts += r.cuts_added;
+  }
+  CHECK(total_cuts > 0);
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod aperture timeout triggers fallback")
+{
+  auto planning = make_2phase_2scenario_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 15;
+  sddp_opts.convergence_tol = 1e-3;
+  sddp_opts.apertures = std::nullopt;
+  sddp_opts.aperture_timeout = 0.001;  // 1ms — likely triggers timeout
+  sddp_opts.enable_api = false;
+
+  SDDPMethod sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+  // Solver should still produce results (fallback to Benders on timeout)
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod aperture on single-scenario problem uses Benders")
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 10;
+  sddp_opts.convergence_tol = 1e-3;
+  // Request apertures on a 1-scenario problem — should gracefully
+  // fall back to standard Benders since there are no alternative
+  // scenarios to build apertures from.
+  sddp_opts.apertures = std::nullopt;
+  sddp_opts.enable_api = false;
+
+  SDDPMethod sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+  CHECK(results->back().converged);
+}

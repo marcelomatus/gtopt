@@ -124,6 +124,9 @@ struct MainOptions
   std::optional<double> sddp_elastic_penalty {};
   /** @brief SDDP elastic filter mode: "cut" (default) or "backpropagate" */
   std::optional<std::string> sddp_elastic_mode {};
+  /** @brief SDDP cut coefficient source: "reduced_cost" (default) or
+   * "row_dual" (PLP-style explicit coupling constraint rows) */
+  std::optional<std::string> sddp_cut_coeff_mode {};
   /** @brief Number of SDDP backward-pass apertures (0=disabled, -1=all) */
   std::optional<int> sddp_num_apertures {};
   /** @brief Enable SDDP hot-start from previously saved cuts */
@@ -165,5 +168,26 @@ struct MainOptions
  */
 [[nodiscard]] std::expected<int, std::string> gtopt_main(
     const MainOptions& raw_opts);
+
+/**
+ * @brief Classify an error string into an exit code.
+ *
+ * Examines @p error for keywords indicating input-related errors vs
+ * internal/solver errors.
+ *
+ * @return 2 for input errors (missing file, parse error, invalid JSON),
+ *         3 for internal/solver errors.
+ */
+[[nodiscard]] inline int classify_error_exit_code(
+    std::string_view error) noexcept
+{
+  if (error.contains("not found") || error.contains("not exist")
+      || error.contains("Cannot open") || error.contains("parse")
+      || error.contains("Invalid") || error.contains("JSON"))
+  {
+    return 2;  // input error
+  }
+  return 3;  // internal/solver error
+}
 
 }  // namespace gtopt

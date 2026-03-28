@@ -10,6 +10,10 @@ Each case directory (under ``CASES_DIR``) must contain:
 
 * A system JSON input file.
 * An ``output/`` subdirectory with the expected CSV results.
+* Optionally, ``output_<solver>/`` directories with solver-specific
+  expected results for cases with degenerate LP solutions (where
+  different solvers produce equally-valid but numerically different
+  primal solutions).
 
 The function creates the following CTest tests for every registered case:
 
@@ -17,6 +21,10 @@ The function creates the following CTest tests for every registered case:
 2. **e2e_<case>_validate_solution** – checks solution structure / status.
 3. **e2e_<case>_compare_<csv>** – compares each expected CSV against actual
    output (one test per file).
+
+When ``GTOPT_SOLVER`` is set (via environment or CMake variable) and a
+matching ``output_<solver>/`` directory exists, that directory is used for
+golden-file comparison.  Otherwise, ``output/`` is used.
 
 Required variables (must be set before ``include(AddE2ECase)``):
 
@@ -86,6 +94,7 @@ function(add_e2e_case case_name system_json)
   )
 
   # Test 3: compare each expected CSV file against actual output
+  # Use solver-specific golden files when available
   file(GLOB_RECURSE expected_csvs
     RELATIVE "${expected_dir}"
     "${expected_dir}/*.csv"
@@ -99,6 +108,8 @@ function(add_e2e_case case_name system_json)
       COMMAND ${CMAKE_COMMAND}
         -DACTUAL_FILE=${test_output}/${csv_file}
         -DEXPECTED_FILE=${expected_dir}/${csv_file}
+        -DCASE_DIR=${case_dir}
+        -DCSV_REL_PATH=${csv_file}
         -P ${CMAKE_SCRIPTS_DIR}/compare_csv.cmake
     )
     set_tests_properties(e2e_${case_name}_compare_${test_suffix}

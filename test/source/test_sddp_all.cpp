@@ -41,5 +41,6 @@ using namespace gtopt;  // NOLINT(google-build-using-namespace)
 #include "test_sddp_pool.hpp"
 #include "test_sddp_clone_pool.hpp"
 #include "test_sddp_cut_sharing.hpp"
+#include "test_sddp_feasibility.hpp"
 #include "test_cascade_method.hpp"
 // clang-format on

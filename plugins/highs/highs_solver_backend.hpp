@@ -33,6 +33,7 @@ public:
 
   // ---- identity ----
   [[nodiscard]] std::string_view solver_name() const noexcept override;
+  [[nodiscard]] std::string solver_version() const override;
   [[nodiscard]] double infinity() const noexcept override;
 
   // ---- problem name ----
@@ -137,6 +138,11 @@ private:
   mutable bool m_solution_valid_ {};
 
   void cache_solution() const;
+
+  /// Track the last thread count set on the global scheduler to avoid
+  /// unnecessary resetGlobalScheduler() calls.
+  static inline int s_scheduler_threads_ {
+      0};  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 };
 
 }  // namespace gtopt

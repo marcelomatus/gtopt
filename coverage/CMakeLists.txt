@@ -13,7 +13,7 @@ Quick start::
     [-DCOVERAGE_COMPILER=clang] \
     [-DCOVERAGE_OUTPUT_DIR=/path/to/reports/coverage] \
     [-DCOVERAGE_CMAKE_PREFIX_PATH="$(conda info --base)"]
-  cmake --build build-coverage
+  cmake --build build-coverage -j$(nproc)
 
   # Check tool availability:
   cmake --build build-coverage --target check-deps
@@ -24,6 +24,13 @@ Quick start::
   cmake --build build-coverage --target coverage-run
   cmake --build build-coverage --target coverage-collect
   cmake --build build-coverage --target coverage-report
+
+Prerequisites
+^^^^^^^^^^^^^
+
+Install lcov (required)::
+
+  sudo apt-get install -y lcov
 
 Options
 ^^^^^^^
@@ -66,11 +73,13 @@ Targets
   Builds gtopt + tests in the coverage build directory.
 
 ``coverage-run``
-  Runs ctest with ``--output-on-failure``.
+  Runs ctest with ``--output-on-failure``.  Test failures do NOT block
+  coverage collection — gcda data is still captured.
 
 ``coverage-collect``
   Runs lcov to capture ``.gcda`` data, filters out external code, and
-  generates the HTML report via genhtml.
+  generates the HTML report via genhtml.  Uses ``-j`` for parallel
+  processing.
 
 ``coverage-report``
   Generates ``coverage-summary.md`` and prints a brief summary.
@@ -168,7 +177,7 @@ find_package(Lcov REQUIRED)
 find_program(PYTHON3_EXECUTABLE NAMES python3 python)
 find_program(PYTEST_EXECUTABLE NAMES pytest)
 
-# ---- Find optional tools ------------------------------------------------
+# ---- Processor count for parallelism ------------------------------------
 include(ProcessorCount)
 ProcessorCount(_nproc)
 if(NOT _nproc OR _nproc EQUAL 0)
@@ -196,6 +205,7 @@ message(STATUS "  genhtml:      ${GENHTML_EXECUTABLE}")
 message(STATUS "  python3:      ${PYTHON3_EXECUTABLE}")
 message(STATUS "  pytest:       ${PYTEST_EXECUTABLE}")
 message(STATUS "  Integration:  ${COVERAGE_INTEGRATION_TESTS}")
+message(STATUS "  Parallelism:  ${_nproc} jobs")
 message(STATUS "  Output dir:   ${COVERAGE_OUTPUT_DIR}")
 message(STATUS "  Build dir:    ${_coverage_build_dir}")
 if(NOT PYTHON3_EXECUTABLE OR NOT PYTEST_EXECUTABLE)
@@ -229,6 +239,24 @@ if(COVERAGE_EXTRA_CMAKE_ARGS)
   list(APPEND _configure_args ${_extra_args})
 endif()
 
+# ---- Helper: write a shell script for coverage-run ----------------------
+# We need ctest to NOT fail the pipeline when tests fail, because coverage
+# data (.gcda) is still produced by the tests that did run.  CMake custom
+# targets treat any non-zero exit code as a build failure, so we wrap ctest
+# in a shell script that always returns 0.
+set(_ctest_wrapper "${CMAKE_BINARY_DIR}/run-ctest.sh")
+file(
+  WRITE "${_ctest_wrapper}"
+  "#!/bin/sh\n"
+  "\"${CMAKE_CTEST_COMMAND}\" "
+  "--test-dir \"${_coverage_build_dir}\" "
+  "--output-on-failure "
+  "-j ${_nproc} "
+  "-E 'scripts-(check-format|ruff|format)'\n"
+  "exit 0\n"
+)
+execute_process(COMMAND chmod +x "${_ctest_wrapper}")
+
 # ---- Target: check-deps -------------------------------------------------
 add_custom_target(
   check-deps
@@ -240,8 +268,7 @@ add_custom_target(
   COMMAND ${CMAKE_COMMAND} -E echo "  pytest:    ${PYTEST_EXECUTABLE}"
   COMMAND ${CMAKE_COMMAND} -E echo ""
   COMMAND ${CMAKE_COMMAND} -E echo "Install missing tools:"
-  COMMAND ${CMAKE_COMMAND} -E echo "  sudo apt install lcov"
-  COMMAND ${CMAKE_COMMAND} -E echo "  sudo apt install clang  (for clang gcov)"
+  COMMAND ${CMAKE_COMMAND} -E echo "  sudo apt-get install -y lcov"
   COMMAND ${CMAKE_COMMAND} -E echo "  pip install pytest pytest-cov"
   COMMENT "Checking coverage tool dependencies"
 )
@@ -268,30 +295,26 @@ add_dependencies(coverage-build coverage-configure)
 # ---- Target: coverage-run -----------------------------------------------
 add_custom_target(
   coverage-run
-  COMMAND
-    ${CMAKE_CTEST_COMMAND}
-    --test-dir "${_coverage_build_dir}"
-    --output-on-failure
-    -j ${_nproc}
-    -E "scripts-(check-format|ruff|format)"
+  COMMAND "${_ctest_wrapper}"
   COMMENT "Running tests with coverage instrumentation (excluding format/ruff)..."
   USES_TERMINAL
-  VERBATIM
 )
 add_dependencies(coverage-run coverage-build)
 
 # ---- Target: coverage-collect -------------------------------------------
-# lcov ignore-error options handle common discrepancies between clang's
+# lcov 2.x supports -j for parallel processing.
+# ignore-error options handle common discrepancies between clang's
 # .gcno/.gcda output and lcov's expectations.
 add_custom_target(
   coverage-collect
-  # Step 1: Capture raw coverage data from build tree
+  # Step 1: Capture raw coverage data from build tree (parallel)
   COMMAND
     ${LCOV_EXECUTABLE}
     --capture
     --directory "${_coverage_build_dir}"
     --output-file "${_coverage_raw_info}"
     --gcov-tool "${_gcov_tool}"
+    -j ${_nproc}
     --ignore-errors mismatch,mismatch
     --ignore-errors unexecuted,unexecuted
     --ignore-errors negative,negative
@@ -299,7 +322,7 @@ add_custom_target(
     --ignore-errors format,format
     --rc geninfo_unexecuted_blocks=1
     --rc branch_coverage=1
-  # Step 2: Filter out external/test/third-party files
+  # Step 2: Filter out external/test/third-party files (parallel)
   COMMAND
     ${LCOV_EXECUTABLE}
     --remove "${_coverage_raw_info}"
@@ -312,9 +335,10 @@ add_custom_target(
     "*/spdlog/*"
     --output-file "${_coverage_info}"
     --gcov-tool "${_gcov_tool}"
+    -j ${_nproc}
     --ignore-errors unused,unused,inconsistent,inconsistent
     --rc branch_coverage=1
-  # Step 3: Generate HTML report
+  # Step 3: Generate HTML report (parallel)
   COMMAND
     ${GENHTML_EXECUTABLE}
     "${_coverage_info}"
@@ -322,10 +346,11 @@ add_custom_target(
     --title "gtopt C++ Coverage"
     --legend
     --show-details
+    -j ${_nproc}
     --rc branch_coverage=1
     --ignore-errors inconsistent,inconsistent
     --ignore-errors category,category
-  COMMENT "Collecting coverage data and generating HTML report..."
+  COMMENT "Collecting coverage data and generating HTML report (${_nproc} jobs)..."
   USES_TERMINAL
   VERBATIM
 )

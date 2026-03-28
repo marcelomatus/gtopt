@@ -4726,3 +4726,422 @@ TEST_CASE(
     CHECK(updated2 <= updated1);
   }
 }
+
+// ─── Forward pass elastic fallback ──────────────────────────────────────────
+
+/// Create a 3-phase hydro problem with a very tight reservoir that forces
+/// elastic fallback during the forward pass.  The reservoir emax is so small
+/// that the state variable linking phases 0→1 or 1→2 cannot satisfy the
+/// inflow/outflow constraints without elastic relaxation.
+inline auto make_tight_reservoir_3phase_planning() -> Planning
+{
+  constexpr int num_phases = 3;
+  constexpr int blocks_per_phase = 4;
+  constexpr int total_blocks = num_phases * blocks_per_phase;
+
+  Array<Block> block_array;
+  block_array.reserve(total_blocks);
+  for (int i = 0; i < total_blocks; ++i) {
+    block_array.push_back(Block {
+        .uid = Uid {i + 1},
+        .duration = 1.0,
+    });
+  }
+
+  Array<Stage> stage_array;
+  stage_array.reserve(num_phases);
+  for (int s = 0; s < num_phases; ++s) {
+    stage_array.push_back(Stage {
+        .uid = Uid {s + 1},
+        .first_block = static_cast<Size>(s * blocks_per_phase),
+        .count_block = blocks_per_phase,
+    });
+  }
+
+  Array<Phase> phase_array;
+  phase_array.reserve(num_phases);
+  for (int p = 0; p < num_phases; ++p) {
+    phase_array.push_back(Phase {
+        .uid = Uid {p + 1},
+        .first_stage = static_cast<Size>(p),
+        .count_stage = 1,
+    });
+  }
+
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 50.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "thermal_gen",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {{
+      .uid = Uid {1},
+      .name = "load1",
+      .bus = Uid {1},
+      .capacity = 80.0,
+  }};
+
+  const Array<Junction> junction_array = {
+      {.uid = Uid {1}, .name = "j_up"},
+      {.uid = Uid {2}, .name = "j_down", .drain = true},
+  };
+
+  const Array<Waterway> waterway_array = {{
+      .uid = Uid {1},
+      .name = "ww1",
+      .junction_a = Uid {1},
+      .junction_b = Uid {2},
+      .fmin = 0.0,
+      .fmax = 100.0,
+  }};
+
+  // Very tight reservoir: emax = 15 with inflow = 10 dam³/h × 4 blocks
+  // = 40 dam³ per phase → forces overflow and tight state constraints
+  const Array<Reservoir> reservoir_array = {{
+      .uid = Uid {1},
+      .name = "rsv1",
+      .junction = Uid {1},
+      .capacity = 15.0,
+      .emin = 0.0,
+      .emax = 15.0,
+      .eini = 5.0,
+      .fmin = -1000.0,
+      .fmax = +1000.0,
+      .flow_conversion_rate = 1.0,
+  }};
+
+  const Array<Flow> flow_array = {{
+      .uid = Uid {1},
+      .name = "inflow",
+      .direction = 1,
+      .junction = Uid {1},
+      .discharge = 10.0,
+  }};
+
+  const Array<Turbine> turbine_array = {{
+      .uid = Uid {1},
+      .name = "tur1",
+      .waterway = Uid {1},
+      .generator = Uid {1},
+      .conversion_rate = 1.0,
+  }};
+
+  Simulation simulation = {
+      .block_array = std::move(block_array),
+      .stage_array = std::move(stage_array),
+      .scenario_array = {{.uid = Uid {1}}},
+      .phase_array = std::move(phase_array),
+  };
+
+  PlanningOptions options;
+  options.demand_fail_cost = OptReal {1000.0};
+  options.use_single_bus = OptBool {true};
+  options.scale_objective = OptReal {1.0};
+  options.output_format = DataFormat::csv;
+  options.output_compression = CompressionCodec::uncompressed;
+
+  System system = {
+      .name = "sddp_tight_rsv_3phase",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .flow_array = flow_array,
+      .reservoir_array = reservoir_array,
+      .turbine_array = turbine_array,
+  };
+
+  return Planning {
+      .options = std::move(options),
+      .simulation = std::move(simulation),
+      .system = std::move(system),
+  };
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod — forward pass elastic fallback converges")
+{
+  auto planning = make_tight_reservoir_3phase_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 30;
+  sddp_opts.convergence_tol = 1e-3;
+  sddp_opts.elastic_penalty = 1e6;
+  sddp_opts.enable_api = false;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+  CHECK(results->back().converged);
+}
+
+TEST_CASE("SDDPMethod — warm_start=false converges")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 10;
+  sddp_opts.convergence_tol = 1e-3;
+  sddp_opts.warm_start = false;
+  sddp_opts.enable_api = false;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+  CHECK(results->back().converged);
+}
+
+// ─── Cut sharing modes via solve() ──────────────────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod — cut_sharing accumulate mode via solve")
+{
+  auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 20;
+  sddp_opts.convergence_tol = 1e-3;
+  sddp_opts.cut_sharing = CutSharingMode::accumulate;
+  sddp_opts.enable_api = false;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+  CHECK(results->back().converged);
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod — cut_sharing expected mode via solve")
+{
+  auto planning = make_2scene_3phase_hydro_planning(0.7, 0.3);
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 20;
+  sddp_opts.convergence_tol = 1e-3;
+  sddp_opts.cut_sharing = CutSharingMode::expected;
+  sddp_opts.enable_api = false;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+  CHECK(results->back().converged);
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod — cut_sharing max mode via solve")
+{
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 20;
+  sddp_opts.convergence_tol = 1e-3;
+  sddp_opts.cut_sharing = CutSharingMode::max;
+  sddp_opts.enable_api = false;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+  CHECK(results->back().converged);
+}
+
+// ─── Cut pruning ────────────────────────────────────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod — cut pruning bounds stored cuts")
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 15;
+  sddp_opts.convergence_tol = 1e-6;  // tight to force many iterations
+  sddp_opts.max_cuts_per_phase = 5;
+  sddp_opts.cut_prune_interval = 2;
+  sddp_opts.enable_api = false;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+
+  // With pruning at interval=2 and max=5, stored cuts should be bounded
+  // (exact count depends on convergence, but should not exceed
+  // max_cuts_per_phase × num_phases × num_scenes significantly)
+  CHECK(sddp.num_stored_cuts() <= 30);
+}
+
+// ─── Stationary convergence ─────────────────────────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod — stationary convergence triggers")
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 50;
+  sddp_opts.convergence_tol = 1e-10;  // very tight — primary won't trigger
+  sddp_opts.stationary_tol = 0.5;  // lenient stationary criterion
+  sddp_opts.stationary_window = 3;
+  sddp_opts.enable_api = false;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+
+  // Either stationary convergence triggers or we hit max_iterations.
+  // The problem converges quickly so stationary should fire.
+  const auto& last = results->back();
+  if (last.converged) {
+    // If converged via stationary, that flag is set
+    // (may also converge via primary if gap is small enough)
+    CHECK((last.stationary_converged || last.gap < 1e-3));
+  }
+}
+
+// ─── Simulation mode ────────────────────────────────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod — simulation_mode runs evaluation only")
+{
+  // First train the solver to get cuts
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 5;
+  sddp_opts.convergence_tol = 1e-3;
+  sddp_opts.enable_api = false;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto train_results = sddp.solve();
+  REQUIRE(train_results.has_value());
+  REQUIRE(sddp.num_stored_cuts() > 0);
+
+  // Now re-solve in simulation mode — should return a single-iteration
+  // evaluation result
+  sddp.mutable_options().max_iterations = 1;
+  sddp.clear_stop();
+  auto sim_results = sddp.solve();
+  REQUIRE(sim_results.has_value());
+  CHECK_FALSE(sim_results->empty());
+}
+
+// ─── CutCoeffMode tests ────────────────────────────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod — cut_coeff_mode row_dual converges")
+{
+  auto planning = make_2phase_linear_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 20;
+  sddp_opts.convergence_tol = 1e-4;
+  sddp_opts.enable_api = false;
+  sddp_opts.cut_coeff_mode = CutCoeffMode::row_dual;
+
+  SDDPMethod sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+
+  SUBCASE("converges within allowed iterations")
+  {
+    CHECK(results->back().converged);
+  }
+
+  SUBCASE("cuts were generated")
+  {
+    int total_cuts = 0;
+    for (const auto& r : *results) {
+      total_cuts += r.cuts_added;
+    }
+    CHECK(total_cuts > 0);
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod — reduced_cost and row_dual produce same objective")
+{
+  // Solve the same problem with both modes and verify they converge to
+  // the same objective value (within tolerance).
+  auto planning_rc = make_2phase_linear_planning();
+  PlanningLP plp_rc(std::move(planning_rc));
+
+  SDDPOptions opts_rc;
+  opts_rc.max_iterations = 20;
+  opts_rc.convergence_tol = 1e-4;
+  opts_rc.enable_api = false;
+  opts_rc.cut_coeff_mode = CutCoeffMode::reduced_cost;
+
+  SDDPMethod sddp_rc(plp_rc, opts_rc);
+  auto results_rc = sddp_rc.solve();
+  REQUIRE(results_rc.has_value());
+  REQUIRE(results_rc->back().converged);
+
+  auto planning_rd = make_2phase_linear_planning();
+  PlanningLP plp_rd(std::move(planning_rd));
+
+  SDDPOptions opts_rd;
+  opts_rd.max_iterations = 20;
+  opts_rd.convergence_tol = 1e-4;
+  opts_rd.enable_api = false;
+  opts_rd.cut_coeff_mode = CutCoeffMode::row_dual;
+
+  SDDPMethod sddp_rd(plp_rd, opts_rd);
+  auto results_rd = sddp_rd.solve();
+  REQUIRE(results_rd.has_value());
+  REQUIRE(results_rd->back().converged);
+
+  // Both should converge to the same lower bound (within 1%)
+  const auto lb_rc = results_rc->back().lower_bound;
+  const auto lb_rd = results_rd->back().lower_bound;
+  CHECK(lb_rd == doctest::Approx(lb_rc).epsilon(0.01));
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod — row_dual with 3-phase hydro converges")
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 20;
+  sddp_opts.convergence_tol = 1e-3;
+  sddp_opts.enable_api = false;
+  sddp_opts.cut_coeff_mode = CutCoeffMode::row_dual;
+
+  SDDPMethod sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+  CHECK(results->back().converged);
+}

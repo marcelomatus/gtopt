@@ -6,10 +6,12 @@
  * @copyright BSD-3-Clause
  */
 
+#include <format>
 #include <stdexcept>
 
 #include "osi_solver_backend.hpp"
 
+#include <coin/ClpConfig.h>
 #include <coin/CoinMessageHandler.hpp>
 #include <coin/CoinPackedMatrix.hpp>
 #include <coin/CoinPackedVector.hpp>
@@ -96,6 +98,11 @@ std::string_view OsiSolverBackend::solver_name() const noexcept
       return "cbc";
   }
   return "osi";
+}
+
+std::string OsiSolverBackend::solver_version() const
+{
+  return CLP_VERSION;
 }
 
 double OsiSolverBackend::infinity() const noexcept

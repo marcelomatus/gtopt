@@ -16,12 +16,15 @@
 namespace daw::json
 {
 using gtopt::BoundaryCutsMode;
+using gtopt::CutCoeffMode;
 using gtopt::CutSharingMode;
 using gtopt::ElasticFilterMode;
 using gtopt::HotStartMode;
+using gtopt::MissingCutVarMode;
 using gtopt::RecoveryMode;
 using gtopt::SddpOptions;
 using gtopt::SolverOptions;
+using gtopt::StateVariableLookupMode;
 
 /// Custom constructor: converts JSON strings → typed enums
 struct SddpOptionsConstructor
@@ -52,6 +55,7 @@ struct SddpOptionsConstructor
       OptName boundary_cuts_file,
       OptName boundary_cuts_mode_str,
       OptInt boundary_max_iterations,
+      OptName missing_cut_var_mode_str,
       OptName named_cuts_file,
       OptInt max_cuts_per_phase,
       OptInt cut_prune_interval,
@@ -60,7 +64,8 @@ struct SddpOptionsConstructor
       OptInt max_stored_cuts,
       OptBool use_clone_pool,
       OptBool simulation_mode,
-      OptInt state_propagation_int,
+      OptName cut_coeff_mode_str,
+      OptName state_variable_lookup_mode_str,
       OptReal stationary_tol,
       OptInt stationary_window,
       std::optional<SolverOptions> forward_solver_options,
@@ -106,6 +111,10 @@ struct SddpOptionsConstructor
           gtopt::boundary_cuts_mode_from_name(*boundary_cuts_mode_str);
     }
     opts.boundary_max_iterations = boundary_max_iterations;
+    if (missing_cut_var_mode_str) {
+      opts.missing_cut_var_mode =
+          gtopt::missing_cut_var_mode_from_name(*missing_cut_var_mode_str);
+    }
     opts.named_cuts_file = std::move(named_cuts_file);
     opts.max_cuts_per_phase = max_cuts_per_phase;
     opts.cut_prune_interval = cut_prune_interval;
@@ -114,9 +123,14 @@ struct SddpOptionsConstructor
     opts.max_stored_cuts = max_stored_cuts;
     opts.use_clone_pool = use_clone_pool;
     opts.simulation_mode = simulation_mode;
-    if (state_propagation_int) {
-      opts.state_propagation =
-          static_cast<gtopt::StatePropagation>(*state_propagation_int);
+    if (cut_coeff_mode_str) {
+      opts.cut_coeff_mode =
+          gtopt::cut_coeff_mode_from_name(*cut_coeff_mode_str);
+    }
+    if (state_variable_lookup_mode_str) {
+      opts.state_variable_lookup_mode =
+          gtopt::state_variable_lookup_mode_from_name(
+              *state_variable_lookup_mode_str);
     }
     opts.stationary_tol = stationary_tol;
     opts.stationary_window = stationary_window;
@@ -158,6 +172,23 @@ inline OptName enum_to_opt_name(const std::optional<BoundaryCutsMode>& e)
            : OptName {};
 }
 
+inline OptName enum_to_opt_name(const std::optional<MissingCutVarMode>& e)
+{
+  return e ? OptName {std::string(gtopt::missing_cut_var_mode_name(*e))}
+           : OptName {};
+}
+
+inline OptName enum_to_opt_name(const std::optional<CutCoeffMode>& e)
+{
+  return e ? OptName {std::string(gtopt::cut_coeff_mode_name(*e))} : OptName {};
+}
+
+inline OptName enum_to_opt_name(const std::optional<StateVariableLookupMode>& e)
+{
+  return e ? OptName {std::string(gtopt::state_variable_lookup_mode_name(*e))}
+           : OptName {};
+}
+
 }  // namespace detail
 
 template<>
@@ -193,6 +224,7 @@ struct json_data_contract<SddpOptions>
       json_string_null<"boundary_cuts_file", OptName>,
       json_string_null<"boundary_cuts_mode", OptName>,
       json_number_null<"boundary_max_iterations", OptInt>,
+      json_string_null<"missing_cut_var_mode", OptName>,
       json_string_null<"named_cuts_file", OptName>,
       json_number_null<"max_cuts_per_phase", OptInt>,
       json_number_null<"cut_prune_interval", OptInt>,
@@ -201,7 +233,8 @@ struct json_data_contract<SddpOptions>
       json_number_null<"max_stored_cuts", OptInt>,
       json_bool_null<"use_clone_pool", OptBool>,
       json_bool_null<"simulation_mode", OptBool>,
-      json_number_null<"state_propagation", OptInt>,
+      json_string_null<"cut_coeff_mode", OptName>,
+      json_string_null<"state_variable_lookup_mode", OptName>,
       json_number_null<"stationary_tol", OptReal>,
       json_number_null<"stationary_window", OptInt>,
       json_class_null<"forward_solver_options", SolverOptions>,
@@ -235,6 +268,7 @@ struct json_data_contract<SddpOptions>
         opt.boundary_cuts_file,
         detail::enum_to_opt_name(opt.boundary_cuts_mode),
         opt.boundary_max_iterations,
+        detail::enum_to_opt_name(opt.missing_cut_var_mode),
         opt.named_cuts_file,
         opt.max_cuts_per_phase,
         opt.cut_prune_interval,
@@ -243,9 +277,8 @@ struct json_data_contract<SddpOptions>
         opt.max_stored_cuts,
         opt.use_clone_pool,
         opt.simulation_mode,
-        opt.state_propagation
-            ? OptInt {static_cast<int>(*opt.state_propagation)}
-            : OptInt {},
+        detail::enum_to_opt_name(opt.cut_coeff_mode),
+        detail::enum_to_opt_name(opt.state_variable_lookup_mode),
         opt.stationary_tol,
         opt.stationary_window,
         opt.forward_solver_options,

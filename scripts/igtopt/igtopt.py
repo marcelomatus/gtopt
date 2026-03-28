@@ -988,6 +988,12 @@ def main(argv: list[str] | None = None) -> None:
                 "only used with --make-template"
             ),
         )
+        parser.add_argument(
+            "--no-color",
+            action="store_true",
+            default=False,
+            help="Disable coloured output.",
+        )
 
         args = parser.parse_args(argv)
 
