@@ -31,6 +31,7 @@
 #include <gtopt/aperture.hpp>
 #include <gtopt/aperture_data_cache.hpp>
 #include <gtopt/benders_cut.hpp>
+#include <gtopt/enum_option.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/phase.hpp>
@@ -185,6 +186,8 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
     std::span<const double> forward_col_sol = {},
     std::span<const double> forward_row_dual = {},
     LinearInterface* pooled_clone = nullptr,
-    IterationIndex iteration = {}) -> std::optional<SparseRow>;
+    IterationIndex iteration = {},
+    CutCoeffMode cut_coeff_mode = CutCoeffMode::reduced_cost)
+    -> std::optional<SparseRow>;
 
 }  // namespace gtopt

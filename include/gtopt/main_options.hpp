@@ -209,6 +209,10 @@ template<typename T>
       ("sddp-elastic-mode",
        po::value<std::string>(),
        "SDDP elastic filter mode: cut (default) or backpropagate")  //
+      ("sddp-cut-coeff-mode",
+       po::value<std::string>(),
+       "SDDP cut coefficient source: reduced_cost (default) or row_dual "
+       "(PLP-style)")  //
       ("sddp-num-apertures",
        po::value<int>(),
        "SDDP backward-pass aperture count: 0=disabled (default), -1=all, "
@@ -256,6 +260,7 @@ inline void apply_cli_options(
     const std::optional<double>& sddp_convergence_tol = {},
     const std::optional<double>& sddp_elastic_penalty = {},
     const std::optional<std::string>& sddp_elastic_mode = {},
+    const std::optional<std::string>& sddp_cut_coeff_mode = {},
     const std::optional<int>& sddp_num_apertures = {},
     const std::optional<bool>& lp_debug = {},
     const std::optional<std::string>& lp_compression = {},
@@ -320,6 +325,11 @@ inline void apply_cli_options(
         elastic_filter_mode_from_name(sddp_elastic_mode.value());
   }
 
+  if (sddp_cut_coeff_mode) {
+    planning.options.sddp_options.cut_coeff_mode =
+        cut_coeff_mode_from_name(sddp_cut_coeff_mode.value());
+  }
+
   if (sddp_num_apertures) {
     // Legacy CLI: convert num_apertures int to apertures array.
     // 0 → empty (no apertures), >0 or <0 handled at solve time.
@@ -371,6 +381,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
                     opts.sddp_convergence_tol,
                     opts.sddp_elastic_penalty,
                     opts.sddp_elastic_mode,
+                    opts.sddp_cut_coeff_mode,
                     opts.sddp_num_apertures,
                     opts.lp_debug,
                     opts.lp_compression,
@@ -506,6 +517,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .sddp_convergence_tol = get_opt<double>(vm, "sddp-convergence-tol"),
       .sddp_elastic_penalty = get_opt<double>(vm, "sddp-elastic-penalty"),
       .sddp_elastic_mode = get_opt<std::string>(vm, "sddp-elastic-mode"),
+      .sddp_cut_coeff_mode = get_opt<std::string>(vm, "sddp-cut-coeff-mode"),
       .sddp_num_apertures = get_opt<int>(vm, "sddp-num-apertures"),
       .recover = get_opt<bool>(vm, "recover"),
       .solver = get_opt<std::string>(vm, "solver"),
@@ -641,6 +653,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   opts.sddp_convergence_tol = get_dbl("sddp-convergence-tol");
   opts.sddp_elastic_penalty = get_dbl("sddp-elastic-penalty");
   opts.sddp_elastic_mode = get_str("sddp-elastic-mode");
+  opts.sddp_cut_coeff_mode = get_str("sddp-cut-coeff-mode");
   opts.sddp_num_apertures = get_int("sddp-num-apertures");
 
   // Solver
@@ -702,6 +715,7 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.sddp_convergence_tol, defaults.sddp_convergence_tol);
   merge(opts.sddp_elastic_penalty, defaults.sddp_elastic_penalty);
   merge(opts.sddp_elastic_mode, defaults.sddp_elastic_mode);
+  merge(opts.sddp_cut_coeff_mode, defaults.sddp_cut_coeff_mode);
   merge(opts.sddp_num_apertures, defaults.sddp_num_apertures);
   merge(opts.solver, defaults.solver);
   merge(opts.algorithm, defaults.algorithm);

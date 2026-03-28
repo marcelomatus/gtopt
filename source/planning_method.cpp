@@ -54,6 +54,7 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       // Advanced tuning
       sddp_opts.elastic_penalty = options.sddp_elastic_penalty();
       sddp_opts.elastic_filter_mode = options.sddp_elastic_mode_enum();
+      sddp_opts.cut_coeff_mode = options.sddp_cut_coeff_mode_enum();
       sddp_opts.multi_cut_threshold = options.sddp_multi_cut_threshold();
       sddp_opts.apertures = options.sddp_apertures();
       sddp_opts.aperture_timeout = options.sddp_aperture_timeout();
@@ -176,6 +177,7 @@ std::unique_ptr<PlanningMethod> make_planning_method(
 
       sddp_opts.elastic_penalty = options.sddp_elastic_penalty();
       sddp_opts.elastic_filter_mode = options.sddp_elastic_mode_enum();
+      sddp_opts.cut_coeff_mode = options.sddp_cut_coeff_mode_enum();
       sddp_opts.multi_cut_threshold = options.sddp_multi_cut_threshold();
       sddp_opts.apertures = options.sddp_apertures();
       sddp_opts.aperture_timeout = options.sddp_aperture_timeout();
