@@ -463,13 +463,16 @@ void SDDPMethod::dispatch_update_lp(SceneIndex scene, IterationIndex iteration)
   for (const auto phase : iota_range<PhaseIndex>(0, num_phases)) {
     auto& sys = planning_lp().system(scene, phase);
 
-    // Set previous phase's SystemLP so that update_lp elements can
-    // look up the previous phase's efin for cross-phase boundaries
-    // (physical_eini cross-phase fallback).
-    // In last_iteration mode, skip this — physical_eini falls back
-    // to warm solution or default_eini instead of the previous phase.
-    const auto prop = planning_lp().options().sddp_state_propagation();
-    if (phase > PhaseIndex {0} && prop == StatePropagation::inter_phase) {
+    // Set previous phase's SystemLP so that update_lp elements
+    // (seepage, production factor, discharge limit) can look up the
+    // previous phase's efin when computing reservoir volume via
+    // physical_eini.  In warm_start mode, skip this — physical_eini
+    // falls back to the warm solution or vini instead.
+    const auto lookup =
+        planning_lp().options().sddp_state_variable_lookup_mode();
+    if (phase > PhaseIndex {0}
+        && lookup == StateVariableLookupMode::cross_phase)
+    {
       const auto prev = PhaseIndex {static_cast<Index>(phase) - 1};
       sys.set_prev_phase_sys(&planning_lp().system(scene, prev));
     } else {
@@ -638,12 +641,21 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene,
   // Use cached forward-pass solution for cut generation.
   const auto& target_state = phase_states[phase];
 
-  auto cut = build_benders_cut(
-      src_state.alpha_col,
-      src_state.outgoing_links,
-      target_state.forward_col_cost,
-      target_state.forward_full_obj,
-      sddp_label("sddp", "scut", scene, phase, iteration, cut_offset));
+  const auto coeff_mode = m_options_.cut_coeff_mode;
+
+  auto cut = (coeff_mode == CutCoeffMode::row_dual)
+      ? build_benders_cut_from_row_duals(
+            src_state.alpha_col,
+            src_state.outgoing_links,
+            target_state.forward_row_dual,
+            target_state.forward_full_obj,
+            sddp_label("sddp", "scut", scene, phase, iteration, cut_offset))
+      : build_benders_cut(
+            src_state.alpha_col,
+            src_state.outgoing_links,
+            target_state.forward_col_cost,
+            target_state.forward_full_obj,
+            sddp_label("sddp", "scut", scene, phase, iteration, cut_offset));
 
   const auto cut_row = src_li.add_row(cut);
   store_cut(scene, prev_phase, cut, CutType::Optimality, cut_row);
@@ -1142,36 +1154,33 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   }
 
   // ── Load boundary cuts (future-cost function for last phase) ──────────
-  // Boundary cuts are part of the problem specification, not recovery
-  // state — always load when specified, regardless of recovery_mode.
+  // Boundary cuts are part of the problem specification (analogous to
+  // PLP's "planos de embalse"), NOT recovery state.  They do NOT
+  // affect the iteration offset — the solver always starts from
+  // iteration 0 (or from the recovery offset if recovery cuts exist).
   if (!m_options_.boundary_cuts_file.empty()) {
     auto result = load_boundary_cuts(m_options_.boundary_cuts_file);
     if (result.has_value()) {
-      m_iteration_offset_ =
-          std::max(m_iteration_offset_, result->max_iteration);
-      SPDLOG_INFO("SDDP: loaded {} boundary cuts from {} (max_iter={})",
+      SPDLOG_INFO("SDDP: loaded {} boundary cuts from {}",
                   result->count,
-                  m_options_.boundary_cuts_file,
-                  result->max_iteration);
+                  m_options_.boundary_cuts_file);
     } else {
       SPDLOG_WARN("SDDP: could not load boundary cuts: {}",
                   result.error().message);
     }
   }
 
-  // ── Load named hot-start cuts (all phases, named state variables) ─────
-  // Named cuts are also part of the problem specification — always load.
+  // ── Load named cuts (all phases, named state variables) ────────────────
+  // Named cuts are also part of the problem specification — always load,
+  // but do NOT affect the iteration offset.
   if (!m_options_.named_cuts_file.empty()) {
     auto result = load_named_cuts(m_options_.named_cuts_file);
     if (result.has_value()) {
-      m_iteration_offset_ =
-          std::max(m_iteration_offset_, result->max_iteration);
-      SPDLOG_INFO("SDDP: loaded {} named hot-start cuts from {} (max_iter={})",
+      SPDLOG_INFO("SDDP: loaded {} named cuts from {}",
                   result->count,
-                  m_options_.named_cuts_file,
-                  result->max_iteration);
+                  m_options_.named_cuts_file);
     } else {
-      SPDLOG_WARN("SDDP: could not load named hot-start cuts: {}",
+      SPDLOG_WARN("SDDP: could not load named cuts: {}",
                   result.error().message);
     }
   }

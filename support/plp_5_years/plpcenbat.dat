@@ -1,0 +1,480 @@
+#Archivo de caracteristicas de baterias (plpcenbat.dat)
+# Numero de baterias total, Numero maximo de inyecciones
+68          1
+# Baterias
+1     BAT_ARENALES
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     BAT_ARENALES_LOAD     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+16     0.95     0.0     900.0
+2     BAT_ARICA
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     BAT_ARICA_LOAD     0.99
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+6     0.92     0.0     2.0
+3     BAT_TOCOPILLA
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     BAT_TOCOPILLA_LOAD     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+83     0.95     0.0     580.0
+4     BAT_CHACA
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     BAT_CHACA_LOAD     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+69     0.95     0.0     912.0
+5     BAT_ARENA
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     BAT_ARENA_LOAD     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+69     0.95     0.0     1100.0
+6     BAT_ARICA_2
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     BAT_ARICA_2_LOAD     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+6     0.95     0.0     150.0
+7     BAT_LILE
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     BAT_LILE_LOAD     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+48     0.95     0.0     798.0
+8     BAT_ALFALFAL
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     ALFALFAL     5.23
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+89     0.95     0.0     250.0
+9     BAT_KALLPA_EO
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     KALLPA_EO     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+230     0.95     0.0     285.0
+10     BAT_LA_CABANA_EO
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     LA_CABANA_EO     0.98
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+150     0.98     0.0     129.6
+11     BAT_PUNTA_SIERRA_EO
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     PUNTA_SIERRA_EO     0.97
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+74     0.97     0.0     6.0
+12     BAT_ANDES_2A_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     ANDES_2A_FV     0.97
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+2     0.97     0.0     268.8
+13     BAT_ANDES_2B_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     ANDES_2B_FV     0.96
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+2     0.92     0.0     645.0
+14     BAT_ANDES_3_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     ANDES_3_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+2     0.95     0.0     513.9
+15     BAT_ANDES_4_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     ANDES_4_FV     0.98
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+2     0.98     0.0     650.0
+16     BAT_BOLERO_1_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     BOLERO_1_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+41     0.95     0.0     438.0
+17     BAT_CAPRICORNIO_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     CAPRICORNIO_FV     0.97
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+9     0.97     0.0     264.2
+18     BAT_COYA_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     COYA_FV     0.98
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+21     0.97     0.0     681.3
+19     BAT_DESIERTO_DE_ATACAMA_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     DESIERTO_DE_ATACAMA_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+11     0.95     0.0     234.6
+20     BAT_DIEGO_ALMAGRO_SUR_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     DIEGO_ALMAGRO_SUR_FV     0.97
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+218     0.97     0.0     32.0
+21     BAT_DON_HUMBERTO_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     DON_HUMBERTO_FV     0.97
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+170     0.97     0.0     120.0
+22     BAT_DOS_PINOS_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     DOS_PINOS_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+71     0.95     0.0     12.0
+23     BAT_FRAGATA_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     FRAGATA_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+29     0.95     0.0     7.2
+24     BAT_GABRIELA_COBRE_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     GABRIELA_COBRE_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+32     0.95     0.0     1100.0
+25     BAT_HUATACONDO_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     HUATACONDO_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+224     0.95     0.0     98.0
+26     BAT_LIVORNO_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     LIVORNO_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+144     0.95     0.0     28.8
+27     BAT_LUZ_DEL_NORTE_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     LUZ_DEL_NORTE_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+20     0.95     0.0     423.1
+28     BAT_MANZANO_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     MANZANO_FV     0.98
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+168     0.98     0.0     120.0
+29     BAT_MARIA_ELENA_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     MARIA_ELENA_FV     0.97
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+55     0.97     0.0     121.0
+30     BAT_NUEVO_QUILLAGUA_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     NUEVO_QUILLAGUA_FV     0.98
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+55     0.98     0.0     589.0
+31     BAT_NUEVO_QUILLAGUA_2_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     NUEVO_QUILLAGUA_2_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+55     0.95     0.0     651.0
+32     BAT_RIVAZZURRA_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     RIVAZZURRA_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+92     0.95     0.0     18.2
+33     BAT_SALVADOR_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     SALVADOR_FV     0.93
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+24     0.93     0.0     250.0
+34     BAT_SAN_ANDRES_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     SAN_ANDRES_FV     0.85
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+20     0.99     0.0     385.0
+35     BAT_SAN_JUAN_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     SAN_JUAN_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+110     0.95     0.0     45.0
+36     BAT_SAN_MARCOS_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     SAN_MARCOS_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+6     0.95     0.0     2.3
+37     BAT_SOL_DE_VALLE_HERMOSO_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     SOL_DE_VALLE_HERMOSO_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+98     0.95     0.0     49.5
+38     BAT_TAMAYA_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     TAMAYA_FV     0.98
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+80     0.97     0.0     420.0
+39     BAT_URIBE_SOLAR_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     URIBE_SOLAR_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+36     0.91     0.0     5.0
+40     BAT_VICTOR_JARA_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     VICTOR_JARA_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+68     0.95     0.0     1300.0
+41     BAT_SANTA_MARTA
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     SANTA_MARTA     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+183     0.95     0.0     50.0
+42     BAT_RITA_DEL_MAITEN_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     RITA_DEL_MAITEN_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+131     0.95     0.0     22.0
+43     BAT_EL_PELICANO_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     EL_PELICANO_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+31     0.95     0.0     200.0
+44     BAT_MONZA_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     MONZA_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+31     0.95     0.0     26.0
+45     BAT_ESTEPA_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     ESTEPA_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+21     0.95     0.0     1672.0
+46     BAT_ELENA_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     ELENA_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+222     0.95     0.0     3010.0
+47     BAT_LOS_LOROS_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     LOS_LOROS_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+11     0.95     0.0     230.0
+48     BAT_LIBELULA_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     LIBELULA_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+168     0.95     0.0     960.1
+49     BAT_HIJUELA_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     HIJUELA_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+52     0.95     0.0     49.5
+50     BAT_EL_OLIVAR_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     EL_OLIVAR_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+52     0.95     0.0     49.5
+51     BAT_LUNA_DE_VERANO_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     LUNA_DE_VERANO_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+31     0.95     0.0     600.1
+52     BAT_MODENA_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     MODENA_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+92     0.95     0.0     36.0
+53     BAT_CHICHA_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     CHICHA_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+141     0.95     0.0     45.0
+54     BAT_PICHIRROPULLI_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     PICHIRROPULLI_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+164     0.95     0.0     30.0
+55     BAT_ESTELA_SOLAR_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     ESTELA_SOLAR_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+44     0.95     0.0     935.0
+56     BAT_CRISTALES_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     CRISTALES_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+226     0.95     0.0     1360.0
+57     BAT_NUEVA_PAILLACO_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     NUEVA_PAILLACO_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+164     0.95     0.0     25.1
+58     BAT_LOS_QUILOS_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     LOS_QUILOS_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+176     0.95     0.0     33.0
+59     BAT_LAS_VIOLETAS_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     LAS_VIOLETAS_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+183     0.95     0.0     22.0
+60     BAT_WILLKA_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     WILLKA_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+19     0.95     0.0     306.5
+61     BAT_PUNTA_DE_TALCA_EO
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     PUNTA_DE_TALCA_EO     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+79     0.95     0.0     240.0
+62     BAT_GRAN_TENO_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     GRAN_TENO_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+195     0.95     0.0     800.0
+63     BAT_DEL_DESIERTO
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     BAT_DEL_DESIERTO_LOAD     0.97
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+21     0.97     0.0     800.0
+64     BAT_PAMPAS_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     PAMPAS_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+230     0.95     0.0     1360.0
+65     BAT_SOCOMPA_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     SOCOMPA_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+226     0.95     0.0     1000.0
+66     BAT_ARBOLEDA_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     ARBOLEDA_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+195     0.95     0.0     160.0
+67     BAT_DON_CARLOS_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     DON_CARLOS_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+53     0.95     0.0     980.0
+68     BAT_ZALDIVAR_FV
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     ZALDIVAR_FV     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+64     0.95     0.0     140.0

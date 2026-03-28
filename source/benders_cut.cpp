@@ -40,6 +40,46 @@ void propagate_trial_values(std::span<StateVarLink> links,
   }
 }
 
+void propagate_trial_values_row_dual(std::span<StateVarLink> links,
+                                     std::span<const double> source_solution,
+                                     LinearInterface& target_li) noexcept
+{
+  for (auto& link : links) {
+    link.trial_value = source_solution[link.source_col];
+
+    // Keep the column at its physical bounds (not fixed).
+    target_li.set_col_low(link.dependent_col, link.source_low);
+    target_li.set_col_upp(link.dependent_col, link.source_upp);
+
+    if (link.coupling_row != RowIndex {unknown_index}) {
+      // Reuse existing coupling row — just update the RHS.
+      target_li.set_row_low(link.coupling_row, link.trial_value);
+      target_li.set_row_upp(link.coupling_row, link.trial_value);
+
+      SPDLOG_TRACE("row_dual propagation: col {} = {:.4f} (updated row {})",
+                   static_cast<Index>(link.dependent_col),
+                   link.trial_value,
+                   static_cast<Index>(link.coupling_row));
+    } else {
+      // First call: add explicit coupling constraint x_dep = trial_value.
+      auto coupling = SparseRow {
+          .name = {},
+          .lowb = link.trial_value,
+          .uppb = link.trial_value,
+      };
+      coupling[link.dependent_col] = 1.0;
+
+      link.coupling_row = target_li.add_row(coupling);
+
+      SPDLOG_TRACE(
+          "row_dual propagation: col {} = {:.4f} via new coupling row {}",
+          static_cast<Index>(link.dependent_col),
+          link.trial_value,
+          static_cast<Index>(link.coupling_row));
+    }
+  }
+}
+
 auto build_benders_cut(ColIndex alpha_col,
                        std::span<const StateVarLink> links,
                        std::span<const double> reduced_costs,
@@ -57,6 +97,28 @@ auto build_benders_cut(ColIndex alpha_col,
     const auto rc = reduced_costs[link.dependent_col];
     row[link.source_col] = -rc;
     row.lowb -= rc * link.trial_value;
+  }
+
+  return row;
+}
+
+auto build_benders_cut_from_row_duals(ColIndex alpha_col,
+                                      std::span<const StateVarLink> links,
+                                      std::span<const double> row_duals,
+                                      double objective_value,
+                                      std::string_view name) -> SparseRow
+{
+  auto row = SparseRow {
+      .name = std::string(name),
+      .lowb = objective_value,
+      .uppb = LinearProblem::DblMax,
+  };
+  row[alpha_col] = 1.0;
+
+  for (const auto& link : links) {
+    const auto pi = row_duals[link.coupling_row];
+    row[link.source_col] = -pi;
+    row.lowb -= pi * link.trial_value;
   }
 
   return row;

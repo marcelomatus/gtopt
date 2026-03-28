@@ -62,7 +62,7 @@ function(_resolve_imported_location _target _out_var)
 endfunction()
 
 function(configure_install_rpath _target)
-  set(_system_lib_dirs "^(/usr/lib|/usr/lib64|/lib|/lib64|/usr/lib/x86_64-linux-gnu)$")
+  set(_system_lib_dirs "^(/usr/lib|/usr/lib64|/lib|/lib64|/usr/lib/x86_64-linux-gnu|/usr/lib/aarch64-linux-gnu|/usr/lib/arm-linux-gnueabihf|/usr/lib/powerpc64le-linux-gnu|/usr/lib/s390x-linux-gnu)$")
   set(_install_rpaths "")
 
   # Determine which targets to inspect for link libraries
@@ -128,9 +128,19 @@ function(configure_install_rpath _target)
     endif()
   endforeach()
 
+  # Filter empty entries and duplicates.
+  list(FILTER _install_rpaths EXCLUDE REGEX "^$")
   list(REMOVE_DUPLICATES _install_rpaths)
 
+  # Always include $ORIGIN so the plugin can find sibling libraries
+  # when relocated (e.g. packaged alongside solver libs).
+  list(PREPEND _install_rpaths "$ORIGIN")
+
   if(_install_rpaths)
-    set_target_properties(${_target} PROPERTIES INSTALL_RPATH "${_install_rpaths}")
+    set_target_properties(${_target} PROPERTIES
+      INSTALL_RPATH "${_install_rpaths}"
+      # Also bake RPATH into the build-tree binary (not just install).
+      BUILD_RPATH "${_install_rpaths}"
+    )
   endif()
 endfunction()

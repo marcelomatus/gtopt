@@ -326,6 +326,7 @@ auto load_cuts_csv(PlanningLP& planning_lp,
     // Skip metadata comments (# ...) and find the CSV header line
     bool has_type_col = false;
     while (std::getline(ifs, line)) {
+      strip_cr(line);
       if (line.empty() || line.starts_with('#')) {
         continue;
       }
@@ -355,6 +356,7 @@ auto load_cuts_csv(PlanningLP& planning_lp,
     // Process data lines
     int line_num = 1;  // header was line 1
     while (std::getline(ifs, line)) {
+      strip_cr(line);
       ++line_num;
       if (line.empty() || line.starts_with('#')) {
         continue;
@@ -691,10 +693,7 @@ auto load_boundary_cuts_csv(
     // (Legacy format without iteration column is auto-detected.)
     std::string header_line;
     std::getline(ifs, header_line);
-    // Strip trailing \r from Windows line endings
-    if (!header_line.empty() && header_line.back() == '\r') {
-      header_line.pop_back();
-    }
+    strip_cr(header_line);
 
     std::vector<std::string> headers;
     {
@@ -753,6 +752,8 @@ auto load_boundary_cuts_csv(
         static_cast<int>(headers.size()) - state_var_start;
     std::vector<std::optional<ColIndex>> header_col_map;
     header_col_map.reserve(num_state_cols);
+    std::vector<std::string> header_names;
+    header_names.reserve(num_state_cols);
 
     for (int hi = state_var_start; std::cmp_less(hi, headers.size()); ++hi) {
       const auto& hdr = headers[hi];
@@ -791,16 +792,12 @@ auto load_boundary_cuts_csv(
         }
       }
 
-      if (!found_col.has_value()) {
-        SPDLOG_WARN(
-            "Boundary cuts: state variable '{}' not found in "
-            "the current model (it may have been removed or "
-            "renamed since the cuts were saved); its "
-            "coefficients will be ignored in the loaded cuts",
-            hdr);
-      }
       header_col_map.push_back(found_col);
+      header_names.push_back(hdr);
     }
+
+    // Track which missing state variables have already been warned about.
+    std::set<int> warned_missing_cols;
 
     // ── Pre-scan: collect all rows for max_iterations filtering ──
     struct RawBoundaryCut
@@ -815,6 +812,7 @@ auto load_boundary_cuts_csv(
     std::vector<RawBoundaryCut> raw_cuts;
     std::string line;
     while (std::getline(ifs, line)) {
+      strip_cr(line);
       if (line.empty()) {
         continue;
       }
@@ -892,16 +890,45 @@ auto load_boundary_cuts_csv(
       }
     }
 
-    // ── Compute max iteration from loaded raw cuts ────────────────
-    IterationIndex max_iteration {};
-    for (const auto& rc : raw_cuts) {
-      max_iteration = std::max(max_iteration, rc.iteration);
-    }
-
     // ── Add cuts to the LP ──────────────────────────────────────
     const auto scale_obj = planning_lp.options().scale_objective();
+    IterationIndex max_iteration {};
+    const auto missing_mode = options.missing_cut_var_mode;
     int cuts_loaded = 0;
+    int cuts_skipped = 0;
     for (const auto& rc : raw_cuts) {
+      // Pre-scan: check for missing state variables with non-zero
+      // coefficients.
+      bool has_missing = false;
+      {
+        std::istringstream scan_ss(rc.coeff_line);
+        std::string tok;
+        for (int ci = 0; std::cmp_less(ci, header_col_map.size()); ++ci) {
+          if (!std::getline(scan_ss, tok, ',')) {
+            break;
+          }
+          if (!header_col_map[ci].has_value() && !tok.empty()
+              && std::stod(tok) != 0.0)
+          {
+            has_missing = true;
+            if (!warned_missing_cols.contains(ci)) {
+              warned_missing_cols.insert(ci);
+              SPDLOG_WARN(
+                  "Boundary cuts: state variable '{}' not "
+                  "found in the current model; non-zero "
+                  "coefficient {} (mode={})",
+                  header_names[ci],
+                  tok,
+                  missing_cut_var_mode_name(missing_mode));
+            }
+          }
+        }
+      }
+      if (has_missing && missing_mode == MissingCutVarMode::skip_cut) {
+        ++cuts_skipped;
+        continue;
+      }
+
       // Determine which scenes get this cut
       SceneIndex scene_start {0};
       SceneIndex scene_end {num_scenes};
@@ -932,23 +959,31 @@ auto load_boundary_cuts_csv(
         auto& li = planning_lp.system(scene, last_phase).linear_interface();
         std::istringstream coeff_ss(rc.coeff_line);
         std::string token;
-        for (const auto& col_opt : header_col_map) {
+        for (int ci = 0; std::cmp_less(ci, header_col_map.size()); ++ci) {
           if (!std::getline(coeff_ss, token, ',')) {
             break;
           }
-          if (!col_opt.has_value()) {
-            continue;
+          if (!header_col_map[ci].has_value()) {
+            continue;  // skip_coeff: drop missing coefficient
           }
           const auto coeff = std::stod(token);
           if (coeff != 0.0) {
-            const auto scale = li.get_col_scale(*col_opt);
-            row[*col_opt] = -coeff * scale / scale_obj;
+            const auto scale = li.get_col_scale(*header_col_map[ci]);
+            row[*header_col_map[ci]] = -coeff * scale / scale_obj;
           }
         }
 
         li.add_row(row);
       }
+      max_iteration = std::max(max_iteration, rc.iteration);
       ++cuts_loaded;
+    }
+
+    if (cuts_skipped > 0) {
+      SPDLOG_WARN(
+          "Boundary cuts: skipped {} cut(s) referencing "
+          "missing state variables",
+          cuts_skipped);
     }
 
     SPDLOG_INFO(
@@ -997,10 +1032,7 @@ auto load_named_cuts_csv(
     // Format: name,iteration,scene,phase,rhs,StateVar1,...
     std::string header_line;
     std::getline(ifs, header_line);
-    // Strip trailing \r from Windows line endings
-    if (!header_line.empty() && header_line.back() == '\r') {
-      header_line.pop_back();
-    }
+    strip_cr(header_line);
 
     std::vector<std::string> headers;
     {
@@ -1111,13 +1143,6 @@ auto load_named_cuts_csv(
           }
         }
 
-        if (!found_col.has_value()) {
-          SPDLOG_TRACE(
-              "Named cuts: could not find state variable "
-              "for header '{}' in phase {}; column ignored",
-              hdr,
-              phase);
-        }
         col_map.push_back(found_col);
       }
 
@@ -1125,10 +1150,14 @@ auto load_named_cuts_csv(
       return ins_it->second;
     };
 
+    // Track which missing state variables have already been warned about.
+    std::set<std::pair<PhaseIndex, int>> warned_missing_named;
+
     // ── Read all cut rows ───────────────────────────────────────
     CutLoadResult result {};
     std::string line;
     while (std::getline(ifs, line)) {
+      strip_cr(line);
       if (line.empty()) {
         continue;
       }
@@ -1143,7 +1172,6 @@ auto load_named_cuts_csv(
       // Column 1: iteration
       std::getline(iss, token, ',');
       const IterationIndex iteration {std::stoi(token)};
-      result.max_iteration = std::max(result.max_iteration, iteration);
 
       // Column 2: scene UID
       std::getline(iss, token, ',');
@@ -1191,6 +1219,38 @@ auto load_named_cuts_csv(
       std::string remainder;
       std::getline(iss, remainder);
 
+      // Pre-scan: check for missing state variables
+      bool has_missing = false;
+      {
+        std::istringstream scan_ss(remainder);
+        std::string tok;
+        for (int ci = 0; std::cmp_less(ci, col_map.size()); ++ci) {
+          if (!std::getline(scan_ss, tok, ',')) {
+            break;
+          }
+          if (!col_map[ci].has_value() && !tok.empty() && std::stod(tok) != 0.0)
+          {
+            has_missing = true;
+            if (!warned_missing_named.contains({phase, ci})) {
+              warned_missing_named.emplace(phase, ci);
+              SPDLOG_WARN(
+                  "Named cuts: state variable '{}' not "
+                  "found in phase {}; non-zero "
+                  "coefficient {} (mode={})",
+                  headers[kFixedCols + ci],
+                  phase,
+                  tok,
+                  missing_cut_var_mode_name(options.missing_cut_var_mode));
+            }
+          }
+        }
+      }
+      if (has_missing
+          && options.missing_cut_var_mode == MissingCutVarMode::skip_cut)
+      {
+        continue;
+      }
+
       for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
         const auto& state = scene_phase_states[scene][phase];
 
@@ -1204,22 +1264,23 @@ auto load_named_cuts_csv(
         auto& li = planning_lp.system(scene, phase).linear_interface();
         std::istringstream coeff_ss(remainder);
         std::string ctok;
-        for (const auto& col_opt : col_map) {
+        for (int ci = 0; std::cmp_less(ci, col_map.size()); ++ci) {
           if (!std::getline(coeff_ss, ctok, ',')) {
             break;
           }
-          if (!col_opt.has_value()) {
+          if (!col_map[ci].has_value()) {
             continue;
           }
           const auto coeff = std::stod(ctok);
           if (coeff != 0.0) {
-            const auto scale = li.get_col_scale(*col_opt);
-            row[*col_opt] = -coeff * scale / scale_obj;
+            const auto scale = li.get_col_scale(*col_map[ci]);
+            row[*col_map[ci]] = -coeff * scale / scale_obj;
           }
         }
 
         li.add_row(row);
       }
+      result.max_iteration = std::max(result.max_iteration, iteration);
       ++result.count;
     }
 

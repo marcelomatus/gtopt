@@ -52,7 +52,8 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
-  const auto stage_capacity = capacity.at(stage.uid()).value_or(CoinDblMax);
+  const auto stage_capacity =
+      capacity.at(stage.uid()).value_or(LinearProblem::DblMax);
 
   const auto& junction = sc.element<JunctionLP>(junction_sid());
   if (!junction.is_active(stage)) {

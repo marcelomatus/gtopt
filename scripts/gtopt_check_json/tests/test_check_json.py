@@ -11,6 +11,7 @@ from gtopt_check_json._checks import (
     Severity,
     check_affluent_nonneg,
     check_battery_efficiency,
+    check_boundary_cuts,
     check_bus_connectivity,
     check_capacity_adequacy,
     check_cascade_levels,
@@ -430,7 +431,7 @@ class TestConfig:
 
     def test_default_config_path(self) -> None:
         p = default_config_path()
-        assert p.name == ".gtopt_check_json.conf"
+        assert p.name == ".gtopt.conf"
 
     def test_load_missing_returns_defaults(self) -> None:
         cfg = load_config(Path("/nonexistent/.conf"))
@@ -1242,3 +1243,117 @@ class TestCascadeSolverType:
         # method not set at all → empty string → no warning
         findings = check_cascade_solver_type(case)
         assert not findings
+
+
+class TestBoundaryCuts:
+    """Test check_boundary_cuts."""
+
+    def test_no_sddp_options_no_findings(self) -> None:
+        assert not check_boundary_cuts(_VALID_CASE)
+
+    def test_no_boundary_file_no_findings(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["sddp_options"] = {}
+        assert not check_boundary_cuts(case)
+
+    def test_missing_file_warning(self, tmp_path: Path) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["sddp_options"] = {
+            "boundary_cuts_file": "nonexistent.csv",
+        }
+        findings = check_boundary_cuts(case, base_dir=str(tmp_path))
+        assert len(findings) == 1
+        assert findings[0].severity == Severity.WARNING
+        assert "not found" in findings[0].message
+
+    def test_all_known_state_vars_ok(self, tmp_path: Path) -> None:
+        cuts_csv = tmp_path / "boundary.csv"
+        cuts_csv.write_text("name,iteration,scene,rhs,RES_A,RES_B\n")
+
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["sddp_options"] = {
+            "boundary_cuts_file": "boundary.csv",
+        }
+        case["system"]["junction_array"] = [
+            {"uid": 1, "name": "RES_A"},
+            {"uid": 2, "name": "RES_B"},
+        ]
+        case["system"]["reservoir_array"] = [
+            {"uid": 1, "name": "RES_A", "junction": 1},
+            {"uid": 2, "name": "RES_B", "junction": 2},
+        ]
+        findings = check_boundary_cuts(case, base_dir=str(tmp_path))
+        assert not findings
+
+    def test_unknown_state_var_warning(self, tmp_path: Path) -> None:
+        cuts_csv = tmp_path / "boundary.csv"
+        cuts_csv.write_text("name,iteration,scene,rhs,RES_A,UNKNOWN\n")
+
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["sddp_options"] = {
+            "boundary_cuts_file": "boundary.csv",
+        }
+        case["system"]["junction_array"] = [
+            {"uid": 1, "name": "RES_A"},
+        ]
+        case["system"]["reservoir_array"] = [
+            {"uid": 1, "name": "RES_A", "junction": 1},
+        ]
+        findings = check_boundary_cuts(case, base_dir=str(tmp_path))
+        assert len(findings) == 1
+        assert findings[0].severity == Severity.WARNING
+        assert "UNKNOWN" in findings[0].message
+
+    def test_use_state_variable_false_excluded(self, tmp_path: Path) -> None:
+        """Reservoir with use_state_variable=false is not a known state var."""
+        cuts_csv = tmp_path / "boundary.csv"
+        cuts_csv.write_text("name,iteration,scene,rhs,RES_A,RES_B\n")
+
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["sddp_options"] = {
+            "boundary_cuts_file": "boundary.csv",
+        }
+        case["system"]["junction_array"] = [
+            {"uid": 1, "name": "RES_A"},
+            {"uid": 2, "name": "RES_B"},
+        ]
+        case["system"]["reservoir_array"] = [
+            {"uid": 1, "name": "RES_A", "junction": 1},
+            {
+                "uid": 2,
+                "name": "RES_B",
+                "junction": 2,
+                "use_state_variable": False,
+            },
+        ]
+        findings = check_boundary_cuts(case, base_dir=str(tmp_path))
+        assert len(findings) == 1
+        assert "RES_B" in findings[0].message
+
+    def test_battery_state_var(self, tmp_path: Path) -> None:
+        """Batteries are always state variables."""
+        cuts_csv = tmp_path / "boundary.csv"
+        cuts_csv.write_text("name,iteration,scene,rhs,BAT1\n")
+
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["sddp_options"] = {
+            "boundary_cuts_file": "boundary.csv",
+        }
+        case["system"]["battery_array"] = [
+            {"uid": 1, "name": "BAT1", "bus": 1},
+        ]
+        findings = check_boundary_cuts(case, base_dir=str(tmp_path))
+        assert not findings
+
+    def test_no_state_vars_in_model(self, tmp_path: Path) -> None:
+        """CSV has state var columns but model has none."""
+        cuts_csv = tmp_path / "boundary.csv"
+        cuts_csv.write_text("name,iteration,scene,rhs,GHOST\n")
+
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["sddp_options"] = {
+            "boundary_cuts_file": "boundary.csv",
+        }
+        findings = check_boundary_cuts(case, base_dir=str(tmp_path))
+        assert len(findings) == 1
+        assert "no state variables" in findings[0].message

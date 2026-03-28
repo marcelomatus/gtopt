@@ -75,8 +75,8 @@ LineLP::LossParams LineLP::compute_loss_params(const SystemContext& sc,
 //   f_total   = Σ f_seg_k        (linking)
 //   loss      = Σ loss_k·f_seg_k (loss tracking)
 // Bus balance:
-//   sending:   −f_total − loss   (power leaves)
-//   receiving: +f_total          (power arrives)
+//   sending:   −f_total          (power leaves)
+//   receiving: +f_total − loss   (power arrives, net of losses)
 //
 // Units: R [Ω], f [MW], V [kV] → P_loss [MW].
 
@@ -113,8 +113,8 @@ LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
       .cost = block_tcost,
   });
 
-  // Receiving bus sees total flow (no loss subtracted)
-  receiving_brow[flow_col] = +1;
+  // Receiving bus sees total flow minus losses
+  receiving_brow[flow_col] = +1.0;
 
   // Linking: f_total − Σ f_seg_k = 0
   auto linkrow =
@@ -131,7 +131,7 @@ LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
       .name =
           sc.lp_col_label(scenario, stage, block, cname, labels.loss, uid()),
       .lowb = 0,
-      .uppb = CoinDblMax,
+      .uppb = LinearProblem::DblMax,
   });
 
   // Loss linking: loss − Σ loss_k · f_seg_k = 0
@@ -144,10 +144,10 @@ LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
   lossrow.reserve(reserve_sz);
   lossrow[loss_col] = +1.0;
 
-  // Power leaving sending bus = f_total + loss (both negative in the
-  // balance equation: generation − outgoing power = 0).
+  // Power leaving sending bus = f_total (no loss at sending end).
+  // Loss is subtracted at the receiving bus.
   sending_brow[flow_col] = -1.0;
-  sending_brow[loss_col] = -1.0;
+  receiving_brow[loss_col] = -1.0;
 
   // Add segment variables with increasing loss coefficients
   for (const auto k : iota_range(1, nseg + 1)) {
@@ -215,6 +215,8 @@ void LineLP::add_kirchhoff_rows(SystemContext& sc,
 
   const double scale_theta = sc.options().scale_theta();
   const double X = stage_reactance.value();
+  // V defaults to 1.0 (per-unit mode).  When V is in kV, X must be in Ω
+  // so that B = V²/X yields consistent susceptance units.
   const double V = voltage.at(stage.uid()).value_or(1);
   const double x = scale_theta * (X / (V * V));
 
@@ -377,8 +379,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
         });
         fpcols[buid] = fpc;
 
-        brow_a[fpc] = -(1 + loss.lossfactor);
-        brow_b[fpc] = +1;
+        brow_a[fpc] = -1;
+        brow_b[fpc] = +(1 - loss.lossfactor);
 
         if (capacity_col) {
           auto cprow =
@@ -402,8 +404,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
         });
         fncols[buid] = fnc;
 
-        brow_b[fnc] = -(1 + loss.lossfactor);
-        brow_a[fnc] = +1;
+        brow_b[fnc] = -1;
+        brow_a[fnc] = +(1 - loss.lossfactor);
 
         if (capacity_col) {
           auto cnrow =

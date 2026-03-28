@@ -44,6 +44,7 @@ public:
 
   // ---- identity ----
   [[nodiscard]] std::string_view solver_name() const noexcept override;
+  [[nodiscard]] std::string solver_version() const override;
   [[nodiscard]] double infinity() const noexcept override;
 
   // ---- problem name ----

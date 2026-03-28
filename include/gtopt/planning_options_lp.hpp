@@ -668,6 +668,16 @@ public:
   }
 
   /**
+   * @brief Gets the cut coefficient extraction mode as a typed enum
+   * @return The CutCoeffMode enum value (default: reduced_cost)
+   */
+  [[nodiscard]] constexpr auto sddp_cut_coeff_mode_enum() const -> CutCoeffMode
+  {
+    return m_options_.sddp_options.cut_coeff_mode.value_or(
+        CutCoeffMode::reduced_cost);
+  }
+
+  /**
    * @brief Gets the multi_cut threshold
    * @return Forward-pass infeasibility count before auto-switching to
    *         multi_cut (default: 10; 0 = never auto-switch)
@@ -709,6 +719,14 @@ public:
   [[nodiscard]] auto sddp_boundary_max_iterations() const -> int
   {
     return m_options_.sddp_options.boundary_max_iterations.value_or(0);
+  }
+
+  /// How to handle cut rows referencing missing state variables.
+  [[nodiscard]] constexpr auto sddp_missing_cut_var_mode() const
+      -> MissingCutVarMode
+  {
+    return m_options_.sddp_options.missing_cut_var_mode.value_or(
+        MissingCutVarMode::skip_coeff);
   }
 
   /// CSV file with named-variable cuts for hot-start across all phases.
@@ -759,12 +777,13 @@ public:
     return m_options_.sddp_options.warm_start.value_or(true);
   }
 
-  /** @brief Gets the state variable propagation mode for SDDP forward pass.
-   *  Default: last_iteration (no inter-phase chaining). */
-  [[nodiscard]] constexpr auto sddp_state_propagation() const
+  /** @brief How update_lp elements obtain reservoir/battery volume between
+   *  phases (affects seepage, production factor, discharge limit only).
+   *  Default: warm_start (no cross-phase lookup). */
+  [[nodiscard]] constexpr auto sddp_state_variable_lookup_mode() const
   {
-    return m_options_.sddp_options.state_propagation.value_or(
-        StatePropagation::last_iteration);
+    return m_options_.sddp_options.state_variable_lookup_mode.value_or(
+        StateVariableLookupMode::warm_start);
   }
 
   /**

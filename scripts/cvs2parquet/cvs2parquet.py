@@ -87,7 +87,7 @@ examples:
 """
 
 
-def main():
+def main(argv: list[str] | None = None) -> int:
     """CLI entry point: convert one or more CSV files to Parquet."""
     parser = argparse.ArgumentParser(
         prog="cvs2parquet",
@@ -133,7 +133,13 @@ def main():
         action="version",
         version=f"%(prog)s {__version__}",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--no-color",
+        action="store_true",
+        default=False,
+        help="Disable coloured output.",
+    )
+    args = parser.parse_args(argv)
 
     if args.output and len(args.input) > 1:
         parser.error("--output can only be used with a single input file")

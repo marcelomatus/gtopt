@@ -29,7 +29,7 @@ conda for Arrow/Parquet, and saves `tools/compile_commands.json` for clang-tidy.
 sudo apt-get update && sudo apt-get install -y --no-install-recommends \
   ccache coinor-libcbc-dev libarrow-dev libparquet-dev \
   libboost-container-dev libspdlog-dev liblapack-dev libblas-dev \
-  zlib1g-dev libzstd-dev zstd
+  zlib1g-dev libzstd-dev zstd lcov
 
 cmake -S all -B build -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
@@ -211,6 +211,8 @@ Each `.dat` file has a `lee*.f` reader (e.g. `leefilemb.f` → `plpfilemb.dat`).
 - **`plpmaness.dat`**: 5-6 fields: `IBind Emin Emax DCMin DCMax [DCMod]`
 - **`plpess.dat`**: `Nombre nd nc mloss Emax DCMax [DCMod] [CenCarga]`
   (discharge eff `nd` first, charge eff `nc` second)
+  - DCMod=0: standalone battery; DCMod=1: `source_generator` (internal bus)
+  - DCMod=2: regulation tank → mapped to hydro Reservoir (not Battery)
 - **`plpfilemb.dat`**: filtration model with segments and unit conversions
 
 ### What gtopt optimizes

@@ -189,11 +189,11 @@ def _validate_sddp_options(sddp: dict, messages: list[str]) -> None:
         if val and val not in valid:
             messages.append(f"WARN: sddp {mode_key}='{val}' not in {valid}")
 
-    sp = sddp.get("state_propagation")
-    if sp is not None and sp not in (0, 1):
+    svlm = sddp.get("state_variable_lookup_mode")
+    if svlm is not None and svlm not in ("warm_start", "cross_phase"):
         messages.append(
-            f"WARN: sddp state_propagation={sp} not in {{0, 1}} "
-            "(0=last_iteration, 1=inter_phase)"
+            f"WARN: sddp state_variable_lookup_mode='{svlm}' not in "
+            "{{'warm_start', 'cross_phase'}}"
         )
 
     timeout = sddp.get("aperture_timeout")

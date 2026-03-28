@@ -20,6 +20,12 @@ Sub-modules
 """
 
 from ._ai import AiOptions, query_ai
+from ._benchmark import (
+    BenchmarkReport,
+    BenchmarkResult,
+    format_benchmark_table,
+    run_benchmark,
+)
 from ._compress import as_plain_lp, is_compressed, read_lp_text, resolve_lp_path
 from ._config import (
     default_config_path,
@@ -48,6 +54,8 @@ from .gtopt_check_lp import check_lp, main  # noqa: F401
 
 __all__ = [
     "AiOptions",
+    "BenchmarkReport",
+    "BenchmarkResult",
     "LPStats",
     "NeosClient",
     "VariableBounds",
@@ -56,6 +64,7 @@ __all__ = [
     "check_lp",
     "default_config_path",
     "detect_local_solvers",
+    "format_benchmark_table",
     "format_static_report",
     "is_compressed",
     "load_config",
@@ -64,6 +73,7 @@ __all__ = [
     "read_lp_text",
     "resolve_lp_path",
     "run_all_solvers",
+    "run_benchmark",
     "run_interactive_setup",
     "run_iis",
     "run_local_coinor",

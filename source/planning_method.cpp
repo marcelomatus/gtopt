@@ -54,6 +54,7 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       // Advanced tuning
       sddp_opts.elastic_penalty = options.sddp_elastic_penalty();
       sddp_opts.elastic_filter_mode = options.sddp_elastic_mode_enum();
+      sddp_opts.cut_coeff_mode = options.sddp_cut_coeff_mode_enum();
       sddp_opts.multi_cut_threshold = options.sddp_multi_cut_threshold();
       sddp_opts.apertures = options.sddp_apertures();
       sddp_opts.aperture_timeout = options.sddp_aperture_timeout();
@@ -95,6 +96,7 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       sddp_opts.boundary_cuts_mode = options.sddp_boundary_cuts_mode_enum();
       sddp_opts.boundary_max_iterations =
           options.sddp_boundary_max_iterations();
+      sddp_opts.missing_cut_var_mode = options.sddp_missing_cut_var_mode();
 
       const auto named_cuts = options.sddp_named_cuts_file();
       if (!named_cuts.empty()) {
@@ -175,6 +177,7 @@ std::unique_ptr<PlanningMethod> make_planning_method(
 
       sddp_opts.elastic_penalty = options.sddp_elastic_penalty();
       sddp_opts.elastic_filter_mode = options.sddp_elastic_mode_enum();
+      sddp_opts.cut_coeff_mode = options.sddp_cut_coeff_mode_enum();
       sddp_opts.multi_cut_threshold = options.sddp_multi_cut_threshold();
       sddp_opts.apertures = options.sddp_apertures();
       sddp_opts.aperture_timeout = options.sddp_aperture_timeout();
@@ -217,6 +220,7 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       sddp_opts.boundary_cuts_mode = options.sddp_boundary_cuts_mode_enum();
       sddp_opts.boundary_max_iterations =
           options.sddp_boundary_max_iterations();
+      sddp_opts.missing_cut_var_mode = options.sddp_missing_cut_var_mode();
 
       const auto named_cuts = options.sddp_named_cuts_file();
       if (!named_cuts.empty()) {

@@ -351,33 +351,38 @@ TEST_CASE("sddp_cut_recovery_mode explicit values")  // NOLINT
   }
 }
 
-// ─── StatePropagation ───────────────────────────────────────────────────────
+// ─── StateVariableLookupMode ────────────────────────────────────────────────
 
-TEST_CASE("StatePropagation enum from_name and name round-trip")  // NOLINT
+TEST_CASE(
+    "StateVariableLookupMode enum from_name and name round-trip")  // NOLINT
 {
-  CHECK(state_propagation_from_name("last_iteration")
-            .value_or(StatePropagation::inter_phase)
-        == StatePropagation::last_iteration);
-  CHECK(state_propagation_from_name("inter_phase")
-            .value_or(StatePropagation::last_iteration)
-        == StatePropagation::inter_phase);
-  CHECK_FALSE(state_propagation_from_name("unknown").has_value());
+  CHECK(state_variable_lookup_mode_from_name("warm_start")
+            .value_or(StateVariableLookupMode::cross_phase)
+        == StateVariableLookupMode::warm_start);
+  CHECK(state_variable_lookup_mode_from_name("cross_phase")
+            .value_or(StateVariableLookupMode::warm_start)
+        == StateVariableLookupMode::cross_phase);
+  CHECK_FALSE(state_variable_lookup_mode_from_name("unknown").has_value());
 
-  CHECK(state_propagation_name(StatePropagation::last_iteration)
-        == "last_iteration");
-  CHECK(state_propagation_name(StatePropagation::inter_phase) == "inter_phase");
+  CHECK(state_variable_lookup_mode_name(StateVariableLookupMode::warm_start)
+        == "warm_start");
+  CHECK(state_variable_lookup_mode_name(StateVariableLookupMode::cross_phase)
+        == "cross_phase");
 }
 
-TEST_CASE("sddp_state_propagation default is last_iteration")  // NOLINT
+TEST_CASE("sddp_state_variable_lookup_mode default is warm_start")  // NOLINT
 {
   const PlanningOptionsLP opts(PlanningOptions {});
-  CHECK(opts.sddp_state_propagation() == StatePropagation::last_iteration);
+  CHECK(opts.sddp_state_variable_lookup_mode()
+        == StateVariableLookupMode::warm_start);
 }
 
-TEST_CASE("sddp_state_propagation inter_phase when set")  // NOLINT
+TEST_CASE("sddp_state_variable_lookup_mode cross_phase when set")  // NOLINT
 {
   PlanningOptions raw;
-  raw.sddp_options.state_propagation = StatePropagation::inter_phase;
+  raw.sddp_options.state_variable_lookup_mode =
+      StateVariableLookupMode::cross_phase;
   const PlanningOptionsLP opts(std::move(raw));
-  CHECK(opts.sddp_state_propagation() == StatePropagation::inter_phase);
+  CHECK(opts.sddp_state_variable_lookup_mode()
+        == StateVariableLookupMode::cross_phase);
 }

@@ -673,3 +673,52 @@ TEST_CASE("InputTraits FileSched - CSV fallback")
 
   std::filesystem::remove_all(tmp_root);
 }
+
+// ---------------------------------------------------------------------------
+// InputTraits — scalar schedule (constant value via OptReal)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("InputTraits scalar OptTBRealSched returns constant")
+{
+  const auto sim = make_test_simulation();
+  const PlanningOptions opts;
+  const PlanningOptionsLP options {opts};
+  SimulationLP simulation {sim, options};
+
+  const System sys;
+  SystemLP system {sys, simulation};
+  const SystemContext sc {simulation, system};
+  const InputContext ic {sc};
+
+  const Id id {Uid {1}, "scalar_cost"};
+  const OptReal scalar_value {42.0};
+  const OptTBRealSched sched {ic, "Scalar", id, scalar_value};
+
+  CHECK(sched.at(StageUid {1}, BlockUid {1}).value_or(0.0)
+        == doctest::Approx(42.0));
+  CHECK(sched.at(StageUid {2}, BlockUid {2}).value_or(0.0)
+        == doctest::Approx(42.0));
+}
+
+// ---------------------------------------------------------------------------
+// InputTraits — nullopt schedule returns nullopt
+// ---------------------------------------------------------------------------
+
+TEST_CASE("InputTraits nullopt OptTBRealSched returns nullopt")
+{
+  const auto sim = make_test_simulation();
+  const PlanningOptions opts;
+  const PlanningOptionsLP options {opts};
+  SimulationLP simulation {sim, options};
+
+  const System sys;
+  SystemLP system {sys, simulation};
+  const SystemContext sc {simulation, system};
+  const InputContext ic {sc};
+
+  const Id id {Uid {1}, "null_sched"};
+  const OptReal null_value;
+  const OptTBRealSched sched {ic, "Null", id, null_value};
+
+  CHECK_FALSE(sched.at(StageUid {1}, BlockUid {1}).has_value());
+}
