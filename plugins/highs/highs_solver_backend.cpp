@@ -366,6 +366,14 @@ void HighsSolverBackend::apply_options(const SolverOptions& opts)
     m_highs_->setOptionValue("time_limit", *tl);
   }
 
+  if (opts.threads > 0 && opts.threads != s_scheduler_threads_) {
+    // HiGHS uses a process-wide global thread scheduler initialized on the
+    // first run().  Changing the thread count requires resetting the scheduler
+    // first.  Only reset when the count actually changes to avoid the cost of
+    // tearing down and recreating the thread pool on every solve.
+    Highs::resetGlobalScheduler(/*blocking=*/true);
+    s_scheduler_threads_ = opts.threads;
+  }
   if (opts.threads > 0) {
     m_highs_->setOptionValue("threads", opts.threads);
   }
