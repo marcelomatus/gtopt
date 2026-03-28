@@ -4,7 +4,9 @@ cmake_minimum_required(VERSION 3.14)
 #
 # Usage:
 #   cmake -DGTOPT_BINARY=<path> -DINPUT_FILE=<path> -DOUTPUT_DIR=<path>
-#         -DWORKING_DIR=<path> [-DSDDP_MAX_ITERATIONS=<n>] -P run_sddp_gtopt.cmake
+#         -DWORKING_DIR=<path> [-DSDDP_MAX_ITERATIONS=<n>]
+#         [-DALLOWED_EXIT_CODES=<list>]
+#         -P run_sddp_gtopt.cmake
 #
 # Creates the output directory, runs gtopt with SDDP options, and checks exit code.
 
@@ -24,6 +26,10 @@ if(NOT DEFINED SDDP_MAX_ITERATIONS)
   set(SDDP_MAX_ITERATIONS 1)
 endif()
 
+if(NOT DEFINED ALLOWED_EXIT_CODES)
+  set(ALLOWED_EXIT_CODES "0")
+endif()
+
 # Create a clean output directory
 if(EXISTS "${OUTPUT_DIR}")
   file(REMOVE_RECURSE "${OUTPUT_DIR}")
@@ -41,18 +47,20 @@ execute_process(
     "${INPUT_FILE}"
     --set output_directory=${OUTPUT_DIR}
     --set sddp_options.max_iterations=${SDDP_MAX_ITERATIONS}
-    --set sddp_options.min_iterations=1
   WORKING_DIRECTORY "${WORKING_DIR}"
   RESULT_VARIABLE exit_code
   OUTPUT_VARIABLE stdout
   ERROR_VARIABLE stderr
 )
 
-if(NOT exit_code EQUAL 0)
+# Check if exit code is in the allowed list
+string(REPLACE ";" ";" allowed_list "${ALLOWED_EXIT_CODES}")
+list(FIND allowed_list "${exit_code}" _idx)
+if(_idx EQUAL -1)
   message(FATAL_ERROR
-    "gtopt SDDP exited with code ${exit_code}\n"
+    "gtopt SDDP exited with code ${exit_code} (allowed: ${ALLOWED_EXIT_CODES})\n"
     "stdout: ${stdout}\n"
     "stderr: ${stderr}")
 endif()
 
-message(STATUS "gtopt SDDP completed successfully (exit code: ${exit_code})")
+message(STATUS "gtopt SDDP completed (exit code: ${exit_code})")

@@ -1,17 +1,22 @@
 # add_sddp_case.cmake - Register an SDDP integration test case
 #
 # Usage:
-#   add_sddp_case(<case_name> <system_json> [MAX_ITERATIONS <n>])
+#   add_sddp_case(<case_name> <system_json>
+#     [MAX_ITERATIONS <n>] [ALLOWED_EXIT_CODES <list>])
 #
 # Registers two CTest tests:
 #   e2e_<case_name>_sddp_solve    - run gtopt in SDDP mode
 #   e2e_<case_name>_sddp_validate - validate sddp_status.json and solution.csv
 
 function(add_sddp_case case_name system_json)
-  cmake_parse_arguments(ARG "" "MAX_ITERATIONS" "" ${ARGN})
+  cmake_parse_arguments(ARG "" "MAX_ITERATIONS;ALLOWED_EXIT_CODES" "" ${ARGN})
 
   if(NOT DEFINED ARG_MAX_ITERATIONS)
     set(ARG_MAX_ITERATIONS 1)
+  endif()
+
+  if(NOT DEFINED ARG_ALLOWED_EXIT_CODES)
+    set(ARG_ALLOWED_EXIT_CODES "0")
   endif()
 
   set(case_dir "${CASES_DIR}/${case_name}")
@@ -27,6 +32,7 @@ function(add_sddp_case case_name system_json)
       -DOUTPUT_DIR=${test_output}
       -DWORKING_DIR=${case_dir}
       -DSDDP_MAX_ITERATIONS=${ARG_MAX_ITERATIONS}
+      -DALLOWED_EXIT_CODES=${ARG_ALLOWED_EXIT_CODES}
       -P ${CMAKE_SCRIPTS_DIR}/run_sddp_gtopt.cmake
     WORKING_DIRECTORY "${case_dir}"
   )
