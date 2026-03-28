@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "status": "done",
+  "elapsed_s": 0.028,
+  "total_scenes": 1,
+  "scenes_done": 1,
+  "scene_times": [0.0067],
+  "realtime": {
+    "timestamps": [0.000],
+    "cpu_loads": [6.7],
+    "active_workers": [0]
+  }
+}
