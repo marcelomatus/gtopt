@@ -153,6 +153,19 @@ struct MainOptions
   /** @brief Number of solver threads override (0=automatic).
    *  Mapped to solver_options.threads by apply_cli_options. */
   std::optional<int> threads {};
+
+  // ---- generic option overrides ----
+  /** @brief Repeatable ``--set key=value`` overrides.
+   *
+   * Each entry is a ``dotted.path=value`` string that maps to a field in
+   * the Planning options JSON structure.  Values are auto-typed:
+   * ``true``/``false`` → bool, integers → int, decimals → double,
+   * otherwise → string.  Applied as a JSON overlay merged into Planning
+   * after file parsing but before specific CLI flags.
+   *
+   * Example: ``--set sddp_options.forward_solver_options.threads=8``
+   */
+  std::vector<std::string> set_options {};
 };
 
 /**

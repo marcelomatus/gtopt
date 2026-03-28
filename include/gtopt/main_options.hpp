@@ -23,6 +23,11 @@
 #include <gtopt/planning.hpp>
 #include <gtopt/solver_options.hpp>
 
+#ifndef SPDLOG_ACTIVE_LEVEL
+#  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#endif
+#include <spdlog/spdlog.h>
+
 namespace gtopt
 {
 
@@ -108,31 +113,11 @@ template<typename T>
        po::value<std::vector<std::string>>(),
        "planning file(s) (planning.json); may be a JSON file, a stem "
        "(without .json), or a directory name")  //
-      ("input-directory,D",
-       po::value<std::string>(),
-       "root directory for external Parquet/CSV input files (default: input)")
-      //
-      ("input-format,F",
-       po::value<std::string>(),
-       "preferred input file format: parquet (default) or csv")  //
-      ("output-directory,d",
-       po::value<std::string>(),
-       "root directory for solution output files (default: output)")  //
-      ("output-format,f",
-       po::value<std::string>(),
-       "output file format: parquet (default) or csv")  //
-      ("output-compression,C",
-       po::value<std::string>(),
-       "Parquet compression codec: gzip (default), zstd, lzo, uncompressed")
-      //
-      ("use-single-bus,b",
-       po::value<bool>().implicit_value(/*v=*/true),
-       "copper-plate (single-bus) mode: ignore all transmission constraints")
-      //
-      ("use-kirchhoff,k",
-       po::value<bool>().implicit_value(/*v=*/true),
-       "enforce DC Kirchhoff voltage-law constraints (requires reactance data)")
-      //
+      ("set",
+       po::value<std::vector<std::string>>(),
+       "set any Planning option via dotted path (repeatable). "
+       "Example: --set sddp_options.forward_solver_options.threads=8. "
+       "Values are auto-typed (bool/int/double/string)")  //
       // ---- LP options ----
       ("lp-file,l",
        po::value<std::string>(),
@@ -148,19 +133,6 @@ template<typename T>
        po::value<bool>().implicit_value(/*v=*/true),
        "build all LP matrices then exit without solving (combine with -l to "
        "save them)")  //
-      ("lp-debug",
-       po::value<bool>().implicit_value(/*v=*/true),
-       "save debug LP files to the log directory (one per scene/phase for "
-       "monolithic; one per iteration/scene/phase for SDDP)")  //
-      ("lp-compression",
-       po::value<std::string>(),
-       "compression codec for debug LP files: empty=auto, none=uncompressed, "
-       "or gzip/zstd/lz4/bzip2/xz")  //
-      ("lp-coeff-ratio",
-       po::value<double>(),
-       "LP coefficient ratio threshold for conditioning diagnostics: when the "
-       "global max/min |coeff| ratio exceeds this value a per-scene/phase "
-       "table is printed (default: 1e7)")  //
       // ---- debug / output helpers ----
       ("json-file,j",
        po::value<std::string>(),
@@ -175,44 +147,10 @@ template<typename T>
        po::value<bool>().implicit_value(/*v=*/true),
        "print LP coefficient statistics and system stats before/after solving")
       //
-      ("algorithm,a",
-       po::value<std::string>(),
-       "LP solver algorithm: 0/default, 1/primal, 2/dual, 3/barrier "
-       "(shorthand for solver_options.algorithm in JSON; default: barrier)")
-      //
-      ("threads,t",
-       po::value<int>(),
-       "number of LP solver threads, 0=auto (shorthand for "
-       "solver_options.threads in JSON)")  //
       ("trace-log,T",
        po::value<std::string>(),
        "write SPDLOG_TRACE messages to this file (enables trace-level logging)")
       //
-      ("cut-directory",
-       po::value<std::string>(),
-       "directory for SDDP Benders cut files (default: cuts)")  //
-      ("log-directory",
-       po::value<std::string>(),
-       "directory for log and error LP files (default: logs)")  //
-      ("sddp-max-iterations",
-       po::value<int>(),
-       "maximum SDDP forward/backward iterations (default: 100)")  //
-      ("sddp-min-iterations",
-       po::value<int>(),
-       "minimum SDDP iterations before convergence (default: 2)")  //
-      ("sddp-convergence-tol",
-       po::value<double>(),
-       "SDDP relative convergence tolerance (default: 1e-4)")  //
-      ("sddp-elastic-penalty",
-       po::value<double>(),
-       "SDDP elastic slack penalty coefficient (default: 1e6)")  //
-      ("sddp-elastic-mode",
-       po::value<std::string>(),
-       "SDDP elastic filter mode: cut (default) or backpropagate")  //
-      ("sddp-cut-coeff-mode",
-       po::value<std::string>(),
-       "SDDP cut coefficient source: reduced_cost (default) or row_dual "
-       "(PLP-style)")  //
       ("sddp-num-apertures",
        po::value<int>(),
        "SDDP backward-pass aperture count: 0=disabled (default), -1=all, "
@@ -220,7 +158,34 @@ template<typename T>
       ("recover",
        po::value<bool>().implicit_value(/*v=*/true),
        "enable recovery from a previous SDDP run (loads cuts and state "
-       "variables according to JSON recovery_mode; default: off)");
+       "variables according to JSON recovery_mode; default: off)")  //
+      // ---- deprecated options (hidden from help, still parsed) ----
+      ("input-directory,D", po::value<std::string>(), "")  //
+      ("input-format,F", po::value<std::string>(), "")  //
+      ("output-directory,d", po::value<std::string>(), "")  //
+      ("output-format,f", po::value<std::string>(), "")  //
+      ("output-compression,C", po::value<std::string>(), "")  //
+      ("use-single-bus,b",
+       po::value<bool>().implicit_value(/*v=*/true),
+       "")  //
+      ("use-kirchhoff,k",
+       po::value<bool>().implicit_value(/*v=*/true),
+       "")  //
+      ("lp-debug",
+       po::value<bool>().implicit_value(/*v=*/true),
+       "")  //
+      ("lp-compression", po::value<std::string>(), "")  //
+      ("lp-coeff-ratio", po::value<double>(), "")  //
+      ("algorithm,a", po::value<std::string>(), "")  //
+      ("threads,t", po::value<int>(), "")  //
+      ("cut-directory", po::value<std::string>(), "")  //
+      ("log-directory", po::value<std::string>(), "")  //
+      ("sddp-max-iterations", po::value<int>(), "")  //
+      ("sddp-min-iterations", po::value<int>(), "")  //
+      ("sddp-convergence-tol", po::value<double>(), "")  //
+      ("sddp-elastic-penalty", po::value<double>(), "")  //
+      ("sddp-elastic-mode", po::value<std::string>(), "")  //
+      ("sddp-cut-coeff-mode", po::value<std::string>(), "");
   return desc;
 }
 
@@ -364,8 +329,88 @@ inline void apply_cli_options(
  * @param planning The Planning object to update
  * @param opts     The MainOptions containing the option overrides
  */
+/// @brief Emit a deprecation warning for a CLI option replaceable by --set.
+template<typename T>
+void warn_deprecated_cli(const std::optional<T>& opt,
+                         std::string_view cli_flag,
+                         std::string_view set_path)
+{
+  if (opt.has_value()) {
+    spdlog::warn(
+        "--{} is deprecated, use: --set {}={}", cli_flag, set_path, *opt);
+  }
+}
+
+/// @brief Specialisation for bool (prints true/false instead of 1/0).
+inline void warn_deprecated_cli(const std::optional<bool>& opt,
+                                std::string_view cli_flag,
+                                std::string_view set_path)
+{
+  if (opt.has_value()) {
+    spdlog::warn("--{} is deprecated, use: --set {}={}",
+                 cli_flag,
+                 set_path,
+                 *opt ? "true" : "false");
+  }
+}
+
+/// @brief Overload for string options — no conversion needed.
+inline void warn_deprecated_cli(const std::optional<std::string>& opt,
+                                std::string_view cli_flag,
+                                std::string_view set_path)
+{
+  if (opt.has_value()) {
+    spdlog::warn(
+        "--{} is deprecated, use: --set {}={}", cli_flag, set_path, *opt);
+  }
+}
+
 inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 {
+  // Emit deprecation warnings for options replaceable by --set
+  warn_deprecated_cli(opts.use_single_bus, "use-single-bus", "use_single_bus");
+  warn_deprecated_cli(opts.use_kirchhoff, "use-kirchhoff", "use_kirchhoff");
+  warn_deprecated_cli(
+      opts.input_directory, "input-directory", "input_directory");
+  warn_deprecated_cli(opts.input_format, "input-format", "input_format");
+  warn_deprecated_cli(
+      opts.output_directory, "output-directory", "output_directory");
+  warn_deprecated_cli(opts.output_format, "output-format", "output_format");
+  warn_deprecated_cli(
+      opts.output_compression, "output-compression", "output_compression");
+  warn_deprecated_cli(
+      opts.cut_directory, "cut-directory", "sddp_options.cut_directory");
+  warn_deprecated_cli(opts.log_directory, "log-directory", "log_directory");
+  warn_deprecated_cli(opts.sddp_max_iterations,
+                      "sddp-max-iterations",
+                      "sddp_options.max_iterations");
+  warn_deprecated_cli(opts.sddp_min_iterations,
+                      "sddp-min-iterations",
+                      "sddp_options.min_iterations");
+  warn_deprecated_cli(opts.sddp_convergence_tol,
+                      "sddp-convergence-tol",
+                      "sddp_options.convergence_tol");
+  warn_deprecated_cli(opts.sddp_elastic_penalty,
+                      "sddp-elastic-penalty",
+                      "sddp_options.elastic_penalty");
+  warn_deprecated_cli(
+      opts.sddp_elastic_mode, "sddp-elastic-mode", "sddp_options.elastic_mode");
+  warn_deprecated_cli(opts.sddp_cut_coeff_mode,
+                      "sddp-cut-coeff-mode",
+                      "sddp_options.cut_coeff_mode");
+  if (opts.algorithm.has_value()) {
+    spdlog::warn(
+        "--algorithm is deprecated, use: --set solver_options"
+        ".algorithm={}",
+        lp_algo_name(static_cast<LPAlgo>(*opts.algorithm)));
+  }
+  warn_deprecated_cli(opts.threads, "threads", "solver_options.threads");
+  warn_deprecated_cli(opts.lp_debug, "lp-debug", "lp_debug");
+  warn_deprecated_cli(opts.lp_compression, "lp-compression", "lp_compression");
+  warn_deprecated_cli(opts.lp_coeff_ratio_threshold,
+                      "lp-coeff-ratio",
+                      "lp_build_options.lp_coeff_ratio_threshold");
+
   apply_cli_options(planning,
                     opts.use_single_bus,
                     opts.use_kirchhoff,
@@ -529,6 +574,9 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
         return std::nullopt;
       }(),
       .threads = get_opt<int>(vm, "threads"),
+      .set_options = vm.contains("set")
+          ? vm["set"].as<std::vector<std::string>>()
+          : std::vector<std::string> {},
   };
 }
 

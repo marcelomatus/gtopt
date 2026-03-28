@@ -847,23 +847,23 @@ prefix, since the section name already provides the namespace).
 ```bash
 # Run with SDDP solver, custom cut directory, and tight convergence
 gtopt my_case.json \
-  --cut-directory cuts \
-  --log-directory logs \
-  --sddp-max-iterations 300 \
-  --sddp-convergence-tol 1e-5 \
-  --sddp-elastic-mode backpropagate \
+  --set sddp_options.cut_directory=cuts \
+  --set log_directory=logs \
+  --set sddp_options.max_iterations=300 \
+  --set sddp_options.convergence_tol=1e-5 \
+  --set sddp_options.elastic_mode=backpropagate \
   --trace-log sddp_trace.log
 ```
 
 | Flag | Description |
 |------|-------------|
 | `--trace-log <file>` | Capture all `SPDLOG_TRACE` messages to a file |
-| `--cut-directory <dir>` | Directory for Benders cut files (default: `cuts`) |
-| `--log-directory <dir>` | Directory for log and trace files (default: `logs`) |
-| `--sddp-max-iterations <n>` | Maximum SDDP iterations (default: 100) |
-| `--sddp-convergence-tol <tol>` | Relative gap convergence tolerance (default: 1e-4) |
-| `--sddp-elastic-penalty <p>` | Elastic slack penalty coefficient (default: 1e6) |
-| `--sddp-elastic-mode <mode>` | Elastic filter mode: `cut` or `backpropagate` (default: `cut`) |
+| `--set sddp_options.cut_directory=<dir>` | Directory for Benders cut files (default: `cuts`) |
+| `--set log_directory=<dir>` | Directory for log and trace files (default: `logs`) |
+| `--set sddp_options.max_iterations=<n>` | Maximum SDDP iterations (default: 100) |
+| `--set sddp_options.convergence_tol=<tol>` | Relative gap convergence tolerance (default: 1e-4) |
+| `--set sddp_options.elastic_penalty=<p>` | Elastic slack penalty coefficient (default: 1e6) |
+| `--set sddp_options.elastic_mode=<mode>` | Elastic filter mode: `cut` or `backpropagate` (default: `cut`) |
 
 The `--trace-log` option captures all `SPDLOG_TRACE` messages to a file,
 providing detailed iteration-by-iteration data including:
@@ -1311,8 +1311,8 @@ original objective, add elastic slack variables, solve for feasibility,
 extract the dual ray, and discard the clone.  gtopt's `elastic_solve()`
 follows the same pattern.
 
-The `BackpropagateBounds` elastic filter mode (`--sddp-elastic-mode
-backpropagate`) is a direct translation of the PLP bound-update mechanism:
+The `BackpropagateBounds` elastic filter mode
+(`--set sddp_options.elastic_mode=backpropagate`) is a direct translation of the PLP bound-update mechanism:
 instead of building a feasibility cut, the elastic-clone solution values are
 propagated back as tightened bounds on the source columns in the previous
 phase, forcing the trial trajectory to remain within the feasible region.

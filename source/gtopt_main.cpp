@@ -24,6 +24,7 @@
  */
 
 #include <chrono>
+#include <cstdlib>
 #include <expected>
 #include <filesystem>
 #include <fstream>
@@ -76,6 +77,245 @@ constexpr auto ExactParsePolicy = daw::json::options::parse_flags<
     daw::json::options::CheckedParseMode::yes,
     daw::json::options::ExcludeSpecialEscapes::yes,
     daw::json::options::UseExactMappingsByDefault::yes>;
+
+// ── --set key=value support ─────────────────────────────────────────────────
+
+/// Auto-detect the JSON type of a value string.
+/// Returns the value ready for embedding in a JSON document:
+///  - "true"/"false"/"null" → bare keyword
+///  - integer string        → bare number
+///  - decimal / scientific  → bare number
+///  - anything else         → JSON-quoted string
+[[nodiscard]] std::string to_json_value(const std::string& v)
+{
+  if (v == "true" || v == "false" || v == "null") {
+    return v;
+  }
+  // Try integer
+  {
+    char* end = nullptr;
+    (void)std::strtoll(v.c_str(), &end, /*base=*/10);
+    if (end != v.c_str() && *end == '\0') {
+      return v;
+    }
+  }
+  // Try floating-point
+  {
+    char* end = nullptr;
+    (void)std::strtod(v.c_str(), &end);
+    if (end != v.c_str() && *end == '\0') {
+      return v;
+    }
+  }
+  // String: escape backslashes and double-quotes
+  std::string escaped;
+  escaped.reserve(v.size() + 2);
+  escaped += '"';
+  for (const char c : v) {
+    if (c == '"' || c == '\\') {
+      escaped += '\\';
+    }
+    escaped += c;
+  }
+  escaped += '"';
+  return escaped;
+}
+
+/// Build a minimal Planning JSON overlay from a dotted key and a JSON value.
+/// The key is a dotted path relative to `planning.options`, e.g.
+/// `"sddp_options.forward_solver_options.threads"`.  The result is a valid
+/// JSON string like:
+/// `{"options":{"sddp_options":{"forward_solver_options":{"threads":8}}}}`
+[[nodiscard]] std::string build_set_option_json(const std::string& dotted_key,
+                                                const std::string& json_val)
+{
+  // Split the key on '.'
+  std::vector<std::string_view> parts;
+  std::string_view key_sv {dotted_key};
+  while (true) {
+    const auto dot = key_sv.find('.');
+    if (dot == std::string_view::npos) {
+      parts.push_back(key_sv);
+      break;
+    }
+    parts.push_back(key_sv.substr(0, dot));
+    key_sv.remove_prefix(dot + 1);
+  }
+
+  // Build nested JSON under "options"
+  std::string json = "{\"options\":{";
+  for (std::size_t i = 0; i + 1 < parts.size(); ++i) {
+    json += '"';
+    json += parts[i];
+    json += "\":{";
+  }
+  json += '"';
+  json += parts.back();
+  json += "\":";
+  json += json_val;
+  for (std::size_t i = 0; i + 1 < parts.size(); ++i) {
+    json += '}';
+  }
+  json += "}}";
+  return json;
+}
+
+/// Set a single field on a SolverOptions struct.
+/// @return true if the field was recognised and set.
+bool try_set_solver_field(SolverOptions& so,
+                          std::string_view field,
+                          const std::string& value)
+{
+  if (field == "threads") {
+    so.threads = std::stoi(value);
+    return true;
+  }
+  if (field == "algorithm") {
+    if (const auto algo = lp_algo_from_name(value)) {
+      so.algorithm = *algo;
+    } else {
+      so.algorithm = static_cast<LPAlgo>(std::stoi(value));
+    }
+    return true;
+  }
+  if (field == "presolve") {
+    so.presolve = (value == "true" || value == "1");
+    return true;
+  }
+  if (field == "log_level") {
+    so.log_level = std::stoi(value);
+    return true;
+  }
+  if (field == "optimal_eps") {
+    so.optimal_eps = std::stod(value);
+    return true;
+  }
+  if (field == "feasible_eps") {
+    so.feasible_eps = std::stod(value);
+    return true;
+  }
+  if (field == "barrier_eps") {
+    so.barrier_eps = std::stod(value);
+    return true;
+  }
+  if (field == "time_limit") {
+    so.time_limit = std::stod(value);
+    return true;
+  }
+  if (field == "reuse_basis") {
+    so.reuse_basis = (value == "true" || value == "1");
+    return true;
+  }
+  return false;
+}
+
+/// Try to handle a --set key=value as a direct SolverOptions field set.
+/// Returns true if the key matched a solver_options path and was applied.
+bool try_set_solver_options_path(Planning& planning,
+                                 const std::string& key,
+                                 const std::string& value)
+{
+  // solver_options.<field>
+  constexpr std::string_view pfx_so = "solver_options.";
+  if (key.starts_with(pfx_so)) {
+    return try_set_solver_field(
+        planning.options.solver_options, key.substr(pfx_so.size()), value);
+  }
+
+  // sddp_options.forward_solver_options.<field>
+  constexpr std::string_view pfx_fwd = "sddp_options.forward_solver_options.";
+  if (key.starts_with(pfx_fwd)) {
+    auto& fso = planning.options.sddp_options.forward_solver_options;
+    if (!fso) {
+      fso = SolverOptions {};
+    }
+    return try_set_solver_field(*fso, key.substr(pfx_fwd.size()), value);
+  }
+
+  // sddp_options.backward_solver_options.<field>
+  constexpr std::string_view pfx_bwd = "sddp_options.backward_solver_options.";
+  if (key.starts_with(pfx_bwd)) {
+    auto& bso = planning.options.sddp_options.backward_solver_options;
+    if (!bso) {
+      bso = SolverOptions {};
+    }
+    return try_set_solver_field(*bso, key.substr(pfx_bwd.size()), value);
+  }
+
+  // monolithic_options.solver_options.<field>
+  constexpr std::string_view pfx_mono = "monolithic_options.solver_options.";
+  if (key.starts_with(pfx_mono)) {
+    auto& mso = planning.options.monolithic_options.solver_options;
+    if (!mso) {
+      mso = SolverOptions {};
+    }
+    return try_set_solver_field(*mso, key.substr(pfx_mono.size()), value);
+  }
+
+  return false;
+}
+
+/// Apply all `--set key=value` overrides to a Planning object.
+/// Each entry in @p set_options is `"dotted.path=value"`.  The function
+/// first tries a direct setter for SolverOptions paths (which have required
+/// non-optional fields), then falls back to a JSON overlay approach for all
+/// other paths.
+void apply_set_options(Planning& planning,
+                       const std::vector<std::string>& set_options)
+{
+  for (const auto& opt : set_options) {
+    const auto eq_pos = opt.find('=');
+    if (eq_pos == std::string::npos || eq_pos == 0) {
+      spdlog::error("--set: invalid format '{}' (expected key=value)", opt);
+      continue;
+    }
+    const auto key = opt.substr(0, eq_pos);
+    const auto value = opt.substr(eq_pos + 1);
+
+    // Direct setter for SolverOptions paths (non-optional struct fields)
+    try {
+      if (try_set_solver_options_path(planning, key, value)) {
+        spdlog::info("--set {}={} applied", key, value);
+        continue;
+      }
+    } catch (const std::exception& ex) {
+      spdlog::error("--set {}={}: {}", key, value, ex.what());
+      continue;
+    }
+
+    // JSON overlay approach for all other paths
+    const auto json_val = to_json_value(value);
+    auto json = build_set_option_json(key, json_val);
+
+    try {
+      auto overlay = daw::json::from_json<Planning>(json, FastParsePolicy);
+      planning.merge(std::move(overlay));
+      spdlog::info("--set {}={} applied", key, value);
+    } catch (const daw::json::json_exception& ex) {
+      // If auto-typed value failed (e.g. number where string expected),
+      // retry with the value as a quoted string
+      if (json_val.front() != '"') {
+        auto str_json = build_set_option_json(key, to_json_value(value));
+        // Force string by quoting if not already quoted
+        str_json = build_set_option_json(key, "\"" + value + "\"");
+        try {
+          auto overlay =
+              daw::json::from_json<Planning>(str_json, FastParsePolicy);
+          planning.merge(std::move(overlay));
+          spdlog::info("--set {}={} applied (as string)", key, value);
+          continue;
+        } catch (...) {
+        }
+      }
+      spdlog::error("--set {}={}: JSON parse error: {}",
+                    key,
+                    value,
+                    to_formatted_string(ex, json.c_str()));
+    }
+  }
+}
+
+// ── end --set support ───────────────────────────────────────────────────────
 
 /**
  * @brief Parse planning JSON files into a Planning object.
@@ -434,7 +674,14 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     Planning my_planning = std::move(*parse_result);
 
     //
-    // Update the planning options
+    // Apply --set key=value overrides (before specific CLI flags)
+    //
+    if (!opts.set_options.empty()) {
+      apply_set_options(my_planning, opts.set_options);
+    }
+
+    //
+    // Update the planning options (specific CLI flags override --set)
     //
     apply_cli_options(my_planning, opts);
 
