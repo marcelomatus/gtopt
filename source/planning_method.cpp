@@ -41,8 +41,10 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       sddp_opts.max_iterations = options.sddp_max_iterations();
       sddp_opts.min_iterations = options.sddp_min_iterations();
       sddp_opts.convergence_tol = options.sddp_convergence_tol();
+      sddp_opts.convergence_mode = options.sddp_convergence_mode();
       sddp_opts.stationary_tol = options.sddp_stationary_tol();
       sddp_opts.stationary_window = options.sddp_stationary_window();
+      sddp_opts.convergence_confidence = options.sddp_convergence_confidence();
 
       // Simulation mode: forward-only evaluation, no training, no cut saving
       if (options.sddp_simulation_mode()) {
@@ -165,8 +167,10 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       sddp_opts.max_iterations = options.sddp_max_iterations();
       sddp_opts.min_iterations = options.sddp_min_iterations();
       sddp_opts.convergence_tol = options.sddp_convergence_tol();
+      sddp_opts.convergence_mode = options.sddp_convergence_mode();
       sddp_opts.stationary_tol = options.sddp_stationary_tol();
       sddp_opts.stationary_window = options.sddp_stationary_window();
+      sddp_opts.convergence_confidence = options.sddp_convergence_confidence();
 
       // Simulation mode: forward-only evaluation, no training, no cut saving
       if (options.sddp_simulation_mode()) {

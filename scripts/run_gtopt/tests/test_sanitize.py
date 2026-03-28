@@ -125,14 +125,14 @@ def test_fix_sddp_alpha_swap(tmp_path: Path):
 
 
 def test_fix_negative_elastic_penalty(tmp_path: Path):
-    """Negative elastic_penalty is fixed to 1000."""
+    """Negative elastic_penalty is fixed to 1e6."""
     p = _write_plan(
         tmp_path / "plan.json",
         {"sddp_options": {"elastic_penalty": -100}},
     )
     result = sanitize_json(p)
     data = json.loads(result.read_text())
-    assert data["options"]["sddp_options"]["elastic_penalty"] == 1000
+    assert data["options"]["sddp_options"]["elastic_penalty"] == 1e6
 
 
 def test_fix_negative_max_cuts_per_phase(tmp_path: Path):

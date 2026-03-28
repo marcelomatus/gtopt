@@ -237,31 +237,57 @@ struct SddpOptions
    */
   std::optional<StateVariableLookupMode> state_variable_lookup_mode {};
 
-  // ── Secondary (stationary gap) convergence ─────────────────────────────────
-  /** @brief Tolerance for secondary stationary-gap convergence criterion.
+  // ── Convergence criteria
+  // ────────────────────────────────────────────────────
+
+  /** @brief Convergence criterion mode selection.
+   *
+   * - `gap_only`:        deterministic gap test only.
+   * - `gap_stationary`:  gap + stationary gap detection.
+   * - `statistical`:     gap + stationary + CI (default, PLP-style).
+   *
+   * The `statistical` mode degrades gracefully to `gap_stationary` when
+   * only one scene is present (no apertures / pure Benders).
+   */
+  std::optional<ConvergenceMode> convergence_mode {};
+
+  /** @brief Tolerance for stationary-gap convergence criterion.
    *
    * When the relative change in the convergence gap over the last
-   * `stationary_window` iterations falls below this value, the solver
-   * declares convergence even if the gap is above `convergence_tol`.
-   * This handles problems where the gap converges to a non-zero stationary
-   * value (a known theoretical limitation of SDDP/Benders on certain
-   * stochastic programs).
+   * `stationary_window` iterations falls below this value, the gap is
+   * considered stationary (no longer improving).  This triggers
+   * convergence in two situations:
    *
-   * Formula (after at least `min_iterations` and `stationary_window`
-   * iterations have completed):
+   *  1. Standalone: gap is stationary → declare convergence even if
+   *     gap > convergence_tol (non-zero gap accepted).
+   *  2. Combined with convergence_confidence: when the CI test fails
+   *     (gap > z*σ) but the gap is stationary → declare convergence
+   *     (the non-zero gap has stabilised and further iterations won't
+   *     help).
+   *
+   * Formula (after min_iterations and stationary_window completed):
    *   gap_change = |gap[i] − gap[i − window]| / max(1e-10, gap[i − window])
-   *   if gap_change < stationary_tol → declare convergence
+   *   if gap_change < stationary_tol → gap is stationary
    *
-   * Default: 0.0 (disabled; secondary criterion is off).
-   * Set to a small positive value (e.g. 0.01) to enable.
+   * Default: 0.01 (1%).  Set to 0.0 to disable.
    */
   OptReal stationary_tol {};
 
   /** @brief Number of iterations to look back when checking for a stationary
-   * gap (secondary convergence criterion).  Only used when `stationary_tol`
-   * is positive.  Default: 10.
+   * gap.  Used by both the standalone stationary criterion and the
+   * statistical+stationary criterion.  Default: 10.
    */
   OptInt stationary_window {};
+
+  /** @brief Confidence level for statistical convergence criterion (0-1).
+   *
+   * When > 0 and multiple scenes exist, convergence is checked via
+   * PLP-style confidence interval: UB - LB <= z_{α/2} * σ.
+   * Combined with stationary_tol, also handles the non-zero-gap case
+   * where the gap stabilises above the CI threshold.
+   *
+   * Default: 0.95 (95% CI).  Set to 0.0 to disable. */
+  OptReal convergence_confidence {};
 
   // ── LP solver options (per-pass override)
   // ───────────────────────────────────
@@ -327,8 +353,10 @@ struct SddpOptions
     merge_opt(cut_coeff_mode, opts.cut_coeff_mode);
     merge_opt(state_variable_lookup_mode, opts.state_variable_lookup_mode);
     merge_opt(warm_start, opts.warm_start);
+    merge_opt(convergence_mode, opts.convergence_mode);
     merge_opt(stationary_tol, opts.stationary_tol);
     merge_opt(stationary_window, opts.stationary_window);
+    merge_opt(convergence_confidence, opts.convergence_confidence);
     if (opts.forward_solver_options.has_value()) {
       if (forward_solver_options.has_value()) {
         forward_solver_options->merge(*opts.forward_solver_options);

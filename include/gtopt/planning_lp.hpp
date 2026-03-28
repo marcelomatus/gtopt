@@ -145,6 +145,9 @@ public:
     bool stationary_converged {
         false,
     };  ///< True if stationary criterion triggered convergence
+    bool statistical_converged {
+        false,
+    };  ///< True if CI-based statistical criterion triggered convergence
   };
 
   /** @brief Populate the SDDP summary (called by the SDDP solver). */
