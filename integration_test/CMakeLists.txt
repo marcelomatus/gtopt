@@ -103,6 +103,8 @@ add_e2e_case(exp_bat_4b_24 exp_bat_4b_24.json)
 #   add_sddp_case(<name> <system_json> [MAX_ITERATIONS <n>])
 add_sddp_case(sddp_hydro_3phase sddp_hydro_3phase.json MAX_ITERATIONS 3)
 add_sddp_case(gtopt_case_2y gtopt_case_2y.json MAX_ITERATIONS 1)
+add_sddp_case(gtopt_case_2y_fs gtopt_case_2y_fs.json
+  MAX_ITERATIONS 0 ALLOWED_EXIT_CODES "0;1")
 
 # ---- Pandapower comparison tests ----
 add_pandapower_comparison(s1b)
