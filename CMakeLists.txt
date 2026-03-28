@@ -138,6 +138,16 @@ target_link_libraries(
          ${CMAKE_DL_LIBS}
 )
 
+# ---- Mixed-compiler C++ standard library linkage ----
+# When the CXX compiler is Clang and the C compiler is a different toolchain
+# (e.g. CC=gcc-14 CXX=clang-21), the linker may not receive -lstdc++ on the
+# command line, causing "DSO missing from command line" errors for libstdc++
+# symbols referenced by the static libgtopt.a.  Explicitly link libstdc++ on
+# non-Apple platforms where Clang uses libstdc++ by default.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND NOT APPLE)
+  target_link_libraries(${PROJECT_NAME} PUBLIC stdc++)
+endif()
+
 # enable compiler warnings
 include(cmake_local/CompilerWarnings.cmake)
 target_set_warnings(${PROJECT_NAME})
