@@ -66,6 +66,7 @@ set(CASES_DIR "${CMAKE_CURRENT_LIST_DIR}/../cases")
 set(CMAKE_SCRIPTS_DIR "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
 include(${CMAKE_SCRIPTS_DIR}/add_e2e_case.cmake)
+include(${CMAKE_SCRIPTS_DIR}/add_sddp_case.cmake)
 
 # ---- Pandapower detection ----
 # Locate gtopt_compare (installed binary, source tree, or any Python with
@@ -95,6 +96,13 @@ add_e2e_case(bat_4b_24 bat_4b_24.json)
 add_e2e_case(exp_gen_4b exp_gen_4b.json)
 add_e2e_case(exp_bat_4b exp_bat_4b.json)
 add_e2e_case(exp_bat_4b_24 exp_bat_4b_24.json)
+
+# ---- SDDP test cases ----
+# To add a new SDDP case, place it under cases/<name>/ with a system JSON file
+# that has method="sddp", then add a line:
+#   add_sddp_case(<name> <system_json> [MAX_ITERATIONS <n>])
+add_sddp_case(sddp_hydro_3phase sddp_hydro_3phase.json MAX_ITERATIONS 3)
+add_sddp_case(gtopt_case_2y gtopt_case_2y.json MAX_ITERATIONS 1)
 
 # ---- Pandapower comparison tests ----
 add_pandapower_comparison(s1b)
