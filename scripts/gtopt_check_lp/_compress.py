@@ -9,7 +9,7 @@ temporary file and cleans up afterward.
 
 The :func:`sanitize_lp_names` function and :func:`as_sanitized_lp` context
 manager strip illegal ``':'`` characters from variable and constraint names so
-that COIN-OR CLP/CBC and GLPK can parse the file.  In LP format ``':'`` is
+that COIN-OR CLP/CBC can parse the file.  In LP format ``':'`` is
 strictly reserved as the separator between a constraint (or objective) name
 and its expression; it must not appear inside any name.
 
@@ -244,7 +244,7 @@ def sanitize_lp_names(text: str) -> str:
     In the standard CPLEX LP file format, ``':'`` is **strictly reserved** as
     the separator between a constraint (or objective) name and its expression.
     It may not appear inside any variable or constraint name.  COIN-OR
-    CLP/CBC (CoinLpIO) and GLPK enforce this rule and reject LP files where
+    CLP/CBC (CoinLpIO) enforces this rule and rejects LP files where
     names contain ``':'``.
 
     This function performs two operations:

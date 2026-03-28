@@ -30,7 +30,7 @@ _AI_INFEASIBILITY_PROMPT = """\
 You are an expert in linear programming and mathematical optimization.
 I will provide you with an infeasibility report from the gtopt LP solver tool.
 The report includes output from multiple linear solvers (such as CPLEX, HiGHS,
-COIN-OR CLP/CBC, and GLPK) that have analyzed the same infeasible LP problem.
+COIN-OR CLP/CBC) that have analyzed the same infeasible LP problem.
 
 Please analyze the combined report and:
 1. Identify the specific variable(s) or constraint(s) causing the infeasibility
@@ -38,7 +38,7 @@ Please analyze the combined report and:
 2. Explain the root cause of the infeasibility in plain terms.
 3. Suggest concrete steps to fix the problem.
 4. If the report includes IIS (Irreducible Infeasible Subsystem) output from
-   a solver (CPLEX, HiGHS, CLP/CBC, GLPK), focus on those constraints first.
+   a solver (CPLEX, HiGHS, CLP/CBC), focus on those constraints first.
 5. Cross-reference findings from the different solvers to identify the most
    likely cause of infeasibility.
 
@@ -343,41 +343,60 @@ def _http_post_json(
     payload: dict[str, Any],
     headers: dict[str, str],
     timeout: int,
+    *,
+    _max_retries: int = 3,
 ) -> tuple[bool, str]:
     """
     POST JSON *payload* to *url* with *headers* and return ``(ok, text)``.
 
+    Retries up to *_max_retries* times on HTTP 429 (rate-limit) and 403
+    (used by GitHub Copilot for transient rate-limiting) with exponential
+    back-off (1 s, 2 s, 4 s).
+
     Supports the Anthropic and OpenAI/compatible response shapes.
     """
+    import time  # noqa: PLC0415
+
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-        # Anthropic Claude response shape
-        if "content" in body and isinstance(body["content"], list):
-            parts = [
-                c.get("text", "") for c in body["content"] if c.get("type") == "text"
-            ]
-            return True, "\n".join(parts).strip()
-        # OpenAI / DeepSeek / GitHub compatible response shape
-        if "choices" in body and isinstance(body["choices"], list):
-            text = body["choices"][0].get("message", {}).get("content", "")
-            return True, text.strip()
-        return True, json.dumps(body, indent=2)
-    except urllib.error.HTTPError as exc:
+    last_error: Optional[str] = None
+
+    for attempt in range(_max_retries):
+        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
         try:
-            err_body = json.loads(exc.read().decode("utf-8"))
-            msg = err_body.get("error", {}).get("message", str(exc))
-        except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
-            msg = str(exc)
-        return False, f"HTTP {exc.code} from AI API: {msg}"
-    except TimeoutError:
-        return False, _diagnose_ai_network_error(
-            url, TimeoutError(f"Request timed out after {timeout}s")
-        )
-    except (urllib.error.URLError, OSError) as exc:
-        reason = getattr(exc, "reason", exc)
-        return False, _diagnose_ai_network_error(url, reason)
-    except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
-        return False, f"Unexpected error calling AI API: {exc}"
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+            # Anthropic Claude response shape
+            if "content" in body and isinstance(body["content"], list):
+                parts = [
+                    c.get("text", "")
+                    for c in body["content"]
+                    if c.get("type") == "text"
+                ]
+                return True, "\n".join(parts).strip()
+            # OpenAI / DeepSeek / GitHub compatible response shape
+            if "choices" in body and isinstance(body["choices"], list):
+                text = body["choices"][0].get("message", {}).get("content", "")
+                return True, text.strip()
+            return True, json.dumps(body, indent=2)
+        except urllib.error.HTTPError as exc:
+            if exc.code in (429, 403) and attempt < _max_retries - 1:
+                time.sleep(2**attempt)
+                last_error = f"HTTP {exc.code} (retry {attempt + 1}/{_max_retries})"
+                continue
+            try:
+                err_body = json.loads(exc.read().decode("utf-8"))
+                msg = err_body.get("error", {}).get("message", str(exc))
+            except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+                msg = str(exc)
+            return False, f"HTTP {exc.code} from AI API: {msg}"
+        except TimeoutError:
+            return False, _diagnose_ai_network_error(
+                url, TimeoutError(f"Request timed out after {timeout}s")
+            )
+        except (urllib.error.URLError, OSError) as exc:
+            reason = getattr(exc, "reason", exc)
+            return False, _diagnose_ai_network_error(url, reason)
+        except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            return False, f"Unexpected error calling AI API: {exc}"
+
+    return False, f"AI API request failed after {_max_retries} retries: {last_error}"

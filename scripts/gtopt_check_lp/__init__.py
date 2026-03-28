@@ -47,7 +47,6 @@ from ._solvers import (
     run_iis,
     run_local_coinor,
     run_local_cplex,
-    run_local_glpk,
     run_local_highs_binary,
     run_local_highs_python,
 )
@@ -80,7 +79,6 @@ __all__ = [
     "run_iis",
     "run_local_coinor",
     "run_local_cplex",
-    "run_local_glpk",
     "run_local_highs_binary",
     "run_local_highs_python",
     "save_config",
