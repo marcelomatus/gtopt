@@ -144,6 +144,23 @@ public:
     return drain_cols.at({scenario.uid(), stage.uid()});
   }
 
+  /// Return the soft-emin slack column for (scenario, stage), if it exists.
+  ///
+  /// The soft-emin slack is only created when `soft_emin > 0` and
+  /// `soft_emin_cost > 0` for the given stage.  Returns `std::nullopt` when
+  /// the column was not created (i.e., soft_emin is inactive for this stage).
+  [[nodiscard]] std::optional<ColIndex> soft_emin_col_at(
+      const ScenarioLP& scenario, const StageLP& stage) const
+  {
+    const auto key = std::pair {scenario.uid(), stage.uid()};
+    if (const auto it = soft_emin_slack_cols.find(key);
+        it != soft_emin_slack_cols.end())
+    {
+      return it->second;
+    }
+    return std::nullopt;
+  }
+
   /// Energy/volume scale factor used in the LP: LP_var = physical / scale.
   /// For batteries this is Battery::energy_scale; for reservoirs it is
   /// Reservoir::energy_scale.  Use to convert between LP and physical units.
