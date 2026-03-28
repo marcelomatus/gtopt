@@ -5,7 +5,7 @@
 This parser reads the PLP "Ralco" constraint file which defines a
 piecewise-linear volume-dependent discharge limit for a reservoir.
 
-File format (plpralco.dat):
+File format (plpralco.dat)::
 
   # comments are allowed (lines starting with #)
   # Nombre Lago Ralco. Restriccion desemba
@@ -26,8 +26,17 @@ Field definitions:
 Note: The Fortran format uses 'd' for scientific notation (e.g. 6.9868d-5),
 which is converted to 'e' for Python float parsing.
 
-No unit conversions are needed — volumes are already in dam³ and slopes
-in m³/s per dam³, matching gtopt internal units.
+Unit conversions applied during parsing:
+  volume: ÷ 1000    (dam³ → gtopt physical = 10⁶ m³)
+  slope:  × 1000    (m³/s per dam³ → m³/s per gtopt physical)
+  intercept: no conversion (already m³/s)
+
+This is required because gtopt reservoir volumes are in 10⁶ m³ while
+plpralco.dat stores volumes in dam³ (= 10³ m³).  The factor 1000
+is constant across all reservoirs, derived from the PLP unit chain:
+  dam³ = raw_value × FEscala / 1E3
+  gtopt_physical = raw_value × FEscala / 1E6
+  ⇒ gtopt_physical = dam³ / 1E3
 
 See also:
   parralco.f  in PLP CEN65/src/ – Fortran data structure
@@ -92,9 +101,16 @@ class RalcoParser(BaseParser):
                 raise ValueError(f"Segment line has too few fields: {lines[idx]}")
             # Format: volume_dam3  intercept_m3s  slope_per_dam3
             # Note: PLP uses Fortran 'd' notation for doubles
+            # Volume conversion: plpralco.dat stores volumes in dam³,
+            # but gtopt reservoir volumes are in 10^6 m³ (= dam³ / 1000).
+            # This factor is constant across all reservoirs regardless
+            # of energy_scale — see PLP leeemb.f unit derivation:
+            #   dam³ = raw × FEscala / 1E3
+            #   gtopt_physical = raw × FEscala / 1E6
+            #   ⇒ gtopt_physical = dam³ / 1E3
             seg: Dict[str, float] = {
-                "volume": self._parse_fortran_float(parts[0]),
-                "slope": self._parse_fortran_float(parts[2]),
+                "volume": self._parse_fortran_float(parts[0]) / 1000.0,
+                "slope": self._parse_fortran_float(parts[2]) * 1000.0,
                 "intercept": self._parse_fortran_float(parts[1]),
             }
             segments.append(seg)
