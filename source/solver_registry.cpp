@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <format>
 #include <numeric>
 #include <stdexcept>
@@ -233,6 +234,14 @@ std::vector<std::string> SolverRegistry::available_solvers() const
 
 std::string_view SolverRegistry::default_solver() const
 {
+  // GTOPT_SOLVER env var overrides the default priority.
+  if (const auto* env = std::getenv("GTOPT_SOLVER")) {
+    if (has_solver(env)) {
+      return env;
+    }
+    SPDLOG_WARN("GTOPT_SOLVER='{}' not available, falling back to auto", env);
+  }
+
   // Priority order: highs > cplex > cbc > clp
   static constexpr std::array preferred = {"highs", "cplex", "cbc", "clp"};
   for (const auto* name : preferred) {

@@ -500,11 +500,10 @@ def test_reservoir_seepage_array_populated():
     writer = JunctionWriter(central_parser=central_parser, cenfi_parser=cenfi_parser)
     result = writer.to_json_array()[0]
 
-    # Seepage is now embedded inside the reservoir dict
-    dam1 = next(r for r in result["reservoir_array"] if r["name"] == "Dam1")
-    assert "seepage" in dam1
-    assert len(dam1["seepage"]) == 1
-    filt = dam1["seepage"][0]
+    # Seepage is now in the system-level array
+    seep_arr = result["reservoir_seepage_array"]
+    assert len(seep_arr) == 1
+    filt = seep_arr[0]
     assert filt["uid"] == 1
     assert filt["name"] == "Dam1_seepage_1"
     assert filt["waterway"] == "Turbine1_gen_2_3"
@@ -513,14 +512,44 @@ def test_reservoir_seepage_array_populated():
     assert filt["constant"] == pytest.approx(5.0)
 
 
+def test_reservoir_seepage_embedded_mode():
+    """With embed_reservoir_constraints, seepage is inside the reservoir."""
+    central_parser = _make_hydro_parser()
+    cenfi_parser = MockCenfiParser(
+        [
+            {
+                "name": "Turbine1",
+                "reservoir": "Dam1",
+                "slope": 0.001,
+                "constant": 5.0,
+            }
+        ]
+    )
+    writer = JunctionWriter(
+        central_parser=central_parser,
+        cenfi_parser=cenfi_parser,
+        options={"embed_reservoir_constraints": True},
+    )
+    result = writer.to_json_array()[0]
+
+    # System-level array should be empty
+    assert result["reservoir_seepage_array"] == []
+
+    # Seepage should be embedded inside the reservoir dict
+    dam1 = next(r for r in result["reservoir_array"] if r["name"] == "Dam1")
+    assert len(dam1["seepage"]) == 1
+    filt = dam1["seepage"][0]
+    assert filt["name"] == "Dam1_seepage_1"
+    assert filt["slope"] == pytest.approx(0.001)
+
+
 def test_reservoir_seepage_empty_when_no_parser():
     """Reservoirs have no seepage field when no CenfiParser is provided."""
     central_parser = _make_hydro_parser()
     writer = JunctionWriter(central_parser=central_parser)
     result = writer.to_json_array()[0]
 
-    dam1 = next(r for r in result["reservoir_array"] if r["name"] == "Dam1")
-    assert dam1.get("seepage", []) == []
+    assert result["reservoir_seepage_array"] == []
 
 
 def test_seepage_skips_unknown_central():
@@ -538,9 +567,8 @@ def test_seepage_skips_unknown_central():
     )
     writer = JunctionWriter(central_parser=central_parser, cenfi_parser=cenfi_parser)
     result = writer.to_json_array()[0]
-    # Unknown central → silently skipped, reservoir has no seepage
-    dam1 = next(r for r in result["reservoir_array"] if r["name"] == "Dam1")
-    assert dam1.get("seepage", []) == []
+    # Unknown central → silently skipped, no seepage created
+    assert result["reservoir_seepage_array"] == []
 
 
 def test_seepage_with_segments():
@@ -563,9 +591,9 @@ def test_seepage_with_segments():
     writer = JunctionWriter(central_parser=central_parser, cenfi_parser=cenfi_parser)
     result = writer.to_json_array()[0]
 
-    dam1 = next(r for r in result["reservoir_array"] if r["name"] == "Dam1")
-    assert len(dam1["seepage"]) == 1
-    filt = dam1["seepage"][0]
+    seep_arr = result["reservoir_seepage_array"]
+    assert len(seep_arr) == 1
+    filt = seep_arr[0]
     assert filt["slope"] == pytest.approx(0.001)
     assert filt["constant"] == pytest.approx(5.0)
     assert "segments" in filt
@@ -589,8 +617,7 @@ def test_seepage_without_segments_no_key():
     )
     writer = JunctionWriter(central_parser=central_parser, cenfi_parser=cenfi_parser)
     result = writer.to_json_array()[0]
-    dam1 = next(r for r in result["reservoir_array"] if r["name"] == "Dam1")
-    filt = dam1["seepage"][0]
+    filt = result["reservoir_seepage_array"][0]
     # When no segments present, the key should not be in the output
     assert "segments" not in filt
 
@@ -614,11 +641,10 @@ def test_reservoir_production_factor_array_populated():
     writer = JunctionWriter(central_parser=central_parser, cenre_parser=cenre_parser)
     result = writer.to_json_array()[0]
 
-    # Production factor is now embedded inside the reservoir dict
-    dam1 = next(r for r in result["reservoir_array"] if r["name"] == "Dam1")
-    assert "production_factor" in dam1
-    assert len(dam1["production_factor"]) == 1
-    eff = dam1["production_factor"][0]
+    # Production factor is now in the system-level array
+    pfac_arr = result["reservoir_production_factor_array"]
+    assert len(pfac_arr) == 1
+    eff = pfac_arr[0]
     assert eff["uid"] == 1
     assert eff["name"] == "Dam1_pfac_1"
     assert eff["turbine"] == "Turbine1"
@@ -635,8 +661,7 @@ def test_reservoir_production_factor_empty_when_no_parser():
     writer = JunctionWriter(central_parser=central_parser)
     result = writer.to_json_array()[0]
 
-    dam1 = next(r for r in result["reservoir_array"] if r["name"] == "Dam1")
-    assert dam1.get("production_factor", []) == []
+    assert result["reservoir_production_factor_array"] == []
 
 
 def test_efficiency_skips_unknown_central():
@@ -654,8 +679,7 @@ def test_efficiency_skips_unknown_central():
     )
     writer = JunctionWriter(central_parser=central_parser, cenre_parser=cenre_parser)
     result = writer.to_json_array()[0]
-    dam1 = next(r for r in result["reservoir_array"] if r["name"] == "Dam1")
-    assert dam1.get("production_factor", []) == []
+    assert result["reservoir_production_factor_array"] == []
 
 
 def test_efficiency_skips_central_without_turbine():
@@ -675,8 +699,7 @@ def test_efficiency_skips_central_without_turbine():
     writer = JunctionWriter(central_parser=central_parser, cenre_parser=cenre_parser)
     result = writer.to_json_array()[0]
     # Dam1 has bus=0 so no turbine was created — efficiency entry must be skipped
-    dam1 = next(r for r in result["reservoir_array"] if r["name"] == "Dam1")
-    assert dam1.get("production_factor", []) == []
+    assert result["reservoir_production_factor_array"] == []
 
 
 # ── Ocean-junction ("RAPEL_ocean") tests ─────────────────────────────────────
@@ -771,10 +794,10 @@ def test_embalse_ocean_junction_enables_efficiency():
     writer = JunctionWriter(central_parser=_rapel_parser(), cenre_parser=cenre_parser)
     result = writer.to_json_array()[0]
 
-    # Efficiency IS applied now (not skipped) — embedded in reservoir
-    rapel_rsv = next(r for r in result["reservoir_array"] if r["name"] == "RAPEL")
-    assert len(rapel_rsv.get("production_factor", [])) == 1
-    eff = rapel_rsv["production_factor"][0]
+    # Efficiency IS applied now — in system-level array
+    pfac_arr = result["reservoir_production_factor_array"]
+    assert len(pfac_arr) == 1
+    eff = pfac_arr[0]
     assert eff["mean_production_factor"] == pytest.approx(1.2)
     assert len(eff["segments"]) == 2
 

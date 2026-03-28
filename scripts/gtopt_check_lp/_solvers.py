@@ -287,7 +287,7 @@ def run_local_highs_python(lp_path: Path, timeout: int = 30) -> tuple[bool, str]
 
             # Try IIS via conflict analysis (available in highspy >= 1.7)
             try:
-                iis = h.getIis()
+                _iis_status, iis = h.getIis()  # pylint: disable=no-value-for-parameter,unpacking-non-sequence
                 col_idx = getattr(iis, "col_index", []) or []
                 row_idx = getattr(iis, "row_index", []) or []
 

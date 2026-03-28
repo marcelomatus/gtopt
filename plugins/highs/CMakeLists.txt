@@ -3,59 +3,15 @@ gtopt_solver_highs
 ------------------
 
 MODULE library implementing the SolverBackend interface via the native
-HiGHS C++ API.  Requires HiGHS >= 1.5.0 (native API without OSI wrapper).
+HiGHS C++ API.  Requires HiGHS >= 1.5.0.
 
 #]=======================================================================]
 
-# ---- Sources ----
+include(GtoptPlugin)
 
-set(_highs_sources
-    highs_solver_backend.cpp
-    highs_plugin.cpp
-)
-
-# ---- Module library ----
-
-add_library(gtopt_solver_highs MODULE ${_highs_sources})
-
-# ---- Include paths ----
-
-target_include_directories(gtopt_solver_highs
-  PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-)
-
-target_include_directories(gtopt_solver_highs SYSTEM
-  PRIVATE
-    "${HIGHS_INCLUDE_DIRS}"
-)
-
-# ---- Link dependencies ----
-
-target_link_libraries(gtopt_solver_highs
-  PRIVATE
-    gtopt::gtopt
-    ${HIGHS_LIBRARIES}
-)
-
-# ---- Output location ----
-
-set_target_properties(gtopt_solver_highs PROPERTIES
-  LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/plugins"
-  PREFIX "lib"
-  INSTALL_RPATH_USE_LINK_PATH TRUE
-)
-
-# ---- RPATH for installed plugin ----
-# Preserve RPATH to non-system solver libraries so that dlopen() can find
-# them after installation.
-
-include(InstallRpath)
-configure_install_rpath(gtopt_solver_highs)
-
-# ---- Install ----
-
-install(
-  TARGETS gtopt_solver_highs
-  LIBRARY DESTINATION lib/gtopt/plugins
+gtopt_add_solver_plugin(
+  NAME       gtopt_solver_highs
+  SOURCES    highs_solver_backend.cpp highs_plugin.cpp
+  INCLUDES   "${HIGHS_INCLUDE_DIRS}"
+  LIBRARIES  ${HIGHS_LIBRARIES}
 )

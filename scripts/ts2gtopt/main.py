@@ -218,7 +218,7 @@ def _build_horizon_from_planning(
     return h
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     """CLI entry point for ts2gtopt."""
     parser = argparse.ArgumentParser(
         prog="ts2gtopt",
@@ -377,8 +377,14 @@ def main() -> None:
         action="version",
         version=f"%(prog)s {__version__}",
     )
+    parser.add_argument(
+        "--no-color",
+        action="store_true",
+        default=False,
+        help="Disable coloured output.",
+    )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # --- Handle --list-presets early ------------------------------------------
     if args.list_presets:

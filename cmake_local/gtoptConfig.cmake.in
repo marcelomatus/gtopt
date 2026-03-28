@@ -100,6 +100,14 @@ if(NOT TARGET gtopt::gtopt)
       ${CMAKE_DL_LIBS}
   )
 
+  # When the consumer's CXX compiler is Clang on a non-Apple platform it
+  # typically uses libstdc++.  Explicitly link stdc++ so that mixed-compiler
+  # configurations (CC=gcc CXX=clang) do not fail with "DSO missing from
+  # command line" errors for libstdc++ symbols in the static libgtopt.a.
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND NOT APPLE)
+    list(APPEND _gtopt_link_libs stdc++)
+  endif()
+
   add_library(gtopt::gtopt STATIC IMPORTED)
 
   set_target_properties(

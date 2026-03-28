@@ -851,6 +851,14 @@ class GTOptWriter:
         if "converter_array" in result:
             self.planning["system"]["converter_array"] = result["converter_array"]
 
+        # DCMod=2 regulation reservoirs: append to existing reservoir_array
+        reg_reservoirs = result.get("regulation_reservoirs", [])
+        if reg_reservoirs:
+            existing_rsv = self.planning["system"].get("reservoir_array", [])
+            self.planning["system"]["reservoir_array"] = (
+                existing_rsv + reg_reservoirs
+            )
+
     def process_boundary_cuts(self, options):
         """Write boundary-cut and hot-start-cut CSVs from parsed PLP planos data.
 

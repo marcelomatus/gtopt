@@ -127,7 +127,8 @@ auto solve_apertures_for_phase(
     std::span<const double> forward_col_sol,
     std::span<const double> forward_row_dual,
     LinearInterface* pooled_clone,
-    IterationIndex iteration) -> std::optional<SparseRow>
+    IterationIndex iteration,
+    CutCoeffMode cut_coeff_mode) -> std::optional<SparseRow>
 {
   const auto pi = Index {phase};
   const auto& phase_li = sys.linear_interface();
@@ -271,14 +272,20 @@ auto solve_apertures_for_phase(
             };
           }
 
-          // Build Benders cut from the clone's reduced costs
+          // Build Benders cut from the clone's solution
           const auto cut_name = label_maker.lp_label(
               "sddp", "aper_cut", scene, pi, ap_uid, total_cuts);
-          auto cut = build_benders_cut(src_state.alpha_col,
-                                       src_state.outgoing_links,
-                                       clone.get_col_cost(),
-                                       clone.get_obj_value(),
-                                       cut_name);
+          auto cut = (cut_coeff_mode == CutCoeffMode::row_dual)
+              ? build_benders_cut_from_row_duals(src_state.alpha_col,
+                                                 src_state.outgoing_links,
+                                                 clone.get_row_dual(),
+                                                 clone.get_obj_value(),
+                                                 cut_name)
+              : build_benders_cut(src_state.alpha_col,
+                                  src_state.outgoing_links,
+                                  clone.get_col_cost(),
+                                  clone.get_obj_value(),
+                                  cut_name);
 
           return ApertureCutResult {
               .ap_uid = ap_uid,

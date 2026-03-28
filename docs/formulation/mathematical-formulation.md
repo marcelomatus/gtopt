@@ -135,7 +135,7 @@ scenarios, stages, and blocks.
 | $\overline{L}_d$ | `lmax` | Maximum demand (load) | MW |
 | $\overline{F}_l^{ab}$ | `tmax_ab` | Line capacity $a \to b$ | MW |
 | $\overline{F}_l^{ba}$ | `tmax_ba` | Line capacity $b \to a$ | MW |
-| $X_l$ | `reactance` | Line reactance | p.u. |
+| $X_l$ | `reactance` | Line reactance | Ω (p.u. when $V = 1$) |
 | $\tau_l$ | `tap_ratio` | Off-nominal tap ratio (transformer) | p.u. |
 | $\varphi_l$ | `phase_shift_deg` | Phase-shift angle (PST) | degrees |
 | $\lambda_g$ | `lossfactor` (gen) | Generator injection loss fraction | — |
@@ -484,20 +484,21 @@ $$
 Bus balance contributions for forward flow ($a \to b$):
 
 $$
-\text{At bus } a: \quad -(1 + \lambda_l) \, f_{l,s,t,b}^{+}
+\text{At bus } a: \quad -f_{l,s,t,b}^{+}
 \qquad
-\text{At bus } b: \quad +f_{l,s,t,b}^{+}
+\text{At bus } b: \quad +(1 - \lambda_l) \, f_{l,s,t,b}^{+}
 $$
 
 Bus balance contributions for reverse flow ($b \to a$):
 
 $$
-\text{At bus } b: \quad -(1 + \lambda_l) \, f_{l,s,t,b}^{-}
+\text{At bus } b: \quad -f_{l,s,t,b}^{-}
 \qquad
-\text{At bus } a: \quad +f_{l,s,t,b}^{-}
+\text{At bus } a: \quad +(1 - \lambda_l) \, f_{l,s,t,b}^{-}
 $$
 
-The loss is proportional to the flow: loss $= \lambda_l \cdot |f|$.
+Losses are allocated at the receiving bus: the power arriving is
+$(1 - \lambda_l)$ times the power sent.
 
 #### Transfer Cost
 
@@ -515,6 +516,17 @@ Kirchhoff's Voltage Law on each line $l$ connecting bus $a$ to bus $b$
 $$
 \frac{\theta_{a,s,t,b} - \theta_{b,s,t,b}}{X_l / V^2} = f_{l,s,t,b}^{+} - f_{l,s,t,b}^{-}
 $$
+
+> **Unit convention:** $V$ is the line's `voltage` field (defaults to 1.0)
+> and $X_l$ is the `reactance`. The two must use a consistent unit system:
+>
+> | Mode | $V$ | $X_l$ | $B_l = V^2/X_l$ |
+> |------|-----|-------|------------------|
+> | **Per-unit** (default, `voltage` omitted) | 1.0 | p.u. | p.u. |
+> | **Physical** (`voltage` in kV) | kV | Ω | MW/rad |
+>
+> Mixing conventions (e.g. $V = 220$ kV with $X = 0.01$ p.u.) produces
+> an enormous susceptance and will cause numerical issues.
 
 In the implementation, this is scaled by $\sigma_\theta$ for numerical
 stability. Defining the scaled susceptance:
@@ -1916,7 +1928,8 @@ DOI: [10.1109/TPWRS.2009.2021235](https://doi.org/10.1109/TPWRS.2009.2021235).
 > The definitive reference on the DC power flow approximation. The
 > linearized power flow equations in gtopt's Kirchhoff constraints
 > (§5.6) follow the standard DC model: $f_l = B_l (\theta_a - \theta_b)$
-> where $B_l = V^2 / X_l$ is the line susceptance.
+> where $B_l = V^2 / X_l$ is the line susceptance ($V$ and $X_l$ must
+> share a consistent unit system — see §5.6).
 
 <a id="ref12"></a>
 **[12]** Anderson, P.M. and Fouad, A.A. (2002). *Power Systems Control

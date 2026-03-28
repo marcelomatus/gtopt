@@ -180,12 +180,18 @@ class BatteryWriter(BaseWriter):
 
                 man = man_parser.get_item_by_name(name) if man_parser else None
 
-                # When dcmod=1 and cenpc is set, the battery is
-                # generation-coupled (the cenpc generator directly charges
-                # the battery via an internal bus created by
-                # expand_batteries()).
+                # DCMod handling:
+                #   dcmod=0: standalone battery (no coupling)
+                #   dcmod=1: generation-coupled (cenpc charges via internal bus)
+                #   dcmod=2: regulation tank → mapped to hydro Reservoir, not Battery
                 dcmod = item.get("dcmod", 0)
                 cenpc = item.get("cenpc", "")
+
+                if dcmod == 2 and cenpc:
+                    # Skip: regulation tanks are handled by
+                    # get_regulation_reservoirs() → hydro elements
+                    continue
+
                 source_gen = cenpc if dcmod == 1 and cenpc else None
 
                 entries.append(
@@ -371,6 +377,86 @@ class BatteryWriter(BaseWriter):
             )
         return convs
 
+    # Central types that can host a regulation reservoir (hydro units
+    # with a junction and turbine in the gtopt topology).
+    _HYDRO_CENTRAL_TYPES = frozenset({"serie", "pasada", "embalse"})
+
+    def get_regulation_reservoirs(self) -> List[Dict[str, Any]]:
+        """Build reservoir dicts for DCMod=2 ESS entries (regulation tanks).
+
+        DCMod=2 ESS elements model small hydro regulation tanks (ERD —
+        Embalse de Regulación Diaria) that attach to the paired generator's
+        existing junction.  They have nc=nd≈1.0 (water, no electrical losses)
+        and their emax is in MWh.
+
+        The paired generator (cenpc) must be a hydro unit (serie, pasada, or
+        embalse) that already has a junction in the gtopt hydro topology.
+        The reservoir connects to that junction, so the turbine's capacity
+        naturally enforces the joint capacity constraint
+        (DCMod=2: P_gen + P_ess ≤ Pmax).
+
+        Raises:
+            ValueError: If the paired generator is not a hydro central type.
+
+        Returns:
+            List of reservoir dicts ready for ``reservoir_array``.
+        """
+        if not self.ess_parser or not self.ess_parser.esses:
+            return []
+
+        all_centrals = self._all_centrals_by_name()
+        reservoirs: List[Dict[str, Any]] = []
+
+        for item in self.ess_parser.esses:
+            dcmod = item.get("dcmod", 0)
+            cenpc = item.get("cenpc", "")
+            if dcmod != 2 or not cenpc:
+                continue
+
+            name = item["name"]
+            emax = item["emax"]
+            mloss = item["mloss"]
+
+            # Look up the paired generator's central
+            cenpc_central = all_centrals.get(cenpc, {})
+            junction_uid = cenpc_central.get("number")
+            if junction_uid is None:
+                raise ValueError(
+                    f"DCMod=2 ESS '{name}': paired generator '{cenpc}' "
+                    f"not found in central_parser"
+                )
+
+            # Validate the paired generator is a hydro unit
+            cenpc_type = cenpc_central.get("type", "")
+            if cenpc_type not in self._HYDRO_CENTRAL_TYPES:
+                raise ValueError(
+                    f"DCMod=2 ESS '{name}': paired generator '{cenpc}' "
+                    f"has type '{cenpc_type}', expected one of "
+                    f"{sorted(self._HYDRO_CENTRAL_TYPES)}. "
+                    f"Regulation tanks require a hydro central with a "
+                    f"junction and turbine."
+                )
+
+            # The BAT central for this ESS provides the UID
+            batteries = self._bat_centrals()
+            bat_central = batteries.get(name, {})
+            uid = bat_central.get("number", 0)
+
+            reservoirs.append(
+                {
+                    "uid": uid,
+                    "name": name,
+                    "junction": junction_uid,
+                    "emin": 0.0,
+                    "emax": emax,
+                    "capacity": emax,
+                    "annual_loss": mloss * 12,
+                    "daily_cycle": True,
+                }
+            )
+
+        return reservoirs
+
     def _write_lmax_parquet(
         self, entries: List[Dict[str, Any]], output_dir: Path
     ) -> None:
@@ -495,7 +581,8 @@ class BatteryWriter(BaseWriter):
             demand_array, and optionally converter_array.
         """
         entries = self._all_entries()
-        if not entries:
+        reg_reservoirs = self.get_regulation_reservoirs()
+        if not entries and not reg_reservoirs:
             return {
                 "battery_array": [],
                 "generator_array": existing_gen,
@@ -525,5 +612,9 @@ class BatteryWriter(BaseWriter):
                 dc_entries
             )
             result["demand_array"] = existing_dem + self.to_demand_array(dc_entries)
+
+        # DCMod=2 regulation reservoirs (hydro elements, not batteries)
+        if reg_reservoirs:
+            result["regulation_reservoirs"] = reg_reservoirs
 
         return result

@@ -165,6 +165,11 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// elastic-clone solution (PLP mechanism).
   ElasticFilterMode elastic_filter_mode {ElasticFilterMode::single_cut};
 
+  /// How Benders cut coefficients are extracted from solved subproblems.
+  /// `reduced_cost` (default): reduced costs of fixed dependent columns.
+  /// `row_dual`: row duals of explicit coupling constraint rows (PLP-style).
+  CutCoeffMode cut_coeff_mode {CutCoeffMode::reduced_cost};
+
   /// Forward-pass infeasibility counter threshold for automatic switching
   /// from single_cut to multi_cut.  When the forward pass has encountered
   /// infeasibility at (scene, phase) more than this many times without
@@ -354,6 +359,9 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// file.  Only cuts from the last N distinct iterations (by the
   /// `iteration` column / PLP IPDNumIte) are retained.  0 = load all.
   int boundary_max_iterations {0};
+
+  /// How to handle cut rows referencing state variables not in the model.
+  MissingCutVarMode missing_cut_var_mode {MissingCutVarMode::skip_coeff};
 
   /// CSV file with named-variable hot-start cuts for all phases.
   ///

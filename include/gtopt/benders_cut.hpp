@@ -76,6 +76,9 @@ struct StateVarLink
   double trial_value {0.0};  ///< Trial value from the last forward pass
   double source_low {0.0};  ///< Physical lower bound of source column
   double source_upp {0.0};  ///< Physical upper bound of source column
+  /// Row index of the explicit coupling constraint (row_dual mode only).
+  /// Set by propagate_trial_values_row_dual(); unknown_index otherwise.
+  RowIndex coupling_row {unknown_index};
 };
 
 // ─── Elastic relaxation result ──────────────────────────────────────────────
@@ -99,9 +102,24 @@ struct RelaxedVarInfo
 // ─── Optimality cut ─────────────────────────────────────────────────────────
 
 /// Propagate trial values: fix dependent columns to source-column solution
+/// via column bounds (lo == hi).  Used in reduced_cost mode.
 void propagate_trial_values(std::span<StateVarLink> links,
                             std::span<const double> source_solution,
                             LinearInterface& target_li) noexcept;
+
+/// Propagate trial values using explicit coupling constraint rows (PLP-style).
+///
+/// Instead of fixing dependent columns via bounds, this function:
+/// 1. Keeps the dependent column at its physical bounds
+/// (source_low..source_upp)
+/// 2. Adds an explicit equality constraint: x_dep = trial_value
+/// 3. Stores the constraint's row index in link.coupling_row
+///
+/// The row duals of these coupling constraints are then used by
+/// build_benders_cut_from_row_duals() to construct the Benders cut.
+void propagate_trial_values_row_dual(std::span<StateVarLink> links,
+                                     std::span<const double> source_solution,
+                                     LinearInterface& target_li) noexcept;
 
 /// Build a Benders optimality cut from reduced costs of dependent columns.
 ///
@@ -113,6 +131,23 @@ void propagate_trial_values(std::span<StateVarLink> links,
                                      std::span<const double> reduced_costs,
                                      double objective_value,
                                      std::string_view name) -> SparseRow;
+
+/// Build a Benders optimality cut from row duals of coupling constraints
+/// (PLP-style).
+///
+///   α_{t-1} ≥ z_t + Σ_i π_i · (x_{t-1,i} − v̂_i)
+///
+/// where π_i = row_duals[link.coupling_row] is the dual of the explicit
+/// equality constraint that fixes the dependent column.
+///
+/// Requires that propagate_trial_values_row_dual() was called first so that
+/// each link has a valid coupling_row index.
+[[nodiscard]] auto build_benders_cut_from_row_duals(
+    ColIndex alpha_col,
+    std::span<const StateVarLink> links,
+    std::span<const double> row_duals,
+    double objective_value,
+    std::string_view name) -> SparseRow;
 
 // ─── Elastic filter ─────────────────────────────────────────────────────────
 

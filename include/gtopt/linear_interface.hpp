@@ -186,6 +186,42 @@ public:
    */
   [[nodiscard]] size_t get_numcols() const;
 
+  /// Solver backend name (e.g. "clp", "cplex", "highs").
+  [[nodiscard]] std::string_view solver_name() const noexcept
+  {
+    return m_backend_->solver_name();
+  }
+
+  /// Solver library version string (e.g. "1.17.3").
+  [[nodiscard]] std::string solver_version() const
+  {
+    return m_backend_->solver_version();
+  }
+
+  /// Solver identifier: "name/version" (e.g. "highs/1.13.1").
+  [[nodiscard]] std::string solver_id() const
+  {
+    return std::format("{}/{}", solver_name(), solver_version());
+  }
+
+  /// Solver's representation of +infinity for variable bounds.
+  [[nodiscard]] double infinity() const noexcept
+  {
+    return m_backend_->infinity();
+  }
+
+  /// True if @p value represents positive infinity for the active solver.
+  [[nodiscard]] bool is_pos_inf(double value) const noexcept
+  {
+    return value >= m_backend_->infinity();
+  }
+
+  /// True if @p value represents negative infinity for the active solver.
+  [[nodiscard]] bool is_neg_inf(double value) const noexcept
+  {
+    return value <= -m_backend_->infinity();
+  }
+
   void set_rhs(RowIndex row, double rhs);
   void set_row_low(RowIndex index, double value);
   void set_row_upp(RowIndex index, double value);

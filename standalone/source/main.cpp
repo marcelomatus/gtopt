@@ -1,6 +1,8 @@
+#include <format>
 #include <iostream>
 #include <string>
 
+#include <gtopt/check_solvers.hpp>
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/main_options.hpp>
 #include <gtopt/solver_registry.hpp>
@@ -93,6 +95,43 @@ int main(int argc, char** argv)
       return 0;
     }
 
+    if (vm.contains("check-solvers")) {
+      const auto solver_arg =
+          get_opt<std::string>(vm, "check-solvers").value_or("");
+      const bool is_verbose = vm.contains("verbose");
+      if (solver_arg.empty()) {
+        // Run tests against every available solver.
+        return gtopt::check_all_solvers(is_verbose);
+      }
+      // Run tests against the specified solver only.
+      const auto& registry = gtopt::SolverRegistry::instance();
+      if (!registry.has_solver(solver_arg)) {
+        const auto avail = registry.available_solvers();
+        std::cerr << "ERROR: solver '" << solver_arg << "' not available.\n";
+        if (!avail.empty()) {
+          std::cerr << "Available:";
+          for (const auto& s : avail) {
+            std::cerr << ' ' << s;
+          }
+          std::cerr << '\n';
+        }
+        return 1;
+      }
+      const auto report = gtopt::run_solver_tests(solver_arg, is_verbose);
+      for (const auto& r : report.results) {
+        const char* mark = r.passed ? "✓" : "✗";
+        std::cout << std::format(
+            "  {} {:<30} {:.3f}s", mark, r.name, r.duration_s);
+        if (!r.passed && !r.detail.empty()) {
+          std::cout << "\n    " << r.detail;
+        }
+        std::cout << '\n';
+      }
+      std::cout << std::format(
+          "\n  {} passed, {} failed\n", report.n_passed(), report.n_failed());
+      return report.passed() ? 0 : 1;
+    }
+
     // Validate --solver early so the user gets a clear error
     if (vm.contains("solver")) {
       const auto& registry = gtopt::SolverRegistry::instance();
@@ -167,16 +206,7 @@ int main(int argc, char** argv)
       return *result;  // 0 = optimal, 1 = non-optimal
     }
     spdlog::critical(result.error());
-    // Classify the error string for exit code selection.
-    // Input-related errors contain recognizable keywords.
-    const auto& err = result.error();
-    if (err.contains("not found") || err.contains("not exist")
-        || err.contains("Cannot open") || err.contains("parse")
-        || err.contains("Invalid") || err.contains("JSON"))
-    {
-      return 2;  // input error
-    }
-    return 3;  // internal/solver error
+    return classify_error_exit_code(result.error());
   } catch (const std::exception& ex) {
     try {
       spdlog::critical(std::format("Exception: {}", ex.what()));

@@ -50,8 +50,8 @@ void apply_constraint_bounds(SparseRow& row, const ConstraintExpr& expr)
       row.equal(expr.rhs);
       break;
     case ConstraintType::RANGE:
-      row.bound(expr.lower_bound.value_or(-SparseRow::CoinDblMax),
-                expr.upper_bound.value_or(SparseRow::CoinDblMax));
+      row.bound(expr.lower_bound.value_or(-LinearProblem::DblMax),
+                expr.upper_bound.value_or(LinearProblem::DblMax));
       break;
   }
 }

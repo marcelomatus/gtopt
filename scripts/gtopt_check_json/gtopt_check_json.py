@@ -17,9 +17,20 @@ Usage
 
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
 from typing import Any
+
+try:
+    from importlib.metadata import version as _pkg_version, PackageNotFoundError
+
+    try:
+        __version__ = _pkg_version("gtopt-scripts")
+    except PackageNotFoundError:
+        __version__ = "dev"
+except ImportError:
+    __version__ = "dev"
 
 from gtopt_check_json import _colors as col
 from gtopt_check_json._checks import Finding, Severity, run_all_checks
@@ -170,6 +181,7 @@ def check_json(
         planning,
         enabled_checks=enabled,
         ai_options=ai_options,
+        base_dir=_case_dir,
     )
 
     # Report
@@ -215,7 +227,7 @@ def _parse_args(
         "--config",
         type=Path,
         default=None,
-        help=("Path to config file (default: ~/.gtopt_check_json.conf)."),
+        help=("Path to config file (default: ~/.gtopt.conf)."),
     )
     parser.add_argument(
         "--init-config",
@@ -235,12 +247,44 @@ def _parse_args(
         default=False,
         help="Print detailed simulation structure (scenarios, stages, phases, apertures).",
     )
+    parser.add_argument(
+        "--show-config",
+        action="store_true",
+        default=False,
+        help="Print the active configuration and exit.",
+    )
+    parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        default=False,
+        help="Minimal output: only show warnings and critical findings.",
+    )
+    parser.add_argument(
+        "-l",
+        "--log-level",
+        default="WARNING",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        metavar="LEVEL",
+        help="Logging verbosity (default: %(default)s).",
+    )
+    parser.add_argument(
+        "-V",
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point for gtopt_check_json."""
     args = _parse_args(argv)
+
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(levelname)s: %(message)s",
+    )
 
     # Colour control
     no_color = args.no_color
@@ -253,6 +297,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.init_config:
         run_interactive_setup(config_path, use_color=col.USE_COLOR)
+        return 0
+
+    if args.show_config:
+        cfg = load_config(config_path)
+        print(f"\nActive configuration ({config_path}):")
+        for key, val in sorted(cfg.items()):
+            print(f"  {key} = {val!r}")
         return 0
 
     if not args.json_files:

@@ -312,3 +312,95 @@ TEST_CASE(  // NOLINT
   REQUIRE(result.has_value());
   CHECK(result.value() == 1);
 }
+
+// ---------------------------------------------------------------------------
+// User constraint with UID-based element reference (uid:N syntax)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("ElementColumnResolver - uid syntax in constraint")  // NOLINT
+{
+  static constexpr std::string_view uid_ref_json = R"json({
+    "options": {
+      "demand_fail_cost": 1000,
+      "use_single_bus": true
+    },
+    "simulation": {
+      "block_array": [{"uid": 1, "duration": 1}],
+      "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1}],
+      "scenario_array": [{"uid": 1}]
+    },
+    "system": {
+      "name": "uid_ref_test",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {
+          "uid": 1, "name": "g1", "bus": 1,
+          "gcost": 10, "capacity": 200
+        }
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50}
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1, "name": "gen_limit",
+          "expression": "generator(uid:1).generation <= 150"
+        }
+      ]
+    }
+  })json";
+
+  Planning base;
+  base.merge(daw::json::from_json<Planning>(uid_ref_json));
+  PlanningLP planning_lp(std::move(base));
+  auto result = planning_lp.resolve();
+
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 1);
+}
+
+// ---------------------------------------------------------------------------
+// User constraint with invalid element name (graceful skip)
+// ---------------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "ElementColumnResolver - unknown element name logs warning")
+{
+  static constexpr std::string_view bad_ref_json = R"json({
+    "options": {
+      "demand_fail_cost": 1000,
+      "use_single_bus": true
+    },
+    "simulation": {
+      "block_array": [{"uid": 1, "duration": 1}],
+      "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1}],
+      "scenario_array": [{"uid": 1}]
+    },
+    "system": {
+      "name": "bad_ref_test",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {
+          "uid": 1, "name": "g1", "bus": 1,
+          "gcost": 10, "capacity": 200
+        }
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50}
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1, "name": "bad_ref",
+          "expression": "generator(\"nonexistent\").generation <= 100"
+        }
+      ]
+    }
+  })json";
+
+  Planning base;
+  base.merge(daw::json::from_json<Planning>(bad_ref_json));
+  PlanningLP planning_lp(std::move(base));
+  // Should still solve — the constraint with unresolved element is skipped
+  auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+}

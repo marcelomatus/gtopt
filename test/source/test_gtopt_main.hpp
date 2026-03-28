@@ -1045,3 +1045,102 @@ TEST_CASE(  // NOLINT
   CHECK(found_trace);
   std::filesystem::remove_all(log_dir);
 }
+
+// ─── Monolithic method coverage tests ───────────────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "gtopt_main - monolithic with boundary_cuts_file (nonexistent)")
+{
+  using namespace gtopt;
+
+  // Multi-phase problem for monolithic solver with a boundary cuts file
+  // that doesn't exist — should warn but still solve successfully.
+  constexpr auto multi_phase_json = R"({
+    "options": {
+      "demand_fail_cost": 1000,
+      "output_compression": "uncompressed",
+      "sddp_options": {
+        "boundary_cuts_file": "/tmp/nonexistent_bc_file.csv"
+      }
+    },
+    "simulation": {
+      "block_array": [{"uid": 1, "duration": 1}, {"uid": 2, "duration": 1}],
+      "stage_array": [
+        {"uid": 1, "first_block": 0, "count_block": 1},
+        {"uid": 2, "first_block": 1, "count_block": 1}
+      ],
+      "scenario_array": [{"uid": 1}],
+      "phase_array": [
+        {"uid": 1, "first_stage": 0, "count_stage": 1},
+        {"uid": 2, "first_stage": 1, "count_stage": 1}
+      ]
+    },
+    "system": {
+      "name": "gtopt_main_bc_test",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10, "capacity": 200}
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50}
+      ]
+    }
+  })";
+
+  const auto stem = write_tmp_json("gtopt_main_bc_test", multi_phase_json);
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .use_single_bus = true,
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+}
+
+TEST_CASE(  // NOLINT
+    "gtopt_main - SDDP method via method=sddp option")
+{
+  using namespace gtopt;
+
+  // 2-phase problem that triggers SDDP solver via JSON options
+  constexpr auto sddp_json = R"({
+    "options": {
+      "demand_fail_cost": 1000,
+      "output_compression": "uncompressed",
+      "method": "sddp",
+      "sddp_options": {
+        "max_iterations": 5,
+        "convergence_tol": 0.01
+      }
+    },
+    "simulation": {
+      "block_array": [{"uid": 1, "duration": 1}, {"uid": 2, "duration": 1}],
+      "stage_array": [
+        {"uid": 1, "first_block": 0, "count_block": 1},
+        {"uid": 2, "first_block": 1, "count_block": 1}
+      ],
+      "scenario_array": [{"uid": 1}],
+      "phase_array": [
+        {"uid": 1, "first_stage": 0, "count_stage": 1},
+        {"uid": 2, "first_stage": 1, "count_stage": 1}
+      ]
+    },
+    "system": {
+      "name": "gtopt_main_sddp_test",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10, "capacity": 200}
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50}
+      ]
+    }
+  })";
+
+  const auto stem = write_tmp_json("gtopt_main_sddp_test", sddp_json);
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .use_single_bus = true,
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+}
