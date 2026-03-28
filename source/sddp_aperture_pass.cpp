@@ -11,16 +11,19 @@
  */
 
 #include <algorithm>
+#include <chrono>
 #include <format>
 #include <future>
 #include <ranges>
 #include <span>
+#include <thread>
 #include <vector>
 
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_aperture.hpp>
 #include <gtopt/sddp_method.hpp>
+#include <gtopt/sddp_pool.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
 #  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
@@ -54,17 +57,39 @@ namespace gtopt
 
 // ── Helper: build the ApertureSubmitFunc callback ───────────────────────────
 
-auto SDDPMethod::make_aperture_submit_fn(PhaseIndex /*phase*/,
-                                         IterationIndex /*iteration*/)
+auto SDDPMethod::make_aperture_submit_fn(PhaseIndex phase,
+                                         IterationIndex iteration)
     -> ApertureSubmitFunc
 {
-  // Run aperture tasks synchronously — the caller is already running
-  // in a pool thread (one per scene).  Submitting to the same pool
-  // would block the thread waiting for sub-tasks, causing starvation
-  // when all scene threads are occupied.
-  return [](const std::function<ApertureCutResult()>& task)
+  // Submit aperture tasks to the SDDP work pool for parallel execution.
+  // Each aperture task operates on its own LP clone, so they are
+  // independent and can safely execute concurrently.  The calling scene
+  // thread blocks on the returned futures while pool threads process
+  // the aperture solves.
+  //
+  // Fallback to synchronous execution when no pool is available (e.g.
+  // during unit tests).
+  auto* pool = m_pool_;
+  // TaskPriority::Medium is the scheduling tier (controls CPU threshold);
+  // the SDDPTaskKey tuple provides the secondary sort within that tier.
+  BasicTaskRequirements<SDDPTaskKey> req {
+      .priority = TaskPriority::Medium,
+      .priority_key = make_sddp_task_key(
+          iteration, SDDPPassDirection::backward, phase, SDDPTaskKind::lp),
+      .name = {},
+  };
+
+  return [pool, req](const std::function<ApertureCutResult()>& task)
              -> std::future<ApertureCutResult>
   {
+    if (pool != nullptr) {
+      auto fut = pool->submit(task, req);
+      if (fut.has_value()) {
+        return std::move(*fut);
+      }
+      SPDLOG_WARN("SDDP aperture: pool submit failed, running synchronously");
+    }
+    // Fallback: run synchronously
     std::promise<ApertureCutResult> p;
     p.set_value(task());
     return p.get_future();
@@ -120,7 +145,7 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
                                 m_aperture_cache_,
                                 target_state.forward_col_sol,
                                 target_state.forward_row_dual,
-                                get_pooled_clone_ptr(scene, phase),
+                                nullptr,  // no pooled clone — each task clones
                                 iteration,
                                 m_options_.cut_coeff_mode);
 
@@ -338,6 +363,15 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene,
   const auto num_phases = static_cast<Index>(phases.size());
   auto& phase_states = m_scene_phase_states_[scene];
   int total_cuts = 0;
+  [[maybe_unused]] const auto bwd_tid = std::this_thread::get_id();
+
+  SPDLOG_INFO(
+      "SDDP backward (apertures): scene {} iter {} starting ({} phases) "
+      "[thread {}]",
+      scene_uid(scene),
+      iteration,
+      num_phases - 1,
+      std::hash<std::thread::id> {}(bwd_tid) % 10000);
 
   const auto& scene_lp = simulation.scenes()[scene];
   const auto& scene_scenarios = scene_lp.scenarios();
@@ -373,31 +407,31 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene,
     // Forward-pass solution for the target phase — warm-start hint
     const auto& target_state = phase_states[phase];
 
-    auto expected_cut =
-        solve_apertures_for_phase(scene,
-                                  phase,
-                                  src_state,
-                                  base_scenario,
-                                  all_scenarios,
-                                  effective_defs,
-                                  plp.apertures(),
-                                  total_cuts,
-                                  planning_lp().system(scene, phase),
-                                  plp,
-                                  ws_opts,
-                                  m_label_maker_,
-                                  m_options_.log_directory,
-                                  scene_uid(scene),
-                                  phase_uid(phase),
-                                  make_aperture_submit_fn(phase, iteration),
-                                  0.0,
-                                  m_options_.save_aperture_lp,
-                                  m_aperture_cache_,
-                                  target_state.forward_col_sol,
-                                  target_state.forward_row_dual,
-                                  get_pooled_clone_ptr(scene, phase),
-                                  iteration,
-                                  m_options_.cut_coeff_mode);
+    auto expected_cut = solve_apertures_for_phase(
+        scene,
+        phase,
+        src_state,
+        base_scenario,
+        all_scenarios,
+        effective_defs,
+        plp.apertures(),
+        total_cuts,
+        planning_lp().system(scene, phase),
+        plp,
+        ws_opts,
+        m_label_maker_,
+        m_options_.log_directory,
+        scene_uid(scene),
+        phase_uid(phase),
+        make_aperture_submit_fn(phase, iteration),
+        0.0,
+        m_options_.save_aperture_lp,
+        m_aperture_cache_,
+        target_state.forward_col_sol,
+        target_state.forward_row_dual,
+        nullptr,  // no pooled clone — each task clones
+        iteration,
+        m_options_.cut_coeff_mode);
 
     if (!expected_cut.has_value()) {
       infeasible_phases.push_back(phase_uid(phase));

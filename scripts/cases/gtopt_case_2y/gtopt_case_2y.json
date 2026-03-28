@@ -28395,12 +28395,12 @@
                 "segments": [
                     {
                         "volume": 0.0,
-                        "slope": 6.9868e-05,
+                        "slope": 0.069868,
                         "intercept": 15.787
                     },
                     {
-                        "volume": 757000.0,
-                        "slope": 0.00013985,
+                        "volume": 757.0,
+                        "slope": 0.13985,
                         "intercept": 57.454
                     }
                 ]
