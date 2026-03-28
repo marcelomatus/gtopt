@@ -10,9 +10,11 @@
  * handling elastic fallback for infeasible phases.
  */
 
+#include <chrono>
 #include <filesystem>
 #include <format>
 #include <span>
+#include <thread>
 
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/planning_lp.hpp>
@@ -70,10 +72,12 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
     effective_opts.reuse_basis = true;
   }
 
-  SPDLOG_DEBUG("SDDP forward: scene {} iter {} starting ({} phases)",
-               scene_uid(scene),
-               iteration,
-               phases.size());
+  [[maybe_unused]] const auto fwd_tid = std::this_thread::get_id();
+  SPDLOG_INFO("SDDP forward: scene {} iter {} starting ({} phases) [thread {}]",
+              scene_uid(scene),
+              iteration,
+              phases.size(),
+              std::hash<std::thread::id> {}(fwd_tid) % 10000);
 
   // Check once whether update_lp should run for this iteration
   // (respects explicit skip/force flags and global skip count).
@@ -326,10 +330,13 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
     }
   }
 
-  SPDLOG_DEBUG("SDDP forward: scene {} iter {} done, total_opex={:.4f}",
-               scene_uid(scene),
-               iteration,
-               total_opex);
+  SPDLOG_INFO(
+      "SDDP forward: scene {} iter {} done, total_opex={:.4f} "
+      "[thread {}]",
+      scene_uid(scene),
+      iteration,
+      total_opex,
+      std::hash<std::thread::id> {}(fwd_tid) % 10000);
   return total_opex;
 }
 

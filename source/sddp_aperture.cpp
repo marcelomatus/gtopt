@@ -10,9 +10,11 @@
  */
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <format>
 #include <ranges>
+#include <thread>
 #include <utility>
 
 #include <gtopt/collection.hpp>
@@ -153,6 +155,17 @@ auto solve_apertures_for_phase(
   // build cut.  Tasks are independent (separate LP clones) and execute
   // concurrently in the SDDP work pool.
 
+  const auto phase_start = std::chrono::steady_clock::now();
+  const auto caller_tid = std::this_thread::get_id();
+
+  SPDLOG_INFO(
+      "SDDP aperture: scene {} phase {} — starting {} aperture(s) "
+      "[thread {}]",
+      scene_uid,
+      phase_uid,
+      effective_apertures.size(),
+      std::hash<std::thread::id> {}(caller_tid) % 10000);
+
   std::vector<std::future<ApertureCutResult>> futures;
   futures.reserve(effective_apertures.size());
   int n_skipped = 0;
@@ -193,6 +206,9 @@ auto solve_apertures_for_phase(
     futures.push_back(submit_fn(
         [&, ap_uid, weight, scen_it]() -> ApertureCutResult
         {
+          const auto ap_start = std::chrono::steady_clock::now();
+          const auto task_tid = std::this_thread::get_id();
+
           // Use pooled clone (reused across aperture solves) or create fresh
           auto owned_clone = pooled_clone
               ? std::optional<LinearInterface> {}
@@ -264,6 +280,17 @@ auto solve_apertures_for_phase(
           const bool feasible = clone.is_optimal();
 
           if (!feasible) {
+            const auto ap_s = std::chrono::duration<double>(
+                                  std::chrono::steady_clock::now() - ap_start)
+                                  .count();
+            spdlog::info(
+                "SDDP aperture: scene {} phase {} uid {} infeasible "
+                "({:.3f}s) [thread {}]",
+                scene_uid,
+                phase_uid,
+                ap_uid,
+                ap_s,
+                std::hash<std::thread::id> {}(task_tid) % 10000);
             return ApertureCutResult {
                 .ap_uid = ap_uid,
                 .weight = weight,
@@ -286,6 +313,18 @@ auto solve_apertures_for_phase(
                                   clone.get_col_cost(),
                                   clone.get_obj_value(),
                                   cut_name);
+
+          const auto ap_s = std::chrono::duration<double>(
+                                std::chrono::steady_clock::now() - ap_start)
+                                .count();
+          spdlog::info(
+              "SDDP aperture: scene {} phase {} uid {} solved "
+              "({:.3f}s) [thread {}]",
+              scene_uid,
+              phase_uid,
+              ap_uid,
+              ap_s,
+              std::hash<std::thread::id> {}(task_tid) % 10000);
 
           return ApertureCutResult {
               .ap_uid = ap_uid,
@@ -339,19 +378,22 @@ auto solve_apertures_for_phase(
   }
 
   // Log summary
-  [[maybe_unused]] const auto n_total = effective_apertures.size();
-  [[maybe_unused]] const auto n_feasible = aperture_cuts.size();
-  if (n_infeasible > 0 || n_skipped > 0) {
-    spdlog::info(
-        "SDDP aperture: scene {} phase {} — {}/{} feasible, "
-        "{} infeasible, {} skipped (missing scenario)",
-        scene_uid,
-        phase_uid,
-        n_feasible,
-        n_total,
-        n_infeasible,
-        n_skipped);
-  }
+  const auto n_total = effective_apertures.size();
+  const auto n_feasible = aperture_cuts.size();
+  const auto phase_elapsed = std::chrono::duration<double>(
+                                 std::chrono::steady_clock::now() - phase_start)
+                                 .count();
+  spdlog::info(
+      "SDDP aperture: scene {} phase {} — {}/{} feasible, "
+      "{} infeasible, {} skipped ({:.3f}s) [thread {}]",
+      scene_uid,
+      phase_uid,
+      n_feasible,
+      n_total,
+      n_infeasible,
+      n_skipped,
+      phase_elapsed,
+      std::hash<std::thread::id> {}(caller_tid) % 10000);
 
   if (aperture_cuts.empty()) {
     return std::nullopt;
