@@ -211,15 +211,31 @@ struct SddpOptions
   /// No cuts are saved.  Default: false.
   OptBool simulation_mode {};
 
-  /** @brief State variable propagation mode between SDDP phases.
+  /** @brief How Benders cut coefficients are extracted from solved subproblems.
    *
-   * - `last_iteration` (default): state vars are NOT pinned to the
-   *   previous phase's solution.  Values come from the previous
-   *   iteration's warm-start, recovered file state, or vini default.
-   * - `inter_phase`: state vars are pinned to the previous phase's
-   *   solution within the same forward pass (classic chaining).
+   * - `reduced_cost` (default): uses reduced costs of fixed dependent columns.
+   * - `row_dual`: adds explicit coupling constraint rows and reads their duals
+   *   (PLP-style).
+   *
+   * Both are mathematically equivalent; row_dual may be preferred for
+   * cross-validation with PLP or when LP solver presolve affects reduced-cost
+   * reporting for fixed variables.
    */
-  std::optional<StatePropagation> state_propagation {};
+  std::optional<CutCoeffMode> cut_coeff_mode {};
+
+  /** @brief How update_lp elements obtain reservoir/battery volume between
+   * phases.
+   *
+   * Controls the fallback in StorageLP::physical_eini for nonlinear LP
+   * coefficient updates (seepage, production factor, discharge limit).
+   * Does NOT affect SDDP state-variable chaining or cut generation.
+   *
+   * - `warm_start` (default): volume from warm-start solution, recovered
+   *   state file, or vini.  No cross-phase lookup.
+   * - `cross_phase`: volume from the previous phase's efin within the
+   *   same forward pass.
+   */
+  std::optional<StateVariableLookupMode> state_variable_lookup_mode {};
 
   // ── Secondary (stationary gap) convergence ─────────────────────────────────
   /** @brief Tolerance for secondary stationary-gap convergence criterion.
@@ -308,7 +324,8 @@ struct SddpOptions
     merge_opt(max_stored_cuts, opts.max_stored_cuts);
     merge_opt(use_clone_pool, opts.use_clone_pool);
     merge_opt(simulation_mode, opts.simulation_mode);
-    merge_opt(state_propagation, opts.state_propagation);
+    merge_opt(cut_coeff_mode, opts.cut_coeff_mode);
+    merge_opt(state_variable_lookup_mode, opts.state_variable_lookup_mode);
     merge_opt(warm_start, opts.warm_start);
     merge_opt(stationary_tol, opts.stationary_tol);
     merge_opt(stationary_window, opts.stationary_window);

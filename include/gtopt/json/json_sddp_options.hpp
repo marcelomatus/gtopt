@@ -16,6 +16,7 @@
 namespace daw::json
 {
 using gtopt::BoundaryCutsMode;
+using gtopt::CutCoeffMode;
 using gtopt::CutSharingMode;
 using gtopt::ElasticFilterMode;
 using gtopt::HotStartMode;
@@ -23,6 +24,7 @@ using gtopt::MissingCutVarMode;
 using gtopt::RecoveryMode;
 using gtopt::SddpOptions;
 using gtopt::SolverOptions;
+using gtopt::StateVariableLookupMode;
 
 /// Custom constructor: converts JSON strings → typed enums
 struct SddpOptionsConstructor
@@ -62,7 +64,8 @@ struct SddpOptionsConstructor
       OptInt max_stored_cuts,
       OptBool use_clone_pool,
       OptBool simulation_mode,
-      OptInt state_propagation_int,
+      OptName cut_coeff_mode_str,
+      OptName state_variable_lookup_mode_str,
       OptReal stationary_tol,
       OptInt stationary_window,
       std::optional<SolverOptions> forward_solver_options,
@@ -120,9 +123,14 @@ struct SddpOptionsConstructor
     opts.max_stored_cuts = max_stored_cuts;
     opts.use_clone_pool = use_clone_pool;
     opts.simulation_mode = simulation_mode;
-    if (state_propagation_int) {
-      opts.state_propagation =
-          static_cast<gtopt::StatePropagation>(*state_propagation_int);
+    if (cut_coeff_mode_str) {
+      opts.cut_coeff_mode =
+          gtopt::cut_coeff_mode_from_name(*cut_coeff_mode_str);
+    }
+    if (state_variable_lookup_mode_str) {
+      opts.state_variable_lookup_mode =
+          gtopt::state_variable_lookup_mode_from_name(
+              *state_variable_lookup_mode_str);
     }
     opts.stationary_tol = stationary_tol;
     opts.stationary_window = stationary_window;
@@ -170,6 +178,17 @@ inline OptName enum_to_opt_name(const std::optional<MissingCutVarMode>& e)
            : OptName {};
 }
 
+inline OptName enum_to_opt_name(const std::optional<CutCoeffMode>& e)
+{
+  return e ? OptName {std::string(gtopt::cut_coeff_mode_name(*e))} : OptName {};
+}
+
+inline OptName enum_to_opt_name(const std::optional<StateVariableLookupMode>& e)
+{
+  return e ? OptName {std::string(gtopt::state_variable_lookup_mode_name(*e))}
+           : OptName {};
+}
+
 }  // namespace detail
 
 template<>
@@ -214,7 +233,8 @@ struct json_data_contract<SddpOptions>
       json_number_null<"max_stored_cuts", OptInt>,
       json_bool_null<"use_clone_pool", OptBool>,
       json_bool_null<"simulation_mode", OptBool>,
-      json_number_null<"state_propagation", OptInt>,
+      json_string_null<"cut_coeff_mode", OptName>,
+      json_string_null<"state_variable_lookup_mode", OptName>,
       json_number_null<"stationary_tol", OptReal>,
       json_number_null<"stationary_window", OptInt>,
       json_class_null<"forward_solver_options", SolverOptions>,
@@ -257,9 +277,8 @@ struct json_data_contract<SddpOptions>
         opt.max_stored_cuts,
         opt.use_clone_pool,
         opt.simulation_mode,
-        opt.state_propagation
-            ? OptInt {static_cast<int>(*opt.state_propagation)}
-            : OptInt {},
+        detail::enum_to_opt_name(opt.cut_coeff_mode),
+        detail::enum_to_opt_name(opt.state_variable_lookup_mode),
         opt.stationary_tol,
         opt.stationary_window,
         opt.forward_solver_options,

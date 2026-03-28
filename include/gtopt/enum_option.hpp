@@ -530,43 +530,94 @@ inline constexpr auto lp_names_level_entries =
   return enum_name(std::span {lp_names_level_entries}, value);
 }
 
-// ─── StatePropagation ────────────────────────────────────────────────────────
+// ─── CutCoeffMode ───────────────────────────────────────────────────────────
 
 /**
- * @brief Controls how SDDP forward-pass state variables propagate between
- * phases.
+ * @brief How Benders cut coefficients are extracted from solved subproblems.
  *
- * - `last_iteration`: state vars take values from the previous iteration's
- *   warm-start, recovered file, or default (vini).  The previous phase's
- *   solution within the same iteration is NOT used (default).
- * - `inter_phase`: state vars are pinned to the previous phase's solution
- *   within the same forward pass (classic chaining).
+ * - `reduced_cost` (default): Uses reduced costs of the dependent (fixed)
+ *   columns.  The dependent columns are pinned via lo == hi bounds; their
+ *   reduced costs equal the shadow price of the implicit fixing constraint.
+ *   This is the standard approach used by SDDP.jl and most modern SDDP
+ *   implementations.
+ *
+ * - `row_dual`: Adds explicit equality constraint rows to fix each
+ *   dependent column (`x_dep = trial_value`) and reads the row duals of
+ *   those coupling constraints.  This is the approach used by PLP (Fortran),
+ *   which reads `GetDual(lp, PDLDAcFilaInd(IColAcop))`.  Mathematically
+ *   equivalent to reduced_cost, but may differ numerically depending on
+ *   the LP solver's presolve and dual reporting behaviour.
  */
-enum class StatePropagation : uint8_t
+enum class CutCoeffMode : uint8_t
 {
-  last_iteration = 0,  ///< Previous iteration / recovery / vini (default)
-  inter_phase = 1,  ///< Pin to previous phase's solution
+  reduced_cost = 0,  ///< Reduced costs of fixed dependent columns (default)
+  row_dual = 1,  ///< Row duals of explicit coupling constraint rows (PLP)
 };
 
-/// Name-value table for StatePropagation
-inline constexpr auto state_propagation_entries =
-    std::to_array<EnumEntry<StatePropagation>>({
-        {.name = "last_iteration", .value = StatePropagation::last_iteration},
-        {.name = "inter_phase", .value = StatePropagation::inter_phase},
+/// Name-value table for CutCoeffMode
+inline constexpr auto cut_coeff_mode_entries =
+    std::to_array<EnumEntry<CutCoeffMode>>({
+        {.name = "reduced_cost", .value = CutCoeffMode::reduced_cost},
+        {.name = "row_dual", .value = CutCoeffMode::row_dual},
     });
 
-/// Parse a StatePropagation from a string ("last_iteration", "inter_phase")
-[[nodiscard]] constexpr auto state_propagation_from_name(
-    std::string_view name) noexcept -> std::optional<StatePropagation>
+/// Parse a CutCoeffMode from a string ("reduced_cost", "row_dual")
+[[nodiscard]] constexpr auto cut_coeff_mode_from_name(
+    std::string_view name) noexcept -> std::optional<CutCoeffMode>
 {
-  return enum_from_name(std::span {state_propagation_entries}, name);
+  return enum_from_name(std::span {cut_coeff_mode_entries}, name);
 }
 
-/// Return the canonical name of a StatePropagation
-[[nodiscard]] constexpr auto state_propagation_name(
-    StatePropagation value) noexcept -> std::string_view
+/// Return the canonical name of a CutCoeffMode
+[[nodiscard]] constexpr auto cut_coeff_mode_name(CutCoeffMode value) noexcept
+    -> std::string_view
 {
-  return enum_name(std::span {state_propagation_entries}, value);
+  return enum_name(std::span {cut_coeff_mode_entries}, value);
+}
+
+// ─── StateVariableLookupMode ─────────────────────────────────────────────────
+
+/**
+ * @brief How update_lp elements obtain reservoir/battery volume between phases.
+ *
+ * Controls the fallback chain in StorageLP::physical_eini when the current
+ * phase has not yet been solved.  This affects only the nonlinear LP
+ * coefficient updates (seepage, production factor, discharge limit) — it
+ * does NOT affect SDDP state-variable chaining, cut generation, or the
+ * convergence criterion.
+ *
+ * - `warm_start` (default): volume comes from the previous iteration's
+ *   warm-start solution, a recovered state file, or the element's vini.
+ *   No cross-phase lookup is performed.
+ * - `cross_phase`: volume is taken from the previous phase's efin within
+ *   the same forward pass (classic cross-phase chaining).
+ */
+enum class StateVariableLookupMode : uint8_t
+{
+  warm_start =
+      0,  ///< Warm solution / recovery / vini (default, no cross-phase)
+  cross_phase = 1,  ///< Previous phase's efin within the same forward pass
+};
+
+/// Name-value table for StateVariableLookupMode
+inline constexpr auto state_variable_lookup_mode_entries =
+    std::to_array<EnumEntry<StateVariableLookupMode>>({
+        {.name = "warm_start", .value = StateVariableLookupMode::warm_start},
+        {.name = "cross_phase", .value = StateVariableLookupMode::cross_phase},
+    });
+
+/// Parse a StateVariableLookupMode from a string
+[[nodiscard]] constexpr auto state_variable_lookup_mode_from_name(
+    std::string_view name) noexcept -> std::optional<StateVariableLookupMode>
+{
+  return enum_from_name(std::span {state_variable_lookup_mode_entries}, name);
+}
+
+/// Return the canonical name of a StateVariableLookupMode
+[[nodiscard]] constexpr auto state_variable_lookup_mode_name(
+    StateVariableLookupMode value) noexcept -> std::string_view
+{
+  return enum_name(std::span {state_variable_lookup_mode_entries}, value);
 }
 
 }  // namespace gtopt

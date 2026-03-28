@@ -5051,3 +5051,97 @@ TEST_CASE(  // NOLINT
   REQUIRE(sim_results.has_value());
   CHECK_FALSE(sim_results->empty());
 }
+
+// ─── CutCoeffMode tests ────────────────────────────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod — cut_coeff_mode row_dual converges")
+{
+  auto planning = make_2phase_linear_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 20;
+  sddp_opts.convergence_tol = 1e-4;
+  sddp_opts.enable_api = false;
+  sddp_opts.cut_coeff_mode = CutCoeffMode::row_dual;
+
+  SDDPMethod sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+
+  SUBCASE("converges within allowed iterations")
+  {
+    CHECK(results->back().converged);
+  }
+
+  SUBCASE("cuts were generated")
+  {
+    int total_cuts = 0;
+    for (const auto& r : *results) {
+      total_cuts += r.cuts_added;
+    }
+    CHECK(total_cuts > 0);
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod — reduced_cost and row_dual produce same objective")
+{
+  // Solve the same problem with both modes and verify they converge to
+  // the same objective value (within tolerance).
+  auto planning_rc = make_2phase_linear_planning();
+  PlanningLP plp_rc(std::move(planning_rc));
+
+  SDDPOptions opts_rc;
+  opts_rc.max_iterations = 20;
+  opts_rc.convergence_tol = 1e-4;
+  opts_rc.enable_api = false;
+  opts_rc.cut_coeff_mode = CutCoeffMode::reduced_cost;
+
+  SDDPMethod sddp_rc(plp_rc, opts_rc);
+  auto results_rc = sddp_rc.solve();
+  REQUIRE(results_rc.has_value());
+  REQUIRE(results_rc->back().converged);
+
+  auto planning_rd = make_2phase_linear_planning();
+  PlanningLP plp_rd(std::move(planning_rd));
+
+  SDDPOptions opts_rd;
+  opts_rd.max_iterations = 20;
+  opts_rd.convergence_tol = 1e-4;
+  opts_rd.enable_api = false;
+  opts_rd.cut_coeff_mode = CutCoeffMode::row_dual;
+
+  SDDPMethod sddp_rd(plp_rd, opts_rd);
+  auto results_rd = sddp_rd.solve();
+  REQUIRE(results_rd.has_value());
+  REQUIRE(results_rd->back().converged);
+
+  // Both should converge to the same lower bound (within 1%)
+  const auto lb_rc = results_rc->back().lower_bound;
+  const auto lb_rd = results_rd->back().lower_bound;
+  CHECK(lb_rd == doctest::Approx(lb_rc).epsilon(0.01));
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod — row_dual with 3-phase hydro converges")
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 20;
+  sddp_opts.convergence_tol = 1e-3;
+  sddp_opts.enable_api = false;
+  sddp_opts.cut_coeff_mode = CutCoeffMode::row_dual;
+
+  SDDPMethod sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+  CHECK(results->back().converged);
+}

@@ -165,6 +165,11 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// elastic-clone solution (PLP mechanism).
   ElasticFilterMode elastic_filter_mode {ElasticFilterMode::single_cut};
 
+  /// How Benders cut coefficients are extracted from solved subproblems.
+  /// `reduced_cost` (default): reduced costs of fixed dependent columns.
+  /// `row_dual`: row duals of explicit coupling constraint rows (PLP-style).
+  CutCoeffMode cut_coeff_mode {CutCoeffMode::reduced_cost};
+
   /// Forward-pass infeasibility counter threshold for automatic switching
   /// from single_cut to multi_cut.  When the forward pass has encountered
   /// infeasibility at (scene, phase) more than this many times without
