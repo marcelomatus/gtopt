@@ -4,23 +4,20 @@
 Submits infeasible LP files to the NEOS CPLEX LP solver via its XML-RPC API
 and waits for the conflict-analysis results.
 
-CPLEX Interactive Optimizer command reference (v20.1)
------------------------------------------------------
+CPLEX Interactive Optimizer command reference
+---------------------------------------------
 After an infeasible LP solve the correct command sequence to identify the
 minimal infeasible subsystem is:
 
-1. ``set preprocessing presolve 0``   – disable presolve so that infeasibility
+1. ``set preprocessing presolve n``    – disable presolve so that infeasibility
    is detected by the simplex method rather than presolve; without this step
    the conflict refiner has no LP basis to work from.
 2. ``optimize``                        – re-solve; simplex will confirm
    infeasibility and produce a dual infeasibility certificate.
-3. ``refineconflict``                  – invoke the CPLEX conflict refiner
-   (the old ``conflict`` command was removed in newer CPLEX versions).
+3. ``tools conflict``                  – invoke the CPLEX conflict refiner
+   (lives under the ``tools`` submenu in CPLEX 22.1+).
 4. ``display conflict all``            – print the minimal conflict set
    (infeasible constraints and bound members).
-
-``conflict`` is **not** a valid CPLEX interactive command in v20.1+; using it
-produces "Command 'conflict' does not exist."  Always use ``refineconflict``.
 """
 
 import http.client
@@ -118,7 +115,7 @@ def _diagnose_network_error(
 # presolve before the conflict refiner state is available.  We therefore:
 #   1. Disable presolve.
 #   2. Re-solve (simplex now confirms infeasibility).
-#   3. Run the conflict refiner with `refineconflict`.
+#   3. Run the conflict refiner with `tools conflict`.
 #   4. Display the conflict members.
 _NEOS_LP_CPLEX_XML = """\
 <document>
@@ -130,9 +127,9 @@ _NEOS_LP_CPLEX_XML = """\
 {lp_content}
 ]]></LP>
 <post><![CDATA[
-set preprocessing presolve 0
+set preprocessing presolve n
 optimize
-refineconflict
+tools conflict
 display conflict all
 ]]></post>
 <comments><![CDATA[

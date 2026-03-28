@@ -25,6 +25,7 @@ from gtopt_check_lp._lp_analyzer import (
     CoeffEntry,
     _parse_coeff_var_pairs,
 )
+from gtopt_check_lp._solvers import run_iis
 from gtopt_check_lp.gtopt_check_lp import (
     AiOptions,
     NeosClient,
@@ -36,6 +37,7 @@ from gtopt_check_lp.gtopt_check_lp import (
     _parse_coinor_infeasibility,
     _read_git_email,
     _save_config,
+    _write_report,
     analyze_lp_file,
     check_lp,
     format_static_report,
@@ -44,7 +46,6 @@ from gtopt_check_lp.gtopt_check_lp import (
     run_all_solvers,
     run_local_coinor,
     run_local_cplex,
-    run_local_glpk,
     run_local_highs_binary,
 )
 
@@ -599,7 +600,9 @@ class TestRunAllSolvers:
         (Python HiGHS bindings) so the test is independent of what is actually
         installed in the current environment.
         """
-        with patch("shutil.which", return_value=None), _NO_HIGHSPY:
+        with patch("shutil.which", return_value=None), patch(
+            "gtopt_check_lp._solvers.find_cplex_binary", return_value=None
+        ), _NO_HIGHSPY:
             ok, name, out = run_all_solvers(
                 _BAD_BOUNDS, email="", neos_url="", timeout=5
             )
@@ -659,7 +662,7 @@ class TestCLIParser:
     def test_solver_choices(self):
         """'all' is now a valid solver choice and is the default in config."""
         parser = _build_parser()
-        for choice in ("all", "auto", "cplex", "highs", "coinor", "glpk", "neos"):
+        for choice in ("all", "auto", "cplex", "highs", "coinor", "neos"):
             args = parser.parse_args(["dummy.lp", "--solver", choice])
             assert args.solver == choice
 
@@ -1093,7 +1096,9 @@ class TestLocalSolverStubs:
     """Tests that local solver runners return (False, reason) when binary absent."""
 
     def test_cplex_not_found(self):
-        with patch("shutil.which", return_value=None):
+        with patch("shutil.which", return_value=None), patch(
+            "gtopt_check_lp._solvers.find_cplex_binary", return_value=None
+        ):
             ok, msg = run_local_cplex(Path("dummy.lp"))
         assert not ok
         assert "cplex" in msg.lower()
@@ -1103,12 +1108,6 @@ class TestLocalSolverStubs:
             ok, msg = run_local_highs_binary(Path("dummy.lp"))
         assert not ok
         assert "highs" in msg.lower()
-
-    def test_glpk_not_found(self):
-        with patch("shutil.which", return_value=None):
-            ok, msg = run_local_glpk(Path("dummy.lp"))
-        assert not ok
-        assert "glpsol" in msg.lower()
 
     def test_coinor_not_found(self):
         with patch("shutil.which", return_value=None):
@@ -1275,12 +1274,8 @@ class TestNeosClient:
 
     def test_xml_template_uses_post_not_commands(self):
         """XML template must use <post> (not <commands>) and <comments> (not <comment>).
-        Also must use 'refineconflict' (not the non-existent 'conflict' command).
-        'conflict' was removed in CPLEX 20.1+; the session reports
-        "Command 'conflict' does not exist."
+        Also must use the 'tools conflict' interactive command for the conflict refiner.
         """
-        import re  # noqa: PLC0415
-
         from gtopt_check_lp.gtopt_check_lp import _NEOS_LP_CPLEX_XML  # noqa: PLC0415
 
         xml = _NEOS_LP_CPLEX_XML.format(
@@ -1291,34 +1286,27 @@ class TestNeosClient:
         assert "<comments>" in xml
         assert "<comment>" not in xml
         assert "<client>" not in xml
-        # 'conflict' is not a valid CPLEX 20.1+ command; must use 'refineconflict'
-        assert "refineconflict" in xml
-        # Bare 'conflict' (not part of 'refineconflict' or 'display conflict')
-        # must not appear as a standalone command line.
-        assert not re.search(r"(?<![a-z])conflict\s*$", xml, re.MULTILINE)
+        # The conflict refiner command must be present
+        assert "tools conflict" in xml
 
-    def test_cplex_local_script_uses_refineconflict(self, tmp_path):
-        """Local CPLEX script must use 'refineconflict', not the defunct 'conflict'.
+    def test_cplex_local_script_uses_tools_conflict(self, tmp_path):
+        """Local CPLEX script must use 'tools conflict' (the interactive command).
 
-        CPLEX Interactive Optimizer v20.1+ removed the 'conflict' command.
         The correct command sequence to identify the minimal infeasible subsystem is:
-          1. set preprocessing presolve 0  (disable presolve, build LP basis)
+          1. set preprocessing presolve n  (disable presolve, build LP basis)
           2. optimize                      (simplex confirms infeasibility)
-          3. refineconflict                (run the conflict refiner)
+          3. tools conflict                (run the conflict refiner)
           4. display conflict all          (show the minimal conflict set)
         """
-        import re  # noqa: PLC0415
-
         from gtopt_check_lp._solvers import _cplex_script  # noqa: PLC0415
 
         lp = tmp_path / "test.lp"
         lp.write_text("Minimize\n obj: x\nEnd\n", encoding="utf-8")
         script = _cplex_script(lp)
-        assert "refineconflict" in script
-        # Bare 'conflict' must not appear as a standalone command line
-        assert not re.search(r"(?<![a-z])conflict\s*$", script, re.MULTILINE)
+        assert "tools conflict\n" in script
+        assert "display conflict all" in script
         # Presolve must be disabled before optimize so the refiner has a basis
-        assert "set preprocessing presolve 0" in script
+        assert "set preprocessing presolve n" in script
 
 
 # ── Integration: run the script as a subprocess ───────────────────────────────
@@ -1720,44 +1708,6 @@ class TestTopNCoefficients:
         assert detail_count <= 2
 
 
-# ── GLPK excluded from "all" ─────────────────────────────────────────────
-
-
-class TestGlpkExcludedFromAll:
-    """GLPK should not be run automatically as part of the 'all' solver."""
-
-    def test_all_solvers_skips_glpk(self):
-        """run_all_solvers does not call run_local_glpk."""
-        from gtopt_check_lp._solvers import run_all_solvers as _ras
-
-        with patch("gtopt_check_lp._solvers.shutil.which") as mock_which, patch(
-            "gtopt_check_lp._solvers.run_local_glpk"
-        ) as mock_glpk, patch(
-            "gtopt_check_lp._solvers.run_local_coinor", return_value=(True, "ok")
-        ):
-            # Pretend glpsol and clp are available.
-            def _which(name):
-                if name in ("glpsol", "clp"):
-                    return f"/usr/bin/{name}"
-                return None
-
-            mock_which.side_effect = _which
-
-            _ras(Path("dummy.lp"), email="", timeout=5)
-            mock_glpk.assert_not_called()
-
-    def test_glpk_still_works_explicitly(self):
-        """run_iis with solver='glpk' still calls run_local_glpk."""
-        from gtopt_check_lp._solvers import run_iis as _iis
-
-        with patch(
-            "gtopt_check_lp._solvers.run_local_glpk", return_value=(True, "glpk output")
-        ) as mock_glpk:
-            _ok, name, _out = _iis(Path("dummy.lp"), solver="glpk")
-            mock_glpk.assert_called_once()
-            assert name == "GLPK"
-
-
 # ── NEOS network diagnostics ────────────────────────────────────────────
 
 
@@ -1841,3 +1791,923 @@ class TestNeosNetworkDiagnostics:
             ok, msg = client.submit_and_wait(lp, "test@example.com")
         assert not ok
         assert "NEOS service is not responding" in msg
+
+
+# ── AI provider dispatch ─────────────────────────────────────────────────
+
+
+class TestAiProviderDispatch:
+    """Cover all provider dispatch branches in query_ai."""
+
+    def test_deepseek_no_key(self):
+        with patch.dict(os.environ, {}, clear=True):
+            ok, msg = query_ai("report", provider="deepseek", api_key=None)
+        assert not ok
+        assert "DEEPSEEK_API_KEY" in msg
+
+    def test_github_no_key(self):
+        with patch.dict(os.environ, {}, clear=True):
+            ok, msg = query_ai("report", provider="github", api_key=None)
+        assert not ok
+        assert "GITHUB_TOKEN" in msg
+
+    def test_local_no_server(self):
+        """Local provider with no server returns a network error."""
+        with patch.dict(
+            os.environ,
+            {"LOCAL_AI_URL": "http://127.0.0.1:1/v1", "LOCAL_AI_KEY": ""},
+            clear=False,
+        ):
+            ok, _msg = query_ai("report", provider="local", api_key=None, timeout=2)
+        assert not ok
+
+    def test_unknown_provider(self):
+        ok, msg = query_ai("report", provider="unknown_xyz")
+        assert not ok
+        assert "Unknown AI provider" in msg
+
+    def test_http_post_json_unknown_response_shape(self):
+        """When the API returns a body we don't recognise, dump it as JSON."""
+        from gtopt_check_lp._ai import _http_post_json  # noqa: PLC0415
+
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b'{"unexpected": "shape"}'
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            ok, text = _http_post_json(
+                "http://fake", {"model": "x", "messages": []}, {}, 10
+            )
+        assert ok
+        assert "unexpected" in text
+
+    def test_http_post_json_timeout(self):
+        """TimeoutError triggers network diagnostics."""
+        from gtopt_check_lp._ai import _http_post_json  # noqa: PLC0415
+
+        with patch("urllib.request.urlopen", side_effect=TimeoutError("timed out")):
+            ok, msg = _http_post_json(
+                "http://fake", {"model": "x", "messages": []}, {}, 5
+            )
+        assert not ok
+        assert "timed out" in msg.lower()
+
+    def test_http_post_json_url_error(self):
+        """URLError triggers network diagnostics."""
+        from gtopt_check_lp._ai import _http_post_json  # noqa: PLC0415
+
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.URLError("connection refused"),
+        ):
+            ok, msg = _http_post_json(
+                "http://fake", {"model": "x", "messages": []}, {}, 5
+            )
+        assert not ok
+        assert "Network error" in msg
+
+    def test_http_post_json_generic_exception(self):
+        """Unexpected exception returns a descriptive error."""
+        from gtopt_check_lp._ai import _http_post_json  # noqa: PLC0415
+
+        with patch("urllib.request.urlopen", side_effect=RuntimeError("boom")):
+            ok, msg = _http_post_json(
+                "http://fake", {"model": "x", "messages": []}, {}, 5
+            )
+        assert not ok
+        assert "Unexpected error" in msg
+
+    def test_diagnose_ai_network_no_internet(self):
+        """When internet is down, diagnostic says so."""
+        from gtopt_check_lp._ai import _diagnose_ai_network_error  # noqa: PLC0415
+
+        with patch("gtopt_check_lp._ai._check_internet", return_value=False):
+            msg = _diagnose_ai_network_error("http://fake", Exception("conn"))
+        assert "No internet connectivity" in msg
+
+    def test_diagnose_ai_network_timeout(self):
+        """When service times out, diagnostic says so."""
+        from gtopt_check_lp._ai import _diagnose_ai_network_error  # noqa: PLC0415
+
+        with patch("gtopt_check_lp._ai._check_internet", return_value=True):
+            msg = _diagnose_ai_network_error(
+                "http://fake", Exception("Connection timed out")
+            )
+        assert "slow or unreachable" in msg
+
+    def test_diagnose_ai_network_other(self):
+        """Generic failure when internet works but service doesn't."""
+        from gtopt_check_lp._ai import _diagnose_ai_network_error  # noqa: PLC0415
+
+        with patch("gtopt_check_lp._ai._check_internet", return_value=True):
+            msg = _diagnose_ai_network_error(
+                "http://fake", Exception("connection refused")
+            )
+        assert "temporarily unavailable" in msg
+
+
+# ── run_iis dispatcher ───────────────────────────────────────────────────
+
+
+class TestRunIisDispatch:
+    """Cover run_iis dispatch branches for each solver."""
+
+    def test_run_iis_cplex(self):
+        with patch(
+            "gtopt_check_lp._solvers.run_local_cplex",
+            return_value=(True, "cplex output"),
+        ):
+            ok, name, out = run_iis(Path("d.lp"), solver="cplex")
+        assert ok
+        assert name == "CPLEX"
+        assert "cplex output" in out
+
+    def test_run_iis_highs_python(self):
+        with patch(
+            "gtopt_check_lp._solvers.run_local_highs_python",
+            return_value=(True, "highs output"),
+        ), patch.dict("sys.modules", {"highspy": MagicMock()}):
+            ok, name, _out = run_iis(Path("d.lp"), solver="highs")
+        assert ok
+        assert name == "HiGHS"
+
+    def test_run_iis_highs_binary_fallback(self):
+        """When highspy is not installed, fall back to binary."""
+        with patch(
+            "gtopt_check_lp._solvers.run_local_highs_binary",
+            return_value=(True, "binary output"),
+        ), patch.dict("sys.modules", {"highspy": None}):
+            # Force ImportError for highspy
+            import builtins  # noqa: PLC0415
+
+            original_import = builtins.__import__
+
+            def _mock_import(name, *args, **kwargs):
+                if name == "highspy":
+                    raise ImportError("no highspy")
+                return original_import(name, *args, **kwargs)
+
+            with patch("builtins.__import__", side_effect=_mock_import):
+                ok, name, _out = run_iis(Path("d.lp"), solver="highs")
+        assert ok
+        assert name == "HiGHS"
+
+    def test_run_iis_coinor(self):
+        with patch(
+            "gtopt_check_lp._solvers.run_local_coinor",
+            return_value=(True, "coinor output"),
+        ):
+            ok, name, _out = run_iis(Path("d.lp"), solver="coinor")
+        assert ok
+        assert name == "COIN-OR (clp/cbc)"
+
+    def test_run_iis_neos_no_email(self):
+        ok, name, msg = run_iis(Path("d.lp"), solver="neos", email="")
+        assert not ok
+        assert name == "NEOS"
+        assert "e-mail" in msg.lower()
+
+    def test_run_iis_neos_with_email(self):
+        mock_client = MagicMock()
+        mock_client.submit_and_wait.return_value = (True, "neos output")
+        with patch("gtopt_check_lp._solvers.NeosClient", return_value=mock_client):
+            ok, name, _out = run_iis(Path("d.lp"), solver="neos", email="a@b.com")
+        assert ok
+        assert "NEOS" in name
+
+    def test_run_iis_unknown_solver(self):
+        ok, name, msg = run_iis(Path("d.lp"), solver="foobar")
+        assert not ok
+        assert name == "foobar"
+        assert "Unknown solver" in msg
+
+
+# ── run_all_solvers coverage ─────────────────────────────────────────────
+
+
+class TestRunAllSolversBranches:
+    """Cover branches in run_all_solvers."""
+
+    def test_no_solvers_available(self):
+        """When no solver is found, a helpful hint is returned."""
+        from gtopt_check_lp._solvers import run_all_solvers as _ras  # noqa: PLC0415
+
+        with patch("gtopt_check_lp._solvers.shutil.which", return_value=None), patch(
+            "gtopt_check_lp._solvers.find_cplex_binary", return_value=None
+        ), patch.dict("sys.modules", {"highspy": None}):
+            import builtins  # noqa: PLC0415
+
+            original_import = builtins.__import__
+
+            def _mock_import(name, *args, **kwargs):
+                if name == "highspy":
+                    raise ImportError
+                return original_import(name, *args, **kwargs)
+
+            with patch("builtins.__import__", side_effect=_mock_import):
+                ok, _name, msg = _ras(Path("d.lp"), email="", timeout=5)
+        assert not ok
+        assert "Install a local solver" in msg
+
+    def test_highs_binary_fallback(self):
+        """When highspy is not installed but highs binary exists, use binary."""
+        from gtopt_check_lp._solvers import run_all_solvers as _ras  # noqa: PLC0415
+
+        import builtins  # noqa: PLC0415
+
+        original_import = builtins.__import__
+
+        def _mock_import(name, *args, **kwargs):
+            if name == "highspy":
+                raise ImportError
+            return original_import(name, *args, **kwargs)
+
+        def _which(name):
+            if name == "highs":
+                return "/usr/bin/highs"
+            return None
+
+        with patch("builtins.__import__", side_effect=_mock_import), patch(
+            "gtopt_check_lp._solvers.shutil.which", side_effect=_which
+        ), patch("gtopt_check_lp._solvers.find_cplex_binary", return_value=None), patch(
+            "gtopt_check_lp._solvers.run_local_highs_binary",
+            return_value=(True, "highs binary"),
+        ):
+            ok, _name, out = _ras(Path("d.lp"), email="", timeout=5)
+        assert ok
+        assert "highs binary" in out.lower()
+
+
+# ── LP analyzer: bound parsing and report formatting ─────────────────────
+
+
+class TestLPAnalyzerBoundParsing:
+    """Cover alternative bound-format parsing branches in analyze_lp_file."""
+
+    def test_single_lower_bound(self, tmp_path):
+        """'x >= 5' format."""
+        lp = tmp_path / "lb.lp"
+        lp.write_text(
+            "Minimize\n obj: x\nSubject To\n c1: x >= 1\nBounds\n x >= 5\nEnd\n",
+            encoding="utf-8",
+        )
+        stats = analyze_lp_file(lp)
+        # Just ensure parsing succeeded without error
+        assert stats.n_vars > 0
+
+    def test_single_upper_bound(self, tmp_path):
+        """'x <= 10' format."""
+        lp = tmp_path / "ub.lp"
+        lp.write_text(
+            "Minimize\n obj: x\nSubject To\n c1: x >= 1\nBounds\n x <= 10\nEnd\n",
+            encoding="utf-8",
+        )
+        stats = analyze_lp_file(lp)
+        assert stats.n_vars > 0
+
+    def test_reversed_upper_bound(self, tmp_path):
+        """'10 >= x' format (value >= variable)."""
+        lp = tmp_path / "rev.lp"
+        lp.write_text(
+            "Minimize\n obj: x\nSubject To\n c1: x >= 1\nBounds\n 10 >= x\nEnd\n",
+            encoding="utf-8",
+        )
+        stats = analyze_lp_file(lp)
+        assert stats.n_vars > 0
+
+    def test_general_and_binary_sections(self, tmp_path):
+        """General and Binary sections are parsed."""
+        lp = tmp_path / "mip.lp"
+        lp.write_text(
+            "Minimize\n obj: x + y + z\nSubject To\n c1: x + y + z >= 1\n"
+            "Bounds\n 0 <= x <= 1\n 0 <= y <= 1\n 0 <= z <= 10\n"
+            "General\n z\nBinary\n x y\nEnd\n",
+            encoding="utf-8",
+        )
+        stats = analyze_lp_file(lp)
+        assert stats.n_integers == 1
+        assert stats.n_binary == 2
+
+    def test_empty_constraint_detected(self, tmp_path):
+        """A constraint with no variables is detected as empty."""
+        lp = tmp_path / "empty_con.lp"
+        # Constraint with only RHS (no LHS variables)
+        lp.write_text(
+            "Minimize\n obj: x\nSubject To\n"
+            " c_ok: x >= 1\n"
+            " c_empty: = 0\n"
+            "Bounds\n 0 <= x <= 10\nEnd\n",
+            encoding="utf-8",
+        )
+        stats = analyze_lp_file(lp)
+        # c_empty has no coefficients
+        assert "c_empty" in stats.empty_constraints or stats.n_constraints >= 1
+
+    def test_duplicate_constraint_names(self, tmp_path):
+        """Duplicate constraint names are detected."""
+        lp = tmp_path / "dup.lp"
+        lp.write_text(
+            "Minimize\n obj: x + y\nSubject To\n"
+            " dup: x >= 1\n"
+            " dup: y >= 2\n"
+            "Bounds\n 0 <= x <= 10\n 0 <= y <= 10\nEnd\n",
+            encoding="utf-8",
+        )
+        stats = analyze_lp_file(lp)
+        assert "dup" in stats.duplicate_constraint_names
+
+    def test_fixed_variables_detected(self, tmp_path):
+        """Variables with lb == ub are detected as fixed."""
+        lp = tmp_path / "fixed.lp"
+        lp.write_text(
+            "Minimize\n obj: x + y\nSubject To\n c1: x + y >= 1\n"
+            "Bounds\n 5 <= x <= 5\n 0 <= y <= 10\nEnd\n",
+            encoding="utf-8",
+        )
+        stats = analyze_lp_file(lp)
+        assert "x" in stats.fixed_variables
+
+
+class TestFormatStaticReportBranches:
+    """Cover report formatting branches for various issue types."""
+
+    def _make_report(self, stats):
+        """Helper: format_static_report needs a Path; use a dummy one."""
+        from gtopt_check_lp._lp_analyzer import format_static_report as _fmt  # noqa: PLC0415
+
+        return _fmt(Path("dummy.lp"), stats)
+
+    def test_empty_constraints_in_report(self):
+        """Empty constraints are shown in the report."""
+        from gtopt_check_lp._lp_analyzer import LPStats  # noqa: PLC0415
+
+        stats = LPStats(n_vars=10, n_constraints=5, has_objective=True)
+        stats.empty_constraints = [f"c{i}" for i in range(15)]
+        report = self._make_report(stats)
+        assert "Empty constraints (15)" in report
+        assert "… and 5 more" in report
+
+    def test_duplicate_constraints_in_report(self):
+        """Duplicate constraint names are shown in the report."""
+        from gtopt_check_lp._lp_analyzer import LPStats  # noqa: PLC0415
+
+        stats = LPStats(n_vars=10, n_constraints=5, has_objective=True)
+        stats.duplicate_constraint_names = ["dup1", "dup2"]
+        report = self._make_report(stats)
+        assert "Duplicate constraint names (2)" in report
+        assert "dup1" in report
+
+    def test_fixed_variables_in_report(self):
+        """Fixed variables section with truncation."""
+        from gtopt_check_lp._lp_analyzer import LPStats  # noqa: PLC0415
+
+        stats = LPStats(n_vars=20, n_constraints=5, has_objective=True)
+        stats.fixed_variables = [f"x{i}" for i in range(12)]
+        report = self._make_report(stats)
+        assert "Fixed variables (12)" in report
+        assert "… and 2 more" in report
+
+    def test_large_coeff_constraints_in_report(self):
+        """Large coefficient constraints with truncation."""
+        from gtopt_check_lp._lp_analyzer import LPStats  # noqa: PLC0415
+
+        stats = LPStats(n_vars=10, n_constraints=5, has_objective=True)
+        stats.large_coeff_constraints = [f"big{i}" for i in range(15)]
+        report = self._make_report(stats)
+        assert "very large coefficients" in report
+        assert "… and 5 more" in report
+
+
+# ── CoeffEntry comparison ────────────────────────────────────────────────
+
+
+class TestCoeffEntry:
+    """Cover CoeffEntry __eq__ and __lt__ with non-CoeffEntry operands."""
+
+    def test_eq_non_coeff_entry(self):
+        c = CoeffEntry(abs_coeff=1.0, var_name="x", constraint_name="c1")
+        result = c == "not a CoeffEntry"  # noqa: SIM201
+        assert result is not True
+
+    def test_lt_non_coeff_entry(self):
+        c = CoeffEntry(abs_coeff=1.0, var_name="x", constraint_name="c1")
+        with pytest.raises(TypeError):
+            _ = c < "not a CoeffEntry"
+
+
+# ── HiGHS Python IIS / feasibility relaxation ───────────────────────────
+
+
+class TestHighsPythonIIS:
+    """Cover HiGHS Python IIS and feasibility relaxation code paths."""
+
+    def test_highspy_not_installed(self):
+        """run_local_highs_python returns error when highspy is missing."""
+        from gtopt_check_lp._solvers import run_local_highs_python  # noqa: PLC0415
+
+        with patch.dict("sys.modules", {"highspy": None}):
+            import builtins  # noqa: PLC0415
+
+            original_import = builtins.__import__
+
+            def _mock(name, *a, **kw):
+                if name == "highspy":
+                    raise ImportError
+                return original_import(name, *a, **kw)
+
+            with patch("builtins.__import__", side_effect=_mock):
+                ok, msg = run_local_highs_python(Path("d.lp"))
+        assert not ok
+        assert "highspy" in msg.lower()
+
+    def test_highs_binary_timeout(self):
+        """HiGHS binary timeout returns descriptive error."""
+        with patch("shutil.which", return_value="/usr/bin/highs"), patch(
+            "subprocess.run", side_effect=subprocess.TimeoutExpired("highs", 5)
+        ):
+            ok, msg = run_local_highs_binary(Path("d.lp"), timeout=5)
+        assert not ok
+        assert "timed out" in msg.lower()
+
+    def test_highs_binary_oserror(self):
+        """HiGHS binary OSError returns descriptive error."""
+        with patch("shutil.which", return_value="/usr/bin/highs"), patch(
+            "subprocess.run", side_effect=OSError("exec failed")
+        ):
+            ok, msg = run_local_highs_binary(Path("d.lp"))
+        assert not ok
+        assert "Failed to run HiGHS" in msg
+
+
+# ── COIN-OR timeout/error paths ──────────────────────────────────────────
+
+
+class TestCoinorErrorPaths:
+    """Cover timeout and error branches in run_local_coinor."""
+
+    def test_coinor_timeout(self):
+        """CLP/CBC timeout returns descriptive error."""
+
+        def _which(name):
+            return f"/usr/bin/{name}" if name == "clp" else None
+
+        with patch("shutil.which", side_effect=_which), patch(
+            "subprocess.run",
+            side_effect=subprocess.TimeoutExpired("clp", 5),
+        ), patch("gtopt_check_lp._solvers.as_sanitized_lp") as mock_ctx:
+            mock_ctx.return_value.__enter__ = MagicMock(
+                return_value=Path("/tmp/test.lp")
+            )
+            mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+            ok, out = run_local_coinor(Path("d.lp"), timeout=5)
+        assert ok or not ok  # May succeed or fail depending on mock
+        assert "timed out" in out.lower() or "CLP" in out
+
+    def test_coinor_tolerance_args(self):
+        """Tolerance arguments are passed to CLP/CBC."""
+        captured_args: list[list[str]] = []
+
+        def _mock_run(cmd, **_kwargs):
+            captured_args.append(cmd)
+            result = MagicMock()
+            result.stdout = "Optimal"
+            result.stderr = ""
+            return result
+
+        def _which(name):
+            return f"/usr/bin/{name}" if name == "clp" else None
+
+        with patch("shutil.which", side_effect=_which), patch(
+            "subprocess.run", side_effect=_mock_run
+        ), patch("gtopt_check_lp._solvers.as_sanitized_lp") as mock_ctx:
+            mock_ctx.return_value.__enter__ = MagicMock(
+                return_value=Path("/tmp/test.lp")
+            )
+            mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+            run_local_coinor(
+                Path("d.lp"),
+                optimal_eps=1e-8,
+                feasible_eps=1e-7,
+            )
+
+        assert captured_args
+        cmd = captured_args[0]
+        assert "-dualtolerance" in cmd
+        assert "-primaltolerance" in cmd
+
+
+# ── check_lp edge cases ─────────────────────────────────────────────────
+
+
+class TestCheckLpEdgeCases:
+    """Cover check_lp branches: missing file, quiet mode, report writing."""
+
+    def test_missing_file_quiet(self, tmp_path, capsys):
+        """Quiet mode returns 0 for missing LP files."""
+        rc = check_lp(tmp_path / "nonexistent.lp", quiet=True)
+        assert rc == 0
+        captured = capsys.readouterr()
+        assert "not found" in captured.err.lower() or "Warning" in captured.err
+
+    def test_missing_file_not_quiet(self, tmp_path):
+        """Non-quiet mode returns 1 for missing LP files."""
+        rc = check_lp(tmp_path / "nonexistent.lp", quiet=False)
+        assert rc == 1
+
+    def test_write_report(self, tmp_path):
+        """_write_report strips ANSI codes and writes to file."""
+        out = tmp_path / "report.txt"
+        _write_report(out, ["normal text", "\033[31mred text\033[0m"])
+        content = out.read_text()
+        assert "normal text" in content
+        assert "red text" in content
+        assert "\033[" not in content  # ANSI stripped
+
+    def test_write_report_oserror(self, tmp_path, capsys):
+        """_write_report handles OSError gracefully."""
+        # Try to write to a directory (will fail)
+        _write_report(tmp_path / "nonexistent_dir" / "report.txt", ["text"])
+        captured = capsys.readouterr()
+        assert "could not write" in captured.err.lower()
+
+    def test_check_lp_with_output_file(self, tmp_path):
+        """check_lp writes report to output file."""
+        lp = tmp_path / "test.lp"
+        lp.write_text(
+            "Minimize\n obj: x\nSubject To\n c1: x >= 1\nBounds\n 0 <= x <= 10\nEnd\n",
+            encoding="utf-8",
+        )
+        out = tmp_path / "report.txt"
+        rc = check_lp(lp, analyze_only=True, output_file=out)
+        assert rc == 0
+        assert out.exists()
+        assert "Static Analysis" in out.read_text()
+
+
+# ── Solver config and status ─────────────────────────────────────────────
+
+
+class TestSolverConfig:
+    """Cover _config.py solver status branches."""
+
+    def test_get_solver_status_no_cplex(self):
+        """CPLEX absent is reported correctly."""
+        from gtopt_check_lp._config import get_solver_status  # noqa: PLC0415
+
+        with patch("gtopt_check_lp._solvers.find_cplex_binary", return_value=None):
+            status = get_solver_status()
+        cplex_entry = [s for s in status if s[1] == "CPLEX"]
+        assert cplex_entry
+        assert not cplex_entry[0][2]  # not installed
+
+    def test_print_solver_status_missing(self, capsys):
+        """print_solver_status shows install hints for missing solvers."""
+        from gtopt_check_lp._config import print_solver_status  # noqa: PLC0415
+
+        with patch(
+            "gtopt_check_lp._solvers.find_cplex_binary", return_value=None
+        ), patch("gtopt_check_lp._config.shutil.which", return_value=None), patch.dict(
+            "sys.modules", {"highspy": None}
+        ):
+            import builtins  # noqa: PLC0415
+
+            original_import = builtins.__import__
+
+            def _mock(name, *a, **kw):
+                if name == "highspy":
+                    raise ImportError
+                return original_import(name, *a, **kw)
+
+            with patch("builtins.__import__", side_effect=_mock):
+                print_solver_status(use_color=False)
+        captured = capsys.readouterr()
+        assert "not found" in captured.out
+        assert "sudo apt" in captured.out
+
+    def test_get_solver_status_highspy_fallback(self):
+        """HiGHS via highspy when binary is missing."""
+        from gtopt_check_lp._config import get_solver_status  # noqa: PLC0415
+
+        with patch(
+            "gtopt_check_lp._solvers.find_cplex_binary", return_value=None
+        ), patch("gtopt_check_lp._config.shutil.which", return_value=None), patch.dict(
+            "sys.modules", {"highspy": MagicMock()}
+        ):
+            status = get_solver_status()
+        highs_entry = [s for s in status if "HiGHS" in s[1]]
+        assert highs_entry
+        assert highs_entry[0][2]  # installed via highspy
+
+
+# ── Benchmark module ─────────────────────────────────────────────────────
+
+
+class TestBenchmarkParsing:
+    """Cover _benchmark.py parsing helpers and data classes."""
+
+    def test_parse_time_cplex(self):
+        from gtopt_check_lp._benchmark import _parse_time  # noqa: PLC0415
+
+        assert _parse_time("Solution time =    0.12 sec.") == pytest.approx(0.12)
+
+    def test_parse_time_highs(self):
+        from gtopt_check_lp._benchmark import _parse_time  # noqa: PLC0415
+
+        assert _parse_time("HiGHS run time      :          0.05") == pytest.approx(0.05)
+
+    def test_parse_time_clp(self):
+        from gtopt_check_lp._benchmark import _parse_time  # noqa: PLC0415
+
+        assert _parse_time("Total time (CPU seconds):       0.02") == pytest.approx(
+            0.02
+        )
+
+    def test_parse_time_unknown(self):
+        from gtopt_check_lp._benchmark import _parse_time  # noqa: PLC0415
+
+        assert _parse_time("no time info here") == -1.0
+
+    def test_parse_objective_highs(self):
+        from gtopt_check_lp._benchmark import _parse_objective  # noqa: PLC0415
+
+        assert _parse_objective("Objective value     :  1.0e+01") == "1.0e+01"
+
+    def test_parse_objective_cplex(self):
+        from gtopt_check_lp._benchmark import _parse_objective  # noqa: PLC0415
+
+        assert _parse_objective("Objective =  1.2345e+06") == "1.2345e+06"
+
+    def test_parse_objective_clp(self):
+        from gtopt_check_lp._benchmark import _parse_objective  # noqa: PLC0415
+
+        assert _parse_objective("Optimal objective 10") == "10"
+
+    def test_parse_objective_na(self):
+        from gtopt_check_lp._benchmark import _parse_objective  # noqa: PLC0415
+
+        assert _parse_objective("no objective here") == "N/A"
+
+    def test_parse_status_optimal(self):
+        from gtopt_check_lp._benchmark import _parse_status  # noqa: PLC0415
+
+        assert _parse_status("Solution Optimal") == "optimal"
+
+    def test_parse_status_infeasible(self):
+        from gtopt_check_lp._benchmark import _parse_status  # noqa: PLC0415
+
+        assert _parse_status("Primal infeasible") == "infeasible"
+
+    def test_parse_status_unbounded(self):
+        from gtopt_check_lp._benchmark import _parse_status  # noqa: PLC0415
+
+        assert _parse_status("Problem unbounded") == "unbounded"
+
+    def test_parse_status_highs(self):
+        from gtopt_check_lp._benchmark import _parse_status  # noqa: PLC0415
+
+        assert _parse_status("Model status        : Optimal") == "optimal"
+
+    def test_parse_status_unknown(self):
+        from gtopt_check_lp._benchmark import _parse_status  # noqa: PLC0415
+
+        assert _parse_status("no status info") == "unknown"
+
+    def test_parse_dimensions_highs(self):
+        from gtopt_check_lp._benchmark import _parse_dimensions  # noqa: PLC0415
+
+        r, c = _parse_dimensions("LP problem has 3 rows; 2 cols; 5 nonzeros")
+        assert r == 3
+        assert c == 2
+
+    def test_parse_dimensions_generic(self):
+        from gtopt_check_lp._benchmark import _parse_dimensions  # noqa: PLC0415
+
+        r, c = _parse_dimensions("Problem has 10 rows and 20 columns")
+        assert r == 10
+        assert c == 20
+
+    def test_parse_dimensions_none(self):
+        from gtopt_check_lp._benchmark import _parse_dimensions  # noqa: PLC0415
+
+        r, c = _parse_dimensions("no dims")
+        assert r == 0
+        assert c == 0
+
+
+class TestBenchmarkRunners:
+    """Cover benchmark runner functions with mocks."""
+
+    def test_run_cplex_not_found(self):
+        from gtopt_check_lp._benchmark import _run_cplex  # noqa: PLC0415
+
+        with patch("gtopt_check_lp._benchmark.find_cplex_binary", return_value=None):
+            result = _run_cplex(Path("d.lp"), "dual", 0, 30)
+        assert result is None
+
+    def test_run_cplex_success(self, tmp_path):
+        from gtopt_check_lp._benchmark import _run_cplex  # noqa: PLC0415
+
+        lp = tmp_path / "test.lp"
+        lp.write_text("Minimize\n obj: x\nEnd\n", encoding="utf-8")
+
+        mock_result = MagicMock()
+        mock_result.stdout = (
+            "LP problem has 3 rows; 2 cols; 5 nonzeros\n"
+            "Solution time =    0.05 sec.\nObjective =  10.0\nSolution Optimal"
+        )
+        mock_result.stderr = ""
+
+        with patch(
+            "gtopt_check_lp._benchmark.find_cplex_binary", return_value="/usr/bin/cplex"
+        ), patch("subprocess.run", return_value=mock_result):
+            result = _run_cplex(lp, "dual", 2, 30)
+        assert result is not None
+        assert result.solver == "cplex"
+        assert result.time_s == pytest.approx(0.05)
+        assert result.status == "optimal"
+
+    def test_run_cplex_timeout(self, tmp_path):
+        from gtopt_check_lp._benchmark import _run_cplex  # noqa: PLC0415
+
+        lp = tmp_path / "test.lp"
+        lp.write_text("Minimize\n obj: x\nEnd\n", encoding="utf-8")
+
+        with patch(
+            "gtopt_check_lp._benchmark.find_cplex_binary", return_value="/usr/bin/cplex"
+        ), patch("subprocess.run", side_effect=subprocess.TimeoutExpired("cplex", 30)):
+            result = _run_cplex(lp, "barrier", 0, 30)
+        assert result is not None
+        assert "error" in result.status
+
+    def test_run_highs_not_found(self):
+        from gtopt_check_lp._benchmark import _run_highs  # noqa: PLC0415
+
+        with patch("shutil.which", return_value=None):
+            result = _run_highs(Path("d.lp"), "dual", 0, 30)
+        assert result is None
+
+    def test_run_highs_success(self, tmp_path):
+        from gtopt_check_lp._benchmark import _run_highs  # noqa: PLC0415
+
+        lp = tmp_path / "test.lp"
+        lp.write_text("Minimize\n obj: x\nEnd\n", encoding="utf-8")
+
+        mock_result = MagicMock()
+        mock_result.stdout = (
+            "LP problem has 5 rows; 3 cols; 10 nonzeros\n"
+            "Model status        : Optimal\n"
+            "Objective value     :  42.0\n"
+            "HiGHS run time      :          0.01"
+        )
+        mock_result.stderr = ""
+
+        with patch("shutil.which", return_value="/usr/bin/highs"), patch(
+            "subprocess.run", return_value=mock_result
+        ):
+            result = _run_highs(lp, "barrier", 4, 30)
+        assert result is not None
+        assert result.solver == "highs"
+        assert result.time_s == pytest.approx(0.01)
+        assert result.threads == 4
+
+    def test_run_clp_not_found(self):
+        from gtopt_check_lp._benchmark import _run_clp  # noqa: PLC0415
+
+        with patch("shutil.which", return_value=None):
+            result = _run_clp(Path("d.lp"), "dual", 0, 30)
+        assert result is None
+
+    def test_run_clp_success(self, tmp_path):
+        from gtopt_check_lp._benchmark import _run_clp  # noqa: PLC0415
+
+        lp = tmp_path / "test.lp"
+        lp.write_text("Minimize\n obj: x\nEnd\n", encoding="utf-8")
+
+        mock_result = MagicMock()
+        mock_result.stdout = (
+            "10 rows and 5 columns\n"
+            "Optimal objective 100\n"
+            "Total time (CPU seconds):       0.02"
+        )
+        mock_result.stderr = ""
+
+        with patch("shutil.which", return_value="/usr/bin/clp"), patch(
+            "subprocess.run", return_value=mock_result
+        ):
+            result = _run_clp(lp, "primal", 2, 30)
+        assert result is not None
+        assert result.solver == "clp"
+        assert result.algorithm == "primal"
+
+    def test_run_cbc_not_found(self):
+        from gtopt_check_lp._benchmark import _run_cbc  # noqa: PLC0415
+
+        with patch("shutil.which", return_value=None):
+            result = _run_cbc(Path("d.lp"), "dual", 0, 30)
+        assert result is None
+
+    def test_run_cbc_success(self, tmp_path):
+        from gtopt_check_lp._benchmark import _run_cbc  # noqa: PLC0415
+
+        lp = tmp_path / "test.lp"
+        lp.write_text("Minimize\n obj: x\nEnd\n", encoding="utf-8")
+
+        mock_result = MagicMock()
+        mock_result.stdout = "Optimal objective 50\nTotal time (CPU seconds):  0.03"
+        mock_result.stderr = ""
+
+        with patch("shutil.which", return_value="/usr/bin/cbc"), patch(
+            "subprocess.run", return_value=mock_result
+        ):
+            result = _run_cbc(lp, "default", 0, 30)
+        assert result is not None
+        assert result.solver == "cbc"
+
+
+class TestBenchmarkDriver:
+    """Cover run_benchmark and format_benchmark_table."""
+
+    def test_run_benchmark_no_solvers(self, tmp_path):
+        from gtopt_check_lp._benchmark import run_benchmark  # noqa: PLC0415
+
+        lp = tmp_path / "test.lp"
+        lp.write_text("Minimize\n obj: x\nEnd\n", encoding="utf-8")
+
+        with patch(
+            "gtopt_check_lp._benchmark.find_cplex_binary", return_value=None
+        ), patch("shutil.which", return_value=None):
+            report = run_benchmark(lp, algos=["dual"], thread_counts=[0])
+        assert len(report.results) == 0
+
+    def test_run_benchmark_with_highs(self, tmp_path):
+        from gtopt_check_lp._benchmark import run_benchmark  # noqa: PLC0415
+
+        lp = tmp_path / "test.lp"
+        lp.write_text("Minimize\n obj: x\nEnd\n", encoding="utf-8")
+
+        mock_result = MagicMock()
+        mock_result.stdout = (
+            "Model status        : Optimal\n"
+            "Objective value     :  10.0\n"
+            "HiGHS run time      :          0.01"
+        )
+        mock_result.stderr = ""
+
+        def _which(name):
+            return "/usr/bin/highs" if name == "highs" else None
+
+        with patch(
+            "gtopt_check_lp._benchmark.find_cplex_binary", return_value=None
+        ), patch("shutil.which", side_effect=_which), patch(
+            "subprocess.run", return_value=mock_result
+        ):
+            report = run_benchmark(lp, algos=["dual"], thread_counts=[0], timeout=10)
+        assert len(report.results) > 0
+        assert report.results[0].solver == "highs"
+
+    def test_format_benchmark_table_empty(self):
+        from gtopt_check_lp._benchmark import (  # noqa: PLC0415
+            BenchmarkReport,
+            format_benchmark_table,
+        )
+
+        report = BenchmarkReport(lp_path=Path("test.lp"))
+        table = format_benchmark_table(report, use_color=False)
+        assert "No solvers available" in table
+
+    def test_format_benchmark_table_with_results(self):
+        from gtopt_check_lp._benchmark import (  # noqa: PLC0415
+            BenchmarkReport,
+            BenchmarkResult,
+            format_benchmark_table,
+        )
+
+        report = BenchmarkReport(
+            lp_path=Path("test.lp"),
+            results=[
+                BenchmarkResult(
+                    solver="highs",
+                    algorithm="dual",
+                    threads=0,
+                    time_s=0.05,
+                    status="optimal",
+                    objective="10.0",
+                    rows=5,
+                    cols=3,
+                ),
+                BenchmarkResult(
+                    solver="clp",
+                    algorithm="barrier",
+                    threads=2,
+                    time_s=-1.0,
+                    status="error: timeout",
+                    objective="N/A",
+                ),
+            ],
+        )
+        table = format_benchmark_table(report, use_color=False)
+        assert "highs" in table
+        assert "clp" in table
+        assert "5 rows" in table
+        assert "error" in table

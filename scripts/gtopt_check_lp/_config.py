@@ -154,11 +154,9 @@ def save_config(config_path: Path, cfg: dict[str, str]) -> None:
 # ---------------------------------------------------------------------------
 
 _SOLVER_BINARIES = [
-    ("cplex", "CPLEX", None),
     ("highs", "HiGHS", "sudo apt install highs"),
     ("clp", "COIN-OR CLP", "sudo apt install coinor-clp"),
     ("cbc", "COIN-OR CBC", "sudo apt install coinor-cbc"),
-    ("glpsol", "GLPK", "sudo apt install glpk-utils"),
 ]
 
 
@@ -166,8 +164,17 @@ def get_solver_status() -> list[tuple[str, str, bool, str | None]]:
     """Return installation status for every known solver.
 
     Each entry is ``(binary, label, installed, apt_hint)``.
+    CPLEX is checked first via :func:`find_cplex_binary` which also
+    searches well-known installation directories (e.g. ``/opt/cplex``).
     """
-    status = []
+    from ._solvers import find_cplex_binary  # noqa: PLC0415
+
+    status: list[tuple[str, str, bool, str | None]] = []
+
+    # CPLEX — uses find_cplex_binary() to check PATH + well-known dirs
+    cplex_found = find_cplex_binary() is not None
+    status.append(("cplex", "CPLEX", cplex_found, None))
+
     for binary, label, hint in _SOLVER_BINARIES:
         installed = shutil.which(binary) is not None
         if binary == "highs" and not installed:
@@ -273,7 +280,7 @@ def run_interactive_setup(config_path: Path, use_color: bool = True) -> dict[str
     print_solver_status(use_color=use_color)
 
     current_solver = cfg.get("solver", "all")
-    solver_choices = ("all", "auto", "cplex", "highs", "coinor", "glpk", "neos")
+    solver_choices = ("all", "auto", "cplex", "highs", "coinor", "neos")
     solver_hint = "  Preferred solver " + _c(col._CYAN, str(list(solver_choices)))  # noqa: SLF001
     solver = _prompt(solver_hint, current_solver)
     if solver not in solver_choices:
