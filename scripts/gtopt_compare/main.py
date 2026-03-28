@@ -62,6 +62,16 @@ import textwrap
 from collections.abc import Callable
 from pathlib import Path
 
+try:
+    from importlib.metadata import version as _pkg_version, PackageNotFoundError
+
+    try:
+        __version__ = _pkg_version("gtopt-scripts")
+    except PackageNotFoundError:
+        __version__ = "dev"
+except ImportError:
+    __version__ = "dev"
+
 logger = logging.getLogger(__name__)
 
 _SCALE_OBJECTIVE = 1000.0  # gtopt scale_objective used in all supported cases
@@ -1468,6 +1478,18 @@ examples:
             "logging verbosity: DEBUG, INFO, WARNING, ERROR, CRITICAL "
             "(default: %(default)s)"
         ),
+    )
+    parser.add_argument(
+        "--no-color",
+        action="store_true",
+        default=False,
+        help="Disable coloured output.",
+    )
+    parser.add_argument(
+        "-V",
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
     )
     args = parser.parse_args()
 

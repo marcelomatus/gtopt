@@ -431,7 +431,7 @@ class TestConfig:
 
     def test_default_config_path(self) -> None:
         p = default_config_path()
-        assert p.name == ".gtopt_check_json.conf"
+        assert p.name == ".gtopt.conf"
 
     def test_load_missing_returns_defaults(self) -> None:
         cfg = load_config(Path("/nonexistent/.conf"))

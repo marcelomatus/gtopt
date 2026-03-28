@@ -1,37 +1,52 @@
 # SPDX-License-Identifier: BSD-3-Clause
-"""Configuration file I/O and interactive first-run setup for gtopt_check_lp."""
+"""Configuration file I/O and interactive first-run setup for gtopt_check_lp.
 
-import configparser
+Uses the centralized ``~/.gtopt.conf`` via the :mod:`gtopt_config` module.
+AI settings are shared from the ``[global]`` section; tool-specific settings
+(email, solver, timeout, neos_url) live in ``[gtopt_check_lp]``.
+
+Backward compatibility: if ``~/.gtopt_check_lp.conf`` exists and
+``~/.gtopt.conf`` does not, the old file is migrated automatically.
+"""
+
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+from gtopt_config import (
+    DEFAULT_CONFIG_PATH,
+    get_global,
+    get_section,
+    load_config as _load_unified_config,
+    save_section,
+)
+
 from . import _colors as col
 from ._ai import _AI_DEFAULT_MODEL, _AI_DEFAULT_PROVIDER, _AI_PROVIDERS
 
-_CONFIG_SECTION = "gtopt_check_lp"
-_CONFIG_DEFAULTS: dict[str, str] = {
+_SECTION = "gtopt_check_lp"
+_OLD_CONFIG_PATH = Path.home() / ".gtopt_check_lp.conf"
+
+# Tool-specific keys and their defaults
+_TOOL_DEFAULTS: dict[str, str] = {
     "email": "",
     "solver": "all",
     "timeout": "5",
     "neos_url": "https://neos-server.org:3333",
-    "color": "auto",
-    "ai_enabled": "true",
-    "ai_provider": "claude",
-    "ai_model": "",
-    "ai_prompt": "",
 }
+
+# Keys that are read from [global] (AI + color)
+_GLOBAL_KEYS = ("ai_enabled", "ai_provider", "ai_model", "ai_prompt", "color")
 
 
 def default_config_path() -> Path:
-    """Return the default config file path: ``~/.gtopt_check_lp.conf``."""
-    return Path.home() / ".gtopt_check_lp.conf"
+    """Return the unified config file path: ``~/.gtopt.conf``."""
+    return DEFAULT_CONFIG_PATH
 
 
 def read_git_email() -> str:
-    """
-    Read the user e-mail from the git global configuration.
+    """Read the user e-mail from the git global configuration.
 
     Returns an empty string when git is not installed or no email is set.
     """
@@ -51,48 +66,87 @@ def read_git_email() -> str:
         return ""
 
 
-def load_config(config_path: Path) -> dict[str, str]:
-    """
-    Load the config file at *config_path*.
+def _migrate_old_config() -> None:
+    """Migrate settings from ``~/.gtopt_check_lp.conf`` → ``~/.gtopt.conf``.
 
-    Returns a dict with keys from :data:`_CONFIG_DEFAULTS`.  Missing keys are
-    filled with the defaults.  Returns defaults when the file is absent.
+    Only runs when the old file exists and the unified file either doesn't
+    exist or doesn't have a [gtopt_check_lp] section yet.
     """
-    cfg = dict(_CONFIG_DEFAULTS)
-    if not config_path.exists():
-        return cfg
+    if not _OLD_CONFIG_PATH.exists():
+        return
+
+    import configparser  # noqa: PLC0415
 
     parser = configparser.ConfigParser()
     try:
-        parser.read(config_path, encoding="utf-8")
+        parser.read(_OLD_CONFIG_PATH, encoding="utf-8")
     except configparser.Error:
-        return cfg
+        return
 
-    if parser.has_section(_CONFIG_SECTION):
-        for key in _CONFIG_DEFAULTS:
-            if parser.has_option(_CONFIG_SECTION, key):
-                cfg[key] = parser.get(_CONFIG_SECTION, key)
+    if not parser.has_section(_SECTION):
+        return
+
+    # Collect tool-specific values
+    tool_values: dict[str, str] = {}
+    global_values: dict[str, str] = {}
+    for key in parser.options(_SECTION):
+        val = parser.get(_SECTION, key)
+        if key in _GLOBAL_KEYS:
+            global_values[key] = val
+        else:
+            tool_values[key] = val
+
+    # Write to unified config
+    if tool_values:
+        save_section(DEFAULT_CONFIG_PATH, _SECTION, tool_values)
+    if global_values:
+        save_section(DEFAULT_CONFIG_PATH, "global", global_values)
+
+
+def load_config(config_path: Path) -> dict[str, str]:
+    """Load gtopt_check_lp settings from the unified config.
+
+    Reads AI/color settings from ``[global]`` and tool-specific settings
+    from ``[gtopt_check_lp]``.  Returns a flat dict compatible with the
+    existing code.
+    """
+    # Auto-migrate old config file on first access
+    if _OLD_CONFIG_PATH.exists() and not config_path.exists():
+        _migrate_old_config()
+
+    cfg_parser = _load_unified_config(config_path)
+
+    cfg: dict[str, str] = {}
+
+    # Global keys (AI + color)
+    for key in _GLOBAL_KEYS:
+        cfg[key] = get_global(cfg_parser, key)
+
+    # Tool-specific keys
+    for key, default in _TOOL_DEFAULTS.items():
+        cfg[key] = get_section(cfg_parser, _SECTION, key, fallback=default)
+
     return cfg
 
 
 def save_config(config_path: Path, cfg: dict[str, str]) -> None:
-    """Write *cfg* to *config_path* in INI format."""
-    parser = configparser.ConfigParser()
-    parser[_CONFIG_SECTION] = cfg
-    try:
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        with config_path.open("w", encoding="utf-8") as fh:
-            fh.write(
-                "# gtopt_check_lp configuration\n"
-                "# Generated by gtopt_check_lp --init-config\n"
-                "# Edit this file to set your defaults.\n\n"
-            )
-            parser.write(fh)
-    except OSError as exc:
-        print(
-            f"Warning: could not write config file {config_path}: {exc}",
-            file=sys.stderr,
-        )
+    """Write *cfg* to the unified config file.
+
+    Global keys (AI, color) go to ``[global]``; the rest to
+    ``[gtopt_check_lp]``.
+    """
+    global_values: dict[str, str] = {}
+    tool_values: dict[str, str] = {}
+    for key, val in cfg.items():
+        if key in _GLOBAL_KEYS:
+            global_values[key] = val
+        else:
+            tool_values[key] = val
+
+    if global_values:
+        save_section(config_path, "global", global_values)
+    if tool_values:
+        save_section(config_path, _SECTION, tool_values)
 
 
 # ---------------------------------------------------------------------------
@@ -109,8 +163,7 @@ _SOLVER_BINARIES = [
 
 
 def get_solver_status() -> list[tuple[str, str, bool, str | None]]:
-    """
-    Return installation status for every known solver.
+    """Return installation status for every known solver.
 
     Each entry is ``(binary, label, installed, apt_hint)``.
     """
@@ -178,12 +231,11 @@ def _prompt(prompt_text: str, default: str = "") -> str:
 
 
 def run_interactive_setup(config_path: Path, use_color: bool = True) -> dict[str, str]:
-    """
-    Run the interactive first-run setup wizard.
+    """Run the interactive first-run setup wizard.
 
     Reads the git email as a proposed default, checks solver availability,
     adds AI configuration questions, and writes the resulting config to
-    *config_path*.
+    the unified ``~/.gtopt.conf``.
 
     Returns the final config dict.
     """
@@ -246,12 +298,12 @@ def run_interactive_setup(config_path: Path, use_color: bool = True) -> dict[str
         color = "auto"
     cfg["color"] = color
 
-    # ── AI settings ────────────────────────────────────────────────────────
+    # ── AI settings (shared in [global]) ──────────────────────────────────
     print()
-    print(_c(col._BOLD, "AI diagnostics:"))  # noqa: SLF001
+    print(_c(col._BOLD, "AI diagnostics (shared across all gtopt tools):"))  # noqa: SLF001
     print(
-        "\n  When an API key is available, gtopt_check_lp can send the LP"
-        "\n  infeasibility report to an AI provider for an expert diagnosis."
+        "\n  When an API key is available, gtopt tools can send reports"
+        "\n  to an AI provider for expert diagnosis."
         "\n  Supported providers: " + ", ".join(_AI_PROVIDERS)
     )
 

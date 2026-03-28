@@ -3446,6 +3446,12 @@ Examples:
         action="version",
         version="%(prog)s (gtopt-scripts)",
     )
+    parser.add_argument(
+        "--no-color",
+        action="store_true",
+        default=False,
+        help="Disable coloured output.",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(

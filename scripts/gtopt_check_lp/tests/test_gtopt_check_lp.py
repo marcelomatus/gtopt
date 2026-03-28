@@ -440,9 +440,9 @@ class TestConfigFile:
     """Tests for config file load/save helpers."""
 
     def test_default_config_path(self):
-        """Default config path is ~/.gtopt_check_lp.conf."""
+        """Default config path is ~/.gtopt.conf (unified)."""
         p = _default_config_path()
-        assert p.name == ".gtopt_check_lp.conf"
+        assert p.name == ".gtopt.conf"
         assert p.parent == Path.home()
 
     def test_load_config_missing_file_returns_defaults(self, tmp_path):
