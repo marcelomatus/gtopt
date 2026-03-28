@@ -1318,6 +1318,7 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "update_lp_skip",
         "forward_solver_options",
         "backward_solver_options",
+        "cut_coeff_mode",
     }
 )
 
