@@ -692,3 +692,177 @@ def test_source_generator_not_set_in_dc_maintenance(tmp_path):
     # DC-maintenance path → no unified fields → no source_generator in battery
     assert "bus" not in b
     assert "source_generator" not in b
+
+
+# ---------------------------------------------------------------------------
+# DCMod=2: regulation tank → hydro reservoir, not battery
+# ---------------------------------------------------------------------------
+
+
+def test_ess_dcmod2_excluded_from_battery_array(tmp_path):
+    """ESS with dcmod=2 (regulation tank) is not included in battery_array.
+
+    DCMod=2 entries have nc=nd=1.0 (water storage, no electrical losses)
+    and are mapped to hydro Reservoir elements instead of Battery.
+    """
+    ep = _make_ess_parser(
+        tmp_path,
+        " 2\n"
+        "  ANGOSTURA_ERD  1.0  1.0  2.0  800.0  328.1  2  ANGOSTURA\n"
+        "  ALFALFAL_BESS  0.9  0.9  1.0  244.3   59.3  1  ALFALFAL\n",
+    )
+    writer = BatteryWriter(ess_parser=ep)
+    bats = writer.to_battery_array()
+
+    # Only ALFALFAL_BESS should appear (dcmod=1), not ANGOSTURA_ERD (dcmod=2)
+    assert len(bats) == 1
+    assert bats[0]["name"] == "ALFALFAL_BESS"
+
+
+def test_ess_dcmod2_generates_regulation_reservoir(tmp_path):
+    """ESS with dcmod=2 produces a reservoir via get_regulation_reservoirs().
+
+    The reservoir attaches to the paired generator's junction and uses
+    the ESS emax as energy capacity.
+    """
+    # ESS with dcmod=2 paired to ANGOSTURA
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n  ANGOSTURA_ERD  1.0  1.0  2.0  800.0  328.1  2  ANGOSTURA\n",
+    )
+    # Mock central_parser: provides centrals list with number (junction UID)
+    # and type for the paired generator and the BAT central
+    mock_cp = type(
+        "MockCentralParser",
+        (),
+        {
+            "centrals": [
+                {"name": "ANGOSTURA", "number": 68, "type": "serie", "pmax": 328.1},
+                {
+                    "name": "ANGOSTURA_ERD",
+                    "number": 1188,
+                    "type": "bateria",
+                    "pmax": 328.1,
+                },
+            ]
+        },
+    )()
+    writer = BatteryWriter(ess_parser=ep, central_parser=mock_cp)
+    reservoirs = writer.get_regulation_reservoirs()
+
+    assert len(reservoirs) == 1
+    r = reservoirs[0]
+    assert r["name"] == "ANGOSTURA_ERD"
+    assert r["uid"] == 1188
+    assert r["junction"] == 68  # paired generator's central number
+    assert r["emax"] == pytest.approx(800.0)
+    assert r["emin"] == pytest.approx(0.0)
+    assert r["annual_loss"] == pytest.approx(24.0)  # 2.0 * 12
+    assert r["daily_cycle"] is True
+
+
+def test_ess_dcmod2_no_reservoir_without_cenpc(tmp_path):
+    """ESS with dcmod=2 but no cenpc does not generate a reservoir."""
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n  ORPHAN_ERD  1.0  1.0  2.0  500.0  100.0  2\n",
+    )
+    writer = BatteryWriter(ess_parser=ep)
+    reservoirs = writer.get_regulation_reservoirs()
+
+    assert len(reservoirs) == 0
+
+
+def test_ess_dcmod0_no_regulation_reservoir(tmp_path):
+    """ESS with dcmod=0 does not generate regulation reservoirs."""
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n  BAT_ARICA  0.9  0.9  1.0  2.0  2.0  0\n",
+    )
+    writer = BatteryWriter(ess_parser=ep)
+    reservoirs = writer.get_regulation_reservoirs()
+
+    assert len(reservoirs) == 0
+
+
+def test_ess_dcmod2_rejects_non_hydro_central(tmp_path):
+    """DCMod=2 paired with a non-hydro central (termica) raises ValueError."""
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n  FAKE_ERD  1.0  1.0  2.0  100.0  50.0  2  THERMAL1\n",
+    )
+    mock_cp = type(
+        "MockCentralParser",
+        (),
+        {
+            "centrals": [
+                {"name": "THERMAL1", "number": 99, "type": "termica", "pmax": 50.0},
+                {"name": "FAKE_ERD", "number": 1000, "type": "bateria", "pmax": 50.0},
+            ]
+        },
+    )()
+    writer = BatteryWriter(ess_parser=ep, central_parser=mock_cp)
+
+    with pytest.raises(ValueError, match="type 'termica'"):
+        writer.get_regulation_reservoirs()
+
+
+def test_ess_dcmod2_rejects_missing_central(tmp_path):
+    """DCMod=2 paired with an unknown central raises ValueError."""
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n  FAKE_ERD  1.0  1.0  2.0  100.0  50.0  2  UNKNOWN\n",
+    )
+    mock_cp = type(
+        "MockCentralParser",
+        (),
+        {
+            "centrals": [
+                {"name": "FAKE_ERD", "number": 1000, "type": "bateria", "pmax": 50.0},
+            ]
+        },
+    )()
+    writer = BatteryWriter(ess_parser=ep, central_parser=mock_cp)
+
+    with pytest.raises(ValueError, match="not found"):
+        writer.get_regulation_reservoirs()
+
+
+def test_ess_dcmod2_works_with_pasada_central(tmp_path):
+    """DCMod=2 paired with a pasada (run-of-river) hydro central is valid.
+
+    A pasada central has a junction and turbine but no reservoir.
+    Adding a regulation reservoir to its junction correctly models
+    the regulation tank: water balance at the junction sums the
+    affluent inflow + reservoir extraction, and the turbine capacity
+    enforces the joint power limit.
+    """
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n  PASADA_ERD  1.0  1.0  1.5  200.0  80.0  2  PASADA1\n",
+    )
+    mock_cp = type(
+        "MockCentralParser",
+        (),
+        {
+            "centrals": [
+                {"name": "PASADA1", "number": 42, "type": "pasada", "pmax": 80.0},
+                {
+                    "name": "PASADA_ERD",
+                    "number": 900,
+                    "type": "bateria",
+                    "pmax": 80.0,
+                },
+            ]
+        },
+    )()
+    writer = BatteryWriter(ess_parser=ep, central_parser=mock_cp)
+    reservoirs = writer.get_regulation_reservoirs()
+
+    assert len(reservoirs) == 1
+    r = reservoirs[0]
+    assert r["name"] == "PASADA_ERD"
+    assert r["uid"] == 900
+    assert r["junction"] == 42  # pasada central's junction
+    assert r["emax"] == pytest.approx(200.0)
+    assert r["annual_loss"] == pytest.approx(18.0)  # 1.5 * 12
