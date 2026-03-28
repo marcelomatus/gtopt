@@ -206,16 +206,7 @@ int main(int argc, char** argv)
       return *result;  // 0 = optimal, 1 = non-optimal
     }
     spdlog::critical(result.error());
-    // Classify the error string for exit code selection.
-    // Input-related errors contain recognizable keywords.
-    const auto& err = result.error();
-    if (err.contains("not found") || err.contains("not exist")
-        || err.contains("Cannot open") || err.contains("parse")
-        || err.contains("Invalid") || err.contains("JSON"))
-    {
-      return 2;  // input error
-    }
-    return 3;  // internal/solver error
+    return classify_error_exit_code(result.error());
   } catch (const std::exception& ex) {
     try {
       spdlog::critical(std::format("Exception: {}", ex.what()));
