@@ -43,7 +43,8 @@ struct Bus
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Operational status (default: active)
   OptName type {};  ///< Optional bus type tag (e.g. "pq", "pv", "slack")
-  OptReal voltage {};  ///< Nominal voltage level [kV]
+  OptReal voltage {};  ///< Nominal voltage level [kV].
+                       ///< Used by needs_kirchhoff() to filter low-V buses.
   OptReal reference_theta {};  ///< Fixed voltage angle for reference bus [rad]
   OptBool use_kirchhoff {};  ///< Override global Kirchhoff setting for this bus
 
