@@ -986,6 +986,19 @@ https://github.com/marcelomatus/plp_storage/tree/main/CEN65/src).
 efficiency first, then charge efficiency).  Some PLP data file comments label
 the columns as "nc nd" but the Fortran reads nd first.
 
+#### DCMod mapping
+
+| DCMod | CenCarga | gtopt mapping |
+|-------|----------|---------------|
+| 0 | — | Standalone Battery (no coupling) |
+| 1 | solar/wind | Battery with `source_generator` → internal bus topology |
+| 2 | hydro (serie/pasada/embalse) | **Reservoir** attached to paired generator's junction (not Battery) |
+
+DCMod=2 entries (regulation tanks, typically nc=nd=1.0) are excluded from
+`battery_array` and mapped to hydro Reservoir elements.  The paired hydro
+generator must have a junction and turbine; `plp2gtopt` validates this and
+raises `ValueError` if the paired central is not a hydro type.
+
 #### Maintenance schedule mapping to gtopt
 
 | PLP file | Fortran modifies | gtopt mapping |
