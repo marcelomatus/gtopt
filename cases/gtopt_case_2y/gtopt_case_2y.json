@@ -1,6 +1,7 @@
 {
   "options": {
-    "input_directory": "/tmp/plp2y_out",
+    "method": "sddp",
+    "input_directory": ".",
     "input_format": "parquet",
     "output_directory": "results",
     "output_format": "parquet",
