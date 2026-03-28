@@ -152,9 +152,12 @@ public:
 
   auto pool = std::make_unique<SDDPWorkPool>(pool_config);
   pool->start();
-  SPDLOG_TRACE("SDDP work pool started: max_threads={} cpu_threshold={:.0f}%",
-               pool_config.max_threads,
-               pool_config.max_cpu_threshold);
+  SPDLOG_INFO(
+      "SDDP work pool started: max_threads={} cpu_threshold={:.0f}% "
+      "(hw_concurrency={})",
+      pool_config.max_threads,
+      static_cast<double>(pool_config.max_cpu_threshold),
+      std::thread::hardware_concurrency());
   return pool;
 }
 
