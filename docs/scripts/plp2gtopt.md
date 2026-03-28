@@ -150,7 +150,7 @@ exists, the ESS path takes priority; otherwise the battery path is used.
 
 | File | Parser | Description |
 |------|--------|-------------|
-| `plpess.dat` | `EssParser` | Energy Storage System definition (discharge/charge efficiency, energy bounds) |
+| `plpess.dat` | `EssParser` | Energy Storage System definition (discharge/charge efficiency, energy bounds, DCMod, CenCarga) |
 | `plpmaness.dat` | `ManessParser` | Maintenance schedule for ESS (energy + power bounds per block) |
 | `plpcenbat.dat` | `BatteryParser` | Battery central definition (alternative to ESS) |
 | `plpmanbat.dat` | `ManbatParser` | Maintenance schedule for batteries (energy bounds per block) |
@@ -177,6 +177,51 @@ directly into the battery rather than exporting to the grid bus.
 
 For standalone batteries (no injection central, `DCMod = 0`), both charge
 and discharge connect to the same external bus.
+
+### Regulation tanks (`DCMod = 2` → hydro Reservoir)
+
+When `DCMod = 2` and `CenCarga` references a hydro central (serie, pasada,
+or embalse), the ESS entry represents a **regulation tank** (Embalse de
+Regulación Diaria — ERD), not a real battery.  These entries typically have
+`nc = nd = 1.0` (perfect efficiency — water storage, no electrical losses).
+
+`plp2gtopt` maps DCMod=2 entries to gtopt **Reservoir** elements instead of
+Battery elements:
+
+- The ESS entry is **excluded** from `battery_array`.
+- A **Reservoir** is created with:
+  - `junction` = the paired hydro generator's central number (its junction UID)
+  - `emax` = ESS energy capacity (MWh)
+  - `annual_loss` = `mloss × 12`
+  - `daily_cycle = true`
+
+The paired hydro generator already has a junction with river inflow and a
+turbine in the gtopt hydro topology.  The regulation reservoir attaches to
+that junction, and the water balance naturally models charging (storing
+water) and discharging (releasing water through the turbine):
+
+```
+river_inflow + reservoir_extraction = waterway_out + drain
+power = conversion_rate × waterway_flow
+```
+
+The turbine's capacity (`pmax`) enforces the joint capacity constraint
+(`P_gen + P_tank ≤ Pmax`), which is the physical meaning of DCMod=2 in PLP.
+
+**Validation**: `plp2gtopt` raises `ValueError` if the paired generator
+(`CenCarga`) is not a hydro central type (e.g. if it is `termica`), since
+regulation tanks require a hydro junction and turbine.
+
+#### Example
+
+In `plpess.dat`:
+```
+ANGOSTURA_ERD  1.000 1.000  2.0  800.0  328.1  2  ANGOSTURA
+```
+
+ANGOSTURA is a "serie" hydro generator (uid=68, 328.1 MW) with junction 68
+and river inflow.  `plp2gtopt` creates a Reservoir named `ANGOSTURA_ERD`
+(800 MWh, daily_cycle) attached to junction 68.  No Battery is created.
 
 ### Field order notes
 
