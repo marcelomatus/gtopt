@@ -59,8 +59,11 @@ namespace gtopt
  *
  * A line carries active power flow `f ∈ [-tmax_ba, tmax_ab]` between
  * `bus_a` and `bus_b`. In Kirchhoff mode the flow is constrained by
- * `f = (θ_a − θ_b) / reactance`. Optional expansion variables allow
- * the solver to invest in additional transfer capacity.
+ * `f = V² / X · (θ_a − θ_b)` where V is the line voltage and X the
+ * reactance.  When voltage is omitted (defaults to 1.0) both V and X
+ * are in per-unit; when voltage is in kV, reactance must be in Ω.
+ * Optional expansion variables allow the solver to invest in additional
+ * transfer capacity.
  *
  * @see Bus for connected bus definitions
  * @see LineLP for the LP formulation
@@ -75,10 +78,13 @@ struct Line
   SingleId bus_a {unknown_uid};  ///< Sending-end (from) bus ID
   SingleId bus_b {unknown_uid};  ///< Receiving-end (to) bus ID
 
-  OptTRealFieldSched voltage {};  ///< Nominal voltage level [kV]
-  OptTRealFieldSched resistance {};  ///< Series resistance [p.u.]
-  OptTRealFieldSched
-      reactance {};  ///< Series reactance used in DC power flow [p.u.]
+  OptTRealFieldSched voltage {};  ///< Nominal voltage level [kV].
+                                  ///< Omit or set to 1.0 for per-unit mode.
+  OptTRealFieldSched resistance {};  ///< Series resistance [Ω].
+                                     ///< Use p.u. when voltage is omitted.
+  OptTRealFieldSched reactance {};  ///< Series reactance for DC power flow [Ω].
+                                    ///< Use p.u. when voltage is omitted
+                                    ///< (default). Susceptance: B = V² / X.
   OptTRealFieldSched lossfactor {};  ///< Lumped loss factor [p.u.]
   OptBool use_line_losses {};  ///< Whether to model resistive line losses
                                ///< (default: from Options)
