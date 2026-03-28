@@ -10,6 +10,7 @@
  * constraints and relationships with other system components.
  */
 
+#include <cmath>
 #include <limits>
 
 #include <gtopt/linear_problem.hpp>
@@ -66,15 +67,29 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   const auto fmin = reservoir().fmin.value_or(-LinearProblem::DblMax);
   const auto fmax = reservoir().fmax.value_or(+LinearProblem::DblMax);
 
-  // Resolve energy_scale: per-element field > VariableScaleMap > default.
+  // Resolve energy_scale: explicit field > auto-scale > VariableScaleMap.
   const double energy_scale = [&]
   {
+    // 1. Explicit per-element field always wins.
     if (reservoir().energy_scale.has_value()) {
       return *reservoir().energy_scale;
     }
+    // 2. VariableScaleMap override (from PlanningOptions::variable_scales).
     const auto vs =
         sc.options().variable_scale_map().lookup("Reservoir", "energy", uid());
-    return (vs != 1.0) ? vs : Reservoir::default_energy_scale;
+    if (vs != 1.0) {
+      return vs;
+    }
+    // 3. Auto-scale mode: round up capacity/1000 to next power of 10.
+    //    cap=6000 → 6 → 10;  cap=6e6 → 6000 → 10000.
+    if (reservoir().energy_scale_mode_enum() == EnergyScaleMode::auto_scale) {
+      const auto raw = stage_capacity / 1000.0;
+      if (raw <= 1.0) {
+        return 1.0;
+      }
+      return std::pow(10.0, std::ceil(std::log10(raw)));
+    }
+    return Reservoir::default_energy_scale;
   }();
 
   // Resolve flow_scale independently from energy_scale.

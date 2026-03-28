@@ -575,6 +575,100 @@ inline constexpr auto cut_coeff_mode_entries =
   return enum_name(std::span {cut_coeff_mode_entries}, value);
 }
 
+// ─── ConvergenceMode ────────────────────────────────────────────────────────
+
+/**
+ * @brief SDDP convergence criterion selection.
+ *
+ * All modes respect `min_iterations` and `max_iterations`.  The primary
+ * gap test (`gap < convergence_tol`) is always active regardless of mode.
+ *
+ * - `gap_only`:        Converge only when the deterministic gap closes.
+ *                      Simplest mode; no stationarity or CI checks.
+ *
+ * - `gap_stationary`:  Also declare convergence when the gap stops
+ *                      improving (gap_change < stationary_tol over
+ *                      stationary_window iterations).  Handles the
+ *                      non-zero-gap case for deterministic problems.
+ *
+ * - `statistical`:     Full PLP-style criterion (default).  Adds a
+ *                      confidence-interval test for multi-scene problems:
+ *                      UB − LB ≤ z_{α/2} · σ.  When the CI test alone
+ *                      fails but the gap is stationary, convergence is
+ *                      still declared (non-zero gap that stopped
+ *                      improving).  Degrades gracefully to gap_stationary
+ *                      when only one scene is present (no apertures or
+ *                      pure Benders fallback).
+ */
+enum class ConvergenceMode : uint8_t
+{
+  gap_only = 0,  ///< Deterministic gap test only
+  gap_stationary = 1,  ///< Gap + stationary gap detection
+  statistical = 2,  ///< Gap + stationary + CI (default, PLP-style)
+};
+
+/// Name-value table for ConvergenceMode
+inline constexpr auto convergence_mode_entries =
+    std::to_array<EnumEntry<ConvergenceMode>>({
+        {.name = "gap_only", .value = ConvergenceMode::gap_only},
+        {.name = "gap_stationary", .value = ConvergenceMode::gap_stationary},
+        {.name = "statistical", .value = ConvergenceMode::statistical},
+    });
+
+/// Parse a ConvergenceMode from a string
+[[nodiscard]] constexpr auto convergence_mode_from_name(
+    std::string_view name) noexcept -> std::optional<ConvergenceMode>
+{
+  return enum_from_name(std::span {convergence_mode_entries}, name);
+}
+
+/// Return the canonical name of a ConvergenceMode
+[[nodiscard]] constexpr auto convergence_mode_name(
+    ConvergenceMode value) noexcept -> std::string_view
+{
+  return enum_name(std::span {convergence_mode_entries}, value);
+}
+
+// ─── EnergyScaleMode ────────────────────────────────────────────────────────
+
+/**
+ * @brief How the LP energy-variable scaling factor is determined for storage
+ *        elements (reservoirs, batteries).
+ *
+ * - `manual` (0): Use the explicit `energy_scale` field (default 1.0 if
+ *   unset).  This is the legacy behaviour.
+ * - `auto_scale` (1, default): Compute `energy_scale = max(1.0, emax/1000)`
+ *   so that LP variables stay in the O(1000) range regardless of physical
+ *   reservoir size.  Mirrors PLP's `ScaleVol(i) = max(1, Vmax/1000)`.
+ *   An explicit `energy_scale` field on the element overrides auto.
+ */
+enum class EnergyScaleMode : uint8_t
+{
+  manual = 0,  ///< Use explicit energy_scale field (legacy, 1.0 default)
+  auto_scale = 1,  ///< Compute from emax: max(1.0, emax / 1000) (default)
+};
+
+/// Name-value table for EnergyScaleMode
+inline constexpr auto energy_scale_mode_entries =
+    std::to_array<EnumEntry<EnergyScaleMode>>({
+        {.name = "manual", .value = EnergyScaleMode::manual},
+        {.name = "auto", .value = EnergyScaleMode::auto_scale},
+    });
+
+/// Parse an EnergyScaleMode from a string ("manual", "auto")
+[[nodiscard]] constexpr auto energy_scale_mode_from_name(
+    std::string_view name) noexcept -> std::optional<EnergyScaleMode>
+{
+  return enum_from_name(std::span {energy_scale_mode_entries}, name);
+}
+
+/// Return the canonical name of an EnergyScaleMode
+[[nodiscard]] constexpr auto energy_scale_mode_name(
+    EnergyScaleMode value) noexcept -> std::string_view
+{
+  return enum_name(std::span {energy_scale_mode_entries}, value);
+}
+
 // ─── StateVariableLookupMode ─────────────────────────────────────────────────
 
 /**

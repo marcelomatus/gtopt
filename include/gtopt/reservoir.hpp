@@ -38,6 +38,7 @@
 
 #pragma once
 
+#include <gtopt/enum_option.hpp>
 #include <gtopt/field_sched.hpp>
 #include <gtopt/object.hpp>
 #include <gtopt/reservoir_discharge_limit.hpp>
@@ -120,7 +121,23 @@ struct Reservoir
       default_fmax};  ///< Maximum net flow into the reservoir junction [m³/s]
 
   OptReal energy_scale {};  ///< Energy scale factor: LP variable =
-                            ///< physical_energy / energy_scale [dimensionless]
+                            ///< physical_energy / energy_scale [dimensionless].
+                            ///< When set, overrides auto-scaling regardless of
+                            ///< energy_scale_mode.
+  OptName energy_scale_mode {};  ///< How to determine energy_scale: `"manual"`
+                                 ///< (use explicit field, default 1.0) or
+                                 ///< `"auto"` (compute max(1, emax/1000) like
+                                 ///< PLP).  Default: `"auto"`.
+
+  /// Parse energy_scale_mode string to enum (auto_scale if unset).
+  [[nodiscard]] EnergyScaleMode energy_scale_mode_enum() const noexcept
+  {
+    if (energy_scale_mode.has_value()) {
+      return energy_scale_mode_from_name(*energy_scale_mode)
+          .value_or(EnergyScaleMode::auto_scale);
+    }
+    return EnergyScaleMode::auto_scale;
+  }
   OptReal flow_conversion_rate {
       default_flow_conversion_rate};  ///< Converts m³/s × hours into dam³
                                       ///< [dam³/(m³/s·h)]

@@ -630,6 +630,11 @@ class JunctionWriter(BaseWriter):
                 "flow_conversion_rate": 3.6 / 1000.0,
             }
 
+            # Auto energy scaling: let the C++ code compute
+            # energy_scale = pow(10, ceil(log10(capacity/1000))).
+            # This mirrors PLP's ScaleVol(i) = max(1, Vmax/1000).
+            reservoir["energy_scale_mode"] = "auto"
+
             # Small / independent reservoirs (PLP Hid_Indep='T') do not
             # carry state across blocks — disable the state variable.
             if central.get("hid_indep", False):

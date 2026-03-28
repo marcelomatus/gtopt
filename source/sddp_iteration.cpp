@@ -175,31 +175,137 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       // ── Convergence + live-query update ──
       finalize_iteration_result(ir, iter);
 
-      // ── Secondary (stationary gap) convergence check ──
-      // When stationary_tol > 0, also declare convergence if the gap has not
-      // improved by more than stationary_tol (relative) over the last
-      // stationary_window iterations.  This handles problems where the SDDP
-      // gap converges to a non-zero stationary value.
-      if (m_options_.stationary_tol > 0.0 && m_options_.stationary_window > 0) {
+      // ── Extended convergence criteria (governed by convergence_mode) ──
+      //
+      // The primary gap test (gap < convergence_tol) is always active and
+      // has already been evaluated by finalize_iteration_result().
+      //
+      // The additional criteria below are gated by convergence_mode:
+      //   gap_only       → nothing extra
+      //   gap_stationary → + stationary gap detection
+      //   statistical    → + stationary + CI test + CI+stationary fallback
+
+      const auto mode = m_options_.convergence_mode;
+      const bool past_min_iters =
+          (iter >= m_iteration_offset_
+               + IterationIndex {m_options_.min_iterations - 1});
+
+      // Stationary gap tracking: compute gap_change over the look-back
+      // window.  Active for gap_stationary and statistical modes.
+      bool gap_is_stationary = false;
+      if (mode != ConvergenceMode::gap_only && m_options_.stationary_tol > 0.0
+          && m_options_.stationary_window > 0)
+      {
         const auto window =
             static_cast<std::size_t>(m_options_.stationary_window);
         if (results.size() >= window) {
           const double old_gap = results[results.size() - window].gap;
           ir.gap_change = std::abs(ir.gap - old_gap) / std::max(1e-10, old_gap);
-          if (!ir.converged && ir.gap_change < m_options_.stationary_tol
-              && (iter >= m_iteration_offset_
-                      + IterationIndex {m_options_.min_iterations - 1}))
-          {
-            ir.converged = true;
-            ir.stationary_converged = true;
-            m_converged_.store(true);
-            SPDLOG_INFO(
-                "SDDP iter {}: stationary gap convergence "
-                "(gap_change={:.6f} < stationary_tol={:.6f}) [CONVERGED]",
-                iter,
-                ir.gap_change,
-                m_options_.stationary_tol);
+        }
+        gap_is_stationary =
+            (ir.gap_change < m_options_.stationary_tol
+             && ir.gap_change < 1.0);  // 1.0 = default / not yet computed
+      }
+
+      // ── Stationary gap convergence ──
+      // Active for gap_stationary and statistical modes.
+      // Declare convergence when the gap stops improving (non-zero gap
+      // accepted).  In pure Benders (single scene / no apertures), this
+      // is the main fallback since the CI test requires N > 1.
+      if (!ir.converged && past_min_iters && gap_is_stationary
+          && mode != ConvergenceMode::gap_only)
+      {
+        ir.converged = true;
+        ir.stationary_converged = true;
+        m_converged_.store(true);
+        SPDLOG_INFO(
+            "SDDP iter {}: stationary gap convergence "
+            "(gap_change={:.6f} < stationary_tol={:.6f}) [CONVERGED]",
+            iter,
+            ir.gap_change,
+            m_options_.stationary_tol);
+      }
+
+      // ── Statistical CI convergence ──
+      // Active only for statistical mode AND multiple scenes (N > 1).
+      // Degrades gracefully: when N == 1 (no apertures, pure Benders,
+      // or all apertures infeasible), this block is skipped and the
+      // solver relies on the primary gap + stationary criteria above.
+      //
+      // PLP-style (plp-pdconvrg.f lines 84-91):
+      //   Error = ABS(ZSPFPromBest - ZSDF)
+      //   epsilon = SQRT(ZSPFVar) * UmbIntConf
+      //
+      // Two sub-criteria:
+      //  (a) CI test:  UB - LB <= z_{α/2} * σ
+      //  (b) CI + stationarity:  gap > z*σ but gap_change < stationary_tol
+      if (!ir.converged && mode == ConvergenceMode::statistical
+          && m_options_.convergence_confidence > 0.0
+          && ir.scene_upper_bounds.size() > 1 && past_min_iters)
+      {
+        const auto n = static_cast<double>(ir.scene_upper_bounds.size());
+        double mean = 0.0;
+        for (const auto ub : ir.scene_upper_bounds) {
+          mean += ub;
+        }
+        mean /= n;
+        double var = 0.0;
+        for (const auto ub : ir.scene_upper_bounds) {
+          var += (ub - mean) * (ub - mean);
+        }
+        var /= (n - 1.0);
+        const auto sigma = std::sqrt(var);
+
+        const auto alpha = 1.0 - m_options_.convergence_confidence;
+        const auto z_score = [alpha]
+        {
+          if (alpha <= 0.01) {
+            return 2.576;
           }
+          if (alpha <= 0.05) {
+            return 1.960;
+          }
+          if (alpha <= 0.10) {
+            return 1.645;
+          }
+          return 1.282;  // 80%
+        }();
+
+        const auto gap_abs = ir.upper_bound - ir.lower_bound;
+        const auto ci_threshold = z_score * sigma;
+
+        // (a) Gap within CI: LB inside the UB confidence interval.
+        if (gap_abs <= ci_threshold) {
+          ir.converged = true;
+          ir.statistical_converged = true;
+          m_converged_.store(true);
+          SPDLOG_INFO(
+              "SDDP iter {}: statistical CI convergence "
+              "(UB-LB={:.4f} <= z*σ={:.4f}, z={:.3f}, "
+              "σ={:.4f}, N={}) [CONVERGED]",
+              iter,
+              gap_abs,
+              ci_threshold,
+              z_score,
+              sigma,
+              ir.scene_upper_bounds.size());
+        }
+        // (b) Gap exceeds CI but is no longer improving.
+        else if (gap_is_stationary)
+        {
+          ir.converged = true;
+          ir.statistical_converged = true;
+          ir.stationary_converged = true;
+          m_converged_.store(true);
+          SPDLOG_INFO(
+              "SDDP iter {}: statistical + stationary convergence "
+              "(UB-LB={:.4f} > z*σ={:.4f} but gap_change={:.6f} "
+              "< stationary_tol={:.6f}) [CONVERGED]",
+              iter,
+              gap_abs,
+              ci_threshold,
+              ir.gap_change,
+              m_options_.stationary_tol);
         }
       }
 
