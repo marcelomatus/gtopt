@@ -15,7 +15,7 @@ from typing import Any, Optional
 
 from ._neos import _check_internet
 
-_AI_PROVIDERS = ("claude", "openai", "deepseek", "github")
+_AI_PROVIDERS = ("claude", "openai", "deepseek", "github", "local")
 _AI_DEFAULT_PROVIDER = "claude"
 
 _AI_DEFAULT_MODEL: dict[str, str] = {
@@ -23,6 +23,7 @@ _AI_DEFAULT_MODEL: dict[str, str] = {
     "openai": "gpt-4o",
     "deepseek": "deepseek-chat",
     "github": "gpt-4o",
+    "local": "claude-sonnet-4-6",
 }
 
 _AI_INFEASIBILITY_PROMPT = """\
@@ -128,6 +129,8 @@ def query_ai(
         return _query_deepseek(full_prompt, effective_model, api_key, timeout)
     if provider == "github":
         return _query_github(full_prompt, effective_model, api_key, timeout)
+    if provider == "local":
+        return _query_local(full_prompt, effective_model, api_key, timeout)
 
     return False, f"Provider '{provider}' is not yet implemented."
 
@@ -259,6 +262,43 @@ def _query_github(
         "Authorization": f"Bearer {key}",
         "content-type": "application/json",
     }
+    return _http_post_json(url, payload, headers, timeout)
+
+
+def _query_local(
+    prompt: str,
+    model: str,
+    api_key: Optional[str],
+    timeout: int,
+) -> tuple[bool, str]:
+    """Call a locally running OpenAI-compatible API server.
+
+    Works with any local server that exposes an OpenAI-compatible
+    ``/v1/chat/completions`` endpoint, such as:
+
+    * ``claude`` CLI proxy (e.g. ``claude --chat``)
+    * Ollama (``ollama serve``, default port 11434)
+    * llama.cpp server (``llama-server``)
+    * vLLM, LM Studio, LocalAI, etc.
+
+    Configuration:
+
+    * ``LOCAL_AI_URL`` env var overrides the base URL
+      (default: ``http://localhost:8080/v1``).
+    * ``LOCAL_AI_KEY`` env var provides the API key
+      (default: empty — most local servers don't require one).
+    * ``--ai-model`` selects the model name sent to the server.
+    """
+    key = api_key or os.environ.get("LOCAL_AI_KEY", "")
+    base_url = os.environ.get("LOCAL_AI_URL", "http://localhost:8080/v1").rstrip("/")
+    url = f"{base_url}/chat/completions"
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    headers: dict[str, str] = {"content-type": "application/json"}
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
     return _http_post_json(url, payload, headers, timeout)
 
 
