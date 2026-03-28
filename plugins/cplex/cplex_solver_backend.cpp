@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <numeric>
 #include <stdexcept>
 #include <vector>
 
@@ -211,6 +212,67 @@ void CplexSolverBackend::load_problem(int ncols,
         rowlb[i], rowub[i], cpx_inf, sense[idx], rhs[idx], range[idx]);
   }
 
+  // CPLEX requires sorted row indices within each column (CSC format).
+  // The LinearProblem::lp_build() two-pass algorithm produces unsorted
+  // indices (rows are added to columns in row-enumeration order, not
+  // sorted order). Create sorted copies for CPLEX.
+  const auto nnz = (ncols > 0 && matbeg != nullptr)
+      ? static_cast<size_t>(
+            matbeg
+                [ncols])  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      : size_t {0};
+
+  std::vector<int> sorted_matind;
+  std::vector<double> sorted_matval;
+
+  if (nnz > 0 && matind != nullptr && matval != nullptr) {
+    sorted_matind.assign(
+        matind,
+        matind
+            + nnz);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    sorted_matval.assign(
+        matval,
+        matval
+            + nnz);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+
+    // Sort each column's row indices and reorder values accordingly
+    for (int col = 0; col < ncols; ++col) {
+      const auto begin = static_cast<size_t>(
+          matbeg
+              [col]);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      const auto end = (col + 1 < ncols)
+          ? static_cast<size_t>(
+                matbeg
+                    [col
+                     + 1])  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+          : nnz;
+
+      if (end <= begin + 1) {
+        continue;  // Column has 0 or 1 entries — already sorted
+      }
+
+      // Build index permutation that sorts row indices in this column
+      std::vector<size_t> perm(end - begin);
+      std::iota(perm.begin(), perm.end(), begin);
+      std::sort(perm.begin(),
+                perm.end(),
+                [&sorted_matind](size_t a, size_t b)
+                { return sorted_matind[a] < sorted_matind[b]; });
+
+      // Apply permutation to both matind and matval for this column
+      std::vector<int> temp_ind(end - begin);
+      std::vector<double> temp_val(end - begin);
+      for (size_t i = 0; i < perm.size(); ++i) {
+        temp_ind[i] = sorted_matind[perm[i]];
+        temp_val[i] = sorted_matval[perm[i]];
+      }
+      std::copy(
+          temp_ind.begin(), temp_ind.end(), sorted_matind.begin() + begin);
+      std::copy(
+          temp_val.begin(), temp_val.end(), sorted_matval.begin() + begin);
+    }
+  }
+
   // CPLEX requires all pointers to be non-null, even for zero-element
   // matrices.  Provide safe defaults when the caller passes nullptr.
   const auto ncols_sz = static_cast<size_t>(ncols);
@@ -223,8 +285,13 @@ void CplexSolverBackend::load_problem(int ncols,
   std::vector<double> buf_colub(ncols_sz, 0.0);
 
   const int* safe_matbeg = matbeg != nullptr ? matbeg : buf_matbeg.data();
-  const int* safe_matind = matind != nullptr ? matind : buf_matind.data();
-  const double* safe_matval = matval != nullptr ? matval : buf_matval.data();
+  // Use sorted arrays if we created them, otherwise use originals or buffers
+  const int* safe_matind = !sorted_matind.empty() ? sorted_matind.data()
+      : matind != nullptr                         ? matind
+                                                  : buf_matind.data();
+  const double* safe_matval = !sorted_matval.empty() ? sorted_matval.data()
+      : matval != nullptr                            ? matval
+                                                     : buf_matval.data();
   const double* safe_obj = obj != nullptr ? obj : buf_obj.data();
   const double* safe_collb = collb != nullptr ? collb : buf_collb.data();
   const double* safe_colub = colub != nullptr ? colub : buf_colub.data();
