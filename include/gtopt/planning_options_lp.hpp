@@ -475,6 +475,8 @@ public:
   static constexpr Real default_sddp_alpha_min = 0.0;
   /** @brief Default upper bound for future cost variable α */
   static constexpr Real default_sddp_alpha_max = 1e12;
+  /** @brief Default scale divisor for future cost variable α (PLP varphi) */
+  static constexpr Real default_sddp_scale_alpha = 1'000;
   /** @brief Default elastic filter mode */
   static constexpr ElasticFilterMode default_sddp_elastic_mode =
       ElasticFilterMode::single_cut;
@@ -619,6 +621,16 @@ public:
   [[nodiscard]] constexpr auto sddp_alpha_max() const
   {
     return m_options_.sddp_options.alpha_max.value_or(default_sddp_alpha_max);
+  }
+
+  /**
+   * @brief Gets the scale divisor for future cost variable α
+   * @return α scale divisor (default: 1000, analogous to PLP varphi scale)
+   */
+  [[nodiscard]] constexpr auto sddp_scale_alpha() const
+  {
+    return m_options_.sddp_options.scale_alpha.value_or(
+        default_sddp_scale_alpha);
   }
 
   /**

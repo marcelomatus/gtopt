@@ -69,6 +69,7 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       sddp_opts.use_clone_pool = options.sddp_use_clone_pool();
       sddp_opts.alpha_min = options.sddp_alpha_min();
       sddp_opts.alpha_max = options.sddp_alpha_max();
+      sddp_opts.scale_alpha = options.sddp_scale_alpha();
 
       // Cut sharing and files
       sddp_opts.cut_sharing = options.sddp_cut_sharing_mode_enum();
@@ -194,6 +195,7 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       sddp_opts.use_clone_pool = options.sddp_use_clone_pool();
       sddp_opts.alpha_min = options.sddp_alpha_min();
       sddp_opts.alpha_max = options.sddp_alpha_max();
+      sddp_opts.scale_alpha = options.sddp_scale_alpha();
 
       sddp_opts.cut_sharing = options.sddp_cut_sharing_mode_enum();
       const auto output_dir_sv = options.output_directory();

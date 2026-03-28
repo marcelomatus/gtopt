@@ -88,7 +88,8 @@ auto SDDPMethod::feasibility_backpropagate(SceneIndex scene,
                                            scene,
                                            back_phase,
                                            iteration,
-                                           total_cuts + cuts_added));
+                                           total_cuts + cuts_added),
+                                m_options_.scale_alpha);
 
           {
             const auto cut_row = prev_li.add_row(feas_cut);

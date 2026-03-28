@@ -248,8 +248,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
         assign_padded(
             state.forward_row_dual, solved_li.get_row_dual(), 2 * n_links);
 
+        const auto sa = m_options_.scale_alpha;
         const auto alpha_val = (state.alpha_col != ColIndex {unknown_index})
-            ? solved_li.get_col_sol()[state.alpha_col]
+            ? solved_li.get_col_sol()[state.alpha_col] * sa
             : 0.0;
         state.forward_objective = obj - alpha_val;
         total_opex += state.forward_objective;
@@ -314,8 +315,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
       assign_padded(state.forward_col_sol, li.get_col_sol(), n_links);
       assign_padded(state.forward_row_dual, li.get_row_dual(), 2 * n_links);
 
+      const auto sa = m_options_.scale_alpha;
       const auto alpha_val = (state.alpha_col != ColIndex {unknown_index})
-          ? li.get_col_sol()[state.alpha_col]
+          ? li.get_col_sol()[state.alpha_col] * sa
           : 0.0;
       state.forward_objective = obj - alpha_val;
       total_opex += state.forward_objective;
