@@ -49,7 +49,7 @@ def _write_lp(tmp_path: Path, name: str = "test.lp") -> Path:
 
 def test_default_config_path_is_home_dot_conf() -> None:
     path = default_config_path()
-    assert path.name == ".gtopt_compress_lp.conf"
+    assert path.name == ".gtopt.conf"
     assert path.parent == Path.home()
 
 

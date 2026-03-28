@@ -12,12 +12,38 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 
+def _extract_runpath(so_path: Path) -> list[str]:
+    """Extract RUNPATH/RPATH entries from a shared library via readelf."""
+    try:
+        result = subprocess.run(
+            ["readelf", "-d", str(so_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        for line in result.stdout.splitlines():
+            if "RUNPATH" in line or "RPATH" in line:
+                # Format: ... Library runpath: [/opt/coinor/lib:/usr/local/lib]
+                start = line.find("[")
+                end = line.find("]")
+                if 0 <= start < end:
+                    paths = line[start + 1 : end].split(":")
+                    return [p for p in paths if p and p != "$ORIGIN"]
+    except FileNotFoundError:
+        pass
+    return []
+
+
 def _build_ld_library_path(gtopt_bin: str) -> str:
-    """Build LD_LIBRARY_PATH from the gtopt binary location.
+    """Build LD_LIBRARY_PATH from the gtopt binary and its plugins.
 
     Adds directories where solver plugins and their shared-library
     dependencies are expected to live, mirroring the search order used
     by ``SolverRegistry::discover_default_paths`` in the C++ code.
+
+    Also extracts RUNPATH entries from discovered plugin .so files so
+    that solver-specific library directories (e.g. /opt/coinor/lib,
+    /opt/cplex/lib) are included without manual LD_LIBRARY_PATH setup.
     """
     exe_dir = Path(gtopt_bin).resolve().parent
     candidates = [
@@ -29,7 +55,16 @@ def _build_ld_library_path(gtopt_bin: str) -> str:
         Path("/usr/local/lib/gtopt/plugins"),
         Path("/usr/local/lib"),
     ]
-    lib_dirs = [str(p.resolve()) for p in candidates if p.is_dir()]
+    lib_dirs: list[str] = [str(p.resolve()) for p in candidates if p.is_dir()]
+
+    # Extract RUNPATH from plugin .so files to pick up solver lib dirs.
+    for cand in candidates:
+        if cand.is_dir():
+            for so_file in cand.glob("libgtopt_solver_*.so"):
+                for rp in _extract_runpath(so_file):
+                    rp_resolved = str(Path(rp).resolve())
+                    if rp_resolved not in lib_dirs:
+                        lib_dirs.append(rp_resolved)
 
     existing = os.environ.get("LD_LIBRARY_PATH", "")
     if existing:

@@ -785,6 +785,12 @@ def make_parser() -> argparse.ArgumentParser:
         help="list known technology types and exit",
     )
     parser.add_argument(
+        "--no-color",
+        action="store_true",
+        default=False,
+        help="Disable coloured output.",
+    )
+    parser.add_argument(
         "-V",
         "--version",
         action="version",
@@ -910,7 +916,7 @@ def build_options(args: argparse.Namespace) -> dict:
     return opts
 
 
-def main():
+def main(argv: list[str] | None = None) -> None:
     """Parse arguments and initiate conversion."""
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
@@ -918,7 +924,7 @@ def main():
     no_args = len(sys.argv) == 1
 
     parser = make_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # Reconcile positional and -i input dir
     args.input_dir = _resolve_input_dir(args)

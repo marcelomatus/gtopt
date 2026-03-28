@@ -697,9 +697,9 @@ class JunctionWriter(BaseWriter):
     ) -> None:
         """Append a reservoir constraint to system-level array or embedded."""
         if self._embed_reservoir_constraints:
-            rsv.setdefault(embedded_key, []).append(element)  # type: ignore[arg-type]
+            cast(Dict[str, Any], rsv).setdefault(embedded_key, []).append(element)
         else:
-            system[system_key].append(element)  # type: ignore[literal-required]
+            cast(Dict[str, Any], system)[system_key].append(element)
 
     def _process_seepages(
         self,
