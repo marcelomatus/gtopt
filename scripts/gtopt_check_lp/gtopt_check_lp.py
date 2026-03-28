@@ -635,7 +635,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "go in [gtopt_check_lp].  Run --init-config to create or update.\n\n"
             "[global] keys:\n"
             "  ai_enabled   Enable AI diagnostics: true/false (default: true)\n"
-            "  ai_provider  AI provider: claude, openai, deepseek, github\n"
+            "  ai_provider  AI provider: claude, openai, deepseek, github, local\n"
             "  ai_model     Model name override (default: provider-specific)\n"
             "  color        Terminal color: auto, always, never (default: auto)\n\n"
             "[gtopt_check_lp] keys:\n"

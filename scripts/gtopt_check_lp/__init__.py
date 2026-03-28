@@ -13,7 +13,7 @@ Sub-modules
 -----------
 :mod:`._colors`       — ANSI colour helpers
 :mod:`._config`       — Config I/O and interactive setup wizard
-:mod:`._ai`           — AI provider integration (Claude, OpenAI, DeepSeek, GitHub)
+:mod:`._ai`           — AI provider integration (Claude, OpenAI, DeepSeek, GitHub, Local)
 :mod:`._lp_analyzer`  — LP file static analyser
 :mod:`._neos`         — NEOS XML-RPC client
 :mod:`._solvers`      — Local and remote solver wrappers
@@ -42,6 +42,7 @@ from ._lp_analyzer import (
 from ._neos import NeosClient
 from ._solvers import (
     detect_local_solvers,
+    find_cplex_binary,
     run_all_solvers,
     run_iis,
     run_local_coinor,
@@ -64,6 +65,7 @@ __all__ = [
     "check_lp",
     "default_config_path",
     "detect_local_solvers",
+    "find_cplex_binary",
     "format_benchmark_table",
     "format_static_report",
     "is_compressed",
