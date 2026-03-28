@@ -262,6 +262,7 @@ def check_lp(  # pylint: disable=too-many-arguments
     ai: Optional[AiOptions] = None,
     quiet: bool = False,
     no_neos: bool = False,
+    full: bool = False,
 ) -> int:
     """
     Run the full infeasibility analysis pipeline on *lp_path*.
@@ -437,7 +438,7 @@ def check_lp(  # pylint: disable=too-many-arguments
             else:
                 raise
 
-        screen_report, ai_report = _format_iis_report(solver_name, ok, out)
+        screen_report, ai_report = _format_iis_report(solver_name, ok, out, full=full)
         print(screen_report)
         report_parts.append(ai_report)
 
@@ -563,12 +564,42 @@ def _filter_solver_lines(output: str) -> list[str]:
     return relevant
 
 
-def _format_iis_report(solver_name: str, success: bool, output: str) -> tuple[str, str]:
+def _truncate_solver_block(block: str, max_lines: int = 30) -> str:
+    """Truncate a single solver output block to *max_lines* relevant lines.
+
+    Keeps the ``┌──`` header line and appends up to *max_lines* of the most
+    relevant (infeasibility-related) lines from the block body.
+    """
+    lines = block.splitlines()
+    # Separate header (first line starting with ┌) from body
+    header_lines: list[str] = []
+    body_lines: list[str] = []
+    for ln in lines:
+        if not body_lines and ln.lstrip().startswith("┌"):
+            header_lines.append(ln)
+        else:
+            body_lines.append(ln)
+
+    relevant = _filter_solver_lines("\n".join(body_lines))
+    if not relevant:
+        relevant = [ln for ln in body_lines if ln.strip()]
+
+    truncated = relevant[-max_lines:]
+    return "\n".join(header_lines + truncated)
+
+
+def _format_iis_report(
+    solver_name: str,
+    success: bool,
+    output: str,
+    *,
+    full: bool = False,
+) -> tuple[str, str]:
     """Format the solver IIS output for screen and AI.
 
-    Returns ``(screen_report, ai_report)`` where *screen_report* shows only
-    the last 10 relevant lines and *ai_report* includes the last 50 relevant
-    lines for deeper analysis.
+    Returns ``(screen_report, ai_report)``.  When *full* is ``False``
+    (default), each solver block on screen is truncated to 30 relevant
+    lines.  When *full* is ``True``, all lines are shown.
     """
     header = _header(f"IIS Analysis ({solver_name})")
 
@@ -576,26 +607,27 @@ def _format_iis_report(solver_name: str, success: bool, output: str) -> tuple[st
         err = f"\n{_c(_RED, 'Solver error:')} {output}"
         return f"{header}{err}", f"{header}{err}"
 
-    # Filter to infeasibility-relevant lines only
-    relevant = _filter_solver_lines(output)
-    if not relevant:
-        # Fallback: use last lines of raw output if no patterns matched
-        raw_lines = [ln for ln in output.splitlines() if ln.strip()]
-        relevant = raw_lines[-50:] if raw_lines else [output]
+    # Split combined output into per-solver blocks (delimited by ┌──)
+    blocks = re.split(r"(?=\n?┌──)", output)
+    blocks = [b for b in blocks if b.strip()]
 
-    screen_lines = relevant[-10:]
-    ai_lines = relevant[-50:]
+    if full:
+        screen_text = "\n".join([header, ""] + [b.strip() for b in blocks])
+    else:
+        truncated = [_truncate_solver_block(b) for b in blocks]
+        screen_text = "\n".join(
+            [
+                header,
+                "  (showing last 30 relevant lines per solver; "
+                "use --full for complete output)",
+                "",
+            ]
+            + truncated
+        )
 
-    screen_text = "\n".join(
-        [
-            header,
-            "  (showing last 10 relevant lines; "
-            "full output in report file / AI diagnostics)",
-            "",
-        ]
-        + screen_lines
-    )
-    ai_text = "\n".join([header] + ai_lines)
+    # AI report: filter to 50 relevant lines per block
+    ai_blocks = [_truncate_solver_block(b, max_lines=50) for b in blocks]
+    ai_text = "\n".join([header] + ai_blocks)
     return screen_text, ai_text
 
 
@@ -807,6 +839,12 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Disable ANSI color codes in terminal output.",
+    )
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        default=False,
+        help="Print all solver output lines instead of the last 30 per solver.",
     )
     parser.add_argument(
         "-v",
@@ -1087,6 +1125,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         output_file=output_file,
         quiet=args.quiet,
         no_neos=args.no_neos,
+        full=args.full,
         ai=AiOptions(
             enabled=effective_ai_enabled,
             provider=effective_ai_provider,
