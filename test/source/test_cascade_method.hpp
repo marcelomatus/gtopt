@@ -2089,4 +2089,274 @@ TEST_CASE("Cascade 2-level inherit_optimality_cuts=3 (forget after 3 iters)")
   }
 }
 
+// ─── Additional cascade coverage tests ──────────────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "Cascade 2-level with custom target tolerances (3-phase)")
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 20;
+  sddp_opts.convergence_tol = 0.01;
+  sddp_opts.enable_api = false;
+
+  CascadeOptions cascade_opts;
+  cascade_opts.level_array = {
+      CascadeLevel {
+          .name = OptName {"base"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {10},
+                  .convergence_tol = OptReal {0.01},
+              },
+      },
+      CascadeLevel {
+          .name = OptName {"refined"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {10},
+                  .convergence_tol = OptReal {0.01},
+              },
+          .transition =
+              CascadeTransition {
+                  .inherit_targets = OptInt {-1},
+                  .target_rtol = OptReal {0.2},
+                  .target_min_atol = OptReal {5.0},
+                  .target_penalty = OptReal {100.0},
+              },
+      },
+  };
+
+  CascadePlanningMethod solver(std::move(sddp_opts), std::move(cascade_opts));
+  const SolverOptions lp_opts;
+  auto result = solver.solve(planning_lp, lp_opts);
+
+  REQUIRE(result.has_value());
+  REQUIRE(solver.level_stats().size() == 2);
+  CHECK(solver.level_stats()[0].converged);
+  CHECK(solver.level_stats()[1].converged);
+}
+
+TEST_CASE(  // NOLINT
+    "Cascade 2-level inherit_optimality_cuts keeps cuts (3-phase)")
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 20;
+  sddp_opts.convergence_tol = 0.01;
+  sddp_opts.enable_api = false;
+
+  CascadeOptions cascade_opts;
+  cascade_opts.level_array = {
+      CascadeLevel {
+          .name = OptName {"train"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {10},
+                  .convergence_tol = OptReal {0.01},
+              },
+      },
+      CascadeLevel {
+          .name = OptName {"inherit"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {15},
+                  .convergence_tol = OptReal {0.01},
+              },
+          .transition =
+              CascadeTransition {
+                  // Keep inherited cuts forever
+                  .inherit_optimality_cuts = OptInt {-1},
+                  .inherit_feasibility_cuts = OptInt {-1},
+              },
+      },
+  };
+
+  CascadePlanningMethod solver(std::move(sddp_opts), std::move(cascade_opts));
+  const SolverOptions lp_opts;
+  auto result = solver.solve(planning_lp, lp_opts);
+
+  REQUIRE(result.has_value());
+  REQUIRE(solver.level_stats().size() == 2);
+
+  const auto& stats0 = solver.level_stats()[0];
+  const auto& stats1 = solver.level_stats()[1];
+
+  CHECK(stats0.converged);
+  CHECK(stats1.converged);
+
+  // Level 1 should converge in fewer or equal iterations thanks to
+  // inherited cuts providing a warm start
+  CHECK(stats1.iterations <= stats0.iterations + 1);
+}
+
+TEST_CASE(  // NOLINT
+    "Cascade 2-level forget inherited cuts after N iterations (3-phase)")
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 30;
+  sddp_opts.convergence_tol = 0.01;
+  sddp_opts.enable_api = false;
+
+  CascadeOptions cascade_opts;
+  cascade_opts.level_array = {
+      CascadeLevel {
+          .name = OptName {"train"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {10},
+                  .convergence_tol = OptReal {0.01},
+              },
+      },
+      CascadeLevel {
+          .name = OptName {"forget"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {20},
+                  .convergence_tol = OptReal {0.01},
+              },
+          .transition =
+              CascadeTransition {
+                  // Forget after 3 iterations
+                  .inherit_optimality_cuts = OptInt {3},
+              },
+      },
+  };
+
+  CascadePlanningMethod solver(std::move(sddp_opts), std::move(cascade_opts));
+  const SolverOptions lp_opts;
+  auto result = solver.solve(planning_lp, lp_opts);
+
+  REQUIRE(result.has_value());
+  REQUIRE(solver.level_stats().size() == 2);
+
+  // Level 1 should converge even after forgetting inherited cuts
+  CHECK(solver.level_stats()[1].converged);
+}
+
+TEST_CASE(  // NOLINT
+    "Cascade 3-level progressive refinement (3-phase)")
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 30;
+  sddp_opts.convergence_tol = 0.01;
+  sddp_opts.enable_api = false;
+
+  CascadeOptions cascade_opts;
+  cascade_opts.level_array = {
+      CascadeLevel {
+          .name = OptName {"level_0"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {5},
+                  .convergence_tol = OptReal {0.05},
+              },
+      },
+      CascadeLevel {
+          .name = OptName {"level_1"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {10},
+                  .convergence_tol = OptReal {0.01},
+              },
+          .transition =
+              CascadeTransition {
+                  .inherit_optimality_cuts = OptInt {-1},
+                  .inherit_targets = OptInt {-1},
+              },
+      },
+      CascadeLevel {
+          .name = OptName {"level_2"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {15},
+                  .convergence_tol = OptReal {0.001},
+              },
+          .transition =
+              CascadeTransition {
+                  .inherit_optimality_cuts = OptInt {-1},
+                  .inherit_targets = OptInt {-1},
+                  .target_rtol = OptReal {0.01},
+                  .target_penalty = OptReal {1000.0},
+              },
+      },
+  };
+
+  CascadePlanningMethod solver(std::move(sddp_opts), std::move(cascade_opts));
+  const SolverOptions lp_opts;
+  auto result = solver.solve(planning_lp, lp_opts);
+
+  REQUIRE(result.has_value());
+  REQUIRE(solver.level_stats().size() == 3);
+
+  // All levels should converge
+  for (const auto& stats : solver.level_stats()) {
+    CHECK(stats.converged);
+    CHECK(stats.lower_bound <= stats.upper_bound + 1e-6);
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "Cascade 2-level with both targets and cuts (3-phase)")
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 20;
+  sddp_opts.convergence_tol = 0.01;
+  sddp_opts.enable_api = false;
+
+  CascadeOptions cascade_opts;
+  cascade_opts.level_array = {
+      CascadeLevel {
+          .name = OptName {"train"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {10},
+                  .convergence_tol = OptReal {0.01},
+              },
+      },
+      CascadeLevel {
+          .name = OptName {"both"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {15},
+                  .convergence_tol = OptReal {0.01},
+              },
+          .transition =
+              CascadeTransition {
+                  .inherit_optimality_cuts = OptInt {-1},
+                  .inherit_targets = OptInt {-1},
+                  .target_rtol = OptReal {0.05},
+                  .target_penalty = OptReal {500.0},
+              },
+      },
+  };
+
+  CascadePlanningMethod solver(std::move(sddp_opts), std::move(cascade_opts));
+  const SolverOptions lp_opts;
+  auto result = solver.solve(planning_lp, lp_opts);
+
+  REQUIRE(result.has_value());
+  REQUIRE(solver.level_stats().size() == 2);
+
+  CHECK(solver.level_stats()[0].converged);
+  CHECK(solver.level_stats()[1].converged);
+
+  // Both inheritance mechanisms should allow level 1 to converge fast
+  CHECK(solver.level_stats()[1].iterations
+        <= solver.level_stats()[0].iterations + 1);
+}
+
 }  // anonymous namespace
