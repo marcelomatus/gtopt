@@ -81,12 +81,12 @@ def detect_local_solvers() -> list[str]:
     available = []
     if find_cplex_binary():
         available.append("CPLEX")
-    for binary, label in [
-        ("clp", "CLP (COIN-OR)"),
-        ("cbc", "CBC (COIN-OR)"),
-    ]:
-        if shutil.which(binary):
-            available.append(label)
+    cbc_bin = shutil.which("cbc")
+    clp_bin = shutil.which("clp")
+    if cbc_bin:
+        available.append("CBC (COIN-OR)")
+    elif clp_bin:
+        available.append("CLP (COIN-OR)")
 
     # highspy Python package counts as HiGHS
     highs_bin = shutil.which("highs")
@@ -330,19 +330,45 @@ def run_local_highs_python(lp_path: Path, timeout: int = 30) -> tuple[bool, str]
         except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             return str(idx)
 
+    def _bound_label(raw: object) -> str:
+        """Map an IIS bound status integer/enum to a readable label."""
+        _labels = {
+            -1: "dropped",
+            0: "null",
+            1: "free",
+            2: "lower",
+            3: "upper",
+            4: "boxed",
+        }
+        val = raw.value if hasattr(raw, "value") else int(raw)
+        return _labels.get(val, str(raw))
+
     def _try_iis(  # noqa: PLR0912
         h: "highspy.Highs",
         lines: list[str],
+        plain_lp_path: Path,
     ) -> bool:
-        """Try IIS computation.  Return True if IIS members were found."""
-        try:
-            h.setOptionValue("iis_strategy", 2)  # kIisStrategyFromLp
-        except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
-            pass
+        """Try IIS computation with escalating strategies.
 
-        _iis_status, iis = h.getIis()  # pylint: disable=no-value-for-parameter,unpacking-non-sequence
-        col_idx = getattr(iis, "col_index_", []) or []
-        row_idx = getattr(iis, "row_index_", []) or []
+        Returns True if IIS members were found.
+        """
+        # Escalate: FromLp (2), then FromRay+FromLp (3),
+        # then full irreducible (2+4+1 = 7).
+        strategies = [2, 3, 7]
+        col_idx: list[int] = []
+        row_idx: list[int] = []
+        iis = None
+
+        for strategy in strategies:
+            try:
+                h.setOptionValue("iis_strategy", strategy)
+            except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+                break
+            _iis_status, iis = h.getIis()  # pylint: disable=no-value-for-parameter,unpacking-non-sequence
+            col_idx = getattr(iis, "col_index_", []) or []
+            row_idx = getattr(iis, "row_index_", []) or []
+            if col_idx or row_idx:
+                break
 
         if not col_idx and not row_idx:
             return False
@@ -352,22 +378,30 @@ def run_local_highs_python(lp_path: Path, timeout: int = 30) -> tuple[bool, str]
         if col_idx:
             lines.append(f"  Infeasible variable bounds ({len(col_idx)}):")
             col_bounds = getattr(iis, "col_bound_", [])
-            for ci in col_idx:
+            for pos, ci in enumerate(col_idx):
                 name = _get_name(h, "getColName", ci)
                 bound_info = ""
-                if col_bounds and ci < len(col_bounds):
-                    bound_info = f"  [{col_bounds[ci]}]"
+                if col_bounds and pos < len(col_bounds):
+                    bound_info = f"  [bound={_bound_label(col_bounds[pos])}]"
                 lines.append(f"    • {name}{bound_info}")
 
         if row_idx:
             lines.append(f"  Infeasible constraints ({len(row_idx)}):")
             row_bounds = getattr(iis, "row_bound_", [])
-            for ri in row_idx:
+            for pos, ri in enumerate(row_idx):
                 name = _get_name(h, "getRowName", ri)
                 bound_info = ""
-                if row_bounds and ri < len(row_bounds):
-                    bound_info = f"  [{row_bounds[ri]}]"
+                if row_bounds and pos < len(row_bounds):
+                    bound_info = f"  [bound={_bound_label(row_bounds[pos])}]"
                 lines.append(f"    • {name}{bound_info}")
+
+        # Write the IIS sub-model for easy inspection
+        try:
+            iis_path = plain_lp_path.with_suffix(".iis.lp")
+            h.writeIisModel(str(iis_path))
+            lines.append(f"\n  IIS sub-model written to: {iis_path}")
+        except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            pass
 
         return True
 
@@ -424,7 +458,7 @@ def run_local_highs_python(lp_path: Path, timeout: int = 30) -> tuple[bool, str]
 
             # Try IIS first, then feasibility relaxation as fallback
             try:
-                found = _try_iis(h, lines)
+                found = _try_iis(h, lines, plain_lp_path)
                 if not found:
                     found = _try_feasibility_relaxation(h, lines)
                 if not found:
@@ -496,11 +530,11 @@ def run_local_coinor(
     barrier_eps: float = 0.0,
 ) -> tuple[bool, str]:
     """
-    Run CLP or CBC (COIN-OR) to analyse the LP file for infeasibility.
+    Run CBC (COIN-OR) to analyse the LP file for infeasibility.
 
     Accepts plain or gzip-compressed LP files.
 
-    Tries ``clp`` first (pure LP, lighter) and falls back to ``cbc``.
+    Prefers ``cbc``; falls back to ``clp`` only when ``cbc`` is absent.
 
     Parameters
     ----------
@@ -544,18 +578,16 @@ def run_local_coinor(
         tol_args += ["-primaltolerance", str(feasible_eps)]
     # barrier_eps has no direct CLP/CBC command-line equivalent; ignore.
 
-    # Determine which solvers are available before touching the file.
-    available: list[tuple[str, str, list[str]]] = []
-    for binary_name, extra_args in [
-        ("clp", ["statistics"] + tol_args + algo_cmd),
-        ("cbc", ["statistics"] + tol_args + algo_cmd),
-    ]:
-        binary = shutil.which(binary_name)
-        if binary is not None:
-            available.append((binary_name, binary, extra_args))
-
-    if not available:
-        return False, "Neither clp nor cbc binary found on PATH."
+    # Prefer cbc; fall back to clp only when cbc is absent.
+    extra_args = ["statistics"] + tol_args + algo_cmd
+    cbc_bin = shutil.which("cbc")
+    clp_bin = shutil.which("clp")
+    if cbc_bin:
+        available = [("cbc", cbc_bin, extra_args)]
+    elif clp_bin:
+        available = [("clp", clp_bin, extra_args)]
+    else:
+        return False, "Neither cbc nor clp binary found on PATH."
 
     results: list[str] = []
     with as_sanitized_lp(lp_path) as plain_path:
@@ -589,7 +621,7 @@ def run_local_coinor(
                 continue
 
     if not results:
-        return False, "Neither clp nor cbc binary found on PATH."
+        return False, "Neither cbc nor clp binary found on PATH."
 
     return True, "\n\n".join(results)
 
@@ -610,6 +642,80 @@ def _section_header(solver_name: str) -> str:
 def _format_solver_block(name: str, _success: bool, output: str) -> str:
     """Format a single solver's output block."""
     return f"{_section_header(name)}\n{output}"
+
+
+def _run_auto_solvers(
+    lp_path: Path,
+    *,
+    algo: str = "",
+    optimal_eps: float = 0.0,
+    feasible_eps: float = 0.0,
+    barrier_eps: float = 0.0,
+    email: str = "",
+    neos_url: str = _NEOS_DEFAULT_URL,
+    timeout: int = 120,
+) -> tuple[bool, str, str]:
+    """Run only HiGHS and CPLEX (local or NEOS) — the default ``auto`` strategy.
+
+    Unlike :func:`run_all_solvers`, this skips COIN-OR CLP/CBC to keep output
+    concise when the user hasn't explicitly requested all solvers.
+
+    Returns ``(any_success, "auto", combined_output)``.
+    """
+    parts: list[str] = []
+    any_success = False
+
+    # HiGHS (Python preferred over binary for richer IIS output)
+    highs_bin = shutil.which("highs")
+    has_highspy = False
+    try:
+        import highspy  # noqa: F401, PLC0415  # pylint: disable=unused-import
+
+        has_highspy = True
+    except ImportError:
+        pass
+
+    if has_highspy:
+        ok, out = run_local_highs_python(lp_path, timeout=min(timeout, 30))
+        any_success = any_success or ok
+        parts.append(_format_solver_block("HiGHS (Python)", ok, out))
+    elif highs_bin:
+        ok, out = run_local_highs_binary(lp_path, timeout=timeout)
+        any_success = any_success or ok
+        parts.append(_format_solver_block("HiGHS (binary)", ok, out))
+
+    # CPLEX (local) — when available, replaces the NEOS remote call
+    has_local_cplex = find_cplex_binary() is not None
+    if has_local_cplex:
+        ok, out = run_local_cplex(
+            lp_path,
+            timeout=timeout,
+            algo=algo,
+            optimal_eps=optimal_eps,
+            feasible_eps=feasible_eps,
+            barrier_eps=barrier_eps,
+        )
+        any_success = any_success or ok
+        parts.append(_format_solver_block("CPLEX (local)", ok, out))
+
+    # NEOS (only if no local CPLEX and email provided)
+    if not has_local_cplex and email:
+        client = NeosClient(url=neos_url, timeout=max(timeout, 120))
+        ok, out = client.submit_and_wait(lp_path, email)
+        any_success = any_success or ok
+        parts.append(_format_solver_block("NEOS (CPLEX)", ok, out))
+
+    if not parts:
+        hint = (
+            f"\n{col.c(col._YELLOW, 'Tip:')} "  # noqa: SLF001
+            "Install a local solver (CPLEX or HiGHS) or\n"
+            "  provide --email <address> to submit to the NEOS server.\n"
+            "  HiGHS:   pip install highspy\n"
+            "  All solvers: use --solver all"
+        )
+        return False, "auto", hint
+
+    return any_success, "auto", "\n".join(parts)
 
 
 def run_all_solvers(
@@ -665,8 +771,8 @@ def run_all_solvers(
         any_success = any_success or ok
         parts.append(_format_solver_block("HiGHS (binary)", ok, out))
 
-    # COIN-OR
-    if shutil.which("clp") or shutil.which("cbc"):
+    # COIN-OR (prefer cbc)
+    if shutil.which("cbc") or shutil.which("clp"):
         ok, out = run_local_coinor(
             lp_path,
             timeout=timeout,
@@ -676,7 +782,7 @@ def run_all_solvers(
             barrier_eps=barrier_eps,
         )
         any_success = any_success or ok
-        parts.append(_format_solver_block("COIN-OR (clp/cbc)", ok, out))
+        parts.append(_format_solver_block("COIN-OR (cbc)", ok, out))
 
     # CPLEX (local) — when available, replaces the NEOS remote call
     has_local_cplex = find_cplex_binary() is not None
@@ -702,10 +808,10 @@ def run_all_solvers(
     if not parts:
         hint = (
             f"\n{col.c(col._YELLOW, 'Tip:')} "  # noqa: SLF001
-            "Install a local solver (CPLEX, HiGHS, or CLP/CBC) or\n"
+            "Install a local solver (CPLEX, HiGHS, or CBC) or\n"
             "  provide --email <address> to submit to the NEOS server.\n"
-            "  CLP/CBC: sudo apt install coinor-clp coinor-cbc\n"
-            "  HiGHS:   pip install highspy"
+            "  CBC:   sudo apt install coinor-cbc\n"
+            "  HiGHS: pip install highspy"
         )
         return False, "all", hint
 
@@ -746,8 +852,20 @@ def run_iis(
     -------
     ``(success, solver_name, output)``
     """
-    if solver in ("all", "auto"):
+    if solver == "all":
         return run_all_solvers(
+            lp_path,
+            algo=algo,
+            optimal_eps=optimal_eps,
+            feasible_eps=feasible_eps,
+            barrier_eps=barrier_eps,
+            email=email,
+            neos_url=neos_url,
+            timeout=timeout,
+        )
+
+    if solver == "auto":
+        return _run_auto_solvers(
             lp_path,
             algo=algo,
             optimal_eps=optimal_eps,
@@ -789,7 +907,7 @@ def run_iis(
             feasible_eps=feasible_eps,
             barrier_eps=barrier_eps,
         )
-        return ok, "COIN-OR (clp/cbc)", out
+        return ok, "COIN-OR (cbc)", out
 
     if solver_lower == "neos":
         if not email:

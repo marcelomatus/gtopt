@@ -31,7 +31,7 @@ _OLD_CONFIG_PATH = Path.home() / ".gtopt_check_lp.conf"
 # Tool-specific keys and their defaults
 _TOOL_DEFAULTS: dict[str, str] = {
     "email": "",
-    "solver": "all",
+    "solver": "auto",
     "timeout": "5",
     "neos_url": "https://neos-server.org:3333",
 }
@@ -155,7 +155,6 @@ def save_config(config_path: Path, cfg: dict[str, str]) -> None:
 
 _SOLVER_BINARIES = [
     ("highs", "HiGHS", "sudo apt install highs"),
-    ("clp", "COIN-OR CLP", "sudo apt install coinor-clp"),
     ("cbc", "COIN-OR CBC", "sudo apt install coinor-cbc"),
 ]
 
@@ -279,7 +278,7 @@ def run_interactive_setup(config_path: Path, use_color: bool = True) -> dict[str
     print()
     print_solver_status(use_color=use_color)
 
-    current_solver = cfg.get("solver", "all")
+    current_solver = cfg.get("solver", "auto")
     solver_choices = ("all", "auto", "cplex", "highs", "coinor", "neos")
     solver_hint = "  Preferred solver " + _c(col._CYAN, str(list(solver_choices)))  # noqa: SLF001
     solver = _prompt(solver_hint, current_solver)

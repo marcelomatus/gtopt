@@ -449,7 +449,7 @@ class TestConfigFile:
     def test_load_config_missing_file_returns_defaults(self, tmp_path):
         """When the file does not exist, defaults are returned."""
         cfg = _load_config(tmp_path / "nonexistent.ini")
-        assert cfg["solver"] == "all"
+        assert cfg["solver"] == "auto"
         assert cfg["timeout"] == "5"
         assert cfg["email"] == ""
 
@@ -492,7 +492,7 @@ class TestConfigFile:
         path.write_text("[gtopt_check_lp]\nemail = x@y.com\n", encoding="utf-8")
         cfg = _load_config(path)
         assert cfg["email"] == "x@y.com"
-        assert cfg["solver"] == "all"  # default
+        assert cfg["solver"] == "auto"  # default
         assert cfg["timeout"] == "5"  # default
 
     def test_read_git_email_returns_string(self):
@@ -1960,7 +1960,7 @@ class TestRunIisDispatch:
         ):
             ok, name, _out = run_iis(Path("d.lp"), solver="coinor")
         assert ok
-        assert name == "COIN-OR (clp/cbc)"
+        assert name == "COIN-OR (cbc)"
 
     def test_run_iis_neos_no_email(self):
         ok, name, msg = run_iis(Path("d.lp"), solver="neos", email="")
