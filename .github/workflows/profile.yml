@@ -116,7 +116,6 @@ jobs:
             "-DPROFILING_JUST_BUILD_LP=${JUST_LP}" \
             "-DPROFILING_REPS=${REPS}" \
             "-DPROFILING_PLP_CASE=${PLP_CASE}" \
-            "-DPROFILING_CMAKE_PREFIX_PATH=$(conda info --base)" \
             -DPROFILING_PYTHON=ON
 
       - name: Run full profiling analysis
