@@ -1,8 +1,0 @@
-# Archivo con la definicion de resrticcion de Ralco
-# Nombre Lago Ralco. Restriccion desemba
-'RALCO'      
-# Numero de Segmentos Qdes              
-2            
-# Vcota [10^3 m3/s]  a  b
-0.0      15.787  6.9868d-5  
-757000.0 57.454  1.3985d-4  

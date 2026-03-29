@@ -1,9 +1,8 @@
-"""Tests for compressed file reading support."""
+"""Tests for compressed and split file reading support."""
 
 import bz2
 import gzip
 import lzma
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -21,6 +20,9 @@ SAMPLE_BYTES = SAMPLE_TEXT.encode("ascii")
 @pytest.fixture
 def tmp(tmp_path: Path) -> Path:
     return tmp_path
+
+
+# ── resolve_compressed_path ──────────────────────────────────────────────
 
 
 class TestResolveCompressedPath:
@@ -72,6 +74,20 @@ class TestResolveCompressedPath:
         with pytest.raises(FileNotFoundError):
             resolve_compressed_path(tmp / "nonexistent.dat")
 
+    def test_split_xz_fallback(self, tmp: Path) -> None:
+        """Split .dat.1.xz + .dat.2.xz found when .dat is missing."""
+        part1 = tmp / "data.dat.1.xz"
+        part2 = tmp / "data.dat.2.xz"
+        with lzma.open(part1, "wb") as fh:
+            fh.write(b"part1\n")
+        with lzma.open(part2, "wb") as fh:
+            fh.write(b"part2\n")
+        result = resolve_compressed_path(tmp / "data.dat")
+        assert result == part1  # returns first part as sentinel
+
+
+# ── find_compressed_path ─────────────────────────────────────────────────
+
 
 class TestFindCompressedPath:
     def test_returns_none_when_missing(self, tmp: Path) -> None:
@@ -87,6 +103,18 @@ class TestFindCompressedPath:
         with gzip.open(gz, "wb") as fh:
             fh.write(SAMPLE_BYTES)
         assert find_compressed_path(tmp / "data.dat") == gz
+
+    def test_returns_split_xz(self, tmp: Path) -> None:
+        part1 = tmp / "data.dat.1.xz"
+        with lzma.open(part1, "wb") as fh:
+            fh.write(b"x")
+        assert find_compressed_path(tmp / "data.dat") == part1
+
+    def test_returns_none_no_split(self, tmp: Path) -> None:
+        assert find_compressed_path(tmp / "data.dat") is None
+
+
+# ── compressed_open — single files ───────────────────────────────────────
 
 
 class TestCompressedOpen:
@@ -139,13 +167,61 @@ class TestCompressedOpen:
             assert fh.read() == "caf\xe9\n"
 
 
+# ── compressed_open — split files ────────────────────────────────────────
+
+
+class TestSplitFiles:
+    def _write_xz_part(self, path: Path, data: bytes) -> None:
+        with lzma.open(path, "wb") as fh:
+            fh.write(data)
+
+    def test_two_xz_parts_concatenated(self, tmp: Path) -> None:
+        self._write_xz_part(tmp / "big.dat.1.xz", b"AAA\nBBB\n")
+        self._write_xz_part(tmp / "big.dat.2.xz", b"CCC\nDDD\n")
+        # Open via the sentinel (first part path)
+        with compressed_open(tmp / "big.dat.1.xz") as fh:
+            assert fh.read() == "AAA\nBBB\nCCC\nDDD\n"
+
+    def test_four_xz_parts_in_order(self, tmp: Path) -> None:
+        for i in range(1, 5):
+            self._write_xz_part(
+                tmp / f"data.dat.{i}.xz", f"part{i}\n".encode()
+            )
+        with compressed_open(tmp / "data.dat.1.xz") as fh:
+            assert fh.read() == "part1\npart2\npart3\npart4\n"
+
+    def test_split_gz_parts(self, tmp: Path) -> None:
+        for i in range(1, 3):
+            gz = tmp / f"data.dat.{i}.gz"
+            with gzip.open(gz, "wb") as fh:
+                fh.write(f"gz{i}\n".encode())
+        with compressed_open(tmp / "data.dat.1.gz") as fh:
+            assert fh.read() == "gz1\ngz2\n"
+
+    def test_split_plain_parts(self, tmp: Path) -> None:
+        (tmp / "data.dat.1").write_text("plain1\n")
+        (tmp / "data.dat.2").write_text("plain2\n")
+        with compressed_open(tmp / "data.dat.1") as fh:
+            assert fh.read() == "plain1\nplain2\n"
+
+    def test_resolve_then_open_split(self, tmp: Path) -> None:
+        """Full flow: resolve finds split parts, open reads them."""
+        self._write_xz_part(tmp / "file.dat.1.xz", b"line1\n")
+        self._write_xz_part(tmp / "file.dat.2.xz", b"line2\n")
+        path = resolve_compressed_path(tmp / "file.dat")
+        with compressed_open(path) as fh:
+            assert fh.read() == "line1\nline2\n"
+
+
+# ── BaseParser integration ───────────────────────────────────────────────
+
+
 class TestBaseParserIntegration:
     """Verify that BaseParser reads compressed .dat files transparently."""
 
     def test_gz_dat_file_parsed(self, tmp: Path) -> None:
         from plp2gtopt.base_parser import BaseParser
 
-        # Create a minimal .dat.gz with two data lines
         content = "line1\nline2\n# comment\nline3\n"
         gz = tmp / "test.dat.gz"
         with gzip.open(gz, "wb") as fh:
@@ -156,5 +232,23 @@ class TestBaseParserIntegration:
                 self.lines = self._read_non_empty_lines()
 
         p = StubParser(gz)
+        p.parse()
+        assert p.lines == ["line1", "line2", "line3"]
+
+    def test_split_xz_dat_file_parsed(self, tmp: Path) -> None:
+        from plp2gtopt.base_parser import BaseParser
+
+        part1 = tmp / "test.dat.1.xz"
+        part2 = tmp / "test.dat.2.xz"
+        with lzma.open(part1, "wb") as fh:
+            fh.write(b"line1\nline2\n")
+        with lzma.open(part2, "wb") as fh:
+            fh.write(b"# comment\nline3\n")
+
+        class StubParser(BaseParser):
+            def parse(self, parsers=None):
+                self.lines = self._read_non_empty_lines()
+
+        p = StubParser(part1)
         p.parse()
         assert p.lines == ["line1", "line2", "line3"]
