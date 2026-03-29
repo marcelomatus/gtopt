@@ -1,1 +1,2 @@
-# No git-lfs tracking — all large files are xz-compressed
+# Large data files are stored as xz-compressed files (.dat.xz, .csv.xz).
+# Use scripts/plp_compress_case.sh to prepare PLP cases before committing.
