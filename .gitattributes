@@ -1,2 +1,1 @@
-plpmance.dat filter=lfs diff=lfs merge=lfs -text
-plpaflce.dat filter=lfs diff=lfs merge=lfs -text
+support/**/*.dat filter=lfs diff=lfs merge=lfs -text
