@@ -276,6 +276,19 @@ auto solve_apertures_for_phase(
             clone.set_warm_start_solution(forward_col_sol, forward_row_dual);
           }
 
+          // Configure solver log file for aperture clone
+          const auto log_mode =
+              aperture_opts.solver_log_mode.value_or(SolverLogMode::nolog);
+          if (log_mode == SolverLogMode::detailed && !log_directory.empty()) {
+            clone.set_log_file((std::filesystem::path(log_directory)
+                                / std::format("{}_sc{}_ph{}_ap{}",
+                                              clone.solver_name(),
+                                              scene_uid,
+                                              phase_uid,
+                                              ap_uid))
+                                   .string());
+          }
+
           // Solve
           [[maybe_unused]] auto solve_result = clone.resolve(aperture_opts);
           const bool feasible = clone.is_optimal();

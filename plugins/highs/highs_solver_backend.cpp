@@ -488,6 +488,23 @@ void HighsSolverBackend::close_log()
   m_highs_->setOptionValue("output_flag", false);
 }
 
+void HighsSolverBackend::set_log_filename(const std::string& filename,
+                                          int level)
+{
+  if (level > 0 && !filename.empty()) {
+    const auto log_path = std::format("{}.log", filename);
+    m_highs_->setOptionValue("log_file", log_path);
+    m_highs_->setOptionValue("output_flag", true);
+    m_highs_->setOptionValue("log_to_console", false);
+  }
+}
+
+void HighsSolverBackend::clear_log_filename()
+{
+  m_highs_->setOptionValue("log_file", std::string {});
+  m_highs_->setOptionValue("output_flag", false);
+}
+
 void HighsSolverBackend::push_names(const std::vector<std::string>& col_names,
                                     const std::vector<std::string>& row_names)
 {

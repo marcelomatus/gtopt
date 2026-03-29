@@ -624,6 +624,27 @@ private:
     ~HandlerGuard() { interface->close_log_handler(); }
   };
 
+  /// RAII guard for solver-native file-based logging (set_log_filename API).
+  struct LogFileGuard
+  {
+    LinearInterface* interface;
+
+    LogFileGuard(LogFileGuard const&) = delete;
+    LogFileGuard& operator=(LogFileGuard const&) = delete;
+    LogFileGuard(LogFileGuard&&) = delete;
+    LogFileGuard& operator=(LogFileGuard&&) = delete;
+
+    explicit LogFileGuard(LinearInterface& li,
+                          const std::string& filename,
+                          int level)
+        : interface(&li)
+    {
+      interface->m_backend_->set_log_filename(filename, level);
+    }
+
+    ~LogFileGuard() { interface->m_backend_->clear_log_filename(); }
+  };
+
   void open_log_handler(int log_level);
   void close_log_handler();
 

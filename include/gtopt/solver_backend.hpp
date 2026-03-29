@@ -153,6 +153,27 @@ public:
   virtual void open_log(FILE* file, int level) = 0;
   virtual void close_log() = 0;
 
+  /** @brief Redirect solver log output to a file by name.
+   *
+   * Backends override this to use their native file-based logging API
+   * (e.g. CPXsetlogfilename for CPLEX, log_file option for HiGHS).
+   * The default implementation is a no-op — backends that only support
+   * FILE*-based logging via open_log/close_log need not override.
+   *
+   * @param filename  Full path to the log file (without .log extension)
+   * @param level     Verbosity level (0 = off, >0 = enabled)
+   */
+  virtual void set_log_filename(const std::string& /*filename*/, int /*level*/)
+  {
+  }
+
+  /** @brief Stop file-based logging started by set_log_filename.
+   *
+   * Backends override to close/detach their native log file.
+   * Default is a no-op.
+   */
+  virtual void clear_log_filename() {}
+
   // ---- names & LP file output ----
 
   virtual void push_names(const std::vector<std::string>& col_names,

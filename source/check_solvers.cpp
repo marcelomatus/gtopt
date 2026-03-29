@@ -860,6 +860,156 @@ SolverTestResult test_col_scales(std::string_view solver)
 }
 
 // ---------------------------------------------------------------------------
+// 19. barrier algorithm with threads
+// ---------------------------------------------------------------------------
+SolverTestResult test_barrier_threads(std::string_view solver)
+{
+  TestContext ctx;
+  const double kEps = 1e-6;
+
+  try {
+    // 4-variable LP:
+    //   min  x1 + 2·x2 + 3·x3 + 4·x4
+    //   s.t. x1 + x2          >= 5
+    //             x2 + x3      >= 3
+    //                  x3 + x4 >= 4
+    //        x1, x2, x3, x4 >= 0
+    // Optimal obj = 17 (x1=5, x2=0, x3=4, x4=0).
+    LinearProblem lp("barrier_threads");
+    const auto x1 = lp.add_col(SparseCol {.name = "x1", .cost = 1.0});
+    const auto x2 = lp.add_col(SparseCol {.name = "x2", .cost = 2.0});
+    const auto x3 = lp.add_col(SparseCol {.name = "x3", .cost = 3.0});
+    const auto x4 = lp.add_col(SparseCol {.name = "x4", .cost = 4.0});
+
+    const auto r1 = lp.add_row(SparseRow {
+        .name = "r1",
+        .lowb = 5.0,
+        .uppb = LinearProblem::DblMax,
+    });
+    lp.set_coeff(r1, x1, 1.0);
+    lp.set_coeff(r1, x2, 1.0);
+
+    const auto r2 = lp.add_row(SparseRow {
+        .name = "r2",
+        .lowb = 3.0,
+        .uppb = LinearProblem::DblMax,
+    });
+    lp.set_coeff(r2, x2, 1.0);
+    lp.set_coeff(r2, x3, 1.0);
+
+    const auto r3 = lp.add_row(SparseRow {
+        .name = "r3",
+        .lowb = 4.0,
+        .uppb = LinearProblem::DblMax,
+    });
+    lp.set_coeff(r3, x3, 1.0);
+    lp.set_coeff(r3, x4, 1.0);
+
+    LpBuildOptions opts;
+    opts.col_with_names = true;
+    opts.row_with_names = true;
+    const auto flat = lp.lp_build(opts);
+
+    LinearInterface li(solver, flat);
+
+    // Solve with barrier algorithm and 4 threads
+    const SolverOptions solver_opts {
+        .algorithm = LPAlgo::barrier,
+        .threads = 4,
+        .presolve = true,
+    };
+
+    const auto result = li.initial_solve(solver_opts);
+    TC_CHECK(ctx, result.has_value());
+    TC_CHECK(ctx, li.is_optimal());
+    TC_CHECK_APPROX(ctx, li.get_obj_value(), 17.0, kEps);
+
+    const auto sol = li.get_col_sol();
+    TC_REQUIRE(ctx, sol.size() == 4);
+    TC_CHECK(ctx, sol[0] + sol[1] >= 5.0 - kEps);
+    TC_CHECK(ctx, sol[1] + sol[2] >= 3.0 - kEps);
+    TC_CHECK(ctx, sol[2] + sol[3] >= 4.0 - kEps);
+
+  } catch (const std::exception& ex) {
+    return make_result("barrier_threads", /*test_passed=*/false, ex.what());
+  }
+  return make_result("barrier_threads", /*test_passed=*/ctx.ok(), ctx.failures);
+}
+
+// ---------------------------------------------------------------------------
+// 20. barrier initial solve then dual simplex resolve (SDDP workflow)
+// ---------------------------------------------------------------------------
+SolverTestResult test_barrier_resolve(std::string_view solver)
+{
+  TestContext ctx;
+  const double kEps = 1e-6;
+
+  try {
+    // Same 4-variable LP as test_barrier_threads
+    LinearProblem lp("barrier_resolve");
+    const auto x1 = lp.add_col(SparseCol {.name = "x1", .cost = 1.0});
+    const auto x2 = lp.add_col(SparseCol {.name = "x2", .cost = 2.0});
+    const auto x3 = lp.add_col(SparseCol {.name = "x3", .cost = 3.0});
+    const auto x4 = lp.add_col(SparseCol {.name = "x4", .cost = 4.0});
+
+    const auto r1 = lp.add_row(SparseRow {
+        .name = "r1",
+        .lowb = 5.0,
+        .uppb = LinearProblem::DblMax,
+    });
+    lp.set_coeff(r1, x1, 1.0);
+    lp.set_coeff(r1, x2, 1.0);
+
+    const auto r2 = lp.add_row(SparseRow {
+        .name = "r2",
+        .lowb = 3.0,
+        .uppb = LinearProblem::DblMax,
+    });
+    lp.set_coeff(r2, x2, 1.0);
+    lp.set_coeff(r2, x3, 1.0);
+
+    const auto r3 = lp.add_row(SparseRow {
+        .name = "r3",
+        .lowb = 4.0,
+        .uppb = LinearProblem::DblMax,
+    });
+    lp.set_coeff(r3, x3, 1.0);
+    lp.set_coeff(r3, x4, 1.0);
+
+    LpBuildOptions opts;
+    opts.col_with_names = true;
+    opts.row_with_names = true;
+    const auto flat = lp.lp_build(opts);
+
+    LinearInterface li(solver, flat);
+
+    // Step 1: initial solve with barrier + 4 threads
+    const auto r_init = li.initial_solve(SolverOptions {
+        .algorithm = LPAlgo::barrier,
+        .threads = 4,
+    });
+    TC_CHECK(ctx, r_init.has_value());
+    TC_CHECK_APPROX(ctx, li.get_obj_value(), 17.0, kEps);
+
+    // Step 2: tighten first constraint and resolve with dual simplex
+    li.set_row_low(RowIndex {0}, 6.0);  // x1+x2 >= 6
+
+    const auto r_resolve = li.resolve(SolverOptions {
+        .algorithm = LPAlgo::dual,
+        .reuse_basis = true,
+    });
+    TC_CHECK(ctx, r_resolve.has_value());
+    TC_CHECK(ctx, li.is_optimal());
+    // Obj increases by 1 (cheapest variable x1 gets +1)
+    TC_CHECK_APPROX(ctx, li.get_obj_value(), 18.0, kEps);
+
+  } catch (const std::exception& ex) {
+    return make_result("barrier_resolve", /*test_passed=*/false, ex.what());
+  }
+  return make_result("barrier_resolve", /*test_passed=*/ctx.ok(), ctx.failures);
+}
+
+// ---------------------------------------------------------------------------
 // Test registry: ordered list of (name, function) pairs
 // ---------------------------------------------------------------------------
 
@@ -895,6 +1045,8 @@ struct TestEntry
       {"maximisation", test_maximisation},
       {"warm_col_sol_accessors", test_warm_col_sol_accessors},
       {"col_scales", test_col_scales},
+      {"barrier_threads", test_barrier_threads},
+      {"barrier_resolve", test_barrier_resolve},
   };
   return tests;
 }

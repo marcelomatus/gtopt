@@ -156,6 +156,21 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
       li.set_warm_start_solution(state.forward_col_sol, state.forward_row_dual);
     }
 
+    // Configure solver log file based on solver_log_mode.
+    // Configure per-solve log file when solver_log_mode is detailed.
+    if (effective_opts.solver_log_mode.value_or(SolverLogMode::nolog)
+            == SolverLogMode::detailed
+        && !m_options_.log_directory.empty())
+    {
+      std::filesystem::create_directories(m_options_.log_directory);
+      li.set_log_file((std::filesystem::path(m_options_.log_directory)
+                       / std::format("{}_sc{}_ph{}",
+                                     li.solver_name(),
+                                     scene_uid(scene),
+                                     phase_uid(phase)))
+                          .string());
+    }
+
     // Solve directly — already running in a pool thread.
     auto result = li.resolve(effective_opts);
 

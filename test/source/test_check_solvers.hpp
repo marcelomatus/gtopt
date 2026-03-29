@@ -212,6 +212,14 @@ TEST_CASE("check_solvers - col_scales")  // NOLINT
 {
   run_named_test("col_scales");
 }
+TEST_CASE("check_solvers - barrier_threads")  // NOLINT
+{
+  run_named_test("barrier_threads");
+}
+TEST_CASE("check_solvers - barrier_resolve")  // NOLINT
+{
+  run_named_test("barrier_resolve");
+}
 
 // ---------------------------------------------------------------------------
 // check_all_solvers smoke test (only verifies exit code)

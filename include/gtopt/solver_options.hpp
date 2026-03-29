@@ -23,6 +23,32 @@
 namespace gtopt
 {
 /**
+ * @brief Controls whether and how solver log files are written.
+ *
+ * - `nolog`:    No solver log files are written (default).
+ * - `detailed`: Separate log files per scene/phase/aperture, using the
+ *               naming pattern `<solver>_sc<N>_ph<N>[_ap<N>].log`.
+ *               Each thread writes to its own file — no locking required.
+ */
+enum class SolverLogMode : uint8_t
+{
+  nolog = 0,  ///< No solver log files (default)
+  detailed = 1,  ///< Separate log files per scene/phase/aperture
+};
+
+inline constexpr auto solver_log_mode_entries =
+    std::to_array<EnumEntry<SolverLogMode>>({
+        {.name = "nolog", .value = SolverLogMode::nolog},
+        {.name = "detailed", .value = SolverLogMode::detailed},
+    });
+
+/// ADL customization point for NamedEnum concept
+constexpr auto enum_entries(SolverLogMode /*tag*/) noexcept
+{
+  return std::span {solver_log_mode_entries};
+}
+
+/**
  * @brief Enumeration of linear programming solution algorithms
  */
 enum class LPAlgo : uint8_t
@@ -98,6 +124,14 @@ struct SolverOptions
   /** @brief Verbosity level for solver output (0 = none) */
   int log_level {0};
 
+  /** @brief Controls solver log file generation.
+   *
+   * - `nolog`:     No log files written (default).
+   * - `detailed`:  Separate log file per scene/phase/aperture, named
+   *                `<solver>_sc<N>_ph<N>[_ap<N>].log`.
+   */
+  std::optional<SolverLogMode> solver_log_mode {};
+
   /** @brief Time limit for individual LP solves in seconds.
    *  0 = no limit (solver default).  When non-zero, the solver will abort
    *  the current solve if the wall-clock time exceeds this value.
@@ -156,6 +190,15 @@ struct formatter<gtopt::LPAlgo> : formatter<string_view>
   auto format(gtopt::LPAlgo algo, FormatContext& ctx) const
   {
     return formatter<string_view>::format(gtopt::enum_name(algo), ctx);
+  }
+};
+template<>
+struct formatter<gtopt::SolverLogMode> : formatter<string_view>
+{
+  template<typename FormatContext>
+  auto format(gtopt::SolverLogMode mode, FormatContext& ctx) const
+  {
+    return formatter<string_view>::format(gtopt::enum_name(mode), ctx);
   }
 };
 }  // namespace std

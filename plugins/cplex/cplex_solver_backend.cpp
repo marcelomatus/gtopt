@@ -726,9 +726,11 @@ void CplexSolverBackend::resolve()
   if (cplex_type == CPXPROB_MILP || cplex_type == CPXPROB_MIQP) {
     m_solve_status_ = CPXmipopt(m_env_, m_lp_);
   } else {
-    // Use dual simplex for resolve (warm start)
-    CPXsetintparam(m_env_, CPX_PARAM_LPMETHOD, CPX_ALG_DUAL);
-    m_solve_status_ = CPXdualopt(m_env_, m_lp_);
+    // CPXlpopt respects CPX_PARAM_LPMETHOD set by apply_options().
+    // When reuse_basis is true, apply_options() sets LPMETHOD to dual simplex
+    // and enables advanced start — so warm-start still works correctly.
+    // When barrier is requested, CPXlpopt uses barrier as configured.
+    m_solve_status_ = CPXlpopt(m_env_, m_lp_);
   }
 }
 
@@ -827,6 +829,22 @@ void CplexSolverBackend::open_log(FILE* /*file*/, int level)
 
 void CplexSolverBackend::close_log()
 {
+  CPXsetintparam(m_env_, CPX_PARAM_SCRIND, CPX_OFF);
+}
+
+void CplexSolverBackend::set_log_filename(const std::string& filename,
+                                          int level)
+{
+  if (level > 0 && !filename.empty()) {
+    const auto log_path = std::format("{}.log", filename);
+    CPXsetlogfilename(m_env_, log_path.c_str(), "a");
+    CPXsetintparam(m_env_, CPX_PARAM_SCRIND, CPX_ON);
+  }
+}
+
+void CplexSolverBackend::clear_log_filename()
+{
+  CPXsetlogfilename(m_env_, nullptr, nullptr);
   CPXsetintparam(m_env_, CPX_PARAM_SCRIND, CPX_OFF);
 }
 
