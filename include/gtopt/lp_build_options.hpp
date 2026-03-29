@@ -12,7 +12,10 @@
 
 #pragma once
 
+#include <array>
+#include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 
 #include <gtopt/basic_types.hpp>
@@ -20,6 +23,40 @@
 
 namespace gtopt
 {
+
+// ─── LpNamesLevel ───────────────────────────────────────────────────────────
+
+/**
+ * @brief LP variable/constraint naming level for matrix assembly.
+ *
+ * Controls how much naming information is generated during LP construction.
+ * Higher levels provide better diagnostics but consume more memory.
+ *
+ * - `minimal`:      State-variable column names only (for internal use,
+ *                   e.g. cascade solver state transfer).  Smallest footprint.
+ * - `only_cols`:    All column names + name-to-index maps.
+ * - `cols_and_rows`: Column + row names + maps.  Warns on duplicate names.
+ */
+enum class LpNamesLevel : uint8_t
+{
+  minimal = 0,  ///< State-variable column names only (default)
+  only_cols = 1,  ///< All column names + name maps
+  cols_and_rows = 2,  ///< Column + row names + maps + warn on duplicates
+};
+
+inline constexpr auto lp_names_level_entries =
+    std::to_array<EnumEntry<LpNamesLevel>>({
+        {.name = "minimal", .value = LpNamesLevel::minimal},
+        {.name = "only_cols", .value = LpNamesLevel::only_cols},
+        {.name = "cols_and_rows", .value = LpNamesLevel::cols_and_rows},
+    });
+
+constexpr auto enum_entries(LpNamesLevel /*tag*/) noexcept
+{
+  return std::span {lp_names_level_entries};
+}
+
+// ─── LpBuildOptions struct ──────────────────────────────────────────────────
 
 /**
  * @struct LpBuildOptions

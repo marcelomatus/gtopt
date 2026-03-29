@@ -99,8 +99,7 @@ public:
    */
   [[nodiscard]] auto input_format() const -> std::string_view
   {
-    return data_format_name(
-        m_options_.input_format.value_or(default_input_format));
+    return enum_name(m_options_.input_format.value_or(default_input_format));
   }
 
   /**
@@ -240,8 +239,7 @@ public:
    */
   [[nodiscard]] auto output_format() const -> std::string_view
   {
-    return data_format_name(
-        m_options_.output_format.value_or(default_output_format));
+    return enum_name(m_options_.output_format.value_or(default_output_format));
   }
 
   /**
@@ -259,7 +257,7 @@ public:
    */
   [[nodiscard]] auto output_compression() const -> std::string_view
   {
-    return compression_codec_name(
+    return enum_name(
         m_options_.output_compression.value_or(default_output_compression));
   }
 
@@ -321,7 +319,7 @@ public:
   [[nodiscard]] auto lp_compression() const -> std::string_view
   {
     if (m_options_.lp_compression.has_value()) {
-      return compression_codec_name(*m_options_.lp_compression);
+      return enum_name(*m_options_.lp_compression);
     }
     return "";
   }
@@ -503,7 +501,7 @@ public:
    */
   [[nodiscard]] auto sddp_cut_sharing_mode() const -> std::string_view
   {
-    return cut_sharing_mode_name(sddp_cut_sharing_mode_enum());
+    return enum_name(sddp_cut_sharing_mode_enum());
   }
 
   /**
@@ -674,7 +672,7 @@ public:
    */
   [[nodiscard]] auto sddp_elastic_mode() const -> std::string_view
   {
-    return elastic_filter_mode_name(sddp_elastic_mode_enum());
+    return enum_name(sddp_elastic_mode_enum());
   }
 
   /**
@@ -733,7 +731,7 @@ public:
   /// Boundary cuts load mode as a string name.
   [[nodiscard]] auto sddp_boundary_cuts_mode() const -> std::string_view
   {
-    return boundary_cuts_mode_name(sddp_boundary_cuts_mode_enum());
+    return enum_name(sddp_boundary_cuts_mode_enum());
   }
 
   /// Maximum boundary cut iterations to load (0 = all).

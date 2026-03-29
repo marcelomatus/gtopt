@@ -93,9 +93,9 @@ struct CutLoadResult
 };
 
 // ─── Cut sharing mode ───────────────────────────────────────────────────────
-// CutSharingMode is now defined in <gtopt/enum_option.hpp>.
-// The constexpr lookup function cut_sharing_mode_from_name() replaces the
-// old parse_cut_sharing_mode() free function.
+// CutSharingMode is now defined in <gtopt/sddp_enums.hpp>.
+// The generic enum_from_name<CutSharingMode>() replaces the old
+// parse_cut_sharing_mode() free function.
 
 /// Parse a cut-sharing mode from a string (backward-compatible wrapper).
 /// ("none", "expected", "accumulate", "max")
@@ -136,9 +136,9 @@ constexpr auto stop_request = "sddp_stop_request.json";
 }  // namespace sddp_file
 
 // ─── Elastic filter mode ────────────────────────────────────────────────────
-// ElasticFilterMode is now defined in <gtopt/enum_option.hpp>.
-// The constexpr lookup function elastic_filter_mode_from_name() replaces the
-// old parse_elastic_filter_mode() free function.
+// ElasticFilterMode is now defined in <gtopt/sddp_enums.hpp>.
+// The generic enum_from_name<ElasticFilterMode>() replaces the old
+// parse_elastic_filter_mode() free function.
 
 /// Parse an elastic filter mode from a string (backward-compatible wrapper).
 /// Accepts "single_cut" / "cut" (= single_cut), "multi_cut",

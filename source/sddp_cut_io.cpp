@@ -920,7 +920,7 @@ auto load_boundary_cuts_csv(
                   "coefficient {} (mode={})",
                   header_names[ci],
                   tok,
-                  missing_cut_var_mode_name(missing_mode));
+                  enum_name(missing_mode));
             }
           }
         }
@@ -992,7 +992,7 @@ auto load_boundary_cuts_csv(
         "max_iters={})",
         cuts_loaded,
         filepath,
-        boundary_cuts_mode_name(mode),
+        enum_name(mode),
         max_iters);
     return CutLoadResult {
         .count = cuts_loaded,
@@ -1242,7 +1242,7 @@ auto load_named_cuts_csv(
                   headers[kFixedCols + ci],
                   phase,
                   tok,
-                  missing_cut_var_mode_name(options.missing_cut_var_mode));
+                  enum_name(options.missing_cut_var_mode));
             }
           }
         }

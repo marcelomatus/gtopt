@@ -117,7 +117,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
           phase_uid(phase),
           prev_st.outgoing_links.size(),
           phase_uid(prev),
-          cut_coeff_mode_name(coeff_mode));
+          enum_name(coeff_mode));
     }
 
     // Update volume-dependent LP coefficients (discharge limits, turbine

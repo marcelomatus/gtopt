@@ -51,12 +51,12 @@ namespace gtopt
 
 CutSharingMode parse_cut_sharing_mode(std::string_view name)
 {
-  return cut_sharing_mode_from_name(name).value_or(CutSharingMode::none);
+  return enum_from_name<CutSharingMode>(name).value_or(CutSharingMode::none);
 }
 
 ElasticFilterMode parse_elastic_filter_mode(std::string_view name)
 {
-  return elastic_filter_mode_from_name(name).value_or(
+  return enum_from_name<ElasticFilterMode>(name).value_or(
       ElasticFilterMode::single_cut);
 }
 

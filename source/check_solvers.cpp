@@ -448,7 +448,7 @@ SolverTestResult test_initial_solve_optimal(std::string_view solver)
           .log_level = 0,
       });
 
-      const std::string algo_name = std::string(lp_algo_name(algo));
+      const std::string algo_name = std::string(enum_name(algo));
       if (!result) {
         ctx.check(/*cond=*/false,
                   std::format("initial_solve({}) returned error: {}",
@@ -490,11 +490,11 @@ SolverTestResult test_initial_solve_optimal(std::string_view solver)
       TC_CHECK(ctx, lp.get_kappa() >= 0.0);
 
     } catch (const std::exception& ex) {
-      ctx.check(/*cond=*/false,
-                std::format(
-                    "exception in algo {}: {}", lp_algo_name(algo), ex.what()),
-                __FILE__,
-                __LINE__);
+      ctx.check(
+          /*cond=*/false,
+          std::format("exception in algo {}: {}", enum_name(algo), ex.what()),
+          __FILE__,
+          __LINE__);
     }
   }
   return make_result(

@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include <gtopt/enum_option.hpp>
+#include <gtopt/sddp_enums.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/utils.hpp>
 

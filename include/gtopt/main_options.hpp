@@ -69,7 +69,7 @@ template<typename T>
 [[nodiscard]] inline int parse_lp_algorithm(const std::string& s)
 {
   // Name-based lookup via the constexpr table in solver_options.hpp.
-  if (const auto algo = lp_algo_from_name(s)) {
+  if (const auto algo = enum_from_name<LPAlgo>(s)) {
     return static_cast<int>(*algo);
   }
   // Numeric fallback: exactly one digit, "0"–"3"
@@ -253,16 +253,17 @@ inline void apply_cli_options(
 
   if (output_format) {
     planning.options.output_format =
-        data_format_from_name(output_format.value());
+        enum_from_name<DataFormat>(output_format.value());
   }
 
   if (output_compression) {
     planning.options.output_compression =
-        compression_codec_from_name(output_compression.value());
+        enum_from_name<CompressionCodec>(output_compression.value());
   }
 
   if (input_format) {
-    planning.options.input_format = data_format_from_name(input_format.value());
+    planning.options.input_format =
+        enum_from_name<DataFormat>(input_format.value());
   }
 
   if (cut_directory) {
@@ -287,12 +288,12 @@ inline void apply_cli_options(
 
   if (sddp_elastic_mode) {
     planning.options.sddp_options.elastic_mode =
-        elastic_filter_mode_from_name(sddp_elastic_mode.value());
+        enum_from_name<ElasticFilterMode>(sddp_elastic_mode.value());
   }
 
   if (sddp_cut_coeff_mode) {
     planning.options.sddp_options.cut_coeff_mode =
-        cut_coeff_mode_from_name(sddp_cut_coeff_mode.value());
+        enum_from_name<CutCoeffMode>(sddp_cut_coeff_mode.value());
   }
 
   if (sddp_num_apertures) {
@@ -310,7 +311,7 @@ inline void apply_cli_options(
 
   if (lp_compression) {
     planning.options.lp_compression =
-        compression_codec_from_name(lp_compression.value());
+        enum_from_name<CompressionCodec>(lp_compression.value());
   }
 
   if (lp_coeff_ratio_threshold) {
@@ -402,7 +403,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     spdlog::warn(
         "--algorithm is deprecated, use: --set solver_options"
         ".algorithm={}",
-        lp_algo_name(static_cast<LPAlgo>(*opts.algorithm)));
+        enum_name(static_cast<LPAlgo>(*opts.algorithm)));
   }
   warn_deprecated_cli(opts.threads, "threads", "solver_options.threads");
   warn_deprecated_cli(opts.lp_debug, "lp-debug", "lp_debug");
@@ -469,7 +470,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
  */
 [[nodiscard]] inline LpNamesLevel parse_lp_names_level(const std::string& s)
 {
-  if (const auto lvl = lp_names_level_from_name(s)) {
+  if (const auto lvl = enum_from_name<LpNamesLevel>(s)) {
     return *lvl;
   }
   if (s.size() == 1 && std::isdigit(static_cast<unsigned char>(s.front())) != 0)
