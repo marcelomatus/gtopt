@@ -14,7 +14,7 @@ Imported variables
   Include directories for COIN-OR headers.
 
 ``COIN_OSI_LIBRARIES``
-  Libraries to link against (Osi, CoinUtils, LAPACK, ZLIB, Threads, LibM).
+  Libraries to link against (Osi, CoinUtils, LAPACK, ZLIB, Threads, libm).
 
 ``COIN_LIBRARIES``
   Alias for ``COIN_OSI_LIBRARIES``.
@@ -113,16 +113,16 @@ if(COIN_FOUND)
     endif()
   endif()
 
-  find_package(ZLIB)
-  find_package(Threads)
-  find_package(LibM)
+  find_package(ZLIB QUIET)
+  find_package(Threads QUIET)
+  find_library(_COIN_LIBM_LIB NAMES m)
 
   set(COIN_OSI_LIBRARIES
-      "${COIN_OSI_LIBRARIES};${LAPACK_LIBRARIES};${ZLIB_LIBRARIES};${CMAKE_THREAD_LIBS_INIT};${LibM_LIBRARIES}"
+      "${COIN_OSI_LIBRARIES};${LAPACK_LIBRARIES};${ZLIB_LIBRARIES};${CMAKE_THREAD_LIBS_INIT};${_COIN_LIBM_LIB}"
   )
 
   message(STATUS "COIN OSi Libs: ${COIN_OSI_LIBRARIES}")
 endif()
 
 mark_as_advanced(COIN_INCLUDE_DIR COIN_COIN_UTILS_LIBRARY COIN_OSI_LIBRARY
-                 _COIN_LAPACK_LIB _COIN_BLAS_LIB)
+                 _COIN_LAPACK_LIB _COIN_BLAS_LIB _COIN_LIBM_LIB)
