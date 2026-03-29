@@ -100,14 +100,22 @@ class TestCompressDecompress:
         assert result.returncode == 0
         assert "No .xz" in result.stdout
 
-    def test_already_compressed_skipped(self, case_dir: Path) -> None:
+    def test_already_compressed_detected(self, case_dir: Path) -> None:
         self._write_files(case_dir)
         _run([str(SCRIPT), str(case_dir)])
 
-        # Run again — should find nothing to compress
+        # Run again — should detect already compressed
         result = _run([str(SCRIPT), str(case_dir)])
         assert result.returncode == 0
-        assert "No .dat" in result.stdout
+        assert "already compressed" in result.stdout
+
+    def test_already_decompressed_detected(self, case_dir: Path) -> None:
+        self._write_files(case_dir)
+
+        # Decompress when files are already plain
+        result = _run([str(SCRIPT), "-d", str(case_dir)])
+        assert result.returncode == 0
+        assert "already decompressed" in result.stdout
 
     def test_invalid_dir_fails(self) -> None:
         result = _run([str(SCRIPT), "/nonexistent/path"], check=False)

@@ -72,7 +72,16 @@ decompress_case() {
     mapfile -t XZ_FILES < <(find "$DIR" -maxdepth 1 -name '*.xz' -type f | sort)
 
     if [[ ${#XZ_FILES[@]} -eq 0 ]]; then
-        echo "No .xz files found in $DIR"
+        # Check if there are already uncompressed data files
+        n_plain=$(find "$DIR" -maxdepth 1 -type f \
+            \( -name '*.dat' -o -name '*.csv' -o -name '*.prn' -o -name '*.png' \) \
+            ! -name '*.xz' ! -name '*.gz' ! -name '*.bz2' ! -name '*.zst' ! -name '*.lz4' \
+            | wc -l)
+        if [[ $n_plain -gt 0 ]]; then
+            echo "$DIR: already decompressed ($n_plain data file(s))"
+        else
+            echo "No .xz or data files found in $DIR"
+        fi
         exit 0
     fi
 
@@ -169,7 +178,13 @@ compress_case() {
         | sort)
 
     if [[ ${#FILES[@]} -eq 0 ]]; then
-        echo "No .dat/.csv/.prn/.png files found in $DIR"
+        # Check if there are already compressed files
+        n_xz=$(find "$DIR" -maxdepth 1 -name '*.xz' -type f | wc -l)
+        if [[ $n_xz -gt 0 ]]; then
+            echo "$DIR: already compressed ($n_xz .xz file(s))"
+        else
+            echo "No .dat/.csv/.prn/.png files found in $DIR"
+        fi
         exit 0
     fi
 
