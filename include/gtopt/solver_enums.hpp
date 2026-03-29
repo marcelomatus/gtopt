@@ -1,0 +1,118 @@
+/**
+ * @file      solver_enums.hpp
+ * @brief     Named enum types for LP solver options
+ * @date      2026-03-29
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * Defines all enum types used by SolverOptions.  Extracted from
+ * solver_options.hpp so that the struct definition stays focused on
+ * the option fields.
+ */
+
+#pragma once
+
+#include <array>
+#include <cstdint>
+#include <format>
+#include <span>
+#include <string_view>
+
+#include <gtopt/enum_option.hpp>
+
+namespace gtopt
+{
+
+// --- SolverLogMode ----------------------------------------------------------
+
+/**
+ * @brief Controls whether and how solver log files are written.
+ *
+ * - `nolog`:    No solver log files are written (default).
+ * - `detailed`: Separate log files per scene/phase/aperture, using the
+ *               naming pattern `<solver>_sc<N>_ph<N>[_ap<N>].log`.
+ *               Each thread writes to its own file -- no locking required.
+ */
+enum class SolverLogMode : uint8_t
+{
+  nolog = 0,  ///< No solver log files (default)
+  detailed = 1,  ///< Separate log files per scene/phase/aperture
+};
+
+inline constexpr auto log_mode_entries =
+    std::to_array<EnumEntry<SolverLogMode>>({
+        {.name = "nolog", .value = SolverLogMode::nolog},
+        {.name = "detailed", .value = SolverLogMode::detailed},
+    });
+
+/// ADL customization point for NamedEnum concept
+constexpr auto enum_entries(SolverLogMode /*tag*/) noexcept
+{
+  return std::span {log_mode_entries};
+}
+
+// --- LPAlgo -----------------------------------------------------------------
+
+/**
+ * @brief Enumeration of linear programming solution algorithms
+ */
+enum class LPAlgo : uint8_t
+{
+  /** @brief Use the solver's default algorithm */
+  default_algo = 0,
+
+  /** @brief Use the primal simplex algorithm */
+  primal = 1,
+
+  /** @brief Use the dual simplex algorithm */
+  dual = 2,
+
+  /** @brief Use the interior point (barrier) algorithm */
+  barrier = 3,
+
+  /** @brief Sentinel value for iteration/validation */
+  last_algo = 4,
+};
+
+/**
+ * @brief Compile-time table mapping each LPAlgo enumerator to its name.
+ *
+ * Excludes the sentinel @c last_algo value.
+ */
+inline constexpr auto lp_algo_entries = std::to_array<EnumEntry<LPAlgo>>({
+    {.name = "default", .value = LPAlgo::default_algo},
+    {.name = "primal", .value = LPAlgo::primal},
+    {.name = "dual", .value = LPAlgo::dual},
+    {.name = "barrier", .value = LPAlgo::barrier},
+});
+
+/// ADL customization point for NamedEnum concept
+constexpr auto enum_entries(LPAlgo /*tag*/) noexcept
+{
+  return std::span {lp_algo_entries};
+}
+
+}  // namespace gtopt
+
+// Specialize std::formatter for LPAlgo using its canonical name
+namespace std
+{
+template<>
+struct formatter<gtopt::LPAlgo> : formatter<string_view>
+{
+  template<typename FormatContext>
+  auto format(gtopt::LPAlgo algo, FormatContext& ctx) const
+  {
+    return formatter<string_view>::format(gtopt::enum_name(algo), ctx);
+  }
+};
+template<>
+struct formatter<gtopt::SolverLogMode> : formatter<string_view>
+{
+  template<typename FormatContext>
+  auto format(gtopt::SolverLogMode mode, FormatContext& ctx) const
+  {
+    return formatter<string_view>::format(gtopt::enum_name(mode), ctx);
+  }
+};
+}  // namespace std
