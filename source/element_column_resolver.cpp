@@ -112,6 +112,14 @@ namespace
               .col = it->second,
           };
         }
+      } else if (ref.attribute == "capainst" || ref.attribute == "capacity") {
+        // Stage-level capacity installation variable (expansion column).
+        // The same column is returned for every block in the stage.
+        if (auto col = gen.capacity_col_at(stage)) {
+          return ResolvedCol {
+              .col = *col,
+          };
+        }
       }
       return std::nullopt;
     }
@@ -131,6 +139,13 @@ namespace
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
+          };
+        }
+      } else if (ref.attribute == "capainst" || ref.attribute == "capacity") {
+        // Stage-level capacity installation variable.
+        if (auto col = dem.capacity_col_at(stage)) {
+          return ResolvedCol {
+              .col = *col,
           };
         }
       }
@@ -167,6 +182,13 @@ namespace
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
+          };
+        }
+      } else if (ref.attribute == "capainst" || ref.attribute == "capacity") {
+        // Stage-level capacity installation variable.
+        if (auto col = ln.capacity_col_at(stage)) {
+          return ResolvedCol {
+              .col = *col,
           };
         }
       }
@@ -208,6 +230,38 @@ namespace
               .scale = lp.get_col_scale(it->second),
           };
         }
+      } else if (ref.attribute == "eini") {
+        // Stage-level initial energy column (state variable).
+        // Same column for all blocks in the stage.
+        const auto col = bat.eini_col_at(scenario, stage);
+        return ResolvedCol {
+            .col = col,
+            .scale = lp.get_col_scale(col),
+        };
+      } else if (ref.attribute == "efin") {
+        // Stage-level final energy column.
+        // Same column for all blocks in the stage.
+        const auto col = bat.efin_col_at(scenario, stage);
+        return ResolvedCol {
+            .col = col,
+            .scale = lp.get_col_scale(col),
+        };
+      } else if (ref.attribute == "soft_emin") {
+        // Stage-level soft minimum energy slack column.
+        // Returns nullopt when soft_emin is inactive for this stage.
+        if (auto col = bat.soft_emin_col_at(scenario, stage)) {
+          return ResolvedCol {
+              .col = *col,
+              .scale = lp.get_col_scale(*col),
+          };
+        }
+      } else if (ref.attribute == "capainst" || ref.attribute == "capacity") {
+        // Stage-level capacity installation variable.
+        if (auto col = bat.capacity_col_at(stage)) {
+          return ResolvedCol {
+              .col = *col,
+          };
+        }
       }
       return std::nullopt;
     }
@@ -237,6 +291,28 @@ namespace
           return ResolvedCol {
               .col = it->second,
               .scale = lp.get_col_scale(it->second),
+          };
+        }
+      } else if (ref.attribute == "eini") {
+        // Stage-level initial volume column (state variable).
+        const auto col = res.eini_col_at(scenario, stage);
+        return ResolvedCol {
+            .col = col,
+            .scale = lp.get_col_scale(col),
+        };
+      } else if (ref.attribute == "efin") {
+        // Stage-level final volume column.
+        const auto col = res.efin_col_at(scenario, stage);
+        return ResolvedCol {
+            .col = col,
+            .scale = lp.get_col_scale(col),
+        };
+      } else if (ref.attribute == "soft_emin") {
+        // Stage-level soft minimum volume slack column.
+        if (auto col = res.soft_emin_col_at(scenario, stage)) {
+          return ResolvedCol {
+              .col = *col,
+              .scale = lp.get_col_scale(*col),
           };
         }
       }
@@ -597,6 +673,18 @@ void collect_sum_cols(const SystemContext& sc,
       }
       for (const auto& rz : sc.elements<ReserveZoneLP>()) {
         add_one(std::to_string(static_cast<int>(rz.uid())));
+      }
+    } else if (sum_ref.element_type
+               == "bus") {  // NOLINT(bugprone-branch-clone)
+      if (sum_ref.type_filter) {
+        SPDLOG_WARN(std::format(
+            "user_constraint sum({}): type_filter is not supported for "
+            "element type '{}' — filter ignored",
+            sum_ref.element_type,
+            sum_ref.element_type));
+      }
+      for (const auto& bus : sc.elements<BusLP>()) {
+        add_one(std::to_string(static_cast<int>(bus.uid())));
       }
     }
   } else {
