@@ -621,3 +621,99 @@ class TestProcessVariableScales:
 
         writer.process_variable_scales(opts)
         assert "variable_scales" not in writer.planning.get("options", {})
+
+
+# ---------------------------------------------------------------------------
+# Falla → Demand fcost mapping
+# ---------------------------------------------------------------------------
+
+
+class TestFallaFcost:
+    """Test falla central → demand fcost mapping."""
+
+    def _make_writer_with_fallas(self, falla_centrals):
+        """Create a GTOptWriter with mock central_parser containing fallas."""
+        mock_parser = MagicMock(spec=PLPParser)
+        mock_cp = MagicMock()
+        mock_cp.centrals = falla_centrals
+        mock_parser.parsed_data = {"central_parser": mock_cp}
+        writer = GTOptWriter(mock_parser)
+        return writer
+
+    def test_falla_fcost_by_bus_basic(self):
+        """Single falla per bus returns its gcost."""
+        writer = self._make_writer_with_fallas(
+            [
+                {"name": "FALLA_001", "type": "falla", "bus": 1, "gcost": 406.0},
+                {"name": "FALLA_002", "type": "falla", "bus": 2, "gcost": 500.0},
+            ]
+        )
+        result = writer._falla_fcost_by_bus()
+        assert result == {1: 406.0, 2: 500.0}
+
+    def test_falla_fcost_min_on_same_bus(self):
+        """Multiple fallas on same bus: smallest gcost wins."""
+        writer = self._make_writer_with_fallas(
+            [
+                {"name": "FALLA_001_A", "type": "falla", "bus": 1, "gcost": 500.0},
+                {"name": "FALLA_001_B", "type": "falla", "bus": 1, "gcost": 300.0},
+                {"name": "FALLA_001_C", "type": "falla", "bus": 1, "gcost": 800.0},
+            ]
+        )
+        result = writer._falla_fcost_by_bus()
+        assert result == {1: 300.0}
+
+    def test_falla_fcost_skips_bus_zero(self):
+        """Falla centrals with bus <= 0 are ignored."""
+        writer = self._make_writer_with_fallas(
+            [
+                {"name": "FALLA_NOBUS", "type": "falla", "bus": 0, "gcost": 100.0},
+                {"name": "FALLA_NEG", "type": "falla", "bus": -1, "gcost": 100.0},
+                {"name": "FALLA_OK", "type": "falla", "bus": 3, "gcost": 200.0},
+            ]
+        )
+        result = writer._falla_fcost_by_bus()
+        assert result == {3: 200.0}
+
+    def test_falla_fcost_skips_non_falla(self):
+        """Non-falla centrals are ignored."""
+        writer = self._make_writer_with_fallas(
+            [
+                {"name": "GEN1", "type": "termica", "bus": 1, "gcost": 50.0},
+                {"name": "FALLA_001", "type": "falla", "bus": 1, "gcost": 406.0},
+            ]
+        )
+        result = writer._falla_fcost_by_bus()
+        assert result == {1: 406.0}
+
+    def test_falla_fcost_empty_when_no_centrals(self):
+        """No central_parser → empty mapping."""
+        mock_parser = MagicMock(spec=PLPParser)
+        mock_parser.parsed_data = {}
+        writer = GTOptWriter(mock_parser)
+        assert writer._falla_fcost_by_bus() == {}
+
+    def test_process_demands_sets_fcost(self, tmp_path):
+        """process_demands populates fcost from falla centrals."""
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        opts = _make_opts(tmp_path)
+        writer.to_json(opts)
+
+        demand_array = writer.planning["system"].get("demand_array", [])
+        if not demand_array:
+            pytest.skip("plp_min_1bus has no demands")
+
+        # Check that at least one demand got an fcost
+        demands_with_fcost = [d for d in demand_array if "fcost" in d]
+        # If the case has falla centrals, demands should have fcost
+        central_parser = parser.parsed_data.get("central_parser")
+        if central_parser:
+            fallas = [
+                c
+                for c in central_parser.centrals
+                if c.get("type") == "falla" and c.get("bus", 0) > 0
+            ]
+            if fallas:
+                assert len(demands_with_fcost) > 0

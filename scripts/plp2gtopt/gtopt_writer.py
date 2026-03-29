@@ -768,6 +768,39 @@ class GTOptWriter:
             options,
         ).to_json_array()
 
+    def _falla_fcost_by_bus(self) -> Dict[int, float]:
+        """Build bus → min falla gcost mapping from central_parser.
+
+        PLP "falla" centrals represent the cost of unserved energy at
+        each bus.  When multiple falla centrals sit on the same bus,
+        the one with the smallest gcost is chosen (most conservative
+        curtailment cost).
+        """
+        central_parser = self.parser.parsed_data.get("central_parser")
+        if not central_parser:
+            return {}
+
+        fcost_by_bus: Dict[int, float] = {}
+        for central in central_parser.centrals:
+            if central.get("type") != "falla":
+                continue
+            bus = central.get("bus", 0)
+            if bus <= 0:
+                continue
+            gcost = central.get("gcost", 0.0)
+            if bus not in fcost_by_bus or gcost < fcost_by_bus[bus]:
+                fcost_by_bus[bus] = gcost
+
+        if fcost_by_bus:
+            _logger.info(
+                "  falla centrals: %d bus(es) with fcost (range %.2f–%.2f $/MWh)",
+                len(fcost_by_bus),
+                min(fcost_by_bus.values()),
+                max(fcost_by_bus.values()),
+            )
+
+        return fcost_by_bus
+
     def process_demands(self, options):
         """Process demand data to include block and stage information."""
         demands = self.parser.parsed_data.get("demand_parser", [])
@@ -787,9 +820,17 @@ class GTOptWriter:
                 demand["bus"] = bus["number"]
 
         blocks = self.parser.parsed_data.get("block_parser", [])
-        self.planning["system"]["demand_array"] = DemandWriter(
-            demands, blocks, options
-        ).to_json_array()
+        demand_array = DemandWriter(demands, blocks, options).to_json_array()
+
+        # Set fcost from falla centrals (bus → min gcost)
+        fcost_by_bus = self._falla_fcost_by_bus()
+        if fcost_by_bus:
+            for dem in demand_array:
+                bus = dem.get("bus")
+                if bus in fcost_by_bus:
+                    dem["fcost"] = fcost_by_bus[bus]
+
+        self.planning["system"]["demand_array"] = demand_array
 
     def process_buses(self):
         """Process bus data to include block and stage information."""
