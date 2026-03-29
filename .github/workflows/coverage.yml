@@ -51,6 +51,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          lfs: true
 
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
@@ -67,8 +68,6 @@ jobs:
 
       - name: install dependencies
         uses: ./.github/actions/install-apt-deps
-        with:
-          extra-packages: lcov
 
       - name: setup gcc
         if: ${{ (inputs.compiler || 'clang') == 'gcc' }}
@@ -107,7 +106,6 @@ jobs:
           cmake -S coverage -B build-coverage \
             -DCOVERAGE_COMPILER="${COMPILER}" \
             -DCOVERAGE_OUTPUT_DIR="${PWD}/reports/coverage" \
-            -DCOVERAGE_CMAKE_PREFIX_PATH="$(conda info --base)" \
             -DCOVERAGE_PYTHON=ON
 
       - name: Run full coverage analysis
