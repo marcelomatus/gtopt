@@ -1,4 +1,0 @@
-[2026-03-28 13:58:33.999] [info] trace log file: gtopt_case_2y/results/logs/trace_42.log
-[2026-03-28 13:58:34.000] [info]   Parsing input file gtopt_case_2y/gtopt_case_2y.json
-[2026-03-28 13:58:34.001] [warning] deprecated option 'use_lp_names': use 'lp_build_options.names_level' instead
-[2026-03-28 13:58:34.046] [critical] Input file 'SPDLOG_LEVEL=debug.json' does not exist
