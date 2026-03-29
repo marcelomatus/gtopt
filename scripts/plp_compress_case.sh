@@ -4,9 +4,10 @@
 # Usage:
 #   scripts/plp_compress_case.sh <directory> [--split-mb N]
 #
-# Compresses all .dat, .csv, and .prn files in <directory> using xz.
-# Files larger than N MB (default 10) after compression are automatically
-# split into numbered parts (foo.dat.1.xz, foo.dat.2.xz, ...).
+# Compresses all .dat, .csv, .prn, and .png files in <directory> using
+# xz -T0 (multi-threaded).  Files larger than N MB (default 10) after
+# compression are automatically split into numbered parts
+# (foo.dat.1.xz, foo.dat.2.xz, ...).
 #
 # plp2gtopt reads these compressed/split files transparently via the
 # compressed_open module.
@@ -23,8 +24,8 @@ XZ_LEVEL=6
 usage() {
     echo "Usage: $0 <directory> [--split-mb N]"
     echo ""
-    echo "Compress .dat, .csv, and .prn files in <directory> with xz."
-    echo "Files exceeding N MB compressed (default ${SPLIT_MB}) are split into parts."
+    echo "Compress .dat, .csv, .prn, and .png files in <directory> with xz."
+    echo "Files exceeding N MB compressed (default ${SPLIT_MB}) are split."
     echo ""
     echo "Options:"
     echo "  --split-mb N   Max compressed file size in MB (default ${SPLIT_MB})"
@@ -64,44 +65,47 @@ if [[ ${#FILES[@]} -eq 0 ]]; then
     exit 0
 fi
 
-echo "Compressing ${#FILES[@]} file(s) in $DIR (xz -${XZ_LEVEL}, split > ${SPLIT_MB}MB)..."
+echo "Compressing ${#FILES[@]} file(s) in $DIR (xz -${XZ_LEVEL} -T0, split > ${SPLIT_MB}MB)..."
 echo ""
 
 SPLIT_BYTES=$((SPLIT_MB * 1024 * 1024))
 
+# Phase 1: compress all files in parallel
+pids=()
+for f in "${FILES[@]}"; do
+    xz -"${XZ_LEVEL}" -T0 -k -f "$f" &
+    pids+=($!)
+done
+for pid in "${pids[@]}"; do
+    wait "$pid"
+done
+
+# Phase 2: check sizes, split oversized files
 for f in "${FILES[@]}"; do
     fname=$(basename "$f")
     fsize=$(stat -c%s "$f")
-
-    # First compress to a temp file to check size
-    tmpxz=$(mktemp "${f}.XXXXXX.xz")
-    xz -"${XZ_LEVEL}" -T0 -c "$f" > "$tmpxz"
-    xzsize=$(stat -c%s "$tmpxz")
+    xzfile="${f}.xz"
+    xzsize=$(stat -c%s "$xzfile")
 
     if [[ $xzsize -le $SPLIT_BYTES ]]; then
-        # Single file — just rename
-        mv "$tmpxz" "${f}.xz"
         printf "  %-40s %6sK -> %6sK  (xz)\n" \
             "$fname" "$((fsize / 1024))" "$((xzsize / 1024))"
     else
-        # Need to split — use Python for line-aware splitting
-        rm "$tmpxz"
-        echo "  $fname: ${xzsize} bytes compressed > ${SPLIT_BYTES} limit, splitting..."
+        rm "$xzfile"
+        echo "  $fname: $((xzsize / 1024))K compressed > $((SPLIT_BYTES / 1024))K limit, splitting..."
 
         python3 -c "
-import math, lzma, subprocess
+import math, subprocess
 from pathlib import Path
-from concurrent.futures import ProcessPoolExecutor
 
 f = Path('$f')
 data = f.read_bytes()
 lines = data.split(b'\n')
 
-# Estimate number of parts needed (with 20% margin)
+# Estimate parts needed (with 20% margin)
 est_ratio = len(data) / $xzsize
 target_raw = int($SPLIT_BYTES * est_ratio * 0.8)
 n_parts = max(2, math.ceil(len(data) / target_raw))
-
 lines_per_part = math.ceil(len(lines) / n_parts)
 
 raw_paths = []
@@ -120,7 +124,6 @@ procs = [subprocess.Popen(['xz', '-${XZ_LEVEL}', '-T0', '-f', r]) for r in raw_p
 for p in procs:
     p.wait()
 
-# Report sizes
 for i in range(n_parts):
     xz = Path(f'{f}.{i+1}.xz')
     sz = xz.stat().st_size
