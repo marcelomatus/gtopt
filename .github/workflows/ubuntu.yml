@@ -78,6 +78,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       # ccache must be set up before any compilation (including cmake feature
       # tests during configure).  Placing it first also means the cache is
