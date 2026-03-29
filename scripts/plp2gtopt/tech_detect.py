@@ -183,13 +183,15 @@ def load_centipo_csv(input_dir) -> dict[str, str]:
     """
     from pathlib import Path  # noqa: PLC0415
 
-    centipo_path = Path(input_dir) / "centipo.csv"
-    if not centipo_path.is_file():
+    from .compressed_open import find_compressed_path, compressed_open
+
+    centipo_resolved = find_compressed_path(Path(input_dir) / "centipo.csv")
+    if centipo_resolved is None:
         return {}
 
     result: dict[str, str] = {}
     try:
-        with open(centipo_path, encoding="latin-1") as f:
+        with compressed_open(centipo_resolved, encoding="latin-1", errors="strict") as f:
             # Skip header
             next(f, None)
             for line in f:

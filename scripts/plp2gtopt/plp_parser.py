@@ -34,6 +34,7 @@ from .minembh_parser import MinembhParser
 from .planos_parser import PlanosParser, find_planos_files
 from .plpmat_parser import PlpmatParser
 from .ralco_parser import RalcoParser
+from .compressed_open import find_compressed_path, resolve_compressed_path
 
 
 class PLPParser:
@@ -71,116 +72,67 @@ class PLPParser:
             ("manem_parser", ManemParser, "plpmanem.dat"),
         ]
         for name, parser_class, filename in parsers:
-            filepath = self.input_path / filename
-            if not filepath.exists():
-                raise FileNotFoundError(f"{name} file not found: {filepath}")
+            filepath = resolve_compressed_path(self.input_path / filename)
             parser = parser_class(filepath)
             parser.parse(self.parsed_data)
             self.parsed_data[name] = parser
 
+        # Helper: try to find an optional file (plain or compressed)
+        def _opt(filename: str) -> Path | None:
+            return find_compressed_path(self.input_path / filename)
+
         # Optional storage files – ESS (plpess.dat) takes priority over battery
         # (plpcenbat.dat). If both exist, only ESS is read.
-        ess_path = self.input_path / "plpess.dat"
-        cenbat_path = self.input_path / "plpcenbat.dat"
+        ess_path = _opt("plpess.dat")
+        cenbat_path = _opt("plpcenbat.dat")
 
-        if ess_path.exists():
+        if ess_path is not None:
             ep = EssParser(ess_path)
             ep.parse(self.parsed_data)
             self.parsed_data["ess_parser"] = ep
 
-            maness_path = self.input_path / "plpmaness.dat"
-            if maness_path.exists():
+            maness_path = _opt("plpmaness.dat")
+            if maness_path is not None:
                 maness_p = ManessParser(maness_path)
                 maness_p.parse(self.parsed_data)
                 self.parsed_data["maness_parser"] = maness_p
-        elif cenbat_path.exists():
+        elif cenbat_path is not None:
             bp = BatteryParser(cenbat_path)
             bp.parse(self.parsed_data)
             self.parsed_data["battery_parser"] = bp
 
-            manbat_path = self.input_path / "plpmanbat.dat"
-            if manbat_path.exists():
+            manbat_path = _opt("plpmanbat.dat")
+            if manbat_path is not None:
                 mp = ManbatParser(manbat_path)
                 mp.parse(self.parsed_data)
                 self.parsed_data["manbat_parser"] = mp
 
-        # Optional hydro efficiency file – plpcenre.dat (Rendimiento de Embalses)
-        cenre_path = self.input_path / "plpcenre.dat"
-        if cenre_path.exists():
-            crp = CenreParser(cenre_path)
-            crp.parse(self.parsed_data)
-            self.parsed_data["cenre_parser"] = crp
-
-        # Optional seepage file – plpcenfi.dat (Centrales Filtración)
-        cenfi_path = self.input_path / "plpcenfi.dat"
-        if cenfi_path.exists():
-            cfp = CenfiParser(cenfi_path)
-            cfp.parse(self.parsed_data)
-            self.parsed_data["cenfi_parser"] = cfp
-
-        # Primary PLP seepage model – plpfilemb.dat (Filtraciones de Embalses)
-        # Takes precedence over plpcenfi.dat when both are present.
-        filemb_path = self.input_path / "plpfilemb.dat"
-        if filemb_path.exists():
-            fmp = FilembParser(filemb_path)
-            fmp.parse(self.parsed_data)
-            self.parsed_data["filemb_parser"] = fmp
-
-        # Optional: plpralco.dat — volume-dependent discharge limit
-        ralco_path = self.input_path / "plpralco.dat"
-        if ralco_path.exists():
-            rp = RalcoParser(ralco_path)
-            rp.parse(self.parsed_data)
-            self.parsed_data["ralco_parser"] = rp
+        # Optional parsers — each tries plain and compressed variants
+        optional_parsers = [
+            ("cenre_parser", CenreParser, "plpcenre.dat"),
+            ("cenfi_parser", CenfiParser, "plpcenfi.dat"),
+            ("filemb_parser", FilembParser, "plpfilemb.dat"),
+            ("ralco_parser", RalcoParser, "plpralco.dat"),
+            ("idsim_parser", IdSimParser, "plpidsim.dat"),
+            ("idape_parser", IdApeParser, "plpidape.dat"),
+            ("idap2_parser", IdAp2Parser, "plpidap2.dat"),
+            ("plpmat_parser", PlpmatParser, "plpmat.dat"),
+            ("minembh_parser", MinembhParser, "plpminembh.dat"),
+            ("cenpmax_parser", CenpmaxParser, "plpcenpmax.dat"),
+        ]
+        for name, parser_class, filename in optional_parsers:
+            filepath = _opt(filename)
+            if filepath is not None:
+                p = parser_class(filepath)
+                p.parse(self.parsed_data)
+                self.parsed_data[name] = p
 
         # Optional: indhor.csv block-to-hour mapping
-        indhor_path = self.input_path / "indhor.csv"
-        if indhor_path.exists():
+        indhor_path = _opt("indhor.csv")
+        if indhor_path is not None:
             indhor = IndhorParser(indhor_path)
             indhor.parse()
             self.parsed_data["indhor_parser"] = indhor
-
-        # Optional: plpidsim.dat — simulation scenario index mapping
-        idsim_path = self.input_path / "plpidsim.dat"
-        if idsim_path.exists():
-            idsim = IdSimParser(idsim_path)
-            idsim.parse(self.parsed_data)
-            self.parsed_data["idsim_parser"] = idsim
-
-        # Optional: plpidape.dat — per-simulation aperture indices
-        idape_path = self.input_path / "plpidape.dat"
-        if idape_path.exists():
-            idape = IdApeParser(idape_path)
-            idape.parse(self.parsed_data)
-            self.parsed_data["idape_parser"] = idape
-
-        # Optional: plpidap2.dat — simulation-independent aperture indices
-        idap2_path = self.input_path / "plpidap2.dat"
-        if idap2_path.exists():
-            idap2 = IdAp2Parser(idap2_path)
-            idap2.parse(self.parsed_data)
-            self.parsed_data["idap2_parser"] = idap2
-
-        # Optional: plpmat.dat — mathematical solver parameters (iteration limits)
-        plpmat_path = self.input_path / "plpmat.dat"
-        if plpmat_path.exists():
-            plpmat = PlpmatParser(plpmat_path)
-            plpmat.parse(self.parsed_data)
-            self.parsed_data["plpmat_parser"] = plpmat
-
-        # Optional: plpminembh.dat — per-stage minimum reservoir volumes with slack
-        minembh_path = self.input_path / "plpminembh.dat"
-        if minembh_path.exists():
-            minembh = MinembhParser(minembh_path)
-            minembh.parse(self.parsed_data)
-            self.parsed_data["minembh_parser"] = minembh
-
-        # Optional: plpcenpmax.dat — volume-dependent turbine Pmax curves
-        cenpmax_path = self.input_path / "plpcenpmax.dat"
-        if cenpmax_path.exists():
-            cenpmax = CenpmaxParser(cenpmax_path)
-            cenpmax.parse(self.parsed_data)
-            self.parsed_data["cenpmax_parser"] = cenpmax
 
         # Optional: plpplaem1/plpplem1 + plpplaem2/plpplem2 — boundary cuts
         # These define the future-cost function at the last planning stage

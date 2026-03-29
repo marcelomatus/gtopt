@@ -7,6 +7,8 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
+from .compressed_open import compressed_open
+
 # Compiled regex for _read_non_empty_lines: matches non-empty, non-comment
 # lines and captures the stripped content.  The pattern skips leading
 # whitespace, rejects lines starting with '#', and strips trailing whitespace.
@@ -113,7 +115,7 @@ class BaseParser(ABC):
         Reads the entire file at once and uses a compiled regex to filter
         blank and comment lines in a single C-level pass.
         """
-        with open(self.file_path, "r", encoding="ascii", errors="ignore") as f:
+        with compressed_open(self.file_path) as f:
             content = f.read()
         # Match lines that have at least one non-whitespace character
         # and do not start with '#' (after optional leading whitespace).

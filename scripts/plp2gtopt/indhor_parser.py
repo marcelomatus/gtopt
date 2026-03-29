@@ -47,16 +47,17 @@ class IndhorParser:
             FileNotFoundError: if the file does not exist.
             ValueError: if the file cannot be parsed.
         """
+        from .compressed_open import compressed_open
+
         if not self.file_path.exists():
             raise FileNotFoundError(f"indhor.csv not found: {self.file_path}")
 
-        df = pd.read_csv(
-            self.file_path,
-            encoding="ascii",
-            encoding_errors="ignore",
-            header=0,
-            names=["year", "month", "day", "hour", "block"],
-        )
+        with compressed_open(self.file_path) as fh:
+            df = pd.read_csv(
+                fh,
+                header=0,
+                names=["year", "month", "day", "hour", "block"],
+            )
 
         # Cast to int32 for compact storage
         for col in ("year", "month", "day", "hour", "block"):
