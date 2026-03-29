@@ -15,7 +15,7 @@ from .cost_writer import CostWriter
 from .mance_parser import ManceParser
 from .mance_writer import ManceWriter
 from .stage_parser import StageParser
-from .tech_detect import detect_technology
+from .tech_detect import detect_technology, suspect_technology
 
 
 class Generator(TypedDict):
@@ -76,7 +76,7 @@ class CentralWriter(BaseWriter):
         input_dir = self.options.get("input_dir", "") if self.options else ""
         centipo_overrides = load_centipo_csv(input_dir) if input_dir else {}
 
-        json_centrals: List[Generator] = []
+        json_centrals: List[Dict[str, Any]] = []
         for central in items:
             central_name = central["name"]
             central_number = central["number"]
@@ -114,7 +114,7 @@ class CentralWriter(BaseWriter):
             if user_overrides:
                 effective_overrides.update(user_overrides)
             auto_detect_tech = (
-                self.options.get("auto_detect_tech", True) if self.options else True
+                self.options.get("auto_detect_tech", False) if self.options else False
             )
             gen_type = detect_technology(
                 plp_type,
@@ -123,7 +123,7 @@ class CentralWriter(BaseWriter):
                 auto_detect=auto_detect_tech,
             )
 
-            generator: Generator = {
+            generator: Dict[str, Any] = {
                 "uid": central_number,
                 "name": central_name,
                 "bus": bus_number,
@@ -133,6 +133,10 @@ class CentralWriter(BaseWriter):
                 "pmin": pmin,
                 "type": gen_type,
             }
+            if not auto_detect_tech:
+                suspected = suspect_technology(plp_type, central_name)
+                if suspected:
+                    generator["description"] = f"suspected {suspected}"
             json_centrals.append(generator)
 
         return typing.cast(List[Dict[str, Any]], json_centrals)

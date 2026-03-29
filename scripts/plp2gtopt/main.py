@@ -662,6 +662,19 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--clamp-battery-efficiency",
+        dest="clamp_battery_efficiency",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Clamp battery input_efficiency and output_efficiency values "
+            "to a maximum of 1.0. Values above 1.0 are always warned about; "
+            "this option controls whether they are also clamped in the output. "
+            "Use --no-clamp-battery-efficiency to pass through raw values. "
+            "(default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
         "-X",
         "--variable-scales-file",
         dest="variable_scales_file",
@@ -774,12 +787,12 @@ def make_parser() -> argparse.ArgumentParser:
         "--tech-detect",
         dest="auto_detect_tech",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help=(
             "auto-detect generator technology from central names. "
             "Refines PLP types (termica, pasada) into specific types "
             "(solar, wind, gas, coal, etc.) by scanning names for "
-            "keywords. Use --no-tech-detect to keep raw PLP types. "
+            "keywords. Use --tech-detect to enable. "
             "(default: %(default)s)"
         ),
     )

@@ -308,12 +308,14 @@ def run_post_check(
     try:
         from gtopt_check_json._checks import (  # noqa: PLC0415
             run_all_checks,
+            analyse_bus_islands,
             Severity,
         )
         from gtopt_check_json._terminal import (  # noqa: PLC0415
             print_finding as _pf,
             print_status,
             print_summary,
+            print_connectivity_table,
         )
     except ImportError:
         logger.debug("gtopt_check_json not available; skipping JSON validation checks")
@@ -326,11 +328,19 @@ def run_post_check(
         print_status("All checks passed — no issues found.", ok=True)
         return
 
+    # Print connectivity table if there are bus_connectivity findings
+    islands = analyse_bus_islands(planning)
+    if islands:
+        print_connectivity_table(islands)
+
+    # Print non-connectivity findings normally
+    _TABLE_CHECKS = {"bus_connectivity"}
     critical_count = 0
     warning_count = 0
     note_count = 0
     for finding in findings:
-        _pf(finding.severity.name, finding.check_id, finding.message)
+        if finding.check_id not in _TABLE_CHECKS:
+            _pf(finding.severity.name, finding.check_id, finding.message)
         if finding.severity == Severity.CRITICAL:
             critical_count += 1
         elif finding.severity == Severity.WARNING:

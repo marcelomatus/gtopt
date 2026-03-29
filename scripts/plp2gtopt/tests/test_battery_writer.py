@@ -866,3 +866,106 @@ def test_ess_dcmod2_works_with_pasada_central(tmp_path):
     assert r["junction"] == 42  # pasada central's junction
     assert r["emax"] == pytest.approx(200.0)
     assert r["annual_loss"] == pytest.approx(18.0)  # 1.5 * 12
+
+
+# ---------------------------------------------------------------------------
+# Efficiency clamping: values > 1.0 are warned and clamped to 1.0
+# ---------------------------------------------------------------------------
+
+
+def test_ess_input_efficiency_clamped_to_one(tmp_path, caplog):
+    """ESS with input_efficiency (nc) > 1.0 emits a warning and clamps to 1.0."""
+    import logging
+
+    # Format: Nombre nd nc mloss Emax DCMax DCMod — nc=5.23 (charge eff)
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n  BAT_ALFALFAL  0.90  5.23  1.0  200.0  100.0  0\n",
+    )
+    writer = BatteryWriter(ess_parser=ep)
+
+    with caplog.at_level(logging.WARNING, logger="plp2gtopt.battery_writer"):
+        bats = writer.to_battery_array()
+
+    assert len(bats) == 1
+    b = bats[0]
+    assert b["input_efficiency"] == pytest.approx(1.0)
+    assert b["output_efficiency"] == pytest.approx(0.90)
+
+    # Check warning was emitted
+    warn_records = [r for r in caplog.records if "input_efficiency" in r.message]
+    assert len(warn_records) == 1
+    assert "5.23" in warn_records[0].message
+
+
+def test_ess_efficiency_not_clamped_when_disabled(tmp_path, caplog):
+    """With clamp_battery_efficiency=False, raw values pass through."""
+    import logging
+
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n  BAT_X  0.90  5.23  1.0  200.0  100.0  0\n",
+    )
+    writer = BatteryWriter(ess_parser=ep, options={"clamp_battery_efficiency": False})
+
+    with caplog.at_level(logging.WARNING, logger="plp2gtopt.battery_writer"):
+        bats = writer.to_battery_array()
+
+    assert len(bats) == 1
+    b = bats[0]
+    # Not clamped — raw value passes through
+    assert b["input_efficiency"] == pytest.approx(5.23)
+    assert b["output_efficiency"] == pytest.approx(0.90)
+
+    # Warning is still emitted
+    warn_records = [r for r in caplog.records if "input_efficiency" in r.message]
+    assert len(warn_records) == 1
+
+
+def test_ess_output_efficiency_clamped_to_one(tmp_path, caplog):
+    """ESS with output_efficiency (nd) > 1.0 emits a warning and clamps to 1.0."""
+    import logging
+
+    # Format: Nombre nd nc mloss Emax DCMax DCMod — nd=1.50 (discharge eff)
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n  BAT_TEST  1.50  0.95  1.0  200.0  100.0  0\n",
+    )
+    writer = BatteryWriter(ess_parser=ep)
+
+    with caplog.at_level(logging.WARNING, logger="plp2gtopt.battery_writer"):
+        bats = writer.to_battery_array()
+
+    assert len(bats) == 1
+    b = bats[0]
+    assert b["input_efficiency"] == pytest.approx(0.95)
+    assert b["output_efficiency"] == pytest.approx(1.0)
+
+    warn_records = [r for r in caplog.records if "output_efficiency" in r.message]
+    assert len(warn_records) == 1
+    assert "1.5" in warn_records[0].message
+
+
+def test_cenbat_efficiency_clamped_to_one(tmp_path, caplog):
+    """plpcenbat.dat with FPC > 1.0 emits a warning and clamps to 1.0."""
+    import logging
+
+    # Format: NBat BatBus / BatInd BatName / NIny / InjName FPC / BatBar FPD EMin EMax
+    # FPC=5.23 in injection, FPD=0.95
+    bp = _make_battery_parser(
+        tmp_path,
+        " 1     1\n 1     BAT1\n 1\n SOLAR1     5.23\n 1     0.95     0.0     200.0\n",
+    )
+    writer = BatteryWriter(battery_parser=bp)
+
+    with caplog.at_level(logging.WARNING, logger="plp2gtopt.battery_writer"):
+        bats = writer.to_battery_array()
+
+    assert len(bats) == 1
+    b = bats[0]
+    assert b["input_efficiency"] == pytest.approx(1.0)
+    assert b["output_efficiency"] == pytest.approx(0.95)
+
+    warn_records = [r for r in caplog.records if "input_efficiency" in r.message]
+    assert len(warn_records) == 1
+    assert "5.23" in warn_records[0].message
