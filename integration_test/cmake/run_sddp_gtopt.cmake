@@ -53,9 +53,11 @@ execute_process(
   ERROR_VARIABLE stderr
 )
 
+# Write exit code to a file so the validate step can check it
+file(WRITE "${OUTPUT_DIR}/solve_exit_code.txt" "${exit_code}")
+
 # Check if exit code is in the allowed list
-string(REPLACE ";" ";" allowed_list "${ALLOWED_EXIT_CODES}")
-list(FIND allowed_list "${exit_code}" _idx)
+list(FIND ALLOWED_EXIT_CODES "${exit_code}" _idx)
 if(_idx EQUAL -1)
   message(FATAL_ERROR
     "gtopt SDDP exited with code ${exit_code} (allowed: ${ALLOWED_EXIT_CODES})\n"
