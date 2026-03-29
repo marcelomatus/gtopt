@@ -825,20 +825,6 @@ def check_unreferenced_elements(
     findings: list[Finding] = []
     sys = planning.get("system", {})
 
-    # --- Unreferenced buses (grouped into one finding) ---
-    unreferenced = _bus_connectivity_analysis(planning).unreferenced
-    if unreferenced:
-        names = sorted(str(b) for b in unreferenced)
-        preview = ", ".join(names[:10])
-        suffix = f" … and {len(names) - 10} more" if len(names) > 10 else ""
-        findings.append(
-            Finding(
-                check_id="unreferenced_elements",
-                severity=Severity.WARNING,
-                message=(f"{len(names)} unreferenced bus(es): {preview}{suffix}"),
-            )
-        )
-
     # Check generators are referenced (by profile or converter)
     gen_referenced: set[Any] = set()
     for gp in sys.get("generator_profile_array", []):
