@@ -68,11 +68,16 @@ Multiple system files can be provided and will be merged.
 | `-e` | `--matrix-eps` | `arg` | Epsilon for matrix sparsity (coefficients below this are zero) |
 | `-c` | `--lp-build` | `[=arg]` | Build the LP model and exit without solving |
 | `-p` | `--fast-parsing` | `[=arg]` | Use fast (non-strict) JSON parsing |
+| `-J` | `--check-json` | `[=arg]` | Warn about JSON fields not recognized by the schema |
+| `-T` | `--trace-log` | `arg` | Write trace-level log messages to this file |
 | | `--solver` | `arg` | LP solver backend: `clp`, `cbc`, `cplex`, `highs` (auto-detected by default) |
 | | `--solvers` | | List available LP solver backends and exit |
+| | `--check-solvers` | `[=solver]` | Run the solver test suite against all (or a named) solver, then exit |
 | | `--method` | `arg` | Planning method: `monolithic`, `sddp`, `cascade` |
 | | `--demand-fail-cost` | `arg` | Penalty $/MWh for unserved demand |
 | | `--scale-objective` | `arg` | Objective function scaling factor |
+| | `--sddp-num-apertures` | `arg` | SDDP backward-pass aperture count: `0`=disabled, `-1`=all, `N`=first N scenarios |
+| | `--recover` | `[=arg]` | Enable recovery from a previous SDDP run (loads cuts and state variables) |
 | | `--set` | `key=value` | Set any planning option (see below) |
 
 > **`--set` key=value**: The recommended way to pass planning options
