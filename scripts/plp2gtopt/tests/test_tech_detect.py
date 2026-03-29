@@ -9,6 +9,7 @@ from plp2gtopt.tech_detect import (
     classify_generators,
     detect_technology,
     load_overrides,
+    suspect_technology,
 )
 
 
@@ -221,3 +222,37 @@ def test_available_types_not_empty():
     assert "wind" in types
     assert "thermal" in types
     assert "hydro_reservoir" in types
+
+
+# ---------------------------------------------------------------------------
+# suspect_technology
+# ---------------------------------------------------------------------------
+
+
+def test_suspect_solar():
+    assert suspect_technology("termica", "SolarAlmeyda") == "solar"
+    assert suspect_technology("pasada", "FotovoltaicaPV") == "solar"
+
+
+def test_suspect_wind():
+    assert suspect_technology("termica", "EolicaCanela") == "wind"
+    assert suspect_technology("pasada", "ParqueEolico") == "wind"
+
+
+def test_suspect_none_for_non_solar_wind():
+    """Non-solar/wind patterns (gas, coal, etc.) return None."""
+    assert suspect_technology("termica", "GNL_Quintero") is None
+    assert suspect_technology("termica", "CarbonBocamina") is None
+    assert suspect_technology("termica", "DieselEmergencia") is None
+
+
+def test_suspect_none_for_generic_name():
+    assert suspect_technology("termica", "GenericPlant") is None
+    assert suspect_technology("pasada", "GenericName") is None
+
+
+def test_suspect_none_for_non_ambiguous_types():
+    """embalse, serie, bateria are never suspected."""
+    assert suspect_technology("embalse", "SolarEmbalse") is None
+    assert suspect_technology("serie", "EolicaSerie") is None
+    assert suspect_technology("bateria", "BESS1") is None

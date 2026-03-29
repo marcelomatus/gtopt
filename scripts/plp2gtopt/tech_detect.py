@@ -98,6 +98,26 @@ _NAME_PATTERNS: list[tuple[re.Pattern, str]] = [
 ]
 
 
+_SUSPECT_TYPES = frozenset({"solar", "wind"})
+
+
+def suspect_technology(
+    plp_type: str,
+    central_name: str,
+) -> str | None:
+    """Return suspected technology if the name matches solar/wind patterns.
+
+    Only checks ambiguous PLP types (termica, pasada).  Returns ``None``
+    when no solar/wind pattern matches.
+    """
+    if plp_type not in ("termica", "pasada"):
+        return None
+    for pattern, tech in _NAME_PATTERNS:
+        if tech in _SUSPECT_TYPES and pattern.search(central_name):
+            return tech
+    return None
+
+
 def detect_technology(
     plp_type: str,
     central_name: str,

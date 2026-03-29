@@ -114,3 +114,124 @@ def test_write_empty_centrals(tmp_path):
         with open(output_path, "r", encoding="utf-8") as f:
             data = json.load(f)
             assert data == []
+
+
+def _make_central_parser_from_list(centrals):
+    """Build a mock CentralParser from a list of central dicts."""
+
+    class _Mock:
+        def __init__(self, items):
+            self._centrals = items
+            self._num_centrals = len(items)
+
+        @property
+        def centrals(self):
+            return self._centrals
+
+        @property
+        def num_centrals(self):
+            return self._num_centrals
+
+        def get_centrals(self):
+            return self._centrals
+
+        def get_all(self):
+            return self._centrals
+
+    return _Mock(centrals)
+
+
+def test_suspected_solar_description_when_no_tech_detect(tmp_path):
+    """When auto_detect_tech=False, suspected solar adds description note."""
+    centrals = [
+        {
+            "name": "SolarAlmeyda",
+            "number": 1,
+            "bus": 1,
+            "type": "termica",
+            "pmax": 100.0,
+            "pmin": 0.0,
+            "gcost": 0.0,
+        },
+    ]
+    parser: typing.Any = _make_central_parser_from_list(centrals)
+    options: dict = {"output_dir": tmp_path, "auto_detect_tech": False}
+    writer = CentralWriter(parser, options=options)
+    result = writer.to_json_array()
+
+    assert len(result) == 1
+    gen = result[0]
+    assert gen["type"] == "thermal"  # type NOT changed
+    assert gen["description"] == "suspected solar"
+
+
+def test_suspected_wind_description_when_no_tech_detect(tmp_path):
+    """When auto_detect_tech=False, suspected wind adds description note."""
+    centrals = [
+        {
+            "name": "EolicaCanela",
+            "number": 2,
+            "bus": 1,
+            "type": "pasada",
+            "pmax": 50.0,
+            "pmin": 0.0,
+            "gcost": 0.0,
+        },
+    ]
+    parser: typing.Any = _make_central_parser_from_list(centrals)
+    options: dict = {"output_dir": tmp_path, "auto_detect_tech": False}
+    writer = CentralWriter(parser, options=options)
+    result = writer.to_json_array()
+
+    assert len(result) == 1
+    gen = result[0]
+    assert gen["type"] == "hydro_ror"  # type NOT changed
+    assert gen["description"] == "suspected wind"
+
+
+def test_no_description_when_tech_detect_enabled(tmp_path):
+    """When auto_detect_tech=True, no description note — type is changed."""
+    centrals = [
+        {
+            "name": "SolarAlmeyda",
+            "number": 1,
+            "bus": 1,
+            "type": "termica",
+            "pmax": 100.0,
+            "pmin": 0.0,
+            "gcost": 0.0,
+        },
+    ]
+    parser: typing.Any = _make_central_parser_from_list(centrals)
+    options: dict = {"output_dir": tmp_path, "auto_detect_tech": True}
+    writer = CentralWriter(parser, options=options)
+    result = writer.to_json_array()
+
+    assert len(result) == 1
+    gen = result[0]
+    assert gen["type"] == "solar"  # type IS changed
+    assert "description" not in gen
+
+
+def test_no_description_for_non_suspect_name(tmp_path):
+    """Generic termica name gets no description note."""
+    centrals = [
+        {
+            "name": "GenericPlant",
+            "number": 3,
+            "bus": 1,
+            "type": "termica",
+            "pmax": 200.0,
+            "pmin": 0.0,
+            "gcost": 0.0,
+        },
+    ]
+    parser: typing.Any = _make_central_parser_from_list(centrals)
+    options: dict = {"output_dir": tmp_path, "auto_detect_tech": False}
+    writer = CentralWriter(parser, options=options)
+    result = writer.to_json_array()
+
+    assert len(result) == 1
+    gen = result[0]
+    assert gen["type"] == "thermal"
+    assert "description" not in gen

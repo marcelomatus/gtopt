@@ -45,6 +45,7 @@ When ``plpmanbat.dat`` or ``plpmaness.dat`` provides per-block overrides:
   and Demand ``lmax`` (``Demand/lmax.parquet``) schedule files.
 """
 
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict
 
@@ -57,6 +58,8 @@ from .stage_parser import StageParser
 from .manbat_parser import ManbatParser
 from .ess_parser import EssParser
 from .maness_parser import ManessParser
+
+_logger = logging.getLogger(__name__)
 
 # Default battery parameters used when only plpcnfce.dat BAT centrals are present
 _DEFAULT_FPC = 0.95
@@ -286,11 +289,36 @@ class BatteryWriter(BaseWriter):
             has_man = entry.get("has_maintenance")
             man = entry.get("man_data")
             has_dc_man = man is not None and "dcmax" in man
+            nc = entry["nc"]
+            nd = entry["nd"]
+            bat_name = entry["name"]
+            bat_uid = entry["number"]
+            clamp = self.options.get("clamp_battery_efficiency", True)
+            if nc > 1.0:
+                _logger.warning(
+                    "(battery_efficiency) Battery '%s' (uid=%d):"
+                    " input_efficiency value(s) > 1.0: [%s]",
+                    bat_name,
+                    bat_uid,
+                    nc,
+                )
+                if clamp:
+                    nc = 1.0
+            if nd > 1.0:
+                _logger.warning(
+                    "(battery_efficiency) Battery '%s' (uid=%d):"
+                    " output_efficiency value(s) > 1.0: [%s]",
+                    bat_name,
+                    bat_uid,
+                    nd,
+                )
+                if clamp:
+                    nd = 1.0
             bat: Dict[str, Any] = {
-                "uid": entry["number"],
-                "name": entry["name"],
-                "input_efficiency": entry["nc"],
-                "output_efficiency": entry["nd"],
+                "uid": bat_uid,
+                "name": bat_name,
+                "input_efficiency": nc,
+                "output_efficiency": nd,
                 "emin": "emin" if has_man else emin,
                 "emax": "emax" if has_man else emax,
                 "capacity": emax,

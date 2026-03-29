@@ -9,6 +9,7 @@ import pytest
 
 from gtopt_check_json._checks import (
     Severity,
+    analyse_bus_islands,
     check_affluent_nonneg,
     check_battery_efficiency,
     check_boundary_cuts,
@@ -263,13 +264,86 @@ class TestBusConnectivity:
         findings = check_bus_connectivity(case)
         assert len(findings) >= 1
         assert findings[0].severity == Severity.WARNING
-        assert "Island" in findings[0].message
+        assert "island" in findings[0].message
 
     def test_single_bus_no_findings(self) -> None:
         case = json.loads(json.dumps(_VALID_CASE))
         case["system"]["bus_array"] = [{"uid": 1, "name": "b1"}]
         case["system"]["line_array"] = []
         assert not check_bus_connectivity(case)
+
+
+# ── Bus island analysis ────────────────────────────────────────────────────
+
+
+class TestAnalyseBusIslands:
+    """Test analyse_bus_islands."""
+
+    def test_no_islands(self) -> None:
+        assert not analyse_bus_islands(_VALID_CASE)
+
+    def test_empty_island(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["system"]["bus_array"].append({"uid": 3, "name": "b3_orphan"})
+        islands = analyse_bus_islands(case)
+        assert len(islands) == 1
+        assert "b3_orphan" in islands[0].buses
+        assert not islands[0].has_elements
+        assert islands[0].generator_names == []
+        assert islands[0].demand_names == []
+        assert islands[0].line_names == []
+
+    def test_island_with_generator(self) -> None:
+        """Bus with a generator but no lines reports the generator name."""
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["system"]["bus_array"].append({"uid": 3, "name": "b3_ref"})
+        case["system"]["generator_array"].append(
+            {"uid": 2, "name": "g2", "bus": "b3_ref", "pmax": 50, "gcost": 10}
+        )
+        islands = analyse_bus_islands(case)
+        assert len(islands) == 1
+        assert islands[0].has_elements
+        assert islands[0].generator_names == ["g2"]
+        assert islands[0].demand_names == []
+
+    def test_island_with_demand(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["system"]["bus_array"].append({"uid": 3, "name": "b3_dem"})
+        case["system"]["demand_array"].append(
+            {"uid": 2, "name": "d2", "bus": "b3_dem", "lmax": 30}
+        )
+        islands = analyse_bus_islands(case)
+        assert len(islands) == 1
+        assert islands[0].has_elements
+        assert islands[0].demand_names == ["d2"]
+
+    def test_island_with_internal_line(self) -> None:
+        """Multi-bus island reports internal line names."""
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["system"]["bus_array"].extend(
+            [
+                {"uid": 3, "name": "b3"},
+                {"uid": 4, "name": "b4"},
+            ]
+        )
+        case["system"]["line_array"].append(
+            {"uid": 2, "name": "l3_4", "bus_a": "b3", "bus_b": "b4", "reactance": 0.1}
+        )
+        islands = analyse_bus_islands(case)
+        assert len(islands) == 1
+        assert set(islands[0].buses) == {"b3", "b4"}
+        assert islands[0].line_names == ["l3_4"]
+
+    def test_multiple_islands(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["system"]["bus_array"].extend(
+            [
+                {"uid": 3, "name": "b3_iso"},
+                {"uid": 4, "name": "b4_iso"},
+            ]
+        )
+        islands = analyse_bus_islands(case)
+        assert len(islands) == 2
 
 
 # ── Unreferenced elements ───────────────────────────────────────────────────
@@ -287,7 +361,7 @@ class TestUnreferencedElements:
         case["system"]["bus_array"].append({"uid": 3, "name": "b3_orphan"})
         findings = check_unreferenced_elements(case)
         assert len(findings) >= 1
-        assert any("Bus" in f.message and "b3_orphan" in f.message for f in findings)
+        assert any("b3_orphan" in f.message for f in findings)
 
 
 # ── Battery efficiency ──────────────────────────────────────────────────────

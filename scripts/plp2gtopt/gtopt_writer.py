@@ -717,7 +717,7 @@ class GTOptWriter:
         if user_overrides:
             effective_overrides.update(user_overrides)
 
-        auto_detect = options.get("auto_detect_tech", True)
+        auto_detect = options.get("auto_detect_tech", False)
 
         # Renewable types that should use generator profile mode
         _profile_types = {"solar", "wind", "csp", "renewable"}

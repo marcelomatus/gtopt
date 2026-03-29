@@ -275,6 +275,52 @@ def print_summary(
     )
 
 
+def print_connectivity_table(islands: list) -> None:
+    """Print a per-island table of disconnected buses.
+
+    Each row shows one island with name lists per element category:
+    buses, lines, generators, demands, batteries.
+
+    Parameters
+    ----------
+    islands
+        List of :class:`IslandInfo` objects from
+        :func:`analyse_bus_islands`.
+    """
+    if not islands:
+        return
+
+    def _names(items: list, limit: int = 5) -> str:
+        names = [str(x) for x in items]
+        if not names:
+            return ""
+        text = ", ".join(names[:limit])
+        if len(names) > limit:
+            text += f" … (+{len(names) - limit})"
+        return text
+
+    rows: list[tuple[str, ...]] = []
+    for isl in islands:
+        rows.append(
+            (
+                str(isl.island_id),
+                _names(isl.buses),
+                _names(isl.line_names),
+                _names(isl.generator_names),
+                _names(isl.demand_names),
+                _names(isl.battery_names),
+            )
+        )
+
+    total_buses = sum(len(isl.buses) for isl in islands)
+    print_table(
+        headers=["Island", "Buses", "Lines", "Generators", "Demands", "Batteries"],
+        rows=rows,
+        aligns=["right", "left", "left", "left", "left", "left"],
+        title=f"Disconnected Bus Islands ({len(islands)} islands, {total_buses} buses)",
+    )
+
+
 # ---------------------------------------------------------------------------
 # format_info / format_indicators  (string-returning API)
 # ---------------------------------------------------------------------------
