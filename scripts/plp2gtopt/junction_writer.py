@@ -630,10 +630,23 @@ class JunctionWriter(BaseWriter):
                 "flow_conversion_rate": 3.6 / 1000.0,
             }
 
-            # Auto energy scaling: let the C++ code compute
-            # energy_scale = pow(10, ceil(log10(capacity/1000))).
-            # This mirrors PLP's ScaleVol(i) = max(1, Vmax/1000).
-            reservoir["energy_scale_mode"] = "auto"
+            # Energy scaling mode: controlled by --rsv-scale-mode.
+            #  "plp"  (default): use PLP FEscala-based energy_scale from
+            #          central_parser (= EmbFEsc / 1E6).  Sets explicit
+            #          energy_scale on the reservoir so the C++ code uses
+            #          it directly.
+            #  "auto": delegate to C++ auto_scale mode which computes
+            #          energy_scale = pow(10, ceil(log10(capacity/1000))).
+            rsv_scale_mode = self.options.get("rsv_scale_mode", "plp")
+            if rsv_scale_mode == "plp":
+                plp_energy_scale = central.get("energy_scale")
+                if plp_energy_scale is not None and plp_energy_scale != 1.0:
+                    reservoir["energy_scale"] = plp_energy_scale
+                else:
+                    # No FEscala data — fall back to auto.
+                    reservoir["energy_scale_mode"] = "auto"
+            else:
+                reservoir["energy_scale_mode"] = "auto"
 
             # Small / independent reservoirs (PLP Hid_Indep='T') do not
             # carry state across blocks — disable the state variable.

@@ -10,7 +10,7 @@
  * piecewise-linear function of the reservoir's average volume:
  *
  * ```
- * seepage [m³/s] = slope_i × avg_volume [dam³] + constant_i [m³/s]
+ * seepage [m³/s] = slope_i × avg_volume [hm³] + constant_i [m³/s]
  * ```
  *
  * When `segments` is non-empty, the active segment i is the one whose
@@ -93,8 +93,8 @@ struct ReservoirSeepageSegment
 {
   Real volume {
       0.0,
-  };  ///< Volume breakpoint [dam³] – segment applies when V ≥ volume
-  Real slope {0.0};  ///< Seepage slope [m³/s / dam³] (Fortran PFiltPend / 1000)
+  };  ///< Volume breakpoint [hm³] – segment applies when V ≥ volume
+  Real slope {0.0};  ///< Seepage slope [m³/s per hm³]
   Real constant {
       0.0,
   };  ///< Y-intercept [m³/s]: seepage at V=0 for this segment
@@ -134,7 +134,7 @@ struct ReservoirSeepage
   SingleId waterway {unknown_uid};  ///< ID of the source waterway
   SingleId reservoir {unknown_uid};  ///< ID of the receiving reservoir
 
-  /// Seepage slope [m³/s / dam³] – scalar, per-stage array, or filename.
+  /// Seepage slope [m³/s per hm³] – scalar, per-stage array, or filename.
   /// When `segments` is empty, this provides the LP coefficient on V_avg.
   /// Accepts the same "number | array | filename" syntax as other schedule
   /// fields (e.g. Reservoir::emin).  The default is 0.0.
@@ -168,7 +168,7 @@ struct ReservoirSeepage
  * by `volume` breakpoint.  Results are undefined if this is violated.
  *
  * @param segments The piecewise-linear segments (sorted by volume breakpoint)
- * @param volume Current reservoir volume [dam³]
+ * @param volume Current reservoir volume [hm³]
  * @return Pointer to the active ReservoirSeepageSegment (never null)
  */
 [[nodiscard]] inline auto find_active_segment(
@@ -203,7 +203,7 @@ struct ReservoirSeepage
  * Returns at least 0.0 (seepage rate cannot be negative).
  *
  * @param segments The piecewise-linear segments (sorted by volume breakpoint)
- * @param volume Current reservoir volume [dam³]
+ * @param volume Current reservoir volume [hm³]
  * @return ReservoirSeepage rate (non-negative) [m³/s]
  */
 [[nodiscard]] inline auto evaluate_seepage(
@@ -235,7 +235,7 @@ struct ReservoirSeepage
  */
 struct ReservoirSeepageCoeffs
 {
-  Real slope {0.0};  ///< Coefficient on V_avg  [m³/s / dam³]
+  Real slope {0.0};  ///< Coefficient on V_avg  [m³/s per hm³]
   Real intercept {0.0};  ///< RHS constant = y-intercept at V=0  [m³/s]
 };
 
@@ -253,7 +253,7 @@ struct ReservoirSeepageCoeffs
  * linear equation:  `seepage = constant + slope × V`.
  *
  * @param segments The piecewise-linear segments (sorted by volume breakpoint)
- * @param volume Current reservoir volume [dam³]
+ * @param volume Current reservoir volume [hm³]
  * @return ReservoirSeepageCoeffs with slope and intercept (y-intercept) for the
  *         active segment
  */

@@ -121,7 +121,7 @@ public:
    * @param li   The linear interface to modify
    * @param suid Scenario UID
    * @param tuid Stage UID
-   * @param volume Current reservoir volume [dam³]
+   * @param volume Current reservoir volume [hm³]
    * @return Number of coefficients updated
    */
   auto update_conversion_coeff(LinearInterface& li,

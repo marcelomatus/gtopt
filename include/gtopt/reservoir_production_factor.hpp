@@ -8,7 +8,7 @@
  *
  * Models the PLP "rendimiento" concept: each reservoir may provide a
  * piecewise-linear concave function that maps current reservoir volume
- * [dam³] to turbine conversion rate [MW·s/m³].
+ * [hm³] to turbine conversion rate [MW·s/m³].
  *
  * ### Piecewise-linear evaluation (matches PLP Fortran `FRendimientos`)
  *
@@ -77,10 +77,10 @@ namespace gtopt
  */
 struct ProductionFactorSegment
 {
-  Real volume {0.0};  ///< Volume breakpoint [dam³] (Fortran `Bordes`)
+  Real volume {0.0};  ///< Volume breakpoint [hm³] (Fortran `Bordes`)
   Real slope {
       0.0,
-  };  ///< Slope at this breakpoint [efficiency/dam³] (`Pendientes`)
+  };  ///< Slope at this breakpoint [efficiency per hm³] (`Pendientes`)
   Real constant {0.0};  ///< Efficiency at breakpoint [MW·s/m³] (`Constantes`)
 };
 
@@ -135,7 +135,7 @@ struct ReservoirProductionFactor
  * Returns at least 0.0 (efficiency cannot be negative).
  *
  * @param segments The piecewise-linear segments
- * @param volume Current reservoir volume [dam³]
+ * @param volume Current reservoir volume [hm³]
  * @return Efficiency value (non-negative)
  */
 [[nodiscard]] inline auto evaluate_production_factor(
