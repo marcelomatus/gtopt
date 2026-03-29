@@ -340,7 +340,7 @@ def run_local_highs_python(lp_path: Path, timeout: int = 30) -> tuple[bool, str]
             3: "upper",
             4: "boxed",
         }
-        val = raw.value if hasattr(raw, "value") else int(raw)
+        val = raw.value if hasattr(raw, "value") else int(raw)  # type: ignore[call-overload]
         return _labels.get(val, str(raw))
 
     def _try_iis(  # noqa: PLR0912
