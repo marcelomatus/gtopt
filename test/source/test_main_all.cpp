@@ -37,6 +37,5 @@ using namespace gtopt;
 #include "test_cpu_monitor.hpp"
 #include "test_gtopt_main.hpp"
 #include "test_lp_debug_writer.hpp"
-#include "test_sddp_pool.hpp"
 #include "test_solver_registry.hpp"
 #include "test_work_pool.hpp"
