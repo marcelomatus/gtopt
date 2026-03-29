@@ -13,6 +13,9 @@
 # With --decompress, restores the original uncompressed files from .xz
 # (including reassembling split parts).
 #
+# All operations use a temporary directory for intermediate files so that
+# an interruption or failure leaves the original files intact.
+#
 # plp2gtopt reads compressed/split files transparently via the
 # compressed_open module.
 #
@@ -26,6 +29,7 @@ set -euo pipefail
 SPLIT_MB=10
 XZ_LEVEL=6
 MODE=compress
+TMPDIR_WORK=""
 
 usage() {
     echo "Usage: $0 [--decompress] <directory> [--split-mb N]"
@@ -41,6 +45,13 @@ usage() {
     echo "  --help         Show this help"
     exit "${1:-0}"
 }
+
+cleanup() {
+    if [[ -n "$TMPDIR_WORK" && -d "$TMPDIR_WORK" ]]; then
+        rm -rf "$TMPDIR_WORK"
+    fi
+}
+trap cleanup EXIT
 
 # Parse arguments
 POSITIONAL=()
@@ -72,7 +83,6 @@ decompress_case() {
     mapfile -t XZ_FILES < <(find "$DIR" -maxdepth 1 -name '*.xz' -type f | sort)
 
     if [[ ${#XZ_FILES[@]} -eq 0 ]]; then
-        # Check if there are already uncompressed data files
         n_plain=$(find "$DIR" -maxdepth 1 -type f \
             \( -name '*.dat' -o -name '*.csv' -o -name '*.prn' -o -name '*.png' \) \
             ! -name '*.xz' ! -name '*.gz' ! -name '*.bz2' ! -name '*.zst' ! -name '*.lz4' \
@@ -91,7 +101,6 @@ decompress_case() {
 
     for f in "${XZ_FILES[@]}"; do
         fname=$(basename "$f")
-        # Check if this is a split part: name.N.xz where N is a number
         if [[ "$fname" =~ ^(.+)\.([0-9]+)\.xz$ ]]; then
             base="${BASH_REMATCH[1]}"
             SPLIT_BASES["$base"]=1
@@ -105,11 +114,15 @@ decompress_case() {
     echo "Decompressing in $DIR: ${n_single} single file(s), ${n_split} split file(s) (xz -T0)..."
     echo ""
 
-    # Phase 1: decompress single .xz files in parallel
+    # Work in a temp directory — move results only on success
+    TMPDIR_WORK=$(mktemp -d "${DIR}/.decompress.XXXXXX")
+
+    # Phase 1: decompress single .xz files into tmpdir in parallel
     if [[ $n_single -gt 0 ]]; then
         pids=()
         for f in "${SINGLE_FILES[@]}"; do
-            xz -d -T0 -f "$f" &
+            outname=$(basename "${f%.xz}")
+            xz -d -T0 -c "$f" > "${TMPDIR_WORK}/${outname}" &
             pids+=($!)
         done
         for pid in "${pids[@]}"; do
@@ -117,9 +130,8 @@ decompress_case() {
         done
 
         for f in "${SINGLE_FILES[@]}"; do
-            # Output name: strip .xz suffix
-            out="${f%.xz}"
-            outname=$(basename "$out")
+            outname=$(basename "${f%.xz}")
+            out="${TMPDIR_WORK}/${outname}"
             if [[ -f "$out" ]]; then
                 sz=$(stat -c%s "$out")
                 printf "  %-40s %6sK\n" "$outname" "$((sz / 1024))"
@@ -127,12 +139,11 @@ decompress_case() {
         done
     fi
 
-    # Phase 2: reassemble split files in parallel
+    # Phase 2: reassemble split files into tmpdir
     for base in $(echo "${!SPLIT_BASES[@]}" | tr ' ' '\n' | sort); do
-        outfile="${DIR}/${base}"
+        outfile="${TMPDIR_WORK}/${base}"
         echo "  ${base}: reassembling split parts..."
 
-        # Collect parts in order (sort numerically by part number)
         mapfile -t PARTS < <(find "$DIR" -maxdepth 1 -name "${base}.[0-9]*.xz" -type f \
             | python3 -c "
 import sys, re
@@ -141,10 +152,11 @@ lines.sort(key=lambda p: int(re.search(r'\.(\d+)\.xz$', p).group(1)))
 print('\n'.join(lines))
 ")
 
-        # Decompress all parts in parallel
+        # Decompress all parts into tmpdir in parallel
         pids=()
         for p in "${PARTS[@]}"; do
-            xz -d -T0 -f "$p" &
+            pname=$(basename "${p%.xz}")
+            xz -d -T0 -c "$p" > "${TMPDIR_WORK}/${pname}" &
             pids+=($!)
         done
         for pid in "${pids[@]}"; do
@@ -154,15 +166,25 @@ print('\n'.join(lines))
         # Concatenate decompressed parts in order
         : > "$outfile"
         for p in "${PARTS[@]}"; do
-            raw="${p%.xz}"
-            cat "$raw" >> "$outfile"
-            rm "$raw"
+            pname=$(basename "${p%.xz}")
+            cat "${TMPDIR_WORK}/${pname}" >> "$outfile"
+            rm "${TMPDIR_WORK}/${pname}"
         done
 
         sz=$(stat -c%s "$outfile")
         printf "    -> %-38s %6sK  (%d parts)\n" \
             "$base" "$((sz / 1024))" "${#PARTS[@]}"
     done
+
+    # Success — move results into place and remove originals
+    for f in "${TMPDIR_WORK}"/*; do
+        mv "$f" "$DIR/"
+    done
+    for f in "${XZ_FILES[@]}"; do
+        rm "$f"
+    done
+    rm -rf "$TMPDIR_WORK"
+    TMPDIR_WORK=""
 
     echo ""
     echo "Done. Original files restored."
@@ -171,14 +193,12 @@ print('\n'.join(lines))
 # ── Compress mode ────────────────────────────────────────────────────────
 
 compress_case() {
-    # Find all compressible files (skip already compressed)
     mapfile -t FILES < <(find "$DIR" -maxdepth 1 -type f \
         \( -name '*.dat' -o -name '*.csv' -o -name '*.prn' -o -name '*.png' \) \
         ! -name '*.xz' ! -name '*.gz' ! -name '*.bz2' ! -name '*.zst' ! -name '*.lz4' \
         | sort)
 
     if [[ ${#FILES[@]} -eq 0 ]]; then
-        # Check if there are already compressed files
         n_xz=$(find "$DIR" -maxdepth 1 -name '*.xz' -type f | wc -l)
         if [[ $n_xz -gt 0 ]]; then
             echo "$DIR: already compressed ($n_xz .xz file(s))"
@@ -193,10 +213,14 @@ compress_case() {
 
     SPLIT_BYTES=$((SPLIT_MB * 1024 * 1024))
 
-    # Phase 1: compress all files in parallel
+    # Work in a temp directory — move results only on success
+    TMPDIR_WORK=$(mktemp -d "${DIR}/.compress.XXXXXX")
+
+    # Phase 1: compress all files into tmpdir in parallel
     pids=()
     for f in "${FILES[@]}"; do
-        xz -"${XZ_LEVEL}" -T0 -k -f "$f" &
+        outname=$(basename "$f").xz
+        xz -"${XZ_LEVEL}" -T0 -c "$f" > "${TMPDIR_WORK}/${outname}" &
         pids+=($!)
     done
     for pid in "${pids[@]}"; do
@@ -207,7 +231,7 @@ compress_case() {
     for f in "${FILES[@]}"; do
         fname=$(basename "$f")
         fsize=$(stat -c%s "$f")
-        xzfile="${f}.xz"
+        xzfile="${TMPDIR_WORK}/${fname}.xz"
         xzsize=$(stat -c%s "$xzfile")
 
         if [[ $xzsize -le $SPLIT_BYTES ]]; then
@@ -222,6 +246,7 @@ import math, subprocess
 from pathlib import Path
 
 f = Path('$f')
+tmpdir = Path('$TMPDIR_WORK')
 data = f.read_bytes()
 lines = data.split(b'\n')
 
@@ -238,24 +263,34 @@ for i in range(n_parts):
     chunk = b'\n'.join(lines[start:end])
     if i < n_parts - 1:
         chunk += b'\n'
-    raw = f.parent / f'{f.name}.{i+1}'
+    raw = tmpdir / f'{f.name}.{i+1}'
     raw.write_bytes(chunk)
     raw_paths.append(str(raw))
 
 # Compress all parts in parallel using xz -T0
 procs = [subprocess.Popen(['xz', '-${XZ_LEVEL}', '-T0', '-f', r]) for r in raw_paths]
 for p in procs:
-    p.wait()
+    rc = p.wait()
+    if rc != 0:
+        raise RuntimeError(f'xz failed with exit code {rc}')
 
 for i in range(n_parts):
-    xz = Path(f'{f}.{i+1}.xz')
+    xz = tmpdir / f'{f.name}.{i+1}.xz'
     sz = xz.stat().st_size
     print(f'    {xz.name}: {sz//1024}K')
 "
         fi
+    done
 
+    # Success — move results into place and remove originals
+    for f in "${TMPDIR_WORK}"/*; do
+        mv "$f" "$DIR/"
+    done
+    for f in "${FILES[@]}"; do
         rm "$f"
     done
+    rm -rf "$TMPDIR_WORK"
+    TMPDIR_WORK=""
 
     echo ""
     echo "Done. Files are ready to commit."
