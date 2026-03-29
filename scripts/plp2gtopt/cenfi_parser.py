@@ -34,11 +34,11 @@ numbers, it is the legacy slope/constant format.
 Field definitions:
   CENTRAL_NAME  – Central/waterway name (must match a central in plpcnfce.dat)
   EMBALSE_NAME  – Receiving reservoir name (matches a reservoir in plpcnfce.dat)
-  slope         – Seepage rate proportional to reservoir volume [m³/s / dam³]
+  slope         – Seepage rate proportional to reservoir volume [m³/s per hm³]
   constant      – Constant seepage rate independent of volume [m³/s]
 
-The seepage seepage flow per block is modelled as:
-  seepage [m³/s] = slope × avg_reservoir_volume [dam³] + constant [m³/s]
+The seepage flow per block is modelled as:
+  seepage [m³/s] = slope × avg_reservoir_volume [hm³] + constant [m³/s]
 
 where avg_reservoir_volume = (eini + efin) / 2.  When piecewise segments are
 present, the active segment is selected based on the current reservoir volume.

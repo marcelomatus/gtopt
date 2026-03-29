@@ -11,11 +11,13 @@
  * evaporation losses.
  *
  * ### Unit conventions
- * - Volume fields (`emin`, `emax`, `eini`, `efin`, `capacity`): **dam³**
- *   (decacubic metres; 1 dam³ = 1 000 m³)
+ * - Volume fields (`emin`, `emax`, `eini`, `efin`, `capacity`): **hm³**
+ *   (cubic hectometre = 10⁶ m³).  Legacy comments may say "dam³"
+ *   but the actual unit is hm³, as demonstrated by
+ *   `flow_conversion_rate = 0.0036`: `3600 m³ / 10⁶ = 0.0036`.
  * - Flow fields (`spillway_capacity`, `fmin`, `fmax`): **m³/s**
- * - The default `flow_conversion_rate = 0.0036` converts m³/s × h → dam³:
- *   `volume_dam3 = 0.0036 × flow_m3s × duration_h`
+ * - The default `flow_conversion_rate = 0.0036` converts m³/s × h → hm³:
+ *   `volume = 0.0036 × flow_m3s × duration_h`
  *
  * ### JSON Example
  * ```json
@@ -72,7 +74,7 @@ struct Reservoir
   static constexpr Real default_fmax = +10'000.0;  ///< [m³/s]
   static constexpr Real default_energy_scale = 1.0;  ///< [dimensionless]
   static constexpr Real default_flow_conversion_rate =
-      0.0036;  ///< [dam³/(m³/s·h)]
+      0.0036;  ///< [hm³/(m³/s·h)]
   /// @}
 
   Uid uid {unknown_uid};  ///< Unique identifier
@@ -84,25 +86,24 @@ struct Reservoir
   OptReal spillway_capacity {
       default_spillway_capacity};  ///< Maximum uncontrolled spill capacity
                                    ///< [m³/s]
-  OptReal
-      spillway_cost {};  ///< Penalty cost per unit of spilled water [$/dam³]
+  OptReal spillway_cost {};  ///< Penalty cost per unit of spilled water [$/hm³]
 
-  OptTRealFieldSched capacity {};  ///< Total usable storage capacity [dam³]
+  OptTRealFieldSched capacity {};  ///< Total usable storage capacity [hm³]
   OptTRealFieldSched annual_loss {};  ///< Annual fractional evaporation/seepage
                                       ///< loss [p.u./year]
-  OptTRealFieldSched emin {};  ///< Minimum allowed stored volume [dam³]
-  OptTRealFieldSched emax {};  ///< Maximum allowed stored volume [dam³]
+  OptTRealFieldSched emin {};  ///< Minimum allowed stored volume [hm³]
+  OptTRealFieldSched emax {};  ///< Maximum allowed stored volume [hm³]
   OptTRealFieldSched
-      ecost {};  ///< Shadow cost of stored water (water value) [$/dam³]
-  OptReal eini {};  ///< Initial stored volume at start of horizon [dam³].
+      ecost {};  ///< Shadow cost of stored water (water value) [$/hm³]
+  OptReal eini {};  ///< Initial stored volume at start of horizon [hm³].
                     ///< Sets an equality constraint vol_start = eini in the
                     ///< first stage of the first phase only.
   OptReal efin {};  ///< Minimum required stored volume at end of horizon
-                    ///< [dam³].  Sets a >= constraint vol_end >= efin in the
+                    ///< [hm³].  Sets a >= constraint vol_end >= efin in the
                     ///< last stage of the last phase (not an equality).
 
   OptTRealFieldSched
-      soft_emin {};  ///< Soft minimum volume per stage [dam³].
+      soft_emin {};  ///< Soft minimum volume per stage [hm³].
                      ///< Creates a penalized constraint: efin + slack >=
                      ///< soft_emin, where the slack variable has a penalty cost
                      ///< (soft_emin_cost) in the objective.  Unlike emin (a
@@ -111,7 +112,7 @@ struct Reservoir
                      ///< plpminembh.dat "holgura" (slack) constraint.
   OptTRealFieldSched
       soft_emin_cost {};  ///< Penalty cost per unit of soft_emin
-                          ///< violation [$/dam³].  Applied to the slack
+                          ///< violation [$/hm³].  Applied to the slack
                           ///< variable that relaxes the soft_emin constraint.
                           ///< Must be > 0 for the constraint to be active.
 
@@ -139,8 +140,8 @@ struct Reservoir
     return EnergyScaleMode::auto_scale;
   }
   OptReal flow_conversion_rate {
-      default_flow_conversion_rate};  ///< Converts m³/s × hours into dam³
-                                      ///< [dam³/(m³/s·h)]
+      default_flow_conversion_rate};  ///< Converts m³/s × hours into hm³
+                                      ///< [hm³/(m³/s·h)]
 
   /// Whether to propagate volume state across stage/phase boundaries via
   /// StateVariables (SDDP-style coupling). When true (the default for

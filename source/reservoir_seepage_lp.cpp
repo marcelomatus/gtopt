@@ -52,7 +52,7 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
   const auto efin_col = reservoir.efin_col_at(scenario, stage);
 
   // The volume columns are in LP (scaled) units: LP_vol = phys_vol /
-  // energy_scale.  The seepage slope is in physical units [m³/s / dam³].
+  // energy_scale.  The seepage slope is in physical units [m³/s per hm³].
   // Multiplying the slope by energy_scale converts it to [m³/s / LP_unit] so
   // the constraint
   //   filt_flow = slope_lp * V_avg_lp + constant
