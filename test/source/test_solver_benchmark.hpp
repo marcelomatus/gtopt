@@ -264,7 +264,7 @@ auto run_benchmark(const std::string& solver_name,
 
   return BenchmarkResult {
       .solver = solver_name,
-      .algorithm = std::string(lp_algo_name(algo)),
+      .algorithm = std::string(enum_name(algo)),
       .threads = threads,
       .solve_time_ms = ms,
       .obj_value = li.is_optimal() ? li.get_obj_value() : 0.0,
@@ -323,7 +323,7 @@ void run_solver_benchmark(const FlatLinearProblem& flat_lp,
     for (auto algo : algos) {
       for (int thr : thread_counts) {
         CAPTURE(solver);
-        CAPTURE(lp_algo_name(algo));
+        CAPTURE(enum_name(algo));
         CAPTURE(thr);
 
         auto br = run_benchmark(solver, flat_lp, algo, thr);

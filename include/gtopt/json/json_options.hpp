@@ -11,6 +11,7 @@
 #include <daw/json/daw_json_link.h>
 #include <gtopt/json/json_basic_types.hpp>
 #include <gtopt/json/json_cascade_options.hpp>
+#include <gtopt/json/json_enum_option.hpp>
 #include <gtopt/json/json_lp_build_options.hpp>
 #include <gtopt/json/json_model_options.hpp>
 #include <gtopt/json/json_monolithic_options.hpp>
@@ -66,7 +67,7 @@ struct PlanningOptionsConstructor
     PlanningOptions opts;
     opts.input_directory = std::move(input_directory);
     if (input_format_str) {
-      opts.input_format = gtopt::data_format_from_name(*input_format_str);
+      opts.input_format = gtopt::enum_from_name<DataFormat>(*input_format_str);
     }
     opts.demand_fail_cost = demand_fail_cost;
     opts.reserve_fail_cost = reserve_fail_cost;
@@ -80,11 +81,12 @@ struct PlanningOptionsConstructor
     opts.annual_discount_rate = annual_discount_rate;
     opts.output_directory = std::move(output_directory);
     if (output_format_str) {
-      opts.output_format = gtopt::data_format_from_name(*output_format_str);
+      opts.output_format =
+          gtopt::enum_from_name<DataFormat>(*output_format_str);
     }
     if (output_compression_str) {
       opts.output_compression =
-          gtopt::compression_codec_from_name(*output_compression_str);
+          gtopt::enum_from_name<CompressionCodec>(*output_compression_str);
     }
     // Backward compat: deprecated "use_lp_names" maps to
     // lp_build_options.names_level when the new field is not set.
@@ -99,13 +101,13 @@ struct PlanningOptionsConstructor
     }
     opts.use_uid_fname = use_uid_fname;
     if (method_str) {
-      opts.method = gtopt::method_type_from_name(*method_str);
+      opts.method = gtopt::enum_from_name<MethodType>(*method_str);
     }
     opts.log_directory = std::move(log_directory);
     opts.lp_debug = lp_debug;
     if (lp_compression_str) {
       opts.lp_compression =
-          gtopt::compression_codec_from_name(*lp_compression_str);
+          gtopt::enum_from_name<CompressionCodec>(*lp_compression_str);
     }
     opts.lp_build = lp_build;
     opts.model_options = std::move(model_options);
@@ -118,27 +120,6 @@ struct PlanningOptionsConstructor
     return opts;
   }
 };
-
-namespace detail
-{
-
-inline OptName enum_to_opt_name(const std::optional<MethodType>& e)
-{
-  return e ? OptName {std::string(gtopt::method_type_name(*e))} : OptName {};
-}
-
-inline OptName enum_to_opt_name(const std::optional<DataFormat>& e)
-{
-  return e ? OptName {std::string(gtopt::data_format_name(*e))} : OptName {};
-}
-
-inline OptName enum_to_opt_name(const std::optional<CompressionCodec>& e)
-{
-  return e ? OptName {std::string(gtopt::compression_codec_name(*e))}
-           : OptName {};
-}
-
-}  // namespace detail
 
 template<>
 struct json_data_contract<PlanningOptions>

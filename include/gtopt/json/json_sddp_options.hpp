@@ -10,6 +10,7 @@
 
 #include <daw/json/daw_json_link.h>
 #include <gtopt/json/json_basic_types.hpp>
+#include <gtopt/json/json_enum_option.hpp>
 #include <gtopt/json/json_solver_options.hpp>
 #include <gtopt/sddp_options.hpp>
 
@@ -78,7 +79,7 @@ struct SddpOptionsConstructor
     SddpOptions opts;
     if (cut_sharing_mode_str) {
       opts.cut_sharing_mode =
-          gtopt::cut_sharing_mode_from_name(*cut_sharing_mode_str);
+          gtopt::enum_from_name<CutSharingMode>(*cut_sharing_mode_str);
     }
     opts.cut_directory = std::move(cut_directory);
     opts.api_enabled = api_enabled;
@@ -92,17 +93,18 @@ struct SddpOptionsConstructor
     opts.scale_alpha = scale_alpha;
     if (cut_recovery_mode_str) {
       opts.cut_recovery_mode =
-          gtopt::cut_recovery_mode_from_name(*cut_recovery_mode_str);
+          gtopt::enum_from_name<HotStartMode>(*cut_recovery_mode_str);
     }
     if (recovery_mode_str) {
-      opts.recovery_mode = gtopt::recovery_mode_from_name(*recovery_mode_str);
+      opts.recovery_mode =
+          gtopt::enum_from_name<RecoveryMode>(*recovery_mode_str);
     }
     opts.save_per_iteration = save_per_iteration;
     opts.cuts_input_file = std::move(cuts_input_file);
     opts.sentinel_file = std::move(sentinel_file);
     if (elastic_mode_str) {
       opts.elastic_mode =
-          gtopt::elastic_filter_mode_from_name(*elastic_mode_str);
+          gtopt::enum_from_name<ElasticFilterMode>(*elastic_mode_str);
     }
     opts.multi_cut_threshold = multi_cut_threshold;
     opts.apertures = std::move(apertures);
@@ -113,12 +115,12 @@ struct SddpOptionsConstructor
     opts.boundary_cuts_file = std::move(boundary_cuts_file);
     if (boundary_cuts_mode_str) {
       opts.boundary_cuts_mode =
-          gtopt::boundary_cuts_mode_from_name(*boundary_cuts_mode_str);
+          gtopt::enum_from_name<BoundaryCutsMode>(*boundary_cuts_mode_str);
     }
     opts.boundary_max_iterations = boundary_max_iterations;
     if (missing_cut_var_mode_str) {
       opts.missing_cut_var_mode =
-          gtopt::missing_cut_var_mode_from_name(*missing_cut_var_mode_str);
+          gtopt::enum_from_name<MissingCutVarMode>(*missing_cut_var_mode_str);
     }
     opts.named_cuts_file = std::move(named_cuts_file);
     opts.max_cuts_per_phase = max_cuts_per_phase;
@@ -130,15 +132,15 @@ struct SddpOptionsConstructor
     opts.simulation_mode = simulation_mode;
     if (cut_coeff_mode_str) {
       opts.cut_coeff_mode =
-          gtopt::cut_coeff_mode_from_name(*cut_coeff_mode_str);
+          gtopt::enum_from_name<CutCoeffMode>(*cut_coeff_mode_str);
     }
     if (convergence_mode_str) {
       opts.convergence_mode =
-          gtopt::convergence_mode_from_name(*convergence_mode_str);
+          gtopt::enum_from_name<ConvergenceMode>(*convergence_mode_str);
     }
     if (state_variable_lookup_mode_str) {
       opts.state_variable_lookup_mode =
-          gtopt::state_variable_lookup_mode_from_name(
+          gtopt::enum_from_name<StateVariableLookupMode>(
               *state_variable_lookup_mode_str);
     }
     opts.stationary_tol = stationary_tol;
@@ -149,63 +151,6 @@ struct SddpOptionsConstructor
     return opts;
   }
 };
-
-namespace detail
-{
-
-inline OptName enum_to_opt_name(const std::optional<CutSharingMode>& e)
-{
-  return e ? OptName {std::string(gtopt::cut_sharing_mode_name(*e))}
-           : OptName {};
-}
-
-inline OptName enum_to_opt_name(const std::optional<HotStartMode>& e)
-{
-  return e ? OptName {std::string(gtopt::cut_recovery_mode_name(*e))}
-           : OptName {};
-}
-
-inline OptName enum_to_opt_name(const std::optional<RecoveryMode>& e)
-{
-  return e ? OptName {std::string(gtopt::recovery_mode_name(*e))} : OptName {};
-}
-
-inline OptName enum_to_opt_name(const std::optional<ElasticFilterMode>& e)
-{
-  return e ? OptName {std::string(gtopt::elastic_filter_mode_name(*e))}
-           : OptName {};
-}
-
-inline OptName enum_to_opt_name(const std::optional<BoundaryCutsMode>& e)
-{
-  return e ? OptName {std::string(gtopt::boundary_cuts_mode_name(*e))}
-           : OptName {};
-}
-
-inline OptName enum_to_opt_name(const std::optional<MissingCutVarMode>& e)
-{
-  return e ? OptName {std::string(gtopt::missing_cut_var_mode_name(*e))}
-           : OptName {};
-}
-
-inline OptName enum_to_opt_name(const std::optional<CutCoeffMode>& e)
-{
-  return e ? OptName {std::string(gtopt::cut_coeff_mode_name(*e))} : OptName {};
-}
-
-inline OptName enum_to_opt_name(const std::optional<ConvergenceMode>& e)
-{
-  return e ? OptName {std::string(gtopt::convergence_mode_name(*e))}
-           : OptName {};
-}
-
-inline OptName enum_to_opt_name(const std::optional<StateVariableLookupMode>& e)
-{
-  return e ? OptName {std::string(gtopt::state_variable_lookup_mode_name(*e))}
-           : OptName {};
-}
-
-}  // namespace detail
 
 template<>
 struct json_data_contract<SddpOptions>

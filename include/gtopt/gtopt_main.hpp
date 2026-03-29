@@ -18,7 +18,7 @@
 #include <string>
 #include <vector>
 
-#include <gtopt/enum_option.hpp>
+#include <gtopt/lp_build_options.hpp>
 
 namespace gtopt
 {

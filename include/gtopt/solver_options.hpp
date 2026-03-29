@@ -15,7 +15,10 @@
 #include <cstdint>
 #include <format>
 #include <optional>
+#include <span>
 #include <string_view>
+
+#include <gtopt/enum_option.hpp>
 
 namespace gtopt
 {
@@ -41,62 +44,21 @@ enum class LPAlgo : uint8_t
 };
 
 /**
- * @brief Name–value pair for an LPAlgo enumerator.
- *
- * With C++26 static reflection (P2996 `std::meta::enumerators_of`) this table
- * could be generated automatically from the @c LPAlgo enum definition.
- * Until broad compiler support arrives it is maintained here, next to the
- * enum itself, as the single source of truth.
- */
-struct LPAlgoEntry
-{
-  std::string_view name;
-  LPAlgo value;
-};
-
-/**
  * @brief Compile-time table mapping each LPAlgo enumerator to its name.
  *
- * Excludes the sentinel @c last_algo value.  With C++26 P2996 reflection
- * this would be derived from `std::meta::enumerators_of(^LPAlgo)` at
- * compile time without any manual maintenance.
+ * Excludes the sentinel @c last_algo value.
  */
-inline constexpr auto lp_algo_entries = std::to_array<LPAlgoEntry>({
+inline constexpr auto lp_algo_entries = std::to_array<EnumEntry<LPAlgo>>({
     {.name = "default", .value = LPAlgo::default_algo},
     {.name = "primal", .value = LPAlgo::primal},
     {.name = "dual", .value = LPAlgo::dual},
     {.name = "barrier", .value = LPAlgo::barrier},
 });
 
-/**
- * @brief Look up an LPAlgo enumerator by name.
- *
- * @param name  Case-sensitive algorithm name (e.g. @c "barrier").
- * @return The matching @c LPAlgo value, or @c std::nullopt if not found.
- */
-[[nodiscard]] constexpr std::optional<LPAlgo> lp_algo_from_name(
-    std::string_view name) noexcept
+/// ADL customization point for NamedEnum concept
+constexpr auto enum_entries(LPAlgo /*tag*/) noexcept
 {
-  const auto* const it = std::ranges::find_if(
-      lp_algo_entries, [name](const LPAlgoEntry& e) { return e.name == name; });
-  if (it != lp_algo_entries.end()) {
-    return it->value;
-  }
-  return std::nullopt;
-}
-
-/**
- * @brief Return the canonical name of an LPAlgo enumerator.
- *
- * @param algo  The algorithm value.
- * @return The name string, or @c "unknown" for out-of-range values.
- */
-[[nodiscard]] constexpr std::string_view lp_algo_name(LPAlgo algo) noexcept
-{
-  const auto* const it = std::ranges::find_if(lp_algo_entries,
-                                              [algo](const LPAlgoEntry& e)
-                                              { return e.value == algo; });
-  return it != lp_algo_entries.end() ? it->name : "unknown";
+  return std::span {lp_algo_entries};
 }
 
 /**
@@ -193,7 +155,7 @@ struct formatter<gtopt::LPAlgo> : formatter<string_view>
   template<typename FormatContext>
   auto format(gtopt::LPAlgo algo, FormatContext& ctx) const
   {
-    return formatter<string_view>::format(gtopt::lp_algo_name(algo), ctx);
+    return formatter<string_view>::format(gtopt::enum_name(algo), ctx);
   }
 };
 }  // namespace std

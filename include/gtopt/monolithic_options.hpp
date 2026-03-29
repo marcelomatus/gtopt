@@ -8,12 +8,40 @@
 
 #pragma once
 
+#include <array>
+#include <cstdint>
+#include <span>
+
 #include <gtopt/enum_option.hpp>
+#include <gtopt/sddp_enums.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/utils.hpp>
 
 namespace gtopt
 {
+
+// ─── SolveMode ──────────────────────────────────────────────────────────────
+
+/**
+ * @brief Monolithic solver execution mode.
+ */
+enum class SolveMode : uint8_t
+{
+  monolithic = 0,  ///< Solve all phases in a single LP (default)
+  sequential = 1,  ///< Solve phases sequentially
+};
+
+inline constexpr auto solve_mode_entries = std::to_array<EnumEntry<SolveMode>>({
+    {.name = "monolithic", .value = SolveMode::monolithic},
+    {.name = "sequential", .value = SolveMode::sequential},
+});
+
+constexpr auto enum_entries(SolveMode /*tag*/) noexcept
+{
+  return std::span {solve_mode_entries};
+}
+
+// ─── MonolithicOptions struct ───────────────────────────────────────────────
 
 /**
  * @brief Monolithic solver configuration parameters

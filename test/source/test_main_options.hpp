@@ -576,38 +576,38 @@ TEST_CASE("Integration - parse and extract all option types")
   CHECK(flat_opts.col_with_name_map == true);
 }
 
-// ---- Tests for lp_algo_from_name / lp_algo_name (solver_options.hpp) ----
+// ---- Tests for LPAlgo NamedEnum (solver_options.hpp) ----
 
-TEST_CASE("lp_algo_from_name - recognises all valid names")  // NOLINT
+TEST_CASE("LPAlgo enum_from_name - recognises all valid names")  // NOLINT
 {
-  CHECK(lp_algo_from_name("default").value_or(LPAlgo::barrier)
+  CHECK(enum_from_name<LPAlgo>("default").value_or(LPAlgo::barrier)
         == LPAlgo::default_algo);
-  CHECK(lp_algo_from_name("primal").value_or(LPAlgo::default_algo)
+  CHECK(enum_from_name<LPAlgo>("primal").value_or(LPAlgo::default_algo)
         == LPAlgo::primal);
-  CHECK(lp_algo_from_name("dual").value_or(LPAlgo::default_algo)
+  CHECK(enum_from_name<LPAlgo>("dual").value_or(LPAlgo::default_algo)
         == LPAlgo::dual);
-  CHECK(lp_algo_from_name("barrier").value_or(LPAlgo::default_algo)
+  CHECK(enum_from_name<LPAlgo>("barrier").value_or(LPAlgo::default_algo)
         == LPAlgo::barrier);
 }
 
-TEST_CASE("lp_algo_from_name - returns nullopt for unknown name")  // NOLINT
+TEST_CASE("LPAlgo enum_from_name - returns nullopt for unknown name")  // NOLINT
 {
-  CHECK_FALSE(lp_algo_from_name("interior").has_value());
-  CHECK_FALSE(lp_algo_from_name("").has_value());
-  CHECK_FALSE(lp_algo_from_name("Barrier").has_value());  // case-sensitive
+  CHECK_FALSE(enum_from_name<LPAlgo>("interior").has_value());
+  CHECK_FALSE(enum_from_name<LPAlgo>("").has_value());
+  CHECK_FALSE(enum_from_name<LPAlgo>("Barrier").has_value());  // case-sensitive
 }
 
-TEST_CASE("lp_algo_name - round-trips all enumerators")  // NOLINT
+TEST_CASE("LPAlgo enum_name - round-trips all enumerators")  // NOLINT
 {
-  CHECK(lp_algo_name(LPAlgo::default_algo) == "default");
-  CHECK(lp_algo_name(LPAlgo::primal) == "primal");
-  CHECK(lp_algo_name(LPAlgo::dual) == "dual");
-  CHECK(lp_algo_name(LPAlgo::barrier) == "barrier");
+  CHECK(enum_name(LPAlgo::default_algo) == "default");
+  CHECK(enum_name(LPAlgo::primal) == "primal");
+  CHECK(enum_name(LPAlgo::dual) == "dual");
+  CHECK(enum_name(LPAlgo::barrier) == "barrier");
 }
 
-TEST_CASE("lp_algo_name - unknown value returns 'unknown'")  // NOLINT
+TEST_CASE("LPAlgo enum_name - unknown value returns 'unknown'")  // NOLINT
 {
-  CHECK(lp_algo_name(LPAlgo::last_algo) == "unknown");
+  CHECK(enum_name(LPAlgo::last_algo) == "unknown");
 }
 
 // ---- Tests for parse_lp_algorithm ----

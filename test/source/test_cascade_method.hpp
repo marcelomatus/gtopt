@@ -84,9 +84,9 @@ TEST_CASE("MethodType::cascade enum")  // NOLINT
     CHECK(static_cast<int>(MethodType::cascade) == 2);
   }
 
-  SUBCASE("method_type_from_name recognizes cascade")
+  SUBCASE("enum_from_name recognizes cascade")
   {
-    CHECK(method_type_from_name("cascade") == MethodType::cascade);
+    CHECK(enum_from_name<MethodType>("cascade") == MethodType::cascade);
   }
 }
 
