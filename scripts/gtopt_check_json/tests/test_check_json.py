@@ -356,12 +356,12 @@ class TestUnreferencedElements:
         findings = check_unreferenced_elements(_VALID_CASE)
         assert not findings
 
-    def test_unreferenced_bus(self) -> None:
+    def test_unreferenced_bus_not_reported(self) -> None:
+        """Unreferenced buses are shown in the connectivity table, not here."""
         case = json.loads(json.dumps(_VALID_CASE))
         case["system"]["bus_array"].append({"uid": 3, "name": "b3_orphan"})
         findings = check_unreferenced_elements(case)
-        assert len(findings) >= 1
-        assert any("b3_orphan" in f.message for f in findings)
+        assert not any("b3_orphan" in f.message for f in findings)
 
 
 # ── Battery efficiency ──────────────────────────────────────────────────────
