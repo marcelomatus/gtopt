@@ -33,7 +33,12 @@ except ImportError:
     __version__ = "dev"
 
 from gtopt_check_json import _colors as col
-from gtopt_check_json._checks import Finding, Severity, run_all_checks
+from gtopt_check_json._checks import (
+    Finding,
+    Severity,
+    analyse_bus_islands,
+    run_all_checks,
+)
 from gtopt_check_json._config import (
     CHECK_DEFAULTS,
     _AI_DEFAULT_PROVIDER,
@@ -45,6 +50,7 @@ from gtopt_check_json._config import (
 from gtopt_check_json._info import print_info
 from gtopt_check_json._terminal import (
     init as _init_terminal,
+    print_connectivity_table,
     print_finding as _print_finding,
     print_section,
     print_status,
@@ -184,11 +190,18 @@ def check_json(
         base_dir=_case_dir,
     )
 
-    # Report
+    # Connectivity table (replaces verbose bus_connectivity findings)
+    islands = analyse_bus_islands(planning)
+    if islands:
+        print_connectivity_table(islands)
+
+    # Report (skip bus_connectivity findings — shown in the table above)
+    _table_checks = {"bus_connectivity"}
     has_critical = False
     for finding in findings:
-        sev_name = finding.severity.name
-        _print_finding(sev_name, finding.check_id, finding.message)
+        if finding.check_id not in _table_checks:
+            sev_name = finding.severity.name
+            _print_finding(sev_name, finding.check_id, finding.message)
         if finding.severity == Severity.CRITICAL:
             has_critical = True
 
