@@ -27,6 +27,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/solver_options.hpp>
+#include <gtopt/solver_registry.hpp>
 
 namespace  // NOLINT
 {
@@ -1046,6 +1047,60 @@ TEST_CASE(  // NOLINT
   std::filesystem::remove_all(log_dir);
 }
 
+TEST_CASE(  // NOLINT
+    "gtopt_main - log_mode=detailed creates solver log files")
+{
+  using namespace gtopt;
+
+  const auto& reg = SolverRegistry::instance();
+  const auto solvers = reg.available_solvers();
+  REQUIRE(!solvers.empty());
+
+  for (const auto& solver_name : solvers) {
+    CAPTURE(solver_name);
+
+    SUBCASE(std::string(solver_name).c_str())
+    {
+      const auto stem = write_tmp_json(
+          std::format("gtopt_main_solver_log_{}", solver_name), minimal_json);
+      const auto log_dir = std::filesystem::temp_directory_path()
+          / std::format("gtopt_main_solver_log_{}_logs", solver_name);
+      std::filesystem::remove_all(log_dir);
+
+      auto result = gtopt_main(MainOptions {
+          .planning_files = {stem.string()},
+          .use_single_bus = true,
+          .log_directory = log_dir.string(),
+          .solver = std::string(solver_name),
+          .set_options =
+              {
+                  "solver_options.log_mode=detailed",
+              },
+      });
+      REQUIRE(result.has_value());
+      CHECK(*result == 0);
+
+      // Verify that at least one solver .log file was created
+      bool found_log = false;
+      if (std::filesystem::exists(log_dir)) {
+        for (const auto& entry : std::filesystem::directory_iterator(log_dir)) {
+          const auto name = entry.path().filename().string();
+          if (name.starts_with(std::string(solver_name))
+              && name.ends_with(".log"))
+          {
+            found_log = true;
+            CHECK(std::filesystem::file_size(entry.path()) > 0);
+            break;
+          }
+        }
+      }
+      CHECK(found_log);
+
+      std::filesystem::remove_all(log_dir);
+    }
+  }
+}
+
 // ─── Monolithic method coverage tests ───────────────────────────────────────
 
 TEST_CASE(  // NOLINT
@@ -1143,4 +1198,80 @@ TEST_CASE(  // NOLINT
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
+}
+
+TEST_CASE(  // NOLINT
+    "gtopt_main - SDDP inherits log_mode from top-level solver_options")
+{
+  using namespace gtopt;
+
+  // Top-level solver_options.log_mode=detailed should propagate to
+  // SDDP forward solver via merge, even without setting it explicitly in
+  // sddp_options.forward_solver_options.
+  constexpr auto sddp_log_json = R"({
+    "options": {
+      "demand_fail_cost": 1000,
+      "output_compression": "uncompressed",
+      "method": "sddp",
+      "sddp_options": {
+        "max_iterations": 3,
+        "convergence_tol": 0.01
+      }
+    },
+    "simulation": {
+      "block_array": [{"uid": 1, "duration": 1}, {"uid": 2, "duration": 1}],
+      "stage_array": [
+        {"uid": 1, "first_block": 0, "count_block": 1},
+        {"uid": 2, "first_block": 1, "count_block": 1}
+      ],
+      "scenario_array": [{"uid": 1}],
+      "phase_array": [
+        {"uid": 1, "first_stage": 0, "count_stage": 1},
+        {"uid": 2, "first_stage": 1, "count_stage": 1}
+      ]
+    },
+    "system": {
+      "name": "sddp_log_merge_test",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10, "capacity": 200}
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50}
+      ]
+    }
+  })";
+
+  const auto stem = write_tmp_json("gtopt_main_sddp_log", sddp_log_json);
+  const auto log_dir =
+      std::filesystem::temp_directory_path() / "gtopt_main_sddp_log_logs";
+  std::filesystem::remove_all(log_dir);
+
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .use_single_bus = true,
+      .log_directory = log_dir.string(),
+      .set_options =
+          {
+              "solver_options.log_mode=detailed",
+          },
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+
+  // Verify solver log files were created in the log directory
+  bool found_log = false;
+  if (std::filesystem::exists(log_dir)) {
+    for (const auto& entry : std::filesystem::directory_iterator(log_dir)) {
+      const auto name = entry.path().filename().string();
+      if (name.ends_with(".log") && !name.starts_with("trace_")) {
+        found_log = true;
+        CHECK(std::filesystem::file_size(entry.path()) > 0);
+        break;
+      }
+    }
+  }
+  CHECK(found_log);
+
+  std::filesystem::remove_all(log_dir);
 }

@@ -335,8 +335,32 @@ bool OsiSolverBackend::is_proven_dual_infeasible() const
   return m_solver_->isProvenDualInfeasible();
 }
 
+LPAlgo OsiSolverBackend::get_algorithm() const
+{
+  return m_algorithm_;
+}
+
+int OsiSolverBackend::get_threads() const
+{
+  return m_threads_;
+}
+
+bool OsiSolverBackend::get_presolve() const
+{
+  return m_presolve_;
+}
+
+int OsiSolverBackend::get_log_level() const
+{
+  return m_log_level_;
+}
+
 void OsiSolverBackend::apply_options(const SolverOptions& opts)
 {
+  m_algorithm_ = opts.algorithm;
+  m_threads_ = opts.threads;
+  m_presolve_ = opts.presolve;
+  m_log_level_ = opts.log_level;
   if (const auto oeps = opts.optimal_eps; oeps && *oeps > 0) {
     m_solver_->setDblParam(OsiDualTolerance, *oeps);
   }
@@ -353,8 +377,11 @@ void OsiSolverBackend::apply_options(const SolverOptions& opts)
     }
   }
 
-  // ── Warm-start override ──
-  if (opts.reuse_basis) {
+  // ── Warm-start override (skip when barrier is requested) ──
+  if (opts.reuse_basis && opts.algorithm != LPAlgo::barrier) {
+    m_algorithm_ = LPAlgo::dual;
+    m_presolve_ = false;
+
     m_solver_->setHintParam(OsiDoPresolveInInitial, false, OsiHintDo);
     m_solver_->setHintParam(OsiDoPresolveInResolve, false, OsiHintDo);
     m_solver_->setHintParam(OsiDoDualInInitial, true, OsiHintDo);
@@ -454,6 +481,32 @@ void OsiSolverBackend::close_log()
   m_handler_ = std::make_unique<CoinMessageHandler>();
   m_handler_->setLogLevel(0);
   m_solver_->passInMessageHandler(m_handler_.get());
+}
+
+void OsiSolverBackend::set_log_filename(const std::string& filename, int level)
+{
+  if (level > 0 && !filename.empty()) {
+    const auto log_path = std::format("{}.log", filename);
+    m_log_file_ptr_.reset(std::fopen(log_path.c_str(), "ae"));
+    if (!m_log_file_ptr_) {
+      throw std::runtime_error(std::format(
+          "failed to open solver log file {}: errno {}", log_path, errno));
+    }
+    m_handler_ = std::make_unique<CoinMessageHandler>(m_log_file_ptr_.get());
+    m_handler_->setLogLevel(level);
+    m_solver_->passInMessageHandler(m_handler_.get());
+  }
+}
+
+void OsiSolverBackend::clear_log_filename()
+{
+  m_handler_ = std::make_unique<CoinMessageHandler>();
+  m_handler_->setLogLevel(0);
+  m_solver_->passInMessageHandler(m_handler_.get());
+  if (m_log_file_ptr_) {
+    (void)std::fflush(m_log_file_ptr_.get());
+    m_log_file_ptr_.reset();
+  }
 }
 
 void OsiSolverBackend::push_names(const std::vector<std::string>& col_names,

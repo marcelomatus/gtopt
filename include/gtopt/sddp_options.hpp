@@ -341,9 +341,7 @@ struct SddpOptions
     merge_opt(sentinel_file, std::move(opts.sentinel_file));
     merge_opt(elastic_mode, opts.elastic_mode);
     merge_opt(multi_cut_threshold, opts.multi_cut_threshold);
-    if (opts.apertures.has_value()) {
-      apertures = std::move(opts.apertures);
-    }
+    merge_opt(apertures, std::move(opts.apertures));
     merge_opt(aperture_directory, std::move(opts.aperture_directory));
     merge_opt(aperture_timeout, opts.aperture_timeout);
     merge_opt(save_aperture_lp, opts.save_aperture_lp);

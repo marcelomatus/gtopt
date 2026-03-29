@@ -279,12 +279,26 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
       static_cast<int>(phase_systems.size());
   SPDLOG_DEBUG("  Solving scene {} ({} phase(s))", scene_index, num_phases);
 
+  // Configure per-scene/phase solver log files when detailed mode is active
+  const auto log_mode = lp_opts.log_mode.value_or(SolverLogMode::nolog);
+  const auto log_dir = m_options_.log_directory();
+
   for (auto&& [phase_index, system_sp] : enumerate<PhaseIndex>(phase_systems)) {
     SPDLOG_TRACE("    Solving scene {} phase {} ({} cols, {} rows)",
                  scene_index,
                  phase_index,
                  system_sp.linear_interface().get_numcols(),
                  system_sp.linear_interface().get_numrows());
+
+    if (log_mode == SolverLogMode::detailed && !log_dir.empty()) {
+      std::filesystem::create_directories(log_dir);
+      auto& li = system_sp.linear_interface();
+      li.set_log_file(
+          (std::filesystem::path(log_dir)
+           / std::format(
+               "{}_sc{}_ph{}", li.solver_name(), scene_index, phase_index))
+              .string());
+    }
 
     if (auto result = system_sp.resolve(lp_opts); !result) {
       // Log the solver error with scene/phase context before writing the LP

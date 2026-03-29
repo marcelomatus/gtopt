@@ -113,6 +113,10 @@ public:
 
   // ---- solver options ----
   void apply_options(const SolverOptions& opts) override;
+  [[nodiscard]] LPAlgo get_algorithm() const override;
+  [[nodiscard]] int get_threads() const override;
+  [[nodiscard]] bool get_presolve() const override;
+  [[nodiscard]] int get_log_level() const override;
 
   // ---- diagnostics ----
   [[nodiscard]] double get_kappa() const override;
@@ -151,6 +155,12 @@ private:
   mutable std::vector<double> m_row_price_;
 
   int m_solve_status_ {0};
+
+  // Cached option values (updated by apply_options)
+  LPAlgo m_algorithm_ {LPAlgo::default_algo};
+  int m_threads_ {0};
+  bool m_presolve_ {true};
+  int m_log_level_ {0};
 };
 
 }  // namespace gtopt

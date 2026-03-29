@@ -398,8 +398,32 @@ bool HighsSolverBackend::is_proven_dual_infeasible() const
   return m_highs_->getModelStatus() == HighsModelStatus::kUnbounded;
 }
 
+LPAlgo HighsSolverBackend::get_algorithm() const
+{
+  return m_algorithm_;
+}
+
+int HighsSolverBackend::get_threads() const
+{
+  return m_threads_;
+}
+
+bool HighsSolverBackend::get_presolve() const
+{
+  return m_presolve_;
+}
+
+int HighsSolverBackend::get_log_level() const
+{
+  return m_log_level_;
+}
+
 void HighsSolverBackend::apply_options(const SolverOptions& opts)
 {
+  m_algorithm_ = opts.algorithm;
+  m_threads_ = opts.threads;
+  m_presolve_ = opts.presolve;
+  m_log_level_ = opts.log_level;
   if (const auto oeps = opts.optimal_eps; oeps && *oeps > 0) {
     m_highs_->setOptionValue("dual_feasibility_tolerance", *oeps);
   }
@@ -426,7 +450,10 @@ void HighsSolverBackend::apply_options(const SolverOptions& opts)
 
   m_highs_->setOptionValue("presolve", opts.presolve ? "on" : "off");
 
-  if (opts.reuse_basis) {
+  if (opts.reuse_basis && opts.algorithm != LPAlgo::barrier) {
+    m_algorithm_ = LPAlgo::dual;
+    m_presolve_ = false;
+
     // For warm start: use simplex (not IPM) and disable presolve
     m_highs_->setOptionValue("solver", "simplex");
     m_highs_->setOptionValue("presolve", "off");

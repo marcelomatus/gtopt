@@ -18,10 +18,10 @@
 #include <string_view>
 #include <vector>
 
+#include <gtopt/solver_options.hpp>
+
 namespace gtopt
 {
-
-struct SolverOptions;
 
 /**
  * @brief Abstract interface for LP/MIP solver backends.
@@ -142,6 +142,19 @@ public:
   // Each backend translates SolverOptions to its native API.
 
   virtual void apply_options(const SolverOptions& opts) = 0;
+
+  /** @brief Query the currently configured LP algorithm. */
+  [[nodiscard]] virtual LPAlgo get_algorithm() const = 0;
+
+  /** @brief Query the currently configured thread count (0 = solver default).
+   */
+  [[nodiscard]] virtual int get_threads() const = 0;
+
+  /** @brief Query whether presolve is currently enabled. */
+  [[nodiscard]] virtual bool get_presolve() const = 0;
+
+  /** @brief Query the current solver log verbosity level (0 = off). */
+  [[nodiscard]] virtual int get_log_level() const = 0;
 
   // ---- diagnostics ----
 
