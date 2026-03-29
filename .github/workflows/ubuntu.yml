@@ -78,6 +78,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       # ccache must be set up before any compilation (including cmake feature
       # tests during configure).  Placing it first also means the cache is
@@ -98,8 +100,6 @@ jobs:
 
       - name: install dependencies
         uses: ./.github/actions/install-apt-deps
-        with:
-          extra-packages: lcov
 
       # GCC 14 is pre-installed on ubuntu-latest; register unversioned
       # alternatives so 'gcc', 'g++', and 'gcov' resolve to gcc-14.

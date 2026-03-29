@@ -153,7 +153,7 @@ def save_config(config_path: Path, cfg: dict[str, str]) -> None:
 # Solver availability helpers
 # ---------------------------------------------------------------------------
 
-_SOLVER_BINARIES = [
+_SOLVER_BINARIES: list[tuple[str, str, str | None]] = [
     ("highs", "HiGHS", "sudo apt install highs"),
     ("cbc", "COIN-OR CBC", "sudo apt install coinor-cbc"),
 ]

@@ -94,9 +94,17 @@ class Reservoir(_ReservoirRequired, total=False):
     ``use_state_variable`` is optional: when set to ``False`` the reservoir
     state (energy level) is not linked across blocks, which models small /
     independent hydro reservoirs (PLP ``Hid_Indep='T'``).
+
+    ``energy_scale`` is an explicit scaling factor for the reservoir energy
+    variables in the LP formulation (derived from the PLP FEscala field).
+
+    ``energy_scale_mode`` selects how the C++ code computes the scale factor:
+    ``"auto"`` delegates to the built-in heuristic.
     """
 
     use_state_variable: bool
+    energy_scale: float
+    energy_scale_mode: str
     soft_emin: list[float]
     soft_emin_cost: list[float]
     seepage: List[Dict[str, Any]]
