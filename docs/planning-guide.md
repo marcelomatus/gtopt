@@ -19,31 +19,35 @@ external time-series data.
 5. [Example 3 – Multi-stage capacity expansion](#5-example-3--multi-stage-capacity-expansion)
 6. [Example 4 – Battery storage (4-bus, 4 blocks)](#6-example-4--battery-storage-4-bus-4-blocks)
 7. [Example 5 – Simple hydro cascade (2-bus, 2 stages)](#7-example-5--simple-hydro-cascade-2-bus-2-stages)
-8. [Working with time-series schedules](#8-working-with-time-series-schedules)
-   - [Inline schedules in JSON](#81-inline-schedules-in-json)
-   - [External CSV files](#82-external-csv-files)
-   - [External Parquet files](#83-external-parquet-files)
-   - [Directory layout and file-field naming convention](#84-directory-layout-and-file-field-naming-convention)
-9. [Complete JSON element reference](#9-complete-json-element-reference)
-   - [Options](#91-options)
-   - [Simulation (time structure)](#92-simulation-time-structure)
-   - [System – Electrical network](#93-system--electrical-network)
-   - [System – Profiles](#94-system--profiles)
-   - [System – Energy storage](#95-system--energy-storage)
-   - [System – Reserves](#96-system--reserves)
-   - [System – Hydro cascade](#97-system--hydro-cascade)
-10. [Field reference and auto-generated docs](#10-field-reference-and-auto-generated-docs)
-11. [Output files](#11-output-files)
-12. [Working with Stochastic Scenarios](#12-working-with-stochastic-scenarios)
-    - [Scenario-dependent data](#121-scenario-dependent-data)
-    - [Example: Solar plant with stochastic production](#122-example-solar-plant-with-stochastic-production)
-    - [Pasada hydro mode](#123-pasada-hydro-mode)
-    - [SDDP apertures](#124-sddp-apertures)
-13. [Using the Cascade Solver](#13-using-the-cascade-solver)
-    - [When to use cascade vs plain SDDP](#131-when-to-use-cascade-vs-plain-sddp)
-    - [Example: 2-level cascade (uninodal warm-start)](#132-example-2-level-cascade-uninodal-warm-start)
-    - [Example: 3-level progressive refinement](#133-example-3-level-progressive-refinement)
-    - [Monitoring cascade progress](#134-monitoring-cascade-progress)
+8. [Numerical Scaling for Large Systems](#8-numerical-scaling-for-large-systems)
+   - [`scale_objective` and `scale_theta`](#81-scale_objective-and-scale_theta)
+   - [`energy_scale` for Large Reservoirs](#82-energy_scale-for-large-reservoirs)
+   - [Battery `energy_scale`](#83-battery-energy_scale)
+9. [Working with time-series schedules](#9-working-with-time-series-schedules)
+   - [Inline schedules in JSON](#91-inline-schedules-in-json)
+   - [External CSV files](#92-external-csv-files)
+   - [External Parquet files](#93-external-parquet-files)
+   - [Directory layout and file-field naming convention](#94-directory-layout-and-file-field-naming-convention)
+10. [Complete JSON element reference](#10-complete-json-element-reference)
+    - [Options](#101-options-key-fields)
+    - [Simulation (time structure)](#102-simulation-time-structure)
+    - [System – Electrical network](#103-system--electrical-network)
+    - [System – Profiles](#104-system--profiles)
+    - [System – Energy storage](#105-system--energy-storage)
+    - [System – Reserves](#106-system--reserves)
+    - [System – Hydro cascade](#107-system--hydro-cascade)
+11. [Field reference and auto-generated docs](#11-field-reference-and-auto-generated-docs)
+12. [Output files](#12-output-files)
+13. [Working with Stochastic Scenarios](#13-working-with-stochastic-scenarios)
+    - [Scenario-dependent data](#131-scenario-dependent-data)
+    - [Example: Solar plant with stochastic production](#132-example-solar-plant-with-stochastic-production)
+    - [Pasada hydro mode](#133-pasada-hydro-mode)
+    - [SDDP apertures](#134-sddp-apertures)
+14. [Using the Cascade Solver](#14-using-the-cascade-solver)
+    - [When to use cascade vs plain SDDP](#141-when-to-use-cascade-vs-plain-sddp)
+    - [Example: 2-level cascade (uninodal warm-start)](#142-example-2-level-cascade-uninodal-warm-start)
+    - [Example: 3-level progressive refinement](#143-example-3-level-progressive-refinement)
+    - [Monitoring cascade progress](#144-monitoring-cascade-progress)
 
 ---
 
@@ -747,7 +751,76 @@ cat output/Demand/fail_sol.csv
 
 ---
 
-## 8. Working with time-series schedules
+## 8. Numerical Scaling for Large Systems
+
+LP solvers work best when the ratio of the largest to smallest non-zero
+coefficient in the LP matrix is below $10^7$ (the "LP coefficient ratio").
+Poor scaling causes numerical instability, slow convergence, or incorrect
+solutions.
+
+### 8.1 `scale_objective` and `scale_theta`
+
+The global `scale_objective` (default 1000) divides all objective coefficients.
+For a system where generation costs are ~\$100/MWh and 24-hour blocks are used,
+the raw coefficient is $100 × 24 = 2400$.  With `scale_objective = 1000` this
+becomes 2.4, which is well-conditioned.
+
+Similarly, `scale_theta` (default 1000) normalises voltage-angle variables.
+
+These defaults are adequate for most power systems.
+
+### 8.2 `energy_scale` for Large Reservoirs
+
+For large hydroelectric reservoirs, the default `energy_scale = 1.0` creates
+LP variable bounds in the tens of millions (dam³), which produces a coefficient
+ratio far exceeding $10^8$ when combined with generator costs in the range 0.01–1.
+
+**Set `energy_scale ≈ emax / 1000`** to keep LP volume variables in the
+$[0, 1000]$ range (matching the PLP `ScaleVol` convention):
+
+```json
+{
+  "reservoir_array": [
+    {"uid": 1, "name": "Laja",   "emax": 6000000,  "energy_scale": 6000},
+    {"uid": 2, "name": "Colbun", "emax": 1500000,  "energy_scale": 1500},
+    {"uid": 3, "name": "Rapel",  "emax":  200000,  "energy_scale":  200}
+  ]
+}
+```
+
+Or use a uniform `variable_scales` entry to apply a default to all reservoirs
+(and then override individually for very small or very large ones):
+
+```json
+{
+  "options": {
+    "variable_scales": [
+      {"class_name": "Reservoir", "variable": "energy", "uid": -1, "scale": 1000.0}
+    ]
+  }
+}
+```
+
+**Diagnosing scaling issues**: run with `--stats` and look for the
+`LP coefficient ratio` in the log output.  A ratio above $10^7$ indicates
+that scaling should be reviewed.
+
+```bash
+gtopt my_case.json --stats 2>&1 | grep -i "coeff.*ratio\|coefficient.*ratio"
+```
+
+### 8.3 Battery `energy_scale`
+
+For batteries, the same principle applies.  A battery with
+`emax = 10000 MWh` should use `energy_scale = 10`:
+
+```json
+{"uid": 1, "name": "BESS1", "emax": 10000, "energy_scale": 10}
+```
+
+---
+
+## 9. Working with time-series schedules
 
 Many fields — `pmax`, `lmax`, `gcost`, `profile`, `discharge` — can hold:
 
@@ -758,7 +831,7 @@ Many fields — `pmax`, `lmax`, `gcost`, `profile`, `discharge` — can hold:
 | `[[[70, 80, 90], [60, 70, 80]]]` | Per-`[scenario][stage][block]` values |
 | `"lmax"` (string) | Filename in `input_directory/<ClassName>/` |
 
-### 8.1 Inline schedules in JSON
+### 9.1 Inline schedules in JSON
 
 The array dimensions depend on the field type:
 
@@ -784,7 +857,7 @@ The array dimensions depend on the field type:
 > Inline arrays are fine for tens of blocks. For hundreds or thousands of
 > time steps, use external files.
 
-### 8.2 External CSV files
+### 9.2 External CSV files
 
 A CSV schedule file uses these columns:
 
@@ -830,7 +903,7 @@ When `lmax = "lmax"`, gtopt reads
 cvs2parquet input/Demand/lmax.csv input/Demand/lmax.parquet
 ```
 
-### 8.3 External Parquet files
+### 9.3 External Parquet files
 
 Parquet is the preferred format (faster reading, smaller files, typed columns).
 The schema is identical to CSV: columns `scenario`, `stage`, `block`, and
@@ -878,7 +951,7 @@ cvs2parquet input/Demand/lmax.csv input/Demand/lmax.parquet
 cvs2parquet --schema input/Generator/pmax.csv input/Generator/pmax.parquet
 ```
 
-### 8.4 Directory layout and file-field naming convention
+### 9.4 Directory layout and file-field naming convention
 
 When a JSON field value is a **string** it is treated as a filename (without
 extension).  The file is looked up in:
@@ -956,7 +1029,7 @@ This tells gtopt: read `input/Demand/lmax.parquet`, column `uid:1`.
 
 ---
 
-## 9. Complete JSON element reference
+## 10. Complete JSON element reference
 
 > **Full reference**: See **[Input Data Reference](input-data.md)** for the complete
 > field-by-field documentation of every JSON element. This section provides a
@@ -973,7 +1046,7 @@ Values can be specified as:
 
 In summary tables below, ✱ marks required fields.
 
-### 9.1 Options (key fields)
+### 10.1 Options (key fields)
 
 > **C++ class**: `PlanningOptions` (header: `planning_options.hpp`).
 > The JSON key remains `"options"`.  See [Planning Options
@@ -993,7 +1066,7 @@ In summary tables below, ✱ marks required fields.
 | `output_format` | `"parquet"` | Output file format (`"parquet"` or `"csv"`) |
 | `output_compression` | `"zstd"` | Parquet/CSV compression codec |
 
-### 9.2 Simulation (time structure)
+### 10.2 Simulation (time structure)
 
 | Element | Key fields | Description |
 |---------|-----------|-------------|
@@ -1003,7 +1076,7 @@ In summary tables below, ✱ marks required fields.
 | **Phase** | `uid`✱, `first_stage`, `count_stage` | Groups consecutive stages (advanced) |
 | **Scene** | `uid`✱, `first_scenario`, `count_scenario` | Cross-products scenarios with phases |
 
-### 9.3 System – Electrical network
+### 10.3 System – Electrical network
 
 | Element | Key fields | Description |
 |---------|-----------|-------------|
@@ -1012,14 +1085,14 @@ In summary tables below, ✱ marks required fields.
 | **Demand** | `uid`✱, `name`✱, `bus`✱, `lmax`, `capacity`, `expcap`, `expmod`, `annual_capcost` | Electrical load |
 | **Line** | `uid`✱, `name`✱, `bus_a`✱, `bus_b`✱, `reactance`, `tmax_ab`, `tmax_ba`, `expcap`, `expmod` | Transmission branch |
 
-### 9.4 System – Profiles
+### 10.4 System – Profiles
 
 | Element | Key fields | Description |
 |---------|-----------|-------------|
 | **GeneratorProfile** | `uid`✱, `name`✱, `generator`✱, `profile`✱ (p.u.) | Time-varying capacity factor (solar/wind) |
 | **DemandProfile** | `uid`✱, `name`✱, `demand`✱, `profile`✱ (p.u.) | Time-varying load scaling |
 
-### 9.5 System – Energy storage
+### 10.5 System – Energy storage
 
 **Battery** (unified recommended): set `bus` to auto-generate discharge Generator,
 charge Demand, and Converter automatically.
@@ -1034,14 +1107,14 @@ charge Demand, and Converter automatically.
 
 **Converter** (traditional definition only): links `battery`, `generator`, `demand`.
 
-### 9.6 System – Reserves
+### 10.6 System – Reserves
 
 | Element | Key fields | Description |
 |---------|-----------|-------------|
 | **ReserveZone** | `uid`✱, `name`✱, `urreq`, `drreq` (MW) | Spinning-reserve requirement |
 | **ReserveProvision** | `uid`✱, `name`✱, `generator`✱, `reserve_zones`✱, `urmax`, `drmax` | Links generator to reserve zone |
 
-### 9.7 System – Hydro cascade
+### 10.7 System – Hydro cascade
 
 | Element | Key fields | Description |
 |---------|-----------|-------------|
@@ -1066,7 +1139,7 @@ for the update mechanism.
 
 ---
 
-## 10. Field reference and auto-generated docs
+## 11. Field reference and auto-generated docs
 
 The `scripts/gtopt_field_extractor.py` utility parses the C++ header files and
 generates documentation tables directly from the source code. This ensures the
@@ -1113,7 +1186,7 @@ The generated HTML includes:
 
 ---
 
-## 11. Output files
+## 12. Output files
 
 After a successful run, gtopt writes result files in `output_directory`
 (default: `output/`) using the same tabular format as input files.
@@ -1236,7 +1309,7 @@ MW there, accounting for transmission constraints.
 
 ---
 
-## 12. Working with Stochastic Scenarios
+## 13. Working with Stochastic Scenarios
 
 gtopt supports **stochastic optimization** where uncertain inputs vary across
 scenarios. Each scenario represents one realization of the uncertainty (e.g., a
@@ -1244,7 +1317,7 @@ hydrological year, a weather pattern, or a demand forecast). The solver
 minimizes expected cost across all scenarios, weighted by their
 `probability_factor`.
 
-### 12.1 Scenario-dependent data
+### 13.1 Scenario-dependent data
 
 Three element types support scenario-dependent schedules:
 
@@ -1281,9 +1354,9 @@ Each inner `[[...]]` contains the `[stage][block]` values.
 
 > **Tip**: For large cases (hundreds of blocks, many scenarios), always use
 > external Parquet files instead of inline arrays. See
-> [Section 8](#8-working-with-time-series-schedules) for file format details.
+> [Section 9](#9-working-with-time-series-schedules) for file format details.
 
-### 12.2 Example: Solar plant with stochastic production
+### 13.2 Example: Solar plant with stochastic production
 
 This example models a 100 MW solar generator with three weather scenarios over
 24 hourly blocks. The scenarios represent:
@@ -1464,7 +1537,7 @@ The optimizer dispatches thermal backup (if present) to cover the remaining
 demand in each scenario. The total objective is the probability-weighted sum
 of all scenario costs.
 
-### 12.3 Pasada hydro mode
+### 13.3 Pasada hydro mode
 
 Run-of-river (pasada) hydro plants can be modelled in two ways:
 
@@ -1484,7 +1557,7 @@ Run-of-river (pasada) hydro plants can be modelled in two ways:
 > hydro cascade data model. See [Scripts Guide](scripts-guide.md) for `plp2gtopt`
 > usage.
 
-### 12.4 SDDP apertures
+### 13.4 SDDP apertures
 
 In **SDDP** (Stochastic Dual Dynamic Programming) mode, gtopt uses
 **apertures** to sample additional hydrology and scenario combinations during
@@ -1526,7 +1599,7 @@ scenarios.
 
 ---
 
-## 13. Using the Cascade Solver
+## 14. Using the Cascade Solver
 
 The **cascade solver** (`method = "cascade"`) runs multiple SDDP levels
 in sequence, each with its own LP formulation and solver parameters.  It
@@ -1536,7 +1609,7 @@ refining towards the full network.
 > **Full reference**: [Cascade Method](methods/cascade.md) —
 > configuration fields, transfer mechanisms, implementation details.
 
-### 13.1 When to use cascade vs plain SDDP
+### 14.1 When to use cascade vs plain SDDP
 
 | Criterion | Plain SDDP | Cascade |
 |-----------|-----------|---------|
@@ -1553,7 +1626,7 @@ Use the cascade solver when:
   starting point.
 - The problem has many phases (stages), increasing the cut convergence time.
 
-### 13.2 Example: 2-level cascade (uninodal warm-start)
+### 14.2 Example: 2-level cascade (uninodal warm-start)
 
 This example uses the `sddp_hydro_3phase` test case — a single-bus system with
 a hydro generator, a thermal generator, and a reservoir, decomposed into
@@ -1671,7 +1744,7 @@ stationary-gap criterion is enabled):
 > logging `"stationary gap convergence"` instead of the standard
 > `"[CONVERGED]"` message.
 
-### 13.3 Example: 3-level progressive refinement
+### 14.3 Example: 3-level progressive refinement
 
 A more advanced cascade that progressively refines both the LP formulation and
 the solver strategy:
@@ -1744,7 +1817,7 @@ Level 0 (benders_uninodal)           Level 1 (guided_full_network)     Level 2 (
 Note that Level 2 omits `model_options`, so it **reuses the Level 1 LP**.  Only
 the solver parameters change (cuts inherited, possibly different apertures).
 
-### 13.4 Monitoring cascade progress
+### 14.4 Monitoring cascade progress
 
 Use `sddp_monitor` to watch convergence in real time:
 

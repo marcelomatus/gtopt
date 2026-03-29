@@ -1062,6 +1062,42 @@ Per-element fields (`Battery.energy_scale`, `Reservoir.energy_scale`) and
 global options (`scale_theta`) take precedence over entries in
 `variable_scales`.
 
+> **⚠️ Important: Reservoir scaling for large hydro systems.**
+> The default `energy_scale = 1.0` for reservoirs is adequate for small
+> systems, but will cause severe LP numerical ill-conditioning for
+> large-scale hydrothermal systems. A reservoir with maximum volume
+> $V_{\max} = 6 \times 10^6$ dam³ (Lake Laja scale) combined with a
+> generator cost coefficient of $\sim 0.1$ $/MWh produces an LP coefficient
+> ratio exceeding $10^8$ — well outside the safe range of $10^5$–$10^7$.
+>
+> **Best practice:** Set `energy_scale = max(1, emax / 1000)` so that LP
+> volume variables are normalised to the $[0, 1000]$ range:
+>
+> ```json
+> {
+>   "reservoir_array": [
+>     {"uid": 1, "name": "Laja", "emax": 6000000, "energy_scale": 6000},
+>     {"uid": 2, "name": "Colbun", "emax": 1500000, "energy_scale": 1500}
+>   ]
+> }
+> ```
+>
+> Alternatively, use `variable_scales` for a uniform global default:
+>
+> ```json
+> {
+>   "options": {
+>     "variable_scales": [
+>       {"class_name": "Reservoir", "variable": "energy", "uid": -1, "scale": 1000.0}
+>     ]
+>   }
+> }
+> ```
+>
+> This matches the PLP `ScaleVol` convention (`ScaleVol = max(1, Vmax/1000)`).
+> Run with `--stats` and check the LP coefficient ratio in the log output;
+> a ratio above $10^7$ is a warning sign that `energy_scale` should be tuned.
+
 ### 6.4 Key Options Affecting the Formulation
 
 | Option | JSON field | Default | Effect on formulation |

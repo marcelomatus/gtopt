@@ -19,12 +19,12 @@ cascade method.
 
 | # | Finding | Severity | Status |
 |---|---------|----------|--------|
-| 1 | Probability double-counting in `expected` cut sharing mode | **High** | Bug |
-| 2 | Elastic penalty default too low for long-block problems | **High** | Default mismatch |
-| 3 | No dynamic reservoir volume scaling (vs PLP's `ScaleVol`) | **Medium-High** | Missing feature |
-| 4 | Island detection is static-only (no per-stage awareness) | **Medium** | Gap |
+| 1 | Probability double-counting in `expected` cut sharing mode | **High** | Bug (open) |
+| 2 | Elastic penalty default too low for long-block problems | **High** | ✅ Fixed (now 1e6) |
+| 3 | No dynamic reservoir volume scaling (vs PLP's `ScaleVol`) | **Medium-High** | Documented |
+| 4 | Island detection is static-only (no per-stage awareness) | **Medium** | Gap (open) |
 | 5 | No `ScalePhi` equivalent for SDDP alpha variable | **Medium** | Missing feature |
-| 6 | Loss allocation fixed at 100% receiver (PLP default is 50/50) | **Low** | Design choice |
+| 6 | Loss allocation fixed at 100% receiver (PLP default is 50/50) | **Low** | Design choice (documented) |
 | 7 | Missing PLP's `DCMod` paired-charging for ESS | **Low** | Missing feature |
 
 **Positive findings:**
@@ -460,29 +460,29 @@ Level 0 (copper-plate) → Level 1 (transport) → Level 2 (Kirchhoff with losse
 
 ### 7.1 Bugs
 
-| # | Issue | Severity | Location |
-|---|-------|----------|----------|
-| 1 | **Probability double-counting in `expected` cut sharing**: LP objectives include probability via `block_ecost()`, then `expected` mode applies probability weights again, giving weight `p_s^2/P_total` instead of `p_s/P_total` | **High** | `sddp_cut_sharing.cpp:65-126` |
-| 2 | **Elastic penalty default mismatch**: `sddp_options.hpp` comment says "default: 1e6" but `planning_options_lp.hpp:473` resolves to 1000. Tests use 1e6. Default 1000 is dominated by demand_fail cost for blocks > 1000 hours | **High** | `planning_options_lp.hpp:473`, `benders_cut.cpp:148` |
+| # | Issue | Severity | Status | Location |
+|---|-------|----------|--------|----------|
+| 1 | **Probability double-counting in `expected` cut sharing**: LP objectives include probability via `block_ecost()`, then `expected` mode applies probability weights again, giving weight `p_s^2/P_total` instead of `p_s/P_total` | **High** | Open | `sddp_cut_sharing.cpp:65-126` |
+| 2 | **Elastic penalty default mismatch**: `sddp_options.hpp` comment said "default: 1e6" but the resolved default was 1000. Tests use 1e6. Default 1000 was dominated by demand_fail cost for blocks > 1000 hours | **High** | ✅ Fixed (`planning_options_lp.hpp:473` now 1e6) | `planning_options_lp.hpp:473` |
 
 ### 7.2 Missing Features (vs PLP)
 
-| # | Feature | Severity | Notes |
-|---|---------|----------|-------|
-| 3 | **Dynamic volume scaling** (`ScaleVol`): PLP auto-scales reservoir volumes to ~[0,1000]; gtopt defaults to 1.0, creating 1e9 coefficient ratios for Lake Laja-scale reservoirs | **Medium-High** | `VariableScaleMap` exists but requires manual config |
-| 4 | **Stage-aware island detection**: Current detection is static, doesn't handle per-stage line deactivation | **Medium** | `bus_island.cpp` runs once at startup |
-| 5 | **ScalePhi equivalent**: No independent scaling for SDDP alpha/future-cost variable | **Medium** | Could be added to `SddpOptions` |
-| 6 | **Configurable loss allocation**: PLP supports Emitter/Mixed/Receiver via `FPerdLin` | **Low** | gtopt fixed at 100% receiver |
-| 7 | **Paired-charging mode (DCMod)**: PLP ESS supports proportional/complementary charge constraints | **Low** | Could be modeled via user constraints |
-| 8 | **Statistical convergence**: PLP uses confidence interval test; gtopt uses deterministic gap | **Low** | Adequate for most use cases |
+| # | Feature | Severity | Status | Notes |
+|---|---------|----------|--------|-------|
+| 3 | **Dynamic volume scaling** (`ScaleVol`): PLP auto-scales reservoir volumes to ~[0,1000]; gtopt defaults to 1.0, creating 1e9 coefficient ratios for Lake Laja-scale reservoirs | **Medium-High** | Documented | Manual `energy_scale` required; see [Planning Guide §8.2](../planning-guide.md) |
+| 4 | **Stage-aware island detection**: Current detection is static, doesn't handle per-stage line deactivation | **Medium** | Open | `bus_island.cpp` runs once at startup |
+| 5 | **ScalePhi equivalent**: No independent scaling for SDDP alpha/future-cost variable | **Medium** | Open | Could be added to `SddpOptions` |
+| 6 | **Configurable loss allocation**: PLP supports Emitter/Mixed/Receiver via `FPerdLin` | **Low** | Design choice (documented) | gtopt fixed at 100% receiver; documented in [Mathematical Formulation §5.5](formulation/mathematical-formulation.md) |
+| 7 | **Paired-charging mode (DCMod)**: PLP ESS supports proportional/complementary charge constraints | **Low** | Open | Could be modeled via user constraints |
+| 8 | **Statistical convergence**: PLP uses confidence interval test; gtopt uses deterministic gap | **Low** | Partially addressed | `convergence_mode: "statistical"` added; see `SddpOptions.convergence_confidence` |
 
 ### 7.3 Documentation Gaps
 
-| # | Gap |
-|---|-----|
-| 9 | Reactance unit convention (p.u. vs Ohms) needs clearer documentation |
-| 10 | `energy_scale` importance for large reservoirs not documented |
-| 11 | Loss allocation convention (100% receiver) not documented |
+| # | Gap | Status |
+|---|-----|--------|
+| 9 | Reactance unit convention (p.u. vs Ohms) | ✅ Documented in [Mathematical Formulation §5.6](formulation/mathematical-formulation.md) |
+| 10 | `energy_scale` importance for large reservoirs | ✅ Documented in [Mathematical Formulation §6.3](formulation/mathematical-formulation.md) and [Planning Guide §8.2](../planning-guide.md) |
+| 11 | Loss allocation convention (100% receiver) | ✅ Documented in [Mathematical Formulation §5.5](formulation/mathematical-formulation.md) |
 
 ---
 
@@ -508,25 +508,30 @@ Level 0 (copper-plate) → Level 1 (transport) → Level 2 (Kirchhoff with losse
 
 ## 9. Recommendations (Priority Order)
 
-1. **Fix `expected` cut sharing** — divide each cut's coefficients by the
-   scene's probability before the weighted average, or use uniform weights
+1. **Fix `expected` cut sharing** *(open)* — divide each cut's coefficients by
+   the scene's probability before the weighted average, or use uniform weights
 
-2. **Fix elastic penalty default** — change from 1000 to 1e6 (matching tests
-   and the sddp_options.hpp comment), or make it scale-aware
+2. **~~Fix elastic penalty default~~** *(✅ fixed)* — default is now 1e6
+   in `planning_options_lp.hpp:473`
 
-3. **Add dynamic volume scaling** — compute `energy_scale = max(1, emax/1000)`
-   automatically from input data for reservoirs, matching PLP's `ScaleVol`
+3. **Add dynamic volume scaling** *(workaround documented)* — compute
+   `energy_scale = max(1, emax/1000)` automatically from input data for
+   reservoirs, matching PLP's `ScaleVol`. Until automated, users should set
+   this manually (see [Planning Guide §8.2](../planning-guide.md)).
 
-4. **Add stage-aware island detection** — run `detect_islands_and_fix_references`
-   per stage, or add a runtime check during LP construction
+4. **Add stage-aware island detection** *(open)* — run
+   `detect_islands_and_fix_references` per stage, or add a runtime check
+   during LP construction
 
-5. **Add ScalePhi equivalent** — independent scaling for the alpha variable and
-   cut coefficients in SDDP
+5. **Add ScalePhi equivalent** *(open)* — independent scaling for the alpha
+   variable and cut coefficients in SDDP
 
-6. **Add configurable loss allocation** — `loss_allocation` field on Line with
-   options matching PLP's `E`/`M`/`R` modes
+6. **Add configurable loss allocation** *(low priority)* — `loss_allocation`
+   field on Line with options matching PLP's `E`/`M`/`R` modes
 
-7. **Document** reactance units, energy_scale importance, and loss allocation
+7. **~~Document~~ reactance units, energy_scale importance, and loss
+   allocation** *(✅ documented)* — all three gaps have been addressed in the
+   Mathematical Formulation and Planning Guide
 
 ---
 
