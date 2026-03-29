@@ -35,7 +35,21 @@ elseif(NOT TARGET gtopt::gtopt)
   CPMAddPackage(NAME gtopt SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/..")
 endif()
 
-CPMAddPackage("gh:doctest/doctest@2.4.12")
+CPMAddPackage(
+  NAME doctest
+  GITHUB_REPOSITORY doctest/doctest
+  VERSION 2.5.0
+  DOWNLOAD_ONLY YES
+)
+add_library(doctest::doctest INTERFACE IMPORTED)
+target_include_directories(doctest::doctest INTERFACE "${doctest_SOURCE_DIR}")
+# Force __COUNTER__ for anonymous names: our test .hpp files are included from
+# _all.cpp aggregators, so __LINE__ collisions occur across different headers
+# when two headers have TEST_CASE on the same line number.  Doctest 2.5 switched
+# to __LINE__ for clang >= 22, but __COUNTER__ is required for our layout.
+# This also works with doctest 2.4 (which already defaults to __COUNTER__).
+target_compile_definitions(doctest::doctest INTERFACE "DOCTEST_COUNTER=__COUNTER__")
+message(STATUS "Using doctest ${CPM_PACKAGE_doctest_VERSION}")
 
 include(ClangFormat)
 

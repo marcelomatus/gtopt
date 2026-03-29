@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <format>
 #include <stdexcept>
+#include <thread>
 
 #include "highs_solver_backend.hpp"
 
@@ -436,16 +437,31 @@ void HighsSolverBackend::apply_options(const SolverOptions& opts)
     m_highs_->setOptionValue("time_limit", *tl);
   }
 
-  if (opts.threads > 0 && opts.threads != s_scheduler_threads_) {
-    // HiGHS uses a process-wide global thread scheduler initialized on the
-    // first run().  Changing the thread count requires resetting the scheduler
-    // first.  Only reset when the count actually changes to avoid the cost of
-    // tearing down and recreating the thread pool on every solve.
-    Highs::resetGlobalScheduler(/*blocking=*/true);
-    s_scheduler_threads_ = opts.threads;
-  }
-  if (opts.threads > 0) {
-    m_highs_->setOptionValue("threads", opts.threads);
+  {
+    // HiGHS uses a *thread-local* task executor (despite the name
+    // "resetGlobalScheduler").  Each OS thread that calls run() gets its
+    // own executor with (threads-1) worker threads, auto-initialized on
+    // first run().  Once initialized, changing the thread count requires
+    // resetting the executor first — otherwise run() returns kError.
+    //
+    // We track the effective thread count per OS thread to reset only
+    // when it actually changes.  threads==0 means "let HiGHS choose"
+    // (typically hardware_concurrency/2).
+    const int effective = opts.threads > 0
+        ? opts.threads
+        : std::max(
+              1, static_cast<int>(std::thread::hardware_concurrency() + 1) / 2);
+    static thread_local int tl_scheduler_threads {0};
+    if (tl_scheduler_threads != 0 && tl_scheduler_threads != effective) {
+      Highs::resetGlobalScheduler(/*blocking=*/true);
+      tl_scheduler_threads = 0;
+    }
+    if (tl_scheduler_threads == 0) {
+      tl_scheduler_threads = effective;
+    }
+    if (opts.threads > 0) {
+      m_highs_->setOptionValue("threads", opts.threads);
+    }
   }
 
   m_highs_->setOptionValue("presolve", opts.presolve ? "on" : "off");
