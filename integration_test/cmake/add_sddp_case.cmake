@@ -9,7 +9,7 @@
 #   e2e_<case_name>_sddp_validate - validate sddp_status.json and solution.csv
 
 function(add_sddp_case case_name system_json)
-  cmake_parse_arguments(ARG "" "MAX_ITERATIONS;ALLOWED_EXIT_CODES" "" ${ARGN})
+  cmake_parse_arguments(ARG "" "MAX_ITERATIONS" "ALLOWED_EXIT_CODES" ${ARGN})
 
   if(NOT DEFINED ARG_MAX_ITERATIONS)
     set(ARG_MAX_ITERATIONS 1)
@@ -23,6 +23,9 @@ function(add_sddp_case case_name system_json)
   set(input_file "${case_dir}/${system_json}")
   set(test_output "${CMAKE_CURRENT_BINARY_DIR}/test_output/${case_name}_sddp")
 
+  # Escape semicolons so the list survives as a single -D argument
+  string(REPLACE ";" "\\;" _escaped_exit_codes "${ARG_ALLOWED_EXIT_CODES}")
+
   # Test 1: run gtopt SDDP
   add_test(
     NAME e2e_${case_name}_sddp_solve
@@ -32,7 +35,7 @@ function(add_sddp_case case_name system_json)
       -DOUTPUT_DIR=${test_output}
       -DWORKING_DIR=${case_dir}
       -DSDDP_MAX_ITERATIONS=${ARG_MAX_ITERATIONS}
-      -DALLOWED_EXIT_CODES=${ARG_ALLOWED_EXIT_CODES}
+      -DALLOWED_EXIT_CODES=${_escaped_exit_codes}
       -P ${CMAKE_SCRIPTS_DIR}/run_sddp_gtopt.cmake
     WORKING_DIRECTORY "${case_dir}"
   )

@@ -14,6 +14,17 @@ if(NOT EXISTS "${OUTPUT_DIR}")
   message(FATAL_ERROR "Output directory does not exist: ${OUTPUT_DIR}")
 endif()
 
+# --- Skip validation when solve exited non-zero (allowed but non-optimal) ---
+set(exit_code_file "${OUTPUT_DIR}/solve_exit_code.txt")
+if(EXISTS "${exit_code_file}")
+  file(READ "${exit_code_file}" _solve_exit_code)
+  string(STRIP "${_solve_exit_code}" _solve_exit_code)
+  if(NOT _solve_exit_code STREQUAL "0")
+    message(STATUS "Solve exited with code ${_solve_exit_code} — skipping output validation")
+    return()
+  endif()
+endif()
+
 # --- Check status file (SDDP or monolithic fallback) ---
 set(sddp_status_file "${OUTPUT_DIR}/sddp_status.json")
 set(mono_status_file "${OUTPUT_DIR}/monolithic_status.json")

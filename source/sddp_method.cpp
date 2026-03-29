@@ -1861,17 +1861,26 @@ auto SDDPPlanningMethod::solve(PlanningLP& planning_lp,
     });
   }
 
-  // Return 1 if converged, 0 otherwise
-  if (!m_last_results_.empty() && m_last_results_.back().converged) {
-    return 1;
+  // Return 0 on success.
+  // Reaching max_iterations without convergence is still a valid result:
+  // the simulation pass already produced a final forward-pass solution,
+  // so we return success to allow write_out() and exit(0).
+  if (!m_last_results_.empty()) {
+    const auto& last = m_last_results_.back();
+    if (last.converged) {
+      SPDLOG_INFO("SDDP: converged (gap={:.6f})", last.gap);
+    } else {
+      SPDLOG_WARN(
+          "SDDP: max_iterations reached without convergence "
+          "(gap={:.6f}), returning best solution",
+          last.gap);
+    }
+    return 0;
   }
 
   return std::unexpected(Error {
       .code = ErrorCode::SolverError,
-      .message = std::format(
-          "SDDP did not converge after {} iterations (gap={:.6f})",
-          m_last_results_.empty() ? 0 : m_last_results_.back().iteration,
-          m_last_results_.empty() ? 1.0 : m_last_results_.back().gap),
+      .message = "SDDP produced no iteration results",
   });
 }
 
