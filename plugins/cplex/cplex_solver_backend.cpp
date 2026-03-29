@@ -761,8 +761,32 @@ bool CplexSolverBackend::is_proven_dual_infeasible() const
   return stat == CPX_STAT_UNBOUNDED || stat == CPXMIP_UNBOUNDED;
 }
 
+LPAlgo CplexSolverBackend::get_algorithm() const
+{
+  return m_algorithm_;
+}
+
+int CplexSolverBackend::get_threads() const
+{
+  return m_threads_;
+}
+
+bool CplexSolverBackend::get_presolve() const
+{
+  return m_presolve_;
+}
+
+int CplexSolverBackend::get_log_level() const
+{
+  return m_log_level_;
+}
+
 void CplexSolverBackend::apply_options(const SolverOptions& opts)
 {
+  m_algorithm_ = opts.algorithm;
+  m_threads_ = opts.threads;
+  m_presolve_ = opts.presolve;
+  m_log_level_ = opts.log_level;
   if (opts.threads > 0) {
     CPXsetintparam(m_env_, CPX_PARAM_THREADS, opts.threads);
   }
@@ -781,7 +805,10 @@ void CplexSolverBackend::apply_options(const SolverOptions& opts)
     CPXsetdblparam(m_env_, CPX_PARAM_TILIM, *tl);
   }
 
-  if (opts.reuse_basis) {
+  if (opts.reuse_basis && opts.algorithm != LPAlgo::barrier) {
+    m_algorithm_ = LPAlgo::dual;
+    m_presolve_ = false;
+
     // Dual simplex with warm start
     CPXsetintparam(m_env_, CPX_PARAM_LPMETHOD, CPX_ALG_DUAL);
     CPXsetintparam(m_env_, CPX_PARAM_PREIND, CPX_OFF);

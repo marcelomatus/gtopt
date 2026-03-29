@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <cstdio>
 #include <memory>
 #include <string>
 
@@ -122,6 +123,10 @@ public:
 
   // ---- options ----
   void apply_options(const SolverOptions& opts) override;
+  [[nodiscard]] LPAlgo get_algorithm() const override;
+  [[nodiscard]] int get_threads() const override;
+  [[nodiscard]] bool get_presolve() const override;
+  [[nodiscard]] int get_log_level() const override;
 
   // ---- diagnostics ----
   [[nodiscard]] double get_kappa() const override;
@@ -129,6 +134,8 @@ public:
   // ---- logging ----
   void open_log(FILE* file, int level) override;
   void close_log() override;
+  void set_log_filename(const std::string& filename, int level) override;
+  void clear_log_filename() override;
 
   // ---- names ----
   void push_names(const std::vector<std::string>& col_names,
@@ -142,6 +149,17 @@ private:
   OsiSolverType m_type_;
   std::shared_ptr<OsiSolverInterface> m_solver_;
   std::unique_ptr<CoinMessageHandler> m_handler_;
+
+  // Cached option values (updated by apply_options)
+  LPAlgo m_algorithm_ {LPAlgo::default_algo};
+  int m_threads_ {0};
+  bool m_presolve_ {true};
+  int m_log_level_ {0};
+
+  /// Owned FILE* for set_log_filename; closed in clear_log_filename.
+  using log_file_ptr_t =
+      std::unique_ptr<FILE, decltype([](FILE* f) { std::fclose(f); })>;
+  log_file_ptr_t m_log_file_ptr_;
 };
 
 }  // namespace gtopt

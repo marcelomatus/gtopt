@@ -19,6 +19,7 @@
 #include <string_view>
 
 #include <gtopt/enum_option.hpp>
+#include <gtopt/utils.hpp>
 
 namespace gtopt
 {
@@ -36,7 +37,7 @@ enum class SolverLogMode : uint8_t
   detailed = 1,  ///< Separate log files per scene/phase/aperture
 };
 
-inline constexpr auto solver_log_mode_entries =
+inline constexpr auto log_mode_entries =
     std::to_array<EnumEntry<SolverLogMode>>({
         {.name = "nolog", .value = SolverLogMode::nolog},
         {.name = "detailed", .value = SolverLogMode::detailed},
@@ -45,7 +46,7 @@ inline constexpr auto solver_log_mode_entries =
 /// ADL customization point for NamedEnum concept
 constexpr auto enum_entries(SolverLogMode /*tag*/) noexcept
 {
-  return std::span {solver_log_mode_entries};
+  return std::span {log_mode_entries};
 }
 
 /**
@@ -130,7 +131,7 @@ struct SolverOptions
    * - `detailed`:  Separate log file per scene/phase/aperture, named
    *                `<solver>_sc<N>_ph<N>[_ap<N>].log`.
    */
-  std::optional<SolverLogMode> solver_log_mode {};
+  std::optional<SolverLogMode> log_mode {};
 
   /** @brief Time limit for individual LP solves in seconds.
    *  0 = no limit (solver default).  When non-zero, the solver will abort
@@ -161,20 +162,13 @@ struct SolverOptions
    * fields (algorithm, threads, presolve, log_level) are not changed by
    * merge — they keep their already-set values.
    */
-  void merge(const SolverOptions& other) noexcept
+  void merge(const SolverOptions& other)
   {
-    if (!optimal_eps && other.optimal_eps) {
-      optimal_eps = other.optimal_eps;
-    }
-    if (!feasible_eps && other.feasible_eps) {
-      feasible_eps = other.feasible_eps;
-    }
-    if (!barrier_eps && other.barrier_eps) {
-      barrier_eps = other.barrier_eps;
-    }
-    if (!time_limit && other.time_limit) {
-      time_limit = other.time_limit;
-    }
+    merge_opt(optimal_eps, other.optimal_eps);
+    merge_opt(feasible_eps, other.feasible_eps);
+    merge_opt(barrier_eps, other.barrier_eps);
+    merge_opt(time_limit, other.time_limit);
+    merge_opt(log_mode, other.log_mode);
   }
 };
 

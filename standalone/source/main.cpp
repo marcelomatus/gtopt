@@ -34,15 +34,9 @@ int main(int argc, char** argv)
     try {
       auto parser = po::command_line_parser(argc, argv)
                         .options(desc)
-                        .allow_unregistered()
                         .positional(pos_desc);
       po::store(parser, vm);
       po::notify(vm);
-
-      // Warn about any unrecognised options
-      for (const auto& opt : parser.unrecognized()) {
-        std::cerr << "WARNING: unknown option '" << opt << "' ignored\n";
-      }
     } catch (po::parse_error& e) {
       std::cout << "ERROR: " << e.what() << "\n";
       std::cout << desc << "\n";

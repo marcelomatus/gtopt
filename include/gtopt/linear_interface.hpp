@@ -204,6 +204,24 @@ public:
     return std::format("{}/{}", solver_name(), solver_version());
   }
 
+  /// Currently configured LP algorithm.
+  [[nodiscard]] LPAlgo get_algorithm() const
+  {
+    return m_backend_->get_algorithm();
+  }
+
+  /// Currently configured thread count (0 = solver default).
+  [[nodiscard]] int get_threads() const { return m_backend_->get_threads(); }
+
+  /// Whether presolve is currently enabled.
+  [[nodiscard]] bool get_presolve() const { return m_backend_->get_presolve(); }
+
+  /// Current solver log verbosity level (0 = off).
+  [[nodiscard]] int get_log_level() const
+  {
+    return m_backend_->get_log_level();
+  }
+
   /// Solver's representation of +infinity for variable bounds.
   [[nodiscard]] double infinity() const noexcept
   {

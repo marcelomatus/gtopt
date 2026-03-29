@@ -515,7 +515,7 @@ std::expected<int, Error> LinearInterface::initial_solve(
     m_backend_->apply_options(solver_options);
 
     const auto log_mode =
-        solver_options.solver_log_mode.value_or(SolverLogMode::nolog);
+        solver_options.log_mode.value_or(SolverLogMode::nolog);
     const auto log_level = log_mode != SolverLogMode::nolog
         ? std::max(solver_options.log_level, 1)
         : solver_options.log_level;
@@ -559,7 +559,7 @@ std::expected<int, Error> LinearInterface::resolve(
     m_backend_->apply_options(solver_options);
 
     const auto log_mode =
-        solver_options.solver_log_mode.value_or(SolverLogMode::nolog);
+        solver_options.log_mode.value_or(SolverLogMode::nolog);
     const auto log_level = log_mode != SolverLogMode::nolog
         ? std::max(solver_options.log_level, 1)
         : solver_options.log_level;

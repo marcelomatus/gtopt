@@ -278,7 +278,7 @@ auto solve_apertures_for_phase(
 
           // Configure solver log file for aperture clone
           const auto log_mode =
-              aperture_opts.solver_log_mode.value_or(SolverLogMode::nolog);
+              aperture_opts.log_mode.value_or(SolverLogMode::nolog);
           if (log_mode == SolverLogMode::detailed && !log_directory.empty()) {
             clone.set_log_file((std::filesystem::path(log_directory)
                                 / std::format("{}_sc{}_ph{}_ap{}",

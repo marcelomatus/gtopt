@@ -373,8 +373,8 @@ public:
   [[nodiscard]] auto sddp_forward_solver_options() const -> SolverOptions
   {
     if (m_options_.sddp_options.forward_solver_options.has_value()) {
-      auto opts = *m_options_.sddp_options.forward_solver_options;
-      opts.merge(m_options_.solver_options);
+      auto opts = m_options_.solver_options;
+      opts.merge(*m_options_.sddp_options.forward_solver_options);
       return opts;
     }
     return m_options_.solver_options;
@@ -391,8 +391,8 @@ public:
   [[nodiscard]] auto sddp_backward_solver_options() const -> SolverOptions
   {
     if (m_options_.sddp_options.backward_solver_options.has_value()) {
-      auto opts = *m_options_.sddp_options.backward_solver_options;
-      opts.merge(m_options_.solver_options);
+      auto opts = m_options_.solver_options;
+      opts.merge(*m_options_.sddp_options.backward_solver_options);
       return opts;
     }
     return m_options_.solver_options;
@@ -425,8 +425,8 @@ public:
   [[nodiscard]] auto monolithic_solver_options() const -> SolverOptions
   {
     if (m_options_.monolithic_options.solver_options.has_value()) {
-      auto opts = *m_options_.monolithic_options.solver_options;
-      opts.merge(m_options_.solver_options);
+      auto opts = m_options_.solver_options;
+      opts.merge(*m_options_.monolithic_options.solver_options);
       return opts;
     }
     return m_options_.solver_options;

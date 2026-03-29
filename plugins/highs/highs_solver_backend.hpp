@@ -111,6 +111,10 @@ public:
 
   // ---- options ----
   void apply_options(const SolverOptions& opts) override;
+  [[nodiscard]] LPAlgo get_algorithm() const override;
+  [[nodiscard]] int get_threads() const override;
+  [[nodiscard]] bool get_presolve() const override;
+  [[nodiscard]] int get_log_level() const override;
 
   // ---- diagnostics ----
   [[nodiscard]] double get_kappa() const override;
@@ -132,6 +136,12 @@ public:
 private:
   std::unique_ptr<Highs> m_highs_;
   std::string m_prob_name_;
+
+  // Cached option values (updated by apply_options)
+  LPAlgo m_algorithm_ {LPAlgo::default_algo};
+  int m_threads_ {0};
+  bool m_presolve_ {true};
+  int m_log_level_ {0};
 
   // Cached solution vectors (HiGHS returns by reference, we store copies)
   mutable std::vector<double> m_col_solution_;

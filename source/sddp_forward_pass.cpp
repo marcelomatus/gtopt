@@ -156,9 +156,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
       li.set_warm_start_solution(state.forward_col_sol, state.forward_row_dual);
     }
 
-    // Configure solver log file based on solver_log_mode.
-    // Configure per-solve log file when solver_log_mode is detailed.
-    if (effective_opts.solver_log_mode.value_or(SolverLogMode::nolog)
+    // Configure solver log file based on log_mode.
+    // Configure per-solve log file when log_mode is detailed.
+    if (effective_opts.log_mode.value_or(SolverLogMode::nolog)
             == SolverLogMode::detailed
         && !m_options_.log_directory.empty())
     {

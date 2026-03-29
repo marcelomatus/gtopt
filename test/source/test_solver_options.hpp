@@ -16,6 +16,8 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_solver_options.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/planning_options.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_registry.hpp>
 
@@ -31,7 +33,7 @@ TEST_CASE("SolverOptions - Default construction")
   CHECK(options.threads == 2);
   CHECK(options.presolve == true);
   CHECK(options.log_level == 0);
-  CHECK_FALSE(options.solver_log_mode.has_value());
+  CHECK_FALSE(options.log_mode.has_value());
 
   // Tolerance fields are nullopt by default — solver uses its own defaults
   CHECK_FALSE(options.optimal_eps.has_value());
@@ -217,9 +219,10 @@ TEST_CASE("SolverOptions - Numerical parameters")
   }
 }
 
-TEST_CASE("SolverOptions - merge() only applies to optional tolerance fields")
+TEST_CASE(  // NOLINT
+    "SolverOptions - merge() uses merge_opt (source wins) on optional fields")
 {
-  SUBCASE("merge sets nullopt tolerance from non-null source")
+  SUBCASE("merge sets nullopt field from source")
   {
     SolverOptions dest {};
     const SolverOptions src {
@@ -233,7 +236,7 @@ TEST_CASE("SolverOptions - merge() only applies to optional tolerance fields")
     CHECK_FALSE(dest.barrier_eps.has_value());
   }
 
-  SUBCASE("merge first-wins: existing value is not overwritten")
+  SUBCASE("merge source wins: source overwrites existing value")
   {
     SolverOptions dest {
         .optimal_eps = 1e-6,
@@ -243,7 +246,19 @@ TEST_CASE("SolverOptions - merge() only applies to optional tolerance fields")
     };
     dest.merge(src);
 
-    // First-file value should win
+    // Source value should win (merge_opt semantics)
+    CHECK(dest.optimal_eps.value_or(0.0) == doctest::Approx(1e-10));
+  }
+
+  SUBCASE("merge leaves dest when source is nullopt")
+  {
+    SolverOptions dest {
+        .optimal_eps = 1e-6,
+    };
+    const SolverOptions src {};
+    dest.merge(src);
+
+    // Dest keeps its value when source is nullopt
     CHECK(dest.optimal_eps.value_or(0.0) == doctest::Approx(1e-6));
   }
 
@@ -271,7 +286,7 @@ TEST_CASE("SolverOptions - merge() only applies to optional tolerance fields")
     CHECK(dest.time_limit.value_or(0.0) == doctest::Approx(300.0));
   }
 
-  SUBCASE("merge does not overwrite existing barrier_eps and time_limit")
+  SUBCASE("merge source overwrites existing barrier_eps and time_limit")
   {
     SolverOptions dest {
         .barrier_eps = 1e-6,
@@ -283,9 +298,118 @@ TEST_CASE("SolverOptions - merge() only applies to optional tolerance fields")
     };
     dest.merge(src);
 
-    CHECK(dest.barrier_eps.value_or(0.0) == doctest::Approx(1e-6));
-    CHECK(dest.time_limit.value_or(0.0) == doctest::Approx(60.0));
+    CHECK(dest.barrier_eps.value_or(0.0) == doctest::Approx(1e-12));
+    CHECK(dest.time_limit.value_or(0.0) == doctest::Approx(600.0));
   }
+
+  SUBCASE("merge sets log_mode from source when dest is nullopt")
+  {
+    SolverOptions dest {};
+    const SolverOptions src {
+        .log_mode = SolverLogMode::detailed,
+    };
+    dest.merge(src);
+
+    REQUIRE(dest.log_mode.has_value());
+    CHECK(*dest.log_mode == SolverLogMode::detailed);
+  }
+
+  SUBCASE("merge source overwrites existing log_mode")
+  {
+    SolverOptions dest {
+        .log_mode = SolverLogMode::nolog,
+    };
+    const SolverOptions src {
+        .log_mode = SolverLogMode::detailed,
+    };
+    dest.merge(src);
+
+    REQUIRE(dest.log_mode.has_value());
+    CHECK(*dest.log_mode == SolverLogMode::detailed);
+  }
+
+  SUBCASE("merge preserves dest log_mode when source is nullopt")
+  {
+    SolverOptions dest {
+        .log_mode = SolverLogMode::nolog,
+    };
+    const SolverOptions src {};
+    dest.merge(src);
+
+    REQUIRE(dest.log_mode.has_value());
+    CHECK(*dest.log_mode == SolverLogMode::nolog);
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "SolverOptions - PlanningOptionsLP merge: method-specific overrides global")
+{
+  // Verify that method-specific solver options (e.g. sddp forward)
+  // override global solver_options, and global fills in the rest.
+  PlanningOptions planning;
+  planning.solver_options.optimal_eps = 1e-6;
+  planning.solver_options.feasible_eps = 1e-7;
+  planning.solver_options.log_mode = SolverLogMode::detailed;
+
+  // SDDP forward overrides optimal_eps but not feasible_eps or log_mode
+  SolverOptions fwd_opts;
+  fwd_opts.optimal_eps = 1e-10;
+  planning.sddp_options.forward_solver_options = fwd_opts;
+
+  PlanningOptionsLP plp(planning);
+  const auto resolved = plp.sddp_forward_solver_options();
+
+  // Method-specific wins for optimal_eps
+  CHECK(resolved.optimal_eps.value_or(0.0) == doctest::Approx(1e-10));
+  // Global fills in feasible_eps (not set in method-specific)
+  CHECK(resolved.feasible_eps.value_or(0.0) == doctest::Approx(1e-7));
+  // Global fills in log_mode (not set in method-specific)
+  REQUIRE(resolved.log_mode.has_value());
+  CHECK(*resolved.log_mode == SolverLogMode::detailed);
+}
+
+TEST_CASE(  // NOLINT
+    "SolverOptions - PlanningOptionsLP merge: monolithic overrides global")
+{
+  PlanningOptions planning;
+  planning.solver_options.barrier_eps = 1e-8;
+  planning.solver_options.log_mode = SolverLogMode::nolog;
+
+  // Monolithic overrides log_mode but not barrier_eps
+  SolverOptions mono_opts;
+  mono_opts.log_mode = SolverLogMode::detailed;
+  planning.monolithic_options.solver_options = mono_opts;
+
+  PlanningOptionsLP plp(planning);
+  const auto resolved = plp.monolithic_solver_options();
+
+  // Monolithic wins for log_mode
+  REQUIRE(resolved.log_mode.has_value());
+  CHECK(*resolved.log_mode == SolverLogMode::detailed);
+  // Global fills in barrier_eps
+  CHECK(resolved.barrier_eps.value_or(0.0) == doctest::Approx(1e-8));
+}
+
+TEST_CASE(  // NOLINT
+    "SolverOptions - PlanningOptionsLP: no method-specific falls back to "
+    "global")
+{
+  PlanningOptions planning;
+  planning.solver_options.optimal_eps = 1e-6;
+  planning.solver_options.log_mode = SolverLogMode::detailed;
+
+  // No method-specific options set
+  PlanningOptionsLP plp(planning);
+
+  const auto mono = plp.monolithic_solver_options();
+  CHECK(mono.optimal_eps.value_or(0.0) == doctest::Approx(1e-6));
+  REQUIRE(mono.log_mode.has_value());
+  CHECK(*mono.log_mode == SolverLogMode::detailed);
+
+  const auto fwd = plp.sddp_forward_solver_options();
+  CHECK(fwd.optimal_eps.value_or(0.0) == doctest::Approx(1e-6));
+  REQUIRE(fwd.log_mode.has_value());
+  CHECK(*fwd.log_mode == SolverLogMode::detailed);
 }
 
 TEST_CASE("SolverOptions - Threading options")
@@ -587,37 +711,256 @@ TEST_CASE(
   }
 }
 
-TEST_CASE("SolverOptions - solver_log_mode detailed writes log file")  // NOLINT
+TEST_CASE("SolverOptions - log_mode detailed writes log file")  // NOLINT
 {
-  const auto log_dir =
-      std::filesystem::temp_directory_path() / "gtopt_test_solver_logs";
-  std::filesystem::create_directories(log_dir);
-
   const auto& reg = SolverRegistry::instance();
-  const auto solver_name = std::string(reg.default_solver());
-  REQUIRE(!solver_name.empty());
+  const auto solvers = reg.available_solvers();
+  REQUIRE(!solvers.empty());
 
-  auto lp = make_barrier_test_lp(solver_name);
+  for (const auto& solver_name : solvers) {
+    CAPTURE(solver_name);
 
-  const auto log_stem = (log_dir / solver_name).string();
-  lp.set_log_file(log_stem);
+    SUBCASE(std::string(solver_name).c_str())
+    {
+      const auto log_dir = std::filesystem::temp_directory_path()
+          / std::format("gtopt_test_solver_logs_{}", solver_name);
+      std::filesystem::remove_all(log_dir);
+      std::filesystem::create_directories(log_dir);
 
-  const SolverOptions opts {
-      .algorithm = LPAlgo::barrier,
-      .log_level = 1,
-      .solver_log_mode = SolverLogMode::detailed,
-  };
+      SUBCASE("initial_solve creates log file")
+      {
+        auto lp = make_barrier_test_lp(solver_name);
+        const auto log_stem = (log_dir / "initial_solve").string();
+        lp.set_log_file(log_stem);
 
-  const auto result = lp.initial_solve(opts);
-  CHECK(result.has_value());
-  CHECK(lp.is_optimal());
+        const SolverOptions opts {
+            .algorithm = LPAlgo::barrier,
+            .log_level = 1,
+            .log_mode = SolverLogMode::detailed,
+        };
 
-  // Check that the log file was created (backend-dependent)
-  const auto log_path = std::format("{}.log", log_stem);
-  const bool log_exists = std::filesystem::exists(log_path);
-  if (log_exists) {
-    CHECK(std::filesystem::file_size(log_path) > 0);
+        const auto result = lp.initial_solve(opts);
+        CHECK(result.has_value());
+        CHECK(lp.is_optimal());
+
+        const auto log_path = std::format("{}.log", log_stem);
+        REQUIRE(std::filesystem::exists(log_path));
+        CHECK(std::filesystem::file_size(log_path) > 0);
+      }
+
+      SUBCASE("resolve creates log file")
+      {
+        auto lp = make_barrier_test_lp(solver_name);
+        const auto log_stem = (log_dir / "resolve").string();
+        lp.set_log_file(log_stem);
+
+        // First do initial_solve without logging
+        const SolverOptions init_opts {
+            .algorithm = LPAlgo::barrier,
+        };
+        auto r1 = lp.initial_solve(init_opts);
+        REQUIRE(r1.has_value());
+
+        // Modify a bound and resolve with logging enabled
+        lp.set_row_low(RowIndex {0}, 6.0);
+
+        const SolverOptions resolve_opts {
+            .algorithm = LPAlgo::dual,
+            .log_level = 1,
+            .log_mode = SolverLogMode::detailed,
+        };
+
+        const auto result = lp.resolve(resolve_opts);
+        CHECK(result.has_value());
+        CHECK(lp.is_optimal());
+        CHECK(lp.get_obj_value() == doctest::Approx(18.0));
+
+        const auto log_path = std::format("{}.log", log_stem);
+        REQUIRE(std::filesystem::exists(log_path));
+        CHECK(std::filesystem::file_size(log_path) > 0);
+      }
+
+      SUBCASE("nolog mode without log file does not create file")
+      {
+        auto lp = make_barrier_test_lp(solver_name);
+        // Do NOT call set_log_file — nolog should produce no file
+
+        const auto log_stem = (log_dir / "nolog").string();
+
+        const SolverOptions opts {
+            .algorithm = LPAlgo::barrier,
+            .log_level = 1,
+            .log_mode = SolverLogMode::nolog,
+        };
+
+        const auto result = lp.initial_solve(opts);
+        CHECK(result.has_value());
+        CHECK(lp.is_optimal());
+        CHECK(lp.get_obj_value() == doctest::Approx(17.0));
+
+        const auto log_path = std::format("{}.log", log_stem);
+        CHECK_FALSE(std::filesystem::exists(log_path));
+      }
+
+      std::filesystem::remove_all(log_dir);
+    }
   }
+}
 
-  std::filesystem::remove_all(log_dir);
+TEST_CASE("SolverOptions - query methods reflect applied options")  // NOLINT
+{
+  const auto& reg = SolverRegistry::instance();
+  const auto solvers = reg.available_solvers();
+  REQUIRE(!solvers.empty());
+
+  for (const auto& solver_name : solvers) {
+    CAPTURE(solver_name);
+
+    SUBCASE(std::string(solver_name).c_str())
+    {
+      SUBCASE("barrier algorithm with custom settings")
+      {
+        auto lp = make_barrier_test_lp(solver_name);
+
+        const SolverOptions opts {
+            .algorithm = LPAlgo::barrier,
+            .threads = 4,
+            .presolve = false,
+            .log_level = 2,
+        };
+
+        const auto result = lp.initial_solve(opts);
+        CHECK(result.has_value());
+        CHECK(lp.is_optimal());
+
+        CHECK(lp.get_algorithm() == LPAlgo::barrier);
+        CHECK(lp.get_threads() == 4);
+        CHECK(lp.get_presolve() == false);
+        CHECK(lp.get_log_level() == 2);
+      }
+
+      SUBCASE("dual algorithm with presolve enabled")
+      {
+        auto lp = make_barrier_test_lp(solver_name);
+
+        const SolverOptions opts {
+            .algorithm = LPAlgo::dual,
+            .threads = 1,
+            .presolve = true,
+            .log_level = 0,
+        };
+
+        const auto result = lp.initial_solve(opts);
+        CHECK(result.has_value());
+        CHECK(lp.is_optimal());
+
+        CHECK(lp.get_algorithm() == LPAlgo::dual);
+        CHECK(lp.get_threads() == 1);
+        CHECK(lp.get_presolve() == true);
+        CHECK(lp.get_log_level() == 0);
+      }
+
+      SUBCASE("reuse_basis with dual overrides to dual, no presolve")
+      {
+        auto lp = make_barrier_test_lp(solver_name);
+
+        // Initial solve with barrier
+        const SolverOptions barrier_opts {
+            .algorithm = LPAlgo::barrier,
+            .threads = 2,
+        };
+        auto r1 = lp.initial_solve(barrier_opts);
+        REQUIRE(r1.has_value());
+        CHECK(lp.get_algorithm() == LPAlgo::barrier);
+
+        // Resolve with reuse_basis + dual — should override to dual
+        lp.set_row_low(RowIndex {0}, 6.0);
+
+        const SolverOptions reuse_opts {
+            .algorithm = LPAlgo::dual,
+            .threads = 2,
+            .presolve = true,
+            .reuse_basis = true,
+        };
+
+        const auto result = lp.resolve(reuse_opts);
+        CHECK(result.has_value());
+        CHECK(lp.is_optimal());
+        CHECK(lp.get_obj_value() == doctest::Approx(18.0));
+
+        CHECK(lp.get_algorithm() == LPAlgo::dual);
+        CHECK(lp.get_presolve() == false);
+        CHECK(lp.get_threads() == 2);
+      }
+
+      SUBCASE("reuse_basis with barrier keeps barrier algorithm")
+      {
+        auto lp = make_barrier_test_lp(solver_name);
+
+        // Initial solve with barrier
+        const SolverOptions barrier_opts {
+            .algorithm = LPAlgo::barrier,
+            .threads = 2,
+        };
+        auto r1 = lp.initial_solve(barrier_opts);
+        REQUIRE(r1.has_value());
+
+        // Resolve with reuse_basis + barrier — should keep barrier
+        lp.set_row_low(RowIndex {0}, 6.0);
+
+        const SolverOptions reuse_opts {
+            .algorithm = LPAlgo::barrier,
+            .threads = 2,
+            .presolve = true,
+            .reuse_basis = true,
+        };
+
+        const auto result = lp.resolve(reuse_opts);
+        CHECK(result.has_value());
+        CHECK(lp.is_optimal());
+        CHECK(lp.get_obj_value() == doctest::Approx(18.0));
+
+        CHECK(lp.get_algorithm() == LPAlgo::barrier);
+        CHECK(lp.get_presolve() == true);
+        CHECK(lp.get_threads() == 2);
+      }
+
+      SUBCASE("options update on successive apply_options calls")
+      {
+        auto lp = make_barrier_test_lp(solver_name);
+
+        // First solve with barrier
+        const SolverOptions opts1 {
+            .algorithm = LPAlgo::barrier,
+            .threads = 4,
+            .presolve = false,
+            .log_level = 1,
+        };
+        auto r1 = lp.initial_solve(opts1);
+        CHECK(r1.has_value());
+
+        CHECK(lp.get_algorithm() == LPAlgo::barrier);
+        CHECK(lp.get_threads() == 4);
+        CHECK(lp.get_presolve() == false);
+        CHECK(lp.get_log_level() == 1);
+
+        // Then resolve with dual
+        lp.set_row_low(RowIndex {0}, 6.0);
+
+        const SolverOptions opts2 {
+            .algorithm = LPAlgo::dual,
+            .threads = 1,
+            .presolve = true,
+            .log_level = 0,
+        };
+        auto r2 = lp.resolve(opts2);
+        CHECK(r2.has_value());
+
+        CHECK(lp.get_algorithm() == LPAlgo::dual);
+        CHECK(lp.get_threads() == 1);
+        CHECK(lp.get_presolve() == true);
+        CHECK(lp.get_log_level() == 0);
+      }
+    }
+  }
 }

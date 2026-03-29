@@ -78,9 +78,7 @@ struct CascadeLevelMethod
   {
     merge_opt(max_iterations, opts.max_iterations);
     merge_opt(min_iterations, opts.min_iterations);
-    if (opts.apertures.has_value()) {
-      apertures = opts.apertures;
-    }
+    merge_opt(apertures, opts.apertures);
     merge_opt(convergence_tol, opts.convergence_tol);
   }
 };
