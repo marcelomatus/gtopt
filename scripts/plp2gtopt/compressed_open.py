@@ -21,7 +21,7 @@ import io
 import lzma
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import IO
+from typing import IO, cast
 
 # Probe order: most common first.
 _EXTENSIONS = (".xz", ".gz", ".zst", ".lz4", ".bz2")
@@ -34,7 +34,7 @@ _DECOMPRESS_THREADS = 4
 
 
 def _open_gz(path: Path) -> IO[bytes]:
-    return gzip.open(path, "rb")
+    return cast(IO[bytes], gzip.open(path, "rb"))
 
 
 def _open_bz2(path: Path) -> IO[bytes]:
@@ -47,24 +47,23 @@ def _open_xz(path: Path) -> IO[bytes]:
 
 def _open_zst(path: Path) -> IO[bytes]:
     try:
-        import zstandard  # type: ignore[import-untyped]
+        import zstandard
     except ImportError as exc:
         raise ImportError(
             f"zstandard package required to read {path}; "
             "install with: pip install zstandard"
         ) from exc
     dctx = zstandard.ZstdDecompressor()
-    fh = open(path, "rb")  # noqa: SIM115
+    fh = open(path, "rb")  # noqa: SIM115  # pylint: disable=consider-using-with
     return dctx.stream_reader(fh, closefd=True)
 
 
 def _open_lz4(path: Path) -> IO[bytes]:
     try:
-        import lz4.frame  # type: ignore[import-untyped]
+        import lz4.frame
     except ImportError as exc:
         raise ImportError(
-            f"lz4 package required to read {path}; "
-            "install with: pip install lz4"
+            f"lz4 package required to read {path}; install with: pip install lz4"
         ) from exc
     return lz4.frame.open(path, "rb")
 
@@ -106,11 +105,13 @@ def _find_split_parts(path: Path) -> list[Path] | None:
     for ext in _EXTENSIONS:
         part_1 = parent / f"{name}.1{ext}"
         if part_1.exists():
+
+            def _sort_key(p: Path, _ext: str = ext) -> int:
+                return int(p.name.removeprefix(f"{name}.").removesuffix(_ext))
+
             parts = sorted(
                 parent.glob(f"{name}.[0-9]*{ext}"),
-                key=lambda p: int(
-                    p.name.removeprefix(f"{name}.").removesuffix(ext)
-                ),
+                key=_sort_key,
             )
             if parts:
                 return parts
@@ -211,9 +212,7 @@ def compressed_open(
         parts = _find_split_parts(base_path)
         if parts and len(parts) > 1:
             binary_stream = _open_split_parts(parts)
-            return io.TextIOWrapper(
-                binary_stream, encoding=encoding, errors=errors
-            )
+            return io.TextIOWrapper(binary_stream, encoding=encoding, errors=errors)
 
     # Single file — check suffix for compression
     suffix = path.suffix.lower()

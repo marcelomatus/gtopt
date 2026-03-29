@@ -184,9 +184,7 @@ class TestSplitFiles:
 
     def test_four_xz_parts_in_order(self, tmp: Path) -> None:
         for i in range(1, 5):
-            self._write_xz_part(
-                tmp / f"data.dat.{i}.xz", f"part{i}\n".encode()
-            )
+            self._write_xz_part(tmp / f"data.dat.{i}.xz", f"part{i}\n".encode())
         with compressed_open(tmp / "data.dat.1.xz") as fh:
             assert fh.read() == "part1\npart2\npart3\npart4\n"
 
@@ -228,6 +226,8 @@ class TestBaseParserIntegration:
             fh.write(content.encode("ascii"))
 
         class StubParser(BaseParser):
+            lines: list[str] = []
+
             def parse(self, parsers=None):
                 self.lines = self._read_non_empty_lines()
 
@@ -246,6 +246,8 @@ class TestBaseParserIntegration:
             fh.write(b"# comment\nline3\n")
 
         class StubParser(BaseParser):
+            lines: list[str] = []
+
             def parse(self, parsers=None):
                 self.lines = self._read_non_empty_lines()
 
