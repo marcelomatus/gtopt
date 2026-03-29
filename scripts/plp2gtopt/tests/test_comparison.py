@@ -380,8 +380,8 @@ def test_log_comparison_seepages_res_eff(
     _log_comparison(plp, gtopt)
 
     output = capsys.readouterr().err
-    assert "reservoir efficiencies" in output
-    assert "seepages" in output
+    assert "reservoir production factors" in output
+    assert "reservoir seepages" in output
 
 
 def test_log_comparison_demand_delta(capsys: pytest.CaptureFixture) -> None:
