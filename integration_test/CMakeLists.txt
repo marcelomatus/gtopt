@@ -49,6 +49,8 @@ else()
     gtopt::gtopt
   )
 
+  set(GTOPT_EXECUTABLE_TARGET ${PROJECT_NAME})
+
   include(Coverage)
   if(ENABLE_TEST_COVERAGE)
     target_enable_coverage(${PROJECT_NAME})
