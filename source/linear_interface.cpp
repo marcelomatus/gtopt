@@ -514,8 +514,19 @@ std::expected<int, Error> LinearInterface::initial_solve(
   try {
     m_backend_->apply_options(solver_options);
 
-    {
-      const HandlerGuard guard(*this, solver_options.log_level);
+    const auto log_mode =
+        solver_options.solver_log_mode.value_or(SolverLogMode::nolog);
+    const auto log_level = log_mode != SolverLogMode::nolog
+        ? std::max(solver_options.log_level, 1)
+        : solver_options.log_level;
+
+    if (log_mode != SolverLogMode::nolog && !m_log_file_.empty()) {
+      // Use native file-based logging (set_log_filename API)
+      const LogFileGuard log_guard(*this, m_log_file_, log_level);
+      m_backend_->initial_solve();
+    } else {
+      // Use legacy FILE*-based logging (open_log API)
+      const HandlerGuard guard(*this, log_level);
       m_backend_->initial_solve();
     }
 
@@ -547,8 +558,19 @@ std::expected<int, Error> LinearInterface::resolve(
   try {
     m_backend_->apply_options(solver_options);
 
-    {
-      const HandlerGuard guard(*this, solver_options.log_level);
+    const auto log_mode =
+        solver_options.solver_log_mode.value_or(SolverLogMode::nolog);
+    const auto log_level = log_mode != SolverLogMode::nolog
+        ? std::max(solver_options.log_level, 1)
+        : solver_options.log_level;
+
+    if (log_mode != SolverLogMode::nolog && !m_log_file_.empty()) {
+      // Use native file-based logging (set_log_filename API)
+      const LogFileGuard log_guard(*this, m_log_file_, log_level);
+      m_backend_->resolve();
+    } else {
+      // Use legacy FILE*-based logging (open_log API)
+      const HandlerGuard guard(*this, log_level);
       m_backend_->resolve();
     }
 

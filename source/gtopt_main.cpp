@@ -206,6 +206,14 @@ bool try_set_solver_field(SolverOptions& so,
     so.reuse_basis = (value == "true" || value == "1");
     return true;
   }
+  if (field == "solver_log_mode") {
+    if (const auto mode = enum_from_name<SolverLogMode>(value)) {
+      so.solver_log_mode = mode;
+    } else {
+      so.solver_log_mode = static_cast<SolverLogMode>(std::stoi(value));
+    }
+    return true;
+  }
   return false;
 }
 

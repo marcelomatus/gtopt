@@ -120,6 +120,8 @@ public:
   // ---- logging ----
   void open_log(FILE* file, int level) override;
   void close_log() override;
+  void set_log_filename(const std::string& filename, int level) override;
+  void clear_log_filename() override;
 
   // ---- names & LP output ----
   void push_names(const std::vector<std::string>& col_names,

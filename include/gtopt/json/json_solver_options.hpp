@@ -19,20 +19,25 @@ namespace daw::json
 {
 using gtopt::LPAlgo;
 using gtopt::OptReal;
+using gtopt::SolverLogMode;
 using gtopt::SolverOptions;
+
+using OptSolverLogMode = std::optional<SolverLogMode>;
 
 template<>
 struct json_data_contract<SolverOptions>
 {
-  using type = json_member_list<json_number<"algorithm", LPAlgo>,
-                                json_number<"threads", int>,
-                                json_bool<"presolve", bool>,
-                                json_number_null<"optimal_eps", OptReal>,
-                                json_number_null<"feasible_eps", OptReal>,
-                                json_number_null<"barrier_eps", OptReal>,
-                                json_number<"log_level", int>,
-                                json_number_null<"time_limit", OptReal>,
-                                json_bool<"reuse_basis", bool>>;
+  using type =
+      json_member_list<json_number<"algorithm", LPAlgo>,
+                       json_number<"threads", int>,
+                       json_bool<"presolve", bool>,
+                       json_number_null<"optimal_eps", OptReal>,
+                       json_number_null<"feasible_eps", OptReal>,
+                       json_number_null<"barrier_eps", OptReal>,
+                       json_number<"log_level", int>,
+                       json_number_null<"solver_log_mode", OptSolverLogMode>,
+                       json_number_null<"time_limit", OptReal>,
+                       json_bool<"reuse_basis", bool>>;
 
   constexpr static auto to_json_data(SolverOptions const& opt)
   {
@@ -43,6 +48,7 @@ struct json_data_contract<SolverOptions>
                                  opt.feasible_eps,
                                  opt.barrier_eps,
                                  opt.log_level,
+                                 opt.solver_log_mode,
                                  opt.time_limit,
                                  opt.reuse_basis);
   }
