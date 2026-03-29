@@ -1,0 +1,94 @@
+[2026-03-28 21:08:12.617] [info] trace log file: ./gtopt_case_2y/results/logs/trace_56.log
+[2026-03-28 21:08:12.618] [info]   Parsing input file ./gtopt_case_2y/gtopt_case_2y.json
+[2026-03-28 21:08:12.619] [warning] deprecated option 'use_lp_names': use 'lp_build_options.names_level' instead
+[2026-03-28 21:08:12.661] [info]   Parse all input files time 0.044s
+[2026-03-28 21:08:12.661] [info] --set sddp_options.max_iterations=0 applied
+[2026-03-28 21:08:12.662] [error] --set sddp_options.forward_solver_options.thread=4: JSON parse error: reason: Could not find required class member 'algorithm' 
+location: near line: 1 col: 101361519699078
+"[1mptions":{"sddp_options":{"forward_solver_options":{[0m"
+
+[2026-03-28 21:08:12.662] [error] --set sddp_options.forward_solver_options.algo=barrier: JSON parse error: reason: Could not find required class member 'algorithm' 
+location: near line: 1 col: 101361519699078
+"[1mptions":{"sddp_options":{"forward_solver_options":{[0m"
+
+[2026-03-28 21:08:12.662] [warning] --input-directory is deprecated, use: --set input_directory=./gtopt_case_2y
+[2026-03-28 21:08:12.662] [warning] --output-directory is deprecated, use: --set output_directory=./gtopt_case_2y/results
+[2026-03-28 21:08:12.662] [warning] --cut-directory is deprecated, use: --set sddp_options.cut_directory=./gtopt_case_2y/cuts
+[2026-03-28 21:08:12.662] [warning] --log-directory is deprecated, use: --set log_directory=./gtopt_case_2y/results/logs
+[2026-03-28 21:08:12.662] [info] Output compression codec: zstd
+[2026-03-28 21:08:12.666] [info] Planning validation passed
+[2026-03-28 21:08:12.666] [info] === System statistics ===
+[2026-03-28 21:08:12.666] [info]   System name     : gtopt_case_2y
+[2026-03-28 21:08:12.666] [info]   System version  : 
+[2026-03-28 21:08:12.666] [info] === System elements  ===
+[2026-03-28 21:08:12.666] [info]   Buses           : 236
+[2026-03-28 21:08:12.666] [info]   Generators      : 1715
+[2026-03-28 21:08:12.666] [info]   Generator profs : 0
+[2026-03-28 21:08:12.666] [info]   Demands         : 138
+[2026-03-28 21:08:12.666] [info]   Demand profs    : 0
+[2026-03-28 21:08:12.666] [info]   Lines           : 330
+[2026-03-28 21:08:12.666] [info]   Batteries       : 25
+[2026-03-28 21:08:12.666] [info]   Converters      : 0
+[2026-03-28 21:08:12.666] [info]   Reserve zones   : 0
+[2026-03-28 21:08:12.666] [info]   Reserve provisions   : 0
+[2026-03-28 21:08:12.666] [info]   Junctions       : 100
+[2026-03-28 21:08:12.666] [info]   Waterways       : 136
+[2026-03-28 21:08:12.666] [info]   Flows           : 160
+[2026-03-28 21:08:12.666] [info]   Reservoirs      : 10
+[2026-03-28 21:08:12.666] [info]   ReservoirSeepages     : 3
+[2026-03-28 21:08:12.666] [info]   Turbines        : 170
+[2026-03-28 21:08:12.666] [info] === Simulation statistics ===
+[2026-03-28 21:08:12.666] [info]   Blocks          : 510
+[2026-03-28 21:08:12.666] [info]   Stages          : 51
+[2026-03-28 21:08:12.666] [info]   Scenarios       : 1
+[2026-03-28 21:08:12.666] [info] === Key options ===
+[2026-03-28 21:08:12.666] [info]   use_kirchhoff   : false
+[2026-03-28 21:08:12.666] [info]   use_single_bus  : false
+[2026-03-28 21:08:12.666] [info]   scale_objective : 1000
+[2026-03-28 21:08:12.666] [info]   demand_fail_cost: 1000
+[2026-03-28 21:08:12.666] [info]   input_directory : ./gtopt_case_2y
+[2026-03-28 21:08:12.666] [info]   output_directory: ./gtopt_case_2y/results
+[2026-03-28 21:08:12.666] [info]   output_format   : parquet
+[2026-03-28 21:08:12.666] [info] === Building LP model ===
+[2026-03-28 21:08:12.668] [info] [planning_lp.cpp:44]   Building LP: 1 scene(s) × 51 phase(s)
+[2026-03-28 21:08:12.668] [info]   SolverWorkPool initialized: 25 max threads, 98% CPU threshold
+[2026-03-28 21:08:12.668] [info]   SolverWorkPool started
+[2026-03-28 21:08:29.067] [info] [planning_lp.cpp:105]   Building LP done in 16.399s
+[2026-03-28 21:08:29.068] [info]   WorkPool shutdown complete
+[2026-03-28 21:08:29.068] [info]   Build lp time 16.402s
+[2026-03-28 21:08:29.068] [info]   LP coefficient analysis: 51 LP(s), global |coeff| [6.667e-06, 6.420e+01], ratio=9.63e+06 (fair)
+[2026-03-28 21:08:29.068] [info] === System optimization ===
+[2026-03-28 21:08:29.068] [info] [sddp_method.cpp:1827] SDDPMethod: starting 1 scene(s) × 51 phase(s)
+[2026-03-28 21:08:29.068] [info] [sddp_method.cpp:1078] SDDP: initializing solver (no initial solve pass)
+[2026-03-28 21:08:29.068] [info] [sddp_method.cpp:1090] SDDP: 1 scene(s), 51 phase(s)
+[2026-03-28 21:08:29.068] [info] [sddp_method.cpp:1099] SDDP: adding alpha variables and collecting state links
+[2026-03-28 21:08:29.260] [warning] [sddp_cut_io.cpp:923] Boundary cuts: state variable 'CANUTILLAR' not found in the current model; non-zero coefficient -100.6546958 (mode=skip_coeff)
+[2026-03-28 21:08:29.260] [warning] [sddp_cut_io.cpp:923] Boundary cuts: state variable 'PILMAIQUEN' not found in the current model; non-zero coefficient -11.03538014 (mode=skip_coeff)
+[2026-03-28 21:08:29.261] [info] [sddp_cut_io.cpp:996] SDDP: loaded 35 boundary cuts from gtopt_case_2y/boundary_cuts.csv (mode=separated, max_iters=0)
+[2026-03-28 21:08:29.261] [info] [sddp_method.cpp:1177] SDDP: loaded 35 boundary cuts from gtopt_case_2y/boundary_cuts.csv
+[2026-03-28 21:08:29.261] [info] [sddp_method.cpp:1258] SDDP: initialization complete (0.19s)
+[2026-03-28 21:08:29.261] [info]   SDDPWorkPool initialized: 25 max threads, 98% CPU threshold
+[2026-03-28 21:08:29.261] [info]   SDDPWorkPool started
+[2026-03-28 21:08:29.261] [info] [sddp_pool.hpp:160] SDDP work pool started: max_threads=25 cpu_threshold=98% (hw_concurrency=20)
+[2026-03-28 21:08:29.261] [info]   SolverWorkPool initialized: 25 max threads, 98% CPU threshold
+[2026-03-28 21:08:29.261] [info]   SolverWorkPool started
+[2026-03-28 21:08:29.261] [info] [sddp_iteration.cpp:67] SDDP: work pools created (0.00s)
+[2026-03-28 21:08:29.262] [info] [sddp_iteration.cpp:363] SDDP: === simulation pass (iter 0) ===
+[2026-03-28 21:08:29.262] [info] [sddp_method.cpp:1284] SDDP forward: dispatching 1 scene(s) to work pool
+[2026-03-28 21:08:29.282] [info] [sddp_forward_pass.cpp:80] SDDP forward: scene 1 iter 0 starting (51 phases) [thread 237]
+[2026-03-28 21:08:36.736] [warning] [sddp_forward_pass.cpp:228] SDDP forward: iter 0 scene 1 phase 37 non-optimal (status 2), trying elastic solve
+[2026-03-28 21:08:37.605] [info] [sddp_forward_pass.cpp:266] SDDP forward: scene 1 phase 37 elastic solve ok, obj=766665.3498 alpha=0.0000 opex=766665.3498 [infeas_count=1]
+[2026-03-28 21:08:37.819] [warning] [sddp_forward_pass.cpp:228] SDDP forward: iter 0 scene 1 phase 38 non-optimal (status 2), trying elastic solve
+[2026-03-28 21:08:38.699] [info] [sddp_forward_pass.cpp:266] SDDP forward: scene 1 phase 38 elastic solve ok, obj=732303.2161 alpha=0.0000 opex=732303.2161 [infeas_count=1]
+[2026-03-28 21:08:41.359] [warning] [sddp_forward_pass.cpp:228] SDDP forward: iter 0 scene 1 phase 51 non-optimal (status 2), trying elastic solve
+[2026-03-28 21:08:42.599] [info] [sddp_forward_pass.cpp:266] SDDP forward: scene 1 phase 51 elastic solve ok, obj=1701082.1050 alpha=0.0000 opex=1701082.1050 [infeas_count=1]
+[2026-03-28 21:08:42.600] [info] [sddp_forward_pass.cpp:341] SDDP forward: scene 1 iter 0 done, total_opex=29501290.7831 [thread 237]
+[2026-03-28 21:08:42.600] [info] [sddp_method.cpp:1702] SDDP iter 0: gap=0.991497 gap_change=1.000000 (13.339s)
+[2026-03-28 21:08:42.600] [info] [sddp_iteration.cpp:410] SDDP: simulation pass done in 13.339s — UB=29501290.7831 LB=250853.4516 gap=0.991497 gap_change=1.000000 
+[2026-03-28 21:08:44.767] [info]   WorkPool shutdown complete
+[2026-03-28 21:08:44.767] [info]   WorkPool shutdown complete
+[2026-03-28 21:08:44.767] [info]   Optimization time 15.699s
+[2026-03-28 21:08:44.767] [warning] Solver did not find an optimal solution: SDDP did not converge after 0 iterations (gap=0.991497) (code=1)
+[2026-03-28 21:08:44.767] [error]   Solver options used: algorithm=barrier, threads=2, presolve=true, optimal_eps=(default), feasible_eps=(default), barrier_eps=(default), log_level=0
+[2026-03-28 21:08:44.767] [info] === Solution statistics ===
+[2026-03-28 21:08:44.767] [info]   Status          : non-optimal

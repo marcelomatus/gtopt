@@ -1,0 +1,155 @@
+
+┌──────────────────────────────────────────────┐
+│  Static Analysis: error_scene_1_phase_25.lp  │
+└──────────────────────────────────────────────┘
+
+Problem statistics
+  Objective:      Minimization
+  Variables:      74233
+  Constraints:    19572
+  Max |coeff|:    1.002e+04
+  Min |coeff| ≠0: 6.667e-06
+  Coeff ratio:    1.503e+09  ← poor numerical conditioning
+
+Top-3 largest |coefficients|:
+  3.210e+01  var=bat_finp_1187_52_25_243  con=bat_vol_1187_52_25_243
+        bat_vol_1187_52_25_243: - 32.1 bat_finp_1187_52_25_243 + 6.66666666666667 bat_fout_1187_52_25_243 - bat_vol_1187_52_25_2 …
+  2.675e+01  var=bat_finp_1187_52_25_248  con=bat_vol_1187_52_25_248
+        bat_vol_1187_52_25_248: - 26.75 bat_finp_1187_52_25_248 + 5.55555555555556 bat_fout_1187_52_25_248 - bat_vol_1187_52_25_ …
+  2.675e+01  var=bat_finp_1187_52_25_249  con=bat_vol_1187_52_25_249
+        bat_vol_1187_52_25_249: - 26.75 bat_finp_1187_52_25_249 + 5.55555555555556 bat_fout_1187_52_25_249 - bat_vol_1187_52_25_ …
+
+Top-3 smallest non-zero |coefficients|:
+  6.667e-06  var=lin_fps_18_52_25_2411  con=lin_lslp_18_52_25_241
+        lin_lslp_18_52_25_241: lin_lsp_18_52_25_241 - 0.00000666666666666667 lin_fps_18_52_25_2411 - 0.00002 lin_fps_18_52_25_24 …
+  6.667e-06  var=lin_fns_18_52_25_2411  con=lin_lsln_18_52_25_241
+        lin_lsln_18_52_25_241: lin_lsn_18_52_25_241 - 0.00000666666666666667 lin_fns_18_52_25_2411 - 0.00002 lin_fns_18_52_25_24 …
+  6.667e-06  var=lin_fps_18_52_25_2421  con=lin_lslp_18_52_25_242
+        lin_lslp_18_52_25_242: lin_lsp_18_52_25_242 - 0.00000666666666666667 lin_fps_18_52_25_2421 - 0.00002 lin_fps_18_52_25_24 …
+
+✓ No obvious static infeasibilities detected.
+
+
+┌──────────────────────┐
+│  IIS Analysis (all)  │
+└──────────────────────┘
+    16873 PMoves:  Infeasibility  7.76953566e+02  Objective  2.17541348e+17
+    15949 PMoves:  Infeasibility  7.45237298e+02  Objective  2.17541348e+17
+    15068 PMoves:  Infeasibility  7.13746215e+02  Objective  2.17541348e+17
+    14169 PMoves:  Infeasibility  6.70733729e+02  Objective  2.17541348e+17
+    13374 PMoves:  Infeasibility  6.53491587e+02  Objective  2.17541348e+17
+    12638 PMoves:  Infeasibility  6.29794651e+02  Objective  2.17541348e+17
+    11873 PMoves:  Infeasibility  5.92696713e+02  Objective  2.17541348e+17
+    11154 PMoves:  Infeasibility  5.62532479e+02  Objective  2.17541348e+17
+    10487 PMoves:  Infeasibility  5.43332610e+02  Objective  2.17541348e+17
+     9808 PMoves:  Infeasibility  5.28048902e+02  Objective  2.17541348e+17
+     9121 PMoves:  Infeasibility  5.01523019e+02  Objective  2.17541348e+17
+     8503 PMoves:  Infeasibility  4.38318483e+02  Objective  2.17541348e+17
+     7940 PMoves:  Infeasibility  4.19215865e+02  Objective  2.17541348e+17
+     7218 PMoves:  Infeasibility  3.88331449e+02  Objective  2.17541348e+17
+     6469 PMoves:  Infeasibility  3.62537398e+02  Objective  2.17541348e+17
+     5713 PMoves:  Infeasibility  3.32986281e+02  Objective  2.17541348e+17
+     4947 PMoves:  Infeasibility  3.06219755e+02  Objective  2.17541348e+17
+     4214 PMoves:  Infeasibility  2.76870656e+02  Objective  2.17541348e+17
+     3536 PMoves:  Infeasibility  2.56631130e+02  Objective  2.17541348e+17
+     2905 PMoves:  Infeasibility  2.44971530e+02  Objective  2.17541348e+17
+     1310 PMoves:  Infeasibility  2.37598609e+02  Objective  5.06071437e+06
+      118 PMoves:  Infeasibility  2.35919380e+02  Objective  4.22618872e+06
+        0 PMoves:  Infeasibility  2.35863753e+02  Objective  4.12397880e+06
+Iteration:     1   Scaled dual infeas =          3565.613448
+Iteration:   101   Scaled dual infeas =          3565.613337
+Iteration:   654   Dual objective     =        815598.582541
+Iteration:  1108   Dual objective     =        848664.484256
+Iteration:  1543   Dual objective     =        848896.742377
+Iteration:  1920   Dual objective     =        848900.217330
+Iteration:  2277   Dual objective     =        848900.240818
+Iteration:  2686   Dual objective     =        848900.257725
+Iteration:  3017   Dual objective     =        848900.279436
+Iteration:  3354   Dual objective     =        848900.299633
+Iteration:  3695   Dual objective     =        848900.331883
+Iteration:  4028   Dual objective     =        848900.347433
+Iteration:  4397   Dual objective     =        848900.385317
+Iteration:  4765   Dual objective     =        848900.435457
+Iteration:  5128   Dual objective     =        848900.460368
+Iteration:  5536   Dual objective     =        848919.722130
+Iteration:  5937   Dual objective     =        848919.821587
+Iteration:  6281   Dual objective     =        850046.893193
+Iteration:  6553   Dual objective     =        850261.773664
+Primal simplex solved model.
+Primal simplex - Infeasible:  Scaled infeas =  1.2462939191e-01
+Minimal conflict:   42 linear constraint(s)
+                    31 lower bound(s)
+                    33 upper bound(s)
+Conflict computation time =    0.03 sec.  Iterations = 1
+\Sum of equality rows in the conflict:
+Bounds
+
+
+┌───────────────────────────┐
+│  AI Diagnostics (github)  │
+└───────────────────────────┘
+### Analysis of Infeasibility Report
+
+Based on the provided infeasibility report, I performed an analysis of the key findings from static analysis, IIS output, and the solver iterations.
+
+---
+
+### Key Identifications:
+#### 1. **Problematic Variables/Constraints Identified in IIS**:
+   - The IIS (Irreducible Infeasible Subsystem) indicates **42 linear constraints, 31 lower bounds, and 33 upper bounds** are part of the irreducible infeasibility. These constraints and bounds form minimal conflicts leading to infeasibility.
+
+   - While explicit names of the constraints in conflict are not provided directly in this report's IIS breakdown, the pattern hints at relationships between the following variables and constraints:
+     - Variables: `bat_finp_1187_52_25_{243, 248, 249}`, `lin_fps_18_52_25_{2411, 2421}`, and others.
+     - Constraints: `bat_vol_1187_52_25_{243, 248, 249}`, `lin_lslp_18_52_25_{241, 242}`, etc.
+
+   - Importantly, constraints like `bat_vol_1187_52_25_X` have high coefficients (e.g., up to -32.1, which causes potential numerical issues), and overly small coefficients (e.g., 6.667e-06 in `lin_lslp_18_52_25_241`) further exacerbate the problem. Such coefficients (high magnitude variations) hint at **poor numerical stability** and might be contributing to infeasibility.
+
+#### 2. **Numerical Conditioning Concerns**:
+   - **Coefficient Ratio**: The condition number (1.503e+09) suggests poor numerical conditioning in the problem. The high dynamic range of coefficients (from 6.667e-06 to 1.002e+04) could generate rounding errors during solver operations, leading to infeasibility.
+   - Constraints `bat_vol_1187_52_25_X` seem particularly disordered, with combination of high coefficients (e.g., -32.1, -26.75) and auxiliary variables like `bat_finp_*` and `bat_fout_*`.
+
+#### 3. **Scaling and Bound Adjustments**:
+   - Scaled primal infeasibilities were reduced significantly (<12.46%) during the iterations, but infeasibility remained. This suggests that bounds or conflicting equality constraints are likely the root cause.
+
+   - For example, `2.35863753e+02` (scaled bounds or constraint residual) remains infeasible even after adjustments, indicating tension in bounds or conflicting constraints.
+
+---
+
+### Root Cause of Infeasibility:
+The infeasibility appears to stem from the following issues:
+- **Conflicting Bounds/Variables**: Tight and incompatible bounds on variables like `bat_finp_*`, `bat_fout_*`, and constraints `bat_vol_*`.
+- **Numerical Instability**: Poor scaling and wildly varying coefficient magnitudes (e.g., 32.1 vs. 6.667e-06) are introducing numerical errors in the solver.
+- **Irreducible Infeasible Subsystem (IIS)**: Many active constraints and bounds (e.g., those highlighted in the IIS with 42 linear constraints, 31 lower bounds, and 33 upper bounds) form an irreducible tension, particularly impacting variables related to flows (`bat_finp_*`, `bat_fout_*`, `lin_fps_*`).
+
+---
+
+### Suggested Fixes:
+#### 1. **Focus on the IIS-Identified Constraints**:
+   - Start with the constraints and bounds highlighted by the IIS. These constraints represent the minimal subsystem causing the infeasibility. Common fixes include:
+     - **Relaxing Bounds**: Widen lower/upper bounds for `bat_finp_*` or `lin_fps_*` to remove tension.
+     - **Adjusting Coefficients**: Rescale constraints like `bat_vol_*` to mitigate numerical instability.
+   - For example:
+     - Lower or upper bounds for variables like `bat_finp_*` might need adjustments.
+     - Equality constraints in `bat_vol_*` might be overly strict.
+
+#### 2. **Scaling the Problem**:
+   - Improve numerical stability by rescaling the problem to reduce the coefficient ratio (currently 1.503e+09). This can mitigate numerical errors during iterative solving.
+   - Scale key variables or constraints (`bat_finp_*`, `bat_vol_*`) to bring coefficients within a more manageable range.
+
+#### 3. **Analyze Constraint Dependencies**:
+   - The involved constraints (e.g., `bat_vol_*`) seem to represent conservation equations or balance equations. Check for over-constrained or redundant relationships.
+   - Temporarily remove constraints in the IIS one by one and resolve to confirm the impact.
+
+#### 4. **Modify Tight Bounds in IIS**:
+   - Explore the bounds in the IIS:
+     - Loosen tight bounds that conflict with other constraints.
+     - Introduce slack variables or penalties (e.g., `ε`) in equality constraints involving `bat_vol_*`.
+
+#### 5. **Solver Options**:
+   - Switch to a solver with better handling of poorly conditioned problems (e.g., CPLEX with stability-focused settings).
+   - Test advanced presolve strategies to eliminate redundancy or dependencies.
+
+---
+
+### Conclusion:
+The infeasibility is due to numerical instability (condition number of 1.503e+09), conflicting constraints in the IIS, and overly tight bounds. Start by addressing constraints in the IIS, relaxing bounds, and rescaling coefficients to improve numerical stability. Focus on `bat_vol_*`-type constraints and their associated variables like `bat_finp_*`.

@@ -1,0 +1,214 @@
+[2026-03-28 13:58:42.030] [info] trace log file: gtopt_case_2y/results/logs/trace_43.log
+[2026-03-28 13:58:42.031] [info]   Parsing input file gtopt_case_2y/gtopt_case_2y.json
+[2026-03-28 13:58:42.032] [warning] deprecated option 'use_lp_names': use 'lp_build_options.names_level' instead
+[2026-03-28 13:58:42.075] [info]   Parse all input files time 0.045s
+[2026-03-28 13:58:42.075] [info] Output compression codec: zstd
+[2026-03-28 13:58:42.078] [info] Planning validation passed
+[2026-03-28 13:58:42.078] [info] === System statistics ===
+[2026-03-28 13:58:42.078] [info]   System name     : gtopt_case_2y
+[2026-03-28 13:58:42.078] [info]   System version  : 
+[2026-03-28 13:58:42.078] [info] === System elements  ===
+[2026-03-28 13:58:42.078] [info]   Buses           : 236
+[2026-03-28 13:58:42.078] [info]   Generators      : 1715
+[2026-03-28 13:58:42.078] [info]   Generator profs : 0
+[2026-03-28 13:58:42.078] [info]   Demands         : 138
+[2026-03-28 13:58:42.078] [info]   Demand profs    : 0
+[2026-03-28 13:58:42.078] [info]   Lines           : 330
+[2026-03-28 13:58:42.078] [info]   Batteries       : 25
+[2026-03-28 13:58:42.078] [info]   Converters      : 0
+[2026-03-28 13:58:42.078] [info]   Reserve zones   : 0
+[2026-03-28 13:58:42.078] [info]   Reserve provisions   : 0
+[2026-03-28 13:58:42.078] [info]   Junctions       : 100
+[2026-03-28 13:58:42.078] [info]   Waterways       : 136
+[2026-03-28 13:58:42.078] [info]   Flows           : 160
+[2026-03-28 13:58:42.078] [info]   Reservoirs      : 10
+[2026-03-28 13:58:42.078] [info]   ReservoirSeepages     : 3
+[2026-03-28 13:58:42.078] [info]   Turbines        : 170
+[2026-03-28 13:58:42.078] [info] === Simulation statistics ===
+[2026-03-28 13:58:42.078] [info]   Blocks          : 510
+[2026-03-28 13:58:42.078] [info]   Stages          : 51
+[2026-03-28 13:58:42.078] [info]   Scenarios       : 1
+[2026-03-28 13:58:42.078] [info] === Key options ===
+[2026-03-28 13:58:42.078] [info]   use_kirchhoff   : false
+[2026-03-28 13:58:42.078] [info]   use_single_bus  : false
+[2026-03-28 13:58:42.078] [info]   scale_objective : 1000
+[2026-03-28 13:58:42.078] [info]   demand_fail_cost: 1000
+[2026-03-28 13:58:42.078] [info]   input_directory : gtopt_case_2y
+[2026-03-28 13:58:42.078] [info]   output_directory: gtopt_case_2y/results
+[2026-03-28 13:58:42.078] [info]   output_format   : parquet
+[2026-03-28 13:58:42.078] [info] === Building LP model ===
+[2026-03-28 13:58:42.081] [info] [planning_lp.cpp:44]   Building LP: 1 scene(s) × 51 phase(s)
+[2026-03-28 13:58:42.081] [info]   SolverWorkPool initialized: 25 max threads, 98% CPU threshold
+[2026-03-28 13:58:42.081] [info]   SolverWorkPool started
+[2026-03-28 13:59:04.805] [info] [planning_lp.cpp:105]   Building LP done in 22.724s
+[2026-03-28 13:59:04.806] [info]   WorkPool shutdown complete
+[2026-03-28 13:59:04.806] [info]   Build lp time 22.727s
+[2026-03-28 13:59:04.806] [info]   LP coefficient analysis: 51 LP(s), global |coeff| [6.667e-06, 6.420e+01], ratio=9.63e+06 (fair)
+[2026-03-28 13:59:04.806] [info] === System optimization ===
+[2026-03-28 13:59:04.806] [info] [sddp_method.cpp:1823] SDDPMethod: starting 1 scene(s) × 51 phase(s)
+[2026-03-28 13:59:04.806] [info] ApertureDataCache: scanning 'gtopt_case_2y/apertures'
+[2026-03-28 13:59:04.882] [info] ApertureDataCache: loaded 1618230 entries across 334 elements from gtopt_case_2y/apertures (0.08s, 20 threads)
+[2026-03-28 13:59:04.882] [info] [sddp_method.cpp:1074] SDDP: initializing solver (no initial solve pass)
+[2026-03-28 13:59:04.882] [info] [sddp_method.cpp:1086] SDDP: 1 scene(s), 51 phase(s)
+[2026-03-28 13:59:04.882] [info] [sddp_method.cpp:1095] SDDP: adding alpha variables and collecting state links
+[2026-03-28 13:59:05.065] [warning] [sddp_cut_io.cpp:922] Boundary cuts: state variable 'CANUTILLAR' not found in the current model; non-zero coefficient -100.6546958 (mode=skip_coeff)
+[2026-03-28 13:59:05.065] [warning] [sddp_cut_io.cpp:922] Boundary cuts: state variable 'PILMAIQUEN' not found in the current model; non-zero coefficient -11.03538014 (mode=skip_coeff)
+[2026-03-28 13:59:05.066] [info] [sddp_cut_io.cpp:995] SDDP: loaded 35 boundary cuts from gtopt_case_2y/boundary_cuts.csv (mode=separated, max_iters=0)
+[2026-03-28 13:59:05.066] [info] [sddp_method.cpp:1173] SDDP: loaded 35 boundary cuts from gtopt_case_2y/boundary_cuts.csv
+[2026-03-28 13:59:05.066] [info] [sddp_method.cpp:1254] SDDP: initialization complete (0.18s)
+[2026-03-28 13:59:05.066] [info]   SDDPWorkPool initialized: 25 max threads, 98% CPU threshold
+[2026-03-28 13:59:05.066] [info]   SDDPWorkPool started
+[2026-03-28 13:59:05.066] [info] [sddp_pool.hpp:160] SDDP work pool started: max_threads=25 cpu_threshold=98% (hw_concurrency=20)
+[2026-03-28 13:59:05.066] [info]   SolverWorkPool initialized: 25 max threads, 98% CPU threshold
+[2026-03-28 13:59:05.066] [info]   SolverWorkPool started
+[2026-03-28 13:59:05.066] [info] [sddp_iteration.cpp:67] SDDP: work pools created (0.00s)
+[2026-03-28 13:59:05.066] [info] [sddp_iteration.cpp:102] SDDP: === iteration 0 / 0 ===
+[2026-03-28 13:59:05.066] [info] [sddp_method.cpp:1280] SDDP forward: dispatching 1 scene(s) to work pool
+[2026-03-28 13:59:05.086] [info] [sddp_forward_pass.cpp:80] SDDP forward: scene 1 iter 0 starting (51 phases) [thread 4955]
+[2026-03-28 13:59:14.552] [warning] [sddp_forward_pass.cpp:228] SDDP forward: iter 0 scene 1 phase 37 non-optimal (status 2), trying elastic solve
+[2026-03-28 13:59:15.266] [info] [sddp_forward_pass.cpp:265] SDDP forward: scene 1 phase 37 elastic solve ok, obj=702010.9206 alpha=0.0000 opex=702010.9206 [infeas_count=1]
+[2026-03-28 13:59:15.559] [warning] [sddp_forward_pass.cpp:228] SDDP forward: iter 0 scene 1 phase 38 non-optimal (status 2), trying elastic solve
+[2026-03-28 13:59:16.656] [info] [sddp_forward_pass.cpp:265] SDDP forward: scene 1 phase 38 elastic solve ok, obj=647094.3981 alpha=0.0000 opex=647094.3981 [infeas_count=1]
+[2026-03-28 13:59:21.236] [warning] [sddp_forward_pass.cpp:228] SDDP forward: iter 0 scene 1 phase 51 non-optimal (status 2), trying elastic solve
+[2026-03-28 13:59:22.510] [info] [sddp_forward_pass.cpp:265] SDDP forward: scene 1 phase 51 elastic solve ok, obj=687241.0995 alpha=0.0000 opex=687241.0995 [infeas_count=1]
+[2026-03-28 13:59:22.512] [info] [sddp_forward_pass.cpp:339] SDDP forward: scene 1 iter 0 done, total_opex=28337586.5304 [thread 4955]
+[2026-03-28 13:59:22.512] [info] [sddp_method.cpp:1373] SDDP backward: dispatching 1 scene(s) to work pool (cut_sharing=none, apertures=enabled)
+[2026-03-28 13:59:22.523] [info] [sddp_aperture_pass.cpp:373] SDDP backward (apertures): scene 1 iter 0 starting (50 phases) [thread 4955]
+[2026-03-28 13:59:22.523] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 51 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 13:59:23.567] [info] SDDP aperture: scene 1 phase 51 aperture uid 3 infeasible (status 2), skipping
+[2026-03-28 13:59:23.567] [info] SDDP aperture: scene 1 phase 51 aperture uid 4 infeasible (status 2), skipping
+[2026-03-28 13:59:23.582] [info] SDDP aperture: scene 1 phase 51 aperture uid 5 infeasible (status 2), skipping
+[2026-03-28 13:59:23.605] [info] SDDP aperture: scene 1 phase 51 aperture uid 6 infeasible (status 2), skipping
+[2026-03-28 13:59:23.605] [info] SDDP aperture: scene 1 phase 51 aperture uid 7 infeasible (status 2), skipping
+[2026-03-28 13:59:23.687] [info] SDDP aperture: scene 1 phase 51 aperture uid 8 infeasible (status 2), skipping
+[2026-03-28 13:59:23.719] [info] SDDP aperture: scene 1 phase 51 aperture uid 9 infeasible (status 2), skipping
+[2026-03-28 13:59:23.719] [info] SDDP aperture: scene 1 phase 51 aperture uid 10 infeasible (status 2), skipping
+[2026-03-28 13:59:23.719] [info] SDDP aperture: scene 1 phase 51 aperture uid 11 infeasible (status 2), skipping
+[2026-03-28 13:59:23.719] [info] SDDP aperture: scene 1 phase 51 aperture uid 12 infeasible (status 2), skipping
+[2026-03-28 13:59:23.770] [info] SDDP aperture: scene 1 phase 51 aperture uid 13 infeasible (status 2), skipping
+[2026-03-28 13:59:23.785] [info] SDDP aperture: scene 1 phase 51 aperture uid 14 infeasible (status 2), skipping
+[2026-03-28 13:59:23.826] [info] SDDP aperture: scene 1 phase 51 aperture uid 15 infeasible (status 2), skipping
+[2026-03-28 13:59:23.826] [info] SDDP aperture: scene 1 phase 51 aperture uid 16 infeasible (status 2), skipping
+[2026-03-28 13:59:23.826] [info] SDDP aperture: scene 1 phase 51 aperture uid 17 infeasible (status 2), skipping
+[2026-03-28 13:59:23.826] [info] SDDP aperture: scene 1 phase 51 aperture uid 18 infeasible (status 2), skipping
+[2026-03-28 13:59:23.826] [info] SDDP aperture: scene 1 phase 51 — 0/16 feasible, 16 infeasible, 0 skipped (1.303s) [thread 4955]
+[2026-03-28 13:59:23.832] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 50 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 13:59:25.341] [info] SDDP aperture: scene 1 phase 50 — 16/16 feasible, 0 infeasible, 0 skipped (1.509s) [thread 4955]
+[2026-03-28 13:59:25.464] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 49 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 13:59:27.063] [info] SDDP aperture: scene 1 phase 49 — 16/16 feasible, 0 infeasible, 0 skipped (1.600s) [thread 4955]
+[2026-03-28 13:59:27.368] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 48 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 13:59:29.198] [info] SDDP aperture: scene 1 phase 48 — 16/16 feasible, 0 infeasible, 0 skipped (1.831s) [thread 4955]
+[2026-03-28 13:59:29.292] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 47 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 13:59:31.306] [info] SDDP aperture: scene 1 phase 47 — 16/16 feasible, 0 infeasible, 0 skipped (2.015s) [thread 4955]
+[2026-03-28 13:59:31.507] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 46 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 13:59:33.486] [info] SDDP aperture: scene 1 phase 46 — 16/16 feasible, 0 infeasible, 0 skipped (1.979s) [thread 4955]
+[2026-03-28 13:59:33.688] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 45 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 13:59:35.814] [info] SDDP aperture: scene 1 phase 45 — 16/16 feasible, 0 infeasible, 0 skipped (2.126s) [thread 4955]
+[2026-03-28 13:59:36.000] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 44 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 13:59:38.848] [info] SDDP aperture: scene 1 phase 44 — 16/16 feasible, 0 infeasible, 0 skipped (2.848s) [thread 4955]
+[2026-03-28 13:59:39.655] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 43 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 13:59:42.219] [info] SDDP aperture: scene 1 phase 43 — 16/16 feasible, 0 infeasible, 0 skipped (2.564s) [thread 4955]
+[2026-03-28 13:59:42.778] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 42 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 13:59:45.482] [info] SDDP aperture: scene 1 phase 42 — 16/16 feasible, 0 infeasible, 0 skipped (2.704s) [thread 4955]
+[2026-03-28 13:59:45.496] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 41 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 13:59:48.293] [info] SDDP aperture: scene 1 phase 41 — 16/16 feasible, 0 infeasible, 0 skipped (2.797s) [thread 4955]
+[2026-03-28 13:59:48.646] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 40 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 13:59:51.192] [info] SDDP aperture: scene 1 phase 40 — 16/16 feasible, 0 infeasible, 0 skipped (2.547s) [thread 4955]
+[2026-03-28 13:59:51.591] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 39 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 13:59:54.068] [info] SDDP aperture: scene 1 phase 39 — 16/16 feasible, 0 infeasible, 0 skipped (2.477s) [thread 4955]
+[2026-03-28 13:59:54.074] [warning] [sddp_aperture_pass.cpp:506] SDDP backward: iter 0 scene 1 phase 38 non-optimal after expected cut (status 2), skipping further backpropagation
+[2026-03-28 13:59:54.074] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 38 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 13:59:56.489] [info] SDDP aperture: scene 1 phase 38 aperture uid 16 infeasible (status 2), skipping
+[2026-03-28 13:59:56.489] [info] SDDP aperture: scene 1 phase 38 — 15/16 feasible, 1 infeasible, 0 skipped (2.415s) [thread 4955]
+[2026-03-28 13:59:56.503] [warning] [sddp_aperture_pass.cpp:506] SDDP backward: iter 0 scene 1 phase 37 non-optimal after expected cut (status 2), skipping further backpropagation
+[2026-03-28 13:59:56.503] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 37 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 13:59:58.431] [info] SDDP aperture: scene 1 phase 37 — 16/16 feasible, 0 infeasible, 0 skipped (1.927s) [thread 4955]
+[2026-03-28 13:59:58.819] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 36 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:00:01.080] [info] SDDP aperture: scene 1 phase 36 — 16/16 feasible, 0 infeasible, 0 skipped (2.260s) [thread 4955]
+[2026-03-28 14:00:01.564] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 35 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:00:03.861] [info] SDDP aperture: scene 1 phase 35 — 16/16 feasible, 0 infeasible, 0 skipped (2.296s) [thread 4955]
+[2026-03-28 14:00:04.250] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 34 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:00:06.641] [info] SDDP aperture: scene 1 phase 34 — 16/16 feasible, 0 infeasible, 0 skipped (2.391s) [thread 4955]
+[2026-03-28 14:00:07.071] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 33 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:00:09.720] [info] SDDP aperture: scene 1 phase 33 — 16/16 feasible, 0 infeasible, 0 skipped (2.649s) [thread 4955]
+[2026-03-28 14:00:10.271] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 32 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:00:12.675] [info] SDDP aperture: scene 1 phase 32 — 16/16 feasible, 0 infeasible, 0 skipped (2.404s) [thread 4955]
+[2026-03-28 14:00:13.044] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 31 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:00:15.105] [info] SDDP aperture: scene 1 phase 31 — 16/16 feasible, 0 infeasible, 0 skipped (2.060s) [thread 4955]
+[2026-03-28 14:00:15.608] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 30 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:00:18.223] [info] SDDP aperture: scene 1 phase 30 — 16/16 feasible, 0 infeasible, 0 skipped (2.616s) [thread 4955]
+[2026-03-28 14:00:18.887] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 29 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:00:21.366] [info] SDDP aperture: scene 1 phase 29 — 16/16 feasible, 0 infeasible, 0 skipped (2.479s) [thread 4955]
+[2026-03-28 14:00:21.742] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 28 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:00:24.017] [info] SDDP aperture: scene 1 phase 28 — 16/16 feasible, 0 infeasible, 0 skipped (2.275s) [thread 4955]
+[2026-03-28 14:00:24.496] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 27 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:00:26.839] [info] SDDP aperture: scene 1 phase 27 aperture uid 15 infeasible (status 2), skipping
+[2026-03-28 14:00:26.839] [info] SDDP aperture: scene 1 phase 27 — 15/16 feasible, 1 infeasible, 0 skipped (2.343s) [thread 4955]
+[2026-03-28 14:00:27.320] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 26 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:00:29.410] [info] SDDP aperture: scene 1 phase 26 — 16/16 feasible, 0 infeasible, 0 skipped (2.091s) [thread 4955]
+[2026-03-28 14:00:29.719] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 25 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:00:31.650] [info] SDDP aperture: scene 1 phase 25 — 16/16 feasible, 0 infeasible, 0 skipped (1.931s) [thread 4955]
+[2026-03-28 14:00:31.988] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 24 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:00:33.713] [info] SDDP aperture: scene 1 phase 24 — 16/16 feasible, 0 infeasible, 0 skipped (1.724s) [thread 4955]
+[2026-03-28 14:00:34.139] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 23 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:00:36.314] [info] SDDP aperture: scene 1 phase 23 — 16/16 feasible, 0 infeasible, 0 skipped (2.175s) [thread 4955]
+[2026-03-28 14:00:36.653] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 22 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:00:38.830] [info] SDDP aperture: scene 1 phase 22 — 16/16 feasible, 0 infeasible, 0 skipped (2.178s) [thread 4955]
+[2026-03-28 14:00:39.140] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 21 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:00:41.159] [info] SDDP aperture: scene 1 phase 21 — 16/16 feasible, 0 infeasible, 0 skipped (2.019s) [thread 4955]
+[2026-03-28 14:00:41.451] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 20 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:00:43.494] [info] SDDP aperture: scene 1 phase 20 — 16/16 feasible, 0 infeasible, 0 skipped (2.043s) [thread 4955]
+[2026-03-28 14:00:43.889] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 19 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:00:46.352] [info] SDDP aperture: scene 1 phase 19 — 16/16 feasible, 0 infeasible, 0 skipped (2.463s) [thread 4955]
+[2026-03-28 14:00:46.886] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 18 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:00:49.031] [info] SDDP aperture: scene 1 phase 18 — 16/16 feasible, 0 infeasible, 0 skipped (2.145s) [thread 4955]
+[2026-03-28 14:00:49.572] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 17 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:00:52.019] [info] SDDP aperture: scene 1 phase 17 — 16/16 feasible, 0 infeasible, 0 skipped (2.447s) [thread 4955]
+[2026-03-28 14:00:52.458] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 16 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:00:54.725] [info] SDDP aperture: scene 1 phase 16 — 16/16 feasible, 0 infeasible, 0 skipped (2.267s) [thread 4955]
+[2026-03-28 14:00:55.242] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 15 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:00:57.350] [info] SDDP aperture: scene 1 phase 15 — 16/16 feasible, 0 infeasible, 0 skipped (2.108s) [thread 4955]
+[2026-03-28 14:00:57.831] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 14 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:01:00.001] [info] SDDP aperture: scene 1 phase 14 — 16/16 feasible, 0 infeasible, 0 skipped (2.170s) [thread 4955]
+[2026-03-28 14:01:00.458] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 13 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:01:02.781] [info] SDDP aperture: scene 1 phase 13 — 16/16 feasible, 0 infeasible, 0 skipped (2.323s) [thread 4955]
+[2026-03-28 14:01:03.312] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 12 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:01:06.276] [info] SDDP aperture: scene 1 phase 12 — 16/16 feasible, 0 infeasible, 0 skipped (2.964s) [thread 4955]
+[2026-03-28 14:01:06.979] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 11 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:01:09.580] [info] SDDP aperture: scene 1 phase 11 — 16/16 feasible, 0 infeasible, 0 skipped (2.600s) [thread 4955]
+[2026-03-28 14:01:10.444] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 10 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:01:12.798] [info] SDDP aperture: scene 1 phase 10 — 16/16 feasible, 0 infeasible, 0 skipped (2.354s) [thread 4955]
+[2026-03-28 14:01:13.661] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 9 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:01:16.468] [info] SDDP aperture: scene 1 phase 9 — 16/16 feasible, 0 infeasible, 0 skipped (2.807s) [thread 4955]
+[2026-03-28 14:01:18.044] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 8 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:01:20.701] [info] SDDP aperture: scene 1 phase 8 — 16/16 feasible, 0 infeasible, 0 skipped (2.657s) [thread 4955]
+[2026-03-28 14:01:21.418] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 7 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:01:23.738] [info] SDDP aperture: scene 1 phase 7 — 16/16 feasible, 0 infeasible, 0 skipped (2.320s) [thread 4955]
+[2026-03-28 14:01:24.230] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 6 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:01:26.537] [info] SDDP aperture: scene 1 phase 6 — 16/16 feasible, 0 infeasible, 0 skipped (2.307s) [thread 4955]
+[2026-03-28 14:01:27.056] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 5 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:01:29.369] [info] SDDP aperture: scene 1 phase 5 — 16/16 feasible, 0 infeasible, 0 skipped (2.313s) [thread 4955]
+[2026-03-28 14:01:30.162] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 4 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:01:32.357] [info] SDDP aperture: scene 1 phase 4 — 16/16 feasible, 0 infeasible, 0 skipped (2.195s) [thread 4955]
+[2026-03-28 14:01:32.815] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 3 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:01:34.787] [info] SDDP aperture: scene 1 phase 3 — 16/16 feasible, 0 infeasible, 0 skipped (1.972s) [thread 4955]
+[2026-03-28 14:01:35.125] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 2 — starting 16 aperture(s) [thread 4955]
+[2026-03-28 14:01:36.903] [info] SDDP aperture: scene 1 phase 2 — 16/16 feasible, 0 infeasible, 0 skipped (1.778s) [thread 4955]
+[2026-03-28 14:01:36.903] [warning] [sddp_aperture_pass.cpp:518] SDDP aperture: scene 1 — all apertures infeasible at 1 phase(s) [51], used Benders fallback cuts
+[2026-03-28 14:01:36.903] [info] [sddp_method.cpp:1698] SDDP iter 0: gap=0.991148 gap_change=1.000000 (151.837s)
+[2026-03-28 14:01:36.903] [info] [sddp_iteration.cpp:222] SDDP: iter 0 done in 151.837s (fwd 17.45s + bwd 134.39s) — UB=28337586.5304 LB=250853.4516 gap=0.991148 gap_change=1.000000 cuts=50 infeas_cuts=3 
+[2026-03-28 14:01:39.433] [info] [sddp_iteration.cpp:257] SDDP: === simulation pass (iter 1) ===
+[2026-03-28 14:01:39.433] [info] [sddp_method.cpp:1280] SDDP forward: dispatching 1 scene(s) to work pool
+[2026-03-28 14:01:39.452] [info] [sddp_forward_pass.cpp:80] SDDP forward: scene 1 iter 1 starting (51 phases) [thread 6788]
+[2026-03-28 14:02:44.164] [warning] [sddp_forward_pass.cpp:228] SDDP forward: iter 1 scene 1 phase 51 non-optimal (status 2), trying elastic solve
+[2026-03-28 14:02:45.464] [info] [sddp_forward_pass.cpp:265] SDDP forward: scene 1 phase 51 elastic solve ok, obj=685868.5594 alpha=0.0000 opex=685868.5594 [infeas_count=2]
+[2026-03-28 14:02:45.466] [info] [sddp_forward_pass.cpp:339] SDDP forward: scene 1 iter 1 done, total_opex=29144568.0346 [thread 6788]
+[2026-03-28 14:02:45.466] [info] [sddp_method.cpp:1698] SDDP iter 1: gap=0.133513 gap_change=1.000000 (66.033s)
+[2026-03-28 14:02:45.466] [info] [sddp_iteration.cpp:304] SDDP: simulation pass done in 66.033s — UB=29144568.0346 LB=25253403.4158 gap=0.133513 gap_change=1.000000 
+[2026-03-28 14:02:49.167] [info]   WorkPool shutdown complete
+[2026-03-28 14:02:49.168] [info]   WorkPool shutdown complete
+[2026-03-28 14:02:49.268] [info]   Optimization time 224.462s
+[2026-03-28 14:02:49.268] [warning] Solver did not find an optimal solution: SDDP did not converge after 1 iterations (gap=0.133513) (code=1)
+[2026-03-28 14:02:49.268] [error]   Solver options used: algorithm=barrier, threads=2, presolve=true, optimal_eps=(default), feasible_eps=(default), barrier_eps=(default), log_level=0
+[2026-03-28 14:02:49.268] [info] === Solution statistics ===
+[2026-03-28 14:02:49.268] [info]   Status          : non-optimal

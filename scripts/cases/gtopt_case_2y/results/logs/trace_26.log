@@ -1,0 +1,71 @@
+[2026-03-28 11:15:38.294] [info] trace log file: /home/marce/git/gtopt/scripts/cases/gtopt_case_2y/results/logs/trace_26.log
+[2026-03-28 11:15:38.295] [info]   Parsing input file /home/marce/git/gtopt/scripts/cases/gtopt_case_2y/gtopt_case_2y.json
+[2026-03-28 11:15:38.296] [warning] deprecated option 'use_lp_names': use 'lp_build_options.names_level' instead
+[2026-03-28 11:15:38.341] [info]   Parse all input files time 0.047s
+[2026-03-28 11:15:38.341] [info] Output compression codec: zstd
+[2026-03-28 11:15:38.345] [info] Planning validation passed
+[2026-03-28 11:15:38.345] [info] === System statistics ===
+[2026-03-28 11:15:38.345] [info]   System name     : gtopt_case_2y
+[2026-03-28 11:15:38.345] [info]   System version  : 
+[2026-03-28 11:15:38.345] [info] === System elements  ===
+[2026-03-28 11:15:38.345] [info]   Buses           : 236
+[2026-03-28 11:15:38.345] [info]   Generators      : 1715
+[2026-03-28 11:15:38.345] [info]   Generator profs : 0
+[2026-03-28 11:15:38.345] [info]   Demands         : 138
+[2026-03-28 11:15:38.345] [info]   Demand profs    : 0
+[2026-03-28 11:15:38.345] [info]   Lines           : 330
+[2026-03-28 11:15:38.345] [info]   Batteries       : 25
+[2026-03-28 11:15:38.345] [info]   Converters      : 0
+[2026-03-28 11:15:38.345] [info]   Reserve zones   : 0
+[2026-03-28 11:15:38.345] [info]   Reserve provisions   : 0
+[2026-03-28 11:15:38.345] [info]   Junctions       : 100
+[2026-03-28 11:15:38.345] [info]   Waterways       : 136
+[2026-03-28 11:15:38.345] [info]   Flows           : 160
+[2026-03-28 11:15:38.345] [info]   Reservoirs      : 10
+[2026-03-28 11:15:38.345] [info]   ReservoirSeepages     : 3
+[2026-03-28 11:15:38.345] [info]   Turbines        : 170
+[2026-03-28 11:15:38.345] [info] === Simulation statistics ===
+[2026-03-28 11:15:38.345] [info]   Blocks          : 510
+[2026-03-28 11:15:38.345] [info]   Stages          : 51
+[2026-03-28 11:15:38.345] [info]   Scenarios       : 1
+[2026-03-28 11:15:38.345] [info] === Key options ===
+[2026-03-28 11:15:38.345] [info]   use_kirchhoff   : false
+[2026-03-28 11:15:38.345] [info]   use_single_bus  : false
+[2026-03-28 11:15:38.345] [info]   scale_objective : 1000
+[2026-03-28 11:15:38.345] [info]   demand_fail_cost: 1000
+[2026-03-28 11:15:38.345] [info]   input_directory : /home/marce/git/gtopt/scripts/cases/gtopt_case_2y
+[2026-03-28 11:15:38.345] [info]   output_directory: /home/marce/git/gtopt/scripts/cases/gtopt_case_2y/results
+[2026-03-28 11:15:38.345] [info]   output_format   : parquet
+[2026-03-28 11:15:38.345] [info] === Building LP model ===
+[2026-03-28 11:15:38.348] [info] [planning_lp.cpp:44]   Building LP: 1 scene(s) × 51 phase(s)
+[2026-03-28 11:15:38.348] [info]   SolverWorkPool initialized: 25 max threads, 98% CPU threshold
+[2026-03-28 11:15:38.348] [info]   SolverWorkPool started
+[2026-03-28 11:15:59.902] [info] [planning_lp.cpp:105]   Building LP done in 21.554s
+[2026-03-28 11:15:59.902] [info]   WorkPool shutdown complete
+[2026-03-28 11:15:59.903] [info]   Build lp time 21.558s
+[2026-03-28 11:15:59.903] [info]   LP coefficient analysis: 51 LP(s), global |coeff| [6.667e-06, 6.420e+01], ratio=9.63e+06 (fair)
+[2026-03-28 11:15:59.903] [info] === System optimization ===
+[2026-03-28 11:15:59.903] [info] [sddp_method.cpp:1814] SDDPMethod: starting 1 scene(s) × 51 phase(s)
+[2026-03-28 11:15:59.903] [info] ApertureDataCache: scanning '/home/marce/git/gtopt/scripts/cases/gtopt_case_2y/apertures'
+[2026-03-28 11:15:59.982] [info] ApertureDataCache: loaded 1618230 entries across 334 elements from /home/marce/git/gtopt/scripts/cases/gtopt_case_2y/apertures (0.08s, 20 threads)
+[2026-03-28 11:15:59.982] [info] [sddp_method.cpp:1074] SDDP: initializing solver (no initial solve pass)
+[2026-03-28 11:15:59.982] [info] [sddp_method.cpp:1086] SDDP: 1 scene(s), 51 phase(s)
+[2026-03-28 11:15:59.982] [info] [sddp_method.cpp:1095] SDDP: adding alpha variables and collecting state links
+[2026-03-28 11:16:00.211] [warning] [sddp_method.cpp:1176] SDDP: could not load boundary cuts: Cannot open boundary cuts file for reading: gtopt_case_2y/boundary_cuts.csv
+[2026-03-28 11:16:00.211] [info] [sddp_method.cpp:1254] SDDP: initialization complete (0.23s)
+[2026-03-28 11:16:00.211] [info]   SDDPWorkPool initialized: 25 max threads, 98% CPU threshold
+[2026-03-28 11:16:00.211] [info]   SDDPWorkPool started
+[2026-03-28 11:16:00.211] [info]   SolverWorkPool initialized: 25 max threads, 98% CPU threshold
+[2026-03-28 11:16:00.211] [info]   SolverWorkPool started
+[2026-03-28 11:16:00.211] [info] [sddp_iteration.cpp:67] SDDP: work pools created (0.00s)
+[2026-03-28 11:16:00.211] [info] [sddp_iteration.cpp:102] SDDP: === iteration 0 / 0 ===
+[2026-03-28 11:16:28.400] [warning] [sddp_forward_pass.cpp:224] SDDP forward: iter 0 scene 1 phase 25 non-optimal (status 2), trying elastic solve
+[2026-03-28 11:16:28.678] [warning] LP file '/home/marce/git/gtopt/scripts/cases/gtopt_case_2y/results/logs/error_scene_1_phase_25' not saved: row names are not available. Set names_level >= only_cols to enable LP file output.
+[2026-03-28 11:16:28.679] [warning] [sddp_method.cpp:1303] SDDP forward: scene 0 failed: SDDP forward pass failed at scene 0 phase 24 (status 2)
+[2026-03-28 11:16:28.720] [info]   WorkPool shutdown complete
+[2026-03-28 11:16:28.721] [info]   WorkPool shutdown complete
+[2026-03-28 11:16:28.806] [info]   Optimization time 28.903s
+[2026-03-28 11:16:28.806] [warning] Solver did not find an optimal solution: SDDP: all scenes infeasible in forward pass (code=1)
+[2026-03-28 11:16:28.806] [error]   Solver options used: algorithm=barrier, threads=2, presolve=true, optimal_eps=(default), feasible_eps=(default), barrier_eps=(default), log_level=0
+[2026-03-28 11:16:28.806] [info] === Solution statistics ===
+[2026-03-28 11:16:28.806] [info]   Status          : non-optimal

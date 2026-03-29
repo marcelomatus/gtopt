@@ -1,0 +1,16 @@
+
+Log for './results/logs/error_scene_1_phase_25.lp' Clone_2 (V22.1.1.0) Sat Mar 28 12:04:10 2026
+
+Tried aggregator 1 time.
+LP Presolve eliminated 2236 rows and 17195 columns.
+Aggregator did 14439 substitutions.
+Reduced LP has 2897 rows, 23026 columns, and 42102 nonzeros.
+Presolve time = 0.07 sec. (45.80 ticks)
+
+Iteration log . . .
+Iteration:     1    Scaled infeas =          5913.142934
+Iteration:    52    Scaled infeas =          2742.042535
+Iteration:   362    Scaled infeas =             0.124629
+
+Primal simplex solved model.
+

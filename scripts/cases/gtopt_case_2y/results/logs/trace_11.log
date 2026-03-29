@@ -1,0 +1,77 @@
+[2026-03-26 19:18:02.134] [info] trace log file: gtopt_case_2y/results/logs/trace_11.log
+[2026-03-26 19:18:02.135] [info]   Parsing input file gtopt_case_2y/gtopt_case_2y.json
+[2026-03-26 19:18:02.137] [warning] deprecated option 'use_lp_names': use 'lp_build_options.names_level' instead
+[2026-03-26 19:18:02.184] [info]   Parse all input files time 0.050s
+[2026-03-26 19:18:02.184] [info] Output compression codec: zstd
+[2026-03-26 19:18:02.187] [info] Planning validation passed
+[2026-03-26 19:18:02.188] [info] === System statistics ===
+[2026-03-26 19:18:02.188] [info]   System name     : gtopt_case_2y
+[2026-03-26 19:18:02.188] [info]   System version  : 
+[2026-03-26 19:18:02.188] [info] === System elements  ===
+[2026-03-26 19:18:02.188] [info]   Buses           : 236
+[2026-03-26 19:18:02.188] [info]   Generators      : 1715
+[2026-03-26 19:18:02.188] [info]   Generator profs : 0
+[2026-03-26 19:18:02.188] [info]   Demands         : 138
+[2026-03-26 19:18:02.188] [info]   Demand profs    : 0
+[2026-03-26 19:18:02.188] [info]   Lines           : 330
+[2026-03-26 19:18:02.188] [info]   Batteries       : 25
+[2026-03-26 19:18:02.188] [info]   Converters      : 0
+[2026-03-26 19:18:02.188] [info]   Reserve zones   : 0
+[2026-03-26 19:18:02.188] [info]   Reserve provisions   : 0
+[2026-03-26 19:18:02.188] [info]   Junctions       : 100
+[2026-03-26 19:18:02.188] [info]   Waterways       : 136
+[2026-03-26 19:18:02.188] [info]   Flows           : 160
+[2026-03-26 19:18:02.188] [info]   Reservoirs      : 10
+[2026-03-26 19:18:02.188] [info]   ReservoirSeepages     : 3
+[2026-03-26 19:18:02.188] [info]   Turbines        : 170
+[2026-03-26 19:18:02.188] [info] === Simulation statistics ===
+[2026-03-26 19:18:02.188] [info]   Blocks          : 510
+[2026-03-26 19:18:02.188] [info]   Stages          : 51
+[2026-03-26 19:18:02.188] [info]   Scenarios       : 1
+[2026-03-26 19:18:02.188] [info] === Key options ===
+[2026-03-26 19:18:02.188] [info]   use_kirchhoff   : false
+[2026-03-26 19:18:02.188] [info]   use_single_bus  : false
+[2026-03-26 19:18:02.188] [info]   scale_objective : 1000
+[2026-03-26 19:18:02.188] [info]   demand_fail_cost: 1000
+[2026-03-26 19:18:02.188] [info]   input_directory : gtopt_case_2y
+[2026-03-26 19:18:02.188] [info]   output_directory: gtopt_case_2y/results
+[2026-03-26 19:18:02.188] [info]   output_format   : parquet
+[2026-03-26 19:18:02.188] [info] === Building LP model ===
+[2026-03-26 19:18:02.190] [info] [planning_lp.cpp:44]   Building LP: 1 scene(s) × 51 phase(s)
+[2026-03-26 19:18:02.190] [info]   SolverWorkPool initialized: 25 max threads, 98% CPU threshold
+[2026-03-26 19:18:02.190] [info]   SolverWorkPool started
+[2026-03-26 19:18:23.337] [info] [planning_lp.cpp:105]   Building LP done in 21.146s
+[2026-03-26 19:18:23.337] [info]   WorkPool shutdown complete
+[2026-03-26 19:18:23.337] [info]   Build lp time 21.149s
+[2026-03-26 19:18:23.337] [info]   LP coefficient analysis: 51 LP(s), global |coeff| [6.667e-06, 6.420e+01], ratio=9.63e+06 (fair)
+[2026-03-26 19:18:23.337] [info] === System optimization ===
+[2026-03-26 19:18:23.338] [info] [sddp_method.cpp:1798] SDDPMethod: starting 1 scene(s) × 51 phase(s)
+[2026-03-26 19:18:23.338] [info] ApertureDataCache: scanning 'gtopt_case_2y/apertures'
+[2026-03-26 19:18:23.418] [info] ApertureDataCache: loaded 1618230 entries across 334 elements from gtopt_case_2y/apertures (0.08s, 20 threads)
+[2026-03-26 19:18:23.418] [info] [sddp_method.cpp:1055] SDDP: initializing solver (no initial solve pass)
+[2026-03-26 19:18:23.418] [info] [sddp_method.cpp:1067] SDDP: 1 scene(s), 51 phase(s)
+[2026-03-26 19:18:23.418] [info] [sddp_method.cpp:1076] SDDP: adding alpha variables and collecting state links
+[2026-03-26 19:18:23.680] [warning] [sddp_cut_io.cpp:799] Boundary cuts: state variable 'CANUTILLAR' not found in the current model (it may have been removed or renamed since the cuts were saved); its coefficients will be ignored in the loaded cuts
+[2026-03-26 19:18:23.680] [warning] [sddp_cut_io.cpp:799] Boundary cuts: state variable 'PILMAIQUEN' not found in the current model (it may have been removed or renamed since the cuts were saved); its coefficients will be ignored in the loaded cuts
+[2026-03-26 19:18:23.700] [info] [sddp_cut_io.cpp:960] SDDP: loaded 35 boundary cuts from gtopt_case_2y/boundary_cuts.csv (mode=separated, max_iters=0)
+[2026-03-26 19:18:23.700] [info] [sddp_method.cpp:1155] SDDP: loaded 35 boundary cuts from gtopt_case_2y/boundary_cuts.csv (max_iter=36)
+[2026-03-26 19:18:23.700] [info] [sddp_method.cpp:1181] SDDP: iteration offset set to 36 from hot-start cuts
+[2026-03-26 19:18:23.700] [info] [sddp_method.cpp:1238] SDDP: initialization complete (0.28s)
+[2026-03-26 19:18:23.700] [info]   SDDPWorkPool initialized: 25 max threads, 98% CPU threshold
+[2026-03-26 19:18:23.700] [info]   SDDPWorkPool started
+[2026-03-26 19:18:23.700] [info]   SolverWorkPool initialized: 25 max threads, 98% CPU threshold
+[2026-03-26 19:18:23.700] [info]   SolverWorkPool started
+[2026-03-26 19:18:23.700] [info] [sddp_iteration.cpp:67] SDDP: work pools created (0.00s)
+[2026-03-26 19:18:23.700] [info] [sddp_iteration.cpp:102] SDDP: === iteration 36 / 135 ===
+[2026-03-26 19:18:31.147] [warning] [sddp_forward_pass.cpp:200] SDDP forward: iter 36 scene 1 phase 9 non-optimal (status 2), trying elastic solve
+[2026-03-26 19:18:31.575] [info] [sddp_forward_pass.cpp:237] SDDP forward: scene 1 phase 9 elastic solve ok, obj=268655.4749 alpha=0.0000 opex=268655.4749 [infeas_count=1]
+[2026-03-26 19:18:50.587] [warning] [sddp_forward_pass.cpp:200] SDDP forward: iter 36 scene 1 phase 25 non-optimal (status 2), trying elastic solve
+[2026-03-26 19:18:50.858] [warning] LP file 'gtopt_case_2y/results/logs/error_scene_1_phase_25' not saved: row names are not available. Set names_level >= only_cols to enable LP file output.
+[2026-03-26 19:18:50.858] [warning] [sddp_method.cpp:1287] SDDP forward: scene 0 failed: SDDP forward pass failed at scene 0 phase 24 (status 2)
+[2026-03-26 19:18:51.145] [info]   WorkPool shutdown complete
+[2026-03-26 19:18:51.145] [info]   WorkPool shutdown complete
+[2026-03-26 19:18:51.229] [info]   Optimization time 29.232s
+[2026-03-26 19:18:51.229] [warning] Solver did not find an optimal solution: SDDP: all scenes infeasible in forward pass (code=1)
+[2026-03-26 19:18:51.229] [error]   Solver options used: algorithm=barrier, threads=2, presolve=true, optimal_eps=(default), feasible_eps=(default), barrier_eps=(default), log_level=0
+[2026-03-26 19:18:51.229] [info] === Solution statistics ===
+[2026-03-26 19:18:51.229] [info]   Status          : non-optimal

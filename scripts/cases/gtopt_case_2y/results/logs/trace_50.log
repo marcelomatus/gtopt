@@ -1,0 +1,207 @@
+[2026-03-28 14:26:57.021] [info] trace log file: gtopt_case_2y/results/logs/trace_50.log
+[2026-03-28 14:26:57.022] [info]   Parsing input file gtopt_case_2y/gtopt_case_2y.json
+[2026-03-28 14:26:57.023] [warning] deprecated option 'use_lp_names': use 'lp_build_options.names_level' instead
+[2026-03-28 14:26:57.067] [info]   Parse all input files time 0.046s
+[2026-03-28 14:26:57.067] [info] Output compression codec: zstd
+[2026-03-28 14:26:57.070] [info] Planning validation passed
+[2026-03-28 14:26:57.070] [info] === System statistics ===
+[2026-03-28 14:26:57.070] [info]   System name     : gtopt_case_2y
+[2026-03-28 14:26:57.070] [info]   System version  : 
+[2026-03-28 14:26:57.070] [info] === System elements  ===
+[2026-03-28 14:26:57.070] [info]   Buses           : 236
+[2026-03-28 14:26:57.070] [info]   Generators      : 1715
+[2026-03-28 14:26:57.070] [info]   Generator profs : 0
+[2026-03-28 14:26:57.070] [info]   Demands         : 138
+[2026-03-28 14:26:57.070] [info]   Demand profs    : 0
+[2026-03-28 14:26:57.070] [info]   Lines           : 330
+[2026-03-28 14:26:57.070] [info]   Batteries       : 25
+[2026-03-28 14:26:57.070] [info]   Converters      : 0
+[2026-03-28 14:26:57.070] [info]   Reserve zones   : 0
+[2026-03-28 14:26:57.070] [info]   Reserve provisions   : 0
+[2026-03-28 14:26:57.070] [info]   Junctions       : 100
+[2026-03-28 14:26:57.070] [info]   Waterways       : 136
+[2026-03-28 14:26:57.070] [info]   Flows           : 160
+[2026-03-28 14:26:57.070] [info]   Reservoirs      : 10
+[2026-03-28 14:26:57.070] [info]   ReservoirSeepages     : 3
+[2026-03-28 14:26:57.070] [info]   Turbines        : 170
+[2026-03-28 14:26:57.070] [info] === Simulation statistics ===
+[2026-03-28 14:26:57.070] [info]   Blocks          : 510
+[2026-03-28 14:26:57.070] [info]   Stages          : 51
+[2026-03-28 14:26:57.070] [info]   Scenarios       : 1
+[2026-03-28 14:26:57.070] [info] === Key options ===
+[2026-03-28 14:26:57.070] [info]   use_kirchhoff   : false
+[2026-03-28 14:26:57.070] [info]   use_single_bus  : false
+[2026-03-28 14:26:57.070] [info]   scale_objective : 1000
+[2026-03-28 14:26:57.070] [info]   demand_fail_cost: 1000
+[2026-03-28 14:26:57.070] [info]   input_directory : gtopt_case_2y
+[2026-03-28 14:26:57.070] [info]   output_directory: gtopt_case_2y/results
+[2026-03-28 14:26:57.070] [info]   output_format   : parquet
+[2026-03-28 14:26:57.070] [info] === Building LP model ===
+[2026-03-28 14:26:57.073] [info] [planning_lp.cpp:44]   Building LP: 1 scene(s) × 51 phase(s)
+[2026-03-28 14:26:57.073] [info]   SolverWorkPool initialized: 25 max threads, 98% CPU threshold
+[2026-03-28 14:26:57.073] [info]   SolverWorkPool started
+[2026-03-28 14:27:16.527] [info] [planning_lp.cpp:105]   Building LP done in 19.454s
+[2026-03-28 14:27:16.527] [info]   WorkPool shutdown complete
+[2026-03-28 14:27:16.527] [info]   Build lp time 19.456s
+[2026-03-28 14:27:16.527] [info]   LP coefficient analysis: 51 LP(s), global |coeff| [6.667e-06, 6.420e+01], ratio=9.63e+06 (fair)
+[2026-03-28 14:27:16.527] [info] === System optimization ===
+[2026-03-28 14:27:16.527] [info] [sddp_method.cpp:1823] SDDPMethod: starting 1 scene(s) × 51 phase(s)
+[2026-03-28 14:27:16.527] [info] ApertureDataCache: scanning 'gtopt_case_2y/apertures'
+[2026-03-28 14:27:16.608] [info] ApertureDataCache: loaded 1618230 entries across 334 elements from gtopt_case_2y/apertures (0.08s, 20 threads)
+[2026-03-28 14:27:16.608] [info] [sddp_method.cpp:1074] SDDP: initializing solver (no initial solve pass)
+[2026-03-28 14:27:16.608] [info] [sddp_method.cpp:1086] SDDP: 1 scene(s), 51 phase(s)
+[2026-03-28 14:27:16.608] [info] [sddp_method.cpp:1095] SDDP: adding alpha variables and collecting state links
+[2026-03-28 14:27:16.929] [warning] [sddp_cut_io.cpp:922] Boundary cuts: state variable 'CANUTILLAR' not found in the current model; non-zero coefficient -100.6546958 (mode=skip_coeff)
+[2026-03-28 14:27:16.929] [warning] [sddp_cut_io.cpp:922] Boundary cuts: state variable 'PILMAIQUEN' not found in the current model; non-zero coefficient -11.03538014 (mode=skip_coeff)
+[2026-03-28 14:27:16.930] [info] [sddp_cut_io.cpp:995] SDDP: loaded 35 boundary cuts from gtopt_case_2y/boundary_cuts.csv (mode=separated, max_iters=0)
+[2026-03-28 14:27:16.931] [info] [sddp_method.cpp:1173] SDDP: loaded 35 boundary cuts from gtopt_case_2y/boundary_cuts.csv
+[2026-03-28 14:27:16.931] [info] [sddp_method.cpp:1254] SDDP: initialization complete (0.32s)
+[2026-03-28 14:27:16.931] [info]   SDDPWorkPool initialized: 25 max threads, 98% CPU threshold
+[2026-03-28 14:27:16.931] [info]   SDDPWorkPool started
+[2026-03-28 14:27:16.931] [info] [sddp_pool.hpp:160] SDDP work pool started: max_threads=25 cpu_threshold=98% (hw_concurrency=20)
+[2026-03-28 14:27:16.931] [info]   SolverWorkPool initialized: 25 max threads, 98% CPU threshold
+[2026-03-28 14:27:16.931] [info]   SolverWorkPool started
+[2026-03-28 14:27:16.931] [info] [sddp_iteration.cpp:67] SDDP: work pools created (0.00s)
+[2026-03-28 14:27:16.931] [info] [sddp_iteration.cpp:102] SDDP: === iteration 0 / 0 ===
+[2026-03-28 14:27:16.931] [info] [sddp_method.cpp:1280] SDDP forward: dispatching 1 scene(s) to work pool
+[2026-03-28 14:27:16.951] [info] [sddp_forward_pass.cpp:80] SDDP forward: scene 1 iter 0 starting (51 phases) [thread 1911]
+[2026-03-28 14:27:27.013] [warning] [sddp_forward_pass.cpp:228] SDDP forward: iter 0 scene 1 phase 37 non-optimal (status 2), trying elastic solve
+[2026-03-28 14:27:27.797] [info] [sddp_forward_pass.cpp:265] SDDP forward: scene 1 phase 37 elastic solve ok, obj=702010.9206 alpha=0.0000 opex=702010.9206 [infeas_count=1]
+[2026-03-28 14:27:28.056] [warning] [sddp_forward_pass.cpp:228] SDDP forward: iter 0 scene 1 phase 38 non-optimal (status 2), trying elastic solve
+[2026-03-28 14:27:29.164] [info] [sddp_forward_pass.cpp:265] SDDP forward: scene 1 phase 38 elastic solve ok, obj=647094.3981 alpha=0.0000 opex=647094.3981 [infeas_count=1]
+[2026-03-28 14:27:32.852] [warning] [sddp_forward_pass.cpp:228] SDDP forward: iter 0 scene 1 phase 51 non-optimal (status 2), trying elastic solve
+[2026-03-28 14:27:34.054] [info] [sddp_forward_pass.cpp:265] SDDP forward: scene 1 phase 51 elastic solve ok, obj=687241.0995 alpha=0.0000 opex=687241.0995 [infeas_count=1]
+[2026-03-28 14:27:34.056] [info] [sddp_forward_pass.cpp:339] SDDP forward: scene 1 iter 0 done, total_opex=28337586.5304 [thread 1911]
+[2026-03-28 14:27:34.056] [info] [sddp_method.cpp:1373] SDDP backward: dispatching 1 scene(s) to work pool (cut_sharing=none, apertures=enabled)
+[2026-03-28 14:27:34.066] [info] [sddp_aperture_pass.cpp:374] SDDP backward (apertures): scene 1 iter 0 starting (50 phases) [thread 1911]
+[2026-03-28 14:27:34.066] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 51 — starting 16 aperture(s) [thread 1911]
+[2026-03-28 14:27:34.897] [info] SDDP aperture: scene 1 phase 51 uid 5 infeasible (0.770s) [thread 4603]
+[2026-03-28 14:27:34.904] [info] SDDP aperture: scene 1 phase 51 uid 7 infeasible (0.736s) [thread 49]
+[2026-03-28 14:27:34.948] [info] SDDP aperture: scene 1 phase 51 uid 3 infeasible (0.862s) [thread 2010]
+[2026-03-28 14:27:34.949] [info] SDDP aperture: scene 1 phase 51 aperture uid 3 infeasible (status 2), skipping
+[2026-03-28 14:27:34.965] [info] SDDP aperture: scene 1 phase 51 uid 4 infeasible (0.858s) [thread 8595]
+[2026-03-28 14:27:34.965] [info] SDDP aperture: scene 1 phase 51 uid 6 infeasible (0.817s) [thread 1884]
+[2026-03-28 14:27:34.967] [info] SDDP aperture: scene 1 phase 51 aperture uid 4 infeasible (status 2), skipping
+[2026-03-28 14:27:34.967] [info] SDDP aperture: scene 1 phase 51 aperture uid 5 infeasible (status 2), skipping
+[2026-03-28 14:27:34.967] [info] SDDP aperture: scene 1 phase 51 aperture uid 6 infeasible (status 2), skipping
+[2026-03-28 14:27:34.967] [info] SDDP aperture: scene 1 phase 51 aperture uid 7 infeasible (status 2), skipping
+[2026-03-28 14:27:35.034] [info] SDDP aperture: scene 1 phase 51 uid 11 infeasible (0.785s) [thread 8031]
+[2026-03-28 14:27:35.093] [info] SDDP aperture: scene 1 phase 51 uid 8 infeasible (0.905s) [thread 2607]
+[2026-03-28 14:27:35.095] [info] SDDP aperture: scene 1 phase 51 aperture uid 8 infeasible (status 2), skipping
+[2026-03-28 14:27:35.096] [info] SDDP aperture: scene 1 phase 51 uid 9 infeasible (0.887s) [thread 9456]
+[2026-03-28 14:27:35.097] [info] SDDP aperture: scene 1 phase 51 aperture uid 9 infeasible (status 2), skipping
+[2026-03-28 14:27:35.112] [info] SDDP aperture: scene 1 phase 51 uid 16 infeasible (0.761s) [thread 9463]
+[2026-03-28 14:27:35.112] [info] SDDP aperture: scene 1 phase 51 uid 10 infeasible (0.884s) [thread 7609]
+[2026-03-28 14:27:35.113] [info] SDDP aperture: scene 1 phase 51 aperture uid 10 infeasible (status 2), skipping
+[2026-03-28 14:27:35.113] [info] SDDP aperture: scene 1 phase 51 aperture uid 11 infeasible (status 2), skipping
+[2026-03-28 14:27:35.149] [info] SDDP aperture: scene 1 phase 51 uid 13 infeasible (0.860s) [thread 3868]
+[2026-03-28 14:27:35.157] [info] SDDP aperture: scene 1 phase 51 uid 14 infeasible (0.847s) [thread 3751]
+[2026-03-28 14:27:35.250] [info] SDDP aperture: scene 1 phase 51 uid 15 infeasible (0.920s) [thread 752]
+[2026-03-28 14:27:35.290] [info] SDDP aperture: scene 1 phase 51 uid 12 infeasible (1.021s) [thread 5536]
+[2026-03-28 14:27:35.291] [info] SDDP aperture: scene 1 phase 51 aperture uid 12 infeasible (status 2), skipping
+[2026-03-28 14:27:35.291] [info] SDDP aperture: scene 1 phase 51 aperture uid 13 infeasible (status 2), skipping
+[2026-03-28 14:27:35.291] [info] SDDP aperture: scene 1 phase 51 aperture uid 14 infeasible (status 2), skipping
+[2026-03-28 14:27:35.291] [info] SDDP aperture: scene 1 phase 51 aperture uid 15 infeasible (status 2), skipping
+[2026-03-28 14:27:35.291] [info] SDDP aperture: scene 1 phase 51 aperture uid 16 infeasible (status 2), skipping
+[2026-03-28 14:27:35.303] [info] SDDP aperture: scene 1 phase 51 uid 17 infeasible (0.932s) [thread 3323]
+[2026-03-28 14:27:35.304] [info] SDDP aperture: scene 1 phase 51 aperture uid 17 infeasible (status 2), skipping
+[2026-03-28 14:27:35.317] [info] SDDP aperture: scene 1 phase 51 uid 18 infeasible (0.926s) [thread 5346]
+[2026-03-28 14:27:35.317] [info] SDDP aperture: scene 1 phase 51 aperture uid 18 infeasible (status 2), skipping
+[2026-03-28 14:27:35.317] [info] SDDP aperture: scene 1 phase 51 — 0/16 feasible, 16 infeasible, 0 skipped (1.251s) [thread 1911]
+[2026-03-28 14:27:35.323] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 50 — starting 16 aperture(s) [thread 1911]
+[2026-03-28 14:27:36.333] [info] SDDP aperture: scene 1 phase 50 uid 9 solved (0.871s) [thread 4603]
+[2026-03-28 14:27:36.372] [info] SDDP aperture: scene 1 phase 50 uid 12 solved (0.849s) [thread 2607]
+[2026-03-28 14:27:36.417] [info] SDDP aperture: scene 1 phase 50 uid 14 solved (0.853s) [thread 7609]
+[2026-03-28 14:27:36.420] [info] SDDP aperture: scene 1 phase 50 uid 3 solved (1.080s) [thread 5346]
+[2026-03-28 14:27:36.449] [info] SDDP aperture: scene 1 phase 50 uid 11 solved (0.947s) [thread 49]
+[2026-03-28 14:27:36.508] [info] SDDP aperture: scene 1 phase 50 uid 7 solved (1.088s) [thread 2010]
+[2026-03-28 14:27:36.531] [info] SDDP aperture: scene 1 phase 50 uid 15 solved (0.947s) [thread 8031]
+[2026-03-28 14:27:36.548] [info] SDDP aperture: scene 1 phase 50 uid 17 solved (0.923s) [thread 3751]
+[2026-03-28 14:27:36.558] [info] SDDP aperture: scene 1 phase 50 uid 13 solved (1.015s) [thread 9456]
+[2026-03-28 14:27:36.688] [info] SDDP aperture: scene 1 phase 50 uid 5 solved (1.308s) [thread 5536]
+[2026-03-28 14:27:36.720] [info] SDDP aperture: scene 1 phase 50 uid 4 solved (1.361s) [thread 3323]
+[2026-03-28 14:27:36.738] [info] SDDP aperture: scene 1 phase 50 uid 8 solved (1.297s) [thread 8595]
+[2026-03-28 14:27:36.759] [info] SDDP aperture: scene 1 phase 50 uid 10 solved (1.277s) [thread 1884]
+[2026-03-28 14:27:36.780] [info] SDDP aperture: scene 1 phase 50 uid 6 solved (1.380s) [thread 752]
+[2026-03-28 14:27:36.945] [info] SDDP aperture: scene 1 phase 50 uid 18 solved (1.300s) [thread 9463]
+[2026-03-28 14:27:36.954] [info] SDDP aperture: scene 1 phase 50 uid 16 solved (1.349s) [thread 3868]
+[2026-03-28 14:27:36.955] [info] SDDP aperture: scene 1 phase 50 — 16/16 feasible, 0 infeasible, 0 skipped (1.632s) [thread 1911]
+[2026-03-28 14:27:37.097] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 49 — starting 16 aperture(s) [thread 1911]
+[2026-03-28 14:27:38.058] [info] SDDP aperture: scene 1 phase 49 uid 5 solved (0.918s) [thread 752]
+[2026-03-28 14:27:38.124] [info] SDDP aperture: scene 1 phase 49 uid 14 solved (0.801s) [thread 8031]
+[2026-03-28 14:27:38.126] [info] SDDP aperture: scene 1 phase 49 uid 12 solved (0.844s) [thread 9456]
+[2026-03-28 14:27:38.137] [info] SDDP aperture: scene 1 phase 49 uid 17 solved (0.752s) [thread 3323]
+[2026-03-28 14:27:38.158] [info] SDDP aperture: scene 1 phase 49 uid 15 solved (0.814s) [thread 5536]
+[2026-03-28 14:27:38.349] [info] SDDP aperture: scene 1 phase 49 uid 13 solved (1.046s) [thread 7609]
+[2026-03-28 14:27:38.357] [info] SDDP aperture: scene 1 phase 49 uid 6 solved (1.197s) [thread 1884]
+[2026-03-28 14:27:38.390] [info] SDDP aperture: scene 1 phase 49 uid 3 solved (1.292s) [thread 9463]
+[2026-03-28 14:27:38.396] [info] SDDP aperture: scene 1 phase 49 uid 9 solved (1.175s) [thread 4603]
+[2026-03-28 14:27:38.403] [info] SDDP aperture: scene 1 phase 49 uid 11 solved (1.141s) [thread 2607]
+[2026-03-28 14:27:38.445] [info] SDDP aperture: scene 1 phase 49 uid 4 solved (1.326s) [thread 3868]
+[2026-03-28 14:27:38.461] [info] SDDP aperture: scene 1 phase 49 uid 10 solved (1.219s) [thread 49]
+[2026-03-28 14:27:38.463] [info] SDDP aperture: scene 1 phase 49 uid 7 solved (1.283s) [thread 2010]
+[2026-03-28 14:27:38.465] [info] SDDP aperture: scene 1 phase 49 uid 18 solved (1.060s) [thread 5346]
+[2026-03-28 14:27:38.485] [info] SDDP aperture: scene 1 phase 49 uid 16 solved (1.121s) [thread 3751]
+[2026-03-28 14:27:38.526] [info] SDDP aperture: scene 1 phase 49 uid 8 solved (1.326s) [thread 8595]
+[2026-03-28 14:27:38.527] [info] SDDP aperture: scene 1 phase 49 — 16/16 feasible, 0 infeasible, 0 skipped (1.430s) [thread 1911]
+[2026-03-28 14:27:38.750] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 48 — starting 16 aperture(s) [thread 1911]
+[2026-03-28 14:27:39.761] [info] SDDP aperture: scene 1 phase 48 uid 6 solved (0.933s) [thread 2010]
+[2026-03-28 14:27:39.780] [info] SDDP aperture: scene 1 phase 48 uid 14 solved (0.789s) [thread 5536]
+[2026-03-28 14:27:39.813] [info] SDDP aperture: scene 1 phase 48 uid 7 solved (0.965s) [thread 4603]
+[2026-03-28 14:27:39.832] [info] SDDP aperture: scene 1 phase 48 uid 13 solved (0.861s) [thread 8031]
+[2026-03-28 14:27:39.837] [info] SDDP aperture: scene 1 phase 48 uid 17 solved (0.785s) [thread 9463]
+[2026-03-28 14:27:39.854] [info] SDDP aperture: scene 1 phase 48 uid 3 solved (1.088s) [thread 8595]
+[2026-03-28 14:27:39.950] [info] SDDP aperture: scene 1 phase 48 uid 18 solved (0.877s) [thread 3323]
+[2026-03-28 14:27:40.047] [info] SDDP aperture: scene 1 phase 48 uid 4 solved (1.261s) [thread 3751]
+[2026-03-28 14:27:40.096] [info] SDDP aperture: scene 1 phase 48 uid 11 solved (1.166s) [thread 9456]
+[2026-03-28 14:27:40.124] [info] SDDP aperture: scene 1 phase 48 uid 8 solved (1.255s) [thread 1884]
+[2026-03-28 14:27:40.161] [info] SDDP aperture: scene 1 phase 48 uid 9 solved (1.272s) [thread 49]
+[2026-03-28 14:27:40.208] [info] SDDP aperture: scene 1 phase 48 uid 5 solved (1.400s) [thread 5346]
+[2026-03-28 14:27:40.254] [info] SDDP aperture: scene 1 phase 48 uid 12 solved (1.303s) [thread 7609]
+[2026-03-28 14:27:40.261] [info] SDDP aperture: scene 1 phase 48 uid 16 solved (1.229s) [thread 752]
+[2026-03-28 14:27:40.284] [info] SDDP aperture: scene 1 phase 48 uid 10 solved (1.374s) [thread 2607]
+[2026-03-28 14:27:40.343] [info] SDDP aperture: scene 1 phase 48 uid 15 solved (1.331s) [thread 3868]
+[2026-03-28 14:27:40.344] [info] SDDP aperture: scene 1 phase 48 — 16/16 feasible, 0 infeasible, 0 skipped (1.594s) [thread 1911]
+[2026-03-28 14:27:40.416] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 47 — starting 16 aperture(s) [thread 1911]
+[2026-03-28 14:27:41.447] [info] SDDP aperture: scene 1 phase 47 uid 11 solved (0.857s) [thread 49]
+[2026-03-28 14:27:41.464] [info] SDDP aperture: scene 1 phase 47 uid 3 solved (1.038s) [thread 3868]
+[2026-03-28 14:27:41.573] [info] SDDP aperture: scene 1 phase 47 uid 17 solved (0.861s) [thread 3323]
+[2026-03-28 14:27:41.600] [info] SDDP aperture: scene 1 phase 47 uid 9 solved (1.051s) [thread 4603]
+[2026-03-28 14:27:41.612] [info] SDDP aperture: scene 1 phase 47 uid 14 solved (0.961s) [thread 5536]
+[2026-03-28 14:27:41.672] [info] SDDP aperture: scene 1 phase 47 uid 5 solved (1.205s) [thread 752]
+[2026-03-28 14:27:41.704] [info] SDDP aperture: scene 1 phase 47 uid 8 solved (1.175s) [thread 8595]
+[2026-03-28 14:27:41.704] [info] SDDP aperture: scene 1 phase 47 uid 4 solved (1.257s) [thread 2607]
+[2026-03-28 14:27:41.740] [info] SDDP aperture: scene 1 phase 47 uid 6 solved (1.253s) [thread 7609]
+[2026-03-28 14:27:41.770] [info] SDDP aperture: scene 1 phase 47 uid 12 solved (1.160s) [thread 9456]
+[2026-03-28 14:27:41.808] [info] SDDP aperture: scene 1 phase 47 uid 13 solved (1.177s) [thread 8031]
+[2026-03-28 14:27:41.814] [info] SDDP aperture: scene 1 phase 47 uid 15 solved (1.143s) [thread 3751]
+[2026-03-28 14:27:41.922] [info] SDDP aperture: scene 1 phase 47 uid 18 solved (1.189s) [thread 5346]
+[2026-03-28 14:27:41.932] [info] SDDP aperture: scene 1 phase 47 uid 7 solved (1.424s) [thread 2010]
+[2026-03-28 14:27:42.002] [info] SDDP aperture: scene 1 phase 47 uid 10 solved (1.432s) [thread 1884]
+[2026-03-28 14:27:42.011] [info] SDDP aperture: scene 1 phase 47 uid 16 solved (1.319s) [thread 9463]
+[2026-03-28 14:27:42.012] [info] SDDP aperture: scene 1 phase 47 — 16/16 feasible, 0 infeasible, 0 skipped (1.597s) [thread 1911]
+[2026-03-28 14:27:42.150] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 46 — starting 16 aperture(s) [thread 1911]
+[2026-03-28 14:27:43.197] [info] SDDP aperture: scene 1 phase 46 uid 6 solved (0.970s) [thread 5346]
+[2026-03-28 14:27:43.244] [info] SDDP aperture: scene 1 phase 46 uid 13 solved (0.874s) [thread 8031]
+[2026-03-28 14:27:43.304] [info] SDDP aperture: scene 1 phase 46 uid 14 solved (0.914s) [thread 5536]
+[2026-03-28 14:27:43.433] [info] SDDP aperture: scene 1 phase 46 uid 12 solved (1.084s) [thread 7609]
+[2026-03-28 14:27:43.483] [info] SDDP aperture: scene 1 phase 46 uid 5 solved (1.276s) [thread 2010]
+[2026-03-28 14:27:43.508] [info] SDDP aperture: scene 1 phase 46 uid 4 solved (1.322s) [thread 1884]
+[2026-03-28 14:27:43.523] [info] SDDP aperture: scene 1 phase 46 uid 9 solved (1.234s) [thread 49]
+[2026-03-28 14:27:43.551] [info] SDDP aperture: scene 1 phase 46 uid 11 solved (1.222s) [thread 9456]
+[2026-03-28 14:27:43.599] [info] SDDP aperture: scene 1 phase 46 uid 18 solved (1.127s) [thread 3323]
+[2026-03-28 14:27:43.636] [info] SDDP aperture: scene 1 phase 46 uid 3 solved (1.470s) [thread 9463]
+[2026-03-28 14:27:43.677] [info] SDDP aperture: scene 1 phase 46 uid 7 solved (1.429s) [thread 8595]
+[2026-03-28 14:27:43.681] [info] SDDP aperture: scene 1 phase 46 uid 17 solved (1.229s) [thread 752]
+[2026-03-28 14:27:43.713] [info] SDDP aperture: scene 1 phase 46 uid 10 solved (1.405s) [thread 2607]
+[2026-03-28 14:27:43.718] [info] SDDP aperture: scene 1 phase 46 uid 8 solved (1.450s) [thread 4603]
+[2026-03-28 14:27:43.780] [info] SDDP aperture: scene 1 phase 46 uid 15 solved (1.370s) [thread 3868]
+[2026-03-28 14:27:43.874] [info] SDDP aperture: scene 1 phase 46 uid 16 solved (1.443s) [thread 3751]
+[2026-03-28 14:27:43.875] [info] SDDP aperture: scene 1 phase 46 — 16/16 feasible, 0 infeasible, 0 skipped (1.726s) [thread 1911]
+[2026-03-28 14:27:44.007] [info] [sddp_aperture.cpp:167] SDDP aperture: scene 1 phase 45 — starting 16 aperture(s) [thread 1911]
+[2026-03-28 14:27:45.015] [info] SDDP aperture: scene 1 phase 45 uid 5 solved (0.951s) [thread 2607]
+[2026-03-28 14:27:45.037] [info] SDDP aperture: scene 1 phase 45 uid 6 solved (0.951s) [thread 4603]
+[2026-03-28 14:27:45.149] [info] SDDP aperture: scene 1 phase 45 uid 14 solved (0.900s) [thread 5536]
+[2026-03-28 14:27:45.333] [info] SDDP aperture: scene 1 phase 45 uid 17 solved (1.023s) [thread 3323]
+[2026-03-28 14:27:45.368] [info] SDDP aperture: scene 1 phase 45 uid 4 solved (1.324s) [thread 3868]
+[2026-03-28
