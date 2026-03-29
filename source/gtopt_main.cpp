@@ -260,14 +260,15 @@ bool try_set_solver_options_path(Planning& planning,
 /// first tries a direct setter for SolverOptions paths (which have required
 /// non-optional fields), then falls back to a JSON overlay approach for all
 /// other paths.
-void apply_set_options(Planning& planning,
-                       const std::vector<std::string>& set_options)
+/// @return true if all options were applied successfully, false on any error.
+[[nodiscard]] bool apply_set_options(
+    Planning& planning, const std::vector<std::string>& set_options)
 {
   for (const auto& opt : set_options) {
     const auto eq_pos = opt.find('=');
     if (eq_pos == std::string::npos || eq_pos == 0) {
       spdlog::error("--set: invalid format '{}' (expected key=value)", opt);
-      continue;
+      return false;
     }
     const auto key = opt.substr(0, eq_pos);
     const auto value = opt.substr(eq_pos + 1);
@@ -280,7 +281,7 @@ void apply_set_options(Planning& planning,
       }
     } catch (const std::exception& ex) {
       spdlog::error("--set {}={}: {}", key, value, ex.what());
-      continue;
+      return false;
     }
 
     // JSON overlay approach for all other paths
@@ -295,9 +296,7 @@ void apply_set_options(Planning& planning,
       // If auto-typed value failed (e.g. number where string expected),
       // retry with the value as a quoted string
       if (json_val.front() != '"') {
-        auto str_json = build_set_option_json(key, to_json_value(value));
-        // Force string by quoting if not already quoted
-        str_json = build_set_option_json(key, "\"" + value + "\"");
+        auto str_json = build_set_option_json(key, "\"" + value + "\"");
         try {
           auto overlay =
               daw::json::from_json<Planning>(str_json, FastParsePolicy);
@@ -307,12 +306,11 @@ void apply_set_options(Planning& planning,
         } catch (...) {
         }
       }
-      spdlog::error("--set {}={}: JSON parse error: {}",
-                    key,
-                    value,
-                    to_formatted_string(ex, json.c_str()));
+      spdlog::error("--set {}={}: unknown option or invalid value", key, value);
+      return false;
     }
   }
+  return true;
 }
 
 // ── end --set support ───────────────────────────────────────────────────────
@@ -677,7 +675,9 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     // Apply --set key=value overrides (before specific CLI flags)
     //
     if (!opts.set_options.empty()) {
-      apply_set_options(my_planning, opts.set_options);
+      if (!apply_set_options(my_planning, opts.set_options)) {
+        return EXIT_FAILURE;
+      }
     }
 
     //
