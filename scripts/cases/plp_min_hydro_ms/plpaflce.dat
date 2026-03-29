@@ -1,3 +1,11 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:383d4359cbf233bcf9607d7682800f60184b1ac97409c6ca6256c30a46a51a32
-size 358
+# Archivo de caudales por etapa (plpaflce.dat)
+# Nro. Cent. c/Caudales Estoc. (EstocNVar2) y Nro. Hidrologias (NClase)
+  1                                         2
+# Nombre de la central
+'HydroGen'
+# Numero de Bloques con caudales
+3
+# Datos: Mes  Bloque  Hidro1  Hidro2
+   01    001    50.0    80.0
+   01    002    55.0    85.0
+   01    003    60.0    90.0
