@@ -10,6 +10,7 @@
 
 #include <daw/json/daw_json_link.h>
 #include <gtopt/json/json_basic_types.hpp>
+#include <gtopt/json/json_enum_option.hpp>
 #include <gtopt/json/json_solver_options.hpp>
 #include <gtopt/monolithic_options.hpp>
 
@@ -32,12 +33,12 @@ struct MonolithicOptionsConstructor
   {
     MonolithicOptions opts;
     if (solve_mode_str) {
-      opts.solve_mode = gtopt::solve_mode_from_name(*solve_mode_str);
+      opts.solve_mode = gtopt::enum_from_name<SolveMode>(*solve_mode_str);
     }
     opts.boundary_cuts_file = std::move(boundary_cuts_file);
     if (boundary_cuts_mode_str) {
       opts.boundary_cuts_mode =
-          gtopt::boundary_cuts_mode_from_name(*boundary_cuts_mode_str);
+          gtopt::enum_from_name<BoundaryCutsMode>(*boundary_cuts_mode_str);
     }
     opts.boundary_max_iterations = boundary_max_iterations;
     opts.solver_options = std::move(solver_options);
@@ -59,16 +60,9 @@ struct json_data_contract<MonolithicOptions>
 
   static auto to_json_data(MonolithicOptions const& opt)
   {
-    const OptName solve_mode_str = opt.solve_mode
-        ? OptName {std::string(gtopt::solve_mode_name(*opt.solve_mode))}
-        : OptName {};
-    const OptName boundary_cuts_mode_str = opt.boundary_cuts_mode
-        ? OptName {std::string(
-              gtopt::boundary_cuts_mode_name(*opt.boundary_cuts_mode))}
-        : OptName {};
-    return std::make_tuple(solve_mode_str,
+    return std::make_tuple(detail::enum_to_opt_name(opt.solve_mode),
                            opt.boundary_cuts_file,
-                           boundary_cuts_mode_str,
+                           detail::enum_to_opt_name(opt.boundary_cuts_mode),
                            opt.boundary_max_iterations,
                            opt.solver_options);
   }

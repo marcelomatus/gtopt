@@ -171,7 +171,7 @@ bool try_set_solver_field(SolverOptions& so,
     return true;
   }
   if (field == "algorithm") {
-    if (const auto algo = lp_algo_from_name(value)) {
+    if (const auto algo = enum_from_name<LPAlgo>(value)) {
       so.algorithm = *algo;
     } else {
       so.algorithm = static_cast<LPAlgo>(std::stoi(value));
@@ -534,7 +534,7 @@ void log_pre_solve_stats(
                            plan_opts.output_directory.value_or("(default)")));
   spdlog::info(std::format("  output_format   : {}",
                            plan_opts.output_format
-                               ? data_format_name(*plan_opts.output_format)
+                               ? enum_name(*plan_opts.output_format)
                                : "(default)"));
 }
 
@@ -690,7 +690,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     // every downstream write (parquet + csv, across all scenes/phases) uses
     // the same pre-validated codec without re-probing on each file.
     my_planning.options.output_compression =
-        compression_codec_from_name(probe_parquet_codec(
+        enum_from_name<CompressionCodec>(probe_parquet_codec(
             PlanningOptionsLP(my_planning.options).output_compression()));
 
     // Propagate lp_build into planning options so the SDDP solver

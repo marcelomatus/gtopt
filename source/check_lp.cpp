@@ -336,7 +336,7 @@ std::string run_check_lp_diagnostic(const std::string& lp_file,
 
   // Pass the LP algorithm when the caller specifies one, so gtopt_check_lp
   // uses the same algorithm (barrier, primal, dual) as the gtopt solver.
-  const auto algo_name = std::string(lp_algo_name(solver_opts.algorithm));
+  const auto algo_name = std::string(enum_name(solver_opts.algorithm));
   if (!algo_name.empty() && algo_name != "unknown") {
     args.emplace_back("--algo");
     args.emplace_back(algo_name);
