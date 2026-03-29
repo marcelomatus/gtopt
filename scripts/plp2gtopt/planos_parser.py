@@ -71,12 +71,14 @@ def find_planos_files(
 
     Returns ``(file1, file2)`` or ``None`` if they cannot be found.
     Both the original (``plpplaem*``) and abbreviated (``plpplem*``)
-    naming conventions are tried.
+    naming conventions are tried, including compressed variants.
     """
+    from .compressed_open import find_compressed_path
+
     for prefix in ("plpplaem", "plpplem"):
-        f1 = input_path / f"{prefix}1.dat"
-        f2 = input_path / f"{prefix}2.dat"
-        if f1.exists() and f2.exists():
+        f1 = find_compressed_path(input_path / f"{prefix}1.dat")
+        f2 = find_compressed_path(input_path / f"{prefix}2.dat")
+        if f1 is not None and f2 is not None:
             return f1, f2
     return None
 
@@ -273,7 +275,9 @@ class PlanosParser(BaseParser):
     @staticmethod
     def _read_lines(filepath: Path) -> List[str]:
         """Read non-empty, non-comment lines from a file."""
-        with open(filepath, "r", encoding="ascii", errors="ignore") as fobj:
+        from .compressed_open import compressed_open
+
+        with compressed_open(filepath) as fobj:
             result = []
             for line in fobj:
                 stripped = line.strip()
