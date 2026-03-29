@@ -128,6 +128,24 @@ def console() -> Console:
 
 
 # ---------------------------------------------------------------------------
+# Number formatting
+# ---------------------------------------------------------------------------
+
+
+def fmt_num(value: float, decimals: int = 2) -> str:
+    """Format a float with apostrophe thousands separator.
+
+    Examples::
+
+        fmt_num(1395.254)   → "1'395.25"
+        fmt_num(0.5)        → "0.50"
+        fmt_num(1e6, 1)     → "1'000'000.0"
+    """
+    formatted = f"{value:,.{decimals}f}"
+    return formatted.replace(",", "'")
+
+
+# ---------------------------------------------------------------------------
 # Convenience helpers
 # ---------------------------------------------------------------------------
 

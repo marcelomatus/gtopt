@@ -856,11 +856,13 @@ def _log_comparison(
         ind_table.add_column("gtopt", justify="right", min_width=8)
         ind_table.add_column("\u0394%", justify="right", min_width=6)
 
+        from gtopt_check_json._terminal import fmt_num  # noqa: PLC0415
+
         def _ind_row(
             label: str,
             plp_val: float,
             gtopt_val: float,
-            fmt: str = ".1f",
+            decimals: int = 2,
         ) -> None:
             if plp_val > 0:
                 pct = (gtopt_val - plp_val) / plp_val * 100.0
@@ -874,7 +876,9 @@ def _log_comparison(
                 pct_s = "[bold green]\u2713[/bold green]" if colr else "ok"
             else:
                 pct_s = ""
-            ind_table.add_row(label, f"{plp_val:{fmt}}", f"{gtopt_val:{fmt}}", pct_s)
+            ind_table.add_row(
+                label, fmt_num(plp_val, decimals), fmt_num(gtopt_val, decimals), pct_s
+            )
 
         _ind_row(
             "gen capacity (MW)",
@@ -913,13 +917,13 @@ def _log_comparison(
             "total energy (TWh)",
             plp_ind.get("total_energy_mwh", 0.0) * _MWH_TO_TWH,
             gtopt_ind.get("total_energy_mwh", 0.0) * _MWH_TO_TWH,
-            fmt=".3f",
+            decimals=3,
         )
         _ind_row(
             "avg annual energy (TWh)",
             plp_ind.get("avg_annual_energy_mwh", 0.0) * _MWH_TO_TWH,
             gtopt_ind.get("avg_annual_energy_mwh", 0.0) * _MWH_TO_TWH,
-            fmt=".3f",
+            decimals=3,
         )
 
         # Capacity adequacy: gen capacity / first block demand
@@ -929,7 +933,7 @@ def _log_comparison(
         gtopt_cap = gtopt_ind.get("total_gen_capacity_mw", 0.0)
         plp_ratio = plp_cap / plp_dem1 if plp_dem1 > 0 else float("inf")
         gtopt_ratio = gtopt_cap / gtopt_dem1 if gtopt_dem1 > 0 else float("inf")
-        _ind_row("capacity adequacy", plp_ratio, gtopt_ratio, fmt=".3f")
+        _ind_row("capacity adequacy", plp_ratio, gtopt_ratio, decimals=3)
 
         _ind_row(
             "first block flow (m\u00b3/s)",
@@ -945,13 +949,11 @@ def _log_comparison(
             "total water vol (Hm\u00b3)",
             plp_ind.get("total_water_volume_hm3", 0.0),
             gtopt_ind.get("total_water_volume_hm3", 0.0),
-            fmt=".1f",
         )
         _ind_row(
             "avg flow/affluent (m\u00b3/s)",
             plp_ind.get("avg_flow_m3s", 0.0),
             gtopt_ind.get("avg_flow_m3s", 0.0),
-            fmt=".2f",
         )
 
         con.print(ind_table)

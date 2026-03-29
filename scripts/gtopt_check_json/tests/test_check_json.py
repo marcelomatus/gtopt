@@ -868,13 +868,13 @@ class TestFormatIndicators:
 
     def test_contains_capacity(self) -> None:
         text = format_indicators(_INDICATOR_CASE)
-        assert "350.0 MW" in text
+        assert "350.00 MW" in text
         assert "gen capacity" in text.lower()
 
     def test_contains_first_block_demand(self) -> None:
         text = format_indicators(_INDICATOR_CASE)
         assert "first block demand" in text.lower()
-        assert "150.0 MW" in text
+        assert "150.00 MW" in text
 
     def test_contains_last_block_demand(self) -> None:
         text = format_indicators(_INDICATOR_CASE)
@@ -882,7 +882,7 @@ class TestFormatIndicators:
 
     def test_contains_energy(self) -> None:
         text = format_indicators(_INDICATOR_CASE)
-        assert "1,440.0 MWh" in text
+        assert "1'440.00 MWh" in text
 
     def test_contains_adequacy(self) -> None:
         text = format_indicators(_INDICATOR_CASE)

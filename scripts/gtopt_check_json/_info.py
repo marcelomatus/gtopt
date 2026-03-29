@@ -605,37 +605,39 @@ def compute_indicators(
 
 def _build_indicator_pairs(ind: SystemIndicators) -> list[tuple[str, str]]:
     """Build (label, value) pairs for indicator display."""
+    from gtopt_check_json._terminal import fmt_num  # noqa: PLC0415
+
     pairs: list[tuple[str, str]] = [
         (
             "Total gen capacity",
-            f"{ind.total_gen_capacity_mw:,.1f} MW  ({ind.num_generators} generators)",
+            f"{fmt_num(ind.total_gen_capacity_mw)} MW  ({ind.num_generators} generators)",
         ),
-        ("  Hydro capacity", f"{ind.hydro_capacity_mw:,.1f} MW"),
-        ("  Thermal capacity", f"{ind.thermal_capacity_mw:,.1f} MW"),
-        ("  Renewable capacity", f"{ind.renewable_capacity_mw:,.1f} MW"),
-        ("Line capacity", f"{ind.total_line_capacity_mw:,.1f} MW"),
-        ("First block demand", f"{ind.first_block_demand_mw:,.1f} MW"),
-        ("Last block demand", f"{ind.last_block_demand_mw:,.1f} MW"),
+        ("  Hydro capacity", f"{fmt_num(ind.hydro_capacity_mw)} MW"),
+        ("  Thermal capacity", f"{fmt_num(ind.thermal_capacity_mw)} MW"),
+        ("  Renewable capacity", f"{fmt_num(ind.renewable_capacity_mw)} MW"),
+        ("Line capacity", f"{fmt_num(ind.total_line_capacity_mw)} MW"),
+        ("First block demand", f"{fmt_num(ind.first_block_demand_mw)} MW"),
+        ("Last block demand", f"{fmt_num(ind.last_block_demand_mw)} MW"),
         (
             "Peak demand",
-            f"{ind.peak_demand_mw:,.1f} MW  (block {ind.peak_demand_block})",
+            f"{fmt_num(ind.peak_demand_mw)} MW  (block {ind.peak_demand_block})",
         ),
-        ("Min demand", f"{ind.min_demand_mw:,.1f} MW"),
-        ("Total energy", f"{ind.total_energy_mwh:,.1f} MWh"),
-        ("Avg annual energy", f"{ind.avg_annual_energy_mwh:,.1f} MWh"),
-        ("Capacity adequacy", f"{ind.capacity_adequacy_ratio:.3f}"),
+        ("Min demand", f"{fmt_num(ind.min_demand_mw)} MW"),
+        ("Total energy", f"{fmt_num(ind.total_energy_mwh)} MWh"),
+        ("Avg annual energy", f"{fmt_num(ind.avg_annual_energy_mwh)} MWh"),
+        ("Capacity adequacy", fmt_num(ind.capacity_adequacy_ratio)),
     ]
     if ind.num_flows > 0:
         pairs.extend(
             [
                 (
                     "First block flow",
-                    f"{ind.first_block_affluent_avg:,.1f} m³/s"
+                    f"{fmt_num(ind.first_block_affluent_avg)} m³/s"
                     f"  ({ind.num_flows} flows)",
                 ),
-                ("Last block flow", f"{ind.last_block_affluent_avg:,.1f} m³/s"),
-                ("Total water volume", f"{ind.total_water_volume_hm3:,.1f} Hm³"),
-                ("Avg flow per affluent", f"{ind.avg_flow_m3s:,.1f} m³/s"),
+                ("Last block flow", f"{fmt_num(ind.last_block_affluent_avg)} m³/s"),
+                ("Total water volume", f"{fmt_num(ind.total_water_volume_hm3)} Hm³"),
+                ("Avg flow per affluent", f"{fmt_num(ind.avg_flow_m3s)} m³/s"),
             ]
         )
     return pairs
