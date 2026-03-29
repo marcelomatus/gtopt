@@ -191,7 +191,9 @@ def load_centipo_csv(input_dir) -> dict[str, str]:
 
     result: dict[str, str] = {}
     try:
-        with compressed_open(centipo_resolved, encoding="latin-1", errors="strict") as f:
+        with compressed_open(
+            centipo_resolved, encoding="latin-1", errors="strict"
+        ) as f:
             # Skip header
             next(f, None)
             for line in f:

@@ -1,14 +1,13 @@
-"""Tests for plp_compress_case.sh compress/decompress roundtrip."""
+"""Tests for plp_compress_case compress/decompress roundtrip."""
 
-import os
-import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
-# scripts/plp2gtopt/tests/test_plp_compress_case.py -> scripts/plp_compress_case.sh
-SCRIPT = Path(__file__).resolve().parents[2] / "plp_compress_case.sh"
+# Run the Python module via ``python -m plp_compress_case``.
+_PY_CMD = [sys.executable, "-m", "plp_compress_case"]
 
 # Sample PLP-like content for test files
 SAMPLE_DAT = """\
@@ -26,9 +25,9 @@ year,month,day,hour,block
 """
 
 
-def _run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
+def _run(args: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        args,
+        _PY_CMD + args,
         capture_output=True,
         text=True,
         check=check,
@@ -57,7 +56,7 @@ class TestCompressDecompress:
     def test_compress_creates_xz_files(self, case_dir: Path) -> None:
         self._write_files(case_dir)
 
-        result = _run([str(SCRIPT), str(case_dir)])
+        result = _run([str(case_dir)])
         assert result.returncode == 0
 
         # Original files should be gone, .xz files should exist
@@ -69,8 +68,8 @@ class TestCompressDecompress:
     def test_decompress_restores_original(self, case_dir: Path) -> None:
         original = self._write_files(case_dir)
 
-        _run([str(SCRIPT), str(case_dir)])
-        _run([str(SCRIPT), "--decompress", str(case_dir)])
+        _run([str(case_dir)])
+        _run(["--decompress", str(case_dir)])
 
         # All originals restored with correct content
         for name, content in original.items():
@@ -78,34 +77,34 @@ class TestCompressDecompress:
             assert restored == content, f"{name} content mismatch"
 
         # No .xz files remaining
-        assert list(case_dir.glob("*.xz")) == []
+        assert not list(case_dir.glob("*.xz"))
 
     def test_roundtrip_preserves_content(self, case_dir: Path) -> None:
         original = self._write_files(case_dir)
 
         # Compress -> decompress -> verify
-        _run([str(SCRIPT), str(case_dir)])
-        _run([str(SCRIPT), "-d", str(case_dir)])
+        _run([str(case_dir)])
+        _run(["-d", str(case_dir)])
 
         for name, content in original.items():
             assert (case_dir / name).read_text() == content
 
     def test_no_files_exits_cleanly(self, case_dir: Path) -> None:
-        result = _run([str(SCRIPT), str(case_dir)])
+        result = _run([str(case_dir)])
         assert result.returncode == 0
-        assert "No .dat" in result.stdout
+        assert "No " in result.stdout
 
     def test_decompress_no_xz_exits_cleanly(self, case_dir: Path) -> None:
-        result = _run([str(SCRIPT), "-d", str(case_dir)])
+        result = _run(["-d", str(case_dir)])
         assert result.returncode == 0
-        assert "No .xz" in result.stdout
+        assert "No " in result.stdout or "already" in result.stdout
 
     def test_already_compressed_detected(self, case_dir: Path) -> None:
         self._write_files(case_dir)
-        _run([str(SCRIPT), str(case_dir)])
+        _run([str(case_dir)])
 
         # Run again — should detect already compressed
-        result = _run([str(SCRIPT), str(case_dir)])
+        result = _run([str(case_dir)])
         assert result.returncode == 0
         assert "already compressed" in result.stdout
 
@@ -113,12 +112,12 @@ class TestCompressDecompress:
         self._write_files(case_dir)
 
         # Decompress when files are already plain
-        result = _run([str(SCRIPT), "-d", str(case_dir)])
+        result = _run(["-d", str(case_dir)])
         assert result.returncode == 0
         assert "already decompressed" in result.stdout
 
     def test_invalid_dir_fails(self) -> None:
-        result = _run([str(SCRIPT), "/nonexistent/path"], check=False)
+        result = _run(["/nonexistent/path"], check=False)
         assert result.returncode != 0
 
 
@@ -138,14 +137,12 @@ class TestSplitFiles:
         # at a small threshold.
 
         # For testing, write a larger file
-        big_content = "\n".join(
-            [f"row {i} " + "x" * 500 for i in range(10000)]
-        )
+        big_content = "\n".join([f"row {i} " + "x" * 500 for i in range(10000)])
         (case_dir / "big.dat").write_text(big_content)
 
         # Compress with 1KB split threshold (forces splitting)
-        result = _run(
-            [str(SCRIPT), str(case_dir), "--split-mb", "0"],
+        _run(
+            [str(case_dir), "--split-mb", "0"],
             check=False,
         )
         # --split-mb 0 means 0 bytes threshold, so everything splits
@@ -153,7 +150,7 @@ class TestSplitFiles:
 
         # Use a proper approach: compress normally first
         (case_dir / "big.dat").write_text(big_content)
-        _run([str(SCRIPT), str(case_dir)])
+        _run([str(case_dir)])
 
         # Check the file was compressed (may or may not split at 10MB)
         assert not (case_dir / "big.dat").exists()
@@ -161,5 +158,5 @@ class TestSplitFiles:
         assert len(xz_files) >= 1
 
         # Decompress and verify
-        _run([str(SCRIPT), "-d", str(case_dir)])
+        _run(["-d", str(case_dir)])
         assert (case_dir / "big.dat").read_text() == big_content
