@@ -33,22 +33,22 @@ Field definitions:
   mean_seepage – Mean/fallback seepage flow [m³/s]
   num_segments    – Number of piecewise-linear segments
   idx             – Segment index (1-based, informational)
-  volume_Mm3      – Volume breakpoint [10⁶ m³ = Mm³]; converted to dam³
-                    by multiplying by 1000.
-  slope           – Piecewise-linear slope [m³/s per Mm³]; converted to
-                    m³/s per dam³ by dividing by 1000.
+  volume_Mm3      – Volume breakpoint [hm³ = Mm³ = hm³].  This is the
+                    same unit used by gtopt reservoir volumes, so no
+                    conversion is applied.
+  slope           – Piecewise-linear slope [m³/s per hm³].  Already in
+                    the correct per-gtopt-volume unit; no conversion needed.
   constant        – ReservoirSeepage rate at the volume breakpoint [m³/s] (no
                     unit conversion needed).
   CENTRAL_NAME    – Receiving central name (destination of seepage water)
 
-Unit conversions applied during parsing (matching the PLP Fortran code in
-leefilemb.f):
-  volume_dam3 = volume_Mm3 × 1000    (1 Mm³ = 1000 dam³)
-  slope_dam3  = slope_Mm3  / 1000    (m³/s per Mm³ → m³/s per dam³)
-  constant is kept in m³/s (no conversion)
+No unit conversions are applied during parsing: plpfilemb.dat stores
+volumes in hm³ (= Mm³ = hm³) which is the same physical unit used by
+gtopt reservoir volumes.  Slopes are in m³/s per hm³ and constants in
+m³/s — both are passed through unchanged.
 
-The seepage seepage flow per block is modelled as:
-  seepage [m³/s] = slope(V) × avg_volume [dam³] + constant(V)
+The seepage flow per block is modelled as:
+  seepage [m³/s] = slope(V) × avg_volume [hm³] + constant(V)
 
 where avg_volume = (eini + efin) / 2 and the active segment is selected
 from the piecewise-linear concave envelope at the current reservoir volume.
@@ -94,8 +94,9 @@ class FilembParser(BaseParser):
         """Parse the plpfilemb.dat file and populate the data structure.
 
         Reads piecewise-linear seepage curves from the PLP file format.
-        Applies unit conversions: volume Mm³→dam³ (×1000), slope /Mm³→/dam³
-        (/1000), constant unchanged (m³/s).
+        No unit conversions are applied — volumes are already in hm³
+        (= Mm³ = hm³), the same physical unit as gtopt reservoir volumes.
+        Slopes are in m³/s per hm³ and constants in m³/s.
         """
         self.validate_file()
 
@@ -144,11 +145,11 @@ class FilembParser(BaseParser):
                 parts = lines[idx].split()
                 if len(parts) < 4:
                     raise ValueError(f"Segment line has too few fields: {lines[idx]}")
-                # Format: idx  volume_Mm3  slope_Mm3  constant_m3s
-                # Unit conversions: volume × 1000 → dam³, slope / 1000 → /dam³
+                # Format: idx  volume_Mm3  slope_per_Mm3  constant_m3s
+                # No unit conversion: Mm³ = hm³ = gtopt physical unit.
                 seg: Dict[str, float] = {
-                    "volume": self._parse_float(parts[1]) * 1000.0,
-                    "slope": self._parse_float(parts[2]) / 1000.0,
+                    "volume": self._parse_float(parts[1]),
+                    "slope": self._parse_float(parts[2]),
                     "constant": self._parse_float(parts[3]),
                 }
                 segments.append(seg)

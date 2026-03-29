@@ -3,7 +3,10 @@
 - run_gtopt, should no present output, quiet
 - check the loading of the state variables
 - check the setting of the stage/scenarios with phase eini efin
-- minimal solver check interface in
+- minimal solver check interface i
+
+- refactor the named enum
+
 
 
 829a01dd

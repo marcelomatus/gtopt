@@ -84,14 +84,17 @@ examples:
   # Apply a 10% annual discount rate
   plp2gtopt -i input/ -d 0.10
 
-  # Auto-scaling is ON by default for both reservoir and battery energy.
+  # Reservoir energy scaling: default uses PLP FEscala per reservoir.
+  # Use C++ auto-scale instead:
+  plp2gtopt -i input/ --rsv-scale-mode auto
+
   # Override specific reservoirs with --rsv-energy-scale:
   plp2gtopt -i input/ --rsv-energy-scale 'RAPEL:500,COLBUN:15000'
 
   # Override specific battery energy scales:
   plp2gtopt -i input/ --bat-energy-scale 'BESS1:100'
 
-  # Disable auto-scaling entirely:
+  # Disable auto-scaling for variable_scales output:
   plp2gtopt -i input/ --no-auto-rsv-energy-scale --no-auto-bat-energy-scale
 
   # Load additional variable scales from a JSON file (lowest priority):
@@ -584,6 +587,20 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--rsv-scale-mode",
+        dest="rsv_scale_mode",
+        choices=["plp", "auto"],
+        default="plp",
+        help=(
+            "How to determine the reservoir energy_scale factor. "
+            "'plp' (default): compute from PLP FEscala field (= EmbFEsc / 1E6) "
+            "and set explicit energy_scale per reservoir. "
+            "'auto': delegate to C++ auto_scale mode which computes "
+            "energy_scale = pow(10, ceil(log10(capacity/1000))). "
+            "(default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
         "--rsv-energy-scale",
         dest="rsv_energy_scale",
         metavar="SPEC",
@@ -891,6 +908,7 @@ def build_options(args: argparse.Namespace) -> dict:
         opts["stationary_tol"] = args.stationary_tol
     if args.stationary_window is not None:
         opts["stationary_window"] = args.stationary_window
+    opts["rsv_scale_mode"] = args.rsv_scale_mode
     if args.rsv_energy_scale is not None:
         opts["rsv_energy_scale"] = _parse_name_value_pairs(args.rsv_energy_scale)
     opts["auto_rsv_energy_scale"] = args.auto_rsv_energy_scale

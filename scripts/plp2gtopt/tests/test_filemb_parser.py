@@ -58,10 +58,10 @@ def test_parse_single_entry_one_segment(tmp_path):
     assert len(entry["segments"]) == 1
 
     seg = entry["segments"][0]
-    # Volume: 0.0 Mm³ × 1000 = 0.0 dam³
+    # Volume: 0.0 Mm³ (= hm³, same as gtopt physical unit)
     assert seg["volume"] == pytest.approx(0.0)
-    # Slope: 0.16131527 /Mm³ / 1000 = 0.00016131527 /dam³
-    assert seg["slope"] == pytest.approx(0.16131527 / 1000.0)
+    # Slope: 0.16131527 m³/s per hm³ (no conversion)
+    assert seg["slope"] == pytest.approx(0.16131527)
     # Constant: no conversion
     assert seg["constant"] == pytest.approx(2.189179627)
 
@@ -89,19 +89,19 @@ def test_parse_single_entry_multiple_segments(tmp_path):
     assert entry["mean_seepage"] == pytest.approx(30.80)
     assert len(entry["segments"]) == 3
 
-    # Segment 1: volume = 0.0 × 1000 = 0.0 dam³
+    # Segment 1: volume = 0.0 [hm³] (no conversion)
     assert entry["segments"][0]["volume"] == pytest.approx(0.0)
-    assert entry["segments"][0]["slope"] == pytest.approx(0.043150359 / 1000.0)
+    assert entry["segments"][0]["slope"] == pytest.approx(0.043150359)
     assert entry["segments"][0]["constant"] == pytest.approx(0.0)
 
-    # Segment 2: volume = 400.0 × 1000 = 400000 dam³
-    assert entry["segments"][1]["volume"] == pytest.approx(400.0 * 1000.0)
-    assert entry["segments"][1]["slope"] == pytest.approx(0.005429197 / 1000.0)
+    # Segment 2: volume = 400.0 [hm³]
+    assert entry["segments"][1]["volume"] == pytest.approx(400.0)
+    assert entry["segments"][1]["slope"] == pytest.approx(0.005429197)
     assert entry["segments"][1]["constant"] == pytest.approx(15.08846449)
 
-    # Segment 3: volume = 2700.0 × 1000 = 2700000 dam³
-    assert entry["segments"][2]["volume"] == pytest.approx(2700.0 * 1000.0)
-    assert entry["segments"][2]["slope"] == pytest.approx(0.007149312 / 1000.0)
+    # Segment 3: volume = 2700.0 [hm³]
+    assert entry["segments"][2]["volume"] == pytest.approx(2700.0)
+    assert entry["segments"][2]["slope"] == pytest.approx(0.007149312)
     assert entry["segments"][2]["constant"] == pytest.approx(10.44415451)
 
 
@@ -137,8 +137,8 @@ def test_parse_multiple_entries(tmp_path):
     assert e1["central"] == "SAN_CLEMENTE"
     assert e1["mean_seepage"] == pytest.approx(6.10)
     assert len(e1["segments"]) == 2
-    # Check unit conversion: 660.6 Mm³ → 660600 dam³
-    assert e1["segments"][1]["volume"] == pytest.approx(660.6 * 1000.0)
+    # Volume: 660.6 [hm³] (no conversion)
+    assert e1["segments"][1]["volume"] == pytest.approx(660.6)
 
 
 def test_parse_real_file():
@@ -153,10 +153,10 @@ def test_parse_real_file():
     assert e0["central"] == "Central1"
     assert e0["mean_seepage"] == pytest.approx(5.0)
     assert len(e0["segments"]) == 1
-    # Volume: 0.0 × 1000 = 0.0 dam³
+    # Volume: 0.0 [hm³] (no conversion)
     assert e0["segments"][0]["volume"] == pytest.approx(0.0)
-    # Slope: 0.16131527 / 1000
-    assert e0["segments"][0]["slope"] == pytest.approx(0.16131527 / 1000.0)
+    # Slope: 0.16131527 [m³/s per hm³] (no conversion)
+    assert e0["segments"][0]["slope"] == pytest.approx(0.16131527)
     assert e0["segments"][0]["constant"] == pytest.approx(2.189179627)
 
     e1 = parser.seepages[1]
@@ -194,8 +194,8 @@ def test_parse_with_comments(tmp_path):
     assert entry["central"] == "Downstream"
     assert entry["mean_seepage"] == pytest.approx(3.5)
     assert len(entry["segments"]) == 2
-    # Segment 2: volume = 50.0 × 1000 = 50000 dam³
-    assert entry["segments"][1]["volume"] == pytest.approx(50_000.0)
+    # Segment 2: volume = 50.0 [hm³]
+    assert entry["segments"][1]["volume"] == pytest.approx(50.0)
 
 
 def test_negative_mean_seepage_clipped(tmp_path):
@@ -215,17 +215,17 @@ def test_negative_mean_seepage_clipped(tmp_path):
     assert parser.seepages[0]["mean_seepage"] == pytest.approx(0.0)
 
 
-def test_unit_conversions_volume_and_slope(tmp_path):
-    """Verify volume × 1000 and slope / 1000 unit conversions."""
+def test_no_unit_conversions_volume_and_slope(tmp_path):
+    """Verify volumes and slopes pass through unchanged (already in hm³)."""
     content = " 1\n'RSV'\n1.0\n 1\n     1   100.0   2.0   3.0\n'CTR'\n"
     f = write_filemb(tmp_path, content)
     parser = FilembParser(f)
     parser.parse()
 
     seg = parser.seepages[0]["segments"][0]
-    assert seg["volume"] == pytest.approx(100_000.0)  # 100 Mm³ → 100000 dam³
-    assert seg["slope"] == pytest.approx(0.002)  # 2.0 / 1000 = 0.002 /dam³
-    assert seg["constant"] == pytest.approx(3.0)  # no conversion
+    assert seg["volume"] == pytest.approx(100.0)  # 100 [hm³] unchanged
+    assert seg["slope"] == pytest.approx(2.0)  # [m³/s per hm³] unchanged
+    assert seg["constant"] == pytest.approx(3.0)  # [m³/s] unchanged
 
 
 # ─── Lookup tests ─────────────────────────────────────────────────────────────

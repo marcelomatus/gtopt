@@ -16,7 +16,7 @@
  * qeh ≤ a(seg) × V_avg + b(seg)
  * ```
  * where `qeh` is the stage-average hourly discharge [m³/s], `V_avg` is the
- * average reservoir volume `(eini + efin) / 2` [10⁶ m³], and `a`/`b` are the
+ * average reservoir volume `(eini + efin) / 2` [hm³], and `a`/`b` are the
  * slope and intercept of the active piecewise-linear segment.
  *
  * When `segments` has more than one entry, `update_lp()` selects the active
@@ -61,8 +61,8 @@ struct ReservoirDischargeLimitSegment
 {
   Real volume {
       0.0,
-  };  ///< Volume breakpoint [10⁶ m³] (= dam³ / 1000)
-  Real slope {0.0};  ///< Slope [m³/s per 10⁶ m³] (Fortran ARalco × 1000)
+  };  ///< Volume breakpoint [hm³]
+  Real slope {0.0};  ///< Slope [m³/s per hm³] (Fortran ARalco × 1000)
   Real intercept {
       0.0,
   };  ///< Y-intercept [m³/s] (Fortran BRalco)
@@ -128,7 +128,7 @@ struct ReservoirDischargeLimit
  */
 struct ReservoirDischargeLimitCoeffs
 {
-  Real slope {0.0};  ///< Coefficient on V_avg [m³/s per 10⁶ m³]
+  Real slope {0.0};  ///< Coefficient on V_avg [m³/s per hm³]
   Real intercept {0.0};  ///< RHS upper bound [m³/s]
 };
 

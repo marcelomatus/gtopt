@@ -27,11 +27,11 @@ Note: The Fortran format uses 'd' for scientific notation (e.g. 6.9868d-5),
 which is converted to 'e' for Python float parsing.
 
 Unit conversions applied during parsing:
-  volume: ÷ 1000    (dam³ → gtopt physical = 10⁶ m³)
+  volume: ÷ 1000    (dam³ → gtopt physical = hm³)
   slope:  × 1000    (m³/s per dam³ → m³/s per gtopt physical)
   intercept: no conversion (already m³/s)
 
-This is required because gtopt reservoir volumes are in 10⁶ m³ while
+This is required because gtopt reservoir volumes are in hm³ while
 plpralco.dat stores volumes in dam³ (= 10³ m³).  The factor 1000
 is constant across all reservoirs, derived from the PLP unit chain:
   dam³ = raw_value × FEscala / 1E3
