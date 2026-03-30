@@ -133,13 +133,14 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       // ── Backward pass ──
       SPDLOG_DEBUG("SDDP: starting backward pass (iter {})", iter);
       // Save per-scene cut counts for cut sharing offset tracking
-      const auto cuts_before = m_stored_cuts_.size();
+      const auto cuts_before = m_cut_store_.stored_cuts().size();
       const auto num_scenes_bwd =
           static_cast<Index>(planning_lp().simulation().scenes().size());
-      m_scene_cuts_before_.resize(static_cast<std::size_t>(num_scenes_bwd));
+      m_cut_store_.scene_cuts_before().resize(
+          static_cast<std::size_t>(num_scenes_bwd));
       for (const auto scene : iota_range<SceneIndex>(0, num_scenes_bwd)) {
-        m_scene_cuts_before_[static_cast<std::size_t>(scene)] =
-            m_scene_cuts_[scene].size();
+        m_cut_store_.scene_cuts_before()[static_cast<std::size_t>(scene)] =
+            m_cut_store_.scene_cuts()[scene].size();
       }
       auto bwd = run_backward_pass_all_scenes(
           fwd->scene_feasible, *sddp_pool, bwd_opts, iter);
@@ -357,7 +358,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
   // Feasibility cuts (from the elastic filter) may still be produced.
   // By default (save_simulation_cuts=false) they are discarded to ensure
   // hot-start reproducibility.
-  const auto cuts_before_simulation = m_stored_cuts_.size();
+  const auto cuts_before_simulation = m_cut_store_.stored_cuts().size();
   {
     const auto final_iter = results.empty()
         ? m_iteration_offset_
@@ -420,11 +421,11 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
   // requested.  This ensures hot-start determinism: reloading cuts from
   // training iterations alone reproduces the same policy.
   if (!m_options_.save_simulation_cuts
-      && m_stored_cuts_.size() > cuts_before_simulation)
+      && m_cut_store_.stored_cuts().size() > cuts_before_simulation)
   {
     SPDLOG_INFO("SDDP: discarding {} simulation feasibility cut(s)",
-                m_stored_cuts_.size() - cuts_before_simulation);
-    m_stored_cuts_.resize(cuts_before_simulation);
+                m_cut_store_.stored_cuts().size() - cuts_before_simulation);
+    m_cut_store_.stored_cuts().resize(cuts_before_simulation);
   }
 
   // ── Cut persistence ──
@@ -444,7 +445,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       // Append mode: add newly generated cuts to the existing file.
       const auto& cuts_to_append = m_options_.single_cut_storage
           ? build_combined_cuts()
-          : m_stored_cuts_;
+          : m_cut_store_.stored_cuts();
       auto result = save_cuts_csv(cuts_to_append,
                                   planning_lp(),
                                   m_options_.cuts_output_file,
