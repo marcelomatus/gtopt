@@ -145,3 +145,88 @@ After all research completes, synthesize findings into a report covering:
 - What PLP features are missing in gtopt?
 - What are the most impactful potential bugs or design issues?
 - How does gtopt compare to commercial tools (PLEXOS, PSR SDDP)?
+
+---
+
+## Prompt Improvements (Proposed for Future Runs)
+
+### Issues Found in This Run
+
+1. **Agent 2 (PLP Fortran) scope too broad**: Covered SDDP + network + hydro +
+   battery + LP assembly + convergence in a single agent. This created a very
+   long-running agent (~160s). Better to split into:
+   - Agent 2a: PLP SDDP loop & cut generation (plp-progdin.f, plp-agrespd.f,
+     addplane.f, plp-pdconvrg.f)
+   - Agent 2b: PLP LP assembly & network (genmatpd.f, genpdlin.f, genpdang.f,
+     defprbpd.f, pdmatvar.f)
+   - Agent 2c: PLP hydro & components (genpdcen.f, genpdqemb.f, genpdver.f,
+     genpdbaterias.f, genpdess.f)
+
+2. **Agent 10 (PLP network/hydro detail) overlaps with Agent 2**: Both explored
+   the same PLP source files. Agent 10 should be merged into Agent 2 or
+   refocused on a comparison-only role.
+
+3. **No agent dedicated to testing/validation**: The analysis would benefit from
+   an agent that runs gtopt's test suite and validates findings against actual
+   test cases (e.g., IEEE 9-bus with known LMPs).
+
+4. **Missing verification agent**: A final agent should verify top findings
+   from other agents by reading the actual source code and confirming or
+   refuting claims. Several findings in the first version were corrected in v2
+   (e.g., `scale_alpha` exists but was initially reported as missing).
+
+### Proposed Improved Agent Structure (13 agents)
+
+```
+Research Phase:
+  Agent 1:  SDDP/Benders literature (web) — unchanged
+  Agent 2:  pandapower/MATPOWER DC-OPF (web) — unchanged
+  Agent 3:  DC-OPF best practices (web) — unchanged
+  Agent 4:  Commercial tools (PLEXOS/PSR/PLP/SPPD) (web) — unchanged
+
+Codebase Phase:
+  Agent 5:  gtopt SDDP deep-dive (explore) — unchanged
+  Agent 6:  gtopt network/grid modeling (explore) — unchanged
+  Agent 7:  gtopt generator/hydro/battery (explore) — unchanged
+  Agent 8:  gtopt objective/scaling/numerics (explore) — unchanged
+  Agent 9:  gtopt data model (explore) — unchanged
+  Agent 10: PLP SDDP & LP assembly (explore) — merged from Agents 2+10
+  Agent 11: PLP hydro & components (explore) — split from Agent 2
+
+Verification Phase:
+  Agent 12: Cross-verify top findings — reads specific source lines to
+            confirm/refute claims from other agents
+  Agent 13: Test validation — runs test suite, checks IEEE benchmark
+            results against known values
+```
+
+### Improved Analysis Phase Instructions
+
+Add these to the synthesis instructions:
+
+1. **Track finding status**: Mark each finding as `Confirmed`, `Likely`,
+   `Unverified`, or `Refuted` based on direct source evidence.
+
+2. **Previous report delta**: When a previous report exists, explicitly note
+   what changed (new findings, corrected findings, resolved findings).
+
+3. **Severity criteria**: Define severity levels:
+   - **Critical**: Produces incorrect results silently
+   - **High**: Produces suboptimal results or fails for common inputs
+   - **Medium**: Impacts specific use cases or degrades performance
+   - **Low**: Missing feature or suboptimal design choice
+
+4. **Actionable recommendations**: Each finding should have a specific
+   recommendation with estimated effort (1-line fix, small PR, major feature).
+
+### Improved Key Questions
+
+Add these questions:
+
+- Are probability weights correctly handled across the full SDDP pipeline
+  (LP objective → cut construction → cut sharing → convergence bounds)?
+- What are the default scaling parameters and are they adequate for both
+  small IEEE benchmarks and large national systems?
+- Which PLP features are available via `user_constraints` vs truly missing?
+- What is the condition number of the LP for each IEEE test case?
+- How does the cascade method compare to nested Benders in the literature?

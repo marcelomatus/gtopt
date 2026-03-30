@@ -11,5 +11,7 @@
 #include <gtopt/bus.hpp>
 #include <gtopt/bus_island.hpp>
 #include <gtopt/line.hpp>
+#include <gtopt/planning.hpp>
+#include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_options.hpp>
 #include <gtopt/planning_options_lp.hpp>

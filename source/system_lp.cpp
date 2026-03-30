@@ -14,7 +14,10 @@
  */
 
 #include <format>
+#include <limits>
+#include <unordered_map>
 
+#include <gtopt/bus_island.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_lp.hpp>
@@ -124,6 +127,137 @@ constexpr auto add_to_lp(auto& collections,
   return count;
 }
 
+/// @brief Pin orphaned theta variables in disconnected bus islands.
+///
+/// After all elements are added to the LP for a (scenario, stage), some
+/// buses may have theta columns that are not connected to any reference
+/// bus through active Kirchhoff rows.  This happens when a line becomes
+/// inactive at a particular stage, splitting the network.
+///
+/// For each connected component that lacks a reference bus we pin the
+/// first theta to zero, preventing free-floating angles and unreliable
+/// LMPs.
+void fix_stage_islands(const auto& collections,
+                       const ScenarioLP& scenario,
+                       const StageLP& stage,
+                       LinearProblem& lp)
+{
+  const auto& buses = std::get<Collection<BusLP>>(collections).elements();
+  const auto& lines = std::get<Collection<LineLP>>(collections).elements();
+  const auto n_buses = buses.size();
+  if (n_buses <= 1 || stage.blocks().empty()) {
+    return;
+  }
+
+  const auto first_buid = stage.blocks().front().uid();
+
+  // Identify which buses have theta columns and which are references.
+  // has_theta[i] is true when bus i created theta columns for this stage.
+  std::vector<bool> has_theta(n_buses, false);
+  std::vector<bool> is_reference(n_buses, false);
+  std::size_t theta_count = 0;
+
+  // UID → local index mapping for bus lookup from lines.
+  std::unordered_map<Uid, std::size_t> uid_to_idx;
+  uid_to_idx.reserve(n_buses);
+
+  for (auto&& [idx, bus] : std::views::enumerate(buses)) {
+    const auto i = static_cast<std::size_t>(idx);
+    uid_to_idx[bus.uid()] = i;
+    if (bus.lookup_theta_col(scenario, stage, first_buid).has_value()) {
+      has_theta[i] = true;
+      ++theta_count;
+    }
+    if (bus.reference_theta().has_value()) {
+      is_reference[i] = true;
+    }
+  }
+
+  // Nothing to check if no theta columns exist (single-bus or no Kirchhoff)
+  if (theta_count <= 1) {
+    return;
+  }
+
+  // Build DSU over buses connected by active lines with Kirchhoff rows
+  DisjointSetUnion dsu(n_buses);
+  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+
+  for (const auto& line : lines) {
+    if (!line.is_active(stage) || line.is_loop()) {
+      continue;
+    }
+    // Only lines that created Kirchhoff rows connect buses electrically
+    if (!line.has_theta_rows(st_key)) {
+      continue;
+    }
+    // Resolve bus_a and bus_b SingleIds to local indices.
+    // LineLP::add_to_lp already resolved these; the line's bus UIDs
+    // are stored as the element's bus_a/bus_b fields.
+    const auto& line_data = line.line();
+    const auto resolve = [&](const SingleId& sid) -> std::size_t
+    {
+      constexpr auto sentinel = std::numeric_limits<std::size_t>::max();
+      if (const auto* u = std::get_if<Uid>(&sid)) {
+        auto it = uid_to_idx.find(*u);
+        return it != uid_to_idx.end() ? it->second : sentinel;
+      }
+      return sentinel;
+    };
+    constexpr auto sentinel = std::numeric_limits<std::size_t>::max();
+    const auto idx_a = resolve(line_data.bus_a);
+    const auto idx_b = resolve(line_data.bus_b);
+    if (idx_a == sentinel || idx_b == sentinel) {
+      continue;
+    }
+    if (!has_theta[idx_a] || !has_theta[idx_b]) {
+      continue;
+    }
+    dsu.unite(idx_a, idx_b);
+  }
+
+  // For each connected component of theta-bearing buses, check if it
+  // contains a reference bus.  If not, pin the first bus's theta to zero.
+  std::unordered_map<std::size_t, bool> root_has_ref;
+  std::unordered_map<std::size_t, std::size_t> root_first_theta;
+
+  for (std::size_t i = 0; i < n_buses; ++i) {
+    if (!has_theta[i]) {
+      continue;
+    }
+    const auto root = dsu.find(i);
+    if (is_reference[i]) {
+      root_has_ref[root] = true;
+    }
+    if (!root_first_theta.contains(root)) {
+      root_first_theta[root] = i;
+    }
+  }
+
+  for (const auto& [root, first_idx] : root_first_theta) {
+    if (root_has_ref.contains(root)) {
+      continue;  // This component already has a reference bus
+    }
+
+    // Pin the first bus's theta columns to zero for all blocks
+    const auto& bus = buses[first_idx];
+
+    for (const auto& block : stage.blocks()) {
+      const auto theta_col = bus.lookup_theta_col(scenario, stage, block.uid());
+      if (theta_col) {
+        auto& col = lp.col_at(*theta_col);
+        col.lowb = 0.0;
+        col.uppb = 0.0;
+      }
+    }
+
+    SPDLOG_WARN(
+        "Stage {}: bus uid={} pinned as runtime reference "
+        "(theta=0) for disconnected island",
+        stage.uid(),
+        bus.uid());
+  }
+}
+
 constexpr auto create_linear_interface(auto& collections,
                                        SystemContext& system_context,
                                        const PhaseLP& phase,
@@ -160,11 +294,21 @@ constexpr auto create_linear_interface(auto& collections,
     lp.reserve(est_cols, est_rows);
   }
 
+  const bool check_islands = !system_context.options().use_single_bus()
+      && system_context.options().use_kirchhoff();
+
   // Process all active stages in phase
   for (auto&& stage : phase.stages()) {
     // Process all active scenarios in simulation
     for (auto&& scenario : scene.scenarios()) {
       add_to_lp(collections, system_context, scenario, stage, lp);
+
+      // After all elements are added for this (scenario, stage), check
+      // for disconnected bus islands created by inactive lines and pin
+      // an orphaned theta variable as a runtime reference if needed.
+      if (check_islands) {
+        fix_stage_islands(collections, scenario, stage, lp);
+      }
     }
   }
 

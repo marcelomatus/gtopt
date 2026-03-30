@@ -96,6 +96,14 @@ public:
     return lossn_cols.at({scenario.uid(), stage.uid()});
   }
 
+  /// Check if this line created Kirchhoff (theta) rows for a given
+  /// (scenario, stage) pair.
+  [[nodiscard]] constexpr bool has_theta_rows(
+      const std::pair<ScenarioUid, StageUid>& st_key) const
+  {
+    return theta_rows.contains(st_key) && !theta_rows.at(st_key).empty();
+  }
+
 private:
   OptTBRealSched tmax_ba;
   OptTBRealSched tmax_ab;
