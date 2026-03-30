@@ -12,6 +12,10 @@
 #include <doctest/doctest.h>
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/cascade_method.hpp>
+#include <gtopt/gtopt_main.hpp>
+#include <gtopt/json/json_monolithic_options.hpp>
+#include <gtopt/json/json_planning.hpp>
+#include <gtopt/monolithic_method.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_method.hpp>
 #include <gtopt/scenario_lp.hpp>
@@ -24,6 +28,7 @@
 #include <gtopt/sddp_pool.hpp>
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/validate_planning.hpp>
 #include <spdlog/spdlog.h>
 
 using namespace gtopt;  // NOLINT(google-build-using-namespace)
@@ -43,4 +48,6 @@ using namespace gtopt;  // NOLINT(google-build-using-namespace)
 #include "test_sddp_cut_sharing.hpp"
 #include "test_sddp_feasibility.hpp"
 #include "test_cascade_method.hpp"
+#include "test_convergence_mode.hpp"
+#include "test_monolithic_method.hpp"
 // clang-format on

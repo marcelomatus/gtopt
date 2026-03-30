@@ -9,9 +9,6 @@
  * helper into a single compilation unit to reduce build time.
  */
 
-#include <filesystem>
-#include <string_view>
-
 #include <doctest/doctest.h>
 #include <gtopt/block_lp.hpp>
 #include <gtopt/flat_helper.hpp>
@@ -28,6 +25,7 @@
 
 using namespace gtopt;
 
+#include "test_annual_discount_rate.hpp"
 #include "test_flat_helper.hpp"
 #include "test_planning.hpp"
 #include "test_simulation_lp.hpp"

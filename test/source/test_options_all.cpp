@@ -41,6 +41,7 @@ using namespace gtopt;
 #include "test_model_options.hpp"
 #include "test_monolithic_options.hpp"
 #include "test_options.hpp"
+#include "test_scale_alpha.hpp"
 #include "test_sddp_options.hpp"
 #include "test_solver_options.hpp"
 #include "test_variable_scale_map.hpp"
