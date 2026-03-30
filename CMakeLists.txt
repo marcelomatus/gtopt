@@ -136,6 +136,7 @@ target_link_libraries(
          ZLIB::ZLIB
          $<IF:$<TARGET_EXISTS:zstd::libzstd_shared>,zstd::libzstd_shared,zstd::libzstd_static>
          ${CMAKE_DL_LIBS}
+         m
 )
 
 # ---- Mixed-compiler C++ standard library linkage ----
