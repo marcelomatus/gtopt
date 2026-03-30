@@ -63,7 +63,17 @@ struct Simulation
   Array<Iteration> iteration_array {};  ///< Per-iteration solver control
                                         ///< (optional, keyed by index)
 
-  // ── Boundary conditions for the last stage ──────────────────────────────
+  // ── Discounting and boundary conditions ───────────────────────────────────
+
+  /** @brief Annual discount rate for present-value cost calculations.
+   *
+   * Applied per-stage as ``exp(-ln(1+r) × t / 8766)`` where ``t`` is the
+   * cumulative hours from the start of the horizon.  Combined with each
+   * stage's ``discount_factor`` to form the effective discount factor.
+   * Default: 0.0 (no annual discounting).
+   */
+  OptReal annual_discount_rate {};
+
   /** @brief CSV file with boundary (future-cost) cuts for the last phase.
    *
    * External optimality cuts that approximate the expected future cost
@@ -88,6 +98,7 @@ struct Simulation
     gtopt::merge(scene_array, std::move(sim.scene_array));
     gtopt::merge(aperture_array, std::move(sim.aperture_array));
     gtopt::merge(iteration_array, std::move(sim.iteration_array));
+    merge_opt(annual_discount_rate, sim.annual_discount_rate);
     merge_opt(boundary_cuts_file, std::move(sim.boundary_cuts_file));
     merge_opt(boundary_cuts_valuation, sim.boundary_cuts_valuation);
 

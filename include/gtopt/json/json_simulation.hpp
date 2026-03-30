@@ -37,6 +37,7 @@ struct SimulationConstructor
                                       Array<Scene> scene_array,
                                       Array<Aperture> aperture_array,
                                       Array<Iteration> iteration_array,
+                                      OptReal annual_discount_rate,
                                       OptName boundary_cuts_file,
                                       OptName boundary_cuts_valuation_str) const
   {
@@ -48,6 +49,7 @@ struct SimulationConstructor
     sim.scene_array = std::move(scene_array);
     sim.aperture_array = std::move(aperture_array);
     sim.iteration_array = std::move(iteration_array);
+    sim.annual_discount_rate = annual_discount_rate;
     sim.boundary_cuts_file = std::move(boundary_cuts_file);
     if (boundary_cuts_valuation_str) {
       sim.boundary_cuts_valuation =
@@ -71,6 +73,7 @@ struct json_data_contract<Simulation>
       json_array_null<"scene_array", Array<Scene>, Scene>,
       json_array_null<"aperture_array", Array<Aperture>, Aperture>,
       json_array_null<"iteration_array", Array<Iteration>, Iteration>,
+      json_number_null<"annual_discount_rate", OptReal>,
       json_string_null<"boundary_cuts_file", OptName>,
       json_string_null<"boundary_cuts_valuation", OptName>>;
 
@@ -84,6 +87,7 @@ struct json_data_contract<Simulation>
         simulation.scene_array,
         simulation.aperture_array,
         simulation.iteration_array,
+        simulation.annual_discount_rate,
         simulation.boundary_cuts_file,
         detail::enum_to_opt_name(simulation.boundary_cuts_valuation));
   }
