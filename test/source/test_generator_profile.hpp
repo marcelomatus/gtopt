@@ -244,7 +244,9 @@ TEST_CASE("GeneratorProfileLP - generator profile with spillover cost")
       .generator_profile_array = generator_profile_array,
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions opts;
+  opts.scale_objective = 1000.0;
+  const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 

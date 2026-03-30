@@ -64,7 +64,8 @@ ElasticFilterMode parse_elastic_filter_mode(std::string_view name)
 
 std::vector<double> compute_scene_weights(
     std::span<const SceneLP> scenes,
-    std::span<const uint8_t> scene_feasible) noexcept
+    std::span<const uint8_t> scene_feasible,
+    ProbabilityRescaleMode rescale_mode) noexcept
 {
   const auto num_scenes = static_cast<int>(scene_feasible.size());
   std::vector<double> weights(static_cast<std::size_t>(num_scenes), 0.0);
@@ -85,10 +86,14 @@ std::vector<double> compute_scene_weights(
     total += weights[static_cast<std::size_t>(si)];
   }
 
-  if (total > 0.0) {
+  // Runtime rescaling: normalize feasible-scene weights to sum 1.0
+  if (rescale_mode == ProbabilityRescaleMode::runtime && total > 0.0) {
     for (auto& w : weights) {
       w /= total;
     }
+  } else if (total > 0.0) {
+    // Non-runtime modes: use raw probability weights (no re-normalization)
+    // but still handle the all-infeasible fallback below
   } else {
     // All infeasible or zero probability → equal weight among feasible
     int feasible_count = 0;
@@ -114,6 +119,51 @@ double compute_convergence_gap(double upper_bound, double lower_bound) noexcept
 {
   const double denom = std::max(1.0, std::abs(upper_bound));
   return (upper_bound - lower_bound) / denom;
+}
+
+// ─── Kappa threshold checking ───────────────────────────────────────────────
+
+void SDDPMethod::update_max_kappa(SceneIndex scene,
+                                  PhaseIndex phase,
+                                  const LinearInterface& li,
+                                  IterationIndex iteration)
+{
+  const double kappa = li.get_kappa();
+  m_max_kappa_[scene][phase] = std::max(m_max_kappa_[scene][phase], kappa);
+
+  const auto& sim = planning_lp().planning().simulation;
+  const auto mode = sim.kappa_warning.value_or(KappaWarningMode::warn);
+  if (mode == KappaWarningMode::none) {
+    return;
+  }
+
+  constexpr double default_kappa_threshold = 1e9;
+  const double threshold =
+      sim.kappa_threshold.value_or(default_kappa_threshold);
+  if (kappa <= threshold) {
+    return;
+  }
+
+  spdlog::warn(
+      "High kappa {:.2e} (threshold {:.2e}) at scene {} phase {} iter {}",
+      kappa,
+      threshold,
+      scene_uid(scene),
+      phase_uid(phase),
+      iteration);
+
+  if (mode == KappaWarningMode::save_lp && !m_options_.log_directory.empty()) {
+    std::filesystem::create_directories(m_options_.log_directory);
+    const auto stem = (std::filesystem::path(m_options_.log_directory)
+                       / std::format("kappa_sc{}_ph{}_it{}",
+                                     scene_uid(scene),
+                                     phase_uid(phase),
+                                     iteration))
+                          .string();
+    if (auto r = li.write_lp(stem)) {
+      spdlog::warn("Saved high-kappa LP to {}.lp", stem);
+    }
+  }
 }
 
 // ─── Free-function building blocks ──────────────────────────────────────────
@@ -681,6 +731,10 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene,
   // Feasibility cuts are never shared between scenes — they stay local.
   if (phase > PhaseIndex {0}) {
     auto r = src_li.resolve(opts);
+    // Track max kappa from backward resolve
+    if (r.has_value() && src_li.is_optimal()) {
+      update_max_kappa(scene, prev_phase, src_li, iteration);
+    }
     if (!r.has_value() || !src_li.is_optimal()) {
       SPDLOG_WARN(
           "SDDP backward: iter {} scene {} phase {} non-optimal after cut "
@@ -1092,8 +1146,10 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   m_scene_phase_states_.resize(num_scenes);
   m_scene_cuts_.resize(num_scenes);
   m_infeasibility_counter_.resize(num_scenes);
+  m_max_kappa_.resize(num_scenes);
   for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
     m_infeasibility_counter_[scene].resize(num_phases, 0);
+    m_max_kappa_[scene].resize(num_phases, 1.0);
   }
 
   SPDLOG_INFO("SDDP: adding alpha variables and collecting state links");
@@ -1854,6 +1910,7 @@ auto SDDPPlanningMethod::solve(PlanningLP& planning_lp,
         .gap_change = last.gap_change,
         .lower_bound = last.lower_bound,
         .upper_bound = last.upper_bound,
+        .max_kappa = sddp.global_max_kappa(),
         .iterations = training_iters,
         .converged = last.converged,
         .stationary_converged = last.stationary_converged,

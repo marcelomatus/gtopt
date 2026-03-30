@@ -520,6 +520,7 @@ TEST_CASE("LineLP - quadratic losses (piecewise-linear with resistance)")
   opts.use_single_bus = false;
   opts.use_kirchhoff = false;
   opts.use_line_losses = true;
+  opts.scale_objective = 1000.0;
 
   const System system = {
       .name = "QuadraticLossTest",
@@ -726,6 +727,7 @@ TEST_CASE(
   opts.use_kirchhoff = false;
   opts.use_line_losses = true;
   opts.loss_segments = 3;  // Global: 3 segments
+  opts.scale_objective = 1000.0;
 
   const System system = {
       .name = "GlobalSegTest",
@@ -833,6 +835,7 @@ TEST_CASE("LineLP - per-line use_line_losses overrides global option")
     opts.use_single_bus = false;
     opts.use_kirchhoff = false;
     opts.use_line_losses = false;  // global: disabled
+    opts.scale_objective = 1000.0;
 
     const System system = {
         .name = "PerLineEnableLosses",
@@ -881,6 +884,7 @@ TEST_CASE("LineLP - per-line use_line_losses overrides global option")
     opts.use_kirchhoff = false;
     opts.use_line_losses = true;  // global: enabled
     opts.loss_segments = 3;
+    opts.scale_objective = 1000.0;
 
     const System system = {
         .name = "PerLineDisableLosses",
@@ -1079,6 +1083,7 @@ TEST_CASE("Phase-shifting transformer modifies Kirchhoff RHS")
   opts.use_single_bus = false;
   opts.use_kirchhoff = true;
   opts.use_line_losses = false;
+  opts.scale_objective = 1000.0;
   const PlanningOptionsLP options_lp(opts);
 
   System system = {
@@ -1188,6 +1193,7 @@ TEST_CASE("LineLP - quadratic losses with capacity expansion")
   opts.use_single_bus = false;
   opts.use_kirchhoff = false;
   opts.use_line_losses = true;
+  opts.scale_objective = 1000.0;
 
   const System system = {
       .name = "QuadLossExpansion",
@@ -1295,6 +1301,7 @@ TEST_CASE("LineLP - linear losses (lossfactor) with capacity expansion")
   PlanningOptions opts;
   opts.use_single_bus = false;
   opts.use_kirchhoff = false;
+  opts.scale_objective = 1000.0;
 
   const System system = {
       .name = "LinLossExpansion",
@@ -1404,6 +1411,7 @@ TEST_CASE("LineLP - inactive line is skipped")
   opts.use_single_bus = false;
   opts.use_kirchhoff = false;
   opts.demand_fail_cost = 1000.0;
+  opts.scale_objective = 1000.0;
 
   const System system = {
       .name = "InactiveLineTest",
@@ -1511,6 +1519,7 @@ TEST_CASE("LineLP - transfer cost is applied to flow")
   PlanningOptions opts;
   opts.use_single_bus = false;
   opts.use_kirchhoff = false;
+  opts.scale_objective = 1000.0;
 
   const System system = {
       .name = "TransferCostTest",

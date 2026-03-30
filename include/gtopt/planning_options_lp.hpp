@@ -54,7 +54,7 @@ public:
   /** @brief Default threshold for Kirchhoff constraints */
   static constexpr Real default_kirchhoff_threshold = 0;
   /** @brief Default objective function scaling factor */
-  static constexpr Real default_scale_objective = 1'000;
+  static constexpr Real default_scale_objective = 1'000'000;
   /** @brief Default voltage angle scaling factor (10 * 100 * 100 = 100,000) */
   static constexpr Real default_scale_theta = 1'000;
 
@@ -474,7 +474,7 @@ public:
   /** @brief Default upper bound for future cost variable α */
   static constexpr Real default_sddp_alpha_max = 1e12;
   /** @brief Default scale divisor for future cost variable α (PLP varphi) */
-  static constexpr Real default_sddp_scale_alpha = 1'000;
+  static constexpr Real default_sddp_scale_alpha = 1'000'000;
   /** @brief Default elastic filter mode */
   static constexpr ElasticFilterMode default_sddp_elastic_mode =
       ElasticFilterMode::single_cut;

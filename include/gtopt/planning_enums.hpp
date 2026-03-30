@@ -143,4 +143,78 @@ constexpr auto enum_entries(BoundaryCutsValuation /*tag*/) noexcept
   return std::span {boundary_cuts_valuation_entries};
 }
 
+// --- ProbabilityRescaleMode --------------------------------------------------
+
+/**
+ * @brief Controls when scenario/scene probabilities are rescaled to sum 1.0.
+ *
+ * Scenario `probability_factor` values within each scene should sum to 1.0.
+ * When they do not, a warning is always emitted.  This option controls
+ * whether (and when) the solver normalizes the values automatically.
+ *
+ * - `none`:     No rescaling.  Warn about mismatched probabilities but
+ *               leave values unchanged.  This may produce incorrect
+ *               expected-cost computations if probabilities do not sum
+ *               to 1.0.
+ * - `build`:    Rescale at build time (during validation, before LP
+ *               construction).  Probabilities are normalized to sum 1.0
+ *               per scene and across all scenes.
+ * - `runtime`:  Rescale at build time AND at runtime.  In addition to
+ *               build-time normalization, scene weights are re-normalized
+ *               during SDDP when a scene becomes infeasible, so the
+ *               remaining feasible scenes' probabilities still sum to 1.0.
+ *               This is the default.
+ */
+enum class ProbabilityRescaleMode : uint8_t
+{
+  none = 0,  ///< No rescaling, warn only
+  build = 1,  ///< Rescale at build/validation time
+  runtime = 2,  ///< Rescale at build time and at runtime (default)
+};
+
+inline constexpr auto probability_rescale_mode_entries =
+    std::to_array<EnumEntry<ProbabilityRescaleMode>>({
+        {.name = "none", .value = ProbabilityRescaleMode::none},
+        {.name = "build", .value = ProbabilityRescaleMode::build},
+        {.name = "runtime", .value = ProbabilityRescaleMode::runtime},
+    });
+
+constexpr auto enum_entries(ProbabilityRescaleMode /*tag*/) noexcept
+{
+  return std::span {probability_rescale_mode_entries};
+}
+
+// --- KappaWarningMode -------------------------------------------------------
+
+/**
+ * @brief Controls warnings when the LP condition number (kappa) exceeds a
+ * threshold.
+ *
+ * After each LP solve (forward, backward, aperture, and monolithic), the
+ * solver checks the basis condition number.  When kappa exceeds
+ * `kappa_threshold` (default 1e9), this option controls the response.
+ *
+ * - `none`:     No kappa checking or warnings.
+ * - `warn`:     Log a warning with scene, phase, and iteration (default).
+ * - `save_lp`:  Log a warning AND save the culprit LP file for debugging.
+ */
+enum class KappaWarningMode : uint8_t
+{
+  none = 0,  ///< No kappa checking
+  warn = 1,  ///< Log a warning when kappa exceeds threshold (default)
+  save_lp = 2,  ///< Warn and save the LP file
+};
+
+inline constexpr auto kappa_warning_mode_entries =
+    std::to_array<EnumEntry<KappaWarningMode>>({
+        {.name = "none", .value = KappaWarningMode::none},
+        {.name = "warn", .value = KappaWarningMode::warn},
+        {.name = "save_lp", .value = KappaWarningMode::save_lp},
+    });
+
+constexpr auto enum_entries(KappaWarningMode /*tag*/) noexcept
+{
+  return std::span {kappa_warning_mode_entries};
+}
+
 }  // namespace gtopt

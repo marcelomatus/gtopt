@@ -63,67 +63,39 @@ void share_cuts_for_phase(
         all_cuts.size());
 
   } else if (mode == CutSharingMode::expected) {
-    // Expected mode: probability-weighted average cut.
-    const auto& scenes = planning.simulation().scenes();
-    std::vector<double> scene_probs(static_cast<std::size_t>(num_scenes), 0.0);
-    double total_prob = 0.0;
-
-    for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-      const auto si_sz = static_cast<std::size_t>(scene);
-      if (scene_cuts[scene].empty()) {
-        continue;
-      }
-      if (si_sz < scenes.size()) {
-        for (const auto& sc : scenes[si_sz].scenarios()) {
-          scene_probs[si_sz] += sc.probability_factor();
-        }
-      }
-      if (scene_probs[si_sz] <= 0.0) {
-        scene_probs[si_sz] = 1.0;
-      }
-      total_prob += scene_probs[si_sz];
-    }
-
-    if (total_prob <= 0.0) {
-      return;
-    }
-
+    // Expected mode: average cuts within each scene, then sum across scenes.
+    // Probability is already embedded in the LP objective coefficients
+    // (via block_ecost = cost * probability * discount * duration / scale),
+    // so the Benders cut z* and reduced costs inherit that weighting.
+    // The correct expected-value cut is the sum of scene-averaged cuts.
     std::vector<SparseRow> scene_avg_cuts;
-    std::vector<double> weights;
     scene_avg_cuts.reserve(static_cast<std::size_t>(num_scenes));
-    weights.reserve(static_cast<std::size_t>(num_scenes));
 
     for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
       const auto& cuts = scene_cuts[scene];
       if (cuts.empty()) {
         continue;
       }
-      const double w = scene_probs[static_cast<std::size_t>(scene)];
-      if (w <= 0.0) {
-        continue;
-      }
       scene_avg_cuts.push_back(average_benders_cut(cuts, label_prefix));
-      weights.push_back(w);
     }
 
     if (scene_avg_cuts.empty()) {
       return;
     }
 
-    const auto avg =
-        weighted_average_benders_cut(scene_avg_cuts, weights, label_prefix);
+    const auto accumulated =
+        accumulate_benders_cuts(scene_avg_cuts, label_prefix);
 
     for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
       auto& li = planning.system(scene, phase).linear_interface();
-      li.add_row(avg);
+      li.add_row(accumulated);
     }
 
     SPDLOG_TRACE(
-        "SDDP sharing: added probability-weighted average cut to phase {} "
-        "({} scenes with cuts, total_prob={:.4f})",
+        "SDDP sharing: added expected cut to phase {} "
+        "({} scenes with cuts, summed from scene averages)",
         phase,
-        scene_avg_cuts.size(),
-        total_prob);
+        scene_avg_cuts.size());
 
   } else if (mode == CutSharingMode::max) {
     // Max mode: add ALL cuts from ALL scenes to ALL scenes

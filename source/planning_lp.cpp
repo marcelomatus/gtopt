@@ -181,6 +181,7 @@ void PlanningLP::write_out() const
     int status;
     double obj_value;
     double kappa;
+    double max_kappa;
     double gap;  ///< Final SDDP gap (0.0 for monolithic)
     double
         gap_change;  ///< Final SDDP stationary gap-change (1.0 for monolithic)
@@ -201,6 +202,7 @@ void PlanningLP::write_out() const
           .status = li.get_status(),
           .obj_value = li.get_obj_value(),
           .kappa = li.get_kappa(),
+          .max_kappa = sddp.max_kappa,
           .gap = sddp.gap,
           .gap_change = sddp.gap_change,
       });
@@ -247,24 +249,28 @@ void PlanningLP::write_out() const
     }
   };
 
-  sol_file << "scene,phase,status,status_name,obj_value,kappa,gap,gap_change\n";
+  sol_file << "scene,phase,status,status_name,obj_value,kappa,max_kappa,"
+              "gap,gap_change\n";
   for (const auto& row : rows) {
-    sol_file << std::format("{},{},{},{},{},{},{},{}\n",
+    sol_file << std::format("{},{},{},{},{},{},{},{},{}\n",
                             row.scene_uid,
                             row.phase_uid,
                             row.status,
                             status_name(row.status),
                             row.obj_value,
                             row.kappa,
+                            row.max_kappa,
                             row.gap,
                             row.gap_change);
     SPDLOG_DEBUG(
         "  solution.csv: scene={} phase={} status={} obj_value={} "
-        "gap={} gap_change={}",
+        "kappa={} max_kappa={} gap={} gap_change={}",
         row.scene_uid,
         row.phase_uid,
         row.status,
         row.obj_value,
+        row.kappa,
+        row.max_kappa,
         row.gap,
         row.gap_change);
   }

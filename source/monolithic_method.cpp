@@ -158,6 +158,52 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
       }
     }
 
+    // ── Kappa threshold checking ──
+    {
+      const auto& sim = planning_lp.planning().simulation;
+      const auto kappa_mode =
+          sim.kappa_warning.value_or(KappaWarningMode::warn);
+      if (kappa_mode != KappaWarningMode::none) {
+        constexpr double default_kappa_threshold = 1e9;
+        const double threshold =
+            sim.kappa_threshold.value_or(default_kappa_threshold);
+        double max_kappa = 1.0;
+        for (auto&& [si, phase_systems_ref] :
+             enumerate<SceneIndex>(planning_lp.systems()))
+        {
+          for (auto&& [pi, system] : enumerate<PhaseIndex>(phase_systems_ref)) {
+            const auto& li = system.linear_interface();
+            const double kappa = li.get_kappa();
+            max_kappa = std::max(max_kappa, kappa);
+            if (kappa > threshold) {
+              spdlog::warn(
+                  "High kappa {:.2e} (threshold {:.2e}) at scene {} phase {}",
+                  kappa,
+                  threshold,
+                  system.scene().uid(),
+                  system.phase().uid());
+              if (kappa_mode == KappaWarningMode::save_lp
+                  && !lp_debug_directory.empty())
+              {
+                std::filesystem::create_directories(lp_debug_directory);
+                const auto stem = (std::filesystem::path(lp_debug_directory)
+                                   / std::format("kappa_sc{}_ph{}",
+                                                 system.scene().uid(),
+                                                 system.phase().uid()))
+                                      .string();
+                if (auto r = li.write_lp(stem)) {
+                  spdlog::warn("Saved high-kappa LP to {}.lp", stem);
+                }
+              }
+            }
+          }
+        }
+        planning_lp.set_sddp_summary({
+            .max_kappa = max_kappa,
+        });
+      }
+    }
+
     // Drain LP compression tasks (run in parallel with solve)
     lp_writer.drain();
 
