@@ -89,7 +89,7 @@ struct Simulation
     gtopt::merge(aperture_array, std::move(sim.aperture_array));
     gtopt::merge(iteration_array, std::move(sim.iteration_array));
     merge_opt(boundary_cuts_file, std::move(sim.boundary_cuts_file));
-    merge_opt(boundary_cuts_valuation, std::move(sim.boundary_cuts_valuation));
+    merge_opt(boundary_cuts_valuation, sim.boundary_cuts_valuation);
 
     auto _ = std::move(sim);  // move/clear sim
   }

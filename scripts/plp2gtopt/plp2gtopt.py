@@ -519,9 +519,7 @@ def convert_plp_case(options: dict[str, Any]) -> None:
 
             # Set up file logging into the temp dir (moved to final dir on
             # success)
-            log_handler = setup_file_logging(
-                tmp_dir, log_file=options.get("log_file")
-            )
+            log_handler = setup_file_logging(tmp_dir, log_file=options.get("log_file"))
 
             # Redirect output_dir to temp; keep output_file location as-is
             # when it lives outside the output_dir (e.g. -f flag).

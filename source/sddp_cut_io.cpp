@@ -1288,13 +1288,15 @@ auto load_named_cuts_csv(
           if (!std::getline(coeff_ss, ctok, ',')) {
             break;
           }
-          if (!col_map[ci].has_value()) {
+          const auto& col_opt = col_map[ci];
+          if (!col_opt.has_value()) {
             continue;
           }
           const auto coeff = std::stod(ctok);
           if (coeff != 0.0) {
-            const auto scale = li.get_col_scale(*col_map[ci]);
-            row[*col_map[ci]] = -coeff * scale / scale_obj;
+            const auto scale = li.get_col_scale(*col_opt);
+            row[*col_opt] = -coeff * scale
+                / scale_obj;  // NOLINT(bugprone-unchecked-optional-access)
           }
         }
 

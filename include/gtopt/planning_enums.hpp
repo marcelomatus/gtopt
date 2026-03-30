@@ -128,10 +128,14 @@ enum class BoundaryCutsValuation : uint8_t
 
 inline constexpr auto boundary_cuts_valuation_entries =
     std::to_array<EnumEntry<BoundaryCutsValuation>>({
-        {.name = "end_of_horizon",
-         .value = BoundaryCutsValuation::end_of_horizon},
-        {.name = "present_value",
-         .value = BoundaryCutsValuation::present_value},
+        {
+            .name = "end_of_horizon",
+            .value = BoundaryCutsValuation::end_of_horizon,
+        },
+        {
+            .name = "present_value",
+            .value = BoundaryCutsValuation::present_value,
+        },
     });
 
 constexpr auto enum_entries(BoundaryCutsValuation /*tag*/) noexcept
