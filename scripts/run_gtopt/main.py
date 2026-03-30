@@ -386,7 +386,10 @@ def main(argv: list[str] | None = None) -> None:
 
     # ── Post-run report ──
     results_dir = gtopt_dir / "results"
-    report_solution(results_dir, gtopt_dir)
+    planning_json_for_report = results_dir / "planning.json"
+    if not planning_json_for_report.is_file():
+        planning_json_for_report = json_file
+    report_solution(results_dir, gtopt_dir, planning_json_for_report)
 
     # ── Post-flight checks (error LPs, output analysis) ──
     if args.check:

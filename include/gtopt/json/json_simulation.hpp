@@ -27,9 +27,42 @@ namespace daw::json
 
 using gtopt::Simulation;
 
+/// Custom constructor: converts JSON strings → typed enums for Simulation
+struct SimulationConstructor
+{
+  [[nodiscard]] Simulation operator()(Array<Block> block_array,
+                                      Array<Stage> stage_array,
+                                      Array<Scenario> scenario_array,
+                                      Array<Phase> phase_array,
+                                      Array<Scene> scene_array,
+                                      Array<Aperture> aperture_array,
+                                      Array<Iteration> iteration_array,
+                                      OptName boundary_cuts_file,
+                                      OptName boundary_cuts_valuation_str) const
+  {
+    Simulation sim;
+    sim.block_array = std::move(block_array);
+    sim.stage_array = std::move(stage_array);
+    sim.scenario_array = std::move(scenario_array);
+    sim.phase_array = std::move(phase_array);
+    sim.scene_array = std::move(scene_array);
+    sim.aperture_array = std::move(aperture_array);
+    sim.iteration_array = std::move(iteration_array);
+    sim.boundary_cuts_file = std::move(boundary_cuts_file);
+    if (boundary_cuts_valuation_str) {
+      sim.boundary_cuts_valuation =
+          gtopt::enum_from_name<gtopt::BoundaryCutsValuation>(
+              *boundary_cuts_valuation_str);
+    }
+    return sim;
+  }
+};
+
 template<>
 struct json_data_contract<Simulation>
 {
+  using constructor_t = SimulationConstructor;
+
   using type = json_member_list<
       json_array_null<"block_array", Array<Block>, Block>,
       json_array_null<"stage_array", Array<Stage>, Stage>,
@@ -37,17 +70,22 @@ struct json_data_contract<Simulation>
       json_array_null<"phase_array", Array<Phase>, Phase>,
       json_array_null<"scene_array", Array<Scene>, Scene>,
       json_array_null<"aperture_array", Array<Aperture>, Aperture>,
-      json_array_null<"iteration_array", Array<Iteration>, Iteration>>;
+      json_array_null<"iteration_array", Array<Iteration>, Iteration>,
+      json_string_null<"boundary_cuts_file", OptName>,
+      json_string_null<"boundary_cuts_valuation", OptName>>;
 
-  [[nodiscard]] constexpr static auto to_json_data(Simulation const& simulation)
+  static auto to_json_data(Simulation const& simulation)
   {
-    return std::forward_as_tuple(simulation.block_array,
-                                 simulation.stage_array,
-                                 simulation.scenario_array,
-                                 simulation.phase_array,
-                                 simulation.scene_array,
-                                 simulation.aperture_array,
-                                 simulation.iteration_array);
+    return std::make_tuple(
+        simulation.block_array,
+        simulation.stage_array,
+        simulation.scenario_array,
+        simulation.phase_array,
+        simulation.scene_array,
+        simulation.aperture_array,
+        simulation.iteration_array,
+        simulation.boundary_cuts_file,
+        detail::enum_to_opt_name(simulation.boundary_cuts_valuation));
   }
 };
 }  // namespace daw::json

@@ -63,6 +63,22 @@ struct Simulation
   Array<Iteration> iteration_array {};  ///< Per-iteration solver control
                                         ///< (optional, keyed by index)
 
+  // ── Boundary conditions for the last stage ──────────────────────────────
+  /** @brief CSV file with boundary (future-cost) cuts for the last phase.
+   *
+   * External optimality cuts that approximate the expected future cost
+   * beyond the planning horizon.  Used by both SDDP and monolithic
+   * solvers.  If empty, no boundary cuts are loaded.
+   */
+  OptName boundary_cuts_file {};
+
+  /** @brief Valuation basis for boundary cut coefficients and RHS.
+   *
+   * - `end_of_horizon` (default): no discounting applied.
+   * - `present_value`: apply the last-stage effective discount factor.
+   */
+  std::optional<BoundaryCutsValuation> boundary_cuts_valuation {};
+
   constexpr void merge(Simulation&& sim)
   {
     gtopt::merge(block_array, std::move(sim.block_array));
@@ -72,6 +88,8 @@ struct Simulation
     gtopt::merge(scene_array, std::move(sim.scene_array));
     gtopt::merge(aperture_array, std::move(sim.aperture_array));
     gtopt::merge(iteration_array, std::move(sim.iteration_array));
+    merge_opt(boundary_cuts_file, std::move(sim.boundary_cuts_file));
+    merge_opt(boundary_cuts_valuation, std::move(sim.boundary_cuts_valuation));
 
     auto _ = std::move(sim);  // move/clear sim
   }

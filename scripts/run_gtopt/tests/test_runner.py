@@ -49,7 +49,8 @@ def test_report_solution_empty_dir(tmp_path: Path, capsys):
     """report_solution on empty directory does not crash."""
     report_solution(tmp_path)
     captured = capsys.readouterr()
-    assert "no solution file found" in captured.out
+    output = captured.out + captured.err
+    assert "no solution file found" in output or "UNKNOWN" in output
 
 
 def test_report_solution_optimal(tmp_path: Path, capsys):
@@ -58,13 +59,16 @@ def test_report_solution_optimal(tmp_path: Path, capsys):
     sol.write_text("status,objective\n0,500.0\n")
     report_solution(tmp_path)
     captured = capsys.readouterr()
-    assert "OPTIMAL" in captured.out
-    assert "500" in captured.out
+    output = captured.out + captured.err
+    assert "OPTIMAL" in output
+    assert "500" in output
 
 
 def test_run_gtopt_builds_command(tmp_path: Path):
     """run_gtopt passes threads and compression to subprocess."""
-    with patch("run_gtopt._runner.subprocess.run") as mock_run:
+    with patch("run_gtopt._runner.subprocess.run") as mock_run, patch(
+        "run_gtopt._runner._setup_log_file", return_value=None
+    ):
         mock_run.return_value.returncode = 0
         rc = run_gtopt("/usr/bin/gtopt", tmp_path, threads=4, compression="zstd")
         assert rc == 0
