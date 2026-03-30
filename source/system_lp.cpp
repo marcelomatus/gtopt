@@ -168,6 +168,7 @@ void fix_stage_islands(const auto& collections,
   for (auto&& [idx, bus] : std::views::enumerate(buses)) {
     const auto i = static_cast<std::size_t>(idx);
     uid_to_idx[bus.uid()] = i;
+    // id() returns std::pair<Uid, Name>; second is the bus name
     const auto& bus_name = bus.id().second;
     if (!bus_name.empty()) {
       name_to_idx[bus_name] = i;
