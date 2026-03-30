@@ -77,6 +77,7 @@
 #include <gtopt/sddp_clone_pool.hpp>
 #include <gtopt/sddp_common.hpp>
 #include <gtopt/sddp_cut_sharing.hpp>
+#include <gtopt/sddp_cut_store.hpp>
 #include <gtopt/sddp_pool.hpp>
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/solver_options.hpp>
@@ -84,13 +85,6 @@
 
 namespace gtopt
 {
-
-/// Result of a cut load operation.
-struct CutLoadResult
-{
-  int count {};  ///< Number of unique cuts loaded
-  IterationIndex max_iteration {};  ///< Highest iteration index found
-};
 
 // ─── Cut sharing mode ───────────────────────────────────────────────────────
 // CutSharingMode is now defined in <gtopt/sddp_enums.hpp>.
@@ -522,29 +516,6 @@ struct PhaseStateInfo
   std::vector<double> forward_row_dual {};
 };
 
-// ─── Stored cut for persistence ─────────────────────────────────────────────
-
-/// Type of Benders cut: optimality (standard) or feasibility (elastic filter)
-enum class CutType : uint8_t
-{
-  Optimality = 0,  ///< Standard Benders optimality cut
-  Feasibility,  ///< Feasibility cut from elastic filter
-};
-
-/// A serialisable representation of a Benders cut
-struct StoredCut
-{
-  CutType type {CutType::Optimality};  ///< Cut type (optimality or feasibility)
-  PhaseUid phase {};  ///< Phase UID this cut was added to
-  SceneUid scene {};  ///< Scene UID that generated this cut (-1 = shared)
-  std::string name {};  ///< Cut name
-  double rhs {};  ///< Right-hand side (lower bound)
-  std::optional<double> dual {};  ///< Row dual value (nullopt = unknown)
-  RowIndex row {};  ///< LP row index where this cut was added
-  /// Coefficient pairs: (column_index, coefficient)
-  std::vector<std::pair<int, double>> coefficients {};
-};
-
 // ─── Callback / observer API ────────────────────────────────────────────────
 
 /// Callback invoked after each SDDP iteration.
@@ -748,23 +719,18 @@ public:
   /// All stored cuts (for persistence / inspection)
   [[nodiscard]] const auto& stored_cuts() const noexcept
   {
-    return m_stored_cuts_;
+    return m_cut_store_.stored_cuts();
   }
 
   /// Number of stored cuts (thread-safe).
   /// In single_cut_storage mode, counts across all per-scene vectors.
   [[nodiscard]] int num_stored_cuts() const noexcept
   {
-    if (m_options_.single_cut_storage) {
-      int total = 0;
-      for (const auto& sc : m_scene_cuts_) {
-        total += static_cast<int>(sc.size());
-      }
-      return total;
-    }
-    const std::scoped_lock lock(m_cuts_mutex_);
-    return static_cast<int>(m_stored_cuts_.size());
+    return m_cut_store_.num_stored_cuts(m_options_.single_cut_storage);
   }
+
+  /// Access the cut store (for cascade orchestration, etc.).
+  [[nodiscard]] SDDPCutStore& cut_store() noexcept { return m_cut_store_; }
 
   /// Save accumulated cuts to a CSV file for hot-start
   [[nodiscard]] auto save_cuts(const std::string& filepath) const
@@ -1143,21 +1109,11 @@ private:
   ApertureDataCache m_aperture_cache_;
   LabelMaker m_label_maker_;
   scene_phase_states_t m_scene_phase_states_;
-  std::vector<StoredCut> m_stored_cuts_ {};
-  mutable std::mutex m_cuts_mutex_;  ///< Protects m_stored_cuts_
-
-  /// Per-scene cut storage — each scene writes its own vector without
-  /// needing the shared m_cuts_mutex_, preventing lock contention during
-  /// parallel backward passes.
-  StrongIndexVector<SceneIndex, std::vector<StoredCut>> m_scene_cuts_ {};
+  SDDPCutStore m_cut_store_;
 
   /// Clone pool: one cached LinearInterface per (scene, phase) for aperture
   /// reuse.  Empty when use_clone_pool is false.
   SDDPClonePool m_clone_pool_ {};
-
-  /// Per-scene cut count snapshot before each backward pass.
-  /// Used by apply_cut_sharing_for_iteration in single_cut_storage mode.
-  std::vector<std::size_t> m_scene_cuts_before_ {};
 
   /// Per-(scene, phase) count of consecutive forward-pass infeasibilities.
   /// Incremented when the elastic filter is used in forward_pass at (scene,
