@@ -17,6 +17,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+from plp2gtopt._progress import ConversionProgress, setup_file_logging
 from plp2gtopt.excel_writer import build_plp_excel
 from plp2gtopt.gtopt_writer import GTOptWriter
 from plp2gtopt.plp_parser import PLPParser
@@ -496,76 +497,104 @@ def convert_plp_case(options: dict[str, Any]) -> None:
     # atomically on success.  This prevents orphaned files from previous
     # conversions and ensures the output is always consistent.
     tmp_dir = None
+    log_handler: logging.Handler | None = None
     try:
-        t0 = time.monotonic()
+        with ConversionProgress() as progress:
+            t0 = time.monotonic()
 
-        # Parse all files
-        logger.debug("Parsing PLP input files from: %s", input_dir)
-        parser = PLPParser(options)
-        parser.parse_all()
+            # Parse all files
+            progress.step("parse")
+            logger.debug("Parsing PLP input files from: %s", input_dir)
+            parser = PLPParser(options)
+            parser.parse_all()
 
-        # Create temp dir in the same parent as output_dir so rename is atomic
-        tmp_dir = Path(
-            tempfile.mkdtemp(
-                prefix=f".{output_dir.name}.tmp.",
-                dir=output_dir.parent,
+            # Create temp dir in the same parent as output_dir so rename
+            # is atomic
+            tmp_dir = Path(
+                tempfile.mkdtemp(
+                    prefix=f".{output_dir.name}.tmp.",
+                    dir=output_dir.parent,
+                )
             )
-        )
 
-        # Redirect output_dir to temp; keep output_file location as-is
-        # when it lives outside the output_dir (e.g. -f flag).
-        json_inside = output_file.parent == output_dir
-        tmp_output_file = tmp_dir / output_file.name if json_inside else output_file
-        tmp_options = {**options, "output_dir": tmp_dir, "output_file": tmp_output_file}
+            # Set up file logging into the temp dir (moved to final dir on
+            # success)
+            log_handler = setup_file_logging(
+                tmp_dir, log_file=options.get("log_file")
+            )
 
-        # Convert to GTOPT format (writes Parquet time-series to tmp_dir)
-        logger.debug("Building gtopt planning model...")
-        writer = GTOptWriter(parser)
+            # Redirect output_dir to temp; keep output_file location as-is
+            # when it lives outside the output_dir (e.g. -f flag).
+            json_inside = output_file.parent == output_dir
+            tmp_output_file = tmp_dir / output_file.name if json_inside else output_file
+            tmp_options = {
+                **options,
+                "output_dir": tmp_dir,
+                "output_file": tmp_output_file,
+                "_progress": progress,
+            }
 
-        if excel_output:
-            logger.debug("Building planning data for Excel output...")
-            planning = writer.to_json(tmp_options)
+            # Convert to GTOPT format (writes Parquet time-series to
+            # tmp_dir).  The to_json / write methods call
+            # progress.step() for each sub-step.
+            logger.debug("Building gtopt planning model...")
+            writer = GTOptWriter(parser)
 
-            excel_file = options.get("excel_file")
-            if excel_file is None:
-                excel_file = output_dir.parent / (output_dir.name + ".xlsx")
+            if excel_output:
+                logger.debug("Building planning data for Excel output...")
+                planning = writer.to_json(tmp_options)
+
+                excel_file = options.get("excel_file")
+                if excel_file is None:
+                    excel_file = output_dir.parent / (output_dir.name + ".xlsx")
+                else:
+                    excel_file = Path(excel_file)
+
+                progress.step("write")
+                logger.debug("Writing igtopt Excel workbook to: %s", excel_file)
+                build_plp_excel(planning, tmp_dir, excel_file, tmp_options)
             else:
-                excel_file = Path(excel_file)
+                logger.debug("Writing GTOPT output to: %s", output_file)
+                writer.write(tmp_options)
 
-            logger.debug("Writing igtopt Excel workbook to: %s", excel_file)
-            build_plp_excel(planning, tmp_dir, excel_file, tmp_options)
-        else:
-            logger.debug("Writing output files...")
-            logger.debug("Writing GTOPT output to: %s", output_file)
-            writer.write(tmp_options)
+            elapsed = time.monotonic() - t0
 
-        elapsed = time.monotonic() - t0
+            # --- Conversion succeeded: swap temp → final output_dir ---
+            # When logging to the default temp-dir path, close the handler
+            # before renaming.  When --log points to a persistent file,
+            # keep it open so post-check output is also logged.
+            if log_handler is not None and options.get("log_file") is None:
+                logging.getLogger().removeHandler(log_handler)
+                log_handler.close()
+                log_handler = None
 
-        # --- Conversion succeeded: swap temp → final output_dir ---
-        if output_dir.exists():
-            shutil.rmtree(output_dir)
-        tmp_dir.rename(output_dir)
-        tmp_dir = None  # Prevent cleanup in finally
+            if output_dir.exists():
+                shutil.rmtree(output_dir)
+            tmp_dir.rename(output_dir)
+            tmp_dir = None  # Prevent cleanup in finally
 
-        # If JSON was written inside the temp dir, it's now at the final path.
-        # If JSON was outside (e.g. -f), it was written directly — no move needed.
-        if json_inside:
-            output_file = output_dir / output_file.name
+            # If JSON was written inside the temp dir, it's now at the
+            # final path.
+            if json_inside:
+                output_file = output_dir / output_file.name
 
-        # Fix temp dir paths in the planning dict and re-write the JSON.
-        # The temp dir path may appear in input_directory,
-        # boundary_cuts_file, named_cuts_file, etc.
-        if not json_inside:
-            tmp_str = str(tmp_options["output_dir"])
-            final_str = str(output_dir)
-            plan_json = json.dumps(writer.planning)
-            if tmp_str in plan_json:
-                plan_json = plan_json.replace(tmp_str, final_str)
-                writer.planning = json.loads(plan_json)
-            with open(output_file, "w", encoding="utf-8") as f:
-                json.dump(writer.planning, f, indent=4)
+            # Fix temp dir paths in the planning dict and re-write the
+            # JSON.
+            if not json_inside:
+                tmp_str = str(tmp_options["output_dir"])
+                final_str = str(output_dir)
+                plan_json = json.dumps(writer.planning)
+                if tmp_str in plan_json:
+                    plan_json = plan_json.replace(tmp_str, final_str)
+                    writer.planning = json.loads(plan_json)
+                with open(output_file, "w", encoding="utf-8") as f:
+                    json.dump(writer.planning, f, indent=4)
 
-        # Log conversion statistics
+            # Mark last build step done before printing tables
+            progress.step("validate")
+            progress.done()
+
+        # --- Outside the progress context: print tables ---
         _log_stats(writer.planning, elapsed)
 
         if options.get("show_simulation", False):
@@ -597,6 +626,9 @@ def convert_plp_case(options: dict[str, Any]) -> None:
     except Exception as e:
         raise RuntimeError(f"PLP to GTOPT conversion failed. Details: {e}") from e
     finally:
+        if log_handler is not None:
+            logging.getLogger().removeHandler(log_handler)
+            log_handler.close()
         if tmp_dir is not None and tmp_dir.exists():
             shutil.rmtree(tmp_dir, ignore_errors=True)
 

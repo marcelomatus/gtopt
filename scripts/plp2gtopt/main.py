@@ -292,7 +292,7 @@ def make_parser() -> argparse.ArgumentParser:
         dest="compression_level",
         type=int,
         metavar="N",
-        default=int(conf.get("compression_level", "0")) or None,
+        default=int(conf.get("compression_level", "1")) or None,
         help=(
             "compression level for the codec, e.g. 1-22 for zstd "
             "(default: %(default)s; 0 or omitted = codec default)"
@@ -599,6 +599,16 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--log",
+        dest="log_file",
+        metavar="FILE",
+        default=None,
+        help=(
+            "write detailed DEBUG-level log to FILE "
+            "(default: <output_dir>/logs/conversion.log)"
+        ),
+    )
+    parser.add_argument(
         "--info",
         dest="show_info",
         action="store_true",
@@ -863,7 +873,7 @@ def make_parser() -> argparse.ArgumentParser:
 # Keys and hard-coded defaults for the [plp2gtopt] config section.
 _SECTION_DEFAULTS: dict[str, str] = {
     "compression": "zstd",
-    "compression_level": "9",
+    "compression_level": "1",
     "output_format": "parquet",
     "input_format": "parquet",
     "solver_type": "sddp",
@@ -996,6 +1006,7 @@ def build_options(args: argparse.Namespace) -> dict:
     opts["pasada_mode"] = pasada_mode
     # Backward compat: pasada_hydro = True when mode is "hydro", "flow-turbine", or "auto"
     opts["pasada_hydro"] = pasada_mode in ("hydro", "flow-turbine", "auto")
+    opts["log_file"] = getattr(args, "log_file", None)
     return opts
 
 

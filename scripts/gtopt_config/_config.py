@@ -18,7 +18,7 @@ File format (INI)::
 
     [plp2gtopt]
     compression       = zstd
-    compression_level = 9
+    compression_level = 1
     output_format     = parquet
     input_format      = parquet
     solver_type       = sddp

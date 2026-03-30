@@ -1221,30 +1221,55 @@ class GTOptWriter:
         if options is None:
             options = {}
 
+        progress = options.get("_progress")
+
+        def _step(key: str) -> None:
+            if progress is not None:
+                progress.step(key)
+
+        _step("options")
         self.process_options(options)
+        _step("stages")
         self.process_stage_blocks(options)
         self.process_indhor(options)
+        _step("scenarios")
         self.process_scenarios(options)
         self.process_apertures(options)
+        _step("buses")
         self.process_buses()
         self.process_lines(options)
+        _step("generators")
         self.classify_pasada_centrals(options)
         self.process_centrals(options)
+        _step("demands")
         self.process_demands(options)
+        _step("hydro")
         self.process_afluents(options)
         self.process_generator_profiles(options)
         self.process_junctions(options)
         self.process_flow_turbines(options)
+        _step("batteries")
         self.process_battery(options)
+        _step("boundary")
         self.process_boundary_cuts(options)
         self.process_variable_scales(options)
 
         # Organize into planning structure
         name = options.get("name", "plp2gtopt") if options else "plp2gtopt"
         self.planning["system"]["name"] = name
+
+        # Build version string with provenance info
+        from plp2gtopt import __version__ as plp2gtopt_version  # noqa: PLC0415
+
         version = options.get("sys_version", "") if options else ""
+        input_dir = options.get("input_dir", "")
+        source = Path(input_dir).name if input_dir else ""
+        parts = [f"plp2gtopt {plp2gtopt_version}"]
+        if source:
+            parts.append(f"from {source}")
         if version:
-            self.planning["system"]["version"] = version
+            parts.append(version)
+        self.planning["system"]["version"] = ", ".join(parts)
 
         return self.planning
 
@@ -1258,5 +1283,9 @@ class GTOptWriter:
         output_file = Path(options["output_file"]) if options else Path("gtopt.json")
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
+        planning = self.to_json(options)
+        progress = options.get("_progress")
+        if progress is not None:
+            progress.step("write")
         with open(output_file, "w", encoding="utf-8") as f:
-            json.dump(self.to_json(options), f, indent=4)
+            json.dump(planning, f, indent=4)
