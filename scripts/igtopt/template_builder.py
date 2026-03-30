@@ -205,6 +205,13 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Number of piecewise-linear loss segments (>1 enables quadratic model)",
             None,
         ),
+        (
+            "loss_allocation_mode",
+            _J_STR,
+            False,
+            'How losses are allocated: "receiver" (default), "sender", or "split" (50/50)',
+            None,
+        ),
         ("tmax_ba", _J_SCHED, False, "Max power flow B→A [MW]", 500.0),
         ("tmax_ab", _J_SCHED, False, "Max power flow A→B [MW]", 500.0),
         ("tcost", _J_SCHED, False, "Transmission cost [$/MWh]", None),

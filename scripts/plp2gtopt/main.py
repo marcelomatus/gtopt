@@ -323,6 +323,17 @@ def make_parser() -> argparse.ArgumentParser:
         help="objective function scaling factor (default: %(default)s)",
     )
     parser.add_argument(
+        "--scale-alpha",
+        dest="scale_alpha",
+        type=float,
+        metavar="FACTOR",
+        default=float(conf.get("scale_alpha", "10000000.0")),
+        help=(
+            "SDDP future-cost (alpha/varphi) scaling factor. "
+            "Matches PLP's ScalePhi when PLP_SCALE_MODE=si (default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
         "-b",
         "--use-single-bus",
         dest="use_single_bus",
@@ -879,6 +890,7 @@ _SECTION_DEFAULTS: dict[str, str] = {
     "solver_type": "sddp",
     "demand_fail_cost": "1000.0",
     "scale_objective": "1000.0",
+    "scale_alpha": "10000000.0",
     "discount_rate": "0.0",
     "rsv_scale_mode": "auto",
 }
@@ -958,6 +970,7 @@ def build_options(args: argparse.Namespace) -> dict:
         "sys_version": args.sys_version,
         "demand_fail_cost": args.demand_fail_cost,
         "scale_objective": args.scale_objective,
+        "scale_alpha": args.scale_alpha,
         "use_single_bus": args.use_single_bus,
         "use_kirchhoff": args.use_kirchhoff,
         "solver_type": args.solver_type,

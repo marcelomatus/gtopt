@@ -49,6 +49,7 @@
 #pragma once
 
 #include <gtopt/capacity.hpp>
+#include <gtopt/line_enums.hpp>
 
 namespace gtopt
 {
@@ -90,6 +91,23 @@ struct Line
                                ///< (default: from Options)
   OptInt loss_segments {};  ///< Number of piecewise-linear segments for
                             ///< quadratic losses (default: from Options)
+
+  OptName loss_allocation_mode {};  ///< How losses are allocated between
+                                    ///< sender and receiver buses:
+                                    ///< `"receiver"` (default), `"sender"`,
+                                    ///< or `"split"` (50/50, PLP default).
+
+  /// Parse loss_allocation_mode string to enum (receiver if unset).
+  [[nodiscard]] constexpr LossAllocationMode loss_allocation_mode_enum()
+      const noexcept
+  {
+    if (loss_allocation_mode.has_value()) {
+      return enum_from_name<LossAllocationMode>(*loss_allocation_mode)
+          .value_or(LossAllocationMode::receiver);
+    }
+    return LossAllocationMode::receiver;
+  }
+
   OptTBRealFieldSched tmax_ba {};  ///< Maximum power flow in B→A direction [MW]
   OptTBRealFieldSched tmax_ab {};  ///< Maximum power flow in A→B direction [MW]
   OptTRealFieldSched tcost {};  ///< Variable transmission cost [$/MWh]

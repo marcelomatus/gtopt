@@ -54,7 +54,7 @@ public:
   /** @brief Default threshold for Kirchhoff constraints */
   static constexpr Real default_kirchhoff_threshold = 0;
   /** @brief Default objective function scaling factor */
-  static constexpr Real default_scale_objective = 1'000'000;
+  static constexpr Real default_scale_objective = 10'000'000;
   /** @brief Default voltage angle scaling factor (10 * 100 * 100 = 100,000) */
   static constexpr Real default_scale_theta = 1'000;
 

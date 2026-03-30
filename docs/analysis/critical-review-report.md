@@ -1,12 +1,13 @@
-# Critical Analysis of gtopt: Implementation Review (v2)
+# Critical Analysis of gtopt: Implementation Review (v3)
 
 ## Electric Grid Modeling, SDDP/Benders, and Comparison with PLP, pandapower, and Literature
 
-**Date**: 2026-03-30 (updated from 2026-03-28)
-**Scope**: Full C++ codebase review with 11 parallel research agents covering SDDP
-literature, PLP Fortran source (CEN65), pandapower/MATPOWER DC-OPF, DC-OPF best
-practices, commercial tools (PLEXOS/PSR/PLP/SPPD), and deep-dive into gtopt's
-SDDP/LP, network, components, objective/scaling, and data model.
+**Date**: 2026-03-30 (v3, verified with 11+1 agents)
+**Scope**: Full C++ codebase review with 11 parallel research agents + 1 verification
+agent. Covers SDDP literature, PLP Fortran source (CEN65), pandapower/MATPOWER
+DC-OPF, DC-OPF best practices, commercial tools (PLEXOS/PSR/PLP/SPPD), and
+deep-dive into gtopt's SDDP/LP, network, components, objective/scaling, and data model.
+All top findings from v2 independently verified against source code.
 
 ---
 
@@ -38,17 +39,20 @@ cascade method.
 
 ### Critical Findings (ordered by severity)
 
-| # | Finding | Severity | Area | Status |
-|---|---------|----------|------|--------|
-| 1 | Probability double-counting in `expected` cut sharing | **High** | SDDP | ✅ Fixed (e2c24740) |
-| 2 | No dynamic reservoir volume scaling (vs PLP `ScaleVol`) | ~~High~~ | Numerics | ✅ Already default (`auto_scale`, `reservoir.hpp:174`) |
-| 3 | `scale_objective` default 1M vs PLP's 1e7 ScaleObj | **Medium** | Numerics | Design choice (changed from 1e3 to 1e6 in e2c24740) |
-| 4 | No independent `scale_alpha` for future cost variable | **Low** | SDDP/Numerics | ✅ `scale_alpha` exists (1M default, changed from 1e3 in e2c24740) |
-| 5 | Island detection static-only (no per-stage awareness) | **Medium** | DC-OPF | Open |
-| 6 | Loss allocation fixed at 100% receiver (PLP 50/50) | **Low** | DC-OPF | Design choice |
-| 7 | Missing PLP `DCMod` paired-charging for ESS | **Low** | Components | Gap |
-| 8 | No autoregressive inflow model (PLP PAR(p)) | **Low** | SDDP | Gap |
-| 9 | No risk measures (CVaR) in SDDP | **Low** | SDDP | Gap |
+| # | Finding | Severity | Area | Status | Verified |
+|---|---------|----------|------|--------|----------|
+| 1 | Probability double-counting in `expected` cut sharing | **High** | SDDP | ✅ Fixed (`e2c24740`) | ✅ `sddp_cut_sharing.cpp:87` uses `accumulate_benders_cuts` |
+| 2 | Dynamic reservoir volume scaling | ~~High~~ | Numerics | ✅ Already default | ✅ `reservoir.hpp:174` returns `auto_scale` when unset |
+| 3 | `scale_objective` default 1M vs PLP's 1e7 | **Medium** | Numerics | Design choice | ✅ `planning_options_lp.hpp:57` confirms 1M default |
+| 4 | `scale_alpha` for future cost variable | ~~Medium~~ | SDDP | ✅ Exists (1M default) | ✅ `sddp_method.hpp` + `planning_options_lp.hpp:477` |
+| 5 | Island detection static-only | ~~Medium~~ | DC-OPF | ✅ Fixed (`d4e945a0`) | ✅ `system_lp.cpp:140-259` runtime DSU per stage |
+| 6 | Loss allocation 100% receiver | **Low** | DC-OPF | Design choice | ✅ `line_lp.cpp:117,149-150` confirmed |
+| 7 | Capacity expansion is continuous | N/A | Design | Correct | ✅ `capacity_object_lp.cpp:102-106` no integer restriction |
+| 8 | PLP `DCMod` paired-charging | ~~Low~~ | Components | ✅ Implemented in plp2gtopt | ✅ All 3 modes (0/1/2) handled |
+| 9 | No autoregressive inflow model | **Low** | SDDP | Gap | N/A |
+| 10 | No risk measures (CVaR) | **Low** | SDDP | Gap | N/A |
+| 11 | Elastic penalty default | N/A | SDDP | ✅ Correct (1e6) | ✅ `planning_options_lp.hpp:471` |
+| 12 | Both cut coefficient modes | N/A | SDDP | Correct | ✅ `benders_cut.cpp:83-127` both modes verified |
 
 ---
 
@@ -105,20 +109,18 @@ gtopt implements island detection in `bus_island.cpp` using Union-Find (DSU).
 It runs at LP-build time and assigns `reference_theta = 0` to one bus per
 disconnected component. Multi-island handling is correct.
 
-**Gap: Static-only island detection.** Detection runs once before LP
-construction using the static `Line` data. It does NOT consider:
+**Static detection** runs once before LP construction on the `Line` data. It
+does not consider per-stage line activation.
 
-- **Per-stage line activation** — a line inactive at stage 2 could split the
-  network, leaving an island without a reference bus
-- **Per-stage reactance availability** — `bus_island.cpp:122` checks
-  `line.reactance.has_value()` at the top level, not per-stage
-- **No runtime warning** when dynamic topology changes create islands
+**Runtime fix (added in `d4e945a0`):** `fix_stage_islands()` in
+`system_lp.cpp:140-259` runs after all elements are added to the LP for each
+(scenario, stage). It builds a DSU over theta-bearing buses connected by active
+lines with Kirchhoff rows, detects components without a reference bus, and pins
+one orphaned theta to zero per disconnected island. Logs a `SPDLOG_WARN` when
+a runtime reference is pinned.
 
-**Impact:** Unconstrained theta variables in unanchored islands produce
-unreliable LMPs.
-
-**Recommendation:** Run island detection per-stage filtering by `active` status,
-or add a runtime check during LP construction.
+Three integration tests cover this: line inactive at one stage, all lines active
+(no false positives), and multi-stage with island at one stage only.
 
 ### 2.4 Susceptance and Unit Conventions
 
@@ -372,9 +374,15 @@ than gtopt's simple spillway drain.
 | Paired-charging (DCMod) | No equivalent | No | Yes (3 modes) |
 | Soft minimum SoC | Yes (`soft_emin` + penalty) | No | No |
 
-**Missing:** PLP's `DCMod` modes: mode 0 = standalone, mode 1 = source_generator
-(internal bus), mode 2 = regulation tank mapped to hydro reservoir. gtopt supports
-mode 0 and mode 1 (via `source_generator`) but not mode 2.
+**All three PLP `DCMod` modes are supported:**
+- **DCMod=0** (standalone): Battery in `battery_array`, no `source_generator`
+- **DCMod=1** (generation-coupled): Battery with `source_generator` set to `cenpc`
+- **DCMod=2** (regulation tank): Mapped to hydro `Reservoir` via
+  `get_regulation_reservoirs()` in `battery_writer.py:421-495`, connected to the
+  paired generator's junction with `daily_cycle=true`
+
+The plp2gtopt converter handles all modes with validation (rejects non-hydro
+centrals for DCMod=2) and comprehensive test coverage (`test_battery_writer.py`).
 
 ### 4.4 Demand
 
@@ -506,10 +514,10 @@ Lazy loading with Arrow caching prevents redundant I/O.
 |---|-------|----------|------|----------------|
 | 1 | **Probability double-counting in `expected` cut sharing**: LP objectives included probability via `block_ecost()`, then `expected` mode applied probability weights again | **High** | SDDP | ✅ Fixed in `e2c24740`: uses `accumulate_benders_cuts()` instead of `weighted_average_benders_cut()` |
 | 2 | **Dynamic volume scaling**: `energy_scale_mode` defaults to `auto_scale` (`max(1, emax/1000)`) matching PLP's `ScaleVol` | ~~High~~ | Numerics | ✅ Already default (`reservoir.hpp:174`) |
-| 3 | **Static island detection**: No per-stage awareness of line activation changes | **Medium** | DC-OPF | Run detection per-stage or add runtime check |
+| 3 | ~~**Static island detection**~~: Runtime per-stage fix added | ~~Medium~~ | DC-OPF | ✅ Fixed in `d4e945a0` (`fix_stage_islands()`) |
 | 4 | **Scaling defaults 10x less aggressive than PLP**: May cause numerical issues for national-scale systems | **Medium** | Numerics | Document recommended values for large systems |
 | 5 | **No configurable loss allocation**: Fixed at 100% receiver; PLP uses 50/50 | **Low** | DC-OPF | Add `loss_allocation` field on Line |
-| 6 | **Missing PLP DCMod=2 mode**: ESS as regulation tank mapped to hydro | **Low** | Components | Could model via user constraints |
+| 6 | ~~PLP DCMod modes~~: All 3 modes implemented in plp2gtopt | ~~Low~~ | Components | ✅ DCMod 0/1/2 fully handled (`battery_writer.py`) |
 | 7 | **No autoregressive inflow model**: Scenarios assumed independent | **Low** | SDDP | Add Markov state support for inflow correlation |
 | 8 | **No risk measures (CVaR)**: Only expected-value optimization | **Low** | SDDP | Add risk-adjusted cut generation |
 | 9 | **No PLP variance convergence test**: `FConvPVar` absent | **Low** | SDDP | Add optional criterion |
@@ -559,8 +567,8 @@ or academic tool.
 2. ~~**Default auto-scale for reservoir volumes**~~ — ✅ Already the default.
    `energy_scale_mode_enum()` returns `auto_scale` when unset (`reservoir.hpp:174`).
 
-3. **Per-stage island detection** — Important for systems where lines have
-   maintenance schedules or expansion candidates appear at specific stages.
+3. ~~**Per-stage island detection**~~ — ✅ Fixed in `d4e945a0`.
+   `fix_stage_islands()` detects and fixes orphaned theta variables per stage.
 
 4. **Document recommended scaling for large systems** — A table of
    recommended `scale_objective`, `scale_theta`, `energy_scale` values for
