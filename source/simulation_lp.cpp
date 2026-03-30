@@ -47,6 +47,10 @@ auto create_block_array(const Simulation& simulation)
 auto create_stage_array(const Simulation& simulation,
                         const PlanningOptionsLP& options)
 {
+  // Prefer simulation.annual_discount_rate, fall back to options
+  const auto rate =
+      simulation.annual_discount_rate.value_or(options.annual_discount_rate());
+
   return std::ranges::to<std::vector>(
       enumerate_active<StageIndex>(simulation.stage_array)
       | std::ranges::views::transform(
@@ -56,7 +60,7 @@ auto create_stage_array(const Simulation& simulation,
             return StageLP {
                 stage,
                 simulation.block_array,
-                options.annual_discount_rate(),
+                rate,
                 index,
             };
           }));

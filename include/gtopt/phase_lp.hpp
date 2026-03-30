@@ -42,7 +42,7 @@ namespace detail
 [[nodiscard]] constexpr auto create_stage_array(
     const Phase& phase,
     PhaseIndex phase_index,
-    const PlanningOptionsLP& options,
+    double annual_discount_rate,
     std::span<const Stage> stage_array,
     std::span<const Block> all_blocks)
 {
@@ -57,7 +57,7 @@ namespace detail
                                             return StageLP {
                                                 stage,
                                                 all_blocks,
-                                                options.annual_discount_rate(),
+                                                annual_discount_rate,
                                                 stage_index,
                                                 phase_index,
                                             };
@@ -91,7 +91,7 @@ public:
       : m_phase_(std::move(phase))
       , m_index_(phase_index)
       , m_stages_(detail::create_stage_array(
-            m_phase_, m_index_, options, stages, blocks))
+            m_phase_, m_index_, options.annual_discount_rate(), stages, blocks))
       , m_duration_(std::ranges::fold_left(
             m_stages_ | std::ranges::views::transform(&StageLP::duration),
             0.0,
@@ -103,11 +103,19 @@ public:
                    const PlanningOptionsLP& options,
                    const Simulation& simulation,
                    PhaseIndex phase_index = PhaseIndex {unknown_index})
-      : PhaseLP(std::move(phase),
-                options,
-                simulation.stage_array,
-                simulation.block_array,
-                phase_index)
+      : m_phase_(std::move(phase))
+      , m_index_(phase_index)
+      , m_stages_(
+            detail::create_stage_array(m_phase_,
+                                       m_index_,
+                                       simulation.annual_discount_rate.value_or(
+                                           options.annual_discount_rate()),
+                                       simulation.stage_array,
+                                       simulation.block_array))
+      , m_duration_(std::ranges::fold_left(
+            m_stages_ | std::ranges::views::transform(&StageLP::duration),
+            0.0,
+            std::plus<>()))
   {
   }
 
