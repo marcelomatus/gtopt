@@ -14,7 +14,6 @@
  */
 
 #include <format>
-#include <limits>
 #include <unordered_map>
 
 #include <gtopt/bus_island.hpp>
@@ -142,7 +141,8 @@ void fix_stage_islands(const auto& collections,
                        const StageLP& stage,
                        LinearProblem& lp)
 {
-  const auto& buses = std::get<Collection<BusLP>>(collections).elements();
+  const auto& bus_coll = std::get<Collection<BusLP>>(collections);
+  const auto& buses = bus_coll.elements();
   const auto& lines = std::get<Collection<LineLP>>(collections).elements();
   const auto n_buses = buses.size();
   if (n_buses <= 1 || stage.blocks().empty()) {
@@ -157,19 +157,8 @@ void fix_stage_islands(const auto& collections,
   std::vector<bool> is_reference(n_buses, false);
   std::size_t theta_count = 0;
 
-  // UID → local index and Name → local index mappings for bus lookup.
-  std::unordered_map<Uid, std::size_t> uid_to_idx;
-  std::unordered_map<std::string, std::size_t> name_to_idx;
-  uid_to_idx.reserve(n_buses);
-  name_to_idx.reserve(n_buses);
-
   for (auto&& [idx, bus] : std::views::enumerate(buses)) {
     const auto i = static_cast<std::size_t>(idx);
-    uid_to_idx[bus.uid()] = i;
-    const auto& bname = bus.object().name;
-    if (!bname.empty()) {
-      name_to_idx[bname] = i;
-    }
     if (bus.lookup_theta_col(scenario, stage, first_buid).has_value()) {
       has_theta[i] = true;
       ++theta_count;
@@ -184,7 +173,9 @@ void fix_stage_islands(const auto& collections,
     return;
   }
 
-  // Build DSU over buses connected by active lines with Kirchhoff rows
+  // Build DSU over buses connected by active lines with Kirchhoff rows.
+  // Use Collection::element_index(SingleId) to resolve bus references
+  // (handles both Uid and Name variants).
   DisjointSetUnion dsu(n_buses);
   const auto st_key = std::pair {scenario.uid(), stage.uid()};
 
@@ -196,33 +187,19 @@ void fix_stage_islands(const auto& collections,
     if (!line.has_theta_rows(st_key)) {
       continue;
     }
-    // Resolve bus_a and bus_b SingleIds to local indices.
-    // LineLP::add_to_lp already resolved these; the line's bus UIDs
-    // are stored as the element's bus_a/bus_b fields.
-    const auto& line_data = line.line();
-    const auto resolve = [&](const SingleId& sid) -> std::size_t
-    {
-      constexpr auto sentinel = std::numeric_limits<std::size_t>::max();
-      if (const auto* u = std::get_if<Uid>(&sid)) {
-        auto it = uid_to_idx.find(*u);
-        return it != uid_to_idx.end() ? it->second : sentinel;
+    // Resolve bus_a/bus_b via the Collection's uid/name maps.
+    try {
+      const auto idx_a =
+          static_cast<std::size_t>(bus_coll.element_index(line.bus_a_sid()));
+      const auto idx_b =
+          static_cast<std::size_t>(bus_coll.element_index(line.bus_b_sid()));
+      if (!has_theta[idx_a] || !has_theta[idx_b]) {
+        continue;
       }
-      if (const auto* n = std::get_if<Name>(&sid)) {
-        auto it = name_to_idx.find(*n);
-        return it != name_to_idx.end() ? it->second : sentinel;
-      }
-      return sentinel;
-    };
-    constexpr auto sentinel = std::numeric_limits<std::size_t>::max();
-    const auto idx_a = resolve(line_data.bus_a);
-    const auto idx_b = resolve(line_data.bus_b);
-    if (idx_a == sentinel || idx_b == sentinel) {
-      continue;
+      dsu.unite(idx_a, idx_b);
+    } catch (const std::out_of_range&) {
+      continue;  // Bus not found in collection — skip line
     }
-    if (!has_theta[idx_a] || !has_theta[idx_b]) {
-      continue;
-    }
-    dsu.unite(idx_a, idx_b);
   }
 
   // For each connected component of theta-bearing buses, check if it
