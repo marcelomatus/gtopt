@@ -1,11 +1,12 @@
 /**
  * @file      mvector_traits.hpp
- * @brief     Header of
+ * @brief     Recursive multi-dimensional vector traits
  * @date      Mon Jun  2 20:54:23 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module defines the mvector_traits template, which recursively nests
+ * std::vector types to represent multi-dimensional indexed containers.
  */
 
 #pragma once

@@ -1,11 +1,12 @@
 /**
  * @file      reserve_provision_lp.hpp
- * @brief     Header of
+ * @brief     LP formulation for reserve provisions
  * @date      Mon Apr 21 22:23:43 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module defines the ReserveProvisionLP class, which builds LP variables
+ * and constraints for generator reserve provision commitments.
  */
 
 #pragma once

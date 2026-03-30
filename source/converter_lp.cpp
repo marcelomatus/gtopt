@@ -1,11 +1,12 @@
 /**
  * @file      converter_lp.cpp
- * @brief     Header of
+ * @brief     Implementation of converter LP formulation
  * @date      Wed Apr  2 02:12:47 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module implements ConverterLP construction and add_to_lp, which
+ * builds LP variables and constraints for energy conversion rate coupling.
  */
 
 #include <gtopt/converter_lp.hpp>

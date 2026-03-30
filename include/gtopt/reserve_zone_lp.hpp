@@ -1,11 +1,12 @@
 /**
  * @file      reserve_zone_lp.hpp
- * @brief     Header of
+ * @brief     LP formulation for reserve zones
  * @date      Mon Apr 21 22:23:18 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module defines the ReserveZoneLP class, which builds LP variables
+ * and constraints for operating reserve zone requirements.
  */
 
 #pragma once

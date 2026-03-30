@@ -1,11 +1,12 @@
 /**
  * @file      demand_profile_lp.cpp
- * @brief     Header of
+ * @brief     Implementation of demand profile LP formulation
  * @date      Sat Apr  5 23:12:03 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module implements DemandProfileLP construction and add_to_lp,
+ * which applies time-varying profile factors to demand load variables.
  */
 
 #include <gtopt/aperture_data_cache.hpp>

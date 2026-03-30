@@ -62,7 +62,7 @@ The GTEP problem finds the minimum-cost combination of:
   planning stages.
 
 This is a classical problem in power system planning, extensively studied in
-the literature [[1]](#ref1) [[2]](#ref2) [[3]](#ref3). The gtopt formulation
+the literature [[1]](#ref1) [[2]](#ref2) [[3]](#ref3) [[16]](#ref16). The gtopt formulation
 builds on the FESOP (Fabulous Energy System Optimizer) framework
 [[4]](#ref4), which extended traditional long-term operational planning
 (as implemented in PLP-type hydrothermal coordination tools [[5]](#ref5)
@@ -155,8 +155,8 @@ scenarios, stages, and blocks.
 | $\overline{V}_r$ | `vmax` | Reservoir max volume | hm³ |
 | $\underline{V}_r$ | `vmin` | Reservoir min volume | hm³ |
 | $\kappa_u$ | `conversion_rate` (turbine) | Turbine water-to-power factor | MW/(m³/s) |
-| $\overline{R}_z^{\text{up}}$ | `urreq` | Up-reserve requirement | MW |
-| $\overline{R}_z^{\text{dn}}$ | `drreq` | Down-reserve requirement | MW |
+| $\overline{R}_{z,t,b}^{\text{up}}$ | `urreq` | Up-reserve requirement | MW |
+| $\overline{R}_{z,t,b}^{\text{dn}}$ | `drreq` | Down-reserve requirement | MW |
 | $K_g^{\text{cap}}$ | `annual_capcost` | Annual expansion cost per module | \$/year |
 | $M_g$ | `expcap` | Capacity per expansion module | MW |
 | $\overline{m}_g$ | `expmod` | Maximum expansion modules | — |
@@ -177,13 +177,15 @@ scenarios, stages, and blocks.
 | $p_{e,s,t,b}^{\text{out}}$ | Battery $e$ discharging power | $\geq 0$ |
 | $\bar{C}_{g,t}$ | Installed capacity of generator $g$ at stage $t$ | $[\bar{C}_g^0,\; \bar{C}_g^{\max}]$ |
 | $m_{g,t}$ | Expansion modules built at stage $t$ | $[0,\; \overline{m}_g]$ |
-| $r_{p,s,t,b}^{\text{up}}$ | Up-reserve provision from gen $g$ | $\geq 0$ |
-| $r_{p,s,t,b}^{\text{dn}}$ | Down-reserve provision from gen $g$ | $\geq 0$ |
+| $r_{p,s,t,b}^{\text{up}}$ | Up-reserve provision $p$ | $\geq 0$ |
+| $r_{p,s,t,b}^{\text{dn}}$ | Down-reserve provision $p$ | $\geq 0$ |
 | $q_z^{\text{up}}$ | Unserved up-reserve at zone $z$ | $\geq 0$ |
 | $q_z^{\text{dn}}$ | Unserved down-reserve at zone $z$ | $\geq 0$ |
 | $\varphi_{w,s,t,b}$ | Waterway $w$ water flow | $[\underline{Q}_w,\; \overline{Q}_w]$ |
 | $v_{r,s,t,b}$ | Reservoir $r$ volume | $[\underline{V}_r,\; \overline{V}_r]$ |
 | $\text{spill}_{r,s,t,b}$ | Reservoir $r$ spillway discharge | $\geq 0$ |
+| $\ell_{d,s,t,b}^{\text{man}}$ | Mandatory served load at demand $d$ (min-energy) | $[0,\; E_d^{\min}/\Delta_b]$ |
+| $\text{spill}_{g,s,t,b}$ | Generator $g$ profile curtailment | $\geq 0$ |
 
 > **Note on line flows**: When `use_line_losses` is enabled and
 > $\lambda_l > 0$, the solver creates separate forward ($f^+$) and reverse
@@ -527,6 +529,7 @@ $$
 >
 > Mixing conventions (e.g. $V = 220$ kV with $X = 0.01$ p.u.) produces
 > an enormous susceptance and will cause numerical issues.
+> See [[17]](#ref17) for an example of automatic per-unit conversion.
 
 In the implementation, this is scaled by $\sigma_\theta$ for numerical
 stability. Defining the scaled susceptance:
@@ -553,7 +556,7 @@ the standard Kirchhoff constraint with two additional parameters:
   0°, converted internally to radians): shifts the right-hand side of the
   equality constraint, enabling direct control of power flow through the PST.
 
-The generalised Kirchhoff constraint for a transformer branch is:
+The generalized Kirchhoff constraint for a transformer branch is:
 
 $$ -\theta_{a,s,t,b} + \theta_{b,s,t,b} +
 (\tau_l \, \chi_l) \, f_{l,s,t,b}^{+} -
@@ -1254,7 +1257,7 @@ convergence. Three modes are supported:
 ### 6.7 Apertures — Backward-Pass Scenario Sampling
 
 An **aperture** (from the Portuguese *abertura hidrológica* in PLP) is a
-hydrological or stochastic realisation used during the SDDP backward pass
+hydrological or stochastic realization used during the SDDP backward pass
 to compute the expected future-cost cut. Apertures provide a Monte Carlo
 sample of uncertain parameters (typically river inflows / affluents) that
 are different from the forward-pass scenarios.
@@ -2056,7 +2059,8 @@ $E$ batteries, and $B$ blocks per stage over $T$ stages and $S$ scenarios:
 | **Capacity constraints** | $(G + D + L + E) \times T$ |
 
 The LP is assembled in compressed sparse column (CSC) format via the
-`FlatLinearProblem` class and passed to the COIN-OR solver (CBC/CLP).
+`FlatLinearProblem` class and passed to the COIN-OR solver (CBC/CLP)
+[[15]](#ref15).
 
 ---
 

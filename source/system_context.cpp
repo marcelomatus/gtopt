@@ -1,11 +1,12 @@
 /**
  * @file      system_context.cpp
- * @brief     Header of
+ * @brief     Implementation of SystemContext initialization
  * @date      Thu Jun 19 11:13:31 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module implements the SystemContext constructor, which wires together
+ * the simulation, system LP, cost helpers, and element collection pointers.
  */
 
 #include <gtopt/simulation_lp.hpp>

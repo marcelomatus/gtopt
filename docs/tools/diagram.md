@@ -92,15 +92,15 @@ gtopt_diagram cases/ieee_9b/ieee_9b.json --format mermaid
 
 ### IEEE 9-bus electrical network (auto mode → individual elements)
 
-![IEEE 9-bus electrical](docs/diagrams/ieee9b_electrical.svg)
+![IEEE 9-bus electrical](../diagrams/ieee9b_electrical.svg)
 
 ### Battery 4-bus (electrical, showing battery–converter links)
 
-![bat4b electrical](docs/diagrams/bat4b_electrical.svg)
+![bat4b electrical](../diagrams/bat4b_electrical.svg)
 
 ### Planning time structure (c0 5-stage expansion case)
 
-![c0 planning](docs/diagrams/c0_planning.svg)
+![c0 planning](../diagrams/c0_planning.svg)
 
 ---
 

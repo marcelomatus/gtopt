@@ -154,8 +154,7 @@ struct Battery
   /// and discharge connect to the same external `bus`.
   OptSingleId source_generator {};
 
-  OptTRealFieldSched
-      input_efficiency {};  ///< Charging (round-trip in) efficiency [p.u.]
+  OptTRealFieldSched input_efficiency {};  ///< Charging efficiency [p.u.]
   OptTRealFieldSched output_efficiency {};  ///< Discharging efficiency [p.u.]
   OptTRealFieldSched
       annual_loss {};  ///< Annual self-discharge rate [p.u./year]

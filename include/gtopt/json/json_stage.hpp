@@ -1,11 +1,12 @@
 /**
  * @file      json_stage.hpp
- * @brief     Header of
+ * @brief     JSON serialization for Stage
  * @date      Sun Mar 30 17:33:28 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module provides the daw::json data contract specialization for
+ * serializing and deserializing Stage objects to and from JSON.
  */
 
 #pragma once

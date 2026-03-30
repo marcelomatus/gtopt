@@ -1,11 +1,12 @@
 /**
  * @file      json_single_id.hpp
- * @brief     Header of
+ * @brief     JSON serialization for SingleId variant type
  * @date      Fri Mar 28 17:28:01 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module provides the daw::json variant type list for SingleId,
+ * enabling JSON serialization of Uid-or-Name identifier references.
  */
 
 #pragma once

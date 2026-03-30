@@ -1,11 +1,12 @@
 /**
  * @file      json_demand.hpp
- * @brief     Header of
+ * @brief     JSON serialization for Demand and DemandAttrs
  * @date      Fri Mar 28 17:12:24 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module provides the daw::json data contract specializations for
+ * serializing and deserializing Demand attributes to and from JSON.
  */
 
 #pragma once

@@ -1,11 +1,12 @@
 /**
  * @file      json_block.hpp
- * @brief     Header of
+ * @brief     JSON serialization for Block
  * @date      Sun Mar 30 17:33:28 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module provides the daw::json data contract specialization for
+ * serializing and deserializing Block objects to and from JSON.
  */
 
 #pragma once

@@ -1,11 +1,12 @@
 /**
- * @file      json_schedule.hpp
- * @brief     Header of
+ * @file      json_field_sched.hpp
+ * @brief     JSON serialization for FieldSched variant types
  * @date      Sat Mar 22 06:53:09 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module provides daw::json variant type lists for FieldSched types,
+ * enabling JSON serialization of scalar, array, or file-based schedules.
  */
 
 #pragma once

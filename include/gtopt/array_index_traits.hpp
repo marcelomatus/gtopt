@@ -1,11 +1,12 @@
 /**
  * @file      array_index_traits.hpp
- * @brief     Header of
+ * @brief     Traits and utilities for reading Arrow-indexed arrays
  * @date      Thu Apr 24 22:05:34 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module provides functions to read Arrow tables from CSV and Parquet
+ * files, and traits for resolving indexed field schedules into arrays.
  */
 
 #pragma once
