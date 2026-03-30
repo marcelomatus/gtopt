@@ -185,7 +185,7 @@ class PlanosParser(BaseParser):
                 except (ValueError, IndexError):
                     pass  # Not a valid integer — skip silently
 
-        logger.info(
+        logger.debug(
             "%s: %d reservoir(s) in boundary cuts: %s",
             self.file_path1.name,
             len(self.reservoir_names),
@@ -253,7 +253,7 @@ class PlanosParser(BaseParser):
 
             idx += 1
 
-        logger.info(
+        logger.debug(
             "%s: loaded %d boundary cuts (stage %d) and %d total cuts",
             self.file_path2.name,
             boundary_count,

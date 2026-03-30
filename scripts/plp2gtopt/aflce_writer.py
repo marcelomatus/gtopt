@@ -163,15 +163,27 @@ class AflceWriter(BaseWriter):
             for blk in master_index:
                 stage_map[int(blk)] = self.block_parser.get_stage_number(int(blk))
 
+        # Pre-filter: exclude columns whose values match the fill value
+        # across ALL active scenarios.  This must be done globally (not
+        # per-scenario) so that every scenario DataFrame has the same
+        # columns — otherwise pd.concat introduces NaN, which biases the
+        # downstream groupby().mean() in compute_indicators.
+        active_hydro_indices = [h for _, h in valid_scenarios]
+        filtered_items: list[tuple[str, np.ndarray]] = []
+        for col_name, flow_2d in valid_items:
+            fv = fill_values.get(col_name)
+            if fv is not None and flow_2d.ndim == 2:
+                cols = flow_2d[:, active_hydro_indices]
+                if np.allclose(cols, fv, rtol=1e-8, atol=1e-11):
+                    continue
+            filtered_items.append((col_name, flow_2d))
+
         # Build one DataFrame per scenario by column-slicing the 2D arrays
         dfs: list[pd.DataFrame] = []
         for uid, hydro_idx in valid_scenarios:
             col_data: dict[str, np.ndarray] = {}
-            for col_name, flow_2d in valid_items:
+            for col_name, flow_2d in filtered_items:
                 vals = flow_2d[:, hydro_idx] if flow_2d.ndim == 2 else flow_2d
-                fv = fill_values.get(col_name)
-                if fv is not None and np.allclose(vals, fv, rtol=1e-8, atol=1e-11):
-                    continue
                 col_data[col_name] = vals
 
             if not col_data:

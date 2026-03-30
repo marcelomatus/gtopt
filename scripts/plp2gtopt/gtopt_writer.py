@@ -796,7 +796,7 @@ class GTOptWriter:
 
         if falla_by_bus:
             costs = [c.get("gcost", 0.0) for c in falla_by_bus.values()]
-            _logger.info(
+            _logger.debug(
                 "  falla centrals: %d bus(es) with fcost (range %.2f–%.2f $/MWh)",
                 len(falla_by_bus),
                 min(costs),
@@ -938,6 +938,8 @@ class GTOptWriter:
         if planos.cuts:
             csv_path = output_dir / "boundary_cuts.csv"
             write_boundary_cuts_csv(planos.cuts, planos.reservoir_names, csv_path)
+            self.planning["_boundary_cuts_count"] = len(planos.cuts)
+            self.planning["_boundary_state_variables"] = len(planos.reservoir_names)
             # Path relative to where gtopt runs (same dir as the JSON).
             # When JSON is inside output_dir, input_directory is "." and
             # the file is at "./boundary_cuts.csv".
