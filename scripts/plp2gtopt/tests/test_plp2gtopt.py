@@ -971,16 +971,19 @@ def test_run_post_check_with_findings(tmp_path):
     finding_crit.severity = Severity.CRITICAL
     finding_crit.check_id = "CHK001"
     finding_crit.message = "Critical issue"
+    finding_crit.action = "Fix critical issue"
 
     finding_warn = MagicMock()
     finding_warn.severity = Severity.WARNING
     finding_warn.check_id = "CHK002"
     finding_warn.message = "Warning issue"
+    finding_warn.action = "Check warning"
 
     finding_note = MagicMock()
     finding_note.severity = Severity.NOTE
     finding_note.check_id = "CHK003"
     finding_note.message = "A note"
+    finding_note.action = ""
 
     with patch(
         "gtopt_check_json._checks.run_all_checks",

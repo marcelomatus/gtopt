@@ -51,7 +51,6 @@ from gtopt_check_json._info import print_info
 from gtopt_check_json._terminal import (
     init as _init_terminal,
     print_connectivity_table,
-    print_finding as _print_finding,
     print_section,
     print_status,
     print_summary,
@@ -195,20 +194,37 @@ def check_json(
     if islands:
         print_connectivity_table(islands)
 
-    # Report (skip bus_connectivity findings — shown in the table above)
+    # Collect non-connectivity findings into a table
     _table_checks = {"bus_connectivity"}
     has_critical = False
+    rows: list[tuple[str, str, str]] = []
     for finding in findings:
-        if finding.check_id not in _table_checks:
-            sev_name = finding.severity.name
-            _print_finding(sev_name, finding.check_id, finding.message)
         if finding.severity == Severity.CRITICAL:
             has_critical = True
+        if finding.check_id in _table_checks:
+            continue
+        rows.append(
+            (
+                finding.severity.name,
+                finding.message,
+                finding.action,
+            )
+        )
+
+    if rows:
+        from gtopt_check_json._terminal import print_table  # noqa: PLC0415
+
+        print_table(
+            headers=["Severity", "Description", "Action / Notes"],
+            rows=rows,
+            aligns=["left", "left", "left"],
+            title="Validation Findings",
+            styles=["warn", "", "dim"],
+        )
 
     if not findings:
         print_status("All checks passed — no issues found.", ok=True)
 
-    # Summary
     critical_count = sum(1 for f in findings if f.severity == Severity.CRITICAL)
     warning_count = sum(1 for f in findings if f.severity == Severity.WARNING)
     note_count = sum(1 for f in findings if f.severity == Severity.NOTE)

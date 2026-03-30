@@ -32,6 +32,7 @@ class Finding:
     check_id: str
     severity: Severity
     message: str
+    action: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -737,7 +738,7 @@ def analyse_bus_islands(planning: dict[str, Any]) -> list[IslandInfo]:
     analysis.components.sort(key=len, reverse=True)
 
     islands: list[IslandInfo] = []
-    for i, comp in enumerate(analysis.components[1:], start=2):
+    for i, comp in enumerate(analysis.components[1:], start=1):
         # Collect unique line names touching this island.
         # By definition, disconnected islands have no lines to the main
         # grid, so every line touching a bus here is internal.
@@ -793,6 +794,7 @@ def check_bus_connectivity(planning: dict[str, Any]) -> list[Finding]:
                     f"{len(with_elements)} island(s) with elements "
                     f"({len(all_buses)} bus(es)): {names}{suffix}"
                 ),
+                action="Check line definitions; add missing connections",
             )
         )
 
@@ -808,6 +810,7 @@ def check_bus_connectivity(planning: dict[str, Any]) -> list[Finding]:
                     f"{len(without_elements)} empty island(s) "
                     f"({len(all_buses)} bus(es)): {names}{suffix}"
                 ),
+                action="Remove unused buses or add connections",
             )
         )
 
@@ -930,6 +933,7 @@ def check_battery_efficiency(planning: dict[str, Any]) -> list[Finding]:
                             f"Battery '{name}' (uid={uid}): "
                             f"{field} value(s) > 1.0: {bad}"
                         ),
+                        action="Check plpess.dat / plpcenbat.dat efficiency values",
                     )
                 )
             neg = [v for v in values if v < 0.0]
@@ -942,6 +946,7 @@ def check_battery_efficiency(planning: dict[str, Any]) -> list[Finding]:
                             f"Battery '{name}' (uid={uid}): "
                             f"negative {field} value(s): {neg}"
                         ),
+                        action="Check plpess.dat / plpcenbat.dat efficiency values",
                     )
                 )
 
@@ -1110,6 +1115,7 @@ def check_capacity_adequacy(planning: dict[str, Any]) -> list[Finding]:
                     f"peak demand ({ind.peak_demand_mw:,.1f} MW). "
                     f"Adequacy ratio = {ratio:.3f}"
                 ),
+                action="Add generation capacity or reduce demand",
             )
         )
     elif ratio < _CAPACITY_MARGIN_THRESHOLD:
@@ -1533,6 +1539,7 @@ def check_boundary_cuts(
                 check_id="boundary_cuts",
                 severity=Severity.WARNING,
                 message=f"boundary_cuts_file not found: {cuts_path}",
+                action="Verify boundary cuts file path and plpplem data",
             )
         )
         return findings
@@ -1547,6 +1554,7 @@ def check_boundary_cuts(
                 check_id="boundary_cuts",
                 severity=Severity.WARNING,
                 message=f"cannot read boundary_cuts_file: {exc}",
+                action="Check file format and permissions",
             )
         )
         return findings
@@ -1582,6 +1590,7 @@ def check_boundary_cuts(
                 Finding(
                     check_id="boundary_cuts",
                     severity=Severity.WARNING,
+                    action="Verify reservoir names in plpplem match plpcnfce.dat",
                     message=(
                         f"boundary_cuts_file has {len(csv_state_names)} "
                         f"state variable column(s) but the model defines "
@@ -1602,6 +1611,7 @@ def check_boundary_cuts(
                     f"boundary_cuts_file references {len(unknown)} "
                     f"unknown state variable(s): {names_str}"
                 ),
+                action="Verify reservoir names in plpplem match plpcnfce.dat",
             )
         )
 
