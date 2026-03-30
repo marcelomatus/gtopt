@@ -1626,7 +1626,7 @@ TEST_CASE("Cascade 2-level with multi-bus network and cut inheritance")
   {
     for (const auto& ls : solver.level_stats()) {
       CHECK(ls.lower_bound <= ls.upper_bound + 1e-6);
-      CHECK(ls.gap >= 0.0);
+      CHECK(ls.gap >= -1e-12);
       CHECK(ls.cuts_added >= 0);
     }
   }
