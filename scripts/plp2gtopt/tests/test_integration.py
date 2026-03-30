@@ -1419,7 +1419,9 @@ def test_plp_case_2y_single_stage_all_scenarios(tmp_path):
     assert len(unique_scen) == 16, (
         f"Expected 16 unique scenario values in discharge.parquet, got {len(unique_scen)}"
     )
-    assert unique_scen == list(range(51, 67)), "Scenario UIDs should be 51-66 (Fortran indices)"
+    assert unique_scen == list(range(51, 67)), (
+        "Scenario UIDs should be 51-66 (Fortran indices)"
+    )
     # uid:N columns represent hydro-capable centrals (there are many in this case)
     central_cols = [c for c in df.columns if c.startswith("uid:")]
     assert len(central_cols) > 0, (
@@ -1738,7 +1740,9 @@ def test_plp_case_2y_4h_partial_hydrology(tmp_path):
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
     scenarios = data["simulation"]["scenario_array"]
     forward_scenarios = [s for s in scenarios if "input_directory" not in s]
-    assert len(forward_scenarios) == 4, "Expected 4 forward scenarios for hydrologies 1,2,3,4"
+    assert len(forward_scenarios) == 4, (
+        "Expected 4 forward scenarios for hydrologies 1,2,3,4"
+    )
 
     # Verify flow names exist
     flow_central_names = _extract_flow_central_names(data)

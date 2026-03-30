@@ -134,7 +134,9 @@ def idap2_varying(tmp_path: Path) -> IdAp2Parser:
 def test_phase_aperture_sets_uniform(idap2_parser: IdAp2Parser) -> None:
     """When all stages share the same apertures, no aperture_set is added."""
     scenario_hydro_map = {50: 1, 51: 2, 52: 3, 53: 4}
-    aperture_array = build_aperture_array(idap2_parser, scenario_hydro_map, 3).aperture_array
+    aperture_array = build_aperture_array(
+        idap2_parser, scenario_hydro_map, 3
+    ).aperture_array
     # SDDP: one phase per stage
     phase_array = [
         {"uid": 1, "first_stage": 0, "count_stage": 1},
@@ -150,7 +152,9 @@ def test_phase_aperture_sets_uniform(idap2_parser: IdAp2Parser) -> None:
 def test_phase_aperture_sets_varying(idap2_varying: IdAp2Parser) -> None:
     """When stages have different apertures, per-phase aperture_set is added."""
     scenario_hydro_map = {0: 10, 50: 1, 51: 2, 52: 3}
-    aperture_array = build_aperture_array(idap2_varying, scenario_hydro_map, 3).aperture_array
+    aperture_array = build_aperture_array(
+        idap2_varying, scenario_hydro_map, 3
+    ).aperture_array
     # SDDP: one phase per stage
     phase_array = [
         {"uid": 1, "first_stage": 0, "count_stage": 1},
@@ -197,7 +201,9 @@ def test_phase_aperture_sets_multistage_duplicates(
     solver can weight them correctly by their repetition count.
     """
     scenario_hydro_map = {0: 10, 50: 1, 51: 2, 52: 3}
-    aperture_array = build_aperture_array(idap2_varying, scenario_hydro_map, 3).aperture_array
+    aperture_array = build_aperture_array(
+        idap2_varying, scenario_hydro_map, 3
+    ).aperture_array
     # Phase 1 spans stages 1+2, Phase 2 covers stage 3 only
     phase_array = [
         {"uid": 1, "first_stage": 0, "count_stage": 2},
