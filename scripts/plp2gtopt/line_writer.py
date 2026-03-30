@@ -94,6 +94,13 @@ class LineWriter(BaseWriter):
             # Include use_line_losses when explicitly set per-line
             if mod_perdidas:
                 json_line["use_line_losses"] = True
+
+            # Loss allocation mode from PLP global FPerdLin setting.
+            # Only emit if different from gtopt default ("receiver").
+            loss_mode = self.line_parser.loss_allocation_mode
+            if loss_mode != "receiver":
+                json_line["loss_allocation_mode"] = loss_mode
+
             json_lines.append(json_line)
 
         return cast(List[Dict[str, Any]], json_lines)

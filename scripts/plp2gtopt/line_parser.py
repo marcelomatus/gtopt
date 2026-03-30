@@ -38,9 +38,19 @@ class LineParser(BaseParser):
 
         try:
             idx = 0
-            # First line contains number of lines and other config
+            # First line: NumLineas FPerdTram FPerdLin AngRef
             config_parts = lines[idx].split()
             num_lines = self._parse_int(config_parts[0])
+            # FPerdTram: global loss modeling flag (T/F)
+            self._fperdtram = (
+                config_parts[1].upper() == "T" if len(config_parts) > 1 else True
+            )
+            # FPerdLin: loss allocation mode ('E'=sender, 'R'=receiver, 'M'=split)
+            self._fperdlin = "M"  # PLP default
+            if len(config_parts) > 2:
+                raw = config_parts[2].strip("'\"")
+                if raw in ("E", "R", "M"):
+                    self._fperdlin = raw
             idx += 1
 
             line_num = 1
@@ -88,6 +98,22 @@ class LineParser(BaseParser):
     def num_lines(self) -> int:
         """Return the number of lines in the file."""
         return len(self.lines)
+
+    @property
+    def loss_modeling_enabled(self) -> bool:
+        """Return global loss modeling flag (FPerdTram)."""
+        return getattr(self, "_fperdtram", True)
+
+    @property
+    def loss_allocation_mode(self) -> str:
+        """Return global loss allocation mode mapped to gtopt enum names.
+
+        PLP values: 'E' (sender/emisor), 'R' (receiver/receptor),
+        'M' (middle/split, default).
+        """
+        plp_to_gtopt = {"E": "sender", "R": "receiver", "M": "split"}
+        raw = getattr(self, "_fperdlin", "M")
+        return plp_to_gtopt.get(raw, "split")
 
     def get_line_by_name(self, name: str) -> Dict[str, Any] | None:
         """Get line data for a specific line name."""

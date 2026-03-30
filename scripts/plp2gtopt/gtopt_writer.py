@@ -123,6 +123,10 @@ class GTOptWriter:
         stationary_window = options.get("stationary_window", 4)
         sddp_opts["stationary_window"] = stationary_window
 
+        scale_alpha = options.get("scale_alpha")
+        if scale_alpha is not None:
+            sddp_opts["scale_alpha"] = scale_alpha
+
         # When the JSON file lives inside the output directory (the default),
         # input_directory is "." so paths are relative to the JSON location.
         # When -f places the JSON elsewhere, use the full output_dir path.
