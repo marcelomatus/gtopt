@@ -117,6 +117,13 @@ def _plp_element_counts(parser: PLPParser) -> dict[str, Any]:
     if cenre_parser:
         counts["reservoir_efficiencies"] = getattr(cenre_parser, "num_efficiencies", 0)
 
+    # Reservoir discharge limits from plplajam.dat
+    ralco_parser = pdata.get("ralco_parser")
+    if ralco_parser:
+        counts["discharge_limits"] = getattr(
+            ralco_parser, "num_reservoir_discharge_limits", 0
+        )
+
     # Stateless reservoirs: embalse centrals with hid_indep=True
     if central_parser:
         embalses = central_parser.centrals_of_type.get("embalse", [])
@@ -453,6 +460,13 @@ def _gtopt_element_counts(planning: dict[str, Any]) -> dict[str, Any]:
             len(psys.get("reservoir_seepage_array", []))
             + sum(len(r.get("seepage", [])) for r in psys.get("reservoir_array", []))
         ),
+        "discharge_limits": (
+            len(psys.get("reservoir_discharge_limit_array", []))
+            + sum(
+                len(r.get("discharge_limit", []))
+                for r in psys.get("reservoir_array", [])
+            )
+        ),
         "turbines": len(psys.get("turbine_array", [])),
         "blocks": len(sim.get("block_array", [])),
         "stages": len(sim.get("stage_array", [])),
@@ -630,6 +644,7 @@ def _log_comparison(
     p_hydrologies = plp_counts.get("hydrologies", 0)
     p_seepages = plp_counts.get("seepages", 0)
     p_res_eff = plp_counts.get("reservoir_efficiencies", 0)
+    p_discharge_limits = plp_counts.get("discharge_limits", 0)
     p_stateless_res = plp_counts.get("stateless_reservoirs", 0)
 
     # derived
@@ -649,6 +664,7 @@ def _log_comparison(
     g_reservoirs = gtopt_counts.get("reservoirs", 0)
     g_res_eff = gtopt_counts.get("reservoir_efficiencies", 0)
     g_seepages = gtopt_counts.get("seepages", 0)
+    g_discharge_limits = gtopt_counts.get("discharge_limits", 0)
     g_turbines = gtopt_counts.get("turbines", 0)
     g_blocks = gtopt_counts.get("blocks", 0)
     g_stages = gtopt_counts.get("stages", 0)
@@ -822,6 +838,7 @@ def _log_comparison(
     )
     _row("reservoir production factors", p_res_eff, g_res_eff)
     _row("reservoir seepages", p_seepages, g_seepages)
+    _row("reservoir discharge limits", p_discharge_limits, g_discharge_limits)
     table.add_row("", "", "", "", "")
 
     # -- Storage --
