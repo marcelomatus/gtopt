@@ -125,6 +125,7 @@ class BatteryWriter(BaseWriter):
         self.stage_parser = stage_parser
         # Unified maintenance accessor: manbat for battery, maness for ESS
         self._man_parser = manbat_parser or maness_parser
+        self._clamped_warnings: list[str] = []
 
     def _bat_centrals(self) -> Dict[str, Dict[str, Any]]:
         """Return BAT-type centrals from plpcnfce.dat keyed by name."""
@@ -302,6 +303,10 @@ class BatteryWriter(BaseWriter):
                     bat_uid,
                     nc,
                 )
+                self._clamped_warnings.append(
+                    f"Battery '{bat_name}' (uid={bat_uid}):"
+                    f" input_efficiency clamped from {nc:.4g} to 1.0"
+                )
                 if clamp:
                     nc = 1.0
             if nd > 1.0:
@@ -311,6 +316,10 @@ class BatteryWriter(BaseWriter):
                     bat_name,
                     bat_uid,
                     nd,
+                )
+                self._clamped_warnings.append(
+                    f"Battery '{bat_name}' (uid={bat_uid}):"
+                    f" output_efficiency clamped from {nd:.4g} to 1.0"
                 )
                 if clamp:
                     nd = 1.0
