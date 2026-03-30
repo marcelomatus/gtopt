@@ -219,13 +219,7 @@ class AflceWriter(BaseWriter):
             return cols
 
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_file = output_dir / "discharge.parquet"
-
-        df.to_parquet(
-            output_file,
-            index=False,  # Don't write row indices to file
-            compression=self.get_compression(),
-        )
+        self.write_dataframe(df, output_dir, "discharge")
 
         cols["discharge"] = df.columns.tolist()
         return cols

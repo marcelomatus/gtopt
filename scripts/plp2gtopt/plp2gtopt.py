@@ -257,7 +257,7 @@ def run_post_check(
         :func:`_gtopt_indicators` so that FieldSched file references
         can be resolved from Parquet/CSV files on disk.
     """
-    base_dir = str(output_dir) if output_dir is not None else None
+    base_dir = str(output_dir) if output_dir is not None else ""
 
     # Derive the active hydrology indices from the PLP case data directly
     # (idsim_parser or aflce_parser), then verify consistency with what

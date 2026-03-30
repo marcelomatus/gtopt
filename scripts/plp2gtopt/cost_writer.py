@@ -77,12 +77,6 @@ class CostWriter(BaseWriter):
         if df.empty:
             return cols
 
-        output_file = output_dir / "gcost.parquet"
-
-        df.to_parquet(
-            output_file,
-            index=False,
-            compression=self.get_compression(),
-        )
+        self.write_dataframe(df, output_dir, "gcost")
 
         return cols

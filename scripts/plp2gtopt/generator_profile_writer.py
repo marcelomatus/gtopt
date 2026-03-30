@@ -164,8 +164,4 @@ class GeneratorProfileWriter(BaseWriter):
         # C++ GeneratorProfile.profile field name.
         df = aflce_writer.to_dataframe(items=profile_items)
         if isinstance(df, pd.DataFrame) and not df.empty:
-            df.to_parquet(
-                output_dir / "profile.parquet",
-                index=False,
-                compression=aflce_writer.get_compression(),
-            )
+            aflce_writer.write_dataframe(df, output_dir, "profile")

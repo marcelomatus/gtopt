@@ -130,16 +130,9 @@ class ManliWriter(BaseWriter):
         try:
             output_dir.mkdir(parents=True, exist_ok=True)
 
-            compression = self.get_compression()
-            df_tmax_ab.to_parquet(
-                output_dir / "tmax_ab.parquet", index=False, compression=compression
-            )
-            df_tmax_ba.to_parquet(
-                output_dir / "tmax_ba.parquet", index=False, compression=compression
-            )
-            df_active.to_parquet(
-                output_dir / "active.parquet", index=False, compression=compression
-            )
+            self.write_dataframe(df_tmax_ab, output_dir, "tmax_ab")
+            self.write_dataframe(df_tmax_ba, output_dir, "tmax_ba")
+            self.write_dataframe(df_active, output_dir, "active")
         finally:
             # Clean up DataFrames
             del df_tmax_ab, df_tmax_ba, df_active

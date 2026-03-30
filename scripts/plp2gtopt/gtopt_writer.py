@@ -805,115 +805,6 @@ class GTOptWriter:
 
         return falla_by_bus
 
-    def _write_fcost_parquet(
-        self,
-        demand_array: list[Dict[str, Any]],
-        falla_by_bus: Dict[int, Dict[str, Any]],
-        options: Dict[str, Any],
-    ) -> set[Any]:
-        """Write Demand/fcost.parquet for demands whose falla has a cost schedule.
-
-        When multiple falla centrals sit on the same bus and have cost
-        schedules, the **minimum** cost per stage across all of them is
-        used.  The base gcost from plpcnfce.dat fills stages not covered
-        by the schedule.
-
-        Returns the set of demand bus numbers that got a file-based fcost.
-        """
-        import pandas as pd  # pylint: disable=import-outside-toplevel
-
-        cost_parser = self.parser.parsed_data.get("cost_parser")
-        stage_parser = self.parser.parsed_data.get("stage_parser")
-        central_parser = self.parser.parsed_data.get("central_parser")
-        if not cost_parser or not stage_parser or not central_parser:
-            return set()
-
-        # Build demand uid → bus mapping
-        bus_to_uid: Dict[int, Any] = {}
-        for dem in demand_array:
-            bus = dem.get("bus")
-            if bus in falla_by_bus:
-                bus_to_uid[bus] = dem.get("uid", bus)
-
-        if not bus_to_uid:
-            return set()
-
-        # Group all falla centrals by bus
-        fallas_per_bus: Dict[int, list[Dict[str, Any]]] = {}
-        for central in central_parser.centrals:
-            if central.get("type") != "falla":
-                continue
-            bus = central.get("bus", 0)
-            if bus <= 0 or bus not in bus_to_uid:
-                continue
-            fallas_per_bus.setdefault(bus, []).append(central)
-
-        stages = [s["number"] for s in stage_parser.items]
-
-        series_list: list[pd.Series] = []
-        filed_buses: set[Any] = set()
-
-        for bus, fallas in fallas_per_bus.items():
-            # Collect cost schedules from all fallas on this bus
-            bus_schedules: list[pd.Series] = []
-            min_base_gcost = min(f.get("gcost", 0.0) for f in fallas)
-            for falla in fallas:
-                cost_entry = cost_parser.get_cost_by_name(falla.get("name", ""))
-                if cost_entry is None:
-                    # No schedule — use constant base gcost
-                    bus_schedules.append(
-                        pd.Series(
-                            falla.get("gcost", 0.0),
-                            index=stages,
-                            dtype="float64",
-                        )
-                    )
-                else:
-                    s = pd.Series(
-                        data=cost_entry["cost"],
-                        index=cost_entry["stage"].tolist(),
-                        dtype="float64",
-                    )
-                    s = s[~s.index.duplicated(keep="last")]
-                    # Reindex to all stages, fill with base gcost
-                    s = s.reindex(stages).fillna(falla.get("gcost", 0.0))
-                    bus_schedules.append(s)
-
-            if not bus_schedules:
-                continue
-
-            # Element-wise minimum across all fallas on this bus
-            min_series = bus_schedules[0]
-            for s in bus_schedules[1:]:
-                min_series = min_series.combine(s, min)
-
-            # Skip writing if the schedule is constant and equals min base gcost
-            if (min_series == min_base_gcost).all():
-                continue
-
-            dem_uid = bus_to_uid[bus]
-            min_series.name = f"uid:{dem_uid}"
-            series_list.append(min_series)
-            filed_buses.add(bus)
-
-        if not series_list:
-            return set()
-
-        df = pd.concat(series_list, axis=1)
-        df = df.reset_index().rename(columns={"index": "stage"})
-        df["stage"] = df["stage"].astype("int32")
-
-        output_dir = options.get("output_dir", Path("results")) / "Demand"
-        output_dir.mkdir(parents=True, exist_ok=True)
-        compression = options.get("compression", "zstd")
-        df.to_parquet(
-            output_dir / "fcost.parquet",
-            index=False,
-            compression=compression,
-        )
-
-        return filed_buses
-
     def process_demands(self, options):
         """Process demand data to include block and stage information."""
         demands = self.parser.parsed_data.get("demand_parser", [])
@@ -933,13 +824,20 @@ class GTOptWriter:
                 demand["bus"] = bus["number"]
 
         blocks = self.parser.parsed_data.get("block_parser", [])
-        demand_array = DemandWriter(demands, blocks, options).to_json_array()
+        demand_writer = DemandWriter(demands, blocks, options)
+        demand_array = demand_writer.to_json_array()
 
         # Set fcost from falla centrals (bus → min gcost falla)
         falla_by_bus = self._falla_by_bus()
         if falla_by_bus:
-            # Write Demand/fcost.parquet for fallas with cost schedules
-            filed_buses = self._write_fcost_parquet(demand_array, falla_by_bus, options)
+            # Write Demand/fcost for fallas with cost schedules
+            filed_buses = demand_writer.write_fcost(
+                demand_array,
+                falla_by_bus,
+                self.parser.parsed_data.get("cost_parser"),
+                self.parser.parsed_data.get("stage_parser"),
+                self.parser.parsed_data.get("central_parser"),
+            )
             for dem in demand_array:
                 bus = dem.get("bus")
                 if bus in falla_by_bus:
@@ -1049,8 +947,8 @@ class GTOptWriter:
             if input_dir_val == ".":
                 sddp_opts["boundary_cuts_file"] = "boundary_cuts.csv"
             else:
-                sddp_opts["boundary_cuts_file"] = (
-                    str(Path(input_dir_val) / "boundary_cuts.csv")
+                sddp_opts["boundary_cuts_file"] = str(
+                    Path(input_dir_val) / "boundary_cuts.csv"
                 )
 
         # Wire mode and max-iterations options through to the JSON
@@ -1084,8 +982,8 @@ class GTOptWriter:
                 if input_dir_val == ".":
                     sddp_opts["named_cuts_file"] = "hot_start_cuts.csv"
                 else:
-                    sddp_opts["named_cuts_file"] = (
-                        str(Path(input_dir_val) / "hot_start_cuts.csv")
+                    sddp_opts["named_cuts_file"] = str(
+                        Path(input_dir_val) / "hot_start_cuts.csv"
                     )
 
     def _build_stage_to_phase_map(self) -> dict[int, int] | None:

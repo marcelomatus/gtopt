@@ -7,6 +7,8 @@ import signal
 import sys
 from pathlib import Path
 
+from gtopt_config import DEFAULT_CONFIG_PATH, load_config, save_section
+
 from .plp2gtopt import (
     convert_plp_case,
     print_variable_scales_template,
@@ -147,8 +149,20 @@ def signal_handler(sig, _frame):
     sys.exit(0)
 
 
+_CONF_SECTION = "plp2gtopt"
+
+
+def _conf_defaults() -> dict[str, str]:
+    """Read ``[plp2gtopt]`` from ``~/.gtopt.conf`` (empty dict if missing)."""
+    cfg = load_config()
+    if not cfg.has_section(_CONF_SECTION):
+        return {}
+    return dict(cfg.items(_CONF_SECTION))
+
+
 def make_parser() -> argparse.ArgumentParser:
     """Build and return the argument parser for plp2gtopt."""
+    conf = _conf_defaults()
     parser = argparse.ArgumentParser(
         prog="plp2gtopt",
         description=_DESCRIPTION,
@@ -205,7 +219,7 @@ def make_parser() -> argparse.ArgumentParser:
         dest="discount_rate",
         type=float,
         metavar="RATE",
-        default=0.0,
+        default=float(conf.get("discount_rate", "0.0")),
         help="annual discount rate, e.g. 0.10 for 10%% (default: %(default)s)",
     )
     parser.add_argument(
@@ -249,7 +263,7 @@ def make_parser() -> argparse.ArgumentParser:
         "--output-format",
         dest="output_format",
         metavar="FORMAT",
-        default="parquet",
+        default=conf.get("output_format", "parquet"),
         choices=["parquet", "csv"],
         help="output file format: parquet or csv (default: %(default)s)",
     )
@@ -258,7 +272,7 @@ def make_parser() -> argparse.ArgumentParser:
         "--input-format",
         dest="input_format",
         metavar="FORMAT",
-        default=None,
+        default=conf.get("input_format"),
         choices=["parquet", "csv"],
         help=(
             "input format for gtopt to read time-series files "
@@ -270,15 +284,26 @@ def make_parser() -> argparse.ArgumentParser:
         "--compression",
         dest="compression",
         metavar="ALG",
-        default="zstd",
+        default=conf.get("compression", "zstd"),
         help="compression codec for output files (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--compression-level",
+        dest="compression_level",
+        type=int,
+        metavar="N",
+        default=int(conf.get("compression_level", "0")) or None,
+        help=(
+            "compression level for the codec, e.g. 1-22 for zstd "
+            "(default: %(default)s; 0 or omitted = codec default)"
+        ),
     )
     parser.add_argument(
         "--demand-fail-cost",
         dest="demand_fail_cost",
         type=float,
         metavar="COST",
-        default=1000.0,
+        default=float(conf.get("demand_fail_cost", "1000.0")),
         help="cost penalty for demand curtailment in $/MWh (default: %(default)s)",
     )
     parser.add_argument(
@@ -294,7 +319,7 @@ def make_parser() -> argparse.ArgumentParser:
         dest="scale_objective",
         type=float,
         metavar="FACTOR",
-        default=1000.0,
+        default=float(conf.get("scale_objective", "1000.0")),
         help="objective function scaling factor (default: %(default)s)",
     )
     parser.add_argument(
@@ -374,7 +399,7 @@ def make_parser() -> argparse.ArgumentParser:
         "--solver",
         dest="solver_type",
         metavar="TYPE",
-        default="sddp",
+        default=conf.get("solver_type", "sddp"),
         choices=["sddp", "mono", "monolithic"],
         help=(
             "solver type controlling the simulation structure: "
@@ -590,7 +615,7 @@ def make_parser() -> argparse.ArgumentParser:
         "--rsv-scale-mode",
         dest="rsv_scale_mode",
         choices=["plp", "auto"],
-        default="plp",
+        default=conf.get("rsv_scale_mode", "auto"),
         help=(
             "How to determine the reservoir energy_scale factor. "
             "'plp' (default): compute from PLP FEscala field (= EmbFEsc / 1E6) "
@@ -821,12 +846,38 @@ def make_parser() -> argparse.ArgumentParser:
         help="Disable coloured output.",
     )
     parser.add_argument(
+        "--init-config",
+        action="store_true",
+        default=False,
+        help="initialize [plp2gtopt] section in ~/.gtopt.conf with defaults",
+    )
+    parser.add_argument(
         "-V",
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
     )
     return parser
+
+
+# Keys and hard-coded defaults for the [plp2gtopt] config section.
+_SECTION_DEFAULTS: dict[str, str] = {
+    "compression": "zstd",
+    "compression_level": "9",
+    "output_format": "parquet",
+    "input_format": "parquet",
+    "solver_type": "sddp",
+    "demand_fail_cost": "1000.0",
+    "scale_objective": "1000.0",
+    "discount_rate": "0.0",
+    "rsv_scale_mode": "auto",
+}
+
+
+def _init_config() -> None:
+    """Write ``[plp2gtopt]`` defaults to ``~/.gtopt.conf``."""
+    save_section(DEFAULT_CONFIG_PATH, _CONF_SECTION, _SECTION_DEFAULTS)
+    print(f"Initialized [{_CONF_SECTION}] in {DEFAULT_CONFIG_PATH}")
 
 
 def _resolve_input_dir(args: argparse.Namespace) -> Path:
@@ -882,6 +933,7 @@ def build_options(args: argparse.Namespace) -> dict:
         "last_stage": args.last_stage,
         "last_time": args.last_time,
         "compression": args.compression,
+        "compression_level": args.compression_level,
         "output_format": args.output_format,
         "input_format": input_format,
         "hydrologies": "first" if args.first_scenario else args.hydrologies,
@@ -956,6 +1008,10 @@ def main(argv: list[str] | None = None) -> None:
 
     parser = make_parser()
     args = parser.parse_args(argv)
+
+    if args.init_config:
+        _init_config()
+        return
 
     # Reconcile positional and -i input dir
     args.input_dir = _resolve_input_dir(args)
