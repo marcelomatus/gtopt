@@ -389,6 +389,20 @@ def _plp_indicators(
     indicators["total_water_volume_hm3"] = total_water_vol_hm3
     indicators["avg_flow_m3s"] = avg_flow_m3s
 
+    # --- Average failure cost from falla centrals (min gcost per bus) ---
+    if central_parser:
+        fcost_by_bus: dict[int, float] = {}
+        for c in central_parser.centrals:
+            if c.get("type") != "falla" or c.get("bus", 0) <= 0:
+                continue
+            bus = c["bus"]
+            gcost = float(c.get("gcost", 0.0))
+            if bus not in fcost_by_bus or gcost < fcost_by_bus[bus]:
+                fcost_by_bus[bus] = gcost
+        indicators["avg_fcost"] = (
+            sum(fcost_by_bus.values()) / len(fcost_by_bus) if fcost_by_bus else 0.0
+        )
+
     return indicators
 
 
@@ -427,6 +441,7 @@ def _gtopt_indicators(
         "last_block_affluent_avg": ind.last_block_affluent_avg,
         "total_water_volume_hm3": ind.total_water_volume_hm3,
         "avg_flow_m3s": ind.avg_flow_m3s,
+        "avg_fcost": ind.avg_fcost,
     }
 
 
@@ -971,6 +986,11 @@ def _log_comparison(
             "avg flow/affluent (m\u00b3/s)",
             plp_ind.get("avg_flow_m3s", 0.0),
             gtopt_ind.get("avg_flow_m3s", 0.0),
+        )
+        _ind_row(
+            "avg failure cost ($/MWh)",
+            plp_ind.get("avg_fcost", 0.0),
+            gtopt_ind.get("avg_fcost", 0.0),
         )
 
         con.print(ind_table)

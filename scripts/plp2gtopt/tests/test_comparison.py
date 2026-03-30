@@ -821,6 +821,7 @@ class TestGtoptIndicators:
             last_block_affluent_avg: float = 12.0
             total_water_volume_hm3: float = 300.0
             avg_flow_m3s: float = 25.0
+            avg_fcost: float = 406.0
 
         fake = FakeIndicators()
         with patch(
@@ -842,6 +843,7 @@ class TestGtoptIndicators:
         assert result["last_block_affluent_avg"] == 12.0
         assert result["total_water_volume_hm3"] == 300.0
         assert result["avg_flow_m3s"] == 25.0
+        assert result["avg_fcost"] == 406.0
 
     def test_base_dir_none(self) -> None:
         """base_dir=None is forwarded to compute_indicators."""
@@ -862,6 +864,7 @@ class TestGtoptIndicators:
             last_block_affluent_avg: float = 0.0
             total_water_volume_hm3: float = 0.0
             avg_flow_m3s: float = 0.0
+            avg_fcost: float = 0.0
 
         with patch(
             "gtopt_check_json._info.compute_indicators",
@@ -870,8 +873,8 @@ class TestGtoptIndicators:
             _gtopt_indicators({})
             mock_ci.assert_called_once_with({}, base_dir=None)
 
-    def test_returns_exactly_twelve_keys(self) -> None:
-        """The returned dict has exactly the 12 expected indicator keys."""
+    def test_returns_expected_keys(self) -> None:
+        """The returned dict has exactly the expected indicator keys."""
 
         @dataclass
         class FakeInd:
@@ -889,6 +892,7 @@ class TestGtoptIndicators:
             last_block_affluent_avg: float = 0.0
             total_water_volume_hm3: float = 0.0
             avg_flow_m3s: float = 0.0
+            avg_fcost: float = 0.0
 
         with patch(
             "gtopt_check_json._info.compute_indicators",
@@ -909,6 +913,7 @@ class TestGtoptIndicators:
             "last_block_affluent_avg",
             "total_water_volume_hm3",
             "avg_flow_m3s",
+            "avg_fcost",
         }
         assert set(result.keys()) == expected_keys
 
