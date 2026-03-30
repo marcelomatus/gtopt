@@ -98,6 +98,7 @@ if(NOT TARGET gtopt::gtopt)
       Boost::container
       ZLIB::ZLIB
       ${CMAKE_DL_LIBS}
+      m
   )
 
   # When the consumer's CXX compiler is Clang on a non-Apple platform it
