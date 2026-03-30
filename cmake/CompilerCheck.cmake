@@ -3,6 +3,12 @@ include_guard(GLOBAL)
 # ---- Compiler version requirements ----
 # This project requires GCC >= 14 or Clang >= 21.
 # Older compilers lack full C++23/26 support needed by the codebase.
+#
+# Skip the check when gtopt is included as a subdirectory (e.g. by the
+# documentation build which only runs doxygen and never compiles C++).
+if(NOT PROJECT_IS_TOP_LEVEL)
+  return()
+endif()
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "14")
