@@ -893,6 +893,95 @@ class TestFormatIndicators:
         assert "affluent" in text.lower()
 
 
+class TestAvgDemandFcost:
+    """Test _avg_demand_fcost helper in _info.py."""
+
+    def test_scalar_values(self) -> None:
+        from gtopt_check_json._info import _avg_demand_fcost
+
+        demands = [
+            {"uid": 1, "name": "d1", "fcost": 400.0},
+            {"uid": 2, "name": "d2", "fcost": 600.0},
+        ]
+        assert _avg_demand_fcost(demands, None, ".") == pytest.approx(500.0)
+
+    def test_list_values_uses_first(self) -> None:
+        from gtopt_check_json._info import _avg_demand_fcost
+
+        demands = [
+            {"uid": 1, "name": "d1", "fcost": [300.0, 400.0]},
+            {"uid": 2, "name": "d2", "fcost": [500.0, 600.0]},
+        ]
+        assert _avg_demand_fcost(demands, None, ".") == pytest.approx(400.0)
+
+    def test_empty_demands(self) -> None:
+        from gtopt_check_json._info import _avg_demand_fcost
+
+        assert _avg_demand_fcost([], None, ".") == pytest.approx(0.0)
+
+    def test_no_fcost_fields(self) -> None:
+        from gtopt_check_json._info import _avg_demand_fcost
+
+        demands = [{"uid": 1, "name": "d1"}, {"uid": 2, "name": "d2"}]
+        assert _avg_demand_fcost(demands, None, ".") == pytest.approx(0.0)
+
+    def test_mixed_scalar_and_missing(self) -> None:
+        from gtopt_check_json._info import _avg_demand_fcost
+
+        demands = [
+            {"uid": 1, "name": "d1", "fcost": 400.0},
+            {"uid": 2, "name": "d2"},  # no fcost
+            {"uid": 3, "name": "d3", "fcost": 600.0},
+        ]
+        # Average of 400 and 600 only
+        assert _avg_demand_fcost(demands, None, ".") == pytest.approx(500.0)
+
+    def test_file_reference_without_base_dir(self) -> None:
+        from gtopt_check_json._info import _avg_demand_fcost
+
+        demands = [
+            {"uid": 1, "name": "d1", "fcost": "fcost"},  # file ref
+            {"uid": 2, "name": "d2", "fcost": 400.0},
+        ]
+        # File ref not resolved (no base_dir) → only scalar counted
+        assert _avg_demand_fcost(demands, None, ".") == pytest.approx(400.0)
+
+    def test_file_reference_with_parquet(self, tmp_path) -> None:
+        import pandas as pd
+        from gtopt_check_json._info import _avg_demand_fcost
+
+        # Create Demand/fcost.parquet
+        dem_dir = tmp_path / "Demand"
+        dem_dir.mkdir()
+        df = pd.DataFrame({"stage": [1, 2], "uid:1": [300.0, 500.0]})
+        df.to_parquet(dem_dir / "fcost.parquet", index=False)
+
+        demands = [
+            {"uid": 1, "name": "d1", "fcost": "fcost"},
+        ]
+        # Resolves first value from parquet (300.0)
+        result = _avg_demand_fcost(demands, str(tmp_path), ".")
+        assert result == pytest.approx(300.0)
+
+
+class TestComputeIndicatorsAvgFcost:
+    """Test avg_fcost in compute_indicators."""
+
+    def test_avg_fcost_from_scalar(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["system"]["demand_array"] = [
+            {"uid": 1, "name": "d1", "bus": 1, "lmax": 50, "fcost": 400.0},
+            {"uid": 2, "name": "d2", "bus": 2, "lmax": 30, "fcost": 600.0},
+        ]
+        ind = compute_indicators(case)
+        assert ind.avg_fcost == pytest.approx(500.0)
+
+    def test_avg_fcost_zero_when_no_fcost(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        ind = compute_indicators(case)
+        assert ind.avg_fcost == pytest.approx(0.0)
+
+
 class TestCheckCapacityAdequacy:
     """Test check_capacity_adequacy check."""
 
