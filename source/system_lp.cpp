@@ -157,13 +157,21 @@ void fix_stage_islands(const auto& collections,
   std::vector<bool> is_reference(n_buses, false);
   std::size_t theta_count = 0;
 
-  // UID → local index mapping for bus lookup from lines.
+  // UID → local index and Name → local index mappings for bus lookup
+  // from lines.  Lines may reference buses by UID (integer) or by Name
+  // (string), so both maps are needed for correct resolution.
   std::unordered_map<Uid, std::size_t> uid_to_idx;
+  std::unordered_map<Name, std::size_t> name_to_idx;
   uid_to_idx.reserve(n_buses);
+  name_to_idx.reserve(n_buses);
 
   for (auto&& [idx, bus] : std::views::enumerate(buses)) {
     const auto i = static_cast<std::size_t>(idx);
     uid_to_idx[bus.uid()] = i;
+    const auto& bus_name = bus.id().second;
+    if (!bus_name.empty()) {
+      name_to_idx[bus_name] = i;
+    }
     if (bus.lookup_theta_col(scenario, stage, first_buid).has_value()) {
       has_theta[i] = true;
       ++theta_count;
@@ -200,6 +208,10 @@ void fix_stage_islands(const auto& collections,
       if (const auto* u = std::get_if<Uid>(&sid)) {
         auto it = uid_to_idx.find(*u);
         return it != uid_to_idx.end() ? it->second : sentinel;
+      }
+      if (const auto* n = std::get_if<Name>(&sid)) {
+        auto it = name_to_idx.find(*n);
+        return it != name_to_idx.end() ? it->second : sentinel;
       }
       return sentinel;
     };
