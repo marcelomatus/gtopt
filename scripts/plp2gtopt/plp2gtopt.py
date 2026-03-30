@@ -9,7 +9,9 @@ Handles:
 
 import json
 import logging
+import shutil
 import sys
+import tempfile
 import time
 import zipfile
 from pathlib import Path
@@ -322,7 +324,9 @@ def run_post_check(
         return
 
     # Run validation checks (all non-AI checks)
-    findings = run_all_checks(planning, enabled_checks=None, ai_options=None)
+    findings = run_all_checks(
+        planning, enabled_checks=None, ai_options=None, base_dir=base_dir
+    )
 
     if not findings:
         print_status("All checks passed — no issues found.", ok=True)
@@ -451,6 +455,14 @@ def convert_plp_case(options: dict[str, Any]) -> None:
     excel_output = options.get("excel_output", False)
     do_check = options.get("run_check", True)
 
+    output_dir = Path(options.get("output_dir", "output"))
+    output_file = Path(options.get("output_file", output_dir / "gtopt.json"))
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+
+    # Work in a temporary directory next to the final output, then swap
+    # atomically on success.  This prevents orphaned files from previous
+    # conversions and ensures the output is always consistent.
+    tmp_dir = None
     try:
         t0 = time.monotonic()
 
@@ -459,40 +471,72 @@ def convert_plp_case(options: dict[str, Any]) -> None:
         parser = PLPParser(options)
         parser.parse_all()
 
-        # Convert to GTOPT format (writes Parquet time-series to output_dir)
+        # Create temp dir in the same parent as output_dir so rename is atomic
+        tmp_dir = Path(
+            tempfile.mkdtemp(
+                prefix=f".{output_dir.name}.tmp.",
+                dir=output_dir.parent,
+            )
+        )
+
+        # Redirect output_dir to temp; keep output_file location as-is
+        # when it lives outside the output_dir (e.g. -f flag).
+        json_inside = output_file.parent == output_dir
+        tmp_output_file = (
+            tmp_dir / output_file.name if json_inside else output_file
+        )
+        tmp_options = {**options, "output_dir": tmp_dir, "output_file": tmp_output_file}
+
+        # Convert to GTOPT format (writes Parquet time-series to tmp_dir)
         logger.info("Building gtopt planning model...")
         writer = GTOptWriter(parser)
-        output_dir = Path(options.get("output_dir", "output"))
 
         if excel_output:
-            # Excel mode: build planning dict (writes Parquet to output_dir),
-            # then produce the Excel workbook.  The JSON is NOT written.
             logger.info("Building planning data for Excel output...")
-            planning = writer.to_json(options)
+            planning = writer.to_json(tmp_options)
 
             excel_file = options.get("excel_file")
             if excel_file is None:
-                # Default: place .xlsx next to output_dir (its parent) with
-                # output_dir.name as the stem.  E.g. output_dir=/tmp/mycase
-                # → excel_file=/tmp/mycase.xlsx
                 excel_file = output_dir.parent / (output_dir.name + ".xlsx")
             else:
                 excel_file = Path(excel_file)
 
             logger.info("Writing igtopt Excel workbook to: %s", excel_file)
-            build_plp_excel(planning, output_dir, excel_file, options)
+            build_plp_excel(planning, tmp_dir, excel_file, tmp_options)
         else:
-            # Normal mode: write JSON + Parquet
             logger.info("Writing output files...")
-            logger.info("Writing GTOPT output to: %s", options["output_file"])
-            writer.write(options)
+            logger.info("Writing GTOPT output to: %s", output_file)
+            writer.write(tmp_options)
 
         elapsed = time.monotonic() - t0
+
+        # --- Conversion succeeded: swap temp → final output_dir ---
+        if output_dir.exists():
+            shutil.rmtree(output_dir)
+        tmp_dir.rename(output_dir)
+        tmp_dir = None  # Prevent cleanup in finally
+
+        # If JSON was written inside the temp dir, it's now at the final path.
+        # If JSON was outside (e.g. -f), it was written directly — no move needed.
+        if json_inside:
+            output_file = output_dir / output_file.name
+
+        # Fix temp dir paths in the planning dict and re-write the JSON.
+        # The temp dir path may appear in input_directory,
+        # boundary_cuts_file, named_cuts_file, etc.
+        if not json_inside:
+            tmp_str = str(tmp_options["output_dir"])
+            final_str = str(output_dir)
+            plan_json = json.dumps(writer.planning)
+            if tmp_str in plan_json:
+                plan_json = plan_json.replace(tmp_str, final_str)
+                writer.planning = json.loads(plan_json)
+            with open(output_file, "w", encoding="utf-8") as f:
+                json.dump(writer.planning, f, indent=4)
 
         # Log conversion statistics
         _log_stats(writer.planning, elapsed)
 
-        # Detailed simulation summary (--show-simulation)
         if options.get("show_simulation", False):
             show_simulation_summary(writer.planning)
 
@@ -501,10 +545,8 @@ def convert_plp_case(options: dict[str, Any]) -> None:
                 "Conversion successful! Excel workbook written to %s", excel_file
             )
         else:
-            output_file = Path(options["output_file"])
             logger.info("Conversion successful! Output written to %s", output_file)
 
-            # Optionally create a ZIP archive (JSON+Parquet mode only)
             if options.get("zip_output", False):
                 zip_path = output_file.with_suffix(".zip")
                 create_zip_output(output_file, output_dir, zip_path)
@@ -532,6 +574,9 @@ def convert_plp_case(options: dict[str, Any]) -> None:
         ) from e
     except Exception as e:
         raise RuntimeError(f"PLP to GTOPT conversion failed. Details: {e}") from e
+    finally:
+        if tmp_dir is not None and tmp_dir.exists():
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def generate_variable_scales_template(options: dict[str, Any]) -> str:

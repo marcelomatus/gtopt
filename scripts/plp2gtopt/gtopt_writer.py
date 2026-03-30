@@ -1040,7 +1040,18 @@ class GTOptWriter:
         if planos.cuts:
             csv_path = output_dir / "boundary_cuts.csv"
             write_boundary_cuts_csv(planos.cuts, planos.reservoir_names, csv_path)
-            sddp_opts["boundary_cuts_file"] = str(csv_path)
+            # Path relative to where gtopt runs (same dir as the JSON).
+            # When JSON is inside output_dir, input_directory is "." and
+            # the file is at "./boundary_cuts.csv".
+            # When JSON is outside, input_directory is the output_dir path,
+            # so use "{input_directory}/boundary_cuts.csv".
+            input_dir_val = self.planning["options"].get("input_directory", ".")
+            if input_dir_val == ".":
+                sddp_opts["boundary_cuts_file"] = "boundary_cuts.csv"
+            else:
+                sddp_opts["boundary_cuts_file"] = (
+                    str(Path(input_dir_val) / "boundary_cuts.csv")
+                )
 
         # Wire mode and max-iterations options through to the JSON
         bc_mode = options.get("boundary_cuts_mode")
@@ -1070,7 +1081,12 @@ class GTOptWriter:
             )
             # Only wire the file into the JSON options if explicitly requested
             if options.get("hot_start_cuts", False):
-                sddp_opts["named_cuts_file"] = str(hs_path)
+                if input_dir_val == ".":
+                    sddp_opts["named_cuts_file"] = "hot_start_cuts.csv"
+                else:
+                    sddp_opts["named_cuts_file"] = (
+                        str(Path(input_dir_val) / "hot_start_cuts.csv")
+                    )
 
     def _build_stage_to_phase_map(self) -> dict[int, int] | None:
         """Build a mapping from PLP stage (1-based) to gtopt phase UID.
