@@ -127,6 +127,7 @@ class SystemIndicators:
     last_block_affluent_avg: float = 0.0
     total_water_volume_hm3: float = 0.0
     avg_flow_m3s: float = 0.0
+    avg_fcost: float = 0.0
     num_generators: int = 0
     num_demands: int = 0
     num_blocks: int = 0
@@ -278,6 +279,54 @@ def _resolve_block_totals_from_file(
 # ---------------------------------------------------------------------------
 # Indicator computation
 # ---------------------------------------------------------------------------
+
+
+def _avg_demand_fcost(
+    demands: list[dict[str, Any]],
+    base_dir: str | None,
+    input_dir: str,
+) -> float:
+    """Compute average demand failure cost.
+
+    Handles three forms of the ``fcost`` field:
+
+    - numeric scalar or list → resolved directly via :func:`_first_scalar`
+    - string (FieldSched file reference, e.g. ``"fcost"`` or
+      ``"Demand@fcost"``) → resolved per demand from the corresponding
+      Parquet/CSV file using :func:`resolve_file_sched_value`.
+    """
+    fcost_values: list[float] = []
+
+    for d in demands:
+        fval = d.get("fcost")
+        resolved = _first_scalar(fval)
+        if resolved is not None:
+            fcost_values.append(resolved)
+        elif isinstance(fval, str) and base_dir:
+            # FieldSched file reference — resolve per demand
+            try:
+                from ._file_reader import resolve_file_sched_value  # noqa: PLC0415
+
+                root = (
+                    str(Path(base_dir) / input_dir)
+                    if input_dir != "."
+                    else base_dir
+                )
+                val = resolve_file_sched_value(
+                    root,
+                    "Demand",
+                    fval,
+                    element_uid=d.get("uid"),
+                    element_name=d.get("name"),
+                    scenario_uid=None,
+                    block_uid=None,
+                )
+                if val is not None:
+                    fcost_values.append(val)
+            except ImportError:
+                pass
+
+    return sum(fcost_values) / len(fcost_values) if fcost_values else 0.0
 
 
 def compute_indicators(
@@ -596,6 +645,7 @@ def compute_indicators(
         last_block_affluent_avg=last_block_afl,
         total_water_volume_hm3=total_water_vol_hm3,
         avg_flow_m3s=avg_flow,
+        avg_fcost=_avg_demand_fcost(demands, base_dir, input_dir),
         num_generators=num_gen,
         num_demands=num_dem,
         num_blocks=num_blocks if num_blocks > 0 else len(demand_by_block),
@@ -640,6 +690,8 @@ def _build_indicator_pairs(ind: SystemIndicators) -> list[tuple[str, str]]:
                 ("Avg flow per affluent", f"{fmt_num(ind.avg_flow_m3s)} m³/s"),
             ]
         )
+    if ind.avg_fcost > 0:
+        pairs.append(("Avg failure cost", f"{fmt_num(ind.avg_fcost)} $/MWh"))
     return pairs
 
 
