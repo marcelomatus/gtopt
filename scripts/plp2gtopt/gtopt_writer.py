@@ -905,6 +905,10 @@ class GTOptWriter:
         self.planning["system"]["battery_array"] = result["battery_array"]
         self.planning["system"]["generator_array"] = result["generator_array"]
         self.planning["system"]["demand_array"] = result["demand_array"]
+        if writer._clamped_warnings:  # noqa: SLF001
+            self.planning.setdefault("_clamped_battery_warnings", []).extend(
+                writer._clamped_warnings  # noqa: SLF001
+            )
         if "converter_array" in result:
             self.planning["system"]["converter_array"] = result["converter_array"]
 

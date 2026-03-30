@@ -340,6 +340,20 @@ def run_post_check(
         planning, enabled_checks=None, ai_options=None, base_dir=base_dir
     )
 
+    # Inject conversion-time battery efficiency warnings (the values were
+    # clamped to 1.0, so check_battery_efficiency cannot detect them).
+    from gtopt_check_json._checks import Finding  # noqa: PLC0415
+
+    for msg in planning.get("_clamped_battery_warnings", []):
+        findings.append(
+            Finding(
+                check_id="battery_efficiency",
+                severity=Severity.WARNING,
+                message=msg,
+                action="Check plpess.dat / plpcenbat.dat efficiency values",
+            )
+        )
+
     if not findings:
         print_status("All checks passed — no issues found.", ok=True)
         return
