@@ -312,7 +312,9 @@ def check_json_tool(json_path: Path, **_kwargs) -> CheckResult:
     log.info("running: %s", " ".join(cmd_check))
     check_run = subprocess.run(cmd_check, capture_output=True, text=True, check=False)
     if check_run.returncode != 0:
-        result.warnings.append(f"gtopt_check_json found issues (exit code {check_run.returncode})")
+        result.warnings.append(
+            f"gtopt_check_json found issues (exit code {check_run.returncode})"
+        )
         # Show validation output as warnings
         for line in (check_run.stdout + check_run.stderr).rstrip().splitlines():
             stripped = line.strip()
