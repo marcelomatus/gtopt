@@ -62,8 +62,9 @@ void apply_constraint_bounds(SparseRow& row, const ConstraintExpr& expr)
 
 UserConstraintLP::UserConstraintLP(const UserConstraint& uc, InputContext& ic)
     : ObjectLP<UserConstraint>(uc, ic, ClassName)
-    , m_scale_type_(
-          parse_constraint_scale_type(uc.constraint_type.value_or("power")))
+    , m_scale_type_(enum_from_name<ConstraintScaleType>(
+                        uc.constraint_type.value_or("power"))
+                        .value_or(ConstraintScaleType::Power))
 {
   if (!uc.expression.empty()) {
     try {

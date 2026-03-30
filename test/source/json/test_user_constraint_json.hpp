@@ -243,7 +243,8 @@ TEST_CASE("UserConstraint constraint_type field — raw")
   const auto uc = daw::json::from_json<UserConstraint>(json_data);
   REQUIRE(uc.constraint_type.has_value());
   CHECK(uc.constraint_type.value_or("") == "raw");
-  CHECK(parse_constraint_scale_type(uc.constraint_type.value_or(""))
+  CHECK(enum_from_name<ConstraintScaleType>(uc.constraint_type.value_or(""))
+            .value_or(ConstraintScaleType::Power)
         == ConstraintScaleType::Raw);
 }
 
@@ -261,23 +262,27 @@ TEST_CASE("UserConstraint constraint_type field — unitless")
   const auto uc = daw::json::from_json<UserConstraint>(json_data);
   REQUIRE(uc.constraint_type.has_value());
   CHECK(uc.constraint_type.value_or("") == "unitless");
-  CHECK(parse_constraint_scale_type(uc.constraint_type.value_or(""))
+  CHECK(enum_from_name<ConstraintScaleType>(uc.constraint_type.value_or(""))
+            .value_or(ConstraintScaleType::Power)
         == ConstraintScaleType::Raw);
 }
 
-TEST_CASE("parse_constraint_scale_type — all valid values")
+TEST_CASE("enum_from_name<ConstraintScaleType> — all valid values")
 {
   using namespace gtopt;
 
-  // Default / empty → Power
-  CHECK(parse_constraint_scale_type("") == ConstraintScaleType::Power);
-  CHECK(parse_constraint_scale_type("power") == ConstraintScaleType::Power);
-  CHECK(parse_constraint_scale_type("unknown") == ConstraintScaleType::Power);
+  // Default / empty → nullopt (falls back to Power)
+  CHECK(!enum_from_name<ConstraintScaleType>("").has_value());
+  CHECK(enum_from_name<ConstraintScaleType>("power")
+        == ConstraintScaleType::Power);
+  CHECK(!enum_from_name<ConstraintScaleType>("unknown").has_value());
 
   // Energy
-  CHECK(parse_constraint_scale_type("energy") == ConstraintScaleType::Energy);
+  CHECK(enum_from_name<ConstraintScaleType>("energy")
+        == ConstraintScaleType::Energy);
 
   // Raw (both accepted aliases)
-  CHECK(parse_constraint_scale_type("raw") == ConstraintScaleType::Raw);
-  CHECK(parse_constraint_scale_type("unitless") == ConstraintScaleType::Raw);
+  CHECK(enum_from_name<ConstraintScaleType>("raw") == ConstraintScaleType::Raw);
+  CHECK(enum_from_name<ConstraintScaleType>("unitless")
+        == ConstraintScaleType::Raw);
 }

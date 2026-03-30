@@ -919,7 +919,7 @@ public:
   /// JSON strings are silently dropped to `nullopt` during parsing.  This
   /// method detects those cases and reports them.  Callers should log
   /// warnings at an appropriate level (typically WARN).
-  [[nodiscard]] auto validate_enum_options() const -> std::vector<std::string>
+  [[nodiscard]] static auto validate_enum_options() -> std::vector<std::string>
   {
     // With typed enum fields, validation is no longer needed at this level —
     // invalid JSON strings fail to parse and the optional stays nullopt
