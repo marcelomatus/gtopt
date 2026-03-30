@@ -404,20 +404,25 @@ TEST_CASE("User constraint - raw/unitless type produces output CSV")
   std::filesystem::remove_all(tmpdir);
 }
 
-TEST_CASE("User constraint - parse_constraint_scale_type from constraint_type")
+TEST_CASE(
+    "User constraint - enum_from_name<ConstraintScaleType> from "
+    "constraint_type")
 {
   using namespace gtopt;
 
   // "raw" → Raw
-  CHECK(parse_constraint_scale_type("raw") == ConstraintScaleType::Raw);
+  CHECK(enum_from_name<ConstraintScaleType>("raw") == ConstraintScaleType::Raw);
   // "unitless" → Raw
-  CHECK(parse_constraint_scale_type("unitless") == ConstraintScaleType::Raw);
+  CHECK(enum_from_name<ConstraintScaleType>("unitless")
+        == ConstraintScaleType::Raw);
   // "power" → Power (default)
-  CHECK(parse_constraint_scale_type("power") == ConstraintScaleType::Power);
-  // absent/empty → Power
-  CHECK(parse_constraint_scale_type("") == ConstraintScaleType::Power);
+  CHECK(enum_from_name<ConstraintScaleType>("power")
+        == ConstraintScaleType::Power);
+  // absent/empty → nullopt
+  CHECK(!enum_from_name<ConstraintScaleType>("").has_value());
   // "energy" → Energy
-  CHECK(parse_constraint_scale_type("energy") == ConstraintScaleType::Energy);
+  CHECK(enum_from_name<ConstraintScaleType>("energy")
+        == ConstraintScaleType::Energy);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════

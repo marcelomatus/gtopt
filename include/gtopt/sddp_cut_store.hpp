@@ -24,6 +24,7 @@
 #include <gtopt/label_maker.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/sddp_common.hpp>
+#include <gtopt/sddp_cut_store_enums.hpp>
 #include <gtopt/state_variable.hpp>
 
 namespace gtopt
@@ -41,13 +42,6 @@ struct CutLoadResult
 {
   int count {};  ///< Number of unique cuts loaded
   IterationIndex max_iteration {};  ///< Highest iteration index found
-};
-
-/// Type of Benders cut: optimality (standard) or feasibility (elastic filter)
-enum class CutType : uint8_t
-{
-  Optimality = 0,  ///< Standard Benders optimality cut
-  Feasibility,  ///< Feasibility cut from elastic filter
 };
 
 /// A serialisable representation of a Benders cut
