@@ -295,7 +295,7 @@ class BatteryWriter(BaseWriter):
             bat_uid = entry["number"]
             clamp = self.options.get("clamp_battery_efficiency", True)
             if nc > 1.0:
-                _logger.warning(
+                _logger.debug(
                     "(battery_efficiency) Battery '%s' (uid=%d):"
                     " input_efficiency value(s) > 1.0: [%s]",
                     bat_name,
@@ -305,7 +305,7 @@ class BatteryWriter(BaseWriter):
                 if clamp:
                     nc = 1.0
             if nd > 1.0:
-                _logger.warning(
+                _logger.debug(
                     "(battery_efficiency) Battery '%s' (uid=%d):"
                     " output_efficiency value(s) > 1.0: [%s]",
                     bat_name,

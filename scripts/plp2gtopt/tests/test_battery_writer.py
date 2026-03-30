@@ -884,7 +884,7 @@ def test_ess_input_efficiency_clamped_to_one(tmp_path, caplog):
     )
     writer = BatteryWriter(ess_parser=ep)
 
-    with caplog.at_level(logging.WARNING, logger="plp2gtopt.battery_writer"):
+    with caplog.at_level(logging.DEBUG, logger="plp2gtopt.battery_writer"):
         bats = writer.to_battery_array()
 
     assert len(bats) == 1
@@ -892,7 +892,7 @@ def test_ess_input_efficiency_clamped_to_one(tmp_path, caplog):
     assert b["input_efficiency"] == pytest.approx(1.0)
     assert b["output_efficiency"] == pytest.approx(0.90)
 
-    # Check warning was emitted
+    # Check debug message was emitted
     warn_records = [r for r in caplog.records if "input_efficiency" in r.message]
     assert len(warn_records) == 1
     assert "5.23" in warn_records[0].message
@@ -908,7 +908,7 @@ def test_ess_efficiency_not_clamped_when_disabled(tmp_path, caplog):
     )
     writer = BatteryWriter(ess_parser=ep, options={"clamp_battery_efficiency": False})
 
-    with caplog.at_level(logging.WARNING, logger="plp2gtopt.battery_writer"):
+    with caplog.at_level(logging.DEBUG, logger="plp2gtopt.battery_writer"):
         bats = writer.to_battery_array()
 
     assert len(bats) == 1
@@ -917,13 +917,13 @@ def test_ess_efficiency_not_clamped_when_disabled(tmp_path, caplog):
     assert b["input_efficiency"] == pytest.approx(5.23)
     assert b["output_efficiency"] == pytest.approx(0.90)
 
-    # Warning is still emitted
+    # Debug message is still emitted
     warn_records = [r for r in caplog.records if "input_efficiency" in r.message]
     assert len(warn_records) == 1
 
 
 def test_ess_output_efficiency_clamped_to_one(tmp_path, caplog):
-    """ESS with output_efficiency (nd) > 1.0 emits a warning and clamps to 1.0."""
+    """ESS with output_efficiency (nd) > 1.0 emits a debug message and clamps to 1.0."""
     import logging
 
     # Format: Nombre nd nc mloss Emax DCMax DCMod — nd=1.50 (discharge eff)
@@ -933,7 +933,7 @@ def test_ess_output_efficiency_clamped_to_one(tmp_path, caplog):
     )
     writer = BatteryWriter(ess_parser=ep)
 
-    with caplog.at_level(logging.WARNING, logger="plp2gtopt.battery_writer"):
+    with caplog.at_level(logging.DEBUG, logger="plp2gtopt.battery_writer"):
         bats = writer.to_battery_array()
 
     assert len(bats) == 1
@@ -947,7 +947,7 @@ def test_ess_output_efficiency_clamped_to_one(tmp_path, caplog):
 
 
 def test_cenbat_efficiency_clamped_to_one(tmp_path, caplog):
-    """plpcenbat.dat with FPC > 1.0 emits a warning and clamps to 1.0."""
+    """plpcenbat.dat with FPC > 1.0 emits a debug message and clamps to 1.0."""
     import logging
 
     # Format: NBat BatBus / BatInd BatName / NIny / InjName FPC / BatBar FPD EMin EMax
@@ -958,7 +958,7 @@ def test_cenbat_efficiency_clamped_to_one(tmp_path, caplog):
     )
     writer = BatteryWriter(battery_parser=bp)
 
-    with caplog.at_level(logging.WARNING, logger="plp2gtopt.battery_writer"):
+    with caplog.at_level(logging.DEBUG, logger="plp2gtopt.battery_writer"):
         bats = writer.to_battery_array()
 
     assert len(bats) == 1

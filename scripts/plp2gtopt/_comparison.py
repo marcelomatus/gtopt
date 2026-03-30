@@ -629,6 +629,7 @@ def _log_comparison(
     from gtopt_check_json._terminal import (  # noqa: PLC0415
         console,
         print_section,
+        table_width,
     )
     from rich.table import Table  # noqa: PLC0415
     from rich.box import ASCII, ROUNDED  # noqa: PLC0415
@@ -727,17 +728,20 @@ def _log_comparison(
     # --- Build the comparison table ---
     print_section("PLP vs gtopt Element Comparison")
 
+    tw = table_width()
+
     table = Table(
         box=box_style,
         show_lines=False,
         padding=(0, 1),
         title_justify="left",
+        width=tw,
     )
     table.add_column("Element", no_wrap=True, min_width=26)
     table.add_column("PLP", justify="right", min_width=6, no_wrap=True)
     table.add_column("gtopt", justify="right", min_width=6, no_wrap=True)
     table.add_column("\u0394", justify="right", min_width=4, no_wrap=True)
-    table.add_column("Notes", style="dim", max_width=48)
+    table.add_column("Notes", style="dim")
 
     def _row(
         label: str,
@@ -882,6 +886,7 @@ def _log_comparison(
             padding=(0, 1),
             title="[title]Global Indicators[/title]" if colr else "Global Indicators",
             title_justify="left",
+            width=tw,
         )
         ind_table.add_column("Indicator", no_wrap=True, min_width=26)
         ind_table.add_column("PLP", justify="right", min_width=8)

@@ -127,6 +127,15 @@ def console() -> Console:
     return _console
 
 
+def table_width() -> int:
+    """Return the common width for all output tables.
+
+    Uses the full terminal width (capped at 120 columns) so every table
+    rendered in the same session has a consistent visual width.
+    """
+    return min(console().width, 120)
+
+
 # ---------------------------------------------------------------------------
 # Number formatting
 # ---------------------------------------------------------------------------
@@ -196,6 +205,10 @@ def print_table(
     aligns: Sequence[JustifyMethod] | None = None,
     title: str = "",
     styles: Sequence[str] | None = None,
+    min_widths: Sequence[int | None] | None = None,
+    wraps: Sequence[bool] | None = None,
+    show_lines: bool = False,
+    width: int | None = None,
 ) -> None:
     """Print a multi-column table.
 
@@ -211,18 +224,30 @@ def print_table(
         Optional table title.
     styles
         Per-column Rich style strings (e.g. ``["bold", "", "green"]``).
+    min_widths
+        Per-column minimum widths.  ``None`` entries use Rich auto-sizing.
+    wraps
+        Per-column wrap flag.  ``True`` allows Rich to wrap long text across
+        multiple lines.  Defaults to ``False`` (no wrapping) for all columns.
+    show_lines
+        Draw horizontal separators between rows (useful with wrapped text).
+    width
+        Fixed table width in columns.  Defaults to :func:`table_width`.
     """
     from rich.box import ASCII, ROUNDED  # noqa: PLC0415
 
     con = console()
     box_style = ROUNDED if con.is_terminal else ASCII
+    if width is None:
+        width = table_width()
 
     table = Table(
         title=f"[title]{title}[/title]" if title else None,
         title_justify="left",
         box=box_style,
-        show_lines=False,
+        show_lines=show_lines,
         padding=(0, 1),
+        width=width,
     )
     ncols = len(headers)
     _aligns: Sequence[JustifyMethod] = (
@@ -230,13 +255,20 @@ def print_table(
     )
     if styles is None:
         styles = [""] * ncols
+    if min_widths is None:
+        min_widths = [None] * ncols
+    if wraps is None:
+        wraps = [False] * ncols
 
     for i, hdr in enumerate(headers):
+        mw = min_widths[i] if i < len(min_widths) else None
+        wrap = wraps[i] if i < len(wraps) else False
         table.add_column(
             hdr,
             justify=_aligns[i],
             style=styles[i] or None,
-            no_wrap=True,
+            no_wrap=not wrap,
+            min_width=mw,
         )
 
     for row in rows:

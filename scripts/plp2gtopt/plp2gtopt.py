@@ -89,12 +89,39 @@ def _log_stats(planning: dict, elapsed: float) -> None:
             rows.append((name, str(count)))
 
     # Simulation
-    rows.append(("Blocks", str(len(sim.get("block_array", [])))))
+    blocks = sim.get("block_array", [])
+    rows.append(("Blocks", str(len(blocks))))
     rows.append(("Stages", str(len(sim.get("stage_array", [])))))
     rows.append(("Scenarios", str(len(sim.get("scenario_array", [])))))
     apertures = sim.get("aperture_array", [])
     if apertures:
         rows.append(("Apertures", str(len(apertures))))
+
+    # Total period from block durations
+    total_hours = sum(b.get("duration", 0) for b in blocks)
+    if total_hours > 0:
+        months = total_hours / (30.0 * 24.0)
+        rows.append(("Total period", f"{total_hours:,.0f} h ({months:.1f} months)"))
+
+    # Boundary cuts
+    bc_count = planning.get("_boundary_cuts_count", 0)
+    bc_vars = planning.get("_boundary_state_variables", 0)
+    if bc_count:
+        rows.append(("Boundary cuts", f"{bc_count:,} ({bc_vars} state variables)"))
+
+    # Falla centrals / demand fail cost summary
+    demands = sys_data.get("demand_array", [])
+    fcost_values = [
+        d["fcost"] for d in demands
+        if isinstance(d.get("fcost"), (int, float))
+    ]
+    if fcost_values:
+        lo, hi = min(fcost_values), max(fcost_values)
+        cost_str = f"{lo:.2f}" if lo == hi else f"{lo:.2f}\u2013{hi:.2f}"
+        rows.append((
+            "Falla centrals",
+            f"{len(fcost_values)} bus(es), fcost {cost_str} $/MWh",
+        ))
 
     # Options
     rows.append(("use_kirchhoff", str(opts.get("use_kirchhoff", False))))
@@ -296,11 +323,9 @@ def run_post_check(
     try:
         from gtopt_check_json._checks import (  # noqa: PLC0415
             run_all_checks,
-            analyse_bus_islands,
             Severity,
         )
         from gtopt_check_json._terminal import (  # noqa: PLC0415
-            print_connectivity_table,
             print_status,
             print_summary,
             print_table,
@@ -318,13 +343,7 @@ def run_post_check(
         print_status("All checks passed — no issues found.", ok=True)
         return
 
-    # Print connectivity table if there are bus_connectivity findings
-    islands = analyse_bus_islands(planning)
-    if islands:
-        print_connectivity_table(islands)
-
-    # Collect non-connectivity findings into a table
-    _TABLE_CHECKS = {"bus_connectivity"}
+    # Collect all findings into the warnings table
     rows: list[tuple[str, str, str]] = []
     critical_count = 0
     warning_count = 0
@@ -336,8 +355,6 @@ def run_post_check(
             warning_count += 1
         else:
             note_count += 1
-        if finding.check_id in _TABLE_CHECKS:
-            continue
         rows.append(
             (
                 finding.severity.name,
@@ -351,8 +368,11 @@ def run_post_check(
             headers=["Severity", "Description", "Action / Notes"],
             rows=rows,
             aligns=["left", "left", "left"],
-            title="Validation Findings",
+            title="Warnings",
             styles=["warn", "", "dim"],
+            min_widths=[8, None, None],
+            wraps=[False, True, True],
+            show_lines=len(rows) > 1,
         )
 
     print_summary(critical_count, warning_count, note_count)

@@ -60,7 +60,7 @@ class StageWriter(BaseWriter):
             total_time += stage["duration"]
 
             json_stages.append(jstage)
-        logger.info(
+        logger.debug(
             "Total period: %d [h] %.2f [m]",
             round(total_time, 2),
             round(total_time / (30.0 * 24.0), 2),

@@ -72,7 +72,7 @@ def write_boundary_cuts_csv(
                 row.append(f"{coeffs.get(rname, 0.0):.10g}")
             writer.writerow(row)
 
-    logger.info(
+    logger.debug(
         "Wrote %d boundary cuts to %s (%d state variables)",
         len(cuts),
         output_path,
