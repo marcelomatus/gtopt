@@ -73,6 +73,20 @@ public:
   /** @brief Default annual discount rate for multi-year planning */
   static constexpr Real default_annual_discount_rate = 0.0;
 
+  // ── Fallback helpers ─────────────────────────────────────────────────
+  // Three-tier resolution: flat → model_options → compiled default.
+
+  template<typename T>
+  [[nodiscard]] static constexpr auto fallback_3(const std::optional<T>& flat,
+                                                 const std::optional<T>& model,
+                                                 const T& def) noexcept -> T
+  {
+    if (flat.has_value()) {
+      return *flat;
+    }
+    return model.value_or(def);
+  }
+
   /**
    * @brief Constructs a PlanningOptionsLP wrapper around a PlanningOptions
    * object
@@ -139,70 +153,57 @@ public:
   /// Flat field takes precedence, then model_options, then default.
   [[nodiscard]] constexpr auto use_line_losses() const
   {
-    if (m_options_.use_line_losses.has_value()) {
-      return *m_options_.use_line_losses;
-    }
-    return m_options_.model_options.use_line_losses.value_or(
-        default_use_line_losses);
+    return fallback_3(m_options_.use_line_losses,
+                      m_options_.model_options.use_line_losses,
+                      default_use_line_losses);
   }
 
   /// @brief Gets the number of piecewise-linear loss segments.
   [[nodiscard]] constexpr auto loss_segments() const
   {
-    if (m_options_.loss_segments.has_value()) {
-      return *m_options_.loss_segments;
-    }
-    return m_options_.model_options.loss_segments.value_or(
-        default_loss_segments);
+    return fallback_3(m_options_.loss_segments,
+                      m_options_.model_options.loss_segments,
+                      default_loss_segments);
   }
 
   /// @brief Gets the Kirchhoff constraints flag.
   [[nodiscard]] constexpr auto use_kirchhoff() const
   {
-    if (m_options_.use_kirchhoff.has_value()) {
-      return *m_options_.use_kirchhoff;
-    }
-    return m_options_.model_options.use_kirchhoff.value_or(
-        default_use_kirchhoff);
+    return fallback_3(m_options_.use_kirchhoff,
+                      m_options_.model_options.use_kirchhoff,
+                      default_use_kirchhoff);
   }
 
   /// @brief Gets the single-bus modeling flag.
   [[nodiscard]] constexpr auto use_single_bus() const
   {
-    if (m_options_.use_single_bus.has_value()) {
-      return *m_options_.use_single_bus;
-    }
-    return m_options_.model_options.use_single_bus.value_or(
-        default_use_single_bus);
+    return fallback_3(m_options_.use_single_bus,
+                      m_options_.model_options.use_single_bus,
+                      default_use_single_bus);
   }
 
   /// @brief Gets the objective function scaling factor.
   [[nodiscard]] constexpr auto scale_objective() const
   {
-    if (m_options_.scale_objective.has_value()) {
-      return *m_options_.scale_objective;
-    }
-    return m_options_.model_options.scale_objective.value_or(
-        default_scale_objective);
+    return fallback_3(m_options_.scale_objective,
+                      m_options_.model_options.scale_objective,
+                      default_scale_objective);
   }
 
   /// @brief Gets the Kirchhoff threshold.
   [[nodiscard]] constexpr auto kirchhoff_threshold() const
   {
-    if (m_options_.kirchhoff_threshold.has_value()) {
-      return *m_options_.kirchhoff_threshold;
-    }
-    return m_options_.model_options.kirchhoff_threshold.value_or(
-        default_kirchhoff_threshold);
+    return fallback_3(m_options_.kirchhoff_threshold,
+                      m_options_.model_options.kirchhoff_threshold,
+                      default_kirchhoff_threshold);
   }
 
   /// @brief Gets the voltage angle scaling factor.
   [[nodiscard]] constexpr auto scale_theta() const
   {
-    if (m_options_.scale_theta.has_value()) {
-      return *m_options_.scale_theta;
-    }
-    return m_options_.model_options.scale_theta.value_or(default_scale_theta);
+    return fallback_3(m_options_.scale_theta,
+                      m_options_.model_options.scale_theta,
+                      default_scale_theta);
   }
 
   /**
@@ -277,11 +278,9 @@ public:
    */
   [[nodiscard]] constexpr auto annual_discount_rate() const
   {
-    if (m_options_.annual_discount_rate.has_value()) {
-      return *m_options_.annual_discount_rate;
-    }
-    return m_options_.model_options.annual_discount_rate.value_or(
-        default_annual_discount_rate);
+    return fallback_3(m_options_.annual_discount_rate,
+                      m_options_.model_options.annual_discount_rate,
+                      default_annual_discount_rate);
   }
 
   /**
