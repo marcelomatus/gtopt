@@ -103,4 +103,40 @@ constexpr auto enum_entries(CompressionCodec /*tag*/) noexcept
   return std::span {compression_codec_entries};
 }
 
+// --- BoundaryCutsValuation ---------------------------------------------------
+
+/**
+ * @brief Valuation basis for boundary (future-cost) cut coefficients and RHS.
+ *
+ * Determines whether the effective discount factor of the last stage
+ * (combining the annual discount rate and the stage discount_factor) is
+ * applied when loading boundary cuts into the LP.
+ *
+ * - `end_of_horizon`:  Cuts are valued at the end of the last stage.
+ *                       No discount factor is applied (default).
+ * - `present_value`:   Cuts are expressed in present-value terms.
+ *                       The effective discount factor of the last stage
+ *                       is applied to the RHS and coefficients so that
+ *                       the future cost is discounted back to the
+ *                       planning horizon's reference time.
+ */
+enum class BoundaryCutsValuation : uint8_t
+{
+  end_of_horizon = 0,  ///< No discounting; cuts valued at last stage (default)
+  present_value = 1,  ///< Apply last-stage effective discount factor
+};
+
+inline constexpr auto boundary_cuts_valuation_entries =
+    std::to_array<EnumEntry<BoundaryCutsValuation>>({
+        {.name = "end_of_horizon",
+         .value = BoundaryCutsValuation::end_of_horizon},
+        {.name = "present_value",
+         .value = BoundaryCutsValuation::present_value},
+    });
+
+constexpr auto enum_entries(BoundaryCutsValuation /*tag*/) noexcept
+{
+  return std::span {boundary_cuts_valuation_entries};
+}
+
 }  // namespace gtopt

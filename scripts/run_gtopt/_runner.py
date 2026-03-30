@@ -111,9 +111,44 @@ def _build_gtopt_cmd(
     return cmd
 
 
-def _run_batch(cmd: list[str], env: dict[str, str]) -> int:
-    """Run gtopt as a plain subprocess (non-interactive / background)."""
+def _setup_log_file(case_dir: Path) -> Path | None:
+    """Create the log directory and return the log file path."""
+    base = case_dir.parent if case_dir.is_file() else case_dir
+    log_dir = base / "output" / "logs"
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        return log_dir / "gtopt.log"
+    except OSError:
+        return None
+
+
+def _run_batch(cmd: list[str], env: dict[str, str], case_dir: Path) -> int:
+    """Run gtopt as a plain subprocess (non-interactive / background).
+
+    Solver output is captured to ``<case>/output/logs/gtopt.log`` and
+    also forwarded to stdout.
+    """
     log.info("running: %s", " ".join(cmd))
+    log_path = _setup_log_file(case_dir)
+    if log_path:
+        log_f = open(log_path, "w", encoding="utf-8")  # noqa: SIM115
+        try:
+            with subprocess.Popen(
+                cmd,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            ) as proc:
+                assert proc.stdout is not None  # noqa: S101
+                for line in iter(proc.stdout.readline, ""):
+                    sys.stdout.write(line)
+                    log_f.write(line)
+                proc.wait()
+                return proc.returncode
+        finally:
+            log_f.close()
     result = subprocess.run(cmd, check=False, env=env)
     return result.returncode
 
@@ -123,7 +158,8 @@ def _run_interactive(cmd: list[str], env: dict[str, str], case_dir: Path) -> int
 
     The dashboard runs in a background thread while the solver
     subprocess runs in the foreground.  Solver stdout/stderr is
-    captured line-by-line and displayed in the dashboard log panel.
+    captured line-by-line, displayed in the dashboard log panel, and
+    written to ``<case>/output/logs/gtopt.log``.
 
     Interactive commands (single-key):
       s  Graceful stop — create stop-request file (saves cuts)
@@ -137,6 +173,7 @@ def _run_interactive(cmd: list[str], env: dict[str, str], case_dir: Path) -> int
 
     case_path = Path(case_dir)
     case_name = case_path.stem if case_path.is_file() else case_path.name
+    log_path = _setup_log_file(case_path)
 
     display = SolverDisplay(
         case_name=case_name,
@@ -145,29 +182,36 @@ def _run_interactive(cmd: list[str], env: dict[str, str], case_dir: Path) -> int
     display.start()
 
     log.info("running (interactive): %s", " ".join(cmd))
-    with subprocess.Popen(
-        cmd,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    ) as proc:
-        try:
-            assert proc.stdout is not None  # noqa: S101
-            for line in iter(proc.stdout.readline, ""):
-                display.add_log_line(line)
-                # Check if the TUI requested a quit (user pressed 'q')
-                if display.quit_requested.is_set():
-                    log.info("quit requested via TUI — terminating solver")
-                    proc.send_signal(signal.SIGTERM)
-                    break
-        finally:
-            proc.wait()
-            display.stop()
-            display.print_final(proc.returncode)
+    log_f = open(log_path, "w", encoding="utf-8") if log_path else None
+    try:
+        with subprocess.Popen(
+            cmd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        ) as proc:
+            try:
+                assert proc.stdout is not None  # noqa: S101
+                for line in iter(proc.stdout.readline, ""):
+                    display.add_log_line(line)
+                    if log_f:
+                        log_f.write(line)
+                    # Check if the TUI requested a quit (user pressed 'q')
+                    if display.quit_requested.is_set():
+                        log.info("quit requested via TUI — terminating solver")
+                        proc.send_signal(signal.SIGTERM)
+                        break
+            finally:
+                proc.wait()
+                display.stop()
+                display.print_final(proc.returncode)
 
-        return proc.returncode
+            return proc.returncode
+    finally:
+        if log_f:
+            log_f.close()
 
 
 def run_gtopt(
@@ -195,7 +239,7 @@ def run_gtopt(
 
     if is_interactive():
         return _run_interactive(cmd, env, case_dir)
-    return _run_batch(cmd, env)
+    return _run_batch(cmd, env, case_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -364,63 +408,257 @@ def _total_dir_size(path: Path) -> int:
     return total
 
 
-def report_solution(results_dir: Path, gtopt_dir: Path | None = None) -> None:
-    """Print a comprehensive post-run report."""
-    print()
-    print("=" * 60)
-    print("  run_gtopt — Results Summary")
-    print("=" * 60)
+def _read_result_table(results_dir: Path, stem: str):
+    """Try to read a result file as a pandas DataFrame."""
+    try:
+        import pandas as pd  # noqa: PLC0415
+
+        for ext in (".parquet", ".csv", ".csv.zst", ".csv.gz"):
+            fpath = results_dir / (stem + ext)
+            if fpath.is_file():
+                if ext == ".parquet":
+                    return pd.read_parquet(fpath)
+                return pd.read_csv(fpath)
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        pass
+    return None
+
+
+def _compute_energy_indicators(
+    results_dir: Path, planning_json: Path | None
+) -> dict[str, float]:
+    """Compute quick energy indicators from solver output.
+
+    Returns a dict with keys like ``generated_twh``, ``served_twh``,
+    ``shed_twh``, ``scale_objective``, ``discounted_energy_twh``.
+    Missing indicators are omitted.
+    """
+    indicators: dict[str, float] = {}
+    try:
+        import json as _json  # noqa: PLC0415
+        import numpy as np  # noqa: PLC0415
+
+        import math  # noqa: PLC0415
+
+        _HOURS_PER_YEAR = 8766.0  # 365.25 × 24, matching C++ hours_per_year
+
+        # Load simulation structure from planning JSON
+        durations: dict[int, float] = {}
+        block_to_stage: dict[int, int] = {}
+        # Effective discount factor per stage: combines the JSON
+        # discount_factor with the annual discount rate applied at the
+        # stage's start time (matching the C++ StageLp constructor).
+        stage_effective_discount: dict[int, float] = {}
+        scale_obj = 1000.0
+        if planning_json and planning_json.is_file():
+            with open(planning_json, encoding="utf-8") as f:
+                data = _json.load(f)
+            blocks = data.get("simulation", {}).get("block_array", [])
+            for b in blocks:
+                durations[b["uid"]] = b.get("duration", 1.0)
+
+            stages = data.get("simulation", {}).get("stage_array", [])
+            block_uids = [b["uid"] for b in blocks]
+
+            # Annual discount rate from options (same lookup as C++)
+            opts = data.get("options", {})
+            annual_rate = opts.get("annual_discount_rate", 0.0) or 0.0
+            model_rate = opts.get("model_options", {}).get("annual_discount_rate", 0.0)
+            if annual_rate == 0.0 and model_rate:
+                annual_rate = model_rate
+
+            # Build block → stage mapping and effective discount factors.
+            # timeinit = cumulative hours from the start of the horizon
+            # to the beginning of each stage (sum of block durations
+            # for all blocks before this stage's first block).
+            cumulative_hours = [0.0] * (len(block_uids) + 1)
+            for i, b in enumerate(blocks):
+                cumulative_hours[i + 1] = cumulative_hours[i] + b.get("duration", 1.0)
+
+            for st in stages:
+                first = st.get("first_block", 0)
+                count = st.get("count_block", -1)
+                json_df = st.get("discount_factor", 1.0) or 1.0
+                end = first + count if count > 0 else len(block_uids)
+
+                # C++ formula: exp(-ln(1+r) × timeinit / hours_per_year)
+                timeinit = (
+                    cumulative_hours[first] if first < len(cumulative_hours) else 0.0
+                )
+                if annual_rate > 0:
+                    annual_df = math.exp(
+                        -math.log1p(annual_rate) * timeinit / _HOURS_PER_YEAR
+                    )
+                else:
+                    annual_df = 1.0
+
+                stage_effective_discount[st["uid"]] = annual_df * json_df
+
+                for bi in range(first, min(end, len(block_uids))):
+                    block_to_stage[block_uids[bi]] = st["uid"]
+
+            scale_obj = opts.get("scale_objective", 1000.0) or 1000.0
+        indicators["scale_objective"] = scale_obj
+
+        def _energy_twh(df) -> float:
+            """Sum uid:* columns weighted by block duration → TWh."""
+            uid_cols = [c for c in df.columns if c.startswith("uid:")]
+            if not uid_cols or "block" not in df.columns:
+                return 0.0
+            if "scenario" in df.columns:
+                df = df.groupby("block", as_index=False)[uid_cols].mean()
+            total = 0.0
+            for _, row in df.iterrows():
+                dur = durations.get(int(row["block"]), 1.0)
+                total += float(np.sum(row[uid_cols].to_numpy(dtype=np.float64))) * dur
+            return total / 1e6  # MWh → TWh
+
+        def _discounted_energy_twh(df) -> float:
+            """Sum uid:* columns × duration × effective_discount → TWh.
+
+            The effective discount factor per stage combines the JSON
+            ``discount_factor`` with ``exp(-ln(1+r)×t/8766)`` from the
+            ``annual_discount_rate``, matching the C++ LP coefficients.
+            """
+            uid_cols = [c for c in df.columns if c.startswith("uid:")]
+            if not uid_cols or "block" not in df.columns:
+                return 0.0
+            if "scenario" in df.columns:
+                df = df.groupby("block", as_index=False)[uid_cols].mean()
+            total = 0.0
+            for _, row in df.iterrows():
+                blk = int(row["block"])
+                dur = durations.get(blk, 1.0)
+                stage_uid = block_to_stage.get(blk)
+                eff_df = (
+                    stage_effective_discount.get(stage_uid, 1.0)
+                    if stage_uid is not None
+                    else 1.0
+                )
+                mw = float(np.sum(row[uid_cols].to_numpy(dtype=np.float64)))
+                total += mw * dur * eff_df
+            return total / 1e6  # MWh → TWh
+
+        # Generated energy
+        gen_df = _read_result_table(results_dir, "Generator/generation_sol")
+        if gen_df is not None:
+            indicators["generated_twh"] = _energy_twh(gen_df)
+            indicators["discounted_energy_twh"] = _discounted_energy_twh(gen_df)
+
+        # Served demand
+        load_df = _read_result_table(results_dir, "Demand/load_sol")
+        if load_df is not None:
+            indicators["served_twh"] = _energy_twh(load_df)
+
+        # Load shedding
+        fail_df = _read_result_table(results_dir, "Demand/fail_sol")
+        if fail_df is not None:
+            shed = _energy_twh(fail_df)
+            if shed > 1e-6:
+                indicators["shed_twh"] = shed
+
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        log.debug("energy indicator computation failed", exc_info=True)
+
+    return indicators
+
+
+def report_solution(
+    results_dir: Path,
+    gtopt_dir: Path | None = None,
+    planning_json: Path | None = None,
+) -> None:
+    """Print a Rich-formatted post-run results summary."""
+    try:
+        from gtopt_check_json._terminal import (  # noqa: PLC0415
+            print_table,
+        )
+    except ImportError:
+        # Fallback: plain text
+        _report_solution_plain(results_dir, gtopt_dir)
+        return
 
     # ── Solution status ──
     sol = check_solution(results_dir)
-    if sol:
-        status: int | None = sol.get("status")
-        obj: float | None = sol.get("objective")
-        status_map = {0: "OPTIMAL", 1: "NON-OPTIMAL / INFEASIBLE"}
-        status_str = status_map.get(
-            status if status is not None else -1, f"UNKNOWN ({status})"
-        )
+    status: int | None = sol.get("status")
+    obj: float | None = sol.get("objective")
+    status_map = {0: "OPTIMAL", 1: "NON-OPTIMAL / INFEASIBLE"}
+    status_str = status_map.get(
+        status if status is not None else -1, f"UNKNOWN ({status})"
+    )
 
-        if status == 0:
-            print(f"  Status     : {status_str}")
-            if obj is not None:
-                print(f"  Objective  : {obj:.6g}")
-        else:
-            print(f"  Status     : {status_str}", file=sys.stderr)
-    else:
-        print("  Status     : no solution file found")
+    # ── Energy indicators (fast) ──
+    indicators = _compute_energy_indicators(results_dir, planning_json)
+    scale_obj = indicators.get("scale_objective", 1000.0)
 
-    # ── Output file inventory ──
+    # Scale objective back to real $
+    true_obj: float | None = None
+    if obj is not None:
+        true_obj = obj * scale_obj
+
+    # ── Build rows ──
+    rows: list[tuple[str, str]] = []
+    rows.append(("Status", status_str))
+    if true_obj is not None:
+        rows.append(("Objective value", f"${true_obj:,.2f}"))
+
+    if "generated_twh" in indicators:
+        rows.append(("Generated energy", f"{indicators['generated_twh']:.3f} TWh"))
+    if "served_twh" in indicators:
+        rows.append(("Served demand", f"{indicators['served_twh']:.3f} TWh"))
+    if "shed_twh" in indicators:
+        rows.append(("Load shedding", f"{indicators['shed_twh']:.3f} TWh"))
+
+    # Avg generation cost = total cost / generated energy
+    gen_twh = indicators.get("generated_twh", 0.0)
+    if true_obj is not None and gen_twh > 0:
+        gen_mwh = gen_twh * 1e6
+        avg_cost = true_obj / gen_mwh
+        rows.append(("Avg generation cost", f"${avg_cost:.2f}/MWh"))
+
+    # LCOE = discounted total cost / discounted generated energy
+    # The solver objective IS the sum of discounted costs (each stage's
+    # cost is already multiplied by discount_factor in the LP).
+    disc_twh = indicators.get("discounted_energy_twh", 0.0)
+    if true_obj is not None and disc_twh > 0:
+        disc_mwh = disc_twh * 1e6
+        lcoe = true_obj / disc_mwh
+        rows.append(("LCOE", f"${lcoe:.2f}/MWh"))
+
+    # ── File inventory ──
     file_counts = _count_output_files(results_dir)
-    classes = _count_output_classes(results_dir)
     total_size = _total_dir_size(results_dir)
-
     if file_counts:
         total_files = sum(file_counts.values())
-        print(f"  Files      : {total_files} ({_format_size(total_size)})")
-        for ext, cnt in sorted(file_counts.items()):
-            print(f"               {ext}: {cnt}")
+        ext_str = ", ".join(f"{ext}: {cnt}" for ext, cnt in sorted(file_counts.items()))
+        rows.append(("Output files", f"{total_files} ({_format_size(total_size)})"))
+        rows.append(("  by type", ext_str))
+
+    classes = _count_output_classes(results_dir)
     if classes:
-        print(f"  Classes    : {', '.join(classes)}")
+        rows.append(("Element classes", ", ".join(classes)))
 
-    # ── Output location ──
-    print(f"  Results in : {results_dir}")
-    if gtopt_dir and gtopt_dir != results_dir.parent:
-        print(f"  Case dir   : {gtopt_dir}")
+    # ── Paths ──
+    rows.append(("Results", str(results_dir)))
+    log_path = results_dir / "logs" / "gtopt.log"
+    if log_path.is_file():
+        rows.append(("Log file", str(log_path)))
 
-    # ── Key output files ──
-    key_files = [
-        ("solution", "solution"),
-        ("Bus/balance_dual", "LMPs (bus marginal prices)"),
-        ("Demand/fail_sol", "load shedding"),
-        ("Generator/generation_sol", "generator dispatch"),
-    ]
-    for stem, label in key_files:
-        for ext in (".parquet", ".csv", ".csv.gz", ".csv.zst"):
-            fpath = results_dir / (stem + ext)
-            if fpath.is_file():
-                print(f"  {label:25s}: {fpath}")
-                break
+    print_table(
+        headers=["Property", "Value"],
+        rows=rows,
+        aligns=["left", "right"],
+        title="Results Summary",
+    )
 
-    print("=" * 60)
-    print()
+
+def _report_solution_plain(results_dir: Path, gtopt_dir: Path | None = None) -> None:
+    """Fallback plain-text results summary."""
+    sol = check_solution(results_dir)
+    status_map = {0: "OPTIMAL", 1: "NON-OPTIMAL / INFEASIBLE"}
+    status = sol.get("status")
+    print(f"  Status: {status_map.get(status, f'UNKNOWN ({status})')}")
+    obj = sol.get("objective")
+    if obj is not None:
+        print(f"  Objective: {obj:.6g}")
+    print(f"  Results: {results_dir}")

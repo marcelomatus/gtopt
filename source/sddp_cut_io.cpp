@@ -893,6 +893,24 @@ auto load_boundary_cuts_csv(
 
     // ── Add cuts to the LP ──────────────────────────────────────
     const auto scale_obj = planning_lp.options().scale_objective();
+
+    // When boundary_cuts_valuation == present_value, apply the
+    // effective discount factor of the last phase's last stage to
+    // the cut RHS and coefficients.  This brings present-value cuts
+    // into the same basis as the LP objective.
+    const auto valuation = sim.simulation().boundary_cuts_valuation.value_or(
+        BoundaryCutsValuation::end_of_horizon);
+    double bc_discount = 1.0;
+    if (valuation == BoundaryCutsValuation::present_value) {
+      const auto& last_phase_lp = sim.phases()[last_phase];
+      if (!last_phase_lp.stages().empty()) {
+        bc_discount = last_phase_lp.stages().back().discount_factor();
+        SPDLOG_INFO(
+            "Boundary cuts: applying present-value discount factor {:.6f}",
+            bc_discount);
+      }
+    }
+
     IterationIndex max_iteration {};
     const auto missing_mode = options.missing_cut_var_mode;
     int cuts_loaded = 0;
@@ -952,7 +970,7 @@ auto load_boundary_cuts_csv(
 
         auto row = SparseRow {
             .name = label_maker.lp_label("bdr", rc.name, scene, last_phase),
-            .lowb = rc.rhs / scale_obj,
+            .lowb = rc.rhs * bc_discount / scale_obj,
             .uppb = LinearProblem::DblMax,
         };
         row[state.alpha_col] = options.scale_alpha;
@@ -970,7 +988,7 @@ auto load_boundary_cuts_csv(
           const auto coeff = std::stod(token);
           if (coeff != 0.0) {
             const auto scale = li.get_col_scale(*header_col_map[ci]);
-            row[*header_col_map[ci]] = -coeff * scale / scale_obj;
+            row[*header_col_map[ci]] = -coeff * scale * bc_discount / scale_obj;
           }
         }
 
