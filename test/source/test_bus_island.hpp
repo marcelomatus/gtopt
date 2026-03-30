@@ -4,6 +4,8 @@
 #include <gtopt/bus.hpp>
 #include <gtopt/bus_island.hpp>
 #include <gtopt/line.hpp>
+#include <gtopt/planning.hpp>
+#include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
@@ -487,4 +489,389 @@ TEST_CASE("Island detection - name-based SingleId")  // NOLINT
   CHECK(buses[0].reference_theta.has_value());
   CHECK_FALSE(buses[1].reference_theta.has_value());
   CHECK(buses[2].reference_theta.has_value());
+}
+
+// ── Runtime per-stage island detection tests ───────────────────────
+
+TEST_CASE(
+    "Runtime island fix - line inactive at stage 2 creates island")  // NOLINT
+{
+  // 3 buses in a chain: b1 — l1 — b2 — l2 — b3
+  // Line l1 is inactive at stage 2, splitting {b1} from {b2, b3}.
+  // The runtime fix should pin b1's theta to zero at stage 2.
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+      {
+          .uid = Uid {2},
+          .name = "b2",
+      },
+      {
+          .uid = Uid {3},
+          .name = "b3",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .pmax = 200.0,
+          .gcost = 10.0,
+          .capacity = 200.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "g3",
+          .bus = Uid {3},
+          .pmax = 200.0,
+          .gcost = 50.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d2",
+          .bus = Uid {2},
+          .lmax = 100.0,
+          .capacity = 100.0,
+      },
+  };
+
+  // l1: active at stage 1, INACTIVE at stage 2
+  // l2: always active
+  const Array<Line> line_array = {
+      {
+          .uid = Uid {1},
+          .name = "l1",
+          .active = Active {std::vector<IntBool> {
+              True,
+              False,
+          }},
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .reactance = 0.1,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "l2",
+          .bus_a = Uid {2},
+          .bus_b = Uid {3},
+          .reactance = 0.1,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+              {
+                  .uid = Uid {2},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  PlanningOptions opts;
+  opts.use_kirchhoff = true;
+  opts.use_single_bus = false;
+  opts.demand_fail_cost = 1000.0;
+
+  Planning planning = {
+      .options = std::move(opts),
+      .simulation = simulation,
+      .system =
+          {
+              .name = "RuntimeIslandTest",
+              .bus_array = bus_array,
+              .demand_array = demand_array,
+              .generator_array = generator_array,
+              .line_array = line_array,
+          },
+  };
+
+  // This should not crash or produce infeasible LP
+  PlanningLP planning_lp(std::move(planning));
+  auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 1);  // 1 scene solved
+}
+
+TEST_CASE(
+    "Runtime island fix - all lines active produces no warning")  // NOLINT
+{
+  // Simple 2-bus system, all lines always active.
+  // No runtime island fix should be needed.
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+      {
+          .uid = Uid {2},
+          .name = "b2",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .pmax = 200.0,
+          .gcost = 30.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {2},
+          .lmax = 50.0,
+          .capacity = 50.0,
+      },
+  };
+
+  const Array<Line> line_array = {
+      {
+          .uid = Uid {1},
+          .name = "l1",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .reactance = 0.1,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  PlanningOptions opts;
+  opts.use_kirchhoff = true;
+  opts.use_single_bus = false;
+
+  Planning planning = {
+      .options = std::move(opts),
+      .simulation = simulation,
+      .system =
+          {
+              .name = "NoIslandTest",
+              .bus_array = bus_array,
+              .demand_array = demand_array,
+              .generator_array = generator_array,
+              .line_array = line_array,
+          },
+  };
+
+  PlanningLP planning_lp(std::move(planning));
+  auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 1);
+}
+
+TEST_CASE(
+    "Runtime island fix - multi-stage with island at one stage")  // NOLINT
+{
+  // 4 buses: b1-l1-b2-l2-b3-l3-b4
+  // l2 inactive at stage 2 only, splitting into {b1,b2} and {b3,b4}
+  // Each sub-island has a generator and demand, so LP is feasible.
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+      {
+          .uid = Uid {2},
+          .name = "b2",
+      },
+      {
+          .uid = Uid {3},
+          .name = "b3",
+      },
+      {
+          .uid = Uid {4},
+          .name = "b4",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .pmax = 100.0,
+          .gcost = 10.0,
+          .capacity = 100.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "g4",
+          .bus = Uid {4},
+          .pmax = 100.0,
+          .gcost = 20.0,
+          .capacity = 100.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d2",
+          .bus = Uid {2},
+          .lmax = 50.0,
+          .capacity = 50.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "d3",
+          .bus = Uid {3},
+          .lmax = 50.0,
+          .capacity = 50.0,
+      },
+  };
+
+  const Array<Line> line_array = {
+      {
+          .uid = Uid {1},
+          .name = "l1",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .reactance = 0.1,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "l2",
+          .active = Active {std::vector<IntBool> {
+              True,
+              False,
+              True,
+          }},
+          .bus_a = Uid {2},
+          .bus_b = Uid {3},
+          .reactance = 0.1,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+      },
+      {
+          .uid = Uid {3},
+          .name = "l3",
+          .bus_a = Uid {3},
+          .bus_b = Uid {4},
+          .reactance = 0.1,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+              {
+                  .uid = Uid {2},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+              {
+                  .uid = Uid {3},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  PlanningOptions opts;
+  opts.use_kirchhoff = true;
+  opts.use_single_bus = false;
+  opts.demand_fail_cost = 1000.0;
+
+  Planning planning = {
+      .options = std::move(opts),
+      .simulation = simulation,
+      .system =
+          {
+              .name = "MultiStageIslandTest",
+              .bus_array = bus_array,
+              .demand_array = demand_array,
+              .generator_array = generator_array,
+              .line_array = line_array,
+          },
+  };
+
+  PlanningLP planning_lp(std::move(planning));
+  auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 1);
 }
