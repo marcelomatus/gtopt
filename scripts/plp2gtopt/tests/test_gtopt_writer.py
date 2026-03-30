@@ -640,18 +640,19 @@ class TestFallaFcost:
         writer = GTOptWriter(mock_parser)
         return writer
 
-    def test_falla_fcost_by_bus_basic(self):
-        """Single falla per bus returns its gcost."""
+    def test_falla_by_bus_basic(self):
+        """Single falla per bus returns the falla central."""
         writer = self._make_writer_with_fallas(
             [
                 {"name": "FALLA_001", "type": "falla", "bus": 1, "gcost": 406.0},
                 {"name": "FALLA_002", "type": "falla", "bus": 2, "gcost": 500.0},
             ]
         )
-        result = writer._falla_fcost_by_bus()
-        assert result == {1: 406.0, 2: 500.0}
+        result = writer._falla_by_bus()
+        assert result[1]["gcost"] == 406.0
+        assert result[2]["gcost"] == 500.0
 
-    def test_falla_fcost_min_on_same_bus(self):
+    def test_falla_by_bus_min_on_same_bus(self):
         """Multiple fallas on same bus: smallest gcost wins."""
         writer = self._make_writer_with_fallas(
             [
@@ -660,10 +661,11 @@ class TestFallaFcost:
                 {"name": "FALLA_001_C", "type": "falla", "bus": 1, "gcost": 800.0},
             ]
         )
-        result = writer._falla_fcost_by_bus()
-        assert result == {1: 300.0}
+        result = writer._falla_by_bus()
+        assert result[1]["gcost"] == 300.0
+        assert result[1]["name"] == "FALLA_001_B"
 
-    def test_falla_fcost_skips_bus_zero(self):
+    def test_falla_by_bus_skips_bus_zero(self):
         """Falla centrals with bus <= 0 are ignored."""
         writer = self._make_writer_with_fallas(
             [
@@ -672,10 +674,11 @@ class TestFallaFcost:
                 {"name": "FALLA_OK", "type": "falla", "bus": 3, "gcost": 200.0},
             ]
         )
-        result = writer._falla_fcost_by_bus()
-        assert result == {3: 200.0}
+        result = writer._falla_by_bus()
+        assert 3 in result
+        assert 0 not in result
 
-    def test_falla_fcost_skips_non_falla(self):
+    def test_falla_by_bus_skips_non_falla(self):
         """Non-falla centrals are ignored."""
         writer = self._make_writer_with_fallas(
             [
@@ -683,15 +686,15 @@ class TestFallaFcost:
                 {"name": "FALLA_001", "type": "falla", "bus": 1, "gcost": 406.0},
             ]
         )
-        result = writer._falla_fcost_by_bus()
-        assert result == {1: 406.0}
+        result = writer._falla_by_bus()
+        assert result[1]["gcost"] == 406.0
 
-    def test_falla_fcost_empty_when_no_centrals(self):
+    def test_falla_by_bus_empty_when_no_centrals(self):
         """No central_parser → empty mapping."""
         mock_parser = MagicMock(spec=PLPParser)
         mock_parser.parsed_data = {}
         writer = GTOptWriter(mock_parser)
-        assert writer._falla_fcost_by_bus() == {}
+        assert writer._falla_by_bus() == {}
 
     def test_process_demands_sets_fcost(self, tmp_path):
         """process_demands populates fcost from falla centrals."""
