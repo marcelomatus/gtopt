@@ -52,24 +52,19 @@ logger = logging.getLogger(__name__)
 
 def _log_stats(planning: dict, elapsed: float) -> None:
     """Print conversion statistics using styled terminal tables."""
-    from gtopt_check_json._terminal import (  # noqa: PLC0415
-        print_kv_table,
-        print_section,
-    )
+    from gtopt_check_json._terminal import print_table  # noqa: PLC0415
 
     sys_data = planning.get("system", {})
     sim = planning.get("simulation", {})
     opts = planning.get("options", {})
 
-    print_section("Conversion Results")
-
-    print_kv_table(
-        [
-            ("System name", sys_data.get("name", "(unnamed)")),
-            ("System version", sys_data.get("version", "")),
-        ],
-        title="System",
-    )
+    # Build all rows for a single results table
+    rows: list[tuple[str, str]] = [
+        ("System name", sys_data.get("name", "(unnamed)")),
+    ]
+    version = sys_data.get("version", "")
+    if version:
+        rows.append(("System version", version))
 
     # Element counts (skip zero-count for cleaner output)
     all_elems = [
@@ -87,49 +82,40 @@ def _log_stats(planning: dict, elapsed: float) -> None:
         ("Waterways", len(sys_data.get("waterway_array", []))),
         ("Flows", len(sys_data.get("flow_array", []))),
         ("Reservoirs", len(sys_data.get("reservoir_array", []))),
-        (
-            "ReservoirSeepages",
-            sum(len(r.get("seepage", [])) for r in sys_data.get("reservoir_array", [])),
-        ),
         ("Turbines", len(sys_data.get("turbine_array", []))),
     ]
-    elem_pairs = [(k, str(v)) for k, v in all_elems if v > 0]
-    if not elem_pairs:
-        elem_pairs = [(k, str(v)) for k, v in all_elems]
-    print_kv_table(elem_pairs, title="Elements")
+    for name, count in all_elems:
+        if count > 0:
+            rows.append((name, str(count)))
 
-    sim_pairs = [
-        ("Blocks", str(len(sim.get("block_array", [])))),
-        ("Stages", str(len(sim.get("stage_array", [])))),
-        ("Scenarios", str(len(sim.get("scenario_array", [])))),
-    ]
+    # Simulation
+    rows.append(("Blocks", str(len(sim.get("block_array", [])))))
+    rows.append(("Stages", str(len(sim.get("stage_array", [])))))
+    rows.append(("Scenarios", str(len(sim.get("scenario_array", [])))))
     apertures = sim.get("aperture_array", [])
     if apertures:
-        sim_pairs.append(("Apertures", str(len(apertures))))
-    print_kv_table(sim_pairs, title="Simulation")
+        rows.append(("Apertures", str(len(apertures))))
 
-    print_kv_table(
-        [
-            ("use_kirchhoff", str(opts.get("use_kirchhoff", False))),
-            ("use_single_bus", str(opts.get("use_single_bus", False))),
-            ("scale_objective", str(opts.get("scale_objective", 1000))),
-            ("demand_fail_cost", str(opts.get("demand_fail_cost", 0))),
-            ("input_directory", str(opts.get("input_directory", "(default)"))),
-            ("output_directory", str(opts.get("output_directory", "(default)"))),
-            ("output_format", str(opts.get("output_format", "csv"))),
-        ],
-        title="Options",
-    )
+    # Options
+    rows.append(("use_kirchhoff", str(opts.get("use_kirchhoff", False))))
+    rows.append(("use_single_bus", str(opts.get("use_single_bus", False))))
+    rows.append(("scale_objective", str(opts.get("scale_objective", 1000))))
+    rows.append(("demand_fail_cost", str(opts.get("demand_fail_cost", 0))))
 
-    # Report isolated centrals that were skipped
+    # Skipped centrals
     skipped = planning.get("_skipped_isolated", [])
     if skipped:
-        print_kv_table(
-            [(name, "isolated (bus<=0, no waterways)") for name in sorted(skipped)],
-            title=f"Skipped Centrals ({len(skipped)})",
-        )
+        for name in sorted(skipped):
+            rows.append((f"  skip: {name}", "isolated (bus<=0)"))
 
-    print_kv_table([("Elapsed", f"{elapsed:.3f}s")], title="Conversion Time")
+    rows.append(("Elapsed", f"{elapsed:.3f}s"))
+
+    print_table(
+        headers=["Property", "Value"],
+        rows=rows,
+        aligns=["left", "right"],
+        title="Conversion Results",
+    )
 
 
 def show_simulation_summary(planning: dict) -> None:
@@ -314,10 +300,10 @@ def run_post_check(
             Severity,
         )
         from gtopt_check_json._terminal import (  # noqa: PLC0415
-            print_finding as _pf,
+            print_connectivity_table,
             print_status,
             print_summary,
-            print_connectivity_table,
+            print_table,
         )
     except ImportError:
         logger.debug("gtopt_check_json not available; skipping JSON validation checks")
@@ -337,27 +323,39 @@ def run_post_check(
     if islands:
         print_connectivity_table(islands)
 
-    # Print non-connectivity findings normally
+    # Collect non-connectivity findings into a table
     _TABLE_CHECKS = {"bus_connectivity"}
+    rows: list[tuple[str, str, str]] = []
     critical_count = 0
     warning_count = 0
     note_count = 0
     for finding in findings:
-        if finding.check_id not in _TABLE_CHECKS:
-            _pf(finding.severity.name, finding.check_id, finding.message)
         if finding.severity == Severity.CRITICAL:
             critical_count += 1
         elif finding.severity == Severity.WARNING:
             warning_count += 1
         else:
             note_count += 1
+        if finding.check_id in _TABLE_CHECKS:
+            continue
+        rows.append(
+            (
+                finding.severity.name,
+                finding.message,
+                finding.action,
+            )
+        )
+
+    if rows:
+        print_table(
+            headers=["Severity", "Description", "Action / Notes"],
+            rows=rows,
+            aligns=["left", "left", "left"],
+            title="Validation Findings",
+            styles=["warn", "", "dim"],
+        )
 
     print_summary(critical_count, warning_count, note_count)
-
-    if critical_count > 0:
-        logger.info(
-            "  Tip: Run 'gtopt_check_json <case.json>' for detailed case statistics."
-        )
 
 
 def create_zip_output(output_file: Path, output_dir: Path, zip_path: Path) -> None:
@@ -467,7 +465,7 @@ def convert_plp_case(options: dict[str, Any]) -> None:
         t0 = time.monotonic()
 
         # Parse all files
-        logger.info("Parsing PLP input files from: %s", input_dir)
+        logger.debug("Parsing PLP input files from: %s", input_dir)
         parser = PLPParser(options)
         parser.parse_all()
 
@@ -482,17 +480,15 @@ def convert_plp_case(options: dict[str, Any]) -> None:
         # Redirect output_dir to temp; keep output_file location as-is
         # when it lives outside the output_dir (e.g. -f flag).
         json_inside = output_file.parent == output_dir
-        tmp_output_file = (
-            tmp_dir / output_file.name if json_inside else output_file
-        )
+        tmp_output_file = tmp_dir / output_file.name if json_inside else output_file
         tmp_options = {**options, "output_dir": tmp_dir, "output_file": tmp_output_file}
 
         # Convert to GTOPT format (writes Parquet time-series to tmp_dir)
-        logger.info("Building gtopt planning model...")
+        logger.debug("Building gtopt planning model...")
         writer = GTOptWriter(parser)
 
         if excel_output:
-            logger.info("Building planning data for Excel output...")
+            logger.debug("Building planning data for Excel output...")
             planning = writer.to_json(tmp_options)
 
             excel_file = options.get("excel_file")
@@ -501,11 +497,11 @@ def convert_plp_case(options: dict[str, Any]) -> None:
             else:
                 excel_file = Path(excel_file)
 
-            logger.info("Writing igtopt Excel workbook to: %s", excel_file)
+            logger.debug("Writing igtopt Excel workbook to: %s", excel_file)
             build_plp_excel(planning, tmp_dir, excel_file, tmp_options)
         else:
-            logger.info("Writing output files...")
-            logger.info("Writing GTOPT output to: %s", output_file)
+            logger.debug("Writing output files...")
+            logger.debug("Writing GTOPT output to: %s", output_file)
             writer.write(tmp_options)
 
         elapsed = time.monotonic() - t0
@@ -540,21 +536,12 @@ def convert_plp_case(options: dict[str, Any]) -> None:
         if options.get("show_simulation", False):
             show_simulation_summary(writer.planning)
 
-        if excel_output:
-            logger.info(
-                "Conversion successful! Excel workbook written to %s", excel_file
-            )
-        else:
-            logger.info("Conversion successful! Output written to %s", output_file)
-
-            if options.get("zip_output", False):
-                zip_path = output_file.with_suffix(".zip")
-                create_zip_output(output_file, output_dir, zip_path)
-                print(f"ZIP archive created: {zip_path}")
+        if not excel_output and options.get("zip_output", False):
+            zip_path = output_file.with_suffix(".zip")
+            create_zip_output(output_file, output_dir, zip_path)
 
         # Post-conversion validation
         if do_check:
-            logger.info("Running post-conversion checks...")
             run_post_check(writer.planning, parser, output_dir=output_dir)
 
     except RuntimeError:
