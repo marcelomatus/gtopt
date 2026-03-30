@@ -141,9 +141,15 @@ Two columns: **option** and **value**. Each row sets one planning option.
 | `demand_fail_cost` | `1000` |
 | `scale_objective` | `1000` |
 | `annual_discount_rate` | `0.1` |
+| `boundary_cuts_file` | `boundary_cuts.csv` |
+| `boundary_cuts_valuation` | `end_of_horizon` |
 | `input_directory` | `ieee57b` |
 | `input_format` | `parquet` |
 | `output_format` | `csv` |
+
+`annual_discount_rate`, `boundary_cuts_file`, and
+`boundary_cuts_valuation` are placed in the `simulation` section of the
+generated JSON.  All other options go into `options`.
 
 Boolean values are written as `True` / `False`. Numeric values are parsed
 automatically. See [INPUT_DATA.md](../input-data.md) for the full list of

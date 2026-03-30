@@ -124,8 +124,9 @@ more blocks per stage for seasonal detail):
 }
 ```
 
-> **Tip**: set `annual_discount_rate` in `options` and let gtopt compute
-> discount factors automatically instead of providing them explicitly.
+> **Tip**: set `annual_discount_rate` in `simulation` and let gtopt
+> compute discount factors automatically instead of providing them
+> explicitly.  For backward compatibility, `options` is also accepted.
 
 ### 1.2 Phases and Scenes
 
@@ -320,11 +321,18 @@ All three sections are **optional** — omitted sections use defaults.
 | `use_kirchhoff` | — | Enable DC power-flow constraints (`true`/`false`) |
 | `use_single_bus` | — | Collapse network to copper plate (`true`/`false`) |
 | `scale_objective` | — | Divide objective by this value (improves solver numerics) |
-| `annual_discount_rate` | p.u./year | Compute stage discount factors automatically |
 | `input_directory` | — | Root directory for external time-series files |
 | `input_format` | — | `"parquet"` (default) or `"csv"` |
 | `output_directory` | — | Directory for result files (default: `"output"`) |
 | `output_format` | — | `"parquet"` (default) or `"csv"` |
+
+### Simulation (commonly used fields)
+
+| Field | Units | Description |
+|-------|-------|-------------|
+| `annual_discount_rate` | p.u./year | Compute stage discount factors automatically |
+| `boundary_cuts_file` | — | CSV file with boundary (future-cost) cuts |
+| `boundary_cuts_valuation` | — | `"end_of_horizon"` (default) or `"present_value"` |
 
 ---
 
@@ -1059,12 +1067,15 @@ In summary tables below, ✱ marks required fields.
 | `use_kirchhoff` | `true` | Enable DC power-flow constraints |
 | `use_single_bus` | `false` | Copper-plate mode (no network constraints) |
 | `scale_objective` | `1000` | Divide objective coefficients (improves solver numerics) |
-| `annual_discount_rate` | — | Yearly rate for automatic stage discount factor computation |
 | `input_directory` | `"input"` | Root directory for external schedule files |
 | `input_format` | `"parquet"` | Preferred input format (`"parquet"` or `"csv"`) |
 | `output_directory` | `"output"` | Root directory for result files |
 | `output_format` | `"parquet"` | Output file format (`"parquet"` or `"csv"`) |
 | `output_compression` | `"zstd"` | Parquet/CSV compression codec |
+
+> **Note**: `annual_discount_rate` has moved to the `simulation`
+> section.  For backward compatibility, it is still accepted in
+> `options`.
 
 ### 10.2 Simulation (time structure)
 

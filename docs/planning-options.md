@@ -68,7 +68,10 @@ All fields are `std::optional` -- absent fields inherit built-in defaults
 | `kirchhoff_threshold` | float | `0.0` | Min voltage [kV] for Kirchhoff |
 | `scale_objective` | float | `1000` | Objective coefficient divisor |
 | `scale_theta` | float | `1000` | Voltage-angle variable scaling |
-| `annual_discount_rate` | float | -- | Annual discount rate for CAPEX |
+
+> **Note**: `annual_discount_rate` has moved to the `simulation`
+> section.  For backward compatibility, it is still accepted here
+> or in `model_options`.
 
 ### Solver Selection
 
@@ -119,7 +122,9 @@ in cascade solver configurations.
 | `scale_theta` | float | `1000` | Voltage-angle variable scaling |
 | `demand_fail_cost` | float | -- | Penalty $/MWh for unserved demand |
 | `reserve_fail_cost` | float | -- | Penalty $/MWh for unserved reserve |
-| `annual_discount_rate` | float | -- | Annual discount rate for CAPEX [p.u./year] |
+
+> **Note**: `annual_discount_rate` has moved to the `simulation`
+> section.  For backward compatibility, it is still accepted here.
 
 ## SolverOptions Fields
 
@@ -141,10 +146,12 @@ configures the LP backend.
 
 ## MonolithicOptions Fields
 
+> **Note**: `boundary_cuts_file` has moved to the `simulation`
+> section.  For backward compatibility, it is still accepted here.
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `solve_mode` | string | `"monolithic"` | Solve mode: `"monolithic"` or `"sequential"` |
-| `boundary_cuts_file` | string | -- | CSV file with boundary (future-cost) cuts |
 | `boundary_cuts_mode` | string | `"separated"` | How to load boundary cuts: `"noload"`, `"separated"`, `"combined"` |
 | `boundary_max_iterations` | int | `0` | Max iterations to load from boundary cuts (0 = all) |
 | `solver_options` | `SolverOptions` | -- | Per-method LP solver configuration |
@@ -194,7 +201,6 @@ See [SDDP Method](methods/sddp.md) for full documentation with examples.
 | `recovery_mode` | string | `"none"` | Recovery from previous run: `"none"`, `"cuts"`, `"full"` |
 | `cuts_input_file` | string | -- | CSV file for hot-start cuts |
 | `named_cuts_file` | string | -- | CSV file with named-variable cuts spanning all phases |
-| `boundary_cuts_file` | string | -- | CSV file with boundary (future-cost) cuts for the last phase |
 | `boundary_cuts_mode` | string | `"separated"` | How to load boundary cuts: `"noload"`, `"separated"`, `"combined"` |
 | `boundary_max_iterations` | int | `0` | Max iterations to load from boundary cuts (0 = all) |
 | `missing_cut_var_mode` | string | `"skip_coeff"` | Action when cut references unknown state variable: `"skip_coeff"` or `"skip_cut"` |
@@ -363,7 +369,6 @@ files.
     "use_kirchhoff": true,
     "use_single_bus": false,
     "scale_objective": 1000,
-    "annual_discount_rate": 0.1,
     "method": "sddp",
     "lp_debug": false,
     "model_options": {
@@ -389,6 +394,11 @@ files.
     "variable_scales": [
       {"class_name": "Reservoir", "variable": "energy", "uid": -1, "scale": 1000.0}
     ]
+  },
+  "simulation": {
+    "annual_discount_rate": 0.1,
+    "boundary_cuts_file": "boundary_cuts.csv",
+    "boundary_cuts_valuation": "end_of_horizon"
   }
 }
 ```

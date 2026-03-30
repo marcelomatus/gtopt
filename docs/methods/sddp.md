@@ -640,7 +640,8 @@ where $\alpha$ is the future-cost variable added to the last phase,
 $x_i$ are the state variables (reservoir volumes, battery SoC), $\rho_i$
 are gradient coefficients, and $\beta_0$ is the intercept (RHS).
 
-**CSV format** (`boundary_cuts_file` in `sddp_options`):
+**CSV format** (`boundary_cuts_file` in `simulation`, or
+`sddp_options` for backward compatibility):
 
 ```
 name,iteration,scene,rhs,Reservoir1,Reservoir2,...
@@ -657,7 +658,8 @@ bc_2_1,2,1,-5100.0,0.26,0.74,...
 | `rhs` | Intercept $\beta_0$ (PLP: $-$`LDPhiPrv`) |
 | *State columns* | Gradient coefficients $\rho_i$ per state variable |
 
-**Load modes** (`boundary_cuts_mode` in `sddp_options`):
+**Load modes** (`boundary_cuts_mode` in `sddp_options`; the file
+itself is now specified via `boundary_cuts_file` in `simulation`):
 
 | Mode | Description |
 |------|-------------|
@@ -678,10 +680,13 @@ most recent ones are relevant.  Set to `0` to load all cuts (default).
 {
   "options": {
     "sddp_options": {
-      "boundary_cuts_file": "boundary_cuts.csv",
       "boundary_cuts_mode": "separated",
       "boundary_max_iterations": 3
     }
+  },
+  "simulation": {
+    "boundary_cuts_file": "boundary_cuts.csv",
+    "boundary_cuts_valuation": "end_of_horizon"
   }
 }
 ```
@@ -758,7 +763,6 @@ hs_2_1_4,2,1,4,-4800.0,0.30,0.60,...
 | `api_stop_request_file` | string | "" | Path for monitoring API stop-request file |
 | `api_update_interval` | ms | 500 | Interval between monitoring samples |
 | `num_apertures` | int | 0 | Apertures per backward-pass phase (0 = disabled, -1 = all scenarios) |
-| `boundary_cuts_file` | string | "" | CSV file with boundary cuts (S4.14) |
 | `boundary_cuts_mode` | string | "separated" | Load mode: `"noload"`, `"separated"`, `"combined"` |
 | `boundary_max_iterations` | int | 0 | Max iterations to load (0 = all) |
 | `named_cuts_file` | string | "" | CSV file with named multi-phase cuts (S4.15) |
@@ -833,7 +837,6 @@ prefix, since the section name already provides the namespace).
 | `aperture_directory` | string | `""` | Directory for aperture-specific scenario data |
 | `api_enabled` | bool | true | Enable SDDP monitoring API (JSON status file) |
 | `efficiency_update_skip` | int | 0 | Iterations to skip between efficiency coefficient updates |
-| `boundary_cuts_file` | string | `""` | CSV file with boundary cuts for the last phase (S4.14) |
 | `boundary_cuts_mode` | string | `"separated"` | Load mode: `"noload"`, `"separated"`, `"combined"` |
 | `boundary_max_iterations` | int | 0 | Max SDDP iterations to load from boundary cuts (0 = all) |
 | `named_cuts_file` | string | `""` | CSV file with named multi-phase cuts (S4.15) |
@@ -841,6 +844,11 @@ prefix, since the section name already provides the namespace).
 | `save_simulation_cuts` | bool | `false` | Save feasibility cuts from simulation pass |
 | `stationary_tol` | double | 0.0 | Secondary convergence: relative gap-change tolerance (0 = disabled) |
 | `stationary_window` | int | 10 | Look-back window for stationary gap detection |
+
+> **Note**: `boundary_cuts_file` has moved to the `simulation`
+> section.  For backward compatibility, it is still accepted in
+> `sddp_options`.  See also `boundary_cuts_valuation` in
+> `simulation` (`"end_of_horizon"` or `"present_value"`).
 
 ### 5.3 CLI
 
@@ -1449,7 +1457,7 @@ The cascade solver executes a sequence of **levels** defined in the
 - **`model_options`** — LP construction overrides (`use_single_bus`,
   `use_kirchhoff`, `use_line_losses`, `kirchhoff_threshold`,
   `loss_segments`, `scale_objective`, `scale_theta`,
-  `demand_fail_cost`, `reserve_fail_cost`, `annual_discount_rate`).
+  `demand_fail_cost`, `reserve_fail_cost`).
   When present, a fresh `PlanningLP` is built.  When absent, the
   previous level's LP is reused.
 - **`sddp_options`** — per-level solver settings (`max_iterations`,
@@ -1510,7 +1518,10 @@ fields inherit from the global configuration.
 | `scale_theta` | real | 1.0 | Scaling for voltage-angle variables |
 | `demand_fail_cost` | real | 1000 | Penalty for unserved demand [$/MWh] |
 | `reserve_fail_cost` | real | 1000 | Penalty for unserved reserve [$/MWh] |
-| `annual_discount_rate` | real | 0.0 | Discount rate for multi-stage CAPEX |
+
+> **Note**: `annual_discount_rate` has moved to the `simulation`
+> section.  For backward compatibility, it is still accepted in
+> `model_options`.
 
 #### `sddp_options` — Per-Level Solver Parameters
 

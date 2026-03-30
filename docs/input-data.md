@@ -66,7 +66,10 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 | `kirchhoff_threshold`  | number  | `0`       | kV            | Minimum bus voltage below which Kirchhoff is not applied |
 | `scale_objective`      | number  | `1000`    | dimensionless | Divisor applied to all objective coefficients for numerical stability |
 | `scale_theta`          | number  | `1000`    | dimensionless | Scaling factor for voltage-angle variables |
-| `annual_discount_rate` | number  | `0.0`     | p.u./year     | Annual discount rate for multi-stage CAPEX discounting |
+
+> **Note**: `annual_discount_rate` has moved to the `simulation`
+> section (see [Section 2](#2-simulation)).  For backward
+> compatibility, it is still accepted here.
 
 #### Output settings
 
@@ -110,7 +113,6 @@ by the `solver_options` sub-object (see Section 1.1).
 ```json
 {
   "options": {
-    "annual_discount_rate": 0.1,
     "output_format": "csv",
     "use_single_bus": false,
     "demand_fail_cost": 1000,
@@ -243,9 +245,12 @@ For full algorithmic details, see [SDDP Solver](methods/sddp.md).
 
 #### Boundary cuts
 
+> **Note**: `boundary_cuts_file` has moved to the `simulation`
+> section (see [Section 2](#2-simulation)).  For backward
+> compatibility, it is still accepted in `sddp_options`.
+
 | Field                      | Type    | Default       | Description |
 |----------------------------|---------|---------------|-------------|
-| `boundary_cuts_file`       | string  | `""`          | CSV file with boundary (future-cost) cuts for the last phase |
 | `boundary_cuts_mode`       | string  | `"separated"` | Load mode: `"noload"`, `"separated"` (per-scene), or `"combined"` (broadcast) |
 | `boundary_max_iterations`  | integer | `0`           | Max SDDP iterations to load from boundary file (0 = all) |
 
@@ -337,7 +342,10 @@ fields:
 | `scale_theta`          | number  | `1000`  | Scaling factor for voltage-angle variables |
 | `demand_fail_cost`     | number  | *(none)*| Penalty cost for unserved demand [$/MWh] |
 | `reserve_fail_cost`    | number  | *(none)*| Penalty cost for unserved reserve [$/MWh] |
-| `annual_discount_rate` | number  | `0.0`   | Annual discount rate [p.u./year] |
+
+> **Note**: `annual_discount_rate` has moved to the `simulation`
+> section.  For backward compatibility, it is still accepted in
+> `model_options`.
 
 **`sddp_options` fields** (per-level solver parameters):
 
@@ -381,7 +389,6 @@ forgetting semantics and the two-phase solve behavior.
       "elastic_mode": "single_cut",
       "elastic_penalty": 1e7,
       "cut_recovery_mode": "keep",
-      "boundary_cuts_file": "boundary_cuts.csv",
       "boundary_cuts_mode": "separated",
       "apertures": []
     }
@@ -478,10 +485,13 @@ For full details, see [Monolithic Solver](methods/monolithic.md).
 | Field                      | Type    | Default       | Description |
 |----------------------------|---------|---------------|-------------|
 | `solve_mode`               | string  | `"monolithic"`| Solve mode: `"monolithic"` (all phases in one LP) or `"sequential"` (phase-by-phase) |
-| `boundary_cuts_file`       | string  | `""`          | CSV file with boundary (future-cost) cuts for the last phase |
 | `boundary_cuts_mode`       | string  | `"separated"` | Load mode: `"noload"`, `"separated"` (per-scene), or `"combined"` (broadcast) |
 | `boundary_max_iterations`  | integer | `0`           | Max iterations to load from boundary file (0 = all) |
 | `solve_timeout`            | number  | `18000.0`     | LP solve timeout in seconds (0 = no timeout) |
+
+> **Note**: `boundary_cuts_file` has moved to the `simulation`
+> section.  For backward compatibility, it is still accepted in
+> `monolithic_options`.
 
 **Example:**
 
@@ -491,9 +501,11 @@ For full details, see [Monolithic Solver](methods/monolithic.md).
     "method": "monolithic",
     "monolithic_options": {
       "solve_mode": "monolithic",
-      "boundary_cuts_file": "boundary_cuts.csv",
       "boundary_cuts_mode": "separated"
     }
+  },
+  "simulation": {
+    "boundary_cuts_file": "boundary_cuts.csv"
   }
 }
 ```
@@ -514,6 +526,23 @@ Scenario  (probability_factor)
 ```
 
 Scenes group scenarios; Apertures define SDDP backward-pass openings.
+
+### Simulation-level fields
+
+In addition to the arrays below, the `simulation` object accepts these
+scalar fields:
+
+| Field                      | Type   | Default            | Description |
+|----------------------------|--------|--------------------|-------------|
+| `annual_discount_rate`     | number | `0.0`              | Annual discount rate for multi-stage CAPEX discounting [p.u./year] |
+| `boundary_cuts_file`       | string | `""`               | CSV file with boundary (future-cost) cuts for the last phase |
+| `boundary_cuts_valuation`  | string | `"end_of_horizon"` | Boundary-cut valuation mode: `"end_of_horizon"` (default) or `"present_value"` |
+
+> **Backward compatibility**: `annual_discount_rate` is also accepted
+> in `options` or `options.model_options`.  `boundary_cuts_file` is
+> also accepted in `options.sddp_options` or
+> `options.monolithic_options`.  The `simulation` location is
+> preferred.
 
 | Array              | Element   | Required | Description |
 |--------------------|-----------|----------|-------------|

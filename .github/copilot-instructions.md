@@ -1226,13 +1226,26 @@ Scenario (probability)
 | `use_line_losses` | `true` (default) | Model resistive line losses |
 | `demand_fail_cost` | e.g. 1000 | Value-of-lost-load penalty for unserved energy ($/MWh) |
 | `reserve_fail_cost` | e.g. 5000 | Penalty for unserved spinning-reserve requirement ($/MWh) |
-| `annual_discount_rate` | e.g. 0.1 | Yearly discount rate for investment costs (10 %) |
 | `scale_objective` | e.g. 1000 | Divides all objective coefficients; improves solver numerics |
 | `input_directory` | `"input"` (default) | Root directory for Parquet/CSV input files |
 | `input_format` | `"parquet"` (default) | Preferred input format; falls back to the other format |
 | `output_directory` | `"output"` (default) | Root directory for solution output files |
 | `output_format` | `"parquet"` (default) | Output file format (`"parquet"` or `"csv"`) |
 | `output_compression` | `"zstd"` (default) | Parquet/CSV compression codec (`"zstd"`, `"gzip"`, `"lzo"`, `"uncompressed"`) |
+
+### Simulation-Level Fields
+
+These fields belong in the `simulation` section (not `options`):
+
+| Field | Value | Meaning |
+|-------|-------|---------|
+| `annual_discount_rate` | e.g. 0.1 | Yearly discount rate for investment costs (10 %) |
+| `boundary_cuts_file` | path | CSV file with boundary (future-cost) cuts |
+| `boundary_cuts_valuation` | `"end_of_horizon"` (default) | Valuation mode: `"end_of_horizon"` or `"present_value"` |
+
+> For backward compatibility, `annual_discount_rate` is also accepted
+> in `options`, and `boundary_cuts_file` in `sddp_options` or
+> `monolithic_options`.
 
 ### Capacity Expansion Fields
 
@@ -1442,8 +1455,9 @@ objects; calling `planning_lp.resolve()` assembles and solves the full LP.
    tests; use an external Parquet file (`input_directory`) for production cases
    with many time points.
 
-7. **Multi-stage expansion**: set `annual_discount_rate` and `annual_capcost`
-   in consistent units. Annual cost × number of years ≈ total capital recovery.
+7. **Multi-stage expansion**: set `annual_discount_rate` (in `simulation`)
+   and `annual_capcost` in consistent units. Annual cost × number of years
+   ≈ total capital recovery.
 
 8. **Reserve modeling**: add a `reserve_zone_array` with `urreq`/`drreq` and
    link generators via `reserve_provision_array`. Each provision specifies
