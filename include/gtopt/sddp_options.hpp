@@ -24,7 +24,7 @@ namespace gtopt
  *
  * All fields are optional — defaults are applied via `PlanningOptionsLP`.
  */
-struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
+struct SddpOptions
 {
   /** @brief Cut sharing mode: none (default), expected, accumulate, or max */
   std::optional<CutSharingMode> cut_sharing_mode {};
