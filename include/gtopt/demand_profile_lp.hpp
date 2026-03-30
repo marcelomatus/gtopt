@@ -1,11 +1,12 @@
 /**
  * @file      demand_profile_lp.hpp
- * @brief     Header of
+ * @brief     LP formulation for demand profiles
  * @date      Tue Apr  1 23:54:46 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module defines the DemandProfileLP class, which builds LP variables
+ * and constraints for time-varying demand profiles linked to demands.
  */
 
 #pragma once

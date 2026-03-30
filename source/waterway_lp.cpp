@@ -1,11 +1,12 @@
 /**
  * @file      waterway_lp.cpp
- * @brief     Header of
+ * @brief     Implementation of waterway LP formulation
  * @date      Wed Jul 30 12:02:36 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module implements WaterwayLP construction and add_to_lp, which
+ * builds LP flow variables and constraints between hydro junctions.
  */
 
 #include <gtopt/linear_problem.hpp>

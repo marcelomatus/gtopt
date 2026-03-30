@@ -548,7 +548,7 @@ scalar fields:
 |--------------------|-----------|----------|-------------|
 | `block_array`      | Block     | Yes      | Indivisible time units |
 | `stage_array`      | Stage     | Yes      | Planning/investment periods |
-| `scenario_array`   | Scenario  | Yes      | Stochastic realisations |
+| `scenario_array`   | Scenario  | Yes      | Stochastic realizations |
 | `phase_array`      | Phase     | No       | Groups of consecutive stages |
 | `scene_array`      | Scene     | No       | Groups of scenarios |
 | `aperture_array`   | Aperture  | No       | SDDP backward-pass openings |
@@ -624,7 +624,7 @@ provided, a single default scene covering all scenarios is created.
 
 ### 2.6 Aperture
 
-An aperture represents one hydrological (or stochastic) realisation
+An aperture represents one hydrological (or stochastic) realization
 used in the SDDP backward pass. Each aperture references a **source
 scenario** whose affluent data (flow bounds) are applied to the cloned
 phase LP before solving. Apertures allow the backward pass to sample

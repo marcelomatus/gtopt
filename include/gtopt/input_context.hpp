@@ -1,11 +1,12 @@
 /**
  * @file      input_context.hpp
- * @brief     Header of
+ * @brief     Input context for reading scheduled data into LP elements
  * @date      Sat Mar 22 22:54:04 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module defines the InputContext class, which provides methods for
+ * reading Arrow-based indexed arrays and schedules into LP element data.
  */
 
 #pragma once

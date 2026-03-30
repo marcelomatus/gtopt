@@ -1,11 +1,12 @@
 /**
  * @file      converter_lp.hpp
- * @brief     Header of
+ * @brief     LP formulation for energy converters
  * @date      Wed Apr  2 02:10:10 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module defines the ConverterLP class, which builds LP variables and
+ * constraints linking a converter to its battery, demand, and generator.
  */
 
 #pragma once

@@ -1,7 +1,7 @@
 # gtopt Python Scripts
 
 The `scripts/` directory contains Python command-line utilities for
-preparing, converting, visualising, and post-processing data for use with gtopt.
+preparing, converting, visualizing, and post-processing data for use with gtopt.
 
 > **Detailed documentation** for each script is available in the
 > [`docs/scripts/`](scripts/) directory. This page provides a summary
@@ -11,14 +11,14 @@ preparing, converting, visualising, and post-processing data for use with gtopt.
 
 - [Installation](#installation)
 - **Data Preparation & Conversion**
-  - [gtopt_diagram](#gtopt_diagram) · [full docs](docs/scripts/gtopt_diagram.md)
-  - [plp2gtopt](#plp2gtopt) · [full docs](docs/scripts/plp2gtopt.md)
-  - [pp2gtopt](#pp2gtopt) · [full docs](docs/scripts/pp2gtopt.md)
+  - [gtopt_diagram](#gtopt_diagram) · [full docs](scripts/gtopt_diagram.md)
+  - [plp2gtopt](#plp2gtopt) · [full docs](scripts/plp2gtopt.md)
+  - [pp2gtopt](#pp2gtopt) · [full docs](scripts/pp2gtopt.md)
   - [gtopt2pp](#gtopt2pp) — convert gtopt JSON back to pandapower
-  - [igtopt](#igtopt) · [full docs](docs/scripts/igtopt.md) · [Excel template](docs/templates/gtopt_template.xlsx) · `igtopt --make-template` regenerates the template
-  - [cvs2parquet](#cvs2parquet) · [full docs](docs/scripts/cvs2parquet.md)
-  - [ts2gtopt](#ts2gtopt) · [full docs](docs/scripts/ts2gtopt.md)
-  - [gtopt_compare](#gtopt_compare) · [full docs](docs/scripts/gtopt_compare.md)
+  - [igtopt](#igtopt) · [full docs](scripts/igtopt.md) · [Excel template](templates/gtopt_template.xlsx) · `igtopt --make-template` regenerates the template
+  - [cvs2parquet](#cvs2parquet) · [full docs](scripts/cvs2parquet.md)
+  - [ts2gtopt](#ts2gtopt) · [full docs](scripts/ts2gtopt.md)
+  - [gtopt_compare](#gtopt_compare) · [full docs](scripts/gtopt_compare.md)
 - **Running & Monitoring**
   - [run_gtopt](#run_gtopt) — smart solver wrapper with pre/post-flight checks
   - [sddp_monitor](#sddp_monitor) — live SDDP convergence dashboard
@@ -63,7 +63,7 @@ pip install -e "./scripts[dev,diagram]"
 # adds: graphviz, pyvis, cairosvg
 ```
 
-### Package organisation
+### Package organization
 
 Each command-line tool lives in its own Python package directory under
 `scripts/`:
@@ -107,7 +107,7 @@ Each command-line tool lives in its own Python package directory under
 
 ## gtopt_diagram
 
-> **[→ Full documentation](docs/scripts/gtopt_diagram.md)**
+> **[→ Full documentation](scripts/gtopt_diagram.md)**
 
 Generates **network topology and planning-structure diagrams** from a gtopt
 JSON planning file.  Supports multiple output formats (SVG, PNG, PDF, DOT,
@@ -231,7 +231,7 @@ reduction options:
 
 ## plp2gtopt
 
-> **[→ Full documentation](docs/scripts/plp2gtopt.md)**
+> **[→ Full documentation](scripts/plp2gtopt.md)**
 
 Converts a **PLP** (*Programación de Largo Plazo*) case directory to the gtopt JSON + Parquet
 format.  Reads the standard PLP data files (`plpblo.dat`, `plpbar.dat`,
@@ -490,7 +490,7 @@ centrals by name so the user can verify that they are genuinely unused.
 
 ## pp2gtopt
 
-> **[→ Full documentation](docs/scripts/pp2gtopt.md)**
+> **[→ Full documentation](scripts/pp2gtopt.md)**
 
 Converts a **pandapower** network to gtopt JSON format.  Accepts either a
 built-in IEEE test network (via `-n`) or any pandapower network file saved to
@@ -561,8 +561,8 @@ The output JSON system `name` is derived from the file stem (e.g. `case39.m`
 
 ## igtopt
 
-> **[→ Full documentation](docs/scripts/igtopt.md)** ·
-> **[Excel template](docs/templates/gtopt_template.xlsx)**
+> **[→ Full documentation](scripts/igtopt.md)** ·
+> **[Excel template](templates/gtopt_template.xlsx)**
 
 Converts an **Excel workbook** to a gtopt JSON case.  Reads all named sheets
 from the workbook and writes:
@@ -769,7 +769,7 @@ array sheet (e.g. `lmax` in `demand_array`) should contain the string
 
 ## cvs2parquet
 
-> **[→ Full documentation](docs/scripts/cvs2parquet.md)**
+> **[→ Full documentation](scripts/cvs2parquet.md)**
 
 Converts **CSV time-series files** to Parquet format.
 
@@ -788,7 +788,7 @@ columns are cast to `float64`.
 
 ## ts2gtopt
 
-> **[→ Full documentation](docs/scripts/ts2gtopt.md)**
+> **[→ Full documentation](scripts/ts2gtopt.md)**
 
 Projects **hourly (or finer) time-series data** onto a gtopt planning horizon
 and produces block-aggregated schedule files (Parquet or CSV) ready for use as

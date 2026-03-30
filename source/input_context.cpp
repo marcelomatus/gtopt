@@ -1,11 +1,12 @@
 /**
  * @file      input_context.cpp
- * @brief     Header of
+ * @brief     Implementation of InputContext and element_index instantiations
  * @date      Fri Apr 25 14:17:18 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module implements the InputContext constructor and provides explicit
+ * template instantiations of element_index for all LP element types.
  */
 
 #include <gtopt/input_context.hpp>

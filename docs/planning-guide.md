@@ -57,7 +57,7 @@ external time-series data.
 
 The **planning data model** defines how time and uncertainty are represented:
 
-![gtopt Planning Data Model](docs/diagrams/planning_structure.svg)
+![gtopt Planning Data Model](diagrams/planning_structure.svg)
 
 > 💾 Regenerate: `python3 scripts/gtopt_diagram.py --diagram-type planning -o docs/diagrams/planning_structure.svg`
 
@@ -65,7 +65,7 @@ The **planning data model** defines how time and uncertainty are represented:
 |---------|------|
 | **Block** | Smallest time unit. `energy [MWh] = power [MW] × duration [h]`. |
 | **Stage** | Investment period. Capacity built in a stage is available in all later stages. Costs are multiplied by `discount_factor` for present-value accounting. |
-| **Scenario** | One realisation of uncertain inputs (e.g. dry/wet hydrology). All scenarios are solved simultaneously; their costs are weighted by `probability_factor`. |
+| **Scenario** | One realization of uncertain inputs (e.g. dry/wet hydrology). All scenarios are solved simultaneously; their costs are weighted by `probability_factor`. |
 | **Phase** | Groups consecutive stages into a higher-level period (e.g. seasons, construction vs. operation). Default: single phase covering all stages. See [Section 1.2](#12-phases-and-scenes). |
 | **Scene** | Combines a subset of scenarios for LP solving. Default: single scene covering all scenarios. See [Section 1.2](#12-phases-and-scenes). |
 
@@ -404,7 +404,7 @@ transmission lines. DC power flow (Kirchhoff's voltage law) is enabled.
 
 ### Network diagram
 
-![IEEE 9-bus electrical network](docs/diagrams/ieee9b_electrical.svg)
+![IEEE 9-bus electrical network](diagrams/ieee9b_electrical.svg)
 
 > 💾 Regenerate: `python3 scripts/gtopt_diagram.py cases/ieee_9b/ieee_9b.json --subsystem electrical -o docs/diagrams/ieee9b_electrical.svg`
 
@@ -476,7 +476,7 @@ flowchart LR
 
 ### Planning time structure
 
-![c0 planning time structure](docs/diagrams/c0_planning.svg)
+![c0 planning time structure](diagrams/c0_planning.svg)
 
 > 💾 Regenerate: `python3 scripts/gtopt_diagram.py cases/c0/system_c0.json --diagram-type planning -o docs/diagrams/c0_planning.svg`
 
@@ -532,7 +532,7 @@ high-demand periods.
 
 ### Network diagram
 
-![bat_4b electrical network](docs/diagrams/bat4b_electrical.svg)
+![bat_4b electrical network](diagrams/bat4b_electrical.svg)
 
 > 💾 Regenerate: `python3 scripts/gtopt_diagram.py cases/bat_4b/bat_4b.json --subsystem electrical -o docs/diagrams/bat4b_electrical.svg`
 
@@ -1083,7 +1083,7 @@ In summary tables below, ✱ marks required fields.
 |---------|-----------|-------------|
 | **Block** | `uid`✱, `duration`✱ (h) | Smallest time unit; `energy = power × duration` |
 | **Stage** | `uid`✱, `first_block`, `count_block`, `discount_factor` | Investment period grouping consecutive blocks |
-| **Scenario** | `uid`✱, `probability_factor` | One realisation of uncertain inputs |
+| **Scenario** | `uid`✱, `probability_factor` | One realization of uncertain inputs |
 | **Phase** | `uid`✱, `first_stage`, `count_stage` | Groups consecutive stages (advanced) |
 | **Scene** | `uid`✱, `first_scenario`, `count_scenario` | Cross-products scenarios with phases |
 

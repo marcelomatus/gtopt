@@ -1,11 +1,12 @@
 /**
  * @file      scene.hpp
- * @brief     Header of
+ * @brief     Scene data structure for grouping scenarios
  * @date      Wed Mar 26 12:11:10 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module defines the Scene struct, which groups a contiguous range
+ * of scenarios within a simulation.
  */
 
 #pragma once

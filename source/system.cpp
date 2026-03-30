@@ -1,5 +1,5 @@
 /**
- * @file      system.cpp<gtopt>
+ * @file      system.cpp
  * @brief     Header of System class methods
  * @date      Sun Mar 30 16:04:21 2025
  * @author    marcelo

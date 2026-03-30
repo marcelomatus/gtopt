@@ -1,11 +1,12 @@
 /**
  * @file      schedule.hpp
- * @brief     Header of
+ * @brief     Typed schedule wrapper for indexed field data
  * @date      Sun Jun  1 15:35:26 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module defines the Schedule template class, which wraps a FieldSched
+ * and resolves its values into Arrow-indexed arrays for LP construction.
  */
 
 #pragma once
