@@ -385,8 +385,19 @@ def write_aperture_afluents(
             arrays[f"uid:{scen_uid}"] = pa.array(values, type=pa.float64())
 
         table = pa.table(arrays)
-        out_path = flow_dir / f"{central_name}.parquet"
-        comp = _probe_parquet_codec(
-            (options or {}).get("compression", _DEFAULT_COMPRESSION)
-        )
-        pq.write_table(table, out_path, compression=comp if comp else None)
+        fmt = (options or {}).get("output_format", "parquet")
+        if fmt == "csv":
+            out_path = flow_dir / f"{central_name}.csv"
+            table.to_pandas().to_csv(out_path, index=False)
+        else:
+            out_path = flow_dir / f"{central_name}.parquet"
+            comp = _probe_parquet_codec(
+                (options or {}).get("compression", _DEFAULT_COMPRESSION)
+            )
+            comp_level = (options or {}).get("compression_level")
+            pq_kw: dict[str, Any] = {}
+            if comp:
+                pq_kw["compression"] = comp
+            if comp_level:
+                pq_kw["compression_level"] = int(comp_level)
+            pq.write_table(table, out_path, **pq_kw)

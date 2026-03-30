@@ -16,6 +16,17 @@ File format (INI)::
     check_load_shedding = true
     ...
 
+    [plp2gtopt]
+    compression       = zstd
+    compression_level = 9
+    output_format     = parquet
+    input_format      = parquet
+    solver_type       = sddp
+    demand_fail_cost  = 1000.0
+    scale_objective   = 1000.0
+    discount_rate     = 0.0
+    rsv_scale_mode    = auto
+
     [run_gtopt]
     default_threads = 0
     ...

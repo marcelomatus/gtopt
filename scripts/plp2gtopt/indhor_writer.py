@@ -60,17 +60,7 @@ class IndhorWriter(BaseWriter):
         df = self.indhor_parser.df
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        compression = self.get_compression()
-        fmt = (
-            self.options.get("output_format", "parquet") if self.options else "parquet"
-        )
-
-        if fmt == "csv":
-            out_file = output_dir / f"{self.FILE_STEM}.csv"
-            df.to_csv(out_file, index=False)
-        else:
-            out_file = output_dir / f"{self.FILE_STEM}.parquet"
-            df.to_parquet(out_file, index=False, compression=compression)
+        self.write_dataframe(df, output_dir, self.FILE_STEM)
 
         # Return the relative key path (no extension; gtopt resolves format)
         return f"{self.SUBDIR}/{self.FILE_STEM}"

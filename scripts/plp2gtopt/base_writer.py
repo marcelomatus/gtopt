@@ -242,6 +242,63 @@ class BaseWriter(ABC):
         codec = _probe_parquet_codec(requested)
         return None if codec in self.UNCOMPRESSED_ALIASES else codec
 
+    def get_compression_level(
+        self, options: Optional[Dict[str, Any]] = None
+    ) -> Optional[int]:
+        """Return the Parquet compression level from *options*.
+
+        Returns ``None`` when the level is not set or is ``0`` (meaning
+        "use the codec's built-in default").
+        """
+        if options is None:
+            options = self.options
+        level = (options or {}).get("compression_level")
+        if level is None or level == 0:
+            return None
+        return int(level)
+
+    def get_compression_kwargs(
+        self, options: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Return ``dict(compression=..., compression_level=...)`` ready
+        to unpack into ``df.to_parquet()`` or ``pq.write_table()``.
+
+        Keys with ``None`` values are omitted so callers can simply
+        ``**kwargs`` without worrying about unsupported arguments.
+        """
+        kw: Dict[str, Any] = {}
+        codec = self.get_compression(options)
+        if codec is not None:
+            kw["compression"] = codec
+        level = self.get_compression_level(options)
+        if level is not None:
+            kw["compression_level"] = level
+        return kw
+
+    def get_output_format(self, options: Optional[Dict[str, Any]] = None) -> str:
+        """Return ``"parquet"`` or ``"csv"`` from *options*."""
+        if options is None:
+            options = self.options
+        return (options or {}).get("output_format", "parquet")
+
+    def write_dataframe(
+        self,
+        df: pd.DataFrame,
+        output_dir: Path,
+        stem: str,
+        options: Optional[Dict[str, Any]] = None,
+    ) -> Path:
+        """Write *df* as ``<stem>.parquet`` or ``<stem>.csv`` depending on
+        ``output_format``.  Returns the path written."""
+        fmt = self.get_output_format(options)
+        if fmt == "csv":
+            out = output_dir / f"{stem}.csv"
+            df.to_csv(out, index=False)
+        else:
+            out = output_dir / f"{stem}.parquet"
+            df.to_parquet(out, index=False, **self.get_compression_kwargs(options))
+        return out
+
     def pcol_name(
         self,
         item_name: str,

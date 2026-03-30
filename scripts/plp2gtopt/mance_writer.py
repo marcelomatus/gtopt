@@ -97,24 +97,8 @@ class ManceWriter(BaseWriter):
         except Exception as e:
             raise ValueError(f"Failed to create DataFrames: {str(e)}") from e
 
-    def _write_parquet_for_field(self, df: pd.DataFrame, output_path: Path) -> None:
-        """Write a single DataFrame to parquet format.
-
-        Args:
-            df: DataFrame containing the field data
-            output_path: Path to write the parquet file to
-        """
-        if df.empty:
-            return
-
-        df.to_parquet(
-            output_path,
-            index=False,
-            compression=self.get_compression(),
-        )
-
     def to_parquet(self, output_dir: Path, items=None) -> Dict[str, List[str]]:
-        """Write maintenance data to Parquet files for pmin and pmax."""
+        """Write maintenance data to Parquet/CSV files for pmin and pmax."""
         cols: Dict[str, List[str]] = {"pmin": [], "pmax": []}
         df_pmin, df_pmax = self.to_dataframe(items)
 
@@ -125,9 +109,9 @@ class ManceWriter(BaseWriter):
             # Ensure output directory exists
             output_dir.mkdir(parents=True, exist_ok=True)
             if not df_pmin.empty:
-                self._write_parquet_for_field(df_pmin, output_dir / "pmin.parquet")
+                self.write_dataframe(df_pmin, output_dir, "pmin")
             if not df_pmax.empty:
-                self._write_parquet_for_field(df_pmax, output_dir / "pmax.parquet")
+                self.write_dataframe(df_pmax, output_dir, "pmax")
         except Exception as e:
             raise IOError(f"Failed to write Parquet files: {str(e)}") from e
         finally:

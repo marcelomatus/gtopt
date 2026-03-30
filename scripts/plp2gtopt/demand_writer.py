@@ -2,6 +2,7 @@
 
 """Writer for converting demand data to JSON format."""
 
+import logging
 from typing import Any, Dict, List, Optional, TypedDict, cast
 from pathlib import Path
 import pandas as pd
@@ -9,6 +10,8 @@ import pandas as pd
 from .base_writer import BaseWriter
 from .demand_parser import DemandParser
 from .block_parser import BlockParser
+
+_logger = logging.getLogger(__name__)
 
 
 class Demand(TypedDict, total=False):
@@ -159,15 +162,131 @@ class DemandWriter(BaseWriter):
         df, de = self.to_dataframe(items)
 
         if not df.empty:
-            df.to_parquet(
-                output_dir / "lmax.parquet",
-                index=False,
-                compression=self.get_compression(),
-            )
+            self.write_dataframe(df, output_dir, "lmax")
 
         if not de.empty:
-            de.to_parquet(
-                output_dir / "emin.parquet",
-                index=False,
-                compression=self.get_compression(),
-            )
+            self.write_dataframe(de, output_dir, "emin")
+
+    def to_fcost_dataframe(
+        self,
+        demand_array: List[Dict[str, Any]],
+        falla_by_bus: Dict[int, Dict[str, Any]],
+        cost_parser: Any,
+        stage_parser: Any,
+        central_parser: Any,
+    ) -> tuple[pd.DataFrame, set[Any]]:
+        """Build the fcost DataFrame from falla cost schedules.
+
+        When multiple falla centrals sit on the same bus and have cost
+        schedules, the **minimum** cost per stage across all of them is
+        used.  The base gcost from plpcnfce.dat fills stages not covered
+        by the schedule.
+
+        Returns ``(df, filed_buses)`` where *df* has columns
+        ``stage, uid:<N>, …`` and *filed_buses* is the set of demand bus
+        numbers that got a time-varying fcost.
+        """
+        empty: tuple[pd.DataFrame, set[Any]] = (pd.DataFrame(), set())
+
+        if not cost_parser or not stage_parser or not central_parser:
+            return empty
+
+        # Build demand uid → bus mapping
+        bus_to_uid: Dict[int, Any] = {}
+        for dem in demand_array:
+            bus = dem.get("bus")
+            if bus in falla_by_bus:
+                bus_to_uid[bus] = dem.get("uid", bus)
+
+        if not bus_to_uid:
+            return empty
+
+        # Group all falla centrals by bus
+        fallas_per_bus: Dict[int, List[Dict[str, Any]]] = {}
+        for central in central_parser.centrals:
+            if central.get("type") != "falla":
+                continue
+            bus = central.get("bus", 0)
+            if bus <= 0 or bus not in bus_to_uid:
+                continue
+            fallas_per_bus.setdefault(bus, []).append(central)
+
+        stages = [s["number"] for s in stage_parser.items]
+
+        series_list: List[pd.Series] = []
+        filed_buses: set[Any] = set()
+
+        for bus, fallas in fallas_per_bus.items():
+            # Collect cost schedules from all fallas on this bus
+            bus_schedules: List[pd.Series] = []
+            min_base_gcost = min(f.get("gcost", 0.0) for f in fallas)
+            for falla in fallas:
+                cost_entry = cost_parser.get_cost_by_name(falla.get("name", ""))
+                if cost_entry is None:
+                    # No schedule — use constant base gcost
+                    bus_schedules.append(
+                        pd.Series(
+                            falla.get("gcost", 0.0),
+                            index=stages,
+                            dtype="float64",
+                        )
+                    )
+                else:
+                    s = pd.Series(
+                        data=cost_entry["cost"],
+                        index=cost_entry["stage"].tolist(),
+                        dtype="float64",
+                    )
+                    s = s[~s.index.duplicated(keep="last")]
+                    # Reindex to all stages, fill with base gcost
+                    s = s.reindex(stages).fillna(falla.get("gcost", 0.0))
+                    bus_schedules.append(s)
+
+            if not bus_schedules:
+                continue
+
+            # Element-wise minimum across all fallas on this bus
+            min_series = bus_schedules[0]
+            for s in bus_schedules[1:]:
+                min_series = min_series.combine(s, min)
+
+            # Skip writing if the schedule is constant and equals min base gcost
+            if (min_series == min_base_gcost).all():
+                continue
+
+            dem_uid = bus_to_uid[bus]
+            min_series.name = f"uid:{dem_uid}"
+            series_list.append(min_series)
+            filed_buses.add(bus)
+
+        if not series_list:
+            return empty
+
+        df = pd.concat(series_list, axis=1)
+        df = df.reset_index().rename(columns={"index": "stage"})
+        df["stage"] = df["stage"].astype("int32")
+
+        return df, filed_buses
+
+    def write_fcost(
+        self,
+        demand_array: List[Dict[str, Any]],
+        falla_by_bus: Dict[int, Dict[str, Any]],
+        cost_parser: Any,
+        stage_parser: Any,
+        central_parser: Any,
+    ) -> set[Any]:
+        """Write Demand/fcost from falla cost schedules.
+
+        Returns the set of demand bus numbers that got a file-based fcost.
+        """
+        df, filed_buses = self.to_fcost_dataframe(
+            demand_array, falla_by_bus, cost_parser, stage_parser, central_parser
+        )
+
+        if not df.empty:
+            output_dir = self.options.get("output_dir", Path("results")) / "Demand"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            self.write_dataframe(df, output_dir, "fcost")
+
+        return filed_buses

@@ -694,7 +694,7 @@ class TestFallaFcost:
         mock_parser = MagicMock(spec=PLPParser)
         mock_parser.parsed_data = {}
         writer = GTOptWriter(mock_parser)
-        assert writer._falla_by_bus() == {}
+        assert not writer._falla_by_bus()
 
     def test_process_demands_sets_fcost(self, tmp_path):
         """process_demands populates fcost from falla centrals."""
@@ -723,13 +723,12 @@ class TestFallaFcost:
 
 
 class TestWriteFcostParquet:
-    """Test Demand/fcost.parquet generation from falla cost schedules."""
+    """Test Demand/fcost generation from falla cost schedules."""
 
-    def _make_writer(self, fallas, cost_entries, stages):
-        """Build a GTOptWriter with mock parsers for falla+cost+stage data."""
+    def _make_mocks(self, fallas, cost_entries, stages):
+        """Build mock parsers for falla+cost+stage data."""
         import numpy as np
 
-        mock_parser = MagicMock(spec=PLPParser)
         mock_cp = MagicMock()
         mock_cp.centrals = fallas
 
@@ -749,16 +748,27 @@ class TestWriteFcostParquet:
         mock_stage = MagicMock()
         mock_stage.items = [{"number": s} for s in stages]
 
-        mock_parser.parsed_data = {
-            "central_parser": mock_cp,
-            "cost_parser": mock_cost,
-            "stage_parser": mock_stage,
-        }
-        return GTOptWriter(mock_parser)
+        return mock_cost, mock_stage, mock_cp
+
+    @staticmethod
+    def _falla_by_bus(fallas):
+        """Replicate GTOptWriter._falla_by_bus logic for test falla lists."""
+        result = {}
+        for c in fallas:
+            if c.get("type") != "falla":
+                continue
+            bus = c.get("bus", 0)
+            if bus <= 0:
+                continue
+            prev = result.get(bus)
+            if prev is None or c.get("gcost", 0.0) < prev.get("gcost", 0.0):
+                result[bus] = c
+        return result
 
     def test_writes_parquet_with_schedule(self, tmp_path):
         """Falla with cost schedule produces Demand/fcost.parquet."""
         import pandas as pd
+        from plp2gtopt.demand_writer import DemandWriter
 
         fallas = [
             {"name": "FALLA_1", "type": "falla", "bus": 1, "gcost": 400.0},
@@ -766,12 +776,13 @@ class TestWriteFcostParquet:
         costs = [
             {"name": "FALLA_1", "stage": [1, 2, 3], "cost": [400.0, 450.0, 500.0]},
         ]
-        writer = self._make_writer(fallas, costs, stages=[1, 2, 3])
+        cost_p, stage_p, central_p = self._make_mocks(fallas, costs, stages=[1, 2, 3])
         demand_array = [{"uid": 1, "name": "d1", "bus": 1}]
-        falla_by_bus = writer._falla_by_bus()
+        falla_by_bus = self._falla_by_bus(fallas)
         opts = {"output_dir": tmp_path, "compression": "zstd"}
+        dw = DemandWriter(options=opts)
 
-        filed = writer._write_fcost_parquet(demand_array, falla_by_bus, opts)
+        filed = dw.write_fcost(demand_array, falla_by_bus, cost_p, stage_p, central_p)
 
         assert 1 in filed
         parquet_path = tmp_path / "Demand" / "fcost.parquet"
@@ -782,25 +793,29 @@ class TestWriteFcostParquet:
         assert list(df["uid:1"]) == [400.0, 450.0, 500.0]
 
     def test_constant_schedule_stays_scalar(self, tmp_path):
-        """Falla whose schedule equals base gcost → no parquet, stays scalar."""
+        """Falla whose schedule equals base gcost → no file, stays scalar."""
+        from plp2gtopt.demand_writer import DemandWriter
+
         fallas = [
             {"name": "FALLA_1", "type": "falla", "bus": 1, "gcost": 400.0},
         ]
         costs = [
             {"name": "FALLA_1", "stage": [1, 2, 3], "cost": [400.0, 400.0, 400.0]},
         ]
-        writer = self._make_writer(fallas, costs, stages=[1, 2, 3])
+        cost_p, stage_p, central_p = self._make_mocks(fallas, costs, stages=[1, 2, 3])
         demand_array = [{"uid": 1, "name": "d1", "bus": 1}]
-        falla_by_bus = writer._falla_by_bus()
+        falla_by_bus = self._falla_by_bus(fallas)
         opts = {"output_dir": tmp_path, "compression": "zstd"}
+        dw = DemandWriter(options=opts)
 
-        filed = writer._write_fcost_parquet(demand_array, falla_by_bus, opts)
+        filed = dw.write_fcost(demand_array, falla_by_bus, cost_p, stage_p, central_p)
 
         assert not filed  # No file written
 
     def test_multiple_fallas_min_per_stage(self, tmp_path):
         """Multiple fallas on same bus → element-wise min cost per stage."""
         import pandas as pd
+        from plp2gtopt.demand_writer import DemandWriter
 
         fallas = [
             {"name": "FALLA_A", "type": "falla", "bus": 1, "gcost": 500.0},
@@ -810,12 +825,13 @@ class TestWriteFcostParquet:
             {"name": "FALLA_A", "stage": [1, 2, 3], "cost": [300.0, 600.0, 500.0]},
             {"name": "FALLA_B", "stage": [1, 2, 3], "cost": [500.0, 400.0, 450.0]},
         ]
-        writer = self._make_writer(fallas, costs, stages=[1, 2, 3])
+        cost_p, stage_p, central_p = self._make_mocks(fallas, costs, stages=[1, 2, 3])
         demand_array = [{"uid": 1, "name": "d1", "bus": 1}]
-        falla_by_bus = writer._falla_by_bus()
+        falla_by_bus = self._falla_by_bus(fallas)
         opts = {"output_dir": tmp_path, "compression": "zstd"}
+        dw = DemandWriter(options=opts)
 
-        filed = writer._write_fcost_parquet(demand_array, falla_by_bus, opts)
+        filed = dw.write_fcost(demand_array, falla_by_bus, cost_p, stage_p, central_p)
 
         assert 1 in filed
         df = pd.read_parquet(tmp_path / "Demand" / "fcost.parquet")
@@ -825,6 +841,7 @@ class TestWriteFcostParquet:
     def test_falla_without_schedule_uses_constant(self, tmp_path):
         """Falla with no cost schedule contributes its constant gcost."""
         import pandas as pd
+        from plp2gtopt.demand_writer import DemandWriter
 
         fallas = [
             {"name": "FALLA_A", "type": "falla", "bus": 1, "gcost": 300.0},
@@ -834,12 +851,13 @@ class TestWriteFcostParquet:
         costs = [
             {"name": "FALLA_B", "stage": [1, 2, 3], "cost": [200.0, 600.0, 500.0]},
         ]
-        writer = self._make_writer(fallas, costs, stages=[1, 2, 3])
+        cost_p, stage_p, central_p = self._make_mocks(fallas, costs, stages=[1, 2, 3])
         demand_array = [{"uid": 1, "name": "d1", "bus": 1}]
-        falla_by_bus = writer._falla_by_bus()
+        falla_by_bus = self._falla_by_bus(fallas)
         opts = {"output_dir": tmp_path, "compression": "zstd"}
+        dw = DemandWriter(options=opts)
 
-        filed = writer._write_fcost_parquet(demand_array, falla_by_bus, opts)
+        filed = dw.write_fcost(demand_array, falla_by_bus, cost_p, stage_p, central_p)
 
         assert 1 in filed
         df = pd.read_parquet(tmp_path / "Demand" / "fcost.parquet")
@@ -847,25 +865,25 @@ class TestWriteFcostParquet:
         assert list(df["uid:1"]) == [200.0, 300.0, 300.0]
 
     def test_no_cost_parser_returns_empty(self, tmp_path):
-        """No cost_parser → no parquet written."""
-        mock_parser = MagicMock(spec=PLPParser)
-        mock_cp = MagicMock()
-        mock_cp.centrals = [
+        """No cost_parser → no file written."""
+        from plp2gtopt.demand_writer import DemandWriter
+
+        fallas = [
             {"name": "FALLA_1", "type": "falla", "bus": 1, "gcost": 400.0},
         ]
-        mock_parser.parsed_data = {"central_parser": mock_cp}
-        writer = GTOptWriter(mock_parser)
         demand_array = [{"uid": 1, "name": "d1", "bus": 1}]
-        falla_by_bus = writer._falla_by_bus()
+        falla_by_bus = self._falla_by_bus(fallas)
         opts = {"output_dir": tmp_path, "compression": "zstd"}
+        dw = DemandWriter(options=opts)
 
-        filed = writer._write_fcost_parquet(demand_array, falla_by_bus, opts)
+        filed = dw.write_fcost(demand_array, falla_by_bus, None, None, None)
 
         assert not filed
 
     def test_parquet_has_stage_index_only(self, tmp_path):
         """Parquet file has 'stage' column but no 'block' column (T-indexed)."""
         import pandas as pd
+        from plp2gtopt.demand_writer import DemandWriter
 
         fallas = [
             {"name": "FALLA_1", "type": "falla", "bus": 1, "gcost": 400.0},
@@ -873,12 +891,13 @@ class TestWriteFcostParquet:
         costs = [
             {"name": "FALLA_1", "stage": [1, 2], "cost": [400.0, 500.0]},
         ]
-        writer = self._make_writer(fallas, costs, stages=[1, 2])
+        cost_p, stage_p, central_p = self._make_mocks(fallas, costs, stages=[1, 2])
         demand_array = [{"uid": 1, "name": "d1", "bus": 1}]
-        falla_by_bus = writer._falla_by_bus()
+        falla_by_bus = self._falla_by_bus(fallas)
         opts = {"output_dir": tmp_path, "compression": "zstd"}
+        dw = DemandWriter(options=opts)
 
-        writer._write_fcost_parquet(demand_array, falla_by_bus, opts)
+        dw.write_fcost(demand_array, falla_by_bus, cost_p, stage_p, central_p)
 
         df = pd.read_parquet(tmp_path / "Demand" / "fcost.parquet")
         assert "stage" in df.columns
