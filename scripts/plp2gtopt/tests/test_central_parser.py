@@ -238,15 +238,15 @@ def test_parse_real_file() -> None:
     assert cen_by_name == los_molles
 
 
-@pytest.mark.skipif(
-    not (
-        Path(__file__).parent.parent.parent / "cases/plp_case_2y/plpcnfce.dat"
-    ).exists(),
-    reason="Large test case file not found",
-)
 def test_parse_large_real_file() -> None:
     """Test parsing of larger plpcnfce.dat file from 2-year case."""
-    test_file = Path(__file__).parent.parent.parent / "cases/plp_case_2y/plpcnfce.dat"
+    from plp2gtopt.compressed_open import resolve_compressed_path
+
+    base_path = Path(__file__).parent.parent.parent / "cases/plp_case_2y/plpcnfce.dat"
+    try:
+        test_file = resolve_compressed_path(base_path)
+    except FileNotFoundError:
+        pytest.skip("Large test case file not found")
 
     parser = CentralParser(test_file)
     parser.parse()

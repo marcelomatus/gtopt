@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <format>
+#include <mutex>
 #include <stdexcept>
 #include <thread>
 
@@ -28,8 +29,12 @@ namespace
 
 /// Create a Highs instance with stdout suppressed to avoid the banner
 /// message ("Running HiGHS ...") that Highs prints in its constructor.
+/// A mutex serializes the fd redirect so concurrent threads don't race.
 auto make_quiet_highs() -> std::unique_ptr<Highs>
 {
+  static std::mutex stdout_mtx;
+  const std::lock_guard lock(stdout_mtx);
+
   // Save stdout, redirect to /dev/null, construct, then restore
   std::fflush(stdout);
   const int saved_fd = ::dup(STDOUT_FILENO);
@@ -49,6 +54,7 @@ auto make_quiet_highs() -> std::unique_ptr<Highs>
   }
 
   highs->setOptionValue("output_flag", false);
+  highs->setOptionValue("log_to_console", false);
   return highs;
 }
 
@@ -498,8 +504,11 @@ void HighsSolverBackend::apply_options(const SolverOptions& opts)
       break;
   }
 
-  // Log level: HiGHS uses 0-7, map from our 0-based
-  m_highs_->setOptionValue("output_flag", opts.log_level > 0);
+  // Never enable console output here — logging is managed by the
+  // LogFileGuard / HandlerGuard RAII wrappers in LinearInterface,
+  // which direct output to a log file when log_mode is enabled.
+  m_highs_->setOptionValue("output_flag", false);
+  m_highs_->setOptionValue("log_to_console", false);
 }
 
 double HighsSolverBackend::get_kappa() const
@@ -513,17 +522,12 @@ double HighsSolverBackend::get_kappa() const
   return kappa;
 }
 
-void HighsSolverBackend::open_log(FILE* file, int level)
+void HighsSolverBackend::open_log(FILE* /*file*/, int level)
 {
-  // HiGHS doesn't directly support FILE* logging in the same way.
-  // Set output flag and log level instead.
+  // Enable solver output only when requested, but never to the console.
+  // All solver output is directed to a log file via set_log_filename().
   m_highs_->setOptionValue("output_flag", level > 0);
-  if (file != nullptr) {
-    m_highs_->setOptionValue("log_to_console", false);
-    // HiGHS can log to a file via log_file option
-    // but doesn't accept FILE* directly. We use console logging.
-    m_highs_->setOptionValue("log_to_console", level > 0);
-  }
+  m_highs_->setOptionValue("log_to_console", false);
 }
 
 void HighsSolverBackend::close_log()

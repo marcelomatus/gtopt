@@ -121,8 +121,12 @@ def test_lookup_by_central(tmp_path):
 
 def test_parse_real_case():
     """Parse the plp_case_2y fixture (4 entries, raw units)."""
+    from plp2gtopt.compressed_open import resolve_compressed_path
+
     path = CASES_DIR / "plp_case_2y" / "plpcenpmax.dat"
-    if not path.exists():
+    try:
+        path = resolve_compressed_path(path)
+    except FileNotFoundError:
         pytest.skip("plp_case_2y not available")
     parser = CenpmaxParser(path)
     parser.parse()
@@ -143,8 +147,12 @@ def test_parse_real_case():
 
 def test_parse_real_case_converted():
     """Parse real fixture with convert_units=True."""
+    from plp2gtopt.compressed_open import resolve_compressed_path
+
     path = CASES_DIR / "plp_case_2y" / "plpcenpmax.dat"
-    if not path.exists():
+    try:
+        path = resolve_compressed_path(path)
+    except FileNotFoundError:
         pytest.skip("plp_case_2y not available")
     parser = CenpmaxParser(path)
     parser.parse(convert_units=True)

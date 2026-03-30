@@ -299,17 +299,25 @@ def check_json_tool(json_path: Path, **_kwargs) -> CheckResult:
         log.debug("gtopt_check_json not on PATH, skipping")
         return result
 
-    # --info (display stats)
+    # --info (display stats) — capture output, only show on debug
     cmd_info = [check_bin, "--info", str(json_path)]
     log.info("running: %s", " ".join(cmd_info))
-    subprocess.run(cmd_info, check=False)
+    info_run = subprocess.run(cmd_info, capture_output=True, text=True, check=False)
+    if info_run.stdout:
+        for line in info_run.stdout.rstrip().splitlines():
+            log.debug("  %s", line)
 
-    # Full validation
-    cmd_check = [check_bin, str(json_path)]
+    # Full validation (skip AI analysis — it requires an API call and can block)
+    cmd_check = [check_bin, "--no-ai", "--quiet", str(json_path)]
     log.info("running: %s", " ".join(cmd_check))
-    rc = subprocess.run(cmd_check, check=False).returncode
-    if rc != 0:
-        result.warnings.append(f"gtopt_check_json found issues (exit code {rc})")
+    check_run = subprocess.run(cmd_check, capture_output=True, text=True, check=False)
+    if check_run.returncode != 0:
+        result.warnings.append(f"gtopt_check_json found issues (exit code {check_run.returncode})")
+        # Show validation output as warnings
+        for line in (check_run.stdout + check_run.stderr).rstrip().splitlines():
+            stripped = line.strip()
+            if stripped:
+                result.warnings.append(stripped)
 
     return result
 

@@ -1,11 +1,12 @@
 /**
  * @file      output_context.cpp
- * @brief     Header of
+ * @brief     Implementation of output context for Parquet/CSV writing
  * @date      Wed Mar 26 01:05:05 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module implements the OutputContext class methods for writing LP
+ * solution results to Parquet and CSV files using Arrow builders.
  */
 
 #include <algorithm>  // For std::find
@@ -316,6 +317,13 @@ auto create_tables(auto&& output_directory, auto&& field_vector_map)
       continue;
     }
 
+    if (!mtable.ok()) {
+      SPDLOG_CRITICAL("Cannot create table '{}/{}': {}",
+                      cname,
+                      fname,
+                      mtable.status().ToString());
+      continue;
+    }
     path_tables.emplace_back(dpath / fname, *mtable);
   }
 

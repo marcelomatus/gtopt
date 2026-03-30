@@ -106,8 +106,12 @@ def test_lookup_by_name(tmp_path):
 
 def test_parse_real_case():
     """Parse the plp_case_2y fixture (3 reservoirs)."""
+    from plp2gtopt.compressed_open import resolve_compressed_path
+
     path = CASES_DIR / "plp_case_2y" / "plpminembh.dat"
-    if not path.exists():
+    try:
+        path = resolve_compressed_path(path)
+    except FileNotFoundError:
         pytest.skip("plp_case_2y not available")
     parser = MinembhParser(path)
     # No central_parser → scale=1 (raw values)
