@@ -29,21 +29,26 @@ class CaseType(enum.Enum):
     PASSTHROUGH = "passthrough"
 
 
+def _has_plp_file(path: Path, name: str) -> bool:
+    """Check if a PLP file exists, plain or xz-compressed."""
+    return (path / name).is_file() or (path / f"{name}.xz").is_file()
+
+
 def detect_case_type(path: Path) -> CaseType:
     """Classify a path as a PLP case, gtopt case, or passthrough.
 
-    - **PLP**: directory contains ``plpblo.dat`` plus at least one other
-      ``plp*.dat`` file.
+    - **PLP**: directory contains ``plpblo.dat[.xz]`` plus at least one
+      other ``plp*.dat[.xz]`` file.
     - **gtopt**: directory contains ``<dirname>/<dirname>.json``.
     - **passthrough**: everything else (file, non-existent, etc.).
     """
     if not path.is_dir():
         return CaseType.PASSTHROUGH
 
-    # Check for PLP case: plpblo.dat is the canonical required file
-    has_required = all((path / f).is_file() for f in _PLP_REQUIRED)
+    # Check for PLP case: plpblo.dat(.xz) is the canonical required file
+    has_required = all(_has_plp_file(path, f) for f in _PLP_REQUIRED)
     if has_required:
-        has_indicator = any((path / f).is_file() for f in _PLP_INDICATORS)
+        has_indicator = any(_has_plp_file(path, f) for f in _PLP_INDICATORS)
         if has_indicator:
             return CaseType.PLP
 
