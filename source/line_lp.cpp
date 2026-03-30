@@ -113,9 +113,6 @@ LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
       .cost = block_tcost,
   });
 
-  // Receiving bus sees total flow minus losses
-  receiving_brow[flow_col] = +1.0;
-
   // Linking: f_total − Σ f_seg_k = 0
   auto linkrow =
       SparseRow {
@@ -144,10 +141,25 @@ LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
   lossrow.reserve(reserve_sz);
   lossrow[loss_col] = +1.0;
 
-  // Power leaving sending bus = f_total (no loss at sending end).
-  // Loss is subtracted at the receiving bus.
+  // Allocate losses between sender and receiver based on mode.
+  // Energy conservation: net = -flow + flow - loss = -loss (always).
+  // The loss_col is subtracted; the allocation controls WHERE.
+  const auto mode = line().loss_allocation_mode_enum();
   sending_brow[flow_col] = -1.0;
-  receiving_brow[loss_col] = -1.0;
+  receiving_brow[flow_col] = +1.0;
+  switch (mode) {
+    case LossAllocationMode::sender:
+      sending_brow[loss_col] = -1.0;
+      break;
+    case LossAllocationMode::split:
+      sending_brow[loss_col] = -0.5;
+      receiving_brow[loss_col] = -0.5;
+      break;
+    case LossAllocationMode::receiver:
+    default:
+      receiving_brow[loss_col] = -1.0;
+      break;
+  }
 
   // Add segment variables with increasing loss coefficients
   for (const auto k : iota_range(1, nseg + 1)) {
@@ -379,8 +391,30 @@ bool LineLP::add_to_lp(SystemContext& sc,
         });
         fpcols[buid] = fpc;
 
-        brow_a[fpc] = -1;
-        brow_b[fpc] = +(1 - loss.lossfactor);
+        // A→B: bus_a is sender, bus_b is receiver.
+        // Loss allocation splits the loss factor between sender
+        // (PerdEms) and receiver (PerdRec) while preserving energy:
+        //   sender:  -(1 + PerdEms·λ)   receiver: +(1 - PerdRec·λ)
+        //   where PerdEms + PerdRec = 1.0
+        {
+          const auto lf = loss.lossfactor;
+          const auto mode = line().loss_allocation_mode_enum();
+          switch (mode) {
+            case LossAllocationMode::sender:
+              brow_a[fpc] = -(1 + lf);
+              brow_b[fpc] = +1;
+              break;
+            case LossAllocationMode::split:
+              brow_a[fpc] = -(1 + lf / 2);
+              brow_b[fpc] = +(1 - lf / 2);
+              break;
+            case LossAllocationMode::receiver:
+            default:
+              brow_a[fpc] = -1;
+              brow_b[fpc] = +(1 - lf);
+              break;
+          }
+        }
 
         if (capacity_col) {
           auto cprow =
@@ -404,8 +438,26 @@ bool LineLP::add_to_lp(SystemContext& sc,
         });
         fncols[buid] = fnc;
 
-        brow_b[fnc] = -1;
-        brow_a[fnc] = +(1 - loss.lossfactor);
+        // B→A: bus_b is sender, bus_a is receiver
+        {
+          const auto lf = loss.lossfactor;
+          const auto mode = line().loss_allocation_mode_enum();
+          switch (mode) {
+            case LossAllocationMode::sender:
+              brow_b[fnc] = -(1 + lf);
+              brow_a[fnc] = +1;
+              break;
+            case LossAllocationMode::split:
+              brow_b[fnc] = -(1 + lf / 2);
+              brow_a[fnc] = +(1 - lf / 2);
+              break;
+            case LossAllocationMode::receiver:
+            default:
+              brow_b[fnc] = -1;
+              brow_a[fnc] = +(1 - lf);
+              break;
+          }
+        }
 
         if (capacity_col) {
           auto cnrow =
