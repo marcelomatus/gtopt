@@ -319,7 +319,9 @@ def _write_boundary_cuts_csv(df, input_path):
     return csv_path
 
 
-def df_to_file(df, input_path, cname, fname, input_format, compression):
+def df_to_file(
+    df, input_path, cname, fname, input_format, compression, compression_level=None
+):
     input_dir = pathlib.Path(input_path) / cname
     input_dir.mkdir(parents=True, exist_ok=True)
     input_file = input_dir / (fname + "." + input_format)
@@ -339,11 +341,12 @@ def df_to_file(df, input_path, cname, fname, input_format, compression):
         df.to_csv(input_file, index=False)
     else:
         probed = _probe_parquet_codec(compression) if compression else ""
-        df.to_parquet(
-            input_file,
-            index=False,
-            compression=probed if probed else None,
-        )
+        pq_kw: dict = {"index": False}
+        if probed:
+            pq_kw["compression"] = probed
+        if compression_level:
+            pq_kw["compression_level"] = int(compression_level)
+        df.to_parquet(input_file, **pq_kw)
 
     return input_file
 
@@ -706,6 +709,7 @@ def _run(args) -> int:
                         fname,
                         args.input_format,
                         args.compression,
+                        getattr(args, "compression_level", None),
                     )
                     logging.info("sheet %s saved as %s", sheet_name, input_file)
                 except Exception as exc:  # pylint: disable=broad-except
@@ -889,6 +893,17 @@ def main(argv: list[str] | None = None) -> None:
             help=(
                 "compression algorithm for Parquet output files "
                 "(default: %(default)s); pass '' to disable compression"
+            ),
+        )
+        parser.add_argument(
+            "--compression-level",
+            dest="compression_level",
+            type=int,
+            metavar="N",
+            default=1,
+            help=(
+                "compression level for the codec, e.g. 1-22 for zstd "
+                "(default: %(default)s; 0 = codec default)"
             ),
         )
         parser.add_argument(

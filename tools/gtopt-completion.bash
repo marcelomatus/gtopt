@@ -367,6 +367,8 @@ _igtopt()
         -c|--compression)
             COMPREPLY=( $(compgen -W "zstd gzip snappy lz4 none" -- "$cur") )
             return ;;
+        --compression-level)
+            return ;;
         -n|--name)
             return ;;
         -l|--log-level)
@@ -377,6 +379,7 @@ _igtopt()
     if [[ "$cur" == -* ]]; then
         COMPREPLY=( $(compgen -W "--json-file -j --input-directory -d
             --input-format -f --name -n --compression -c
+            --compression-level
             --pretty -p --skip-nulls -N
             --parse-unexpected-sheets -U --zip -z
             --validate --ignore-errors
@@ -425,6 +428,9 @@ _plp2gtopt()
         -l|--log-level)
             COMPREPLY=( $(compgen -W "DEBUG INFO WARNING ERROR CRITICAL" -- "$cur") )
             return ;;
+        --log)
+            _filedir
+            return ;;
         -s|--last-stage|-d|--discount-rate|-m|--management-factor|-t|--last-time|\
         -n|--name|--sys-version|--compression-level|--demand-fail-cost|\
         --reserve-fail-cost|--scale-objective|-y|--hydrologies|\
@@ -451,7 +457,7 @@ _plp2gtopt()
             --no-auto-rsv-energy-scale --no-auto-bat-energy-scale
             --rsv-scale-mode --rsv-energy-scale --bat-energy-scale
             --stage-grouping -g
-            --log-level -l --no-color --version -V --help -h" -- "$cur") )
+            --log --log-level -l --no-color --version -V --help -h" -- "$cur") )
     else
         _filedir -d
     fi
