@@ -307,11 +307,7 @@ def _avg_demand_fcost(
             try:
                 from ._file_reader import resolve_file_sched_value  # noqa: PLC0415
 
-                root = (
-                    str(Path(base_dir) / input_dir)
-                    if input_dir != "."
-                    else base_dir
-                )
+                root = str(Path(base_dir) / input_dir) if input_dir != "." else base_dir
                 val = resolve_file_sched_value(
                     root,
                     "Demand",

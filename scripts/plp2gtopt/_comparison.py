@@ -95,7 +95,7 @@ def _plp_element_counts(parser: PLPParser) -> dict[str, Any]:
                 cdata = central_parser.get_central_by_name(name)
                 if not cdata or cdata.get("type", "") not in hydro_types:
                     continue
-                # Skip isolated pasada (bus<=0, no electrical output)
+                # Skip isolated pasada centrals (bus<=0, no electrical output)
                 if cdata.get("type") == "pasada" and cdata.get("bus", 0) <= 0:
                     continue
                 hydro_affluent_names.append(name)
@@ -327,9 +327,12 @@ def _plp_indicators(
     total_water_vol_hm3 = 0.0
     num_active_flows = 0
     if aflce_parser and block_parser:
+        import numpy as np  # noqa: PLC0415
+
         for flow in aflce_parser.flows:
             # Skip flows that have no central definition in plpcnfce.dat
             flow_name = flow.get("name", "")
+            fill_value: float | None = None
             if central_parser:
                 cdata = central_parser.get_central_by_name(flow_name)
                 if cdata is None:
@@ -337,6 +340,7 @@ def _plp_indicators(
                 # Skip isolated pasada centrals (bus<=0, no electrical output)
                 if cdata.get("type") == "pasada" and cdata.get("bus", 0) <= 0:
                     continue
+                fill_value = cdata.get("afluent")
             flow_data = flow.get("flow")  # numpy array (num_blocks, num_hydro)
             block_arr = flow.get("block")  # numpy array of block numbers
             if flow_data is None or block_arr is None or len(block_arr) == 0:
@@ -344,7 +348,6 @@ def _plp_indicators(
             num_hydro = flow.get("num_hydrologies", 1)
             if num_hydro <= 0:
                 continue
-            num_active_flows += 1
             # Pre-compute valid hydrology columns outside the block loop
             if hydrology_indices is not None:
                 valid_cols = [c for c in hydrology_indices if 0 <= c < num_hydro]
@@ -352,9 +355,18 @@ def _plp_indicators(
                     continue
             else:
                 valid_cols = None
-            # Vectorized: compute mean flow per block across hydrologies
-            import numpy as np  # noqa: PLC0415
 
+            # Skip flows whose active-hydrology data all equals the fill
+            # value — these are excluded from the Parquet by AflceWriter's
+            # global pre-filter and should not inflate the flow count.
+            if fill_value is not None and flow_data.ndim == 2:
+                cols = flow_data[:, valid_cols] if valid_cols is not None else flow_data
+                if np.allclose(cols, fill_value, rtol=1e-8, atol=1e-11):
+                    continue
+
+            num_active_flows += 1
+
+            # Vectorized: compute mean flow per block across hydrologies
             if valid_cols is not None:
                 avg_flows = flow_data[:, valid_cols].mean(axis=1)
             else:

@@ -112,16 +112,17 @@ def _log_stats(planning: dict, elapsed: float) -> None:
     # Falla centrals / demand fail cost summary
     demands = sys_data.get("demand_array", [])
     fcost_values = [
-        d["fcost"] for d in demands
-        if isinstance(d.get("fcost"), (int, float))
+        d["fcost"] for d in demands if isinstance(d.get("fcost"), (int, float))
     ]
     if fcost_values:
         lo, hi = min(fcost_values), max(fcost_values)
         cost_str = f"{lo:.2f}" if lo == hi else f"{lo:.2f}\u2013{hi:.2f}"
-        rows.append((
-            "Falla centrals",
-            f"{len(fcost_values)} bus(es), fcost {cost_str} $/MWh",
-        ))
+        rows.append(
+            (
+                "Falla centrals",
+                f"{len(fcost_values)} bus(es), fcost {cost_str} $/MWh",
+            )
+        )
 
     # Options
     rows.append(("use_kirchhoff", str(opts.get("use_kirchhoff", False))))
