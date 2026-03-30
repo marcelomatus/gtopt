@@ -61,7 +61,7 @@ constexpr auto enum_entries(BoundaryCutsMode /*tag*/) noexcept
 enum class CutSharingMode : uint8_t
 {
   none = 0,  ///< No sharing; scenes solved independently (default)
-  expected = 1,  ///< Probability-weighted average cut shared to all scenes
+  expected = 1,  ///< Average cuts within each scene, then sum across scenes
   accumulate = 2,  ///< Sum all cuts directly (LP objectives pre-weighted)
   max = 3,  ///< All cuts from all scenes added to all scenes
 };

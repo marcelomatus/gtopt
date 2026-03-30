@@ -173,7 +173,7 @@ TEST_CASE(  // NOLINT
 // ---------------------------------------------------------------------------
 
 TEST_CASE(  // NOLINT
-    "share_cuts_for_phase expected mode uses probability-weighted average")
+    "share_cuts_for_phase expected mode sums scene-averaged cuts")
 {
   auto planning = make_2scene_3phase_hydro_planning(0.7, 0.3);
   PlanningLP plp(std::move(planning));
@@ -207,7 +207,7 @@ TEST_CASE(  // NOLINT
   share_cuts_for_phase(
       PhaseIndex {0}, scene_cuts, CutSharingMode::expected, plp, "test_exp");
 
-  // expected: one weighted-average cut added to each scene
+  // expected: one accumulated cut (sum of scene averages) added to each scene
   const auto rows_s0 = plp.system(SceneIndex {0}, PhaseIndex {0})
                            .linear_interface()
                            .get_numrows();

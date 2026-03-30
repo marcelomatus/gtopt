@@ -123,7 +123,11 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
       // ── Scene weights and bounds ──
       const auto& scenes = planning_lp().simulation().scenes();
-      const auto weights = compute_scene_weights(scenes, fwd->scene_feasible);
+      const auto prob_mode =
+          planning_lp().planning().simulation.probability_rescale.value_or(
+              ProbabilityRescaleMode::runtime);
+      const auto weights =
+          compute_scene_weights(scenes, fwd->scene_feasible, prob_mode);
       compute_iteration_bounds(ir, fwd->scene_feasible, weights);
 
       // ── Backward pass ──

@@ -246,6 +246,8 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
       auto elastic_result = elastic_solve(scene, phase, opts);
       if (elastic_result.has_value()) {
         const LinearInterface& solved_li = elastic_result->clone;
+        // Track max kappa from elastic solve
+        update_max_kappa(scene, phase, solved_li, iteration);
         // Increment infeasibility counter for this (scene, phase)
         ++m_infeasibility_counter_[scene][phase];
 
@@ -316,6 +318,8 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
     } else {
       // Phase solved normally – reset infeasibility counter
       m_infeasibility_counter_[scene][phase] = 0;
+      // Track max kappa from forward solve
+      update_max_kappa(scene, phase, li, iteration);
 
       // Cache solution data for the backward pass
       const auto obj = li.get_obj_value();

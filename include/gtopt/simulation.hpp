@@ -89,6 +89,32 @@ struct Simulation
    */
   std::optional<BoundaryCutsValuation> boundary_cuts_valuation {};
 
+  /** @brief When to rescale scenario/scene probabilities to sum 1.0.
+   *
+   * - `none`:    warn only, no rescaling.
+   * - `build`:   rescale at build/validation time.
+   * - `runtime`: rescale at build time and at runtime (default).
+   *
+   * @see ProbabilityRescaleMode
+   */
+  std::optional<ProbabilityRescaleMode> probability_rescale {};
+
+  /** @brief What to do when an LP solve produces a high condition number.
+   *
+   * - `none`:    no checking.
+   * - `warn`:    log a warning (default).
+   * - `save_lp`: warn and save the LP file.
+   *
+   * @see KappaWarningMode
+   */
+  std::optional<KappaWarningMode> kappa_warning {};
+
+  /** @brief Condition-number threshold above which kappa warnings fire.
+   *
+   * Default: 1e9.  Only used when `kappa_warning` is not `none`.
+   */
+  OptReal kappa_threshold {};
+
   constexpr void merge(Simulation&& sim)
   {
     gtopt::merge(block_array, std::move(sim.block_array));
@@ -101,6 +127,9 @@ struct Simulation
     merge_opt(annual_discount_rate, sim.annual_discount_rate);
     merge_opt(boundary_cuts_file, std::move(sim.boundary_cuts_file));
     merge_opt(boundary_cuts_valuation, sim.boundary_cuts_valuation);
+    merge_opt(probability_rescale, sim.probability_rescale);
+    merge_opt(kappa_warning, sim.kappa_warning);
+    merge_opt(kappa_threshold, sim.kappa_threshold);
 
     auto _ = std::move(sim);  // move/clear sim
   }

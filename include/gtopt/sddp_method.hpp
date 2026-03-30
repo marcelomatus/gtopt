@@ -155,7 +155,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   double elastic_penalty {1e6};  ///< Penalty for elastic slack variables
   double alpha_min {0.0};  ///< Lower bound for future cost variable α ($)
   double alpha_max {1e12};  ///< Upper bound for future cost variable α ($)
-  double scale_alpha {1'000};  ///< Scale divisor for α (PLP varphi scale)
+  double scale_alpha {1'000'000};  ///< Scale divisor for α (PLP varphi scale)
   CutSharingMode cut_sharing {CutSharingMode::none};  ///< Cut sharing mode
 
   /// Elastic filter mode: how to handle backward-pass infeasibility.
@@ -478,10 +478,15 @@ struct SDDPIterationResult
 /// @param scenes         The scene objects from SimulationLP
 /// @param scene_feasible Per-scene feasibility flag (0 = infeasible);
 ///                       output size equals scene_feasible.size()
-/// @returns Normalised weight vector of size scene_feasible.size()
+/// @param rescale_mode   When `runtime`, normalize weights over feasible
+///                       scenes to sum 1.0.  When `build` or `none`, use
+///                       raw probability weights (no re-normalization).
+/// @returns Weight vector of size scene_feasible.size()
 [[nodiscard]] std::vector<double> compute_scene_weights(
     std::span<const SceneLP> scenes,
-    std::span<const uint8_t> scene_feasible) noexcept;
+    std::span<const uint8_t> scene_feasible,
+    ProbabilityRescaleMode rescale_mode =
+        ProbabilityRescaleMode::runtime) noexcept;
 
 /// Compute relative convergence gap: (UB - LB) / max(1.0, |UB|).
 /// Always returns a non-negative value.
@@ -830,6 +835,18 @@ public:
   [[nodiscard]] auto load_state(const std::string& filepath)
       -> std::expected<void, Error>;
 
+  /// Get the global max kappa across all (scene, phase) LP solves.
+  [[nodiscard]] double global_max_kappa() const noexcept
+  {
+    double gmax = 1.0;
+    for (const auto& phase_kappas : m_max_kappa_) {
+      for (const auto k : phase_kappas) {
+        gmax = std::max(gmax, k);
+      }
+    }
+    return gmax;
+  }
+
 private:
   using scene_phase_states_t =
       StrongIndexVector<SceneIndex,
@@ -876,6 +893,22 @@ private:
                                                   const SolverOptions& opts,
                                                   IterationIndex iteration = {})
       -> std::expected<int, Error>;
+
+  /// Update the per-(scene, phase) max kappa value after an LP solve.
+  /// Also checks kappa against the threshold and emits a warning or
+  /// saves the LP file depending on the kappa_warning mode.
+  void update_max_kappa(SceneIndex scene,
+                        PhaseIndex phase,
+                        const LinearInterface& li,
+                        IterationIndex iteration = {});
+
+  /// Update max kappa from an already-known value (no LP save possible).
+  void update_max_kappa(SceneIndex scene,
+                        PhaseIndex phase,
+                        double kappa) noexcept
+  {
+    m_max_kappa_[scene][phase] = std::max(m_max_kappa_[scene][phase], kappa);
+  }
 
   /// Check whether update_lp should be dispatched for this iteration.
   /// Returns false when the iteration is explicitly disabled or skipped
@@ -1132,6 +1165,11 @@ private:
   /// Used by the backward pass to decide single_cut vs multi_cut mode.
   StrongIndexVector<SceneIndex, StrongIndexVector<PhaseIndex, int>>
       m_infeasibility_counter_;
+
+  /// Per-(scene, phase) maximum kappa (condition number) across all LP
+  /// solves (forward, backward, aperture).  Updated after every solve call.
+  StrongIndexVector<SceneIndex, StrongIndexVector<PhaseIndex, double>>
+      m_max_kappa_;
 
   bool m_initialized_ {false};
 

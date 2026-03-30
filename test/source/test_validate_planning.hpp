@@ -71,7 +71,7 @@ TEST_CASE("validate_planning - empty stage_array is an error")  // NOLINT
 TEST_CASE(
     "validate_planning - all empty arrays reports multiple errors")  // NOLINT
 {
-  const Planning p;
+  Planning p;
   auto result = validate_planning(p);
   CHECK_FALSE(result.ok());
   CHECK(result.errors.size() >= 3);
@@ -450,6 +450,133 @@ TEST_CASE("ValidationResult - ok() semantics")  // NOLINT
 
   r.errors.emplace_back("an error");
   CHECK_FALSE(r.ok());
+}
+
+// ---------------------------------------------------------------------------
+// Scenario probability validation
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+    "validate_planning - scenario probabilities summing to 1.0")  // NOLINT
+{
+  auto p = make_minimal_planning();
+  p.simulation.scenario_array = {
+      {
+          .uid = Uid {1},
+          .probability_factor = 0.6,
+      },
+      {
+          .uid = Uid {2},
+          .probability_factor = 0.4,
+      },
+  };
+  auto result = validate_planning(p);
+  CHECK(result.ok());
+  CHECK(result.warnings.empty());
+}
+
+TEST_CASE(  // NOLINT
+    "validate_planning - scenario probabilities not summing to 1.0 warns")
+{
+  auto p = make_minimal_planning();
+  p.simulation.scenario_array = {
+      {
+          .uid = Uid {1},
+          .probability_factor = 0.7,
+      },
+      {
+          .uid = Uid {2},
+          .probability_factor = 0.5,
+      },
+  };
+
+  SUBCASE("default (runtime) rescales and warns")
+  {
+    auto result = validate_planning(p);
+    CHECK(result.ok());
+    CHECK(result.warnings.size() >= 1);
+    // Probabilities should be rescaled to sum 1.0
+    const double sum = p.simulation.scenario_array[0].probability_factor.value()
+        + p.simulation.scenario_array[1].probability_factor.value();
+    CHECK(sum == doctest::Approx(1.0));
+  }
+
+  SUBCASE("none mode warns but does not rescale")
+  {
+    p.simulation.probability_rescale = ProbabilityRescaleMode::none;
+    const double orig0 = 0.7;
+    const double orig1 = 0.5;
+    auto result = validate_planning(p);
+    CHECK(result.ok());
+    CHECK(result.warnings.size() >= 1);
+    // Probabilities should remain unchanged
+    CHECK(p.simulation.scenario_array[0].probability_factor.value()
+          == doctest::Approx(orig0));
+    CHECK(p.simulation.scenario_array[1].probability_factor.value()
+          == doctest::Approx(orig1));
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "validate_planning - per-scene probability rescaling with scenes")
+{
+  auto p = make_minimal_planning();
+  p.simulation.scenario_array = {
+      {
+          .uid = Uid {1},
+          .probability_factor = 0.3,
+      },
+      {
+          .uid = Uid {2},
+          .probability_factor = 0.5,
+      },
+  };
+  p.simulation.scene_array = {
+      {
+          .uid = Uid {1},
+          .name = "s1",
+          .active = true,
+          .first_scenario = 0,
+          .count_scenario = 1,
+      },
+      {
+          .uid = Uid {2},
+          .name = "s2",
+          .active = true,
+          .first_scenario = 1,
+          .count_scenario = 1,
+      },
+  };
+
+  auto result = validate_planning(p);
+  CHECK(result.ok());
+  // Warnings about per-scene probability not summing to 1.0,
+  // and about total scene probability not summing to 1.0
+  CHECK(result.warnings.size() >= 1);
+}
+
+TEST_CASE(  // NOLINT
+    "validate_planning - scene scenario range exceeds array is an error")
+{
+  auto p = make_minimal_planning();
+  p.simulation.scenario_array = {
+      {
+          .uid = Uid {1},
+          .probability_factor = 1.0,
+      },
+  };
+  p.simulation.scene_array = {
+      {
+          .uid = Uid {1},
+          .name = "bad",
+          .active = true,
+          .first_scenario = 0,
+          .count_scenario = 5,
+      },
+  };
+  auto result = validate_planning(p);
+  CHECK_FALSE(result.ok());
+  CHECK(result.errors.size() >= 1);
 }
 
 }  // namespace

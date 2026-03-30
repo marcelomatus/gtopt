@@ -45,13 +45,19 @@ struct ValidationResult
  *   2. Range checks: block duration > 0, stage count_block > 0,
  *      generator capacity non-negative
  *   3. Completeness: at least one bus, block, and stage
+ *   4. Probability checks: scenario probability_factor values per scene
+ *      should sum to 1.0; controlled by `probability_check` option.
  *
  * All issues are collected (not short-circuited) so the user sees every
  * problem in a single run.
  *
- * @param planning The parsed and merged Planning object
+ * When `probability_check` is `rescale` (default), probabilities that do
+ * not sum to 1.0 are normalized in-place (hence the non-const reference).
+ *
+ * @param planning The parsed and merged Planning object (may be mutated
+ *                 if probability rescaling is enabled)
  * @return ValidationResult with all errors and warnings
  */
-[[nodiscard]] ValidationResult validate_planning(const Planning& planning);
+[[nodiscard]] ValidationResult validate_planning(Planning& planning);
 
 }  // namespace gtopt

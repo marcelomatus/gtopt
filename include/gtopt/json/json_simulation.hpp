@@ -39,7 +39,10 @@ struct SimulationConstructor
                                       Array<Iteration> iteration_array,
                                       OptReal annual_discount_rate,
                                       OptName boundary_cuts_file,
-                                      OptName boundary_cuts_valuation_str) const
+                                      OptName boundary_cuts_valuation_str,
+                                      OptName probability_rescale_str,
+                                      OptName kappa_warning_str,
+                                      OptReal kappa_threshold) const
   {
     Simulation sim;
     sim.block_array = std::move(block_array);
@@ -56,6 +59,16 @@ struct SimulationConstructor
           gtopt::enum_from_name<gtopt::BoundaryCutsValuation>(
               *boundary_cuts_valuation_str);
     }
+    if (probability_rescale_str) {
+      sim.probability_rescale =
+          gtopt::enum_from_name<gtopt::ProbabilityRescaleMode>(
+              *probability_rescale_str);
+    }
+    if (kappa_warning_str) {
+      sim.kappa_warning =
+          gtopt::enum_from_name<gtopt::KappaWarningMode>(*kappa_warning_str);
+    }
+    sim.kappa_threshold = kappa_threshold;
     return sim;
   }
 };
@@ -75,7 +88,10 @@ struct json_data_contract<Simulation>
       json_array_null<"iteration_array", Array<Iteration>, Iteration>,
       json_number_null<"annual_discount_rate", OptReal>,
       json_string_null<"boundary_cuts_file", OptName>,
-      json_string_null<"boundary_cuts_valuation", OptName>>;
+      json_string_null<"boundary_cuts_valuation", OptName>,
+      json_string_null<"probability_rescale", OptName>,
+      json_string_null<"kappa_warning", OptName>,
+      json_number_null<"kappa_threshold", OptReal>>;
 
   static auto to_json_data(Simulation const& simulation)
   {
@@ -89,7 +105,10 @@ struct json_data_contract<Simulation>
         simulation.iteration_array,
         simulation.annual_discount_rate,
         simulation.boundary_cuts_file,
-        detail::enum_to_opt_name(simulation.boundary_cuts_valuation));
+        detail::enum_to_opt_name(simulation.boundary_cuts_valuation),
+        detail::enum_to_opt_name(simulation.probability_rescale),
+        detail::enum_to_opt_name(simulation.kappa_warning),
+        simulation.kappa_threshold);
   }
 };
 }  // namespace daw::json

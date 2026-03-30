@@ -9,6 +9,7 @@
  * that run after JSON parsing but before LP construction.
  */
 
+#include <cmath>
 #include <format>
 #include <ranges>
 #include <string>
@@ -240,15 +241,145 @@ void check_completeness(ValidationResult& result, const Planning& planning)
   }
 }
 
+/// Tolerance for probability sum comparison.
+constexpr double prob_tolerance = 1e-6;
+
+/// Check and optionally rescale scenario probabilities per scene.
+void check_scenario_probabilities(ValidationResult& result, Planning& planning)
+{
+  const auto mode = planning.simulation.probability_rescale.value_or(
+      ProbabilityRescaleMode::runtime);
+  const bool do_rescale = (mode != ProbabilityRescaleMode::none);
+
+  auto& scenarios = planning.simulation.scenario_array;
+  const auto& scenes = planning.simulation.scene_array;
+
+  if (scenarios.empty()) {
+    return;
+  }
+
+  // When there are no explicit scenes, all scenarios form one implicit scene.
+  // Check that the total probability sums to 1.0.
+  if (scenes.empty()) {
+    double total = 0.0;
+    for (const auto& sc : scenarios) {
+      total += sc.probability_factor.value_or(1.0);
+    }
+
+    if (std::abs(total - 1.0) > prob_tolerance) {
+      result.warnings.push_back(std::format(
+          "Scenario probability_factor values sum to {:.6f} (expected 1.0)",
+          total));
+
+      if (do_rescale && total > 0.0) {
+        for (auto& sc : scenarios) {
+          const double p = sc.probability_factor.value_or(1.0);
+          sc.probability_factor = p / total;
+        }
+        result.warnings.push_back(std::format(
+            "Rescaled {} scenario probability_factor values to sum 1.0",
+            scenarios.size()));
+      }
+    }
+    return;
+  }
+
+  // Per-scene: check that scenario probabilities within each scene sum to 1.0.
+  for (const auto& scene : scenes) {
+    const auto first = scene.first_scenario;
+    const auto count = (scene.count_scenario == std::dynamic_extent)
+        ? (scenarios.size() - first)
+        : scene.count_scenario;
+
+    if (first + count > scenarios.size()) {
+      result.errors.push_back(std::format(
+          "Scene '{}': first_scenario ({}) + count_scenario ({}) exceeds "
+          "scenario_array size ({})",
+          scene.name.value_or("?"),
+          first,
+          count,
+          scenarios.size()));
+      continue;
+    }
+
+    double total = 0.0;
+    for (std::size_t i = first; i < first + count; ++i) {
+      total += scenarios[i].probability_factor.value_or(1.0);
+    }
+
+    if (std::abs(total - 1.0) > prob_tolerance) {
+      result.warnings.push_back(std::format(
+          "Scene '{}': scenario probability_factor values sum to {:.6f} "
+          "(expected 1.0)",
+          scene.name.value_or("?"),
+          total));
+
+      if (do_rescale && total > 0.0) {
+        for (std::size_t i = first; i < first + count; ++i) {
+          const double p = scenarios[i].probability_factor.value_or(1.0);
+          scenarios[i].probability_factor = p / total;
+        }
+        result.warnings.push_back(std::format(
+            "Rescaled scenario probabilities in scene '{}' to sum 1.0",
+            scene.name.value_or("?")));
+      }
+    }
+  }
+
+  // Check that scene-level probability totals sum to 1.0 across all scenes.
+  double scene_total = 0.0;
+  for (const auto& scene : scenes) {
+    const auto first = scene.first_scenario;
+    const auto count = (scene.count_scenario == std::dynamic_extent)
+        ? (scenarios.size() - first)
+        : scene.count_scenario;
+    if (first + count > scenarios.size()) {
+      continue;  // already reported above
+    }
+    for (std::size_t i = first; i < first + count; ++i) {
+      scene_total += scenarios[i].probability_factor.value_or(1.0);
+    }
+  }
+
+  if (std::abs(scene_total - 1.0) > prob_tolerance) {
+    result.warnings.push_back(
+        std::format("Total scene probability sums to {:.6f} across {} scenes "
+                    "(expected 1.0)",
+                    scene_total,
+                    scenes.size()));
+
+    if (do_rescale && scene_total > 0.0) {
+      for (const auto& scene : scenes) {
+        const auto first = scene.first_scenario;
+        const auto count = (scene.count_scenario == std::dynamic_extent)
+            ? (scenarios.size() - first)
+            : scene.count_scenario;
+        if (first + count > scenarios.size()) {
+          continue;
+        }
+        for (std::size_t i = first; i < first + count; ++i) {
+          const double p = scenarios[i].probability_factor.value_or(1.0);
+          scenarios[i].probability_factor = p / scene_total;
+        }
+      }
+      result.warnings.push_back(
+          std::format("Rescaled all scenario probabilities across {} scenes to "
+                      "sum 1.0",
+                      scenes.size()));
+    }
+  }
+}
+
 }  // namespace
 
-[[nodiscard]] ValidationResult validate_planning(const Planning& planning)
+[[nodiscard]] ValidationResult validate_planning(Planning& planning)
 {
   ValidationResult result;
 
   check_referential_integrity(result, planning.system);
   check_ranges(result, planning);
   check_completeness(result, planning);
+  check_scenario_probabilities(result, planning);
 
   // Log all findings
   for (const auto& warn : result.warnings) {

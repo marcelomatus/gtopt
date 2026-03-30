@@ -185,6 +185,9 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
 
     if (src_phase > PhaseIndex {0}) {
       auto r = src_li.resolve(opts);
+      if (r.has_value() && src_li.is_optimal()) {
+        update_max_kappa(scene, src_phase, src_li, iteration);
+      }
       if (!r.has_value() || !src_li.is_optimal()) {
         SPDLOG_WARN(
             "SDDP backward: iter {} scene {} phase {} non-optimal after "
@@ -214,6 +217,9 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
   // Feasibility cuts are never shared between scenes.
   if (src_phase > PhaseIndex {0}) {
     auto r = src_li.resolve(opts);
+    if (r.has_value() && src_li.is_optimal()) {
+      update_max_kappa(scene, src_phase, src_li, iteration);
+    }
     if (!r.has_value() || !src_li.is_optimal()) {
       SPDLOG_WARN(
           "SDDP backward: iter {} scene {} phase {} non-optimal after "
@@ -473,6 +479,9 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene,
 
       if (src_phase > PhaseIndex {0}) {
         auto r = src_li.resolve(opts);
+        if (r.has_value() && src_li.is_optimal()) {
+          update_max_kappa(scene, src_phase, src_li, iteration);
+        }
         if (!r.has_value() || !src_li.is_optimal()) {
           SPDLOG_WARN(
               "SDDP backward: iter {} scene {} phase {} non-optimal "
@@ -503,6 +512,9 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene,
     // feasibility.
     if (src_phase > PhaseIndex {0}) {
       auto r = src_li.resolve(opts);
+      if (r.has_value() && src_li.is_optimal()) {
+        update_max_kappa(scene, src_phase, src_li, iteration);
+      }
       if (!r.has_value() || !src_li.is_optimal()) {
         SPDLOG_WARN(
             "SDDP backward: iter {} scene {} phase {} non-optimal "
