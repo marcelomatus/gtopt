@@ -1108,7 +1108,7 @@ global options (`scale_theta`) take precedence over entries in
 | Kirchhoff threshold | `kirchhoff_threshold` | `0` | Minimum bus count for Kirchhoff activation |
 | Objective scale | `scale_objective` | `1000` | Divides all cost coefficients |
 | Theta scale | `scale_theta` | `1000` | Scales voltage angle variables |
-| Annual discount rate | `annual_discount_rate` | `0.0` | Multi-year cost discounting |
+| Annual discount rate | `annual_discount_rate` | `0.0` | Multi-year cost discounting (now in `simulation`) |
 | Demand fail cost | `demand_fail_cost` | *(none)* | Enables load curtailment variables |
 | Reserve fail cost | `reserve_fail_cost` | *(none)* | Enables reserve shortage variables |
 | Input format | `input_format` | `"parquet"` | Time-series input format |
@@ -1697,7 +1697,7 @@ mathematical symbols used in this formulation.
 |-----------|--------|-------------|
 | `options.scale_objective` | $\sigma$ | Objective scaling |
 | `options.scale_theta` | $\sigma_\theta$ | Angle scaling |
-| `options.annual_discount_rate` | $r$ | Discount rate |
+| `simulation.annual_discount_rate` | $r$ | Discount rate (also accepted in `options`) |
 | `options.use_kirchhoff` | — | Enable DC OPF |
 | `options.use_single_bus` | — | Copper-plate mode |
 | `options.use_line_losses` | — | Enable line losses |
@@ -1705,7 +1705,8 @@ mathematical symbols used in this formulation.
 | `options.reserve_fail_cost` | $c^{\text{rfail}}$ | Reserve penalty |
 | `options.method` | — | Solver: `"monolithic"` or `"sddp"` |
 | `options.variable_scales` | $\sigma_x$ | Per-variable scale factors (Section 6.3) |
-| `options.sddp_options.boundary_cuts_file` | — | CSV with boundary cuts for last phase (Section 6.9) |
+| `simulation.boundary_cuts_file` | — | CSV with boundary cuts for last phase (Section 6.9) |
+| `simulation.boundary_cuts_valuation` | — | Valuation mode: `"end_of_horizon"` or `"present_value"` |
 | `options.sddp_options.boundary_cuts_mode` | — | Load mode: `"noload"`, `"separated"`, `"combined"` |
 | `options.sddp_options.boundary_max_iterations` | — | Max iterations to load from boundary cuts |
 | `options.sddp_options.hot_start` | — | Enable hot-start from saved cuts (Section 6.10) |

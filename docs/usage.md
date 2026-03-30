@@ -189,7 +189,6 @@ Solver and I/O settings:
 
 ```json
 "options": {
-  "annual_discount_rate": 0.1,
   "output_format": "csv",
   "input_format": "parquet",
   "input_directory": "system_c0",
@@ -205,7 +204,6 @@ Solver and I/O settings:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `annual_discount_rate` | float | Discount rate for investment costs |
 | `lp_build_options.names_level` | string/int | LP naming level (see [LP naming levels](#lp-naming-levels)) |
 | `output_format` | string | Output format: `"csv"` or `"parquet"` |
 | `input_format` | string | Input data format: `"csv"` or `"parquet"` |
@@ -292,6 +290,9 @@ Defines the temporal structure of the optimization:
 
 ```json
 "simulation": {
+  "annual_discount_rate": 0.1,
+  "boundary_cuts_file": "boundary_cuts.csv",
+  "boundary_cuts_valuation": "end_of_horizon",
   "block_array": [
     { "uid": 1, "duration": 1 },
     { "uid": 2, "duration": 2 },
@@ -308,6 +309,10 @@ Defines the temporal structure of the optimization:
 }
 ```
 
+- **`annual_discount_rate`**: discount rate for multi-stage CAPEX.
+- **`boundary_cuts_file`**: CSV with boundary (future-cost) cuts.
+- **`boundary_cuts_valuation`**: `"end_of_horizon"` (default) or
+  `"present_value"`.
 - **Blocks**: time subdivisions within a stage (e.g., peak/off-peak hours),
   each with a `duration` in hours.
 - **Stages**: planning periods (e.g., years), referencing a range of blocks.

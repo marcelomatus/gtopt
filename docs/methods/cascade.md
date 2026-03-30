@@ -332,7 +332,10 @@ flowchart LR
 | `scale_theta` | real | 1.0 | Scaling for voltage-angle variables |
 | `demand_fail_cost` | real | 1000 | Penalty for unserved demand [$/MWh] |
 | `reserve_fail_cost` | real | 1000 | Penalty for unserved reserve [$/MWh] |
-| `annual_discount_rate` | real | 0.0 | Discount rate for multi-stage CAPEX |
+
+> **Note**: `annual_discount_rate` has moved to the `simulation`
+> section.  For backward compatibility, it is still accepted in
+> `model_options`.
 
 See also [Input Data Reference](../input-data.md) for the full JSON input
 specification.
