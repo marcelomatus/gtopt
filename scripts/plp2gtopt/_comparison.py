@@ -836,9 +836,9 @@ def _log_comparison(
         note=f"hid_indep=T {_arrow} use_state_variable=False",
         indent=1,
     )
-    _row("reservoir production factors", p_res_eff, g_res_eff)
-    _row("reservoir seepages", p_seepages, g_seepages)
-    _row("reservoir discharge limits", p_discharge_limits, g_discharge_limits)
+    _row("production factors", p_res_eff, g_res_eff, indent=1)
+    _row("seepages", p_seepages, g_seepages, indent=1)
+    _row("discharge limits", p_discharge_limits, g_discharge_limits, indent=1)
     table.add_row("", "", "", "", "")
 
     # -- Storage --
