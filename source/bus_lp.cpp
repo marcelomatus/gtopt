@@ -92,14 +92,14 @@ bool BusLP::add_to_lp(const SystemContext& sc,
   BIndexHolder<RowIndex> brows;
   map_reserve(brows, blocks.size());
 
-  std::ranges::for_each(
-      blocks,
-      [&](const BlockLP& block)
-      {
-        brows[block.uid()] =
-            lp.add_row({.name = sc.lp_row_label(
-                            scenario, stage, block, cname, "bal", uid())});
-      });
+  std::ranges::for_each(blocks,
+                        [&](const BlockLP& block)
+                        {
+                          brows[block.uid()] = lp.add_row({
+                              .name = sc.lp_row_label(
+                                  scenario, stage, block, cname, "bal", uid()),
+                          });
+                        });
 
   const auto st_key = std::pair {scenario.uid(), stage.uid()};
   balance_rows[st_key] = std::move(brows);

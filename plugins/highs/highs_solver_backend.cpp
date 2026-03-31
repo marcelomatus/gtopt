@@ -6,7 +6,7 @@
  * @copyright BSD-3-Clause
  */
 
-#include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <format>
 #include <mutex>
@@ -35,22 +35,31 @@ auto make_quiet_highs() -> std::unique_ptr<Highs>
   static std::mutex stdout_mtx;
   const std::lock_guard lock(stdout_mtx);
 
-  // Save stdout, redirect to /dev/null, construct, then restore
+  // Save stdout and stderr, redirect both to /dev/null, construct,
+  // then restore.  HiGHS may print its banner to either stream.
   std::fflush(stdout);
-  const int saved_fd = ::dup(STDOUT_FILENO);
+  std::fflush(stderr);
+  const int saved_out = ::dup(STDOUT_FILENO);
+  const int saved_err = ::dup(STDERR_FILENO);
   const int null_fd = ::open("/dev/null", O_WRONLY);  // NOLINT
   if (null_fd >= 0) {
     ::dup2(null_fd, STDOUT_FILENO);
+    ::dup2(null_fd, STDERR_FILENO);
     ::close(null_fd);
   }
 
   auto highs = std::make_unique<Highs>();
 
-  // Restore stdout
-  if (saved_fd >= 0) {
+  // Restore stdout and stderr
+  if (saved_out >= 0) {
     std::fflush(stdout);
-    ::dup2(saved_fd, STDOUT_FILENO);
-    ::close(saved_fd);
+    ::dup2(saved_out, STDOUT_FILENO);
+    ::close(saved_out);
+  }
+  if (saved_err >= 0) {
+    std::fflush(stderr);
+    ::dup2(saved_err, STDERR_FILENO);
+    ::close(saved_err);
   }
 
   highs->setOptionValue("output_flag", false);
@@ -367,6 +376,36 @@ void HighsSolverBackend::set_row_price(const double* price)
 void HighsSolverBackend::initial_solve()
 {
   m_solution_valid_ = false;
+  // Suppress the HiGHS startup banner that leaks to stdout on the
+  // first run() call per Highs instance despite output_flag=false.
+  // Redirect stdout to /dev/null around the first run(), serialized.
+  if (!m_first_run_done_) {
+    m_first_run_done_ = true;
+    static std::mutex banner_mtx;
+    const std::lock_guard lock(banner_mtx);
+
+    std::fflush(stdout);
+    const int saved = ::dup(STDOUT_FILENO);
+    const int null_fd = ::open("/dev/null", O_WRONLY);  // NOLINT
+    if (null_fd >= 0) {
+      ::dup2(null_fd, STDOUT_FILENO);
+      ::close(null_fd);
+    }
+
+    const auto status = m_highs_->run();
+
+    if (saved >= 0) {
+      std::fflush(stdout);
+      ::dup2(saved, STDOUT_FILENO);
+      ::close(saved);
+    }
+
+    if (status == HighsStatus::kError) {
+      throw std::runtime_error("HiGHS: solver error during initial_solve");
+    }
+    return;
+  }
+
   const auto status = m_highs_->run();
   if (status == HighsStatus::kError) {
     throw std::runtime_error("HiGHS: solver error during initial_solve");
