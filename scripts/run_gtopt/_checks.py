@@ -105,6 +105,7 @@ _NON_FILE_FIELDS = frozenset(
         "embalse",
         "source_scenario",
         "probability_factor",
+        "energy_scale_mode",
     }
 )
 
@@ -307,8 +308,8 @@ def check_json_tool(json_path: Path, **_kwargs) -> CheckResult:
         for line in info_run.stdout.rstrip().splitlines():
             log.debug("  %s", line)
 
-    # Full validation (skip AI analysis — it requires an API call and can block)
-    cmd_check = [check_bin, "--no-ai", "--quiet", str(json_path)]
+    # Full validation (quiet mode — only report warnings/errors)
+    cmd_check = [check_bin, "--quiet", str(json_path)]
     log.info("running: %s", " ".join(cmd_check))
     check_run = subprocess.run(cmd_check, capture_output=True, text=True, check=False)
     if check_run.returncode != 0:

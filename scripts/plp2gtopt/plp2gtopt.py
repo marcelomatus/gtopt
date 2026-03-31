@@ -128,7 +128,8 @@ def _log_stats(planning: dict, elapsed: float) -> None:
     # Options
     rows.append(("use_kirchhoff", str(opts.get("use_kirchhoff", False))))
     rows.append(("use_single_bus", str(opts.get("use_single_bus", False))))
-    rows.append(("scale_objective", str(opts.get("scale_objective", 1000))))
+    rows.append(("scale_objective", str(opts.get("scale_objective", 10_000_000))))
+    rows.append(("scale_theta", str(opts.get("scale_theta", 0.0001))))
     rows.append(("demand_fail_cost", str(opts.get("demand_fail_cost", 0))))
 
     # Skipped centrals
@@ -319,7 +320,13 @@ def run_post_check(
     plp_ind, gtopt_ind = compute_comparison_indicators(
         parser, planning, base_dir=base_dir
     )
-    _log_comparison(plp_counts, gtopt_counts, plp_ind, gtopt_ind)
+    _log_comparison(
+        plp_counts,
+        gtopt_counts,
+        plp_ind,
+        gtopt_ind,
+        gtopt_options=planning.get("options"),
+    )
 
     # --- gtopt_check_json integration (optional) ---
     try:

@@ -9,13 +9,24 @@
  * build time.
  */
 
+#include <cmath>
+#include <format>
+#include <string>
 #include <string_view>
+#include <utility>
 
 #include <doctest/doctest.h>
+#include <gtopt/block_lp.hpp>
 #include <gtopt/constraint_parser.hpp>
+#include <gtopt/cost_helper.hpp>
 #include <gtopt/json/json_planning.hpp>
+#include <gtopt/monolithic_method.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/planning_options_lp.hpp>
+#include <gtopt/scenario_lp.hpp>
+#include <gtopt/stage_lp.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/variable_scale.hpp>
 
 using namespace gtopt;
 
@@ -25,6 +36,7 @@ using namespace gtopt;
 #include "test_ieee14b_ori_planning.hpp"
 #include "test_ieee4b_ori_planning.hpp"
 #include "test_ieee9b_ori_planning.hpp"
+#include "test_scale_lp_effects.hpp"
 #include "test_unified_battery_planning.hpp"
 #include "test_user_constraint_planning.hpp"
 #include "test_validate_planning.hpp"

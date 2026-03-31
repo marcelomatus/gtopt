@@ -26,6 +26,7 @@ class Line(TypedDict, total=False):
     voltage: float
     loss_segments: int
     use_line_losses: bool
+    loss_allocation_mode: str
 
 
 class LineWriter(BaseWriter):
@@ -81,11 +82,18 @@ class LineWriter(BaseWriter):
                 "bus_a": bus_number_a,
                 "bus_b": bus_number_b,
                 "resistance": line["r"],
-                "reactance": line["x"],
                 "tmax_ab": tmax_ab,
                 "tmax_ba": tmax_ba,
                 "voltage": line["voltage"],
             }
+
+            # Only include reactance for AC lines.  DC/HVDC lines
+            # (reactance=0 or hvdc=True) omit reactance so gtopt skips
+            # the Kirchhoff voltage-law constraint for them.
+            is_hvdc = line.get("hvdc", False)
+            reactance = line["x"]
+            if reactance != 0.0 and not is_hvdc:
+                json_line["reactance"] = reactance
 
             # Only include loss_segments when > 1 (piecewise-linear model)
             if num_sections > 1:
@@ -97,9 +105,10 @@ class LineWriter(BaseWriter):
 
             # Loss allocation mode from PLP global FPerdLin setting.
             # Only emit if different from gtopt default ("receiver").
-            loss_mode = self.line_parser.loss_allocation_mode
-            if loss_mode != "receiver":
-                json_line["loss_allocation_mode"] = loss_mode
+            if self.line_parser is not None:
+                loss_mode = self.line_parser.loss_allocation_mode
+                if loss_mode != "receiver":
+                    json_line["loss_allocation_mode"] = loss_mode
 
             json_lines.append(json_line)
 

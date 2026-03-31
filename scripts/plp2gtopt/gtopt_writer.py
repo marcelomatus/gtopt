@@ -146,9 +146,10 @@ class GTOptWriter:
             "output_compression": compression,
             "use_lp_names": 1,
             "use_single_bus": options.get("use_single_bus", False),
-            "use_kirchhoff": options.get("use_kirchhoff", False),
+            "use_kirchhoff": options.get("use_kirchhoff", True),
             "demand_fail_cost": options.get("demand_fail_cost", 1000),
-            "scale_objective": options.get("scale_objective", 1000),
+            "scale_objective": options.get("scale_objective", 10_000_000),
+            "scale_theta": options.get("scale_theta", 0.0001),
             "annual_discount_rate": discount_rate,
             "sddp_options": sddp_opts,
         }

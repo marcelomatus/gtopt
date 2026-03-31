@@ -28,10 +28,12 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sys
 import threading
 import time
 from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -58,6 +60,151 @@ _PASS_STYLES = {0: "dim", 1: "bold green", 2: "bold magenta"}
 
 # The file name the C++ solver checks for graceful stop requests
 _STOP_REQUEST_FILE = "sddp_stop_request.json"
+
+# Braille spinner frames (same cadence as plp2gtopt / Claude Code)
+_SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+# ---------------------------------------------------------------------------
+# Solver phase tracking (plan table)
+# ---------------------------------------------------------------------------
+
+# Ordered solver phases: (key, human label)
+_SOLVER_PHASES: list[tuple[str, str]] = [
+    ("parse", "Parsing input files"),
+    ("validate", "Validating planning"),
+    ("build_lp", "Building LP model"),
+    ("optimize", "Solving"),
+    ("sim_pass", "Simulation pass"),
+    ("solution", "Solution statistics"),
+    ("write", "Writing output files"),
+]
+
+# Log line patterns that trigger phase transitions.
+# Each entry: (compiled regex, phase key, action).
+# Actions: "start" = begin phase, "done" = complete phase, "detail" = update detail.
+_PHASE_TRIGGERS: list[tuple[re.Pattern[str], str, str]] = [
+    (re.compile(r"Parsing input file"), "parse", "start"),
+    (re.compile(r"Parse all input files time"), "parse", "done"),
+    (re.compile(r"Planning validation passed"), "validate", "done"),
+    (re.compile(r"Planning validation failed"), "validate", "done"),
+    (re.compile(r"=== Building LP model ==="), "build_lp", "start"),
+    (re.compile(r"Build lp time"), "build_lp", "done"),
+    (re.compile(r"=== System optimization ==="), "optimize", "start"),
+    (re.compile(r"SDDP: === iteration (\d+) / (\d+)"), "optimize", "detail"),
+    (
+        re.compile(r"Monolithic(?:Method|Solver): scene (\d+) done.*\((\d+)/(\d+)\)"),
+        "optimize",
+        "detail",
+    ),
+    (re.compile(r"SDDP: === simulation pass"), "sim_pass", "start"),
+    (re.compile(r"SDDP: simulation pass done"), "sim_pass", "done"),
+    (re.compile(r"=== Solution statistics ==="), "solution", "done"),
+    (re.compile(r"=== Output writing ==="), "write", "start"),
+    (re.compile(r"Write output time"), "write", "done"),
+]
+
+
+@dataclass
+class _PhaseState:
+    """Tracks a single solver phase's status and timing."""
+
+    label: str
+    status: str = "pending"  # pending | active | done | skipped
+    t_start: float = 0.0
+    t_end: float = 0.0
+    detail: str = ""
+
+    @property
+    def elapsed(self) -> float:
+        if self.status == "active":
+            return time.monotonic() - self.t_start
+        if self.status == "done":
+            return self.t_end - self.t_start
+        return 0.0
+
+
+class SolverPhaseTracker:
+    """Tracks solver progress through its execution phases.
+
+    Parses solver log lines to detect phase transitions and maintains
+    state for each phase (pending / active / done / skipped).
+    """
+
+    def __init__(self) -> None:
+        self._states: dict[str, _PhaseState] = {}
+        self._order: list[str] = []
+        self._current: str | None = None
+        self._frame: int = 0
+        self._is_monolithic: bool = False
+
+        for key, label in _SOLVER_PHASES:
+            self._states[key] = _PhaseState(label=label)
+            self._order.append(key)
+
+    def process_line(self, line: str) -> None:
+        """Parse a solver log line and update phase states."""
+        if not self._is_monolithic and (
+            "MonolithicMethod:" in line or "MonolithicSolver:" in line
+        ):
+            self._is_monolithic = True
+            self._states["sim_pass"].status = "skipped"
+
+        for pattern, key, action in _PHASE_TRIGGERS:
+            match = pattern.search(line)
+            if match is None:
+                continue
+            st = self._states[key]
+
+            if action == "start":
+                self._finish_current()
+                st.status = "active"
+                st.t_start = time.monotonic()
+                self._current = key
+            elif action == "done":
+                if st.status == "pending":
+                    # Instant step (validate) or done without explicit start
+                    st.status = "done"
+                    st.t_start = st.t_end = time.monotonic()
+                elif st.status == "active":
+                    st.status = "done"
+                    st.t_end = time.monotonic()
+                if self._current == key:
+                    self._current = None
+            elif action == "detail" and st.status == "active":
+                groups = match.groups()
+                if len(groups) == 2:  # noqa: PLR2004
+                    st.detail = f"iter {groups[0]}/{groups[1]}"
+                elif len(groups) == 3:  # noqa: PLR2004
+                    st.detail = f"scene {groups[1]}/{groups[2]}"
+            break  # first match wins
+
+    def finish_all(self) -> None:
+        """Mark any active phase as done (called when solver exits)."""
+        self._finish_current()
+
+    def _finish_current(self) -> None:
+        if self._current is not None:
+            st = self._states[self._current]
+            if st.status == "active":
+                st.status = "done"
+                st.t_end = time.monotonic()
+            self._current = None
+
+    @property
+    def order(self) -> list[str]:
+        return self._order
+
+    @property
+    def states(self) -> dict[str, _PhaseState]:
+        return self._states
+
+    def tick(self) -> None:
+        """Advance the spinner frame counter."""
+        self._frame += 1
+
+    @property
+    def frame(self) -> int:
+        return self._frame
 
 
 # ---------------------------------------------------------------------------
@@ -524,6 +671,36 @@ def _build_command_bar(stop_sent: bool) -> Panel:
     return Panel(text, border_style="dim", padding=(0, 0))
 
 
+def _build_plan_panel(tracker: SolverPhaseTracker) -> Panel:
+    """Render the solver phase checklist (plan table)."""
+    from rich.panel import Panel as RPanel  # noqa: PLC0415
+    from rich.text import Text  # noqa: PLC0415
+
+    text = Text()
+    for key in tracker.order:
+        st = tracker.states[key]
+        if st.status == "skipped":
+            continue
+        text.append("  ")
+        if st.status == "done":
+            text.append("✓", style="bold green")
+            text.append(f" {st.label}")
+            text.append(f"  ({st.elapsed:.1f}s)", style="dim")
+        elif st.status == "active":
+            spinner = _SPINNER[tracker.frame % len(_SPINNER)]
+            text.append(spinner, style="bold cyan")
+            text.append(f" {st.label}...")
+            if st.detail:
+                text.append(f"  ({st.detail})", style="cyan")
+            text.append(f"  ({st.elapsed:.1f}s)", style="dim")
+        else:
+            text.append("○", style="dim")
+            text.append(f" {st.label}", style="dim")
+        text.append("\n")
+
+    return RPanel(text, border_style="dim cyan", padding=(0, 0))
+
+
 def _build_help_overlay() -> Panel:
     """Render the help overlay panel."""
     from rich.panel import Panel  # noqa: PLC0415
@@ -661,6 +838,7 @@ class SolverDisplay:
         self._status: dict[str, Any] = {}
         self._start_time = time.monotonic()
         self._lock = threading.Lock()
+        self._phase_tracker = SolverPhaseTracker()
 
         # Interactive command state
         self._show_help = False
@@ -673,8 +851,10 @@ class SolverDisplay:
 
     def add_log_line(self, line: str) -> None:
         """Append a solver output line (thread-safe)."""
+        stripped = line.rstrip()
         with self._lock:
-            self._log_lines.append(line.rstrip())
+            self._log_lines.append(stripped)
+            self._phase_tracker.process_line(stripped)
 
     def start(self) -> None:
         """Launch the dashboard render thread."""
@@ -786,8 +966,21 @@ class SolverDisplay:
 
         with self._lock:
             log_lines = list(self._log_lines)
+            # Enrich optimize detail from status JSON (more current than logs)
+            opt_st = self._phase_tracker.states["optimize"]
+            if opt_st.status == "active" and data:
+                if data.get("max_iterations"):
+                    opt_st.detail = (
+                        f"iter {data.get('iteration', 0)}/{data['max_iterations']}"
+                    )
+                elif data.get("total_scenes") is not None:
+                    opt_st.detail = (
+                        f"scene {data.get('scenes_done', 0)}/{data['total_scenes']}"
+                    )
+            self._phase_tracker.tick()
 
         panels: list[Any] = [_build_header(self.case_name, data, elapsed)]
+        panels.append(_build_plan_panel(self._phase_tracker))
 
         has_sddp = bool(data.get("max_iterations"))
         has_monolithic = data.get("total_scenes") is not None
@@ -843,6 +1036,8 @@ class SolverDisplay:
 
                 # One final render
                 self._status = _load_status(self._status_file)
+                with self._lock:
+                    self._phase_tracker.finish_all()
                 live.update(self._build_display())
         except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             # Never let the TUI thread crash the solver

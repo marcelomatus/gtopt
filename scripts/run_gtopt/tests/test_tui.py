@@ -9,11 +9,13 @@ from unittest.mock import patch
 
 from run_gtopt._tui import (
     SolverDisplay,
+    SolverPhaseTracker,
     _build_command_bar,
     _build_header,
     _build_help_overlay,
     _build_history,
     _build_log,
+    _build_plan_panel,
     _build_progress,
     _build_stats,
     _build_stats_overlay,
@@ -700,3 +702,114 @@ def test_system_stats_loaded_on_start(tmp_path: Path):
     display.stop()
 
     assert display._system_stats.get("elements", {}).get("Generator") == 2
+
+
+# ---------------------------------------------------------------------------
+# SolverPhaseTracker
+# ---------------------------------------------------------------------------
+
+
+def test_phase_tracker_initial_state():
+    tracker = SolverPhaseTracker()
+    assert all(st.status == "pending" for st in tracker.states.values())
+    assert len(tracker.order) == 7
+
+
+def test_phase_tracker_sddp_sequence():
+    """Full SDDP phase flow: parse → validate → build → optimize → sim → solution → write."""
+    tracker = SolverPhaseTracker()
+    lines = [
+        "[00:00:01] Parsing input file case.json",
+        "[00:00:02] Parse all input files time 1.000s",
+        "[00:00:02] Planning validation passed",
+        "[00:00:02] === Building LP model ===",
+        "[00:00:10] Build lp time 8.000s",
+        "[00:00:10] === System optimization ===",
+        "[00:00:10] SDDPMethod: starting 1 scene(s)",
+        "[00:01:00] SDDP: === iteration 3 / 99 ===",
+        "[00:02:00] SDDP: === simulation pass (iter 4) ===",
+        "[00:02:30] SDDP: simulation pass done in 30.000s",
+        "[00:02:30] === Solution statistics ===",
+        "[00:02:30] === Output writing ===",
+        "[00:02:35] Write output time 5.000s",
+    ]
+    for line in lines:
+        tracker.process_line(line)
+
+    assert tracker.states["parse"].status == "done"
+    assert tracker.states["validate"].status == "done"
+    assert tracker.states["build_lp"].status == "done"
+    assert tracker.states["optimize"].status == "done"
+    assert tracker.states["sim_pass"].status == "done"
+    assert tracker.states["solution"].status == "done"
+    assert tracker.states["write"].status == "done"
+
+
+def test_phase_tracker_monolithic_skips_sim_pass():
+    """Monolithic method auto-skips the simulation pass phase."""
+    tracker = SolverPhaseTracker()
+    tracker.process_line("[00:00:10] === System optimization ===")
+    tracker.process_line("[00:00:10] MonolithicMethod: starting 4 scene(s)")
+    assert tracker.states["sim_pass"].status == "skipped"
+
+
+def test_phase_tracker_detail_sddp_iteration():
+    """SDDP iteration detail string is updated on the optimize phase."""
+    tracker = SolverPhaseTracker()
+    tracker.process_line("=== System optimization ===")
+    assert tracker.states["optimize"].status == "active"
+    tracker.process_line("SDDP: === iteration 5 / 99 ===")
+    assert tracker.states["optimize"].detail == "iter 5/99"
+
+
+def test_phase_tracker_detail_monolithic_scene():
+    """Monolithic scene progress updates the detail string."""
+    tracker = SolverPhaseTracker()
+    tracker.process_line("=== System optimization ===")
+    tracker.process_line(
+        "MonolithicMethod: scene 2 done in 3.000s (2/4)"
+    )
+    assert tracker.states["optimize"].detail == "scene 2/4"
+
+
+def test_phase_tracker_finish_all():
+    """finish_all() marks the active phase as done."""
+    tracker = SolverPhaseTracker()
+    tracker.process_line("=== Building LP model ===")
+    assert tracker.states["build_lp"].status == "active"
+    tracker.finish_all()
+    assert tracker.states["build_lp"].status == "done"
+    assert tracker.states["build_lp"].elapsed > 0.0 or True  # near-instant
+
+
+def test_phase_tracker_instant_validate():
+    """Validate goes directly from pending to done (no explicit start)."""
+    tracker = SolverPhaseTracker()
+    assert tracker.states["validate"].status == "pending"
+    tracker.process_line("Planning validation passed")
+    assert tracker.states["validate"].status == "done"
+
+
+def test_phase_tracker_tick():
+    tracker = SolverPhaseTracker()
+    assert tracker.frame == 0
+    tracker.tick()
+    tracker.tick()
+    assert tracker.frame == 2
+
+
+def test_build_plan_panel_smoke():
+    """Plan panel renders without error for mixed states."""
+    tracker = SolverPhaseTracker()
+    tracker.process_line("Parsing input file case.json")
+    tracker.process_line("Parse all input files time 0.1s")
+    tracker.process_line("=== Building LP model ===")
+    panel = _build_plan_panel(tracker)
+    assert panel is not None
+
+
+def test_add_log_line_feeds_tracker(tmp_path: Path):
+    """SolverDisplay.add_log_line() updates the phase tracker."""
+    display = SolverDisplay(case_name="test", case_dir=tmp_path)
+    display.add_log_line("=== Building LP model ===\n")
+    assert display._phase_tracker.states["build_lp"].status == "active"

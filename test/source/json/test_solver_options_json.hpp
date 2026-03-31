@@ -81,3 +81,37 @@ TEST_CASE("SolverOptions JSON round-trip serialization")
   CHECK(roundtrip.optimal_eps.value_or(0.0) == doctest::Approx(1e-6));
   CHECK(roundtrip.log_level == 2);
 }
+
+TEST_CASE("SolverOptions JSON empty object uses defaults")
+{
+  const std::string_view json_data = R"({})";
+
+  const SolverOptions opts = daw::json::from_json<SolverOptions>(json_data);
+
+  CHECK(opts.algorithm == LPAlgo::barrier);
+  CHECK(opts.threads == 2);
+  CHECK(opts.presolve == true);
+  CHECK(opts.log_level == 0);
+  CHECK(opts.reuse_basis == false);
+  CHECK_FALSE(opts.optimal_eps.has_value());
+  CHECK_FALSE(opts.feasible_eps.has_value());
+  CHECK_FALSE(opts.barrier_eps.has_value());
+  CHECK_FALSE(opts.log_mode.has_value());
+  CHECK_FALSE(opts.time_limit.has_value());
+}
+
+TEST_CASE("SolverOptions JSON partial object uses defaults for missing")
+{
+  const std::string_view json_data = R"({
+    "algorithm": 1,
+    "threads": 16
+  })";
+
+  const SolverOptions opts = daw::json::from_json<SolverOptions>(json_data);
+
+  CHECK(opts.algorithm == LPAlgo::primal);
+  CHECK(opts.threads == 16);
+  CHECK(opts.presolve == true);
+  CHECK(opts.log_level == 0);
+  CHECK(opts.reuse_basis == false);
+}

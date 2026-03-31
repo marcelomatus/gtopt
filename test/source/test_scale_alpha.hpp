@@ -6,7 +6,7 @@
  *
  * Tests:
  *  1. Default-constructed SddpOptions has no scale_alpha set
- *  2. PlanningOptionsLP applies the compiled default (1'000'000)
+ *  2. PlanningOptionsLP applies the compiled default (10'000'000)
  *  3. Explicit scale_alpha value overrides the default
  *  4. Merge behaviour for scale_alpha
  */
@@ -37,7 +37,7 @@ TEST_CASE("scale_alpha - PlanningOptionsLP applies compiled default")
 
   CHECK(lp_opts.sddp_scale_alpha()
         == doctest::Approx(PlanningOptionsLP::default_sddp_scale_alpha));
-  CHECK(lp_opts.sddp_scale_alpha() == doctest::Approx(1'000'000.0));
+  CHECK(lp_opts.sddp_scale_alpha() == doctest::Approx(10'000'000.0));
 }
 
 TEST_CASE("scale_alpha - explicit value overrides default")

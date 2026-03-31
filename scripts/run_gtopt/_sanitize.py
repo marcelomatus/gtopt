@@ -448,6 +448,20 @@ def sanitize_json(
             opts["input_directory"] = input_directory
             changed = True
 
+    # ── Resolve relative input/output directories to absolute ──
+    # gtopt resolves paths relative to its CWD, which may differ from the
+    # JSON file's location.  Make them absolute so the solver always finds
+    # the correct directory regardless of CWD.
+    case_root = json_path.parent
+    for dir_key in ("input_directory", "output_directory"):
+        raw = opts.get(dir_key, "")
+        if raw and not Path(raw).is_absolute():
+            resolved = str((case_root / raw).resolve())
+            if resolved != raw:
+                log.info("sanitize: %s '%s' -> '%s'", dir_key, raw, resolved)
+                opts[dir_key] = resolved
+                changed = True
+
     if not changed:
         return json_path
 

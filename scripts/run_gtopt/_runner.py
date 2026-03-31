@@ -100,12 +100,12 @@ def _build_gtopt_cmd(
     compression: str | None = None,
     extra_args: list[str] | None = None,
 ) -> list[str]:
-    """Build the gtopt command line."""
+    """Build the gtopt command line.
+
+    Threads and compression are already baked into the sanitized JSON
+    by :func:`sanitize_json`, so they are not passed as CLI flags here.
+    """
     cmd = [gtopt_bin, str(case_dir)]
-    if threads is not None and threads > 0:
-        cmd.extend(["--lp-threads", str(threads)])
-    if compression:
-        cmd.extend(["--output-compression", compression])
     if extra_args:
         cmd.extend(extra_args)
     return cmd
@@ -131,24 +131,20 @@ def _run_batch(cmd: list[str], env: dict[str, str], case_dir: Path) -> int:
     log.info("running: %s", " ".join(cmd))
     log_path = _setup_log_file(case_dir)
     if log_path:
-        log_f = open(log_path, "w", encoding="utf-8")  # noqa: SIM115
-        try:
-            with subprocess.Popen(
-                cmd,
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-            ) as proc:
-                assert proc.stdout is not None  # noqa: S101
-                for line in iter(proc.stdout.readline, ""):
-                    sys.stdout.write(line)
-                    log_f.write(line)
-                proc.wait()
-                return proc.returncode
-        finally:
-            log_f.close()
+        with open(log_path, "w", encoding="utf-8") as log_f, subprocess.Popen(
+            cmd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        ) as proc:
+            assert proc.stdout is not None  # noqa: S101
+            for line in iter(proc.stdout.readline, ""):
+                sys.stdout.write(line)
+                log_f.write(line)
+            proc.wait()
+            return proc.returncode
     result = subprocess.run(cmd, check=False, env=env)
     return result.returncode
 
@@ -182,36 +178,41 @@ def _run_interactive(cmd: list[str], env: dict[str, str], case_dir: Path) -> int
     display.start()
 
     log.info("running (interactive): %s", " ".join(cmd))
-    log_f = open(log_path, "w", encoding="utf-8") if log_path else None
-    try:
-        with subprocess.Popen(
-            cmd,
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        ) as proc:
-            try:
-                assert proc.stdout is not None  # noqa: S101
-                for line in iter(proc.stdout.readline, ""):
-                    display.add_log_line(line)
-                    if log_f:
-                        log_f.write(line)
-                    # Check if the TUI requested a quit (user pressed 'q')
-                    if display.quit_requested.is_set():
-                        log.info("quit requested via TUI — terminating solver")
-                        proc.send_signal(signal.SIGTERM)
-                        break
-            finally:
-                proc.wait()
-                display.stop()
-                display.print_final(proc.returncode)
+    import contextlib  # noqa: PLC0415
 
-            return proc.returncode
-    finally:
-        if log_f:
-            log_f.close()
+    with contextlib.ExitStack() as stack:
+        log_f = (
+            stack.enter_context(open(log_path, "w", encoding="utf-8"))  # noqa: SIM115
+            if log_path
+            else None
+        )
+        proc = stack.enter_context(
+            subprocess.Popen(
+                cmd,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+        )
+        try:
+            assert proc.stdout is not None  # noqa: S101
+            for line in iter(proc.stdout.readline, ""):
+                display.add_log_line(line)
+                if log_f:
+                    log_f.write(line)
+                # Check if the TUI requested a quit (user pressed 'q')
+                if display.quit_requested.is_set():
+                    log.info("quit requested via TUI — terminating solver")
+                    proc.send_signal(signal.SIGTERM)
+                    break
+        finally:
+            proc.wait()
+            display.stop()
+            display.print_final(proc.returncode)
+
+        return proc.returncode
 
 
 def run_gtopt(
@@ -656,8 +657,13 @@ def _report_solution_plain(results_dir: Path, gtopt_dir: Path | None = None) -> 
     """Fallback plain-text results summary."""
     sol = check_solution(results_dir)
     status_map = {0: "OPTIMAL", 1: "NON-OPTIMAL / INFEASIBLE"}
-    status = sol.get("status")
-    print(f"  Status: {status_map.get(status, f'UNKNOWN ({status})')}")
+    status: int | None = sol.get("status")
+    status_str = (
+        status_map.get(status, f"UNKNOWN ({status})")
+        if status is not None
+        else "UNKNOWN (None)"
+    )
+    print(f"  Status: {status_str}")
     obj = sol.get("objective")
     if obj is not None:
         print(f"  Objective: {obj:.6g}")

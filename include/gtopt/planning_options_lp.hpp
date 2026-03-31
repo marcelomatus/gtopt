@@ -54,9 +54,11 @@ public:
   /** @brief Default threshold for Kirchhoff constraints */
   static constexpr Real default_kirchhoff_threshold = 0;
   /** @brief Default objective function scaling factor */
-  static constexpr Real default_scale_objective = 1'000;
-  /** @brief Default voltage angle scaling factor (10 * 100 * 100 = 100,000) */
-  static constexpr Real default_scale_theta = 1'000;
+  static constexpr Real default_scale_objective = 10'000'000;
+  /** @brief Default voltage angle scale factor (1/ScaleAng = 1/1e4).
+   *  Convention: physical = LP × scale_theta, same as energy_scale.
+   *  Theta (small ~0.01 rad) is scaled UP: LP = physical / scale_theta. */
+  static constexpr Real default_scale_theta = 0.0001;
 
   // Default values for output settings
   /** @brief Default output directory path */
@@ -94,7 +96,7 @@ public:
    */
   explicit PlanningOptionsLP(PlanningOptions poptions = {})
       : m_options_(std::move(poptions))
-      , m_variable_scale_map_(m_options_.variable_scales)
+      , m_variable_scale_map_(populate_variable_scales(m_options_))
   {
   }
 
@@ -473,7 +475,7 @@ public:
   /** @brief Default upper bound for future cost variable α */
   static constexpr Real default_sddp_alpha_max = 1e12;
   /** @brief Default scale divisor for future cost variable α (PLP varphi) */
-  static constexpr Real default_sddp_scale_alpha = 1'000;
+  static constexpr Real default_sddp_scale_alpha = 10'000'000;
   /** @brief Default elastic filter mode */
   static constexpr ElasticFilterMode default_sddp_elastic_mode =
       ElasticFilterMode::single_cut;
@@ -933,10 +935,10 @@ public:
    * The map provides `lookup(class_name, variable, uid)` to resolve scale
    * factors with per-element > per-class > default (1.0) priority.
    *
-   * Note: per-element fields (`Battery::energy_scale`,
-   * `Reservoir::energy_scale`) and global options (`scale_theta`) take
-   * precedence over this map.
-   * Use this for variables not covered by dedicated fields.
+   * Global scales (`scale_theta`, `scale_alpha`) are auto-injected into
+   * this map by `populate_variable_scales()` at construction time.
+   * Per-element fields (`Battery::energy_scale`, `Reservoir::energy_scale`)
+   * still take precedence over map entries.
    */
   [[nodiscard]] const auto& variable_scale_map() const noexcept
   {
@@ -944,6 +946,51 @@ public:
   }
 
 private:
+  /// @brief Populate variable_scales from dedicated scale options.
+  ///
+  /// Injects Bus.theta (from scale_theta) and Sddp.alpha (from scale_alpha)
+  /// into the variable_scales array unless the user already provided them.
+  /// Convention: `physical = LP × scale` for all entries.
+  static auto populate_variable_scales(PlanningOptions& opts)
+      -> std::span<const VariableScale>
+  {
+    auto has_entry = [&](std::string_view cls, std::string_view var) -> bool
+    {
+      return std::ranges::any_of(opts.variable_scales,
+                                 [&](const VariableScale& vs)
+                                 {
+                                   return vs.class_name == cls
+                                       && vs.variable == var
+                                       && vs.uid == unknown_uid;
+                                 });
+    };
+
+    // Inject Bus.theta — scale_theta already follows physical = LP × scale
+    if (!has_entry("Bus", "theta")) {
+      const auto st = fallback_3(opts.scale_theta,
+                                 opts.model_options.scale_theta,
+                                 default_scale_theta);
+      opts.variable_scales.push_back(VariableScale {
+          .class_name = "Bus",
+          .variable = "theta",
+          .scale = st,
+      });
+    }
+
+    // Inject Sddp.alpha — scale_alpha already follows physical = LP × scale
+    if (!has_entry("Sddp", "alpha")) {
+      const auto sa =
+          opts.sddp_options.scale_alpha.value_or(default_sddp_scale_alpha);
+      opts.variable_scales.push_back(VariableScale {
+          .class_name = "Sddp",
+          .variable = "alpha",
+          .scale = sa,
+      });
+    }
+
+    return opts.variable_scales;
+  }
+
   /** @brief The wrapped PlanningOptions object */
   PlanningOptions m_options_;
   /** @brief Variable scale map built from PlanningOptions::variable_scales */
