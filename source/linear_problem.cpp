@@ -71,7 +71,7 @@ auto LinearProblem::lp_build(const LpBuildOptions& opts) -> FlatLinearProblem
 
   // Optionally track coefficient stats during the matrix scan (zero cost
   // when disabled — the branch is predictable and the inner loop is hot).
-  const bool do_stats = opts.compute_stats;
+  const bool do_stats = opts.compute_stats.value_or(false);
   double stats_max = 0.0;
   double stats_min = std::numeric_limits<double>::max();
   size_t stats_nnz = 0;
@@ -218,13 +218,83 @@ auto LinearProblem::lp_build(const LpBuildOptions& opts) -> FlatLinearProblem
     }
   }
 
+  // ── Row equilibration scaling ─────────────────────────────────────
+  // Scale each row so that its largest |coefficient| becomes 1.0.
+  // This reduces the condition number by compressing the coefficient
+  // range across rows.  The row_scales vector stores the inverse of
+  // the scaling factor: dual_physical = dual_LP × row_scale[i].
+  std::vector<double> row_scales_vec;
+  if (opts.row_equilibration.value_or(true)) {
+    // 1. Compute row max |coefficient| from the CSC matrix.
+    std::vector<double> row_max(nrows, 0.0);
+    for (size_t k = 0; k < matval.size(); ++k) {
+      const auto r = static_cast<size_t>(matind[k]);
+      row_max[r] = std::max(row_max[r], std::abs(matval[k]));
+    }
+
+    // 2. Compute scale = 1/max (identity for empty or zero-max rows).
+    row_scales_vec.resize(nrows);
+    for (size_t r = 0; r < static_cast<size_t>(nrows); ++r) {
+      row_scales_vec[r] = (row_max[r] > 0.0) ? row_max[r] : 1.0;
+    }
+
+    // 3. Apply scaling to matrix coefficients.
+    for (size_t k = 0; k < matval.size(); ++k) {
+      const auto r = static_cast<size_t>(matind[k]);
+      matval[k] /= row_scales_vec[r];
+    }
+
+    // 4. Scale row bounds (RHS).
+    for (size_t r = 0; r < static_cast<size_t>(nrows); ++r) {
+      const double s = row_scales_vec[r];
+      if (s != 1.0) {
+        rowlb[r] /= s;
+        rowub[r] /= s;
+      }
+    }
+
+    // 5. Recompute coefficient stats after equilibration so the reported
+    //    ratio reflects the actual matrix sent to the solver.
+    if (do_stats) {
+      stats_max = 0.0;
+      stats_min = std::numeric_limits<double>::max();
+      stats_max_col = -1;
+      stats_min_col = -1;
+      for (size_t c = 0; c < ncols; ++c) {
+        const auto beg = static_cast<size_t>(matbeg[c]);
+        const auto end = static_cast<size_t>(matbeg[c + 1]);
+        for (size_t k = beg; k < end; ++k) {
+          const double abs_v = std::abs(matval[k]);
+          if (abs_v > stats_max) {
+            stats_max = abs_v;
+            stats_max_col = static_cast<fp_index_t>(c);
+          }
+          if (abs_v >= eff_stats_eps && abs_v < stats_min) {
+            stats_min = abs_v;
+            stats_min_col = static_cast<fp_index_t>(c);
+          }
+        }
+      }
+      // Update column name references for the new min/max columns.
+      stats_max_col_name =
+          (stats_max_col >= 0
+           && static_cast<size_t>(stats_max_col) < colnm.size())
+          ? colnm[static_cast<size_t>(stats_max_col)]
+          : "";
+      stats_min_col_name =
+          (stats_min_col >= 0
+           && static_cast<size_t>(stats_min_col) < colnm.size())
+          ? colnm[static_cast<size_t>(stats_min_col)]
+          : "";
+    }
+  }
+
   // ── Per-row-type coefficient statistics ──────────────────────────────
   // Classify rows by constraint type (extracted from row names) and
-  // compute per-type min/max |coefficient|.  Only when both stats and
-  // row names are enabled.
+  // compute per-type min/max |coefficient|.  Computed after row
+  // equilibration so stats reflect the actual matrix sent to the solver.
   std::vector<FlatLinearProblem::RowTypeStatsEntry> row_type_stats_vec;
   if (do_stats && !rownm.empty()) {
-    // Build per-row max and min |coefficient| arrays.
     std::vector<double> row_max(nrows, 0.0);
     std::vector<double> row_min(nrows, std::numeric_limits<double>::max());
     std::vector<size_t> row_nnz(nrows, 0);
@@ -239,26 +309,20 @@ auto LinearProblem::lp_build(const LpBuildOptions& opts) -> FlatLinearProblem
       }
     }
 
-    // Classify each row by extracting the constraint type token from its
-    // name.  Row names use underscore-separated tokens; the type is the
-    // second token in the standard `cname_type_uid_...` format.
     auto extract_row_type = [](std::string_view name) -> std::string_view
     {
       if (name.empty()) {
         return "unknown";
       }
-      // Find the second token (after first underscore).
       const auto first_sep = name.find('_');
       if (first_sep == std::string_view::npos) {
         return name;
       }
       const auto rest = name.substr(first_sep + 1);
       const auto second_sep = rest.find('_');
-      return rest.substr(0, second_sep);  // type token
+      return rest.substr(0, second_sep);
     };
 
-    // Aggregate per-type stats using a flat map-like scan.
-    // Sort row indices by type for grouping.
     struct TypeAccum
     {
       size_t count {};
@@ -290,7 +354,6 @@ auto LinearProblem::lp_build(const LpBuildOptions& opts) -> FlatLinearProblem
       });
     }
 
-    // Sort by ratio descending (worst first) for readable output.
     std::ranges::sort(
         row_type_stats_vec,
         [](const auto& a, const auto& b)
@@ -305,42 +368,6 @@ auto LinearProblem::lp_build(const LpBuildOptions& opts) -> FlatLinearProblem
               : 1.0;
           return ra > rb;
         });
-  }
-
-  // ── Row equilibration scaling ─────────────────────────────────────
-  // Scale each row so that its largest |coefficient| becomes 1.0.
-  // This reduces the condition number by compressing the coefficient
-  // range across rows.  The row_scales vector stores the inverse of
-  // the scaling factor: dual_physical = dual_LP × row_scale[i].
-  std::vector<double> row_scales_vec;
-  if (opts.row_equilibration) {
-    // 1. Compute row max |coefficient| from the CSC matrix.
-    std::vector<double> row_max(nrows, 0.0);
-    for (size_t k = 0; k < matval.size(); ++k) {
-      const auto r = static_cast<size_t>(matind[k]);
-      row_max[r] = std::max(row_max[r], std::abs(matval[k]));
-    }
-
-    // 2. Compute scale = 1/max (identity for empty or zero-max rows).
-    row_scales_vec.resize(nrows);
-    for (size_t r = 0; r < static_cast<size_t>(nrows); ++r) {
-      row_scales_vec[r] = (row_max[r] > 0.0) ? row_max[r] : 1.0;
-    }
-
-    // 3. Apply scaling to matrix coefficients.
-    for (size_t k = 0; k < matval.size(); ++k) {
-      const auto r = static_cast<size_t>(matind[k]);
-      matval[k] /= row_scales_vec[r];
-    }
-
-    // 4. Scale row bounds (RHS).
-    for (size_t r = 0; r < static_cast<size_t>(nrows); ++r) {
-      const double s = row_scales_vec[r];
-      if (s != 1.0) {
-        rowlb[r] /= s;
-        rowub[r] /= s;
-      }
-    }
   }
 
   return {

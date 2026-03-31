@@ -366,7 +366,7 @@ public:
   /// Whether per-row equilibration scaling is enabled.
   [[nodiscard]] constexpr bool row_equilibration() const noexcept
   {
-    return m_options_.lp_build_options.row_equilibration;
+    return m_options_.lp_build_options.row_equilibration.value_or(true);
   }
 
   /**

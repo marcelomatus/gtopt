@@ -15,6 +15,23 @@ Tracked in [GitHub Issues](https://github.com/marcelomatus/gtopt/issues).
 
 - [ ] Minimal solver check interface ([#324](https://github.com/marcelomatus/gtopt/issues/324))
 
+## Numerical Conditioning
+
+- [ ] **Ruiz scaling (geometric mean iterative scaling)** — Implement Ruiz
+  equilibration as a pre-processing pass in `lp_build()`.  Ruiz scaling
+  alternately normalizes rows and columns by their infinity-norm until
+  convergence (typically 5–10 iterations).  This produces a better-conditioned
+  matrix than single-pass row equilibration alone, especially for problems with
+  heterogeneous variable scales.  Reference: Ruiz, D. (2001) "A scaling
+  algorithm to equilibrate both rows and columns norms in matrices".
+  Implementation notes:
+  - Add as `LpBuildOptions::ruiz_scaling` (bool, default false).
+  - Iterate: for each row, compute max |a_ij|; for each col, compute max |a_ij|.
+    Scale rows and columns by 1/sqrt(max).  Repeat until max change < tolerance.
+  - Update `col_scales` and `row_scales` accordingly so dual/primal unscaling
+    remains correct.
+  - Must run *after* the existing row equilibration pass (or replace it).
+
 ## Planning / SDDP
 
 - [ ] Check loading of state variables ([#325](https://github.com/marcelomatus/gtopt/issues/325))

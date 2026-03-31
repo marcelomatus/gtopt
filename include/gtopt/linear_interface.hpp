@@ -492,9 +492,13 @@ public:
       return raw_span;
     }
     // Apply row-equilibration unscaling: dual_phys = dual_LP / row_scale.
+    // Rows added after initial build (e.g. SDDP cuts) have no scale entry;
+    // treat them as scale=1.0 (unscaled).
+    const auto n_scaled = m_row_scales_.size();
     m_unscaled_duals_.resize(n);
     for (size_t i = 0; i < n; ++i) {
-      m_unscaled_duals_[i] = raw_span[i] / m_row_scales_[i];
+      m_unscaled_duals_[i] =
+          (i < n_scaled) ? raw_span[i] / m_row_scales_[i] : raw_span[i];
     }
     return m_unscaled_duals_;
   }

@@ -378,7 +378,9 @@ TEST_CASE("Linear problem lp_build row ordering")
   lp.set_coeff(r1, c1, 5.0);
   lp.set_coeff(r2, c1, 6.0);
 
-  const auto flat = lp.lp_build();
+  const auto flat = lp.lp_build({
+      .row_equilibration = false,
+  });
 
   REQUIRE(flat.ncols == 2);
   REQUIRE(flat.nrows == 3);
@@ -584,7 +586,10 @@ TEST_CASE("Linear problem lp_build with epsilon filtering")
   lp.set_coeff(r1, c1, 0.0005);  // Even smaller
 
   // With eps=0.01, both c1 entries should be filtered out
-  const auto flat = lp.lp_build({.eps = 0.01});
+  const auto flat = lp.lp_build({
+      .eps = 0.01,
+      .row_equilibration = false,
+  });
 
   REQUIRE(flat.ncols == 2);
   CHECK(flat.matbeg[0] == 0);  // col0 starts at 0
@@ -621,6 +626,7 @@ TEST_CASE(
     const auto flat = lp.lp_build({
         .col_with_names = true,
         .compute_stats = true,
+        .row_equilibration = false,
     });
 
     // All three pass the default eps=0 filter → nnz=3
@@ -646,6 +652,7 @@ TEST_CASE(
         .eps = 1.0,
         .col_with_names = true,
         .compute_stats = true,
+        .row_equilibration = false,
     });
 
     // Only 100.0 passes eps=1.0; 0.5 and 1e-12 are zeroed
@@ -670,6 +677,7 @@ TEST_CASE(
         .col_with_names = false,
         .col_with_name_map = false,
         .compute_stats = true,
+        .row_equilibration = false,
     });
 
     CHECK(flat.stats_max_col == 0);
@@ -710,7 +718,9 @@ TEST_CASE("Linear problem set_coeff overwrite preserves correctness")
   CHECK(lp.get_coeff(r0, c0) == doctest::Approx(5.0));
 
   // Verify flat conversion has exactly one entry, not two
-  const auto flat = lp.lp_build();
+  const auto flat = lp.lp_build({
+      .row_equilibration = false,
+  });
   CHECK(flat.ncols == 1);
   CHECK(flat.nrows == 1);
   CHECK(flat.matval.size() == 1);
@@ -878,7 +888,9 @@ TEST_CASE("LinearInterface row_equilibration unscales duals")  // NOLINT
 
   SUBCASE("without row_equilibration")
   {
-    const auto flat = lp.lp_build();
+    const auto flat = lp.lp_build({
+        .row_equilibration = false,
+    });
     LinearInterface li("", flat);
     std::ignore = li.initial_solve({});
     REQUIRE(li.is_optimal());
@@ -906,6 +918,64 @@ TEST_CASE("LinearInterface row_equilibration unscales duals")  // NOLINT
     REQUIRE(duals.size() == 1);
     CHECK(duals[0] == doctest::Approx(0.001).epsilon(1e-4));
   }
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface row_equilibration handles dynamically added rows")
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Build LP with one row, enable row_equilibration, then add a new row
+  // after construction (simulating SDDP cut addition).  get_row_dual()
+  // must not crash on the newly added row that has no scale entry.
+  LinearProblem lp("dynamic_row_test");
+
+  const auto c0 = lp.add_col(SparseCol {
+      .name = "x",
+      .lowb = 0,
+      .uppb = 100,
+      .cost = 1.0,
+  });
+
+  auto r0 = SparseRow {
+      .name = "r0",
+  };
+  r0[c0] = 500.0;
+  r0.greater_equal(2500.0);
+  std::ignore = lp.add_row(std::move(r0));
+
+  const auto flat = lp.lp_build({
+      .row_equilibration = true,
+  });
+  REQUIRE(flat.row_scales.size() == 1);
+  CHECK(flat.row_scales[0] == doctest::Approx(500.0));
+
+  LinearInterface li("", flat);
+  std::ignore = li.initial_solve({});
+  REQUIRE(li.is_optimal());
+
+  // Add a new row dynamically (like an SDDP cut).
+  auto new_row = SparseRow {
+      .name = "cut_0",
+  };
+  new_row[c0] = 1.0;
+  new_row.greater_equal(3.0);
+  std::ignore = li.add_row(new_row);
+
+  // Re-solve with the new constraint.
+  std::ignore = li.resolve({});
+  REQUIRE(li.is_optimal());
+
+  // get_row_dual() must not crash — the new row has no row_scale entry
+  // and should be treated as scale=1.0.
+  const auto duals = li.get_row_dual();
+  REQUIRE(duals.size() == 2);
+
+  // Original row dual: physical dual for 500x >= 2500, optimal x=5,
+  // dual = 1/500 = 0.002
+  CHECK(duals[0] == doctest::Approx(0.002).epsilon(1e-4));
+  // New row: x >= 3 is non-binding (x=5 > 3), so dual should be 0.
+  CHECK(duals[1] == doctest::Approx(0.0).epsilon(1e-4));
 }
 
 TEST_CASE("lp_build per-row-type coefficient stats")  // NOLINT
@@ -939,10 +1009,12 @@ TEST_CASE("lp_build per-row-type coefficient stats")  // NOLINT
   r_theta.equal(0.0);
   std::ignore = lp.add_row(std::move(r_theta));
 
-  // Build with stats and row names enabled
+  // Build with stats and row names enabled, without equilibration
+  // so coefficient values are preserved for exact comparison.
   const auto flat = lp.lp_build({
       .row_with_names = true,
       .compute_stats = true,
+      .row_equilibration = false,
   });
 
   REQUIRE(!flat.row_type_stats.empty());
