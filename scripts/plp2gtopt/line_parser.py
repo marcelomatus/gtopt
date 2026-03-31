@@ -8,6 +8,7 @@ Handles:
 - Line lookup by name or buses
 """
 
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from .base_parser import BaseParser
 
@@ -22,6 +23,11 @@ class LineParser(BaseParser):
         _name_index_map: Dict mapping names to indices
         _number_index_map: Dict mapping numbers to indices
     """
+
+    def __init__(self, file_path: str | Path) -> None:
+        super().__init__(file_path)
+        self._fperdtram: bool = True
+        self._fperdlin: str = "M"
 
     def parse(self, parsers: Optional[dict[str, Any]] = None) -> None:
         """Parse the line file and populate the lines structure.

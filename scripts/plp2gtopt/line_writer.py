@@ -26,6 +26,7 @@ class Line(TypedDict, total=False):
     voltage: float
     loss_segments: int
     use_line_losses: bool
+    loss_allocation_mode: str
 
 
 class LineWriter(BaseWriter):
@@ -97,9 +98,10 @@ class LineWriter(BaseWriter):
 
             # Loss allocation mode from PLP global FPerdLin setting.
             # Only emit if different from gtopt default ("receiver").
-            loss_mode = self.line_parser.loss_allocation_mode
-            if loss_mode != "receiver":
-                json_line["loss_allocation_mode"] = loss_mode
+            if self.line_parser is not None:
+                loss_mode = self.line_parser.loss_allocation_mode
+                if loss_mode != "receiver":
+                    json_line["loss_allocation_mode"] = loss_mode
 
             json_lines.append(json_line)
 

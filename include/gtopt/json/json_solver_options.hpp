@@ -7,6 +7,10 @@
  *
  * This module provides JSON serialization/deserialization for the SolverOptions
  * structure, allowing LP solver options to be saved and loaded in JSON format.
+ *
+ * All fields are nullable in JSON (missing ≡ use C++ default).  A custom
+ * constructor_t converts the std::optional parse results back to non-optional
+ * SolverOptions members via value_or().
  */
 
 #pragma once
@@ -22,34 +26,68 @@ using gtopt::OptReal;
 using gtopt::SolverLogMode;
 using gtopt::SolverOptions;
 
+using OptLPAlgo = std::optional<LPAlgo>;
 using OptSolverLogMode = std::optional<SolverLogMode>;
+using OptInt = std::optional<int>;
+using OptBool = std::optional<bool>;
+
+/// Constructs SolverOptions from nullable JSON fields, applying defaults.
+struct SolverOptionsConstructor
+{
+  SolverOptions operator()(OptLPAlgo algorithm,
+                           OptInt threads,
+                           OptBool presolve,
+                           OptReal optimal_eps,
+                           OptReal feasible_eps,
+                           OptReal barrier_eps,
+                           OptInt log_level,
+                           OptSolverLogMode log_mode,
+                           OptReal time_limit,
+                           OptBool reuse_basis) const
+  {
+    return SolverOptions {
+        .algorithm = algorithm.value_or(LPAlgo::barrier),
+        .threads = threads.value_or(2),
+        .presolve = presolve.value_or(true),
+        .optimal_eps = optimal_eps,
+        .feasible_eps = feasible_eps,
+        .barrier_eps = barrier_eps,
+        .log_level = log_level.value_or(0),
+        .log_mode = log_mode,
+        .time_limit = time_limit,
+        .reuse_basis = reuse_basis.value_or(false),
+    };
+  }
+};
 
 template<>
 struct json_data_contract<SolverOptions>
 {
-  using type = json_member_list<json_number<"algorithm", LPAlgo>,
-                                json_number<"threads", int>,
-                                json_bool<"presolve", bool>,
+  using constructor_t = SolverOptionsConstructor;
+
+  using type = json_member_list<json_number_null<"algorithm", OptLPAlgo>,
+                                json_number_null<"threads", OptInt>,
+                                json_bool_null<"presolve", OptBool>,
                                 json_number_null<"optimal_eps", OptReal>,
                                 json_number_null<"feasible_eps", OptReal>,
                                 json_number_null<"barrier_eps", OptReal>,
-                                json_number<"log_level", int>,
+                                json_number_null<"log_level", OptInt>,
                                 json_number_null<"log_mode", OptSolverLogMode>,
                                 json_number_null<"time_limit", OptReal>,
-                                json_bool<"reuse_basis", bool>>;
+                                json_bool_null<"reuse_basis", OptBool>>;
 
-  constexpr static auto to_json_data(SolverOptions const& opt)
+  static constexpr auto to_json_data(SolverOptions const& opt)
   {
-    return std::forward_as_tuple(opt.algorithm,
-                                 opt.threads,
-                                 opt.presolve,
-                                 opt.optimal_eps,
-                                 opt.feasible_eps,
-                                 opt.barrier_eps,
-                                 opt.log_level,
-                                 opt.log_mode,
-                                 opt.time_limit,
-                                 opt.reuse_basis);
+    return std::make_tuple(OptLPAlgo {opt.algorithm},
+                           OptInt {opt.threads},
+                           OptBool {opt.presolve},
+                           opt.optimal_eps,
+                           opt.feasible_eps,
+                           opt.barrier_eps,
+                           OptInt {opt.log_level},
+                           opt.log_mode,
+                           opt.time_limit,
+                           OptBool {opt.reuse_basis});
   }
 };
 
