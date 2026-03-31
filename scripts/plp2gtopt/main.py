@@ -330,10 +330,10 @@ def make_parser() -> argparse.ArgumentParser:
         dest="scale_theta",
         type=float,
         metavar="FACTOR",
-        default=float(conf.get("scale_theta", "10000.0")),
+        default=float(conf.get("scale_theta", "0.0001")),
         help=(
-            "voltage-angle scaling factor. "
-            "Matches PLP's ScaleAng (default: %(default)s)"
+            "voltage-angle scale factor (1/ScaleAng). "
+            "Convention: physical = LP × scale_theta (default: %(default)s)"
         ),
     )
     parser.add_argument(
@@ -359,8 +359,8 @@ def make_parser() -> argparse.ArgumentParser:
         "-k",
         "--use-kirchhoff",
         dest="use_kirchhoff",
-        action="store_true",
-        default=False,
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help="enable Kirchhoff voltage-law constraints (default: %(default)s)",
     )
     parser.add_argument(
@@ -904,7 +904,7 @@ _SECTION_DEFAULTS: dict[str, str] = {
     "solver_type": "sddp",
     "demand_fail_cost": "1000.0",
     "scale_objective": "10000000.0",
-    "scale_theta": "10000.0",
+    "scale_theta": "0.0001",
     "scale_alpha": "10000000.0",
     "discount_rate": "0.0",
     "rsv_scale_mode": "auto",

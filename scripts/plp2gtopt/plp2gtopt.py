@@ -129,7 +129,7 @@ def _log_stats(planning: dict, elapsed: float) -> None:
     rows.append(("use_kirchhoff", str(opts.get("use_kirchhoff", False))))
     rows.append(("use_single_bus", str(opts.get("use_single_bus", False))))
     rows.append(("scale_objective", str(opts.get("scale_objective", 10_000_000))))
-    rows.append(("scale_theta", str(opts.get("scale_theta", 10_000))))
+    rows.append(("scale_theta", str(opts.get("scale_theta", 0.0001))))
     rows.append(("demand_fail_cost", str(opts.get("demand_fail_cost", 0))))
 
     # Skipped centrals
