@@ -148,7 +148,8 @@ class GTOptWriter:
             "use_single_bus": options.get("use_single_bus", False),
             "use_kirchhoff": options.get("use_kirchhoff", False),
             "demand_fail_cost": options.get("demand_fail_cost", 1000),
-            "scale_objective": options.get("scale_objective", 1000),
+            "scale_objective": options.get("scale_objective", 10_000_000),
+            "scale_theta": options.get("scale_theta", 10_000),
             "annual_discount_rate": discount_rate,
             "sddp_options": sddp_opts,
         }
