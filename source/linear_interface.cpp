@@ -182,6 +182,9 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   // Preserve per-column scale factors from LinearProblem.
   m_col_scales_ = flat_lp.col_scales;
 
+  // Preserve per-row equilibration scale factors (empty when disabled).
+  m_row_scales_ = flat_lp.row_scales;
+
   // Preserve coefficient statistics computed during lp_build().
   m_stats_nnz_ = flat_lp.stats_nnz;
   m_stats_zeroed_ = flat_lp.stats_zeroed;
@@ -191,6 +194,7 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   m_stats_min_col_ = flat_lp.stats_min_col;
   m_stats_max_col_name_ = flat_lp.stats_max_col_name;
   m_stats_min_col_name_ = flat_lp.stats_min_col_name;
+  m_row_type_stats_ = flat_lp.row_type_stats;
 
   for (auto i : flat_lp.colint) {
     m_backend_->set_integer(i);
@@ -506,6 +510,32 @@ auto LinearInterface::write_lp(const std::string& filename) const
   return {};
 }
 
+// ── Algorithm fallback ──
+
+namespace
+{
+
+/// Return the next algorithm in the fallback cycle:
+/// barrier → dual → primal → barrier.
+/// For default_algo, the cycle starts as if it were barrier.
+constexpr LPAlgo next_fallback_algo(LPAlgo current) noexcept
+{
+  switch (current) {
+    case LPAlgo::barrier:
+      return LPAlgo::dual;
+    case LPAlgo::dual:
+      return LPAlgo::primal;
+    case LPAlgo::primal:
+      return LPAlgo::barrier;
+    case LPAlgo::default_algo:
+    case LPAlgo::last_algo:
+      return LPAlgo::dual;
+  }
+  return LPAlgo::dual;
+}
+
+}  // namespace
+
 // ── Solve ──
 
 std::expected<int, Error> LinearInterface::initial_solve(
@@ -521,22 +551,56 @@ std::expected<int, Error> LinearInterface::initial_solve(
         : solver_options.log_level;
 
     if (log_mode != SolverLogMode::nolog && !m_log_file_.empty()) {
-      // Use native file-based logging (set_log_filename API)
       const LogFileGuard log_guard(*this, m_log_file_, log_level);
       m_backend_->initial_solve();
     } else {
-      // Use legacy FILE*-based logging (open_log API)
       const HandlerGuard guard(*this, log_level);
       m_backend_->initial_solve();
+    }
+
+    if (!is_optimal() && solver_options.max_fallbacks > 0) {
+      // Algorithm fallback cycle: try alternative algorithms
+      auto fallback_opts = solver_options;
+      auto current_algo = solver_options.algorithm;
+
+      for (int attempt = 0;
+           attempt < solver_options.max_fallbacks && !is_optimal();
+           ++attempt)
+      {
+        const auto next_algo = next_fallback_algo(current_algo);
+        spdlog::warn(
+            "initial_solve: {} non-optimal with {}, "
+            "fallback to {}",
+            get_prob_name(),
+            current_algo,
+            next_algo);
+
+        fallback_opts.algorithm = next_algo;
+        fallback_opts.presolve = false;
+        m_backend_->apply_options(fallback_opts);
+
+        if (log_mode != SolverLogMode::nolog && !m_log_file_.empty()) {
+          const LogFileGuard log_guard(*this, m_log_file_, log_level);
+          m_backend_->initial_solve();
+        } else {
+          const HandlerGuard guard(*this, log_level);
+          m_backend_->initial_solve();
+        }
+
+        current_algo = next_algo;
+      }
     }
 
     if (!is_optimal()) {
       return std::unexpected(Error {
           .code = ErrorCode::SolverError,
           .message = std::format(
-              "Solver returned non-optimal for problem: {} status: {}",
+              "Solver returned non-optimal for problem: {} status: {}{}",
               get_prob_name(),
-              get_status()),
+              get_status(),
+              solver_options.max_fallbacks > 0
+                  ? " (after algorithm fallback cycle)"
+                  : ""),
           .status = get_status(),
       });
     }
@@ -565,22 +629,56 @@ std::expected<int, Error> LinearInterface::resolve(
         : solver_options.log_level;
 
     if (log_mode != SolverLogMode::nolog && !m_log_file_.empty()) {
-      // Use native file-based logging (set_log_filename API)
       const LogFileGuard log_guard(*this, m_log_file_, log_level);
       m_backend_->resolve();
     } else {
-      // Use legacy FILE*-based logging (open_log API)
       const HandlerGuard guard(*this, log_level);
       m_backend_->resolve();
+    }
+
+    if (!is_optimal() && solver_options.max_fallbacks > 0) {
+      // Algorithm fallback cycle: try alternative algorithms
+      auto fallback_opts = solver_options;
+      auto current_algo = solver_options.algorithm;
+
+      for (int attempt = 0;
+           attempt < solver_options.max_fallbacks && !is_optimal();
+           ++attempt)
+      {
+        const auto next_algo = next_fallback_algo(current_algo);
+        spdlog::warn(
+            "resolve: {} non-optimal with {}, "
+            "fallback to {}",
+            get_prob_name(),
+            current_algo,
+            next_algo);
+
+        fallback_opts.algorithm = next_algo;
+        fallback_opts.presolve = false;
+        m_backend_->apply_options(fallback_opts);
+
+        if (log_mode != SolverLogMode::nolog && !m_log_file_.empty()) {
+          const LogFileGuard log_guard(*this, m_log_file_, log_level);
+          m_backend_->resolve();
+        } else {
+          const HandlerGuard guard(*this, log_level);
+          m_backend_->resolve();
+        }
+
+        current_algo = next_algo;
+      }
     }
 
     if (!is_optimal()) {
       return std::unexpected(Error {
           .code = ErrorCode::SolverError,
           .message = std::format(
-              "Solver returned non-optimal for problem: {} status: {}",
+              "Solver returned non-optimal for problem: {} status: {}{}",
               get_prob_name(),
-              get_status()),
+              get_status(),
+              solver_options.max_fallbacks > 0
+                  ? " (after algorithm fallback cycle)"
+                  : ""),
           .status = get_status(),
       });
     }

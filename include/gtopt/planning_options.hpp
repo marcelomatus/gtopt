@@ -283,6 +283,8 @@ struct PlanningOptions
     merge_opt(lp_build_options.names_level, opts.lp_build_options.names_level);
     merge_opt(lp_build_options.lp_coeff_ratio_threshold,
               opts.lp_build_options.lp_coeff_ratio_threshold);
+    lp_build_options.row_equilibration = lp_build_options.row_equilibration
+        || opts.lp_build_options.row_equilibration;
 
     // Merge variable scales (append incoming entries)
     if (!opts.variable_scales.empty()) {

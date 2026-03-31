@@ -68,11 +68,15 @@ struct SddpOptionsConstructor
       OptBool use_clone_pool,
       OptBool simulation_mode,
       OptName cut_coeff_mode_str,
+      OptReal cut_coeff_eps,
+      OptReal cut_coeff_max,
       OptName convergence_mode_str,
       OptName state_variable_lookup_mode_str,
       OptReal stationary_tol,
       OptInt stationary_window,
       OptReal convergence_confidence,
+      OptInt forward_max_fallbacks,
+      OptInt backward_max_fallbacks,
       std::optional<SolverOptions> forward_solver_options,
       std::optional<SolverOptions> backward_solver_options) const
   {
@@ -134,6 +138,8 @@ struct SddpOptionsConstructor
       opts.cut_coeff_mode =
           gtopt::enum_from_name<CutCoeffMode>(*cut_coeff_mode_str);
     }
+    opts.cut_coeff_eps = cut_coeff_eps;
+    opts.cut_coeff_max = cut_coeff_max;
     if (convergence_mode_str) {
       opts.convergence_mode =
           gtopt::enum_from_name<ConvergenceMode>(*convergence_mode_str);
@@ -146,6 +152,8 @@ struct SddpOptionsConstructor
     opts.stationary_tol = stationary_tol;
     opts.stationary_window = stationary_window;
     opts.convergence_confidence = convergence_confidence;
+    opts.forward_max_fallbacks = forward_max_fallbacks;
+    opts.backward_max_fallbacks = backward_max_fallbacks;
     opts.forward_solver_options = std::move(forward_solver_options);
     opts.backward_solver_options = std::move(backward_solver_options);
     return opts;
@@ -196,11 +204,15 @@ struct json_data_contract<SddpOptions>
       json_bool_null<"use_clone_pool", OptBool>,
       json_bool_null<"simulation_mode", OptBool>,
       json_string_null<"cut_coeff_mode", OptName>,
+      json_number_null<"cut_coeff_eps", OptReal>,
+      json_number_null<"cut_coeff_max", OptReal>,
       json_string_null<"convergence_mode", OptName>,
       json_string_null<"state_variable_lookup_mode", OptName>,
       json_number_null<"stationary_tol", OptReal>,
       json_number_null<"stationary_window", OptInt>,
       json_number_null<"convergence_confidence", OptReal>,
+      json_number_null<"forward_max_fallbacks", OptInt>,
+      json_number_null<"backward_max_fallbacks", OptInt>,
       json_class_null<"forward_solver_options", SolverOptions>,
       json_class_null<"backward_solver_options", SolverOptions>>;
 
@@ -243,11 +255,15 @@ struct json_data_contract<SddpOptions>
         opt.use_clone_pool,
         opt.simulation_mode,
         detail::enum_to_opt_name(opt.cut_coeff_mode),
+        opt.cut_coeff_eps,
+        opt.cut_coeff_max,
         detail::enum_to_opt_name(opt.convergence_mode),
         detail::enum_to_opt_name(opt.state_variable_lookup_mode),
         opt.stationary_tol,
         opt.stationary_window,
         opt.convergence_confidence,
+        opt.forward_max_fallbacks,
+        opt.backward_max_fallbacks,
         opt.forward_solver_options,
         opt.backward_solver_options);
   }

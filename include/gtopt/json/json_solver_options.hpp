@@ -25,9 +25,11 @@ using gtopt::LPAlgo;
 using gtopt::OptReal;
 using gtopt::SolverLogMode;
 using gtopt::SolverOptions;
+using gtopt::SolverScaling;
 
 using OptLPAlgo = std::optional<LPAlgo>;
 using OptSolverLogMode = std::optional<SolverLogMode>;
+using OptSolverScaling = std::optional<SolverScaling>;
 using OptInt = std::optional<int>;
 using OptBool = std::optional<bool>;
 
@@ -43,7 +45,9 @@ struct SolverOptionsConstructor
                            OptInt log_level,
                            OptSolverLogMode log_mode,
                            OptReal time_limit,
-                           OptBool reuse_basis) const
+                           OptBool reuse_basis,
+                           OptSolverScaling scaling,
+                           OptInt max_fallbacks) const
   {
     return SolverOptions {
         .algorithm = algorithm.value_or(LPAlgo::barrier),
@@ -55,6 +59,10 @@ struct SolverOptionsConstructor
         .log_level = log_level.value_or(0),
         .log_mode = log_mode,
         .time_limit = time_limit,
+        .scaling = scaling.has_value()
+            ? scaling
+            : OptSolverScaling {SolverScaling::automatic},
+        .max_fallbacks = max_fallbacks.value_or(2),
         .reuse_basis = reuse_basis.value_or(false),
     };
   }
@@ -74,7 +82,9 @@ struct json_data_contract<SolverOptions>
                                 json_number_null<"log_level", OptInt>,
                                 json_number_null<"log_mode", OptSolverLogMode>,
                                 json_number_null<"time_limit", OptReal>,
-                                json_bool_null<"reuse_basis", OptBool>>;
+                                json_bool_null<"reuse_basis", OptBool>,
+                                json_number_null<"scaling", OptSolverScaling>,
+                                json_number_null<"max_fallbacks", OptInt>>;
 
   static constexpr auto to_json_data(SolverOptions const& opt)
   {
@@ -87,7 +97,9 @@ struct json_data_contract<SolverOptions>
                            OptInt {opt.log_level},
                            opt.log_mode,
                            opt.time_limit,
-                           OptBool {opt.reuse_basis});
+                           OptBool {opt.reuse_basis},
+                           opt.scaling,
+                           OptInt {opt.max_fallbacks});
   }
 };
 

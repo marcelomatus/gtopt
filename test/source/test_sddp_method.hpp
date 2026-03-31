@@ -4371,15 +4371,15 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod stationary convergence - gap_change populated after window")
 {
-  // Verify that gap_change stays at 1.0 (default) for early iterations
-  // before the window is reached, and is computed for later ones.
-  // Use negative convergence_tol so only the stationary path can fire.
+  // Verify that gap_change is 1.0 only for the first iteration (no prior
+  // result), and is computed from iteration 1 onward using
+  // min(window, available) look-back.  Stationary convergence still
+  // requires the full window before it can fire.
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 20;
-  // Require at least window+1 training iterations before stationary can fire.
   sddp_opts.min_iterations = 4;
   sddp_opts.convergence_tol = -1.0;  // primary convergence impossible
   sddp_opts.stationary_tol = 0.99;  // fires once gap stops changing
@@ -4390,23 +4390,17 @@ TEST_CASE(  // NOLINT
   REQUIRE(results.has_value());
   REQUIRE_FALSE(results->empty());
 
-  // Training results (all but the simulation pass at the back).
   const auto& all = *results;
   const std::size_t n = all.size();
 
-  // First (window-1) training iterations: gap_change not yet computed (=1.0).
-  for (std::size_t i = 0; i + 1 < n
-       && i < static_cast<std::size_t>(sddp_opts.stationary_window - 1);
-       ++i)
-  {
-    CHECK(all[i].gap_change == doctest::Approx(1.0));
+  // First iteration (index 0): gap_change = 1.0 (no prior result).
+  if (n > 1) {
+    CHECK(all[0].gap_change == doctest::Approx(1.0));
   }
 
-  // From index (window) onwards gap_change must be a non-negative value.
-  for (std::size_t i = static_cast<std::size_t>(sddp_opts.stationary_window);
-       i + 1 < n;
-       ++i)
-  {
+  // From iteration 1 onward: gap_change is computed (non-negative, < 1.0
+  // once the gap starts stabilizing).
+  for (std::size_t i = 1; i + 1 < n; ++i) {
     CHECK(all[i].gap_change >= 0.0);
   }
 }

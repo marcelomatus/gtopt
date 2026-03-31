@@ -89,7 +89,12 @@ auto SDDPMethod::feasibility_backpropagate(SceneIndex scene,
                                            back_phase,
                                            iteration,
                                            total_cuts + cuts_added),
-                                m_options_.scale_alpha);
+                                m_options_.scale_alpha,
+                                m_options_.cut_coeff_eps);
+          rescale_benders_cut(
+              feas_cut, prev_state.alpha_col, m_options_.cut_coeff_max);
+          filter_cut_coefficients(
+              feas_cut, prev_state.alpha_col, m_options_.cut_coeff_eps);
 
           {
             const auto cut_row = prev_li.add_row(feas_cut);

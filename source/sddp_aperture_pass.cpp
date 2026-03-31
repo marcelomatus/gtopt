@@ -148,7 +148,9 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
                                 nullptr,  // no pooled clone — each task clones
                                 iteration,
                                 m_options_.cut_coeff_mode,
-                                m_options_.scale_alpha);
+                                m_options_.scale_alpha,
+                                m_options_.cut_coeff_eps,
+                                m_options_.cut_coeff_max);
 
   if (!expected_cut.has_value()) {
     // Fallback: build a regular Benders cut from the cached
@@ -156,6 +158,8 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
     const auto& target_state = phase_states[phase];
     const auto coeff_mode = m_options_.cut_coeff_mode;
     const auto sa = m_options_.scale_alpha;
+    const auto ceps = m_options_.cut_coeff_eps;
+    const auto cmax = m_options_.cut_coeff_max;
     auto fallback_cut = (coeff_mode == CutCoeffMode::row_dual)
         ? build_benders_cut_from_row_duals(
               src_state.alpha_col,
@@ -163,14 +167,18 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
               target_state.forward_row_dual,
               target_state.forward_full_obj,
               sddp_label("sddp", "fcut", scene, phase, iteration, cut_offset),
-              sa)
+              sa,
+              ceps)
         : build_benders_cut(
               src_state.alpha_col,
               src_state.outgoing_links,
               target_state.forward_col_cost,
               target_state.forward_full_obj,
               sddp_label("sddp", "fcut", scene, phase, iteration, cut_offset),
-              sa);
+              sa,
+              ceps);
+    rescale_benders_cut(fallback_cut, src_state.alpha_col, cmax);
+    filter_cut_coefficients(fallback_cut, src_state.alpha_col, ceps);
 
     {
       const auto cut_row = src_li.add_row(fallback_cut);
@@ -201,6 +209,11 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
 
     return cuts_added;
   }
+
+  rescale_benders_cut(
+      *expected_cut, src_state.alpha_col, m_options_.cut_coeff_max);
+  filter_cut_coefficients(
+      *expected_cut, src_state.alpha_col, m_options_.cut_coeff_eps);
 
   {
     const auto cut_row = src_li.add_row(*expected_cut);
@@ -442,12 +455,15 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene,
         nullptr,  // no pooled clone — each task clones
         iteration,
         m_options_.cut_coeff_mode,
-        m_options_.scale_alpha);
+        m_options_.scale_alpha,
+        m_options_.cut_coeff_eps);
 
     if (!expected_cut.has_value()) {
       infeasible_phases.push_back(phase_uid(phase));
       const auto coeff_mode2 = m_options_.cut_coeff_mode;
       const auto sa = m_options_.scale_alpha;
+      const auto ceps = m_options_.cut_coeff_eps;
+      const auto cmax2 = m_options_.cut_coeff_max;
       auto fallback_cut = (coeff_mode2 == CutCoeffMode::row_dual)
           ? build_benders_cut_from_row_duals(
                 src_state.alpha_col,
@@ -455,14 +471,18 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene,
                 target_state.forward_row_dual,
                 target_state.forward_full_obj,
                 sddp_label("sddp", "fcut", scene, phase, iteration, total_cuts),
-                sa)
+                sa,
+                ceps)
           : build_benders_cut(
                 src_state.alpha_col,
                 src_state.outgoing_links,
                 target_state.forward_col_cost,
                 target_state.forward_full_obj,
                 sddp_label("sddp", "fcut", scene, phase, iteration, total_cuts),
-                sa);
+                sa,
+                ceps);
+      rescale_benders_cut(fallback_cut, src_state.alpha_col, cmax2);
+      filter_cut_coefficients(fallback_cut, src_state.alpha_col, ceps);
 
       {
         const auto cut_row = src_li.add_row(fallback_cut);
@@ -496,6 +516,11 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene,
 
       continue;
     }
+
+    rescale_benders_cut(
+        *expected_cut, src_state.alpha_col, m_options_.cut_coeff_max);
+    filter_cut_coefficients(
+        *expected_cut, src_state.alpha_col, m_options_.cut_coeff_eps);
 
     {
       const auto cut_row = src_li.add_row(*expected_cut);

@@ -124,6 +124,12 @@ private:
 
   STBIndexHolder<RowIndex> theta_rows;
 
+  /// Kirchhoff row normalization factor per (scenario, stage).
+  /// Each Kirchhoff row is divided by |x_tau| so that flow coefficients are
+  /// ±1 and theta coefficients are ±1/|x_tau|.  The dual must be multiplied
+  /// by this factor to recover physical units.
+  STIndexHolder<double> theta_row_scale;
+
   // ── Private helpers for add_to_lp ────────────────────────────────
 
   /**

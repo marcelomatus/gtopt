@@ -946,3 +946,336 @@ TEST_CASE(
             1,
         })));
 }
+
+// ---------------------------------------------------------------------------
+// build_benders_cut with cut_coeff_eps filtering
+// ---------------------------------------------------------------------------
+
+TEST_CASE("build_benders_cut filters tiny coefficients via cut_coeff_eps")
+{
+  const ColIndex alpha {
+      0,
+  };
+  const std::vector<StateVarLink> links = {
+      {
+          .source_col =
+              ColIndex {
+                  1,
+              },
+          .dependent_col =
+              ColIndex {
+                  10,
+              },
+          .trial_value = 5.0,
+      },
+      {
+          .source_col =
+              ColIndex {
+                  2,
+              },
+          .dependent_col =
+              ColIndex {
+                  11,
+              },
+          .trial_value = 3.0,
+      },
+  };
+
+  std::vector<double> rc(12, 0.0);
+  rc[10] = 2.0;  // significant coefficient
+  rc[11] = 1e-14;  // numerically tiny — should be filtered
+
+  const double obj_value = 100.0;
+
+  SUBCASE("eps=0 keeps all coefficients")
+  {
+    auto cut = build_benders_cut(alpha, links, rc, obj_value, "no_filter");
+    // Both coefficients present
+    CHECK(cut.cmap.contains(ColIndex {
+        1,
+    }));
+    CHECK(cut.cmap.contains(ColIndex {
+        2,
+    }));
+    CHECK(cut.cmap.at(ColIndex {
+              2,
+          })
+          == doctest::Approx(-1e-14));
+    // lowb includes tiny rc adjustment: 100 - 2*5 - 1e-14*3
+    CHECK(cut.lowb == doctest::Approx(90.0).epsilon(1e-10));
+  }
+
+  SUBCASE("eps=1e-12 filters tiny coefficient")
+  {
+    auto cut =
+        build_benders_cut(alpha, links, rc, obj_value, "filtered", 1.0, 1e-12);
+    // Only the significant coefficient survives
+    CHECK(cut.cmap.contains(ColIndex {
+        1,
+    }));
+    CHECK_FALSE(cut.cmap.contains(ColIndex {
+        2,
+    }));
+    // lowb = 100 - 2*5 = 90 (no tiny adjustment)
+    CHECK(cut.lowb == doctest::Approx(90.0));
+  }
+
+  SUBCASE("eps larger than all coefficients removes all link terms")
+  {
+    auto cut =
+        build_benders_cut(alpha, links, rc, obj_value, "all_gone", 1.0, 100.0);
+    // Only alpha column remains
+    CHECK(cut.cmap.size() == 1);
+    CHECK(cut.cmap.contains(alpha));
+    CHECK(cut.lowb == doctest::Approx(100.0));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// rescale_benders_cut
+// ---------------------------------------------------------------------------
+
+TEST_CASE("rescale_benders_cut scales down large coefficients")
+{
+  const ColIndex alpha {
+      0,
+  };
+  auto row = SparseRow {
+      .name = "big_cut",
+      .lowb = 1e9,
+      .uppb = LinearProblem::DblMax,
+  };
+  row[alpha] = 1000.0;  // scale_alpha
+  row[ColIndex {
+      1,
+  }] = -2e8;  // large coeff
+  row[ColIndex {
+      2,
+  }] = 5e7;  // medium coeff
+
+  // max|coeff| = 2e8, threshold = 1e6 → scale_factor = 200
+  const bool scaled = rescale_benders_cut(row, alpha, 1e6);
+  CHECK(scaled);
+
+  // All coefficients divided by 200
+  CHECK(row[alpha] == doctest::Approx(1000.0 / 200.0));
+  CHECK(row[ColIndex {
+            1,
+        }]
+        == doctest::Approx(-2e8 / 200.0));
+  CHECK(row[ColIndex {
+            2,
+        }]
+        == doctest::Approx(5e7 / 200.0));
+  CHECK(row.lowb == doctest::Approx(1e9 / 200.0));
+  CHECK(row.uppb == LinearProblem::DblMax);  // DblMax preserved
+}
+
+TEST_CASE("rescale_benders_cut does nothing when below threshold")
+{
+  const ColIndex alpha {
+      0,
+  };
+  auto row = SparseRow {
+      .name = "small_cut",
+      .lowb = 100.0,
+      .uppb = LinearProblem::DblMax,
+  };
+  row[alpha] = 1.0;
+  row[ColIndex {
+      1,
+  }] = -5.0;
+
+  const bool scaled = rescale_benders_cut(row, alpha, 1e6);
+  CHECK_FALSE(scaled);
+  CHECK(row[ColIndex {
+            1,
+        }]
+        == doctest::Approx(-5.0));
+}
+
+TEST_CASE("rescale_benders_cut disabled when threshold is zero")
+{
+  const ColIndex alpha {
+      0,
+  };
+  auto row = SparseRow {
+      .name = "no_rescale",
+      .lowb = 1e20,
+      .uppb = LinearProblem::DblMax,
+  };
+  row[alpha] = 1.0;
+  row[ColIndex {
+      1,
+  }] = -1e15;
+
+  const bool scaled = rescale_benders_cut(row, alpha, 0.0);
+  CHECK_FALSE(scaled);
+}
+
+// ---------------------------------------------------------------------------
+// filter_cut_coefficients
+// ---------------------------------------------------------------------------
+
+TEST_CASE("filter_cut_coefficients removes small coefficients")
+{
+  const ColIndex alpha {
+      0,
+  };
+  auto row = SparseRow {
+      .name = "filter_test",
+      .lowb = 100.0,
+      .uppb = LinearProblem::DblMax,
+  };
+  row[alpha] = 1.0;
+  row[ColIndex {
+      1,
+  }] = -5.0;
+  row[ColIndex {
+      2,
+  }] = 1e-13;  // tiny
+  row[ColIndex {
+      3,
+  }] = -1e-14;  // tiny
+
+  filter_cut_coefficients(row, alpha, 1e-12);
+
+  CHECK(row.cmap.contains(alpha));  // α never filtered
+  CHECK(row.cmap.contains(ColIndex {
+      1,
+  }));  // significant
+  CHECK_FALSE(row.cmap.contains(ColIndex {
+      2,
+  }));  // filtered
+  CHECK_FALSE(row.cmap.contains(ColIndex {
+      3,
+  }));  // filtered
+}
+
+TEST_CASE("filter_cut_coefficients preserves alpha even if tiny")
+{
+  const ColIndex alpha {
+      0,
+  };
+  auto row = SparseRow {
+      .name = "alpha_tiny",
+      .lowb = 0.0,
+      .uppb = LinearProblem::DblMax,
+  };
+  row[alpha] = 1e-15;  // α is tiny but must survive
+
+  filter_cut_coefficients(row, alpha, 1e-12);
+  CHECK(row.cmap.contains(alpha));
+}
+
+TEST_CASE("rescale then filter produces clean cut")
+{
+  const ColIndex alpha {
+      0,
+  };
+  auto row = SparseRow {
+      .name = "combo_test",
+      .lowb = 1e10,
+      .uppb = LinearProblem::DblMax,
+  };
+  row[alpha] = 1000.0;
+  row[ColIndex {
+      1,
+  }] = -1e8;  // significant
+  row[ColIndex {
+      2,
+  }] = 1e-4;  // small before rescale, will be ~1e-10 after
+
+  // Rescale: max|coeff| = 1e8, threshold = 1e6 → scale_factor = 100
+  rescale_benders_cut(row, alpha, 1e6);
+  CHECK(row[ColIndex {
+            1,
+        }]
+        == doctest::Approx(-1e6));
+  CHECK(row[ColIndex {
+            2,
+        }]
+        == doctest::Approx(1e-6));
+
+  // Filter: 1e-6 < 1e-5 → col 2 removed
+  filter_cut_coefficients(row, alpha, 1e-5);
+  CHECK(row.cmap.contains(ColIndex {
+      1,
+  }));
+  CHECK_FALSE(row.cmap.contains(ColIndex {
+      2,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// cut_coeff_eps filtering (build_benders_cut_from_row_duals)
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+    "build_benders_cut_from_row_duals filters tiny coefficients via "
+    "cut_coeff_eps")
+{
+  const ColIndex alpha {
+      0,
+  };
+  std::vector<StateVarLink> links = {
+      {
+          .source_col =
+              ColIndex {
+                  1,
+              },
+          .dependent_col =
+              ColIndex {
+                  10,
+              },
+          .trial_value = 5.0,
+          .coupling_row =
+              RowIndex {
+                  3,
+              },
+      },
+      {
+          .source_col =
+              ColIndex {
+                  2,
+              },
+          .dependent_col =
+              ColIndex {
+                  11,
+              },
+          .trial_value = 3.0,
+          .coupling_row =
+              RowIndex {
+                  4,
+              },
+      },
+  };
+
+  std::vector<double> row_duals(5, 0.0);
+  row_duals[3] = 2.0;  // significant
+  row_duals[4] = -1e-15;  // tiny — should be filtered
+
+  const double obj_value = 100.0;
+
+  SUBCASE("eps=0 keeps all")
+  {
+    auto cut = build_benders_cut_from_row_duals(
+        alpha, links, row_duals, obj_value, "no_filter");
+    CHECK(cut.cmap.contains(ColIndex {
+        2,
+    }));
+  }
+
+  SUBCASE("eps=1e-12 filters tiny row dual")
+  {
+    auto cut = build_benders_cut_from_row_duals(
+        alpha, links, row_duals, obj_value, "filtered", 1.0, 1e-12);
+    CHECK(cut.cmap.contains(ColIndex {
+        1,
+    }));
+    CHECK_FALSE(cut.cmap.contains(ColIndex {
+        2,
+    }));
+    CHECK(cut.lowb == doctest::Approx(90.0));
+  }
+}

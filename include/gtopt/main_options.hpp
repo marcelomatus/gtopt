@@ -497,7 +497,8 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     const std::optional<LpNamesLevel>& lp_names_level,
     const std::optional<double>& matrix_eps,
     bool compute_stats = false,
-    const std::optional<std::string>& lp_solver = {})
+    const std::optional<std::string>& lp_solver = {},
+    bool row_equilibration = false)
 {
   const auto eps = matrix_eps.value_or(0);
   const auto lvl = lp_names_level.value_or(LpNamesLevel::minimal);
@@ -511,6 +512,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   lp_build_opts.compute_stats = compute_stats;
   lp_build_opts.lp_names_level = lvl;
   lp_build_opts.solver_name = lp_solver.value_or("");
+  lp_build_opts.row_equilibration = row_equilibration;
 
   return lp_build_opts;
 }

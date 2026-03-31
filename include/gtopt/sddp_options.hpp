@@ -231,6 +231,37 @@ struct SddpOptions
    */
   std::optional<CutCoeffMode> cut_coeff_mode {};
 
+  /** @brief Absolute tolerance for filtering numerically tiny Benders cut
+   * coefficients.
+   *
+   * When constructing an optimality cut, any state-variable coefficient
+   * (reduced cost or row dual) whose absolute value is below this threshold
+   * is dropped — both the coefficient and its corresponding RHS adjustment
+   * are skipped.  This removes solver numerical noise that would otherwise
+   * produce ill-conditioned cuts.
+   *
+   * Inspired by PLP's OptiEPS mechanism (default 1e-8 there).
+   *
+   * Default: 0.0 (no filtering — all coefficients are kept).
+   * Typical useful values: 1e-12 to 1e-8.
+   */
+  OptReal cut_coeff_eps {};
+
+  /** @brief Maximum allowed absolute coefficient in a Benders cut row.
+   *
+   * When the largest state-variable coefficient in a newly built cut
+   * exceeds this threshold, the entire row (all coefficients, the α
+   * weight, and the RHS) is uniformly divided by `max_coeff /
+   * cut_coeff_max`.  This preserves the constraint's feasible set while
+   * improving numerical conditioning.
+   *
+   * A warning is logged each time a cut is rescaled.
+   *
+   * Default: 0.0 (disabled — no rescaling).
+   * Typical useful values: 1e6 to 1e8.
+   */
+  OptReal cut_coeff_max {};
+
   /** @brief How update_lp elements obtain reservoir/battery volume between
    * phases.
    *
@@ -299,6 +330,23 @@ struct SddpOptions
 
   // ── LP solver options (per-pass override)
   // ───────────────────────────────────
+
+  /** @brief Maximum algorithm fallback attempts for forward-pass solves.
+   *
+   *  Controls how many alternative algorithms the solver tries when a
+   *  forward-pass LP returns non-optimal.  Default: 2 (full cycle).
+   */
+  OptInt forward_max_fallbacks {};
+
+  /** @brief Maximum algorithm fallback attempts for backward-pass and
+   *  aperture solves.
+   *
+   *  Controls how many alternative algorithms the solver tries when a
+   *  backward-pass or aperture LP returns non-optimal.  Default: 0
+   *  (no fallback — fail immediately).
+   */
+  OptInt backward_max_fallbacks {};
+
   /** @brief Optional LP solver configuration for SDDP forward pass.
    *
    * When set, these options are merged with the global
@@ -358,12 +406,16 @@ struct SddpOptions
     merge_opt(use_clone_pool, opts.use_clone_pool);
     merge_opt(simulation_mode, opts.simulation_mode);
     merge_opt(cut_coeff_mode, opts.cut_coeff_mode);
+    merge_opt(cut_coeff_eps, opts.cut_coeff_eps);
+    merge_opt(cut_coeff_max, opts.cut_coeff_max);
     merge_opt(state_variable_lookup_mode, opts.state_variable_lookup_mode);
     merge_opt(warm_start, opts.warm_start);
     merge_opt(convergence_mode, opts.convergence_mode);
     merge_opt(stationary_tol, opts.stationary_tol);
     merge_opt(stationary_window, opts.stationary_window);
     merge_opt(convergence_confidence, opts.convergence_confidence);
+    merge_opt(forward_max_fallbacks, opts.forward_max_fallbacks);
+    merge_opt(backward_max_fallbacks, opts.backward_max_fallbacks);
     if (opts.forward_solver_options.has_value()) {
       if (forward_solver_options.has_value()) {
         forward_solver_options->merge(*opts.forward_solver_options);

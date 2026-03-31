@@ -92,6 +92,40 @@ constexpr auto enum_entries(LPAlgo /*tag*/) noexcept
   return std::span {lp_algo_entries};
 }
 
+// --- SolverScaling -----------------------------------------------------------
+
+/**
+ * @brief Solver-internal scaling strategy.
+ *
+ * Controls whether and how the LP solver applies matrix scaling before
+ * solving.  Each backend maps these values to its native parameter:
+ *
+ * | SolverScaling | CPLEX CPX_PARAM_SCAIND | HiGHS scale_strategy | CLP |
+ * |---------------|------------------------|----------------------|-----|
+ * | none          | -1                     | 0 (off)              | 0   |
+ * | automatic     |  0 (equilibration)     | 4 (default)          | 3   |
+ * | aggressive    |  1 (aggressive)        | 1 (forced)           | 2   |
+ */
+enum class SolverScaling : uint8_t
+{
+  none = 0,  ///< Disable solver-internal scaling
+  automatic = 1,  ///< Solver's default/auto strategy (recommended)
+  aggressive = 2,  ///< Aggressive equilibration (for high-kappa LPs)
+};
+
+inline constexpr auto solver_scaling_entries =
+    std::to_array<EnumEntry<SolverScaling>>({
+        {.name = "none", .value = SolverScaling::none},
+        {.name = "automatic", .value = SolverScaling::automatic},
+        {.name = "aggressive", .value = SolverScaling::aggressive},
+    });
+
+/// ADL customization point for NamedEnum concept
+constexpr auto enum_entries(SolverScaling /*tag*/) noexcept
+{
+  return std::span {solver_scaling_entries};
+}
+
 }  // namespace gtopt
 
 // Specialize std::formatter for LPAlgo using its canonical name
@@ -113,6 +147,15 @@ struct formatter<gtopt::SolverLogMode> : formatter<string_view>
   auto format(gtopt::SolverLogMode mode, FormatContext& ctx) const
   {
     return formatter<string_view>::format(gtopt::enum_name(mode), ctx);
+  }
+};
+template<>
+struct formatter<gtopt::SolverScaling> : formatter<string_view>
+{
+  template<typename FormatContext>
+  auto format(gtopt::SolverScaling scaling, FormatContext& ctx) const
+  {
+    return formatter<string_view>::format(gtopt::enum_name(scaling), ctx);
   }
 };
 }  // namespace std

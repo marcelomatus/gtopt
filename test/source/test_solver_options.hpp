@@ -54,6 +54,23 @@ TEST_CASE("SolverLogMode - enumeration values and names")
   CHECK_FALSE(enum_from_name<SolverLogMode>("invalid").has_value());
 }
 
+TEST_CASE("SolverScaling - enumeration values and names")
+{
+  CHECK(std::to_underlying(SolverScaling::none) == 0);
+  CHECK(std::to_underlying(SolverScaling::automatic) == 1);
+  CHECK(std::to_underlying(SolverScaling::aggressive) == 2);
+
+  CHECK(enum_name(SolverScaling::none) == "none");
+  CHECK(enum_name(SolverScaling::automatic) == "automatic");
+  CHECK(enum_name(SolverScaling::aggressive) == "aggressive");
+
+  CHECK(enum_from_name<SolverScaling>("none") == SolverScaling::none);
+  CHECK(enum_from_name<SolverScaling>("automatic") == SolverScaling::automatic);
+  CHECK(enum_from_name<SolverScaling>("aggressive")
+        == SolverScaling::aggressive);
+  CHECK_FALSE(enum_from_name<SolverScaling>("invalid").has_value());
+}
+
 TEST_CASE("SolverOptions - Custom construction")
 {
   // Test constructing SolverOptions with custom values
@@ -962,5 +979,82 @@ TEST_CASE("SolverOptions - query methods reflect applied options")  // NOLINT
         CHECK(lp.get_log_level() == 0);
       }
     }
+  }
+}
+
+TEST_CASE(
+    "SolverOptions - max_fallbacks default and explicit values")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  SUBCASE("default is 2")
+  {
+    const SolverOptions opts {};
+    CHECK(opts.max_fallbacks == 2);
+  }
+
+  SUBCASE("explicit zero disables fallback")
+  {
+    const SolverOptions opts {
+        .max_fallbacks = 0,
+    };
+    CHECK(opts.max_fallbacks == 0);
+  }
+
+  SUBCASE("explicit one allows single fallback")
+  {
+    const SolverOptions opts {
+        .max_fallbacks = 1,
+    };
+    CHECK(opts.max_fallbacks == 1);
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "SolverOptions - PlanningOptionsLP applies SDDP max_fallbacks defaults")
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  SUBCASE("defaults: forward=2, backward=0")
+  {
+    PlanningOptions planning;
+    PlanningOptionsLP plp(planning);
+
+    const auto fwd = plp.sddp_forward_solver_options();
+    CHECK(fwd.max_fallbacks == 2);
+
+    const auto bwd = plp.sddp_backward_solver_options();
+    CHECK(bwd.max_fallbacks == 0);
+  }
+
+  SUBCASE("explicit overrides from sddp_options")
+  {
+    PlanningOptions planning;
+    planning.sddp_options.forward_max_fallbacks = 1;
+    planning.sddp_options.backward_max_fallbacks = 2;
+
+    PlanningOptionsLP plp(planning);
+
+    const auto fwd = plp.sddp_forward_solver_options();
+    CHECK(fwd.max_fallbacks == 1);
+
+    const auto bwd = plp.sddp_backward_solver_options();
+    CHECK(bwd.max_fallbacks == 2);
+  }
+
+  SUBCASE("global max_fallbacks inherited by forward when not overridden")
+  {
+    PlanningOptions planning;
+    planning.solver_options.max_fallbacks = 1;
+    // No SDDP-specific override for forward
+
+    PlanningOptionsLP plp(planning);
+
+    const auto fwd = plp.sddp_forward_solver_options();
+    CHECK(fwd.max_fallbacks == 1);
+
+    // backward still defaults to 0
+    const auto bwd = plp.sddp_backward_solver_options();
+    CHECK(bwd.max_fallbacks == 0);
   }
 }

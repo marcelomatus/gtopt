@@ -363,6 +363,12 @@ public:
         default_lp_coeff_ratio_threshold);
   }
 
+  /// Whether per-row equilibration scaling is enabled.
+  [[nodiscard]] constexpr bool row_equilibration() const noexcept
+  {
+    return m_options_.lp_build_options.row_equilibration;
+  }
+
   /**
    * @brief Gets the effective SDDP forward-pass solver options.
    *
@@ -373,12 +379,13 @@ public:
    */
   [[nodiscard]] auto sddp_forward_solver_options() const -> SolverOptions
   {
+    auto opts = m_options_.solver_options;
     if (m_options_.sddp_options.forward_solver_options.has_value()) {
-      auto opts = m_options_.solver_options;
       opts.merge(*m_options_.sddp_options.forward_solver_options);
-      return opts;
     }
-    return m_options_.solver_options;
+    opts.max_fallbacks = m_options_.sddp_options.forward_max_fallbacks.value_or(
+        opts.max_fallbacks);
+    return opts;
   }
 
   /**
@@ -386,17 +393,19 @@ public:
    *
    * Merges the per-pass backward solver options (if set) with the global
    * solver_options.  Backward-pass-specific options take precedence.
+   * Applies backward_max_fallbacks (default: 0).
    *
    * @return Resolved SolverOptions for SDDP backward pass
    */
   [[nodiscard]] auto sddp_backward_solver_options() const -> SolverOptions
   {
+    auto opts = m_options_.solver_options;
     if (m_options_.sddp_options.backward_solver_options.has_value()) {
-      auto opts = m_options_.solver_options;
       opts.merge(*m_options_.sddp_options.backward_solver_options);
-      return opts;
     }
-    return m_options_.solver_options;
+    opts.max_fallbacks =
+        m_options_.sddp_options.backward_max_fallbacks.value_or(0);
+    return opts;
   }
 
   /** @brief Aperture LP timeout in seconds.
@@ -476,6 +485,10 @@ public:
   static constexpr Real default_sddp_alpha_max = 1e12;
   /** @brief Default scale divisor for future cost variable α (PLP varphi) */
   static constexpr Real default_sddp_scale_alpha = 10'000'000;
+  /** @brief Default cut coefficient epsilon for filtering tiny coefficients */
+  static constexpr Real default_sddp_cut_coeff_eps = 1e-12;
+  /** @brief Default max coefficient threshold for cut rescaling */
+  static constexpr Real default_sddp_cut_coeff_max = 1e6;
   /** @brief Default elastic filter mode */
   static constexpr ElasticFilterMode default_sddp_elastic_mode =
       ElasticFilterMode::single_cut;
@@ -488,7 +501,7 @@ public:
    * statistical+stationary convergence criteria.  Default: 0.01 (1%). */
   static constexpr Real default_sddp_stationary_tol = 0.01;
   /** @brief Default look-back window for stationary gap check */
-  static constexpr Int default_sddp_stationary_window = 10;
+  static constexpr Int default_sddp_stationary_window = 4;
   /** @brief Default confidence level for statistical convergence.
    * Enables PLP-style CI-based convergence for multi-scene problems.
    * Combined with stationary_tol, also handles the non-zero-gap case
@@ -695,6 +708,26 @@ public:
   {
     return m_options_.sddp_options.cut_coeff_mode.value_or(
         CutCoeffMode::reduced_cost);
+  }
+
+  /**
+   * @brief Gets the cut coefficient tolerance for filtering tiny coefficients
+   * @return Absolute tolerance (default: 0.0 = no filtering)
+   */
+  [[nodiscard]] constexpr auto sddp_cut_coeff_eps() const -> double
+  {
+    return m_options_.sddp_options.cut_coeff_eps.value_or(
+        default_sddp_cut_coeff_eps);
+  }
+
+  /**
+   * @brief Gets the max coefficient threshold for cut rescaling
+   * @return Max threshold (default: 1e6)
+   */
+  [[nodiscard]] constexpr auto sddp_cut_coeff_max() const -> double
+  {
+    return m_options_.sddp_options.cut_coeff_max.value_or(
+        default_sddp_cut_coeff_max);
   }
 
   /**

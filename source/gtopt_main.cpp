@@ -801,7 +801,11 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     try {
       const bool do_stats = opts.print_stats.value_or(true);
       const auto flat_opts = make_lp_build_options(
-          opts.lp_names_level, opts.matrix_eps, do_stats, opts.solver);
+          opts.lp_names_level,
+          opts.matrix_eps,
+          do_stats,
+          opts.solver,
+          my_planning.options.lp_build_options.row_equilibration);
 
       if (do_stats) {
         log_pre_solve_stats(opts.planning_files, my_planning);
@@ -842,6 +846,21 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
                 .stats_min_col = static_cast<int>(li.lp_stats_min_col()),
                 .stats_max_col_name = std::string(li.lp_stats_max_col_name()),
                 .stats_min_col_name = std::string(li.lp_stats_min_col_name()),
+                .row_type_stats =
+                    [&]
+                {
+                  std::vector<RowTypeStats> rts;
+                  for (const auto& e : li.lp_row_type_stats()) {
+                    rts.push_back({
+                        .type = e.type,
+                        .count = e.count,
+                        .nnz = e.nnz,
+                        .max_abs = e.max_abs,
+                        .min_abs = e.min_abs,
+                    });
+                  }
+                  return rts;
+                }(),
             });
           }
         }

@@ -29,6 +29,34 @@ namespace gtopt
 {
 
 /**
+ * @brief Per-row-type coefficient statistics.
+ *
+ * Groups constraint rows by their type label (e.g. "bal", "theta", "cap")
+ * and reports the coefficient range within each group.  Only populated when
+ * both `compute_stats` and `row_with_names` are enabled in LpBuildOptions.
+ */
+struct RowTypeStats
+{
+  std::string type {};  ///< Row type label (e.g. "bal", "theta")
+  size_t count {};  ///< Number of rows of this type
+  size_t nnz {};  ///< Non-zero coefficients across all rows of this type
+  double max_abs {};  ///< Largest |coefficient| in rows of this type
+  double min_abs {
+      std::numeric_limits<double>::max(),
+  };  ///< Smallest |coefficient| (> 0)
+
+  [[nodiscard]] constexpr double coeff_ratio() const noexcept
+  {
+    if (min_abs <= 0.0 || min_abs >= std::numeric_limits<double>::max()
+        || nnz == 0)
+    {
+      return 1.0;
+    }
+    return max_abs / min_abs;
+  }
+};
+
+/**
  * @brief Label + stats for a single scene/phase LP.
  */
 struct ScenePhaseLPStats
@@ -47,6 +75,9 @@ struct ScenePhaseLPStats
 
   std::string stats_max_col_name {};  ///< Name of column with largest |coeff|
   std::string stats_min_col_name {};  ///< Name of column with smallest |coeff|
+
+  /// Per-row-type breakdown (empty when row names not available).
+  std::vector<RowTypeStats> row_type_stats {};
 
   [[nodiscard]] constexpr double coeff_ratio() const noexcept
   {

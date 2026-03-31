@@ -269,3 +269,61 @@ TEST_CASE("SddpOptions JSON - Forward/backward solver options round-trip")
   CHECK(rt.backward_solver_options->threads == 1);
   CHECK(rt.backward_solver_options->reuse_basis == true);
 }
+
+TEST_CASE("SddpOptions JSON - cut_coeff_max parsing and round-trip")
+{
+  SUBCASE("default when missing is nullopt")
+  {
+    const std::string_view json_data = R"({})";
+    const auto opts = daw::json::from_json<SddpOptions>(json_data);
+    CHECK_FALSE(opts.cut_coeff_max.has_value());
+  }
+
+  SUBCASE("explicit value")
+  {
+    const std::string_view json_data = R"({"cut_coeff_max": 1e6})";
+    const auto opts = daw::json::from_json<SddpOptions>(json_data);
+    REQUIRE(opts.cut_coeff_max.has_value());
+    CHECK(opts.cut_coeff_max.value_or(0.0) == doctest::Approx(1e6));
+  }
+
+  SUBCASE("round-trip")
+  {
+    SddpOptions original;
+    original.cut_coeff_max = 1e7;
+
+    const auto json = daw::json::to_json(original);
+    const auto rt = daw::json::from_json<SddpOptions>(json);
+    REQUIRE(rt.cut_coeff_max.has_value());
+    CHECK(rt.cut_coeff_max.value_or(0.0) == doctest::Approx(1e7));
+  }
+}
+
+TEST_CASE("SddpOptions JSON - cut_coeff_eps parsing and round-trip")
+{
+  SUBCASE("default when missing is nullopt")
+  {
+    const std::string_view json_data = R"({})";
+    const auto opts = daw::json::from_json<SddpOptions>(json_data);
+    CHECK_FALSE(opts.cut_coeff_eps.has_value());
+  }
+
+  SUBCASE("explicit value")
+  {
+    const std::string_view json_data = R"({"cut_coeff_eps": 1e-10})";
+    const auto opts = daw::json::from_json<SddpOptions>(json_data);
+    REQUIRE(opts.cut_coeff_eps.has_value());
+    CHECK(opts.cut_coeff_eps.value_or(0.0) == doctest::Approx(1e-10));
+  }
+
+  SUBCASE("round-trip")
+  {
+    SddpOptions original;
+    original.cut_coeff_eps = 1e-8;
+
+    const auto json = daw::json::to_json(original);
+    const auto rt = daw::json::from_json<SddpOptions>(json);
+    REQUIRE(rt.cut_coeff_eps.has_value());
+    CHECK(rt.cut_coeff_eps.value_or(0.0) == doctest::Approx(1e-8));
+  }
+}

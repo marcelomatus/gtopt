@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <format>
 #include <limits>
+#include <unordered_map>
 
 #include <gtopt/lp_stats.hpp>
 #include <spdlog/spdlog.h>
@@ -130,6 +131,51 @@ void log_lp_stats_summary(const std::vector<ScenePhaseLPStats>& entries,
   }
 
   log_stats_line("GLOBAL", global);
+
+  // Per-row-type breakdown: aggregate across all scenes/phases.
+  // Collect per-type stats from the first entry that has them (all
+  // scene/phase LPs share the same constraint structure, so any entry
+  // suffices for type classification).
+  std::unordered_map<std::string, RowTypeStats> type_map;
+  for (const auto& entry : entries) {
+    for (const auto& rts : entry.row_type_stats) {
+      auto& acc = type_map[rts.type];
+      if (acc.type.empty()) {
+        acc.type = rts.type;
+      }
+      acc.count += rts.count;
+      acc.nnz += rts.nnz;
+      acc.max_abs = std::max(acc.max_abs, rts.max_abs);
+      if (rts.nnz > 0 && rts.min_abs < acc.min_abs) {
+        acc.min_abs = rts.min_abs;
+      }
+    }
+  }
+
+  if (!type_map.empty()) {
+    // Sort by ratio descending.
+    std::vector<RowTypeStats> sorted_types;
+    sorted_types.reserve(type_map.size());
+    for (auto& [_, v] : type_map) {
+      sorted_types.push_back(std::move(v));
+    }
+    std::ranges::sort(sorted_types,
+                      [](const RowTypeStats& a, const RowTypeStats& b)
+                      { return a.coeff_ratio() > b.coeff_ratio(); });
+
+    spdlog::info("  Per-row-type coefficient breakdown:");
+    for (const auto& rts : sorted_types) {
+      spdlog::info(
+          std::format("    {:<12s} rows={:>6} nnz={:>8} "
+                      "|coeff| [{:.3e}, {:.3e}] ratio={:.2e}",
+                      rts.type,
+                      rts.count,
+                      rts.nnz,
+                      rts.min_abs,
+                      rts.max_abs,
+                      rts.coeff_ratio()));
+    }
+  }
 }
 
 }  // namespace gtopt

@@ -601,6 +601,112 @@ TEST_CASE(
   CHECK(options_lp.solver_options().presolve == true);
 }
 
+TEST_CASE("Options - Solver options scaling default value")  // NOLINT
+{
+  using namespace gtopt;
+
+  const SolverOptions opts {};
+  // scaling defaults to automatic
+  REQUIRE(opts.scaling.has_value());
+  CHECK(*opts.scaling == SolverScaling::automatic);
+}
+
+TEST_CASE("Options - Solver options merge with scaling")  // NOLINT
+{
+  using namespace gtopt;
+
+  // Base has default scaling (automatic), overlay has aggressive
+  // merge_opt is last-value-wins: overlay replaces base
+  PlanningOptions base {};
+  PlanningOptions overlay {
+      .solver_options = {.scaling = SolverScaling::aggressive},
+  };
+  base.merge(std::move(overlay));
+
+  REQUIRE(base.solver_options.scaling.has_value());
+  CHECK(*base.solver_options.scaling == SolverScaling::aggressive);
+
+  // Overlay without scaling (nullopt) does NOT overwrite base
+  PlanningOptions base2 {};
+  PlanningOptions overlay2 {};
+  overlay2.solver_options.scaling = std::nullopt;
+  base2.merge(std::move(overlay2));
+
+  // base2 had automatic, overlay2 had nullopt → base2 keeps automatic
+  REQUIRE(base2.solver_options.scaling.has_value());
+  CHECK(*base2.solver_options.scaling == SolverScaling::automatic);
+}
+
+TEST_CASE(
+    "Options - LpBuildOptions row_equilibration merge OR logic")  // NOLINT
+{
+  using namespace gtopt;
+
+  SUBCASE("false OR false = false")
+  {
+    PlanningOptions base {};
+    PlanningOptions overlay {};
+    base.merge(std::move(overlay));
+    CHECK(base.lp_build_options.row_equilibration == false);
+  }
+
+  SUBCASE("true OR false = true")
+  {
+    PlanningOptions base {};
+    base.lp_build_options.row_equilibration = true;
+    PlanningOptions overlay {};
+    base.merge(std::move(overlay));
+    CHECK(base.lp_build_options.row_equilibration == true);
+  }
+
+  SUBCASE("false OR true = true")
+  {
+    PlanningOptions base {};
+    PlanningOptions overlay {};
+    overlay.lp_build_options.row_equilibration = true;
+    base.merge(std::move(overlay));
+    CHECK(base.lp_build_options.row_equilibration == true);
+  }
+
+  SUBCASE("true OR true = true")
+  {
+    PlanningOptions base {};
+    base.lp_build_options.row_equilibration = true;
+    PlanningOptions overlay {};
+    overlay.lp_build_options.row_equilibration = true;
+    base.merge(std::move(overlay));
+    CHECK(base.lp_build_options.row_equilibration == true);
+  }
+}
+
+TEST_CASE("Options - LpBuildOptions lp_coeff_ratio_threshold merge")  // NOLINT
+{
+  using namespace gtopt;
+
+  // merge_opt is last-value-wins: overlay replaces base
+  PlanningOptions base {};
+  base.lp_build_options.lp_coeff_ratio_threshold = 1e7;
+  PlanningOptions overlay {};
+  overlay.lp_build_options.lp_coeff_ratio_threshold = 1e5;
+
+  base.merge(std::move(overlay));
+
+  REQUIRE(base.lp_build_options.lp_coeff_ratio_threshold.has_value());
+  CHECK(base.lp_build_options.lp_coeff_ratio_threshold.value_or(0.0)
+        == doctest::Approx(1e5));
+
+  // Overlay without value does NOT overwrite base
+  PlanningOptions base2 {};
+  base2.lp_build_options.lp_coeff_ratio_threshold = 1e7;
+  PlanningOptions overlay2 {};
+
+  base2.merge(std::move(overlay2));
+
+  REQUIRE(base2.lp_build_options.lp_coeff_ratio_threshold.has_value());
+  CHECK(base2.lp_build_options.lp_coeff_ratio_threshold.value_or(0.0)
+        == doctest::Approx(1e7));
+}
+
 TEST_CASE(
     "PlanningOptionsLP - Solver options accessors with set values")  // NOLINT
 {
