@@ -2839,7 +2839,7 @@ def test_min_1bus_gtopt_generation_cost(tmp_path, gtopt_bin):
 
     # Read the converted JSON to get scale_objective
     data = json.loads(json_file.read_text(encoding="utf-8"))
-    scale = float(data.get("options", {}).get("scale_objective", 1000.0))
+    scale = float(data.get("options", {}).get("scale_objective", 10_000_000.0))
 
     # Unscaled expected cost: 80 MW × 1 h × 50 $/MWh = 4000 $
     expected_unscaled = _MIN_1BUS_DEMAND_MW * 1.0 * _MIN_1BUS_GEN_COST

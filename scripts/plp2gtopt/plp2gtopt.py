@@ -320,7 +320,13 @@ def run_post_check(
     plp_ind, gtopt_ind = compute_comparison_indicators(
         parser, planning, base_dir=base_dir
     )
-    _log_comparison(plp_counts, gtopt_counts, plp_ind, gtopt_ind)
+    _log_comparison(
+        plp_counts,
+        gtopt_counts,
+        plp_ind,
+        gtopt_ind,
+        gtopt_options=planning.get("options"),
+    )
 
     # --- gtopt_check_json integration (optional) ---
     try:
