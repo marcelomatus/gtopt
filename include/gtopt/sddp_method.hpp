@@ -165,6 +165,16 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// `row_dual`: row duals of explicit coupling constraint rows (PLP-style).
   CutCoeffMode cut_coeff_mode {CutCoeffMode::reduced_cost};
 
+  /// Absolute tolerance for filtering tiny Benders cut coefficients.
+  /// Coefficients with |value| < cut_coeff_eps are dropped from the cut.
+  /// 0.0 = no filtering (default).
+  double cut_coeff_eps {0.0};
+
+  /// Maximum allowed absolute coefficient in a Benders cut row.
+  /// When max|coeff| exceeds this, the entire row is rescaled uniformly.
+  /// 0.0 = disabled (default).
+  double cut_coeff_max {0.0};
+
   /// Forward-pass infeasibility counter threshold for automatic switching
   /// from single_cut to multi_cut.  When the forward pass has encountered
   /// infeasibility at (scene, phase) more than this many times without

@@ -793,6 +793,23 @@ void CplexSolverBackend::apply_options(const SolverOptions& opts)
 
   CPXsetintparam(m_env_, CPX_PARAM_PREIND, opts.presolve ? CPX_ON : CPX_OFF);
 
+  // Scaling: map SolverScaling → CPLEX CPX_PARAM_SCAIND.
+  if (opts.scaling.has_value()) {
+    int scaind = 0;  // equilibration (CPLEX default)
+    switch (*opts.scaling) {
+      case SolverScaling::none:
+        scaind = -1;
+        break;
+      case SolverScaling::automatic:
+        scaind = 0;
+        break;
+      case SolverScaling::aggressive:
+        scaind = 1;
+        break;
+    }
+    CPXsetintparam(m_env_, CPX_PARAM_SCAIND, scaind);
+  }
+
   if (const auto oeps = opts.optimal_eps; oeps && *oeps > 0) {
     CPXsetdblparam(m_env_, CPX_PARAM_EPOPT, *oeps);
   }

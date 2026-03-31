@@ -131,7 +131,9 @@ auto solve_apertures_for_phase(
     LinearInterface* pooled_clone,
     IterationIndex iteration,
     CutCoeffMode cut_coeff_mode,
-    double scale_alpha) -> std::optional<SparseRow>
+    double scale_alpha,
+    double cut_coeff_eps,
+    double cut_coeff_max) -> std::optional<SparseRow>
 {
   const auto pi = Index {phase};
   const auto& phase_li = sys.linear_interface();
@@ -322,13 +324,17 @@ auto solve_apertures_for_phase(
                                                  clone.get_row_dual(),
                                                  clone.get_obj_value(),
                                                  cut_name,
-                                                 scale_alpha)
+                                                 scale_alpha,
+                                                 cut_coeff_eps)
               : build_benders_cut(src_state.alpha_col,
                                   src_state.outgoing_links,
                                   clone.get_col_cost(),
                                   clone.get_obj_value(),
                                   cut_name,
-                                  scale_alpha);
+                                  scale_alpha,
+                                  cut_coeff_eps);
+          rescale_benders_cut(cut, src_state.alpha_col, cut_coeff_max);
+          filter_cut_coefficients(cut, src_state.alpha_col, cut_coeff_eps);
 
           const auto ap_s = std::chrono::duration<double>(
                                 std::chrono::steady_clock::now() - ap_start)

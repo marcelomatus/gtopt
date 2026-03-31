@@ -453,6 +453,23 @@ void HighsSolverBackend::apply_options(const SolverOptions& opts)
 
   m_highs_->setOptionValue("presolve", opts.presolve ? "on" : "off");
 
+  // HiGHS simplex_scale_strategy: 0=off, 1=forced, 4=default.
+  if (opts.scaling.has_value()) {
+    int strategy = 4;  // default
+    switch (*opts.scaling) {
+      case SolverScaling::none:
+        strategy = 0;
+        break;
+      case SolverScaling::automatic:
+        strategy = 4;
+        break;
+      case SolverScaling::aggressive:
+        strategy = 1;
+        break;
+    }
+    m_highs_->setOptionValue("simplex_scale_strategy", strategy);
+  }
+
   if (opts.reuse_basis && opts.algorithm != LPAlgo::barrier) {
     m_algorithm_ = LPAlgo::dual;
     m_presolve_ = false;

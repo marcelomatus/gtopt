@@ -197,19 +197,25 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
       // Stationary gap tracking: compute gap_change over the look-back
       // window.  Active for gap_stationary and statistical modes.
+      // Always compute gap_change when at least 1 prior result exists,
+      // using min(window, available) as the look-back distance.
+      // The stationary convergence test requires the full window.
       bool gap_is_stationary = false;
       if (mode != ConvergenceMode::gap_only && m_options_.stationary_tol > 0.0
           && m_options_.stationary_window > 0)
       {
         const auto window =
             static_cast<std::size_t>(m_options_.stationary_window);
-        if (results.size() >= window) {
-          const double old_gap = results[results.size() - window].gap;
-          ir.gap_change = std::abs(ir.gap - old_gap) / std::max(1e-10, old_gap);
+        if (!results.empty()) {
+          const auto lookback = std::min(window, results.size());
+          const double old_gap = results[results.size() - lookback].gap;
+          ir.gap_change =
+              std::abs(ir.gap - old_gap) / std::max(1e-10, std::abs(old_gap));
         }
         gap_is_stationary =
-            (ir.gap_change < m_options_.stationary_tol
-             && ir.gap_change < 1.0);  // 1.0 = default / not yet computed
+            (results.size() >= window
+             && ir.gap_change < m_options_.stationary_tol
+             && ir.gap_change < 1.0);  // 1.0 = sentinel / first iteration
       }
 
       // ── Stationary gap convergence ──

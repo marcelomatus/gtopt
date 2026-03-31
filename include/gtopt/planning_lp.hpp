@@ -47,6 +47,11 @@ private:
                              const LpBuildOptions& flat_opts)
       -> scene_phase_systems_t;
 
+  /// Compute adaptive scale_theta from median line reactance when not
+  /// explicitly set.  Mutates `planning.options.scale_theta` in-place so
+  /// that PlanningOptionsLP picks up the computed value.
+  static void auto_scale_theta(Planning& planning);
+
 public:
   /**
    * @brief Constructs a PlanningLP instance from planning data
@@ -57,7 +62,15 @@ public:
     requires(std::is_same_v<std::remove_cvref_t<PlanningT>, gtopt::Planning>)
   explicit PlanningLP(PlanningT&& planning,
                       const LpBuildOptions& flat_opts = {})
-      : m_planning_(std::forward<PlanningT>(planning))  // NOLINT
+      : m_planning_(  // NOLINT
+            [&]() -> decltype(auto)
+            {
+              if constexpr (!std::is_const_v<
+                                std::remove_reference_t<PlanningT>>) {
+                auto_scale_theta(planning);
+              }
+              return std::forward<PlanningT>(planning);
+            }())
       , m_options_(m_planning_.options)
       , m_simulation_(m_planning_.simulation, m_options_)
       , m_systems_(create_systems(

@@ -247,8 +247,21 @@ void LineLP::add_kirchhoff_rows(SystemContext& sc,
   // Phase-shift angle in radians; shifts the equality constraint RHS.
   const double phi_deg = phase_shift_deg.at(stage.uid()).value_or(0.0);
   const double phi_rad = phi_deg * std::numbers::pi / 180.0;
-  // RHS = -phi_rad / scale_theta (positive phi reduces flow a→b)
-  const double kirchhoff_rhs = -(phi_rad / scale_theta);
+
+  // Row normalization: divide the entire Kirchhoff row by |x_tau| so that
+  // flow coefficients become ±1 and theta coefficients become ±1/|x_tau|.
+  // This reduces the coefficient ratio within each row from |x_tau| to 1,
+  // improving numerical conditioning.
+  const double abs_x_tau = std::abs(x_tau);
+  const double row_norm = (abs_x_tau > 0.0) ? abs_x_tau : 1.0;
+  const double inv_norm = 1.0 / row_norm;
+
+  // Normalized RHS = -(phi_rad / scale_theta) / row_norm
+  const double kirchhoff_rhs = -(phi_rad / scale_theta) * inv_norm;
+
+  // Normalized coefficients: theta terms = ±1/row_norm, flow terms = ±sign
+  const double theta_coeff = inv_norm;
+  const double flow_sign = (x_tau >= 0.0) ? 1.0 : -1.0;
 
   BIndexHolder<RowIndex> trows;
   map_reserve(trows, blocks.size());
@@ -264,13 +277,13 @@ void LineLP::add_kirchhoff_rows(SystemContext& sc,
 
     trow.reserve(4);
 
-    trow[theta_a_cols.at(buid)] = -1.0;
-    trow[theta_b_cols.at(buid)] = +1.0;
+    trow[theta_a_cols.at(buid)] = -theta_coeff;
+    trow[theta_b_cols.at(buid)] = +theta_coeff;
     if (!fpcols.empty()) {
-      trow[fpcols.at(buid)] = +x_tau;
+      trow[fpcols.at(buid)] = +flow_sign;
     }
     if (!fncols.empty()) {
-      trow[fncols.at(buid)] = -x_tau;
+      trow[fncols.at(buid)] = -flow_sign;
     }
 
     trows[buid] = lp.add_row(std::move(trow));
@@ -278,6 +291,8 @@ void LineLP::add_kirchhoff_rows(SystemContext& sc,
 
   const auto st_key = std::pair {scenario.uid(), stage.uid()};
   theta_rows[st_key] = std::move(trows);
+  // Store normalization factor for dual unscaling in add_to_output.
+  theta_row_scale[st_key] = row_norm;
 }
 
 // ── add_to_lp ───────────────────────────────────────────────────────
@@ -519,7 +534,9 @@ bool LineLP::add_to_output(OutputContext& out) const
   out.add_row_dual(cname, "capacityp", pid, capacityp_rows);
   out.add_row_dual(cname, "capacityn", pid, capacityn_rows);
 
-  out.add_row_dual(cname, "theta", pid, theta_rows);
+  // Kirchhoff duals must be multiplied by row_norm to undo the
+  // normalization applied in add_kirchhoff_rows().
+  out.add_row_dual(cname, "theta", pid, theta_rows, theta_row_scale);
 
   return CapacityBase::add_to_output(out);
 }

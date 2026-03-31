@@ -404,6 +404,29 @@ void OsiSolverBackend::apply_options(const SolverOptions& opts)
     return;
   }
 
+  // CLP scaling: 0=off, 2=geometric, 3=auto(default).
+  if (opts.scaling.has_value()) {
+    auto* clp = as_clp(m_solver_.get(), m_type_);
+    if (clp != nullptr) {
+      auto* clp_model = clp->getModelPtr();
+      if (clp_model != nullptr) {
+        int mode = 3;  // auto (CLP default)
+        switch (*opts.scaling) {
+          case SolverScaling::none:
+            mode = 0;
+            break;
+          case SolverScaling::automatic:
+            mode = 3;
+            break;
+          case SolverScaling::aggressive:
+            mode = 2;
+            break;
+        }
+        clp_model->scaling(mode);
+      }
+    }
+  }
+
   const auto presolve = opts.presolve;
   m_solver_->setHintParam(OsiDoPresolveInInitial, presolve, OsiHintDo);
 

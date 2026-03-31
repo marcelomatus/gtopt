@@ -26,6 +26,66 @@
 namespace gtopt
 {
 
+// ── Adaptive scale_theta computation ──────────────────────────────────────
+
+void PlanningLP::auto_scale_theta(Planning& planning)
+{
+  // Only compute when scale_theta is not explicitly set at any level.
+  auto& opts = planning.options;
+  if (opts.scale_theta.has_value()
+      || opts.model_options.scale_theta.has_value())
+  {
+    return;
+  }
+
+  // Don't auto-scale when Kirchhoff is disabled or single-bus mode.
+  if (opts.use_kirchhoff.has_value() && !*opts.use_kirchhoff) {
+    return;
+  }
+  if (opts.use_single_bus.has_value() && *opts.use_single_bus) {
+    return;
+  }
+
+  // Collect scalar reactance values from all lines.
+  std::vector<double> reactances;
+  for (const auto& line : planning.system.line_array) {
+    if (!line.reactance.has_value()) {
+      continue;
+    }
+    const auto& sched = *line.reactance;
+    double x = 0.0;
+    if (std::holds_alternative<double>(sched)) {
+      x = std::get<double>(sched);
+    } else if (std::holds_alternative<std::vector<double>>(sched)) {
+      const auto& vec = std::get<std::vector<double>>(sched);
+      if (!vec.empty()) {
+        x = vec.front();
+      }
+    }
+    if (x > 0.0) {
+      reactances.push_back(x);
+    }
+  }
+
+  if (reactances.empty()) {
+    return;
+  }
+
+  // Compute median reactance.
+  std::ranges::sort(reactances);
+  const auto n = reactances.size();
+  const double median_x = (n % 2 == 0)
+      ? (reactances[(n / 2) - 1] + reactances[n / 2]) / 2.0
+      : reactances[n / 2];
+
+  // scale_theta = median_x so that x_tau = X/(V²·scale_theta) ≈ 1 for
+  // the median line (V=1 per-unit).
+  opts.scale_theta = median_x;
+  spdlog::info("  Auto scale_theta = {:.6g} (median of {} line reactances)",
+               median_x,
+               n);
+}
+
 auto PlanningLP::create_systems(System& system,
                                 SimulationLP& simulation,
                                 const PlanningOptionsLP& options,

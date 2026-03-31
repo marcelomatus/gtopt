@@ -282,6 +282,7 @@ TEST_CASE("Linear problem advanced operations")
         .rowub = {25, 35},
         .colint = {1},
         .col_scales = {1.0, 1.0},
+        .row_scales = {},
         .colnm = {"col1", "col2"},
         .rownm = {"row1", "row2"},
         .colmp = {{"col1", 0}, {"col2", 1}},
@@ -328,6 +329,7 @@ TEST_CASE("Linear problem advanced operations")
         .rowub = {25, 35},
         .colint = {1},
         .col_scales = {1.0, 1.0},
+        .row_scales = {},
         .colnm = {},
         .rownm = {},
         .colmp = {},
@@ -751,4 +753,258 @@ TEST_CASE("lp_build name map skips empty column names")
   CHECK(flat.colmp.size() == 1);
   CHECK(flat.colmp.count("named_col") == 1);
   CHECK(flat.colmp.at("named_col") == 1);
+}
+
+// ---------------------------------------------------------------
+// Row equilibration scaling tests
+// ---------------------------------------------------------------
+
+TEST_CASE("lp_build row_equilibration normalizes row max to 1")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  LinearProblem lp("row_eq_test");
+
+  // Create 2 variables, 2 rows with different coefficient magnitudes.
+  // Row 0: [100, 1]   → max=100, after scaling: [1, 0.01]
+  // Row 1: [0.5, 2]   → max=2,   after scaling: [0.25, 1]
+  const auto c0 = lp.add_col(SparseCol {
+      .name = "c0",
+  });
+  const auto c1 = lp.add_col(SparseCol {
+      .name = "c1",
+  });
+
+  auto r0 = SparseRow {
+      .name = "r0",
+  };
+  r0[c0] = 100.0;
+  r0[c1] = 1.0;
+  r0.bound(0.0, 50.0);  // RHS: [0, 50] → scaled [0, 0.5]
+  std::ignore = lp.add_row(std::move(r0));
+
+  auto r1 = SparseRow {
+      .name = "r1",
+  };
+  r1[c0] = 0.5;
+  r1[c1] = 2.0;
+  r1.bound(-4.0, 10.0);  // RHS: [-4, 10] → scaled [-2, 5]
+  std::ignore = lp.add_row(std::move(r1));
+
+  SUBCASE("without row_equilibration — coefficients unchanged")
+  {
+    const auto flat = lp.lp_build({
+        .row_equilibration = false,
+    });
+
+    CHECK(flat.row_scales.empty());
+
+    // Find coefficient for (row0, col0) = 100
+    // Column 0: matbeg[0] to matbeg[1]
+    bool found_r0_c0 = false;
+    for (auto k = flat.matbeg[0]; k < flat.matbeg[1]; ++k) {
+      if (flat.matind[k] == 0) {
+        CHECK(flat.matval[k] == doctest::Approx(100.0));
+        found_r0_c0 = true;
+      }
+    }
+    CHECK(found_r0_c0);
+    CHECK(flat.rowub[0] == doctest::Approx(50.0));
+  }
+
+  SUBCASE("with row_equilibration — row max normalized to 1")
+  {
+    const auto flat = lp.lp_build({
+        .row_equilibration = true,
+    });
+
+    REQUIRE(flat.row_scales.size() == 2);
+    CHECK(flat.row_scales[0] == doctest::Approx(100.0));
+    CHECK(flat.row_scales[1] == doctest::Approx(2.0));
+
+    // Row 0 RHS scaled by 1/100
+    CHECK(flat.rowlb[0] == doctest::Approx(0.0));
+    CHECK(flat.rowub[0] == doctest::Approx(0.5));
+
+    // Row 1 RHS scaled by 1/2
+    CHECK(flat.rowlb[1] == doctest::Approx(-2.0));
+    CHECK(flat.rowub[1] == doctest::Approx(5.0));
+
+    // Matrix coefficients: scan column 0 for both rows.
+    for (auto k = flat.matbeg[0]; k < flat.matbeg[1]; ++k) {
+      if (flat.matind[k] == 0) {
+        // row0, col0: 100/100 = 1.0
+        CHECK(flat.matval[k] == doctest::Approx(1.0));
+      } else if (flat.matind[k] == 1) {
+        // row1, col0: 0.5/2 = 0.25
+        CHECK(flat.matval[k] == doctest::Approx(0.25));
+      }
+    }
+
+    // Column 1:
+    for (auto k = flat.matbeg[1]; k < flat.matbeg[2]; ++k) {
+      if (flat.matind[k] == 0) {
+        // row0, col1: 1.0/100 = 0.01
+        CHECK(flat.matval[k] == doctest::Approx(0.01));
+      } else if (flat.matind[k] == 1) {
+        // row1, col1: 2.0/2 = 1.0
+        CHECK(flat.matval[k] == doctest::Approx(1.0));
+      }
+    }
+  }
+}
+
+TEST_CASE("LinearInterface row_equilibration unscales duals")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Build a small LP: min x s.t. x >= 5, solve, verify dual unscaling.
+  // Row: [1000] * x >= 5000  (large coefficient for scaling test)
+  LinearProblem lp("dual_unscale_test");
+
+  const auto c0 = lp.add_col(SparseCol {
+      .name = "x",
+      .lowb = 0,
+      .uppb = 100,
+      .cost = 1.0,
+  });
+
+  auto r0 = SparseRow {
+      .name = "r0",
+  };
+  r0[c0] = 1000.0;
+  r0.greater_equal(5000.0);
+  std::ignore = lp.add_row(std::move(r0));
+
+  SUBCASE("without row_equilibration")
+  {
+    const auto flat = lp.lp_build();
+    LinearInterface li("", flat);
+    std::ignore = li.initial_solve({});
+    REQUIRE(li.is_optimal());
+
+    const auto duals = li.get_row_dual();
+    REQUIRE(duals.size() == 1);
+    // Dual for 1000x >= 5000, optimal x=5, dual=cost/coeff=1/1000=0.001
+    CHECK(duals[0] == doctest::Approx(0.001).epsilon(1e-4));
+  }
+
+  SUBCASE("with row_equilibration — duals match physical values")
+  {
+    const auto flat = lp.lp_build({
+        .row_equilibration = true,
+    });
+    REQUIRE(flat.row_scales.size() == 1);
+    CHECK(flat.row_scales[0] == doctest::Approx(1000.0));
+
+    LinearInterface li("", flat);
+    std::ignore = li.initial_solve({});
+    REQUIRE(li.is_optimal());
+
+    // After unscaling: dual_phys = dual_LP / row_scale = same physical dual
+    const auto duals = li.get_row_dual();
+    REQUIRE(duals.size() == 1);
+    CHECK(duals[0] == doctest::Approx(0.001).epsilon(1e-4));
+  }
+}
+
+TEST_CASE("lp_build per-row-type coefficient stats")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Build a small LP with named rows of different constraint types.
+  // Row name format: cname_type_uid_... → type is 2nd underscore token.
+  LinearProblem lp("row_type_stats_test");
+
+  const auto c0 = lp.add_col(SparseCol {.name = "x0", .cost = 1.0});
+  const auto c1 = lp.add_col(SparseCol {.name = "x1", .cost = 2.0});
+
+  // Two "bal" rows with different coefficient magnitudes
+  auto r_bal0 = SparseRow {.name = "bus_bal_1_0_0_0"};
+  r_bal0[c0] = 1.0;
+  r_bal0[c1] = 100.0;
+  r_bal0.equal(50.0);
+  std::ignore = lp.add_row(std::move(r_bal0));
+
+  auto r_bal1 = SparseRow {.name = "bus_bal_2_0_0_0"};
+  r_bal1[c0] = 0.5;
+  r_bal1[c1] = 200.0;
+  r_bal1.equal(100.0);
+  std::ignore = lp.add_row(std::move(r_bal1));
+
+  // One "theta" row
+  auto r_theta = SparseRow {.name = "line_theta_1_0_0_0"};
+  r_theta[c0] = 0.001;
+  r_theta[c1] = 1000.0;
+  r_theta.equal(0.0);
+  std::ignore = lp.add_row(std::move(r_theta));
+
+  // Build with stats and row names enabled
+  const auto flat = lp.lp_build({
+      .row_with_names = true,
+      .compute_stats = true,
+  });
+
+  REQUIRE(!flat.row_type_stats.empty());
+
+  // Find "bal" and "theta" entries
+  const FlatLinearProblem::RowTypeStatsEntry* bal_entry = nullptr;
+  const FlatLinearProblem::RowTypeStatsEntry* theta_entry = nullptr;
+  for (const auto& entry : flat.row_type_stats) {
+    if (entry.type == "bal") {
+      bal_entry = &entry;
+    } else if (entry.type == "theta") {
+      theta_entry = &entry;
+    }
+  }
+
+  REQUIRE(bal_entry != nullptr);
+  CHECK(bal_entry->count == 2);
+  CHECK(bal_entry->nnz == 4);
+  CHECK(bal_entry->max_abs == doctest::Approx(200.0));
+  CHECK(bal_entry->min_abs == doctest::Approx(0.5));
+
+  REQUIRE(theta_entry != nullptr);
+  CHECK(theta_entry->count == 1);
+  CHECK(theta_entry->nnz == 2);
+  CHECK(theta_entry->max_abs == doctest::Approx(1000.0));
+  CHECK(theta_entry->min_abs == doctest::Approx(0.001));
+}
+
+TEST_CASE("lp_build per-row-type stats empty without row names")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  LinearProblem lp("no_row_names_test");
+  const auto c0 = lp.add_col(SparseCol {.name = "x0", .cost = 1.0});
+  auto r0 = SparseRow {.name = "bus_bal_1_0_0_0"};
+  r0[c0] = 1.0;
+  r0.equal(0.0);
+  std::ignore = lp.add_row(std::move(r0));
+
+  // stats enabled but row names NOT enabled → row_type_stats should be empty
+  const auto flat = lp.lp_build({
+      .row_with_names = false,
+      .compute_stats = true,
+  });
+  CHECK(flat.row_type_stats.empty());
+}
+
+TEST_CASE("lp_build per-row-type stats empty without compute_stats")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  LinearProblem lp("no_stats_test");
+  const auto c0 = lp.add_col(SparseCol {.name = "x0", .cost = 1.0});
+  auto r0 = SparseRow {.name = "bus_bal_1_0_0_0"};
+  r0[c0] = 1.0;
+  r0.equal(0.0);
+  std::ignore = lp.add_row(std::move(r0));
+
+  // row names enabled but stats NOT enabled → row_type_stats should be empty
+  const auto flat = lp.lp_build({
+      .row_with_names = true,
+      .compute_stats = false,
+  });
+  CHECK(flat.row_type_stats.empty());
 }

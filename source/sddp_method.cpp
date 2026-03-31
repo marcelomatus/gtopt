@@ -582,6 +582,8 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene,
   const auto coeff_mode = m_options_.cut_coeff_mode;
 
   const auto sa = m_options_.scale_alpha;
+  const auto ceps = m_options_.cut_coeff_eps;
+  const auto cmax = m_options_.cut_coeff_max;
   auto cut = (coeff_mode == CutCoeffMode::row_dual)
       ? build_benders_cut_from_row_duals(
             src_state.alpha_col,
@@ -589,14 +591,18 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene,
             target_state.forward_row_dual,
             target_state.forward_full_obj,
             sddp_label("sddp", "scut", scene, phase, iteration, cut_offset),
-            sa)
+            sa,
+            ceps)
       : build_benders_cut(
             src_state.alpha_col,
             src_state.outgoing_links,
             target_state.forward_col_cost,
             target_state.forward_full_obj,
             sddp_label("sddp", "scut", scene, phase, iteration, cut_offset),
-            sa);
+            sa,
+            ceps);
+  rescale_benders_cut(cut, src_state.alpha_col, cmax);
+  filter_cut_coefficients(cut, src_state.alpha_col, ceps);
 
   const auto cut_row = src_li.add_row(cut);
   store_cut(scene, prev_phase, cut, CutType::Optimality, cut_row);

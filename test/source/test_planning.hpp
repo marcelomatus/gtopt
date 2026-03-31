@@ -484,6 +484,369 @@ TEST_CASE("PlanningLP - Solver test")
           == doctest::Approx(50));
 }
 
+// ── auto_scale_theta tests ────────────────────────────────────────────────
+
+TEST_CASE("PlanningLP - auto_scale_theta computes median reactance")
+{
+  using namespace gtopt;
+
+  // Three lines with reactances: 0.05, 0.10, 0.20 → median = 0.10
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+      {.uid = Uid {2}, .name = "b2"},
+      {.uid = Uid {3}, .name = "b3"},
+      {.uid = Uid {4}, .name = "b4"},
+  };
+  const Array<Generator> gen_array = {
+      {.uid = Uid {1},
+       .name = "g1",
+       .bus = Uid {1},
+       .gcost = 50.0,
+       .capacity = 200.0},
+  };
+  const Array<Demand> dem_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {4}, .capacity = 80.0},
+  };
+  const Array<Line> line_array = {
+      {.uid = Uid {1},
+       .name = "l1",
+       .bus_a = Uid {1},
+       .bus_b = Uid {2},
+       .reactance = 0.05,
+       .tmax_ba = 200.0,
+       .tmax_ab = 200.0,
+       .capacity = 200.0},
+      {.uid = Uid {2},
+       .name = "l2",
+       .bus_a = Uid {2},
+       .bus_b = Uid {3},
+       .reactance = 0.10,
+       .tmax_ba = 200.0,
+       .tmax_ab = 200.0,
+       .capacity = 200.0},
+      {.uid = Uid {3},
+       .name = "l3",
+       .bus_a = Uid {3},
+       .bus_b = Uid {4},
+       .reactance = 0.20,
+       .tmax_ba = 200.0,
+       .tmax_ab = 200.0,
+       .capacity = 200.0},
+  };
+
+  const System system {
+      .name = "AutoScaleTest",
+      .bus_array = bus_array,
+      .demand_array = dem_array,
+      .generator_array = gen_array,
+      .line_array = line_array,
+  };
+
+  // No explicit scale_theta → auto_scale_theta should set it to median
+  Planning planning {
+      .simulation = simulation,
+      .system = system,
+  };
+
+  PlanningLP planning_lp(planning);
+
+  // After construction, scale_theta should be the median reactance (0.10)
+  CHECK(planning_lp.options().scale_theta() == doctest::Approx(0.10));
+}
+
+TEST_CASE("PlanningLP - auto_scale_theta skips when explicitly set")
+{
+  using namespace gtopt;
+
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+      {.uid = Uid {2}, .name = "b2"},
+  };
+  const Array<Generator> gen_array = {
+      {.uid = Uid {1},
+       .name = "g1",
+       .bus = Uid {1},
+       .gcost = 50.0,
+       .capacity = 200.0},
+  };
+  const Array<Demand> dem_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {2}, .capacity = 80.0},
+  };
+  const Array<Line> line_array = {
+      {.uid = Uid {1},
+       .name = "l1",
+       .bus_a = Uid {1},
+       .bus_b = Uid {2},
+       .reactance = 0.05,
+       .tmax_ba = 200.0,
+       .tmax_ab = 200.0,
+       .capacity = 200.0},
+  };
+
+  const System system {
+      .name = "ExplicitScaleTest",
+      .bus_array = bus_array,
+      .demand_array = dem_array,
+      .generator_array = gen_array,
+      .line_array = line_array,
+  };
+
+  // Explicitly set scale_theta → auto_scale_theta should NOT override
+  Planning planning {
+      .options = {.scale_theta = 42.0},
+      .simulation = simulation,
+      .system = system,
+  };
+
+  PlanningLP planning_lp(planning);
+
+  CHECK(planning_lp.options().scale_theta() == doctest::Approx(42.0));
+}
+
+TEST_CASE("PlanningLP - auto_scale_theta skips when Kirchhoff disabled")
+{
+  using namespace gtopt;
+
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+      {.uid = Uid {2}, .name = "b2"},
+  };
+  const Array<Generator> gen_array = {
+      {.uid = Uid {1},
+       .name = "g1",
+       .bus = Uid {1},
+       .gcost = 50.0,
+       .capacity = 200.0},
+  };
+  const Array<Demand> dem_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {2}, .capacity = 80.0},
+  };
+  const Array<Line> line_array = {
+      {.uid = Uid {1},
+       .name = "l1",
+       .bus_a = Uid {1},
+       .bus_b = Uid {2},
+       .reactance = 0.05,
+       .tmax_ba = 200.0,
+       .tmax_ab = 200.0,
+       .capacity = 200.0},
+  };
+
+  const System system {
+      .name = "NoKirchhoffTest",
+      .bus_array = bus_array,
+      .demand_array = dem_array,
+      .generator_array = gen_array,
+      .line_array = line_array,
+  };
+
+  // Kirchhoff disabled → auto_scale_theta should skip, use compiled default
+  Planning planning {
+      .options = {.use_kirchhoff = false},
+      .simulation = simulation,
+      .system = system,
+  };
+
+  PlanningLP planning_lp(planning);
+
+  CHECK(planning_lp.options().scale_theta()
+        == doctest::Approx(PlanningOptionsLP::default_scale_theta));
+}
+
+TEST_CASE("PlanningLP - auto_scale_theta skips when single_bus enabled")
+{
+  using namespace gtopt;
+
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Generator> gen_array = {
+      {.uid = Uid {1},
+       .name = "g1",
+       .bus = Uid {1},
+       .gcost = 50.0,
+       .capacity = 200.0},
+  };
+  const Array<Demand> dem_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 80.0},
+  };
+  const Array<Line> line_array = {
+      {.uid = Uid {1},
+       .name = "l1",
+       .bus_a = Uid {1},
+       .bus_b = Uid {1},
+       .reactance = 0.05,
+       .tmax_ba = 200.0,
+       .tmax_ab = 200.0,
+       .capacity = 200.0},
+  };
+
+  const System system {
+      .name = "SingleBusTest",
+      .bus_array = bus_array,
+      .demand_array = dem_array,
+      .generator_array = gen_array,
+      .line_array = line_array,
+  };
+
+  // Single-bus enabled → auto_scale_theta should skip
+  Planning planning {
+      .options = {.use_single_bus = true},
+      .simulation = simulation,
+      .system = system,
+  };
+
+  PlanningLP planning_lp(planning);
+
+  CHECK(planning_lp.options().scale_theta()
+        == doctest::Approx(PlanningOptionsLP::default_scale_theta));
+}
+
+TEST_CASE("PlanningLP - auto_scale_theta with even number of lines")
+{
+  using namespace gtopt;
+
+  // Four lines: 0.04, 0.06, 0.08, 0.12 → median = (0.06+0.08)/2 = 0.07
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+      {.uid = Uid {2}, .name = "b2"},
+      {.uid = Uid {3}, .name = "b3"},
+      {.uid = Uid {4}, .name = "b4"},
+      {.uid = Uid {5}, .name = "b5"},
+  };
+  const Array<Generator> gen_array = {
+      {.uid = Uid {1},
+       .name = "g1",
+       .bus = Uid {1},
+       .gcost = 50.0,
+       .capacity = 200.0},
+  };
+  const Array<Demand> dem_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {5}, .capacity = 80.0},
+  };
+  const Array<Line> line_array = {
+      {.uid = Uid {1},
+       .name = "l1",
+       .bus_a = Uid {1},
+       .bus_b = Uid {2},
+       .reactance = 0.04,
+       .tmax_ba = 200.0,
+       .tmax_ab = 200.0,
+       .capacity = 200.0},
+      {.uid = Uid {2},
+       .name = "l2",
+       .bus_a = Uid {2},
+       .bus_b = Uid {3},
+       .reactance = 0.06,
+       .tmax_ba = 200.0,
+       .tmax_ab = 200.0,
+       .capacity = 200.0},
+      {.uid = Uid {3},
+       .name = "l3",
+       .bus_a = Uid {3},
+       .bus_b = Uid {4},
+       .reactance = 0.08,
+       .tmax_ba = 200.0,
+       .tmax_ab = 200.0,
+       .capacity = 200.0},
+      {.uid = Uid {4},
+       .name = "l4",
+       .bus_a = Uid {4},
+       .bus_b = Uid {5},
+       .reactance = 0.12,
+       .tmax_ba = 200.0,
+       .tmax_ab = 200.0,
+       .capacity = 200.0},
+  };
+
+  const System system {
+      .name = "EvenLinesTest",
+      .bus_array = bus_array,
+      .demand_array = dem_array,
+      .generator_array = gen_array,
+      .line_array = line_array,
+  };
+
+  Planning planning {
+      .simulation = simulation,
+      .system = system,
+  };
+
+  PlanningLP planning_lp(planning);
+
+  CHECK(planning_lp.options().scale_theta() == doctest::Approx(0.07));
+}
+
+TEST_CASE("PlanningLP - auto_scale_theta with const Planning")
+{
+  using namespace gtopt;
+
+  // Const planning → auto_scale_theta is skipped, uses default
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Generator> gen_array = {
+      {.uid = Uid {1},
+       .name = "g1",
+       .bus = Uid {1},
+       .gcost = 50.0,
+       .capacity = 200.0},
+  };
+  const Array<Demand> dem_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 80.0},
+  };
+
+  const System system {
+      .name = "ConstTest",
+      .bus_array = bus_array,
+      .demand_array = dem_array,
+      .generator_array = gen_array,
+  };
+
+  const Planning planning {
+      .simulation = simulation,
+      .system = system,
+  };
+
+  // Const Planning → constructor template uses const path, no auto_scale_theta
+  const PlanningLP planning_lp(planning);
+
+  CHECK(planning_lp.options().scale_theta()
+        == doctest::Approx(PlanningOptionsLP::default_scale_theta));
+}
+
 static constexpr std::string_view planning_json = R"({
   "options": {
     "annual_discount_rate": 0.1,

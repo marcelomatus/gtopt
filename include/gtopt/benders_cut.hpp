@@ -132,7 +132,8 @@ void propagate_trial_values_row_dual(std::span<StateVarLink> links,
                                      std::span<const double> reduced_costs,
                                      double objective_value,
                                      std::string_view name,
-                                     double scale_alpha = 1.0) -> SparseRow;
+                                     double scale_alpha = 1.0,
+                                     double cut_coeff_eps = 0.0) -> SparseRow;
 
 /// Build a Benders optimality cut from row duals of coupling constraints
 /// (PLP-style).
@@ -151,7 +152,37 @@ void propagate_trial_values_row_dual(std::span<StateVarLink> links,
     std::span<const double> row_duals,
     double objective_value,
     std::string_view name,
-    double scale_alpha = 1.0) -> SparseRow;
+    double scale_alpha = 1.0,
+    double cut_coeff_eps = 0.0) -> SparseRow;
+
+/// Remove state-variable coefficients whose absolute value is below @p eps.
+///
+/// Unlike the eps filtering in build_benders_cut() (which skips tiny
+/// reduced costs before the RHS adjustment), this function filters
+/// the final cut coefficients and adjusts the RHS accordingly.
+/// Intended for post-rescale cleanup where previously significant
+/// coefficients may have become negligible.
+///
+/// @param row           The cut row to filter in-place
+/// @param alpha_col     α column index (never filtered)
+/// @param eps           Absolute tolerance (coefficients with |value| < eps
+///                      are removed)
+void filter_cut_coefficients(SparseRow& row, ColIndex alpha_col, double eps);
+
+/// Rescale a Benders cut row when the largest state-variable coefficient
+/// exceeds @p cut_coeff_max.
+///
+/// All terms (coefficients, α weight, and RHS) are divided uniformly by
+/// `max_coeff / cut_coeff_max`, preserving the constraint's feasible set.
+/// The α column at @p alpha_col is included in the scaling.
+///
+/// @param row           The cut row to rescale in-place
+/// @param alpha_col     α column index (to identify it for logging)
+/// @param cut_coeff_max Maximum allowed absolute coefficient value (> 0)
+/// @return true if the row was rescaled, false if no rescaling was needed
+bool rescale_benders_cut(SparseRow& row,
+                         ColIndex alpha_col,
+                         double cut_coeff_max);
 
 // ─── Elastic filter ─────────────────────────────────────────────────────────
 

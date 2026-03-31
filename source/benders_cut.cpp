@@ -85,7 +85,8 @@ auto build_benders_cut(ColIndex alpha_col,
                        std::span<const double> reduced_costs,
                        double objective_value,
                        std::string_view name,
-                       double scale_alpha) -> SparseRow
+                       double scale_alpha,
+                       double cut_coeff_eps) -> SparseRow
 {
   auto row = SparseRow {
       .name = std::string(name),
@@ -96,6 +97,9 @@ auto build_benders_cut(ColIndex alpha_col,
 
   for (const auto& link : links) {
     const auto rc = reduced_costs[link.dependent_col];
+    if (std::abs(rc) < cut_coeff_eps) {
+      continue;
+    }
     row[link.source_col] = -rc;
     row.lowb -= rc * link.trial_value;
   }
@@ -108,7 +112,8 @@ auto build_benders_cut_from_row_duals(ColIndex alpha_col,
                                       std::span<const double> row_duals,
                                       double objective_value,
                                       std::string_view name,
-                                      double scale_alpha) -> SparseRow
+                                      double scale_alpha,
+                                      double cut_coeff_eps) -> SparseRow
 {
   auto row = SparseRow {
       .name = std::string(name),
@@ -119,11 +124,83 @@ auto build_benders_cut_from_row_duals(ColIndex alpha_col,
 
   for (const auto& link : links) {
     const auto pi = row_duals[link.coupling_row];
+    if (std::abs(pi) < cut_coeff_eps) {
+      continue;
+    }
     row[link.source_col] = -pi;
     row.lowb -= pi * link.trial_value;
   }
 
   return row;
+}
+
+// ─── Cut coefficient filtering and rescaling ────────────────────────────────
+
+void filter_cut_coefficients(SparseRow& row, ColIndex alpha_col, double eps)
+{
+  if (eps <= 0.0) {
+    return;
+  }
+
+  // Collect columns to erase (can't modify flat_map while iterating).
+  std::vector<ColIndex> to_erase;
+  for (auto it = row.cmap.begin(); it != row.cmap.end(); ++it) {
+    if (it->first != alpha_col && std::abs(it->second) < eps) {
+      to_erase.push_back(it->first);
+    }
+  }
+
+  for (const auto col : to_erase) {
+    row.cmap.erase(col);
+  }
+}
+
+bool rescale_benders_cut(SparseRow& row,
+                         ColIndex alpha_col,
+                         double cut_coeff_max)
+{
+  if (cut_coeff_max <= 0.0) {
+    return false;
+  }
+
+  // Find the largest absolute coefficient across all state-variable terms
+  // (exclude α column — it's a scaling weight, not a state-variable coeff).
+  // Collect keys to avoid flat_map iterator proxy issues.
+  std::vector<ColIndex> cols;
+  cols.reserve(row.cmap.size());
+
+  double max_coeff = 0.0;
+  for (auto it = row.cmap.begin(); it != row.cmap.end(); ++it) {
+    cols.push_back(it->first);
+    if (it->first != alpha_col) {
+      max_coeff = std::max(max_coeff, std::abs(it->second));
+    }
+  }
+
+  if (max_coeff <= cut_coeff_max) {
+    return false;  // no rescaling needed
+  }
+
+  const auto scale_factor = max_coeff / cut_coeff_max;
+
+  spdlog::warn(
+      "rescale_benders_cut: cut '{}' max|coeff|={:.2e} exceeds "
+      "threshold {:.2e}, rescaling by {:.2e}",
+      row.name,
+      max_coeff,
+      cut_coeff_max,
+      scale_factor);
+
+  // Divide all coefficients (including α) and bounds by scale_factor.
+  for (const auto col : cols) {
+    row[col] /= scale_factor;
+  }
+  row.lowb /= scale_factor;
+  if (row.uppb != LinearProblem::DblMax && row.uppb != -LinearProblem::DblMax) {
+    row.uppb /= scale_factor;
+  }
+
+  return true;
 }
 
 // ─── Elastic filter ─────────────────────────────────────────────────────────

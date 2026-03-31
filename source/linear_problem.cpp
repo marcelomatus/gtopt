@@ -11,6 +11,10 @@
  * efficient solver integration.
  */
 
+#include <algorithm>
+#include <ranges>
+#include <unordered_map>
+
 #include <gtopt/linear_problem.hpp>
 #include <spdlog/spdlog.h>
 
@@ -214,6 +218,131 @@ auto LinearProblem::lp_build(const LpBuildOptions& opts) -> FlatLinearProblem
     }
   }
 
+  // ── Per-row-type coefficient statistics ──────────────────────────────
+  // Classify rows by constraint type (extracted from row names) and
+  // compute per-type min/max |coefficient|.  Only when both stats and
+  // row names are enabled.
+  std::vector<FlatLinearProblem::RowTypeStatsEntry> row_type_stats_vec;
+  if (do_stats && !rownm.empty()) {
+    // Build per-row max and min |coefficient| arrays.
+    std::vector<double> row_max(nrows, 0.0);
+    std::vector<double> row_min(nrows, std::numeric_limits<double>::max());
+    std::vector<size_t> row_nnz(nrows, 0);
+
+    for (size_t k = 0; k < matval.size(); ++k) {
+      const auto r = static_cast<size_t>(matind[k]);
+      const double av = std::abs(matval[k]);
+      if (av > 0.0) {
+        ++row_nnz[r];
+        row_max[r] = std::max(row_max[r], av);
+        row_min[r] = std::min(row_min[r], av);
+      }
+    }
+
+    // Classify each row by extracting the constraint type token from its
+    // name.  Row names use underscore-separated tokens; the type is the
+    // second token in the standard `cname_type_uid_...` format.
+    auto extract_row_type = [](std::string_view name) -> std::string_view
+    {
+      if (name.empty()) {
+        return "unknown";
+      }
+      // Find the second token (after first underscore).
+      const auto first_sep = name.find('_');
+      if (first_sep == std::string_view::npos) {
+        return name;
+      }
+      const auto rest = name.substr(first_sep + 1);
+      const auto second_sep = rest.find('_');
+      return rest.substr(0, second_sep);  // type token
+    };
+
+    // Aggregate per-type stats using a flat map-like scan.
+    // Sort row indices by type for grouping.
+    struct TypeAccum
+    {
+      size_t count {};
+      size_t nnz {};
+      double max_abs {};
+      double min_abs {std::numeric_limits<double>::max()};
+    };
+    std::unordered_map<std::string_view, TypeAccum> type_map;
+
+    for (size_t r = 0; r < nrows; ++r) {
+      const auto type = extract_row_type(rownm[r]);
+      auto& acc = type_map[type];
+      ++acc.count;
+      acc.nnz += row_nnz[r];
+      acc.max_abs = std::max(acc.max_abs, row_max[r]);
+      if (row_nnz[r] > 0) {
+        acc.min_abs = std::min(acc.min_abs, row_min[r]);
+      }
+    }
+
+    row_type_stats_vec.reserve(type_map.size());
+    for (auto& [type, acc] : type_map) {
+      row_type_stats_vec.push_back({
+          .type = std::string(type),
+          .count = acc.count,
+          .nnz = acc.nnz,
+          .max_abs = acc.max_abs,
+          .min_abs = acc.min_abs,
+      });
+    }
+
+    // Sort by ratio descending (worst first) for readable output.
+    std::ranges::sort(
+        row_type_stats_vec,
+        [](const auto& a, const auto& b)
+        {
+          const double ra = (a.min_abs > 0.0
+                             && a.min_abs < std::numeric_limits<double>::max())
+              ? a.max_abs / a.min_abs
+              : 1.0;
+          const double rb = (b.min_abs > 0.0
+                             && b.min_abs < std::numeric_limits<double>::max())
+              ? b.max_abs / b.min_abs
+              : 1.0;
+          return ra > rb;
+        });
+  }
+
+  // ── Row equilibration scaling ─────────────────────────────────────
+  // Scale each row so that its largest |coefficient| becomes 1.0.
+  // This reduces the condition number by compressing the coefficient
+  // range across rows.  The row_scales vector stores the inverse of
+  // the scaling factor: dual_physical = dual_LP × row_scale[i].
+  std::vector<double> row_scales_vec;
+  if (opts.row_equilibration) {
+    // 1. Compute row max |coefficient| from the CSC matrix.
+    std::vector<double> row_max(nrows, 0.0);
+    for (size_t k = 0; k < matval.size(); ++k) {
+      const auto r = static_cast<size_t>(matind[k]);
+      row_max[r] = std::max(row_max[r], std::abs(matval[k]));
+    }
+
+    // 2. Compute scale = 1/max (identity for empty or zero-max rows).
+    row_scales_vec.resize(nrows);
+    for (size_t r = 0; r < static_cast<size_t>(nrows); ++r) {
+      row_scales_vec[r] = (row_max[r] > 0.0) ? row_max[r] : 1.0;
+    }
+
+    // 3. Apply scaling to matrix coefficients.
+    for (size_t k = 0; k < matval.size(); ++k) {
+      const auto r = static_cast<size_t>(matind[k]);
+      matval[k] /= row_scales_vec[r];
+    }
+
+    // 4. Scale row bounds (RHS).
+    for (size_t r = 0; r < static_cast<size_t>(nrows); ++r) {
+      const double s = row_scales_vec[r];
+      if (s != 1.0) {
+        rowlb[r] /= s;
+        rowub[r] /= s;
+      }
+    }
+  }
+
   return {
       .ncols = static_cast<fp_index_t>(ncols),
       .nrows = static_cast<fp_index_t>(nrows),
@@ -227,6 +356,7 @@ auto LinearProblem::lp_build(const LpBuildOptions& opts) -> FlatLinearProblem
       .rowub = std::move(rowub),
       .colint = std::move(colint),
       .col_scales = std::move(col_scales),
+      .row_scales = std::move(row_scales_vec),
       .colnm = std::move(colnm),
       .rownm = std::move(rownm),
       .colmp = std::move(colmp),
@@ -242,6 +372,7 @@ auto LinearProblem::lp_build(const LpBuildOptions& opts) -> FlatLinearProblem
       .stats_min_col = stats_min_col,
       .stats_max_col_name = std::move(stats_max_col_name),
       .stats_min_col_name = std::move(stats_min_col_name),
+      .row_type_stats = std::move(row_type_stats_vec),
   };
 }
 

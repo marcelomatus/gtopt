@@ -188,6 +188,8 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
     LinearInterface* pooled_clone = nullptr,
     IterationIndex iteration = {},
     CutCoeffMode cut_coeff_mode = CutCoeffMode::reduced_cost,
-    double scale_alpha = 1.0) -> std::optional<SparseRow>;
+    double scale_alpha = 1.0,
+    double cut_coeff_eps = 0.0,
+    double cut_coeff_max = 0.0) -> std::optional<SparseRow>;
 
 }  // namespace gtopt

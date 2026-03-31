@@ -476,12 +476,27 @@ public:
   }
 
   /**
-   * @brief Gets the dual values (shadow prices) for all constraints
+   * @brief Gets the dual values (shadow prices) for all constraints.
+   *
+   * When row equilibration is active, the raw solver duals are divided
+   * by the per-row scale factor to recover physical units.
+   * Row equilibration divides each row by s = max|coeff|, so the LP dual
+   * is π_LP = s × π_phys, hence π_phys = π_LP / s.
    * @return Span view of dual values
    */
-  [[nodiscard]] auto get_row_dual() const
+  [[nodiscard]] auto get_row_dual() const -> std::span<const double>
   {
-    return std::span(m_backend_->row_price(), get_numrows());
+    const auto n = get_numrows();
+    const std::span<const double> raw_span {m_backend_->row_price(), n};
+    if (m_row_scales_.empty()) {
+      return raw_span;
+    }
+    // Apply row-equilibration unscaling: dual_phys = dual_LP / row_scale.
+    m_unscaled_duals_.resize(n);
+    for (size_t i = 0; i < n; ++i) {
+      m_unscaled_duals_[i] = raw_span[i] / m_row_scales_[i];
+    }
+    return m_unscaled_duals_;
   }
 
   void set_col_sol(std::span<const double> sol);
@@ -611,6 +626,10 @@ public:
   {
     return m_stats_min_col_name_;
   }
+  [[nodiscard]] constexpr const auto& lp_row_type_stats() const noexcept
+  {
+    return m_row_type_stats_;
+  }
   /// @}
 
 private:
@@ -682,6 +701,11 @@ private:
   std::vector<double> m_col_scales_;  ///< Per-column physical-to-LP scale
                                       ///< factors (physical = LP × scale)
 
+  std::vector<double> m_row_scales_;  ///< Per-row equilibration scale factors.
+                                      ///< dual_physical = dual_LP × row_scale.
+                                      ///< Empty when row equilibration is off.
+  mutable std::vector<double> m_unscaled_duals_;  ///< Cached dual unscaling buf
+
   /// Warm column solution loaded from a previous run's state file.
   /// Used by StorageLP::physical_eini/efin as fallback when
   /// !is_optimal() (hot start before first solve).  Empty if no
@@ -696,6 +720,7 @@ private:
   FlatLinearProblem::index_t m_stats_min_col_ {-1};
   std::string m_stats_max_col_name_ {};
   std::string m_stats_min_col_name_ {};
+  std::vector<FlatLinearProblem::RowTypeStatsEntry> m_row_type_stats_ {};
 
   struct FILEcloser
   {

@@ -1546,3 +1546,212 @@ TEST_CASE("LinearInterface - row_index_to_name empty at level 0")  // NOLINT
   CHECK(li.row_index_to_name().empty());
   CHECK(li.row_name_map().empty());
 }
+
+// ---------------------------------------------------------------------------
+// Algorithm fallback cycle tests
+// ---------------------------------------------------------------------------
+
+TEST_CASE("LinearInterface - algorithm fallback on infeasible initial_solve")
+// NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Infeasible LP: x >= 10 AND x <= 5 — no algorithm can solve it.
+  // The fallback cycle should try all 3 algorithms and still fail,
+  // with the error message indicating the fallback cycle was exhausted.
+  for (const auto algo :
+       {LPAlgo::barrier, LPAlgo::dual, LPAlgo::primal, LPAlgo::default_algo})
+  {
+    LinearInterface li;
+    const auto x1 = li.add_col("x1", 0.0, 5.0);
+    li.set_obj_coeff(x1, 1.0);
+
+    SparseRow row("lb");
+    row[x1] = 1.0;
+    row.lowb = 10.0;
+    row.uppb = LinearProblem::DblMax;
+    li.add_row(row);
+
+    auto result = li.initial_solve(SolverOptions {
+        .algorithm = algo,
+        .log_level = 0,
+    });
+    REQUIRE_FALSE(result.has_value());
+
+    const auto& err = result.error();
+    CHECK(err.code == ErrorCode::SolverError);
+    CHECK(err.message.find("fallback") != std::string::npos);
+    CHECK_FALSE(li.is_optimal());
+  }
+}
+
+TEST_CASE("LinearInterface - algorithm fallback on infeasible resolve")
+// NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Same infeasible LP tested via resolve path.
+  for (const auto algo :
+       {LPAlgo::barrier, LPAlgo::dual, LPAlgo::primal, LPAlgo::default_algo})
+  {
+    LinearInterface li;
+    const auto x1 = li.add_col("x1", 0.0, 5.0);
+    li.set_obj_coeff(x1, 1.0);
+
+    SparseRow row("lb");
+    row[x1] = 1.0;
+    row.lowb = 10.0;
+    row.uppb = LinearProblem::DblMax;
+    li.add_row(row);
+
+    auto result = li.resolve(SolverOptions {
+        .algorithm = algo,
+        .log_level = 0,
+    });
+    REQUIRE_FALSE(result.has_value());
+
+    const auto& err = result.error();
+    CHECK(err.code == ErrorCode::SolverError);
+    CHECK(err.message.find("fallback") != std::string::npos);
+    CHECK_FALSE(li.is_optimal());
+  }
+}
+
+TEST_CASE(
+    "LinearInterface - optimal LP succeeds without fallback for all algorithms")
+// NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Feasible LP: min x + y, s.t. x + y >= 4, x,y >= 0  →  obj = 4.
+  // All algorithms should succeed on the first attempt (no fallback needed).
+  for (const auto algo :
+       {LPAlgo::barrier, LPAlgo::dual, LPAlgo::primal, LPAlgo::default_algo})
+  {
+    LinearInterface li;
+    const auto x1 = li.add_col("x1", 0.0, 100.0);
+    const auto x2 = li.add_col("x2", 0.0, 100.0);
+    li.set_obj_coeff(x1, 1.0);
+    li.set_obj_coeff(x2, 1.0);
+
+    SparseRow row("c1");
+    row[x1] = 1.0;
+    row[x2] = 1.0;
+    row.lowb = 4.0;
+    row.uppb = LinearProblem::DblMax;
+    li.add_row(row);
+
+    auto result = li.initial_solve(SolverOptions {
+        .algorithm = algo,
+        .log_level = 0,
+    });
+    REQUIRE(result.has_value());
+    CHECK(li.is_optimal());
+    CHECK(li.get_obj_value() == doctest::Approx(4.0));
+  }
+}
+
+TEST_CASE(
+    "LinearInterface - fallback cycle on resolve after feasible "
+    "initial_solve")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Solve a feasible LP, then make it infeasible via bound change and resolve.
+  // The fallback cycle should engage and ultimately fail.
+  LinearInterface li;
+  const auto x1 = li.add_col("x1", 0.0, 10.0);
+  li.set_obj_coeff(x1, 1.0);
+
+  SparseRow row("c1");
+  row[x1] = 1.0;
+  row.lowb = 1.0;
+  row.uppb = LinearProblem::DblMax;
+  li.add_row(row);
+
+  // First solve: feasible
+  auto r1 = li.initial_solve(SolverOptions {
+      .algorithm = LPAlgo::dual,
+      .log_level = 0,
+  });
+  REQUIRE(r1.has_value());
+  CHECK(li.is_optimal());
+
+  // Make infeasible: x <= 0 but x >= 1
+  li.set_col_upp(x1, 0.0);
+
+  auto r2 = li.resolve(SolverOptions {
+      .algorithm = LPAlgo::dual,
+      .log_level = 0,
+  });
+  REQUIRE_FALSE(r2.has_value());
+  CHECK(r2.error().code == ErrorCode::SolverError);
+  CHECK(r2.error().message.find("fallback") != std::string::npos);
+}
+
+TEST_CASE("LinearInterface - max_fallbacks=0 disables fallback")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Infeasible LP with max_fallbacks=0: should fail immediately without
+  // the "fallback" keyword in the error message.
+  LinearInterface li;
+  const auto x1 = li.add_col("x1", 0.0, 5.0);
+  li.set_obj_coeff(x1, 1.0);
+
+  SparseRow row("lb");
+  row[x1] = 1.0;
+  row.lowb = 10.0;
+  row.uppb = LinearProblem::DblMax;
+  li.add_row(row);
+
+  SUBCASE("initial_solve")
+  {
+    auto result = li.initial_solve(SolverOptions {
+        .algorithm = LPAlgo::dual,
+        .log_level = 0,
+        .max_fallbacks = 0,
+    });
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().code == ErrorCode::SolverError);
+    CHECK(result.error().message.find("fallback") == std::string::npos);
+  }
+
+  SUBCASE("resolve")
+  {
+    auto result = li.resolve(SolverOptions {
+        .algorithm = LPAlgo::dual,
+        .log_level = 0,
+        .max_fallbacks = 0,
+    });
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().code == ErrorCode::SolverError);
+    CHECK(result.error().message.find("fallback") == std::string::npos);
+  }
+}
+
+TEST_CASE("LinearInterface - max_fallbacks=1 tries one alternative")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Infeasible LP with max_fallbacks=1: should try one fallback and still
+  // fail, but the error should mention "fallback".
+  LinearInterface li;
+  const auto x1 = li.add_col("x1", 0.0, 5.0);
+  li.set_obj_coeff(x1, 1.0);
+
+  SparseRow row("lb");
+  row[x1] = 1.0;
+  row.lowb = 10.0;
+  row.uppb = LinearProblem::DblMax;
+  li.add_row(row);
+
+  auto result = li.initial_solve(SolverOptions {
+      .algorithm = LPAlgo::barrier,
+      .log_level = 0,
+      .max_fallbacks = 1,
+  });
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error().code == ErrorCode::SolverError);
+  CHECK(result.error().message.find("fallback") != std::string::npos);
+}

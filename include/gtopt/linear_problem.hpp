@@ -51,6 +51,10 @@ struct FlatLinearProblem
   std::vector<index_t> colint;  ///< Indices of integer variables
   std::vector<double> col_scales;  ///< Per-column physical-to-LP scale factors
                                    ///< (physical = LP × scale; default 1.0)
+  std::vector<double> row_scales;  ///< Per-row equilibration scale factors
+                                   ///< (max |coeff| per row).
+                                   ///< dual_physical = dual_LP / row_scale.
+                                   ///< Empty when row equilibration is off.
 
   name_vec_t colnm;  ///< Variable names
   name_vec_t rownm;  ///< Constraint names
@@ -75,6 +79,18 @@ struct FlatLinearProblem
 
   std::string stats_max_col_name {};  ///< Name of column with largest |coeff|
   std::string stats_min_col_name {};  ///< Name of column with smallest |coeff|
+
+  /// Per-row-type coefficient statistics (populated when both compute_stats
+  /// and row_with_names are enabled).
+  struct RowTypeStatsEntry
+  {
+    std::string type {};
+    size_t count {};
+    size_t nnz {};
+    double max_abs {};
+    double min_abs {std::numeric_limits<double>::max()};
+  };
+  std::vector<RowTypeStatsEntry> row_type_stats {};
 
   /// Coefficient ratio max/min (1.0 when empty, no valid min, or all equal).
   [[nodiscard]] constexpr double stats_coeff_ratio() const noexcept

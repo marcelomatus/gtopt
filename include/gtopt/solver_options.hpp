@@ -71,6 +71,24 @@ struct SolverOptions
    */
   std::optional<double> time_limit {};
 
+  /** @brief Solver-internal scaling strategy.
+   *
+   *  Controls how the LP solver scales the constraint matrix before solving.
+   *  When nullopt, the solver keeps its built-in default.
+   *
+   *  @see SolverScaling for the available strategies and backend mapping.
+   */
+  std::optional<SolverScaling> scaling {SolverScaling::automatic};
+
+  /** @brief Maximum algorithm fallback attempts on non-optimal solve.
+   *
+   *  When a solve returns non-optimal, the solver cycles through
+   *  alternative algorithms (barrier → dual → primal → barrier) up to
+   *  this many times.  0 = no fallback (fail immediately).
+   *  Default: 2 (try all three algorithms).
+   */
+  int max_fallbacks {2};
+
   /** @brief Enable basis-reuse optimizations for resolve on cloned LPs.
    *
    *  When true, set_solver_opts() overrides the algorithm to dual simplex
@@ -100,6 +118,7 @@ struct SolverOptions
     merge_opt(barrier_eps, other.barrier_eps);
     merge_opt(time_limit, other.time_limit);
     merge_opt(log_mode, other.log_mode);
+    merge_opt(scaling, other.scaling);
   }
 };
 
