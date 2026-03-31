@@ -498,7 +498,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     const std::optional<double>& matrix_eps,
     bool compute_stats = false,
     const std::optional<std::string>& lp_solver = {},
-    bool row_equilibration = false)
+    OptBool row_equilibration = {})
 {
   const auto eps = matrix_eps.value_or(0);
   const auto lvl = lp_names_level.value_or(LpNamesLevel::minimal);

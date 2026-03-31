@@ -22,14 +22,16 @@ struct LpBuildOptionsConstructor
 {
   [[nodiscard]] LpBuildOptions operator()(OptInt names_level_int,
                                           OptReal lp_coeff_ratio_threshold,
-                                          OptBool row_equilibration) const
+                                          OptBool row_equilibration,
+                                          OptBool compute_stats) const
   {
     LpBuildOptions opts;
     if (names_level_int) {
       opts.names_level = static_cast<gtopt::LpNamesLevel>(*names_level_int);
     }
     opts.lp_coeff_ratio_threshold = lp_coeff_ratio_threshold;
-    opts.row_equilibration = row_equilibration.value_or(false);
+    opts.row_equilibration = row_equilibration;
+    opts.compute_stats = compute_stats;
     return opts;
   }
 };
@@ -42,7 +44,8 @@ struct json_data_contract<LpBuildOptions>
   using type =
       json_member_list<json_number_null<"names_level", OptInt>,
                        json_number_null<"lp_coeff_ratio_threshold", OptReal>,
-                       json_bool_null<"row_equilibration", OptBool>>;
+                       json_bool_null<"row_equilibration", OptBool>,
+                       json_bool_null<"compute_stats", OptBool>>;
 
   static auto to_json_data(LpBuildOptions const& opt)
   {
@@ -51,7 +54,8 @@ struct json_data_contract<LpBuildOptions>
         : OptInt {};
     return std::make_tuple(names_int,
                            opt.lp_coeff_ratio_threshold,
-                           OptBool {opt.row_equilibration});
+                           opt.row_equilibration,
+                           opt.compute_stats);
   }
 };
 

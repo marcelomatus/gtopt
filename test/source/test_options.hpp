@@ -606,16 +606,16 @@ TEST_CASE("Options - Solver options scaling default value")  // NOLINT
   using namespace gtopt;
 
   const SolverOptions opts {};
-  // scaling defaults to automatic
+  // scaling defaults to aggressive
   REQUIRE(opts.scaling.has_value());
-  CHECK(*opts.scaling == SolverScaling::automatic);
+  CHECK(*opts.scaling == SolverScaling::aggressive);
 }
 
 TEST_CASE("Options - Solver options merge with scaling")  // NOLINT
 {
   using namespace gtopt;
 
-  // Base has default scaling (automatic), overlay has aggressive
+  // Base has default scaling (aggressive), overlay has aggressive
   // merge_opt is last-value-wins: overlay replaces base
   PlanningOptions base {};
   PlanningOptions overlay {
@@ -632,50 +632,55 @@ TEST_CASE("Options - Solver options merge with scaling")  // NOLINT
   overlay2.solver_options.scaling = std::nullopt;
   base2.merge(std::move(overlay2));
 
-  // base2 had automatic, overlay2 had nullopt → base2 keeps automatic
+  // base2 had aggressive, overlay2 had nullopt → base2 keeps aggressive
   REQUIRE(base2.solver_options.scaling.has_value());
-  CHECK(*base2.solver_options.scaling == SolverScaling::automatic);
+  CHECK(*base2.solver_options.scaling == SolverScaling::aggressive);
 }
 
-TEST_CASE(
-    "Options - LpBuildOptions row_equilibration merge OR logic")  // NOLINT
+TEST_CASE("Options - LpBuildOptions row_equilibration merge_opt")  // NOLINT
 {
   using namespace gtopt;
 
-  SUBCASE("false OR false = false")
+  SUBCASE("default is nullopt")
+  {
+    PlanningOptions base {};
+    CHECK_FALSE(base.lp_build_options.row_equilibration.has_value());
+  }
+
+  SUBCASE("nullopt + nullopt = nullopt")
   {
     PlanningOptions base {};
     PlanningOptions overlay {};
     base.merge(std::move(overlay));
-    CHECK(base.lp_build_options.row_equilibration == false);
+    CHECK_FALSE(base.lp_build_options.row_equilibration.has_value());
   }
 
-  SUBCASE("true OR false = true")
+  SUBCASE("overlay wins over nullopt")
+  {
+    PlanningOptions base {};
+    PlanningOptions overlay {};
+    overlay.lp_build_options.row_equilibration = false;
+    base.merge(std::move(overlay));
+    CHECK(base.lp_build_options.row_equilibration.value_or(true) == false);
+  }
+
+  SUBCASE("overlay wins over base")
   {
     PlanningOptions base {};
     base.lp_build_options.row_equilibration = true;
     PlanningOptions overlay {};
+    overlay.lp_build_options.row_equilibration = false;
     base.merge(std::move(overlay));
-    CHECK(base.lp_build_options.row_equilibration == true);
+    CHECK(base.lp_build_options.row_equilibration.value_or(true) == false);
   }
 
-  SUBCASE("false OR true = true")
+  SUBCASE("base preserved when overlay is nullopt")
   {
     PlanningOptions base {};
+    base.lp_build_options.row_equilibration = false;
     PlanningOptions overlay {};
-    overlay.lp_build_options.row_equilibration = true;
     base.merge(std::move(overlay));
-    CHECK(base.lp_build_options.row_equilibration == true);
-  }
-
-  SUBCASE("true OR true = true")
-  {
-    PlanningOptions base {};
-    base.lp_build_options.row_equilibration = true;
-    PlanningOptions overlay {};
-    overlay.lp_build_options.row_equilibration = true;
-    base.merge(std::move(overlay));
-    CHECK(base.lp_build_options.row_equilibration == true);
+    CHECK(base.lp_build_options.row_equilibration.value_or(true) == false);
   }
 }
 

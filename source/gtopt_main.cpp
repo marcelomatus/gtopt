@@ -534,6 +534,16 @@ void log_pre_solve_stats(
                   plan_opts.use_single_bus.value_or(false) ? "true" : "false"));
   spdlog::info(std::format("  scale_objective : {}",
                            plan_opts.scale_objective.value_or(1'000.0)));
+  spdlog::info(
+      std::format("  scale_theta     : {}",
+                  plan_opts.scale_theta.has_value()
+                      ? std::format("{:.6g}", *plan_opts.scale_theta)
+                      : std::format("{:.6g} (auto)",
+                                    PlanningOptionsLP::default_scale_theta)));
+  spdlog::info(std::format(
+      "  row_equilibration: {}",
+      plan_opts.lp_build_options.row_equilibration.value_or(true) ? "true"
+                                                                  : "false"));
   spdlog::info(std::format("  demand_fail_cost: {}",
                            plan_opts.demand_fail_cost.value_or(0.0)));
   spdlog::info(std::format("  input_directory : {}",
@@ -799,9 +809,15 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     // Create and load the LP
     //
     try {
-      const bool do_stats = opts.print_stats.value_or(true);
+      const bool do_stats = opts.print_stats.value_or(true)
+          || my_planning.options.lp_build_options.compute_stats.value_or(false);
+      // CLI --lp-names-level overrides --set; fall back to merged planning
+      // value.
+      const auto eff_names_level = opts.lp_names_level
+          ? opts.lp_names_level
+          : my_planning.options.lp_build_options.names_level;
       const auto flat_opts = make_lp_build_options(
-          opts.lp_names_level,
+          eff_names_level,
           opts.matrix_eps,
           do_stats,
           opts.solver,

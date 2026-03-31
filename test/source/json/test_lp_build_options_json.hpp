@@ -65,7 +65,7 @@ TEST_CASE("LpBuildOptions JSON - Missing fields keep defaults")
   CHECK(opts.eps == doctest::Approx(0.0));
   CHECK(opts.col_with_names == true);
   CHECK(opts.row_with_names == false);
-  CHECK(opts.compute_stats == false);
+  CHECK_FALSE(opts.compute_stats.has_value());
 }
 
 TEST_CASE("LpBuildOptions JSON - Round-trip serialization")

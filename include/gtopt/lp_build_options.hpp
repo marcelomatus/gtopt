@@ -41,10 +41,10 @@ struct LpBuildOptions
   bool col_with_name_map {false};  ///< Include column name mapping (level >= 1)
   bool row_with_name_map {false};  ///< Include row name mapping
   bool move_names {true};  ///< Move instead of copy names
-  bool compute_stats {false};  ///< Compute coefficient min/max/ratio
-  bool row_equilibration {false};  ///< Apply per-row equilibration scaling.
-                                   ///< Each row's max |coefficient| is
-                                   ///< normalized to 1.0 to reduce kappa.
+  OptBool compute_stats {};  ///< Compute coefficient min/max/ratio
+  OptBool row_equilibration {};  ///< Apply per-row equilibration scaling.
+                                 ///< Each row's max |coefficient| is
+                                 ///< normalized to 1.0 to reduce kappa.
   LpNamesLevel lp_names_level {LpNamesLevel::minimal};  ///< Computed naming
                                                         ///< level (internal)
   std::string solver_name {};  ///< Solver backend name (empty = auto-detect)

@@ -78,7 +78,7 @@ struct SolverOptions
    *
    *  @see SolverScaling for the available strategies and backend mapping.
    */
-  std::optional<SolverScaling> scaling {SolverScaling::automatic};
+  std::optional<SolverScaling> scaling {SolverScaling::aggressive};
 
   /** @brief Maximum algorithm fallback attempts on non-optimal solve.
    *
