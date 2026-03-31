@@ -13,8 +13,16 @@ list(APPEND CMAKE_MODULE_PATH
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/CPM.cmake")
 
 CPMAddPackage("gh:mosra/m.css#a0d292ec311b97fefd21e93cdefb60f88d19ede6")
-if(NOT TARGET gtopt::gtopt)
-  CPMAddPackage(NAME gtopt SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
+
+# When built as part of the all/ super-project the gtopt target already
+# exists and gtopt_VERSION is set.  When built standalone (e.g. the Docs CI
+# job) we only need the version number for the Doxyfile — there is no need
+# to pull in the full gtopt project with all its dependencies (Arrow,
+# COIN-OR, Parquet, Boost, …).
+if(NOT DEFINED gtopt_VERSION)
+  file(READ "${CMAKE_CURRENT_LIST_DIR}/../CMakeLists.txt" _gtopt_cml)
+  string(REGEX MATCH "project\\([^)]*VERSION ([0-9]+[.0-9]*)" _match "${_gtopt_cml}")
+  set(gtopt_VERSION "${CMAKE_MATCH_1}")
 endif()
 
 # ---- Doxygen variables ----

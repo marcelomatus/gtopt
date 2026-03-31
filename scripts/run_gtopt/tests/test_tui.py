@@ -766,9 +766,7 @@ def test_phase_tracker_detail_monolithic_scene():
     """Monolithic scene progress updates the detail string."""
     tracker = SolverPhaseTracker()
     tracker.process_line("=== System optimization ===")
-    tracker.process_line(
-        "MonolithicMethod: scene 2 done in 3.000s (2/4)"
-    )
+    tracker.process_line("MonolithicMethod: scene 2 done in 3.000s (2/4)")
     assert tracker.states["optimize"].detail == "scene 2/4"
 
 

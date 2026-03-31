@@ -895,8 +895,14 @@ def _log_comparison(
         _row("Scaling Options", section=True)
         sddp_opts = gtopt_options.get("sddp_options", {})
 
-        def _scale_row(label: str, plp_default: str, gtopt_val: Any, note: str = "") -> None:
-            g_str = f"{gtopt_val:g}" if isinstance(gtopt_val, (int, float)) else str(gtopt_val)
+        def _scale_row(
+            label: str, plp_default: str, gtopt_val: Any, note: str = ""
+        ) -> None:
+            g_str = (
+                f"{gtopt_val:g}"
+                if isinstance(gtopt_val, (int, float))
+                else str(gtopt_val)
+            )
             table.add_row(label, plp_default, g_str, "", note)
 
         _scale_row(
