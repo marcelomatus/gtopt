@@ -373,7 +373,8 @@ def _add_plpinfo_sheet(ws: Any, planning: dict, options: dict, styles: dict) -> 
         ("use_single_bus", str(options.get("use_single_bus", False)), "", "TABLE"),
         ("use_kirchhoff", str(options.get("use_kirchhoff", False)), "", "TABLE"),
         ("demand_fail_cost", str(options.get("demand_fail_cost", 1000)), "", "TABLE"),
-        ("scale_objective", str(options.get("scale_objective", 1000)), "", "TABLE"),
+        ("scale_objective", str(options.get("scale_objective", 10_000_000)), "", "TABLE"),
+        ("scale_theta", str(options.get("scale_theta", 10_000)), "", "TABLE"),
     ]
 
     for row_idx, entry in enumerate(sections, start=1):

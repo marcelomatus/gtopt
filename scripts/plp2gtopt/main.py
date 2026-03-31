@@ -319,8 +319,22 @@ def make_parser() -> argparse.ArgumentParser:
         dest="scale_objective",
         type=float,
         metavar="FACTOR",
-        default=float(conf.get("scale_objective", "1000.0")),
-        help="objective function scaling factor (default: %(default)s)",
+        default=float(conf.get("scale_objective", "10000000.0")),
+        help=(
+            "objective function scaling factor. "
+            "Matches PLP's ScaleObj (default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--scale-theta",
+        dest="scale_theta",
+        type=float,
+        metavar="FACTOR",
+        default=float(conf.get("scale_theta", "10000.0")),
+        help=(
+            "voltage-angle scaling factor. "
+            "Matches PLP's ScaleAng (default: %(default)s)"
+        ),
     )
     parser.add_argument(
         "--scale-alpha",
@@ -889,7 +903,8 @@ _SECTION_DEFAULTS: dict[str, str] = {
     "input_format": "parquet",
     "solver_type": "sddp",
     "demand_fail_cost": "1000.0",
-    "scale_objective": "1000.0",
+    "scale_objective": "10000000.0",
+    "scale_theta": "10000.0",
     "scale_alpha": "10000000.0",
     "discount_rate": "0.0",
     "rsv_scale_mode": "auto",
@@ -970,6 +985,7 @@ def build_options(args: argparse.Namespace) -> dict:
         "sys_version": args.sys_version,
         "demand_fail_cost": args.demand_fail_cost,
         "scale_objective": args.scale_objective,
+        "scale_theta": args.scale_theta,
         "scale_alpha": args.scale_alpha,
         "use_single_bus": args.use_single_bus,
         "use_kirchhoff": args.use_kirchhoff,
