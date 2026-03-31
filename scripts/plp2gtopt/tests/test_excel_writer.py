@@ -129,7 +129,8 @@ def _minimal_planning() -> dict:
             "use_kirchhoff": False,
             "use_single_bus": False,
             "demand_fail_cost": 1000,
-            "scale_objective": 1000,
+            "scale_objective": 10_000_000,
+            "scale_theta": 0.0001,
         },
         "simulation": {
             "block_array": [{"uid": 1, "name": "b1", "duration": 1.0}],

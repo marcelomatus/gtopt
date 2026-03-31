@@ -54,17 +54,22 @@ def test_to_json_array(sample_line_writer):  # pylint: disable=redefined-outer-n
         "bus_a": int,
         "bus_b": int,
         "resistance": float,
-        "reactance": float,
         "tmax_ab": float,
         "tmax_ba": float,
         "voltage": float,
         "active": int,
     }
 
+    # reactance is optional (omitted for DC/HVDC lines)
+    optional_numeric = {"reactance": float}
+
     for line in json_lines:
         for field, field_type in required_fields.items():
             assert field in line
             assert isinstance(line[field], field_type)
+        for field, field_type in optional_numeric.items():
+            if field in line:
+                assert isinstance(line[field], field_type)
 
 
 def test_write_to_file(sample_line_writer):  # pylint: disable=redefined-outer-name
@@ -94,7 +99,6 @@ def test_json_output_structure(
         "bus_a": int,
         "bus_b": int,
         "resistance": float,
-        "reactance": float,
         "tmax_ab": float,
         "tmax_ba": float,
         "voltage": float,
@@ -102,6 +106,7 @@ def test_json_output_structure(
     }
 
     optional_fields = {
+        "reactance": float,
         "loss_segments": int,
         "use_line_losses": bool,
     }
@@ -122,9 +127,64 @@ def test_json_output_structure(
 
         # Additional value checks
         assert line["resistance"] >= 0, "Resistance should be non-negative"
-        assert line["reactance"] >= 0, "Reactance should be non-negative"
+        if "reactance" in line:
+            assert line["reactance"] > 0, "Reactance should be positive (DC lines omit it)"
         assert line["tmax_ab"] >= 0, "Flow limit AB should be non-negative"
         assert line["tmax_ba"] >= 0, "Flow limit BA should be non-negative"
+
+
+def test_dc_line_omits_reactance(tmp_path):
+    """DC lines (reactance=0 or hvdc=True) omit reactance from JSON."""
+    # Build a mock parser with AC and DC lines
+    class MockLineParser:  # pylint: disable=too-few-public-methods
+        loss_allocation_mode = "split"
+
+        def get_all(self):
+            return self._data
+
+        _data = [
+            {
+                "number": 1, "name": "ac_line", "operational": 1,
+                "bus_a": 1, "bus_b": 2, "voltage": 220.0,
+                "r": 1.0, "x": 10.0, "tmax_ab": 100.0, "tmax_ba": 100.0,
+                "mod_perdidas": False, "num_sections": 1,
+            },
+            {
+                "number": 2, "name": "dc_zero_x", "operational": 1,
+                "bus_a": 1, "bus_b": 3, "voltage": 500.0,
+                "r": 0.5, "x": 0.0, "tmax_ab": 500.0, "tmax_ba": 500.0,
+                "mod_perdidas": False, "num_sections": 1,
+            },
+            {
+                "number": 3, "name": "dc_hvdc", "operational": 1,
+                "bus_a": 2, "bus_b": 3, "voltage": 500.0,
+                "r": 0.3, "x": 5.0, "tmax_ab": 600.0, "tmax_ba": 600.0,
+                "mod_perdidas": False, "num_sections": 1, "hvdc": True,
+            },
+        ]
+
+    mock_parser: typing.Any = MockLineParser()
+    options: dict = {"output_dir": tmp_path}
+    writer = LineWriter(mock_parser, options=options)
+    json_lines = writer.to_json_array()
+
+    assert len(json_lines) == 3
+
+    # AC line: reactance present
+    ac = json_lines[0]
+    assert ac["name"] == "ac_line"
+    assert "reactance" in ac
+    assert ac["reactance"] == 10.0
+
+    # DC line (x=0): reactance omitted
+    dc_zero = json_lines[1]
+    assert dc_zero["name"] == "dc_zero_x"
+    assert "reactance" not in dc_zero
+
+    # HVDC line (explicit flag): reactance omitted even though x>0
+    dc_hvdc = json_lines[2]
+    assert dc_hvdc["name"] == "dc_hvdc"
+    assert "reactance" not in dc_hvdc
 
 
 def test_loss_segments_in_json(sample_line_writer):

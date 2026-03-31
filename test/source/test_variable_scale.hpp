@@ -222,13 +222,14 @@ TEST_CASE("Integration: LP column scale drives output rescaling")  // NOLINT
 {
   LinearProblem lp("lifecycle_test");
 
-  // Simulate bus theta: LP = physical × 1000, scale = 1/1000
-  constexpr double scale_theta = 1000.0;
+  // Simulate bus theta: LP = physical / scale_theta, scale = scale_theta
+  // Unified convention: physical = LP × scale_theta (same as energy_scale)
+  constexpr double scale_theta = 0.001;  // 1/1000
   const auto theta = lp.add_col(SparseCol {
       .name = "theta_b1",
-      .lowb = -3.14 * scale_theta,
-      .uppb = +3.14 * scale_theta,
-      .scale = 1.0 / scale_theta,
+      .lowb = -3.14 / scale_theta,
+      .uppb = +3.14 / scale_theta,
+      .scale = scale_theta,
   });
 
   // Simulate reservoir energy: LP = physical / 100000, scale = 100000
@@ -251,15 +252,15 @@ TEST_CASE("Integration: LP column scale drives output rescaling")  // NOLINT
   const auto vol_cost = col_scale_cost(vs);
 
   // Simulate LP solution values (internal LP units)
-  const double theta_lp = 1570.0;  // ~pi/2 × 1000
+  const double theta_lp = 1570.0;  // ~pi/2 / 0.001
   const double vol_lp = 0.01;  // 1000 dam³ / 100000
 
-  // Physical values
-  CHECK(theta_sol(theta_lp) == doctest::Approx(1.57));
-  CHECK(vol_sol(vol_lp) == doctest::Approx(1000.0));
+  // Physical values: physical = LP × scale
+  CHECK(theta_sol(theta_lp) == doctest::Approx(1.57));  // 1570 × 0.001
+  CHECK(vol_sol(vol_lp) == doctest::Approx(1000.0));  // 0.01 × 100000
 
-  // Reduced costs: if rc_LP = 1, what is rc_physical?
-  CHECK(theta_cost(1.0) == doctest::Approx(1000.0));
+  // Reduced costs: rc_physical = rc_LP / scale
+  CHECK(theta_cost(1.0) == doctest::Approx(1000.0));  // 1 / 0.001
   CHECK(vol_cost(1.0) == doctest::Approx(1.0 / 100000.0));
 
   // Invariance: obj_contribution = rc_LP × x_LP = rc_phys × x_phys

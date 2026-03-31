@@ -6,10 +6,7 @@
  * @copyright BSD-3-Clause
  */
 
-#include <algorithm>
-#include <cstdio>
 #include <format>
-#include <mutex>
 #include <stdexcept>
 #include <thread>
 
@@ -17,9 +14,7 @@
 
 #include <HConfig.h>
 #include <Highs.h>
-#include <fcntl.h>
 #include <gtopt/solver_options.hpp>
-#include <unistd.h>
 
 namespace gtopt
 {
@@ -27,32 +22,14 @@ namespace gtopt
 namespace
 {
 
-/// Create a Highs instance with stdout suppressed to avoid the banner
-/// message ("Running HiGHS ...") that Highs prints in its constructor.
-/// A mutex serializes the fd redirect so concurrent threads don't race.
+/// Create a Highs instance with all output suppressed.
+/// The constructor itself does not print, but passModel() and run()
+/// call logHeader() which prints the banner when output_flag is true.
+/// We disable output immediately so that any subsequent passModel()
+/// or run() call will not produce a banner.
 auto make_quiet_highs() -> std::unique_ptr<Highs>
 {
-  static std::mutex stdout_mtx;
-  const std::lock_guard lock(stdout_mtx);
-
-  // Save stdout, redirect to /dev/null, construct, then restore
-  std::fflush(stdout);
-  const int saved_fd = ::dup(STDOUT_FILENO);
-  const int null_fd = ::open("/dev/null", O_WRONLY);  // NOLINT
-  if (null_fd >= 0) {
-    ::dup2(null_fd, STDOUT_FILENO);
-    ::close(null_fd);
-  }
-
   auto highs = std::make_unique<Highs>();
-
-  // Restore stdout
-  if (saved_fd >= 0) {
-    std::fflush(stdout);
-    ::dup2(saved_fd, STDOUT_FILENO);
-    ::close(saved_fd);
-  }
-
   highs->setOptionValue("output_flag", false);
   highs->setOptionValue("log_to_console", false);
   return highs;
@@ -107,6 +84,10 @@ void HighsSolverBackend::load_problem(int ncols,
                                       const double* rowub)
 {
   m_highs_->clear();
+  // clear() resets output_flag to true (HiGHS default).  Suppress
+  // output again before passModel() which prints the startup banner.
+  m_highs_->setOptionValue("output_flag", false);
+  m_highs_->setOptionValue("log_to_console", false);
   m_solution_valid_ = false;
 
   if (ncols == 0 && nrows == 0) {
@@ -577,6 +558,11 @@ std::unique_ptr<SolverBackend> HighsSolverBackend::clone() const
 {
   auto cloned = std::make_unique<HighsSolverBackend>();
   cloned->m_prob_name_ = m_prob_name_;
+
+  // Suppress banner before passModel() (constructor's settings were
+  // already applied by make_quiet_highs, but be explicit).
+  cloned->m_highs_->setOptionValue("output_flag", false);
+  cloned->m_highs_->setOptionValue("log_to_console", false);
 
   // Re-create the model in the clone
   const auto& lp = m_highs_->getLp();

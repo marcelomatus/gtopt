@@ -181,6 +181,9 @@ disable = [
     # tol_lmp is part of a uniform comparison-function API; some implementations
     # don't need it (e.g. 1-bus or battery cases without bus LMPs)
     "unused-argument",
+    # plp2gtopt __init__ re-exports trigger false-positive cycle detection
+    # when pylint scans all packages together
+    "cyclic-import",
 ]
 
 [tool.mypy]

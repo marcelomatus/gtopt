@@ -96,10 +96,12 @@ TEST_CASE("Linear problem matrix operations")
     CHECK(flat_full.nrows == 3);
     CHECK(flat_full.matval.size() == 5);
 
-    auto flat_minimal = lp.lp_build({.col_with_names = false,
-                                     .row_with_names = false,
-                                     .col_with_name_map = false,
-                                     .row_with_name_map = false});
+    auto flat_minimal = lp.lp_build({
+        .col_with_names = false,
+        .row_with_names = false,
+        .col_with_name_map = false,
+        .row_with_name_map = false,
+    });
 
     CHECK(flat_minimal.colnm.empty());
     CHECK(flat_minimal.rownm.empty());
@@ -432,9 +434,11 @@ TEST_CASE("Linear problem lp_build column and row names")
 
   SUBCASE("row_with_names only (no maps)")
   {
-    const auto flat = lp.lp_build({.col_with_names = false,
-                                   .row_with_names = true,
-                                   .col_with_name_map = false});
+    const auto flat = lp.lp_build({
+        .col_with_names = false,
+        .row_with_names = true,
+        .col_with_name_map = false,
+    });
 
     CHECK(flat.colnm.empty());
 
@@ -488,9 +492,11 @@ TEST_CASE("Linear problem lp_build column and row names")
 
   SUBCASE("row_with_name_map implies rownm populated")
   {
-    const auto flat = lp.lp_build({.col_with_names = false,
-                                   .col_with_name_map = false,
-                                   .row_with_name_map = true});
+    const auto flat = lp.lp_build({
+        .col_with_names = false,
+        .col_with_name_map = false,
+        .row_with_name_map = true,
+    });
 
     CHECK(flat.colnm.empty());
     CHECK(flat.colmp.empty());

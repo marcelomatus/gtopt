@@ -137,7 +137,7 @@ void SDDPMethod::update_max_kappa(SceneIndex scene,
     return;
   }
 
-  constexpr double default_kappa_threshold = 1e9;
+  constexpr double default_kappa_threshold = 1e10;
   const double threshold =
       sim.kappa_threshold.value_or(default_kappa_threshold);
   if (kappa <= threshold) {

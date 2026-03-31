@@ -23,9 +23,12 @@ namespace gtopt
  *
  * - `manual` (0): Use the explicit `energy_scale` field (default 1.0 if
  *   unset).  This is the legacy behaviour.
- * - `auto_scale` (1, default): Compute `energy_scale = max(1.0, emax/1000)`
- *   so that LP variables stay in the O(1000) range regardless of physical
- *   reservoir size.  Mirrors PLP's `ScaleVol(i) = max(1, Vmax/1000)`.
+ * - `auto_scale` (1, default): Compute energy_scale by rounding emax/1000
+ *   up to the next power of 10, so LP variables stay in a well-conditioned
+ *   range regardless of physical reservoir size.
+ *   Formula: `energy_scale = 10^ceil(log10(emax / 1000))` when emax > 1000,
+ *   else 1.0.  Matches PLP practice where ScaleVol values (Escala/1e6,
+ *   10^(FEscala-6)) are powers of 10.
  *   An explicit `energy_scale` field on the element overrides auto.
  */
 enum class EnergyScaleMode : uint8_t
