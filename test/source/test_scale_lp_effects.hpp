@@ -206,8 +206,8 @@ TEST_CASE(  // NOLINT
   CHECK(obj_noscale == doctest::Approx(obj_scaled).epsilon(1e-3));
 
   // Kappa values should be non-negative and finite.
-  // CLP's largestDualError() may return values near zero for clean solves,
-  // so we cannot assert kappa >= 1.0 — only non-negativity.
+  // The kappa proxy varies by solver backend and may return values near
+  // zero for well-conditioned solves, so we only assert non-negativity.
   CHECK(kappa_noscale >= 0.0);
   CHECK(kappa_scaled >= 0.0);
   CHECK(std::isfinite(kappa_noscale));
