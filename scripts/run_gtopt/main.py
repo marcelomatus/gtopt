@@ -232,6 +232,12 @@ def main(argv: list[str] | None = None) -> None:
         format="%(asctime)s %(levelname)s %(message)s",
     )
 
+    # When running interactively the Rich TUI takes over the terminal;
+    # suppress pre-TUI INFO chatter so the dashboard appears cleanly.
+    if sys.stdout.isatty() and args.log_level == "INFO":
+        for handler in logging.root.handlers:
+            handler.setLevel(logging.WARNING)
+
     # ── List checks ──
     if args.list_checks:
         checks = available_checks()
