@@ -72,7 +72,7 @@ auto SDDPMethod::make_aperture_submit_fn(PhaseIndex phase,
   auto* pool = m_pool_;
   // TaskPriority::Medium is the scheduling tier (controls CPU threshold);
   // the SDDPTaskKey tuple provides the secondary sort within that tier.
-  BasicTaskRequirements<SDDPTaskKey> req {
+  const BasicTaskRequirements<SDDPTaskKey> req {
       .priority = TaskPriority::Medium,
       .priority_key = make_sddp_task_key(
           iteration, SDDPPassDirection::backward, phase, SDDPTaskKind::lp),

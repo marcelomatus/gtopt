@@ -56,7 +56,7 @@ public:
    * @param plog_file Path to log file for solver output
    */
   explicit LinearInterface(std::unique_ptr<SolverBackend> backend,
-                           const std::string& plog_file = {});
+                           std::string plog_file = {});
 
   /**
    * @brief Constructs interface, loads a problem, with solver by name

@@ -87,6 +87,8 @@ public:
 
   SolverRegistry(const SolverRegistry&) = delete;
   SolverRegistry& operator=(const SolverRegistry&) = delete;
+  SolverRegistry(SolverRegistry&&) = delete;
+  SolverRegistry& operator=(SolverRegistry&&) = delete;
 
 private:
   SolverRegistry();
