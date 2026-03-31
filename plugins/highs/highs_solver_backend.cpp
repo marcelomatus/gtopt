@@ -6,10 +6,7 @@
  * @copyright BSD-3-Clause
  */
 
-#include <atomic>
-#include <cstdio>
 #include <format>
-#include <mutex>
 #include <stdexcept>
 #include <thread>
 
@@ -17,9 +14,7 @@
 
 #include <HConfig.h>
 #include <Highs.h>
-#include <fcntl.h>
 #include <gtopt/solver_options.hpp>
-#include <unistd.h>
 
 namespace gtopt
 {
@@ -27,41 +22,14 @@ namespace gtopt
 namespace
 {
 
-/// Create a Highs instance with stdout suppressed to avoid the banner
-/// message ("Running HiGHS ...") that Highs prints in its constructor.
-/// A mutex serializes the fd redirect so concurrent threads don't race.
+/// Create a Highs instance with all output suppressed.
+/// The constructor itself does not print, but passModel() and run()
+/// call logHeader() which prints the banner when output_flag is true.
+/// We disable output immediately so that any subsequent passModel()
+/// or run() call will not produce a banner.
 auto make_quiet_highs() -> std::unique_ptr<Highs>
 {
-  static std::mutex stdout_mtx;
-  const std::lock_guard lock(stdout_mtx);
-
-  // Save stdout and stderr, redirect both to /dev/null, construct,
-  // then restore.  HiGHS may print its banner to either stream.
-  std::fflush(stdout);
-  std::fflush(stderr);
-  const int saved_out = ::dup(STDOUT_FILENO);
-  const int saved_err = ::dup(STDERR_FILENO);
-  const int null_fd = ::open("/dev/null", O_WRONLY);  // NOLINT
-  if (null_fd >= 0) {
-    ::dup2(null_fd, STDOUT_FILENO);
-    ::dup2(null_fd, STDERR_FILENO);
-    ::close(null_fd);
-  }
-
   auto highs = std::make_unique<Highs>();
-
-  // Restore stdout and stderr
-  if (saved_out >= 0) {
-    std::fflush(stdout);
-    ::dup2(saved_out, STDOUT_FILENO);
-    ::close(saved_out);
-  }
-  if (saved_err >= 0) {
-    std::fflush(stderr);
-    ::dup2(saved_err, STDERR_FILENO);
-    ::close(saved_err);
-  }
-
   highs->setOptionValue("output_flag", false);
   highs->setOptionValue("log_to_console", false);
   return highs;
@@ -116,6 +84,10 @@ void HighsSolverBackend::load_problem(int ncols,
                                       const double* rowub)
 {
   m_highs_->clear();
+  // clear() resets output_flag to true (HiGHS default).  Suppress
+  // output again before passModel() which prints the startup banner.
+  m_highs_->setOptionValue("output_flag", false);
+  m_highs_->setOptionValue("log_to_console", false);
   m_solution_valid_ = false;
 
   if (ncols == 0 && nrows == 0) {
@@ -376,36 +348,6 @@ void HighsSolverBackend::set_row_price(const double* price)
 void HighsSolverBackend::initial_solve()
 {
   m_solution_valid_ = false;
-  // Suppress the HiGHS startup banner that leaks to stdout on the
-  // first run() call per Highs instance despite output_flag=false.
-  // Redirect stdout to /dev/null around the first run(), serialized.
-  if (!m_first_run_done_) {
-    m_first_run_done_ = true;
-    static std::mutex banner_mtx;
-    const std::lock_guard lock(banner_mtx);
-
-    std::fflush(stdout);
-    const int saved = ::dup(STDOUT_FILENO);
-    const int null_fd = ::open("/dev/null", O_WRONLY);  // NOLINT
-    if (null_fd >= 0) {
-      ::dup2(null_fd, STDOUT_FILENO);
-      ::close(null_fd);
-    }
-
-    const auto status = m_highs_->run();
-
-    if (saved >= 0) {
-      std::fflush(stdout);
-      ::dup2(saved, STDOUT_FILENO);
-      ::close(saved);
-    }
-
-    if (status == HighsStatus::kError) {
-      throw std::runtime_error("HiGHS: solver error during initial_solve");
-    }
-    return;
-  }
-
   const auto status = m_highs_->run();
   if (status == HighsStatus::kError) {
     throw std::runtime_error("HiGHS: solver error during initial_solve");
@@ -616,6 +558,11 @@ std::unique_ptr<SolverBackend> HighsSolverBackend::clone() const
 {
   auto cloned = std::make_unique<HighsSolverBackend>();
   cloned->m_prob_name_ = m_prob_name_;
+
+  // Suppress banner before passModel() (constructor's settings were
+  // already applied by make_quiet_highs, but be explicit).
+  cloned->m_highs_->setOptionValue("output_flag", false);
+  cloned->m_highs_->setOptionValue("log_to_console", false);
 
   // Re-create the model in the clone
   const auto& lp = m_highs_->getLp();
