@@ -30,7 +30,7 @@ DisjointSetUnion::DisjointSetUnion(std::size_t n)
     : parent_(n)
     , rank_(n, 0)
 {
-  std::iota(parent_.begin(), parent_.end(), std::size_t {0});
+  std::ranges::iota(parent_, std::size_t {0});
 }
 
 auto DisjointSetUnion::find(std::size_t x) -> std::size_t
