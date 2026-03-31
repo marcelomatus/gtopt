@@ -1327,6 +1327,7 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "cut_coeff_mode",
         "cut_coeff_eps",
         "cut_coeff_max",
+
         "scale_alpha",
         "update_lp_skip",
         "forward_solver_options",
