@@ -128,13 +128,16 @@ def test_json_output_structure(
         # Additional value checks
         assert line["resistance"] >= 0, "Resistance should be non-negative"
         if "reactance" in line:
-            assert line["reactance"] > 0, "Reactance should be positive (DC lines omit it)"
+            assert line["reactance"] > 0, (
+                "Reactance should be positive (DC lines omit it)"
+            )
         assert line["tmax_ab"] >= 0, "Flow limit AB should be non-negative"
         assert line["tmax_ba"] >= 0, "Flow limit BA should be non-negative"
 
 
 def test_dc_line_omits_reactance(tmp_path):
     """DC lines (reactance=0 or hvdc=True) omit reactance from JSON."""
+
     # Build a mock parser with AC and DC lines
     class MockLineParser:  # pylint: disable=too-few-public-methods
         loss_allocation_mode = "split"
@@ -144,22 +147,47 @@ def test_dc_line_omits_reactance(tmp_path):
 
         _data = [
             {
-                "number": 1, "name": "ac_line", "operational": 1,
-                "bus_a": 1, "bus_b": 2, "voltage": 220.0,
-                "r": 1.0, "x": 10.0, "tmax_ab": 100.0, "tmax_ba": 100.0,
-                "mod_perdidas": False, "num_sections": 1,
+                "number": 1,
+                "name": "ac_line",
+                "operational": 1,
+                "bus_a": 1,
+                "bus_b": 2,
+                "voltage": 220.0,
+                "r": 1.0,
+                "x": 10.0,
+                "tmax_ab": 100.0,
+                "tmax_ba": 100.0,
+                "mod_perdidas": False,
+                "num_sections": 1,
             },
             {
-                "number": 2, "name": "dc_zero_x", "operational": 1,
-                "bus_a": 1, "bus_b": 3, "voltage": 500.0,
-                "r": 0.5, "x": 0.0, "tmax_ab": 500.0, "tmax_ba": 500.0,
-                "mod_perdidas": False, "num_sections": 1,
+                "number": 2,
+                "name": "dc_zero_x",
+                "operational": 1,
+                "bus_a": 1,
+                "bus_b": 3,
+                "voltage": 500.0,
+                "r": 0.5,
+                "x": 0.0,
+                "tmax_ab": 500.0,
+                "tmax_ba": 500.0,
+                "mod_perdidas": False,
+                "num_sections": 1,
             },
             {
-                "number": 3, "name": "dc_hvdc", "operational": 1,
-                "bus_a": 2, "bus_b": 3, "voltage": 500.0,
-                "r": 0.3, "x": 5.0, "tmax_ab": 600.0, "tmax_ba": 600.0,
-                "mod_perdidas": False, "num_sections": 1, "hvdc": True,
+                "number": 3,
+                "name": "dc_hvdc",
+                "operational": 1,
+                "bus_a": 2,
+                "bus_b": 3,
+                "voltage": 500.0,
+                "r": 0.3,
+                "x": 5.0,
+                "tmax_ab": 600.0,
+                "tmax_ba": 600.0,
+                "mod_perdidas": False,
+                "num_sections": 1,
+                "hvdc": True,
             },
         ]
 
