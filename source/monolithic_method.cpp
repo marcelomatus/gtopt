@@ -164,7 +164,7 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
       const auto kappa_mode =
           sim.kappa_warning.value_or(KappaWarningMode::warn);
       if (kappa_mode != KappaWarningMode::none) {
-        constexpr double default_kappa_threshold = 1e9;
+        constexpr double default_kappa_threshold = 1e10;
         const double threshold =
             sim.kappa_threshold.value_or(default_kappa_threshold);
         double max_kappa = 1.0;
