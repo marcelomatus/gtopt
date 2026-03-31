@@ -244,12 +244,17 @@ auto LinearProblem::lp_build(const LpBuildOptions& opts) -> FlatLinearProblem
       matval[k] /= row_scales_vec[r];
     }
 
-    // 4. Scale row bounds (RHS).
+    // 4. Scale row bounds (RHS), preserving infinite bounds.
+    const double inf = m_infinity_;
     for (size_t r = 0; r < static_cast<size_t>(nrows); ++r) {
       const double s = row_scales_vec[r];
       if (s != 1.0) {
-        rowlb[r] /= s;
-        rowub[r] /= s;
+        if (rowlb[r] > -inf) {
+          rowlb[r] /= s;
+        }
+        if (rowub[r] < inf) {
+          rowub[r] /= s;
+        }
       }
     }
 
