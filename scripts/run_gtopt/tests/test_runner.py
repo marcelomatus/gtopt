@@ -65,7 +65,7 @@ def test_report_solution_optimal(tmp_path: Path, capsys):
 
 
 def test_run_gtopt_builds_command(tmp_path: Path):
-    """run_gtopt passes threads and compression to subprocess."""
+    """run_gtopt builds a minimal command (threads/compression are in JSON)."""
     with patch("run_gtopt._runner.subprocess.run") as mock_run, patch(
         "run_gtopt._runner._setup_log_file", return_value=None
     ):
@@ -73,10 +73,12 @@ def test_run_gtopt_builds_command(tmp_path: Path):
         rc = run_gtopt("/usr/bin/gtopt", tmp_path, threads=4, compression="zstd")
         assert rc == 0
         cmd = mock_run.call_args[0][0]
-        assert "--lp-threads" in cmd
-        assert "4" in cmd
-        assert "--output-compression" in cmd
-        assert "zstd" in cmd
+        assert cmd[0] == "/usr/bin/gtopt"
+        assert str(tmp_path) in cmd
+        # threads and compression are baked into the sanitized JSON,
+        # not passed as CLI flags
+        assert "--lp-threads" not in cmd
+        assert "--output-compression" not in cmd
 
 
 def test_run_plp2gtopt_builds_command(tmp_path: Path):
