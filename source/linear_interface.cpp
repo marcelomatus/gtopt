@@ -52,9 +52,9 @@ inline bool check_name_unique(LinearInterface::name_index_map_t& name_map,
 // ── Constructors ──
 
 LinearInterface::LinearInterface(std::unique_ptr<SolverBackend> backend,
-                                 const std::string& plog_file)
+                                 std::string plog_file)
     : m_backend_(std::move(backend))
-    , m_log_file_(plog_file)
+    , m_log_file_(std::move(plog_file))
 {
 }
 
