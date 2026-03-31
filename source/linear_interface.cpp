@@ -577,6 +577,13 @@ std::expected<int, Error> LinearInterface::initial_solve(
 
         fallback_opts.algorithm = next_algo;
         fallback_opts.presolve = false;
+        // Reset aggressive scaling on fallback — aggressive scaling can
+        // cause numerical difficulties (high kappa) that prevent the
+        // primary algorithm from converging; the fallback algorithm may
+        // succeed with the solver's default scaling strategy.
+        if (fallback_opts.scaling == SolverScaling::aggressive) {
+          fallback_opts.scaling = SolverScaling::automatic;
+        }
         m_backend_->apply_options(fallback_opts);
 
         if (log_mode != SolverLogMode::nolog && !m_log_file_.empty()) {
@@ -655,6 +662,13 @@ std::expected<int, Error> LinearInterface::resolve(
 
         fallback_opts.algorithm = next_algo;
         fallback_opts.presolve = false;
+        // Reset aggressive scaling on fallback — aggressive scaling can
+        // cause numerical difficulties (high kappa) that prevent the
+        // primary algorithm from converging; the fallback algorithm may
+        // succeed with the solver's default scaling strategy.
+        if (fallback_opts.scaling == SolverScaling::aggressive) {
+          fallback_opts.scaling = SolverScaling::automatic;
+        }
         m_backend_->apply_options(fallback_opts);
 
         if (log_mode != SolverLogMode::nolog && !m_log_file_.empty()) {
