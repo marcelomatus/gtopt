@@ -250,10 +250,17 @@ import sys, csv, math
 actual_path, expected_path, tol_str = sys.argv[1], sys.argv[2], sys.argv[3]
 tol = float(tol_str)
 errors = []
+# Columns that are solver-internal metadata and should be skipped
+skip_columns = frozenset({"kappa", "max_kappa"})
+skip_indices = set()
 
 with open(actual_path) as af, open(expected_path) as ef:
     for i, (al, el) in enumerate(zip(af, ef), 1):
         al, el = al.strip(), el.strip()
+        if i == 1:
+            # Parse header to find columns to skip
+            headers = [f.strip() for f in al.split(',')]
+            skip_indices = {j for j, h in enumerate(headers) if h in skip_columns}
         if al == el:
             continue
         # Split by comma and compare fields
@@ -263,6 +270,8 @@ with open(actual_path) as af, open(expected_path) as ef:
             errors.append(f"line {i}: field count mismatch")
             continue
         for j, (av, ev) in enumerate(zip(a_fields, e_fields)):
+            if j in skip_indices:
+                continue
             if av == ev:
                 continue
             try:

@@ -29,7 +29,7 @@ import sys
 _NUMERIC_RE = re.compile(r"^-?[0-9]+(\.[0-9]+(e[+-]?[0-9]+)?)?$", re.IGNORECASE)
 
 # Columns that are solver-internal metadata and should be skipped.
-_SKIP_COLUMNS = frozenset({"kappa"})
+_SKIP_COLUMNS = frozenset({"kappa", "max_kappa"})
 
 
 def _is_numeric(value: str) -> bool:
