@@ -627,6 +627,7 @@ def _log_comparison(
     gtopt_counts: dict[str, Any],
     plp_ind: dict[str, float] | None = None,
     gtopt_ind: dict[str, float] | None = None,
+    gtopt_options: dict[str, Any] | None = None,
 ) -> None:
     """Print a formatted side-by-side PLP vs gtopt element comparison.
 
@@ -887,6 +888,46 @@ def _log_comparison(
     if p_hydrologies != g_scenarios and g_scenarios > 0:
         hydro_note = "PLP=active from plpidsim; gtopt=selected via -y"
     _row("hydrologies / scenarios", p_hydrologies, g_scenarios, note=hydro_note)
+
+    # -- Scaling Options --
+    if gtopt_options:
+        table.add_row("", "", "", "", "")
+        _row("Scaling Options", section=True)
+        sddp_opts = gtopt_options.get("sddp_options", {})
+
+        def _scale_row(label: str, plp_default: str, gtopt_val: Any, note: str = "") -> None:
+            g_str = f"{gtopt_val:g}" if isinstance(gtopt_val, (int, float)) else str(gtopt_val)
+            table.add_row(label, plp_default, g_str, "", note)
+
+        _scale_row(
+            "scale_objective",
+            "1e7",
+            gtopt_options.get("scale_objective", ""),
+            note="PLP ScaleObj",
+        )
+        _scale_row(
+            "scale_theta",
+            "1e4",
+            gtopt_options.get("scale_theta", ""),
+            note="PLP ScaleAng",
+        )
+        _scale_row(
+            "scale_alpha",
+            "1e7",
+            sddp_opts.get("scale_alpha", ""),
+            note="PLP varphi scale",
+        )
+        _scale_row(
+            "demand_fail_cost",
+            "1000",
+            gtopt_options.get("demand_fail_cost", ""),
+            note="$/MWh unserved",
+        )
+        _scale_row(
+            "annual_discount_rate",
+            "0",
+            gtopt_options.get("annual_discount_rate", ""),
+        )
 
     con.print(table)
 
