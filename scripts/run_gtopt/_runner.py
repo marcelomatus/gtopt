@@ -100,12 +100,12 @@ def _build_gtopt_cmd(
     compression: str | None = None,
     extra_args: list[str] | None = None,
 ) -> list[str]:
-    """Build the gtopt command line."""
+    """Build the gtopt command line.
+
+    Threads and compression are already baked into the sanitized JSON
+    by :func:`sanitize_json`, so they are not passed as CLI flags here.
+    """
     cmd = [gtopt_bin, str(case_dir)]
-    if threads is not None and threads > 0:
-        cmd.extend(["--lp-threads", str(threads)])
-    if compression:
-        cmd.extend(["--output-compression", compression])
     if extra_args:
         cmd.extend(extra_args)
     return cmd

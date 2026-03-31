@@ -42,6 +42,7 @@ from gtopt_check_json._checks import (
 from gtopt_check_json._config import (
     CHECK_DEFAULTS,
     _AI_DEFAULT_PROVIDER,
+    _AI_PROVIDERS,
     default_config_path,
     is_check_enabled,
     load_config,
@@ -130,6 +131,7 @@ def check_json(
     json_paths: list[str],
     info_only: bool = False,
     config_path: Path | None = None,
+    ai_options: AiOptions | None = None,
 ) -> int:
     """Core validation function.
 
@@ -140,7 +142,10 @@ def check_json(
     info_only
         If True, print statistics and exit.
     config_path
-        Path to config file.  Defaults to ``~/.gtopt_check_json.conf``.
+        Path to config file.  Defaults to ``~/.gtopt.conf``.
+    ai_options
+        Pre-built AI options (CLI overrides already merged).
+        When *None*, AI settings are read from the config file.
 
     Returns
     -------
@@ -163,18 +168,20 @@ def check_json(
         if is_check_enabled(cfg, check_id):
             enabled.add(check_id)
 
-    # AI options
-    ai_options = None
-    if (
-        cfg.get("ai_enabled", "false").lower() in ("true", "1", "yes")
-        and "ai_system_analysis" in enabled
-    ):
-        ai_options = AiOptions(
-            provider=cfg.get("ai_provider", _AI_DEFAULT_PROVIDER),
-            model=cfg.get("ai_model", ""),
-            key="",
-            timeout=60,
-        )
+    # AI options — use caller-provided options, or fall back to config
+    if ai_options is None:
+        if (
+            cfg.get("ai_enabled", "false").lower() in ("true", "1", "yes")
+            and "ai_system_analysis" in enabled
+        ):
+            ai_options = AiOptions(
+                provider=cfg.get("ai_provider", _AI_DEFAULT_PROVIDER),
+                model=cfg.get("ai_model", ""),
+                key="",
+                timeout=60,
+            )
+    elif not ai_options.enabled:
+        ai_options = None
 
     # Run checks
     print_section("gtopt_check_json")
@@ -297,6 +304,61 @@ def _parse_args(
         metavar="LEVEL",
         help="Logging verbosity (default: %(default)s).",
     )
+    # ── AI diagnostics ──────────────────────────────────────────────────────
+    ai_group = parser.add_argument_group(
+        "AI diagnostics",
+        "Send the analysis report to an AI provider for an expert diagnosis.\n"
+        "Supported providers: " + ", ".join(_AI_PROVIDERS) + ".\n"
+        "Requires the corresponding API key in the environment.",
+    )
+    ai_group.add_argument(
+        "--ai",
+        dest="ai_enabled",
+        action="store_true",
+        default=None,
+        help="Enable AI diagnostics (default: read from config).",
+    )
+    ai_group.add_argument(
+        "--no-ai",
+        dest="ai_enabled",
+        action="store_false",
+        help="Disable AI diagnostics.",
+    )
+    ai_group.add_argument(
+        "--ai-provider",
+        default=None,
+        choices=list(_AI_PROVIDERS),
+        metavar="PROVIDER",
+        help=(
+            f"AI provider to use: {', '.join(_AI_PROVIDERS)}  "
+            f"(default: {_AI_DEFAULT_PROVIDER})."
+        ),
+    )
+    ai_group.add_argument(
+        "--ai-model",
+        default=None,
+        metavar="MODEL",
+        help="Model name override.  Defaults to the provider-specific default.",
+    )
+    ai_group.add_argument(
+        "--ai-prompt",
+        default=None,
+        metavar="PROMPT",
+        help=(
+            "Custom prompt template for the AI query.  Must contain a "
+            "'{report}' placeholder."
+        ),
+    )
+    ai_group.add_argument(
+        "--ai-key",
+        default=None,
+        metavar="KEY",
+        help=(
+            "API key override.  When omitted, the key is read from the "
+            "environment variable for the selected provider."
+        ),
+    )
+
     parser.add_argument(
         "-V",
         "--version",
@@ -353,10 +415,38 @@ def main(argv: list[str] | None = None) -> int:
             show_simulation_summary(planning)
         return 0
 
+    # ── Merge CLI AI overrides with config ────────────────────────────────
+    cfg = load_config(config_path)
+    cfg_ai_enabled = cfg.get("ai_enabled", "false").lower() in ("true", "1", "yes")
+    effective_ai_enabled = (
+        args.ai_enabled if args.ai_enabled is not None else cfg_ai_enabled
+    )
+    effective_ai_provider = (
+        args.ai_provider
+        if args.ai_provider is not None
+        else cfg.get("ai_provider", _AI_DEFAULT_PROVIDER)
+    )
+    effective_ai_model = (
+        args.ai_model if args.ai_model is not None else cfg.get("ai_model", "")
+    )
+    effective_ai_prompt = (
+        args.ai_prompt if args.ai_prompt is not None else cfg.get("ai_prompt", "")
+    )
+    effective_ai_key = args.ai_key if args.ai_key is not None else ""
+
+    ai_options = AiOptions(
+        enabled=effective_ai_enabled,
+        provider=effective_ai_provider,
+        model=effective_ai_model,
+        prompt=effective_ai_prompt,
+        key=effective_ai_key,
+    )
+
     return check_json(
         args.json_files,
         info_only=args.info,
         config_path=config_path,
+        ai_options=ai_options,
     )
 
 

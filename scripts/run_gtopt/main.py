@@ -244,13 +244,17 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     # ── Build enabled check set ──
+    # check_json is disabled by default (slow — invokes gtopt_check_json).
+    # Use --enable-check check_json to opt in.
+    _DEFAULT_DISABLED = {"check_json"}
+
     enabled_checks: set[str] | None = None
     if args.enable_check:
         enabled_checks = set(args.enable_check)
-    if args.disable_check:
+    else:
         all_names = set(available_checks()["pre"]) | set(available_checks()["post"])
-        if enabled_checks is None:
-            enabled_checks = set(all_names)
+        enabled_checks = all_names - _DEFAULT_DISABLED
+    if args.disable_check:
         for name in args.disable_check:
             enabled_checks.discard(name)
 
@@ -374,6 +378,16 @@ def main(argv: list[str] | None = None) -> None:
             cmd_parts.extend(gtopt_extra)
         print(f"[dry-run] {' '.join(cmd_parts)}")
         return
+
+    # ── Clean stale results before solving ──
+    # If a previous run left output files, the post-run report would
+    # pick them up and misleadingly show stale status/files.
+    results_dir = gtopt_dir / "results"
+    if results_dir.is_dir():
+        import shutil  # noqa: PLC0415
+
+        log.info("removing stale results directory: %s", results_dir)
+        shutil.rmtree(results_dir, ignore_errors=True)
 
     rc = run_gtopt(gtopt_bin, gtopt_target, threads, compression, gtopt_extra)
 
