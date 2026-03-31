@@ -14,6 +14,10 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from rich.text import Text
 
 logger = logging.getLogger(__name__)
 
@@ -71,12 +75,12 @@ class ConversionProgress:
     steps: list[tuple[str, str]] = field(default_factory=lambda: list(CONVERSION_STEPS))
     _states: dict[str, _StepState] = field(default_factory=dict, init=False)
     _order: list[str] = field(default_factory=list, init=False)
-    _live: object = field(default=None, init=False)
+    _live: Any = field(default=None, init=False)
     _is_terminal: bool = field(default=False, init=False)
     _t0: float = field(default=0.0, init=False)
     _frame: int = field(default=0, init=False)
     _current_key: str | None = field(default=None, init=False)
-    _console: object = field(default=None, init=False)
+    _console: Any = field(default=None, init=False)
 
     def __post_init__(self) -> None:
         for key, label in self.steps:
@@ -152,7 +156,7 @@ class ConversionProgress:
             self._frame += 1
             self._live.update(self._render())
 
-    def _render(self) -> object:
+    def _render(self) -> Text:
         """Build the Rich renderable for the live display."""
         from rich.text import Text  # noqa: PLC0415
 
@@ -188,7 +192,7 @@ class ConversionProgress:
         lines.append(f" Converting...  ({total:.1f}s)", style="dim")
         return lines
 
-    def _render_final(self) -> object:
+    def _render_final(self) -> Text:
         """Build the final static summary after completion."""
         from rich.text import Text  # noqa: PLC0415
 
