@@ -211,7 +211,10 @@ void LineLP::add_kirchhoff_rows(SystemContext& sc,
   static constexpr std::string_view cname = ClassName.short_name();
 
   const auto& stage_reactance = sc.stage_reactance(stage, reactance);
-  if (!stage_reactance) {
+  // Skip Kirchhoff for lines without reactance (DC/HVDC lines).
+  // A zero-reactance line would create a degenerate constraint
+  // (θ_a = θ_b) that doesn't model DC power flow correctly.
+  if (!stage_reactance || stage_reactance.value() == 0.0) {
     return;
   }
 
@@ -230,19 +233,22 @@ void LineLP::add_kirchhoff_rows(SystemContext& sc,
   // V defaults to 1.0 (per-unit mode).  When V is in kV, X must be in Ω
   // so that B = V²/X yields consistent susceptance units.
   const double V = voltage.at(stage.uid()).value_or(1);
-  const double x = scale_theta * (X / (V * V));
+  // Scaled susceptance: χ_l = X / (V² × scale_theta).
+  // Since scale_theta is small (e.g. 1e-4), dividing makes chi large,
+  // matching the scaled-up theta variables (theta_LP = theta_phys /
+  // scale_theta).
+  const double x = X / (V * V * scale_theta);
 
-  // Off-nominal tap ratio: scales effective susceptance by 1/τ.
-  // Kirchhoff becomes: -θ_a + θ_b + τ·x·fp − τ·x·fn = −scale_θ·φ
+  // Off-nominal tap ratio: scales effective susceptance by τ.
+  // Kirchhoff: -θ'_a + θ'_b + τ·χ·f_p − τ·χ·f_n = −φ/scale_theta
   const double tau = tap_ratio.at(stage.uid()).value_or(1.0);
   const double x_tau = tau * x;
 
   // Phase-shift angle in radians; shifts the equality constraint RHS.
   const double phi_deg = phase_shift_deg.at(stage.uid()).value_or(0.0);
   const double phi_rad = phi_deg * std::numbers::pi / 180.0;
-  // RHS of the Kirchhoff row: -scale_theta * phi_rad
-  // (positive phi reduces power flow from bus_a to bus_b)
-  const double kirchhoff_rhs = -(scale_theta * phi_rad);
+  // RHS = -phi_rad / scale_theta (positive phi reduces flow a→b)
+  const double kirchhoff_rhs = -(phi_rad / scale_theta);
 
   BIndexHolder<RowIndex> trows;
   map_reserve(trows, blocks.size());

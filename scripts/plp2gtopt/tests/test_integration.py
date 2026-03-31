@@ -1308,6 +1308,7 @@ def _make_opts_2y(tmp_path: Path, case_name: str = "gtopt_case_2y") -> dict:
         "discount_rate": 0.0,
         "management_factor": 0.0,
         "max_iterations": 2,
+        "use_kirchhoff": False,
     }
 
 
@@ -2161,6 +2162,7 @@ def _make_opts_hydro_4b(tmp_path: Path, case_name: str = "gtopt_hydro_4b") -> di
         "management_factor": 0.0,
         "pasada_mode": "flow-turbine",
         "pasada_hydro": True,
+        "use_kirchhoff": False,
     }
 
 

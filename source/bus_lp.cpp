@@ -39,7 +39,11 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
   BIndexHolder<ColIndex> tblocks;
   map_reserve(tblocks, blocks.size());
 
-  const auto scale_theta = sc.options().scale_theta();
+  // Look up theta scale from VariableScale framework.
+  // Convention: physical = LP × scale_theta (same as energy_scale).
+  // LP = physical / scale_theta.  Per-bus overrides via UID entries.
+  const auto scale_theta =
+      sc.options().variable_scale_map().lookup("Bus", "theta", uid());
 
   if (stage.is_active() && needs_kirchhoff(sc)) [[likely]] {
     std::ranges::for_each(
@@ -54,18 +58,18 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
           if (theta) [[unlikely]] {
             tblocks[buid] = lp.add_col(SparseCol {
                 .name = std::move(tname),
-                .lowb = *theta * scale_theta,
-                .uppb = *theta * scale_theta,
-                .scale = 1.0 / scale_theta,
+                .lowb = *theta / scale_theta,
+                .uppb = *theta / scale_theta,
+                .scale = scale_theta,
             });
           } else [[likely]] {
             constexpr double theta_bound =
                 2 * std::numbers::pi;  // Default bound for theta
             tblocks[buid] = lp.add_col(SparseCol {
                 .name = std::move(tname),
-                .lowb = -theta_bound * scale_theta,
-                .uppb = +theta_bound * scale_theta,
-                .scale = 1.0 / scale_theta,
+                .lowb = -theta_bound / scale_theta,
+                .uppb = +theta_bound / scale_theta,
+                .scale = scale_theta,
             });
           }
         });
@@ -114,16 +118,13 @@ bool BusLP::add_to_output(OutputContext& out) const
 
   out.add_row_dual(cname, "balance", pid, balance_rows);
 
-  // Primal: LP variable theta' = theta_phys * scale_theta, so
-  // theta_phys = theta' / scale_theta = theta' * inv_scale_theta.
-  // Reduced cost: rc_phys = rc_LP * scale_theta (inverse of primal).
-  // The scale (1/scale_theta) is stored in SparseCol::scale at column
-  // creation time; col_scale_sol/cost use it uniformly.
-  const auto inv_scale_theta = 1.0 / out.options().scale_theta();
-  out.add_col_sol(
-      cname, "theta", pid, theta_cols, col_scale_sol(inv_scale_theta));
+  // Convention: physical = LP × scale_theta (stored in SparseCol::scale).
+  // col_scale_sol/cost use it uniformly.
+  const auto scale_theta =
+      out.options().variable_scale_map().lookup("Bus", "theta", uid());
+  out.add_col_sol(cname, "theta", pid, theta_cols, col_scale_sol(scale_theta));
   out.add_col_cost(
-      cname, "theta", pid, theta_cols, col_scale_cost(inv_scale_theta));
+      cname, "theta", pid, theta_cols, col_scale_cost(scale_theta));
 
   return true;
 }

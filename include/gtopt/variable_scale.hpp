@@ -21,10 +21,18 @@
  *   2. Per-class default   (matching class + variable, no UID)
  *   3. Fallback default    (1.0 = no scaling)
  *
- * Per-element fields (`Battery::energy_scale`, `Reservoir::energy_scale`) and
- * global options (`PlanningOptions::scale_theta`) take precedence over entries
- * in `variable_scales` — the array provides a uniform, extensible mechanism for
- * cases not covered by dedicated fields.
+ * Per-element fields (`Battery::energy_scale`, `Reservoir::energy_scale`) take
+ * precedence over entries in `variable_scales`.
+ *
+ * Global options (`scale_theta`, `scale_alpha`) are auto-injected into the
+ * `variable_scales` array by `PlanningOptionsLP`.  All scales follow the
+ * same convention `physical = LP × scale`:
+ *   - `Bus.theta`:  scale_theta = 1e-4  (theta ~0.01 rad → LP ~100)
+ *   - `Sddp.alpha`: scale_alpha = 1e7   (alpha ~1e8 $ → LP ~10)
+ *   - `Reservoir.energy`: energy_scale = 1000 (energy ~1e6 → LP ~1000)
+ *
+ * Users can override per-element (UID-specific) entries in `variable_scales`
+ * for fine-grained control.
  */
 
 #pragma once
