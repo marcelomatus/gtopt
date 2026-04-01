@@ -1,0 +1,67 @@
+% ============================================================================
+% Section VIII: Conclusions and Future Work
+% ============================================================================
+
+\section{Conclusions}
+\label{sec:conclusions}
+
+This paper has presented \gtopt{}, an open-source, high-performance tool
+for Generation and Transmission Expansion Planning.  The main conclusions
+are:
+
+\begin{enumerate}
+  \item \textbf{Complete formulation}: \gtopt{} implements a comprehensive
+    GTEP formulation as a sparse LP/MIP, covering DC optimal power flow
+    with Kirchhoff constraints, battery energy storage with SoC tracking,
+    hydro cascade systems with reservoirs and turbines, spinning reserve
+    requirements, and multi-stage capacity expansion with annualized
+    investment costs.
+
+  \item \textbf{Three solution methods}: The monolithic LP provides exact
+    solutions for moderate-size problems.  SDDP with multi-scenario
+    apertures handles large stochastic problems efficiently.  The novel
+    cascade decomposition combines both approaches for long-horizon
+    planning.
+
+  \item \textbf{High performance}: The C++26 implementation with
+    flat-map-based sparse-matrix assembly and pluggable solver backends
+    (CLP, CBC, CPLEX, HiGHS) achieves significant computational
+    advantages over Python-based alternatives, particularly for LP
+    assembly of large problems.
+
+  \item \textbf{Validated correctness}: Cross-validation against
+    pandapower DC OPF on IEEE benchmark networks (4--57 buses)
+    demonstrates agreement to solver tolerance.  All 13 benchmark cases
+    converge to optimal solutions.
+
+  \item \textbf{Comprehensive toolchain}: The Python companion tools
+    (igtopt, plp2gtopt, pp2gtopt, gtopt\_compare) and web interfaces
+    provide a complete workflow from data preparation to result analysis.
+\end{enumerate}
+
+\subsection{Future Work}
+
+Planned enhancements include:
+
+\begin{itemize}
+  \item \textbf{AC OPF support}: Extending the formulation to include
+    reactive power and voltage magnitude constraints via second-order
+    cone programming (SOCP) relaxations.
+  \item \textbf{Unit commitment}: Adding binary start-up/shut-down
+    decisions and minimum up/down time constraints for thermal generators.
+  \item \textbf{Multi-sector coupling}: Extending the model to include
+    gas networks, district heating, and hydrogen production/storage for
+    integrated energy system planning.
+  \item \textbf{GPU-accelerated LP assembly}: Leveraging GPU parallelism
+    for sparse-matrix construction in very large-scale problems.
+  \item \textbf{Machine learning integration}: Using trained models to
+    warm-start the SDDP algorithm or provide scenario reduction for
+    stochastic programming.
+  \item \textbf{Real-world case studies}: Applying \gtopt{} to national-scale
+    expansion planning problems with detailed hydro cascade modeling.
+\end{itemize}
+
+The open-source nature of \gtopt{} (BSD-3 license) encourages community
+contributions and enables reproducible research in power system
+optimization.  The tool is available at
+\url{https://github.com/marcelomatus/gtopt}.

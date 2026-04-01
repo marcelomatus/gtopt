@@ -243,12 +243,12 @@ the SDDP backward pass.
 | `active` | integer | `1` | 1 = active, 0 = inactive |
 | `first_stage` | integer | `0` | 0-based index of the first stage in this phase |
 | `count_stage` | integer | all remaining | Number of stages in the phase |
-| `aperture_set` | JSON array of uids | `[]` | Aperture UIDs to use in the SDDP backward pass for this phase; empty = use all apertures |
+| `apertures` | comma-separated uids | `""` | Comma-separated aperture UIDs to use in the SDDP backward pass for this phase; empty = use all apertures |
 
-**`aperture_set` column example** — enter a JSON integer array directly in the cell:
+**`apertures` column example** — enter a comma-separated list of UIDs directly in the cell:
 
 ```
-[1, 3, 5]
+1,3,5
 ```
 
 This tells the SDDP solver to compute backward-pass cuts only from apertures
@@ -256,14 +256,14 @@ with UIDs 1, 3, and 5 during the backward pass for this phase.
 
 **Example `phase_array` sheet for a 3-phase SDDP problem:**
 
-| uid | name | first_stage | count_stage | aperture_set |
-|-----|------|-------------|-------------|--------------|
+| uid | name | first_stage | count_stage | apertures |
+|-----|------|-------------|-------------|-----------|
 | 1 | construction | 0 | 5 | |
-| 2 | early_ops | 5 | 10 | [1, 2] |
-| 3 | mature_ops | 15 | | [1, 2, 3] |
+| 2 | early_ops | 5 | 10 | 1,2 |
+| 3 | mature_ops | 15 | | 1,2,3 |
 
 `count_stage` left blank means "all remaining stages after `first_stage`".
-`aperture_set` left blank means use the global aperture list for that phase.
+`apertures` left blank means use the global aperture list for that phase.
 
 **`scene_array`** selects a subset of scenarios for SDDP evaluation. Each scene
 specifies which scenarios participate in the forward or backward pass.
@@ -273,11 +273,12 @@ specifies which scenarios participate in the forward or backward pass.
 | `uid` | integer | Unique identifier |
 | `name` | string | Optional label |
 | `active` | integer | 1 = active (default) |
-| `scenario_set` | JSON array of uids | Scenario UIDs to include in this scene |
+| `first_scenario` | integer | First scenario index (0-based) included in this scene |
+| `count_scenario` | integer | Number of consecutive scenarios in the scene |
 
 ### 5.3 System Sheets
 
-Each sheet becomes a JSON array under the `system` key. The 18 recognized
+Each sheet becomes a JSON array under the `system` key. The 20 recognized
 system sheets are:
 
 | Sheet name | Key columns | Description |
@@ -297,14 +298,15 @@ system sheets are:
 | `reservoir_array` | uid, name, junction | Hydro reservoirs (see § below) |
 | `turbine_array` | uid, name, waterway, generator | Hydro turbines |
 | `flow_array` | uid, name, junction | Inflows / evaporation |
-| `filtration_array` | uid, name, waterway, reservoir, slope, constant, segments | Water seepage (piecewise-linear model) |
-| `reservoir_efficiency_array` | uid, name, reservoir | Per-reservoir efficiency LP coefficients |
+| `reservoir_seepage_array` | uid, name, waterway, reservoir, slope, constant, segments | Water seepage (piecewise-linear model) |
+| `reservoir_discharge_limit_array` | uid, name, reservoir | Volume-dependent discharge limits |
+| `reservoir_production_factor_array` | uid, name, reservoir | Volume-dependent turbine efficiency adjustments |
 | `user_constraint_array` | uid, name, ... | User-defined custom LP constraints |
 
 
-#### `filtration_array` — Piecewise-Linear Seepage Model
+#### `reservoir_seepage_array` — Piecewise-Linear Seepage Model
 
-Filtration models water seepage from a waterway into an adjacent reservoir.
+Reservoir seepage models water seepage from a waterway into an adjacent reservoir.
 The seepage flow is computed from a piecewise-linear function of the reservoir's
 average volume (the primary PLP model, implemented in `plpfilemb.dat`):
 
@@ -351,7 +353,7 @@ constant RHS) directly in the LP matrix via `SystemLP::update_lp()`.
 When `segments` is absent, the scalar `slope` and `constant` values (or their
 per-stage schedules) are applied directly.
 
-**Example `filtration_array` sheet:**
+**Example `reservoir_seepage_array` sheet:**
 
 | uid | name | waterway | reservoir | slope | constant | segments |
 |-----|------|----------|-----------|-------|----------|----------|
@@ -388,10 +390,10 @@ Each row defines a reservoir connected to a hydraulic junction. Key fields:
 inline, use the `@`-sheet approach (`Reservoir@emin`) or enter a JSON array
 string directly in the cell: `[100, 150, 200]`.
 
-#### `reservoir_efficiency_array` — Turbine Efficiency Adjustments
+#### `reservoir_production_factor_array` — Turbine Efficiency Adjustments
 
 Each row overrides the linear approximation of the turbine efficiency function
-at one operating point. Used by `ReservoirEfficiencyLP` to update the LP
+at one operating point. Used by `ReservoirProductionFactorLP` to update the LP
 coefficients at each SDDP phase.
 
 | Column | Type | Description |

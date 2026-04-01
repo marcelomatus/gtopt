@@ -1,0 +1,136 @@
+% ============================================================================
+% Section IV: Solution Methods
+% ============================================================================
+
+\section{Solution Methods}
+\label{sec:methods}
+
+\gtopt{} implements three complementary solution methods, selectable via the
+\texttt{method} option.  All three solve the same underlying GTEP formulation
+(Section~\ref{sec:formulation}); they differ in how they decompose the
+problem across the time and scenario dimensions.
+
+\subsection{Monolithic LP}
+\label{sec:monolithic}
+
+The default method assembles the entire multi-scenario, multi-stage problem
+into a single sparse LP/MIP and passes it to the solver backend.  The LP
+is constructed in compressed sparse column (CSC) format via the
+\texttt{FlatLinearProblem} class.
+
+For a system with $N$ buses, $G$ generators, $D$ demands, $L$ lines,
+$E$ batteries, $B$ blocks per stage, $T$ stages, and $S$ scenarios, the
+approximate problem size is:
+
+\begin{table}[h]
+  \centering
+  \caption{LP Problem Size Estimates}
+  \label{tab:lp_size}
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    Quantity & Approximate count \\
+    \midrule
+    Operational variables & $(G{+}2D{+}2L{+}3E{+}N) \times S \times T \times B$ \\
+    Investment variables  & $(G{+}D{+}L{+}E) \times T$ \\
+    Bus balance rows      & $N \times S \times T \times B$ \\
+    Kirchhoff rows        & $L \times S \times T \times B$ (if DC OPF) \\
+    SoC balance rows      & $E \times S \times T \times B$ \\
+    Capacity rows         & $(G{+}D{+}L{+}E) \times T$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The monolithic method is exact (no decomposition error) and is recommended
+for problems where the total number of LP variables fits in memory.  For
+the IEEE~57-bus system with 24 hourly blocks, the LP has approximately
+$57 \times 24 \times (7 + 84 + 160 + 57) \approx 421\,000$ variables.
+
+\subsection{Stochastic Dual Dynamic Programming (SDDP)}
+\label{sec:sddp}
+
+For multi-stage stochastic problems with many scenarios, \gtopt{} implements
+SDDP following the algorithm of Pereira and
+Pinto~\cite{pereira1991sddp}.  The stages are decomposed into
+individual subproblems connected by Benders optimality cuts that
+approximate the expected future cost.
+
+\begin{algorithm}[h]
+  \caption{SDDP Algorithm in \gtopt{}}
+  \label{alg:sddp}
+  \begin{algorithmic}[1]
+    \STATE Initialize: empty cut sets $\mathcal{C}_t = \emptyset$
+      for all $t$
+    \FOR{iteration $k = 1, 2, \ldots, K$}
+      \STATE \textbf{Forward pass}: Solve stages $t=1,\ldots,T$
+        sequentially for sampled scenarios; record state variables
+        (SoC, reservoir volumes)
+      \STATE \textbf{Backward pass}: For $t=T,\ldots,1$, solve
+        each stage for all aperture scenarios; compute dual
+        variables; generate Benders cuts:
+        \[
+          \alpha_t \geq \hat{\alpha}_t + \hat{\pi}_t^\top
+            (x_t - \hat{x}_t)
+        \]
+      \STATE Add cuts to $\mathcal{C}_t$
+      \STATE Check convergence: upper/lower bound gap $\leq \epsilon$
+    \ENDFOR
+  \end{algorithmic}
+\end{algorithm}
+
+\gtopt{}'s SDDP implementation includes several enhancements:
+
+\begin{itemize}
+  \item \textbf{Apertures}: configurable backward-pass scenario sampling
+    that groups scenarios into subsets for cut generation, reducing
+    computational cost while preserving solution quality.
+  \item \textbf{Elastic filters}: infeasible subproblems are handled by
+    relaxing state variable bounds with penalty costs, ensuring the
+    algorithm does not stall.
+  \item \textbf{Boundary cuts}: pre-computed future cost approximations
+    at the terminal stage, enabling rolling horizon studies.
+  \item \textbf{Hot start}: cuts from previous runs can be loaded to
+    accelerate convergence.
+  \item \textbf{Cut management}: dominated cuts are periodically purged
+    to control LP size growth.
+\end{itemize}
+
+\subsection{Cascade Decomposition}
+\label{sec:cascade}
+
+The cascade method is a novel multi-level hybrid that decomposes the
+problem hierarchically:
+
+\begin{enumerate}
+  \item \textbf{Level~0 (strategic)}: A coarsened version of the problem
+    (aggregated blocks, reduced scenarios) is solved monolithically to
+    determine investment decisions and approximate cost-to-go functions.
+  \item \textbf{Level~1 (tactical)}: SDDP is applied to the full
+    stochastic problem using the Level~0 investments as warm-start and
+    the cost-to-go cuts as initial approximations.
+  \item \textbf{Level~2+ (operational)}: Additional refinement levels
+    can solve detailed operational subproblems with fixed investments.
+\end{enumerate}
+
+The cascade method inherits SDDP's convergence guarantees while using the
+monolithic coarse solution to dramatically reduce the number of SDDP
+iterations required.  It is particularly effective for long-horizon problems
+(10+ stages) with many scenarios.
+
+\subsection{Solver Backend Architecture}
+
+All three methods delegate LP/MIP solution to a pluggable solver backend
+loaded as a shared library at runtime.  Currently supported backends are:
+
+\begin{itemize}
+  \item \textbf{CLP/CBC} (COIN-OR): Default open-source backend.  CLP for
+    LP, CBC for MIP~\cite{forrest2005cbc}.
+  \item \textbf{CPLEX} (IBM): Commercial high-performance solver, accessed
+    via the C Callable Library.
+  \item \textbf{HiGHS}: Open-source solver with parallel simplex and
+    interior-point methods~\cite{huangfu2018highs}.
+\end{itemize}
+
+The backend is auto-detected by priority (CPLEX $>$ HiGHS $>$ CBC $>$ CLP)
+or explicitly selected via the \texttt{--solver} flag.  Solver-specific
+options (algorithm, threads, tolerances, time limits) are configured
+through the \texttt{solver\_options} JSON section.

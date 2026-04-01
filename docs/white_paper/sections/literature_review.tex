@@ -1,0 +1,122 @@
+% ============================================================================
+% Section II: Literature Review and State of the Art
+% ============================================================================
+
+\section{Literature Review}
+\label{sec:literature}
+
+\subsection{Generation and Transmission Expansion Planning}
+
+GTEP is a classical problem in power systems that has been studied
+extensively since the 1970s.  Romero et al.~\cite{romero2002test} provided
+canonical test systems and mathematical models---including transportation,
+hybrid, DC power flow, and disjunctive formulations---that remain standard
+benchmarks.  Hemmati et al.~\cite{hemmati2013comprehensive} presented a
+comprehensive review covering generation expansion planning (GEP),
+transmission expansion planning (TEP), and their integration.  More
+recently, Mahdavi et al.~\cite{mahdavi2019tep_survey} classified TEP
+literature into categories by mathematical model, solution method, and
+uncertainty handling, identifying a trend toward stochastic,
+multi-objective, and market-based formulations.
+
+Lumbreras and Ramos~\cite{lumbreras2016progressive} surveyed modern
+challenges in TEP including renewable integration, energy storage, and
+the need for multi-stage stochastic models.  These challenges motivate
+the development of tools that can handle joint generation, transmission,
+and storage expansion under operational uncertainty.
+
+\subsection{DC Optimal Power Flow}
+
+The DC power flow approximation linearizes the AC power flow equations
+by assuming lossless lines, flat voltage profiles, and small angle
+differences~\cite{stott2009dc_opf}.  Despite its simplifications, DC OPF
+is the standard formulation for TEP because it yields a linear program
+amenable to efficient solution~\cite{frank2016or_opf}.  Molzahn and
+Hiskens~\cite{molzahn2019opf_survey} provided a comprehensive survey of
+relaxations and approximations, confirming that DC OPF remains the
+workhorse for expansion planning despite advances in convex relaxations
+of AC OPF.
+
+\gtopt{} adopts the $B$-$\theta$ formulation (susceptance-angle) for
+DC OPF, as recommended by Stott et al.~\cite{stott2009dc_opf}, with
+extensions for resistive losses via piecewise-linear approximations and
+phase-shifting transformers.
+
+\subsection{Stochastic Dual Dynamic Programming}
+
+The Stochastic Dual Dynamic Programming (SDDP) algorithm, introduced by
+Pereira and Pinto~\cite{pereira1991sddp}, is the standard method for
+solving large-scale multi-stage stochastic programs in hydrothermal
+scheduling.  The algorithm constructs piecewise-linear approximations of
+the expected cost-to-go function through iterative forward and backward
+passes.
+
+Shapiro~\cite{shapiro2011sddp_analysis} provided theoretical convergence
+analysis of SDDP, and Philpott and de~Matos~\cite{philpott2013sddp_convergence}
+extended the algorithm with risk-averse sampling.  Recent advances include
+batch learning SDDP~\cite{leclercq2023batch_sddp}, which frames the
+algorithm as Q-learning for improved convergence, and extensions to
+stochastic OPF under uncertainty~\cite{fletcher2024sddp_opf}.
+
+In the Julia ecosystem, Dowson and Kapelevich~\cite{dowson2020sddp_jl}
+developed SDDP.jl, a modular SDDP implementation.  \gtopt{} provides a
+C++ SDDP implementation with support for multi-scenario apertures, elastic
+filters for feasibility management, and boundary cost cuts for rolling
+horizon studies.
+
+\subsection{Energy Storage in Expansion Planning}
+
+The integration of battery energy storage systems (BESS) into expansion
+planning has received significant attention.  Go et al.~\cite{Go2016ess_expansion}
+assessed the economic value of co-optimized grid-scale storage investments.
+Frazier et al.~\cite{frazier2023bess_milp} presented an integrated MILP
+for generation, transmission, and storage expansion with Benders
+decomposition.
+
+Sandia National Laboratories released QuESt Planning~\cite{sandia2024quest},
+an open-source capacity expansion tool focused on storage, while
+IDAES-GTEP~\cite{idaes_gtep2024} provides a modular Pyomo-based framework
+for GTEP.  \gtopt{} supports BESS with detailed charge/discharge efficiency
+modeling, state-of-charge tracking across stages, and co-located
+generation-storage coupling via its converter mechanism.
+
+\subsection{Open-Source Power System Tools}
+
+Table~\ref{tab:tool_comparison} compares \gtopt{} with the leading
+open-source GTEP tools.  PyPSA~\cite{brown2018pypsa} is the most widely
+adopted, offering multi-sector coupling and a large community, but uses
+Python for LP assembly which can bottleneck on large problems.
+GenX~\cite{jenkins2017genx} provides a flexible Julia/JuMP framework but
+lacks native DC OPF and hydro cascade modeling.  pandapower~\cite{thurner2018pandapower}
+excels at power flow analysis but does not support expansion planning.
+
+\begin{table*}[t]
+  \centering
+  \caption{Comparison of Open-Source GTEP and Power System Tools}
+  \label{tab:tool_comparison}
+  \begin{tabular}{@{}lcccccc@{}}
+    \toprule
+    \textbf{Feature} & \textbf{gtopt} & \textbf{PyPSA} & \textbf{GenX}
+      & \textbf{IDAES-GTEP} & \textbf{QuESt} & \textbf{PLP} \\
+    \midrule
+    Language          & C++26  & Python  & Julia   & Python  & Python  & Fortran \\
+    License           & BSD-3  & MIT     & GPL-2   & BSD-3   & BSD-3   & Proprietary \\
+    DC OPF (Kirchhoff)& \checkmark & \checkmark & Transport & \checkmark & -- & \checkmark \\
+    Hydro cascades    & \checkmark & Partial & -- & -- & -- & \checkmark \\
+    Battery storage   & \checkmark & \checkmark & \checkmark & Partial & \checkmark & Partial \\
+    SDDP solver       & \checkmark & -- & -- & -- & -- & \checkmark \\
+    Capacity expansion& \checkmark & \checkmark & \checkmark & \checkmark & \checkmark & -- \\
+    Multi-scenario    & \checkmark & Partial & Partial & -- & -- & \checkmark \\
+    Multi-sector      & -- & \checkmark & -- & -- & -- & -- \\
+    Parquet I/O       & \checkmark & -- & -- & -- & -- & -- \\
+    Web GUI           & \checkmark & -- & -- & -- & \checkmark & -- \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
+
+\gtopt{} distinguishes itself through: (i)~C++ sparse-matrix assembly
+for high performance, (ii)~complete hydro cascade modeling with
+reservoirs, waterways, turbines, and filtration, (iii)~three solution
+methods including SDDP and cascade decomposition, (iv)~native Apache
+Parquet I/O for large time-series, and (v)~a comprehensive Python
+toolchain for data preparation and cross-validation.
