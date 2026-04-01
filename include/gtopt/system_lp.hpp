@@ -50,7 +50,6 @@ namespace gtopt
 class LinearInterface;
 
 /**
- * @concept AddToLP
  * @brief Concept for types that can be added to an LP problem
  *
  * Requires types to provide:
@@ -92,7 +91,6 @@ static_assert(AddToLP<ReservoirProductionFactorLP>);
 static_assert(AddToLP<UserConstraintLP>);
 
 /**
- * @concept HasUpdateLP
  * @brief Concept satisfied by LP element types that implement `update_lp()`.
  *
  * Used by SystemLP::update_lp() to iterate over the LP element collection
