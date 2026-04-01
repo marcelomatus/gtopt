@@ -48,6 +48,7 @@ results should be directly comparable.
   - [16.1 Single-Bus Dispatch: gtopt vs pandapower](#161-single-bus-dispatch-gtopt-vs-pandapower)
   - [16.2 4-Bus DC OPF: gtopt vs pandapower](#162-4-bus-dc-opf-gtopt-vs-pandapower)
   - [16.3 PLP Conversion Workflow: plp2gtopt → gtopt](#163-plp-conversion-workflow-plp2gtopt--gtopt)
+- [17. Broader Tool Landscape](#17-broader-tool-landscape)
 - [See Also](#see-also)
 
 ---
@@ -917,6 +918,130 @@ gtopt_diagram /tmp/plp_min_1bus/plp_min_1bus.json -o plp_min_1bus.svg
 $50/MWh) dispatches exactly 80 MW to meet the demand. No load shedding
 occurs. The bus marginal price equals the generator's marginal cost
 ($50/MWh), as expected for a single-bus unconstrained dispatch.
+
+---
+
+## 17. Broader Tool Landscape
+
+Beyond the primary comparison tools (PLP and pandapower), the GTEP and
+power system optimization ecosystem includes several other notable tools.
+This section places gtopt in the broader context.
+
+### 17.1 Comparison Table
+
+| Feature | **gtopt** | **PyPSA** | **GenX** | **IDAES-GTEP** | **QuESt** | **SDDP.jl** | **PLP** |
+|---------|-----------|-----------|----------|----------------|-----------|-------------|---------|
+| Language | C++26 | Python | Julia | Python | Python | Julia | Fortran |
+| License | BSD-3 | MIT | GPL-2 | BSD-3 | BSD-3 | MPL-2 | Proprietary |
+| Primary use | GTEP + OPF | Multi-sector planning | Capacity expansion | GTEP | Storage planning | Stochastic opt. | Hydrothermal sched. |
+| DC OPF (Kirchhoff) | ✓ | ✓ | Transport only | ✓ | — | — | ✓ |
+| AC OPF | — | ✓ | — | ✓ | — | — | — |
+| Hydro cascades | ✓ Full | Partial | — | — | — | ✓ | ✓ Full |
+| Battery storage | ✓ | ✓ | ✓ | Partial | ✓ | — | Partial |
+| Capacity expansion | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| SDDP solver | ✓ | — | — | — | — | ✓ | ✓ |
+| Multi-scenario | ✓ | Partial | Partial | — | — | ✓ | ✓ |
+| Multi-sector | — | ✓ (gas, heat) | — | — | — | — | — |
+| Parquet I/O | ✓ Native | — | — | — | — | — | — |
+| Web GUI | ✓ | — | — | — | ✓ | — | — |
+| Spinning reserves | ✓ | ✓ | ✓ | — | — | — | ✓ |
+
+### 17.2 PyPSA
+
+[PyPSA](https://pypsa.org/) (Python for Power System Analysis) is the most
+widely adopted open-source tool for multi-sector energy system
+modeling \[Brown et al., 2018\].  It supports electricity, gas, heat, and
+transport sectors through a unified network representation.  PyPSA uses
+`linopy` for LP/MIP construction and can call Gurobi, CPLEX, HiGHS, or
+GLPK as solver backends.
+
+**Strengths vs gtopt**: Multi-sector coupling, large user community,
+AC power flow support.
+
+**Weaknesses vs gtopt**: Python LP assembly can be slow for very large
+problems; no SDDP; limited hydro cascade modeling; no native Parquet I/O.
+
+### 17.3 GenX
+
+[GenX](https://github.com/GenXProject/GenX) is a Julia/JuMP-based
+configurable electricity resource capacity expansion model developed at
+MIT \[Jenkins & Sepulveda, 2017\].  It supports temporal resolution up to
+hourly, unit commitment constraints, and endogenous retirement.
+
+**Strengths vs gtopt**: Mature unit commitment constraints, Julia/JuMP
+performance for LP assembly.
+
+**Weaknesses vs gtopt**: No DC OPF (transport model only), no hydro
+cascade modeling, no SDDP, GPL license limits commercial embedding.
+
+### 17.4 IDAES-GTEP
+
+[IDAES-GTEP](https://github.com/IDAES/idaes-gtep) is a Pyomo-based
+framework developed by the IDAES Consortium for flexible GTEP formulations.
+It supports custom constraint sets and multi-period investment planning.
+
+**Strengths vs gtopt**: Highly modular Pyomo formulation, well-suited
+for custom research formulations.
+
+**Weaknesses vs gtopt**: Limited hydro modeling, no SDDP, Python
+performance limitations, less mature than established tools.
+
+### 17.5 QuESt Planning
+
+[QuESt Planning](https://www.sandia.gov/ess/) by Sandia National
+Laboratories focuses on energy storage sizing and siting within capacity
+expansion planning.  It includes a web-based GUI and multiple storage
+technology models.
+
+**Strengths vs gtopt**: Detailed storage technology models, web GUI.
+
+**Weaknesses vs gtopt**: No DC OPF, no hydro cascades, no SDDP, limited
+transmission modeling.
+
+### 17.6 SDDP.jl
+
+[SDDP.jl](https://github.com/odow/SDDP.jl) is a Julia package for
+multi-stage stochastic optimization using SDDP \[Dowson & Kapelevich,
+2021\].  It provides a general-purpose SDDP implementation that can be
+applied to power system scheduling.
+
+**Strengths vs gtopt**: General-purpose SDDP with risk measures,
+Markov chains, and parallel cuts.
+
+**Weaknesses vs gtopt**: Domain-agnostic (no built-in power system
+components), no integrated DC OPF or expansion planning.
+
+### 17.7 Key Differentiators of gtopt
+
+1. **C++ performance**: LP assembly in compiled C++ with `flat_map`-based
+   sparse matrices is 10–27× faster than equivalent Python code.
+2. **Complete hydro cascade**: Reservoirs, junctions, waterways, turbines,
+   flows, seepage, and discharge limits — matching PLP's capability.
+3. **Three solution methods**: Monolithic + SDDP + cascade decomposition
+   in a single tool.
+4. **Native Parquet I/O**: Apache Arrow integration for large time-series
+   without memory bottlenecks.
+5. **Comprehensive converter ecosystem**: `plp2gtopt`, `pp2gtopt`,
+   `igtopt`, `gtopt2pp` bridge legacy and modern tools.
+6. **Pluggable solvers**: CLP, CBC, CPLEX, HiGHS as dynamic plugins —
+   no recompilation needed.
+
+### References
+
+- Brown, T., Hörsch, J., Schlachtberger, D. (2018). "PyPSA: Python for
+  Power System Analysis." *J. Open Res. Softw.*, 6(1), 4.
+  DOI: [10.5334/jors.188](https://doi.org/10.5334/jors.188)
+- Jenkins, J. D., Sepulveda, N. A. (2017). "Enhanced Decision Support for
+  a Changing Electricity Landscape: The GenX Model." MIT Energy Initiative.
+- Thurner, L. et al. (2018). "pandapower — An Open-Source Python Tool."
+  *IEEE Trans. Power Syst.*, 33(6), 6510–6521.
+  DOI: [10.1109/TPWRS.2018.2829021](https://doi.org/10.1109/TPWRS.2018.2829021)
+- Dowson, O., Kapelevich, L. (2021). "SDDP.jl: A Julia Package for
+  Stochastic Dual Dynamic Programming." *INFORMS J. Comput.*, 33(1), 27–33.
+  DOI: [10.1287/ijoc.2020.0987](https://doi.org/10.1287/ijoc.2020.0987)
+- Buitrago Villada, M. P. et al. (2022). "Optimal Expansion and Reliable
+  Renewable Energy Integration Using FESOP." *IEEE KPEC*.
+  DOI: [10.1109/KPEC54747.2022.9814781](https://doi.org/10.1109/KPEC54747.2022.9814781)
 
 ---
 
