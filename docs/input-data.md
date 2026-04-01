@@ -904,7 +904,7 @@ A water channel connecting two junctions.
 
 ### 3.9 Reservoir
 
-A water reservoir connected to a junction.  Volume units: **dam³** (1 dam³ = 1 000 m³).
+A water reservoir connected to a junction.  Volume units: **hm³** (1 hm³ = 10⁶ m³).
 
 | Field                  | Type                | Units       | Required | Description |
 |------------------------|---------------------|-------------|----------|-------------|
@@ -913,18 +913,18 @@ A water reservoir connected to a junction.  Volume units: **dam³** (1 dam³ = 1
 | `active`               | boolean             | —           | No       | Whether the reservoir is active |
 | `junction`             | integer\|string     | —           | Yes      | Associated junction UID or name |
 | `spillway_capacity`    | number              | m³/s        | No       | Maximum uncontrolled spill capacity |
-| `spillway_cost`        | number              | $/dam³      | No       | Penalty per unit of spilled water |
-| `capacity`             | number\|array\|string| dam³       | No       | Total usable storage capacity |
+| `spillway_cost`        | number              | $/hm³      | No       | Penalty per unit of spilled water |
+| `capacity`             | number\|array\|string| hm³       | No       | Total usable storage capacity |
 | `annual_loss`          | number\|array\|string| p.u./year  | No       | Annual evaporation/seepage loss rate |
-| `emin`                 | number\|array\|string| dam³       | No       | Minimum allowed stored volume |
-| `emax`                 | number\|array\|string| dam³       | No       | Maximum allowed stored volume |
-| `ecost`                | number\|array\|string| $/dam³     | No       | Water value (shadow cost of stored water) |
-| `eini`                 | number              | dam³        | No       | Initial stored volume |
-| `efin`                 | number              | dam³        | No       | Target final stored volume |
+| `emin`                 | number\|array\|string| hm³       | No       | Minimum allowed stored volume |
+| `emax`                 | number\|array\|string| hm³       | No       | Maximum allowed stored volume |
+| `ecost`                | number\|array\|string| $/hm³     | No       | Water value (shadow cost of stored water) |
+| `eini`                 | number              | hm³        | No       | Initial stored volume |
+| `efin`                 | number              | hm³        | No       | Target final stored volume |
 | `fmin`                 | number              | m³/s        | No       | Minimum net inflow |
 | `fmax`                 | number              | m³/s        | No       | Maximum net inflow |
 | `energy_scale`         | number              | —           | No       | Multiplicative scaling factor for volume |
-| `flow_conversion_rate` | number              | dam³/(m³/s·h)| No     | Converts m³/s × hours to dam³ (default: 0.0036) |
+| `flow_conversion_rate` | number              | hm³/(m³/s·h)| No     | Converts m³/s × hours to hm³ (default: 0.0036) |
 
 ### 3.10 Turbine
 
@@ -985,7 +985,7 @@ turbine conversion rates.  If `segments` is empty, the static `slope` and
 | `active`    | boolean | —            | No       | Whether the seepage element is active |
 | `waterway`  | integer\|string | —    | Yes      | Source waterway UID or name |
 | `reservoir` | integer\|string | —    | Yes      | Receiving reservoir UID or name |
-| `slope`     | number  | m³/s / dam³  | No       | Default seepage slope (used when `segments` is empty) |
+| `slope`     | number  | m³/s / hm³   | No       | Default seepage slope (used when `segments` is empty) |
 | `constant`  | number  | m³/s         | No       | Default constant seepage rate (used when `segments` is empty) |
 | `segments`  | array   | —            | No       | Piecewise-linear concave segments (see below) |
 
@@ -994,8 +994,8 @@ filtration envelope:
 
 | Field      | Type   | Units          | Description |
 |------------|--------|----------------|-------------|
-| `volume`   | number | dam³           | Volume breakpoint |
-| `slope`    | number | m³/s / dam³    | Seepage slope at this breakpoint |
+| `volume`   | number | hm³            | Volume breakpoint |
+| `slope`    | number | m³/s / hm³     | Seepage slope at this breakpoint |
 | `constant` | number | m³/s           | Seepage rate at this breakpoint |
 
 The seepage rate at volume *V* is computed as the minimum over all
@@ -1085,7 +1085,7 @@ negative).
 }
 ```
 
-### 3.13b Reservoir Discharge Limit
+### 3.14 Reservoir Discharge Limit
 
 Piecewise-linear volume-dependent discharge limit for reservoirs.  This is
 a safety/environmental constraint that limits the hourly-average discharge
@@ -1122,7 +1122,7 @@ Each segment has:
 | `slope`    | number | m³/s / hm³  | Discharge limit slope |
 | `constant` | number | m³/s        | Discharge limit intercept |
 
-### 3.14 Generator Profile
+### 3.15 Generator Profile
 
 A time-varying capacity-factor profile for a generator.
 
@@ -1135,7 +1135,7 @@ A time-varying capacity-factor profile for a generator.
 | `profile`   | number\|array\|string| p.u. | Yes      | Capacity-factor profile (0–1) |
 | `scost`     | number\|array\|string| $/MWh| No       | Short-run generation cost override |
 
-### 3.15 Demand Profile
+### 3.16 Demand Profile
 
 A time-varying load-shape profile for a demand element.
 
@@ -1148,7 +1148,7 @@ A time-varying load-shape profile for a demand element.
 | `profile`| number\|array\|string| p.u. | Yes      | Load-scaling profile (0–1) |
 | `scost`  | number\|array\|string| $/MWh| No       | Short-run load-shedding cost override |
 
-### 3.16 Reserve Zone
+### 3.17 Reserve Zone
 
 A spinning-reserve requirement zone.
 
@@ -1162,7 +1162,7 @@ A spinning-reserve requirement zone.
 | `urcost` | number\|array\|string| $/MW  | No       | Up-reserve shortage penalty |
 | `drcost` | number\|array\|string| $/MW  | No       | Down-reserve shortage penalty |
 
-### 3.17 Reserve Provision
+### 3.18 Reserve Provision
 
 A generator's contribution to reserve zones.
 
@@ -1184,7 +1184,7 @@ A generator's contribution to reserve zones.
 
 ---
 
-### 3.18 User Constraint
+### 3.19 User Constraint
 
 User-defined linear constraints applied to the LP formulation.
 See **[User Constraints](user-constraints.md)** for the full syntax
