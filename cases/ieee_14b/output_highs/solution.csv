@@ -1,2 +1,2 @@
-scene,phase,status,status_name,obj_value,kappa,gap,gap_change
-0,0,0,optimal,1492.282626141598,3562195.9986241953,0,1
+scene,phase,status,status_name,obj_value,kappa,max_kappa,gap,gap_change
+0,0,0,optimal,1492.282626141598,350.7134548792534,350.7134548792534,0,1
