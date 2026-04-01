@@ -48,6 +48,11 @@ Component options (all ON by default except docs)
   Build Doxygen HTML documentation (requires internet access to fetch
   the m.css theme; disabled by default).
 
+``GTOPT_BUILD_WHITE_PAPER``
+  Build the white paper PDF from LaTeX sources (requires ``latexmk``
+  and a TeX distribution with ``pdflatex`` and ``IEEEtran``; disabled
+  by default).
+
 ``ENABLE_TEST_COVERAGE``
   Instrument all C++ targets (unit tests, gtopt library, standalone binary)
   with ``-fprofile-arcs -ftest-coverage`` so that ``lcov --capture
@@ -89,6 +94,7 @@ option(GTOPT_BUILD_SCRIPTS     "Install the Python conversion scripts"          
 option(GTOPT_BUILD_WEBSERVICE  "Install the Next.js web service (requires npm)"      ON)
 option(GTOPT_BUILD_GUISERVICE  "Install the Flask GUI service (requires Python 3.10)" ON)
 option(GTOPT_BUILD_DOCS        "Build Doxygen documentation (needs internet)"        OFF)
+option(GTOPT_BUILD_WHITE_PAPER "Build white paper PDF (requires latexmk + TeX)"     OFF)
 option(ENABLE_TEST_COVERAGE    "Enable coverage instrumentation (unit + e2e tests)"  OFF)
 
 # ---- ccache ----
@@ -168,6 +174,10 @@ endif()
 
 if(GTOPT_BUILD_DOCS)
   add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../documentation" documentation)
+endif()
+
+if(GTOPT_BUILD_WHITE_PAPER)
+  add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../docs/white_paper" white_paper)
 endif()
 
 option(GTOPT_BUILD_COVERAGE  "Build coverage analysis sub-project"  OFF)
