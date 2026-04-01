@@ -1,0 +1,160 @@
+% ============================================================================
+% gtopt: High-Performance Generation and Transmission Expansion Planning
+%
+% Target journal: IEEE Transactions on Power Systems
+% Template: IEEEtran (journal mode)
+%
+% Overleaf-compatible: upload this entire directory as a project.
+% To compile locally: latexmk -pdf main.tex
+% ============================================================================
+
+\documentclass[journal]{IEEEtran}
+
+% ---- Encoding ----
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+
+% ---- Math ----
+\usepackage{amsmath,amssymb,amsfonts}
+
+% ---- Graphics and tables ----
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{tabularx}
+\usepackage{subcaption}
+
+% ---- Typography ----
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage[binary-units]{siunitx}
+
+% ---- Code listings ----
+\usepackage{listings}
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  frame=single,
+  captionpos=b,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  xleftmargin=2em,
+  framexleftmargin=1.5em,
+}
+
+% ---- Hyperlinks (load last among standard packages) ----
+\usepackage[hidelinks,colorlinks=true,citecolor=blue,urlcolor=blue]{hyperref}
+\usepackage{cite}
+
+% ---- Algorithms ----
+\usepackage{algorithmic}
+\usepackage{algorithm}
+
+% ---- Custom commands ----
+\newcommand{\gtopt}{\texttt{gtopt}}
+\newcommand{\fesop}{FESOP}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\setS}{\mathcal{S}}
+\newcommand{\setT}{\mathcal{T}}
+\newcommand{\setB}{\mathcal{B}}
+\newcommand{\setN}{\mathcal{N}}
+\newcommand{\setG}{\mathcal{G}}
+\newcommand{\setD}{\mathcal{D}}
+\newcommand{\setL}{\mathcal{L}}
+\newcommand{\setE}{\mathcal{E}}
+\newcommand{\setJ}{\mathcal{J}}
+\newcommand{\setR}{\mathcal{R}}
+\newcommand{\setW}{\mathcal{W}}
+\newcommand{\setH}{\mathcal{H}}
+\newcommand{\setZ}{\mathcal{Z}}
+
+% ---- Graphics path ----
+\graphicspath{{figures/}{diagrams/}}
+
+% ============================================================================
+\begin{document}
+
+\title{%
+  \gtopt{}: A High-Performance Open-Source Tool for\\
+  Generation and Transmission Expansion Planning%
+}
+
+\author{%
+  Marcelo~Matus~A.,~\IEEEmembership{Member,~IEEE,}
+  Mar\'ia~del~Pilar~Buitrago~Villada%
+  % Add more authors as needed:
+  % , Author~Three,~\IEEEmembership{Member,~IEEE}
+  \thanks{Manuscript received MONTH DAY, 2026; revised MONTH DAY, 2026.}%
+  \thanks{M.~Matus~A. is with the Centro Nacional de Inteligencia
+    Artificial (CENIA) and the Universidad de Santiago de Chile,
+    Santiago, Chile (e-mail: marcelo.matus@usach.cl).}%
+  \thanks{M.~P.~Buitrago~Villada is with the Universidad Nacional
+    de Colombia, Medell\'in, Colombia.}%
+  % \thanks{Digital Object Identifier: 10.1109/TPWRS.20XX.XXXXXXX}%
+}
+
+% --- Create title and author block ---
+\markboth{IEEE Transactions on Power Systems}%
+  {Matus~A. \MakeLowercase{\textit{et al.}}: \gtopt{} for GTEP}
+
+\maketitle
+
+% ========== Abstract ==========
+\begin{abstract}
+This paper presents \gtopt{}, an open-source, high-performance tool for
+Generation and Transmission Expansion Planning (GTEP).  Implemented in modern
+C++26, \gtopt{} formulates the joint investment and operational planning
+problem as a sparse linear program (LP/MIP) over a multi-stage,
+multi-scenario time hierarchy.  The tool supports DC optimal power flow with
+Kirchhoff voltage-law constraints, battery energy storage with
+charge/discharge efficiency modeling, hydro cascade systems with reservoirs
+and turbines, spinning reserve requirements, and capacity expansion with
+annualized investment costs.  Three solution methods are provided: a
+monolithic LP solver, Stochastic Dual Dynamic Programming (SDDP) with
+multi-scenario apertures, and a novel multi-level cascade decomposition.
+The architecture features pluggable LP solver backends (CLP, CBC, CPLEX,
+HiGHS), native Apache Parquet and CSV I/O for large-scale time-series data,
+and a comprehensive Python toolchain including an Excel-to-JSON converter,
+PLP and pandapower importers, and web-based graphical interfaces.
+Validation against IEEE benchmark networks (4-, 9-, and 14-bus systems)
+and cross-comparison with pandapower DC OPF demonstrate correctness, while
+computational experiments show significant performance advantages of the
+C++ sparse-matrix assembly over Python-based alternatives for systems with
+thousands of variables.
+\end{abstract}
+
+% ========== Keywords ==========
+\begin{IEEEkeywords}
+Generation expansion planning, transmission expansion planning, linear
+programming, DC optimal power flow, stochastic dual dynamic programming,
+battery energy storage, hydro cascade, open-source optimization.
+\end{IEEEkeywords}
+
+% ========== Sections ==========
+\input{sections/introduction}
+\input{sections/literature_review}
+\input{sections/formulation}
+\input{sections/solution_methods}
+\input{sections/architecture}
+\input{sections/validation}
+% \input{sections/case_studies}       % Placeholder for user-defined cases
+\input{sections/conclusions}
+
+% ========== Acknowledgments ==========
+\section*{Acknowledgments}
+The authors gratefully acknowledge support from the Centro Nacional de
+Inteligencia Artificial (CENIA, FB210017), funded by the Chilean National
+Agency for Research and Development (ANID).
+% Add further acknowledgments as needed.
+
+% ========== References ==========
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+% ========== Biographies (optional for journal) ==========
+% \begin{IEEEbiography}[{\includegraphics[width=1in,clip]{figures/matus.jpg}}]%
+%   {Marcelo Matus~A.} received the ...
+% \end{IEEEbiography}
+
+\end{document}
