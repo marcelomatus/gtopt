@@ -29,3 +29,9 @@ CREATE_SUBDIRS = NO
 # Include all directories, files and namespaces in the documentation
 # Disable to include only explicitly documented objects
 M_SHOW_UNDOCUMENTED = YES
+
+# Suppress warnings for unresolved Markdown links (GitHub-flavored links
+# in README.md are not Doxygen \ref targets) and parameter mismatches.
+WARN_IF_UNDOCUMENTED = NO
+WARN_IF_DOC_ERROR = NO
+AUTOLINK_SUPPORT = NO

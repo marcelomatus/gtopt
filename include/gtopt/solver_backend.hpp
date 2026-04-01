@@ -191,8 +191,8 @@ public:
    * The default implementation is a no-op — backends that only support
    * FILE*-based logging via open_log/close_log need not override.
    *
-   * @param filename  Full path to the log file (without .log extension)
-   * @param level     Verbosity level (0 = off, >0 = enabled)
+   * The first argument is the full path to the log file (without .log
+   * extension); the second is the verbosity level (0 = off, >0 = enabled).
    */
   virtual void set_log_filename(const std::string& /*filename*/, int /*level*/)
   {

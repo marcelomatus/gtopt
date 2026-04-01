@@ -109,7 +109,7 @@ public:
 
   /**
    * @brief Checks if object is active in given stage
-   * @param stage_index The stage to check
+   * @param stage The stage to check
    * @return true if active in stage, false otherwise
    */
   template<typename StageLP>
@@ -119,9 +119,7 @@ public:
   }
 
   /**
-   * @brief Gets the wrapped object (explicit object syntax)
-   * @tparam Self CRTP self type
-   * @param self Reference to this object
+   * @brief Gets the wrapped object
    * @return Reference to the wrapped object
    */
 

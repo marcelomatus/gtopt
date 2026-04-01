@@ -213,8 +213,13 @@ public:
   ///
   /// @tparam SystemLPT  The SystemLP type (templated to avoid circular
   ///   include between storage_lp.hpp and system_lp.hpp).
-  /// @param sys  Current SystemLP (provides linear_interface and
+  /// @tparam SIdT       Strongly-typed object single-ID used for cross-phase
+  ///   element lookup.
+  /// @param sys          Current SystemLP (provides linear_interface and
   ///   prev_phase_sys for cross-phase lookups).
+  /// @param scenario     Current scenario LP object.
+  /// @param stage        Current stage LP object.
+  /// @param default_eini Initial energy/volume when no LP solution exists.
   /// @param sid  ObjectSingleId for this element, used to look up
   ///   the same storage element in the previous phase.
   template<typename SystemLPT, typename SIdT>

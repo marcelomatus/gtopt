@@ -48,11 +48,40 @@ docs/white_paper/
 
 ## Compilation
 
-### Using latexmk (recommended)
+### Using tectonic (recommended — no TeX distribution needed)
+
+Tectonic is a self-contained LaTeX engine that auto-downloads packages
+(IEEEtran, BibTeX styles, fonts) on first run.  No TeX Live or other
+distribution is required.
+
 ```bash
+# Install tectonic (one-time)
+curl -fsSL https://drop-sh.fullyjustified.net | sh -s -- --prefix ~/.local
+
+# Build the PDF
+cd docs/white_paper
+tectonic main.tex
+```
+
+### Using latexmk (alternative — requires TeX Live)
+```bash
+# Install TeX Live (Ubuntu/Debian)
+sudo apt-get install -y texlive-latex-base texlive-latex-recommended \
+  texlive-latex-extra texlive-publishers texlive-bibtex-extra \
+  texlive-science latexmk
+
 cd docs/white_paper
 latexmk -pdf main.tex
 ```
+
+### Using CMake
+```bash
+cmake -S docs/white_paper -B build-paper
+cmake --build build-paper
+# PDF at build-paper/main.pdf
+```
+
+CMake auto-detects tectonic (preferred) or latexmk.
 
 ### Manual compilation
 ```bash

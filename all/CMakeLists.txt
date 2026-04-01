@@ -49,9 +49,9 @@ Component options (all ON by default except docs)
   the m.css theme; disabled by default).
 
 ``GTOPT_BUILD_WHITE_PAPER``
-  Build the white paper PDF from LaTeX sources (requires ``latexmk``
-  and a TeX distribution with ``pdflatex`` and ``IEEEtran``; disabled
-  by default).
+  Build the white paper PDF from LaTeX sources.  Supports ``tectonic``
+  (self-contained, recommended) or ``latexmk`` + TeX Live.  Disabled
+  by default.
 
 ``ENABLE_TEST_COVERAGE``
   Instrument all C++ targets (unit tests, gtopt library, standalone binary)
@@ -94,7 +94,7 @@ option(GTOPT_BUILD_SCRIPTS     "Install the Python conversion scripts"          
 option(GTOPT_BUILD_WEBSERVICE  "Install the Next.js web service (requires npm)"      ON)
 option(GTOPT_BUILD_GUISERVICE  "Install the Flask GUI service (requires Python 3.10)" ON)
 option(GTOPT_BUILD_DOCS        "Build Doxygen documentation (needs internet)"        OFF)
-option(GTOPT_BUILD_WHITE_PAPER "Build white paper PDF (requires latexmk + TeX)"     OFF)
+option(GTOPT_BUILD_WHITE_PAPER "Build white paper PDF (tectonic or latexmk + TeX)"  OFF)
 option(ENABLE_TEST_COVERAGE    "Enable coverage instrumentation (unit + e2e tests)"  OFF)
 
 # ---- ccache ----

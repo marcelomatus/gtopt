@@ -73,8 +73,10 @@ public:
 
   /**
    * @brief Add junction constraints to the linear program
-   * @param sc System context containing model parameters
-   * @param lp Linear program to modify
+   * @param sc       System context containing model parameters
+   * @param scenario Current scenario LP object.
+   * @param stage    Current stage LP object.
+   * @param lp       Linear program to modify
    * @return true if successful, false otherwise
    */
   bool add_to_lp(const SystemContext& sc,

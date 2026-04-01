@@ -45,6 +45,7 @@ public:
    *
    * @param pprofile The profile object
    * @param ic Input context
+   * @param cname Class name for labeling columns/rows
    */
   explicit ProfileObjectLP(ProfileType pprofile,
                            InputContext& ic,
@@ -58,16 +59,16 @@ public:
   /**
    * @brief Add profile constraints to LP
    *
+   * @param cname Class name prefix for labeling
    * @param sc System context
    * @param scenario Scenario
    * @param stage Stage
    * @param lp Linear problem
-   * @param profile_type Profile type name ("spillover"/"unserved")
-   * @param element_col Element column index
+   * @param profile_name Profile type name ("spillover"/"unserved")
+   * @param element_cols Element column indices per block
    * @param capacity_col Capacity column index (if any)
    * @param stage_capacity Stage capacity value
    * @return true if successful
-   * @return false if failed
    */
   bool add_profile_to_lp(std::string_view cname,
                          const SystemContext& sc,
@@ -131,8 +132,9 @@ public:
   /**
    * @brief Add profile results to output
    *
+   * @param cname Class name prefix for labeling
    * @param out Output context
-   * @param profile_type Profile type name ("spillover"/"unserved")
+   * @param profile_name Profile type name ("spillover"/"unserved")
    * @return true if successful
    */
   bool add_profile_to_output(std::string_view cname,

@@ -278,7 +278,10 @@ public:
 
   /**
    * @brief Get a reference to an element by its ID (const version)
+   * @tparam Self Deduced type of the collection object (enables
+   * const/non-const).
    * @tparam ID The type of identifier to lookup
+   * @param self The collection object (deduced; supports const and non-const).
    * @param id The identifier to lookup
    * @return A const reference to the requested element
    * @throws std::out_of_range if the element is not found

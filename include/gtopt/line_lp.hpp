@@ -204,8 +204,19 @@ private:
    * variable, and the linking / loss-tracking constraints for one flow
    * direction of the quadratic loss model.
    *
-   * @param labels Label suffixes for this direction (positive_labels or
-   *               negative_labels)
+   * @param sc             System context providing scenario/stage data.
+   * @param scenario       Current scenario LP object.
+   * @param stage          Current stage LP object.
+   * @param block          Current block LP object.
+   * @param lp             Linear problem to add variables and rows to.
+   * @param sending_brow   Power-balance row for the sending bus.
+   * @param receiving_brow Power-balance row for the receiving bus.
+   * @param block_tmax     Maximum line flow for this block [MW].
+   * @param block_tcost    Flow cost coefficient for this block.
+   * @param loss           Stage-level loss model parameters.
+   * @param capacity_col   Optional capacity column for expansion constraints.
+   * @param labels         Label suffixes for this direction (positive_labels or
+   *                       negative_labels).
    */
   DirectionResult add_quadratic_flow_direction(
       SystemContext& sc,

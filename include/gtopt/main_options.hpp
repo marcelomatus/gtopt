@@ -204,10 +204,17 @@ template<typename T>
  * @param output_directory Optional output directory path
  * @param output_format Optional output format string
  * @param output_compression Optional compression codec string
+ * @param cut_directory Optional directory for SDDP cut files
+ * @param log_directory Optional directory for log/debug LP files
  * @param sddp_max_iterations Optional SDDP max iterations
  * @param sddp_convergence_tol Optional SDDP convergence tolerance
  * @param sddp_elastic_penalty Optional elastic penalty coefficient
  * @param sddp_elastic_mode Optional elastic filter mode string
+ * @param sddp_cut_coeff_mode Optional SDDP cut coefficient mode string
+ * @param sddp_num_apertures Optional number of SDDP apertures
+ * @param lp_debug Optional flag to enable LP debug output
+ * @param lp_compression Optional LP output compression codec string
+ * @param lp_coeff_ratio_threshold Optional threshold for LP coefficient ratio
  */
 inline void apply_cli_options(
     Planning& planning,  // NOLINT(misc-const-correctness)
@@ -320,17 +327,11 @@ inline void apply_cli_options(
   }
 }
 
-/**
- * @brief Apply command-line options from a MainOptions struct to a Planning
- * object
- *
- * Convenience overload that takes a @c MainOptions struct directly, delegating
- * to the individual-parameter overload.
- *
- * @param planning The Planning object to update
- * @param opts     The MainOptions containing the option overrides
- */
 /// @brief Emit a deprecation warning for a CLI option replaceable by --set.
+/// @param opt       The optional value to check (warning only if it has a
+/// value)
+/// @param cli_flag  The deprecated CLI flag name
+/// @param set_path  The --set key path that replaces it
 template<typename T>
 void warn_deprecated_cli(const std::optional<T>& opt,
                          std::string_view cli_flag,
@@ -366,6 +367,16 @@ inline void warn_deprecated_cli(const std::optional<std::string>& opt,
   }
 }
 
+/**
+ * @brief Apply command-line options from a MainOptions struct to a Planning
+ * object
+ *
+ * Convenience overload that takes a @c MainOptions struct directly, delegating
+ * to the individual-parameter overload.
+ *
+ * @param planning The Planning object to update
+ * @param opts     The MainOptions containing the option overrides
+ */
 inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 {
   // Emit deprecation warnings for options replaceable by --set
@@ -489,8 +500,11 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 /**
  * @brief Build LpBuildOptions from command-line parameters
  *
- * @param lp_names_level Optional LP naming level
- * @param matrix_eps Optional epsilon tolerance for matrix coefficients
+ * @param lp_names_level    Optional LP naming level
+ * @param matrix_eps        Optional epsilon tolerance for matrix coefficients
+ * @param compute_stats     Whether to compute LP statistics (default false)
+ * @param lp_solver         Optional solver name to use
+ * @param row_equilibration Optional flag to enable row equilibration scaling
  * @return LpBuildOptions configured according to the parameters
  */
 [[nodiscard]] inline LpBuildOptions make_lp_build_options(

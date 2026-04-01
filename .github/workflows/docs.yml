@@ -101,3 +101,32 @@ jobs:
         with:
           name: doxygen-html
           path: build/doxygen/html/
+
+  build-white-paper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tectonic
+        run: |
+          curl -fsSL https://drop-sh.fullyjustified.net \
+            | sh -s -- --prefix "$HOME/.local"
+          # Installer may drop binary in cwd on some versions
+          if [ -f tectonic ]; then
+            mv tectonic "$HOME/.local/bin/tectonic"
+          fi
+          chmod +x "$HOME/.local/bin/tectonic"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Build white paper PDF
+        run: |
+          cd docs/white_paper
+          tectonic main.tex
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: white-paper-pdf
+          path: docs/white_paper/main.pdf

@@ -28,6 +28,7 @@ class LinearInterface;
 [[nodiscard]] std::string zstd_lp_file_inline(const std::string& src_path);
 
 /// Compress a file using the named codec or auto-cascade.
+/// @param src_path        Path to the source file to compress.
 /// @param lp_compression  "none", "", "gzip", "zstd", "lz4", "bzip2", "xz"
 [[nodiscard]] std::string compress_lp_file(
     const std::string& src_path, const std::string& lp_compression = {});

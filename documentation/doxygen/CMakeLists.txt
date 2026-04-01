@@ -13,6 +13,7 @@ list(APPEND CMAKE_MODULE_PATH
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/CPM.cmake")
 
 CPMAddPackage("gh:mosra/m.css#a0d292ec311b97fefd21e93cdefb60f88d19ede6")
+include(PatchMcss)
 if(NOT TARGET gtopt::gtopt)
   CPMAddPackage(NAME gtopt SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
 endif()

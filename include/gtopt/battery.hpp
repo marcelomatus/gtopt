@@ -9,8 +9,7 @@
  * systems (BESS) in power system planning models. A battery stores and
  * releases electrical energy between time blocks, subject to capacity and
  * efficiency constraints. It is coupled to the electrical network through a
- * @ref Converter that links it to a discharge @ref Generator and a charge
- * @ref Demand.
+ * Converter that links it to a discharge Generator and a charge Demand.
  *
  * ### Standalone battery (unified definition)
  *

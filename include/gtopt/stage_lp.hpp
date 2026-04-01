@@ -51,11 +51,12 @@ public:
   /**
    * @brief Constructs a StageLP from a Stage and a collection of blocks
    *
-   * @tparam Blocks Container type for BlockLP objects
-   * @param pstage The stage definition
-   * @param pblocks Collection of blocks
+   * @param stage               The stage definition
+   * @param blocks              Collection of blocks
    * @param annual_discount_rate Annual discount rate for time value
    * calculations
+   * @param stage_index         Index of this stage in the parent container
+   * @param phase_index         Index of the parent phase
    */
   explicit StageLP(Stage stage,
                    std::span<const Block> blocks = {},

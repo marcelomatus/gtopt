@@ -76,10 +76,11 @@ public:
   /**
    * @brief Construct a PhaseLP from phase definition and stages
    *
-   * @tparam StageLPs  Type of stages container (defaults to vector<StageLP>)
-   * @param phase      Phase definition containing first_stage/count_stage
-   * @param all_stages Complete collection of all available stages
-   * @param index      Index of this phase in parent container
+   * @param phase        Phase definition containing first_stage/count_stage
+   * @param options      Planning options (provides annual_discount_rate)
+   * @param stages       Complete collection of all available stages
+   * @param blocks       Complete collection of all available blocks
+   * @param phase_index  Index of this phase in parent container
    *
    * @note The phase will contain stages[first_stage..first_stage+count_stage-1]
    */

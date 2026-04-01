@@ -58,8 +58,10 @@ public:
 
   /**
    * @brief Adds battery variables and constraints to the linear problem
-   * @param sc System context containing current state
-   * @param lp Linear problem to add variables and constraints to
+   * @param sc       System context containing current state
+   * @param scenario Current scenario LP object.
+   * @param stage    Current stage LP object.
+   * @param lp       Linear problem to add variables and constraints to
    * @return True if successful, false otherwise
    */
   bool add_to_lp(SystemContext& sc,

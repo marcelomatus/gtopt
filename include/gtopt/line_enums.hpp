@@ -29,9 +29,9 @@ namespace gtopt
  * - `receiver` (0, default): sender = −f, receiver = +(1 − λ)f.
  *   PerdEms=0, PerdRec=1.
  * - `sender` (1): sender = −(1 + λ)f, receiver = +f.
- *   PerdEms=1, PerdRec=0.  (PLP `FPerdLin = 'E'`)
+ *   PerdEms=1, PerdRec=0.  (PLP FPerdLin = 'E')
  * - `split` (2): sender = −(1 + λ/2)f, receiver = +(1 − λ/2)f.
- *   PerdEms=0.5, PerdRec=0.5.  (PLP `FPerdLin = 'M'`)
+ *   PerdEms=0.5, PerdRec=0.5.  (PLP FPerdLin = 'M')
  */
 enum class LossAllocationMode : uint8_t
 {

@@ -60,16 +60,15 @@ public:
   SceneLP() = default;
 
   /**
-   * @brief Construct a SceneLP from a Scene and a collection of ScenarioLP
+   * @brief Construct a SceneLP from a Scene and a collection of Scenario
    * elements
    *
-   * @tparam Scenarios Container type for ScenarioLP elements
-   * @param pscene The Scene object
-   * @param pscenarios Collection of ScenarioLP elements
+   * @param scene     The Scene object
+   * @param scenarios Collection of Scenario elements
+   * @param index     Index of this scene in the parent container
    *
    * Initializes the SceneLP with the given Scene and extracts the relevant
    * ScenarioLP elements based on the Scene's first_scenario and count_scenario.
-   * Also initializes scenario indexes with sequential values.
    */
   explicit SceneLP(Scene scene,
                    std::span<const Scenario> scenarios,

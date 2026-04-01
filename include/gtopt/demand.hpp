@@ -111,6 +111,8 @@ struct Demand
    * @brief Sets the demand attributes from a DemandAttrs object
    *
    * @tparam T Type of attributes (deduced automatically)
+   * @param self  The demand object to update (deduced; supports
+   * const/non-const).
    * @param attrs The attribute object to transfer values from
    * @return Reference to the updated demand object
    */
