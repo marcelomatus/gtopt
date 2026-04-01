@@ -30,13 +30,53 @@
 
 Fig.~\ref{fig:arch_layers} illustrates the layered architecture.
 
-% Placeholder for architecture diagram
-% \begin{figure}[t]
-%   \centering
-%   \includegraphics[width=\columnwidth]{figures/architecture.pdf}
-%   \caption{gtopt layered architecture.}
-%   \label{fig:arch_layers}
-% \end{figure}
+\begin{figure}[t]
+  \centering
+  \begin{tikzpicture}[
+    >=Stealth,
+    layer/.style={draw, thick, rounded corners=3pt, minimum width=7cm,
+      minimum height=1.1cm, font=\small, align=center},
+    sublbl/.style={font=\tiny, text=black!60},
+    arr/.style={->, thick, gray!70},
+  ]
+    % Layer 4 (bottom): Data Layer
+    \node[layer, fill=green!12] (data) at (0,0)
+      {\textbf{Data Layer}};
+    \node[sublbl, below=-0.15cm of data]
+      {JSON \quad Parquet/CSV \quad Schedule Resolution};
+
+    % Layer 3: Model Layer
+    \node[layer, fill=blue!10, above=0.5cm of data] (model)
+      {\textbf{Model Layer}};
+    \node[sublbl, below=-0.15cm of model]
+      {Planning $\to$ System $\to$ Components};
+
+    % Layer 2: LP Assembly Layer
+    \node[layer, fill=orange!12, above=0.5cm of model] (lp)
+      {\textbf{LP Assembly Layer}};
+    \node[sublbl, below=-0.15cm of lp]
+      {PlanningLP $\to$ SimulationLP $\to$ Component LPs};
+
+    % Layer 1 (top): Solver Layer
+    \node[layer, fill=red!10, above=0.5cm of lp] (solver)
+      {\textbf{Solver Layer}};
+    \node[sublbl, below=-0.15cm of solver]
+      {CLP/CBC \quad CPLEX \quad HiGHS \quad (pluggable)};
+
+    % Arrows between layers
+    \draw[arr] (data.north) -- (model.south);
+    \draw[arr] (model.north) -- (lp.south);
+    \draw[arr] (lp.north) -- (solver.south);
+
+    % Side labels
+    \node[font=\tiny, rotate=90, anchor=south, gray]
+      at (-3.9,1.2) {Data flow};
+    \draw[->, thin, gray] (-3.9,0) -- (-3.9,3.6);
+  \end{tikzpicture}
+  \caption{\gtopt{} layered architecture: data ingestion, model
+    construction, LP assembly, and pluggable solver backends.}
+  \label{fig:arch_layers}
+\end{figure}
 
 The software is organized into four layers:
 
