@@ -1,0 +1,61 @@
+# =============================================================================
+# Sample .gtopt.conf — place at ~/.gtopt.conf or ./.gtopt.conf
+#
+# Search order:
+#   1. $GTOPT_CONFIG environment variable (exact path)
+#   2. ./.gtopt.conf  (current working directory)
+#   3. ~/.gtopt.conf  (home directory)
+#
+# CLI flags always take precedence over config values.
+# =============================================================================
+
+[gtopt]
+# solver            = cplex       # LP solver backend: clp, cbc, cplex, highs
+# algorithm         = barrier     # default, primal, dual, barrier
+# threads           = 4
+# output-format     = parquet
+# output-compression = zstd
+
+# =============================================================================
+# Per-solver optimal defaults
+#
+# Each [solver.<name>] section configures a specific LP backend.
+# These settings are applied on top of the backend's built-in optimal
+# defaults and below any explicit CLI/JSON solver_options.
+#
+# Precedence (highest wins):
+#   1. CLI --set solver_options.<field>=<value>
+#   2. JSON planning file solver_options
+#   3. .gtopt.conf [solver.<name>] section (below)
+#   4. Backend optimal_options() (hardcoded in plugin)
+# =============================================================================
+
+[solver.cplex]
+# CPLEX is fastest with barrier + default scaling.
+# Opportunistic parallel and primal crossover are set internally by the plugin.
+algorithm           = barrier
+threads             = 4
+presolve            = true
+scaling             = automatic
+max-fallbacks       = 2
+# optimal-eps       = 1e-8
+# feasible-eps      = 1e-8
+# barrier-eps       = 1e-8
+# time-limit        = 300.0
+
+[solver.highs]
+# HiGHS is fastest when it chooses its own algorithm (typically simplex).
+# Forcing barrier (IPM) on HiGHS is ~2x slower than simplex.
+algorithm           = default
+threads             = 4
+presolve            = true
+scaling             = automatic
+max-fallbacks       = 2
+
+[solver.clp]
+# CLP simplex is single-threaded; dual simplex is the fastest algorithm.
+algorithm           = dual
+threads             = 1
+presolve            = true
+scaling             = automatic
+max-fallbacks       = 2
