@@ -15,7 +15,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/../cmake/CPM.cmake")
 CPMAddPackage("gh:mosra/m.css#a0d292ec311b97fefd21e93cdefb60f88d19ede6")
 
 include(PatchMcss)
-patch_mcss_skip_concepts("${m.css_SOURCE_DIR}")
+patch_mcss("${m.css_SOURCE_DIR}")
 
 # When built as part of the all/ super-project the gtopt target already
 # exists and gtopt_VERSION is set.  When built standalone (e.g. the Docs CI
