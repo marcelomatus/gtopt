@@ -20,63 +20,65 @@ The GTEP problem is defined over the following sets:
   \item $\setL$: transmission lines, indexed by $\ell$, connecting buses
         $a_\ell$ and $b_\ell$
   \item $\setE$: batteries (energy storage), indexed by $e$
+  \item $\mathcal{V}$: converters (battery$\leftrightarrow$grid), indexed by $v$
   \item $\setJ$: hydraulic junctions, indexed by $j$
   \item $\setR$: reservoirs, indexed by $r$, with junction $j_r$
   \item $\setW$: waterways, indexed by $w$
   \item $\setH$: turbines, indexed by $h$
   \item $\setZ$: reserve zones, indexed by $z$
+  \item $\mathcal{P}$: reserve provisions, indexed by $p$
 \end{itemize}
 
 \begin{figure}[t]
   \centering
   \begin{tikzpicture}[
-    scenbox/.style={draw, rounded corners=6pt, fill=blue!5,
-      minimum width=7.6cm, inner sep=4pt},
-    stagebox/.style={draw, rounded corners=4pt, fill=blue!10,
-      minimum width=3.4cm, inner sep=3pt},
-    blockbox/.style={draw, rounded corners=2pt, fill=blue!18,
-      minimum width=0.55cm, minimum height=0.55cm,
-      font=\scriptsize, inner sep=1pt},
-    lbl/.style={font=\scriptsize\itshape, text=black!70},
+    level 1/.style={sibling distance=22mm, level distance=14mm},
+    level 2/.style={sibling distance=11mm, level distance=14mm},
+    scen/.style={draw, rounded corners=3pt, fill=blue!12,
+      font=\footnotesize, minimum width=14mm, minimum height=6mm},
+    stg/.style={draw, rounded corners=2pt, fill=orange!15,
+      font=\footnotesize, minimum width=12mm, minimum height=6mm},
+    blk/.style={draw, fill=gray!15,
+      font=\scriptsize, minimum width=7mm, minimum height=5mm},
+    edge from parent/.style={draw, -{Stealth[length=3pt]}, thick},
+    root/.style={draw, rounded corners=4pt, fill=black!8,
+      font=\footnotesize\bfseries, minimum width=18mm,
+      minimum height=7mm},
   ]
-    % --- Scenario 1 ---
-    \node[blockbox] (s1t1b1) at (0,0) {$b_1$};
-    \node[blockbox, right=1pt of s1t1b1] (s1t1b2) {$b_2$};
-    \node[blockbox, right=1pt of s1t1b2] (s1t1b3) {$b_3$};
-    \node[stagebox, fit=(s1t1b1)(s1t1b3), label={[lbl]above:{Stage $t{=}1$, $\delta_1$}}] (s1t1) {};
-
-    \node[blockbox, right=12pt of s1t1b3] (s1t2b1) {$b_1$};
-    \node[blockbox, right=1pt of s1t2b1] (s1t2b2) {$b_2$};
-    \node[blockbox, right=1pt of s1t2b2] (s1t2b3) {$b_3$};
-    \node[blockbox, right=1pt of s1t2b3] (s1t2b4) {$b_4$};
-    \node[stagebox, fit=(s1t2b1)(s1t2b4), label={[lbl]above:{Stage $t{=}2$, $\delta_2$}}] (s1t2) {};
-
-    \node[scenbox, fit=(s1t1)(s1t2),
-      label={[lbl]above:{Scenario $s{=}1$, $\pi_1$}}] (sc1) {};
-
-    % --- Scenario 2 ---
-    \node[blockbox, below=28pt of s1t1b1] (s2t1b1) {$b_1$};
-    \node[blockbox, right=1pt of s2t1b1] (s2t1b2) {$b_2$};
-    \node[blockbox, right=1pt of s2t1b2] (s2t1b3) {$b_3$};
-    \node[stagebox, fit=(s2t1b1)(s2t1b3), label={[lbl]above:{Stage $t{=}1$}}] (s2t1) {};
-
-    \node[blockbox, right=12pt of s2t1b3] (s2t2b1) {$b_1$};
-    \node[blockbox, right=1pt of s2t2b1] (s2t2b2) {$b_2$};
-    \node[blockbox, right=1pt of s2t2b2] (s2t2b3) {$b_3$};
-    \node[blockbox, right=1pt of s2t2b3] (s2t2b4) {$b_4$};
-    \node[stagebox, fit=(s2t2b1)(s2t2b4), label={[lbl]above:{Stage $t{=}2$}}] (s2t2) {};
-
-    \node[scenbox, fit=(s2t1)(s2t2),
-      label={[lbl]above:{Scenario $s{=}2$, $\pi_2$}}] (sc2) {};
-
-    % --- Duration label ---
-    \draw[decorate, decoration={brace, amplitude=3pt, mirror}]
-      (s1t1b1.south west) -- (s1t1b1.south east)
-      node[midway, below=3pt, font=\tiny] {$\Delta_b$};
+    \node[root] {Problem}
+      child { node[scen] {$s_1\;(\pi_1)$}
+        child { node[stg] {$t_1\;(\delta_1)$}
+          child { node[blk] {$b_1$} }
+          child { node[blk] {$b_2$} }
+        }
+        child { node[stg] {$t_2\;(\delta_2)$}
+          child { node[blk] {$b_1$} }
+          child { node[blk] {$b_2$} }
+          child { node[blk] {$b_3$} }
+        }
+      }
+      child { node[scen] {$s_2\;(\pi_2)$}
+        child { node[stg] {$t_1$}
+          child { node[blk] {$b_1$} }
+          child { node[blk] {$b_2$} }
+        }
+        child { node[stg] {$t_2$}
+          child { node[blk] {$b_1$} }
+          child { node[blk] {$b_2$} }
+          child { node[blk] {$b_3$} }
+        }
+      };
+    % Level labels on the right
+    \node[anchor=west, font=\scriptsize\itshape, text=black!50]
+      at (2.9,0) {Scenarios $\setS$};
+    \node[anchor=west, font=\scriptsize\itshape, text=black!50]
+      at (2.9,-1.4) {Stages $\setT$};
+    \node[anchor=west, font=\scriptsize\itshape, text=black!50]
+      at (2.9,-2.8) {Blocks $\setB_t\;(\Delta_b)$};
   \end{tikzpicture}
-  \caption{Time hierarchy: scenarios $\setS$ contain stages $\setT$,
-    each with blocks $\setB_t$.  Probabilities $\pi_s$, discount factors
-    $\delta_t$, and block durations $\Delta_b$ weight the objective.}
+  \caption{Three-level time hierarchy.  The problem decomposes into
+    scenarios~$s$ (probability~$\pi_s$), stages~$t$ (discount
+    factor~$\delta_t$), and blocks~$b$ (duration~$\Delta_b$).}
   \label{fig:time_hierarchy}
 \end{figure}
 
@@ -88,9 +90,9 @@ The GTEP problem is defined over the following sets:
     & \text{generator output [MW]} \label{eq:pgen} \\
   \ell_{d,s,t,b} &\in [0, \overline{\ell}_d]
     & \text{served demand [MW]} \label{eq:load} \\
-  f_{d,s,t,b}  &\geq 0
+  q_{d,s,t,b}  &\geq 0
     & \text{unserved demand [MW]} \label{eq:fail} \\
-  \phi_{\ell,s,t,b} &\in [-\overline{\phi}^{ba}_\ell, \overline{\phi}^{ab}_\ell]
+  f_{\ell,s,t,b} &\in [-\overline{F}^{ba}_\ell, \overline{F}^{ab}_\ell]
     & \text{line flow [MW]} \label{eq:flow} \\
   \theta_{n,s,t,b} &\in \R
     & \text{voltage angle [rad]} \label{eq:theta}
@@ -125,29 +127,33 @@ where $\delta_t = (1+r)^{-\tau_t/8760}$ is the discount factor with annual
 rate $r$ and $\tau_t$ the cumulative hours to stage $t$.
 
 The operational cost for each $(s,t,b)$ is:
-\begin{equation}
+\begin{multline}
 \label{eq:opcost}
 C^\text{op}_{s,t,b} = \sum_{g \in \setG} c_g \, p_{g,s,t,b}
-  + \sum_{d \in \setD} c^f_d \, f_{d,s,t,b}
-  + \sum_{\ell \in \setL} c^\phi_\ell \, |\phi_{\ell,s,t,b}|
-\end{equation}
+  + \sum_{d \in \setD} c^f_d \, q_{d,s,t,b} \\
+  + \sum_{\ell \in \setL} c_\ell
+    (f^+_{\ell,s,t,b} + f^-_{\ell,s,t,b})
+\end{multline}
 
 The investment cost for stage $t$ is:
-\begin{equation}
+\begin{multline}
 \label{eq:invcost}
-C^\text{inv}_t = \sum_{g \in \setG} \kappa_g \, m_{g,t}
-  + \sum_{d \in \setD} \kappa_d \, m_{d,t}
-  + \sum_{\ell \in \setL} \kappa_\ell \, m_{\ell,t}
-  + \sum_{e \in \setE} \kappa_e \, m_{e,t}
-\end{equation}
-where $c_g$ is the variable generation cost [\$/MWh], $c^f_d$ is the
-demand failure penalty [\$/MWh], $c^\phi_\ell$ is the transmission cost
-[\$/MWh], and $\kappa_{(\cdot)}$ is the annualized investment cost
-[\$/year] for each component.  All objective coefficients are divided by a
+C^\text{inv}_t = \sum_{g \in \setG} \omega^\text{cap}_{g,t} m_{g,t}
+  + \sum_{d \in \setD} \omega^\text{cap}_{d,t} m_{d,t} \\
+  + \sum_{\ell \in \setL} \omega^\text{cap}_{\ell,t} m_{\ell,t}
+  + \sum_{e \in \setE} \omega^\text{cap}_{e,t} m_{e,t}
+\end{multline}
+where $\omega^\text{cap}_{(\cdot),t} = K_{(\cdot)} \delta_t T_t /
+\sigma$ is the weighted investment cost coefficient,
+$c_g$ is the variable generation cost [\$/MWh], $c^f_d$ is the
+demand failure penalty [\$/MWh], $c_\ell$ is the transmission cost
+[\$/MWh], $K_{(\cdot)}$ is the annualized investment cost
+[\$/year] per module for each component, and $T_t$ is the stage
+duration [h].  All objective coefficients are divided by a
 scaling factor $\sigma$ (\texttt{scale\_objective}, default 1000) to
-improve solver numerical conditioning.  Concretely, each LP cost
-coefficient is weighted by $\omega_{s,t,b} = \pi_s \delta_t \Delta_b /
-\sigma$, so the reported objective equals $z/\sigma$.
+improve solver numerical conditioning.  Concretely, each operational LP
+cost coefficient is weighted by $\omega_{s,t,b} = \pi_s \delta_t
+\Delta_b / \sigma$, so the reported objective equals $z/\sigma$.
 
 \subsection{Bus Power Balance}
 
@@ -156,19 +162,32 @@ At every bus $n$, for each $(s,t,b)$:
 \label{eq:balance}
 \sum_{\substack{g \in \setG \\ n_g = n}} (1{-}\lambda_g) p_{g,s,t,b}
 - \sum_{\substack{d \in \setD \\ n_d = n}}
-  (1{+}\lambda_d)(\ell_{d,s,t,b} + f_{d,s,t,b}) \\
-+ \sum_{\ell \in \setL} A_{n,\ell} \, \phi_{\ell,s,t,b} = 0
+  (1{+}\lambda_d)\,\ell_{d,s,t,b} \\
++ \sum_{\ell \in \setL} A_{n,\ell} \, f_{\ell,s,t,b} = 0
 \end{multline}
 where $\lambda_g, \lambda_d$ are injection and withdrawal loss factors,
 respectively.  The line flow terms use directional contributions rather
 than a simple incidence matrix: for each line~$\ell$ from bus~$a_\ell$
-to~$b_\ell$, the sending bus sees $-\phi^+_\ell$ (or $+(1-\lambda_\ell)
-\phi^-_\ell$ when losses are modeled) and the receiving bus sees
-$+(1-\lambda_\ell)\phi^+_\ell$ (or $-\phi^-_\ell$), where $\lambda_\ell$
+to~$b_\ell$, the sending bus sees $-f^+_\ell$ (or $+(1-\lambda_\ell)
+f^-_\ell$ when losses are modeled) and the receiving bus sees
+$+(1-\lambda_\ell)f^+_\ell$ (or $-f^-_\ell$), where $\lambda_\ell$
 is the line loss factor.  When $\lambda_\ell=0$, a single bidirectional
 variable suffices and the incidence reduces to $A_{n,\ell} \in
 \{+1,-1,0\}$.  The dual of~\eqref{eq:balance} is the locational marginal
 price (LMP) at bus~$n$.
+
+\subsection{Demand Balance}
+
+When demand curtailment is allowed, served and unserved demand sum to the
+scheduled load:
+\begin{equation}
+\label{eq:demand_balance}
+\ell_{d,s,t,b} + q_{d,s,t,b} = \overline{\ell}_{d,t,b}
+\quad \forall\; d, s, t, b
+\end{equation}
+where $\overline{\ell}_{d,t,b}$ is the scheduled demand at block~$b$,
+incorporating any demand profile scaling.  When curtailment is disabled,
+the load is fixed: $\ell_{d,s,t,b} = \overline{\ell}_{d,t,b}$.
 
 \subsection{DC Power Flow (Kirchhoff Constraints)}
 
@@ -176,7 +195,7 @@ When \texttt{use\_kirchhoff} is enabled, for each line $\ell$ and
 $(s,t,b)$:
 \begin{equation}
 \label{eq:kirchhoff}
-\phi_{\ell,s,t,b} = \frac{V_\ell^2}{X_\ell}
+f_{\ell,s,t,b} = \frac{V_\ell^2}{X_\ell}
   \left(\theta_{a_\ell,s,t,b} - \theta_{b_\ell,s,t,b}\right)
 \end{equation}
 where $X_\ell$ is the line reactance [$\Omega$] and $V_\ell$ is the
@@ -187,17 +206,17 @@ for numerical conditioning: $\theta^\text{scaled} = \sigma_\theta \cdot
 
 Line flow is bounded by transfer capacities:
 \begin{equation}
--\overline{\phi}^{ba}_\ell \leq \phi_{\ell,s,t,b}
-  \leq \overline{\phi}^{ab}_\ell
+-\overline{F}^{ba}_\ell \leq f_{\ell,s,t,b}
+  \leq \overline{F}^{ab}_\ell
 \end{equation}
 
 \paragraph{Transmission losses.}
 When line losses are enabled ($\lambda_\ell > 0$), separate forward and
-reverse flow variables $\phi^+_\ell, \phi^-_\ell \geq 0$ replace the
+reverse flow variables $f^+_\ell, f^-_\ell \geq 0$ replace the
 single bidirectional variable.  The receiving bus sees only
 $(1-\lambda_\ell)$ of the dispatched power, so losses are allocated at
 the receiving end.  The Kirchhoff constraint~\eqref{eq:kirchhoff} then
-uses $\phi^+_\ell - \phi^-_\ell$ in place of the single~$\phi_\ell$.
+uses $f^+_\ell - f^-_\ell$ in place of the single~$f_\ell$.
 
 \paragraph{Transformer model.}
 For tap-changing and phase-shifting transformers, the Kirchhoff
@@ -205,31 +224,35 @@ constraint generalizes to:
 \begin{equation}
 \label{eq:transformer}
 -\theta_{a_\ell} + \theta_{b_\ell}
-  + (\tau_\ell \chi_\ell)(\phi^+_\ell - \phi^-_\ell)
-  = -\sigma_\theta \, \varphi_{\ell,\text{rad}}
+  + (\tau_\ell \chi_\ell)(f^+_\ell - f^-_\ell)
+  = -\sigma_\theta \, \psi_{\ell}
 \end{equation}
 where $\tau_\ell$ is the off-nominal tap ratio (default~1),
 $\chi_\ell = \sigma_\theta X_\ell / V_\ell^2$ is the scaled reactance,
-and $\varphi_{\ell,\text{rad}}$ is the phase-shift angle in radians.
-When $\tau_\ell = 1$ and $\varphi_\ell = 0$,~\eqref{eq:transformer}
+and $\psi_\ell$ is the phase-shift angle [rad].
+When $\tau_\ell = 1$ and $\psi_\ell = 0$,~\eqref{eq:transformer}
 reduces to~\eqref{eq:kirchhoff}.
 
 \subsection{Battery Energy Storage}
 
 State-of-charge balance for battery $e$ between consecutive blocks:
-\begin{equation}
+\begin{multline}
 \label{eq:soc_balance}
-e_{e,s,t,b} = e_{e,s,t,b-1}
+e_{e,s,t,b} = e_{e,s,t,b-1}(1 - \mu_e^h \Delta_b) \\
   + p^\text{in}_{e,s,t,b} \cdot \eta^\text{in}_e \cdot \Delta_b
   - p^\text{out}_{e,s,t,b} \cdot \Delta_b / \eta^\text{out}_e
-\end{equation}
+\end{multline}
 where $\eta^\text{in}_e$ and $\eta^\text{out}_e$ are charge and discharge
-efficiencies, and $p^\text{in}, p^\text{out}$ are charge and discharge
-power [MW].  Initial SoC $e_{e,\cdot,\cdot,0} = e^\text{ini}_e$ is an
-equality constraint in the first stage.
+efficiencies, $p^\text{in}, p^\text{out}$ are charge and discharge
+power [MW], and $\mu_e^h = \mu_e / 8760$ is the hourly self-discharge
+rate derived from the annual loss rate~$\mu_e$.
+Initial SoC $e_{e,\cdot,\cdot,0} = e^\text{ini}_e$ is an
+equality constraint in the first stage; the final SoC of stage~$t$
+links to the initial SoC of stage~$t{+}1$.
 
 \begin{figure}[t]
   \centering
+  \resizebox{\columnwidth}{!}{%
   \begin{tikzpicture}[
     >=Stealth,
     axis/.style={->, thick},
@@ -292,9 +315,9 @@ equality constraint in the first stage.
     \draw[{Stealth[length=3pt]}-, thin, gray]
       (5.1,1.5) -- (5.8,2.2)
       node[right, font=\tiny] {evening peak};
-  \end{tikzpicture}
-  \caption{Battery SoC over 24~blocks: charge during solar hours
-    (green), discharge during evening peak (red).}
+  \end{tikzpicture}}%
+  \caption{Battery SoC over 24~blocks: charge during solar hours (green),
+    discharge during evening peak (red).}
   \label{fig:battery_soc}
 \end{figure}
 
@@ -310,22 +333,22 @@ p_{g,s,t,b} &= \rho_v \cdot p^\text{out}_{e,s,t,b} \\
 \ell_{d,s,t,b} &= \rho_v \cdot p^\text{in}_{e,s,t,b}
 \end{align}
 When the converter has a capacity limit~$\overline{C}_v$, a joint bound
-applies: $p_{g,s,t,b} + \ell_{d,s,t,b} \leq \overline{C}_{v,t}$.
+applies: $p_{g,s,t,b} + \ell_{d,s,t,b} \leq \bar{C}_{v,t}$.
 Converter capacity is expandable using the same modular framework
 as~\eqref{eq:capacity}.
 
 \subsection{Hydro Cascade}
 
 For each junction $j$ with reservoir $r$, the water balance is:
-\begin{equation}
+\begin{multline}
 \label{eq:hydro_balance}
-v_{r,s,t,b} = v_{r,s,t,b-1}
-  + \alpha_r \Delta_b \!\left(
+v_{r,s,t,b} = v_{r,s,t,b-1} \\
+  + \alpha_r \Delta_b \!\Bigl(
     \textstyle\sum_{w \in \text{in}(j)} q_{w}
     - \textstyle\sum_{w \in \text{out}(j)} q_{w}
     + F_j
-  \right)
-\end{equation}
+  \Bigr)
+\end{multline}
 where $q_w$ is the waterway discharge [m$^3$/s], $F_j$ is the exogenous
 inflow at junction $j$, and $\alpha_r = 0.0036$ converts flow rates to
 volume increments: since 1~m$^3$/s flowing for 1~hour equals
@@ -441,14 +464,14 @@ extension selected by the last known volume.
 Installed capacity evolves as:
 \begin{equation}
 \label{eq:capacity}
-C_{g,t} = C_{g,t-1}(1-\xi_g) + M_g \cdot m_{g,t}
+\bar{C}_{g,t} = \bar{C}_{g,t-1}(1-\xi_{g,t}) + M_g \cdot m_{g,t}
 \end{equation}
-where $C_{g,0}$ is the initial installed capacity, $\xi_g$ is the annual
-derating factor (\texttt{annual\_derating}), $M_g$ is the capacity per
-expansion module (\texttt{expcap}), and $m_{g,t}$ is the number of modules
-built.  The generator output is bounded by the installed capacity:
+where $\bar{C}_{g,0}$ is the initial installed capacity, $\xi_{g,t}$ is
+the stage derating factor, $M_g$ is the capacity per expansion module
+(\texttt{expcap}), and $m_{g,t}$ is the number of modules built.  The
+generator output is bounded by the installed capacity:
 \begin{equation}
-p_{g,s,t,b} \leq C_{g,t}
+p_{g,s,t,b} \leq \bar{C}_{g,t}
 \end{equation}
 Analogous expansion constraints apply to demands, lines, batteries, and
 converters.
@@ -460,7 +483,7 @@ irradiance or wind availability), the output is forced to follow the
 profile:
 \begin{equation}
 \label{eq:profile}
-p_{g,s,t,b} + s_{g,s,t,b} = \phi_g(s,t,b) \cdot C_{g,t}
+p_{g,s,t,b} + s_{g,s,t,b} = \phi_g(s,t,b) \cdot \bar{C}_{g,t}
 \end{equation}
 where $\phi_g(s,t,b) \in [0,1]$ is the per-block capacity factor and
 $s_{g,s,t,b} \geq 0$ is the curtailed (spilled) generation.  The
@@ -486,15 +509,16 @@ $E_d^\text{min}$ [MWh] is the stage energy requirement.
 For each reserve zone $z$ and $(s,t,b)$:
 \begin{equation}
 \label{eq:reserve_up}
-\sum_{g \in \mathcal{P}_z} u^\text{up}_{g,s,t,b}
-  + u^\text{fail,up}_{z,s,t,b}
+\sum_{p \in \mathcal{P}_z} \gamma_{p,t} \, r^\text{up}_{p,s,t,b}
+  + q^\text{up}_{z,s,t,b}
   \geq R^\text{up}_{z,s,t,b}
 \end{equation}
-where $u^\text{up}_{g,s,t,b}$ is the up-reserve provision from generator
-$g$, $u^\text{fail,up}_{z,s,t,b}$ is unserved reserve, and
+where $r^\text{up}_{p,s,t,b}$ is the up-reserve provision from
+provision~$p$, $\gamma_{p,t}$ is the provision factor (typically~1),
+$q^\text{up}_{z,s,t,b}$ is unserved reserve, and
 $R^\text{up}_{z,s,t,b}$ is the zone requirement.  A symmetric constraint
 exists for down-reserve.  Reserve provision is bounded by the generator's
-headroom: $u^\text{up}_{g,s,t,b} \leq C_{g,t} - p_{g,s,t,b}$.
+headroom: $p_{g,s,t,b} + r^\text{up}_{p,s,t,b} \leq \bar{C}_{g,t}$.
 
 \subsection{Constraint Summary}
 
@@ -510,20 +534,21 @@ formulation.
 \toprule
 \textbf{\#} & \textbf{Constraint} & \textbf{Eq.} & $\boldsymbol{\forall}$ \\
 \midrule
-C1  & Bus power balance             & \eqref{eq:balance}       & $n,s,t,b$ \\
-C2  & Kirchhoff voltage law         & \eqref{eq:kirchhoff}     & $\ell,s,t,b$ \\
-C3  & Generator output bounds       & \eqref{eq:pgen}          & $g,s,t,b$ \\
-C4  & Capacity expansion            & \eqref{eq:capacity}      & $g,t$ \\
-C5  & Generator profile             & \eqref{eq:profile}       & $g,s,t,b$ \\
-C6  & Demand min.\ energy           & \eqref{eq:min_energy}    & $d,s,t$ \\
-C7  & Line capacity                 & ---                      & $\ell,s,t,b$ \\
-C8  & Battery SoC                   & \eqref{eq:soc_balance}   & $e,s,t,b$ \\
-C9  & Converter coupling            & \eqref{eq:conv_discharge}& $v,s,t,b$ \\
-C10 & Reserve requirements          & \eqref{eq:reserve_up}    & $z,s,t,b$ \\
-C11 & Reserve--generator coupling   & ---                      & $p,s,t,b$ \\
-C12 & Hydro water balance           & \eqref{eq:hydro_balance} & $j,s,t,b$ \\
-C13 & Turbine conversion            & \eqref{eq:turbine}       & $h,s,t,b$ \\
-C14 & Transformer / PST             & \eqref{eq:transformer}   & $\ell,s,t,b$ \\
+C1  & Bus power balance             & \eqref{eq:balance}          & $n,s,t,b$ \\
+C2  & Demand balance                & \eqref{eq:demand_balance}   & $d,s,t,b$ \\
+C3  & Kirchhoff voltage law         & \eqref{eq:kirchhoff}        & $\ell,s,t,b$ \\
+C4  & Generator output bounds       & \eqref{eq:pgen}             & $g,s,t,b$ \\
+C5  & Capacity expansion            & \eqref{eq:capacity}         & $g,t$ \\
+C6  & Generator profile             & \eqref{eq:profile}          & $g,s,t,b$ \\
+C7  & Demand min.\ energy           & \eqref{eq:min_energy}       & $d,s,t$ \\
+C8  & Line capacity                 & ---                         & $\ell,s,t,b$ \\
+C9  & Battery SoC                   & \eqref{eq:soc_balance}      & $e,s,t,b$ \\
+C10 & Converter coupling            & \eqref{eq:conv_discharge}   & $v,s,t,b$ \\
+C11 & Reserve requirements          & \eqref{eq:reserve_up}       & $z,s,t,b$ \\
+C12 & Reserve--generator coupling   & ---                         & $p,s,t,b$ \\
+C13 & Hydro water balance           & \eqref{eq:hydro_balance}    & $j,s,t,b$ \\
+C14 & Turbine conversion            & \eqref{eq:turbine}          & $h,s,t,b$ \\
+C15 & Transformer / PST             & \eqref{eq:transformer}      & $\ell,s,t,b$ \\
 \bottomrule
 \end{tabular}
 \end{table}
