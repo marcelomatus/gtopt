@@ -1,0 +1,156 @@
+# Documentation Update Prompt for gtopt
+
+Use this prompt with GitHub Copilot, Claude, or any AI coding agent to
+perform periodic documentation updates on the gtopt repository.
+
+## Prompt
+
+```
+You are updating the documentation for the gtopt repository
+(https://github.com/marcelomatus/gtopt), a high-performance C++26
+Generation and Transmission Expansion Planning (GTEP) tool.
+
+Perform the following documentation review and update tasks:
+
+### 1. C++ Header ↔ docs/input-data.md Consistency Check
+
+For EACH of these C++ header files, verify that every struct field
+is documented in docs/input-data.md with the correct type, default
+value, and units:
+
+- include/gtopt/generator.hpp (GeneratorAttrs)
+- include/gtopt/demand.hpp (DemandAttrs)
+- include/gtopt/line.hpp (LineAttrs)
+- include/gtopt/bus.hpp (BusAttrs)
+- include/gtopt/battery.hpp (BatteryAttrs)
+- include/gtopt/converter.hpp (ConverterAttrs)
+- include/gtopt/reservoir.hpp (ReservoirAttrs)
+- include/gtopt/junction.hpp (JunctionAttrs)
+- include/gtopt/turbine.hpp (TurbineAttrs)
+- include/gtopt/flow.hpp (FlowAttrs)
+- include/gtopt/waterway.hpp (WaterwayAttrs)
+- include/gtopt/filtration.hpp (FiltrationAttrs)
+- include/gtopt/reserve_zone.hpp (ReserveZoneAttrs)
+- include/gtopt/reserve_provision.hpp (ReserveProvisionAttrs)
+- include/gtopt/generator_profile.hpp (GeneratorProfileAttrs)
+- include/gtopt/demand_profile.hpp (DemandProfileAttrs)
+- include/gtopt/planning_options.hpp (PlanningOptions)
+- include/gtopt/system.hpp (System struct — all array names)
+- include/gtopt/simulation.hpp (Simulation struct — all array names)
+- include/gtopt/sddp_options.hpp (SddpOptions)
+
+Report any fields that are:
+- Missing from docs/input-data.md
+- Have wrong type or default value
+- Have missing or incorrect units
+- Have been renamed in code but not in docs
+
+### 2. igtopt Template Builder ↔ docs/scripts/igtopt.md Consistency
+
+Compare scripts/igtopt/template_builder.py against docs/scripts/igtopt.md:
+- Verify all SYSTEM_SHEETS listed in template_builder.py match the
+  documentation
+- Check that SDDP_OPTION_KEYS matches the documented SDDP options
+- Verify all CLI flags documented match the argparse definition in
+  igtopt/igtopt.py
+- Check that the Excel sheet naming convention (@-sheets for
+  time-series) is accurately described
+
+Known issues from previous review (verify if still present):
+- phase_array.apertures may be documented as aperture_set (wrong)
+- scene_array first_scenario/count_scenario may be documented as
+  array-based UIDs (wrong)
+- filtration_array may be renamed to reservoir_seepage_array
+- reservoir_efficiency_array may be renamed to
+  reservoir_production_factor_array
+
+### 3. Cross-Reference Validation
+
+Check that all cross-references between these documents are valid:
+- README.md
+- docs/planning-guide.md
+- docs/input-data.md
+- docs/usage.md
+- docs/scripts-guide.md
+- docs/tools/comparison.md
+- docs/formulation/mathematical-formulation.md
+- BUILDING.md
+- CONTRIBUTING.md
+
+### 4. Case Documentation
+
+For each case in cases/ directory, verify that if it is referenced in
+any documentation, the description matches the actual JSON file contents
+(number of buses, generators, demands, lines, batteries, expected
+objective value).
+
+### 5. White Paper References
+
+Check that docs/white_paper/references.bib entries are consistent with
+the references in docs/formulation/mathematical-formulation.md Section 9.
+
+### 6. Output
+
+For each issue found, provide:
+- File path and line number
+- Description of the inconsistency
+- Suggested fix (exact text replacement)
+
+Apply fixes directly to the documentation files.
+Do NOT modify C++ source code or Python source code.
+```
+
+## Key Facts for the Reviewing Agent
+
+### Repository Structure
+- C++ headers: include/gtopt/*.hpp
+- C++ source: source/*.cpp
+- Tests: test/source/test_*.cpp
+- Python scripts: scripts/ (self-contained package with pyproject.toml)
+- Cases: cases/ (20 benchmark cases with JSON + output/)
+- Documentation: docs/, BUILDING.md, CONTRIBUTING.md, README.md
+
+### JSON Data Model
+The JSON input has three top-level sections:
+- `options`: PlanningOptions (solver settings, I/O config)
+- `simulation`: Simulation (block/stage/scenario/phase/scene arrays)
+- `system`: System (bus/generator/demand/line/battery/... arrays)
+
+### Type Conventions in C++ Headers
+- `Uid` = int (unique identifier)
+- `Name` = std::string
+- `SingleId` = std::variant<Uid, Name>
+- `Real` = double
+- `OptReal` = std::optional<double>
+- `Active` = std::variant<IntBool, std::vector<IntBool>>
+- `RealFieldSched` = std::variant<Real, std::vector<Real>, FileSched>
+- `OptTBRealFieldSched` = per-block real schedule (optional)
+- `OptTRealFieldSched` = per-stage real schedule (optional)
+
+### Units Convention
+- Power: MW
+- Energy: MWh (batteries), hm³ (reservoirs)
+- Cost: $/MWh (generation), $/year (investment)
+- Reactance: Ω (ohms)
+- Voltage: kV
+- Angle: radians
+- Time: hours (block duration)
+- Flow: m³/s (waterways)
+- Volume conversion: 0.0036 hm³/(m³/s·h)
+
+### Key Documentation Files and Their Purposes
+| File | Purpose |
+|------|---------|
+| docs/input-data.md | JSON field reference (THE authoritative source) |
+| docs/scripts/igtopt.md | igtopt Excel converter documentation |
+| docs/planning-guide.md | Tutorial with worked examples |
+| docs/formulation/mathematical-formulation.md | LP/MIP formulation |
+| docs/tools/comparison.md | gtopt vs PLP vs pandapower |
+| docs/scripts-guide.md | All 16 Python tools overview |
+| docs/white_paper/ | LaTeX academic paper |
+
+### Linting Commands (run after changes)
+```bash
+# No code linting needed for documentation-only changes
+# But verify markdown renders correctly on GitHub
+```

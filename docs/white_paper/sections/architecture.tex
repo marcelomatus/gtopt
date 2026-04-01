@@ -1,0 +1,125 @@
+% ============================================================================
+% Section V: Software Architecture
+% ============================================================================
+
+\section{Software Architecture}
+\label{sec:architecture}
+
+\subsection{Design Principles}
+
+\gtopt{} is designed around four core principles:
+
+\begin{enumerate}
+  \item \textbf{Performance}: C++26 with flat-map-based sparse matrices
+    for fast LP assembly.  The \texttt{boost::container::flat\_map}
+    (aliased as \texttt{gtopt::flat\_map}) provides 10--27$\times$ faster
+    iteration than \texttt{std::map} in LP coefficient assembly.
+  \item \textbf{Modularity}: Each power system component (generator,
+    demand, line, battery, reservoir, etc.) has its own LP assembly class
+    (\texttt{*\_lp.cpp}) that independently adds variables, constraints,
+    and objective terms to the shared \texttt{LinearProblem}.
+  \item \textbf{Extensibility}: New components and solver backends can be
+    added without modifying the core LP engine.  Solver backends are
+    loaded as dynamic plugins (\texttt{libgtopt\_solver\_*.so}).
+  \item \textbf{Interoperability}: JSON configuration with native Apache
+    Arrow/Parquet I/O enables seamless integration with Python, R, and
+    other data science ecosystems.
+\end{enumerate}
+
+\subsection{System Architecture}
+
+Fig.~\ref{fig:arch_layers} illustrates the layered architecture.
+
+% Placeholder for architecture diagram
+% \begin{figure}[t]
+%   \centering
+%   \includegraphics[width=\columnwidth]{figures/architecture.pdf}
+%   \caption{gtopt layered architecture.}
+%   \label{fig:arch_layers}
+% \end{figure}
+
+The software is organized into four layers:
+
+\begin{enumerate}
+  \item \textbf{Data Layer}: JSON parsing (via DAW JSON Link, a
+    zero-allocation header-only library), Parquet/CSV I/O (via Apache
+    Arrow C++ SDK), and schedule resolution (\texttt{FieldSched<T>}
+    variant type supporting scalar, vector, or filename references).
+  \item \textbf{Model Layer}: The \texttt{Planning} $\rightarrow$
+    \texttt{System} $\rightarrow$ component hierarchy that maps JSON
+    input to C++ data structures.
+  \item \textbf{LP Assembly Layer}: \texttt{PlanningLP} orchestrates
+    \texttt{SimulationLP} instances (one per scenario/stage), which in
+    turn assemble component LP objects (\texttt{GeneratorLP},
+    \texttt{DemandLP}, \texttt{LineLP}, \texttt{BatteryLP},
+    \texttt{ReservoirLP}, etc.) into a shared
+    \texttt{FlatLinearProblem}.
+  \item \textbf{Solver Layer}: The \texttt{SolverBackend} interface
+    abstracts LP/MIP solution.  Implementations are loaded as dynamic
+    plugins from configurable search paths.
+\end{enumerate}
+
+\subsection{Data Model and JSON Interface}
+
+The input is specified as one or more JSON files containing three sections:
+
+\begin{lstlisting}[language={},caption={Top-level JSON structure}]
+{
+  "options": { ... },
+  "simulation": {
+    "block_array": [...],
+    "stage_array": [...],
+    "scenario_array": [...]
+  },
+  "system": {
+    "bus_array": [...],
+    "generator_array": [...],
+    "demand_array": [...],
+    "line_array": [...],
+    "battery_array": [...],
+    ...
+  }
+}
+\end{lstlisting}
+
+Time-series data (demand profiles, generator capacity factors, reservoir
+inflows) can be specified inline as JSON arrays, or as references to
+external Parquet or CSV files in the \texttt{input\_directory}.  This
+hybrid approach keeps the JSON configuration compact while supporting
+arbitrarily large time-series via columnar Parquet storage.
+
+\subsection{Python Toolchain}
+
+\gtopt{} includes a comprehensive Python toolchain (16 registered CLI
+tools):
+
+\begin{itemize}
+  \item \textbf{igtopt}: Excel workbook ($\rightarrow$ JSON + Parquet)
+    converter for spreadsheet-based case preparation.
+  \item \textbf{plp2gtopt}: PLP/PROMAX ($\rightarrow$ gtopt) converter
+    for legacy hydrothermal scheduling data.
+  \item \textbf{pp2gtopt / gtopt2pp}: pandapower
+    ($\leftrightarrow$ gtopt) bidirectional converters for power flow
+    model exchange.
+  \item \textbf{gtopt\_compare}: Automated cross-validation against
+    pandapower DC OPF on IEEE test networks.
+  \item \textbf{gtopt\_diagram}: Network topology diagram generator
+    using Mermaid syntax.
+  \item \textbf{run\_gtopt / sddp\_monitor}: Execution management and
+    SDDP convergence monitoring.
+  \item \textbf{Validation tools}: \texttt{gtopt\_check\_json},
+    \texttt{gtopt\_check\_lp}, \texttt{gtopt\_check\_output},
+    \texttt{gtopt\_check\_solvers} for input validation and diagnostics.
+\end{itemize}
+
+\subsection{Web and GUI Services}
+
+Two companion services provide graphical interfaces:
+
+\begin{itemize}
+  \item \textbf{webservice}: A Next.js REST API and browser UI for
+    submitting optimization jobs, monitoring progress, and browsing
+    results.
+  \item \textbf{guiservice}: A Python/Flask application for creating
+    and editing cases through a web-based form interface.
+\end{itemize}

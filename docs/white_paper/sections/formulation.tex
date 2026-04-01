@@ -1,0 +1,199 @@
+% ============================================================================
+% Section III: Mathematical Formulation
+% ============================================================================
+
+\section{Mathematical Formulation}
+\label{sec:formulation}
+
+\subsection{Sets and Indices}
+
+The GTEP problem is defined over the following sets:
+
+\begin{itemize}
+  \item $\setS$: scenarios, indexed by $s$, with probability $\pi_s$
+  \item $\setT$: stages (planning periods), indexed by $t$
+  \item $\setB_t$: blocks (operating periods) in stage $t$, indexed by $b$,
+        with duration $\Delta_b$ [h]
+  \item $\setN$: buses (electrical nodes), indexed by $n$
+  \item $\setG$: generators, indexed by $g$, with bus $n_g$
+  \item $\setD$: demands, indexed by $d$, with bus $n_d$
+  \item $\setL$: transmission lines, indexed by $\ell$, connecting buses
+        $a_\ell$ and $b_\ell$
+  \item $\setE$: batteries (energy storage), indexed by $e$
+  \item $\setJ$: hydraulic junctions, indexed by $j$
+  \item $\setR$: reservoirs, indexed by $r$, with junction $j_r$
+  \item $\setW$: waterways, indexed by $w$
+  \item $\setH$: turbines, indexed by $h$
+  \item $\setZ$: reserve zones, indexed by $z$
+\end{itemize}
+
+\subsection{Decision Variables}
+
+\noindent\textbf{Operational variables} (per scenario $s$, stage $t$, block $b$):
+\begin{align}
+  p_{g,s,t,b}  &\in [\underline{p}_g, \overline{p}_g]
+    & \text{generator output [MW]} \label{eq:pgen} \\
+  \ell_{d,s,t,b} &\in [0, \overline{\ell}_d]
+    & \text{served demand [MW]} \label{eq:load} \\
+  f_{d,s,t,b}  &\geq 0
+    & \text{unserved demand [MW]} \label{eq:fail} \\
+  \phi_{\ell,s,t,b} &\in [-\overline{\phi}^{ba}_\ell, \overline{\phi}^{ab}_\ell]
+    & \text{line flow [MW]} \label{eq:flow} \\
+  \theta_{n,s,t,b} &\in \R
+    & \text{voltage angle [rad]} \label{eq:theta}
+\end{align}
+
+\noindent\textbf{Storage state variables}:
+\begin{align}
+  e_{e,s,t,b}  &\in [\underline{e}_e, \overline{e}_e]
+    & \text{battery SoC [MWh]} \label{eq:soc} \\
+  v_{r,s,t,b}  &\in [\underline{v}_r, \overline{v}_r]
+    & \text{reservoir volume [hm$^3$]} \label{eq:vol}
+\end{align}
+
+\noindent\textbf{Investment variables} (per stage $t$):
+\begin{equation}
+  m_{g,t} \in [0, \overline{m}_g]
+  \quad \text{expansion modules built} \label{eq:expmod}
+\end{equation}
+
+\subsection{Objective Function}
+
+Minimize total expected discounted cost:
+\begin{equation}
+\label{eq:objective}
+\min \sum_{s \in \setS} \pi_s \sum_{t \in \setT} \delta_t
+\left[
+  \sum_{b \in \setB_t} \Delta_b \cdot C^\text{op}_{s,t,b}
+  + C^\text{inv}_t
+\right]
+\end{equation}
+where $\delta_t = (1+r)^{-\tau_t/8760}$ is the discount factor with annual
+rate $r$ and $\tau_t$ the cumulative hours to stage $t$.
+
+The operational cost for each $(s,t,b)$ is:
+\begin{equation}
+\label{eq:opcost}
+C^\text{op}_{s,t,b} = \sum_{g \in \setG} c_g \, p_{g,s,t,b}
+  + \sum_{d \in \setD} c^f_d \, f_{d,s,t,b}
+  + \sum_{\ell \in \setL} c^\phi_\ell \, |\phi_{\ell,s,t,b}|
+\end{equation}
+
+The investment cost for stage $t$ is:
+\begin{equation}
+\label{eq:invcost}
+C^\text{inv}_t = \sum_{g \in \setG} \kappa_g \, m_{g,t}
+  + \sum_{d \in \setD} \kappa_d \, m_{d,t}
+  + \sum_{\ell \in \setL} \kappa_\ell \, m_{\ell,t}
+  + \sum_{e \in \setE} \kappa_e \, m_{e,t}
+\end{equation}
+where $c_g$ is the variable generation cost [\$/MWh], $c^f_d$ is the
+demand failure penalty [\$/MWh], $c^\phi_\ell$ is the transmission cost
+[\$/MWh], and $\kappa_{(\cdot)}$ is the annualized investment cost
+[\$/year] for each component.  All objective coefficients are divided by a
+\texttt{scale\_objective} parameter (default: 1000) to improve solver
+numerical stability.
+
+\subsection{Bus Power Balance}
+
+At every bus $n$, for each $(s,t,b)$:
+\begin{equation}
+\label{eq:balance}
+\sum_{\substack{g \in \setG \\ n_g = n}} (1-\lambda_g) p_{g,s,t,b}
+- \sum_{\substack{d \in \setD \\ n_d = n}}
+  (1+\lambda_d)(\ell_{d,s,t,b} + f_{d,s,t,b})
++ \sum_{\ell \in \setL} A_{n,\ell} \, \phi_{\ell,s,t,b} = 0
+\end{equation}
+where $\lambda_g, \lambda_d$ are loss factors and $A_{n,\ell}$ is the
+bus-line incidence matrix ($+1$ if $n=a_\ell$, $-1$ if $n=b_\ell$, $0$
+otherwise).
+
+\subsection{DC Power Flow (Kirchhoff Constraints)}
+
+When \texttt{use\_kirchhoff} is enabled, for each line $\ell$ and
+$(s,t,b)$:
+\begin{equation}
+\label{eq:kirchhoff}
+\phi_{\ell,s,t,b} = \frac{V_\ell^2}{X_\ell}
+  \left(\theta_{a_\ell,s,t,b} - \theta_{b_\ell,s,t,b}\right)
+\end{equation}
+where $X_\ell$ is the line reactance [$\Omega$] and $V_\ell$ is the
+nominal voltage [kV].  A scaling factor $\sigma_\theta$
+(\texttt{scale\_theta}, default 1000) is applied to the angle variables
+for numerical conditioning: $\theta^\text{scaled} = \sigma_\theta \cdot
+\theta$.
+
+Line flow is bounded by transfer capacities:
+\begin{equation}
+-\overline{\phi}^{ba}_\ell \leq \phi_{\ell,s,t,b}
+  \leq \overline{\phi}^{ab}_\ell
+\end{equation}
+
+\subsection{Battery Energy Storage}
+
+State-of-charge balance for battery $e$ between consecutive blocks:
+\begin{equation}
+\label{eq:soc_balance}
+e_{e,s,t,b} = e_{e,s,t,b-1}
+  + p^\text{in}_{e,s,t,b} \cdot \eta^\text{in}_e \cdot \Delta_b
+  - p^\text{out}_{e,s,t,b} \cdot \Delta_b / \eta^\text{out}_e
+\end{equation}
+where $\eta^\text{in}_e$ and $\eta^\text{out}_e$ are charge and discharge
+efficiencies, and $p^\text{in}, p^\text{out}$ are charge and discharge
+power [MW].  Initial SoC $e_{e,\cdot,\cdot,0} = e^\text{ini}_e$ is an
+equality constraint in the first stage.
+
+\subsection{Hydro Cascade}
+
+For each junction $j$ with reservoir $r$, the water balance is:
+\begin{equation}
+\label{eq:hydro_balance}
+v_{r,s,t,b} = v_{r,s,t,b-1}
+  + \alpha_r \, \Delta_b \left(
+    \sum_{w \in \text{in}(j)} q_{w,s,t,b}
+    - \sum_{w \in \text{out}(j)} q_{w,s,t,b}
+    + F_j
+  \right)
+\end{equation}
+where $q_w$ is the waterway discharge [m$^3$/s], $F_j$ is the exogenous
+inflow at junction $j$, and $\alpha_r = 0.0036$ is the flow-to-volume
+conversion factor [hm$^3$/(m$^3$/s$\cdot$h)].
+
+Each turbine $h$ linking waterway $w$ to generator $g$ provides:
+\begin{equation}
+\label{eq:turbine}
+p_{g,s,t,b} \leq \rho_h \cdot q_{w,s,t,b}
+\end{equation}
+where $\rho_h$ is the water-to-power conversion rate [MW$\cdot$s/m$^3$].
+
+\subsection{Capacity Expansion}
+
+Installed capacity evolves as:
+\begin{equation}
+\label{eq:capacity}
+C_{g,t} = C_{g,t-1}(1-\xi_g) + M_g \cdot m_{g,t}
+\end{equation}
+where $C_{g,0}$ is the initial installed capacity, $\xi_g$ is the annual
+derating factor (\texttt{annual\_derating}), $M_g$ is the capacity per
+expansion module (\texttt{expcap}), and $m_{g,t}$ is the number of modules
+built.  The generator output is bounded by the installed capacity:
+\begin{equation}
+p_{g,s,t,b} \leq C_{g,t}
+\end{equation}
+Analogous expansion constraints apply to demands, lines, batteries, and
+converters.
+
+\subsection{Reserve Constraints}
+
+For each reserve zone $z$ and $(s,t,b)$:
+\begin{equation}
+\label{eq:reserve_up}
+\sum_{g \in \mathcal{P}_z} u^\text{up}_{g,s,t,b}
+  + u^\text{fail,up}_{z,s,t,b}
+  \geq R^\text{up}_{z,s,t,b}
+\end{equation}
+where $u^\text{up}_{g,s,t,b}$ is the up-reserve provision from generator
+$g$, $u^\text{fail,up}_{z,s,t,b}$ is unserved reserve, and
+$R^\text{up}_{z,s,t,b}$ is the zone requirement.  A symmetric constraint
+exists for down-reserve.  Reserve provision is bounded by the generator's
+headroom: $u^\text{up}_{g,s,t,b} \leq C_{g,t} - p_{g,s,t,b}$.
