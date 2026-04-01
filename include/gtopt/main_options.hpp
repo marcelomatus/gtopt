@@ -644,7 +644,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     if (const auto kv = section.find(key); kv != section.end()) {
       try {
         return std::stoi(kv->second);
-      } catch (...) {
+      } catch (...) {  // NOLINT(bugprone-empty-catch)
       }
     }
     return std::nullopt;
@@ -656,7 +656,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     if (const auto kv = section.find(key); kv != section.end()) {
       try {
         return std::stod(kv->second);
-      } catch (...) {
+      } catch (...) {  // NOLINT(bugprone-empty-catch)
       }
     }
     return std::nullopt;
@@ -678,7 +678,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   if (const auto raw = get_str("lp-names-level")) {
     try {
       opts.lp_names_level = parse_lp_names_level(*raw);
-    } catch (...) {
+    } catch (...) {  // NOLINT(bugprone-empty-catch)
     }
   }
   opts.matrix_eps = get_dbl("matrix-eps");
@@ -712,10 +712,94 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   if (const auto raw = get_str("algorithm")) {
     try {
       opts.algorithm = parse_lp_algorithm(*raw);
-    } catch (...) {
+    } catch (...) {  // NOLINT(bugprone-empty-catch)
     }
   }
   opts.threads = get_int("threads");
+
+  // Per-solver configuration: [solver.cplex], [solver.highs], [solver.clp]
+  for (const auto& [sec_name, sec_map] : ini) {
+    if (!sec_name.starts_with("solver.")) {
+      continue;
+    }
+    const auto solver_name = sec_name.substr(7);  // strip "solver."
+    if (solver_name.empty()) {
+      continue;
+    }
+
+    // Helper lambdas bound to this section
+    auto sv_str = [&](const std::string& key) -> std::optional<std::string>
+    {
+      if (const auto kv = sec_map.find(key); kv != sec_map.end()) {
+        if (!kv->second.empty()) {
+          return kv->second;
+        }
+      }
+      return std::nullopt;
+    };
+    auto sv_int = [&](const std::string& key) -> std::optional<int>
+    {
+      if (const auto kv = sec_map.find(key); kv != sec_map.end()) {
+        try {
+          return std::stoi(kv->second);
+        } catch (...) {  // NOLINT(bugprone-empty-catch)
+        }
+      }
+      return std::nullopt;
+    };
+    auto sv_dbl = [&](const std::string& key) -> std::optional<double>
+    {
+      if (const auto kv = sec_map.find(key); kv != sec_map.end()) {
+        try {
+          return std::stod(kv->second);
+        } catch (...) {  // NOLINT(bugprone-empty-catch)
+        }
+      }
+      return std::nullopt;
+    };
+    auto sv_bool = [&](const std::string& key) -> std::optional<bool>
+    {
+      if (const auto kv = sec_map.find(key); kv != sec_map.end()) {
+        const auto& v = kv->second;
+        if (v == "true" || v == "1" || v == "yes") {
+          return true;
+        }
+        if (v == "false" || v == "0" || v == "no") {
+          return false;
+        }
+      }
+      return std::nullopt;
+    };
+
+    SolverOptions sopts;
+    if (const auto raw = sv_str("algorithm")) {
+      try {
+        sopts.algorithm = static_cast<LPAlgo>(parse_lp_algorithm(*raw));
+      } catch (...) {  // NOLINT(bugprone-empty-catch)
+      }
+    }
+    if (const auto v = sv_int("threads")) {
+      sopts.threads = *v;
+    }
+    if (const auto v = sv_bool("presolve")) {
+      sopts.presolve = *v;
+    }
+    sopts.optimal_eps = sv_dbl("optimal-eps");
+    sopts.feasible_eps = sv_dbl("feasible-eps");
+    sopts.barrier_eps = sv_dbl("barrier-eps");
+    if (const auto v = sv_int("log-level")) {
+      sopts.log_level = *v;
+    }
+    sopts.time_limit = sv_dbl("time-limit");
+    if (const auto raw = sv_str("scaling")) {
+      sopts.scaling = enum_from_name<SolverScaling>(*raw);
+    }
+    if (const auto v = sv_int("max-fallbacks")) {
+      sopts.max_fallbacks = *v;
+    }
+
+    opts.solver_configs[solver_name] = sopts;
+  }
 
   return opts;
 }
@@ -771,6 +855,13 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.solver, defaults.solver);
   merge(opts.algorithm, defaults.algorithm);
   merge(opts.threads, defaults.threads);
+
+  // Per-solver configs: merge defaults into opts (don't overwrite existing)
+  for (const auto& [name, sopts] : defaults.solver_configs) {
+    if (!opts.solver_configs.contains(name)) {
+      opts.solver_configs[name] = sopts;
+    }
+  }
 }
 
 }  // namespace gtopt

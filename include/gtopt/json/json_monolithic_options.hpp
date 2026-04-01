@@ -41,7 +41,7 @@ struct MonolithicOptionsConstructor
           gtopt::enum_from_name<BoundaryCutsMode>(*boundary_cuts_mode_str);
     }
     opts.boundary_max_iterations = boundary_max_iterations;
-    opts.solver_options = std::move(solver_options);
+    opts.solver_options = solver_options;
     return opts;
   }
 };

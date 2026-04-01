@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 # Import functions from gtopt_gui
 # We need to handle the import carefully since it's a script
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from gtopt_gui import (
+from gtopt_gui import (  # pylint: disable=wrong-import-position,import-error
     check_webservice_api,
     find_free_port,
     find_websrv_script,
@@ -57,7 +57,7 @@ def test_get_guiservice_dir():
 
 def test_webservice_detection():
     """Test that webservice detection works without errors."""
-    from gtopt_gui import get_webservice_dir
+    from gtopt_gui import get_webservice_dir  # pylint: disable=import-outside-toplevel,import-error
 
     # Should return None or Path, not raise error
     result = get_webservice_dir()
@@ -70,7 +70,7 @@ def test_webservice_detection():
 
 def test_gtopt_binary_detection():
     """Test that gtopt binary detection works without errors."""
-    from gtopt_gui import find_gtopt_binary
+    from gtopt_gui import find_gtopt_binary  # pylint: disable=import-outside-toplevel,import-error
 
     # Should return None or Path, not raise error
     result = find_gtopt_binary()
@@ -146,7 +146,7 @@ def test_query_webservice_ping_returns_none_on_failure():
 
 def test_start_webservice_uses_new_session():
     """start_webservice should create the subprocess with start_new_session=True."""
-    from gtopt_gui import start_webservice
+    from gtopt_gui import start_webservice  # pylint: disable=import-outside-toplevel,import-error
 
     with patch("subprocess.Popen") as mock_popen:
         mock_proc = MagicMock()
@@ -176,7 +176,7 @@ def test_query_webservice_ping_returns_data_on_success():
             self.end_headers()
             self.wfile.write(json.dumps(ping_data).encode())
 
-        def log_message(self, format, *args):
+        def log_message(self, format, *args):  # pylint: disable=redefined-builtin
             pass  # suppress logging
 
     server = HTTPServer(("127.0.0.1", 0), Handler)
@@ -202,7 +202,7 @@ def test_is_gtopt_webservice_returns_true_for_valid_service():
             self.end_headers()
             self.wfile.write(json.dumps({"status": "ok", "service": "gtopt-webservice"}).encode())
 
-        def log_message(self, format, *args):
+        def log_message(self, format, *args):  # pylint: disable=redefined-builtin
             pass
 
     server = HTTPServer(("127.0.0.1", 0), Handler)
@@ -222,7 +222,7 @@ def test_is_gtopt_webservice_returns_false_for_wrong_service():
             self.send_response(404)
             self.end_headers()
 
-        def log_message(self, format, *args):
+        def log_message(self, format, *args):  # pylint: disable=redefined-builtin
             pass
 
     server = HTTPServer(("127.0.0.1", 0), Handler)
@@ -249,7 +249,7 @@ def test_wait_for_webservice_returns_true_when_service_is_ready():
             self.end_headers()
             self.wfile.write(json.dumps({"status": "ok", "service": "gtopt-webservice"}).encode())
 
-        def log_message(self, format, *args):
+        def log_message(self, format, *args):  # pylint: disable=redefined-builtin
             pass
 
     server = HTTPServer(("127.0.0.1", 0), Handler)
@@ -277,7 +277,7 @@ def test_check_webservice_api_returns_true_on_success():
             self.end_headers()
             self.wfile.write(json.dumps({"status": "ok", "service": "gtopt-webservice"}).encode())
 
-        def log_message(self, format, *args):
+        def log_message(self, format, *args):  # pylint: disable=redefined-builtin
             pass
 
     server = HTTPServer(("127.0.0.1", 0), Handler)
@@ -304,7 +304,7 @@ def test_check_webservice_api_returns_false_on_bad_status():
             self.end_headers()
             self.wfile.write(json.dumps({"status": "error"}).encode())
 
-        def log_message(self, format, *args):
+        def log_message(self, format, *args):  # pylint: disable=redefined-builtin
             pass
 
     server = HTTPServer(("127.0.0.1", 0), Handler)
@@ -338,7 +338,7 @@ def test_check_webservice_api_falls_back_to_ping_when_api_is_404():
             self.send_response(404)
             self.end_headers()
 
-        def log_message(self, format, *args):
+        def log_message(self, format, *args):  # pylint: disable=redefined-builtin
             pass
 
     server = HTTPServer(("127.0.0.1", 0), Handler)
@@ -369,7 +369,7 @@ def test_verify_webservice_api_returns_true_on_success(tmp_path):
             data = {"status": "ok", "service": "gtopt-webservice"}
             self.wfile.write(json.dumps(data).encode())
 
-        def log_message(self, format, *args):
+        def log_message(self, format, *args):  # pylint: disable=redefined-builtin
             pass
 
     server = HTTPServer(("127.0.0.1", 0), Handler)
@@ -382,7 +382,7 @@ def test_verify_webservice_api_returns_true_on_success(tmp_path):
     assert result is True
 
     # Verify log file was written
-    with open(log_file) as f:
+    with open(log_file, encoding="utf-8") as f:
         log_content = f.read()
     assert "API verification PASSED" in log_content
     assert "API verification complete." in log_content
@@ -397,6 +397,6 @@ def test_verify_webservice_api_returns_false_on_failure(tmp_path):
     result = verify_webservice_api("http://127.0.0.1:19999", log_file=log_file)
     assert result is False
 
-    with open(log_file) as f:
+    with open(log_file, encoding="utf-8") as f:
         log_content = f.read()
     assert "API verification FAILED" in log_content

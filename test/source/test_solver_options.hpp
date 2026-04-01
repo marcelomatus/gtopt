@@ -28,9 +28,9 @@ TEST_CASE("SolverOptions - Default construction")
   // Test default construction of SolverOptions
   const SolverOptions options {};
 
-  // Non-optional fields keep their defaults
-  CHECK(options.algorithm == LPAlgo::barrier);
-  CHECK(options.threads == 2);
+  // Non-optional fields keep their sentinel defaults
+  CHECK(options.algorithm == LPAlgo::default_algo);
+  CHECK(options.threads == 0);
   CHECK(options.presolve == true);
   CHECK(options.log_level == 0);
   CHECK_FALSE(options.log_mode.has_value());

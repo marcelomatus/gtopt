@@ -62,7 +62,7 @@ TEST_CASE("MonolithicOptions JSON - Missing fields stay nullopt")
   CHECK_FALSE(opts.boundary_max_iterations.has_value());
   // json_class_null creates default SolverOptions when key is absent
   if (opts.solver_options.has_value()) {
-    CHECK(opts.solver_options->algorithm == LPAlgo::barrier);
+    CHECK(opts.solver_options->algorithm == LPAlgo::default_algo);
   }
 }
 

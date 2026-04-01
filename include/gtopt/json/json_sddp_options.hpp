@@ -154,8 +154,8 @@ struct SddpOptionsConstructor
     opts.convergence_confidence = convergence_confidence;
     opts.forward_max_fallbacks = forward_max_fallbacks;
     opts.backward_max_fallbacks = backward_max_fallbacks;
-    opts.forward_solver_options = std::move(forward_solver_options);
-    opts.backward_solver_options = std::move(backward_solver_options);
+    opts.forward_solver_options = forward_solver_options;
+    opts.backward_solver_options = backward_solver_options;
     return opts;
   }
 };

@@ -76,6 +76,10 @@ if(NOT TEST_INSTALLED_VERSION)
   )
 endif()
 
+# ---- Ensure solver plugins are rebuilt before running tests ----
+include(GtoptPlugin)
+gtopt_require_solver_plugins(${PROJECT_NAME})
+
 # ---- Test registration ----
 enable_testing()
 include(TestParallelism)

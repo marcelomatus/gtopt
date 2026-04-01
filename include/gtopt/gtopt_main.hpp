@@ -13,12 +13,14 @@
 #pragma once
 
 #include <expected>
+#include <map>
 #include <optional>
 #include <span>
 #include <string>
 #include <vector>
 
 #include <gtopt/lp_build_options.hpp>
+#include <gtopt/solver_options.hpp>
 
 namespace gtopt
 {
@@ -153,6 +155,16 @@ struct MainOptions
   /** @brief Number of solver threads override (0=automatic).
    *  Mapped to solver_options.threads by apply_cli_options. */
   std::optional<int> threads {};
+
+  // ---- per-solver configuration ----
+  /** @brief Per-solver default SolverOptions loaded from `.gtopt.conf`.
+   *
+   * Keys are solver names ("cplex", "highs", "clp").  Populated from
+   * `[solver.cplex]`, `[solver.highs]`, etc. sections in the config file.
+   * The matching entry is overlaid on top of the backend's
+   * `optimal_options()` before applying user-explicit solver_options.
+   */
+  std::map<std::string, SolverOptions> solver_configs {};
 
   // ---- generic option overrides ----
   /** @brief Repeatable ``--set key=value`` overrides.

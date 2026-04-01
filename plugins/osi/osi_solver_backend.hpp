@@ -26,6 +26,7 @@ namespace gtopt
  * Wraps OsiClpSolverInterface or OsiCbcSolverInterface depending
  * on the solver name passed to the constructor.
  */
+// NOLINTNEXTLINE(cppcoreguidelines-special-member-functions,hicpp-special-member-functions)
 class OsiSolverBackend final : public SolverBackend
 {
 public:
@@ -123,6 +124,7 @@ public:
 
   // ---- options ----
   void apply_options(const SolverOptions& opts) override;
+  [[nodiscard]] SolverOptions optimal_options() const override;
   [[nodiscard]] LPAlgo get_algorithm() const override;
   [[nodiscard]] int get_threads() const override;
   [[nodiscard]] bool get_presolve() const override;
@@ -157,8 +159,10 @@ private:
   int m_log_level_ {0};
 
   /// Owned FILE* for set_log_filename; closed in clear_log_filename.
-  using log_file_ptr_t =
-      std::unique_ptr<FILE, decltype([](FILE* f) { std::fclose(f); })>;
+  using log_file_ptr_t = std::unique_ptr<
+      FILE,
+      decltype([](FILE* f)
+               { (void)std::fclose(f); })>;  // NOLINT(cppcoreguidelines-owning-memory)
   log_file_ptr_t m_log_file_ptr_;
 };
 

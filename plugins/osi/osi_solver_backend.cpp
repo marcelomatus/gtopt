@@ -355,6 +355,17 @@ int OsiSolverBackend::get_log_level() const
   return m_log_level_;
 }
 
+SolverOptions OsiSolverBackend::optimal_options() const
+{
+  return {
+      .algorithm = LPAlgo::dual,
+      .threads = 1,
+      .presolve = true,
+      .scaling = SolverScaling::automatic,
+      .max_fallbacks = 2,
+  };
+}
+
 void OsiSolverBackend::apply_options(const SolverOptions& opts)
 {
   m_algorithm_ = opts.algorithm;
@@ -483,7 +494,8 @@ double OsiSolverBackend::get_kappa() const
       if (model != nullptr) {
         return model->largestDualError();
       }
-    } catch (...) {
+    } catch (...) {  // NOLINT(bugprone-empty-catch)
+      // CLP may throw on degenerate or empty models; return default kappa.
     }
   }
   return 1.0;
@@ -510,7 +522,10 @@ void OsiSolverBackend::set_log_filename(const std::string& filename, int level)
 {
   if (level > 0 && !filename.empty()) {
     const auto log_path = std::format("{}.log", filename);
-    m_log_file_ptr_.reset(std::fopen(log_path.c_str(), "ae"));
+    m_log_file_ptr_.reset(
+        std::fopen(  // NOLINT(cppcoreguidelines-owning-memory)
+            log_path.c_str(),
+            "ae"));
     if (!m_log_file_ptr_) {
       throw std::runtime_error(std::format(
           "failed to open solver log file {}: errno {}", log_path, errno));

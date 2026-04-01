@@ -542,13 +542,16 @@ std::expected<int, Error> LinearInterface::initial_solve(
     const SolverOptions& solver_options)
 {
   try {
-    m_backend_->apply_options(solver_options);
+    // Start from backend-optimal defaults, overlay user settings on top.
+    auto effective = m_backend_->optimal_options();
+    effective.overlay(solver_options);
 
-    const auto log_mode =
-        solver_options.log_mode.value_or(SolverLogMode::nolog);
+    m_backend_->apply_options(effective);
+
+    const auto log_mode = effective.log_mode.value_or(SolverLogMode::nolog);
     const auto log_level = log_mode != SolverLogMode::nolog
-        ? std::max(solver_options.log_level, 1)
-        : solver_options.log_level;
+        ? std::max(effective.log_level, 1)
+        : effective.log_level;
 
     if (log_mode != SolverLogMode::nolog && !m_log_file_.empty()) {
       const LogFileGuard log_guard(*this, m_log_file_, log_level);
@@ -558,13 +561,12 @@ std::expected<int, Error> LinearInterface::initial_solve(
       m_backend_->initial_solve();
     }
 
-    if (!is_optimal() && solver_options.max_fallbacks > 0) {
+    if (!is_optimal() && effective.max_fallbacks > 0) {
       // Algorithm fallback cycle: try alternative algorithms
-      auto fallback_opts = solver_options;
-      auto current_algo = solver_options.algorithm;
+      auto fallback_opts = effective;
+      auto current_algo = effective.algorithm;
 
-      for (int attempt = 0;
-           attempt < solver_options.max_fallbacks && !is_optimal();
+      for (int attempt = 0; attempt < effective.max_fallbacks && !is_optimal();
            ++attempt)
       {
         const auto next_algo = next_fallback_algo(current_algo);
@@ -605,9 +607,8 @@ std::expected<int, Error> LinearInterface::initial_solve(
               "Solver returned non-optimal for problem: {} status: {}{}",
               get_prob_name(),
               get_status(),
-              solver_options.max_fallbacks > 0
-                  ? " (after algorithm fallback cycle)"
-                  : ""),
+              effective.max_fallbacks > 0 ? " (after algorithm fallback cycle)"
+                                          : ""),
           .status = get_status(),
       });
     }
@@ -627,13 +628,16 @@ std::expected<int, Error> LinearInterface::resolve(
     const SolverOptions& solver_options)
 {
   try {
-    m_backend_->apply_options(solver_options);
+    // Start from backend-optimal defaults, overlay user settings on top.
+    auto effective = m_backend_->optimal_options();
+    effective.overlay(solver_options);
 
-    const auto log_mode =
-        solver_options.log_mode.value_or(SolverLogMode::nolog);
+    m_backend_->apply_options(effective);
+
+    const auto log_mode = effective.log_mode.value_or(SolverLogMode::nolog);
     const auto log_level = log_mode != SolverLogMode::nolog
-        ? std::max(solver_options.log_level, 1)
-        : solver_options.log_level;
+        ? std::max(effective.log_level, 1)
+        : effective.log_level;
 
     if (log_mode != SolverLogMode::nolog && !m_log_file_.empty()) {
       const LogFileGuard log_guard(*this, m_log_file_, log_level);
@@ -643,13 +647,12 @@ std::expected<int, Error> LinearInterface::resolve(
       m_backend_->resolve();
     }
 
-    if (!is_optimal() && solver_options.max_fallbacks > 0) {
+    if (!is_optimal() && effective.max_fallbacks > 0) {
       // Algorithm fallback cycle: try alternative algorithms
-      auto fallback_opts = solver_options;
-      auto current_algo = solver_options.algorithm;
+      auto fallback_opts = effective;
+      auto current_algo = effective.algorithm;
 
-      for (int attempt = 0;
-           attempt < solver_options.max_fallbacks && !is_optimal();
+      for (int attempt = 0; attempt < effective.max_fallbacks && !is_optimal();
            ++attempt)
       {
         const auto next_algo = next_fallback_algo(current_algo);
@@ -690,9 +693,8 @@ std::expected<int, Error> LinearInterface::resolve(
               "Solver returned non-optimal for problem: {} status: {}{}",
               get_prob_name(),
               get_status(),
-              solver_options.max_fallbacks > 0
-                  ? " (after algorithm fallback cycle)"
-                  : ""),
+              effective.max_fallbacks > 0 ? " (after algorithm fallback cycle)"
+                                          : ""),
           .status = get_status(),
       });
     }

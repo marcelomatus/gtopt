@@ -33,6 +33,7 @@ std::filesystem::path exe_directory()
   if (len <= 0) {
     return {};
   }
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
   buf[static_cast<size_t>(len)] = '\0';
   return std::filesystem::path(buf.data()).parent_path();
 }
@@ -58,14 +59,12 @@ SolverRegistry::SolverRegistry()
   discover_default_paths();
 }
 
-SolverRegistry::~SolverRegistry()
-{
-  // Intentionally do NOT dlclose() plugin handles.
-  // Plugin code may still be referenced by SolverBackend instances
-  // whose destructors run during static destruction.  Closing the
-  // plugin library before those destructors would cause segfaults.
-  // The OS reclaims all resources on process exit anyway.
-}
+// Intentionally do NOT dlclose() plugin handles.
+// Plugin code may still be referenced by SolverBackend instances
+// whose destructors run during static destruction.  Closing the
+// plugin library before those destructors would cause segfaults.
+// The OS reclaims all resources on process exit anyway.
+SolverRegistry::~SolverRegistry() = default;
 
 SolverRegistry& SolverRegistry::instance()
 {
@@ -76,7 +75,8 @@ SolverRegistry& SolverRegistry::instance()
 void SolverRegistry::discover_default_paths()
 {
   // 1. $GTOPT_PLUGIN_DIR environment variable
-  if (const auto* env = std::getenv("GTOPT_PLUGIN_DIR");
+  if (const auto* env =
+          std::getenv("GTOPT_PLUGIN_DIR");  // NOLINT(concurrency-mt-unsafe)
       env != nullptr && *env != '\0')
   {
     discover_plugins(env);
@@ -161,6 +161,25 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
     return false;
   }
 
+  // Check ABI version compatibility.  Plugins built against a different
+  // SolverBackend vtable layout would crash at runtime; reject them
+  // early with a clear diagnostic instead.
+  auto* abi_fn = reinterpret_cast<solver_plugin_abi_version_fn>(  // NOLINT
+      ::dlsym(handle, "gtopt_plugin_abi_version"));
+  const int plugin_abi = (abi_fn != nullptr) ? abi_fn() : 0;
+  if (plugin_abi != k_solver_abi_version) {
+    const auto msg = std::format(
+        "Plugin {} ABI version mismatch: plugin={}, expected={}. "
+        "Rebuild the plugin against the current gtopt headers.",
+        path.string(),
+        plugin_abi,
+        k_solver_abi_version);
+    SPDLOG_ERROR("{}", msg);
+    m_load_errors_.push_back(msg);
+    ::dlclose(handle);
+    return false;
+  }
+
   // Check for duplicate plugin name
   const std::string plugin_name = name_fn();
   for (const auto& existing : m_plugins_) {
@@ -175,7 +194,9 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
 
   // Collect solver names
   std::vector<std::string> solver_names;
-  for (const auto* names = names_fn(); *names != nullptr; ++names) {
+  for (const auto* names = names_fn(); *names != nullptr;
+       ++names)  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  {
     solver_names.emplace_back(*names);
   }
 
@@ -235,7 +256,9 @@ std::vector<std::string> SolverRegistry::available_solvers() const
 std::string_view SolverRegistry::default_solver() const
 {
   // GTOPT_SOLVER env var overrides the default priority.
-  if (const auto* env = std::getenv("GTOPT_SOLVER")) {
+  if (const auto* env =
+          std::getenv("GTOPT_SOLVER"))  // NOLINT(concurrency-mt-unsafe)
+  {
     if (has_solver(env)) {
       return env;
     }

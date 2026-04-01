@@ -36,9 +36,9 @@ TEST_CASE("Options - Default construction")
   CHECK_FALSE(options.lp_build_options.names_level.has_value());
   CHECK_FALSE(options.use_uid_fname.has_value());
   CHECK_FALSE(options.annual_discount_rate.has_value());
-  // Check solver_options defaults
-  CHECK(options.solver_options.algorithm == LPAlgo::barrier);
-  CHECK(options.solver_options.threads == 2);
+  // Check solver_options defaults (sentinel values — backend fills in optimal)
+  CHECK(options.solver_options.algorithm == LPAlgo::default_algo);
+  CHECK(options.solver_options.threads == 0);
   CHECK(options.solver_options.presolve == true);
 }
 
@@ -532,8 +532,8 @@ TEST_CASE("Options - Solver options fields have defaults")  // NOLINT
   using namespace gtopt;
 
   const PlanningOptions options {};
-  CHECK(options.solver_options.algorithm == LPAlgo::barrier);
-  CHECK(options.solver_options.threads == 2);
+  CHECK(options.solver_options.algorithm == LPAlgo::default_algo);
+  CHECK(options.solver_options.threads == 0);
   CHECK(options.solver_options.presolve == true);
 }
 
@@ -545,13 +545,13 @@ TEST_CASE("Options - Solver options fields construction")  // NOLINT
       .solver_options =
           {
               .algorithm = LPAlgo::dual,
-              .threads = 2,
+              .threads = 4,
               .presolve = false,
           },
   };
 
   CHECK(options.solver_options.algorithm == LPAlgo::dual);
-  CHECK(options.solver_options.threads == 2);
+  CHECK(options.solver_options.threads == 4);
   CHECK(options.solver_options.presolve == false);
 }
 
@@ -579,7 +579,7 @@ TEST_CASE("Options - Solver options merge")  // NOLINT
 
   // Non-optional fields keep base values (merge only touches optional fields)
   CHECK(base.solver_options.algorithm == LPAlgo::primal);
-  CHECK(base.solver_options.threads == 2);
+  CHECK(base.solver_options.threads == 0);
   CHECK(base.solver_options.presolve == true);
   // Optional field already set in base: keeps base value
   REQUIRE(base.solver_options.optimal_eps.has_value());
@@ -596,8 +596,8 @@ TEST_CASE(
   using namespace gtopt;
 
   const PlanningOptionsLP options_lp {};
-  CHECK(options_lp.solver_options().algorithm == LPAlgo::barrier);
-  CHECK(options_lp.solver_options().threads == 2);
+  CHECK(options_lp.solver_options().algorithm == LPAlgo::default_algo);
+  CHECK(options_lp.solver_options().threads == 0);
   CHECK(options_lp.solver_options().presolve == true);
 }
 
@@ -606,17 +606,16 @@ TEST_CASE("Options - Solver options scaling default value")  // NOLINT
   using namespace gtopt;
 
   const SolverOptions opts {};
-  // scaling defaults to aggressive
-  REQUIRE(opts.scaling.has_value());
-  CHECK(*opts.scaling == SolverScaling::aggressive);
+  // scaling defaults to nullopt (sentinel — backend fills in optimal)
+  CHECK_FALSE(opts.scaling.has_value());
 }
 
 TEST_CASE("Options - Solver options merge with scaling")  // NOLINT
 {
   using namespace gtopt;
 
-  // Base has default scaling (aggressive), overlay has aggressive
-  // merge_opt is last-value-wins: overlay replaces base
+  // Base has nullopt scaling (default), overlay has aggressive
+  // merge_opt fills in base from overlay
   PlanningOptions base {};
   PlanningOptions overlay {
       .solver_options = {.scaling = SolverScaling::aggressive},
@@ -628,13 +627,14 @@ TEST_CASE("Options - Solver options merge with scaling")  // NOLINT
 
   // Overlay without scaling (nullopt) does NOT overwrite base
   PlanningOptions base2 {};
+  base2.solver_options.scaling = SolverScaling::automatic;
   PlanningOptions overlay2 {};
   overlay2.solver_options.scaling = std::nullopt;
   base2.merge(std::move(overlay2));
 
-  // base2 had aggressive, overlay2 had nullopt → base2 keeps aggressive
+  // base2 had automatic, overlay2 had nullopt → base2 keeps automatic
   REQUIRE(base2.solver_options.scaling.has_value());
-  CHECK(*base2.solver_options.scaling == SolverScaling::aggressive);
+  CHECK(*base2.solver_options.scaling == SolverScaling::automatic);
 }
 
 TEST_CASE("Options - LpBuildOptions row_equilibration merge_opt")  // NOLINT

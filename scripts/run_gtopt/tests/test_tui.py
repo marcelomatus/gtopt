@@ -777,7 +777,7 @@ def test_phase_tracker_finish_all():
     assert tracker.states["build_lp"].status == "active"
     tracker.finish_all()
     assert tracker.states["build_lp"].status == "done"
-    assert tracker.states["build_lp"].elapsed > 0.0 or True  # near-instant
+    assert tracker.states["build_lp"].elapsed >= 0.0  # near-instant
 
 
 def test_phase_tracker_instant_validate():

@@ -11,6 +11,7 @@
 #include <format>
 #include <numeric>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 #include "cplex_solver_backend.hpp"
@@ -209,36 +210,33 @@ void CplexSolverBackend::load_problem(int ncols,
   for (int i = 0; i < nrows; ++i) {
     const auto idx = static_cast<size_t>(i);
     bounds_to_cplex(
-        rowlb[i], rowub[i], cpx_inf, sense[idx], rhs[idx], range[idx]);
+        rowlb[i],  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+        rowub[i],  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+        cpx_inf,
+        sense[idx],
+        rhs[idx],
+        range[idx]);
   }
 
   // CPLEX requires sorted row indices within each column (CSC format).
   // The LinearProblem::lp_build() two-pass algorithm produces unsorted
   // indices (rows are added to columns in row-enumeration order, not
   // sorted order). Create sorted copies for CPLEX.
-  const auto nnz = (ncols > 0)
-      ? static_cast<size_t>(
-            matbeg
-                [ncols])  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-      : size_t {0};
-  std::vector<int> sorted_matind(
-      matind,
-      matind + nnz);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-  std::vector<double> sorted_matval(
-      matval,
-      matval + nnz);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  // matbeg/matind/matval are C-API raw pointers from caller
+  const auto nnz =
+      (ncols > 0) ? static_cast<size_t>(matbeg[ncols]) : size_t {0};
+  std::vector<int> sorted_matind(matind, matind + nnz);
+  std::vector<double> sorted_matval(matval, matval + nnz);
+  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 
   // Sort each column's row indices and reorder values accordingly
   for (int col = 0; col < ncols; ++col) {
-    const auto begin = static_cast<size_t>(
-        matbeg
-            [col]);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-    const auto end = (col + 1 < ncols)
-        ? static_cast<size_t>(
-              matbeg
-                  [col
-                   + 1])  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-        : nnz;
+    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    const auto begin = static_cast<size_t>(matbeg[col]);
+    const auto end =
+        (col + 1 < ncols) ? static_cast<size_t>(matbeg[col + 1]) : nnz;
+    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 
     if (end <= begin + 1) {
       continue;  // Column has 0 or 1 entries — already sorted
@@ -246,11 +244,10 @@ void CplexSolverBackend::load_problem(int ncols,
 
     // Build index permutation that sorts row indices in this column
     std::vector<size_t> perm(end - begin);
-    std::iota(perm.begin(), perm.end(), begin);
-    std::sort(perm.begin(),
-              perm.end(),
-              [&sorted_matind](size_t a, size_t b)
-              { return sorted_matind[a] < sorted_matind[b]; });
+    std::ranges::iota(perm, begin);
+    std::ranges::sort(perm,
+                      [&sorted_matind](size_t a, size_t b)
+                      { return sorted_matind[a] < sorted_matind[b]; });
 
     // Apply permutation to both matind and matval for this column
     std::vector<int> temp_ind(end - begin);
@@ -259,8 +256,10 @@ void CplexSolverBackend::load_problem(int ncols,
       temp_ind[i] = sorted_matind[perm[i]];
       temp_val[i] = sorted_matval[perm[i]];
     }
-    std::copy(temp_ind.begin(), temp_ind.end(), sorted_matind.begin() + begin);
-    std::copy(temp_val.begin(), temp_val.end(), sorted_matval.begin() + begin);
+    std::ranges::copy(
+        temp_ind, sorted_matind.begin() + static_cast<std::ptrdiff_t>(begin));
+    std::ranges::copy(
+        temp_val, sorted_matval.begin() + static_cast<std::ptrdiff_t>(begin));
   }
 
   // CPLEX requires all pointers to be non-null, even for zero-element
@@ -286,6 +285,7 @@ void CplexSolverBackend::load_problem(int ncols,
   // Compute matcnt from matbeg differences (CPLEX 22.1 requires it).
   std::vector<int> matcnt(ncols_sz, 0);
   for (int c = 0; c < ncols; ++c) {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     matcnt[static_cast<size_t>(c)] = safe_matbeg[c + 1] - safe_matbeg[c];
   }
 
@@ -322,22 +322,13 @@ int CplexSolverBackend::get_num_rows() const
   return CPXgetnumrows(m_env_, m_lp_);
 }
 
-void CplexSolverBackend::add_col(double lb, double ub, double obj_coeff)
+void CplexSolverBackend::add_col(double lb, double ub, double obj)
 {
   m_prob_cached_ = false;
   m_sol_cached_ = false;
   const int matbeg = 0;
-  CPXaddcols(m_env_,
-             m_lp_,
-             1,
-             0,
-             &obj_coeff,
-             &matbeg,
-             nullptr,
-             nullptr,
-             &lb,
-             &ub,
-             nullptr);
+  CPXaddcols(
+      m_env_, m_lp_, 1, 0, &obj, &matbeg, nullptr, nullptr, &lb, &ub, nullptr);
 }
 
 void CplexSolverBackend::set_col_lower(int index, double value)
@@ -365,8 +356,8 @@ void CplexSolverBackend::set_obj_coeff(int index, double value)
 void CplexSolverBackend::add_row(int num_elements,
                                  const int* columns,
                                  const double* elements,
-                                 double rowlb_val,
-                                 double rowub_val)
+                                 double rowlb,
+                                 double rowub)
 {
   m_prob_cached_ = false;
   m_sol_cached_ = false;
@@ -374,7 +365,7 @@ void CplexSolverBackend::add_row(int num_elements,
   char sense {};
   double rhs {};
   double range {};
-  bounds_to_cplex(rowlb_val, rowub_val, CPX_INFBOUND, sense, rhs, range);
+  bounds_to_cplex(rowlb, rowub, CPX_INFBOUND, sense, rhs, range);
 
   const int rmatbeg = 0;
   int status = CPXaddrows(m_env_,
@@ -677,7 +668,9 @@ void CplexSolverBackend::set_col_solution(const double* sol)
   const auto ncols = static_cast<size_t>(CPXgetnumcols(m_env_, m_lp_));
   // Cache the provided solution so that col_solution() returns it
   // immediately, without requiring a re-solve.
-  m_col_solution_.assign(sol, sol + ncols);
+  m_col_solution_.assign(
+      sol,
+      sol + ncols);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   m_sol_cached_ = true;
   // Also provide it to CPLEX as a warm-start hint.
   CPXcopystart(m_env_,
@@ -779,6 +772,17 @@ bool CplexSolverBackend::get_presolve() const
 int CplexSolverBackend::get_log_level() const
 {
   return m_log_level_;
+}
+
+SolverOptions CplexSolverBackend::optimal_options() const
+{
+  return {
+      .algorithm = LPAlgo::barrier,
+      .threads = 4,
+      .presolve = true,
+      .scaling = SolverScaling::automatic,
+      .max_fallbacks = 2,
+  };
 }
 
 void CplexSolverBackend::apply_options(const SolverOptions& opts)
@@ -897,7 +901,7 @@ void CplexSolverBackend::push_names(const std::vector<std::string>& col_names,
 {
   // Set column names — copy to mutable buffer because older CPLEX APIs
   // declare the name parameter as char** (non-const).
-  for (int i = 0; i < static_cast<int>(col_names.size()); ++i) {
+  for (int i = 0; std::cmp_less(i, col_names.size()); ++i) {
     if (!col_names[static_cast<size_t>(i)].empty()) {
       std::string name_buf = col_names[static_cast<size_t>(i)];
       auto* name_ptr = name_buf.data();
@@ -906,7 +910,7 @@ void CplexSolverBackend::push_names(const std::vector<std::string>& col_names,
   }
 
   // Set row names
-  for (int i = 0; i < static_cast<int>(row_names.size()); ++i) {
+  for (int i = 0; std::cmp_less(i, row_names.size()); ++i) {
     if (!row_names[static_cast<size_t>(i)].empty()) {
       std::string name_buf = row_names[static_cast<size_t>(i)];
       auto* name_ptr = name_buf.data();

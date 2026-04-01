@@ -60,6 +60,10 @@ else()
   endif()
 endif()
 
+# ---- Ensure solver plugins are rebuilt before running tests ----
+include(GtoptPlugin)
+gtopt_require_solver_plugins(${GTOPT_EXECUTABLE_TARGET})
+
 # ---- Testing ----
 enable_testing()
 include(TestParallelism)
