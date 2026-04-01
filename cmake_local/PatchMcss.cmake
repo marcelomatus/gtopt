@@ -14,6 +14,11 @@
 #      AttributeError: 'NoneType' object has no attribute 'endswith'.
 #      Fix: default to an empty string when argsstring text is None.
 #
+#   3. Missing ')' in signature:  After fix #2 converts None to '',
+#      parse_func() calls signature.rindex(')') which raises ValueError
+#      on an empty or paren-less string.
+#      Fix: return None (skip function) when ')' is absent.
+#
 # The patch is idempotent: it checks for a marker comment before writing,
 # so CPM cache hits are safe.
 #
@@ -52,7 +57,7 @@ function(patch_mcss MCSS_SOURCE_DIR)
   # Replace the bare .text access with a None-safe fallback.
   string(REPLACE
     "signature: str = element.find('argsstring').text"
-    "# [gtopt patch] guard against None argsstring (deduction guides, etc.)\n    _argsstring_el = element.find('argsstring')\n    signature: str = _argsstring_el.text if _argsstring_el is not None and _argsstring_el.text is not None else ''"
+    "# [gtopt patch] guard against None/empty argsstring (deduction guides, etc.)\n    _argsstring_el = element.find('argsstring')\n    signature: str = _argsstring_el.text if _argsstring_el is not None and _argsstring_el.text is not None else ''\n    if ')' not in signature:\n        return None"
     _src "${_src}"
   )
 
