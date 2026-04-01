@@ -25,6 +25,7 @@ namespace gtopt
  * Uses the Highs class directly (no OSI wrapper), providing access to
  * all HiGHS features including IPM, simplex, and MIP solving.
  */
+// NOLINTNEXTLINE(cppcoreguidelines-special-member-functions,hicpp-special-member-functions)
 class HighsSolverBackend final : public SolverBackend
 {
 public:
@@ -111,6 +112,7 @@ public:
 
   // ---- options ----
   void apply_options(const SolverOptions& opts) override;
+  [[nodiscard]] SolverOptions optimal_options() const override;
   [[nodiscard]] LPAlgo get_algorithm() const override;
   [[nodiscard]] int get_threads() const override;
   [[nodiscard]] bool get_presolve() const override;

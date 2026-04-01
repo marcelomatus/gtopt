@@ -27,6 +27,7 @@ namespace gtopt
  * Uses CPXopenCPLEX / CPXcreateprob / CPXcopyLP / CPXlpopt etc.
  * from ``<ilcplex/cplex.h>`` without any OSI wrapper.
  */
+// NOLINTNEXTLINE(cppcoreguidelines-special-member-functions,hicpp-special-member-functions)
 class CplexSolverBackend final : public SolverBackend
 {
 public:
@@ -113,6 +114,7 @@ public:
 
   // ---- solver options ----
   void apply_options(const SolverOptions& opts) override;
+  [[nodiscard]] SolverOptions optimal_options() const override;
   [[nodiscard]] LPAlgo get_algorithm() const override;
   [[nodiscard]] int get_threads() const override;
   [[nodiscard]] bool get_presolve() const override;

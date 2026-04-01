@@ -311,7 +311,7 @@ bool try_set_solver_options_path(Planning& planning,
           planning.merge(std::move(overlay));
           spdlog::info("--set {}={} applied (as string)", key, value);
           continue;
-        } catch (...) {
+        } catch (...) {  // NOLINT(bugprone-empty-catch)
         }
       }
       spdlog::error("--set {}={}: unknown option or invalid value", key, value);
@@ -825,6 +825,20 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
 
       if (do_stats) {
         log_pre_solve_stats(opts.planning_files, my_planning);
+      }
+
+      // Apply per-solver config from .gtopt.conf [solver.<name>] sections.
+      // The solver name comes from --solver CLI / config, or from the
+      // auto-detected default in LpBuildOptions.
+      if (const auto& solver_key = flat_opts.solver_name; !solver_key.empty()) {
+        if (const auto it = opts.solver_configs.find(solver_key);
+            it != opts.solver_configs.end())
+        {
+          auto& so = my_planning.options.solver_options;
+          auto conf = it->second;
+          conf.overlay(so);
+          so = conf;
+        }
       }
 
       spdlog::info("=== Building LP model ===");

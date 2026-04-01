@@ -5,11 +5,23 @@ import json
 import os
 import signal
 import zipfile
+from base64 import b64decode, b64encode
 from unittest.mock import MagicMock, patch
 
+import numpy as np
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
+import requests
 
-from guiservice.app import app, _build_case_json, _build_zip, _parse_uploaded_zip
+from guiservice.app import (
+    app,
+    _build_case_json,
+    _build_zip,
+    _parse_results_zip,
+    _parse_uploaded_zip,
+)
 
 
 @pytest.fixture
@@ -152,7 +164,6 @@ class TestBuildZip:
 
     def test_parquet_integer_columns_preserve_types(self):
         """Verify that parquet files are written without type conversion."""
-        import pandas as pd
 
         data = _sample_case_data()
         data["options"]["input_format"] = "parquet"
@@ -172,8 +183,6 @@ class TestBuildZip:
     def test_build_zip_preserves_raw_parquet_bytes(self):
         """When raw parquet bytes are available, _build_zip must write them
         unchanged instead of reconstructing from JSON data."""
-        import numpy as np
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -187,8 +196,6 @@ class TestBuildZip:
         original_bytes = pq_buf.getvalue()
 
         # Simulate an uploaded case with raw parquet bytes preserved
-        from base64 import b64encode
-
         data = _sample_case_data()
         data["options"]["input_format"] = "parquet"
         data["data_files"]["Demand/lmax"] = {
@@ -205,8 +212,6 @@ class TestBuildZip:
     def test_upload_download_parquet_round_trip_preserves_schema(self):
         """Upload a ZIP with typed parquet, then _build_zip must produce
         identical parquet bytes preserving the original schema."""
-        import numpy as np
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -295,8 +300,6 @@ class TestParseUploadedZip:
 
     def test_parse_parquet_preserves_integer_types(self):
         """Integer columns (int8/16/32/64) must remain ints after parsing."""
-        import numpy as np
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -500,7 +503,6 @@ class TestRoundTrip:
 
     def test_parquet_round_trip_preserves_bytes(self, client):
         """Uploaded ZIP should be preserved for passthrough submission."""
-        import pandas as pd
 
         # Create original parquet in memory
         original_df = pd.DataFrame(
@@ -538,8 +540,6 @@ class TestRoundTrip:
         assert "_system_file" in case_data
 
         # Decode the stored ZIP and verify it matches
-        from base64 import b64decode
-
         stored_zip = b64decode(case_data["_uploaded_zip_b64"])
         assert stored_zip == original_zip_bytes
 
@@ -624,7 +624,6 @@ class TestSolveSubmit:
 
     @patch("guiservice.app.http_requests.post")
     def test_submit_connection_error(self, mock_post, client):
-        import requests
 
         mock_post.side_effect = requests.ConnectionError("refused")
 
@@ -667,7 +666,6 @@ class TestSolveStatus:
 
     @patch("guiservice.app.http_requests.get")
     def test_status_connection_error(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.ConnectionError("refused")
 
@@ -704,7 +702,6 @@ class TestSolveResults:
 
     @patch("guiservice.app.http_requests.get")
     def test_results_connection_error(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.ConnectionError("refused")
 
@@ -747,7 +744,6 @@ class TestSolveJobsList:
 
     @patch("guiservice.app.http_requests.get")
     def test_list_jobs_connection_error(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.ConnectionError("refused")
 
@@ -896,7 +892,7 @@ class TestWebserviceEndToEnd:
         """Verify the ZIP sent to the webservice contains the correct files."""
         captured_files = {}
 
-        def capture_post(url, files=None, data=None, timeout=None):
+        def capture_post(url, files=None, data=None, timeout=None):  # pylint: disable=unused-argument
             # Capture the ZIP file content sent to the webservice
             if files and "file" in files:
                 fname, fobj, ftype = files["file"]
@@ -999,9 +995,9 @@ class TestWebserviceEndToEnd:
         """Verify cases with CSV data files are correctly transmitted."""
         captured_content = {}
 
-        def capture_post(url, files=None, data=None, timeout=None):
+        def capture_post(url, files=None, data=None, timeout=None):  # pylint: disable=unused-argument
             if files and "file" in files:
-                fname, fobj, ftype = files["file"]
+                _, fobj, _ = files["file"]
                 fobj.seek(0)
                 captured_content["zip"] = fobj.read()
             resp = MagicMock()
@@ -1040,7 +1036,6 @@ class TestWebserviceEndToEnd:
     @patch("guiservice.app.http_requests.get")
     def test_webservice_timeout_handling(self, mock_get, mock_post, client):
         """Verify proper handling of timeout during each stage."""
-        import requests
 
         # Timeout on submit
         mock_post.side_effect = requests.Timeout("timed out")
@@ -1072,7 +1067,6 @@ class TestWebserviceEndToEnd:
     @patch("guiservice.app.http_requests.get")
     def test_webservice_http_error_handling(self, mock_get, mock_post, client):
         """Verify proper error propagation from webservice HTTP errors."""
-        import requests
 
         # HTTP error on submit (e.g., 400 Bad Request)
         error_resp = MagicMock()
@@ -1134,7 +1128,6 @@ class TestPingWebservice:
 
     @patch("guiservice.app.http_requests.get")
     def test_ping_connection_error(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.ConnectionError("refused")
         resp = client.get("/api/solve/ping")
@@ -1143,7 +1136,6 @@ class TestPingWebservice:
 
     @patch("guiservice.app.http_requests.get")
     def test_ping_timeout(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.Timeout("timed out")
         resp = client.get("/api/solve/ping")
@@ -1170,7 +1162,6 @@ class TestWebserviceLogs:
 
     @patch("guiservice.app.http_requests.get")
     def test_logs_connection_error(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.ConnectionError("refused")
         resp = client.get("/api/solve/logs")
@@ -1203,7 +1194,6 @@ class TestJobLogs:
 
     @patch("guiservice.app.http_requests.get")
     def test_job_logs_connection_error(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.ConnectionError("refused")
         resp = client.get("/api/solve/job_logs/abc-123")
@@ -1212,7 +1202,6 @@ class TestJobLogs:
 
     @patch("guiservice.app.http_requests.get")
     def test_job_logs_not_found(self, mock_get, client):
-        import requests
 
         mock_resp = MagicMock()
         mock_resp.status_code = 404
@@ -1223,7 +1212,6 @@ class TestJobLogs:
 
     @patch("guiservice.app.http_requests.get")
     def test_job_logs_timeout(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.Timeout("timed out")
         resp = client.get("/api/solve/job_logs/abc-123")
@@ -1234,7 +1222,6 @@ class TestJobLogs:
 class TestResultsWithTerminalOutput:
     def test_results_zip_with_terminal_log(self):
         """Verify _parse_results_zip extracts terminal output."""
-        from guiservice.app import _parse_results_zip
 
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as zf:
@@ -1253,7 +1240,6 @@ class TestResultsWithTerminalOutput:
 
     def test_results_zip_with_stdout_stderr_logs(self):
         """Verify _parse_results_zip extracts stdout.log and stderr.log."""
-        from guiservice.app import _parse_results_zip
 
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as zf:
@@ -1267,7 +1253,6 @@ class TestResultsWithTerminalOutput:
 
     def test_results_zip_without_terminal_output(self):
         """Verify _parse_results_zip works when no log files are present."""
-        from guiservice.app import _parse_results_zip
 
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as zf:
@@ -1404,7 +1389,6 @@ class TestWebserviceConnectivity:
     @patch("guiservice.app.http_requests.get")
     def test_webservice_http_error_reports_status(self, mock_get, client):
         """HTTP errors from the webservice should be reported correctly."""
-        import requests
 
         mock_resp = MagicMock()
         mock_resp.status_code = 404
@@ -1425,7 +1409,7 @@ class TestCheckServer:
     def test_check_server_all_ok(self, mock_get, client):
         """All three checks (ping, logs, jobs) succeed."""
 
-        def side_effect(url, **kwargs):
+        def side_effect(url, **_kwargs):
             resp = MagicMock()
             resp.raise_for_status.return_value = None
             if "/api/ping" in url:
@@ -1458,9 +1442,8 @@ class TestCheckServer:
     @patch("guiservice.app.http_requests.get")
     def test_check_server_ping_fails(self, mock_get, client):
         """Ping fails but logs and jobs succeed."""
-        import requests
 
-        def side_effect(url, **kwargs):
+        def side_effect(url, **_kwargs):
             if "/api/ping" in url:
                 raise requests.ConnectionError("refused")
             resp = MagicMock()
@@ -1483,7 +1466,6 @@ class TestCheckServer:
     @patch("guiservice.app.http_requests.get")
     def test_check_server_all_fail(self, mock_get, client):
         """All three checks fail."""
-        import requests
 
         mock_get.side_effect = requests.ConnectionError("refused")
 
@@ -1574,8 +1556,8 @@ class TestParseUploadedZipNoJson:
         buf.seek(0)
         result = _parse_uploaded_zip(buf.read())
         assert result["case_name"] == "uploaded_case"
-        assert result["options"] == {}
-        assert result["system"] == {}
+        assert not result["options"]
+        assert not result["system"]
 
 
 class TestDownloadCase:
@@ -1691,7 +1673,6 @@ class TestWebserviceProxyErrors:
 
     @patch("guiservice.app.http_requests.post")
     def test_submit_connection_error(self, mock_post, client):
-        import requests
 
         mock_post.side_effect = requests.ConnectionError("refused")
         resp = client.post(
@@ -1705,7 +1686,6 @@ class TestWebserviceProxyErrors:
 
     @patch("guiservice.app.http_requests.post")
     def test_submit_timeout(self, mock_post, client):
-        import requests
 
         mock_post.side_effect = requests.Timeout("timed out")
         resp = client.post(
@@ -1717,7 +1697,6 @@ class TestWebserviceProxyErrors:
 
     @patch("guiservice.app.http_requests.post")
     def test_submit_http_error(self, mock_post, client):
-        import requests
 
         mock_resp = MagicMock()
         mock_resp.status_code = 500
@@ -1732,7 +1711,6 @@ class TestWebserviceProxyErrors:
 
     @patch("guiservice.app.http_requests.get")
     def test_list_jobs_timeout(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.Timeout("timed out")
         resp = client.get("/api/solve/jobs")
@@ -1740,7 +1718,6 @@ class TestWebserviceProxyErrors:
 
     @patch("guiservice.app.http_requests.get")
     def test_ping_connection_error_hint(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.ConnectionError("refused")
         resp = client.get("/api/solve/ping")
@@ -1750,7 +1727,6 @@ class TestWebserviceProxyErrors:
 
     @patch("guiservice.app.http_requests.get")
     def test_ping_timeout(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.Timeout("timed out")
         resp = client.get("/api/solve/ping")
@@ -1758,7 +1734,6 @@ class TestWebserviceProxyErrors:
 
     @patch("guiservice.app.http_requests.get")
     def test_ping_http_error(self, mock_get, client):
-        import requests
 
         mock_resp = MagicMock()
         mock_resp.status_code = 503
@@ -1768,7 +1743,6 @@ class TestWebserviceProxyErrors:
 
     @patch("guiservice.app.http_requests.get")
     def test_jobs_connection_error_hint(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.ConnectionError("refused")
         resp = client.get("/api/solve/jobs")
@@ -1778,7 +1752,6 @@ class TestWebserviceProxyErrors:
 
     @patch("guiservice.app.http_requests.get")
     def test_status_connection_error_hint(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.ConnectionError("refused")
         resp = client.get("/api/solve/status/abc-token")
@@ -1788,7 +1761,6 @@ class TestWebserviceProxyErrors:
 
     @patch("guiservice.app.http_requests.get")
     def test_results_connection_error_hint(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.ConnectionError("refused")
         resp = client.get("/api/solve/results/abc-token")
@@ -1809,7 +1781,6 @@ class TestSolveErrorPaths:
 
     @patch("guiservice.app.http_requests.post")
     def test_submit_timeout(self, mock_post, client):
-        import requests
 
         mock_post.side_effect = requests.Timeout("timed out")
         resp = client.post(
@@ -1822,7 +1793,6 @@ class TestSolveErrorPaths:
 
     @patch("guiservice.app.http_requests.post")
     def test_submit_http_error(self, mock_post, client):
-        import requests
 
         http_err = requests.HTTPError("server error")
         mock_resp = MagicMock()
@@ -1853,7 +1823,6 @@ class TestSolveErrorPaths:
 
     @patch("guiservice.app.http_requests.get")
     def test_status_timeout(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.Timeout("timed out")
         resp = client.get("/api/solve/status/tok-1")
@@ -1861,7 +1830,6 @@ class TestSolveErrorPaths:
 
     @patch("guiservice.app.http_requests.get")
     def test_status_http_error(self, mock_get, client):
-        import requests
 
         http_err = requests.HTTPError("not found")
         mock_resp = MagicMock()
@@ -1881,7 +1849,6 @@ class TestSolveErrorPaths:
 
     @patch("guiservice.app.http_requests.get")
     def test_results_timeout(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.Timeout("timed out")
         resp = client.get("/api/solve/results/tok-1")
@@ -1889,7 +1856,6 @@ class TestSolveErrorPaths:
 
     @patch("guiservice.app.http_requests.get")
     def test_results_http_error(self, mock_get, client):
-        import requests
 
         http_err = requests.HTTPError("not found")
         mock_resp = MagicMock()
@@ -1909,7 +1875,6 @@ class TestSolveErrorPaths:
 
     @patch("guiservice.app.http_requests.get")
     def test_list_jobs_timeout(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.Timeout("timed out")
         resp = client.get("/api/solve/jobs")
@@ -1917,7 +1882,6 @@ class TestSolveErrorPaths:
 
     @patch("guiservice.app.http_requests.get")
     def test_list_jobs_http_error(self, mock_get, client):
-        import requests
 
         http_err = requests.HTTPError("server error")
         mock_resp = MagicMock()
@@ -1947,7 +1911,6 @@ class TestSolveErrorPaths:
 
     @patch("guiservice.app.http_requests.get")
     def test_ping_connection_error(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.ConnectionError("refused")
         resp = client.get("/api/solve/ping")
@@ -1956,7 +1919,6 @@ class TestSolveErrorPaths:
 
     @patch("guiservice.app.http_requests.get")
     def test_ping_timeout(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.Timeout("timed out")
         resp = client.get("/api/solve/ping")
@@ -1964,7 +1926,6 @@ class TestSolveErrorPaths:
 
     @patch("guiservice.app.http_requests.get")
     def test_ping_http_error(self, mock_get, client):
-        import requests
 
         http_err = requests.HTTPError("server error")
         mock_resp = MagicMock()
@@ -1993,7 +1954,6 @@ class TestSolveErrorPaths:
 
     @patch("guiservice.app.http_requests.get")
     def test_webservice_logs_connection_error(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.ConnectionError("refused")
         resp = client.get("/api/solve/logs")
@@ -2001,7 +1961,6 @@ class TestSolveErrorPaths:
 
     @patch("guiservice.app.http_requests.get")
     def test_webservice_logs_timeout(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.Timeout("timed out")
         resp = client.get("/api/solve/logs")
@@ -2009,7 +1968,6 @@ class TestSolveErrorPaths:
 
     @patch("guiservice.app.http_requests.get")
     def test_webservice_logs_http_error(self, mock_get, client):
-        import requests
 
         http_err = requests.HTTPError("server error")
         mock_resp = MagicMock()
@@ -2038,7 +1996,6 @@ class TestSolveErrorPaths:
 
     @patch("guiservice.app.http_requests.get")
     def test_job_logs_connection_error(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.ConnectionError("refused")
         resp = client.get("/api/solve/job_logs/tok-1")
@@ -2046,7 +2003,6 @@ class TestSolveErrorPaths:
 
     @patch("guiservice.app.http_requests.get")
     def test_job_logs_timeout(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.Timeout("timed out")
         resp = client.get("/api/solve/job_logs/tok-1")
@@ -2054,7 +2010,6 @@ class TestSolveErrorPaths:
 
     @patch("guiservice.app.http_requests.get")
     def test_job_logs_http_error(self, mock_get, client):
-        import requests
 
         http_err = requests.HTTPError("not found")
         mock_resp = MagicMock()
@@ -2082,10 +2037,6 @@ class TestParquetNanHandling:
 
     def test_parse_results_zip_parquet_with_nan(self):
         """_parse_results_zip must replace NaN with None for valid JSON."""
-        import numpy as np
-        import pandas as pd
-
-        from guiservice.app import _parse_results_zip
 
         df = pd.DataFrame(
             {
@@ -2121,8 +2072,6 @@ class TestParquetNanHandling:
 
     def test_parse_results_zip_parquet_nan_produces_valid_json(self, client):
         """Upload results with NaN parquet data; response must be valid JSON."""
-        import numpy as np
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -2154,8 +2103,6 @@ class TestParquetNanHandling:
 
     def test_parse_uploaded_zip_parquet_with_nan(self):
         """_parse_uploaded_zip must replace NaN with None in data files."""
-        import numpy as np
-        import pandas as pd
 
         df = pd.DataFrame(
             {
@@ -2184,10 +2131,6 @@ class TestParquetNanHandling:
 
     def test_infinity_replaced_with_none(self):
         """Infinity and -Infinity must also become None for valid JSON."""
-        import numpy as np
-        import pandas as pd
-
-        from guiservice.app import _parse_results_zip
 
         df = pd.DataFrame(
             {
@@ -2218,10 +2161,6 @@ class TestParquetNanHandling:
         (JSON ``null``) — matching how Arrow's CSV writer outputs empty
         strings for the same nulls.
         """
-        import pyarrow as pa
-        import pyarrow.parquet as pq
-
-        from guiservice.app import _parse_results_zip
 
         # Simulate what the C++ code produces: float64 array with null bitmap
         scenario = pa.array([1, 1, 1], type=pa.int32())
@@ -2278,8 +2217,6 @@ class TestParquetNanHandling:
         Both must produce valid JSON responses from the results upload
         endpoint.
         """
-        import pyarrow as pa
-        import pyarrow.parquet as pq
 
         # Build a results ZIP with both CSV and parquet outputs
         zip_buf = io.BytesIO()
@@ -2375,7 +2312,6 @@ class TestSolveMonitor:
 
     @patch("guiservice.app.http_requests.get")
     def test_monitor_connection_error(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.ConnectionError("refused")
         resp = client.get("/api/solve/monitor/tok-1")
@@ -2383,7 +2319,6 @@ class TestSolveMonitor:
 
     @patch("guiservice.app.http_requests.get")
     def test_monitor_timeout(self, mock_get, client):
-        import requests
 
         mock_get.side_effect = requests.Timeout("timed out")
         resp = client.get("/api/solve/monitor/tok-1")
@@ -2391,7 +2326,6 @@ class TestSolveMonitor:
 
     @patch("guiservice.app.http_requests.get")
     def test_monitor_http_error(self, mock_get, client):
-        import requests
 
         http_err = requests.HTTPError("not found")
         mock_resp = MagicMock()
@@ -2463,7 +2397,6 @@ class TestSolveStop:
 
     @patch("guiservice.app.http_requests.post")
     def test_stop_connection_error(self, mock_post, client):
-        import requests
 
         mock_post.side_effect = requests.ConnectionError("refused")
         resp = client.post("/api/solve/stop/tok-1")
@@ -2471,7 +2404,6 @@ class TestSolveStop:
 
     @patch("guiservice.app.http_requests.post")
     def test_stop_timeout(self, mock_post, client):
-        import requests
 
         mock_post.side_effect = requests.Timeout("timed out")
         resp = client.post("/api/solve/stop/tok-1")
@@ -2479,7 +2411,6 @@ class TestSolveStop:
 
     @patch("guiservice.app.http_requests.post")
     def test_stop_http_error(self, mock_post, client):
-        import requests
 
         http_err = requests.HTTPError("not found")
         mock_resp = MagicMock()

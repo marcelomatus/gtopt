@@ -111,3 +111,24 @@ function(gtopt_add_solver_plugin)
     LIBRARY DESTINATION lib/gtopt/plugins
   )
 endfunction()
+
+#[=======================================================================[
+gtopt_require_solver_plugins(<target>)
+
+Add build dependencies from ``<target>`` to all available solver plugin
+targets.  This ensures plugins are rebuilt before the target runs — a
+stale plugin with an incompatible SolverBackend ABI would crash at
+runtime.  Safe to call even if some plugin targets don't exist.
+
+Usage::
+
+  gtopt_require_solver_plugins(gtoptTests)
+
+#]=======================================================================]
+function(gtopt_require_solver_plugins _target)
+  foreach(_plugin gtopt_solver_osi gtopt_solver_cplex gtopt_solver_highs)
+    if(TARGET ${_plugin})
+      add_dependencies(${_target} ${_plugin})
+    endif()
+  endforeach()
+endfunction()

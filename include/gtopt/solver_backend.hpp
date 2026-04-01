@@ -24,6 +24,16 @@ namespace gtopt
 {
 
 /**
+ * @brief ABI version for the SolverBackend plugin interface.
+ *
+ * Bump this integer every time the SolverBackend vtable changes
+ * (new virtual methods, reordered methods, changed signatures, etc.).
+ * SolverRegistry checks the plugin's reported ABI version at load time
+ * and rejects incompatible plugins with a clear error instead of crashing.
+ */
+inline constexpr int k_solver_abi_version = 2;
+
+/**
  * @brief Abstract interface for LP/MIP solver backends.
  *
  * Each solver plugin (CLP, CBC, CPLEX, HiGHS, …) provides a concrete
@@ -143,6 +153,14 @@ public:
 
   virtual void apply_options(const SolverOptions& opts) = 0;
 
+  /** @brief Return backend-optimal default options (benchmarked).
+   *
+   *  Called by LinearInterface before merging user-supplied options.
+   *  Each backend returns its empirically best configuration; the caller
+   *  overlays user-provided options on top so explicit settings always win.
+   */
+  [[nodiscard]] virtual SolverOptions optimal_options() const = 0;
+
   /** @brief Query the currently configured LP algorithm. */
   [[nodiscard]] virtual LPAlgo get_algorithm() const = 0;
 
@@ -206,5 +224,10 @@ using solver_plugin_name_fn = const char* (*)();
 
 /// Plugin solver-list function type: returns null-terminated array of names.
 using solver_plugin_names_fn = const char* const* (*)();
+
+/// Plugin ABI version function type: returns the ABI version the plugin was
+/// built against.  SolverRegistry rejects plugins whose version differs from
+/// k_solver_abi_version.
+using solver_plugin_abi_version_fn = int (*)();
 
 }  // namespace gtopt

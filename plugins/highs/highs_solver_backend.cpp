@@ -9,6 +9,7 @@
 #include <format>
 #include <stdexcept>
 #include <thread>
+#include <utility>
 
 #include "highs_solver_backend.hpp"
 
@@ -100,11 +101,13 @@ void HighsSolverBackend::load_problem(int ncols,
   lp.num_row_ = nrows;
   lp.sense_ = ObjSense::kMinimize;
 
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   lp.col_cost_.assign(obj, obj + ncols);
   lp.col_lower_.assign(collb, collb + ncols);
   lp.col_upper_.assign(colub, colub + ncols);
   lp.row_lower_.assign(rowlb, rowlb + nrows);
   lp.row_upper_.assign(rowub, rowub + nrows);
+  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 
   // Normalize bounds: clamp any value beyond ±kHighsInf to avoid
   // HiGHS warnings ("bounds >= 1e20 treated as +Infinity").
@@ -112,7 +115,10 @@ void HighsSolverBackend::load_problem(int ncols,
   // LinearProblem::set_infinity() before building.
   auto clamp_inf = [](double v)
   {
-    return v >= kHighsInf ? kHighsInf : v <= -kHighsInf ? -kHighsInf : v;
+    if (v >= kHighsInf) {
+      return kHighsInf;
+    }
+    return v <= -kHighsInf ? -kHighsInf : v;
   };
   std::ranges::transform(lp.col_lower_, lp.col_lower_.begin(), clamp_inf);
   std::ranges::transform(lp.col_upper_, lp.col_upper_.begin(), clamp_inf);
@@ -122,10 +128,12 @@ void HighsSolverBackend::load_problem(int ncols,
   // CSC matrix
   lp.a_matrix_.format_ = MatrixFormat::kColwise;
   if (ncols > 0) {
+    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     lp.a_matrix_.start_.assign(matbeg, matbeg + ncols + 1);
     const auto nnz = lp.a_matrix_.start_.back();
     lp.a_matrix_.index_.assign(matind, matind + nnz);
     lp.a_matrix_.value_.assign(matval, matval + nnz);
+    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   }
 
   const auto status = m_highs_->passModel(std::move(lp));
@@ -246,7 +254,7 @@ bool HighsSolverBackend::is_continuous(int index) const
   // HiGHS doesn't have a direct "is continuous" check;
   // query integrality status
   const auto& lp = m_highs_->getLp();
-  if (index < static_cast<int>(lp.integrality_.size())) {
+  if (std::cmp_less(index, lp.integrality_.size())) {
     type = lp.integrality_[static_cast<size_t>(index)];
   }
   return type == HighsVarType::kContinuous;
@@ -325,7 +333,9 @@ void HighsSolverBackend::set_col_solution(const double* sol)
   }
   HighsSolution solution;
   const auto ncols = m_highs_->getNumCol();
-  solution.col_value.assign(sol, sol + ncols);
+  solution.col_value.assign(
+      sol,
+      sol + ncols);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   solution.value_valid = true;
   m_highs_->setSolution(solution);
   m_solution_valid_ = false;
@@ -339,7 +349,10 @@ void HighsSolverBackend::set_row_price(const double* price)
   // HiGHS can accept dual values as part of the solution
   HighsSolution solution;
   const auto nrows = m_highs_->getNumRow();
-  solution.row_dual.assign(price, price + nrows);
+  solution.row_dual.assign(
+      price,
+      price
+          + nrows);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   solution.dual_valid = true;
   m_highs_->setSolution(solution);
   m_solution_valid_ = false;
@@ -404,6 +417,17 @@ bool HighsSolverBackend::get_presolve() const
 int HighsSolverBackend::get_log_level() const
 {
   return m_log_level_;
+}
+
+SolverOptions HighsSolverBackend::optimal_options() const
+{
+  return {
+      .algorithm = LPAlgo::default_algo,
+      .threads = 4,
+      .presolve = true,
+      .scaling = SolverScaling::automatic,
+      .max_fallbacks = 2,
+  };
 }
 
 void HighsSolverBackend::apply_options(const SolverOptions& opts)
@@ -553,12 +577,12 @@ void HighsSolverBackend::clear_log_filename()
 void HighsSolverBackend::push_names(const std::vector<std::string>& col_names,
                                     const std::vector<std::string>& row_names)
 {
-  for (int i = 0; i < static_cast<int>(col_names.size()); ++i) {
+  for (int i = 0; std::cmp_less(i, col_names.size()); ++i) {
     if (!col_names[static_cast<size_t>(i)].empty()) {
       m_highs_->passColName(i, col_names[static_cast<size_t>(i)]);
     }
   }
-  for (int i = 0; i < static_cast<int>(row_names.size()); ++i) {
+  for (int i = 0; std::cmp_less(i, row_names.size()); ++i) {
     if (!row_names[static_cast<size_t>(i)].empty()) {
       m_highs_->passRowName(i, row_names[static_cast<size_t>(i)]);
     }

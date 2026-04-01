@@ -8,14 +8,16 @@
 
 #include <cstring>
 
+#include <gtopt/solver_backend.hpp>
+
 #include "osi_solver_backend.hpp"
 
 namespace
 {
 
 // Null-terminated array of solver names this plugin provides
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays)
 const char* const k_solver_names[] = {
-    // NOLINT
     "clp",
 #ifdef GTOPT_OSI_HAS_CBC
     "cbc",
@@ -27,6 +29,11 @@ const char* const k_solver_names[] = {
 
 extern "C"
 {
+int gtopt_plugin_abi_version()  // NOLINT
+{
+  return gtopt::k_solver_abi_version;
+}
+
 const char* gtopt_plugin_name()  // NOLINT
 {
   return "osi";

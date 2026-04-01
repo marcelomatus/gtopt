@@ -32,11 +32,12 @@ namespace gtopt
  */
 struct SolverOptions
 {
-  /** @brief The solution algorithm to use */
-  LPAlgo algorithm {LPAlgo::barrier};
+  /** @brief The solution algorithm to use (default_algo = use backend optimal)
+   */
+  LPAlgo algorithm {LPAlgo::default_algo};
 
-  /** @brief Number of parallel threads to use (0 = solver default) */
-  int threads {2};
+  /** @brief Number of parallel threads to use (0 = use backend optimal) */
+  int threads {0};
 
   /** @brief Whether to apply presolve optimizations (default: true) */
   bool presolve {true};
@@ -78,7 +79,7 @@ struct SolverOptions
    *
    *  @see SolverScaling for the available strategies and backend mapping.
    */
-  std::optional<SolverScaling> scaling {SolverScaling::aggressive};
+  std::optional<SolverScaling> scaling {};
 
   /** @brief Maximum algorithm fallback attempts on non-optimal solve.
    *
@@ -119,6 +120,46 @@ struct SolverOptions
     merge_opt(time_limit, other.time_limit);
     merge_opt(log_mode, other.log_mode);
     merge_opt(scaling, other.scaling);
+  }
+
+  /**
+   * @brief Overlay user-supplied options on top of backend defaults.
+   *
+   * Start from backend optimal defaults (this), then apply any user
+   * option that is not at its sentinel/default value.  User settings
+   * always win over backend defaults.
+   *
+   * Sentinels: algorithm=default_algo, threads=0, log_level=0,
+   * max_fallbacks=2, presolve=true, reuse_basis=false.
+   * Optional fields: has_value() means user specified.
+   */
+  void overlay(const SolverOptions& user)
+  {
+    if (user.algorithm != LPAlgo::default_algo) {
+      algorithm = user.algorithm;
+    }
+    if (user.threads != 0) {
+      threads = user.threads;
+    }
+    if (!user.presolve) {
+      presolve = user.presolve;
+    }
+    if (user.reuse_basis) {
+      reuse_basis = user.reuse_basis;
+    }
+    if (user.log_level != 0) {
+      log_level = user.log_level;
+    }
+    if (user.max_fallbacks != 2) {
+      max_fallbacks = user.max_fallbacks;
+    }
+    // optional fields: user wins if specified
+    merge_opt(optimal_eps, user.optimal_eps);
+    merge_opt(feasible_eps, user.feasible_eps);
+    merge_opt(barrier_eps, user.barrier_eps);
+    merge_opt(time_limit, user.time_limit);
+    merge_opt(log_mode, user.log_mode);
+    merge_opt(scaling, user.scaling);
   }
 };
 

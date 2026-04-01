@@ -110,12 +110,12 @@ struct PlanningOptionsConstructor
           gtopt::enum_from_name<CompressionCodec>(*lp_compression_str);
     }
     opts.lp_build = lp_build;
-    opts.model_options = std::move(model_options);
+    opts.model_options = model_options;
     opts.monolithic_options = std::move(monolithic_options);
     opts.sddp_options = std::move(sddp_options);
     opts.cascade_options = std::move(cascade_options);
     opts.solver_options = solver_options;
-    opts.lp_build_options = lp_build_options;
+    opts.lp_build_options = std::move(lp_build_options);
     opts.variable_scales = std::move(variable_scales);
     return opts;
   }

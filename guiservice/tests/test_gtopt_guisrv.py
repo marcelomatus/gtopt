@@ -9,7 +9,7 @@ import pytest
 # Ensure the guiservice package root is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-import guiservice.gtopt_guisrv as guisrv
+import guiservice.gtopt_guisrv as guisrv  # pylint: disable=wrong-import-position
 
 
 # ---------------------------------------------------------------------------
@@ -35,8 +35,9 @@ def test_get_guiservice_dir_not_found():
     non_existent = Path("/nonexistent_dir_for_test_xyz")
     with patch("guiservice.gtopt_guisrv.__file__", str(non_existent / "gtopt_guisrv.py")):
         with patch("sys.prefix", "/nonexistent_prefix_xyz"):
-            with pytest.raises(SystemExit) as exc_info:
-                guisrv.get_guiservice_dir()
+            with patch("pathlib.Path.exists", return_value=False):
+                with pytest.raises(SystemExit) as exc_info:
+                    guisrv.get_guiservice_dir()
     assert exc_info.value.code == 1
 
 
@@ -147,7 +148,7 @@ def test_main_debug_flag(tmp_path):
     mock_app_module.app.run.assert_called_once_with(host="0.0.0.0", port=5001, debug=True)
 
 
-def test_main_missing_dependencies_exits(tmp_path, capsys):
+def test_main_missing_dependencies_exits(tmp_path):
     """main() exits with code 1 when dependencies are missing."""
     app_py = tmp_path / "app.py"
     app_py.touch()
