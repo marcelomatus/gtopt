@@ -121,7 +121,7 @@ class TestGTOptWriterWithRealParser:
         opts = result["options"]
         assert "input_directory" in opts
         assert "output_directory" in opts
-        assert "demand_fail_cost" in opts
+        assert "demand_fail_cost" in opts.get("model_options", {})
         # Default solver type is sddp (top-level field)
         assert opts["method"] == "sddp"
 
@@ -141,10 +141,10 @@ class TestGTOptWriterProcessMethods:
     """Unit tests for individual process_* methods."""
 
     def test_process_options_default_discount(self):
-        """process_options sets annual_discount_rate=0 when not provided."""
+        """process_options sets annual_discount_rate=0 on simulation."""
         writer = GTOptWriter(MagicMock())
         writer.process_options({"output_dir": "out"})
-        assert writer.planning["options"]["annual_discount_rate"] == 0.0
+        assert writer.planning["simulation"]["annual_discount_rate"] == 0.0
 
     def test_process_options_default_solver_type(self):
         """process_options defaults to method='sddp' at top level."""
@@ -262,13 +262,15 @@ class TestGTOptWriterProcessMethods:
         """demand_fail_cost defaults to 1000 when not specified."""
         writer = GTOptWriter(MagicMock())
         writer.process_options({"output_dir": "out"})
-        assert writer.planning["options"]["demand_fail_cost"] == 1000
+        assert writer.planning["options"]["model_options"]["demand_fail_cost"] == 1000
 
     def test_process_options_with_discount(self):
-        """process_options passes discount_rate through."""
+        """process_options passes discount_rate to simulation."""
         writer = GTOptWriter(MagicMock())
         writer.process_options({"output_dir": "out", "discount_rate": 0.08})
-        assert writer.planning["options"]["annual_discount_rate"] == pytest.approx(0.08)
+        assert writer.planning["simulation"]["annual_discount_rate"] == pytest.approx(
+            0.08
+        )
 
     # ---- SDDP (default) scenario/scene tests --------------------------------
 

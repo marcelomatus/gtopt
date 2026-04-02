@@ -55,23 +55,30 @@ All fields are `std::optional` -- absent fields inherit built-in defaults
 | `output_compression` | string | `"zstd"` | Compression codec for output files |
 | `use_uid_fname` | bool | `false` | Use UIDs instead of names in filenames |
 
-### Model Parameters
+### Model Parameters (deprecated flat fields)
+
+> **Deprecated**: The flat model fields below are kept for backward
+> compatibility but emit a deprecation warning when parsed from JSON.
+> Use the `model_options` sub-object instead (see [ModelOptions
+> Fields](#modeloptions-fields)).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `demand_fail_cost` | float | -- | Penalty $/MWh for unserved demand |
-| `reserve_fail_cost` | float | -- | Penalty $/MWh for unserved reserve |
-| `use_line_losses` | bool | `true` | Model resistive line losses |
-| `loss_segments` | int | `1` | Piecewise-linear segments for losses |
-| `use_kirchhoff` | bool | `false` | DC Kirchhoff voltage-law constraints |
-| `use_single_bus` | bool | `false` | Copper-plate mode (no network) |
-| `kirchhoff_threshold` | float | `0.0` | Min voltage [kV] for Kirchhoff |
-| `scale_objective` | float | `1000` | Objective coefficient divisor |
-| `scale_theta` | float | `1000` | Voltage-angle variable scaling |
+| `demand_fail_cost` | float | -- | **Deprecated** — use `model_options.demand_fail_cost` |
+| `reserve_fail_cost` | float | -- | **Deprecated** — use `model_options.reserve_fail_cost` |
+| `hydro_fail_cost` | float | `5.0` | **Deprecated** — use `model_options.hydro_fail_cost` |
+| `hydro_use_value` | float | `1.0` | **Deprecated** — use `model_options.hydro_use_value` |
+| `use_line_losses` | bool | `true` | **Deprecated** — use `model_options.use_line_losses` |
+| `loss_segments` | int | `1` | **Deprecated** — use `model_options.loss_segments` |
+| `use_kirchhoff` | bool | `false` | **Deprecated** — use `model_options.use_kirchhoff` |
+| `use_single_bus` | bool | `false` | **Deprecated** — use `model_options.use_single_bus` |
+| `kirchhoff_threshold` | float | `0.0` | **Deprecated** — use `model_options.kirchhoff_threshold` |
+| `scale_objective` | float | `1000` | **Deprecated** — use `model_options.scale_objective` |
+| `scale_theta` | float | `1000` | **Deprecated** — use `model_options.scale_theta` |
 
-> **Note**: `annual_discount_rate` has moved to the `simulation`
-> section.  For backward compatibility, it is still accepted here
-> or in `model_options`.
+> **Note**: `annual_discount_rate` belongs in the `simulation` section.
+> For backward compatibility it is still accepted as a flat field in
+> `options`, but emits a deprecation warning.
 
 ### Solver Selection
 
@@ -92,7 +99,7 @@ All fields are `std::optional` -- absent fields inherit built-in defaults
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `model_options` | `ModelOptions` | Power system model configuration (alternative location for model fields) |
+| `model_options` | `ModelOptions` | Power system model configuration (**canonical location** for model fields) |
 | `monolithic_options` | `MonolithicOptions` | Monolithic solver settings |
 | `sddp_options` | `SddpOptions` | SDDP solver settings |
 | `cascade_options` | `CascadeOptions` | Cascade solver settings |
@@ -100,16 +107,17 @@ All fields are `std::optional` -- absent fields inherit built-in defaults
 | `lp_build_options` | `LpBuildOptions` | LP assembly configuration |
 | `variable_scales` | `VariableScale[]` | Per-class/variable LP scale overrides |
 
-> **Note**: Model parameter fields (`use_kirchhoff`, `use_single_bus`, etc.)
-> can appear either at the top level of `options` (backward-compatible) or
-> inside the `model_options` sub-object (preferred for cascade levels).
-> When both are present, the top-level value takes precedence.
+> **Migration**: Model parameter fields (`use_kirchhoff`, `use_single_bus`,
+> etc.) can appear either at the top level of `options` (deprecated, backward-
+> compatible) or inside the `model_options` sub-object (preferred).  When
+> both are present, the top-level flat value takes precedence.  Flat fields
+> emit a deprecation warning when parsed from JSON.
 
 ## ModelOptions Fields
 
-The `model_options` sub-object groups LP-construction parameters.  All
-fields duplicate their top-level counterparts, enabling per-level overrides
-in cascade solver configurations.
+The `model_options` sub-object is the **canonical location** for
+LP-construction parameters.  It enables per-level overrides in cascade
+solver configurations.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -122,9 +130,8 @@ in cascade solver configurations.
 | `scale_theta` | float | `1000` | Voltage-angle variable scaling |
 | `demand_fail_cost` | float | -- | Penalty $/MWh for unserved demand |
 | `reserve_fail_cost` | float | -- | Penalty $/MWh for unserved reserve |
-
-> **Note**: `annual_discount_rate` has moved to the `simulation`
-> section.  For backward compatibility, it is still accepted here.
+| `hydro_fail_cost` | float | `5.0` | Penalty $/m³ for unmet hydro rights |
+| `hydro_use_value` | float | `1.0` | Benefit $/m³ for exercising hydro rights |
 
 ## SolverOptions Fields
 
@@ -303,7 +310,9 @@ Variable scaling factors are resolved in this order (highest priority first):
 ```json
 {
   "options": {
-    "scale_theta": 0.001,
+    "model_options": {
+      "scale_theta": 0.001
+    },
     "variable_scales": [
       {"class_name": "Reservoir", "variable": "energy", "uid": -1, "scale": 1000.0},
       {"class_name": "Battery", "variable": "energy", "uid": 1, "scale": 10.0}
@@ -365,15 +374,14 @@ files.
     "output_directory": "output",
     "output_format": "parquet",
     "output_compression": "zstd",
-    "demand_fail_cost": 1000,
-    "use_kirchhoff": true,
-    "use_single_bus": false,
-    "scale_objective": 1000,
     "method": "sddp",
     "lp_debug": false,
     "model_options": {
+      "demand_fail_cost": 1000,
       "use_kirchhoff": true,
-      "use_line_losses": true
+      "use_single_bus": false,
+      "use_line_losses": true,
+      "scale_objective": 1000
     },
     "solver_options": {
       "algorithm": 3,

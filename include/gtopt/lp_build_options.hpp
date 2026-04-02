@@ -17,6 +17,7 @@
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/lp_build_enums.hpp>
+#include <gtopt/utils.hpp>
 
 namespace gtopt
 {
@@ -63,6 +64,17 @@ struct LpBuildOptions
    * diagnostics.  When the global max/min |coefficient| ratio exceeds this
    * value, a per-scene/phase breakdown is printed.  (default: 1e7) */
   OptReal lp_coeff_ratio_threshold {};
+
+  /// Merge optional fields from another LpBuildOptions.
+  /// Non-optional fields (eps, col_with_names, etc.) are not merged —
+  /// first-value-wins semantics like SolverOptions.
+  void merge(const LpBuildOptions& other)
+  {
+    merge_opt(names_level, other.names_level);
+    merge_opt(lp_coeff_ratio_threshold, other.lp_coeff_ratio_threshold);
+    merge_opt(row_equilibration, other.row_equilibration);
+    merge_opt(compute_stats, other.compute_stats);
+  }
 };
 
 }  // namespace gtopt

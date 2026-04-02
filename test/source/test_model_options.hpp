@@ -23,7 +23,6 @@ TEST_CASE("ModelOptions - Default construction")
   CHECK_FALSE(opts.scale_theta.has_value());
   CHECK_FALSE(opts.demand_fail_cost.has_value());
   CHECK_FALSE(opts.reserve_fail_cost.has_value());
-  CHECK_FALSE(opts.annual_discount_rate.has_value());
 
   CHECK_FALSE(opts.has_any());
 }
@@ -40,7 +39,6 @@ TEST_CASE("ModelOptions - Construction with all values")
       .scale_theta = 2000.0,
       .demand_fail_cost = 5000.0,
       .reserve_fail_cost = 3000.0,
-      .annual_discount_rate = 0.08,
   };
 
   REQUIRE(opts.use_single_bus.has_value());
@@ -69,9 +67,6 @@ TEST_CASE("ModelOptions - Construction with all values")
 
   REQUIRE(opts.reserve_fail_cost.has_value());
   CHECK(*opts.reserve_fail_cost == doctest::Approx(3000.0));
-
-  REQUIRE(opts.annual_discount_rate.has_value());
-  CHECK(*opts.annual_discount_rate == doctest::Approx(0.08));
 
   CHECK(opts.has_any());
 }
@@ -113,7 +108,6 @@ TEST_CASE("ModelOptions - Merge fills missing fields")
   const ModelOptions overlay {
       .use_kirchhoff = false,
       .demand_fail_cost = 5000.0,
-      .annual_discount_rate = 0.1,
   };
 
   base.merge(overlay);
@@ -129,8 +123,6 @@ TEST_CASE("ModelOptions - Merge fills missing fields")
   CHECK(*base.use_kirchhoff == false);
   REQUIRE(base.demand_fail_cost.has_value());
   CHECK(*base.demand_fail_cost == doctest::Approx(5000.0));
-  REQUIRE(base.annual_discount_rate.has_value());
-  CHECK(*base.annual_discount_rate == doctest::Approx(0.1));
 
   // Still unset fields
   CHECK_FALSE(base.use_line_losses.has_value());
@@ -192,7 +184,6 @@ TEST_CASE("ModelOptions - Merge filled into empty copies all")
       .scale_theta = 2000.0,
       .demand_fail_cost = 5000.0,
       .reserve_fail_cost = 3000.0,
-      .annual_discount_rate = 0.08,
   };
 
   empty.merge(filled);
@@ -201,7 +192,5 @@ TEST_CASE("ModelOptions - Merge filled into empty copies all")
   CHECK(*empty.use_single_bus == true);
   REQUIRE(empty.loss_segments.has_value());
   CHECK(*empty.loss_segments == 3);
-  REQUIRE(empty.annual_discount_rate.has_value());
-  CHECK(*empty.annual_discount_rate == doctest::Approx(0.08));
   CHECK(empty.has_any());
 }

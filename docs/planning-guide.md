@@ -317,14 +317,14 @@ All three sections are **optional** — omitted sections use defaults.
 
 | Field | Units | Description |
 |-------|-------|-------------|
-| `demand_fail_cost` | $/MWh | Penalty for unserved load (value of lost load) |
-| `use_kirchhoff` | — | Enable DC power-flow constraints (`true`/`false`) |
-| `use_single_bus` | — | Collapse network to copper plate (`true`/`false`) |
-| `scale_objective` | — | Divide objective by this value (improves solver numerics) |
 | `input_directory` | — | Root directory for external time-series files |
 | `input_format` | — | `"parquet"` (default) or `"csv"` |
 | `output_directory` | — | Directory for result files (default: `"output"`) |
 | `output_format` | — | `"parquet"` (default) or `"csv"` |
+| `model_options.demand_fail_cost` | $/MWh | Penalty for unserved load (value of lost load) |
+| `model_options.use_kirchhoff` | — | Enable DC power-flow constraints (`true`/`false`) |
+| `model_options.use_single_bus` | — | Collapse network to copper plate (`true`/`false`) |
+| `model_options.scale_objective` | — | Divide objective by this value (improves solver numerics) |
 
 ### Simulation (commonly used fields)
 
@@ -363,10 +363,12 @@ flowchart LR
 ```json
 {
   "options": {
-    "use_single_bus": true,
-    "demand_fail_cost": 500,
-    "scale_objective": 1000,
-    "output_format": "csv"
+    "output_format": "csv",
+    "model_options": {
+      "use_single_bus": true,
+      "demand_fail_cost": 500,
+      "scale_objective": 1000
+    }
   },
   "simulation": {
     "block_array":    [{"uid": 1, "duration": 1}],
@@ -425,10 +427,12 @@ g2 (most expensive at $35/MWh) is at or near minimum.
 ```json
 {
   "options": {
-    "use_single_bus": false,
-    "use_kirchhoff": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
+    "model_options": {
+      "use_single_bus": false,
+      "use_kirchhoff": true,
+      "demand_fail_cost": 1000,
+      "scale_objective": 1000
+    }
   },
   "system": {
     "line_array": [
@@ -614,12 +618,14 @@ flowchart LR
 ```json
 {
   "options": {
-    "use_single_bus": false,
-    "use_kirchhoff": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000,
     "output_format": "csv",
-    "output_compression": "uncompressed"
+    "output_compression": "uncompressed",
+    "model_options": {
+      "use_single_bus": false,
+      "use_kirchhoff": true,
+      "demand_fail_cost": 1000,
+      "scale_objective": 1000
+    }
   },
   "simulation": {
     "block_array": [
@@ -766,14 +772,15 @@ coefficient in the LP matrix is below $10^7$ (the "LP coefficient ratio").
 Poor scaling causes numerical instability, slow convergence, or incorrect
 solutions.
 
-### 8.1 `scale_objective` and `scale_theta`
+### 8.1 `model_options.scale_objective` and `model_options.scale_theta`
 
-The global `scale_objective` (default 1000) divides all objective coefficients.
-For a system where generation costs are ~\$100/MWh and 24-hour blocks are used,
-the raw coefficient is $100 × 24 = 2400$.  With `scale_objective = 1000` this
-becomes 2.4, which is well-conditioned.
+The `model_options.scale_objective` (default 1000) divides all objective
+coefficients.  For a system where generation costs are ~\$100/MWh and
+24-hour blocks are used, the raw coefficient is $100 × 24 = 2400$.  With
+`scale_objective = 1000` this becomes 2.4, which is well-conditioned.
 
-Similarly, `scale_theta` (default 1000) normalises voltage-angle variables.
+Similarly, `model_options.scale_theta` (default 1000) normalises
+voltage-angle variables.
 
 These defaults are adequate for most power systems.
 
@@ -1062,16 +1069,16 @@ In summary tables below, ✱ marks required fields.
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `demand_fail_cost` | — | Penalty $/MWh for unserved load (value of lost load) |
-| `reserve_fail_cost` | — | Penalty $/MWh for unserved spinning reserve |
-| `use_kirchhoff` | `true` | Enable DC power-flow constraints |
-| `use_single_bus` | `false` | Copper-plate mode (no network constraints) |
-| `scale_objective` | `1000` | Divide objective coefficients (improves solver numerics) |
 | `input_directory` | `"input"` | Root directory for external schedule files |
 | `input_format` | `"parquet"` | Preferred input format (`"parquet"` or `"csv"`) |
 | `output_directory` | `"output"` | Root directory for result files |
 | `output_format` | `"parquet"` | Output file format (`"parquet"` or `"csv"`) |
 | `output_compression` | `"zstd"` | Parquet/CSV compression codec |
+| `model_options.demand_fail_cost` | — | Penalty $/MWh for unserved load (value of lost load) |
+| `model_options.reserve_fail_cost` | — | Penalty $/MWh for unserved spinning reserve |
+| `model_options.use_kirchhoff` | `true` | Enable DC power-flow constraints |
+| `model_options.use_single_bus` | `false` | Copper-plate mode (no network constraints) |
+| `model_options.scale_objective` | `1000` | Divide objective coefficients (improves solver numerics) |
 
 > **Note**: `annual_discount_rate` has moved to the `simulation`
 > section.  For backward compatibility, it is still accepted in
@@ -1309,7 +1316,7 @@ MW there, accounting for transmission constraints.
 
 ## Quick-start checklist
 
-1. ☐ Define `options` (at minimum: `demand_fail_cost`, `output_format`)
+1. ☐ Define `options` (at minimum: `model_options.demand_fail_cost`, `output_format`)
 2. ☐ Define `simulation` (blocks, stages, scenarios)
 3. ☐ Define `system` (buses, generators, demands)
 4. ☐ Set `input_directory` and create input files if using external schedules
@@ -1653,9 +1660,11 @@ target constraints from the Level 0 reservoir volumes, guiding the forward pass.
 {
   "options": {
     "method": "cascade",
-    "use_single_bus": true,
-    "scale_objective": 1.0,
-    "demand_fail_cost": 1000,
+    "model_options": {
+      "use_single_bus": true,
+      "scale_objective": 1.0,
+      "demand_fail_cost": 1000
+    },
     "sddp_options": {
       "max_iterations": 30,
       "convergence_tol": 0.001

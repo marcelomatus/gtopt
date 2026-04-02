@@ -39,10 +39,15 @@ void PlanningLP::auto_scale_theta(Planning& planning)
   }
 
   // Don't auto-scale when Kirchhoff is disabled or single-bus mode.
-  if (opts.use_kirchhoff.has_value() && !*opts.use_kirchhoff) {
+  const auto& mo = opts.model_options;
+  if ((opts.use_kirchhoff.has_value() && !*opts.use_kirchhoff)
+      || (mo.use_kirchhoff.has_value() && !*mo.use_kirchhoff))
+  {
     return;
   }
-  if (opts.use_single_bus.has_value() && *opts.use_single_bus) {
+  if ((opts.use_single_bus.has_value() && *opts.use_single_bus)
+      || (mo.use_single_bus.has_value() && *mo.use_single_bus))
+  {
     return;
   }
 
@@ -80,7 +85,7 @@ void PlanningLP::auto_scale_theta(Planning& planning)
 
   // scale_theta = median_x so that x_tau = X/(V²·scale_theta) ≈ 1 for
   // the median line (V=1 per-unit).
-  opts.scale_theta = median_x;
+  opts.model_options.scale_theta = median_x;
   spdlog::info("  Auto scale_theta = {:.6g} (median of {} line reactances)",
                median_x,
                n);

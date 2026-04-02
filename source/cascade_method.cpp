@@ -106,18 +106,7 @@ auto CascadePlanningMethod::clone_planning_with_overrides(
 {
   Planning copy = source;
 
-  merge_opt(copy.options.use_single_bus, model_opts.use_single_bus);
-  merge_opt(copy.options.use_kirchhoff, model_opts.use_kirchhoff);
-  merge_opt(copy.options.use_line_losses, model_opts.use_line_losses);
-  merge_opt(copy.options.kirchhoff_threshold, model_opts.kirchhoff_threshold);
-  merge_opt(copy.options.loss_segments, model_opts.loss_segments);
-  merge_opt(copy.options.scale_objective, model_opts.scale_objective);
-  merge_opt(copy.options.scale_theta, model_opts.scale_theta);
-  merge_opt(copy.options.demand_fail_cost, model_opts.demand_fail_cost);
-  merge_opt(copy.options.reserve_fail_cost, model_opts.reserve_fail_cost);
-  merge_opt(copy.options.hydro_fail_cost, model_opts.hydro_fail_cost);
-  merge_opt(copy.options.hydro_use_value, model_opts.hydro_use_value);
-  merge_opt(copy.options.annual_discount_rate, model_opts.annual_discount_rate);
+  copy.options.model_options.merge(model_opts);
   return copy;
 }
 

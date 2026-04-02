@@ -120,6 +120,10 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       sddp_opts.lp_debug = options.lp_debug();
       sddp_opts.lp_build = options.lp_build();
       sddp_opts.lp_debug_compression = std::string(options.lp_compression());
+      sddp_opts.lp_debug_scene_min = options.lp_debug_scene_min();
+      sddp_opts.lp_debug_scene_max = options.lp_debug_scene_max();
+      sddp_opts.lp_debug_phase_min = options.lp_debug_phase_min();
+      sddp_opts.lp_debug_phase_max = options.lp_debug_phase_max();
       sddp_opts.enable_api = options.sddp_api_enabled();
       if (!output_dir.empty()) {
         sddp_opts.api_status_file =
@@ -247,6 +251,10 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       sddp_opts.lp_debug = options.lp_debug();
       sddp_opts.lp_build = options.lp_build();
       sddp_opts.lp_debug_compression = std::string(options.lp_compression());
+      sddp_opts.lp_debug_scene_min = options.lp_debug_scene_min();
+      sddp_opts.lp_debug_scene_max = options.lp_debug_scene_max();
+      sddp_opts.lp_debug_phase_min = options.lp_debug_phase_min();
+      sddp_opts.lp_debug_phase_max = options.lp_debug_phase_max();
       sddp_opts.enable_api = options.sddp_api_enabled();
       if (!output_dir.empty()) {
         sddp_opts.api_status_file =
@@ -297,6 +305,10 @@ std::unique_ptr<PlanningMethod> make_planning_method(
   solver->lp_debug = options.lp_debug();
   solver->lp_debug_directory = std::string(options.log_directory());
   solver->lp_debug_compression = std::string(options.lp_compression());
+  solver->lp_debug_scene_min = options.lp_debug_scene_min();
+  solver->lp_debug_scene_max = options.lp_debug_scene_max();
+  solver->lp_debug_phase_min = options.lp_debug_phase_min();
+  solver->lp_debug_phase_max = options.lp_debug_phase_max();
   solver->solve_mode = options.monolithic_solve_mode_enum();
   solver->boundary_cuts_file =
       std::string(options.monolithic_boundary_cuts_file());

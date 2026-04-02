@@ -893,6 +893,7 @@ def _log_comparison(
     if gtopt_options:
         table.add_row("", "", "", "", "")
         _row("Scaling Options", section=True)
+        model_opts = gtopt_options.get("model_options", {})
         sddp_opts = gtopt_options.get("sddp_options", {})
 
         def _scale_row(
@@ -908,13 +909,13 @@ def _log_comparison(
         _scale_row(
             "scale_objective",
             "1e7",
-            gtopt_options.get("scale_objective", ""),
+            model_opts.get("scale_objective", ""),
             note="PLP ScaleObj",
         )
         _scale_row(
             "scale_theta",
             "1e4",
-            gtopt_options.get("scale_theta", ""),
+            model_opts.get("scale_theta", ""),
             note="PLP ScaleAng",
         )
         _scale_row(
@@ -926,13 +927,8 @@ def _log_comparison(
         _scale_row(
             "demand_fail_cost",
             "1000",
-            gtopt_options.get("demand_fail_cost", ""),
+            model_opts.get("demand_fail_cost", ""),
             note="$/MWh unserved",
-        )
-        _scale_row(
-            "annual_discount_rate",
-            "0",
-            gtopt_options.get("annual_discount_rate", ""),
         )
 
     con.print(table)

@@ -145,6 +145,19 @@ class GTOptWriter:
         else:
             input_dir_val = str(output_dir)
 
+        src_model = options.get("model_options", {})
+        model_opts = {
+            "use_single_bus": src_model.get("use_single_bus", False),
+            "use_kirchhoff": src_model.get("use_kirchhoff", True),
+            "demand_fail_cost": src_model.get("demand_fail_cost", 1000),
+            "scale_objective": src_model.get("scale_objective", 10_000_000),
+            "scale_theta": src_model.get("scale_theta", 0.0001),
+        }
+        if "reserve_fail_cost" in src_model:
+            model_opts["reserve_fail_cost"] = src_model["reserve_fail_cost"]
+        if "use_line_losses" in src_model:
+            model_opts["use_line_losses"] = src_model["use_line_losses"]
+
         planning_opts = {
             "method": solver_type,
             "input_directory": input_dir_val,
@@ -153,19 +166,13 @@ class GTOptWriter:
             "output_format": output_format,
             "output_compression": compression,
             "use_lp_names": 1,
-            "use_single_bus": options.get("use_single_bus", False),
-            "use_kirchhoff": options.get("use_kirchhoff", True),
-            "demand_fail_cost": options.get("demand_fail_cost", 1000),
-            "scale_objective": options.get("scale_objective", 10_000_000),
-            "scale_theta": options.get("scale_theta", 0.0001),
-            "annual_discount_rate": discount_rate,
+            "model_options": model_opts,
             "sddp_options": sddp_opts,
         }
-        if "reserve_fail_cost" in options:
-            planning_opts["reserve_fail_cost"] = options["reserve_fail_cost"]
-        if "use_line_losses" in options:
-            planning_opts["use_line_losses"] = options["use_line_losses"]
         self.planning["options"] = planning_opts
+
+        # Set annual_discount_rate on the simulation section.
+        self.planning["simulation"]["annual_discount_rate"] = discount_rate
 
     def process_stage_blocks(self, options):
         """Calculate first_block and count_block for stages, and build phase_array.

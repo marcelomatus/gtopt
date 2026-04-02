@@ -1033,23 +1033,28 @@ def build_options(args: argparse.Namespace) -> dict:
         "excel_file": args.excel_file,
         "name": name,
         "sys_version": args.sys_version,
-        "demand_fail_cost": args.demand_fail_cost,
-        "scale_objective": args.scale_objective,
-        "scale_theta": args.scale_theta,
         "scale_alpha": args.scale_alpha,
-        "use_single_bus": args.use_single_bus,
-        "use_kirchhoff": args.use_kirchhoff,
         "solver_type": args.solver_type,
         "stages_phase": args.stages_phase,
         "num_apertures": args.num_apertures,
         "aperture_directory": args.aperture_directory,
     }
+    # Model-specific options nested under model_options.
+    model_opts: dict = {
+        "demand_fail_cost": args.demand_fail_cost,
+        "scale_objective": args.scale_objective,
+        "scale_theta": args.scale_theta,
+        "use_single_bus": args.use_single_bus,
+        "use_kirchhoff": args.use_kirchhoff,
+    }
+    if args.reserve_fail_cost is not None:
+        model_opts["reserve_fail_cost"] = args.reserve_fail_cost
+    if args.use_line_losses is not None:
+        model_opts["use_line_losses"] = args.use_line_losses
+    opts["model_options"] = model_opts
+
     if args.cut_sharing_mode is not None:
         opts["cut_sharing_mode"] = args.cut_sharing_mode
-    if args.reserve_fail_cost is not None:
-        opts["reserve_fail_cost"] = args.reserve_fail_cost
-    if args.use_line_losses is not None:
-        opts["use_line_losses"] = args.use_line_losses
     if args.boundary_cuts_mode is not None:
         opts["boundary_cuts_mode"] = args.boundary_cuts_mode
     if args.boundary_max_iterations is not None:

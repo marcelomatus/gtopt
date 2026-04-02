@@ -23,8 +23,7 @@ TEST_CASE("ModelOptions JSON - Full deserialization")
     "scale_objective": 500.0,
     "scale_theta": 2000.0,
     "demand_fail_cost": 5000.0,
-    "reserve_fail_cost": 3000.0,
-    "annual_discount_rate": 0.08
+    "reserve_fail_cost": 3000.0
   })";
 
   const auto opts = daw::json::from_json<ModelOptions>(json_data);
@@ -47,8 +46,6 @@ TEST_CASE("ModelOptions JSON - Full deserialization")
   CHECK(*opts.demand_fail_cost == doctest::Approx(5000.0));
   REQUIRE(opts.reserve_fail_cost.has_value());
   CHECK(*opts.reserve_fail_cost == doctest::Approx(3000.0));
-  REQUIRE(opts.annual_discount_rate.has_value());
-  CHECK(*opts.annual_discount_rate == doctest::Approx(0.08));
 }
 
 TEST_CASE("ModelOptions JSON - Missing fields stay nullopt")
@@ -72,7 +69,6 @@ TEST_CASE("ModelOptions JSON - Missing fields stay nullopt")
   CHECK_FALSE(opts.scale_theta.has_value());
   CHECK_FALSE(opts.demand_fail_cost.has_value());
   CHECK_FALSE(opts.reserve_fail_cost.has_value());
-  CHECK_FALSE(opts.annual_discount_rate.has_value());
 }
 
 TEST_CASE("ModelOptions JSON - Round-trip serialization")
@@ -97,7 +93,6 @@ TEST_CASE("ModelOptions JSON - Round-trip serialization")
   CHECK(roundtrip.demand_fail_cost == original.demand_fail_cost);
   CHECK_FALSE(roundtrip.use_line_losses.has_value());
   CHECK_FALSE(roundtrip.loss_segments.has_value());
-  CHECK_FALSE(roundtrip.annual_discount_rate.has_value());
 }
 
 TEST_CASE("ModelOptions JSON - Empty object")

@@ -135,11 +135,12 @@ def _log_stats(planning: dict, elapsed: float) -> None:
         )
 
     # Options
-    rows.append(("use_kirchhoff", str(opts.get("use_kirchhoff", False))))
-    rows.append(("use_single_bus", str(opts.get("use_single_bus", False))))
-    rows.append(("scale_objective", str(opts.get("scale_objective", 10_000_000))))
-    rows.append(("scale_theta", str(opts.get("scale_theta", 0.0001))))
-    rows.append(("demand_fail_cost", str(opts.get("demand_fail_cost", 0))))
+    mo = opts.get("model_options", {})
+    rows.append(("use_kirchhoff", str(mo.get("use_kirchhoff", False))))
+    rows.append(("use_single_bus", str(mo.get("use_single_bus", False))))
+    rows.append(("scale_objective", str(mo.get("scale_objective", 10_000_000))))
+    rows.append(("scale_theta", str(mo.get("scale_theta", 0.0001))))
+    rows.append(("demand_fail_cost", str(mo.get("demand_fail_cost", 0))))
 
     # Skipped centrals
     skipped = planning.get("_skipped_isolated", [])

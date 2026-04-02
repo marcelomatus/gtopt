@@ -59,6 +59,11 @@ public:
   /// Compression format for LP debug files ("gzip" / "uncompressed" / "").
   /// Empty or "uncompressed" means no compression; any other value uses gzip.
   std::string lp_debug_compression {};
+  /// Selective LP debug filters (same semantics as PlanningOptions).
+  OptInt lp_debug_scene_min {};
+  OptInt lp_debug_scene_max {};
+  OptInt lp_debug_phase_min {};
+  OptInt lp_debug_phase_max {};
   /// Monolithic solve mode.
   SolveMode solve_mode {SolveMode::monolithic};
   /// CSV file with boundary (future-cost) cuts (empty = none).

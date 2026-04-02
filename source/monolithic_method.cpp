@@ -102,6 +102,20 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
           (std::filesystem::path(lp_debug_directory) / "gtopt_lp").string();
       for (const auto& phase_systems : planning_lp.systems()) {
         for (const auto& system : phase_systems) {
+          const auto su = static_cast<int>(system.scene().uid());
+          const auto pu = static_cast<int>(system.phase().uid());
+          if (lp_debug_scene_min && su < *lp_debug_scene_min) {
+            continue;
+          }
+          if (lp_debug_scene_max && su > *lp_debug_scene_max) {
+            continue;
+          }
+          if (lp_debug_phase_min && pu < *lp_debug_phase_min) {
+            continue;
+          }
+          if (lp_debug_phase_max && pu > *lp_debug_phase_max) {
+            continue;
+          }
           if (auto lp_result = system.write_lp(lp_stem)) {
             lp_writer.compress_async(*lp_result);
           } else {

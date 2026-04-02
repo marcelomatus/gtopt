@@ -30,7 +30,6 @@ TEST_CASE("ModelOptions defaults are all nullopt")  // NOLINT
   CHECK(!opts.scale_theta.has_value());
   CHECK(!opts.demand_fail_cost.has_value());
   CHECK(!opts.reserve_fail_cost.has_value());
-  CHECK(!opts.annual_discount_rate.has_value());
 }
 
 TEST_CASE("CascadeTransition defaults are all nullopt")  // NOLINT

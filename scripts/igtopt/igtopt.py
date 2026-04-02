@@ -23,6 +23,8 @@ from igtopt.template_builder import (
     SDDP_OPTION_KEYS,
     MONOLITHIC_OPTION_KEYS,
     SOLVER_OPTION_KEYS,
+    MODEL_OPTION_KEYS,
+    SIMULATION_OPTION_KEYS,
 )
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -536,6 +538,9 @@ def log_conversion_stats(
 # Option nesting helpers
 # ---------------------------------------------------------------------------
 
+# Model option keys are nested into ``model_options`` sub-object.
+# They match the fields in ``json_data_contract<ModelOptions>``.
+
 # Monolithic option keys use a ``monolithic_`` prefix in the flat Excel sheet
 # to distinguish them from the identically-named SDDP options (e.g.
 # ``boundary_cuts_file``).  The prefix is stripped when the key is placed
@@ -548,27 +553,37 @@ _MONOLITHIC_PREFIX = "monolithic_"
 _SOLVER_PREFIX = "solver_"
 
 
-def _nest_sub_options(flat: dict[str, Any]) -> dict[str, Any]:
+def _nest_sub_options(
+    flat: dict[str, Any],
+    simulation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Partition flat options into sub-objects.
 
     Keys listed in :data:`SDDP_OPTION_KEYS` are moved into a nested
-    ``sddp_options`` dict.  Keys whose name starts with ``monolithic_``
-    are moved into a nested ``monolithic_options`` dict with the prefix
-    stripped.  Keys whose name starts with ``solver_`` are moved into a
-    nested ``solver_options`` dict with the prefix stripped.
-    ``cascade_options`` is passed through as-is (it uses a hierarchical
-    ``levels`` array that cannot be flattened).
+    ``sddp_options`` dict.  Keys listed in :data:`MODEL_OPTION_KEYS` are
+    moved into a nested ``model_options`` dict.  Keys whose name starts
+    with ``monolithic_`` are moved into a nested ``monolithic_options``
+    dict with the prefix stripped.  Keys whose name starts with
+    ``solver_`` are moved into a nested ``solver_options`` dict with the
+    prefix stripped.  ``cascade_options`` is passed through as-is (it
+    uses a hierarchical ``levels`` array that cannot be flattened).
+
+    Keys listed in :data:`SIMULATION_OPTION_KEYS` (e.g.
+    ``annual_discount_rate``) are removed from options and placed into
+    the *simulation* dict (if provided) instead.
+
     All remaining keys stay at the top level.
 
     If the flat dict already contains a ``sddp_options``,
-    ``cascade_options``, ``monolithic_options``, or ``solver_options``
-    sub-dict (e.g. injected by another handler), its contents are merged
-    with the keys extracted here.
+    ``cascade_options``, ``monolithic_options``, ``model_options``, or
+    ``solver_options`` sub-dict (e.g. injected by another handler), its
+    contents are merged with the keys extracted here.
     """
     top: dict[str, Any] = {}
     sddp: dict[str, Any] = {}
     mono: dict[str, Any] = {}
     solver: dict[str, Any] = {}
+    model: dict[str, Any] = {}
 
     for key, value in flat.items():
         if key == "sddp_options" and isinstance(value, dict):
@@ -581,8 +596,16 @@ def _nest_sub_options(flat: dict[str, Any]) -> dict[str, Any]:
             mono.update(value)
         elif key == "solver_options" and isinstance(value, dict):
             solver.update(value)
+        elif key == "model_options" and isinstance(value, dict):
+            model.update(value)
+        elif key in SIMULATION_OPTION_KEYS:
+            # Move to simulation section (canonical location).
+            if simulation is not None:
+                simulation[key] = value
         elif key in SDDP_OPTION_KEYS:
             sddp[key] = value
+        elif key in MODEL_OPTION_KEYS:
+            model[key] = value
         elif key.startswith(_MONOLITHIC_PREFIX) and key != _MONOLITHIC_PREFIX:
             # Strip the ``monolithic_`` prefix for the nested key name.
             inner_key = key[len(_MONOLITHIC_PREFIX) :]
@@ -605,6 +628,8 @@ def _nest_sub_options(flat: dict[str, Any]) -> dict[str, Any]:
         top["monolithic_options"] = mono
     if solver:
         top["solver_options"] = solver
+    if model:
+        top["model_options"] = model
     return top
 
 
@@ -804,7 +829,7 @@ def _run(args) -> int:
     has_data = len(simulation) > 0 or len(system) > 1  # system always has "name"
     if has_data:
         planning: dict[str, Any] = {}
-        planning["options"] = _nest_sub_options(options)
+        planning["options"] = _nest_sub_options(options, simulation)
         if simulation:
             planning["simulation"] = simulation
         planning["system"] = system

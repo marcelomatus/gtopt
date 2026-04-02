@@ -158,6 +158,19 @@ struct PlanningOptions
    * Combine with `lp_debug=true` to save every scene/phase LP file. */
   OptBool lp_build {};
 
+  /** @brief Minimum scene UID for selective LP debug saving (inclusive).
+   *  When set together with lp_debug=true, only scenes with
+   *  uid >= lp_debug_scene_min are saved.  Default: save all. */
+  OptInt lp_debug_scene_min {};
+  /** @brief Maximum scene UID for selective LP debug saving (inclusive). */
+  OptInt lp_debug_scene_max {};
+  /** @brief Minimum phase UID for selective LP debug saving (inclusive).
+   *  When set together with lp_debug=true, only phases with
+   *  uid >= lp_debug_phase_min are saved.  Default: save all. */
+  OptInt lp_debug_phase_min {};
+  /** @brief Maximum phase UID for selective LP debug saving (inclusive). */
+  OptInt lp_debug_phase_max {};
+
   // Note: solve_timeout is per-solver (sddp_options and monolithic_options)
   // with different defaults: 180s for SDDP, 18000s for monolithic.
 
@@ -248,6 +261,31 @@ struct PlanningOptions
   /// - `strict` (default): fail on any unresolved reference
   std::optional<ConstraintMode> constraint_mode {};
 
+  /// Migrate deprecated flat model fields into model_options.
+  /// Called by PlanningOptionsLP constructor to ensure model_options
+  /// is populated regardless of how PlanningOptions was constructed
+  /// (JSON parsing or programmatic initialization).
+  void migrate_flat_to_model_options()
+  {
+    auto migrate = [](auto& mo_field, const auto& flat_val)
+    {
+      if (flat_val.has_value() && !mo_field.has_value()) {
+        mo_field = flat_val;
+      }
+    };
+    migrate(model_options.use_single_bus, use_single_bus);
+    migrate(model_options.use_kirchhoff, use_kirchhoff);
+    migrate(model_options.use_line_losses, use_line_losses);
+    migrate(model_options.kirchhoff_threshold, kirchhoff_threshold);
+    migrate(model_options.loss_segments, loss_segments);
+    migrate(model_options.scale_objective, scale_objective);
+    migrate(model_options.scale_theta, scale_theta);
+    migrate(model_options.demand_fail_cost, demand_fail_cost);
+    migrate(model_options.reserve_fail_cost, reserve_fail_cost);
+    migrate(model_options.hydro_fail_cost, hydro_fail_cost);
+    migrate(model_options.hydro_use_value, hydro_use_value);
+  }
+
   void merge(PlanningOptions&& opts)
   {
     // Merge input-related options (always moving string values)
@@ -282,6 +320,10 @@ struct PlanningOptions
     merge_opt(lp_debug, opts.lp_debug);
     merge_opt(lp_compression, opts.lp_compression);
     merge_opt(lp_build, opts.lp_build);
+    merge_opt(lp_debug_scene_min, opts.lp_debug_scene_min);
+    merge_opt(lp_debug_scene_max, opts.lp_debug_scene_max);
+    merge_opt(lp_debug_phase_min, opts.lp_debug_phase_min);
+    merge_opt(lp_debug_phase_max, opts.lp_debug_phase_max);
     // solve_timeout is per-solver (sddp_options, monolithic_options)
 
     // Merge model options
@@ -301,13 +343,7 @@ struct PlanningOptions
     solver_options.merge(opts.solver_options);
 
     // Merge LP build options
-    merge_opt(lp_build_options.names_level, opts.lp_build_options.names_level);
-    merge_opt(lp_build_options.lp_coeff_ratio_threshold,
-              opts.lp_build_options.lp_coeff_ratio_threshold);
-    merge_opt(lp_build_options.row_equilibration,
-              opts.lp_build_options.row_equilibration);
-    merge_opt(lp_build_options.compute_stats,
-              opts.lp_build_options.compute_stats);
+    lp_build_options.merge(opts.lp_build_options);
 
     // Merge constraint mode
     merge_opt(constraint_mode, opts.constraint_mode);

@@ -1269,13 +1269,17 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
 # (field, description, default_value_or_None)
 #
 # The flat Excel sheet uses a single "options" tab.  igtopt.py
-# partitions these keys into top-level, sddp_options,
-# cascade_options, and monolithic_options sub-objects when writing
-# the JSON output.
+# partitions these keys into top-level, sddp_options, model_options,
+# cascade_options, monolithic_options, and solver_options sub-objects
+# when writing the JSON output.
 # Keys in SDDP_OPTION_KEYS go into "sddp_options".
+# Keys in MODEL_OPTION_KEYS go into "model_options".
+# Keys in SIMULATION_OPTION_KEYS go into "simulation" (not options).
 # Keys prefixed with "cascade_" go into "cascade_options"
 # (with the prefix stripped).
 # Keys prefixed with "monolithic_" go into "monolithic_options"
+# (with the prefix stripped).
+# Keys prefixed with "solver_" go into "solver_options"
 # (with the prefix stripped).
 # ------------------------------------------------------------------
 
@@ -1377,6 +1381,34 @@ SOLVER_OPTION_KEYS: frozenset[str] = frozenset(
     }
 )
 
+# Keys that belong inside the ``model_options`` JSON sub-object.
+# Must match the fields in ``json_data_contract<ModelOptions>`` in
+# ``include/gtopt/json/json_model_options.hpp``.
+MODEL_OPTION_KEYS: frozenset[str] = frozenset(
+    {
+        "use_single_bus",
+        "use_kirchhoff",
+        "use_line_losses",
+        "kirchhoff_threshold",
+        "loss_segments",
+        "scale_objective",
+        "scale_theta",
+        "demand_fail_cost",
+        "reserve_fail_cost",
+        "hydro_fail_cost",
+        "hydro_use_value",
+    }
+)
+
+# Keys that belong in the ``simulation`` JSON section rather than ``options``.
+# ``annual_discount_rate`` is the canonical simulation-level field; its
+# presence under ``options`` is deprecated (the C++ parser emits a warning).
+SIMULATION_OPTION_KEYS: frozenset[str] = frozenset(
+    {
+        "annual_discount_rate",
+    }
+)
+
 _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     # ------------------------------------------------------------------
     # Top-level options (stay at root of "options" JSON object)
@@ -1387,38 +1419,48 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         "Preferred input file format: 'parquet' or 'csv'",
         "parquet",
     ),
-    ("demand_fail_cost", "Penalty for unserved load [$/MWh]", 1000),
-    ("reserve_fail_cost", "Penalty for unserved spinning reserve [$/MW]", 5000),
-    ("use_line_losses", "Enable line loss modelling (true/false)", True),
+    # ------------------------------------------------------------------
+    # Model options (nested into "model_options" in JSON output)
+    # ------------------------------------------------------------------
+    ("demand_fail_cost", "[model] Penalty for unserved load [$/MWh]", 1000),
+    ("reserve_fail_cost", "[model] Penalty for unserved spinning reserve [$/MW]", 5000),
+    ("use_line_losses", "[model] Enable line loss modelling (true/false)", True),
     (
         "loss_segments",
-        "Number of piecewise-linear loss segments (1=linear only)",
+        "[model] Number of piecewise-linear loss segments (1=linear only)",
         1,
     ),
-    ("use_kirchhoff", "Apply DC Kirchhoff OPF constraints (true/false)", True),
+    (
+        "use_kirchhoff",
+        "[model] Apply DC Kirchhoff OPF constraints (true/false)",
+        True,
+    ),
     (
         "use_single_bus",
-        "Copper-plate (no network) mode – ignores all line limits (true/false)",
+        "[model] Copper-plate (no network) mode – ignores all line limits (true/false)",
         False,
     ),
     (
         "kirchhoff_threshold",
-        "Minimum bus voltage [kV] for Kirchhoff constraints",
+        "[model] Minimum bus voltage [kV] for Kirchhoff constraints",
         None,
     ),
     (
         "scale_objective",
-        "Divide objective coefficients by this value for solver numerics",
+        "[model] Divide objective coefficients by this value for solver numerics",
         1000,
     ),
     (
         "scale_theta",
-        "Angle variable scaling factor (default: 1000)",
+        "[model] Angle variable scaling factor (default: 1000)",
         1000,
     ),
+    # ------------------------------------------------------------------
+    # Simulation fields (moved into "simulation" in JSON output)
+    # ------------------------------------------------------------------
     (
         "annual_discount_rate",
-        "Annual discount rate for CAPEX [p.u.] (e.g. 0.10 = 10 %)",
+        "[simulation] Annual discount rate for CAPEX [p.u.] (e.g. 0.10 = 10 %)",
         0.1,
     ),
     ("output_directory", "Directory for solution output files", "output"),

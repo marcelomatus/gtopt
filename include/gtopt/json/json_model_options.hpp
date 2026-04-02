@@ -31,8 +31,7 @@ struct json_data_contract<ModelOptions>
                        json_number_null<"demand_fail_cost", OptReal>,
                        json_number_null<"reserve_fail_cost", OptReal>,
                        json_number_null<"hydro_fail_cost", OptReal>,
-                       json_number_null<"hydro_use_value", OptReal>,
-                       json_number_null<"annual_discount_rate", OptReal>>;
+                       json_number_null<"hydro_use_value", OptReal>>;
 
   constexpr static auto to_json_data(ModelOptions const& opt)
   {
@@ -46,8 +45,7 @@ struct json_data_contract<ModelOptions>
                                  opt.demand_fail_cost,
                                  opt.reserve_fail_cost,
                                  opt.hydro_fail_cost,
-                                 opt.hydro_use_value,
-                                 opt.annual_discount_rate);
+                                 opt.hydro_use_value);
   }
 };
 

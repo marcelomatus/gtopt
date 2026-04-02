@@ -401,12 +401,13 @@ def test_igtopt_ieee57b_simulation_structure(tmp_path):
 @pytest.mark.integration
 @pytest.mark.skipif(not _IEEE57B_XLSX.exists(), reason="ieee57b.xlsx not present")
 def test_igtopt_ieee57b_options(tmp_path):
-    """IEEE 57-bus options must include use_kirchhoff and scale_objective."""
+    """IEEE 57-bus options must include model_options with use_kirchhoff etc."""
     data = _run_igtopt(_IEEE57B_XLSX, tmp_path)
     opts = data["options"]
-    assert opts.get("use_kirchhoff") is True
-    assert opts.get("scale_objective") == 1000
-    assert opts.get("demand_fail_cost") == 1000
+    model = opts.get("model_options", {})
+    assert model.get("use_kirchhoff") is True
+    assert model.get("scale_objective") == 1000
+    assert model.get("demand_fail_cost") == 1000
 
 
 @pytest.mark.integration

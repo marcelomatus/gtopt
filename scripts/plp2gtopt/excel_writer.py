@@ -305,6 +305,7 @@ def _add_plpinfo_sheet(ws: Any, planning: dict, options: dict, styles: dict) -> 
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     input_dir = str(options.get("input_dir", ""))
     output_dir = str(options.get("output_dir", ""))
+    mo = options.get("model_options", {})
 
     sections: list[tuple] = [
         ("Conversion Metadata", "HEADING"),
@@ -370,16 +371,16 @@ def _add_plpinfo_sheet(ws: Any, planning: dict, options: dict, styles: dict) -> 
         ("solver_type", str(options.get("solver_type", "sddp")), "", "TABLE"),
         ("hydrologies", str(options.get("hydrologies", "1")), "", "TABLE"),
         ("discount_rate", str(options.get("discount_rate", 0.0)), "", "TABLE"),
-        ("use_single_bus", str(options.get("use_single_bus", False)), "", "TABLE"),
-        ("use_kirchhoff", str(options.get("use_kirchhoff", False)), "", "TABLE"),
-        ("demand_fail_cost", str(options.get("demand_fail_cost", 1000)), "", "TABLE"),
+        ("use_single_bus", str(mo.get("use_single_bus", False)), "", "TABLE"),
+        ("use_kirchhoff", str(mo.get("use_kirchhoff", False)), "", "TABLE"),
+        ("demand_fail_cost", str(mo.get("demand_fail_cost", 1000)), "", "TABLE"),
         (
             "scale_objective",
-            str(options.get("scale_objective", 10_000_000)),
+            str(mo.get("scale_objective", 10_000_000)),
             "",
             "TABLE",
         ),
-        ("scale_theta", str(options.get("scale_theta", 0.0001)), "", "TABLE"),
+        ("scale_theta", str(mo.get("scale_theta", 0.0001)), "", "TABLE"),
     ]
 
     for row_idx, entry in enumerate(sections, start=1):

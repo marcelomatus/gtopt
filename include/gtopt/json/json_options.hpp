@@ -60,6 +60,10 @@ struct PlanningOptionsConstructor
       OptBool lp_debug,
       OptName lp_compression_str,
       OptBool lp_build,
+      OptInt lp_debug_scene_min,
+      OptInt lp_debug_scene_max,
+      OptInt lp_debug_phase_min,
+      OptInt lp_debug_phase_max,
       ModelOptions model_options,
       MonolithicOptions monolithic_options,
       SddpOptions sddp_options,
@@ -74,6 +78,49 @@ struct PlanningOptionsConstructor
     if (input_format_str) {
       opts.input_format = gtopt::enum_from_name<DataFormat>(*input_format_str);
     }
+
+    // Migrate deprecated flat model fields → model_options.
+    // Flat JSON keys are kept for backward compat but model_options
+    // is now the canonical location for these fields.
+    auto migrate =
+        [&](auto& mo_field, const auto& flat_val, std::string_view name)
+    {
+      if (flat_val.has_value()) {
+        spdlog::warn("deprecated option '{}': use 'model_options.{}' instead",
+                     name,
+                     name);
+        if (!mo_field.has_value()) {
+          mo_field = flat_val;
+        }
+      }
+    };
+    migrate(model_options.use_single_bus, use_single_bus, "use_single_bus");
+    migrate(model_options.use_kirchhoff, use_kirchhoff, "use_kirchhoff");
+    migrate(model_options.use_line_losses, use_line_losses, "use_line_losses");
+    migrate(model_options.kirchhoff_threshold,
+            kirchhoff_threshold,
+            "kirchhoff_threshold");
+    migrate(model_options.loss_segments, loss_segments, "loss_segments");
+    migrate(model_options.scale_objective, scale_objective, "scale_objective");
+    migrate(model_options.scale_theta, scale_theta, "scale_theta");
+    migrate(
+        model_options.demand_fail_cost, demand_fail_cost, "demand_fail_cost");
+    migrate(model_options.reserve_fail_cost,
+            reserve_fail_cost,
+            "reserve_fail_cost");
+    migrate(model_options.hydro_fail_cost, hydro_fail_cost, "hydro_fail_cost");
+    migrate(model_options.hydro_use_value, hydro_use_value, "hydro_use_value");
+
+    // annual_discount_rate: canonical location is simulation, not
+    // model_options.
+    if (annual_discount_rate) {
+      spdlog::warn(
+          "deprecated option 'annual_discount_rate': "
+          "use 'simulation.annual_discount_rate' instead");
+    }
+    opts.annual_discount_rate = annual_discount_rate;
+
+    // Keep deprecated flat fields for programmatic backward compat
     opts.demand_fail_cost = demand_fail_cost;
     opts.reserve_fail_cost = reserve_fail_cost;
     opts.hydro_fail_cost = hydro_fail_cost;
@@ -85,7 +132,6 @@ struct PlanningOptionsConstructor
     opts.kirchhoff_threshold = kirchhoff_threshold;
     opts.scale_objective = scale_objective;
     opts.scale_theta = scale_theta;
-    opts.annual_discount_rate = annual_discount_rate;
     opts.output_directory = std::move(output_directory);
     if (output_format_str) {
       opts.output_format =
@@ -117,6 +163,10 @@ struct PlanningOptionsConstructor
           gtopt::enum_from_name<CompressionCodec>(*lp_compression_str);
     }
     opts.lp_build = lp_build;
+    opts.lp_debug_scene_min = lp_debug_scene_min;
+    opts.lp_debug_scene_max = lp_debug_scene_max;
+    opts.lp_debug_phase_min = lp_debug_phase_min;
+    opts.lp_debug_phase_max = lp_debug_phase_max;
     opts.model_options = model_options;
     opts.monolithic_options = std::move(monolithic_options);
     opts.sddp_options = std::move(sddp_options);
@@ -164,6 +214,10 @@ struct json_data_contract<PlanningOptions>
                        json_bool_null<"lp_debug", OptBool>,
                        json_string_null<"lp_compression", OptName>,
                        json_bool_null<"lp_build", OptBool>,
+                       json_number_null<"lp_debug_scene_min", OptInt>,
+                       json_number_null<"lp_debug_scene_max", OptInt>,
+                       json_number_null<"lp_debug_phase_min", OptInt>,
+                       json_number_null<"lp_debug_phase_max", OptInt>,
 
                        json_class_null<"model_options", ModelOptions>,
                        json_class_null<"monolithic_options", MonolithicOptions>,
@@ -204,6 +258,10 @@ struct json_data_contract<PlanningOptions>
                            opt.lp_debug,
                            detail::enum_to_opt_name(opt.lp_compression),
                            opt.lp_build,
+                           opt.lp_debug_scene_min,
+                           opt.lp_debug_scene_max,
+                           opt.lp_debug_phase_min,
+                           opt.lp_debug_phase_max,
 
                            opt.model_options,
                            opt.monolithic_options,

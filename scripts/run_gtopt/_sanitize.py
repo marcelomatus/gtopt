@@ -29,6 +29,31 @@ _VALID_ELASTIC_MODES = {"single_cut", "multi_cut", "backpropagate", "cut"}
 _VALID_BOUNDARY_MODES = {"noload", "separated", "combined"}
 
 
+def _get_model_opt(opts: dict, key: str, default: object = None) -> object:
+    """Get a model option from model_options sub-dict or flat (deprecated).
+
+    Prefers the ``model_options`` sub-dict value when both locations exist.
+    """
+    mo = opts.get("model_options", {})
+    if isinstance(mo, dict) and key in mo:
+        return mo[key]
+    return opts.get(key, default)
+
+
+def _set_model_opt(opts: dict, key: str, value: object) -> None:
+    """Set a model option in its canonical location.
+
+    Writes to ``model_options`` if that sub-dict exists, otherwise writes
+    to the flat (deprecated) top-level location.  When the key exists in
+    both places, both are updated to keep them consistent.
+    """
+    mo = opts.get("model_options")
+    if isinstance(mo, dict):
+        mo[key] = value
+    if key in opts or not isinstance(mo, dict):
+        opts[key] = value
+
+
 def _validate_options(opts: dict) -> list[str]:
     """Validate planning options and return a list of warning/error messages.
 
@@ -38,21 +63,21 @@ def _validate_options(opts: dict) -> list[str]:
     messages: list[str] = []
 
     # ── Scale factors ──
-    scale_obj = opts.get("scale_objective")
+    scale_obj = _get_model_opt(opts, "scale_objective")
     if scale_obj is not None:
         if scale_obj <= 0:
             messages.append("FIX: scale_objective must be > 0, setting to 1000")
-            opts["scale_objective"] = 1000
+            _set_model_opt(opts, "scale_objective", 1000)
         elif scale_obj > 1e12:
             messages.append(f"WARN: scale_objective={scale_obj} is very large")
 
-    scale_theta = opts.get("scale_theta")
+    scale_theta = _get_model_opt(opts, "scale_theta")
     if scale_theta is not None and scale_theta <= 0:
         messages.append("FIX: scale_theta must be > 0, setting to 1000")
-        opts["scale_theta"] = 1000
+        _set_model_opt(opts, "scale_theta", 1000)
 
     # ── Demand/reserve fail cost ──
-    dfc = opts.get("demand_fail_cost")
+    dfc = _get_model_opt(opts, "demand_fail_cost")
     if dfc is not None and dfc == 0:
         messages.append("WARN: demand_fail_cost=0 means unserved load has no penalty")
 
@@ -71,23 +96,23 @@ def _validate_options(opts: dict) -> list[str]:
         messages.append(f"WARN: method='{method}' not in {_VALID_SOLVER_TYPES}")
 
     # ── Discount rate ──
-    rate = opts.get("annual_discount_rate")
+    rate = _get_model_opt(opts, "annual_discount_rate")
     if rate is not None:
         if rate <= -1:
             messages.append("FIX: annual_discount_rate must be > -1, setting to 0")
-            opts["annual_discount_rate"] = 0.0
+            _set_model_opt(opts, "annual_discount_rate", 0.0)
         elif rate > 0.5:
             messages.append(
                 f"WARN: annual_discount_rate={rate} (>50%) is unusually high"
             )
 
     # ── Kirchhoff + single-bus consistency ──
-    if opts.get("use_single_bus") and opts.get("use_kirchhoff"):
+    if _get_model_opt(opts, "use_single_bus") and _get_model_opt(opts, "use_kirchhoff"):
         messages.append(
             "FIX: use_kirchhoff=true is incompatible with use_single_bus=true, "
             "disabling use_kirchhoff"
         )
-        opts["use_kirchhoff"] = False
+        _set_model_opt(opts, "use_kirchhoff", False)
 
     # ── LP names level ──
     lp_names = opts.get("use_lp_names")

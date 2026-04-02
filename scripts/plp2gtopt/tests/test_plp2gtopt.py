@@ -79,7 +79,7 @@ def test_convert_plp_case_with_discount_rate(tmp_path):
     opts["discount_rate"] = 0.10
     convert_plp_case(opts)
     data = json.loads(opts["output_file"].read_text())
-    assert data["options"]["annual_discount_rate"] == pytest.approx(0.10)
+    assert data["simulation"]["annual_discount_rate"] == pytest.approx(0.10)
 
 
 def test_convert_plp_case_failure_raises_runtime_error(tmp_path):
@@ -276,7 +276,7 @@ def test_gtopt_writer_process_options_discount():
     mock_parser = MagicMock()
     writer = GTOptWriter(mock_parser)
     writer.process_options({"discount_rate": 0.05, "output_dir": "out"})
-    assert writer.planning["options"]["annual_discount_rate"] == pytest.approx(0.05)
+    assert writer.planning["simulation"]["annual_discount_rate"] == pytest.approx(0.05)
 
 
 def _make_scenario_mock(num_hydrologies=10):
@@ -362,7 +362,7 @@ def test_main_with_discount_rate(tmp_path):
     with patch.object(sys, "argv", test_argv):
         main()
     data = json.loads(out_file.read_text())
-    assert data["options"]["annual_discount_rate"] == pytest.approx(0.10)
+    assert data["simulation"]["annual_discount_rate"] == pytest.approx(0.10)
 
 
 def test_main_version(capsys):

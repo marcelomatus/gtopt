@@ -542,26 +542,27 @@ void log_pre_solve_stats(
   spdlog::info(
       std::format("  Scenarios       : {}", sim.scenario_array.size()));
   spdlog::info("=== Key options ===");
+  const auto& mo = plan_opts.model_options;
   spdlog::info(
       std::format("  use_kirchhoff   : {}",
-                  plan_opts.use_kirchhoff.value_or(false) ? "true" : "false"));
+                  mo.use_kirchhoff.value_or(false) ? "true" : "false"));
   spdlog::info(
       std::format("  use_single_bus  : {}",
-                  plan_opts.use_single_bus.value_or(false) ? "true" : "false"));
+                  mo.use_single_bus.value_or(false) ? "true" : "false"));
   spdlog::info(std::format("  scale_objective : {}",
-                           plan_opts.scale_objective.value_or(1'000.0)));
+                           mo.scale_objective.value_or(1'000.0)));
   spdlog::info(
       std::format("  scale_theta     : {}",
-                  plan_opts.scale_theta.has_value()
-                      ? std::format("{:.6g}", *plan_opts.scale_theta)
+                  mo.scale_theta.has_value()
+                      ? std::format("{:.6g}", *mo.scale_theta)
                       : std::format("{:.6g} (auto)",
                                     PlanningOptionsLP::default_scale_theta)));
   spdlog::info(std::format(
       "  row_equilibration: {}",
       plan_opts.lp_build_options.row_equilibration.value_or(true) ? "true"
                                                                   : "false"));
-  spdlog::info(std::format("  demand_fail_cost: {}",
-                           plan_opts.demand_fail_cost.value_or(0.0)));
+  spdlog::info(
+      std::format("  demand_fail_cost: {}", mo.demand_fail_cost.value_or(0.0)));
   spdlog::info(std::format("  input_directory : {}",
                            plan_opts.input_directory.value_or("(default)")));
   spdlog::info(std::format("  output_directory: {}",
@@ -803,7 +804,8 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     // Warn when demand_fail_cost is 0 or not set
     //
     {
-      const auto dfc = my_planning.options.demand_fail_cost.value_or(0.0);
+      const auto dfc =
+          my_planning.options.model_options.demand_fail_cost.value_or(0.0);
       if (dfc == 0.0) {
         spdlog::warn(
             "demand_fail_cost is 0: unserved load has no penalty. "

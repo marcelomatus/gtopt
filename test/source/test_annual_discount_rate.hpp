@@ -93,22 +93,4 @@ TEST_CASE("annual_discount_rate - PlanningOptionsLP fallback chain")
     const PlanningOptionsLP opts(po);
     CHECK(opts.annual_discount_rate() == doctest::Approx(0.1));
   }
-
-  SUBCASE("model_options fallback when top-level is absent")
-  {
-    PlanningOptions po {};
-    po.model_options.annual_discount_rate = 0.06;
-    const PlanningOptionsLP opts(po);
-    CHECK(opts.annual_discount_rate() == doctest::Approx(0.06));
-  }
-
-  SUBCASE("top-level overrides model_options")
-  {
-    PlanningOptions po {
-        .annual_discount_rate = 0.1,
-    };
-    po.model_options.annual_discount_rate = 0.06;
-    const PlanningOptionsLP opts(po);
-    CHECK(opts.annual_discount_rate() == doctest::Approx(0.1));
-  }
 }

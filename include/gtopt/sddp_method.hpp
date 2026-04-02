@@ -243,6 +243,13 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// Empty or "uncompressed" means no compression; any other value uses gzip.
   std::string lp_debug_compression {};
 
+  /// Selective LP debug filters: when set, only save LP files whose
+  /// scene/phase UIDs fall within [min, max] (inclusive).
+  OptInt lp_debug_scene_min {};
+  OptInt lp_debug_scene_max {};
+  OptInt lp_debug_phase_min {};
+  OptInt lp_debug_phase_max {};
+
   /// Enable the monitoring API: write a JSON status file after each iteration
   /// and periodically update real-time workpool statistics.  Consumers
   /// (e.g. sddp_monitor.py) can poll this file to display live charts.

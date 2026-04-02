@@ -95,7 +95,8 @@ public:
    * @param poptions The PlanningOptions object to wrap (defaults to empty)
    */
   explicit PlanningOptionsLP(PlanningOptions poptions = {})
-      : m_options_(std::move(poptions))
+      : m_options_(
+            (poptions.migrate_flat_to_model_options(), std::move(poptions)))
       , m_variable_scale_map_(populate_variable_scales(m_options_))
   {
   }
@@ -127,101 +128,76 @@ public:
     return m_options_.input_format.value_or(default_input_format);
   }
 
-  /// @brief Gets the demand failure cost (field schedule).
-  /// Flat field takes precedence, then model_options.
+  /// @brief Gets the demand failure cost from model_options.
   [[nodiscard]] constexpr auto demand_fail_cost() const
   {
-    if (m_options_.demand_fail_cost.has_value()) {
-      return m_options_.demand_fail_cost;
-    }
     return m_options_.model_options.demand_fail_cost;
   }
 
-  /// @brief Gets the hydro failure cost (field schedule).
-  /// Flat field takes precedence, then model_options.
+  /// @brief Gets the hydro failure cost from model_options.
   [[nodiscard]] constexpr auto hydro_fail_cost() const
   {
-    if (m_options_.hydro_fail_cost.has_value()) {
-      return m_options_.hydro_fail_cost;
-    }
     return m_options_.model_options.hydro_fail_cost;
   }
 
-  /// @brief Gets the hydro use value (benefit per m³).
-  /// Flat field takes precedence, then model_options.
+  /// @brief Gets the hydro use value (benefit per m³) from model_options.
   [[nodiscard]] constexpr auto hydro_use_value() const
   {
-    if (m_options_.hydro_use_value.has_value()) {
-      return m_options_.hydro_use_value;
-    }
     return m_options_.model_options.hydro_use_value;
   }
 
-  /// @brief Gets the reserve failure cost (field schedule).
-  /// Flat field takes precedence, then model_options.
+  /// @brief Gets the reserve failure cost from model_options.
   [[nodiscard]] constexpr auto reserve_fail_cost() const
   {
-    if (m_options_.reserve_fail_cost.has_value()) {
-      return m_options_.reserve_fail_cost;
-    }
     return m_options_.model_options.reserve_fail_cost;
   }
 
-  /// @brief Gets the line loss modeling flag.
-  /// Flat field takes precedence, then model_options, then default.
+  /// @brief Gets the line loss modeling flag from model_options.
   [[nodiscard]] constexpr auto use_line_losses() const
   {
-    return fallback_3(m_options_.use_line_losses,
-                      m_options_.model_options.use_line_losses,
-                      default_use_line_losses);
+    return m_options_.model_options.use_line_losses.value_or(
+        default_use_line_losses);
   }
 
   /// @brief Gets the number of piecewise-linear loss segments.
   [[nodiscard]] constexpr auto loss_segments() const
   {
-    return fallback_3(m_options_.loss_segments,
-                      m_options_.model_options.loss_segments,
-                      default_loss_segments);
+    return m_options_.model_options.loss_segments.value_or(
+        default_loss_segments);
   }
 
   /// @brief Gets the Kirchhoff constraints flag.
   [[nodiscard]] constexpr auto use_kirchhoff() const
   {
-    return fallback_3(m_options_.use_kirchhoff,
-                      m_options_.model_options.use_kirchhoff,
-                      default_use_kirchhoff);
+    return m_options_.model_options.use_kirchhoff.value_or(
+        default_use_kirchhoff);
   }
 
   /// @brief Gets the single-bus modeling flag.
   [[nodiscard]] constexpr auto use_single_bus() const
   {
-    return fallback_3(m_options_.use_single_bus,
-                      m_options_.model_options.use_single_bus,
-                      default_use_single_bus);
+    return m_options_.model_options.use_single_bus.value_or(
+        default_use_single_bus);
   }
 
   /// @brief Gets the objective function scaling factor.
   [[nodiscard]] constexpr auto scale_objective() const
   {
-    return fallback_3(m_options_.scale_objective,
-                      m_options_.model_options.scale_objective,
-                      default_scale_objective);
+    return m_options_.model_options.scale_objective.value_or(
+        default_scale_objective);
   }
 
   /// @brief Gets the Kirchhoff threshold.
   [[nodiscard]] constexpr auto kirchhoff_threshold() const
   {
-    return fallback_3(m_options_.kirchhoff_threshold,
-                      m_options_.model_options.kirchhoff_threshold,
-                      default_kirchhoff_threshold);
+    return m_options_.model_options.kirchhoff_threshold.value_or(
+        default_kirchhoff_threshold);
   }
 
   /// @brief Gets the voltage angle scaling factor.
   [[nodiscard]] constexpr auto scale_theta() const
   {
-    return fallback_3(m_options_.scale_theta,
-                      m_options_.model_options.scale_theta,
-                      default_scale_theta);
+    return m_options_.model_options.scale_theta.value_or(default_scale_theta);
   }
 
   /**
@@ -294,11 +270,12 @@ public:
    * @brief Gets the annual discount rate, using default if not set
    * @return The annual discount rate for multi-year planning
    */
+  /// @brief Gets the annual discount rate (deprecated flat field fallback).
+  /// Canonical location is simulation.annual_discount_rate.
   [[nodiscard]] constexpr auto annual_discount_rate() const
   {
-    return fallback_3(m_options_.annual_discount_rate,
-                      m_options_.model_options.annual_discount_rate,
-                      default_annual_discount_rate);
+    return m_options_.annual_discount_rate.value_or(
+        default_annual_discount_rate);
   }
 
   /**
@@ -322,6 +299,27 @@ public:
   [[nodiscard]] constexpr auto lp_debug() const
   {
     return m_options_.lp_debug.value_or(false);
+  }
+
+  /// Minimum scene UID for selective LP debug saving (nullopt = no filter).
+  [[nodiscard]] constexpr auto lp_debug_scene_min() const -> OptInt
+  {
+    return m_options_.lp_debug_scene_min;
+  }
+  /// Maximum scene UID for selective LP debug saving (nullopt = no filter).
+  [[nodiscard]] constexpr auto lp_debug_scene_max() const -> OptInt
+  {
+    return m_options_.lp_debug_scene_max;
+  }
+  /// Minimum phase UID for selective LP debug saving (nullopt = no filter).
+  [[nodiscard]] constexpr auto lp_debug_phase_min() const -> OptInt
+  {
+    return m_options_.lp_debug_phase_min;
+  }
+  /// Maximum phase UID for selective LP debug saving (nullopt = no filter).
+  [[nodiscard]] constexpr auto lp_debug_phase_max() const -> OptInt
+  {
+    return m_options_.lp_debug_phase_max;
   }
 
   /**

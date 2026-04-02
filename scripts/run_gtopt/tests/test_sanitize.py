@@ -641,3 +641,113 @@ def test_fix_sddp_simulation_mode_non_bool(tmp_path: Path):
     result = sanitize_json(p)
     data = json.loads(result.read_text())
     assert data["options"]["sddp_options"]["simulation_mode"] is True
+
+
+# ---------------------------------------------------------------------------
+# model_options sub-dict (new location for model fields)
+# ---------------------------------------------------------------------------
+
+
+def test_model_options_scale_objective_fix(tmp_path: Path):
+    """scale_objective in model_options is validated and fixed."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"model_options": {"scale_objective": -5}},
+    )
+    result = sanitize_json(p)
+    assert result is not None
+    data = json.loads(result.read_text())
+    assert data["options"]["model_options"]["scale_objective"] == 1000
+
+
+def test_model_options_preferred_over_flat(tmp_path: Path):
+    """model_options value takes precedence over flat (deprecated) value."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {
+            "scale_objective": 500,
+            "model_options": {"scale_objective": -1},
+        },
+    )
+    result = sanitize_json(p)
+    assert result is not None
+    data = json.loads(result.read_text())
+    # Both locations updated to the fixed value
+    assert data["options"]["model_options"]["scale_objective"] == 1000
+    assert data["options"]["scale_objective"] == 1000
+
+
+def test_model_options_kirchhoff_single_bus_conflict(tmp_path: Path):
+    """Kirchhoff + single-bus conflict in model_options is resolved."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"model_options": {"use_kirchhoff": True, "use_single_bus": True}},
+    )
+    result = sanitize_json(p)
+    assert result is not None
+    data = json.loads(result.read_text())
+    assert data["options"]["model_options"]["use_kirchhoff"] is False
+    assert data["options"]["model_options"]["use_single_bus"] is True
+
+
+def test_model_options_discount_rate_fix(tmp_path: Path):
+    """annual_discount_rate in model_options is validated and fixed."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"model_options": {"annual_discount_rate": -2.0}},
+    )
+    result = sanitize_json(p)
+    data = json.loads(result.read_text())
+    assert data["options"]["model_options"]["annual_discount_rate"] == 0.0
+
+
+def test_model_options_scale_theta_fix(tmp_path: Path):
+    """scale_theta in model_options is validated and fixed."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"model_options": {"scale_theta": 0}},
+    )
+    result = sanitize_json(p)
+    data = json.loads(result.read_text())
+    assert data["options"]["model_options"]["scale_theta"] == 1000
+
+
+def test_model_options_demand_fail_cost_warn(tmp_path: Path):
+    """demand_fail_cost=0 in model_options produces a warning but no fix."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"model_options": {"demand_fail_cost": 0}},
+    )
+    result = sanitize_json(p)
+    # Warn-only: original path returned (no FIX applied)
+    assert result == p
+
+
+def test_model_options_valid_pass_through(tmp_path: Path):
+    """Valid model_options values are not modified."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {
+            "model_options": {
+                "scale_objective": 1000,
+                "use_kirchhoff": True,
+                "use_single_bus": False,
+                "annual_discount_rate": 0.1,
+            }
+        },
+    )
+    result = sanitize_json(p)
+    assert result == p
+
+
+def test_flat_fields_still_work(tmp_path: Path):
+    """Flat (deprecated) fields still validated when no model_options."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"scale_objective": -5, "scale_theta": -1},
+    )
+    result = sanitize_json(p)
+    assert result is not None
+    data = json.loads(result.read_text())
+    assert data["options"]["scale_objective"] == 1000
+    assert data["options"]["scale_theta"] == 1000
