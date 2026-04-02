@@ -399,7 +399,6 @@ class TestMauleWriter:
     def test_user_constraints_include_balances(self, maule_config):
         """User constraints include partition balances and district constraints."""
         writer = MauleWriter(maule_config)
-        uc_names = {uc["name"] for uc in writer.user_constraints}
         # Should have district constraints + balance constraints
         assert len(writer.user_constraints) >= 2
 
@@ -699,7 +698,7 @@ class TestMaulePamplGeneration:
             # Dist2 has_slack=True → uses <=
             # Find the constraint lines
             lines = content.split("\n")
-            dist1_lines = [l for l in lines if "dist_Dist1" in l and "constraint" in l]
+            dist1_lines = [ln for ln in lines if "dist_Dist1" in ln and "constraint" in ln]
             assert len(dist1_lines) >= 1
 
     def test_generate_pampl_header_comment(self):
