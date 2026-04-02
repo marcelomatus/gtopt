@@ -302,6 +302,35 @@ _ICON_SVG["seepage"] = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4
   <ellipse cx="24" cy="47" rx="2.5" ry="3.5" fill="#3498DB" opacity="0.85"/>
 </svg>"""
 
+_ICON_SVG[
+    "volume_right"
+] = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <defs><linearGradient id="g" x1="0%" y1="0%" x2="0%" y2="100%">
+    <stop offset="0%" stop-color="#D7CCC8"/><stop offset="100%" stop-color="#795548"/>
+  </linearGradient></defs>
+  <polygon points="4,44 11,10 37,10 44,44" fill="#BCAAA4" stroke="#6D4C41" stroke-width="2"/>
+  <path d="M13 14 L35 14 L40 44 L8 44 Z" fill="url(#g)" opacity="0.85"/>
+  <path d="M8 30 Q16 26 24 30 Q32 34 40 30" fill="none" stroke="#A1887F" stroke-width="1.5"/>
+  <text x="24" y="43" text-anchor="middle" font-family="Arial" font-size="9"
+        font-weight="bold" fill="#FFF8E1">V</text>
+  <path d="M22 5 L26 5 L24 9 Z" fill="#F57F17"/>
+  <circle cx="24" cy="4" r="3" fill="none" stroke="#F57F17" stroke-width="1.5"/>
+</svg>"""
+
+_ICON_SVG[
+    "flow_right"
+] = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="0%">
+    <stop offset="0%" stop-color="#B2EBF2"/><stop offset="100%" stop-color="#00838F"/>
+  </linearGradient></defs>
+  <path d="M3 20 Q12 14 21 20 Q30 26 39 20 L43 23 L39 29 Q30 23 21 29 Q12 35 3 29 Z"
+        fill="url(#g)" stroke="#00695C" stroke-width="1.5"/>
+  <path d="M22 5 L26 5 L24 9 Z" fill="#F57F17"/>
+  <circle cx="24" cy="4" r="3" fill="none" stroke="#F57F17" stroke-width="1.5"/>
+  <text x="24" y="44" text-anchor="middle" font-family="Arial" font-size="9"
+        font-weight="bold" fill="#006064">Q</text>
+</svg>"""
+
 # ---------------------------------------------------------------------------
 # Icon utilities — cache SVG → PNG via cairosvg
 # ---------------------------------------------------------------------------
@@ -422,6 +451,12 @@ _PALETTE: dict[str, str] = {
     "flow_border": "#0277BD",
     "seepage": "#E0E0E0",
     "seepage_border": "#616161",
+    # Water rights — brownish tones for volume, teal for flow
+    "volume_right": "#EFEBE9",
+    "volume_right_border": "#6D4C41",
+    "flow_right": "#E0F7FA",
+    "flow_right_border": "#00838F",
+    "right_edge": "#F57F17",
     "line_edge": "#4CAF50",
     "power_edge": "#66BB6A",
     "waterway_edge": "#0277BD",
@@ -467,6 +502,12 @@ _PALETTE_COLORBLIND: dict[str, str] = {
     "gen_profile_border": "#7B1FA2",
     "dem_profile": "#FCE4EC",
     "dem_profile_border": "#AD1457",
+    # Water rights — brownish tones for volume, teal for flow
+    "volume_right": "#EFEBE9",
+    "volume_right_border": "#4E342E",
+    "flow_right": "#E0F7FA",
+    "flow_right_border": "#006064",
+    "right_edge": "#E65100",
     "line_edge": "#4CAF50",
     "power_edge": "#66BB6A",
     "waterway_edge": "#0277BD",
@@ -617,6 +658,8 @@ _PYVIS_COLORS: dict[str, dict] = {
     "reserve_zone": {"background": "#FFF8E1", "border": "#F57F17"},
     "gen_profile": {"background": "#F3E5F5", "border": "#7B1FA2"},
     "dem_profile": {"background": "#FCE4EC", "border": "#AD1457"},
+    "volume_right": {"background": "#EFEBE9", "border": "#6D4C41"},
+    "flow_right": {"background": "#E0F7FA", "border": "#00838F"},
 }
 
 _PYVIS_SHAPE_MAP: dict[str, str] = {
@@ -638,6 +681,8 @@ _PYVIS_SHAPE_MAP: dict[str, str] = {
     "reserve_zone": "star",
     "gen_profile": "dot",
     "dem_profile": "dot",
+    "volume_right": "box",
+    "flow_right": "dot",
 }
 
 _PYVIS_SIZE_MAP: dict[str, int] = {
@@ -653,6 +698,8 @@ _PYVIS_SIZE_MAP: dict[str, int] = {
     "turbine": 22,
     "flow": 16,
     "seepage": 14,
+    "volume_right": 18,
+    "flow_right": 14,
 }
 
 
@@ -959,6 +1006,14 @@ class TopologyBuilder:
     def _dpid(dp):
         return TopologyBuilder._make_id("dprof", dp)
 
+    @staticmethod
+    def _vrid(vr):
+        return TopologyBuilder._make_id("vright", vr)
+
+    @staticmethod
+    def _frid(fr):
+        return TopologyBuilder._make_id("fright", fr)
+
     def _resolve_field(
         self, class_name: str, elem: dict, field: str, fallback: str = "—"
     ) -> str:
@@ -1022,6 +1077,8 @@ class TopologyBuilder:
                 "reservoir_seepage_array",
                 "reservoir_discharge_limit_array",
                 "reservoir_production_factor_array",
+                "volume_right_array",
+                "flow_right_array",
             )
         )
 
@@ -1092,6 +1149,8 @@ class TopologyBuilder:
                     "flow_array",
                     "reservoir_seepage_array",
                     "reservoir_discharge_limit_array",
+                    "volume_right_array",
+                    "flow_right_array",
                 )
             )
             if not has_hydro:
@@ -1118,6 +1177,8 @@ class TopologyBuilder:
             self._turbines()
             self._flows()
             self._seepages()
+            self._volume_rights()
+            self._flow_rights()
             self._reservoir_efficiencies()
         if s == "full":
             self._reserve_zones()
@@ -1859,6 +1920,128 @@ class TopologyBuilder:
                         style="dotted",
                         color=_PALETTE["seepage_border"],
                         directed=False,
+                    )
+                )
+
+    def _volume_rights(self):
+        """Draw VolumeRight nodes attached to their source reservoir.
+
+        Each VolumeRight is NOT part of the hydrological topology; it is an
+        accounting entity tracking water volume entitlements.  Displayed as a
+        separate node with a dotted edge to the referenced reservoir, and an
+        optional dotted edge to a parent VolumeRight (right_reservoir).
+        """
+        for vr in self.sys.get("volume_right_array", []):
+            name = _elem_name(vr)
+            vrid = self._vrid(vr)
+            purpose = vr.get("purpose", "")
+            emax = self._resolve_field("VolumeRight", vr, "emax", fallback=None)
+            if self.opts.compact:
+                lbl = str(name)
+            else:
+                parts = [f"[VolRight] {name}"]
+                if purpose:
+                    parts.append(str(purpose))
+                if emax is not None:
+                    parts.append(f"{emax} hm\u00b3")
+                lbl = "\n".join(parts)
+            self.model.add_node(
+                Node(
+                    node_id=vrid,
+                    label=lbl,
+                    kind="volume_right",
+                    cluster="hydro",
+                    tooltip=(
+                        f"VolumeRight uid={vr.get('uid')} name={vr.get('name')}"
+                        f" purpose={purpose}"
+                    ),
+                    size=18.0,
+                )
+            )
+            # Edge to physical source reservoir
+            res_id = self._find_node_id(
+                "reservoir_array", vr.get("reservoir"), self._rid
+            )
+            if res_id:
+                self.model.add_edge(
+                    Edge(
+                        res_id,
+                        vrid,
+                        label="" if self.opts.compact else "source",
+                        style="dotted",
+                        color=_PALETTE["right_edge"],
+                        directed=True,
+                        weight=0.5,
+                    )
+                )
+            # Edge to parent VolumeRight (hierarchical rights structure)
+            parent_id = self._find_node_id(
+                "volume_right_array", vr.get("right_reservoir"), self._vrid
+            )
+            if parent_id:
+                direction = vr.get("direction", -1)
+                lbl_e = "" if self.opts.compact else ("→" if direction >= 0 else "←")
+                self.model.add_edge(
+                    Edge(
+                        vrid,
+                        parent_id,
+                        label=lbl_e,
+                        style="dotted",
+                        color=_PALETTE["right_edge"],
+                        directed=True,
+                        weight=0.3,
+                    )
+                )
+
+    def _flow_rights(self):
+        """Draw FlowRight nodes attached to their reference junction.
+
+        Each FlowRight is NOT part of the hydrological topology; it is an
+        accounting entity tracking flow (m³/s) entitlements at a junction.
+        Displayed as a separate node with a dotted edge to the referenced
+        junction.
+        """
+        for fr in self.sys.get("flow_right_array", []):
+            name = _elem_name(fr)
+            frid = self._frid(fr)
+            purpose = fr.get("purpose", "")
+            discharge = self._resolve_field("FlowRight", fr, "discharge", fallback=None)
+            if self.opts.compact:
+                lbl = str(name)
+            else:
+                parts = [f"[FlowRight] {name}"]
+                if purpose:
+                    parts.append(str(purpose))
+                if discharge is not None:
+                    parts.append(f"{discharge} m\u00b3/s")
+                lbl = "\n".join(parts)
+            self.model.add_node(
+                Node(
+                    node_id=frid,
+                    label=lbl,
+                    kind="flow_right",
+                    cluster="hydro",
+                    tooltip=(
+                        f"FlowRight uid={fr.get('uid')} name={fr.get('name')}"
+                        f" purpose={purpose}"
+                    ),
+                    size=14.0,
+                )
+            )
+            # Edge to reference junction
+            junc_id = self._find_node_id(
+                "junction_array", fr.get("junction"), self._jid
+            )
+            if junc_id:
+                self.model.add_edge(
+                    Edge(
+                        junc_id,
+                        frid,
+                        label="" if self.opts.compact else "extraction",
+                        style="dotted",
+                        color=_PALETTE["right_edge"],
+                        directed=True,
+                        weight=0.3,
                     )
                 )
 
