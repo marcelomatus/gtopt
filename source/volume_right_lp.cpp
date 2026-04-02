@@ -50,7 +50,14 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
 
   // Resolve energy_scale: use explicit value, or inherit from
   // the source reservoir (keeps "colchon" volumes in the same
-  // LP scaling as the physical reservoir), else default 1.0.
+  // LP scaling as the physical reservoir), or inherit from the
+  // parent VolumeRight (right_reservoir), else default 1.0.
+  //
+  // Precedence:
+  //   1. Explicit energy_scale field
+  //   2. Physical source reservoir's energy_scale
+  //   3. Parent VolumeRight (right_reservoir) energy_scale
+  //   4. Default 1.0
   const double energy_scale = [&]
   {
     if (volume_right().energy_scale.has_value()) {
@@ -59,6 +66,11 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     if (const auto& r_ref = volume_right().reservoir; r_ref.has_value()) {
       const ReservoirLPSId r_sid(*r_ref);
       return sc.element<ReservoirLP>(r_sid).energy_scale();
+    }
+    if (const auto& rr_ref = volume_right().right_reservoir; rr_ref.has_value())
+    {
+      const VolumeRightLPSId vr_sid(*rr_ref);
+      return sc.element<VolumeRightLP>(vr_sid).energy_scale();
     }
     return VolumeRight::default_energy_scale;
   }();
@@ -96,10 +108,14 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     finp_cols[buid] = fcol;
   }
 
-  // The storage balance tracks accumulated rights volume.
-  // Input flow = rights delivered (finp_cols).
-  // No output flow — rights only accumulate (fout_cols = finp_cols with
-  // zero efficiency to satisfy the signature, but we pass empty).
+  // The storage balance tracks rights-volume depletion.
+  // The finp_cols represent extraction flows (m³/s) that DEPLETE the rights
+  // budget.  Passing the same map as both finp and fout with fout_efficiency=1
+  // ensures a single energy-row entry with positive coefficient per block:
+  //   coeff = fcr × duration / energy_scale > 0
+  // so that the energy balance is:
+  //   ec[t] = ec[t-1] - Σ_b (fcr × dur_b × finp_b / energy_scale)
+  // This matches PLP:  IVDRF = Prev_IVDRF - (etadur/ScaleVol) × IQDRH
   // No drain/spillway for rights.
   const StorageOptions opts {
       .use_state_variable = volume_right().use_state_variable.value_or(true),
@@ -116,7 +132,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
                               finp_cols,
                               1.0,
                               finp_cols,
-                              0.0,
+                              1.0,
                               LinearProblem::DblMax,
                               std::nullopt,
                               std::nullopt,
@@ -150,22 +166,47 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     };
   }
 
-  // Couple to parent VolumeRight's energy balance if linked
+  // Couple to parent VolumeRight's energy balance if linked.
+  //
+  // The parent's energy row (in LP units) expects coefficients that
+  // convert physical m³/s → hm³/parent_energy_scale:
+  //   coeff = -dir × fcr × duration / parent_energy_scale
+  //
+  // Sign convention (matches PLP's balance signs):
+  //   direction = -1 (withdrawal/depletion of parent):
+  //     coeff = +fcr × duration / parent_energy_scale > 0
+  //     → ec_parent DECREASES with this flow (depletion) ✓
+  //   direction = +1 (contribution to parent):
+  //     coeff = -fcr × duration / parent_energy_scale < 0
+  //     → ec_parent INCREASES with this flow (accumulation) ✓
+  //
+  // NOTE: The parent's energy_scale is used (not the child's) because
+  // the parent's energy rows are scaled by the parent's energy_scale.
   if (const auto& rr_ref = volume_right().right_reservoir; rr_ref.has_value()) {
     const VolumeRightLPSId vr_sid(*rr_ref);
     const auto& vr_lp = sc.element(vr_sid);
     const auto& vr_erows = vr_lp.energy_rows_at(scenario, stage);
     const auto dir = static_cast<double>(volume_right().direction.value_or(-1));
+    const auto parent_energy_scale = vr_lp.energy_scale();
 
     for (auto&& block : blocks) {
       const auto buid = block.uid();
-      const auto coeff =
-          flow_conversion_rate() * block.duration() * dir / energy_scale;
+      const auto coeff = -flow_conversion_rate() * block.duration() * dir
+          / parent_energy_scale;
       lp.row_at(vr_erows.at(buid))[finp_cols.at(buid)] = coeff;
     }
   }
 
-  // Consumptive coupling: subtract extraction from physical Reservoir
+  // Consumptive coupling: subtract extraction from physical Reservoir.
+  //
+  // The VolumeRight's finp_col (m³/s) depletes the physical reservoir.
+  // The physical reservoir's energy row (in LP units) expects a POSITIVE
+  // coefficient for depletion flows (same convention as its own extraction):
+  //   coeff = +fcr × duration / r_energy_scale > 0
+  //   → ec_reservoir DECREASES with this flow ✓
+  //
+  // NOTE: r_energy_scale is used (not energy_scale) because the reservoir's
+  // energy rows are scaled by the reservoir's energy_scale.
   if (const auto& r_ref = volume_right().reservoir;
       r_ref.has_value() && volume_right().consumptive.value_or(false))
   {
@@ -177,7 +218,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     for (auto&& block : blocks) {
       const auto buid = block.uid();
       const auto coeff =
-          -flow_conversion_rate() * block.duration() / r_energy_scale;
+          flow_conversion_rate() * block.duration() / r_energy_scale;
       lp.row_at(r_erows.at(buid))[finp_cols.at(buid)] = coeff;
     }
   }

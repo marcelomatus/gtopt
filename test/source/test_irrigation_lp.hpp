@@ -1783,3 +1783,393 @@ TEST_CASE(  // NOLINT
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 }
+
+TEST_CASE(  // NOLINT
+    "VolumeRight depletion model - finp depletes energy when eini > demand")
+{
+  // Regression test for Bug 2: fout_efficiency=0.0 was creating +Inf
+  // coefficient forcing finp=0. With the fix (fout_efficiency=1.0), the
+  // energy balance correctly depletes with finp:
+  //   ec[t] = ec[t-1] - fcr x duration x finp / energy_scale
+  //
+  // Setup: VolumeRight with eini=100 hm3, demand=10 hm3, fail_cost=1e6.
+  // With depletion model the LP can satisfy demand with finp (cost-free),
+  // making fail=0 optimal.  With the old broken model finp was forced to 0,
+  // requiring fail=10 (cost = 1e6 x 10 / 1000 = 10000 in obj units).
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "gen1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 50.0},
+  };
+
+  // VolumeRight: eini=100 hm3 > demand=10 hm3 so finp can satisfy demand.
+  // fail_cost is very high so the LP avoids fail and uses finp instead.
+  const Array<VolumeRight> volume_right_array = {
+      {
+          .uid = Uid {1},
+          .name = "vol_depletion",
+          .emax = 500.0,
+          .eini = 100.0,
+          .demand = 10.0,
+          .fail_cost = 1.0e6,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {.uid = Uid {1}, .duration = 1},
+          },
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  const System system = {
+      .name = "DepletionModelTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .volume_right_array = volume_right_array,
+  };
+
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Default scale_objective = 10,000,000.
+  // Dispatch-only obj = 50 MW * $10/MWh * 1h / 10,000,000 = 5e-05.
+  // With the old broken model (finp=0, all demand via fail):
+  //   obj = 5e-05 + 1e6 * 10 / 10,000,000 ~= 1.0  (much larger)
+  // CHECK(obj < 0.1) verifies that demand is satisfied with finp (no fail).
+  const double obj = lp.get_obj_value();
+  CHECK(obj < 0.1);
+}
+
+TEST_CASE(  // NOLINT
+    "VolumeRight energy_scale - inherits from parent VolumeRight")
+{
+  // Regression test for Bug 3: energy_scale was not inherited from the
+  // parent VolumeRight (right_reservoir) when no physical reservoir is set.
+  // The child should use the parent's energy_scale, not the default 1.0.
+  //
+  // Setup: parent VolumeRight with explicit energy_scale=10.
+  //        child VolumeRight with right_reservoir=parent, no explicit scale.
+  // The child's internal energy_scale should be 10 (inherited from parent).
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "gen1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 50.0},
+  };
+
+  // Parent: explicit energy_scale=10 (like a large reservoir).
+  // Child: right_reservoir -> parent, no explicit energy_scale.
+  const Array<VolumeRight> volume_right_array = {
+      {
+          .uid = Uid {1},
+          .name = "parent_vol",
+          .emax = 500.0,
+          .eini = 200.0,
+          .energy_scale = 10.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "child_vol",
+          .right_reservoir = Uid {1},
+          .direction = -1,
+          .emax = 100.0,
+          .eini = 50.0,
+          .demand = 5.0,
+          .fail_cost = 1.0e6,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {.uid = Uid {1}, .duration = 1},
+          },
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  const System system = {
+      .name = "EnergyScaleInheritTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .volume_right_array = volume_right_array,
+  };
+
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Default scale_objective = 10,000,000.
+  // Child has eini=50, demand=5, fail_cost=1e6, energy_scale inherited=10.
+  // Dispatch-only obj = 50 MW * $10/MWh * 1h / 10,000,000 = 5e-05.
+  // With the old broken model (finp=0, all demand via fail):
+  //   obj ~= 5e-05 + 1e6*(5/10)/10,000,000 = 5e-05 + 0.05 ~= 0.05
+  // Without energy_scale inheritance (scale=1 instead of 10):
+  //   fail_LP_cost per LP-unit is different (1.0 vs 0.1), causing
+  //   incorrect coefficient scaling in demand and energy rows.
+  // CHECK(obj < 0.01) verifies dispatch-only solution (fail=0).
+  const double obj = lp.get_obj_value();
+  CHECK(obj < 0.01);
+}
+
+TEST_CASE(  // NOLINT
+    "VolumeRight right_reservoir coupling - direction sign is correct")
+{
+  // Regression test for Bug 1: right_reservoir coupling used child's
+  // energy_scale and wrong sign for the coefficient.
+  //
+  // Fix: coeff = -dir x fcr x duration / parent_energy_scale
+  //   direction=-1 (depletion): coeff > 0 -> parent energy DECREASES
+  //   direction=+1 (accumulation): coeff < 0 -> parent energy INCREASES
+  //
+  // This test uses direction=-1: child finp should deplete parent energy.
+  // Parent starts at eini=100 hm3. Child demands 10 hm3 via finp.
+  // Child finp (with depletion model) satisfies child demand;
+  // simultaneously depletes parent's budget via right_reservoir coupling.
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "gen1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 50.0},
+  };
+
+  // Parent VolumeRight: large budget (eini=100).
+  // Child VolumeRight: coupled to parent with direction=-1 (depletion).
+  // Child has its own eini=50 > demand=10, so child satisfies via finp.
+  const Array<VolumeRight> volume_right_array = {
+      {
+          .uid = Uid {1},
+          .name = "parent_vol",
+          .emax = 200.0,
+          .eini = 100.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "child_vol",
+          .right_reservoir = Uid {1},
+          .direction = -1,
+          .emax = 100.0,
+          .eini = 50.0,
+          .demand = 10.0,
+          .fail_cost = 1.0e6,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {.uid = Uid {1}, .duration = 1},
+          },
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  const System system = {
+      .name = "RightReservoirSignTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .volume_right_array = volume_right_array,
+  };
+
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Default scale_objective = 10,000,000.
+  // Child finp satisfies demand=10 (eini=50 >= demand=10), fail=0.
+  // Dispatch-only obj = 50 MW * $10/MWh * 1h / 10,000,000 = 5e-05.
+  // With the old broken model (wrong sign, finp depletes wrong direction):
+  //   energy constraint prevents finp -> fail covers demand
+  //   obj ~= 5e-05 + 1e6*10/10,000,000 ~= 1.0
+  // CHECK(obj < 0.1) verifies demand satisfied with finp (no fail).
+  const double obj = lp.get_obj_value();
+  CHECK(obj < 0.1);
+}
+
+TEST_CASE(  // NOLINT
+    "VolumeRight consumptive - correct depletion sign for reservoir energy")
+{
+  // Regression test for Bug 4: consumptive coupling coefficient was
+  // NEGATIVE (-fcr x dur / r_energy_scale), which made the VolumeRight's
+  // finp ADD energy to the reservoir instead of subtracting it.
+  //
+  // Fix: coeff = +fcr x dur / r_energy_scale (positive -> reservoir depletes).
+  // This matches the reservoir's own extraction variable sign convention.
+  //
+  // Setup: reservoir (eini=500, emax=1000), consumptive VolumeRight
+  // (demand=20, eini=100, fail_cost=1e6).  The VolumeRight extracts from
+  // the reservoir. Both should be feasible (eini=500 >= required extraction).
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "gen1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 50.0},
+  };
+
+  const Array<Junction> junction_array = {
+      {.uid = Uid {1}, .name = "j_up"},
+      {.uid = Uid {2}, .name = "j_down", .drain = true},
+  };
+
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 500.0,
+      },
+  };
+
+  // Large enough reservoir (eini=500) so consumptive extraction is feasible.
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 1000.0,
+          .emin = 0.0,
+          .emax = 1000.0,
+          .eini = 500.0,
+      },
+  };
+
+  const Array<Flow> flow_array = {
+      {
+          .uid = Uid {1},
+          .name = "inflow",
+          .direction = 1,
+          .junction = Uid {1},
+          .discharge = 50.0,
+      },
+  };
+
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .conversion_rate = 2.0,
+      },
+  };
+
+  // Consumptive VolumeRight: eini=100, demand=20 hm3, fail_cost=1e6.
+  // With Bug 4 fix: finp correctly depletes the reservoir.
+  const Array<VolumeRight> volume_right_array = {
+      {
+          .uid = Uid {1},
+          .name = "irr_consumptive",
+          .reservoir = Uid {1},
+          .consumptive = true,
+          .emax = 200.0,
+          .eini = 100.0,
+          .demand = 20.0,
+          .fail_cost = 1.0e6,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {.uid = Uid {1}, .duration = 1},
+          },
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  const System system = {
+      .name = "ConsumptiveDepletionTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .flow_array = flow_array,
+      .reservoir_array = reservoir_array,
+      .turbine_array = turbine_array,
+      .volume_right_array = volume_right_array,
+  };
+
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // VolumeRight has eini=100 >= demand=20, so finp satisfies demand (fail=0).
+  // Reservoir has eini=500 >= volume extracted.  Objective ~= dispatch only.
+  const double obj = lp.get_obj_value();
+  CHECK(obj < 1.0);  // fail=0 -> no high fail_cost in objective
+}
