@@ -27,6 +27,9 @@ The GTEP problem is defined over the following sets:
   \item $\setH$: turbines, indexed by $h$
   \item $\setZ$: reserve zones, indexed by $z$
   \item $\mathcal{P}$: reserve provisions, indexed by $p$
+  \item $\setK$: right junctions (rights balance nodes), indexed by $k$
+  \item $\setFR$: flow rights (flow-based water rights), indexed by $i$
+  \item $\setVR$: volume rights (volume-based water rights), indexed by $o$
 \end{itemize}
 
 \begin{figure}[t]
@@ -520,6 +523,165 @@ $R^\text{up}_{z,s,t,b}$ is the zone requirement.  A symmetric constraint
 exists for down-reserve.  Reserve provision is bounded by the generator's
 headroom: $p_{g,s,t,b} + r^\text{up}_{p,s,t,b} \leq \bar{C}_{g,t}$.
 
+\subsection{Water Rights and Irrigation Agreements}
+\label{sec:rights}
+
+Hydro-dominated power systems often operate under legally-binding
+irrigation agreements that partition turbine discharge into distinct
+rights categories---irrigation, electrical, mixed---with
+volume-dependent allocations that vary with reservoir level.  In Chile,
+the Laja Agreement (1958, updated 2017) and the Maule Convention (1947)
+govern two of the largest hydro cascades in the national interconnected
+system, imposing seasonal flow obligations and multi-annual volume
+accounting constraints on the optimizer.
+
+Traditional tools such as PLP encode each agreement as a monolithic
+Fortran module, tightly coupling the rights logic to the physical
+topology.  \gtopt{} instead introduces three generic, data-driven
+entities---\emph{RightJunction}, \emph{FlowRight}, and
+\emph{VolumeRight}---that form a \emph{rights-domain} layer parallel
+to the physical hydro topology.  This separation allows arbitrary
+irrigation agreements to be specified declaratively in JSON without
+modifying the solver code.
+
+\subsubsection{Right Junction}
+
+A right junction $k \in \setK$ is a balance node in the rights
+accounting graph---the rights-domain counterpart of the physical
+junction~$j$.  At each block, a flow conservation constraint is
+enforced:
+\begin{equation}
+\label{eq:rj_balance}
+\sum_{\substack{i \in \setFR \\ k_i = k,\, d_i = +1}}
+  \!\! \xi_{i,s,t,b}
+\;-\!\!
+\sum_{\substack{i \in \setFR \\ k_i = k,\, d_i = -1}}
+  \!\! \xi_{i,s,t,b}
+\;+\; \zeta_{k,s,t,b}
+\;\geq\; 0
+\end{equation}
+where $\xi_{i,s,t,b}$ is the flow of right~$i$, $d_i \in \{+1,-1\}$
+is its direction (supply or withdrawal), and $\zeta_{k,s,t,b} \geq 0$
+is an optional drain variable that absorbs excess supply.  When
+$\zeta$ is omitted, the constraint becomes an equality and the
+partition must be exact.
+
+For example, in the Laja agreement a right junction at the El~Toro
+generation plant partitions the total turbine discharge into irrigation,
+electrical, mixed, and anticipated discharge categories:
+$-\xi^\text{gen} + \xi^\text{irr} + \xi^\text{elec}
+  + \xi^\text{mix} + \xi^\text{antic} = 0$.
+
+\subsubsection{Flow Right}
+
+A flow right $i \in \setFR$ represents a flow-based water right
+[m$^3$/s] that creates one LP column per block.  Two operating modes
+are supported:
+\begin{itemize}
+  \item \emph{Fixed mode}: the extraction flow is fixed at a scheduled
+    discharge value $\bar{\xi}_{i,s,t,b}$ (lower bound equals upper
+    bound).
+  \item \emph{Variable mode}: when a maximum flow $\overline{F}_i > 0$
+    is specified, the optimizer decides the flow
+    $\xi_{i,s,t,b} \in [0, \overline{F}_i]$.
+\end{itemize}
+
+When $\texttt{consumptive} = \texttt{true}$, the flow right subtracts
+from the physical junction balance, coupling the rights domain to the
+physical hydro topology.  An optional deficit variable with penalty
+cost~$c_i^f$ ensures feasibility when the right cannot be fully served.
+
+A stage-average hourly flow variable $\bar{\xi}^h_i$ is optionally
+created to aggregate block-level flows into the duration-weighted
+average required by the volume accumulation equations:
+\begin{equation}
+\label{eq:fr_avg}
+\bar{\xi}^h_{i,s,t} = \sum_{b \in \setB_t}
+  \frac{\Delta_b}{T_t} \, \xi_{i,s,t,b}
+\end{equation}
+
+\subsubsection{Volume Right}
+
+A volume right $o \in \setVR$ is modeled as a virtual reservoir
+(following the same \texttt{StorageLP} pattern as batteries) that
+tracks accumulated volume [hm$^3$] across stages.  The volume balance
+is:
+\begin{equation}
+\label{eq:vr_balance}
+\nu_{o,s,t} = \nu_{o,s,t-1}
+  - \alpha_o \sum_{b \in \setB_t} \Delta_b \, \xi^\text{in}_{o,s,t,b}
+\end{equation}
+where $\nu_{o,s,t}$ is the remaining volume of right~$o$ at the end of
+stage~$t$, $\xi^\text{in}_{o,s,t,b}$ is the input extraction rate
+[m$^3$/s], and $\alpha_o = 0.0036$~[hm$^3$/(m$^3$/s$\cdot$h)] is the
+flow-to-volume conversion factor.
+
+Volume rights support inter-stage state-variable coupling for SDDP,
+optional demand satisfaction constraints
+($\alpha_o \sum_b \Delta_b \xi^\text{in}_b + q^\text{fail} \geq D_o$),
+and an automatic seasonal reset mechanism: when a
+\texttt{reset\_month} is configured, the accumulated volume is reset to
+the initial value at the start of each hydrological year.
+
+\subsubsection{Volume-Dependent Dynamic Bounds}
+
+A key feature of irrigation agreements is that the available rights
+depend on the current reservoir volume.  For example, the Laja agreement
+defines four volume zones that progressively allocate rights as the
+reservoir fills:
+\begin{equation}
+\label{eq:bound_rule}
+\overline{F}_i(V) = \min\!\Bigl(
+  c_k + m_k (V - V_k),\; \overline{F}_i^\text{cap}
+\Bigr)
+\end{equation}
+where $(V_k, m_k, c_k)$ are breakpoints of a piecewise-linear function
+and $V$ is the current volume of the source reservoir.  At each SDDP
+iteration, the bound is re-evaluated from the forward-pass reservoir
+volume and applied via \texttt{set\_col\_upp} on the corresponding flow
+or extraction column.
+
+Table~\ref{tab:laja_zones} illustrates the Laja volume zone
+allocation.
+
+\begin{table}[t]
+\centering
+\caption{Laja Agreement volume zone allocation factors.}
+\label{tab:laja_zones}
+\small
+\begin{tabular}{@{}lrccc@{}}
+\toprule
+\textbf{Zone} & \textbf{Width} & \textbf{Irrig.}
+  & \textbf{Elec.} & \textbf{Mixed} \\
+  & [hm$^3$] & factor & factor & factor \\
+\midrule
+Base       & ---     & 570    & 0      & 30   \\
+Zone~1     & 1\,200  & 0.00   & 0.05   & 1.00 \\
+Zone~2     & 170     & 0.40   & 0.05   & 0.00 \\
+Zone~3     & 530     & 0.40   & 0.40   & 0.00 \\
+Zone~4     & 3\,682  & 0.25   & 0.65   & 0.00 \\
+\bottomrule
+\end{tabular}
+\\[4pt]
+{\footnotesize Base values in m$^3$/s; zone factors in
+m$^3$/s per hm$^3$.  Caps: 5\,000 / 1\,200 / 30~m$^3$/s.}
+\end{table}
+
+\subsubsection{Design Advantages}
+
+The rights-domain abstraction provides three advantages over the
+monolithic approach used in traditional tools: (i)~new agreements are
+specified declaratively in JSON without modifying the solver code;
+(ii)~the same generic entities express both the Laja and Maule
+agreements despite their very different structures (4 volume zones vs.\
+3 reservoir portions, multi-annual vs.\ seasonal reset);
+(iii)~volume-dependent dynamic bounds integrate naturally with the SDDP
+forward-pass update mechanism, reusing the same piecewise-linear
+evaluation used for turbine efficiency.  The \texttt{plp2gtopt}
+converter automatically transforms PLP's Fortran agreement parameters
+into the equivalent \gtopt{} JSON configuration with verified
+numerical equivalence.
+
 \subsection{Constraint Summary}
 
 Table~\ref{tab:constraints} lists all constraint families in the
@@ -549,6 +711,9 @@ C12 & Reserve--generator coupling   & ---                         & $p,s,t,b$ \\
 C13 & Hydro water balance           & \eqref{eq:hydro_balance}    & $j,s,t,b$ \\
 C14 & Turbine conversion            & \eqref{eq:turbine}          & $h,s,t,b$ \\
 C15 & Transformer / PST             & \eqref{eq:transformer}      & $\ell,s,t,b$ \\
+C16 & Right junction balance        & \eqref{eq:rj_balance}       & $k,s,t,b$ \\
+C17 & Flow right averaging          & \eqref{eq:fr_avg}           & $i,s,t$ \\
+C18 & Volume right balance          & \eqref{eq:vr_balance}       & $o,s,t$ \\
 \bottomrule
 \end{tabular}
 \end{table}

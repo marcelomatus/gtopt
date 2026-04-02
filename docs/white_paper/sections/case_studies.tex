@@ -26,10 +26,11 @@
 % \input{sections/case_study_renewable}
 % \input{sections/case_study_expansion}
 
-\textit{[Case studies with real-world applications will be included in a
-future revision of this paper.  The benchmark results in
+Case studies with real-world applications are planned for a future
+revision of this paper.  The benchmark results in
 Section~\ref{sec:validation} demonstrate correctness and scalability on
-standard IEEE test networks.]}
+standard IEEE test networks; the performance measurements below
+characterize computational efficiency.
 
 % ============================================================================
 % Computational Performance
@@ -46,9 +47,9 @@ for LP assembly, solver backends, and SDDP convergence.
 
 \subsubsection{LP Assembly Performance}
 
-Table~\ref{tab:assembly} compares \gtopt{}'s C++ sparse-matrix assembly
-(using \texttt{std::flat\_map} in CSC format) against estimated assembly
-times for a representative Python toolchain based on Pandas/NumPy
+Table~\ref{tab:assembly} compares the C++ sparse-matrix assembly of
+\gtopt{} (using \texttt{std::flat\_map} in CSC format) against estimated
+assembly times for a representative Python toolchain based on Pandas/NumPy
 patterns (e.g., PyPSA-style modeling).
 
 \begin{table}[h]

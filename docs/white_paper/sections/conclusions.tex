@@ -5,38 +5,46 @@
 \section{Conclusions}
 \label{sec:conclusions}
 
-This paper has presented \gtopt{}, a novel, high-performance tool
-for Generation and Transmission Expansion Planning.  The main conclusions
-are:
+A novel, high-performance tool for Generation and Transmission Expansion
+Planning, designated \gtopt{}, has been presented.  The main conclusions
+are as follows:
 
 \begin{enumerate}
-  \item \textbf{Complete formulation}: \gtopt{} implements a comprehensive
-    GTEP formulation as a sparse LP/MIP, covering DC optimal power flow
-    with Kirchhoff constraints, battery energy storage with SoC tracking,
-    hydro cascade systems with reservoirs and turbines, spinning reserve
-    requirements, and multi-stage capacity expansion with annualized
-    investment costs.
+  \item \textbf{Complete formulation}: The GTEP problem is formulated
+    as a sparse LP/MIP covering DC optimal power flow with Kirchhoff
+    constraints, battery energy storage with state-of-charge tracking
+    and self-discharge losses, hydro cascade systems with reservoirs,
+    turbines, filtration, and volume-dependent efficiency, a generic
+    water rights layer for irrigation agreement modeling with
+    volume-dependent dynamic bounds, spinning reserve requirements,
+    and multi-stage capacity expansion with annualized investment
+    costs.
 
-  \item \textbf{Three solution methods}: The monolithic LP provides exact
-    solutions for moderate-size problems.  SDDP with multi-scenario
-    apertures handles large stochastic problems efficiently.  The novel
-    cascade decomposition combines both approaches for long-horizon
-    planning.
+  \item \textbf{Three solution methods}: The monolithic LP provides
+    exact solutions for moderate-size problems.  SDDP with
+    multi-scenario apertures handles large stochastic problems
+    efficiently, converging to within 1\% of the monolithic optimum
+    in 10--15 iterations.  The novel cascade decomposition combines
+    both approaches for long-horizon planning.
 
   \item \textbf{High performance}: The C++26 implementation with
-    flat-map-based sparse-matrix assembly and pluggable solver backends
-    (CLP, CBC, CPLEX, HiGHS) achieves significant computational
-    advantages over Python-based alternatives, particularly for LP
-    assembly of large problems.
+    flat-map-based sparse-matrix assembly achieves a 10--27$\times$
+    speedup over Python-based alternatives in LP assembly.  For the
+    largest configuration tested (57-bus, 8760 blocks, ${\sim}18$M
+    variables), assembly completes in approximately 8 seconds.
+    Pluggable solver backends (CLP, CBC, CPLEX, HiGHS) are supported
+    through a dynamic plugin architecture.
 
   \item \textbf{Validated correctness}: Cross-validation against
     pandapower DC OPF on IEEE benchmark networks (4--57 buses)
-    demonstrates agreement to solver tolerance.  All 13 benchmark cases
-    converge to optimal solutions.
+    demonstrates agreement to solver tolerance ($<10^{-6}$ relative
+    error).  All 13 benchmark cases converge to optimal solutions.
 
-  \item \textbf{Comprehensive toolchain}: The Python companion tools
+  \item \textbf{Comprehensive toolchain}: A Python companion toolchain
     (igtopt, plp2gtopt, pp2gtopt, gtopt\_compare) and web interfaces
-    provide a complete workflow from data preparation to result analysis.
+    provide a complete workflow from data preparation through result
+    analysis, supporting interoperability with existing planning
+    ecosystems.
 \end{enumerate}
 
 \subsection{Future Work}
@@ -44,22 +52,25 @@ are:
 Planned enhancements include:
 
 \begin{itemize}
-  \item \textbf{AC OPF support}: Extending the formulation to include
+  \item \textbf{AC OPF support}: Extension of the formulation to include
     reactive power and voltage magnitude constraints via second-order
     cone programming (SOCP) relaxations.
-  \item \textbf{Unit commitment}: Adding binary start-up/shut-down
+  \item \textbf{Unit commitment}: Addition of binary start-up/shut-down
     decisions and minimum up/down time constraints for thermal generators.
-  \item \textbf{Multi-sector coupling}: Extending the model to include
+  \item \textbf{Multi-sector coupling}: Extension of the model to include
     gas networks, district heating, and hydrogen production/storage for
     integrated energy system planning.
-  \item \textbf{GPU-accelerated LP assembly}: Leveraging GPU parallelism
-    for sparse-matrix construction in very large-scale problems.
-  \item \textbf{Machine learning integration}: Using trained models to
-    warm-start the SDDP algorithm or provide scenario reduction for
-    stochastic programming.
-  \item \textbf{Real-world case studies}: Applying \gtopt{} to national-scale
-    expansion planning problems with detailed hydro cascade modeling.
+  \item \textbf{GPU-accelerated LP assembly}: Exploitation of GPU
+    parallelism for sparse-matrix construction in very large-scale
+    problems.
+  \item \textbf{Machine learning integration}: Application of trained
+    models to warm-start the SDDP algorithm or provide scenario
+    reduction for stochastic programming.
+  \item \textbf{Real-world case studies}: Application of \gtopt{} to
+    national-scale expansion planning problems with detailed hydro
+    cascade modeling.
 \end{itemize}
 
-\gtopt{} enables reproducible research in power system optimization
-and is designed to support community collaboration in future releases.
+The \gtopt{} tool is designed to support reproducible research in power
+system optimization and to facilitate community collaboration in future
+releases.

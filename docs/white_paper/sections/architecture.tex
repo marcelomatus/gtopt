@@ -7,7 +7,8 @@
 
 \subsection{Design Principles}
 
-\gtopt{} is designed around four core principles:
+The software architecture of \gtopt{} is organized around four core
+principles:
 
 \begin{enumerate}
   \item \textbf{Performance}: C++26 with flat-map-based sparse matrices
@@ -130,8 +131,8 @@ arbitrarily large time-series via columnar Parquet storage.
 
 \subsection{Python Toolchain}
 
-\gtopt{} includes a comprehensive Python toolchain (16 registered CLI
-tools):
+A comprehensive Python toolchain (16 registered CLI tools) is provided
+for data preparation, conversion, and validation:
 
 \begin{itemize}
   \item \textbf{igtopt}: Excel workbook ($\rightarrow$ JSON + Parquet)

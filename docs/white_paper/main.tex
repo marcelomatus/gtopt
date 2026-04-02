@@ -72,6 +72,9 @@
 \newcommand{\setW}{\mathcal{W}}
 \newcommand{\setH}{\mathcal{H}}
 \newcommand{\setZ}{\mathcal{Z}}
+\newcommand{\setK}{\mathcal{K}}    % right junctions
+\newcommand{\setFR}{\mathcal{F\!R}} % flow rights
+\newcommand{\setVR}{\mathcal{V\!R}} % volume rights
 
 % ---- Graphics path ----
 \graphicspath{{figures/}{diagrams/}}
@@ -92,17 +95,17 @@
   Marcos~Falcone~Salazar,
   and~Gonzalo~Bustos~Turu%
   \thanks{Manuscript received MONTH DAY, 2026; revised MONTH DAY, 2026.}%
-  \thanks{M.~Matus~A. is with the Centro Nacional de Inteligencia
-    Artificial (CENIA, FB210017) and the Department of Informatics,
-    Universidad de Santiago de Chile (USACH),
-    Santiago, Chile (e-mail: marcelo.matus@usach.cl).}%
+  \thanks{M.~Matus~A. is with Black Bear Engineering SpA, Santiago,
+    Chile, and the Centro Nacional de Inteligencia Artificial
+    (CENIA, FB210017), Santiago, Chile
+    (e-mail: marcelo.matus@blackbear.cl).}%
   \thanks{M.~P.~Buitrago~Villada is with the Department of Electrical
     Energy and Automation, Universidad Nacional de Colombia,
     Medell\'in, Colombia.}%
   \thanks{E.~Sierra~Baeza is with Black Bear Engineering SpA, Santiago,
     Chile, and CENIA.}%
-  \thanks{C.~E.~Garc\'ia~Bujanda is with Black Bear Engineering SpA
-    and the Department of Informatics, USACH, Santiago, Chile.}%
+  \thanks{C.~E.~Garc\'ia~Bujanda is with Black Bear Engineering SpA,
+    Santiago, Chile.}%
   \thanks{M.~Falcone~Salazar is with the School of Engineering,
     Universidad Adolfo Ib\'a\~nez, Santiago, Chile, and formerly with
     Colb\'un~S.A., Santiago, Chile.}%
@@ -120,33 +123,40 @@
 
 % ========== Abstract ==========
 \begin{abstract}
-This paper presents \gtopt{}, a novel, high-performance tool for
-Generation and Transmission Expansion Planning (GTEP).  Implemented in modern
-C++26, \gtopt{} formulates the joint investment and operational planning
-problem as a sparse linear program (LP/MIP) over a multi-stage,
-multi-scenario time hierarchy.  The tool supports DC optimal power flow with
-Kirchhoff voltage-law constraints, battery energy storage with
+The increasing penetration of variable renewable energy and the growing
+complexity of multi-sector energy systems demand planning tools that can
+co-optimize generation, transmission, and storage investments while
+capturing detailed operational constraints over long horizons under
+uncertainty.  Existing open-source tools, primarily implemented in Python
+and Julia, can face computational bottlenecks when assembling sparse LP/MIP
+problems with millions of variables.  This paper presents \gtopt{}, a
+novel, high-performance Generation and Transmission Expansion Planning
+(GTEP) tool implemented in modern C++26.  The joint investment and
+operational planning problem is formulated as a sparse linear program over
+a multi-stage, multi-scenario time hierarchy, supporting DC optimal power
+flow with Kirchhoff voltage-law constraints, battery energy storage with
 charge/discharge efficiency modeling, hydro cascade systems with reservoirs
-and turbines, spinning reserve requirements, and capacity expansion with
-annualized investment costs.  Three solution methods are provided: a
+and turbines, spinning reserve requirements, water rights and irrigation
+agreement constraints with volume-dependent dynamic bounds, and capacity
+expansion with annualized investment costs.  Three solution methods are
+provided: a
 monolithic LP solver, Stochastic Dual Dynamic Programming (SDDP) with
 multi-scenario apertures, and a novel multi-level cascade decomposition.
-The architecture features pluggable LP solver backends (CLP, CBC, CPLEX,
-HiGHS), native Apache Parquet and CSV I/O for large-scale time-series data,
-and a comprehensive Python toolchain including an Excel-to-JSON converter,
-PLP and pandapower importers, and web-based graphical interfaces.
-Validation against IEEE benchmark networks (4-, 9-, and 14-bus systems)
-and cross-comparison with pandapower DC OPF demonstrate correctness, while
-computational experiments show significant performance advantages of the
-C++ sparse-matrix assembly over Python-based alternatives for systems with
-thousands of variables.
+Pluggable LP solver backends (CLP, CBC, CPLEX, HiGHS) are loaded at
+runtime as dynamic libraries.  Validation against IEEE benchmark networks
+(4--57 buses, 13 test cases) and cross-comparison with pandapower DC OPF
+demonstrate agreement to solver tolerance ($<10^{-6}$ relative error).
+Computational experiments show a 10--27$\times$ speedup in sparse-matrix
+assembly over Python-based alternatives, with the largest test case (57-bus,
+8760 blocks, ${\sim}18$M variables) assembling in approximately 8 seconds.
 \end{abstract}
 
 % ========== Keywords ==========
 \begin{IEEEkeywords}
 Generation expansion planning, transmission expansion planning, linear
 programming, DC optimal power flow, stochastic dual dynamic programming,
-battery energy storage, hydro cascade, sparse LP assembly.
+battery energy storage, hydro cascade, irrigation agreements, water
+rights, sparse LP assembly.
 \end{IEEEkeywords}
 
 % ========== Sections ==========
@@ -169,14 +179,16 @@ battery energy storage, hydro cascade, sparse LP assembly.
 
 % ========== Biographies ==========
 \begin{IEEEbiography}{Marcelo Matus~A.}
-  received the Civil Electrical Engineer degree from Universidad de Chile
-  and the Ph.D. degree in computer science from Universidad de Santiago
-  de Chile (USACH).  He is currently a Researcher at the Centro Nacional
-  de Inteligencia Artificial (CENIA) and an Associate Professor at the
-  Department of Informatics, USACH.  His research interests include
-  power system optimization, mathematical programming, and high-performance
-  computing applied to energy systems.  He is the lead developer of
-  gtopt and the FESOP framework.
+  received the Electrical Engineer degree from Pontificia Universidad
+  Cat\'olica de Chile and the Ph.D. degree in electrical and computer
+  engineering from the University of Arizona, Tucson, AZ, USA.  He is
+  currently a Senior Researcher at Black Bear Engineering SpA and at
+  the Centro Nacional de Inteligencia Artificial (CENIA), Santiago,
+  Chile.  He was formerly Subdirector of the Centre for Energy (Centro
+  de Energ\'ia), Universidad de Chile.  His research interests include
+  power system optimization, mathematical programming, and
+  high-performance computing applied to energy systems.  He is the
+  lead developer of gtopt and the FESOP framework.
 \end{IEEEbiography}
 
 \begin{IEEEbiography}{Mar\'ia del Pilar Buitrago Villada}

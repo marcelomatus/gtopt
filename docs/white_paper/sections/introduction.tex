@@ -5,53 +5,64 @@
 \section{Introduction}
 \label{sec:introduction}
 
-The global energy transition toward low-carbon power systems demands
-sophisticated planning tools that can co-optimize generation, transmission,
-and storage investments while capturing the operational complexity of
-variable renewable energy sources and hydro cascades.  Generation and
-Transmission Expansion Planning (GTEP) is the class of optimization
-problems that determines the minimum-cost combination of infrastructure
-investments (CAPEX) and dispatch decisions (OPEX) over long planning horizons
-under uncertainty~\cite{hemmati2013comprehensive, mahdavi2019tep_survey}.
+The global energy transition toward low-carbon power systems requires
+sophisticated planning tools capable of co-optimizing generation,
+transmission, and storage investments while capturing the operational
+complexity of variable renewable energy sources and hydro
+cascades~\cite{lumbreras2016progressive}.  Generation and Transmission
+Expansion Planning (GTEP) is the class of optimization problems that
+determines the minimum-cost combination of infrastructure investments
+(CAPEX) and dispatch decisions (OPEX) over long planning horizons under
+uncertainty~\cite{hemmati2013comprehensive, mahdavi2019tep_survey}.
 
 Traditional GTEP tools---both commercial (PLEXOS, PLP/PROMAX) and
 academic---have been implemented in Fortran or commercial modeling
-languages, limiting accessibility and extensibility.  The recent emergence
-of open-source alternatives such as PyPSA~\cite{brown2018pypsa},
+languages, limiting accessibility and extensibility.  The emergence of
+open-source alternatives such as PyPSA~\cite{brown2018pypsa},
 GenX~\cite{jenkins2017genx}, and IDAES-GTEP~\cite{idaes_gtep2024} has
-democratized access to planning tools, primarily through Python and Julia
-implementations.  However, these interpreted-language tools can face
-computational bottlenecks when assembling large sparse LP/MIP problems with
-millions of variables and constraints~\cite{frank2016or_opf}.
+broadened access to planning tools through Python and Julia
+implementations.  However, these interpreted-language tools face
+computational bottlenecks when assembling large sparse LP/MIP problems
+with millions of variables and constraints~\cite{frank2016or_opf}.
+A tradeoff exists between the accessibility of high-level modeling
+languages and the computational efficiency required for large-scale
+stochastic expansion planning with detailed network constraints.
 
 This paper presents \gtopt{}, a novel high-performance GTEP tool
-implemented in modern C++26 that bridges the gap between the computational
-efficiency of compiled-language solvers and the accessibility of
-JSON/Parquet-based data interfaces.  \gtopt{} descends from
-the FESOP (Fabulous Energy System Optimizer) framework~\cite{buitrago2022fesop},
-which extended long-term hydrothermal scheduling tools~\cite{pereira2016hydrothermal}
-to include capacity expansion and renewable integration.
+implemented in modern C++26 that bridges this gap by combining the
+computational efficiency of compiled-language sparse-matrix assembly
+with the accessibility of JSON/Parquet-based data
+interfaces.  \gtopt{} descends from the FESOP (Fabulous Energy System
+Optimizer) framework~\cite{buitrago2022fesop}, which extended long-term
+hydrothermal scheduling tools~\cite{pereira2016hydrothermal} to include
+capacity expansion, variable renewable energy representation, and modern
+flexibility mechanisms.
 
 The main contributions of this work are:
 
 \begin{enumerate}
-  \item A complete mathematical formulation of the GTEP problem as a sparse
-    LP/MIP, including DC optimal power flow, battery storage, hydro cascades,
-    spinning reserves, and multi-stage capacity expansion
+  \item A complete mathematical formulation of the GTEP problem as a
+    sparse LP/MIP, including DC optimal power flow with Kirchhoff
+    constraints, battery storage with charge/discharge efficiencies,
+    hydro cascades with reservoirs and turbines, spinning reserves,
+    a generic water rights layer for irrigation agreement modeling,
+    and multi-stage capacity expansion
     (Section~\ref{sec:formulation}).
 
   \item Three solution methods---monolithic LP, SDDP with multi-scenario
-    apertures, and a novel multi-level cascade decomposition---with formal
-    equivalence guarantees (Section~\ref{sec:methods}).
+    apertures, and a novel multi-level cascade decomposition---with
+    formal equivalence guarantees
+    (Section~\ref{sec:methods}).
 
-  \item A modular software architecture with pluggable solver backends,
-    native Apache Parquet I/O, and companion tools for data preparation
-    (Section~\ref{sec:architecture}).
+  \item A modular software architecture with pluggable solver backends
+    loaded as dynamic libraries, native Apache Parquet I/O, and a
+    comprehensive Python toolchain for data preparation and
+    cross-validation (Section~\ref{sec:architecture}).
 
-  \item Validation against IEEE benchmark networks (4-bus through 57-bus)
+  \item Validation against 13 IEEE benchmark cases (4--57 buses)
     including battery storage and capacity expansion variants, with
-    cross-validation against pandapower DC OPF results
-    (Section~\ref{sec:validation}).
+    cross-validation against pandapower DC OPF demonstrating agreement
+    to solver tolerance (Section~\ref{sec:validation}).
 \end{enumerate}
 
 The remainder of this paper is organized as follows.
