@@ -111,6 +111,7 @@ jobs:
 
       - name: Install tectonic
         run: |
+          mkdir -p "$HOME/.local/bin"
           curl -fsSL https://drop-sh.fullyjustified.net \
             | sh -s -- --prefix "$HOME/.local"
           # Installer may drop binary in cwd on some versions
