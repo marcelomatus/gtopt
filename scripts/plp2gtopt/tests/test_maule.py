@@ -699,7 +699,7 @@ class TestMaulePamplGeneration:
             # Find the constraint lines
             lines = content.split("\n")
             dist1_lines = [
-                ln for ln in lines if "dist_Dist1" in ln and "constraint" in ln
+                line for line in lines if "dist_Dist1" in line and "constraint" in line
             ]
             assert len(dist1_lines) >= 1
 
