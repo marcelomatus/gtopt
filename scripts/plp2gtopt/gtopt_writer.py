@@ -647,11 +647,13 @@ class GTOptWriter:
             "blocks_per_stage": blocks_per_stage,
         }
 
+        pampl_files: list[str] = []
+
         def _merge_writer(name: str, writer_dict: dict) -> None:
             """Merge writer output into planning and log entity counts."""
             for key, val in writer_dict.items():
                 if key == "user_constraint_file":
-                    self.planning["system"][key] = val
+                    pampl_files.append(val)
                     _logger.info(
                         "%s: user_constraint_file = %s",
                         name,
@@ -687,6 +689,26 @@ class GTOptWriter:
                 options=wr_options,
             )
             _merge_writer("Maule", mw.to_json_dict(output_dir=output_dir))
+
+        # Combine multiple PAMPL files into a single file if needed
+        if len(pampl_files) > 1 and output_dir is not None:
+            combined_name = "water_rights.pampl"
+            combined_path = Path(output_dir) / combined_name
+            with open(combined_path, "w", encoding="utf-8") as out:
+                for i, pf in enumerate(pampl_files):
+                    pf_path = Path(output_dir) / pf
+                    if pf_path.exists():
+                        if i > 0:
+                            out.write("\n\n")
+                        out.write(pf_path.read_text(encoding="utf-8"))
+            self.planning["system"]["user_constraint_file"] = combined_name
+            _logger.info(
+                "Combined %d PAMPL files into %s",
+                len(pampl_files),
+                combined_name,
+            )
+        elif len(pampl_files) == 1:
+            self.planning["system"]["user_constraint_file"] = pampl_files[0]
 
     def process_flow_turbines(self, options):
         """Create Flow + Turbine(flow=ref) for hydro pasada centrals.

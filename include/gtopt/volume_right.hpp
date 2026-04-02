@@ -86,9 +86,9 @@ struct VolumeRight
   /// "environmental", etc.  Metadata only — does not affect LP.
   OptName purpose {};
 
-  /// Reference to the physical source reservoir.  When `consumptive`
-  /// is true, the VolumeRight's input flow is subtracted from the
-  /// Reservoir's energy balance (physical water exits the reservoir).
+  /// Reference to the physical source reservoir.  When set, the
+  /// VolumeRight's input flow is subtracted from the Reservoir's
+  /// energy balance (consumptive extraction — water exits the reservoir).
   OptSingleId reservoir {};
 
   /// Optional reference to another VolumeRight for volume balance.
@@ -103,12 +103,6 @@ struct VolumeRight
   ///  -1 = withdrawal (volume extraction)
   /// Only meaningful when right_reservoir is set.
   OptInt direction {};
-
-  /// Whether this VolumeRight's input flow should be subtracted from
-  /// the physical Reservoir's energy balance.  When true, the volume
-  /// extraction is consumptive — water exits the physical reservoir.
-  /// Default: false (rights accounting only, no physical coupling).
-  OptBool consumptive {};
 
   // ── Storage-like fields (rights accounting) ────────────────────────
 

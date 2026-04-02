@@ -200,23 +200,6 @@ TEST_CASE("FlowRight with fmax for variable mode")
   CHECK(std::get<Real>(fr.discharge) == doctest::Approx(0.0));
 }
 
-TEST_CASE("FlowRight consumptive flag")
-{
-  FlowRight fr;
-  fr.uid = 104;
-  fr.name = "consumptive_right";
-  fr.junction = Uid {1};
-  fr.consumptive = true;
-
-  CHECK(fr.consumptive.value_or(false) == true);
-
-  SUBCASE("default is false")
-  {
-    const FlowRight fr2;
-    CHECK(fr2.consumptive.value_or(false) == false);
-  }
-}
-
 TEST_CASE("FlowRight use_value field")
 {
   FlowRight fr;
@@ -310,23 +293,6 @@ TEST_CASE("VolumeRight with right_reservoir and direction")
   CHECK(std::get<Name>(*vr.right_reservoir) == "parent_vol");
   REQUIRE(vr.direction.has_value());
   CHECK(vr.direction.value_or(0) == -1);
-}
-
-TEST_CASE("VolumeRight consumptive flag")
-{
-  VolumeRight vr;
-  vr.uid = 202;
-  vr.name = "consumptive_vol";
-  vr.reservoir = Name {"laguna_laja"};
-  vr.consumptive = true;
-
-  CHECK(vr.consumptive.value_or(false) == true);
-
-  SUBCASE("default is false")
-  {
-    const VolumeRight vr2;
-    CHECK(vr2.consumptive.value_or(false) == false);
-  }
 }
 
 // -- RightBoundRule tests --

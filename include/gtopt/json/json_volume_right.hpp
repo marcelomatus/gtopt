@@ -31,7 +31,6 @@ struct VolumeRightConstructor
       OptSingleId reservoir,
       OptSingleId right_reservoir,
       OptInt direction,
-      OptBool consumptive,
       OptTRealFieldSched emin,
       OptTRealFieldSched emax,
       OptTRealFieldSched ecost,
@@ -60,7 +59,6 @@ struct VolumeRightConstructor
     vr.reservoir = std::move(reservoir);
     vr.right_reservoir = std::move(right_reservoir);
     vr.direction = direction;
-    vr.consumptive = consumptive;
     vr.emin = std::move(emin);
     vr.emax = std::move(emax);
     vr.ecost = std::move(ecost);
@@ -99,7 +97,6 @@ struct json_data_contract<VolumeRight>
       json_variant_null<"reservoir", OptSingleId, jvtl_SingleId>,
       json_variant_null<"right_reservoir", OptSingleId, jvtl_SingleId>,
       json_number_null<"direction", OptInt>,
-      json_bool_null<"consumptive", OptBool>,
       json_variant_null<"emin", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"emax", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"ecost", OptTRealFieldSched, jvtl_TRealFieldSched>,
@@ -133,7 +130,6 @@ struct json_data_contract<VolumeRight>
                            vr.reservoir,
                            vr.right_reservoir,
                            vr.direction,
-                           vr.consumptive,
                            vr.emin,
                            vr.emax,
                            vr.ecost,

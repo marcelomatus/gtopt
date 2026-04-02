@@ -6,10 +6,9 @@
  * @copyright BSD-3-Clause
  *
  * Defines the FlowRight structure representing a flow-based water right.
- * This is an accounting entity — it tracks the required extraction rate
- * (m³/s) that right holders are entitled to, but it is NOT part of the
- * hydrological topology: it does not connect to junctions or participate
- * in the physical water mass balance.
+ * It tracks the required extraction rate (m³/s) that right holders are
+ * entitled to.  When a junction is set, the flow is always consumptive:
+ * it subtracts from the junction's physical water balance.
  *
  * The direction is always outflow (consumptive extraction from the
  * river system), fixed and not configurable.
@@ -49,15 +48,15 @@ namespace gtopt
  *
  * Models the flow entitlement of a right holder at a river point.
  * Always represents a consumptive outflow (direction = -1, fixed).
+ * When a junction is referenced, the flow variable is subtracted
+ * from the junction's physical balance row.
  *
- * This is purely a rights accounting entity — it is NOT part of the
- * hydrological topology.  A deficit variable with penalty cost allows
- * soft-constraint violation when water is scarce, analogous to
- * demand_fail_cost for unserved electrical load.
+ * A deficit variable with penalty cost allows soft-constraint
+ * violation when water is scarce, analogous to demand_fail_cost
+ * for unserved electrical load.
  *
- * The `purpose` field indicates the use case: "irrigation" for
- * consumptive agricultural rights, "generation" for non-consumptive
- * hydroelectric rights, "environmental" for ecological minimum flows.
+ * The `purpose` field indicates the use case: "irrigation",
+ * "generation", "environmental", etc.
  *
  * @see Junction for the reference extraction point
  * @see FlowRightLP for the LP formulation
@@ -73,8 +72,8 @@ struct FlowRight
   OptName purpose {};
 
   /// Reference junction where the right is exercised.
-  /// For documentation and coupling purposes only — the FlowRight
-  /// does NOT participate in the physical junction balance.
+  /// When set, the FlowRight's flow is subtracted from the
+  /// junction's balance row (consumptive extraction).
   OptSingleId junction {};
 
   /// Direction sign for LP coupling:
@@ -93,12 +92,6 @@ struct FlowRight
   /// This enables partition constraints where the optimizer decides
   /// how to split flow among rights categories.
   OptTBRealFieldSched fmax {};
-
-  /// Whether this FlowRight's flow variable should be added to the
-  /// physical Junction's balance row.  When true, the flow is
-  /// consumptive — water exits the physical network.
-  /// Default: false (rights accounting only, no physical coupling).
-  OptBool consumptive {};
 
   /// Whether to create a stage-average hourly flow variable (`qeh`).
   /// When true, FlowRightLP creates a stage-level LP variable

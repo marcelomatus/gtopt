@@ -164,10 +164,10 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     avg_rows[st_key] = lp.add_row(std::move(avg_row));
   }
 
-  // Consumptive coupling: subtract flow from the physical Junction balance
-  if (const auto& j_ref = flow_right().junction;
-      j_ref.has_value() && flow_right().consumptive.value_or(false))
-  {
+  // Consumptive coupling: subtract flow from the physical Junction balance.
+  // Rights are always consumptive — when a junction is set, the flow
+  // variable is subtracted from the junction's balance row.
+  if (const auto& j_ref = flow_right().junction; j_ref.has_value()) {
     const JunctionLPSId j_sid(*j_ref);
     const auto& j_lp = sc.element(j_sid);
     const auto& j_brows = j_lp.balance_rows_at(scenario, stage);

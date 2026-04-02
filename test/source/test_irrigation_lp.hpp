@@ -686,9 +686,9 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "FlowRight consumptive - subtracts from physical junction balance")
+    "FlowRight subtracts from physical junction balance")
 {
-  // Hydro system with junction + consumptive FlowRight
+  // Hydro system with junction + FlowRight (always consumptive)
   const Array<Bus> bus_array = {
       {
           .uid = Uid {1},
@@ -770,14 +770,13 @@ TEST_CASE(  // NOLINT
       },
   };
 
-  // Consumptive FlowRight: withdraws from physical junction j_down
+  // FlowRight: withdraws from physical junction j_down
   const Array<FlowRight> flow_right_array = {
       {
           .uid = Uid {1},
           .name = "farmer_withdrawal",
           .junction = Uid {2},
           .discharge = 10.0,
-          .consumptive = true,
           .fail_cost = 5000.0,
       },
   };
@@ -830,7 +829,7 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "VolumeRight consumptive - subtracts from physical reservoir balance")
+    "VolumeRight subtracts from physical reservoir balance")
 {
   const Array<Bus> bus_array = {
       {
@@ -913,13 +912,12 @@ TEST_CASE(  // NOLINT
       },
   };
 
-  // Consumptive VolumeRight: extracts volume from reservoir
+  // VolumeRight: extracts volume from reservoir (always consumptive)
   const Array<VolumeRight> volume_right_array = {
       {
           .uid = Uid {1},
           .name = "irrig_vol",
           .reservoir = Uid {1},
-          .consumptive = true,
           .emax = 500.0,
           .eini = 0.0,
           .demand = 10.0,

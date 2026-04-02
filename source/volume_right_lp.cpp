@@ -67,9 +67,9 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   const auto& options = sc.options();
   const auto scale_objective = options.scale_objective();
 
-  // Resolve energy_scale: use explicit value, or inherit from
-  // the source reservoir (keeps "colchon" volumes in the same
-  // LP scaling as the physical reservoir), else default 1.0.
+  // Resolve energy_scale: use explicit value, inherit from
+  // the source reservoir or parent VolumeRight (keeps scaling
+  // consistent within the rights hierarchy), else default 1.0.
   const double energy_scale = [&]
   {
     if (volume_right().energy_scale.has_value()) {
@@ -78,6 +78,11 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     if (const auto& r_ref = volume_right().reservoir; r_ref.has_value()) {
       const ReservoirLPSId r_sid(*r_ref);
       return sc.element<ReservoirLP>(r_sid).energy_scale();
+    }
+    if (const auto& rr_ref = volume_right().right_reservoir; rr_ref.has_value())
+    {
+      const VolumeRightLPSId vr_sid(*rr_ref);
+      return sc.element(vr_sid).energy_scale();
     }
     return VolumeRight::default_energy_scale;
   }();
@@ -216,10 +221,12 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     }
   }
 
-  // Consumptive coupling: subtract extraction from physical Reservoir
-  if (const auto& r_ref = volume_right().reservoir;
-      r_ref.has_value() && volume_right().consumptive.value_or(false))
-  {
+  // Consumptive coupling: extraction removes water from physical Reservoir.
+  // Rights are always consumptive — when a reservoir is set, finp flow
+  // is subtracted from the reservoir's energy balance (outflow).
+  // Coefficient: +fcr × duration / r_energy_scale (same sign as the
+  // reservoir's own fout variable).
+  if (const auto& r_ref = volume_right().reservoir; r_ref.has_value()) {
     const ReservoirLPSId r_sid(*r_ref);
     const auto& r_lp = sc.element(r_sid);
     const auto& r_erows = r_lp.energy_rows_at(scenario, stage);
@@ -228,7 +235,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     for (auto&& block : blocks) {
       const auto buid = block.uid();
       const auto coeff =
-          -flow_conversion_rate() * block.duration() / r_energy_scale;
+          +flow_conversion_rate() * block.duration() / r_energy_scale;
       lp.row_at(r_erows.at(buid))[finp_cols.at(buid)] = coeff;
     }
   }
