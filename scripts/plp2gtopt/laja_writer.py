@@ -217,6 +217,8 @@ class LajaWriter:
         )
 
         # --- FlowRight: Irrigation rights (qdr) ---
+        # Flow cap is qmax × monthly_usage (m³/s).  The volume-dependent
+        # annual rights quota (hm³) is on the VolumeRight emax, not here.
         fr_irr_uid = self._next_uid()
         self.flow_rights.append(
             {
@@ -229,54 +231,41 @@ class LajaWriter:
                 "fmax": fmax_irr,
                 "use_average": True,
                 "fail_cost": cfg["cost_irr_ns"],
-                "bound_rule": {
-                    "reservoir": central,
-                    "segments": irr_segments,
-                    "cap": cfg["max_irr"],
-                },
             }
         )
 
         # --- FlowRight: Electrical rights (qde) ---
         fr_elec_uid = self._next_uid()
-        self.flow_rights.append(
-            {
-                "uid": fr_elec_uid,
-                "name": "laja_elec_rights",
-                "purpose": "generation",
-                "right_junction": "laja_partition",
-                "direction": -1,
-                "discharge": 0,
-                "fmax": fmax_elec,
-                "use_average": True,
-                "fail_cost": cfg["cost_elec_ns"],
-                "bound_rule": {
-                    "reservoir": central,
-                    "segments": elec_segments,
-                    "cap": cfg["max_elec"],
-                },
-            }
-        )
+        fr_elec: Dict[str, Any] = {
+            "uid": fr_elec_uid,
+            "name": "laja_elec_rights",
+            "purpose": "generation",
+            "right_junction": "laja_partition",
+            "direction": -1,
+            "discharge": 0,
+            "fmax": fmax_elec,
+            "use_average": True,
+            "fail_cost": cfg["cost_elec_ns"],
+        }
+        if cfg["cost_elec_uso"] > 0:
+            fr_elec["use_cost"] = cfg["cost_elec_uso"]
+        self.flow_rights.append(fr_elec)
 
         # --- FlowRight: Mixed rights (qdm) ---
         fr_mixed_uid = self._next_uid()
-        self.flow_rights.append(
-            {
-                "uid": fr_mixed_uid,
-                "name": "laja_mixed_rights",
-                "purpose": "mixed",
-                "right_junction": "laja_partition",
-                "direction": -1,
-                "discharge": 0,
-                "fmax": fmax_mixed,
-                "use_average": True,
-                "bound_rule": {
-                    "reservoir": central,
-                    "segments": mixed_segments,
-                    "cap": cfg["max_mixed"],
-                },
-            }
-        )
+        fr_mixed: Dict[str, Any] = {
+            "uid": fr_mixed_uid,
+            "name": "laja_mixed_rights",
+            "purpose": "mixed",
+            "right_junction": "laja_partition",
+            "direction": -1,
+            "discharge": 0,
+            "fmax": fmax_mixed,
+            "use_average": True,
+        }
+        if cfg["cost_mixed"] > 0:
+            fr_mixed["use_cost"] = cfg["cost_mixed"]
+        self.flow_rights.append(fr_mixed)
 
         # --- FlowRight: Anticipated discharge (qga) ---
         fr_antic_uid = self._next_uid()
@@ -290,15 +279,12 @@ class LajaWriter:
                 "discharge": 0,
                 "fmax": fmax_antic,
                 "use_average": True,
-                "bound_rule": {
-                    "reservoir": central,
-                    "segments": irr_segments,  # same zones as irrigation
-                    "cap": cfg["max_anticipated"],
-                },
             }
         )
 
         # --- VolumeRight: Irrigation volume accumulator (IVDRF) ---
+        # bound_rule dynamically caps extraction rate based on reservoir
+        # volume (PLP DerRiego formula: base + Σ factor_i × zone_volume_i).
         vr_irr_uid = self._next_uid()
         self.volume_rights.append(
             {
@@ -310,6 +296,11 @@ class LajaWriter:
                 "emax": cfg["max_irr"],
                 "use_state_variable": True,
                 "reset_month": "april",
+                "bound_rule": {
+                    "reservoir": central,
+                    "segments": irr_segments,
+                    "cap": cfg["max_irr"],
+                },
             }
         )
 
@@ -325,6 +316,11 @@ class LajaWriter:
                 "emax": cfg["max_elec"],
                 "use_state_variable": True,
                 "reset_month": "april",
+                "bound_rule": {
+                    "reservoir": central,
+                    "segments": elec_segments,
+                    "cap": cfg["max_elec"],
+                },
             }
         )
 
@@ -340,6 +336,11 @@ class LajaWriter:
                 "emax": cfg["max_mixed"],
                 "use_state_variable": True,
                 "reset_month": "april",
+                "bound_rule": {
+                    "reservoir": central,
+                    "segments": mixed_segments,
+                    "cap": cfg["max_mixed"],
+                },
             }
         )
 
@@ -355,6 +356,51 @@ class LajaWriter:
                 "emax": cfg["max_anticipated"],
                 "use_state_variable": True,
                 "reset_month": "april",
+                "bound_rule": {
+                    "reservoir": central,
+                    "segments": irr_segments,  # same zones as irrigation
+                    "cap": cfg["max_anticipated"],
+                },
+            }
+        )
+
+        # --- VolumeRight: ENDESA economy accumulator (IVESF) ---
+        # Tracks unused extraction rights carried forward (no annual reset)
+        vr_econ_endesa_uid = self._next_uid()
+        self.volume_rights.append(
+            {
+                "uid": vr_econ_endesa_uid,
+                "name": "laja_vol_econ_endesa",
+                "purpose": "economy",
+                "reservoir": central,
+                "eini": 0,
+                "use_state_variable": True,
+            }
+        )
+
+        # --- VolumeRight: Reserve economy accumulator (IVERF) ---
+        vr_econ_reserve_uid = self._next_uid()
+        self.volume_rights.append(
+            {
+                "uid": vr_econ_reserve_uid,
+                "name": "laja_vol_econ_reserve",
+                "purpose": "economy",
+                "reservoir": central,
+                "eini": 0,
+                "use_state_variable": True,
+            }
+        )
+
+        # --- VolumeRight: Alto Polcura economy accumulator (IVAPF) ---
+        vr_econ_polcura_uid = self._next_uid()
+        self.volume_rights.append(
+            {
+                "uid": vr_econ_polcura_uid,
+                "name": "laja_vol_econ_polcura",
+                "purpose": "economy",
+                "reservoir": central,
+                "eini": 0,
+                "use_state_variable": True,
             }
         )
 

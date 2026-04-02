@@ -409,9 +409,9 @@ class TestMauleWriter:
         assert len(all_uids) == len(set(all_uids)), "UIDs must be unique"
 
     def test_right_junction_count(self, maule_config):
-        """Should have armerillo + 4 central partitions = 5."""
+        """Should have armerillo + 4 central partitions + invernada_balance = 6."""
         writer = MauleWriter(maule_config)
-        assert len(writer.right_junctions) == 5
+        assert len(writer.right_junctions) == 6
 
     def test_central_partition_junctions(self, maule_config):
         writer = MauleWriter(maule_config)
@@ -488,6 +488,9 @@ def _minimal_maule_config():
         "penalizador_1": 1500.0,
         "costo_riego_ns_maule": 1000.0,
         "costo_riego_ns_res105": 1000.0,
+        "econ_inver_costo": 0.5,
+        "bocatoma_canelon": "BCanelon",
+        "costo_canelon": 10.0,
         "districts": [
             {"name": "Dist1", "percentage": 60.0, "has_slack": False},
             {"name": "Dist2", "percentage": 40.0, "has_slack": True},
@@ -503,7 +506,7 @@ class TestMauleWriterMinimalConfig:
         writer = MauleWriter(cfg)
         assert len(writer.flow_rights) >= 6
         assert len(writer.volume_rights) == 5
-        assert len(writer.right_junctions) == 5
+        assert len(writer.right_junctions) == 6  # 5 original + invernada_balance
 
     def test_district_percentage_sum(self):
         cfg = _minimal_maule_config()
@@ -528,3 +531,103 @@ class TestMauleWriterMinimalConfig:
             uc for uc in writer.user_constraints if uc["name"] == "dist_Dist1"
         )
         assert "<=" not in uc_dist1["expression"]
+
+
+class TestMauleInvernadaBalance:
+    """Tests for La Invernada winter storage balance entities."""
+
+    def test_invernada_right_junction(self):
+        cfg = _minimal_maule_config()
+        writer = MauleWriter(cfg)
+        rj = next(
+            rj for rj in writer.right_junctions if rj["name"] == "invernada_balance"
+        )
+        assert rj["drain"] is False
+
+    def test_invernada_flow_rights_count(self):
+        """Should emit 5 FlowRights for La Invernada balance."""
+        cfg = _minimal_maule_config()
+        writer = MauleWriter(cfg)
+        inv_names = {
+            "invernada_deficit",
+            "invernada_no_deficit",
+            "invernada_natural_inflow",
+            "invernada_storage",
+            "invernada_bypass",
+        }
+        inv_frs = [fr for fr in writer.flow_rights if fr["name"] in inv_names]
+        assert len(inv_frs) == 5
+
+    def test_invernada_directions(self):
+        """Deficit/no-deficit/inflow are supply (+1), storage/bypass are withdrawal (-1)."""
+        cfg = _minimal_maule_config()
+        writer = MauleWriter(cfg)
+        fr_by_name = {fr["name"]: fr for fr in writer.flow_rights}
+
+        for name in [
+            "invernada_deficit",
+            "invernada_no_deficit",
+            "invernada_natural_inflow",
+        ]:
+            assert fr_by_name[name]["direction"] == 1
+
+        for name in ["invernada_storage", "invernada_bypass"]:
+            assert fr_by_name[name]["direction"] == -1
+
+    def test_invernada_junction_refs(self):
+        """All Invernada FlowRights should reference invernada_balance."""
+        cfg = _minimal_maule_config()
+        writer = MauleWriter(cfg)
+        inv_names = {
+            "invernada_deficit",
+            "invernada_no_deficit",
+            "invernada_natural_inflow",
+            "invernada_storage",
+            "invernada_bypass",
+        }
+        for fr in writer.flow_rights:
+            if fr["name"] in inv_names:
+                assert fr["right_junction"] == "invernada_balance"
+
+    def test_invernada_storage_use_cost(self):
+        """Storage FlowRight should have use_cost from econ_inver_costo."""
+        cfg = _minimal_maule_config()
+        writer = MauleWriter(cfg)
+        storage = next(
+            fr for fr in writer.flow_rights if fr["name"] == "invernada_storage"
+        )
+        assert storage["use_cost"] == pytest.approx(0.5)
+
+    def test_invernada_storage_zero_cost_omitted(self):
+        """When econ_inver_costo is 0, use_cost should not be emitted."""
+        cfg = _minimal_maule_config()
+        cfg["econ_inver_costo"] = 0.0
+        writer = MauleWriter(cfg)
+        storage = next(
+            fr for fr in writer.flow_rights if fr["name"] == "invernada_storage"
+        )
+        assert "use_cost" not in storage
+
+
+class TestMauleBocatomaCanelon:
+    """Tests for Bocatoma Canelon infrastructure cost."""
+
+    def test_bocatoma_emitted(self):
+        cfg = _minimal_maule_config()
+        writer = MauleWriter(cfg)
+        canelon = next(
+            (fr for fr in writer.flow_rights if fr["name"] == "BCanelon"), None
+        )
+        assert canelon is not None
+        assert canelon["use_cost"] == pytest.approx(10.0)
+        assert canelon["purpose"] == "irrigation"
+
+    def test_bocatoma_zero_cost_omitted(self):
+        """When costo_canelon is 0, Bocatoma should not be emitted."""
+        cfg = _minimal_maule_config()
+        cfg["costo_canelon"] = 0.0
+        writer = MauleWriter(cfg)
+        canelon = next(
+            (fr for fr in writer.flow_rights if fr["name"] == "BCanelon"), None
+        )
+        assert canelon is None

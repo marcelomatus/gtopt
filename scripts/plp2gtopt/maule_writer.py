@@ -403,6 +403,104 @@ class MauleWriter:
             }
         )
 
+        # --- RightJunction: La Invernada winter balance ---
+        # Balance: m_qidn + m_qisd + m_qninv - m_qhein - m_qhnein = QAflInvern
+        rj_invernada_uid = self._next_uid()
+        self.right_junctions.append(
+            {
+                "uid": rj_invernada_uid,
+                "name": "invernada_balance",
+                "drain": False,
+            }
+        )
+
+        # --- FlowRight: La Invernada deficit discharge (IQIDN) ---
+        fr_idn_uid = self._next_uid()
+        self.flow_rights.append(
+            {
+                "uid": fr_idn_uid,
+                "name": "invernada_deficit",
+                "purpose": "irrigation",
+                "right_junction": "invernada_balance",
+                "direction": 1,
+                "discharge": 0,
+                "use_average": True,
+            }
+        )
+
+        # --- FlowRight: La Invernada no-deficit storage (IQISD) ---
+        fr_isd_uid = self._next_uid()
+        self.flow_rights.append(
+            {
+                "uid": fr_isd_uid,
+                "name": "invernada_no_deficit",
+                "purpose": "irrigation",
+                "right_junction": "invernada_balance",
+                "direction": 1,
+                "discharge": 0,
+                "use_average": True,
+            }
+        )
+
+        # --- FlowRight: La Invernada natural inflow (IQNINV) ---
+        fr_ninv_uid = self._next_uid()
+        self.flow_rights.append(
+            {
+                "uid": fr_ninv_uid,
+                "name": "invernada_natural_inflow",
+                "purpose": "irrigation",
+                "right_junction": "invernada_balance",
+                "direction": 1,
+                "discharge": 0,
+                "use_average": True,
+            }
+        )
+
+        # --- FlowRight: La Invernada storage to reservoir (IQHEIN) ---
+        fr_hein_uid = self._next_uid()
+        fr_hein: Dict[str, Any] = {
+            "uid": fr_hein_uid,
+            "name": "invernada_storage",
+            "purpose": "economy",
+            "right_junction": "invernada_balance",
+            "direction": -1,
+            "discharge": 0,
+            "use_average": True,
+        }
+        econ_costo = cfg.get("econ_inver_costo", 0.0)
+        if econ_costo > 0:
+            fr_hein["use_cost"] = econ_costo
+        self.flow_rights.append(fr_hein)
+
+        # --- FlowRight: La Invernada bypass (IQHNEIN) ---
+        fr_hnein_uid = self._next_uid()
+        self.flow_rights.append(
+            {
+                "uid": fr_hnein_uid,
+                "name": "invernada_bypass",
+                "purpose": "economy",
+                "right_junction": "invernada_balance",
+                "direction": -1,
+                "discharge": 0,
+                "use_average": True,
+            }
+        )
+
+        # --- FlowRight: Bocatoma Canelon ---
+        costo_canelon = cfg.get("costo_canelon", 0.0)
+        if costo_canelon > 0:
+            fr_canelon_uid = self._next_uid()
+            self.flow_rights.append(
+                {
+                    "uid": fr_canelon_uid,
+                    "name": cfg.get("bocatoma_canelon", "bocatoma_canelon"),
+                    "purpose": "irrigation",
+                    "direction": -1,
+                    "discharge": 0,
+                    "use_cost": costo_canelon,
+                }
+            )
+
         # --- UserConstraint: Percentage allocation in ordinary reserve ---
         # Electric gets pct_elec_reserva% of total flow in ordinary zone
         uc_elec_pct_uid = self._next_uid()
