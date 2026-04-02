@@ -2364,3 +2364,287 @@ class TestProfileCompactMode:
         dp_nodes = [n for n in model.nodes if n.kind == "dem_profile"]
         assert dp_nodes
         assert "[DemProfile]" not in dp_nodes[0].label
+
+
+# ---------------------------------------------------------------------------
+# VolumeRight and FlowRight — water rights diagram elements
+# ---------------------------------------------------------------------------
+
+_RIGHTS_PLANNING = {
+    "system": {
+        "name": "rights_test",
+        "junction_array": [
+            {"uid": 1, "name": "J1"},
+            {"uid": 2, "name": "J2"},
+        ],
+        "waterway_array": [
+            {"uid": 1, "name": "W1", "junction_a": 1, "junction_b": 2},
+        ],
+        "reservoir_array": [
+            {"uid": 1, "name": "Res1", "junction": 1, "emax": 5000},
+        ],
+        "volume_right_array": [
+            {
+                "uid": 1,
+                "name": "VR1",
+                "purpose": "irrigation",
+                "reservoir": 1,
+                "emax": 200,
+            },
+            {
+                "uid": 2,
+                "name": "VR2",
+                "purpose": "generation",
+                "reservoir": 1,
+                "right_reservoir": 1,
+                "direction": -1,
+                "emax": 100,
+            },
+        ],
+        "flow_right_array": [
+            {
+                "uid": 1,
+                "name": "FR1",
+                "purpose": "environmental",
+                "junction": 2,
+                "discharge": 15.0,
+            },
+        ],
+    }
+}
+
+
+class TestVolumeRightDiagram:
+    """Verify VolumeRight nodes and edges are rendered correctly."""
+
+    def _build(self, planning=None, subsystem="hydro", compact=False):
+        fo = gd.FilterOptions(aggregate="none", compact=compact)
+        builder = gd.TopologyBuilder(
+            planning or _RIGHTS_PLANNING, subsystem=subsystem, opts=fo
+        )
+        return builder.build()
+
+    def _edge_pairs(self, model):
+        return {(e.src, e.dst) for e in model.edges}
+
+    def test_volume_right_nodes_created(self):
+        """volume_right_array entries must produce nodes of kind 'volume_right'."""
+        model = self._build()
+        vr_nodes = [n for n in model.nodes if n.kind == "volume_right"]
+        assert len(vr_nodes) == 2
+
+    def test_volume_right_node_ids(self):
+        """Volume right nodes must use the 'vright_' prefix."""
+        model = self._build()
+        node_ids = {n.node_id for n in model.nodes}
+        assert "vright_VR1_1" in node_ids
+        assert "vright_VR2_2" in node_ids
+
+    def test_volume_right_reservoir_edge(self):
+        """VolumeRight must have a directed edge from its source reservoir."""
+        model = self._build()
+        pairs = self._edge_pairs(model)
+        assert ("res_Res1_1", "vright_VR1_1") in pairs
+
+    def test_volume_right_right_reservoir_edge(self):
+        """VolumeRight with right_reservoir must have a directed edge to that right."""
+        model = self._build()
+        pairs = self._edge_pairs(model)
+        assert ("vright_VR2_2", "vright_VR1_1") in pairs
+
+    def test_volume_right_label_contains_purpose(self):
+        """Non-compact label must include the purpose field."""
+        model = self._build()
+        vr1 = next(n for n in model.nodes if n.node_id == "vright_VR1_1")
+        assert "irrigation" in vr1.label
+
+    def test_volume_right_label_contains_emax(self):
+        """Non-compact label must include emax in hm³."""
+        model = self._build()
+        vr1 = next(n for n in model.nodes if n.node_id == "vright_VR1_1")
+        assert "hm³" in vr1.label or "hm\u00b3" in vr1.label
+
+    def test_volume_right_compact_label_is_name_only(self):
+        """In compact mode, VolumeRight label must be just the name."""
+        model = self._build(compact=True)
+        vr1 = next(n for n in model.nodes if n.node_id == "vright_VR1_1")
+        assert "[VolRight]" not in vr1.label
+
+    def test_volume_right_edge_uses_right_edge_color(self):
+        """Reservoir → VolumeRight edge must use the right_edge palette color."""
+        model = self._build()
+        edges = [
+            e for e in model.edges if e.src == "res_Res1_1" and e.dst == "vright_VR1_1"
+        ]
+        assert edges
+        assert edges[0].color == gd._PALETTE["right_edge"]  # noqa: SLF001
+
+    def test_volume_right_edge_is_dotted(self):
+        """Reservoir → VolumeRight edge must use dotted style."""
+        model = self._build()
+        edges = [
+            e for e in model.edges if e.src == "res_Res1_1" and e.dst == "vright_VR1_1"
+        ]
+        assert edges
+        assert edges[0].style == "dotted"
+
+    def test_volume_right_in_full_subsystem(self):
+        """VolumeRight nodes must appear in full subsystem."""
+        model = self._build(subsystem="full")
+        vr_nodes = [n for n in model.nodes if n.kind == "volume_right"]
+        assert len(vr_nodes) == 2
+
+    def test_volume_right_triggers_has_hydro(self):
+        """A system with only volume_right_array must activate the hydro path."""
+        planning = {
+            "system": {
+                "name": "vright_only",
+                "volume_right_array": [
+                    {"uid": 1, "name": "VR1", "purpose": "irrigation"}
+                ],
+            }
+        }
+        fo = gd.FilterOptions(aggregate="none")
+        builder = gd.TopologyBuilder(planning, subsystem="full", opts=fo)
+        builder.build()
+        # subsystem must remain "full" or "hydro", not forced to "electrical"
+        assert builder.subsystem in ("full", "hydro")
+
+    def test_volume_right_no_reservoir_no_edge(self):
+        """VolumeRight without a reservoir reference must still produce a node."""
+        planning = {
+            "system": {
+                "name": "vright_no_res",
+                "volume_right_array": [
+                    {"uid": 1, "name": "VR_nores", "purpose": "irrigation"}
+                ],
+            }
+        }
+        fo = gd.FilterOptions(aggregate="none")
+        builder = gd.TopologyBuilder(planning, subsystem="hydro", opts=fo)
+        model = builder.build()
+        vr_nodes = [n for n in model.nodes if n.kind == "volume_right"]
+        assert len(vr_nodes) == 1
+        # No edges since there's no reservoir
+        vr_edges = [e for e in model.edges if "vright_VR_nores_1" in (e.src, e.dst)]
+        assert not vr_edges
+
+
+class TestFlowRightDiagram:
+    """Verify FlowRight nodes and edges are rendered correctly."""
+
+    def _build(self, planning=None, subsystem="hydro", compact=False):
+        fo = gd.FilterOptions(aggregate="none", compact=compact)
+        builder = gd.TopologyBuilder(
+            planning or _RIGHTS_PLANNING, subsystem=subsystem, opts=fo
+        )
+        return builder.build()
+
+    def _edge_pairs(self, model):
+        return {(e.src, e.dst) for e in model.edges}
+
+    def test_flow_right_node_created(self):
+        """flow_right_array entries must produce nodes of kind 'flow_right'."""
+        model = self._build()
+        fr_nodes = [n for n in model.nodes if n.kind == "flow_right"]
+        assert len(fr_nodes) == 1
+
+    def test_flow_right_node_id(self):
+        """Flow right nodes must use the 'fright_' prefix."""
+        model = self._build()
+        node_ids = {n.node_id for n in model.nodes}
+        assert "fright_FR1_1" in node_ids
+
+    def test_flow_right_junction_edge(self):
+        """FlowRight must have a directed edge from its reference junction."""
+        model = self._build()
+        pairs = self._edge_pairs(model)
+        assert ("junc_J2_2", "fright_FR1_1") in pairs
+
+    def test_flow_right_label_contains_purpose(self):
+        """Non-compact label must include the purpose field."""
+        model = self._build()
+        fr1 = next(n for n in model.nodes if n.node_id == "fright_FR1_1")
+        assert "environmental" in fr1.label
+
+    def test_flow_right_label_contains_discharge(self):
+        """Non-compact label must include discharge in m³/s."""
+        model = self._build()
+        fr1 = next(n for n in model.nodes if n.node_id == "fright_FR1_1")
+        assert "m³" in fr1.label or "m\u00b3" in fr1.label
+
+    def test_flow_right_compact_label_is_name_only(self):
+        """In compact mode, FlowRight label must be just the name."""
+        model = self._build(compact=True)
+        fr1 = next(n for n in model.nodes if n.node_id == "fright_FR1_1")
+        assert "[FlowRight]" not in fr1.label
+
+    def test_flow_right_edge_uses_right_edge_color(self):
+        """Junction → FlowRight edge must use the right_edge palette color."""
+        model = self._build()
+        edges = [
+            e for e in model.edges if e.src == "junc_J2_2" and e.dst == "fright_FR1_1"
+        ]
+        assert edges
+        assert edges[0].color == gd._PALETTE["right_edge"]  # noqa: SLF001
+
+    def test_flow_right_edge_is_dotted(self):
+        """Junction → FlowRight edge must use dotted style."""
+        model = self._build()
+        edges = [
+            e for e in model.edges if e.src == "junc_J2_2" and e.dst == "fright_FR1_1"
+        ]
+        assert edges
+        assert edges[0].style == "dotted"
+
+    def test_flow_right_in_full_subsystem(self):
+        """FlowRight nodes must appear in full subsystem."""
+        model = self._build(subsystem="full")
+        fr_nodes = [n for n in model.nodes if n.kind == "flow_right"]
+        assert len(fr_nodes) == 1
+
+    def test_flow_right_triggers_has_hydro(self):
+        """A system with only flow_right_array must activate the hydro path."""
+        planning = {
+            "system": {
+                "name": "fright_only",
+                "flow_right_array": [
+                    {
+                        "uid": 1,
+                        "name": "FR1",
+                        "purpose": "environmental",
+                        "discharge": 5,
+                    }
+                ],
+            }
+        }
+        fo = gd.FilterOptions(aggregate="none")
+        builder = gd.TopologyBuilder(planning, subsystem="full", opts=fo)
+        builder.build()
+        assert builder.subsystem in ("full", "hydro")
+
+    def test_flow_right_no_junction_no_edge(self):
+        """FlowRight without a junction reference must still produce a node."""
+        planning = {
+            "system": {
+                "name": "fright_no_junc",
+                "flow_right_array": [
+                    {"uid": 1, "name": "FR_nojunc", "purpose": "environmental"}
+                ],
+            }
+        }
+        fo = gd.FilterOptions(aggregate="none")
+        builder = gd.TopologyBuilder(planning, subsystem="hydro", opts=fo)
+        model = builder.build()
+        fr_nodes = [n for n in model.nodes if n.kind == "flow_right"]
+        assert len(fr_nodes) == 1
+        fr_edges = [e for e in model.edges if "fright_FR_nojunc_1" in (e.src, e.dst)]
+        assert not fr_edges
+
+    def test_count_elements_includes_rights(self):
+        """_count_elements must count volume_right_array and flow_right_array entries."""
+        fo = gd.FilterOptions(aggregate="none")
+        builder = gd.TopologyBuilder(_RIGHTS_PLANNING, opts=fo)
+        count = builder._count_elements()  # noqa: SLF001
+        # System has: 2 junctions + 1 waterway + 1 reservoir + 2 volume rights + 1 flow right = 7
+        assert count >= 7
