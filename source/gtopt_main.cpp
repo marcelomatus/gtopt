@@ -738,7 +738,16 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     // Load user constraints from external file (if specified)
     //
     if (const auto& uc_file = my_planning.system.user_constraint_file) {
-      const auto filepath = std::filesystem::path {*uc_file};
+      auto filepath = std::filesystem::path {*uc_file};
+      // Resolve relative paths against input_directory
+      if (filepath.is_relative() && my_planning.options.input_directory) {
+        auto resolved =
+            std::filesystem::path {*my_planning.options.input_directory}
+            / filepath;
+        if (std::filesystem::exists(resolved)) {
+          filepath = std::move(resolved);
+        }
+      }
       const auto ext = filepath.extension().string();
 
       try {

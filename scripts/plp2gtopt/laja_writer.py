@@ -311,6 +311,8 @@ class LajaWriter:
         # --- VolumeRight: Irrigation volume accumulator (IVDRF) ---
         # bound_rule dynamically caps extraction rate based on reservoir
         # volume (PLP DerRiego formula: base + Σ factor_i × zone_volume_i).
+        # source_flow_right couples to the FlowRight so that turbine
+        # extraction automatically decrements the rights volume.
         vr_irr_uid = self._next_uid()
         self.volume_rights.append(
             {
@@ -318,6 +320,7 @@ class LajaWriter:
                 "name": "laja_vol_irr",
                 "purpose": "irrigation",
                 "reservoir": central,
+                "source_flow_right": "laja_irr_rights",
                 "eini": cfg["ini_irr"],
                 "emax": cfg["max_irr"],
                 "use_state_variable": True,
@@ -338,6 +341,7 @@ class LajaWriter:
                 "name": "laja_vol_elec",
                 "purpose": "generation",
                 "reservoir": central,
+                "source_flow_right": "laja_elec_rights",
                 "eini": cfg["ini_elec"],
                 "emax": cfg["max_elec"],
                 "use_state_variable": True,
@@ -358,6 +362,7 @@ class LajaWriter:
                 "name": "laja_vol_mixed",
                 "purpose": "mixed",
                 "reservoir": central,
+                "source_flow_right": "laja_mixed_rights",
                 "eini": cfg["ini_mixed"],
                 "emax": cfg["max_mixed"],
                 "use_state_variable": True,
@@ -378,6 +383,7 @@ class LajaWriter:
                 "name": "laja_vol_anticipated",
                 "purpose": "anticipated",
                 "reservoir": central,
+                "source_flow_right": "laja_anticipated",
                 "eini": cfg["ini_anticipated"],
                 "emax": cfg["max_anticipated"],
                 "use_state_variable": True,

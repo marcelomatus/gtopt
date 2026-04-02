@@ -104,16 +104,13 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
         for (const auto& system : phase_systems) {
           const auto su = static_cast<int>(system.scene().uid());
           const auto pu = static_cast<int>(system.phase().uid());
-          if (lp_debug_scene_min && su < *lp_debug_scene_min) {
-            continue;
-          }
-          if (lp_debug_scene_max && su > *lp_debug_scene_max) {
-            continue;
-          }
-          if (lp_debug_phase_min && pu < *lp_debug_phase_min) {
-            continue;
-          }
-          if (lp_debug_phase_max && pu > *lp_debug_phase_max) {
+          if (!in_lp_debug_range(su,
+                                 pu,
+                                 lp_debug_scene_min,
+                                 lp_debug_scene_max,
+                                 lp_debug_phase_min,
+                                 lp_debug_phase_max))
+          {
             continue;
           }
           if (auto lp_result = system.write_lp(lp_stem)) {

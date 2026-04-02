@@ -165,6 +165,19 @@ struct VolumeRight
   /// irrigation rights reset each April for the hydrological year).
   std::optional<MonthType> reset_month {};
 
+  /// Reference to a FlowRight whose per-block flow drives the outflow
+  /// from this VolumeRight.  When set, the FlowRight's flow columns
+  /// appear in the VolumeRight's energy balance with a positive
+  /// coefficient (outflow = rights consumed), efficiency 1.0.
+  ///
+  /// This mirrors PLP's coupling where IQDRH (stage-average flow)
+  /// both participates in the flow partition and decrements the
+  /// volume right (IVDRF = prev - dur × IQDRH).
+  ///
+  /// In gtopt, the coupling is per-block:
+  /// `efin(b) = efin(b-1) - fcr × dur(b) × flow_right.flow(b) / escale`
+  OptSingleId source_flow_right {};
+
   /// Volume-dependent bound rule for dynamic fmax adjustment.
   /// When set, update_lp evaluates the piecewise-linear function
   /// at the referenced reservoir's current volume and updates the

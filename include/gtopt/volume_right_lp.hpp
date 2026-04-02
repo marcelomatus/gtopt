@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include <gtopt/flow_right_lp.hpp>
 #include <gtopt/right_bound_rule.hpp>
 #include <gtopt/storage_lp.hpp>
 #include <gtopt/volume_right.hpp>

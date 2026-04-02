@@ -323,6 +323,7 @@ class MauleWriter:
         self.flow_rights.append(fr_res105)
 
         # --- VolumeRight: Monthly electric accumulator (IVMGEMF) ---
+        # Coupled to maule_elec_normal: FlowRight flow decrements volume.
         vr_elec_men_uid = self._next_uid()
         self.volume_rights.append(
             {
@@ -330,6 +331,7 @@ class MauleWriter:
                 "name": "maule_vol_elec_monthly",
                 "purpose": "generation",
                 "reservoir": res_colbun,
+                "source_flow_right": "maule_elec_normal",
                 "eini": cfg["v_gasto_elec_men_ini"],
                 "emax": cfg["gasto_elec_men_max"],
                 "use_state_variable": True,
@@ -338,6 +340,7 @@ class MauleWriter:
         )
 
         # --- VolumeRight: Annual electric accumulator (IVMGEAF) ---
+        # Also coupled to maule_elec_normal (same flow, different reset).
         vr_elec_anu_uid = self._next_uid()
         self.volume_rights.append(
             {
@@ -345,6 +348,7 @@ class MauleWriter:
                 "name": "maule_vol_elec_annual",
                 "purpose": "generation",
                 "reservoir": res_colbun,
+                "source_flow_right": "maule_elec_normal",
                 "eini": cfg["v_gasto_elec_anu_ini"],
                 "emax": cfg["v_der_elect_anu_max"],
                 "use_state_variable": True,
@@ -360,6 +364,7 @@ class MauleWriter:
                 "name": "maule_vol_irr_seasonal",
                 "purpose": "irrigation",
                 "reservoir": res_colbun,
+                "source_flow_right": "maule_irr_normal",
                 "eini": cfg["v_gasto_riego_ini"],
                 "emax": cfg["v_der_riego_temp_max"],
                 "use_state_variable": True,
@@ -375,6 +380,7 @@ class MauleWriter:
                 "name": "maule_vol_compensation",
                 "purpose": "generation",
                 "reservoir": res_colbun,
+                "source_flow_right": "maule_compensation",
                 "eini": cfg["v_comp_elec_ini"],
                 "emax": cfg["v_comp_elec_max"],
                 "use_state_variable": True,
@@ -392,6 +398,7 @@ class MauleWriter:
                 "name": "maule_vol_rext_elec",
                 "purpose": "generation",
                 "reservoir": res_colbun,
+                "source_flow_right": "maule_elec_ordinary",
                 "eini": cfg.get("v_gasto_rext_elec_ini", 0.0),
                 "emax": cfg["v_reserva_extraord"],
                 "use_state_variable": True,
@@ -409,6 +416,7 @@ class MauleWriter:
                 "name": "maule_vol_rext_riego",
                 "purpose": "irrigation",
                 "reservoir": res_colbun,
+                "source_flow_right": "maule_irr_ordinary",
                 "eini": cfg.get("v_gasto_rext_riego_ini", 0.0),
                 "emax": cfg["v_reserva_extraord"],
                 "use_state_variable": True,

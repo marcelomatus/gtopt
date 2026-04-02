@@ -516,13 +516,25 @@ public:
       // When flow_scale == energy_scale (reservoir and battery cases) this
       // simplifies to flow_conversion_rate × duration — avoiding LP
       // coefficients that change with energy_scale.
-      const auto fout_col = fout_cols.at(buid);
+      //
+      // fout_cols may be empty (e.g., VolumeRight with source_flow_right
+      // coupling — outflow is injected separately after this call).
+      // finp_cols are always present.
+      const auto has_fout = fout_cols.contains(buid);
       const auto finp_col = finp_cols.at(buid);
-      erow[fout_col] = +(flow_conversion_rate / fout_efficiency)
-          * block.duration() * dc_stage_scale * flow_scale / energy_scale;
 
-      // if the input and output are the same, we only need one entry
-      if (fout_col != finp_col) {
+      if (has_fout) {
+        const auto fout_col = fout_cols.at(buid);
+        erow[fout_col] = +(flow_conversion_rate / fout_efficiency)
+            * block.duration() * dc_stage_scale * flow_scale / energy_scale;
+
+        // if the input and output are the same, we only need one entry
+        if (fout_col != finp_col) {
+          erow[finp_col] = -(flow_conversion_rate * finp_efficiency)
+              * block.duration() * dc_stage_scale * flow_scale / energy_scale;
+        }
+      } else {
+        // No fout — finp is a pure inflow (adds to storage volume).
         erow[finp_col] = -(flow_conversion_rate * finp_efficiency)
             * block.duration() * dc_stage_scale * flow_scale / energy_scale;
       }

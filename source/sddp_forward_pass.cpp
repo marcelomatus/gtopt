@@ -143,14 +143,12 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
     if (m_options_.lp_debug) {
       const auto su = static_cast<int>(scene_uid(scene));
       const auto pu = static_cast<int>(phase_uid(phase));
-      const bool in_range = (!m_options_.lp_debug_scene_min
-                             || su >= *m_options_.lp_debug_scene_min)
-          && (!m_options_.lp_debug_scene_max
-              || su <= *m_options_.lp_debug_scene_max)
-          && (!m_options_.lp_debug_phase_min
-              || pu >= *m_options_.lp_debug_phase_min)
-          && (!m_options_.lp_debug_phase_max
-              || pu <= *m_options_.lp_debug_phase_max);
+      const bool in_range = in_lp_debug_range(su,
+                                              pu,
+                                              m_options_.lp_debug_scene_min,
+                                              m_options_.lp_debug_scene_max,
+                                              m_options_.lp_debug_phase_min,
+                                              m_options_.lp_debug_phase_max);
       if (in_range) {
         const auto dbg_stem = (std::filesystem::path(m_options_.log_directory)
                                / std::format(sddp_file::debug_lp_fmt,

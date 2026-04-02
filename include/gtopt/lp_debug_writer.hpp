@@ -12,11 +12,28 @@
 #include <string>
 #include <vector>
 
+#include <gtopt/basic_types.hpp>
+
 namespace gtopt
 {
 
 class AdaptiveWorkPool;
 class LinearInterface;
+
+/// Check whether a (scene_uid, phase_uid) pair falls inside the optional
+/// debug filter ranges.  Empty optionals mean "no bound on that side".
+[[nodiscard]] constexpr bool in_lp_debug_range(int scene_uid,
+                                               int phase_uid,
+                                               OptInt scene_min,
+                                               OptInt scene_max,
+                                               OptInt phase_min,
+                                               OptInt phase_max) noexcept
+{
+  return (!scene_min || scene_uid >= *scene_min)
+      && (!scene_max || scene_uid <= *scene_max)
+      && (!phase_min || phase_uid >= *phase_min)
+      && (!phase_max || phase_uid <= *phase_max);
+}
 
 /// @name Compression utility functions (detail — exposed for testing)
 /// @{

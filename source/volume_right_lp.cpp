@@ -11,8 +11,27 @@
  *
  * The volume right is NOT part of the hydrological topology —
  * it tracks accumulated right volumes in a separate ledger.
+ *
+ * ## Balance equation
+ *
+ * When `source_flow_right` is set (PLP-style coupling):
+ *
+ *   efin(b) = efin(b-1) - fcr × dur(b) × flow_right.flow(b) / escale
+ *                        + fcr × dur(b) × finp(b) / escale
+ *
+ * The volume starts at emax (full rights entitlement) and decrements
+ * as the FlowRight extracts water.  At reset_month, eini resets to 0.
+ * Efficiency is 1.0 for both inflow and outflow — rights are consumed
+ * 1:1 without loss.
+ *
+ * When `source_flow_right` is NOT set:
+ *
+ *   efin(b) = efin(b-1) + fcr × dur(b) × finp(b) / escale
+ *
+ * Rights only accumulate via finp (original accumulation model).
  */
 
+#include <gtopt/flow_right_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/reservoir_enums.hpp>
@@ -97,10 +116,18 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   }
 
   // The storage balance tracks accumulated rights volume.
-  // Input flow = rights delivered (finp_cols).
-  // No output flow — rights only accumulate (fout_cols = finp_cols with
-  // zero efficiency to satisfy the signature, but we pass empty).
-  // No drain/spillway for rights.
+  //
+  // When source_flow_right is set, the FlowRight's per-block flow columns
+  // are injected as outflow into the energy balance AFTER the StorageBase
+  // call.  We pass empty fout_cols to StorageBase; the FlowRight coupling
+  // adds the outflow coefficients directly to the energy rows.
+  //
+  // When source_flow_right is NOT set, finp accumulates volume
+  // (inflow-only model).
+  //
+  // In both cases, finp_efficiency = 1.0 and fout_efficiency = 1.0
+  // (rights are consumed 1:1, no loss).
+  const BIndexHolder<ColIndex> empty_fout_cols;
   const StorageOptions opts {
       .use_state_variable = volume_right().use_state_variable.value_or(true),
       .daily_cycle = false,
@@ -115,8 +142,8 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
                               flow_conversion_rate(),
                               finp_cols,
                               1.0,
-                              finp_cols,
-                              0.0,
+                              empty_fout_cols,
+                              1.0,
                               LinearProblem::DblMax,
                               std::nullopt,
                               std::nullopt,
@@ -148,6 +175,30 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     m_bound_states_[st_key] = BoundState {
         .current_bound = initial_rule_bound,
     };
+  }
+
+  // ── Source FlowRight coupling (outflow from rights volume) ─────────
+  // When source_flow_right is set, inject the FlowRight's per-block
+  // flow columns into the energy balance rows as outflow.  This
+  // implements PLP's coupling: IVDRF = prev - fcr × dur × IQDRH.
+  //
+  // The coefficient is positive (outflow reduces volume):
+  //   coeff = +fcr × dur(b) / energy_scale
+  //
+  // Efficiency is 1.0 — rights are consumed 1:1.
+  if (const auto& fr_ref = volume_right().source_flow_right; fr_ref.has_value())
+  {
+    const FlowRightLPSId fr_sid(*fr_ref);
+    const auto& fr_lp = sc.element(fr_sid);
+    const auto& fr_flow_cols = fr_lp.flow_cols_at(scenario, stage);
+    const auto& erows = energy_rows_at(scenario, stage);
+
+    for (auto&& block : blocks) {
+      const auto buid = block.uid();
+      const auto coeff =
+          flow_conversion_rate() * block.duration() / energy_scale;
+      lp.row_at(erows.at(buid))[fr_flow_cols.at(buid)] = coeff;
+    }
   }
 
   // Couple to parent VolumeRight's energy balance if linked
