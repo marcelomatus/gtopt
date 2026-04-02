@@ -625,6 +625,41 @@ class GTOptWriter:
             return
 
         stage_parser = self.parser.parsed_data.get("stage_parser")
+        output_dir = Path(options["output_dir"]) if options.get("output_dir") else None
+
+        # Pass the effective number of stages (after -s/-t truncation) so
+        # that rights writers truncate their per-stage schedules to match.
+        sim = self.planning.get("simulation", {})
+        stage_array = sim.get("stage_array", [])
+        num_stages = len(stage_array)
+        # Determine blocks-per-stage so 3D schedules have correct inner dim
+        blocks_per_stage = stage_array[0].get("count_block", 1) if stage_array else 1
+        wr_options = {
+            **options,
+            "last_stage": num_stages,
+            "blocks_per_stage": blocks_per_stage,
+        }
+
+        def _merge_writer(name: str, writer_dict: dict) -> None:
+            """Merge writer output into planning and log entity counts."""
+            for key, val in writer_dict.items():
+                if key == "user_constraint_file":
+                    self.planning["system"][key] = val
+                    _logger.info(
+                        "%s: user_constraint_file = %s",
+                        name,
+                        val,
+                    )
+                else:
+                    existing = self.planning["system"].get(key, [])
+                    self.planning["system"][key] = existing + val
+                    if val:
+                        _logger.info(
+                            "%s: %d %s",
+                            name,
+                            len(val),
+                            key,
+                        )
 
         # Laja convention
         laja_parser = self.parser.parsed_data.get("laja_parser")
@@ -632,11 +667,9 @@ class GTOptWriter:
             lw = LajaWriter(
                 laja_config=laja_parser.config,
                 stage_parser=stage_parser,
-                options=options,
+                options=wr_options,
             )
-            for key, val in lw.to_json_dict().items():
-                existing = self.planning["system"].get(key, [])
-                self.planning["system"][key] = existing + val
+            _merge_writer("Laja", lw.to_json_dict(output_dir=output_dir))
 
         # Maule convention
         maule_parser = self.parser.parsed_data.get("maule_parser")
@@ -644,11 +677,9 @@ class GTOptWriter:
             mw = MauleWriter(
                 maule_config=maule_parser.config,
                 stage_parser=stage_parser,
-                options=options,
+                options=wr_options,
             )
-            for key, val in mw.to_json_dict().items():
-                existing = self.planning["system"].get(key, [])
-                self.planning["system"][key] = existing + val
+            _merge_writer("Maule", mw.to_json_dict(output_dir=output_dir))
 
     def process_flow_turbines(self, options):
         """Create Flow + Turbine(flow=ref) for hydro pasada centrals.

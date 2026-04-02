@@ -594,202 +594,6 @@ TEST_CASE(  // NOLINT
   CHECK(result.value() == 0);
 }
 
-TEST_CASE("SystemLP with RightJunction - basic balance construction")
-{
-  const Array<Bus> bus_array = {
-      {
-          .uid = Uid {1},
-          .name = "b1",
-      },
-  };
-
-  const Array<Generator> generator_array = {
-      {
-          .uid = Uid {1},
-          .name = "gen1",
-          .bus = Uid {1},
-          .gcost = 10.0,
-          .capacity = 200.0,
-      },
-  };
-
-  const Array<Demand> demand_array = {
-      {
-          .uid = Uid {1},
-          .name = "d1",
-          .bus = Uid {1},
-          .capacity = 50.0,
-      },
-  };
-
-  const Array<RightJunction> right_junction_array = {
-      {
-          .uid = Uid {1},
-          .name = "armerillo",
-          .drain = true,
-      },
-  };
-
-  const Array<FlowRight> flow_right_array = {
-      {
-          .uid = Uid {1},
-          .name = "supply_flow",
-          .right_junction = Uid {1},
-          .direction = 1,
-          .discharge = 100.0,
-      },
-      {
-          .uid = Uid {2},
-          .name = "withdrawal_flow",
-          .right_junction = Uid {1},
-          .direction = -1,
-          .discharge = 60.0,
-          .fail_cost = 5000.0,
-      },
-  };
-
-  const Simulation simulation = {
-      .block_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .duration = 1,
-              },
-          },
-      .stage_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .first_block = 0,
-                  .count_block = 1,
-              },
-          },
-      .scenario_array =
-          {
-              {
-                  .uid = Uid {0},
-              },
-          },
-  };
-
-  const System system = {
-      .name = "RightJunctionTest",
-      .bus_array = bus_array,
-      .demand_array = demand_array,
-      .generator_array = generator_array,
-      .right_junction_array = right_junction_array,
-      .flow_right_array = flow_right_array,
-  };
-
-  const PlanningOptionsLP options;
-  SimulationLP simulation_lp(simulation, options);
-  SystemLP system_lp(system, simulation_lp);
-
-  auto&& rj_lp = system_lp.linear_interface();
-  CHECK(rj_lp.get_numrows() > 0);
-  CHECK(rj_lp.get_numcols() > 0);
-
-  auto rj_result = rj_lp.resolve();
-  REQUIRE(rj_result.has_value());
-  CHECK(rj_result.value() == 0);
-}
-
-TEST_CASE(  // NOLINT
-    "SystemLP with RightJunction - no drain strict balance")
-{
-  const Array<Bus> bus_array = {
-      {
-          .uid = Uid {1},
-          .name = "b1",
-      },
-  };
-
-  const Array<Generator> generator_array = {
-      {
-          .uid = Uid {1},
-          .name = "gen1",
-          .bus = Uid {1},
-          .gcost = 10.0,
-          .capacity = 200.0,
-      },
-  };
-
-  const Array<Demand> demand_array = {
-      {
-          .uid = Uid {1},
-          .name = "d1",
-          .bus = Uid {1},
-          .capacity = 50.0,
-      },
-  };
-
-  const Array<RightJunction> right_junction_array = {
-      {
-          .uid = Uid {1},
-          .name = "strict_balance",
-          .drain = false,
-      },
-  };
-
-  const Array<FlowRight> flow_right_array = {
-      {
-          .uid = Uid {1},
-          .name = "supply",
-          .right_junction = Uid {1},
-          .direction = 1,
-          .discharge = 50.0,
-      },
-      {
-          .uid = Uid {2},
-          .name = "withdrawal",
-          .right_junction = Uid {1},
-          .direction = -1,
-          .discharge = 50.0,
-      },
-  };
-
-  const Simulation simulation = {
-      .block_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .duration = 1,
-              },
-          },
-      .stage_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .first_block = 0,
-                  .count_block = 1,
-              },
-          },
-      .scenario_array =
-          {
-              {
-                  .uid = Uid {0},
-              },
-          },
-  };
-
-  const System system = {
-      .name = "StrictBalanceTest",
-      .bus_array = bus_array,
-      .demand_array = demand_array,
-      .generator_array = generator_array,
-      .right_junction_array = right_junction_array,
-      .flow_right_array = flow_right_array,
-  };
-
-  const PlanningOptionsLP options;
-  SimulationLP simulation_lp(simulation, options);
-  SystemLP system_lp(system, simulation_lp);
-
-  auto strict_result = system_lp.linear_interface().resolve();
-  REQUIRE(strict_result.has_value());
-  CHECK(strict_result.value() == 0);
-}
-
 TEST_CASE(  // NOLINT
     "FlowRight variable mode - fmax creates variable column")
 {
@@ -819,28 +623,11 @@ TEST_CASE(  // NOLINT
       },
   };
 
-  // RightJunction with drain=false → strict partition
-  const Array<RightJunction> right_junction_array = {
-      {
-          .uid = Uid {1},
-          .name = "partition",
-          .drain = false,
-      },
-  };
-
-  // Variable-mode FlowRights: supply 100 m³/s, two withdrawals split it
+  // Variable-mode FlowRights: two independent withdrawal rights
   const Array<FlowRight> flow_right_array = {
-      {
-          .uid = Uid {1},
-          .name = "total_supply",
-          .right_junction = Uid {1},
-          .direction = 1,
-          .discharge = 100.0,
-      },
       {
           .uid = Uid {2},
           .name = "irr_share",
-          .right_junction = Uid {1},
           .direction = -1,
           .discharge = {},
           .fmax = 100.0,
@@ -849,7 +636,6 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {3},
           .name = "gen_share",
-          .right_junction = Uid {1},
           .direction = -1,
           .discharge = {},
           .fmax = 100.0,
@@ -886,7 +672,6 @@ TEST_CASE(  // NOLINT
       .bus_array = bus_array,
       .demand_array = demand_array,
       .generator_array = generator_array,
-      .right_junction_array = right_junction_array,
       .flow_right_array = flow_right_array,
   };
 
@@ -1925,19 +1710,10 @@ TEST_CASE(  // NOLINT
       },
   };
 
-  const Array<RightJunction> right_junction_array = {
-      {
-          .uid = Uid {1},
-          .name = "partition",
-          .drain = false,
-      },
-  };
-
   const Array<FlowRight> flow_right_array = {
       {
           .uid = Uid {1},
           .name = "total_gen",
-          .right_junction = Uid {1},
           .direction = 1,
           .discharge = 100.0,
           .use_average = true,
@@ -1945,7 +1721,6 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {2},
           .name = "irr_share",
-          .right_junction = Uid {1},
           .direction = -1,
           .discharge = {},
           .fmax = 100.0,
@@ -1955,7 +1730,6 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {3},
           .name = "elec_share",
-          .right_junction = Uid {1},
           .direction = -1,
           .discharge = {},
           .fmax = 100.0,
@@ -1997,7 +1771,6 @@ TEST_CASE(  // NOLINT
       .bus_array = bus_array,
       .demand_array = demand_array,
       .generator_array = generator_array,
-      .right_junction_array = right_junction_array,
       .flow_right_array = flow_right_array,
   };
 

@@ -82,6 +82,11 @@ public:
     return extraction_cols.at({scenario.uid(), stage.uid()});
   }
 
+  /// @name Parameter accessors for user constraint resolution
+  /// @{
+  [[nodiscard]] auto param_capacity(StageUid s) const { return capacity.at(s); }
+  /// @}
+
 private:
   OptTRealSched capacity;
   STBIndexHolder<ColIndex> extraction_cols;

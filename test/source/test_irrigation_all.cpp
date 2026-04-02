@@ -12,7 +12,6 @@
 #include <gtopt/flow_right.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/right_bound_rule.hpp>
-#include <gtopt/right_junction.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/system_lp.hpp>

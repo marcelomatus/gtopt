@@ -81,10 +81,37 @@ public:
     return qeh_cols.at({scenario.uid(), stage.uid()});
   }
 
+  /// @name Parameter accessors for user constraint resolution
+  /// @{
+  [[nodiscard]] auto param_fmax(StageUid s, BlockUid b) const
+  {
+    return fmax_sched.at(s, b);
+  }
+  [[nodiscard]] auto param_discharge(ScenarioUid sc,
+                                     StageUid s,
+                                     BlockUid b) const
+  {
+    return discharge.at(sc, s, b);
+  }
+  [[nodiscard]] auto param_fail_cost(StageUid s, BlockUid b) const
+  {
+    return fail_cost_sched.at(s, b);
+  }
+  [[nodiscard]] auto param_use_value(StageUid s, BlockUid b) const
+  {
+    return use_value_sched.at(s, b);
+  }
+  /// @}
+
 private:
   STBRealSched discharge;
-  double fail_cost {0.0};
   int direction {-1};
+
+  /// Resolved fail_cost schedule for per-block penalty cost.
+  OptTBRealSched fail_cost_sched;
+
+  /// Resolved use_value schedule for per-block flow value/benefit.
+  OptTBRealSched use_value_sched;
 
   /// Resolved fmax schedule for variable-mode bounds.
   /// When fmax > 0 and discharge == 0, the flow column is variable [0, fmax].

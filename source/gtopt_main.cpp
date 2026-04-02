@@ -520,6 +520,22 @@ void log_pre_solve_stats(
   spdlog::info(std::format("  ReservoirSeepages     : {}",
                            sys.reservoir_seepage_array.size()));
   spdlog::info(std::format("  Turbines        : {}", sys.turbine_array.size()));
+  if (!sys.flow_right_array.empty()) {
+    spdlog::info(
+        std::format("  Flow rights     : {}", sys.flow_right_array.size()));
+  }
+  if (!sys.volume_right_array.empty()) {
+    spdlog::info(
+        std::format("  Volume rights   : {}", sys.volume_right_array.size()));
+  }
+  if (!sys.user_constraint_array.empty()) {
+    spdlog::info(std::format("  User constraints: {}",
+                             sys.user_constraint_array.size()));
+  }
+  if (!sys.user_param_array.empty()) {
+    spdlog::info(
+        std::format("  User params     : {}", sys.user_param_array.size()));
+  }
   spdlog::info("=== Simulation statistics ===");
   spdlog::info(std::format("  Blocks          : {}", sim.block_array.size()));
   spdlog::info(std::format("  Stages          : {}", sim.stage_array.size()));
@@ -734,13 +750,26 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
           }
         }
 
-        std::vector<UserConstraint> loaded;
         if (ext == ".pampl") {
-          loaded = PamplParser::parse_file(filepath.string(), next_uid);
-          spdlog::info(
-              std::format("Loaded {} user constraint(s) from PAMPL file '{}'",
-                          loaded.size(),
-                          filepath.string()));
+          auto pampl_result =
+              PamplParser::parse_file(filepath.string(), next_uid);
+          spdlog::info(std::format(
+              "Loaded {} constraint(s) and {} param(s) from PAMPL file '{}'",
+              pampl_result.constraints.size(),
+              pampl_result.params.size(),
+              filepath.string()));
+
+          // Append loaded constraints
+          auto& arr = my_planning.system.user_constraint_array;
+          arr.insert(arr.end(),
+                     std::make_move_iterator(pampl_result.constraints.begin()),
+                     std::make_move_iterator(pampl_result.constraints.end()));
+
+          // Append loaded params
+          auto& parr = my_planning.system.user_param_array;
+          parr.insert(parr.end(),
+                      std::make_move_iterator(pampl_result.params.begin()),
+                      std::make_move_iterator(pampl_result.params.end()));
         } else {
           // Default: treat as JSON array of UserConstraint
           auto file_content = daw::read_file(filepath.string());
@@ -748,19 +777,19 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
             return std::unexpected(std::format(
                 "Cannot read user_constraint_file '{}'", filepath.string()));
           }
-          loaded =
+          auto loaded =
               daw::json::from_json<std::vector<UserConstraint>>(*file_content);
           spdlog::info(
               std::format("Loaded {} user constraint(s) from JSON file '{}'",
                           loaded.size(),
                           filepath.string()));
-        }
 
-        // Append loaded constraints to the planning system
-        auto& arr = my_planning.system.user_constraint_array;
-        arr.insert(arr.end(),
-                   std::make_move_iterator(loaded.begin()),
-                   std::make_move_iterator(loaded.end()));
+          // Append loaded constraints to the planning system
+          auto& arr = my_planning.system.user_constraint_array;
+          arr.insert(arr.end(),
+                     std::make_move_iterator(loaded.begin()),
+                     std::make_move_iterator(loaded.end()));
+        }
 
       } catch (const std::exception& ex) {
         return std::unexpected(

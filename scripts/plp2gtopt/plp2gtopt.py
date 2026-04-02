@@ -84,10 +84,19 @@ def _log_stats(planning: dict, elapsed: float) -> None:
         ("Flows", len(sys_data.get("flow_array", []))),
         ("Reservoirs", len(sys_data.get("reservoir_array", []))),
         ("Turbines", len(sys_data.get("turbine_array", []))),
+        ("Flow rights", len(sys_data.get("flow_right_array", []))),
+        ("Volume rights", len(sys_data.get("volume_right_array", []))),
+        ("User constraints", len(sys_data.get("user_constraint_array", []))),
+        ("User params", len(sys_data.get("user_param_array", []))),
     ]
     for name, count in all_elems:
         if count > 0:
             rows.append((name, str(count)))
+
+    # User constraint file
+    uc_file = sys_data.get("user_constraint_file")
+    if uc_file:
+        rows.append(("Constraint file", uc_file))
 
     # Simulation
     blocks = sim.get("block_array", [])

@@ -3,7 +3,7 @@
 """Writer for Laja irrigation agreement entities.
 
 Converts parsed LajaParser data into gtopt JSON entities:
-FlowRight, VolumeRight, RightJunction, and UserConstraint.
+FlowRight, VolumeRight, and UserConstraint.
 
 The Laja convention (1958) divides Laguna del Laja volume into volume
 zones, each with different allocation factors for irrigation, electric,
@@ -19,7 +19,10 @@ See also:
   plp_implementation.md -- PLP Fortran source reference
 """
 
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+import jinja2
 
 
 # Hydrological year mapping: PLP uses Apr=1..Mar=12
@@ -87,7 +90,7 @@ def _zones_to_bound_rule_segments(
 
 
 class LajaWriter:
-    """Emits FlowRight, VolumeRight, RightJunction, and UserConstraint
+    """Emits FlowRight, VolumeRight, ReservoirSeepage, and UserConstraint
     entities for the Laja irrigation agreement.
 
     Args:
@@ -109,7 +112,6 @@ class LajaWriter:
 
         self.flow_rights: List[Dict[str, Any]] = []
         self.volume_rights: List[Dict[str, Any]] = []
-        self.right_junctions: List[Dict[str, Any]] = []
         self.user_constraints: List[Dict[str, Any]] = []
 
         self._build()
@@ -120,6 +122,20 @@ class LajaWriter:
         self._uid_counter += 1
         return uid
 
+    def _get_stages(self) -> List[Dict[str, Any]]:
+        """Return the effective list of stages, truncated to match options."""
+        if self._stage_parser is None:
+            return []
+        stages = self._stage_parser.get_all()
+        last_stage = self._options.get("last_stage", -1)
+        try:
+            last_stage = int(last_stage)
+        except (ValueError, TypeError):
+            last_stage = -1
+        if last_stage > 0:
+            stages = [s for s in stages if s["number"] <= last_stage]
+        return stages
+
     def _hydro_to_stage_schedule(self, hydro_monthly: List[float]) -> List[float]:
         """Convert 12-element hydrological-year array to per-stage schedule.
 
@@ -129,7 +145,7 @@ class LajaWriter:
         if self._stage_parser is None:
             return hydro_monthly
 
-        stages = self._stage_parser.get_all()
+        stages = self._get_stages()
         schedule: List[float] = []
         for stage in stages:
             cal_month = stage.get("month", 1)  # calendar: 1=Jan..12=Dec
@@ -138,23 +154,33 @@ class LajaWriter:
             schedule.append(hydro_monthly[hydro_idx])
         return schedule
 
-    @staticmethod
     def _to_stb_sched(
+        self,
         values: List[float],
     ) -> float | List[List[List[float]]]:
-        """Convert per-stage values to STBRealFieldSched format (3D)."""
+        """Convert per-stage values to STBRealFieldSched format (3D).
+
+        The 3D format is [scenario][stage][block].  Each stage value is
+        replicated for every block in that stage (constant across blocks).
+        """
         if len(set(values)) == 1:
             return values[0]
-        return [[[v] for v in values]]
+        nblocks = self._options.get("blocks_per_stage", 1)
+        return [[[v] * nblocks for v in values]]
 
-    @staticmethod
     def _to_tb_sched(
+        self,
         values: List[float],
     ) -> float | List[List[float]]:
-        """Convert per-stage values to TBRealFieldSched format (2D)."""
+        """Convert per-stage values to TBRealFieldSched format (2D).
+
+        The 2D format is [stage][block].  Each stage value is
+        replicated across all blocks in that stage.
+        """
         if len(set(values)) == 1:
             return values[0]
-        return [[v] for v in values]
+        nblocks = self._options.get("blocks_per_stage", 1)
+        return [[v] * nblocks for v in values]
 
     def _build(self) -> None:
         """Build all rights entities from the parsed configuration."""
@@ -172,17 +198,6 @@ class LajaWriter:
         )
         mixed_segments = _zones_to_bound_rule_segments(
             cfg["mixed_base"], cfg["mixed_factors"], cfg["zone_widths"], vol_muerto
-        )
-
-        # --- RightJunction: El Toro flow partition ---
-        # -qgt + qdr + qde + qdm + qga = 0
-        rj_partition_uid = self._next_uid()
-        self.right_junctions.append(
-            {
-                "uid": rj_partition_uid,
-                "name": "laja_partition",
-                "drain": False,
-            }
         )
 
         # --- Monthly usage schedules (hydro year → stage) ---
@@ -208,7 +223,6 @@ class LajaWriter:
                 "uid": fr_total_uid,
                 "name": "laja_total_gen",
                 "purpose": "generation",
-                "right_junction": "laja_partition",
                 "direction": 1,
                 "discharge": 0,
                 "fmax": cfg["vol_max"],  # effectively unbounded
@@ -216,23 +230,33 @@ class LajaWriter:
             }
         )
 
+        # --- Monthly cost modulation (fail_cost × monthly factor) ---
+        def _monthly_fail_cost(
+            base_cost: float, monthly_factors: List[float]
+        ) -> float | List[List[float]]:
+            """Build per-stage fail_cost by multiplying base × monthly factor."""
+            modulated = self._hydro_to_stage_schedule(monthly_factors)
+            return self._to_tb_sched([base_cost * f for f in modulated])
+
         # --- FlowRight: Irrigation rights (qdr) ---
         # Flow cap is qmax × monthly_usage (m³/s).  The volume-dependent
         # annual rights quota (hm³) is on the VolumeRight emax, not here.
         fr_irr_uid = self._next_uid()
-        self.flow_rights.append(
-            {
-                "uid": fr_irr_uid,
-                "name": "laja_irr_rights",
-                "purpose": "irrigation",
-                "right_junction": "laja_partition",
-                "direction": -1,
-                "discharge": 0,
-                "fmax": fmax_irr,
-                "use_average": True,
-                "fail_cost": cfg["cost_irr_ns"],
-            }
-        )
+        fr_irr: Dict[str, Any] = {
+            "uid": fr_irr_uid,
+            "name": "laja_irr_rights",
+            "purpose": "irrigation",
+            "direction": -1,
+            "discharge": 0,
+            "fmax": fmax_irr,
+            "use_average": True,
+            "fail_cost": _monthly_fail_cost(
+                cfg["cost_irr_ns"], cfg["monthly_cost_irr_ns"]
+            ),
+        }
+        if cfg.get("cost_irr_uso", 0) > 0:
+            fr_irr["use_value"] = cfg["cost_irr_uso"]
+        self.flow_rights.append(fr_irr)
 
         # --- FlowRight: Electrical rights (qde) ---
         fr_elec_uid = self._next_uid()
@@ -240,15 +264,16 @@ class LajaWriter:
             "uid": fr_elec_uid,
             "name": "laja_elec_rights",
             "purpose": "generation",
-            "right_junction": "laja_partition",
             "direction": -1,
             "discharge": 0,
             "fmax": fmax_elec,
             "use_average": True,
-            "fail_cost": cfg["cost_elec_ns"],
+            "fail_cost": _monthly_fail_cost(
+                cfg["cost_elec_ns"], cfg["monthly_cost_elec"]
+            ),
         }
         if cfg["cost_elec_uso"] > 0:
-            fr_elec["use_cost"] = cfg["cost_elec_uso"]
+            fr_elec["use_value"] = cfg["cost_elec_uso"]
         self.flow_rights.append(fr_elec)
 
         # --- FlowRight: Mixed rights (qdm) ---
@@ -257,30 +282,31 @@ class LajaWriter:
             "uid": fr_mixed_uid,
             "name": "laja_mixed_rights",
             "purpose": "mixed",
-            "right_junction": "laja_partition",
             "direction": -1,
             "discharge": 0,
             "fmax": fmax_mixed,
             "use_average": True,
         }
         if cfg["cost_mixed"] > 0:
-            fr_mixed["use_cost"] = cfg["cost_mixed"]
+            fr_mixed["use_value"] = cfg["cost_mixed"]
         self.flow_rights.append(fr_mixed)
 
         # --- FlowRight: Anticipated discharge (qga) ---
         fr_antic_uid = self._next_uid()
-        self.flow_rights.append(
-            {
-                "uid": fr_antic_uid,
-                "name": "laja_anticipated",
-                "purpose": "anticipated",
-                "right_junction": "laja_partition",
-                "direction": -1,
-                "discharge": 0,
-                "fmax": fmax_antic,
-                "use_average": True,
-            }
-        )
+        fr_antic: Dict[str, Any] = {
+            "uid": fr_antic_uid,
+            "name": "laja_anticipated",
+            "purpose": "anticipated",
+            "direction": -1,
+            "discharge": 0,
+            "fmax": fmax_antic,
+            "use_average": True,
+            "fail_cost": _monthly_fail_cost(
+                cfg.get("cost_irr_ns", 0),
+                cfg["monthly_cost_anticipated"],
+            ),
+        }
+        self.flow_rights.append(fr_antic)
 
         # --- VolumeRight: Irrigation volume accumulator (IVDRF) ---
         # bound_rule dynamically caps extraction rate based on reservoir
@@ -404,6 +430,11 @@ class LajaWriter:
             }
         )
 
+        # NOTE: Laja filtration (cfg["filtration"]) is a physical seepage
+        # loss from the reservoir, not an irrigation agreement entity.
+        # It is handled by the base hydro model via ReservoirSeepage
+        # (requires a waterway reference), not by this writer.
+
         # --- FlowRight: Withdrawal districts ---
         demands = {
             "1o_reg": cfg["demand_1o_reg"],
@@ -437,26 +468,86 @@ class LajaWriter:
 
                 d_uid = self._next_uid()
                 fr_name = f"{district['name']}_{category}"
-                self.flow_rights.append(
-                    {
-                        "uid": d_uid,
-                        "name": fr_name,
-                        "purpose": "irrigation",
-                        "direction": -1,
-                        "discharge": discharge_sched,
-                        "fail_cost": cfg["cost_irr_ns"] * district["cost_factor"],
-                    }
-                )
+                fr_district: Dict[str, Any] = {
+                    "uid": d_uid,
+                    "name": fr_name,
+                    "purpose": "irrigation",
+                    "direction": -1,
+                    "discharge": discharge_sched,
+                    "fail_cost": cfg["cost_irr_ns"] * district["cost_factor"],
+                }
+                # Wire up district injection point to physical junction
+                injection = district.get("injection")
+                if injection:
+                    fr_district["junction"] = injection
+                self.flow_rights.append(fr_district)
 
-    def to_json_dict(self) -> Dict[str, List[Dict[str, Any]]]:
-        """Return all entities as a dict of arrays for system JSON."""
+        # --- UserConstraint: Flow partition balance ---
+        # qgt = qdr + qde + qdm + qga  (total generation = sum of extractions)
+        uc_partition_uid = self._next_uid()
+        self.user_constraints.append(
+            {
+                "uid": uc_partition_uid,
+                "name": "laja_partition",
+                "expression": (
+                    "flow_right('laja_total_gen').flow = "
+                    "flow_right('laja_irr_rights').flow "
+                    "+ flow_right('laja_elec_rights').flow "
+                    "+ flow_right('laja_mixed_rights').flow "
+                    "+ flow_right('laja_anticipated').flow"
+                ),
+                "description": (
+                    "Flow partition: total generation equals sum of extractions"
+                ),
+            }
+        )
+
+    def generate_pampl(self, output_path: Path) -> str:
+        """Render the Laja agreement PAMPL file from the Jinja2 template.
+
+        Args:
+            output_path: Directory where the .pampl file will be written.
+
+        Returns:
+            Filename of the generated .pampl file (relative name only).
+        """
+        template_dir = Path(__file__).parent / "templates"
+        env = jinja2.Environment(
+            loader=jinja2.FileSystemLoader(str(template_dir)),
+            keep_trailing_newline=True,
+            undefined=jinja2.StrictUndefined,
+        )
+        template = env.get_template("laja_agreement.tampl")
+
+        rendered = template.render(self._cfg)
+
+        output_path = Path(output_path)
+        output_path.mkdir(parents=True, exist_ok=True)
+        pampl_file = output_path / "laja_agreement.pampl"
+        pampl_file.write_text(rendered, encoding="utf-8")
+
+        return "laja_agreement.pampl"
+
+    def to_json_dict(
+        self,
+        output_dir: Optional[Path] = None,
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Return all entities as a dict of arrays for system JSON.
+
+        Args:
+            output_dir: If provided, generates a .pampl file in this
+                directory and sets ``user_constraint_file`` instead of
+                embedding constraints in ``user_constraint_array``.
+        """
         result: Dict[str, List[Dict[str, Any]]] = {}
-        if self.right_junctions:
-            result["right_junction_array"] = self.right_junctions
         if self.flow_rights:
             result["flow_right_array"] = self.flow_rights
         if self.volume_rights:
             result["volume_right_array"] = self.volume_rights
         if self.user_constraints:
-            result["user_constraint_array"] = self.user_constraints
+            if output_dir is not None:
+                pampl_name = self.generate_pampl(output_dir)
+                result["user_constraint_file"] = pampl_name  # type: ignore[assignment]
+            else:
+                result["user_constraint_array"] = self.user_constraints
         return result

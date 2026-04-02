@@ -109,7 +109,13 @@ constexpr auto add_to_lp(auto& collections,
         return e.add_to_lp(system_context, scenario, stage, lp);
       } catch (const std::exception& ex) {
         SPDLOG_ERROR(
-            std::format("Error adding {} to LP: {}", T::ClassName, ex.what()));
+            std::format("Error adding {} uid={} to LP "
+                        "(scenario={}, stage={}): {}",
+                        T::ClassName,
+                        e.uid(),
+                        scenario.uid(),
+                        stage.uid(),
+                        ex.what()));
         return false;
       }
     }
@@ -358,10 +364,6 @@ void create_collections(const auto& system_context,
           ic, sys.reservoir_production_factor_array);
 
   // Water rights (NOT part of hydro topology)
-  // RightJunctionLP must be created BEFORE FlowRightLP because
-  // FlowRightLP references RightJunction balance rows in add_to_lp.
-  std::get<Collection<RightJunctionLP>>(colls) =
-      make_collection<RightJunctionLP>(ic, sys.right_junction_array);
   std::get<Collection<FlowRightLP>>(colls) =
       make_collection<FlowRightLP>(ic, sys.flow_right_array);
   std::get<Collection<VolumeRightLP>>(colls) =

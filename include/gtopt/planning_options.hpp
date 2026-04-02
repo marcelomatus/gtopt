@@ -71,8 +71,18 @@ struct PlanningOptions
   OptReal reserve_fail_cost {};
   /** @brief Default penalty cost for unmet hydro rights [$/m3].
    *  Applied to FlowRight and VolumeRight deficit variables when
-   *  the per-element `fail_cost` is not set. */
+   *  the per-element `fail_cost` is not set.  Default: 5.0 $/m3.
+   *  For FlowRight, multiplied by block duration × flow_conversion_rate
+   *  to convert from $/m3 to the flow variable's units. */
   OptReal hydro_fail_cost {};
+
+  /** @brief Default value of exercising hydro rights [$/m3].
+   *  Applied as negative objective coefficient (benefit) on FlowRight
+   *  and VolumeRight flow variables when the per-element `use_value`
+   *  is not set.  Default: 1.0 $/m3.
+   *  For FlowRight, multiplied by block duration × flow_conversion_rate
+   *  to convert from $/m3 to the flow variable's units. */
+  OptReal hydro_use_value {};
   /** @brief Whether to model resistive line losses (default: true) */
   OptBool use_line_losses {};
   /** @brief Default number of piecewise-linear segments for quadratic line
@@ -233,6 +243,11 @@ struct PlanningOptions
    */
   Array<VariableScale> variable_scales {};
 
+  /// Controls error handling for user constraint resolution.
+  /// - `normal`: warn and skip unresolved references
+  /// - `strict` (default): fail on any unresolved reference
+  std::optional<ConstraintMode> constraint_mode {};
+
   void merge(PlanningOptions&& opts)
   {
     // Merge input-related options (always moving string values)
@@ -244,6 +259,7 @@ struct PlanningOptions
     merge_opt(demand_fail_cost, opts.demand_fail_cost);
     merge_opt(reserve_fail_cost, opts.reserve_fail_cost);
     merge_opt(hydro_fail_cost, opts.hydro_fail_cost);
+    merge_opt(hydro_use_value, opts.hydro_use_value);
     merge_opt(use_line_losses, opts.use_line_losses);
     merge_opt(loss_segments, opts.loss_segments);
     merge_opt(use_kirchhoff, opts.use_kirchhoff);
@@ -292,6 +308,9 @@ struct PlanningOptions
               opts.lp_build_options.row_equilibration);
     merge_opt(lp_build_options.compute_stats,
               opts.lp_build_options.compute_stats);
+
+    // Merge constraint mode
+    merge_opt(constraint_mode, opts.constraint_mode);
 
     // Merge variable scales (append incoming entries)
     if (!opts.variable_scales.empty()) {

@@ -65,6 +65,24 @@ struct ResolvedCol
     const LinearProblem& lp);
 
 /**
+ * @brief Try to look up a data parameter value for one element reference.
+ *
+ * Returns `std::nullopt` when the element is not found or the attribute is
+ * not a known parameter.  Parameters are fixed data values (not LP columns)
+ * such as `pmax`, `gcost`, `fmax`, `emin`, etc.
+ *
+ * For schedule-valued parameters the value is resolved for the given
+ * (scenario, stage, block) context.  If the schedule has no value for the
+ * given context, `std::nullopt` is returned.
+ */
+[[nodiscard]] std::optional<double> resolve_single_param(
+    const SystemContext& sc,
+    const ScenarioLP& scenario,
+    const StageLP& stage,
+    const BlockLP& block,
+    const ElementRef& ref);
+
+/**
  * @brief Collect (coefficient, ColIndex) pairs for a `SumElementRef`.
  *
  * When `sum_ref.all_elements` is true, iterates over every element in the

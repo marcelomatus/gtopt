@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <string>
 
+#include <gtopt/basic_types.hpp>
 #include <gtopt/pampl_parser.hpp>
 
 namespace gtopt
@@ -139,6 +140,32 @@ public:
     return false;
   }
 
+  /// Read a numeric literal (integer or decimal, possibly negative).
+  /// Skips leading whitespace/comments, then reads [-]digits[.digits].
+  [[nodiscard]] double read_number()
+  {
+    skip_ws_comments();
+    bool negative = false;
+    if (!at_end() && m_src_[m_pos_] == '-') {
+      negative = true;
+      ++m_pos_;
+      skip_ws_comments();
+    }
+    const std::size_t start = m_pos_;
+    while (!at_end()
+           && (std::isdigit(static_cast<unsigned char>(m_src_[m_pos_])) != 0
+               || m_src_[m_pos_] == '.'))
+    {
+      ++m_pos_;
+    }
+    if (m_pos_ == start) {
+      throw std::invalid_argument("PAMPL: expected number");
+    }
+    const double val =
+        std::stod(std::string {m_src_.substr(start, m_pos_ - start)});
+    return negative ? -val : val;
+  }
+
   /// Return the rest of the source from current position up to (not
   /// including) the next `;`, advancing past the `;`.  Throws if no `;`
   /// is found before end of input.
@@ -162,12 +189,92 @@ private:
   std::size_t m_pos_ {0};
 };
 
+// ── Param value parsing ──────────────────────────────────────────────────────
+
+/// Parse `param name = value;` or `param name[month] = [v1, ..., v12];`
+UserParam parse_param(Scanner& sc)
+{
+  UserParam param;
+
+  param.name = sc.read_ident();
+  if (param.name.empty()) {
+    throw std::invalid_argument(
+        "PAMPL: expected identifier (param name) after 'param'");
+  }
+
+  // Check for [month] indexing
+  bool is_monthly = false;
+  sc.skip_ws_comments();
+  if (sc.peek_char() == '[') {
+    sc.consume('[');
+    const std::string index_dim = sc.read_ident();
+    if (index_dim != "month") {
+      throw std::invalid_argument(std::format(
+          "PAMPL: unsupported index dimension '{}' (only 'month' is "
+          "supported)",
+          index_dim));
+    }
+    if (!sc.consume(']')) {
+      throw std::invalid_argument(
+          "PAMPL: expected ']' after 'month' in param declaration");
+    }
+    is_monthly = true;
+  }
+
+  // Expect '='
+  if (!sc.consume('=')) {
+    throw std::invalid_argument(
+        std::format("PAMPL: expected '=' after param name '{}'", param.name));
+  }
+
+  if (is_monthly) {
+    // Parse [v1, v2, ..., v12]
+    sc.skip_ws_comments();
+    if (!sc.consume('[')) {
+      throw std::invalid_argument(std::format(
+          "PAMPL: expected '[' for monthly values of param '{}'", param.name));
+    }
+
+    std::vector<Real> values;
+    while (true) {
+      sc.skip_ws_comments();
+      if (sc.peek_char() == ']') {
+        sc.consume(']');
+        break;
+      }
+      values.push_back(sc.read_number());
+      sc.skip_ws_comments();
+      sc.consume(',');  // optional trailing comma
+    }
+
+    if (values.size() != 12) {
+      throw std::invalid_argument(
+          std::format("PAMPL: param '{}' has {} monthly values (expected 12)",
+                      param.name,
+                      values.size()));
+    }
+    param.monthly = std::move(values);
+  } else {
+    // Scalar value
+    param.value = sc.read_number();
+  }
+
+  // Expect ';'
+  sc.skip_ws_comments();
+  if (!sc.consume(';')) {
+    throw std::invalid_argument(std::format(
+        "PAMPL: expected ';' after param '{}' declaration", param.name));
+  }
+
+  return param;
+}
+
 // ── PAMPL parse logic ────────────────────────────────────────────────────────
 
-std::vector<UserConstraint> do_parse(std::string_view source, Uid start_uid)
+PamplParseResult do_parse(std::string_view source, Uid start_uid)
 {
   Scanner sc(source);
-  std::vector<UserConstraint> result;
+  PamplParseResult result;
 
   Uid next_uid = start_uid;
 
@@ -178,6 +285,7 @@ std::vector<UserConstraint> do_parse(std::string_view source, Uid start_uid)
     }
 
     // ── Optional header: [inactive] constraint NAME ["desc"] : ──────────────
+    //    Or: param NAME [= value | [month] = [...]] ;
     bool active = true;
     std::string name;
     std::string description;
@@ -188,6 +296,12 @@ std::vector<UserConstraint> do_parse(std::string_view source, Uid start_uid)
 
     // Try to read a header keyword
     const std::string first_word = sc.read_ident();
+
+    if (first_word == "param") {
+      // Parameter declaration
+      result.params.push_back(parse_param(sc));
+      continue;
+    }
 
     if (first_word == "inactive") {
       // Must be followed by "constraint"
@@ -260,7 +374,7 @@ std::vector<UserConstraint> do_parse(std::string_view source, Uid start_uid)
       uc.description = std::move(description);
     }
 
-    result.push_back(std::move(uc));
+    result.constraints.push_back(std::move(uc));
   }
 
   return result;
@@ -270,8 +384,8 @@ std::vector<UserConstraint> do_parse(std::string_view source, Uid start_uid)
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
-std::vector<UserConstraint> PamplParser::parse_file(std::string_view filepath,
-                                                    Uid start_uid)
+PamplParseResult PamplParser::parse_file(std::string_view filepath,
+                                         Uid start_uid)
 {
   const std::ifstream file {std::string {filepath}};
   if (!file) {
@@ -283,8 +397,7 @@ std::vector<UserConstraint> PamplParser::parse_file(std::string_view filepath,
   return parse(buf.str(), start_uid);
 }
 
-std::vector<UserConstraint> PamplParser::parse(std::string_view source,
-                                               Uid start_uid)
+PamplParseResult PamplParser::parse(std::string_view source, Uid start_uid)
 {
   return do_parse(source, start_uid);
 }

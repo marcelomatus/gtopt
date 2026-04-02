@@ -61,6 +61,23 @@ public:
     return generation_cols.at({scenario.uid(), stage.uid()});
   }
 
+  /// @name Parameter accessors for user constraint resolution
+  /// @{
+  [[nodiscard]] auto param_pmax(StageUid s, BlockUid b) const
+  {
+    return pmax.at(s, b);
+  }
+  [[nodiscard]] auto param_pmin(StageUid s, BlockUid b) const
+  {
+    return pmin.at(s, b);
+  }
+  [[nodiscard]] auto param_gcost(StageUid s) const { return gcost.at(s); }
+  [[nodiscard]] auto param_lossfactor(StageUid s) const
+  {
+    return lossfactor.at(s);
+  }
+  /// @}
+
 private:
   OptTBRealSched pmin;
   OptTBRealSched pmax;

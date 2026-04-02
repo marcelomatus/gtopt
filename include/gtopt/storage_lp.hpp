@@ -770,6 +770,13 @@ public:
     return true;
   }
 
+  /// @name Parameter accessors for user constraint resolution
+  /// @{
+  [[nodiscard]] auto param_emin(StageUid s) const { return emin.at(s); }
+  [[nodiscard]] auto param_emax(StageUid s) const { return emax.at(s); }
+  [[nodiscard]] auto param_ecost(StageUid s) const { return ecost.at(s); }
+  /// @}
+
 private:
   OptTRealSched emin;
   OptTRealSched emax;

@@ -3,7 +3,7 @@
 """Writer for Maule irrigation agreement entities.
 
 Converts parsed MauleParser data into gtopt JSON entities:
-FlowRight, VolumeRight, RightJunction, and UserConstraint.
+FlowRight, VolumeRight, and UserConstraint.
 
 The Maule convention divides the Laguna del Maule / Colbun system into
 three operational zones (normal, ordinary reserve, extraordinary reserve)
@@ -14,7 +14,10 @@ See also:
   plp_implementation.md -- PLP Fortran source reference
 """
 
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+import jinja2
 
 
 # Month names for gtopt Stage (1-indexed: january=1 .. december=12)
@@ -36,7 +39,7 @@ _MONTH_NAMES = [
 
 
 class MauleWriter:
-    """Emits FlowRight, VolumeRight, RightJunction, and UserConstraint
+    """Emits FlowRight, VolumeRight, and UserConstraint
     entities for the Maule irrigation agreement.
 
     Args:
@@ -58,7 +61,6 @@ class MauleWriter:
 
         self.flow_rights: List[Dict[str, Any]] = []
         self.volume_rights: List[Dict[str, Any]] = []
-        self.right_junctions: List[Dict[str, Any]] = []
         self.user_constraints: List[Dict[str, Any]] = []
 
         self._build()
@@ -68,6 +70,20 @@ class MauleWriter:
         uid = self._uid_counter
         self._uid_counter += 1
         return uid
+
+    def _get_stages(self) -> List[Dict[str, Any]]:
+        """Return the effective list of stages, truncated to match options."""
+        if self._stage_parser is None:
+            return []
+        stages = self._stage_parser.get_all()
+        last_stage = self._options.get("last_stage", -1)
+        try:
+            last_stage = int(last_stage)
+        except (ValueError, TypeError):
+            last_stage = -1
+        if last_stage > 0:
+            stages = [s for s in stages if s["number"] <= last_stage]
+        return stages
 
     def _monthly_schedule(self, monthly_values: List[float]) -> List[float]:
         """Convert 12-element monthly array to per-stage values.
@@ -79,7 +95,7 @@ class MauleWriter:
         if self._stage_parser is None:
             return monthly_values
 
-        stages = self._stage_parser.get_all()
+        stages = self._get_stages()
         schedule: List[float] = []
         for stage in stages:
             month = stage.get("month", 1)
@@ -88,35 +104,37 @@ class MauleWriter:
             schedule.append(monthly_values[idx])
         return schedule
 
-    @staticmethod
     def _to_stb_sched(
+        self,
         values: List[float],
     ) -> float | List[List[List[float]]]:
         """Convert per-stage values to STBRealFieldSched format.
 
         STBRealFieldSched = FieldSched<Real, vector<vector<vector<Real>>>>
-        so a per-stage schedule needs to be [[[v1], [v2], ...]] (3D).
+        so a per-stage schedule needs to be [[[v1]*nblocks, [v2]*nblocks, ...]]
+        (3D).  Each stage value is replicated across all blocks.
         Returns scalar if all values are the same.
         """
         if len(set(values)) == 1:
             return values[0]
-        # 3D: [scenario=1][stage][block=1 broadcast]
-        return [[[v] for v in values]]
+        nblocks = self._options.get("blocks_per_stage", 1)
+        return [[[v] * nblocks for v in values]]
 
-    @staticmethod
     def _to_tb_sched(
+        self,
         values: List[float],
     ) -> float | List[List[float]]:
         """Convert per-stage values to TBRealFieldSched format.
 
         TBRealFieldSched = FieldSched<Real, vector<vector<Real>>>
-        so a per-stage schedule needs to be [[v1], [v2], ...] (2D).
+        so a per-stage schedule needs to be [[v1]*nblocks, [v2]*nblocks, ...]
+        (2D).  Each stage value is replicated across all blocks.
         Returns scalar if all values are the same.
         """
         if len(set(values)) == 1:
             return values[0]
-        # 2D: [stage][block=1 broadcast]
-        return [[v] for v in values]
+        nblocks = self._options.get("blocks_per_stage", 1)
+        return [[v] * nblocks for v in values]
 
     def _monthly_fmax_schedule(
         self,
@@ -145,35 +163,6 @@ class MauleWriter:
         v_zone_extraord = v_extraord  # 129 hm3
         v_zone_normal = v_extraord + v_ordinaria  # 129 + 452 = 581 hm3
 
-        # --- RightJunction: Armerillo balance point ---
-        rj_armerillo_uid = self._next_uid()
-        self.right_junctions.append(
-            {
-                "uid": rj_armerillo_uid,
-                "name": "armerillo",
-                "drain": True,
-            }
-        )
-
-        # --- RightJunction: per-central flow partitions ---
-        central_names = [
-            cfg["central_maule"],
-            cfg["central_invernada"],
-            cfg["central_melado"],
-            cfg["central_colbun"],
-        ]
-        rj_central_uids: Dict[str, int] = {}
-        for cname in central_names:
-            uid = self._next_uid()
-            rj_central_uids[cname] = uid
-            self.right_junctions.append(
-                {
-                    "uid": uid,
-                    "name": f"partition_{cname}",
-                    "drain": False,
-                }
-            )
-
         # --- FlowRight: Normal electric rights (IQMNE) ---
         # Active in normal zone, fmax = gasto_elec_dia_max
         fr_elec_normal_uid = self._next_uid()
@@ -183,7 +172,6 @@ class MauleWriter:
                 "uid": fr_elec_normal_uid,
                 "name": "maule_elec_normal",
                 "purpose": "generation",
-                "right_junction": "armerillo",
                 "direction": -1,
                 "discharge": 0,
                 "fmax": elec_day_max,
@@ -209,30 +197,32 @@ class MauleWriter:
         # Monthly percentage schedule for irrigation
         pct_riego = cfg["pct_riego_mensual"]
         irr_fmax_schedule = self._monthly_fmax_schedule(pct_riego, riego_max)
-        self.flow_rights.append(
-            {
-                "uid": fr_irr_normal_uid,
-                "name": "maule_irr_normal",
-                "purpose": "irrigation",
-                "right_junction": "armerillo",
-                "direction": -1,
-                "discharge": 0,
-                "fmax": irr_fmax_schedule,
-                "use_average": True,
-                "fail_cost": cfg.get("costo_riego_ns_maule", 1000),
-                "bound_rule": {
-                    "reservoir": res_colbun,
-                    "segments": [
-                        {"volume": 0, "slope": 0, "constant": 0},
-                        {
-                            "volume": v_zone_normal,
-                            "slope": 0,
-                            "constant": riego_max,
-                        },
-                    ],
-                },
-            }
-        )
+        fr_irr_normal: Dict[str, Any] = {
+            "uid": fr_irr_normal_uid,
+            "name": "maule_irr_normal",
+            "purpose": "irrigation",
+            "direction": -1,
+            "discharge": 0,
+            "fmax": irr_fmax_schedule,
+            "use_average": True,
+            "fail_cost": cfg.get("costo_riego_ns_maule", 1000),
+            "bound_rule": {
+                "reservoir": res_colbun,
+                "segments": [
+                    {"volume": 0, "slope": 0, "constant": 0},
+                    {
+                        "volume": v_zone_normal,
+                        "slope": 0,
+                        "constant": riego_max,
+                    },
+                ],
+            },
+        }
+        # Irrigation delivery benefit (negative cost = benefit in objective)
+        valor_riego = cfg.get("valor_riego_maule", 0)
+        if valor_riego > 0:
+            fr_irr_normal["use_value"] = valor_riego
+        self.flow_rights.append(fr_irr_normal)
 
         # --- FlowRight: Ordinary reserve electric (IQMOE) ---
         fr_elec_ord_uid = self._next_uid()
@@ -245,7 +235,6 @@ class MauleWriter:
                 "uid": fr_elec_ord_uid,
                 "name": "maule_elec_ordinary",
                 "purpose": "generation",
-                "right_junction": "armerillo",
                 "direction": -1,
                 "discharge": 0,
                 "fmax": elec_ord_fmax,
@@ -271,34 +260,34 @@ class MauleWriter:
 
         # --- FlowRight: Ordinary reserve irrigation (IQMOR) ---
         fr_irr_ord_uid = self._next_uid()
-        self.flow_rights.append(
-            {
-                "uid": fr_irr_ord_uid,
-                "name": "maule_irr_ordinary",
-                "purpose": "irrigation",
-                "right_junction": "armerillo",
-                "direction": -1,
-                "discharge": 0,
-                "fmax": irr_fmax_schedule,
-                "use_average": True,
-                "bound_rule": {
-                    "reservoir": res_colbun,
-                    "segments": [
-                        {"volume": 0, "slope": 0, "constant": 0},
-                        {
-                            "volume": v_zone_extraord,
-                            "slope": 0,
-                            "constant": riego_max,
-                        },
-                        {
-                            "volume": v_zone_normal,
-                            "slope": 0,
-                            "constant": 0,
-                        },
-                    ],
-                },
-            }
-        )
+        fr_irr_ord: Dict[str, Any] = {
+            "uid": fr_irr_ord_uid,
+            "name": "maule_irr_ordinary",
+            "purpose": "irrigation",
+            "direction": -1,
+            "discharge": 0,
+            "fmax": irr_fmax_schedule,
+            "use_average": True,
+            "bound_rule": {
+                "reservoir": res_colbun,
+                "segments": [
+                    {"volume": 0, "slope": 0, "constant": 0},
+                    {
+                        "volume": v_zone_extraord,
+                        "slope": 0,
+                        "constant": riego_max,
+                    },
+                    {
+                        "volume": v_zone_normal,
+                        "slope": 0,
+                        "constant": 0,
+                    },
+                ],
+            },
+        }
+        if valor_riego > 0:
+            fr_irr_ord["use_value"] = valor_riego
+        self.flow_rights.append(fr_irr_ord)
 
         # --- FlowRight: ENDESA compensation (IQMCE) ---
         fr_comp_uid = self._next_uid()
@@ -307,7 +296,6 @@ class MauleWriter:
                 "uid": fr_comp_uid,
                 "name": "maule_compensation",
                 "purpose": "generation",
-                "right_junction": "armerillo",
                 "direction": -1,
                 "discharge": 0,
                 "fmax": elec_day_max,
@@ -320,16 +308,19 @@ class MauleWriter:
         caudal_res105 = cfg["caudal_res105"]
         res105_values = self._monthly_schedule(caudal_res105)
         res105_discharge = self._to_stb_sched(res105_values)
-        self.flow_rights.append(
-            {
-                "uid": fr_res105_uid,
-                "name": "maule_res105",
-                "purpose": "environmental",
-                "direction": -1,
-                "discharge": res105_discharge,
-                "fail_cost": cfg.get("costo_riego_ns_res105", 1000),
-            }
-        )
+        fr_res105: Dict[str, Any] = {
+            "uid": fr_res105_uid,
+            "name": "maule_res105",
+            "purpose": "environmental",
+            "direction": -1,
+            "discharge": res105_discharge,
+            "fail_cost": cfg.get("costo_riego_ns_res105", 1000),
+        }
+        # Res105 delivery benefit (negative cost = benefit in objective)
+        valor_res105 = cfg.get("valor_riego_res105", 0)
+        if valor_res105 > 0:
+            fr_res105["use_value"] = valor_res105
+        self.flow_rights.append(fr_res105)
 
         # --- VolumeRight: Monthly electric accumulator (IVMGEMF) ---
         vr_elec_men_uid = self._next_uid()
@@ -390,6 +381,40 @@ class MauleWriter:
             }
         )
 
+        # --- VolumeRight: Extraordinary reserve electric accumulator ---
+        # Tracks accumulated electric extraction from the extraordinary
+        # reserve zone (bottom zone, 0..v_reserva_extraord hm3).
+        # PLP variable: v_gasto_rext_elec / v_der_rext_elec
+        vr_rext_elec_uid = self._next_uid()
+        self.volume_rights.append(
+            {
+                "uid": vr_rext_elec_uid,
+                "name": "maule_vol_rext_elec",
+                "purpose": "generation",
+                "reservoir": res_colbun,
+                "eini": cfg.get("v_gasto_rext_elec_ini", 0.0),
+                "emax": cfg["v_reserva_extraord"],
+                "use_state_variable": True,
+            }
+        )
+
+        # --- VolumeRight: Extraordinary reserve irrigation accumulator ---
+        # Tracks accumulated irrigation extraction from the extraordinary
+        # reserve zone.
+        # PLP variable: v_gasto_rext_riego / v_der_rext_riego
+        vr_rext_riego_uid = self._next_uid()
+        self.volume_rights.append(
+            {
+                "uid": vr_rext_riego_uid,
+                "name": "maule_vol_rext_riego",
+                "purpose": "irrigation",
+                "reservoir": res_colbun,
+                "eini": cfg.get("v_gasto_rext_riego_ini", 0.0),
+                "emax": cfg["v_reserva_extraord"],
+                "use_state_variable": True,
+            }
+        )
+
         # --- VolumeRight: La Invernada winter economy ---
         vr_econ_uid = self._next_uid()
         self.volume_rights.append(
@@ -403,17 +428,6 @@ class MauleWriter:
             }
         )
 
-        # --- RightJunction: La Invernada winter balance ---
-        # Balance: m_qidn + m_qisd + m_qninv - m_qhein - m_qhnein = QAflInvern
-        rj_invernada_uid = self._next_uid()
-        self.right_junctions.append(
-            {
-                "uid": rj_invernada_uid,
-                "name": "invernada_balance",
-                "drain": False,
-            }
-        )
-
         # --- FlowRight: La Invernada deficit discharge (IQIDN) ---
         fr_idn_uid = self._next_uid()
         self.flow_rights.append(
@@ -421,7 +435,6 @@ class MauleWriter:
                 "uid": fr_idn_uid,
                 "name": "invernada_deficit",
                 "purpose": "irrigation",
-                "right_junction": "invernada_balance",
                 "direction": 1,
                 "discharge": 0,
                 "use_average": True,
@@ -435,7 +448,6 @@ class MauleWriter:
                 "uid": fr_isd_uid,
                 "name": "invernada_no_deficit",
                 "purpose": "irrigation",
-                "right_junction": "invernada_balance",
                 "direction": 1,
                 "discharge": 0,
                 "use_average": True,
@@ -449,7 +461,6 @@ class MauleWriter:
                 "uid": fr_ninv_uid,
                 "name": "invernada_natural_inflow",
                 "purpose": "irrigation",
-                "right_junction": "invernada_balance",
                 "direction": 1,
                 "discharge": 0,
                 "use_average": True,
@@ -462,14 +473,13 @@ class MauleWriter:
             "uid": fr_hein_uid,
             "name": "invernada_storage",
             "purpose": "economy",
-            "right_junction": "invernada_balance",
             "direction": -1,
             "discharge": 0,
             "use_average": True,
         }
         econ_costo = cfg.get("econ_inver_costo", 0.0)
         if econ_costo > 0:
-            fr_hein["use_cost"] = econ_costo
+            fr_hein["use_value"] = econ_costo
         self.flow_rights.append(fr_hein)
 
         # --- FlowRight: La Invernada bypass (IQHNEIN) ---
@@ -479,7 +489,6 @@ class MauleWriter:
                 "uid": fr_hnein_uid,
                 "name": "invernada_bypass",
                 "purpose": "economy",
-                "right_junction": "invernada_balance",
                 "direction": -1,
                 "discharge": 0,
                 "use_average": True,
@@ -497,9 +506,27 @@ class MauleWriter:
                     "purpose": "irrigation",
                     "direction": -1,
                     "discharge": 0,
-                    "use_cost": costo_canelon,
+                    "use_value": costo_canelon,
                 }
             )
+
+        # --- UserConstraint: La Invernada flow balance ---
+        # deficit + no_deficit + natural_inflow = storage + bypass
+        uc_invernada_uid = self._next_uid()
+        self.user_constraints.append(
+            {
+                "uid": uc_invernada_uid,
+                "name": "invernada_balance",
+                "expression": (
+                    "flow_right('invernada_deficit').flow "
+                    "+ flow_right('invernada_no_deficit').flow "
+                    "+ flow_right('invernada_natural_inflow').flow "
+                    "= flow_right('invernada_storage').flow "
+                    "+ flow_right('invernada_bypass').flow"
+                ),
+                "description": ("La Invernada winter balance: inflows equal outflows"),
+            }
+        )
 
         # --- UserConstraint: Percentage allocation in ordinary reserve ---
         # Electric gets pct_elec_reserva% of total flow in ordinary zone
@@ -570,15 +597,52 @@ class MauleWriter:
                 }
             )
 
-    def to_json_dict(self) -> Dict[str, List[Dict[str, Any]]]:
-        """Return all entities as a dict of arrays for system JSON."""
+    def generate_pampl(self, output_path: Path) -> str:
+        """Render the Maule agreement PAMPL file from the Jinja2 template.
+
+        Args:
+            output_path: Directory where the .pampl file will be written.
+
+        Returns:
+            Filename of the generated .pampl file (relative name only).
+        """
+        template_dir = Path(__file__).parent / "templates"
+        env = jinja2.Environment(
+            loader=jinja2.FileSystemLoader(str(template_dir)),
+            keep_trailing_newline=True,
+            undefined=jinja2.StrictUndefined,
+        )
+        template = env.get_template("maule_agreement.tampl")
+
+        rendered = template.render(self._cfg)
+
+        output_path = Path(output_path)
+        output_path.mkdir(parents=True, exist_ok=True)
+        pampl_file = output_path / "maule_agreement.pampl"
+        pampl_file.write_text(rendered, encoding="utf-8")
+
+        return "maule_agreement.pampl"
+
+    def to_json_dict(
+        self,
+        output_dir: Optional[Path] = None,
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Return all entities as a dict of arrays for system JSON.
+
+        Args:
+            output_dir: If provided, generates a .pampl file in this
+                directory and sets ``user_constraint_file`` instead of
+                embedding constraints in ``user_constraint_array``.
+        """
         result: Dict[str, List[Dict[str, Any]]] = {}
-        if self.right_junctions:
-            result["right_junction_array"] = self.right_junctions
         if self.flow_rights:
             result["flow_right_array"] = self.flow_rights
         if self.volume_rights:
             result["volume_right_array"] = self.volume_rights
         if self.user_constraints:
-            result["user_constraint_array"] = self.user_constraints
+            if output_dir is not None:
+                pampl_name = self.generate_pampl(output_dir)
+                result["user_constraint_file"] = pampl_name  # type: ignore[assignment]
+            else:
+                result["user_constraint_array"] = self.user_constraints
         return result

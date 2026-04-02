@@ -230,7 +230,8 @@ struct ConstraintDomain
  * Either:
  *   - coefficient × element reference (single variable term)
  *   - coefficient × sum reference (aggregation term)
- *   - standalone coefficient (constant term, both nullopt)
+ *   - coefficient × named parameter (resolved at LP time)
+ *   - standalone coefficient (constant term, all nullopt)
  */
 struct ConstraintTerm
 {
@@ -238,6 +239,8 @@ struct ConstraintTerm
   std::optional<ElementRef> element {};  ///< Single element (nullopt = none)
   std::optional<SumElementRef>
       sum_ref {};  ///< Sum aggregation (nullopt = none)
+  std::optional<std::string>
+      param_name {};  ///< Named user parameter (nullopt = none)
 };
 
 /**

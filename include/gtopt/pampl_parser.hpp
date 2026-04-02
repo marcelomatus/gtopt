@@ -60,43 +60,72 @@
 #include <vector>
 
 #include <gtopt/user_constraint.hpp>
+#include <gtopt/user_param.hpp>
 
 namespace gtopt
 {
 
 /**
+ * @brief Result of parsing a PAMPL file or string.
+ *
+ * Contains both parsed user constraints and parameter declarations.
+ */
+struct PamplParseResult
+{
+  std::vector<UserConstraint> constraints {};
+  std::vector<UserParam> params {};
+};
+
+/**
  * @brief Parser for pseudo-AMPL constraint files (.pampl)
  *
  * Reads a `.pampl` text file (or string) and produces a list of
- * `UserConstraint` objects.  Call `parse_file()` to parse from a filesystem
- * path, or `parse()` to parse from an in-memory string.
+ * `UserConstraint` and `UserParam` objects.  Call `parse_file()` to parse
+ * from a filesystem path, or `parse()` to parse from an in-memory string.
+ *
+ * ### Parameter declarations
+ *
+ * ```pampl
+ * # Scalar parameter
+ * param pct_elec = 35;
+ *
+ * # Monthly-indexed parameter (12 values, jan..dec)
+ * param irr_seasonal[month] = [0, 0, 0, 100, 100, 100, 100, 100, 100, 100,
+ *                               0, 0];
+ * ```
+ *
+ * Parameters can then be referenced by name in constraint expressions:
+ * ```pampl
+ * constraint elec_limit:
+ *   generator('G1').generation <= pct_elec;
+ * ```
  */
 class PamplParser
 {
 public:
   /**
-   * @brief Parse a `.pampl` file into `UserConstraint` objects.
+   * @brief Parse a `.pampl` file into constraints and parameters.
    *
    * @param filepath   Path to the `.pampl` file.
    * @param start_uid  First UID to assign (default 1); increment by 1 for
    *                   each constraint so UIDs are unique.
-   * @return Vector of parsed `UserConstraint` objects.
+   * @return Parsed constraints and parameters.
    * @throws std::runtime_error  if the file cannot be opened.
    * @throws std::invalid_argument  on syntax errors.
    */
-  [[nodiscard]] static std::vector<UserConstraint> parse_file(
-      std::string_view filepath, Uid start_uid = Uid {1});
+  [[nodiscard]] static PamplParseResult parse_file(std::string_view filepath,
+                                                   Uid start_uid = Uid {1});
 
   /**
-   * @brief Parse a `.pampl` string into `UserConstraint` objects.
+   * @brief Parse a `.pampl` string into constraints and parameters.
    *
    * @param source    The PAMPL source text.
    * @param start_uid First UID to assign (default 1).
-   * @return Vector of parsed `UserConstraint` objects.
+   * @return Parsed constraints and parameters.
    * @throws std::invalid_argument  on syntax errors.
    */
-  [[nodiscard]] static std::vector<UserConstraint> parse(
-      std::string_view source, Uid start_uid = Uid {1});
+  [[nodiscard]] static PamplParseResult parse(std::string_view source,
+                                              Uid start_uid = Uid {1});
 };
 
 }  // namespace gtopt

@@ -538,6 +538,160 @@ namespace
   return std::nullopt;
 }
 
+// ── Per-element parameter resolution ────────────────────────────────────────
+
+[[nodiscard]] std::optional<double> resolve_single_param(
+    const SystemContext& sc,
+    const ScenarioLP& scenario,
+    const StageLP& stage,
+    const BlockLP& block,
+    const ElementRef& ref)
+{
+  const auto single_id = parse_element_id(ref.element_id);
+  const auto suid = stage.uid();
+  const auto buid = block.uid();
+
+  try {
+    // ── generator ────────────────────────────────────────────────────────
+    if (ref.element_type == "generator") {
+      const auto& gen = sc.get_element(ObjectSingleId<GeneratorLP> {single_id});
+      if (ref.attribute == "pmax") {
+        return gen.param_pmax(suid, buid);
+      }
+      if (ref.attribute == "pmin") {
+        return gen.param_pmin(suid, buid);
+      }
+      if (ref.attribute == "gcost") {
+        return gen.param_gcost(suid);
+      }
+      if (ref.attribute == "lossfactor") {
+        return gen.param_lossfactor(suid);
+      }
+      return std::nullopt;
+    }
+
+    // ── demand ───────────────────────────────────────────────────────────
+    if (ref.element_type == "demand") {
+      const auto& dem = sc.get_element(ObjectSingleId<DemandLP> {single_id});
+      if (ref.attribute == "lmax") {
+        return dem.param_lmax(suid, buid);
+      }
+      if (ref.attribute == "fcost") {
+        return dem.param_fcost(suid);
+      }
+      if (ref.attribute == "lossfactor") {
+        return dem.param_lossfactor(suid);
+      }
+      return std::nullopt;
+    }
+
+    // ── line ─────────────────────────────────────────────────────────────
+    if (ref.element_type == "line") {
+      const auto& ln = sc.get_element(ObjectSingleId<LineLP> {single_id});
+      if (ref.attribute == "tmax" || ref.attribute == "tmax_ab") {
+        return ln.param_tmax_ab(suid, buid);
+      }
+      if (ref.attribute == "tmax_ba") {
+        return ln.param_tmax_ba(suid, buid);
+      }
+      if (ref.attribute == "tcost") {
+        return ln.param_tcost(suid);
+      }
+      if (ref.attribute == "reactance") {
+        return ln.param_reactance(suid);
+      }
+      return std::nullopt;
+    }
+
+    // ── battery ──────────────────────────────────────────────────────────
+    if (ref.element_type == "battery") {
+      const auto& bat = sc.get_element(ObjectSingleId<BatteryLP> {single_id});
+      if (ref.attribute == "emin") {
+        return bat.param_emin(suid);
+      }
+      if (ref.attribute == "emax") {
+        return bat.param_emax(suid);
+      }
+      if (ref.attribute == "ecost") {
+        return bat.param_ecost(suid);
+      }
+      if (ref.attribute == "input_efficiency") {
+        return bat.param_input_efficiency(suid);
+      }
+      if (ref.attribute == "output_efficiency") {
+        return bat.param_output_efficiency(suid);
+      }
+      return std::nullopt;
+    }
+
+    // ── reservoir ────────────────────────────────────────────────────────
+    if (ref.element_type == "reservoir") {
+      const auto& res = sc.get_element(ObjectSingleId<ReservoirLP> {single_id});
+      if (ref.attribute == "emin") {
+        return res.param_emin(suid);
+      }
+      if (ref.attribute == "emax") {
+        return res.param_emax(suid);
+      }
+      if (ref.attribute == "ecost") {
+        return res.param_ecost(suid);
+      }
+      if (ref.attribute == "capacity") {
+        return res.param_capacity(suid);
+      }
+      return std::nullopt;
+    }
+
+    // ── flow_right ───────────────────────────────────────────────────────
+    if (ref.element_type == "flow_right") {
+      const auto& frt = sc.get_element(ObjectSingleId<FlowRightLP> {single_id});
+      if (ref.attribute == "fmax") {
+        return frt.param_fmax(suid, buid);
+      }
+      if (ref.attribute == "discharge") {
+        return frt.param_discharge(scenario.uid(), suid, buid);
+      }
+      if (ref.attribute == "fail_cost") {
+        return frt.param_fail_cost(suid, buid);
+      }
+      if (ref.attribute == "use_value") {
+        return frt.param_use_value(suid, buid);
+      }
+      return std::nullopt;
+    }
+
+    // ── volume_right ─────────────────────────────────────────────────────
+    if (ref.element_type == "volume_right") {
+      const auto& vrt =
+          sc.get_element(ObjectSingleId<VolumeRightLP> {single_id});
+      if (ref.attribute == "fmax") {
+        return vrt.param_fmax(suid, buid);
+      }
+      if (ref.attribute == "emin") {
+        return vrt.param_emin(suid);
+      }
+      if (ref.attribute == "emax") {
+        return vrt.param_emax(suid);
+      }
+      if (ref.attribute == "fail_cost") {
+        return vrt.param_fail_cost();
+      }
+      return std::nullopt;
+    }
+
+  } catch (const std::exception& ex) {
+    SPDLOG_WARN(
+        std::format("user_constraint: cannot resolve param {}.{}('{}'): {}",
+                    ref.element_type,
+                    ref.attribute,
+                    ref.element_id,
+                    ex.what()));
+    return std::nullopt;
+  }
+
+  return std::nullopt;
+}
+
 // ── Sum-reference resolution ─────────────────────────────────────────────────
 
 void collect_sum_cols(const SystemContext& sc,

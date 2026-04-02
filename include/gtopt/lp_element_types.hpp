@@ -38,7 +38,6 @@ class FlowLP;
 class GeneratorLP;
 class GeneratorProfileLP;
 class FlowRightLP;
-class RightJunctionLP;
 class VolumeRightLP;
 class JunctionLP;
 class LineLP;
@@ -83,7 +82,6 @@ using lp_element_types_t = std::tuple<BusLP,
                                       ReservoirDischargeLimitLP,
                                       TurbineLP,
                                       ReservoirProductionFactorLP,
-                                      RightJunctionLP,
                                       FlowRightLP,
                                       VolumeRightLP,
                                       UserConstraintLP>;

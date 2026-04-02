@@ -25,6 +25,7 @@
 namespace daw::json
 {
 using gtopt::CompressionCodec;
+using gtopt::ConstraintMode;
 using gtopt::DataFormat;
 using gtopt::LpBuildOptions;
 using gtopt::MethodType;
@@ -40,6 +41,7 @@ struct PlanningOptionsConstructor
       OptReal demand_fail_cost,
       OptReal reserve_fail_cost,
       OptReal hydro_fail_cost,
+      OptReal hydro_use_value,
       OptBool use_line_losses,
       OptInt loss_segments,
       OptBool use_kirchhoff,
@@ -64,7 +66,8 @@ struct PlanningOptionsConstructor
       CascadeOptions cascade_options,
       SolverOptions solver_options,
       LpBuildOptions lp_build_options,
-      gtopt::Array<VariableScale> variable_scales) const
+      gtopt::Array<VariableScale> variable_scales,
+      OptName constraint_mode_str) const
   {
     PlanningOptions opts;
     opts.input_directory = std::move(input_directory);
@@ -74,6 +77,7 @@ struct PlanningOptionsConstructor
     opts.demand_fail_cost = demand_fail_cost;
     opts.reserve_fail_cost = reserve_fail_cost;
     opts.hydro_fail_cost = hydro_fail_cost;
+    opts.hydro_use_value = hydro_use_value;
     opts.use_line_losses = use_line_losses;
     opts.loss_segments = loss_segments;
     opts.use_kirchhoff = use_kirchhoff;
@@ -120,6 +124,10 @@ struct PlanningOptionsConstructor
     opts.solver_options = solver_options;
     opts.lp_build_options = std::move(lp_build_options);
     opts.variable_scales = std::move(variable_scales);
+    if (constraint_mode_str) {
+      opts.constraint_mode =
+          gtopt::enum_from_name<ConstraintMode>(*constraint_mode_str);
+    }
     return opts;
   }
 };
@@ -135,6 +143,7 @@ struct json_data_contract<PlanningOptions>
                        json_number_null<"demand_fail_cost", OptReal>,
                        json_number_null<"reserve_fail_cost", OptReal>,
                        json_number_null<"hydro_fail_cost", OptReal>,
+                       json_number_null<"hydro_use_value", OptReal>,
                        json_bool_null<"use_line_losses", OptBool>,
                        json_number_null<"loss_segments", OptInt>,
                        json_bool_null<"use_kirchhoff", OptBool>,
@@ -164,7 +173,8 @@ struct json_data_contract<PlanningOptions>
                        json_class_null<"lp_build_options", LpBuildOptions>,
                        json_array_null<"variable_scales",
                                        gtopt::Array<VariableScale>,
-                                       VariableScale>>;
+                                       VariableScale>,
+                       json_string_null<"constraint_mode", OptName>>;
 
   static auto to_json_data(PlanningOptions const& opt)
   {
@@ -173,6 +183,7 @@ struct json_data_contract<PlanningOptions>
                            opt.demand_fail_cost,
                            opt.reserve_fail_cost,
                            opt.hydro_fail_cost,
+                           opt.hydro_use_value,
                            opt.use_line_losses,
                            opt.loss_segments,
                            opt.use_kirchhoff,
@@ -200,7 +211,8 @@ struct json_data_contract<PlanningOptions>
                            opt.cascade_options,
                            opt.solver_options,
                            opt.lp_build_options,
-                           opt.variable_scales);
+                           opt.variable_scales,
+                           detail::enum_to_opt_name(opt.constraint_mode));
   }
 };
 

@@ -49,6 +49,9 @@ struct ModelOptions
   /// Default penalty cost for unmet hydro rights [$/m3].
   /// Per-element `fail_cost` overrides this global default.
   OptReal hydro_fail_cost {};
+  /// Default value (benefit) of exercising hydro rights [$/m3].
+  /// Per-element `use_value` overrides this global default.
+  OptReal hydro_use_value {};
   /// Annual discount rate for multi-stage CAPEX [p.u./year].
   OptReal annual_discount_rate {};
 
@@ -64,6 +67,7 @@ struct ModelOptions
     merge_opt(demand_fail_cost, opts.demand_fail_cost);
     merge_opt(reserve_fail_cost, opts.reserve_fail_cost);
     merge_opt(hydro_fail_cost, opts.hydro_fail_cost);
+    merge_opt(hydro_use_value, opts.hydro_use_value);
     merge_opt(annual_discount_rate, opts.annual_discount_rate);
   }
 
@@ -75,7 +79,7 @@ struct ModelOptions
         || loss_segments.has_value() || scale_objective.has_value()
         || scale_theta.has_value() || demand_fail_cost.has_value()
         || reserve_fail_cost.has_value() || hydro_fail_cost.has_value()
-        || annual_discount_rate.has_value();
+        || hydro_use_value.has_value() || annual_discount_rate.has_value();
   }
 };
 

@@ -147,6 +147,16 @@ public:
     return m_options_.model_options.hydro_fail_cost;
   }
 
+  /// @brief Gets the hydro use value (benefit per m³).
+  /// Flat field takes precedence, then model_options.
+  [[nodiscard]] constexpr auto hydro_use_value() const
+  {
+    if (m_options_.hydro_use_value.has_value()) {
+      return m_options_.hydro_use_value;
+    }
+    return m_options_.model_options.hydro_use_value;
+  }
+
   /// @brief Gets the reserve failure cost (field schedule).
   /// Flat field takes precedence, then model_options.
   [[nodiscard]] constexpr auto reserve_fail_cost() const
@@ -373,6 +383,13 @@ public:
   [[nodiscard]] constexpr bool row_equilibration() const noexcept
   {
     return m_options_.lp_build_options.row_equilibration.value_or(true);
+  }
+
+  /// Controls error handling for user constraint resolution.
+  /// Default is `strict` — fail on any unresolved reference.
+  [[nodiscard]] constexpr auto constraint_mode() const noexcept
+  {
+    return m_options_.constraint_mode.value_or(ConstraintMode::strict);
   }
 
   /**

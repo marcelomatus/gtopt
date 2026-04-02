@@ -40,9 +40,9 @@
 #include <gtopt/reservoir_discharge_limit.hpp>
 #include <gtopt/reservoir_production_factor.hpp>
 #include <gtopt/reservoir_seepage.hpp>
-#include <gtopt/right_junction.hpp>
 #include <gtopt/turbine.hpp>
 #include <gtopt/user_constraint.hpp>
+#include <gtopt/user_param.hpp>
 #include <gtopt/utils.hpp>
 #include <gtopt/volume_right.hpp>
 #include <gtopt/waterway.hpp>
@@ -101,12 +101,12 @@ struct System
                                              ///< efficiency
 
   // ── Water rights (NOT part of hydro topology) ───────────────────────────
-  Array<RightJunction> right_junction_array {};  ///< Water rights balance nodes
   Array<FlowRight> flow_right_array {};  ///< Flow-based water rights (m³/s)
   Array<VolumeRight>
       volume_right_array {};  ///< Volume-based water rights (hm³)
 
-  // ── User constraints ────────────────────────────────────────────────────
+  // ── User parameters and constraints ─────────────────────────────────────
+  Array<UserParam> user_param_array {};  ///< Named parameters for constraints
   Array<UserConstraint>
       user_constraint_array {};  ///< User-defined LP constraints
   OptName

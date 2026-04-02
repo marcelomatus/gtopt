@@ -431,19 +431,18 @@ class TestLajaWriter:
     def test_entities_generated(self, laja_config):
         writer = LajaWriter(laja_config)
 
-        assert len(writer.right_junctions) == 1  # laja_partition
+        assert len(writer.user_constraints) == 1  # laja_partition balance
         # 5 partition + district withdrawal FlowRights
         assert len(writer.flow_rights) >= 5
         assert (
             len(writer.volume_rights) == 7
         )  # irr, elec, mixed, anticipated + 3 economy
 
-    def test_partition_junction(self, laja_config):
+    def test_partition_user_constraint(self, laja_config):
         writer = LajaWriter(laja_config)
 
-        partition = writer.right_junctions[0]
-        assert partition["name"] == "laja_partition"
-        assert partition["drain"] is False
+        uc = writer.user_constraints[0]
+        assert uc["name"] == "laja_partition"
 
     def test_total_gen_flow_right(self, laja_config):
         writer = LajaWriter(laja_config)
@@ -525,7 +524,7 @@ class TestLajaWriter:
         writer = LajaWriter(laja_config)
         result = writer.to_json_dict()
 
-        assert "right_junction_array" in result
+        assert "user_constraint_array" in result
         assert "flow_right_array" in result
         assert "volume_right_array" in result
 
@@ -604,12 +603,13 @@ class TestLajaWriter:
     def test_unique_uids(self, laja_config):
         writer = LajaWriter(laja_config)
         all_uids = []
-        for fr in writer.flow_rights:
-            all_uids.append(fr["uid"])
-        for vr in writer.volume_rights:
-            all_uids.append(vr["uid"])
-        for rj in writer.right_junctions:
-            all_uids.append(rj["uid"])
+        for entity_list in [
+            writer.flow_rights,
+            writer.volume_rights,
+            writer.user_constraints,
+        ]:
+            for entity in entity_list:
+                all_uids.append(entity["uid"])
         assert len(all_uids) == len(set(all_uids)), "UIDs must be unique"
 
     def test_volume_rights_reservoir(self, laja_config):
@@ -668,21 +668,21 @@ class TestLajaWriter:
             assert "reset_month" not in vr  # economies carry forward
 
     def test_usage_cost_elec(self, laja_config):
-        """Electrical rights have use_cost = cost_elec_uso."""
+        """Electrical rights have use_value = cost_elec_uso."""
         writer = LajaWriter(laja_config)
         elec = next(fr for fr in writer.flow_rights if fr["name"] == "laja_elec_rights")
-        assert elec["use_cost"] == pytest.approx(laja_config["cost_elec_uso"])
+        assert elec["use_value"] == pytest.approx(laja_config["cost_elec_uso"])
 
     def test_usage_cost_mixed(self, laja_config):
-        """Mixed rights have use_cost = cost_mixed."""
+        """Mixed rights have use_value = cost_mixed."""
         writer = LajaWriter(laja_config)
         mixed = next(
             fr for fr in writer.flow_rights if fr["name"] == "laja_mixed_rights"
         )
-        assert mixed["use_cost"] == pytest.approx(laja_config["cost_mixed"])
+        assert mixed["use_value"] == pytest.approx(laja_config["cost_mixed"])
 
     def test_usage_cost_zero_omitted(self):
-        """When usage cost is 0, use_cost should not be emitted."""
+        """When usage cost is 0, use_value should not be emitted."""
         cfg = _minimal_laja_config()
         cfg["cost_elec_uso"] = 0.0
         cfg["cost_mixed"] = 0.0
@@ -691,13 +691,14 @@ class TestLajaWriter:
         mixed = next(
             fr for fr in writer.flow_rights if fr["name"] == "laja_mixed_rights"
         )
-        assert "use_cost" not in elec
-        assert "use_cost" not in mixed
+        assert "use_value" not in elec
+        assert "use_value" not in mixed
 
-    def test_no_user_constraints(self, laja_config):
-        """Laja writer does not emit user constraints."""
+    def test_user_constraints_partition(self, laja_config):
+        """Laja writer emits 1 user constraint for the partition balance."""
         writer = LajaWriter(laja_config)
-        assert len(writer.user_constraints) == 0
+        assert len(writer.user_constraints) == 1
+        assert writer.user_constraints[0]["name"] == "laja_partition"
 
     def test_json_serializable(self, laja_config):
         writer = LajaWriter(laja_config)
@@ -712,27 +713,45 @@ class TestLajaWriter:
         roundtrip = json.loads(json.dumps(result))
         assert len(roundtrip["flow_right_array"]) == len(writer.flow_rights)
         assert len(roundtrip["volume_right_array"]) == len(writer.volume_rights)
-        assert len(roundtrip["right_junction_array"]) == len(writer.right_junctions)
+        assert len(roundtrip["user_constraint_array"]) == len(writer.user_constraints)
 
 
 class TestLajaScheduleHelpers:
     """Test schedule conversion helpers without stage_parser."""
 
+    def _make_writer(self, blocks_per_stage=1):
+        cfg = _minimal_laja_config()
+        return LajaWriter(cfg, options={"blocks_per_stage": blocks_per_stage})
+
     def test_to_stb_sched_uniform(self):
-        result = LajaWriter._to_stb_sched([5.0, 5.0, 5.0])
+        writer = self._make_writer()
+        result = writer._to_stb_sched([5.0, 5.0, 5.0])
         assert result == 5.0
 
     def test_to_stb_sched_varying(self):
-        result = LajaWriter._to_stb_sched([1.0, 2.0, 3.0])
+        writer = self._make_writer()
+        result = writer._to_stb_sched([1.0, 2.0, 3.0])
         assert result == [[[1.0], [2.0], [3.0]]]
 
     def test_to_tb_sched_uniform(self):
-        result = LajaWriter._to_tb_sched([10.0, 10.0])
+        writer = self._make_writer()
+        result = writer._to_tb_sched([10.0, 10.0])
         assert result == 10.0
 
     def test_to_tb_sched_varying(self):
-        result = LajaWriter._to_tb_sched([10.0, 20.0])
+        writer = self._make_writer()
+        result = writer._to_tb_sched([10.0, 20.0])
         assert result == [[10.0], [20.0]]
+
+    def test_to_stb_sched_multi_block(self):
+        writer = self._make_writer(blocks_per_stage=3)
+        result = writer._to_stb_sched([1.0, 2.0])
+        assert result == [[[1.0, 1.0, 1.0], [2.0, 2.0, 2.0]]]
+
+    def test_to_tb_sched_multi_block(self):
+        writer = self._make_writer(blocks_per_stage=3)
+        result = writer._to_tb_sched([10.0, 20.0])
+        assert result == [[10.0, 10.0, 10.0], [20.0, 20.0, 20.0]]
 
     def test_hydro_to_stage_no_parser(self):
         """Without stage_parser, returns the input array unchanged."""
@@ -765,6 +784,7 @@ def _minimal_laja_config():
         "qmax_mixed": 50,
         "qmax_anticipated": 0,
         "cost_irr_ns": 1000,
+        "cost_irr_uso": 0.0,
         "cost_elec_ns": 1100,
         "cost_elec_uso": 0.1,
         "cost_mixed": 1.0,
@@ -772,10 +792,16 @@ def _minimal_laja_config():
         "monthly_usage_elec": [1] * 12,
         "monthly_usage_mixed": [1] * 12,
         "monthly_usage_anticipated": [0] * 12,
+        "monthly_cost_irr_ns": [1.0] * 12,
+        "monthly_cost_irr": [0.0] * 12,
+        "monthly_cost_elec": [0.0] * 12,
+        "monthly_cost_mixed": [0.0] * 12,
+        "monthly_cost_anticipated": [0.0] * 12,
         "ini_irr": 100,
         "ini_elec": 50,
         "ini_mixed": 0,
         "ini_anticipated": 0,
+        "filtration": 10.0,
         "districts": [
             {
                 "name": "D1",
@@ -806,7 +832,7 @@ class TestLajaWriterMinimalConfig:
         writer = LajaWriter(cfg)
         assert len(writer.flow_rights) >= 5
         assert len(writer.volume_rights) == 7  # 4 rights + 3 economy
-        assert len(writer.right_junctions) == 1
+        assert len(writer.user_constraints) == 1
 
     def test_minimal_district_discharge(self):
         cfg = _minimal_laja_config()
@@ -820,3 +846,73 @@ class TestLajaWriterMinimalConfig:
         writer = LajaWriter(cfg)
         vr_irr = next(vr for vr in writer.volume_rights if vr["name"] == "laja_vol_irr")
         assert len(vr_irr["bound_rule"]["segments"]) == 2
+
+
+class TestLajaPamplGeneration:
+    """Test PAMPL template rendering for Laja agreement."""
+
+    def test_generate_pampl_creates_file(self, tmp_path):
+        cfg = _minimal_laja_config()
+        writer = LajaWriter(cfg)
+        pampl_name = writer.generate_pampl(tmp_path)
+
+        assert pampl_name == "laja_agreement.pampl"
+        pampl_file = tmp_path / "laja_agreement.pampl"
+        assert pampl_file.exists()
+
+    def test_generate_pampl_contains_params(self, tmp_path):
+        cfg = _minimal_laja_config()
+        writer = LajaWriter(cfg)
+        writer.generate_pampl(tmp_path)
+
+        content = (tmp_path / "laja_agreement.pampl").read_text()
+        assert "param irr_base = 100" in content
+        assert "param elec_base = 0" in content
+        assert "param vol_muerto = 0.0" in content
+        assert "param vol_max = 1000.0" in content
+        assert "param filtration = 10.0" in content
+
+    def test_generate_pampl_contains_monthly_arrays(self, tmp_path):
+        cfg = _minimal_laja_config()
+        writer = LajaWriter(cfg)
+        writer.generate_pampl(tmp_path)
+
+        content = (tmp_path / "laja_agreement.pampl").read_text()
+        assert "param irr_usage[month]" in content
+        assert "param elec_usage[month]" in content
+        assert "param seasonal_1o_reg[month]" in content
+
+    def test_generate_pampl_contains_header_comment(self, tmp_path):
+        cfg = _minimal_laja_config()
+        writer = LajaWriter(cfg)
+        writer.generate_pampl(tmp_path)
+
+        content = (tmp_path / "laja_agreement.pampl").read_text()
+        assert "Laja Irrigation Agreement" in content
+        assert "Convenio del Laja" in content
+        assert "TEST_CENTRAL" in content
+
+    def test_generate_pampl_contains_districts(self, tmp_path):
+        cfg = _minimal_laja_config()
+        writer = LajaWriter(cfg)
+        writer.generate_pampl(tmp_path)
+
+        content = (tmp_path / "laja_agreement.pampl").read_text()
+        assert "District: D1" in content
+
+    def test_to_json_dict_with_output_dir(self, tmp_path):
+        """When output_dir is provided, PAMPL file is generated."""
+        cfg = _minimal_laja_config()
+        writer = LajaWriter(cfg)
+        result = writer.to_json_dict(output_dir=tmp_path)
+        assert "user_constraint_file" in result
+        assert result["user_constraint_file"] == "laja_agreement.pampl"
+        assert "user_constraint_array" not in result
+
+    def test_to_json_dict_without_output_dir(self):
+        """Without output_dir, constraints go inline."""
+        cfg = _minimal_laja_config()
+        writer = LajaWriter(cfg)
+        result = writer.to_json_dict()
+        assert "user_constraint_array" in result
+        assert "user_constraint_file" not in result

@@ -52,10 +52,24 @@ public:
     return fail_cols.at({scenario.uid(), stage.uid()});
   }
 
+  /// @name Parameter accessors for user constraint resolution
+  /// @{
+  [[nodiscard]] auto param_lmax(StageUid s, BlockUid b) const
+  {
+    return lmax.at(s, b);
+  }
+  [[nodiscard]] auto param_fcost(StageUid s) const { return fcost.at(s); }
+  [[nodiscard]] auto param_lossfactor(StageUid s) const
+  {
+    return lossfactor.at(s);
+  }
+  /// @}
+
 private:
   OptTBRealSched lmax;
   OptTRealSched lossfactor;
   OptTRealSched fcost;
+
   OptTRealSched emin;
   OptTRealSched ecost;
 

@@ -36,7 +36,6 @@
 #include <gtopt/reservoir_lp.hpp>
 #include <gtopt/reservoir_production_factor_lp.hpp>
 #include <gtopt/reservoir_seepage_lp.hpp>
-#include <gtopt/right_junction_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/scene_lp.hpp>
 #include <gtopt/schedule.hpp>
@@ -92,7 +91,6 @@ static_assert(AddToLP<ReservoirSeepageLP>);
 static_assert(AddToLP<ReservoirDischargeLimitLP>);
 static_assert(AddToLP<TurbineLP>);
 static_assert(AddToLP<ReservoirProductionFactorLP>);
-static_assert(AddToLP<RightJunctionLP>);
 static_assert(AddToLP<FlowRightLP>);
 static_assert(AddToLP<VolumeRightLP>);
 static_assert(AddToLP<UserConstraintLP>);
@@ -189,7 +187,6 @@ public:
                                    Collection<ReservoirDischargeLimitLP>,
                                    Collection<TurbineLP>,
                                    Collection<ReservoirProductionFactorLP>,
-                                   Collection<RightJunctionLP>,
                                    Collection<FlowRightLP>,
                                    Collection<VolumeRightLP>,
                                    Collection<UserConstraintLP>>;

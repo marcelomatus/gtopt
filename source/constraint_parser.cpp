@@ -337,9 +337,15 @@ ConstraintExpr ConstraintParser::Parser::parse_constraint()
     double lower_val = 0.0;
     double upper_val = 0.0;
 
+    auto is_non_const = [](const ConstraintTerm& t)
+    {
+      return t.element.has_value() || t.sum_ref.has_value()
+          || t.param_name.has_value();
+    };
+
     // Extract lower bound from lhs_terms
     for (const auto& term : lhs_terms) {
-      if (term.element.has_value() || term.sum_ref.has_value()) {
+      if (is_non_const(term)) {
         throw std::invalid_argument(
             "Range constraint bounds must be constants");
       }
@@ -348,7 +354,7 @@ ConstraintExpr ConstraintParser::Parser::parse_constraint()
 
     // Extract upper bound from rhs2_terms
     for (const auto& term : rhs2_terms) {
-      if (term.element.has_value() || term.sum_ref.has_value()) {
+      if (is_non_const(term)) {
         throw std::invalid_argument(
             "Range constraint bounds must be constants");
       }
@@ -360,7 +366,7 @@ ConstraintExpr ConstraintParser::Parser::parse_constraint()
     double mid_const = 0.0;
     std::vector<ConstraintTerm> var_terms;
     for (auto& term : rhs_terms) {
-      if (term.element.has_value() || term.sum_ref.has_value()) {
+      if (is_non_const(term)) {
         var_terms.push_back(std::move(term));
       } else {
         mid_const += term.coefficient;
@@ -381,9 +387,16 @@ ConstraintExpr ConstraintParser::Parser::parse_constraint()
     double rhs_const = 0.0;
     std::vector<ConstraintTerm> all_terms;
 
+    // Helper: true if a term references a variable or named parameter
+    auto is_non_constant = [](const ConstraintTerm& t)
+    {
+      return t.element.has_value() || t.sum_ref.has_value()
+          || t.param_name.has_value();
+    };
+
     // LHS terms stay as-is
     for (auto& term : lhs_terms) {
-      if (term.element.has_value() || term.sum_ref.has_value()) {
+      if (is_non_constant(term)) {
         all_terms.push_back(std::move(term));
       } else {
         rhs_const -= term.coefficient;  // move constant to RHS
@@ -392,7 +405,7 @@ ConstraintExpr ConstraintParser::Parser::parse_constraint()
 
     // RHS terms get negated and moved to LHS
     for (auto& term : rhs_terms) {
-      if (term.element.has_value() || term.sum_ref.has_value()) {
+      if (is_non_constant(term)) {
         term.coefficient = -term.coefficient;
         all_terms.push_back(std::move(term));
       } else {
@@ -475,9 +488,15 @@ ConstraintTerm ConstraintParser::Parser::parse_term(bool negate)
         auto ref = parse_element_ref(std::move(m_current_.value));
         term.coefficient = sign * num;
         term.element = std::move(ref);
+      } else if (m_current_.type == TokenType::IDENT) {
+        // number * param_name
+        term.coefficient = sign * num;
+        term.param_name = std::move(m_current_.value);
+        advance();
       } else {
         throw std::invalid_argument(
-            std::format("Expected element type or 'sum' after '*', got '{}'",
+            std::format("Expected element type, 'sum', or parameter name "
+                        "after '*', got '{}'",
                         m_current_.value));
       }
     } else {
@@ -492,9 +511,15 @@ ConstraintTerm ConstraintParser::Parser::parse_term(bool negate)
     auto ref = parse_element_ref(std::move(m_current_.value));
     term.coefficient = sign;
     term.element = std::move(ref);
+  } else if (m_current_.type == TokenType::IDENT) {
+    // Bare identifier — named parameter reference
+    term.coefficient = sign;
+    term.param_name = std::move(m_current_.value);
+    advance();
   } else {
     throw std::invalid_argument(
-        std::format("Expected number, element reference, or 'sum', got '{}'",
+        std::format("Expected number, element reference, 'sum', "
+                    "or parameter name, got '{}'",
                     m_current_.value));
   }
 

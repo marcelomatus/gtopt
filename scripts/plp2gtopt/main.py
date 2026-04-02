@@ -142,6 +142,34 @@ def _parse_name_value_pairs(spec: str) -> dict[str, float]:
     return result
 
 
+def _parse_time_arg(value: str) -> float:
+    """Parse a time argument with optional suffix into hours.
+
+    Supported formats:
+        - Plain number: interpreted as hours (e.g. ``8760``)
+        - ``Ny`` or ``Ny``: years (× 8760 h), e.g. ``1y``, ``1.5y``
+        - ``Nm`` or ``Nm``: months (× 730 h), e.g. ``6m``, ``18m``
+
+    Returns:
+        Time value in hours.
+
+    Raises:
+        argparse.ArgumentTypeError: If the value cannot be parsed.
+    """
+    value = value.strip().lower()
+    try:
+        if value.endswith("y"):
+            return float(value[:-1]) * 8760.0
+        if value.endswith("m"):
+            return float(value[:-1]) * 730.0
+        return float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"invalid time value '{value}': "
+            "use a number (hours), or suffixed format like '1y', '6m', '1.5y'"
+        ) from None
+
+
 def signal_handler(sig, _frame):
     """Handle termination signals gracefully."""
     signame = signal.strsignal(sig)
@@ -235,10 +263,19 @@ def make_parser() -> argparse.ArgumentParser:
         "-t",
         "--last-time",
         dest="last_time",
-        type=float,
-        metavar="T",
+        type=_parse_time_arg,
+        metavar="TIME",
         default=-1,
-        help="last time value to extract (default: all time steps)",
+        help=(
+            "include stages up to this accumulated time.  "
+            "Accepts hours (plain number), or suffixed values: "
+            "'1y' = 1 year (8760 h), '6m' = 6 months (4380 h), "
+            "'1.5y' = 1.5 years (13140 h).  "
+            "The last stage whose cumulative block duration reaches "
+            "this threshold is included.  "
+            "Use -s N for stage-count selection instead. "
+            "(default: all stages)"
+        ),
     )
     parser.add_argument(
         "-n",
@@ -803,6 +840,19 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--emit-water-rights",
+        dest="emit_water_rights",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "emit irrigation agreement entities (RightJunction, FlowRight, "
+            "VolumeRight, UserConstraint) from plplajam.dat and "
+            "plpmaulen.dat when present.  Also generates PAMPL parameter "
+            "files (laja_agreement.pampl, maule_agreement.pampl). "
+            "(default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
         "--check",
         dest="run_check",
         action=argparse.BooleanOptionalAction,
@@ -1023,6 +1073,7 @@ def build_options(args: argparse.Namespace) -> dict:
         opts["variable_scales_file"] = args.variable_scales_file
     opts["soft_emin_cost"] = args.soft_emin_cost
     opts["embed_reservoir_constraints"] = args.embed_reservoir_constraints
+    opts["emit_water_rights"] = args.emit_water_rights
     opts["run_check"] = args.run_check
     # Technology detection
     opts["auto_detect_tech"] = args.auto_detect_tech

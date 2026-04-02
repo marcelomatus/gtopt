@@ -104,6 +104,23 @@ public:
     return theta_rows.contains(st_key) && !theta_rows.at(st_key).empty();
   }
 
+  /// @name Parameter accessors for user constraint resolution
+  /// @{
+  [[nodiscard]] auto param_tmax_ab(StageUid s, BlockUid b) const
+  {
+    return tmax_ab.at(s, b);
+  }
+  [[nodiscard]] auto param_tmax_ba(StageUid s, BlockUid b) const
+  {
+    return tmax_ba.at(s, b);
+  }
+  [[nodiscard]] auto param_tcost(StageUid s) const { return tcost.at(s); }
+  [[nodiscard]] auto param_reactance(StageUid s) const
+  {
+    return reactance.at(s);
+  }
+  /// @}
+
 private:
   OptTBRealSched tmax_ba;
   OptTBRealSched tmax_ab;

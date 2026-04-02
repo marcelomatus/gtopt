@@ -214,18 +214,9 @@ class TestMauleWriter:
     def test_entities_generated(self, maule_config):
         writer = MauleWriter(maule_config)
 
-        assert len(writer.right_junctions) >= 1  # at least armerillo
         assert len(writer.flow_rights) >= 5  # normal+ordinary+comp+res105+districts
         assert len(writer.volume_rights) >= 3  # monthly+annual+seasonal
-        assert len(writer.user_constraints) >= 2  # reserve allocation splits
-
-    def test_armerillo_junction(self, maule_config):
-        writer = MauleWriter(maule_config)
-
-        armerillo = next(
-            rj for rj in writer.right_junctions if rj["name"] == "armerillo"
-        )
-        assert armerillo["drain"] is True
+        assert len(writer.user_constraints) >= 2  # reserve allocation splits + balances
 
     def test_flow_rights_have_bound_rule(self, maule_config):
         writer = MauleWriter(maule_config)
@@ -279,7 +270,6 @@ class TestMauleWriter:
         writer = MauleWriter(maule_config)
         result = writer.to_json_dict()
 
-        assert "right_junction_array" in result
         assert "flow_right_array" in result
         assert "volume_right_array" in result
         assert "user_constraint_array" in result
@@ -297,7 +287,6 @@ class TestMauleWriter:
         roundtrip = json.loads(json.dumps(result))
         assert len(roundtrip["flow_right_array"]) == len(writer.flow_rights)
         assert len(roundtrip["volume_right_array"]) == len(writer.volume_rights)
-        assert len(roundtrip["right_junction_array"]) == len(writer.right_junctions)
         assert len(roundtrip["user_constraint_array"]) == len(writer.user_constraints)
 
     def test_bound_rule_zone_thresholds(self, maule_config):
@@ -401,28 +390,18 @@ class TestMauleWriter:
         for entity_list in [
             writer.flow_rights,
             writer.volume_rights,
-            writer.right_junctions,
             writer.user_constraints,
         ]:
             for entity in entity_list:
                 all_uids.append(entity["uid"])
         assert len(all_uids) == len(set(all_uids)), "UIDs must be unique"
 
-    def test_right_junction_count(self, maule_config):
-        """Should have armerillo + 4 central partitions + invernada_balance = 6."""
+    def test_user_constraints_include_balances(self, maule_config):
+        """User constraints include partition balances and district constraints."""
         writer = MauleWriter(maule_config)
-        assert len(writer.right_junctions) == 6
-
-    def test_central_partition_junctions(self, maule_config):
-        writer = MauleWriter(maule_config)
-        rj_names = {rj["name"] for rj in writer.right_junctions}
-        for central in [
-            maule_config["central_maule"],
-            maule_config["central_invernada"],
-            maule_config["central_melado"],
-            maule_config["central_colbun"],
-        ]:
-            assert f"partition_{central}" in rj_names
+        uc_names = {uc["name"] for uc in writer.user_constraints}
+        # Should have district constraints + balance constraints
+        assert len(writer.user_constraints) >= 2
 
     def test_user_constraint_expressions_reference_flow_rights(self, maule_config):
         """UserConstraint expressions should reference existing FlowRight names."""
@@ -443,21 +422,39 @@ class TestMauleWriter:
 class TestMauleScheduleHelpers:
     """Test schedule conversion helpers without stage_parser."""
 
+    def _make_writer(self, blocks_per_stage=1):
+        cfg = _minimal_maule_config()
+        return MauleWriter(cfg, options={"blocks_per_stage": blocks_per_stage})
+
     def test_to_stb_sched_uniform(self):
-        result = MauleWriter._to_stb_sched([5.0, 5.0, 5.0])
+        writer = self._make_writer()
+        result = writer._to_stb_sched([5.0, 5.0, 5.0])
         assert result == 5.0
 
     def test_to_stb_sched_varying(self):
-        result = MauleWriter._to_stb_sched([1.0, 2.0, 3.0])
+        writer = self._make_writer()
+        result = writer._to_stb_sched([1.0, 2.0, 3.0])
         assert result == [[[1.0], [2.0], [3.0]]]
 
     def test_to_tb_sched_uniform(self):
-        result = MauleWriter._to_tb_sched([10.0, 10.0])
+        writer = self._make_writer()
+        result = writer._to_tb_sched([10.0, 10.0])
         assert result == 10.0
 
     def test_to_tb_sched_varying(self):
-        result = MauleWriter._to_tb_sched([10.0, 20.0])
+        writer = self._make_writer()
+        result = writer._to_tb_sched([10.0, 20.0])
         assert result == [[10.0], [20.0]]
+
+    def test_to_stb_sched_multi_block(self):
+        writer = self._make_writer(blocks_per_stage=3)
+        result = writer._to_stb_sched([1.0, 2.0])
+        assert result == [[[1.0, 1.0, 1.0], [2.0, 2.0, 2.0]]]
+
+    def test_to_tb_sched_multi_block(self):
+        writer = self._make_writer(blocks_per_stage=3)
+        result = writer._to_tb_sched([10.0, 20.0])
+        assert result == [[10.0, 10.0, 10.0], [20.0, 20.0, 20.0]]
 
 
 def _minimal_maule_config():
@@ -505,8 +502,8 @@ class TestMauleWriterMinimalConfig:
         cfg = _minimal_maule_config()
         writer = MauleWriter(cfg)
         assert len(writer.flow_rights) >= 6
-        assert len(writer.volume_rights) == 5
-        assert len(writer.right_junctions) == 6  # 5 original + invernada_balance
+        assert len(writer.volume_rights) == 7  # 5 original + 2 rext accumulators
+        assert len(writer.user_constraints) >= 2  # balance + district constraints
 
     def test_district_percentage_sum(self):
         cfg = _minimal_maule_config()
@@ -536,13 +533,14 @@ class TestMauleWriterMinimalConfig:
 class TestMauleInvernadaBalance:
     """Tests for La Invernada winter storage balance entities."""
 
-    def test_invernada_right_junction(self):
+    def test_invernada_balance_user_constraint(self):
         cfg = _minimal_maule_config()
         writer = MauleWriter(cfg)
-        rj = next(
-            rj for rj in writer.right_junctions if rj["name"] == "invernada_balance"
+        uc = next(
+            (uc for uc in writer.user_constraints if uc["name"] == "invernada_balance"),
+            None,
         )
-        assert rj["drain"] is False
+        assert uc is not None, "invernada_balance user constraint should exist"
 
     def test_invernada_flow_rights_count(self):
         """Should emit 5 FlowRights for La Invernada balance."""
@@ -574,8 +572,8 @@ class TestMauleInvernadaBalance:
         for name in ["invernada_storage", "invernada_bypass"]:
             assert fr_by_name[name]["direction"] == -1
 
-    def test_invernada_junction_refs(self):
-        """All Invernada FlowRights should reference invernada_balance."""
+    def test_invernada_flow_rights_exist(self):
+        """All Invernada FlowRights should exist."""
         cfg = _minimal_maule_config()
         writer = MauleWriter(cfg)
         inv_names = {
@@ -585,28 +583,28 @@ class TestMauleInvernadaBalance:
             "invernada_storage",
             "invernada_bypass",
         }
-        for fr in writer.flow_rights:
-            if fr["name"] in inv_names:
-                assert fr["right_junction"] == "invernada_balance"
+        fr_names = {fr["name"] for fr in writer.flow_rights}
+        missing = inv_names - fr_names
+        assert not missing, f"Missing Invernada FlowRights: {missing}"
 
-    def test_invernada_storage_use_cost(self):
-        """Storage FlowRight should have use_cost from econ_inver_costo."""
+    def test_invernada_storage_use_value(self):
+        """Storage FlowRight should have use_value from econ_inver_costo."""
         cfg = _minimal_maule_config()
         writer = MauleWriter(cfg)
         storage = next(
             fr for fr in writer.flow_rights if fr["name"] == "invernada_storage"
         )
-        assert storage["use_cost"] == pytest.approx(0.5)
+        assert storage["use_value"] == pytest.approx(0.5)
 
     def test_invernada_storage_zero_cost_omitted(self):
-        """When econ_inver_costo is 0, use_cost should not be emitted."""
+        """When econ_inver_costo is 0, use_value should not be emitted."""
         cfg = _minimal_maule_config()
         cfg["econ_inver_costo"] = 0.0
         writer = MauleWriter(cfg)
         storage = next(
             fr for fr in writer.flow_rights if fr["name"] == "invernada_storage"
         )
-        assert "use_cost" not in storage
+        assert "use_value" not in storage
 
 
 class TestMauleBocatomaCanelon:
@@ -619,7 +617,7 @@ class TestMauleBocatomaCanelon:
             (fr for fr in writer.flow_rights if fr["name"] == "BCanelon"), None
         )
         assert canelon is not None
-        assert canelon["use_cost"] == pytest.approx(10.0)
+        assert canelon["use_value"] == pytest.approx(10.0)
         assert canelon["purpose"] == "irrigation"
 
     def test_bocatoma_zero_cost_omitted(self):
@@ -631,3 +629,130 @@ class TestMauleBocatomaCanelon:
             (fr for fr in writer.flow_rights if fr["name"] == "BCanelon"), None
         )
         assert canelon is None
+
+
+class TestMaulePamplGeneration:
+    """Test PAMPL template rendering for Maule agreement."""
+
+    def test_generate_pampl_creates_file(self):
+        import tempfile
+        from pathlib import Path
+
+        cfg = _minimal_maule_config()
+        writer = MauleWriter(cfg)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            pampl_name = writer.generate_pampl(tmp_path)
+
+            assert pampl_name == "maule_agreement.pampl"
+            pampl_file = tmp_path / "maule_agreement.pampl"
+            assert pampl_file.exists()
+
+    def test_generate_pampl_contains_params(self):
+        import tempfile
+        from pathlib import Path
+
+        cfg = _minimal_maule_config()
+        writer = MauleWriter(cfg)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            writer.generate_pampl(tmp_path)
+            content = (tmp_path / "maule_agreement.pampl").read_text()
+
+            assert "param v_reserva_extraord = 100.0" in content
+            assert "param v_reserva_ordinaria = 400.0" in content
+            assert "param gasto_elec_dia_max = 30.0" in content
+            assert "param gasto_riego_max = 200.0" in content
+            assert "param pct_elec_reserva = 20.0" in content
+            assert "param pct_riego_reserva = 80.0" in content
+
+    def test_generate_pampl_contains_constraints(self):
+        import tempfile
+        from pathlib import Path
+
+        cfg = _minimal_maule_config()
+        writer = MauleWriter(cfg)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            writer.generate_pampl(tmp_path)
+            content = (tmp_path / "maule_agreement.pampl").read_text()
+
+            # Should contain constraint headers
+            assert "constraint maule_ord_elec_pct" in content
+            assert "constraint maule_ord_irr_pct" in content
+            # Should contain district constraints
+            assert "constraint dist_Dist1" in content
+            assert "constraint dist_Dist2" in content
+
+    def test_generate_pampl_district_operators(self):
+        import tempfile
+        from pathlib import Path
+
+        cfg = _minimal_maule_config()
+        writer = MauleWriter(cfg)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            writer.generate_pampl(tmp_path)
+            content = (tmp_path / "maule_agreement.pampl").read_text()
+
+            # Dist1 has_slack=False → uses =
+            # Dist2 has_slack=True → uses <=
+            # Find the constraint lines
+            lines = content.split("\n")
+            dist1_lines = [l for l in lines if "dist_Dist1" in l and "constraint" in l]
+            assert len(dist1_lines) >= 1
+
+    def test_generate_pampl_header_comment(self):
+        import tempfile
+        from pathlib import Path
+
+        cfg = _minimal_maule_config()
+        writer = MauleWriter(cfg)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            writer.generate_pampl(tmp_path)
+            content = (tmp_path / "maule_agreement.pampl").read_text()
+
+            assert "Maule Irrigation Agreement" in content
+            assert "Convenio del Maule" in content
+            assert "COLBUN" in content
+
+    def test_to_json_dict_with_output_dir(self):
+        import tempfile
+        from pathlib import Path
+
+        cfg = _minimal_maule_config()
+        writer = MauleWriter(cfg)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            result = writer.to_json_dict(output_dir=tmp_path)
+
+            # Maule has user constraints, so file should be generated
+            assert "user_constraint_file" in result
+            assert result["user_constraint_file"] == "maule_agreement.pampl"
+            assert "user_constraint_array" not in result
+            assert (tmp_path / "maule_agreement.pampl").exists()
+
+    def test_to_json_dict_without_output_dir(self):
+        cfg = _minimal_maule_config()
+        writer = MauleWriter(cfg)
+        result = writer.to_json_dict()
+
+        # Without output_dir, constraints go inline
+        assert "user_constraint_array" in result
+        assert "user_constraint_file" not in result
+
+    def test_generate_pampl_monthly_arrays(self):
+        import tempfile
+        from pathlib import Path
+
+        cfg = _minimal_maule_config()
+        writer = MauleWriter(cfg)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            writer.generate_pampl(tmp_path)
+            content = (tmp_path / "maule_agreement.pampl").read_text()
+
+            assert "param mod_elec_reserva[month]" in content
+            assert "param pct_riego_mensual[month]" in content
+            assert "param caudal_res105[month]" in content

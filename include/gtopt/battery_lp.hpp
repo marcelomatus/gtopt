@@ -92,6 +92,18 @@ public:
     return fout_cols.at({scenario.uid(), stage.uid()});
   }
 
+  /// @name Parameter accessors for user constraint resolution
+  /// @{
+  [[nodiscard]] auto param_input_efficiency(StageUid s) const
+  {
+    return input_efficiency.at(s);
+  }
+  [[nodiscard]] auto param_output_efficiency(StageUid s) const
+  {
+    return output_efficiency.at(s);
+  }
+  /// @}
+
 private:
   OptTRealSched input_efficiency;
   OptTRealSched output_efficiency;

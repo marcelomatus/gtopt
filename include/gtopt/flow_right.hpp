@@ -77,15 +77,9 @@ struct FlowRight
   /// does NOT participate in the physical junction balance.
   OptSingleId junction {};
 
-  /// Optional reference to a RightJunction for rights balance.
-  /// When set, this FlowRight's flow variable is added to the
-  /// RightJunction balance row with the given direction sign.
-  OptSingleId right_junction {};
-
-  /// Direction sign for the RightJunction balance row:
-  ///  +1 = supply (inflow to the balance point)
+  /// Direction sign for LP coupling:
+  ///  +1 = supply (inflow to balance point)
   ///  -1 = withdrawal (outflow / consumptive extraction)
-  /// Only meaningful when right_junction is set.
   OptInt direction {};
 
   /// Required extraction flow schedule [m³/s].
@@ -119,7 +113,15 @@ struct FlowRight
   /// Penalty cost for unmet flow demand [$/m³/s·h].
   /// Analogous to demand_fail_cost for electrical load curtailment.
   /// Higher values give this right higher priority in the LP.
-  OptReal fail_cost {};
+  /// Supports per-stage-block scheduling for monthly cost modulation.
+  OptTBRealFieldSched fail_cost {};
+
+  /// Value of exercising the right [$/m³/s·h].
+  /// Subtracted from the objective (benefit): positive = incentivizes use,
+  /// negative = penalizes use.  Added as −use_value to the flow variable's
+  /// objective coefficient.
+  /// Supports per-stage-block scheduling for monthly value modulation.
+  OptTBRealFieldSched use_value {};
 
   /// Priority level for allocation ordering [dimensionless].
   OptReal priority {};

@@ -83,6 +83,16 @@ public:
     return finp_cols_map.at({scenario.uid(), stage.uid()});
   }
 
+  /// @name Parameter accessors for user constraint resolution
+  /// @{
+  [[nodiscard]] auto param_fmax(StageUid s, BlockUid b) const
+  {
+    return fmax.at(s, b);
+  }
+  [[nodiscard]] auto param_demand(StageUid s) const { return demand.at(s); }
+  [[nodiscard]] auto param_fail_cost() const { return fail_cost; }
+  /// @}
+
 private:
   OptTRealSched demand;
   OptTBRealSched fmax;

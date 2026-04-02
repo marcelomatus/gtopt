@@ -217,4 +217,42 @@ constexpr auto enum_entries(KappaWarningMode /*tag*/) noexcept
   return std::span {kappa_warning_mode_entries};
 }
 
+// --- ConstraintMode ----------------------------------------------------------
+
+/**
+ * @brief Controls error handling and verbosity for user constraint resolution.
+ *
+ * During LP construction, user constraint expressions reference LP columns
+ * (variables), data parameters, and named user parameters.  When a reference
+ * cannot be resolved (unknown element, attribute, or parameter name), this
+ * option controls whether the solver logs a warning and skips the term
+ * or raises a fatal error.
+ *
+ * - `normal`:  Log warnings for unresolved references and skip the affected
+ *              terms.  Suitable for development and exploratory modeling.
+ * - `strict`:  Treat any unresolved reference as a fatal error (default).
+ *              Ensures no constraint terms are silently dropped.
+ * - `debug`:   Like `strict`, but additionally logs detailed info about
+ *              every resolved variable, parameter, and constraint row
+ *              added to the LP.  Useful for verifying constraint assembly.
+ */
+enum class ConstraintMode : uint8_t
+{
+  normal = 0,  ///< Warn and skip unresolved references
+  strict = 1,  ///< Fail on any unresolved reference (default)
+  debug = 2,  ///< Strict + verbose logging of every resolved term
+};
+
+inline constexpr auto constraint_mode_entries =
+    std::to_array<EnumEntry<ConstraintMode>>({
+        {.name = "normal", .value = ConstraintMode::normal},
+        {.name = "strict", .value = ConstraintMode::strict},
+        {.name = "debug", .value = ConstraintMode::debug},
+    });
+
+constexpr auto enum_entries(ConstraintMode /*tag*/) noexcept
+{
+  return std::span {constraint_mode_entries};
+}
+
 }  // namespace gtopt

@@ -18,7 +18,6 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/reservoir_lp.hpp>
-#include <gtopt/right_junction_lp.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <spdlog/spdlog.h>
@@ -29,8 +28,9 @@ namespace gtopt
 FlowRightLP::FlowRightLP(const FlowRight& pflow, const InputContext& ic)
     : ObjectLP<FlowRight>(pflow, ic, ClassName)
     , discharge(ic, ClassName, id(), std::move(flow_right().discharge))
-    , fail_cost(flow_right().fail_cost.value_or(0.0))
     , direction(static_cast<int>(flow_right().direction.value_or(-1)))
+    , fail_cost_sched(ic, ClassName, id(), std::move(flow_right().fail_cost))
+    , use_value_sched(ic, ClassName, id(), std::move(flow_right().use_value))
     , fmax_sched(ic, ClassName, id(), std::move(flow_right().fmax))
 {
 }
@@ -86,22 +86,39 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
       lowb = std::min(lowb, uppb);
     }
 
+    // Use value: negative objective coefficient on the flow variable
+    // (benefit — positive use_value incentivizes flow).
+    // No global fallback: only per-element use_value applies.
+    const auto block_use_value =
+        use_value_sched.at(stage.uid(), buid).value_or(0.0);
+
     auto flow_col_name =
         sc.lp_col_label(scenario, stage, block, cname, "flow", uid());
     const auto fcol = lp.add_col({
         .name = std::move(flow_col_name),
         .lowb = lowb,
         .uppb = uppb,
+        .cost = -block_use_value / scale_objective,
     });
     fcols[buid] = fcol;
 
-    // Deficit variable: penalized in objective when demand unmet
-    if (fail_cost > 0.0) {
+    // Deficit variable: penalized in objective when demand unmet.
+    // Per-element fail_cost (already in $/flow-unit) takes precedence.
+    // Falls back to global hydro_fail_cost ($/m³) × duration × 3600
+    // to convert from $/m³ to $/(m³/s) for the block.
+    auto block_fail_cost = fail_cost_sched.at(stage.uid(), buid).value_or(0.0);
+    if (block_fail_cost == 0.0) {
+      const auto global_fc = options.hydro_fail_cost().value_or(0.0);
+      if (global_fc > 0.0) {
+        block_fail_cost = global_fc * block.duration() * 3600.0;
+      }
+    }
+    if (block_fail_cost > 0.0) {
       auto fail_col_name =
           sc.lp_col_label(scenario, stage, block, cname, "fail", uid());
       const auto fail_col = lp.add_col({
           .name = std::move(fail_col_name),
-          .cost = fail_cost / scale_objective,
+          .cost = block_fail_cost / scale_objective,
       });
       ffails[buid] = fail_col;
     }
@@ -145,24 +162,6 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
       avg_row[my_fcols.at(buid)] = -dur_ratio;
     }
     avg_rows[st_key] = lp.add_row(std::move(avg_row));
-  }
-
-  // Add flow variables to the RightJunction balance row if linked
-  if (const auto& rj_ref = flow_right().right_junction; rj_ref.has_value()) {
-    const RightJunctionLPSId rj_sid(*rj_ref);
-    const auto& rj_lp = sc.element(rj_sid);
-    const auto& rj_brows = rj_lp.balance_rows_at(scenario, stage);
-    const auto& my_fcols = flow_cols[st_key];
-
-    for (auto&& block : blocks) {
-      const auto buid = block.uid();
-      auto brow_it = rj_brows.find(buid);
-      auto fcol_it = my_fcols.find(buid);
-      if (brow_it != rj_brows.end() && fcol_it != my_fcols.end()) {
-        lp.row_at(brow_it->second)[fcol_it->second] =
-            static_cast<double>(direction);
-      }
-    }
   }
 
   // Consumptive coupling: subtract flow from the physical Junction balance

@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /**
  * @file      test_irrigation_data.hpp
- * @brief     Unit tests for FlowRight, VolumeRight, and RightJunction data
+ * @brief     Unit tests for FlowRight and VolumeRight data
  * @date      2026-04-01
  * @copyright BSD-3-Clause
  */
 
 #include <doctest/doctest.h>
 #include <gtopt/flow_right.hpp>
-#include <gtopt/right_junction.hpp>
 #include <gtopt/volume_right.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
@@ -22,7 +21,6 @@ TEST_CASE("FlowRight construction and default values")
   CHECK_FALSE(fr.active.has_value());
   CHECK_FALSE(fr.purpose.has_value());
   CHECK_FALSE(fr.junction.has_value());
-  CHECK_FALSE(fr.right_junction.has_value());
   CHECK_FALSE(fr.direction.has_value());
   CHECK_FALSE(fr.fail_cost.has_value());
   CHECK_FALSE(fr.priority.has_value());
@@ -48,7 +46,9 @@ TEST_CASE("FlowRight attribute assignment")
   CHECK(*fr.purpose == "irrigation");
   REQUIRE(fr.junction.has_value());
   CHECK(std::get<Name>(*fr.junction) == "laja_downstream");
-  CHECK(fr.fail_cost.value_or(0.0) == doctest::Approx(5000.0));
+  REQUIRE(fr.fail_cost.has_value());
+  CHECK(std::get<Real>(*fr.fail_cost) == doctest::Approx(5000.0));
+  CHECK_FALSE(fr.use_value.has_value());
   CHECK(fr.priority.value_or(0.0) == doctest::Approx(1.0));
 }
 
@@ -171,52 +171,16 @@ TEST_CASE("VolumeRight use_state_variable defaults and explicit set")
   }
 }
 
-TEST_CASE("FlowRight with right_junction and direction")
+TEST_CASE("FlowRight with direction")
 {
   FlowRight fr;
   fr.uid = 102;
   fr.name = "supply_flow";
-  fr.right_junction = Name {"armerillo"};
   fr.direction = 1;
   fr.discharge = 50.0;
 
-  REQUIRE(fr.right_junction.has_value());
-  CHECK(std::get<Name>(*fr.right_junction) == "armerillo");
   REQUIRE(fr.direction.has_value());
   CHECK(fr.direction.value_or(0) == 1);
-}
-
-TEST_CASE("RightJunction construction and default values")
-{
-  const RightJunction rj;
-
-  CHECK(rj.uid == Uid {unknown_uid});
-  CHECK(rj.name == Name {});
-  CHECK_FALSE(rj.active.has_value());
-  CHECK_FALSE(rj.junction.has_value());
-  CHECK_FALSE(rj.drain.has_value());
-}
-
-TEST_CASE("RightJunction attribute assignment")
-{
-  RightJunction rj;
-  rj.uid = 10;
-  rj.name = "armerillo";
-  rj.junction = Name {"maule_armerillo"};
-  rj.drain = true;
-
-  CHECK(rj.uid == 10);
-  CHECK(rj.name == "armerillo");
-  REQUIRE(rj.junction.has_value());
-  CHECK(std::get<Name>(*rj.junction) == "maule_armerillo");
-  CHECK(rj.drain.value_or(false) == true);
-}
-
-TEST_CASE("RightJunction drain defaults to true when unset")
-{
-  const RightJunction rj;
-  // drain defaults to true (excess supply allowed)
-  CHECK(rj.drain.value_or(true) == true);
 }
 
 TEST_CASE("FlowRight with fmax for variable mode")
@@ -250,6 +214,71 @@ TEST_CASE("FlowRight consumptive flag")
   {
     const FlowRight fr2;
     CHECK(fr2.consumptive.value_or(false) == false);
+  }
+}
+
+TEST_CASE("FlowRight use_value field")
+{
+  FlowRight fr;
+  fr.uid = 110;
+  fr.name = "benefit_right";
+  fr.use_value = -500.0;  // negative = delivery benefit
+
+  REQUIRE(fr.use_value.has_value());
+  CHECK(std::get<Real>(*fr.use_value) == doctest::Approx(-500.0));
+
+  SUBCASE("default is nullopt")
+  {
+    const FlowRight fr2;
+    CHECK_FALSE(fr2.use_value.has_value());
+  }
+
+  SUBCASE("schedule use_value")
+  {
+    FlowRight fr3;
+    fr3.uid = 111;
+    fr3.name = "scheduled_cost";
+    // 2D schedule: per-stage-block
+    std::vector<std::vector<Real>> sched = {{100.0}, {200.0}};
+    fr3.use_value = sched;
+
+    REQUIRE(fr3.use_value.has_value());
+    auto* vec2_ptr =
+        std::get_if<std::vector<std::vector<Real>>>(&*fr3.use_value);
+    REQUIRE(vec2_ptr != nullptr);
+    CHECK(vec2_ptr->size() == 2);
+    CHECK((*vec2_ptr)[0][0] == doctest::Approx(100.0));
+    CHECK((*vec2_ptr)[1][0] == doctest::Approx(200.0));
+  }
+}
+
+TEST_CASE("FlowRight fail_cost as schedule")
+{
+  FlowRight fr;
+  fr.uid = 112;
+  fr.name = "scheduled_fail";
+
+  SUBCASE("scalar fail_cost (backward compatible)")
+  {
+    fr.fail_cost = 5000.0;
+    REQUIRE(fr.fail_cost.has_value());
+    CHECK(std::get<Real>(*fr.fail_cost) == doctest::Approx(5000.0));
+  }
+
+  SUBCASE("per-stage-block fail_cost schedule")
+  {
+    std::vector<std::vector<Real>> sched = {
+        {1000.0},
+        {2000.0},
+        {3000.0},
+    };
+    fr.fail_cost = sched;
+    REQUIRE(fr.fail_cost.has_value());
+    auto* vec2_ptr =
+        std::get_if<std::vector<std::vector<Real>>>(&*fr.fail_cost);
+    REQUIRE(vec2_ptr != nullptr);
+    CHECK(vec2_ptr->size() == 3);
+    CHECK((*vec2_ptr)[1][0] == doctest::Approx(2000.0));
   }
 }
 

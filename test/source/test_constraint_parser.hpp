@@ -1221,4 +1221,61 @@ TEST_SUITE("ConstraintParser")
             R"(generator("G1").generation <= 100, for(block in <=))")),
         std::invalid_argument);
   }
+
+  // ── Named parameter references ──────────────────────────────────────────
+
+  TEST_CASE("Bare parameter name on RHS")
+  {
+    const auto expr = ConstraintParser::parse(
+        "param_rhs", R"(generator("G1").generation <= my_limit)");
+
+    CHECK(expr.constraint_type == ConstraintType::LESS_EQUAL);
+    // The param reference ends up as a term on the RHS, moved to LHS negated
+    // LHS: generator.generation, RHS: my_limit
+    // After normalization: generator.generation - my_limit <= 0
+    // So we should have variable term + param_name term
+    bool found_var = false;
+    bool found_param = false;
+    for (const auto& term : expr.terms) {
+      if (term.element.has_value()) {
+        found_var = true;
+      }
+      if (term.param_name.has_value()) {
+        CHECK(*term.param_name == "my_limit");
+        CHECK(term.coefficient == doctest::Approx(-1.0));
+        found_param = true;
+      }
+    }
+    CHECK(found_var);
+    CHECK(found_param);
+  }
+
+  TEST_CASE("Parameter name with coefficient")
+  {
+    const auto expr = ConstraintParser::parse(
+        "param_coeff", R"(generator("G1").generation <= 2 * scale_factor)");
+
+    bool found_param = false;
+    for (const auto& term : expr.terms) {
+      if (term.param_name.has_value() && *term.param_name == "scale_factor") {
+        CHECK(term.coefficient == doctest::Approx(-2.0));
+        found_param = true;
+      }
+    }
+    CHECK(found_param);
+  }
+
+  TEST_CASE("Parameter name on LHS")
+  {
+    const auto expr = ConstraintParser::parse(
+        "param_lhs", R"(generator("G1").generation + offset <= 100)");
+
+    bool found_param = false;
+    for (const auto& term : expr.terms) {
+      if (term.param_name.has_value() && *term.param_name == "offset") {
+        found_param = true;
+      }
+    }
+    CHECK(found_param);
+  }
 }

@@ -119,7 +119,7 @@ struct json_data_contract<VolumeRight>
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,
       json_string_null<"reset_month", OptName>,
-      json_class_null<"bound_rule", RightBoundRule>>;
+      json_class_null<"bound_rule", std::optional<RightBoundRule>>>;
 
   constexpr static auto to_json_data(VolumeRight const& vr)
   {

@@ -116,6 +116,7 @@ auto CascadePlanningMethod::clone_planning_with_overrides(
   merge_opt(copy.options.demand_fail_cost, model_opts.demand_fail_cost);
   merge_opt(copy.options.reserve_fail_cost, model_opts.reserve_fail_cost);
   merge_opt(copy.options.hydro_fail_cost, model_opts.hydro_fail_cost);
+  merge_opt(copy.options.hydro_use_value, model_opts.hydro_use_value);
   merge_opt(copy.options.annual_discount_rate, model_opts.annual_discount_rate);
   return copy;
 }
