@@ -27,7 +27,6 @@ The GTEP problem is defined over the following sets:
   \item $\setH$: turbines, indexed by $h$
   \item $\setZ$: reserve zones, indexed by $z$
   \item $\mathcal{P}$: reserve provisions, indexed by $p$
-  \item $\setK$: right junctions (rights balance nodes), indexed by $k$
   \item $\setFR$: flow rights (flow-based water rights), indexed by $i$
   \item $\setVR$: volume rights (volume-based water rights), indexed by $o$
 \end{itemize}
@@ -537,40 +536,13 @@ accounting constraints on the optimizer.
 
 Traditional tools such as PLP encode each agreement as a monolithic
 Fortran module, tightly coupling the rights logic to the physical
-topology.  \gtopt{} instead introduces three generic, data-driven
-entities---\emph{RightJunction}, \emph{FlowRight}, and
-\emph{VolumeRight}---that form a \emph{rights-domain} layer parallel
-to the physical hydro topology.  This separation allows arbitrary
-irrigation agreements to be specified declaratively in JSON without
+topology.  \gtopt{} instead introduces two generic, data-driven
+entities---\emph{FlowRight} and \emph{VolumeRight}---together with
+the flexible \emph{UserConstraint} mechanism, forming a
+\emph{rights-domain} layer parallel to the physical hydro topology.
+This separation allows arbitrary irrigation agreements to be specified
+declaratively in JSON and parameterized AMPL-inspired scripts without
 modifying the solver code.
-
-\subsubsection{Right Junction}
-
-A right junction $k \in \setK$ is a balance node in the rights
-accounting graph---the rights-domain counterpart of the physical
-junction~$j$.  At each block, a flow conservation constraint is
-enforced:
-\begin{equation}
-\label{eq:rj_balance}
-\sum_{\substack{i \in \setFR \\ k_i = k,\, d_i = +1}}
-  \!\! \xi_{i,s,t,b}
-\;-\!\!
-\sum_{\substack{i \in \setFR \\ k_i = k,\, d_i = -1}}
-  \!\! \xi_{i,s,t,b}
-\;+\; \zeta_{k,s,t,b}
-\;\geq\; 0
-\end{equation}
-where $\xi_{i,s,t,b}$ is the flow of right~$i$, $d_i \in \{+1,-1\}$
-is its direction (supply or withdrawal), and $\zeta_{k,s,t,b} \geq 0$
-is an optional drain variable that absorbs excess supply.  When
-$\zeta$ is omitted, the constraint becomes an equality and the
-partition must be exact.
-
-For example, in the Laja agreement a right junction at the El~Toro
-generation plant partitions the total turbine discharge into irrigation,
-electrical, mixed, and anticipated discharge categories:
-$-\xi^\text{gen} + \xi^\text{irr} + \xi^\text{elec}
-  + \xi^\text{mix} + \xi^\text{antic} = 0$.
 
 \subsubsection{Flow Right}
 
@@ -623,6 +595,58 @@ and an automatic seasonal reset mechanism: when a
 \texttt{reset\_month} is configured, the accumulated volume is reset to
 the initial value at the start of each hydrological year.
 
+\subsubsection{User Constraints and Parameters}
+\label{sec:user_constraints}
+
+The partition logic that links flow rights together---and the
+proportional allocation rules of the Maule Convention---is expressed
+through \emph{UserConstraints}: user-defined linear constraints written
+in an AMPL-inspired pseudo-script.  Each constraint is a named linear
+(in)equality over LP variables of any system element (generators,
+demands, flow rights, volume rights, etc.) and can optionally restrict
+its domain to specific scenarios, stages, or blocks.
+
+For the Laja agreement, the total generation flow must equal the sum of
+all partitioned extraction categories (irrigation, electrical, mixed,
+and anticipated discharge):
+\begin{equation}
+\label{eq:uc_partition}
+\xi^\text{gen} = \xi^\text{irr} + \xi^\text{elec}
+  + \xi^\text{mix} + \xi^\text{antic}
+\end{equation}
+In the \texttt{.pampl} template this constraint reads:
+\begin{verbatim}
+constraint laja_partition "Flow partition":
+  flow_right('laja_total_gen').flow =
+      flow_right('laja_irr_rights').flow
+    + flow_right('laja_elec_rights').flow
+    + flow_right('laja_mixed_rights').flow
+    + flow_right('laja_anticipated').flow;
+\end{verbatim}
+
+This single UserConstraint replaces the hardcoded balance node that
+traditional tools implement as a dedicated data structure.
+
+For the Maule Convention, the ordinary reserve zone enforces a
+proportional split between electric ($p_e$) and irrigation ($p_r$)
+extraction from the same shared flow:
+\begin{align}
+\label{eq:uc_maule_pct}
+\xi^\text{elec}_\text{ord} &\leq
+  p_e \bigl(\xi^\text{elec}_\text{ord} + \xi^\text{irr}_\text{ord}\bigr) \\
+\xi^\text{irr}_\text{ord}  &\leq
+  p_r \bigl(\xi^\text{elec}_\text{ord} + \xi^\text{irr}_\text{ord}\bigr)
+\end{align}
+where $p_e + p_r = 1$.  These two UserConstraints replace the hardcoded
+Fortran proportional-split logic in PLP's \texttt{genpdmaulen.f}.
+
+Named scalar or monthly-indexed \emph{UserParams} ($p_e$, $p_r$, cost
+arrays, seasonal demand curves, etc.) are defined in the same script
+file and resolved automatically from the stage calendar month, enabling
+seasonally-varying constraints without per-stage hardcoding.  The
+\texttt{plp2gtopt} converter generates these templates automatically
+from the parsed Fortran agreement parameters.
+
 \subsubsection{Volume-Dependent Dynamic Bounds}
 
 A key feature of irrigation agreements is that the available rights
@@ -671,15 +695,17 @@ m$^3$/s per hm$^3$.  Caps: 5\,000 / 1\,200 / 30~m$^3$/s.}
 
 The rights-domain abstraction provides three advantages over the
 monolithic approach used in traditional tools: (i)~new agreements are
-specified declaratively in JSON without modifying the solver code;
-(ii)~the same generic entities express both the Laja and Maule
-agreements despite their very different structures (4 volume zones vs.\
-3 reservoir portions, multi-annual vs.\ seasonal reset);
-(iii)~volume-dependent dynamic bounds integrate naturally with the SDDP
-forward-pass update mechanism, reusing the same piecewise-linear
-evaluation used for turbine efficiency.  The \texttt{plp2gtopt}
-converter automatically transforms PLP's Fortran agreement parameters
-into the equivalent \gtopt{} JSON configuration with verified
+specified declaratively in JSON and AMPL-inspired scripts without
+modifying the solver code; (ii)~the same two generic entities
+(FlowRight and VolumeRight) together with UserConstraints express both
+the Laja and Maule agreements despite their very different structures
+(4 volume zones vs.\ 3 reservoir portions, multi-annual vs.\ seasonal
+reset, exact partition vs.\ proportional split); (iii)~volume-dependent
+dynamic bounds integrate naturally with the SDDP forward-pass update
+mechanism, reusing the same piecewise-linear evaluation used for
+turbine efficiency.  The \texttt{plp2gtopt} converter automatically
+transforms PLP's Fortran agreement parameters into the equivalent
+\gtopt{} JSON configuration and \texttt{.pampl} template with verified
 numerical equivalence.
 
 \subsection{Constraint Summary}
@@ -711,9 +737,9 @@ C12 & Reserve--generator coupling   & ---                         & $p,s,t,b$ \\
 C13 & Hydro water balance           & \eqref{eq:hydro_balance}    & $j,s,t,b$ \\
 C14 & Turbine conversion            & \eqref{eq:turbine}          & $h,s,t,b$ \\
 C15 & Transformer / PST             & \eqref{eq:transformer}      & $\ell,s,t,b$ \\
-C16 & Right junction balance        & \eqref{eq:rj_balance}       & $k,s,t,b$ \\
-C17 & Flow right averaging          & \eqref{eq:fr_avg}           & $i,s,t$ \\
-C18 & Volume right balance          & \eqref{eq:vr_balance}       & $o,s,t$ \\
+C16 & Flow right averaging          & \eqref{eq:fr_avg}           & $i,s,t$ \\
+C17 & Volume right balance          & \eqref{eq:vr_balance}       & $o,s,t$ \\
+C18 & User-defined constraint       & \eqref{eq:uc_partition}     & user-defined \\
 \bottomrule
 \end{tabular}
 \end{table}
