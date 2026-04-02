@@ -223,7 +223,11 @@ else
 fi
 
 # ---- Compare output CSV files against expected ----
-# This mirrors the cmake compare_csv.cmake logic
+# Uses tools/gtopt_compare_csv.py which properly:
+#   - Skips kappa/max_kappa columns (solver-internal metadata)
+#   - Handles degenerate LP dual differences across solver backends
+#   - Treats signed-zero and near-zero values correctly
+COMPARE_CSV="$REPO_DIR/tools/gtopt_compare_csv.py"
 compare_csv() {
   local actual="$1"
   local expected="$2"
@@ -234,52 +238,13 @@ compare_csv() {
     return
   fi
 
-  local actual_lines expected_lines
-  actual_lines=$(wc -l < "$actual")
-  expected_lines=$(wc -l < "$expected")
-
-  if [ "$actual_lines" -ne "$expected_lines" ]; then
-    fail "$rel_path: line count mismatch (actual=$actual_lines, expected=$expected_lines)"
-    return
-  fi
-
-  # Compare line by line using python for numeric tolerance
-  if python3 - "$actual" "$expected" "$TOLERANCE" << 'PYEOF'
-import sys, csv, math
-
-actual_path, expected_path, tol_str = sys.argv[1], sys.argv[2], sys.argv[3]
-tol = float(tol_str)
-errors = []
-
-with open(actual_path) as af, open(expected_path) as ef:
-    for i, (al, el) in enumerate(zip(af, ef), 1):
-        al, el = al.strip(), el.strip()
-        if al == el:
-            continue
-        # Split by comma and compare fields
-        a_fields = [f.strip() for f in al.split(',')]
-        e_fields = [f.strip() for f in el.split(',')]
-        if len(a_fields) != len(e_fields):
-            errors.append(f"line {i}: field count mismatch")
-            continue
-        for j, (av, ev) in enumerate(zip(a_fields, e_fields)):
-            if av == ev:
-                continue
-            try:
-                af_val, ef_val = float(av), float(ev)
-                if not math.isclose(af_val, ef_val, rel_tol=tol, abs_tol=tol):
-                    errors.append(f"line {i} col {j+1}: {av} != {ev} (beyond tolerance)")
-            except ValueError:
-                errors.append(f"line {i} col {j+1}: '{av}' != '{ev}'")
-
-if errors:
-    for e in errors:
-        print(f"  DIFF: {e}", file=sys.stderr)
-    sys.exit(1)
-PYEOF
-  then
+  local output
+  # Show first 10 diff lines to keep CI logs readable; the full diff is
+  # available by running gtopt_compare_csv.py locally with --verbose.
+  if output=$(python3 "$COMPARE_CSV" "$actual" "$expected" -t "$TOLERANCE" 2>&1); then
     pass "$rel_path matches expected"
   else
+    echo "$output" | head -10 >&2
     fail "$rel_path differs from expected"
   fi
 }

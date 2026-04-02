@@ -330,7 +330,6 @@ TEST_CASE("gtopt_main - solver non-optimal for infeasible LP (pmin > pmax)")
       .planning_files = {stem.string()},
       .output_directory = out_dir,
       .use_single_bus = true,
-      .solver = "clp",
   });
   REQUIRE(result.has_value());
   CHECK(*result == 1);  // non-optimal → gtopt_main returns 1
@@ -362,7 +361,6 @@ TEST_CASE("gtopt_main - solver non-optimal with stats=true")
       .planning_files = {stem.string()},
       .use_single_bus = true,
       .print_stats = true,
-      .solver = "clp",
   });
   REQUIRE(result.has_value());
   CHECK(*result == 1);
