@@ -35,6 +35,7 @@ class StageParser(BaseParser):
             if len(parts) < 6:
                 raise ValueError(f"Invalid stage entry at line {idx + 1}")
 
+            month = int(parts[1])  # Mes is the calendar month (1-12)
             stage_num = int(parts[2])  # Etapa is the stage number
             duration = float(parts[4])  # NHoras is the duration
             # Calculate discount factor from FactTasa if present, default to 1.0
@@ -46,6 +47,7 @@ class StageParser(BaseParser):
             idx += 1
             stage = {
                 "number": stage_num,
+                "month": month,
                 "duration": duration,
                 "discount_factor": discount_factor,
             }

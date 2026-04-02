@@ -127,11 +127,7 @@ public:
     return m_options_.input_format.value_or(default_input_format);
   }
 
-  /**
-   * @brief Gets the demand failure cost
-   * @return The demand failure cost as an optional value
-   */
-  /// @brief Gets the demand failure cost.
+  /// @brief Gets the demand failure cost (field schedule).
   /// Flat field takes precedence, then model_options.
   [[nodiscard]] constexpr auto demand_fail_cost() const
   {
@@ -141,7 +137,17 @@ public:
     return m_options_.model_options.demand_fail_cost;
   }
 
-  /// @brief Gets the reserve failure cost.
+  /// @brief Gets the hydro failure cost (field schedule).
+  /// Flat field takes precedence, then model_options.
+  [[nodiscard]] constexpr auto hydro_fail_cost() const
+  {
+    if (m_options_.hydro_fail_cost.has_value()) {
+      return m_options_.hydro_fail_cost;
+    }
+    return m_options_.model_options.hydro_fail_cost;
+  }
+
+  /// @brief Gets the reserve failure cost (field schedule).
   /// Flat field takes precedence, then model_options.
   [[nodiscard]] constexpr auto reserve_fail_cost() const
   {

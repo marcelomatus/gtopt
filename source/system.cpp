@@ -274,6 +274,10 @@ void System::merge(System&& sys)  // NOLINT
   gtopt::merge(reservoir_production_factor_array,
                std::move(sys.reservoir_production_factor_array));
 
+  gtopt::merge(right_junction_array, std::move(sys.right_junction_array));
+  gtopt::merge(flow_right_array, std::move(sys.flow_right_array));
+  gtopt::merge(volume_right_array, std::move(sys.volume_right_array));
+
   gtopt::merge(user_constraint_array, std::move(sys.user_constraint_array));
 
   if (sys.user_constraint_file.has_value()) {

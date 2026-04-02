@@ -12,6 +12,7 @@
 #include <gtopt/json/json_basic_types.hpp>
 #include <gtopt/json/json_cascade_options.hpp>
 #include <gtopt/json/json_enum_option.hpp>
+#include <gtopt/json/json_field_sched.hpp>
 #include <gtopt/json/json_lp_build_options.hpp>
 #include <gtopt/json/json_model_options.hpp>
 #include <gtopt/json/json_monolithic_options.hpp>
@@ -38,6 +39,7 @@ struct PlanningOptionsConstructor
       OptName input_format_str,
       OptReal demand_fail_cost,
       OptReal reserve_fail_cost,
+      OptReal hydro_fail_cost,
       OptBool use_line_losses,
       OptInt loss_segments,
       OptBool use_kirchhoff,
@@ -71,6 +73,7 @@ struct PlanningOptionsConstructor
     }
     opts.demand_fail_cost = demand_fail_cost;
     opts.reserve_fail_cost = reserve_fail_cost;
+    opts.hydro_fail_cost = hydro_fail_cost;
     opts.use_line_losses = use_line_losses;
     opts.loss_segments = loss_segments;
     opts.use_kirchhoff = use_kirchhoff;
@@ -131,6 +134,7 @@ struct json_data_contract<PlanningOptions>
                        json_string_null<"input_format", OptName>,
                        json_number_null<"demand_fail_cost", OptReal>,
                        json_number_null<"reserve_fail_cost", OptReal>,
+                       json_number_null<"hydro_fail_cost", OptReal>,
                        json_bool_null<"use_line_losses", OptBool>,
                        json_number_null<"loss_segments", OptInt>,
                        json_bool_null<"use_kirchhoff", OptBool>,
@@ -168,6 +172,7 @@ struct json_data_contract<PlanningOptions>
                            detail::enum_to_opt_name(opt.input_format),
                            opt.demand_fail_cost,
                            opt.reserve_fail_cost,
+                           opt.hydro_fail_cost,
                            opt.use_line_losses,
                            opt.loss_segments,
                            opt.use_kirchhoff,

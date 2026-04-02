@@ -29,6 +29,7 @@
 #include <gtopt/demand.hpp>
 #include <gtopt/demand_profile.hpp>
 #include <gtopt/flow.hpp>
+#include <gtopt/flow_right.hpp>
 #include <gtopt/generator.hpp>
 #include <gtopt/generator_profile.hpp>
 #include <gtopt/junction.hpp>
@@ -39,9 +40,11 @@
 #include <gtopt/reservoir_discharge_limit.hpp>
 #include <gtopt/reservoir_production_factor.hpp>
 #include <gtopt/reservoir_seepage.hpp>
+#include <gtopt/right_junction.hpp>
 #include <gtopt/turbine.hpp>
 #include <gtopt/user_constraint.hpp>
 #include <gtopt/utils.hpp>
+#include <gtopt/volume_right.hpp>
 #include <gtopt/waterway.hpp>
 
 namespace gtopt
@@ -96,6 +99,12 @@ struct System
   Array<ReservoirProductionFactor>
       reservoir_production_factor_array {};  ///< Volume-dependent turbine
                                              ///< efficiency
+
+  // ── Water rights (NOT part of hydro topology) ───────────────────────────
+  Array<RightJunction> right_junction_array {};  ///< Water rights balance nodes
+  Array<FlowRight> flow_right_array {};  ///< Flow-based water rights (m³/s)
+  Array<VolumeRight>
+      volume_right_array {};  ///< Volume-based water rights (hm³)
 
   // ── User constraints ────────────────────────────────────────────────────
   Array<UserConstraint>

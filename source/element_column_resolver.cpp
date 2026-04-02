@@ -17,6 +17,7 @@
 #include <gtopt/demand_lp.hpp>
 #include <gtopt/element_column_resolver.hpp>
 #include <gtopt/flow_lp.hpp>
+#include <gtopt/flow_right_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/junction_lp.hpp>
 #include <gtopt/line_lp.hpp>
@@ -28,6 +29,7 @@
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/turbine_lp.hpp>
+#include <gtopt/volume_right_lp.hpp>
 #include <gtopt/waterway_lp.hpp>
 #include <spdlog/spdlog.h>
 
@@ -416,6 +418,42 @@ namespace
       return std::nullopt;
     }
 
+    // ── flow_right: water-rights flow variable ────────────────────────
+    if (ref.element_type == "flow_right") {
+      const auto& frt = sc.get_element(ObjectSingleId<FlowRightLP> {single_id});
+      if (ref.attribute == "flow") {
+        const auto& cols = frt.flow_cols_at(scenario, stage);
+        if (const auto it = cols.find(buid); it != cols.end()) {
+          return ResolvedCol {
+              .col = it->second,
+          };
+        }
+      } else if (ref.attribute == "fail") {
+        const auto& cols = frt.fail_cols_at(scenario, stage);
+        if (const auto it = cols.find(buid); it != cols.end()) {
+          return ResolvedCol {
+              .col = it->second,
+          };
+        }
+      }
+      return std::nullopt;
+    }
+
+    // ── volume_right: water-rights volume input flow variable ────────
+    if (ref.element_type == "volume_right") {
+      const auto& vrt =
+          sc.get_element(ObjectSingleId<VolumeRightLP> {single_id});
+      if (ref.attribute == "flow" || ref.attribute == "finp") {
+        const auto& cols = vrt.finp_cols_at(scenario, stage);
+        if (const auto it = cols.find(buid); it != cols.end()) {
+          return ResolvedCol {
+              .col = it->second,
+          };
+        }
+      }
+      return std::nullopt;
+    }
+
     // ── seepage: seepage flow variable ──────────────────────────────
     if (ref.element_type == "seepage") {
       const auto& fil =
@@ -637,6 +675,30 @@ void collect_sum_cols(const SystemContext& sc,
       }
       for (const auto& flw : sc.elements<FlowLP>()) {
         add_one(std::to_string(static_cast<int>(flw.uid())));
+      }
+    } else if (sum_ref.element_type
+               == "flow_right") {  // NOLINT(bugprone-branch-clone)
+      if (sum_ref.type_filter) {
+        SPDLOG_WARN(std::format(
+            "user_constraint sum({}): type_filter is not supported for "
+            "element type '{}' — filter ignored",
+            sum_ref.element_type,
+            sum_ref.element_type));
+      }
+      for (const auto& frt : sc.elements<FlowRightLP>()) {
+        add_one(std::to_string(static_cast<int>(frt.uid())));
+      }
+    } else if (sum_ref.element_type
+               == "volume_right") {  // NOLINT(bugprone-branch-clone)
+      if (sum_ref.type_filter) {
+        SPDLOG_WARN(std::format(
+            "user_constraint sum({}): type_filter is not supported for "
+            "element type '{}' — filter ignored",
+            sum_ref.element_type,
+            sum_ref.element_type));
+      }
+      for (const auto& vrt : sc.elements<VolumeRightLP>()) {
+        add_one(std::to_string(static_cast<int>(vrt.uid())));
       }
     } else if (sum_ref.element_type
                == "seepage") {  // NOLINT(bugprone-branch-clone)

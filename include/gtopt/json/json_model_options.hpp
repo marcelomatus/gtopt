@@ -10,6 +10,7 @@
 
 #include <daw/json/daw_json_link.h>
 #include <gtopt/json/json_basic_types.hpp>
+#include <gtopt/json/json_field_sched.hpp>
 #include <gtopt/model_options.hpp>
 
 namespace daw::json
@@ -29,6 +30,7 @@ struct json_data_contract<ModelOptions>
                        json_number_null<"scale_theta", OptReal>,
                        json_number_null<"demand_fail_cost", OptReal>,
                        json_number_null<"reserve_fail_cost", OptReal>,
+                       json_number_null<"hydro_fail_cost", OptReal>,
                        json_number_null<"annual_discount_rate", OptReal>>;
 
   constexpr static auto to_json_data(ModelOptions const& opt)
@@ -42,6 +44,7 @@ struct json_data_contract<ModelOptions>
                                  opt.scale_theta,
                                  opt.demand_fail_cost,
                                  opt.reserve_fail_cost,
+                                 opt.hydro_fail_cost,
                                  opt.annual_discount_rate);
   }
 };

@@ -21,6 +21,7 @@
 #include <gtopt/demand_lp.hpp>
 #include <gtopt/demand_profile_lp.hpp>
 #include <gtopt/flow_lp.hpp>
+#include <gtopt/flow_right_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/generator_profile_lp.hpp>
 #include <gtopt/junction_lp.hpp>
@@ -35,6 +36,7 @@
 #include <gtopt/reservoir_lp.hpp>
 #include <gtopt/reservoir_production_factor_lp.hpp>
 #include <gtopt/reservoir_seepage_lp.hpp>
+#include <gtopt/right_junction_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/scene_lp.hpp>
 #include <gtopt/schedule.hpp>
@@ -43,6 +45,7 @@
 #include <gtopt/system_context.hpp>
 #include <gtopt/turbine_lp.hpp>
 #include <gtopt/user_constraint_lp.hpp>
+#include <gtopt/volume_right_lp.hpp>
 #include <gtopt/waterway_lp.hpp>
 
 namespace gtopt
@@ -89,6 +92,9 @@ static_assert(AddToLP<ReservoirSeepageLP>);
 static_assert(AddToLP<ReservoirDischargeLimitLP>);
 static_assert(AddToLP<TurbineLP>);
 static_assert(AddToLP<ReservoirProductionFactorLP>);
+static_assert(AddToLP<RightJunctionLP>);
+static_assert(AddToLP<FlowRightLP>);
+static_assert(AddToLP<VolumeRightLP>);
 static_assert(AddToLP<UserConstraintLP>);
 
 /**
@@ -130,9 +136,11 @@ public:
 
   /**
    * @brief Construct from System with simulation and options
-   * @param system The power system to model
-   * @param simulation Simulation parameters
-   * @param flat_opts Additional options (default empty)
+   * @param system     The power system to model
+   * @param simulation Reference to the SimulationLP (scenarios, phases, etc.)
+   * @param phase      Phase LP to associate with this system
+   * @param scene      Scene LP to associate with this system
+   * @param flat_opts  Additional LP build options (default empty)
    */
   explicit SystemLP(const System& system,
                     SimulationLP& simulation,
@@ -181,6 +189,9 @@ public:
                                    Collection<ReservoirDischargeLimitLP>,
                                    Collection<TurbineLP>,
                                    Collection<ReservoirProductionFactorLP>,
+                                   Collection<RightJunctionLP>,
+                                   Collection<FlowRightLP>,
+                                   Collection<VolumeRightLP>,
                                    Collection<UserConstraintLP>>;
 
   template<typename Self>
@@ -258,8 +269,10 @@ public:
   /**
    * @brief Get element by ID
    * @tparam Element Type of element
-   * @tparam Id ID type template
-   * @param id Element ID
+   * @tparam Self    Deduced object type (const or non-const)
+   * @tparam Id      ID type template
+   * @param self     The object instance (deduced via explicit object parameter)
+   * @param id       Element ID
    * @return Reference to the element
    */
   template<typename Element, typename Self, template<typename> class Id>
@@ -312,10 +325,6 @@ public:
    */
   [[nodiscard]] int update_lp();
 
-  /**
-   * @brief Write LP formulation to file
-   * @param filename Output file path
-   */
   /**
    * @brief Writes the LP problem to a file.
    * @param filename Base file name (phase/scene labels and .lp extension

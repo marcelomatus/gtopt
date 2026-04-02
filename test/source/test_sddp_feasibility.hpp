@@ -160,7 +160,7 @@ auto make_infeasible_middle_phase_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = OptReal {1000.0};
+  options.demand_fail_cost = 1000.0;
   options.use_single_bus = OptBool {true};
   options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
@@ -273,7 +273,7 @@ auto make_feasible_2phase_thermal_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = OptReal {1000.0};
+  options.demand_fail_cost = 1000.0;
   options.use_single_bus = OptBool {true};
   options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
@@ -445,7 +445,7 @@ auto make_deep_backpropagation_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = OptReal {1000.0};
+  options.demand_fail_cost = 1000.0;
   options.use_single_bus = OptBool {true};
   options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;

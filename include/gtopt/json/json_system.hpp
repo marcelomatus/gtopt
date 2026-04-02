@@ -18,6 +18,7 @@
 #include <gtopt/json/json_demand.hpp>
 #include <gtopt/json/json_demand_profile.hpp>
 #include <gtopt/json/json_flow.hpp>
+#include <gtopt/json/json_flow_right.hpp>
 #include <gtopt/json/json_generator.hpp>
 #include <gtopt/json/json_generator_profile.hpp>
 #include <gtopt/json/json_junction.hpp>
@@ -28,8 +29,10 @@
 #include <gtopt/json/json_reservoir_discharge_limit.hpp>
 #include <gtopt/json/json_reservoir_production_factor.hpp>
 #include <gtopt/json/json_reservoir_seepage.hpp>
+#include <gtopt/json/json_right_junction.hpp>
 #include <gtopt/json/json_turbine.hpp>
 #include <gtopt/json/json_user_constraint.hpp>
+#include <gtopt/json/json_volume_right.hpp>
 #include <gtopt/json/json_waterway.hpp>
 #include <gtopt/system.hpp>
 
@@ -74,6 +77,11 @@ struct json_data_contract<System>
       json_array_null<"reservoir_production_factor_array",
                       Array<ReservoirProductionFactor>,
                       ReservoirProductionFactor>,
+      json_array_null<"right_junction_array",
+                      Array<RightJunction>,
+                      RightJunction>,
+      json_array_null<"flow_right_array", Array<FlowRight>, FlowRight>,
+      json_array_null<"volume_right_array", Array<VolumeRight>, VolumeRight>,
       json_array_null<"user_constraint_array",
                       Array<UserConstraint>,
                       UserConstraint>,
@@ -101,6 +109,9 @@ struct json_data_contract<System>
                                  system.reservoir_discharge_limit_array,
                                  system.turbine_array,
                                  system.reservoir_production_factor_array,
+                                 system.right_junction_array,
+                                 system.flow_right_array,
+                                 system.volume_right_array,
                                  system.user_constraint_array,
                                  system.user_constraint_file);
   }

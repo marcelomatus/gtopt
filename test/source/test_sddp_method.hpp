@@ -200,7 +200,7 @@ auto make_3phase_hydro_planning() -> Planning
 
   // ── PlanningOptions ──
   PlanningOptions options;
-  options.demand_fail_cost = OptReal {1000.0};
+  options.demand_fail_cost = 1000.0;
   options.use_single_bus = OptBool {true};
   options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
@@ -284,7 +284,7 @@ auto make_single_phase_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = OptReal {1000.0};
+  options.demand_fail_cost = 1000.0;
 
   return Planning {
       .options = std::move(options),
@@ -783,7 +783,7 @@ auto make_5phase_reservoir_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = OptReal {5000.0};
+  options.demand_fail_cost = 5000.0;
   options.use_single_bus = OptBool {true};
   options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
@@ -967,7 +967,7 @@ auto make_5phase_small_reservoir_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = OptReal {5000.0};
+  options.demand_fail_cost = 5000.0;
   options.use_single_bus = OptBool {true};
   options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
@@ -1092,7 +1092,7 @@ auto make_5phase_expansion_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = OptReal {5000.0};
+  options.demand_fail_cost = 5000.0;
   options.use_single_bus = OptBool {true};
   options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
@@ -1267,7 +1267,7 @@ auto make_12phase_yearly_hydro_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = OptReal {5000.0};
+  options.demand_fail_cost = 5000.0;
   options.use_single_bus = OptBool {true};
   options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
@@ -2011,7 +2011,7 @@ inline auto make_2scene_3phase_hydro_planning(double prob1 = 0.7,
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = OptReal {1000.0};
+  options.demand_fail_cost = 1000.0;
   options.use_single_bus = OptBool {true};
   options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
@@ -2218,7 +2218,7 @@ TEST_CASE("update_lp - no-op when no updatable elements")  // NOLINT
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = OptReal {1000.0};
+  options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options_lp(options);
   SimulationLP sim_lp(simulation, options_lp);
   SystemLP system_lp(system, sim_lp);
@@ -2324,7 +2324,7 @@ TEST_CASE(
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = OptReal {1000.0};
+  options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options_lp(options);
   SimulationLP sim_lp(simulation, options_lp);
   SystemLP system_lp(system, sim_lp);
@@ -3247,7 +3247,7 @@ auto make_2phase_linear_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = OptReal {1000.0};
+  options.demand_fail_cost = 1000.0;
   options.use_single_bus = OptBool {true};
   options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
@@ -3717,7 +3717,7 @@ auto make_nphase_simple_hydro_planning(int num_phases) -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = OptReal {1000.0};
+  options.demand_fail_cost = 1000.0;
   options.use_single_bus = OptBool {true};
   options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
@@ -4647,7 +4647,7 @@ TEST_CASE(
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = OptReal {1000.0};
+  options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options_lp(options);
   SimulationLP sim_lp(simulation, options_lp);
   SystemLP system_lp(system, sim_lp);
@@ -4841,7 +4841,7 @@ inline auto make_tight_reservoir_3phase_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = OptReal {1000.0};
+  options.demand_fail_cost = 1000.0;
   options.use_single_bus = OptBool {true};
   options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;

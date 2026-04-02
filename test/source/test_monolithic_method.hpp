@@ -98,7 +98,7 @@ auto make_monolithic_test_planning(
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = OptReal {1000.0};
+  options.demand_fail_cost = 1000.0;
   options.use_single_bus = OptBool {true};
   options.output_compression = CompressionCodec::uncompressed;
 
@@ -176,7 +176,7 @@ auto make_multi_scenario_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = OptReal {1000.0};
+  options.demand_fail_cost = 1000.0;
   options.use_single_bus = OptBool {true};
   options.output_compression = CompressionCodec::uncompressed;
 

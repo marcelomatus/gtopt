@@ -69,6 +69,10 @@ struct PlanningOptions
   OptReal demand_fail_cost {};
   /** @brief Penalty cost for unserved spinning-reserve requirement [$/MWh] */
   OptReal reserve_fail_cost {};
+  /** @brief Default penalty cost for unmet hydro rights [$/m3].
+   *  Applied to FlowRight and VolumeRight deficit variables when
+   *  the per-element `fail_cost` is not set. */
+  OptReal hydro_fail_cost {};
   /** @brief Whether to model resistive line losses (default: true) */
   OptBool use_line_losses {};
   /** @brief Default number of piecewise-linear segments for quadratic line
@@ -239,6 +243,7 @@ struct PlanningOptions
 
     merge_opt(demand_fail_cost, opts.demand_fail_cost);
     merge_opt(reserve_fail_cost, opts.reserve_fail_cost);
+    merge_opt(hydro_fail_cost, opts.hydro_fail_cost);
     merge_opt(use_line_losses, opts.use_line_losses);
     merge_opt(loss_segments, opts.loss_segments);
     merge_opt(use_kirchhoff, opts.use_kirchhoff);

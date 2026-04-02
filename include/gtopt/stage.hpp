@@ -25,6 +25,7 @@
 #include <span>  // For std::dynamic_extent
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/stage_enums.hpp>
 
 namespace gtopt
 {
@@ -55,6 +56,10 @@ struct Stage
                                            ///< this stage [dimensionless]
   OptReal discount_factor {
       1};  ///< Present-value cost multiplier for this stage [p.u.]
+
+  /// Calendar month for this stage.
+  /// Used for seasonal parameter lookups (e.g., irrigation schedules).
+  std::optional<MonthType> month {};
 
   static constexpr std::string_view class_name = "stage";
 

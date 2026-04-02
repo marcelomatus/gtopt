@@ -37,6 +37,9 @@ class ReservoirSeepageLP;
 class FlowLP;
 class GeneratorLP;
 class GeneratorProfileLP;
+class FlowRightLP;
+class RightJunctionLP;
+class VolumeRightLP;
 class JunctionLP;
 class LineLP;
 class ReserveProvisionLP;
@@ -80,6 +83,9 @@ using lp_element_types_t = std::tuple<BusLP,
                                       ReservoirDischargeLimitLP,
                                       TurbineLP,
                                       ReservoirProductionFactorLP,
+                                      RightJunctionLP,
+                                      FlowRightLP,
+                                      VolumeRightLP,
                                       UserConstraintLP>;
 
 /// Total number of LP element types.

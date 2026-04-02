@@ -810,7 +810,7 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp with piecewise segments")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = OptReal {1000.0};
+  opts.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options_lp(opts);
   SimulationLP simulation_lp(simulation, options_lp);
   SystemLP system_lp(system, simulation_lp);
@@ -952,7 +952,7 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp with different eini segment")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = OptReal {1000.0};
+  opts.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options_lp(opts);
   SimulationLP simulation_lp(simulation, options_lp);
   SystemLP system_lp(system, simulation_lp);
@@ -1086,7 +1086,7 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp is a no-op without segments")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = OptReal {1000.0};
+  opts.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options_lp(opts);
   SimulationLP simulation_lp(simulation, options_lp);
   SystemLP system_lp(system, simulation_lp);

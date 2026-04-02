@@ -12,6 +12,23 @@ from .block_parser import BlockParser
 logger = logging.getLogger(__name__)
 
 
+_MONTH_NAMES = [
+    "",
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+]
+
+
 class Stage(TypedDict):
     """Represents a stage in the system."""
 
@@ -20,6 +37,7 @@ class Stage(TypedDict):
     count_block: int
     active: int
     discount_factor: float
+    month: Optional[str]
 
 
 class StageWriter(BaseWriter):
@@ -50,12 +68,17 @@ class StageWriter(BaseWriter):
             if stage_number > last_stage:
                 continue
 
+            month_num = stage.get("month")
+            month_name = (
+                _MONTH_NAMES[month_num] if month_num and 1 <= month_num <= 12 else None
+            )
             jstage: Stage = {
                 "uid": stage_number,
                 "first_block": stage.get("first_block", 0),
                 "count_block": stage.get("count_block", -1),
                 "active": 1,
                 "discount_factor": stage["discount_factor"],
+                "month": month_name,
             }
             total_time += stage["duration"]
 

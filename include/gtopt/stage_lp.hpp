@@ -137,6 +137,9 @@ public:
     return m_phase_index_;
   }
 
+  /// @return Calendar month for this stage (if set)
+  [[nodiscard]] constexpr auto month() const noexcept { return stage().month; }
+
   /// @return Span of blocks in this stage
   [[nodiscard]] constexpr const auto& blocks() const noexcept
   {

@@ -25,7 +25,9 @@ from .generator_profile_writer import GeneratorProfileWriter
 from .index_utils import parse_index_range, parse_stages_phase
 from .indhor_writer import IndhorWriter
 from .junction_writer import JunctionWriter
+from .laja_writer import LajaWriter
 from .line_writer import LineWriter
+from .maule_writer import MauleWriter
 from .planos_writer import write_boundary_cuts_csv, write_hot_start_cuts_csv
 from .plp_parser import PLPParser
 from .stage_writer import StageWriter
@@ -608,6 +610,45 @@ class GTOptWriter:
         for j in json_junctions:
             for key, val in j.items():
                 self.planning["system"][key] = val
+
+    def process_water_rights(self, options):
+        """Process irrigation agreement conventions into rights entities.
+
+        Only emits entities when ``emit_water_rights`` option is set to
+        True.  The conventions create FlowRight, VolumeRight,
+        RightJunction and UserConstraint entities that reference physical
+        elements by name — these references must match the converted
+        hydro topology, so emission is opt-in until the converter is
+        validated for each PLP case.
+        """
+        if not options.get("emit_water_rights", False):
+            return
+
+        stage_parser = self.parser.parsed_data.get("stage_parser")
+
+        # Laja convention
+        laja_parser = self.parser.parsed_data.get("laja_parser")
+        if laja_parser is not None:
+            lw = LajaWriter(
+                laja_config=laja_parser.config,
+                stage_parser=stage_parser,
+                options=options,
+            )
+            for key, val in lw.to_json_dict().items():
+                existing = self.planning["system"].get(key, [])
+                self.planning["system"][key] = existing + val
+
+        # Maule convention
+        maule_parser = self.parser.parsed_data.get("maule_parser")
+        if maule_parser is not None:
+            mw = MauleWriter(
+                maule_config=maule_parser.config,
+                stage_parser=stage_parser,
+                options=options,
+            )
+            for key, val in mw.to_json_dict().items():
+                existing = self.planning["system"].get(key, [])
+                self.planning["system"][key] = existing + val
 
     def process_flow_turbines(self, options):
         """Create Flow + Turbine(flow=ref) for hydro pasada centrals.
@@ -1259,6 +1300,8 @@ class GTOptWriter:
         self.process_generator_profiles(options)
         self.process_junctions(options)
         self.process_flow_turbines(options)
+        _step("water_rights")
+        self.process_water_rights(options)
         _step("batteries")
         self.process_battery(options)
         _step("boundary")

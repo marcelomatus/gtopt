@@ -551,11 +551,11 @@ TEST_CASE("ModelOptions merge overwrites set fields only")  // NOLINT
 {
   ModelOptions base;
   base.use_single_bus = OptBool {true};
-  base.demand_fail_cost = OptReal {1000.0};
+  base.demand_fail_cost = 1000.0;
 
   ModelOptions override_opts;
   override_opts.use_kirchhoff = OptBool {true};
-  override_opts.demand_fail_cost = OptReal {2000.0};
+  override_opts.demand_fail_cost = 2000.0;
 
   base.merge(override_opts);
   CHECK(base.use_single_bus.value_or(false) == true);
@@ -1327,7 +1327,7 @@ auto make_3phase_2bus_hydro_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = OptReal {1000.0};
+  options.demand_fail_cost = 1000.0;
   options.use_single_bus = OptBool {false};
   options.use_kirchhoff = OptBool {true};
   options.scale_objective = OptReal {1.0};
@@ -1505,7 +1505,7 @@ auto make_6phase_2bus_hydro_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = OptReal {1000.0};
+  options.demand_fail_cost = 1000.0;
   options.use_single_bus = OptBool {false};
   options.use_kirchhoff = OptBool {true};
   options.scale_objective = OptReal {1.0};

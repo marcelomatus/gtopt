@@ -30,6 +30,8 @@
  * | turbine            | generation                                          |
  * | junction           | drain                                               |
  * | flow               | flow (alias: discharge)                             |
+ * | flow_right         | flow, fail                                          |
+ * | volume_right       | flow (alias: finp)                                  |
  * | seepage            | flow (alias: seepage)                               |
  * | reserve_provision  | up (aliases: uprovision, up_provision),             |
  * |                    | dn (aliases: dprovision, dn_provision, down)        |
@@ -109,6 +111,7 @@
  *              |  'converter' | 'reservoir' | 'bus'
  *              |  'waterway'  | 'turbine'
  *              |  'junction'  | 'flow' | 'seepage'
+ *              |  'flow_right' | 'volume_right'
  *              |  'reserve_provision' | 'reserve_zone'
  *
  * attribute    := IDENT

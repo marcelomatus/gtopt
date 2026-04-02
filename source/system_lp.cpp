@@ -357,6 +357,16 @@ void create_collections(const auto& system_context,
       make_collection<ReservoirProductionFactorLP>(
           ic, sys.reservoir_production_factor_array);
 
+  // Water rights (NOT part of hydro topology)
+  // RightJunctionLP must be created BEFORE FlowRightLP because
+  // FlowRightLP references RightJunction balance rows in add_to_lp.
+  std::get<Collection<RightJunctionLP>>(colls) =
+      make_collection<RightJunctionLP>(ic, sys.right_junction_array);
+  std::get<Collection<FlowRightLP>>(colls) =
+      make_collection<FlowRightLP>(ic, sys.flow_right_array);
+  std::get<Collection<VolumeRightLP>>(colls) =
+      make_collection<VolumeRightLP>(ic, sys.volume_right_array);
+
   // UserConstraintLP is placed LAST so that user-constraint rows are added to
   // the LP after all other elements whose columns they reference.
   std::get<Collection<UserConstraintLP>>(colls) =

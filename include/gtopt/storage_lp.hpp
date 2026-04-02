@@ -132,6 +132,17 @@ public:
     return energy_cols.at({scenario.uid(), stage.uid()});
   }
 
+  /// Return the energy balance row indices for (scenario, stage).
+  ///
+  /// These are the storage balance constraint rows (one per block).
+  /// External entities can add coefficients to these rows to couple
+  /// their flow variables into this storage's energy balance.
+  [[nodiscard]] constexpr const auto& energy_rows_at(const ScenarioLP& scenario,
+                                                     const StageLP& stage) const
+  {
+    return energy_rows.at({scenario.uid(), stage.uid()});
+  }
+
   /// Return the drain/spill column indices for (scenario, stage).
   ///
   /// Drain columns represent the spillway (for reservoirs) or energy
