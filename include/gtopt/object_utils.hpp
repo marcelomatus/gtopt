@@ -33,9 +33,9 @@ public:
    * @brief Generates a state variable key for the object
    * @tparam Self CRTP self type
    * @param self Reference to the object
+   * @param scenario Scenario context
+   * @param stage Stage context
    * @param col_name The column name for the state variable
-   * @param stage_uid Stage UID (default unknown)
-   * @param scenario_uid Scenario UID (default unknown)
    * @return StateVariable::Key
    */
   template<typename Self, typename ScenarioLP, typename StageLP>
@@ -66,7 +66,8 @@ public:
    * @tparam Args Types of additional arguments
    * @param self Reference to the object
    * @param sc System context
-   * @param stage Stage
+   * @param scenario Scenario context
+   * @param stage Stage context
    * @param args Additional arguments to include in the label
    * @return Label string
    */

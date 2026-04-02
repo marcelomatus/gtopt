@@ -1073,8 +1073,10 @@ private:
                                 std::span<const double> weights) const;
 
   /// Apply cut-sharing across scenes for all phases generated in this
-  /// iteration.  @param cuts_before is m_stored_cuts_.size() BEFORE this
-  /// iteration's backward pass.
+  /// iteration.
+  /// @param cuts_before  Value of m_stored_cuts_.size() BEFORE this
+  ///                     iteration's backward pass.
+  /// @param iteration    Current SDDP iteration index.
   void apply_cut_sharing_for_iteration(std::size_t cuts_before,
                                        IterationIndex iteration);
 
@@ -1189,10 +1191,8 @@ private:
 
   // ── Monitoring API (SolverMonitor owns the background thread) ──
 
-  /// Write a JSON status file for the monitoring API.
-  /// Called after each iteration.
-  /// @param status_file  Path to write the JSON file.
   /// Generate an LP name only when names_level >= only_cols.
+  /// @param args  Arguments forwarded to LabelMaker::lp_label.
   template<typename... Args>
   [[nodiscard]] auto sddp_label(Args&&... args) const -> std::string
   {

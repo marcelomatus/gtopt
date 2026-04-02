@@ -55,7 +55,6 @@ public:
    * @brief Constructs a SimulationLP from a Simulation
    * @param simulation Reference to the base simulation model
    * @param options Reference to LP solver options
-   * @param scene Optional scene for scenario creation (default empty)
    * @throws std::runtime_error If component validation fails
    * @throws std::bad_alloc If memory allocation fails
    */
@@ -205,8 +204,9 @@ public:
   /**
    * @brief Retrieves a state variable by its key
    * @tparam Self Type of the object (deduced using 'this' parameter)
-   * @tparam Key Type of the key (default state_variable_key_t)
-   * @param key The key to search for
+   * @tparam Key  Type of the key (default state_variable_key_t)
+   * @param self  The object instance (deduced via explicit object parameter)
+   * @param key   The key to search for
    * @return Optional reference to the state variable if found (const or
    * non-const)
    */

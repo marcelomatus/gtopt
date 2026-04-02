@@ -79,7 +79,7 @@ struct CapacityObjectBase
 
   /**
    * @brief Get the column index for capacity at a specific stage
-   * @param stage_index The stage to get column index for
+   * @param stage The stage to get column index for
    * @return Optional containing column index if exists
    */
   [[nodiscard]] constexpr auto capacity_col_at(
@@ -90,11 +90,10 @@ struct CapacityObjectBase
 
   /**
    * @brief Get the capacity at a specific stage
-   * @param stage_index The stage to query capacity for
+   * @param stage The stage to query capacity for
    * @param def_capacity Default value if capacity not specified (default:
    * unlimited)
    * @return The capacity at given stage or default if not specified
-   * @throws None This function is noexcept
    */
 
   [[nodiscard]] constexpr double capacity_at(
@@ -107,7 +106,7 @@ struct CapacityObjectBase
   /**
    * @brief Get capacity value and optional column index for a stage
    * @tparam Out Return type (defaults to pair<double, optional<ColIndex>>)
-   * @param stage_index The stage to query
+   * @param stage The stage to query
    * @param lp Linear problem reference to check column bounds
    * @return Pair containing:
    *   - First: Capacity value (upper bound if column exists, else schedule
@@ -128,12 +127,10 @@ struct CapacityObjectBase
 
   /**
    * @brief Add capacity constraints to the linear problem
-   * @tparam SystemContext Type of system context (deduced)
    * @param sc System context providing stage/scenario info
-   * @param scenario_index Current scenario index
-   * @param stage_index Current stage index
+   * @param scenario Current scenario
+   * @param stage Current stage
    * @param lp Linear problem to modify
-   * @param cname Class name prefix for labeling
    * @return true if successful, false otherwise
    *
    * @details Adds capacity-related variables and constraints:
@@ -150,9 +147,7 @@ struct CapacityObjectBase
 
   /**
    * @brief Add capacity solution data to output context
-   * @tparam OutputContext Type of output context (deduced)
    * @param out Output context to populate
-   * @param cname Class name prefix for labeling
    * @return true if successful, false otherwise
    *
    * @details Adds:
@@ -242,10 +237,9 @@ struct CapacityObjectLP
   /**
    * @brief Construct a new CapacityObjectLP object
    * @tparam ObjectT Type of object being wrapped (deduced)
-   * @param ic Input context providing stage/scenario information
-   * @param class_name Name of the class for labeling columns/rows
    * @param pobject The object to wrap, will be moved if rvalue
-   * @throws None This constructor is noexcept
+   * @param ic Input context providing stage/scenario information
+   * @param cname Class name for labeling columns/rows
    *
    * @details Initializes all capacity-related schedules from the wrapped
    * object:

@@ -75,6 +75,20 @@ public:
   }
 
   /**
+   * @brief Return the discharge value for a given scenario/stage/block.
+   * @param scenario_uid Scenario UID to look up
+   * @param stage_uid Stage UID to look up
+   * @param block_uid Block UID to look up
+   * @return Optional discharge value if present
+   */
+  [[nodiscard]] std::optional<double> aperture_value(ScenarioUid scenario_uid,
+                                                     StageUid stage_uid,
+                                                     BlockUid block_uid) const
+  {
+    return discharge.at(scenario_uid, stage_uid, block_uid);
+  }
+
+  /**
    * @brief Update flow column bounds in a cloned LP for an aperture scenario.
    *
    * During the SDDP backward pass with apertures, the flow columns that were
@@ -88,14 +102,6 @@ public:
    * @param stage         The stage for which to update the bounds.
    * @return true on success.
    */
-  /// Return the discharge value for a given scenario/stage/block.
-  [[nodiscard]] std::optional<double> aperture_value(ScenarioUid scenario_uid,
-                                                     StageUid stage_uid,
-                                                     BlockUid block_uid) const
-  {
-    return discharge.at(scenario_uid, stage_uid, block_uid);
-  }
-
   [[nodiscard]] bool update_aperture(
       LinearInterface& li,
       const ScenarioLP& base_scenario,

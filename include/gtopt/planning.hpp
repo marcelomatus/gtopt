@@ -1,5 +1,5 @@
-/**c
- * @file      planning.hpp<gtopt>
+/**
+ * @file      planning.hpp
  * @brief     Header of Planning class
  * @date      Wed Mar 19 21:59:12 2025
  * @author    marcelo

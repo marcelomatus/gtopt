@@ -103,6 +103,8 @@ struct Generator
 
   /**
    * @brief Sets generator attributes from a GeneratorAttrs object
+   * @param self  The generator object to update (deduced; supports
+   * const/non-const).
    * @param attrs Generator attributes to be set
    * @return Reference to this Generator object
    *

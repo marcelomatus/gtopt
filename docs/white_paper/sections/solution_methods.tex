@@ -1,0 +1,254 @@
+% ============================================================================
+% Section IV: Solution Methods
+% ============================================================================
+
+\section{Solution Methods}
+\label{sec:methods}
+
+\gtopt{} implements three complementary solution methods, selectable via the
+\texttt{method} option.  All three solve the same underlying GTEP formulation
+(Section~\ref{sec:formulation}); they differ in how they decompose the
+problem across the time and scenario dimensions.
+
+\subsection{Monolithic LP}
+\label{sec:monolithic}
+
+The default method assembles the entire multi-scenario, multi-stage problem
+into a single sparse LP/MIP and passes it to the solver backend.  The LP
+is constructed in compressed sparse column (CSC) format via the
+\texttt{FlatLinearProblem} class.
+
+For a system with $N$ buses, $G$ generators, $D$ demands, $L$ lines,
+$E$ batteries, $B$ blocks per stage, $T$ stages, and $S$ scenarios, the
+approximate problem size is:
+
+\begin{table}[h]
+  \centering
+  \caption{LP Problem Size Estimates}
+  \label{tab:lp_size}
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    Quantity & Approximate count \\
+    \midrule
+    Operational variables & $(G{+}2D{+}2L{+}3E{+}N) \times S \times T \times B$ \\
+    Investment variables  & $(G{+}D{+}L{+}E) \times T$ \\
+    Bus balance rows      & $N \times S \times T \times B$ \\
+    Kirchhoff rows        & $L \times S \times T \times B$ (if DC OPF) \\
+    SoC balance rows      & $E \times S \times T \times B$ \\
+    Capacity rows         & $(G{+}D{+}L{+}E) \times T$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The monolithic method is exact (no decomposition error) and is recommended
+for problems where the total number of LP variables fits in memory.  For
+the IEEE~57-bus system with 24 hourly blocks, the LP has approximately
+$57 \times 24 \times (7 + 84 + 160 + 57) \approx 421\,000$ variables.
+
+\subsection{Stochastic Dual Dynamic Programming (SDDP)}
+\label{sec:sddp}
+
+For multi-stage stochastic problems with many scenarios, \gtopt{} implements
+SDDP following the algorithm of Pereira and
+Pinto~\cite{pereira1991sddp}.  The stages are decomposed into
+individual subproblems connected by Benders optimality cuts that
+approximate the expected future cost.
+
+\begin{algorithm}[h]
+  \caption{SDDP Algorithm in \gtopt{}}
+  \label{alg:sddp}
+  \begin{algorithmic}[1]
+    \STATE Initialize: empty cut sets $\mathcal{C}_t = \emptyset$
+      for all $t$
+    \FOR{iteration $k = 1, 2, \ldots, K$}
+      \STATE \textbf{Forward pass}: Solve stages $t=1,\ldots,T$
+        sequentially for sampled scenarios; record state variables
+        (SoC, reservoir volumes)
+      \STATE \textbf{Backward pass}: For $t=T,\ldots,1$, solve
+        each stage for all aperture scenarios; compute dual
+        variables; generate Benders cuts:
+        \[
+          \alpha_t \geq \hat{\alpha}_t + \hat{\pi}_t^\top
+            (x_t - \hat{x}_t)
+        \]
+      \STATE Add cuts to $\mathcal{C}_t$
+      \STATE Check convergence: upper/lower bound gap $\leq \epsilon$
+    \ENDFOR
+  \end{algorithmic}
+\end{algorithm}
+
+\paragraph{Benders Optimality Cuts.}
+The core mechanism of SDDP is the Benders optimality cut, which
+approximates the expected cost-to-go function as a piecewise-linear
+lower bound.  At each backward step for stage~$t$, the cut takes the
+form:
+\begin{equation}
+  \label{eq:benders_cut}
+  \alpha_t \;\geq\; \hat{z}_{t+1}
+    + \sum_{i} \hat{\mu}_i \bigl(x_i - \hat{x}_i\bigr),
+\end{equation}
+where $\alpha_t$ is the future cost variable (the cost-to-go
+approximation at stage~$t$), $\hat{z}_{t+1}$ is the optimal objective
+value of the stage-$(t{+}1)$ subproblem evaluated at the trial point,
+$\hat{\mu}_i$ are the dual multipliers of the state-linking constraints
+(coupling successive stages through reservoir volumes, state-of-charge,
+etc.), and $\hat{x}_i$ are the trial state variable values from the
+forward pass.  As iterations proceed, the accumulated cuts progressively
+tighten the piecewise-linear outer approximation of the true expected
+cost-to-go, driving the lower bound upward toward the optimum.
+
+\paragraph{Cut Coefficient Modes.}
+\gtopt{} supports two modes for computing the cut coefficients
+$\hat{\mu}_i$ in~\eqref{eq:benders_cut}.  The \texttt{reduced\_cost}
+mode (default) extracts dual information from the reduced costs of the
+LP solution, which is numerically robust when state variables are at
+their bounds.  The \texttt{row\_dual} mode instead reads the row dual
+values of the state-linking constraints directly.  Both modes produce
+valid cuts; the choice can affect convergence speed depending on problem
+structure and solver backend.
+
+\paragraph{Convergence Criterion.}
+Convergence is checked at the end of each iteration by comparing the
+upper bound (the average total cost across forward-pass scenario
+samples) with the lower bound (the optimal objective of the root-stage
+subproblem, which includes all accumulated cuts).  The algorithm
+terminates when the relative gap satisfies:
+\[
+  \frac{z^{\text{upper}} - z^{\text{lower}}}{z^{\text{upper}}}
+  \;\leq\; \varepsilon,
+\]
+where the default tolerance is $\varepsilon = 0.01$ (1\%).
+
+\gtopt{}'s SDDP implementation includes several enhancements:
+
+\begin{itemize}
+  \item \textbf{Apertures}: configurable backward-pass scenario sampling
+    that groups scenarios into subsets for cut generation, reducing
+    computational cost while preserving solution quality.
+  \item \textbf{Elastic filters}: infeasible subproblems are handled by
+    relaxing state variable bounds with penalty costs, ensuring the
+    algorithm does not stall.
+  \item \textbf{Boundary cuts}: pre-computed future cost approximations
+    at the terminal stage, enabling rolling horizon studies.
+  \item \textbf{Hot start}: cuts from previous runs can be loaded to
+    accelerate convergence.
+  \item \textbf{Cut management}: dominated cuts are periodically purged
+    to control LP size growth.
+\end{itemize}
+
+\begin{figure}[t]
+  \centering
+  \begin{tikzpicture}[
+    >=Stealth,
+    stage/.style={draw, rounded corners=2pt, minimum width=0.9cm,
+      minimum height=0.65cm, font=\scriptsize, thick},
+    fwd/.style={stage, fill=blue!15},
+    bwd/.style={stage, fill=orange!15},
+    arr/.style={->, thick},
+    stvar/.style={font=\tiny, blue!70},
+    cutlbl/.style={font=\tiny, red!60},
+  ]
+    % Forward pass label
+    \node[font=\scriptsize\bfseries, blue!70] at (-1.2,1.8)
+      {Forward};
+
+    % Forward pass stages
+    \node[fwd] (f1) at (0,1.8) {$t{=}1$};
+    \node[fwd] (f2) at (1.6,1.8) {$t{=}2$};
+    \node[font=\scriptsize] at (2.8,1.8) {$\cdots$};
+    \node[fwd] (fT1) at (3.8,1.8) {$T{-}1$};
+    \node[fwd] (fT) at (5.4,1.8) {$t{=}T$};
+
+    % Forward arrows
+    \draw[arr, blue!60] (f1) -- (f2)
+      node[stvar, above, midway] {$x_1$};
+    \draw[arr, blue!60] (f2) -- (2.4,1.8);
+    \draw[arr, blue!60] (3.2,1.8) -- (fT1);
+    \draw[arr, blue!60] (fT1) -- (fT)
+      node[stvar, above, midway] {$x_{T-1}$};
+
+    % State variable annotation
+    \node[stvar, above=3pt of f1.north east, anchor=south]
+      {SoC, $v_r$};
+
+    % Backward pass label
+    \node[font=\scriptsize\bfseries, orange!70] at (-1.2,0)
+      {Backward};
+
+    % Backward pass stages
+    \node[bwd] (b1) at (0,0) {$t{=}1$};
+    \node[bwd] (b2) at (1.6,0) {$t{=}2$};
+    \node[font=\scriptsize] at (2.8,0) {$\cdots$};
+    \node[bwd] (bT1) at (3.8,0) {$T{-}1$};
+    \node[bwd] (bT) at (5.4,0) {$t{=}T$};
+
+    % Backward arrows (right to left)
+    \draw[arr, red!50] (bT) -- (bT1)
+      node[cutlbl, below, midway] {cut};
+    \draw[arr, red!50] (bT1) -- (3.2,0);
+    \draw[arr, red!50] (2.4,0) -- (b2);
+    \draw[arr, red!50] (b2) -- (b1)
+      node[cutlbl, below, midway] {cut};
+
+    % Connecting arrows (forward to backward)
+    \draw[->, dashed, gray, thin] (fT.south) -- (bT.north);
+    \draw[->, dashed, gray, thin] (f1.south) -- (b1.north);
+
+    % Convergence check
+    \node[draw, rounded corners=3pt, fill=gray!10,
+      font=\scriptsize, minimum width=2.5cm] (conv) at (2.7,-1.3)
+      {$|z^\text{UB} - z^\text{LB}|/z^\text{UB} \leq \varepsilon$?};
+    \draw[->, thick, gray] (b1.south) |- (conv.west);
+
+    % Loop back
+    \draw[->, thick, gray, dashed]
+      (conv.east) -| (5.8,-1.3) -- (5.8,2.2) -- (f1.north)
+      node[font=\tiny, pos=0.25, right] {iterate};
+  \end{tikzpicture}
+  \caption{SDDP forward-backward iteration: the forward pass solves
+    stages sequentially passing state variables (battery SoC, reservoir
+    volume); the backward pass generates Benders cuts. Convergence is
+    checked via the upper/lower bound gap.}
+  \label{fig:sddp_flow}
+\end{figure}
+
+\subsection{Cascade Decomposition}
+\label{sec:cascade}
+
+The cascade method is a novel multi-level hybrid that decomposes the
+problem hierarchically:
+
+\begin{enumerate}
+  \item \textbf{Level~0 (strategic)}: A coarsened version of the problem
+    (aggregated blocks, reduced scenarios) is solved monolithically to
+    determine investment decisions and approximate cost-to-go functions.
+  \item \textbf{Level~1 (tactical)}: SDDP is applied to the full
+    stochastic problem using the Level~0 investments as warm-start and
+    the cost-to-go cuts as initial approximations.
+  \item \textbf{Level~2+ (operational)}: Additional refinement levels
+    can solve detailed operational subproblems with fixed investments.
+\end{enumerate}
+
+The cascade method inherits SDDP's convergence guarantees while using the
+monolithic coarse solution to dramatically reduce the number of SDDP
+iterations required.  It is particularly effective for long-horizon problems
+(10+ stages) with many scenarios.
+
+\subsection{Solver Backend Architecture}
+
+All three methods delegate LP/MIP solution to a pluggable solver backend
+loaded as a shared library at runtime.  Currently supported backends are:
+
+\begin{itemize}
+  \item \textbf{CLP/CBC} (COIN-OR): Default open-source backend.  CLP for
+    LP, CBC for MIP~\cite{forrest2005cbc}.
+  \item \textbf{CPLEX} (IBM): Commercial high-performance solver, accessed
+    via the C Callable Library.
+  \item \textbf{HiGHS}: Open-source solver with parallel simplex and
+    interior-point methods~\cite{huangfu2018highs}.
+\end{itemize}
+
+The backend is auto-detected by priority (CPLEX $>$ HiGHS $>$ CBC $>$ CLP)
+or explicitly selected via the \texttt{--solver} flag.  Solver-specific
+options (algorithm, threads, tolerances, time limits) are configured
+through the \texttt{solver\_options} JSON section.

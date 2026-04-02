@@ -19,7 +19,7 @@
  *
  *   GTOPT_USE_STD_FLAT_MAP    - std::flat_map  (default for GCC >= 15 and
  *                                               Clang >= 23, only when
- *                                               <flat_map> is available)
+ *                                               `<flat_map>` is available)
  *   GTOPT_USE_BOOST_FLAT_MAP  - boost::container::flat_map (default for all
  *                                               other compilers / older
  *                                               versions)

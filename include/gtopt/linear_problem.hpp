@@ -213,6 +213,7 @@ public:
 
   /**
    * Gets a reference to a column by index
+   * @param self Deduced object reference
    * @param index Column index
    * @return Reference to the column
    */
@@ -256,6 +257,7 @@ public:
 
   /**
    * Gets a reference to a row by index
+   * @param self Deduced object reference
    * @param index Row index
    * @return Reference to the row
    */
@@ -287,7 +289,6 @@ public:
    * @param row Row index
    * @param col Column index
    * @param coeff Coefficient value
-   * @param eps Epsilon value for zero comparison
    */
   constexpr void set_coeff(RowIndex row, ColIndex col, double coeff)
   {

@@ -904,7 +904,7 @@ A water channel connecting two junctions.
 
 ### 3.9 Reservoir
 
-A water reservoir connected to a junction.  Volume units: **dam³** (1 dam³ = 1 000 m³).
+A water reservoir connected to a junction.  Volume units: **hm³** (1 hm³ = 10⁶ m³).
 
 | Field                  | Type                | Units       | Required | Description |
 |------------------------|---------------------|-------------|----------|-------------|
@@ -913,18 +913,18 @@ A water reservoir connected to a junction.  Volume units: **dam³** (1 dam³ = 1
 | `active`               | boolean             | —           | No       | Whether the reservoir is active |
 | `junction`             | integer\|string     | —           | Yes      | Associated junction UID or name |
 | `spillway_capacity`    | number              | m³/s        | No       | Maximum uncontrolled spill capacity |
-| `spillway_cost`        | number              | $/dam³      | No       | Penalty per unit of spilled water |
-| `capacity`             | number\|array\|string| dam³       | No       | Total usable storage capacity |
+| `spillway_cost`        | number              | $/hm³      | No       | Penalty per unit of spilled water |
+| `capacity`             | number\|array\|string| hm³       | No       | Total usable storage capacity |
 | `annual_loss`          | number\|array\|string| p.u./year  | No       | Annual evaporation/seepage loss rate |
-| `emin`                 | number\|array\|string| dam³       | No       | Minimum allowed stored volume |
-| `emax`                 | number\|array\|string| dam³       | No       | Maximum allowed stored volume |
-| `ecost`                | number\|array\|string| $/dam³     | No       | Water value (shadow cost of stored water) |
-| `eini`                 | number              | dam³        | No       | Initial stored volume |
-| `efin`                 | number              | dam³        | No       | Target final stored volume |
+| `emin`                 | number\|array\|string| hm³       | No       | Minimum allowed stored volume |
+| `emax`                 | number\|array\|string| hm³       | No       | Maximum allowed stored volume |
+| `ecost`                | number\|array\|string| $/hm³     | No       | Water value (shadow cost of stored water) |
+| `eini`                 | number              | hm³        | No       | Initial stored volume |
+| `efin`                 | number              | hm³        | No       | Target final stored volume |
 | `fmin`                 | number              | m³/s        | No       | Minimum net inflow |
 | `fmax`                 | number              | m³/s        | No       | Maximum net inflow |
 | `energy_scale`         | number              | —           | No       | Multiplicative scaling factor for volume |
-| `flow_conversion_rate` | number              | dam³/(m³/s·h)| No     | Converts m³/s × hours to dam³ (default: 0.0036) |
+| `flow_conversion_rate` | number              | hm³/(m³/s·h)| No     | Converts m³/s × hours to hm³ (default: 0.0036) |
 
 ### 3.10 Turbine
 
@@ -955,36 +955,37 @@ A water inflow or outflow at a junction.
 | `junction`  | integer\|string     | —     | Yes      | Associated junction UID or name |
 | `discharge` | number\|array\|string| m³/s | Yes      | Water discharge schedule |
 
-### 3.12 Filtration
+### 3.12 Reservoir Seepage (formerly Filtration)
 
 Piecewise-linear seepage model from a waterway to an adjacent reservoir,
 representing water losses due to soil permeability (Darcy's law
-approximation).  The seepage flow through the filtration waterway is
+approximation).  The seepage flow through the waterway is
 constrained to:
 
 ```
-seepage [m³/s] = slope [m³/s/dam³] × avg_reservoir_volume [dam³] + constant [m³/s]
+seepage [m³/s] = slope [m³/s/hm³] × avg_reservoir_volume [hm³] + constant [m³/s]
 ```
 
 where `avg_reservoir_volume = (eini + efin) / 2`.  This captures the
-hydrostatic-head dependence of seepage.  Corresponds to PLP **plpcenfi.dat**
-(*Centrales Filtración*).
+hydrostatic-head dependence of seepage.  Corresponds to PLP **plpfilemb.dat**.
 
 When piecewise-linear `segments` are provided, the active segment is
 selected based on the reservoir's current volume (vini from the previous
 phase).  The LP constraint coefficients (slope and RHS) are updated
-dynamically — the same mechanism used by Reservoir Efficiency for turbine
-conversion rates.  If `segments` is empty, the static `slope` and
+dynamically — the same mechanism used by Reservoir Production Factor for
+turbine conversion rates.  If `segments` is empty, the static `slope` and
 `constant` fields are used as a simple linear model.
+
+**JSON array name:** `reservoir_seepage_array`
 
 | Field       | Type    | Units        | Required | Description |
 |-------------|---------|--------------|----------|-------------|
 | `uid`       | integer | —            | Yes      | Unique identifier |
-| `name`      | string  | —            | Yes      | Filtration name |
-| `active`    | boolean | —            | No       | Whether the filtration is active |
+| `name`      | string  | —            | Yes      | Seepage element name |
+| `active`    | boolean | —            | No       | Whether the seepage element is active |
 | `waterway`  | integer\|string | —    | Yes      | Source waterway UID or name |
 | `reservoir` | integer\|string | —    | Yes      | Receiving reservoir UID or name |
-| `slope`     | number  | m³/s / dam³  | No       | Default seepage slope (used when `segments` is empty) |
+| `slope`     | number  | m³/s / hm³   | No       | Default seepage slope (used when `segments` is empty) |
 | `constant`  | number  | m³/s         | No       | Default constant seepage rate (used when `segments` is empty) |
 | `segments`  | array   | —            | No       | Piecewise-linear concave segments (see below) |
 
@@ -993,14 +994,14 @@ filtration envelope:
 
 | Field      | Type   | Units          | Description |
 |------------|--------|----------------|-------------|
-| `volume`   | number | dam³           | Volume breakpoint |
-| `slope`    | number | m³/s / dam³    | Seepage slope at this breakpoint |
+| `volume`   | number | hm³            | Volume breakpoint |
+| `slope`    | number | m³/s / hm³     | Seepage slope at this breakpoint |
 | `constant` | number | m³/s           | Seepage rate at this breakpoint |
 
-The filtration rate at volume *V* is computed as the minimum over all
-segments: `filtration(V) = min_i { constant_i + slope_i × (V − volume_i) }`.
-This is analogous to the piecewise-linear efficiency evaluation used in
-[Reservoir Efficiency](#313-reservoir-efficiency).
+The seepage rate at volume *V* is computed as the minimum over all
+segments: `seepage(V) = min_i { constant_i + slope_i × (V − volume_i) }`.
+This is analogous to the piecewise-linear evaluation used in
+[Reservoir Production Factor](#313-reservoir-production-factor).
 
 **Example with segments:**
 
@@ -1019,7 +1020,7 @@ This is analogous to the piecewise-linear efficiency evaluation used in
 }
 ```
 
-### 3.13 Reservoir Efficiency
+### 3.13 Reservoir Production Factor
 
 Piecewise-linear turbine efficiency as a function of reservoir volume
 (hydraulic head).  Models the PLP "rendimiento" concept: the turbine
@@ -1033,10 +1034,12 @@ If the LP solver does not support in-place coefficient modification
 (`supports_set_coeff()`), the static `conversion_rate` from the Turbine
 element is used unchanged.
 
+**JSON array name:** `reservoir_production_factor_array`
+
 | Field                        | Type    | Units          | Required | Description |
 |------------------------------|---------|----------------|----------|-------------|
 | `uid`                        | integer | —              | Yes      | Unique identifier |
-| `name`                       | string  | —              | Yes      | Efficiency element name |
+| `name`                       | string  | —              | Yes      | Production factor element name |
 | `active`                     | boolean | —              | No       | Whether the element is active |
 | `turbine`                    | integer\|string | —      | Yes      | Associated turbine UID or name |
 | `reservoir`                  | integer\|string | —      | Yes      | Associated reservoir UID or name |
@@ -1048,9 +1051,9 @@ Each segment in the `segments` array has the following fields:
 
 | Field      | Type   | Units           | Description |
 |------------|--------|-----------------|-------------|
-| `volume`   | number | dam³            | Volume breakpoint |
-| `slope`    | number | efficiency/dam³ | Slope at this breakpoint |
-| `constant` | number | MW·s/m³         | Intercept (efficiency) at this breakpoint |
+| `volume`   | number | hm³             | Volume breakpoint |
+| `slope`    | number | efficiency/hm³  | Slope at this breakpoint |
+| `constant` | number | MW·s/m³         | Efficiency at this breakpoint (point-slope form) |
 
 The efficiency is computed as the **minimum** over all segments:
 
@@ -1066,7 +1069,7 @@ negative).
 
 ```json
 {
-  "reservoir_efficiency_array": [
+  "reservoir_production_factor_array": [
     {
       "uid": 1,
       "name": "eff_colbun",
@@ -1082,7 +1085,44 @@ negative).
 }
 ```
 
-### 3.14 Generator Profile
+### 3.14 Reservoir Discharge Limit
+
+Piecewise-linear volume-dependent discharge limit for reservoirs.  This is
+a safety/environmental constraint that limits the hourly-average discharge
+as a function of the reservoir volume (e.g. to prevent landslides or
+excessive drawdown).
+
+The constraint per stage is:
+
+```
+qeh ≤ slope × V_avg + constant
+```
+
+where `qeh` is the stage-average hourly discharge [m³/s], `V_avg` is the
+average reservoir volume `(eini + efin) / 2` [hm³], and slope/constant are
+from the active piecewise-linear segment.
+
+Generalizes the PLP "Ralco" constraint (`plpralco.dat`).
+
+**JSON array name:** `reservoir_discharge_limit_array`
+
+| Field       | Type    | Units   | Required | Description |
+|-------------|---------|---------|----------|-------------|
+| `uid`       | integer | —       | Yes      | Unique identifier |
+| `name`      | string  | —       | Yes      | Discharge limit element name |
+| `active`    | boolean | —       | No       | Whether the element is active |
+| `reservoir` | integer\|string | — | Yes   | Associated reservoir UID or name |
+| `segments`  | array   | —       | No       | Piecewise-linear segments |
+
+Each segment has:
+
+| Field      | Type   | Units        | Description |
+|------------|--------|-------------|-------------|
+| `volume`   | number | hm³         | Volume breakpoint |
+| `slope`    | number | m³/s / hm³  | Discharge limit slope |
+| `constant` | number | m³/s        | Discharge limit intercept |
+
+### 3.15 Generator Profile
 
 A time-varying capacity-factor profile for a generator.
 
@@ -1095,7 +1135,7 @@ A time-varying capacity-factor profile for a generator.
 | `profile`   | number\|array\|string| p.u. | Yes      | Capacity-factor profile (0–1) |
 | `scost`     | number\|array\|string| $/MWh| No       | Short-run generation cost override |
 
-### 3.15 Demand Profile
+### 3.16 Demand Profile
 
 A time-varying load-shape profile for a demand element.
 
@@ -1108,7 +1148,7 @@ A time-varying load-shape profile for a demand element.
 | `profile`| number\|array\|string| p.u. | Yes      | Load-scaling profile (0–1) |
 | `scost`  | number\|array\|string| $/MWh| No       | Short-run load-shedding cost override |
 
-### 3.16 Reserve Zone
+### 3.17 Reserve Zone
 
 A spinning-reserve requirement zone.
 
@@ -1122,7 +1162,7 @@ A spinning-reserve requirement zone.
 | `urcost` | number\|array\|string| $/MW  | No       | Up-reserve shortage penalty |
 | `drcost` | number\|array\|string| $/MW  | No       | Down-reserve shortage penalty |
 
-### 3.17 Reserve Provision
+### 3.18 Reserve Provision
 
 A generator's contribution to reserve zones.
 
@@ -1144,7 +1184,7 @@ A generator's contribution to reserve zones.
 
 ---
 
-### 3.18 User Constraint
+### 3.19 User Constraint
 
 User-defined linear constraints applied to the LP formulation.
 See **[User Constraints](user-constraints.md)** for the full syntax

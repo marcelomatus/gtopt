@@ -20,9 +20,10 @@
 #      Registers unversioned alternatives (clang/clang++/clang-format/… or
 #      gcc/g++ depending on what was installed).
 #   4. Pre-install Python scripts dev dependencies (speeds up CTest fixture).
-#   5. (Optional) cmake configure — uses whichever compiler was installed.
-#   6. (Optional) cmake --build + ctest.
-#   7. (Optional) After a successful build, copy compile_commands.json to
+#   5. Install tectonic (self-contained LaTeX engine for white paper PDF).
+#   6. (Optional) cmake configure — uses whichever compiler was installed.
+#   7. (Optional) cmake --build + ctest.
+#   8. (Optional) After a successful build, copy compile_commands.json to
 #      tools/compile_commands.json in the repository.  This allows agents
 #      to run clang-tidy on individual files without rebuilding:
 #        clang-tidy -p tools/compile_commands.json source/my_file.cpp
@@ -258,7 +259,29 @@ if $INSTALL_PYTHON; then
   ok "Python scripts dev dependencies installed"
 fi
 
-# ── Steps 5–6: Configure and build (optional) ─────────────────────────────────
+# ── Step 5: Tectonic (LaTeX engine for white paper PDF) ──────────────────────
+# Tectonic is a self-contained LaTeX engine that auto-downloads packages on
+# first run (IEEEtran, fonts, BibTeX styles).  No TeX Live required.
+if ! command -v tectonic &>/dev/null; then
+  log "Installing tectonic (LaTeX engine for white paper)..."
+  TECTONIC_DIR="${HOME}/.local/bin"
+  mkdir -p "${TECTONIC_DIR}"
+  if curl -fsSL https://drop-sh.fullyjustified.net \
+       | sh -s -- --prefix "${HOME}/.local" 2>/dev/null; then
+    # Installer may drop the binary in cwd instead of prefix on some versions
+    if [[ -f "${REPO_ROOT}/tectonic" ]]; then
+      mv "${REPO_ROOT}/tectonic" "${TECTONIC_DIR}/tectonic"
+    fi
+    chmod +x "${TECTONIC_DIR}/tectonic"
+    ok "tectonic installed to ${TECTONIC_DIR}/tectonic"
+  else
+    warn "tectonic installation failed — white paper PDF build unavailable"
+  fi
+else
+  ok "tectonic already installed: $(command -v tectonic)"
+fi
+
+# ── Steps 6–7: Configure and build (optional) ─────────────────────────────────
 if $DO_CONFIGURE; then
   # Determine the cmake prefix path – always conda for Arrow in sandboxes
   CMAKE_PREFIX_ARG="-DCMAKE_PREFIX_PATH=$(conda info --base)"

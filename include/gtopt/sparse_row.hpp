@@ -125,8 +125,9 @@ struct SparseRow
 
   /**
    * Gets or sets a coefficient (non-const version)
-   * @param key Column index
-   * @return Reference to coefficient value
+   * @param self Deduced row object (enables const/non-const overload).
+   * @param key  Column index
+   * @return Reference to coefficient value (or value for const)
    */
   template<typename Self>
   [[nodiscard]] constexpr decltype(auto) operator[](this Self&& self,

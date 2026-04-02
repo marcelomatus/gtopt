@@ -73,11 +73,11 @@ class PlanningLP;
 
 /// Save cuts for a single scene to a per-scene CSV file.
 ///
-/// @param cuts         The scene's stored cuts
-/// @param scene        Scene index (for column name lookup)
-/// @param scene_uid    Scene UID (for file naming)
-/// @param planning_lp  The PlanningLP (for scale and column names)
-/// @param directory    Output directory (file: scene_<UID>.csv)
+/// @param cuts             The scene's stored cuts
+/// @param scene            Scene index (for column name lookup)
+/// @param scene_uid_val    Scene UID value (for file naming)
+/// @param planning_lp      The PlanningLP (for scale and column names)
+/// @param directory        Output directory (file: scene_<UID>.csv)
 [[nodiscard]] auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
                                        SceneIndex scene,
                                        int scene_uid_val,

@@ -125,7 +125,14 @@ void propagate_trial_values_row_dual(std::span<StateVarLink> links,
 ///
 ///   scale_alpha · α_lp ≥ z_t + Σ_i rc_i · (x_{t-1,i} − v̂_i)
 ///
-/// @param scale_alpha  Scale divisor for α (PLP varphi scale; default 1.0).
+/// @param alpha_col       Column index of the α (future-cost) variable.
+/// @param links           State-variable linkage descriptors.
+/// @param reduced_costs   Reduced costs of dependent columns from the LP solve.
+/// @param objective_value Optimal objective value of the sub-problem.
+/// @param name            Name tag for the resulting cut row.
+/// @param scale_alpha     Scale divisor for α (PLP varphi scale; default 1.0).
+/// @param cut_coeff_eps   Threshold below which state-var coefficients are
+///                        dropped (default 0.0 = keep all).
 /// Returns the cut as a SparseRow ready to add to the source phase.
 [[nodiscard]] auto build_benders_cut(ColIndex alpha_col,
                                      std::span<const StateVarLink> links,
@@ -143,7 +150,14 @@ void propagate_trial_values_row_dual(std::span<StateVarLink> links,
 /// where π_i = row_duals[link.coupling_row] is the dual of the explicit
 /// equality constraint that fixes the dependent column.
 ///
-/// @param scale_alpha  Scale divisor for α (PLP varphi scale; default 1.0).
+/// @param alpha_col       Column index of the α (future-cost) variable.
+/// @param links           State-variable linkage descriptors.
+/// @param row_duals       Row duals from the LP solve (indexed by RowIndex).
+/// @param objective_value Optimal objective value of the sub-problem.
+/// @param name            Name tag for the resulting cut row.
+/// @param scale_alpha     Scale divisor for α (PLP varphi scale; default 1.0).
+/// @param cut_coeff_eps   Threshold below which state-var coefficients are
+///                        dropped (default 0.0 = keep all).
 /// Requires that propagate_trial_values_row_dual() was called first so that
 /// each link has a valid coupling_row index.
 [[nodiscard]] auto build_benders_cut_from_row_duals(
@@ -208,10 +222,13 @@ struct ElasticSolveResult
 /// Clone the LP, apply elastic relaxation on fixed state-variable columns,
 /// and solve the clone.  The original LP is never modified.
 ///
-/// @param li       The LP to clone (not modified)
-/// @param links    Outgoing state-variable links from the previous phase
-/// @param penalty  Elastic penalty coefficient for slack variables
-/// @param opts     Solver options for the clone solve
+/// @param li                The LP to clone (not modified)
+/// @param links             Outgoing state-variable links from the previous
+/// phase
+/// @param penalty           Elastic penalty coefficient for slack variables
+/// @param opts              Solver options for the clone solve
+/// @param forward_col_sol   Optional warm-start column solution for the clone.
+/// @param forward_row_dual  Optional warm-start row duals for the clone.
 /// @return Solved elastic clone and per-link slack info, or nullopt if
 ///         no columns were fixed or the clone solve failed.
 [[nodiscard]] auto elastic_filter_solve(

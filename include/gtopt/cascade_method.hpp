@@ -92,6 +92,7 @@ public:
 
 private:
   /// Build SDDPOptions for a level, overriding base with level solver opts.
+  /// @param level_solver      Per-level solver configuration (may be absent).
   /// @param remaining_budget  Global iteration budget remaining (-1 = no cap).
   [[nodiscard]] auto build_level_sddp_opts(
       const std::optional<CascadeLevelMethod>& level_solver,

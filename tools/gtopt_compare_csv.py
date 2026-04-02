@@ -8,7 +8,8 @@ Designed for comparing gtopt solver output across different LP backends
 Handles:
   - Signed zero: ``-0`` and ``0`` are treated as equal.
   - Near-zero values: absolute differences below *tolerance* pass.
-  - The ``kappa`` column in ``solution.csv`` is skipped (solver metadata).
+  - The ``kappa`` and ``max_kappa`` columns in ``solution.csv`` are skipped
+    (solver metadata).
   - Numeric differences within *tolerance* are accepted silently.
   - Larger numeric differences (degenerate LP solutions) are logged as
     warnings but accepted by default.  Use ``--strict`` to treat them
@@ -29,7 +30,7 @@ import sys
 _NUMERIC_RE = re.compile(r"^-?[0-9]+(\.[0-9]+(e[+-]?[0-9]+)?)?$", re.IGNORECASE)
 
 # Columns that are solver-internal metadata and should be skipped.
-_SKIP_COLUMNS = frozenset({"kappa"})
+_SKIP_COLUMNS = frozenset({"kappa", "max_kappa"})
 
 
 def _is_numeric(value: str) -> bool:

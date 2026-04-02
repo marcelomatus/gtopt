@@ -1,0 +1,254 @@
+% ============================================================================
+% Section VI: Validation and Benchmark Results
+% ============================================================================
+
+\section{Validation and Benchmark Results}
+\label{sec:validation}
+
+\gtopt{} is validated on a comprehensive suite of IEEE benchmark networks
+and derived cases.  All test cases converge to optimal solutions (status~0)
+with zero optimality gap.  Table~\ref{tab:benchmarks} summarizes the
+benchmark suite.
+
+\begin{table*}[t]
+  \centering
+  \caption{IEEE Benchmark Results (scale\_objective = 1000, CLP solver)}
+  \label{tab:benchmarks}
+  \begin{tabular}{@{}llcccccrc@{}}
+    \toprule
+    \textbf{Case} & \textbf{Type} & \textbf{Buses} & \textbf{Gen}
+      & \textbf{Dem} & \textbf{Lines} & \textbf{Bat}
+      & \textbf{Obj (scaled)} & \textbf{Blocks} \\
+    \midrule
+    \multicolumn{9}{@{}l}{\textit{Standard IEEE DC OPF (single snapshot)}} \\
+    \texttt{ieee\_4b\_ori}   & DC OPF     & 4  & 2 & 2  & 5  & -- & 5.000    & 1  \\
+    \texttt{ieee\_9b\_ori}   & DC OPF     & 9  & 3 & 3  & 9  & -- & 55.184   & 1  \\
+    \texttt{ieee\_14b\_ori}  & DC OPF     & 14 & 5 & 11 & 20 & -- & 8.334    & 1  \\
+    \texttt{ieee30b}          & DC OPF     & 30 & 6 & 21 & 41 & -- & 5.668    & 1  \\
+    \texttt{ieee\_57b}       & DC OPF     & 57 & 7 & 42 & 80 & -- & 25.016   & 1  \\
+    \midrule
+    \multicolumn{9}{@{}l}{\textit{24-hour dispatch with solar profiles}} \\
+    \texttt{ieee\_9b}        & Solar+OPF  & 9  & 3 & 3  & 9  & -- & 5400.007 & 24 \\
+    \texttt{ieee\_14b}       & Solar+OPF  & 14 & 5 & 11 & 20 & -- & 1492.283 & 24 \\
+    \midrule
+    \multicolumn{9}{@{}l}{\textit{Battery energy storage}} \\
+    \texttt{bat\_4b}         & BESS+OPF   & 4  & 3 & 2  & 5  & 1  & 14.160   & 4  \\
+    \texttt{bat\_4b\_24}     & BESS+OPF   & 4  & 3 & 2  & 5  & 1  & 44.862   & 24 \\
+    \midrule
+    \multicolumn{9}{@{}l}{\textit{Capacity expansion}} \\
+    \texttt{exp\_gen\_4b}    & Gen. exp.  & 4  & 2 & 2  & 5  & -- & 5.029    & 4  \\
+    \texttt{exp\_bat\_4b}    & Bat. exp.  & 4  & 3 & 2  & 5  & 1  & 12.437   & 4  \\
+    \texttt{c0}              & Dem. exp.  & 1  & 1 & 1  & 0  & -- & 23.163   & 5 stages \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
+
+\subsection{IEEE 4-Bus Network}
+\label{sec:ieee4b}
+
+The IEEE 4-bus test case consists of a fully meshed network with 4 buses
+and 5 transmission lines (Fig.~\ref{fig:ieee4b}).  Two generators
+(g1: 300~MW at \$20/MWh, g2: 200~MW at \$35/MWh) supply two demands
+(d3: 150~MW, d4: 100~MW).
+
+\begin{figure}[t]
+  \centering
+  \begin{tikzpicture}[
+    >=Stealth,
+    bus/.style={circle, draw, thick, fill=white, minimum size=0.7cm,
+      font=\scriptsize\bfseries},
+    genbox/.style={circle, draw, thick, fill=yellow!20,
+      minimum size=0.6cm, font=\scriptsize},
+    dembox/.style={-{Triangle[length=5pt,width=4pt]}, thick, red!70},
+    line/.style={thick, blue!60},
+    linelab/.style={font=\tiny, fill=white, inner sep=1pt},
+  ]
+    % Buses in diamond layout
+    \node[bus] (b1) at (0,2)   {$b_1$};
+    \node[bus] (b2) at (3,2)   {$b_2$};
+    \node[bus] (b3) at (0,0)   {$b_3$};
+    \node[bus] (b4) at (3,0)   {$b_4$};
+
+    % Generators
+    \node[genbox] (g1) at (-1.3,2) {\raisebox{-0.5pt}{\scalebox{0.6}{$\sim$}}};
+    \node[font=\tiny, above=1pt of g1] {g1: 300\,MW};
+    \node[font=\tiny, below=1pt of g1] {\$20/MWh};
+    \draw[->, thick] (g1) -- (b1);
+
+    \node[genbox] (g2) at (4.3,2) {\raisebox{-0.5pt}{\scalebox{0.6}{$\sim$}}};
+    \node[font=\tiny, above=1pt of g2] {g2: 200\,MW};
+    \node[font=\tiny, below=1pt of g2] {\$35/MWh};
+    \draw[->, thick] (g2) -- (b2);
+
+    % Demands (downward arrows from buses)
+    \draw[dembox] (b3) -- ++(0,-0.8)
+      node[below, font=\tiny] {d3: 150\,MW};
+    \draw[dembox] (b4) -- ++(0,-0.8)
+      node[below, font=\tiny] {d4: 100\,MW};
+
+    % Transmission lines
+    \draw[line] (b1) -- (b2) node[linelab, midway, above] {$\ell_{12}$};
+    \draw[line] (b1) -- (b3) node[linelab, midway, left]  {$\ell_{13}$};
+    \draw[line] (b2) -- (b3) node[linelab, midway, above,
+      sloped] {$\ell_{23}$};
+    \draw[line] (b2) -- (b4) node[linelab, midway, right] {$\ell_{24}$};
+    \draw[line] (b3) -- (b4) node[linelab, midway, below] {$\ell_{34}$};
+  \end{tikzpicture}
+  \caption{IEEE 4-bus network: 2 generators, 2 demands, 5 lines forming
+    a fully meshed topology for DC OPF validation.}
+  \label{fig:ieee4b}
+\end{figure}
+
+Under DC OPF with Kirchhoff constraints, the cheaper generator g1
+dispatches 250~MW and g2 idles.  The scaled objective value is
+$5.0 = 250 \times 20 / 1000$.  Power routes through parallel paths
+(b1$\rightarrow$b3 and b1$\rightarrow$b2$\rightarrow$b3) according to
+the relative reactances.
+
+\subsection{IEEE 9-Bus Network}
+\label{sec:ieee9b}
+
+The Anderson--Fouad 9-bus system~\cite{anderson2002power} has three
+generation areas connected by a meshed transmission network
+(Fig.~\ref{fig:ieee9b}).  Generators g1 (250~MW, \$20/MWh),
+g2 (300~MW, \$35/MWh), and g3 (270~MW, \$30/MWh) serve demands at
+buses 5, 7, and~9 (total 315~MW).
+
+\begin{figure}[t]
+  \centering
+  \begin{tikzpicture}[
+    >=Stealth,
+    bus/.style={circle, draw, thick, fill=white, minimum size=0.55cm,
+      font=\tiny\bfseries},
+    genbus/.style={circle, draw, thick, fill=yellow!15,
+      minimum size=0.55cm, font=\tiny\bfseries},
+    demlab/.style={font=\tiny, red!70},
+    genlab/.style={font=\tiny, green!40!black},
+    line/.style={thick, blue!50},
+    scale=0.85, transform shape,
+  ]
+    % Generator buses (top triangle)
+    \node[genbus] (b1) at (0,3.6)    {1};
+    \node[genbus] (b2) at (-2.8,0)   {2};
+    \node[genbus] (b3) at (2.8,0)    {3};
+
+    % Intermediate buses
+    \node[bus] (b4) at (-1.4,2.4) {4};
+    \node[bus] (b6) at (1.4,2.4)  {6};
+    \node[bus] (b9) at (0,1.2)    {9};
+    \node[bus] (b8) at (-2.1,0.8) {8};
+    \node[bus] (b5) at (-1.4,1.6) {5};
+    \node[bus] (b7) at (2.1,0.8)  {7};
+
+    % Generator labels
+    \node[genlab, above=2pt of b1]
+      {g1: 250\,MW, \$20};
+    \node[genlab, left=2pt of b2]
+      {g2: 300\,MW, \$35};
+    \node[genlab, right=2pt of b3]
+      {g3: 270\,MW, \$30};
+
+    % Demand labels
+    \node[demlab, left=2pt of b5]
+      {d5: 125\,MW};
+    \node[demlab, right=2pt of b7]
+      {d7: 90\,MW};
+    \node[demlab, below=2pt of b9]
+      {d9: 100\,MW};
+
+    % Demand arrows
+    \draw[-{Triangle[length=3pt,width=3pt]}, thick, red!60]
+      (b5) -- ++(-0.5,-0.3);
+    \draw[-{Triangle[length=3pt,width=3pt]}, thick, red!60]
+      (b7) -- ++(0.5,-0.3);
+    \draw[-{Triangle[length=3pt,width=3pt]}, thick, red!60]
+      (b9) -- ++(0,-0.5);
+
+    % Transmission lines (9 lines)
+    \draw[line] (b1) -- (b4);
+    \draw[line] (b4) -- (b5);
+    \draw[line] (b5) -- (b6);
+    \draw[line] (b6) -- (b1);
+    \draw[line] (b9) -- (b4);
+    \draw[line] (b9) -- (b8);
+    \draw[line] (b8) -- (b2);
+    \draw[line] (b7) -- (b3);
+    \draw[line] (b7) -- (b9) -- (b6);
+  \end{tikzpicture}
+  \caption{IEEE 9-bus network: three generation areas (buses 1--3)
+    serve three demands (buses 5, 7, 9) through a meshed
+    9-line transmission network.}
+  \label{fig:ieee9b}
+\end{figure}
+
+In the single-snapshot case (\texttt{ieee\_9b\_ori}), economic dispatch
+follows merit order constrained by network topology.  The 24-hour variant
+(\texttt{ieee\_9b}) replaces g3 with a solar plant (\$0/MWh) whose output
+follows a daily capacity profile peaking at noon.  During daylight hours,
+zero-cost solar generation displaces g2; at night, g2 carries the load.
+
+\subsection{IEEE 14-Bus Network}
+\label{sec:ieee14b}
+
+The 14-bus system has 5 generators, 11 demands, and 20 transmission lines.
+The constrained variant (\texttt{ieee\_14b}) tightens limits on lines
+$\ell_{1-2}$ and $\ell_{1-5}$, forcing both to saturate simultaneously
+at the evening demand peak.  This validates that shadow prices (Lagrange
+multipliers of the binding Kirchhoff constraints) are computed correctly.
+
+\subsection{IEEE 30-Bus and 57-Bus Networks}
+
+The 30-bus~\cite{ieee30bus} and 57-bus~\cite{ieee57bus} systems test
+scalability.  The 30-bus case has 6 generators, 21 demands, and 41 lines;
+the 57-bus case has 7 generators, 42 demands, and 80 lines.  Both
+converge to optimal solutions in under one second with the CLP solver.
+
+\subsection{Battery Storage Cases}
+\label{sec:bat_cases}
+
+The \texttt{bat\_4b} case augments the 4-bus network with a 200~MWh
+battery at bus~3 (60~MW charge/discharge, 95\% round-trip efficiency) and
+a solar generator with a 4-period capacity profile.  The battery charges
+during solar peak and discharges during evening demand, reducing total
+system cost compared to the no-storage baseline.
+
+The 24-hour variant (\texttt{bat\_4b\_24}) demonstrates full daily
+charge/discharge cycling with state-of-charge tracking across all
+24~blocks.
+
+\subsection{Capacity Expansion Cases}
+\label{sec:exp_cases}
+
+Three expansion cases validate the investment planning formulation:
+
+\begin{itemize}
+  \item \texttt{exp\_gen\_4b}: Generator g1 can be expanded by up to
+    290~MW at \$1000/year annualized cost.  The optimizer adds capacity
+    to avoid dispatching expensive g2.
+  \item \texttt{exp\_bat\_4b}: Battery expansion with 200~MWh modules
+    at \$1000/year.  The optimizer installs storage to arbitrage
+    solar/thermal cost differentials.
+  \item \texttt{c0}: Multi-stage demand expansion (5 stages, 10\%
+    discount rate).  Demand grows through 20~MW modules at
+    \$8760/year.  The optimizer balances discounted investment cost
+    against increasing served demand.
+\end{itemize}
+
+\subsection{Cross-Validation with pandapower}
+
+The \texttt{gtopt\_compare} tool performs automated cross-validation
+against pandapower~\cite{thurner2018pandapower} DC OPF on all IEEE test
+networks (4, 9, 14, 30, 57 buses).  For each case, both tools solve the
+same network data and compare:
+
+\begin{itemize}
+  \item Objective function value (total generation cost)
+  \item Generator dispatch (MW per generator)
+  \item Bus angles (radians)
+  \item Line flows (MW)
+  \item Locational marginal prices (bus balance duals)
+\end{itemize}
+
+Results match to within solver tolerance ($<10^{-6}$ relative error)
+for all standard IEEE cases, confirming the correctness of \gtopt{}'s
+DC OPF implementation.

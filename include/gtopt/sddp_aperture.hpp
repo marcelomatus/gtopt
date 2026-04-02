@@ -155,14 +155,22 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
 /// @param log_directory    Directory for debug LP files (empty = no save)
 /// @param scene_uid        Scene UID (for logging)
 /// @param phase_uid        Phase UID (for logging)
-/// @param resolve_fn       Callback to resolve a cloned LP
+/// @param submit_fn        Callback to submit an aperture task to the work pool
 /// @param aperture_timeout Timeout in seconds for each aperture LP solve;
 ///                         0 = no timeout.  When exceeded, the aperture is
 ///                         treated as infeasible and skipped.
+/// @param save_aperture_lp If true, save each aperture LP to the log directory
+/// @param aperture_cache   Cache of pre-built aperture LP data
 /// @param forward_col_sol  Forward-pass primal solution (warm-start hint for
 ///                         aperture clones).  Applied after update_aperture.
 /// @param forward_row_dual Forward-pass dual solution (warm-start hint for
 ///                         aperture clones).  Applied after update_aperture.
+/// @param pooled_clone     Optional pre-allocated LP clone from a work pool
+/// @param iteration        Current SDDP iteration index
+/// @param cut_coeff_mode   Mode for computing cut coefficients
+/// @param scale_alpha      Scaling factor applied to the cut alpha (RHS)
+/// @param cut_coeff_eps    Epsilon below which cut coefficients are zeroed
+/// @param cut_coeff_max    Maximum absolute cut coefficient (0 = no limit)
 [[nodiscard]] auto solve_apertures_for_phase(
     SceneIndex scene,
     PhaseIndex phase,
