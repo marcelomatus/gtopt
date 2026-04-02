@@ -49,6 +49,13 @@
       <a href="#" class="nav-link" data-tab="turbine">Turbines <span class="badge" id="badge-turbine">0</span></a>
       <a href="#" class="nav-link" data-tab="flow">Flows <span class="badge" id="badge-flow">0</span></a>
       <a href="#" class="nav-link" data-tab="seepage">Seepage <span class="badge" id="badge-seepage">0</span></a>
+      <a href="#" class="nav-link" data-tab="reservoir_discharge_limit">Discharge Limits <span class="badge" id="badge-reservoir_discharge_limit">0</span></a>
+      <a href="#" class="nav-link" data-tab="reservoir_production_factor">Prod. Factors <span class="badge" id="badge-reservoir_production_factor">0</span></a>
+    </div>
+    <div class="nav-section">
+      <h3>Water Rights</h3>
+      <a href="#" class="nav-link" data-tab="flow_right">Flow Rights <span class="badge" id="badge-flow_right">0</span></a>
+      <a href="#" class="nav-link" data-tab="volume_right">Volume Rights <span class="badge" id="badge-volume_right">0</span></a>
     </div>
     <div class="nav-section">
       <h3>Profiles &amp; Reserves</h3>
@@ -56,6 +63,11 @@
       <a href="#" class="nav-link" data-tab="demand_profile">Dem. Profiles <span class="badge" id="badge-demand_profile">0</span></a>
       <a href="#" class="nav-link" data-tab="reserve_zone">Reserve Zones <span class="badge" id="badge-reserve_zone">0</span></a>
       <a href="#" class="nav-link" data-tab="reserve_provision">Reserve Prov. <span class="badge" id="badge-reserve_provision">0</span></a>
+    </div>
+    <div class="nav-section">
+      <h3>User Constraints</h3>
+      <a href="#" class="nav-link" data-tab="user_param">User Params <span class="badge" id="badge-user_param">0</span></a>
+      <a href="#" class="nav-link" data-tab="user_constraint">User Constraints <span class="badge" id="badge-user_constraint">0</span></a>
     </div>
     <div class="nav-section">
       <h3>Solver</h3>
@@ -73,17 +85,34 @@
     <div class="tab-panel active" id="panel-options">
       <h2>Options</h2>
       <div class="form-grid">
+        <label>Method
+          <select id="opt-method">
+            <option value="">— (default: monolithic)</option>
+            <option value="monolithic">Monolithic</option>
+            <option value="sddp">SDDP</option>
+            <option value="cascade">Cascade</option>
+          </select>
+        </label>
         <label>Annual Discount Rate <input type="number" step="any" id="opt-annual_discount_rate" value="0.1"></label>
-        <label>Demand Fail Cost <input type="number" step="any" id="opt-demand_fail_cost" value="1000"></label>
-        <label>Reserve Fail Cost <input type="number" step="any" id="opt-reserve_fail_cost"></label>
+        <label>Demand Fail Cost [$/MWh] <input type="number" step="any" id="opt-demand_fail_cost" value="1000"></label>
+        <label>Reserve Fail Cost [$/MWh] <input type="number" step="any" id="opt-reserve_fail_cost"></label>
+        <label>Hydro Fail Cost [$/m³] <input type="number" step="any" id="opt-hydro_fail_cost"></label>
+        <label>Hydro Use Value [$/m³] <input type="number" step="any" id="opt-hydro_use_value"></label>
         <label>Scale Objective <input type="number" step="any" id="opt-scale_objective" value="1000"></label>
         <label>Scale Theta <input type="number" step="any" id="opt-scale_theta"></label>
-        <label>Kirchhoff Threshold <input type="number" step="any" id="opt-kirchhoff_threshold"></label>
+        <label>Kirchhoff Threshold [kV] <input type="number" step="any" id="opt-kirchhoff_threshold"></label>
+        <label>Loss Segments <input type="number" step="1" id="opt-loss_segments"></label>
         <label>Use Line Losses <select id="opt-use_line_losses"><option value="">—</option><option value="true">Yes</option><option value="false">No</option></select></label>
         <label>Use Kirchhoff <select id="opt-use_kirchhoff"><option value="">—</option><option value="true">Yes</option><option value="false">No</option></select></label>
         <label>Use Single Bus <select id="opt-use_single_bus"><option value="">—</option><option value="true">Yes</option><option value="false">No</option></select></label>
-        <label>Use LP Names <select id="opt-use_lp_names"><option value="">—</option><option value="true">Yes</option><option value="false">No</option></select></label>
-        <label>Use UID Filename <select id="opt-use_uid_fname"><option value="">—</option><option value="true">Yes</option><option value="false">No</option></select></label>
+        <label>Use UID in Filenames <select id="opt-use_uid_fname"><option value="">—</option><option value="true">Yes</option><option value="false">No</option></select></label>
+        <label>Constraint Mode
+          <select id="opt-constraint_mode">
+            <option value="">— (default: strict)</option>
+            <option value="strict">Strict</option>
+            <option value="normal">Normal</option>
+          </select>
+        </label>
         <label>Input Directory <input type="text" id="opt-input_directory"></label>
         <label>Input Format
           <select id="opt-input_format">
@@ -105,6 +134,20 @@
             <option value="gzip">gzip</option>
             <option value="zstd">zstd</option>
             <option value="lzo">lzo</option>
+            <option value="uncompressed">uncompressed</option>
+          </select>
+        </label>
+        <label>Log Directory <input type="text" id="opt-log_directory"></label>
+        <label>LP Debug <select id="opt-lp_debug"><option value="">—</option><option value="true">Yes</option><option value="false">No</option></select></label>
+        <label>LP Build Only <select id="opt-lp_build"><option value="">—</option><option value="true">Yes</option><option value="false">No</option></select></label>
+        <label>LP Compression
+          <select id="opt-lp_compression">
+            <option value="">— (default)</option>
+            <option value="zstd">zstd</option>
+            <option value="gzip">gzip</option>
+            <option value="lz4">lz4</option>
+            <option value="bzip2">bzip2</option>
+            <option value="xz">xz</option>
             <option value="uncompressed">uncompressed</option>
           </select>
         </label>

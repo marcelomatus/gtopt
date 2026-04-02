@@ -126,13 +126,13 @@ export default function Home() {
               onChange={(e) => setFile(e.target.files?.[0] || null)}
             />
             <p className="hint">
-              Upload a .zip file containing the case directory (e.g., the
-              contents of cases/c0 including system_c0.json and the system_c0/
-              data directory)
+              Upload a .zip file containing the planning case directory (e.g.,
+              the contents of cases/c0 including system_c0.json and the input/
+              data directory with any Parquet or CSV files)
             </p>
           </div>
           <div className="form-group">
-            <label htmlFor="systemFile">System JSON Filename</label>
+            <label htmlFor="systemFile">Planning JSON Filename</label>
             <input
               id="systemFile"
               type="text"
@@ -141,7 +141,8 @@ export default function Home() {
               placeholder="e.g. system_c0.json"
             />
             <p className="hint">
-              The name of the system JSON file inside the archive
+              The name of the planning JSON file inside the archive (the root
+              Planning object with options, simulation, and system sections)
             </p>
           </div>
           <button

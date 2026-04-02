@@ -98,6 +98,67 @@ _webservice_url = os.environ.get("GTOPT_WEBSERVICE_URL", "http://localhost:3000"
 # Schema definitions – mirrors the C++ JSON interfaces in include/gtopt/json/
 # ---------------------------------------------------------------------------
 
+# Options schema – mirrors PlanningOptions in include/gtopt/planning_options.hpp
+OPTIONS_SCHEMA = {
+    # ── Input/Output ──────────────────────────────────────────────────────────
+    "input_directory": {"type": "string", "label": "Input Directory"},
+    "input_format": {
+        "type": "select",
+        "label": "Input Format",
+        "options": ["", "parquet", "csv"],
+    },
+    "output_directory": {"type": "string", "label": "Output Directory"},
+    "output_format": {
+        "type": "select",
+        "label": "Output Format",
+        "options": ["parquet", "csv"],
+    },
+    "output_compression": {
+        "type": "select",
+        "label": "Output Compression",
+        "options": ["", "gzip", "zstd", "lzo", "uncompressed"],
+    },
+    "use_uid_fname": {"type": "boolean", "label": "Use UID Filename"},
+    # ── Solver method ─────────────────────────────────────────────────────────
+    "method": {
+        "type": "select",
+        "label": "Method",
+        "options": ["", "monolithic", "sddp", "cascade"],
+    },
+    # ── Model parameters ──────────────────────────────────────────────────────
+    "annual_discount_rate": {"type": "number", "label": "Annual Discount Rate"},
+    "demand_fail_cost": {"type": "number", "label": "Demand Fail Cost [$/MWh]"},
+    "reserve_fail_cost": {"type": "number", "label": "Reserve Fail Cost [$/MWh]"},
+    "hydro_fail_cost": {"type": "number", "label": "Hydro Fail Cost [$/m³]"},
+    "hydro_use_value": {"type": "number", "label": "Hydro Use Value [$/m³]"},
+    "scale_objective": {"type": "number", "label": "Scale Objective"},
+    "scale_theta": {"type": "number", "label": "Scale Theta"},
+    "kirchhoff_threshold": {"type": "number", "label": "Kirchhoff Threshold [kV]"},
+    "use_line_losses": {"type": "boolean", "label": "Use Line Losses"},
+    "use_kirchhoff": {"type": "boolean", "label": "Use Kirchhoff"},
+    "use_single_bus": {"type": "boolean", "label": "Use Single Bus"},
+    "loss_segments": {"type": "integer", "label": "Loss Segments"},
+    # ── Logging ───────────────────────────────────────────────────────────────
+    "log_directory": {"type": "string", "label": "Log Directory"},
+    "lp_debug": {"type": "boolean", "label": "LP Debug"},
+    "lp_compression": {
+        "type": "select",
+        "label": "LP Compression",
+        "options": ["", "zstd", "gzip", "lz4", "bzip2", "xz", "uncompressed"],
+    },
+    "lp_build": {"type": "boolean", "label": "LP Build Only (no solve)"},
+    "lp_debug_scene_min": {"type": "integer", "label": "LP Debug Scene Min"},
+    "lp_debug_scene_max": {"type": "integer", "label": "LP Debug Scene Max"},
+    "lp_debug_phase_min": {"type": "integer", "label": "LP Debug Phase Min"},
+    "lp_debug_phase_max": {"type": "integer", "label": "LP Debug Phase Max"},
+    # ── Constraint handling ───────────────────────────────────────────────────
+    "constraint_mode": {
+        "type": "select",
+        "label": "Constraint Mode",
+        "options": ["", "strict", "normal"],
+    },
+}
+
 ELEMENT_SCHEMAS = {
     "bus": {
         "label": "Bus",
@@ -388,6 +449,116 @@ ELEMENT_SCHEMAS = {
             {"name": "drcost", "type": "number_or_file", "required": False},
         ],
     },
+    "reservoir_discharge_limit": {
+        "label": "Reservoir Discharge Limit",
+        "fields": [
+            {"name": "uid", "type": "integer", "required": True},
+            {"name": "name", "type": "string", "required": True},
+            {"name": "active", "type": "boolean", "required": False},
+            {
+                "name": "waterway",
+                "type": "string",
+                "required": True,
+                "ref": "waterway",
+            },
+            {
+                "name": "reservoir",
+                "type": "string",
+                "required": True,
+                "ref": "reservoir",
+            },
+        ],
+    },
+    "reservoir_production_factor": {
+        "label": "Reservoir Production Factor",
+        "fields": [
+            {"name": "uid", "type": "integer", "required": True},
+            {"name": "name", "type": "string", "required": True},
+            {"name": "active", "type": "boolean", "required": False},
+            {
+                "name": "turbine",
+                "type": "string",
+                "required": True,
+                "ref": "turbine",
+            },
+            {
+                "name": "reservoir",
+                "type": "string",
+                "required": True,
+                "ref": "reservoir",
+            },
+            {"name": "mean_production_factor", "type": "number", "required": False},
+        ],
+    },
+    "flow_right": {
+        "label": "Flow Right",
+        "fields": [
+            {"name": "uid", "type": "integer", "required": True},
+            {"name": "name", "type": "string", "required": True},
+            {"name": "active", "type": "boolean", "required": False},
+            {"name": "purpose", "type": "string", "required": False},
+            {
+                "name": "junction",
+                "type": "string",
+                "required": False,
+                "ref": "junction",
+            },
+            {"name": "direction", "type": "integer", "required": False},
+            {"name": "discharge", "type": "number_or_file", "required": False},
+            {"name": "fmax", "type": "number_or_file", "required": False},
+            {"name": "consumptive", "type": "boolean", "required": False},
+            {"name": "use_average", "type": "boolean", "required": False},
+            {"name": "fail_cost", "type": "number_or_file", "required": False},
+            {"name": "use_value", "type": "number_or_file", "required": False},
+            {"name": "priority", "type": "number", "required": False},
+        ],
+    },
+    "volume_right": {
+        "label": "Volume Right",
+        "fields": [
+            {"name": "uid", "type": "integer", "required": True},
+            {"name": "name", "type": "string", "required": True},
+            {"name": "active", "type": "boolean", "required": False},
+            {"name": "purpose", "type": "string", "required": False},
+            {
+                "name": "reservoir",
+                "type": "string",
+                "required": False,
+                "ref": "reservoir",
+            },
+            {"name": "emin", "type": "number_or_file", "required": False},
+            {"name": "emax", "type": "number_or_file", "required": False},
+            {"name": "ecost", "type": "number_or_file", "required": False},
+            {"name": "eini", "type": "number", "required": False},
+            {"name": "efin", "type": "number", "required": False},
+            {"name": "demand", "type": "number_or_file", "required": False},
+            {"name": "fmax", "type": "number_or_file", "required": False},
+            {"name": "fail_cost", "type": "number", "required": False},
+            {"name": "priority", "type": "number", "required": False},
+            {"name": "flow_conversion_rate", "type": "number", "required": False},
+            {"name": "energy_scale", "type": "number", "required": False},
+            {"name": "consumptive", "type": "boolean", "required": False},
+            {"name": "use_state_variable", "type": "boolean", "required": False},
+        ],
+    },
+    "user_param": {
+        "label": "User Parameter",
+        "fields": [
+            {"name": "name", "type": "string", "required": True},
+            {"name": "value", "type": "number", "required": False},
+        ],
+    },
+    "user_constraint": {
+        "label": "User Constraint",
+        "fields": [
+            {"name": "uid", "type": "integer", "required": True},
+            {"name": "name", "type": "string", "required": True},
+            {"name": "active", "type": "boolean", "required": False},
+            {"name": "expression", "type": "string", "required": True},
+            {"name": "description", "type": "string", "required": False},
+            {"name": "constraint_type", "type": "string", "required": False},
+        ],
+    },
 }
 
 # Map element type → JSON array key in the system section
@@ -404,10 +575,16 @@ ELEMENT_TO_ARRAY_KEY = {
     "turbine": "turbine_array",
     "flow": "flow_array",
     "seepage": "reservoir_seepage_array",
+    "reservoir_discharge_limit": "reservoir_discharge_limit_array",
+    "reservoir_production_factor": "reservoir_production_factor_array",
     "generator_profile": "generator_profile_array",
     "demand_profile": "demand_profile_array",
     "reserve_zone": "reserve_zone_array",
     "reserve_provision": "reserve_provision_array",
+    "flow_right": "flow_right_array",
+    "volume_right": "volume_right_array",
+    "user_param": "user_param_array",
+    "user_constraint": "user_constraint_array",
 }
 
 
@@ -706,6 +883,13 @@ def get_schemas():
     """Return the element schemas for use by the GUI."""
     app.logger.debug("Serving schemas")
     return jsonify(ELEMENT_SCHEMAS)
+
+
+@app.route("/api/options_schema", methods=["GET"])
+def get_options_schema():
+    """Return the options schema for use by the GUI."""
+    app.logger.debug("Serving options schema")
+    return jsonify(OPTIONS_SCHEMA)
 
 
 @app.route("/api/logs", methods=["GET"])

@@ -143,16 +143,34 @@ function gatherOptions() {
     "annual_discount_rate",
     "demand_fail_cost",
     "reserve_fail_cost",
+    "hydro_fail_cost",
+    "hydro_use_value",
     "scale_objective",
     "scale_theta",
     "kirchhoff_threshold",
+    "loss_segments",
     "input_directory",
     "input_format",
     "output_directory",
     "output_format",
     "output_compression",
+    "method",
+    "log_directory",
+    "lp_compression",
+    "constraint_mode",
+    "lp_debug_scene_min",
+    "lp_debug_scene_max",
+    "lp_debug_phase_min",
+    "lp_debug_phase_max",
   ];
-  const boolFields = ["use_line_losses", "use_kirchhoff", "use_single_bus", "use_lp_names", "use_uid_fname"];
+  const boolFields = [
+    "use_line_losses",
+    "use_kirchhoff",
+    "use_single_bus",
+    "use_uid_fname",
+    "lp_debug",
+    "lp_build",
+  ];
 
   for (const f of fields) {
     const el = document.getElementById("opt-" + f);
