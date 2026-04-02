@@ -14,6 +14,7 @@
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/solver_options.hpp>
+#include <gtopt/solver_registry.hpp>
 
 TEST_CASE("LinearInterface - Constructor and basic operations")
 {
@@ -497,7 +498,8 @@ TEST_CASE("LinearInterface - get_kappa with explicit solver")
   // HiGHS uses Highs::getKappa(exact=true) which computes the actual
   // condition number. CLP/CBC uses largestDualError() as a proxy
   // (conditionNumber() is unavailable in multi-factorization builds).
-  for (std::string_view solver : {"highs", "clp"}) {
+  const auto& reg = SolverRegistry::instance();
+  for (const auto& solver : reg.available_solvers()) {
     CAPTURE(solver);
     try {
       LinearInterface interface(solver);
@@ -654,7 +656,8 @@ TEST_CASE("LinearInterface - FlatLinearProblem constructor")
   auto flat_lp = lp.lp_build(flat_opts);
 
   // Construct directly from FlatLinearProblem
-  LinearInterface interface("clp", flat_lp);
+  const auto& reg = SolverRegistry::instance();
+  LinearInterface interface(reg.default_solver(), flat_lp);
 
   CHECK(interface.get_numcols() == 2);
   CHECK(interface.get_numrows() == 1);
