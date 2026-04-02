@@ -239,6 +239,8 @@ compare_csv() {
   fi
 
   local output
+  # Show first 10 diff lines to keep CI logs readable; the full diff is
+  # available by running gtopt_compare_csv.py locally with --verbose.
   if output=$(python3 "$COMPARE_CSV" "$actual" "$expected" -t "$TOLERANCE" 2>&1); then
     pass "$rel_path matches expected"
   else

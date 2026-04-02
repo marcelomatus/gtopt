@@ -207,10 +207,11 @@ TEST_CASE(  // NOLINT
 
   // Kappa values should differ — scale_theta has a measurable effect.
   // Some solver backends (e.g. CLP) use largestDualError() as a kappa
-  // proxy, which may return near-zero for well-conditioned LPs.  When
-  // both values are effectively zero the comparison is meaningless, so
-  // only assert non-equality when at least one value is above a small
-  // threshold.
+  // proxy, which may return near-zero (~1e-19) for well-conditioned LPs.
+  // When both values are effectively zero the comparison is meaningless,
+  // so only assert non-equality when at least one value is above a small
+  // threshold.  The 1e-10 threshold is well above typical floating-point
+  // noise (~1e-16) but well below meaningful kappa values (typically >1).
   constexpr double kappa_threshold = 1e-10;
   if (kappa_noscale > kappa_threshold || kappa_scaled > kappa_threshold) {
     CHECK(kappa_noscale != doctest::Approx(kappa_scaled).epsilon(0.01));
