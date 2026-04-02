@@ -698,7 +698,9 @@ class TestMaulePamplGeneration:
             # Dist2 has_slack=True → uses <=
             # Find the constraint lines
             lines = content.split("\n")
-            dist1_lines = [ln for ln in lines if "dist_Dist1" in ln and "constraint" in ln]
+            dist1_lines = [
+                ln for ln in lines if "dist_Dist1" in ln and "constraint" in ln
+            ]
             assert len(dist1_lines) >= 1
 
     def test_generate_pampl_header_comment(self):
