@@ -26,6 +26,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/solver_backend.hpp>
 #include <gtopt/solver_options.hpp>
+#include <gtopt/strong_index_vector.hpp>
 
 namespace gtopt
 {
@@ -591,9 +592,8 @@ public:
    */
   [[nodiscard]] constexpr double get_col_scale(ColIndex index) const noexcept
   {
-    const auto i = static_cast<size_t>(index);
-    if (i < m_col_scales_.size()) {
-      return m_col_scales_[i];
+    if (static_cast<size_t>(index) < m_col_scales_.size()) {
+      return m_col_scales_[index];
     }
     return 1.0;
   }
@@ -603,8 +603,7 @@ public:
    * @return Const reference to the column scale vector (empty if not
    * populated)
    */
-  [[nodiscard]] constexpr const std::vector<double>& get_col_scales()
-      const noexcept
+  [[nodiscard]] constexpr const auto& get_col_scales() const noexcept
   {
     return m_col_scales_;
   }
@@ -620,9 +619,8 @@ public:
    */
   [[nodiscard]] constexpr double get_row_scale(RowIndex index) const noexcept
   {
-    const auto i = static_cast<size_t>(index);
-    if (i < m_row_scales_.size()) {
-      return m_row_scales_[i];
+    if (static_cast<size_t>(index) < m_row_scales_.size()) {
+      return m_row_scales_[index];
     }
     return 1.0;
   }
@@ -631,8 +629,7 @@ public:
    * @brief Gets all row equilibration scale factors.
    * @return Const reference to the row scale vector (empty if not populated)
    */
-  [[nodiscard]] constexpr const std::vector<double>& get_row_scales()
-      const noexcept
+  [[nodiscard]] constexpr const auto& get_row_scales() const noexcept
   {
     return m_row_scales_;
   }
@@ -725,16 +722,14 @@ public:
 
   /// Column index → name vector (empty string for unnamed columns).
   /// Populated alongside col_name_map when lp_names_level >= 1.
-  [[nodiscard]] constexpr const std::vector<std::string>& col_index_to_name()
-      const noexcept
+  [[nodiscard]] constexpr const auto& col_index_to_name() const noexcept
   {
     return m_col_index_to_name_;
   }
 
   /// Row index → name vector (empty string for unnamed rows).
   /// Populated alongside row_name_map when lp_names_level >= 1.
-  [[nodiscard]] constexpr const std::vector<std::string>& row_index_to_name()
-      const noexcept
+  [[nodiscard]] constexpr const auto& row_index_to_name() const noexcept
   {
     return m_row_index_to_name_;
   }
@@ -744,14 +739,13 @@ public:
   /// @{
 
   /// Return the warm column solution vector (empty if no state loaded).
-  [[nodiscard]] constexpr const std::vector<double>& warm_col_sol()
-      const noexcept
+  [[nodiscard]] constexpr const auto& warm_col_sol() const noexcept
   {
     return m_warm_col_sol_;
   }
 
   /// Set the warm column solution from a loaded state file.
-  void set_warm_col_sol(std::vector<double> sol) noexcept
+  void set_warm_col_sol(StrongIndexVector<ColIndex, double> sol) noexcept
   {
     m_warm_col_sol_ = std::move(sol);
   }
@@ -864,23 +858,19 @@ private:
   /// Populated when lp_names_level >= 1.
   name_index_map_t m_row_names_;  ///< Row (constraint) name → row index
   name_index_map_t m_col_names_;  ///< Column (variable) name → col index
-  std::vector<std::string> m_col_index_to_name_;  ///< Col index → name
-  std::vector<std::string> m_row_index_to_name_;  ///< Row index → name
+  StrongIndexVector<ColIndex, std::string> m_col_index_to_name_;
+  StrongIndexVector<RowIndex, std::string> m_row_index_to_name_;
 
   size_t m_base_numrows_ {};  ///< Row count before any cuts were added
 
-  std::vector<double> m_col_scales_;  ///< Per-column physical-to-LP scale
-                                      ///< factors (physical = LP × scale)
-
-  std::vector<double> m_row_scales_;  ///< Per-row equilibration scale factors.
-                                      ///< dual_physical = dual_LP × row_scale.
-                                      ///< Empty when row equilibration is off.
+  StrongIndexVector<ColIndex, double> m_col_scales_;
+  StrongIndexVector<RowIndex, double> m_row_scales_;
 
   /// Warm column solution loaded from a previous run's state file.
   /// Used by StorageLP::physical_eini/efin as fallback when
   /// !is_optimal() (hot start before first solve).  Empty if no
   /// state was loaded.
-  std::vector<double> m_warm_col_sol_;
+  StrongIndexVector<ColIndex, double> m_warm_col_sol_;
 
   size_t m_stats_nnz_ {};
   size_t m_stats_zeroed_ {};

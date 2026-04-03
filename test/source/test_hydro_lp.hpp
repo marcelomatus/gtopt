@@ -661,9 +661,10 @@ TEST_CASE(  // NOLINT
     double max_upp = 0.0;
     int n_scaled = 0;
     for (std::size_t i = 0; i < ncols; ++i) {
-      if (col_scales[i] == doctest::Approx(scale).epsilon(1e-12)) {
+      const auto ci = ColIndex {static_cast<int>(i)};
+      if (col_scales[ci] == doctest::Approx(scale).epsilon(1e-12)) {
         ++n_scaled;
-        max_upp = std::max(max_upp, col_upp[ColIndex {static_cast<Index>(i)}]);
+        max_upp = std::max(max_upp, col_upp[ci]);
       }
     }
     // Multiple volume columns (eini + per-block + sini) should carry scale

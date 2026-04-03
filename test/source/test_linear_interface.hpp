@@ -1368,8 +1368,8 @@ TEST_CASE("LinearInterface - row_index_to_name via load_flat")  // NOLINT
   {
     const auto& names = li.row_index_to_name();
     REQUIRE(names.size() == 2);
-    CHECK(names[0] == "cons_alpha");
-    CHECK(names[1] == "cons_beta");
+    CHECK(names[RowIndex {0}] == "cons_alpha");
+    CHECK(names[RowIndex {1}] == "cons_beta");
   }
 
   SUBCASE("row_index_to_name is consistent with row_name_map")
@@ -1377,8 +1377,9 @@ TEST_CASE("LinearInterface - row_index_to_name via load_flat")  // NOLINT
     const auto& names = li.row_index_to_name();
     const auto& map = li.row_name_map();
     for (size_t i = 0; i < names.size(); ++i) {
-      if (!names[i].empty()) {
-        CHECK(map.at(names[i]) == static_cast<int32_t>(i));
+      const auto ri = RowIndex {static_cast<int>(i)};
+      if (!names[ri].empty()) {
+        CHECK(map.at(names[ri]) == static_cast<int32_t>(i));
       }
     }
   }
@@ -1420,9 +1421,9 @@ TEST_CASE("LinearInterface - row_index_to_name updated by add_row")  // NOLINT
   REQUIRE(li.get_numrows() == 3);
   const auto& names = li.row_index_to_name();
   REQUIRE(names.size() == 3);
-  CHECK(names[0] == "row_a");
-  CHECK(names[1] == "row_b");
-  CHECK(names[2] == "row_c");
+  CHECK(names[RowIndex {0}] == "row_a");
+  CHECK(names[RowIndex {1}] == "row_b");
+  CHECK(names[RowIndex {2}] == "row_c");
 }
 
 TEST_CASE(
@@ -1459,9 +1460,9 @@ TEST_CASE(
     REQUIRE(li.get_numrows() == 3);
     const auto& names = li.row_index_to_name();
     REQUIRE(names.size() == 3);
-    CHECK(names[0] == "r0");
-    CHECK(names[1] == "r2");
-    CHECK(names[2] == "r3");
+    CHECK(names[RowIndex {0}] == "r0");
+    CHECK(names[RowIndex {1}] == "r2");
+    CHECK(names[RowIndex {2}] == "r3");
 
     // row_name_map must agree
     CHECK(li.row_name_map().at("r0") == 0);
@@ -1481,8 +1482,8 @@ TEST_CASE(
     REQUIRE(li.get_numrows() == 2);
     const auto& names = li.row_index_to_name();
     REQUIRE(names.size() == 2);
-    CHECK(names[0] == "r1");
-    CHECK(names[1] == "r2");
+    CHECK(names[RowIndex {0}] == "r1");
+    CHECK(names[RowIndex {1}] == "r2");
 
     CHECK(li.row_name_map().at("r1") == 0);
     CHECK(li.row_name_map().at("r2") == 1);
@@ -1523,9 +1524,9 @@ TEST_CASE(
     REQUIRE(li.get_numrows() == 3);
     const auto& names = li.row_index_to_name();
     REQUIRE(names.size() == 3);
-    CHECK(names[0] == "r0");
-    CHECK(names[1] == "r3");
-    CHECK(names[2] == "r_new");
+    CHECK(names[RowIndex {0}] == "r0");
+    CHECK(names[RowIndex {1}] == "r3");
+    CHECK(names[RowIndex {2}] == "r_new");
   }
 }
 

@@ -180,10 +180,10 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
                            flat_lp.rowub.data());
 
   // Preserve per-column scale factors from LinearProblem.
-  m_col_scales_ = flat_lp.col_scales;
+  m_col_scales_.assign(flat_lp.col_scales.begin(), flat_lp.col_scales.end());
 
   // Preserve per-row equilibration scale factors (empty when disabled).
-  m_row_scales_ = flat_lp.row_scales;
+  m_row_scales_.assign(flat_lp.row_scales.begin(), flat_lp.row_scales.end());
 
   // Preserve coefficient statistics computed during lp_build().
   m_stats_nnz_ = flat_lp.stats_nnz;
@@ -201,16 +201,14 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   }
 
   // Build name maps
-  auto build_name_map = [](const auto& names_vec,
-                           name_index_map_t& name_map,
-                           std::vector<std::string>& index_to_name)
+  auto build_name_map =
+      [](const auto& names_vec, name_index_map_t& name_map, auto& index_to_name)
   {
-    index_to_name.resize(names_vec.size());
+    index_to_name.assign(names_vec.begin(), names_vec.end());
     name_map.reserve(names_vec.size());
 
     for (const auto [i, name] : std::views::enumerate(names_vec)) {
       if (!name.empty()) {
-        index_to_name[i] = name;
         name_map.emplace(name, static_cast<int>(i));
       }
     }
@@ -245,14 +243,15 @@ ColIndex LinearInterface::add_col(const std::string& name,
 
   m_backend_->add_col(normalize_bound(collb), normalize_bound(colub), 0.0);
 
+  const auto col = ColIndex {index};
   if (m_lp_names_level_ >= 0 && !name.empty()) {
     if (m_col_index_to_name_.size() <= static_cast<size_t>(index)) {
       m_col_index_to_name_.resize(static_cast<size_t>(index) + 1);
     }
-    m_col_index_to_name_[static_cast<size_t>(index)] = name;
+    m_col_index_to_name_[col] = name;
   }
 
-  return ColIndex {index};
+  return col;
 }
 
 ColIndex LinearInterface::add_col(const std::string& name)
@@ -283,14 +282,15 @@ RowIndex LinearInterface::add_row(const std::string& name,
                       normalize_bound(rowlb),
                       normalize_bound(rowub));
 
+  const auto row_idx = RowIndex {index};
   if (m_lp_names_level_ >= 1 && !name.empty()) {
     if (m_row_index_to_name_.size() <= static_cast<size_t>(index)) {
       m_row_index_to_name_.resize(static_cast<size_t>(index) + 1);
     }
-    m_row_index_to_name_[static_cast<size_t>(index)] = name;
+    m_row_index_to_name_[row_idx] = name;
   }
 
-  return RowIndex {index};
+  return row_idx;
 }
 
 RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)

@@ -394,8 +394,8 @@ SolverTestResult test_name_maps(std::string_view solver)
 
     const auto& col_idx_to_name = lp.col_index_to_name();
     TC_CHECK(ctx, col_idx_to_name.size() == 2);
-    TC_CHECK(ctx, col_idx_to_name[static_cast<size_t>(x1)] == "x1");
-    TC_CHECK(ctx, col_idx_to_name[static_cast<size_t>(x2)] == "x2");
+    TC_CHECK(ctx, col_idx_to_name[x1] == "x1");
+    TC_CHECK(ctx, col_idx_to_name[x2] == "x2");
 
   } catch (const std::exception& ex) {
     return make_result("name_maps", /*test_passed=*/false, ex.what());
@@ -795,10 +795,9 @@ SolverTestResult test_warm_col_sol_accessors(std::string_view solver)
     LinearInterface lp(solver);
     lp.add_col("x", 0.0, 10.0);
 
-    const std::vector<double> hint = {5.0};
-    lp.set_warm_col_sol(std::vector<double>(hint));
+    lp.set_warm_col_sol(StrongIndexVector<ColIndex, double> {5.0});
     TC_CHECK(ctx, lp.warm_col_sol().size() == 1);
-    TC_CHECK_APPROX(ctx, lp.warm_col_sol()[0], 5.0, 1e-12);
+    TC_CHECK_APPROX(ctx, lp.warm_col_sol()[ColIndex {0}], 5.0, 1e-12);
 
   } catch (const std::exception& ex) {
     return make_result(

@@ -159,16 +159,17 @@ TEST_CASE(  // NOLINT
       const auto ncols = static_cast<size_t>(li.get_numcols());
 
       for (size_t c = 0; c < ncols && c < names.size(); ++c) {
-        if (names[c].empty()) {
+        const auto ci = ColIndex {static_cast<int>(c)};
+        if (names[ci].empty()) {
           continue;
         }
-        const auto phys_val = col_sol[ColIndex {static_cast<int>(c)}];
+        const auto phys_val = col_sol[ci];
         // Only track non-zero values for comparison
         if (std::abs(phys_val) > 1e-12) {
           ref_values.push_back(RefValue {
               .scene = si,
               .phase = pi,
-              .name = names[c],
+              .name = names[ci],
               .value = phys_val,
           });
         }
