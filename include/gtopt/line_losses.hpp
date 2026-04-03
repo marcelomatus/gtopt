@@ -160,7 +160,7 @@ struct BlockResult
                                     double block_tmax_ba,
                                     double block_tcost,
                                     std::optional<ColIndex> capacity_col,
-                                    const Id& uid,
+                                    Uid uid,
                                     std::string_view cname);
 
 }  // namespace line_losses

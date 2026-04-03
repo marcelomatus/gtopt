@@ -222,7 +222,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
                                          block_tmax_ba,
                                          block_tcost,
                                          capacity_col,
-                                         id(),
+                                         uid(),
                                          cname);
 
     if (result.fp_col) {

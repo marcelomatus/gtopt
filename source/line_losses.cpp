@@ -181,7 +181,7 @@ auto add_capacity_row(LinearProblem& lp,
                       const BlockLP& block,
                       std::string_view cname,
                       std::string_view label,
-                      const Id& uid,
+                      Uid uid,
                       ColIndex capacity_col,
                       ColIndex flow_col) -> RowIndex
 {
@@ -209,7 +209,7 @@ void add_segments(LinearProblem& lp,
                   const BlockLP& block,
                   std::string_view cname,
                   std::string_view seg_label,
-                  const Id& uid,
+                  Uid uid,
                   double seg_width,
                   double resistance,
                   double V2,
@@ -276,7 +276,7 @@ BlockResult add_none(const SystemContext& sc,
                      double block_tmax_ab,
                      double block_tmax_ba,
                      double block_tcost,
-                     const Id& uid,
+                     Uid uid,
                      std::string_view cname)
 {
   const auto fpc = lp.add_col({
@@ -312,7 +312,7 @@ BlockResult add_linear(const LossConfig& config,
                        double block_tmax_ba,
                        double block_tcost,
                        std::optional<ColIndex> capacity_col,
-                       const Id& uid,
+                       Uid uid,
                        std::string_view cname)
 {
   BlockResult result;
@@ -394,7 +394,7 @@ BlockResult add_piecewise(const LossConfig& config,
                           double block_tmax_ba,
                           double block_tcost,
                           std::optional<ColIndex> capacity_col,
-                          const Id& uid,
+                          Uid uid,
                           std::string_view cname)
 {
   BlockResult result;
@@ -536,7 +536,7 @@ DirResult add_direction(const LossConfig& config,
                         double block_tmax,
                         double block_tcost,
                         std::optional<ColIndex> capacity_col,
-                        const Id& uid,
+                        Uid uid,
                         std::string_view cname,
                         const DirLabels& labels)
 {
@@ -641,7 +641,7 @@ BlockResult add_bidirectional(const LossConfig& config,
                               double block_tmax_ba,
                               double block_tcost,
                               std::optional<ColIndex> capacity_col,
-                              const Id& uid,
+                              Uid uid,
                               std::string_view cname)
 {
   auto [fp, lsp, capp] = add_direction(config,
@@ -700,7 +700,7 @@ BlockResult add_block(const LossConfig& config,
                       double block_tmax_ba,
                       double block_tcost,
                       std::optional<ColIndex> capacity_col,
-                      const Id& uid,
+                      Uid uid,
                       std::string_view cname)
 {
   switch (config.mode) {
