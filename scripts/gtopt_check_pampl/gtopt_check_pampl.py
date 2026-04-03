@@ -123,8 +123,6 @@ def check_pampl(
         if is_check_enabled(cfg, check_id):
             enabled.add(check_id)
 
-    # Only enable template_variables for .tampl files
-
     all_findings: list[Finding] = []
     has_critical = False
 
@@ -150,7 +148,7 @@ def check_pampl(
             print_stats(stats)
             continue
 
-        # Adjust enabled checks based on file type
+        # Only enable template_variables for .tampl files
         file_enabled = set(enabled)
         if not filename.endswith(".tampl"):
             file_enabled.discard("template_variables")

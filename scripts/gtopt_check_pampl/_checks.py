@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Callable
 
 
 # ── Severity / Finding ──────────────────────────────────────────────────────
@@ -112,11 +112,12 @@ def check_syntax(
     for lineno, line in enumerate(lines, start=1):
         stripped = _strip_comments(line)
 
+        # Strip template variables {{ }} and {% %} once per line
+        clean = re.sub(r"\{\{.*?\}\}", "", stripped)
+        clean = re.sub(r"\{%.*?%\}", "", clean)
+
         # Check quote balance on each line (single and double)
         for quote_char in ('"', "'"):
-            # Skip template variables {{ }} and {% %}
-            clean = re.sub(r"\{\{.*?\}\}", "", stripped)
-            clean = re.sub(r"\{%.*?%\}", "", clean)
             count = clean.count(quote_char)
             if count % 2 != 0:
                 findings.append(
@@ -210,9 +211,10 @@ def check_semicolons(
         if not stripped:
             continue
 
-        # Detect statement starts
-        if re.match(r"^\s*(?:inactive\s+)?constraint\s+\w+", stripped) or re.match(
-            r"^\s*param\s+\w+", stripped
+        # Detect statement starts (constraint or param)
+        if re.match(
+            r"^\s*(?:(?:inactive\s+)?constraint\s+\w+|param\s+\w+)",
+            stripped,
         ):
             if in_statement:
                 findings.append(
@@ -741,10 +743,12 @@ def compute_stats(source: str, filename: str = "") -> PamplStats:
     stats.num_lines = len(source.splitlines())
     stats.has_templates = _has_template_syntax(source)
 
+    # Count named constraints (with 'constraint' header)
     constraints = _RE_CONSTRAINT_HEADER.findall(source)
     stats.num_constraints = len(constraints)
 
-    # Count bare expressions (not preceded by constraint keyword)
+    # Also count bare expressions (no 'constraint' keyword) as constraints.
+    # Named constraints are excluded by the regex match below.
     clean = _strip_template_syntax(source)
     for stmt_text, _ in _split_statements(clean):
         stripped = stmt_text.strip()
@@ -774,7 +778,9 @@ def compute_stats(source: str, filename: str = "") -> PamplStats:
 # ── Orchestrator ────────────────────────────────────────────────────────────
 
 
-_CHECK_FUNCTIONS: dict[str, Any] = {
+CheckFunction = Callable[[str, str], list[Finding]]
+
+_CHECK_FUNCTIONS: dict[str, CheckFunction] = {
     "syntax": check_syntax,
     "semicolons": check_semicolons,
     "constraint_names": check_constraint_names,
