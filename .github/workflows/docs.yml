@@ -6,6 +6,7 @@ on:
       - 'docs/**'
       - 'documentation/**'
       - 'include/**'
+      - 'source/**'
       - '*.md'
       - 'tools/check_latex_math.py'
   pull_request:
@@ -16,6 +17,7 @@ on:
       - 'docs/**'
       - 'documentation/**'
       - 'include/**'
+      - 'source/**'
       - '*.md'
       - 'tools/check_latex_math.py'
 
@@ -101,6 +103,36 @@ jobs:
         with:
           name: doxygen-html
           path: build/doxygen/html/
+
+  deploy-pages:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+    needs: build-doxygen
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Download Doxygen HTML artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: doxygen-html
+          path: site
+
+      - name: Upload to GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
 
   build-white-paper:
     runs-on: ubuntu-latest

@@ -1,19 +1,16 @@
 DOXYFILE = "Doxyfile"
 
+THEME_COLOR = "#22272e"
+FAVICON = ""
+SHOW_UNDOCUMENTED = True
+
 LINKS_NAVBAR1 = [
     (None, "pages", [(None, "about")]),
     (None, "namespaces", []),
+    (None, "annotated", []),
 ]
 
-# Add your own navbar links using the code below.
-# To find the valid link names, you can inspect the URL of a generated documentation site.
-
-# LINKS_NAVBAR1 = [
-#     (None, 'pages', [(None, 'about')]),
-#     (None, 'namespaces', [(None, 'namespacegreeter')]),
-# ]
-#
-# LINKS_NAVBAR2 = [
-#     (None, 'annotated', [(None, 'classgreeter_1_1_greeter')]),
-#     (None, 'files', [(None, 'greeter_8h')]),
-# ]
+LINKS_NAVBAR2 = [
+    (None, "files", []),
+    ('<a href="https://github.com/marcelomatus/gtopt">GitHub</a>', []),
+]
