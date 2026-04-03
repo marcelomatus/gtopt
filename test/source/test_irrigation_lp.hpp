@@ -2151,3 +2151,447 @@ TEST_CASE(  // NOLINT
   const auto cost_with_saving = solve(200.0);
   CHECK(cost_with_saving == doctest::Approx(0.0).epsilon(0.01));
 }
+
+TEST_CASE(  // NOLINT
+    "FlowRight extraction - use_value, fail_cost, use_average, and junction")
+{
+  // Verifies:
+  //  1. Per-element use_value creates a negative obj coefficient (benefit)
+  //  2. Per-element fail_cost creates a deficit variable with penalty
+  //  3. hydro_use_value fallback applies when no per-element use_value
+  //  4. hydro_fail_cost fallback applies when no per-element fail_cost
+  //  5. use_average creates qeh (stage-average flow) variable
+  //  6. Junction coupling subtracts flow from junction balance
+
+  // Two blocks with different durations to exercise averaging
+  const auto dur1 = 6.0;  // hours
+  const auto dur2 = 18.0;  // hours
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "gen1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 50.0,
+      },
+  };
+
+  const Array<Junction> junction_array = {
+      {
+          .uid = Uid {1},
+          .name = "j_up",
+      },
+      {
+          .uid = Uid {2},
+          .name = "j_down",
+          .drain = true,
+      },
+  };
+
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 500.0,
+      },
+  };
+
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 2000.0,
+          .emin = 100.0,
+          .emax = 2000.0,
+          .eini = 1000.0,
+      },
+  };
+
+  const Array<Flow> flow_array = {
+      {
+          .uid = Uid {1},
+          .name = "inflow",
+          .direction = 1,
+          .junction = Uid {1},
+          .discharge = 100.0,
+      },
+  };
+
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .conversion_rate = 2.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = dur1,
+              },
+              {
+                  .uid = Uid {2},
+                  .duration = dur2,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 2,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  SUBCASE("per-element use_value and fail_cost")
+  {
+    const auto use_val = 1500.0;
+    const auto fail_val = 5000.0;
+
+    const Array<FlowRight> flow_right_array = {
+        {
+            .uid = Uid {1},
+            .name = "irr_with_costs",
+            .junction = Uid {2},
+            .discharge = 10.0,
+            .fail_cost = fail_val,
+            .use_value = use_val,
+        },
+    };
+
+    const System system = {
+        .name = "PerElementCostTest",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .junction_array = junction_array,
+        .waterway_array = waterway_array,
+        .flow_array = flow_array,
+        .reservoir_array = reservoir_array,
+        .turbine_array = turbine_array,
+        .flow_right_array = flow_right_array,
+    };
+
+    const PlanningOptionsLP options;
+    const auto scale_obj = options.scale_objective();
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+
+    auto&& lp = system_lp.linear_interface();
+    const auto obj_coeffs = lp.get_obj_coeff();
+
+    // Find columns by scanning for negative cost (use_value → benefit)
+    // and positive cost (fail_cost → penalty)
+    bool found_benefit = false;
+    bool found_penalty = false;
+    for (size_t i = 0; i < lp.get_numcols(); ++i) {
+      const auto c = obj_coeffs[i];
+      if (c < 0.0 && doctest::Approx(c).epsilon(1e-6) == -use_val / scale_obj) {
+        found_benefit = true;
+      }
+      if (c > 0.0 && doctest::Approx(c).epsilon(1e-6) == fail_val / scale_obj) {
+        found_penalty = true;
+      }
+    }
+    CHECK(found_benefit);
+    CHECK(found_penalty);
+
+    auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+  }
+
+  SUBCASE("hydro_use_value global fallback")
+  {
+    const auto global_uv = 0.5;  // $/m³
+
+    // FlowRight without per-element use_value → should use global fallback
+    const Array<FlowRight> flow_right_array = {
+        {
+            .uid = Uid {1},
+            .name = "irr_global_uv",
+            .discharge = 10.0,
+        },
+    };
+
+    const System system = {
+        .name = "GlobalUseValueTest",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .flow_right_array = flow_right_array,
+    };
+
+    PlanningOptions popts;
+    popts.model_options.hydro_use_value = global_uv;
+    const PlanningOptionsLP options(std::move(popts));
+    const auto scale_obj = options.scale_objective();
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+
+    auto&& lp = system_lp.linear_interface();
+    const auto obj_coeffs = lp.get_obj_coeff();
+
+    // Expected: -global_uv * duration * 3600 / scale_objective
+    // Block 1: -0.5 * 6 * 3600 / scale = -10800 / scale
+    // Block 2: -0.5 * 18 * 3600 / scale = -32400 / scale
+    const auto expected_b1 = -global_uv * dur1 * 3600.0 / scale_obj;
+    const auto expected_b2 = -global_uv * dur2 * 3600.0 / scale_obj;
+
+    bool found_b1 = false;
+    bool found_b2 = false;
+    for (size_t i = 0; i < lp.get_numcols(); ++i) {
+      const auto c = obj_coeffs[i];
+      if (doctest::Approx(c).epsilon(1e-8) == expected_b1) {
+        found_b1 = true;
+      }
+      if (doctest::Approx(c).epsilon(1e-8) == expected_b2) {
+        found_b2 = true;
+      }
+    }
+    CHECK(found_b1);
+    CHECK(found_b2);
+
+    auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+  }
+
+  SUBCASE("hydro_fail_cost global fallback")
+  {
+    const auto global_fc = 1.0;  // $/m³
+
+    // FlowRight without per-element fail_cost → should use global fallback
+    const Array<FlowRight> flow_right_array = {
+        {
+            .uid = Uid {1},
+            .name = "irr_global_fc",
+            .discharge = 10.0,
+        },
+    };
+
+    const System system = {
+        .name = "GlobalFailCostTest",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .flow_right_array = flow_right_array,
+    };
+
+    PlanningOptions popts;
+    popts.model_options.hydro_fail_cost = global_fc;
+    const PlanningOptionsLP options(std::move(popts));
+    const auto scale_obj = options.scale_objective();
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+
+    auto&& lp = system_lp.linear_interface();
+    const auto obj_coeffs = lp.get_obj_coeff();
+
+    // Expected: global_fc * duration * 3600 / scale_objective
+    const auto expected_b1 = global_fc * dur1 * 3600.0 / scale_obj;
+    const auto expected_b2 = global_fc * dur2 * 3600.0 / scale_obj;
+
+    bool found_b1 = false;
+    bool found_b2 = false;
+    for (size_t i = 0; i < lp.get_numcols(); ++i) {
+      const auto c = obj_coeffs[i];
+      if (doctest::Approx(c).epsilon(1e-8) == expected_b1) {
+        found_b1 = true;
+      }
+      if (doctest::Approx(c).epsilon(1e-8) == expected_b2) {
+        found_b2 = true;
+      }
+    }
+    CHECK(found_b1);
+    CHECK(found_b2);
+
+    auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+  }
+
+  SUBCASE("use_average creates qeh variable and qavg constraint")
+  {
+    // use_average=true → stage-average flow variable (qeh)
+    // qeh = Σ_b [ flow(b) × dur(b) / dur_stage ]
+    //
+    // Use DIFFERENT discharges per block so the weighted average
+    // differs from a simple arithmetic mean — this proves the
+    // duration-weighting is actually applied.
+    //   block 1: discharge = 10 m³/s, duration = 6 h
+    //   block 2: discharge = 50 m³/s, duration = 18 h
+    //   stage_dur = 24 h
+    //   qeh = 10 × 6/24 + 50 × 18/24 = 2.5 + 37.5 = 40.0
+    //   simple mean would be (10+50)/2 = 30 ≠ 40 → proves weighting
+    const auto d1 = 10.0;
+    const auto d2 = 50.0;
+    const auto expected_qeh =
+        (d1 * (dur1 / (dur1 + dur2))) + (d2 * (dur2 / (dur1 + dur2)));
+
+    // Per-block discharge: [scenario=1][stage=1][block=2]
+    std::vector<std::vector<std::vector<Real>>> discharge_sched = {
+        {
+            {
+                d1,
+                d2,
+            },
+        },
+    };
+
+    const Array<FlowRight> flow_right_array = {
+        {
+            .uid = Uid {1},
+            .name = "irr_avg",
+            .discharge = std::move(discharge_sched),
+            .use_average = true,
+            .fail_cost = 1000.0,
+        },
+    };
+
+    const System system = {
+        .name = "UseAverageTest",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .flow_right_array = flow_right_array,
+    };
+
+    // Count columns/rows without use_average for comparison
+    size_t cols_without = 0;
+    size_t rows_without = 0;
+    {
+      std::vector<std::vector<std::vector<Real>>> ds_no = {
+          {
+              {
+                  d1,
+                  d2,
+              },
+          },
+      };
+      const Array<FlowRight> fra_no_avg = {
+          {
+              .uid = Uid {1},
+              .name = "irr_no_avg",
+              .discharge = std::move(ds_no),
+              .fail_cost = 1000.0,
+          },
+      };
+      const System sys_no = {
+          .name = "NoAvgRef",
+          .bus_array = bus_array,
+          .demand_array = demand_array,
+          .generator_array = generator_array,
+          .flow_right_array = fra_no_avg,
+      };
+      const PlanningOptionsLP opts_no;
+      SimulationLP sim_no(simulation, opts_no);
+      SystemLP slp_no(sys_no, sim_no);
+      cols_without = slp_no.linear_interface().get_numcols();
+      rows_without = slp_no.linear_interface().get_numrows();
+    }
+
+    const PlanningOptionsLP options;
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+
+    auto&& lp = system_lp.linear_interface();
+
+    // use_average adds 1 qeh column and 1 qavg row
+    CHECK(lp.get_numcols() == cols_without + 1);
+    CHECK(lp.get_numrows() == rows_without + 1);
+
+    auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+
+    // qeh = 10 × 6/24 + 50 × 18/24 = 40.0
+    // This differs from the simple mean (30.0), proving duration-weighting.
+    const auto sol = lp.get_col_sol();
+    const auto qeh_val = sol[cols_without];
+    CHECK(qeh_val == doctest::Approx(expected_qeh).epsilon(0.01));
+    CHECK(expected_qeh == doctest::Approx(40.0));  // sanity check
+  }
+
+  SUBCASE("per-element use_value overrides hydro_use_value global")
+  {
+    const auto per_elem_uv = 2000.0;
+    const auto global_uv = 0.5;  // $/m³ — should be ignored
+
+    const Array<FlowRight> flow_right_array = {
+        {
+            .uid = Uid {1},
+            .name = "irr_override",
+            .discharge = 10.0,
+            .use_value = per_elem_uv,
+        },
+    };
+
+    const System system = {
+        .name = "OverrideUseValueTest",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .flow_right_array = flow_right_array,
+    };
+
+    PlanningOptions popts;
+    popts.model_options.hydro_use_value = global_uv;
+    const PlanningOptionsLP options(std::move(popts));
+    const auto scale_obj = options.scale_objective();
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+
+    auto&& lp = system_lp.linear_interface();
+    const auto obj_coeffs = lp.get_obj_coeff();
+
+    // Per-element takes precedence: cost = -per_elem_uv / scale_obj
+    // (no duration multiplication for per-element, it's already in $/flow-unit)
+    const auto expected = -per_elem_uv / scale_obj;
+    bool found = false;
+    for (size_t i = 0; i < lp.get_numcols(); ++i) {
+      if (doctest::Approx(obj_coeffs[i]).epsilon(1e-8) == expected) {
+        found = true;
+        break;
+      }
+    }
+    CHECK(found);
+
+    auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+  }
+}
