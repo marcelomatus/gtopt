@@ -1,5 +1,63 @@
-/** @page about About
-  @section doc ModernCppStarter Documentation
-  This is the auto-generated documentation for the initial project of the ModernCppStarter.
-  It shows how we can use Doxygen to automatically build a browsable documentation for your projects.
+/** @page about About gtopt
+
+@section overview Overview
+
+**gtopt** is a high-performance C++ library and solver for **Generation and
+Transmission Expansion Planning (GTEP)**. It minimizes the total expected cost
+of operation and expansion of electrical power systems (CAPEX + OPEX).
+
+@section features Key Features
+
+- **Cost Optimization**: minimizes investment (CAPEX) and operational (OPEX) costs
+- **System Modeling**: single-bus or multi-bus DC power flow (Kirchhoff's laws)
+- **Multiple Solvers**: monolithic LP, SDDP decomposition, and cascade multi-level hybrid
+- **Flexible I/O**: Parquet (default), CSV, and JSON via Apache Arrow
+- **Scalability**: sparse-matrix LP/MIP formulation for large-scale grids
+- **Pluggable Backends**: CLP, CBC, CPLEX, HiGHS loaded dynamically at runtime
+- **Web & GUI Services**: Next.js REST API and Python/Flask GUI for job management
+
+@section architecture Architecture
+
+The core library is organized around these key components:
+
+| Component | Description |
+|-----------|-------------|
+| **Planning** | Multi-stage planning problem definition |
+| **System** | Power system model (buses, generators, demands, lines, storage, hydro) |
+| **PlanningLP** | LP/MIP formulation assembly and solver orchestration |
+| **SimulationLP** | Single-simulation LP formulation |
+| **InputContext** | Arrow/CSV table cache and I/O |
+| **OutputContext** | Solution output to Parquet/CSV files |
+
+@section components Power System Components
+
+| Component | Role |
+|-----------|------|
+| **Bus** | Electrical node; reference bus has θ = 0 |
+| **Generator** | Thermal/renewable/hydro unit with variable cost |
+| **Demand** | Fixed or flexible load with curtailment penalties |
+| **Line** | Transmission branch with reactance (for Kirchhoff mode) |
+| **Battery** | Energy storage with charge/discharge efficiencies |
+| **Converter** | Couples Battery to Generator (discharge) and Demand (charge) |
+| **Junction** | Hydraulic node in cascaded hydro systems |
+| **Reservoir** | Water storage with volume balance across blocks |
+| **Turbine** | Links a waterway to a generator for hydro dispatch |
+
+@section time_structure Time Structure
+
+The optimization uses a three-level time hierarchy:
+
+- **Scenario** – possible future realization (weighted by probability)
+- **Stage** – investment period (with discount factor)
+- **Block** – smallest operating period (typically 1 hour)
+
+@section links Further Documentation
+
+- <a href="https://github.com/marcelomatus/gtopt">GitHub Repository</a>
+- <a href="https://github.com/marcelomatus/gtopt/blob/master/docs/planning-guide.md">Planning Guide</a>
+- <a href="https://github.com/marcelomatus/gtopt/blob/master/docs/formulation/mathematical-formulation.md">Mathematical Formulation</a>
+- <a href="https://github.com/marcelomatus/gtopt/blob/master/docs/usage.md">Usage Guide</a>
+- <a href="https://github.com/marcelomatus/gtopt/blob/master/docs/input-data.md">Input Data Reference</a>
+- <a href="https://github.com/marcelomatus/gtopt/blob/master/BUILDING.md">Building Guide</a>
+
 */
