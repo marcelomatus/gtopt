@@ -1,0 +1,13 @@
+# =============================================================================
+# Error: Duplicate constraint names
+# =============================================================================
+# Each constraint name should be unique within a file.
+
+constraint gen_limit "First definition":
+  generator('G1').generation <= 100;
+
+constraint gen_limit "Duplicate — same name used again":
+  generator('G2').generation <= 200;
+
+param limit = 500;
+param limit = 600;

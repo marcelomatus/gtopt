@@ -1,0 +1,10 @@
+# =============================================================================
+# Error: Unknown element types
+# =============================================================================
+# References to element types not in the gtopt model.
+
+constraint bad_ref "Unknown element type 'motor'":
+  motor('M1').power <= 100;
+
+constraint bad_var "Unknown LP variable 'rpm'":
+  generator('G1').rpm <= 3600;

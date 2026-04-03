@@ -1,0 +1,12 @@
+# =============================================================================
+# Combined generation constraint
+# =============================================================================
+#
+# Limits the total output of two generators operating in the same zone.
+# Useful for modeling shared fuel supply or environmental emission caps.
+
+# Parameters
+param max_combined_output = 500;
+
+constraint combined_gen "Combined output limit for G1 and G2":
+  generator('G1').generation + generator('G2').generation <= max_combined_output;
