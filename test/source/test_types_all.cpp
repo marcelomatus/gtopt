@@ -16,6 +16,7 @@
 #include <optional>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -28,12 +29,14 @@
 #include <gtopt/error.hpp>
 #include <gtopt/fmap.hpp>
 #include <gtopt/label_maker.hpp>
+#include <gtopt/object.hpp>
 #include <gtopt/overload.hpp>
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/single_id.hpp>
 #include <gtopt/stage_lp.hpp>
 #include <gtopt/strong_index_vector.hpp>
+#include <gtopt/user_param.hpp>
 #include <gtopt/utils.hpp>
 
 using namespace gtopt;
@@ -42,7 +45,9 @@ using namespace gtopt;
 #include "test_cost_helper.hpp"
 #include "test_fmap.hpp"
 #include "test_label_maker.hpp"
+#include "test_object.hpp"
 #include "test_overload.hpp"
 #include "test_single_id.hpp"
 #include "test_strong_index_vector.hpp"
+#include "test_user_param.hpp"
 #include "test_utils.hpp"
