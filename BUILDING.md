@@ -34,8 +34,8 @@ This guide provides detailed instructions for building gtopt from source, includ
 runtime. The default is auto-detected by priority: CPLEX > HiGHS > CBC > CLP.
 Installing `coinor-libcbc-dev` provides CLP/CBC. HiGHS must be built from
 source on Ubuntu 24.04 (it is available via apt starting with Ubuntu 25.04).
-Use `--lp-solvers` to list available backends, or `--lp-solver
-highs` to select a specific one. Set `GTOPT_PLUGIN_DIR` to point to a custom
+Use `--lp-solvers` to list available backends, or
+`--lp-solver highs` to select a specific one. Set `GTOPT_PLUGIN_DIR` to point to a custom
 plugin directory.
 
 ## Installing Dependencies

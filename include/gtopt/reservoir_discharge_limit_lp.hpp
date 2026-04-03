@@ -13,6 +13,7 @@
  * 2. Per-block averaging constraints linking block flows to `qeh`:
  *    `qeh - (dur_b / dur_stage) × flow_b = 0`
  * 3. A stage-level inequality (volume-dependent discharge cap):
+ *
  *    @code{.text}
  *    qeh - slope * energy_scale * 0.5 * eini
  *        - slope * energy_scale * 0.5 * efin  <= intercept

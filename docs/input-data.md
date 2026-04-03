@@ -28,7 +28,7 @@ specified by `options.input_directory`.
 
 ### Directory Layout
 
-```
+```text
 case_name/
 ├── case_name.json            # Main configuration file
 └── <input_directory>/        # External data files
@@ -518,7 +518,7 @@ Defines the temporal structure of the optimization. The `simulation`
 object contains arrays of time-structure elements organized in a
 hierarchy:
 
-```
+```text
 Scenario  (probability_factor)
   └─ Phase
        └─ Stage  (discount_factor, first_block, count_block)
@@ -962,7 +962,7 @@ representing water losses due to soil permeability (Darcy's law
 approximation).  The seepage flow through the waterway is
 constrained to:
 
-```
+```text
 seepage [m³/s] = slope [m³/s/hm³] × avg_reservoir_volume [hm³] + constant [m³/s]
 ```
 
@@ -1057,7 +1057,7 @@ Each segment in the `segments` array has the following fields:
 
 The efficiency is computed as the **minimum** over all segments:
 
-```
+```text
 efficiency(V) = min_i { constant_i + slope_i × (V − volume_i) }
 ```
 
@@ -1094,7 +1094,7 @@ excessive drawdown).
 
 The constraint per stage is:
 
-```
+```text
 qeh ≤ slope × V_avg + constant
 ```
 
@@ -1212,7 +1212,7 @@ When a field value is a **string** instead of a number, it refers to an
 external data file in the `input_directory`.  Files are organized by
 component type:
 
-```
+```text
 <input_directory>/
 ├── Bus/
 ├── Generator/
@@ -1250,7 +1250,7 @@ External data files (CSV or Parquet) follow a tabular format with columns:
 
 After running gtopt, results are written to the `output_directory`:
 
-```
+```text
 output/
 ├── solution.csv              # Objective value, status
 ├── Bus/

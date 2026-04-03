@@ -54,7 +54,7 @@ must not exceed 300 MW in every scenario, stage, and block.
 
 A constraint expression has three parts:
 
-```
+```text
 <linear_expression> <operator> <rhs> [, for(<domain>)]
 ```
 
@@ -69,7 +69,7 @@ A constraint expression has three parts:
 
 Range constraints bound an expression from both sides:
 
-```
+```text
 100 <= generator('G1').generation <= 500
 ```
 
@@ -79,7 +79,7 @@ This creates a single LP row with both lower and upper bounds.
 
 Elements are referenced by type and identifier (name or UID):
 
-```
+```text
 generator('TORO').generation    -- by name
 generator('uid:23').generation  -- by UID
 ```
@@ -147,7 +147,7 @@ for the fact that the LP variable stores `volume_physical / energy_scale`.
 Elements can be referenced by **name** (single-quoted string) or by **numeric UID**
 (bare integer):
 
-```
+```text
 # By name (single-quoted string)
 generator('TORO').generation
 demand('D1').load
@@ -164,7 +164,7 @@ battery(1).energy              -- equivalent to battery('uid:1')
 
 **Mixing name and UID references** in the same expression is allowed:
 
-```
+```text
 generator('G1').generation + generator(5).generation <= 300
 ```
 
@@ -178,7 +178,7 @@ element individually.
 
 ### Syntax
 
-```
+```text
 sum( element_type ( id_list ) . attribute )
 ```
 
@@ -188,7 +188,7 @@ Where `id_list` is one of:
 
 ### Examples
 
-```
+```text
 # Sum generation over specific generators (by name)
 sum(generator('G1', 'G2', 'G3').generation) <= 500
 
@@ -248,14 +248,14 @@ Use a `for(...)` clause to restrict the domain:
 
 Both `in` and `=` are accepted:
 
-```
+```text
 for(stage in {1,2,3})     -- using 'in'
 for(stage = 1)            -- using '=' (single value)
 ```
 
 Unspecified dimensions default to `all`:
 
-```
+```text
 for(block in 1..24)       -- all scenarios, all stages, blocks 1-24
 ```
 
@@ -266,7 +266,7 @@ for(block in 1..24)       -- all scenarios, all stages, blocks 1-24
 Expressions support line comments using `#` or `//`. Everything after the
 comment marker to the end of the line is ignored:
 
-```
+```text
 generator('G1').generation <= 100   # limit gen output
 
 generator('G1').generation          // first gen
@@ -277,7 +277,7 @@ generator('G1').generation          // first gen
 Multi-line expressions with comments are useful for documenting complex
 constraints:
 
-```
+```text
 # Total system generation capacity constraint
 sum(generator(all).generation)    # MW total
 <= 1000                          # system-wide limit
@@ -666,7 +666,7 @@ gtopt base.json overrides.json
 
 ## 10. Formal Grammar (BNF)
 
-```
+```text
 constraint     := expr comp_op expr [',' for_clause]
                |  number comp_op expr comp_op number [',' for_clause]
 

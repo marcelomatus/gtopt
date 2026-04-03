@@ -1148,8 +1148,9 @@ private:
 
   bool m_initialized_ {false};
 
-  /// Preallocated iteration vector, sized to `iteration_offset +
-  /// max_iterations`. Default-constructed entries represent iterations with no
+  /// Preallocated iteration vector, sized to
+  /// `iteration_offset + max_iterations`.
+  /// Default-constructed entries represent iterations with no
   /// user override. Populated in initialize_solver() after iteration_offset is
   /// known.
   StrongIndexVector<IterationIndex, IterationLP> m_iterations_ {};

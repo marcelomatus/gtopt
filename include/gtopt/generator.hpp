@@ -108,8 +108,9 @@ struct Generator
    * @param attrs Generator attributes to be set
    * @return Reference to this Generator object
    *
+   * @details Example usage:
+   *
    * @code{.cpp}
-   * // Example usage:
    * Generator gen;
    * GeneratorAttrs attrs;
    * attrs.bus = 1;

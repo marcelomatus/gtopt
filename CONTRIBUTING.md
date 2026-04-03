@@ -153,7 +153,7 @@ See `.github/copilot-instructions.md` for the complete test template and rules.
 
 ## Project Structure
 
-```
+```text
 gtopt/
 ├── include/gtopt/        # Public C++ headers (library API)
 ├── source/               # C++ implementation files

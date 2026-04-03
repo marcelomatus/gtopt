@@ -18,15 +18,18 @@
  * (matches PLP Fortran `FFiltracionesi`):
  *
  * ### Piecewise-linear evaluation (PLP formula)
+ *
  * ```text
  * Find segment i such that: segments[i].volume ≤ V < segments[i+1].volume
  * seepage(V) = constant_i + slope_i × V
  * ```
+ *
  * Here `constant_i` is the **y-intercept** (seepage at V = 0 for segment i's
  * linear equation), matching the PLP file format (plpfilemb.dat `Constante`
  * field and `FiltParam(PFiltConst)` in Fortran).  This is **not** the value
- * at the breakpoint — the conversion `constant_at_breakpoint = constant_y +
- * slope × volume` applies when comparing with the legacy gtopt representation.
+ * at the breakpoint — the conversion
+ * `constant_at_breakpoint = constant_y + slope × volume`
+ * applies when comparing with the legacy gtopt representation.
  *
  * ### Per-stage slope/constant schedules (PLP plpmanfi.dat)
  *
@@ -60,6 +63,7 @@
  * ```
  *
  * Per-stage schedule (from plpmanfi.dat):
+ *
  * ```json
  * { "uid": 1, "name": "filt1", "waterway": 1, "reservoir": 1,
  *   "slope": "slope", "constant": "constant" }
@@ -193,10 +197,12 @@ struct ReservoirSeepage
  * @brief Evaluate the piecewise-linear seepage function
  *
  * Implements the PLP seepage model (matches Fortran `FFiltracionesi`):
+ *
  * ```text
  * Find the segment i where volume_i ≤ volume < volume_{i+1},
  * then compute:  result = constant_i + slope_i × volume
  * ```
+ *
  * Here `constant_i` is the **y-intercept at V = 0** for segment i's linear
  * equation, matching the PLP file format (plpfilemb.dat `Constante` field).
  *
@@ -230,8 +236,8 @@ struct ReservoirSeepage
  * In matrix form: `filt - slope*0.5*eini - slope*0.5*efin = constant`
  *
  * This matches PLP `Filtracv` (FILT_LINE mode): the RHS is set to the
- * raw `FiltConst` value and the volume column coefficient to `-pend *
- * ScaleVol`.
+ * raw `FiltConst` value and the volume column coefficient to
+ * `-pend * ScaleVol`.
  */
 struct ReservoirSeepageCoeffs
 {
@@ -243,8 +249,9 @@ struct ReservoirSeepageCoeffs
  * @brief Select the active seepage segment and return LP coefficients
  *
  * Implements the PLP range-selection logic (matches Fortran `FFiltracionesi`):
- * finds the segment i where `segments[i].volume ≤ volume <
- * segments[i+1].volume` and returns its slope and constant (y-intercept) as LP
+ * finds the segment i where
+ * `segments[i].volume ≤ volume < segments[i+1].volume`
+ * and returns its slope and constant (y-intercept) as LP
  * coefficients.
  *
  * The LP constraint becomes:

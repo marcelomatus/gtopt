@@ -144,6 +144,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * RHS, and gradient coefficients.
    *
    * Format:
+   *
    * ```text
    * name,iteration,scene,rhs,Reservoir1,Reservoir2,...
    * cut_001,1,1,-5000.0,0.25,0.75,...
@@ -191,6 +192,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    *   α_phase ≥ rhs + Σ_i coeff_i · state_var_i[phase]
    *
    * Format:
+   *
    * ```text
    * name,iteration,scene,phase,rhs,Reservoir1,Reservoir2,...
    * hs_1_1_3,1,1,3,-5000.0,0.25,0.75,...

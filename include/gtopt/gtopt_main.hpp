@@ -30,7 +30,8 @@ namespace gtopt
  *
  * Every field is optional so that callers only set what they need and can use
  * designated-initializer syntax:
- * @code
+ *
+ * @code{.cpp}
  *   gtopt_main(MainOptions{
  *     .planning_files = files,
  *     .use_single_bus = true,

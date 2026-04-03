@@ -16,6 +16,7 @@
  * ignored everywhere.
  *
  * **Formal grammar (pseudo-BNF):**
+ *
  * ```text
  * pampl_file      := constraint_stmt*
  *
@@ -95,6 +96,7 @@ struct PamplParseResult
  * ```
  *
  * Parameters can then be referenced by name in constraint expressions:
+ *
  * ```pampl
  * constraint elec_limit:
  *   generator('G1').generation <= pct_elec;

@@ -27,6 +27,7 @@ namespace gtopt
  * @brief Singleton registry for dynamically loaded solver plugins.
  *
  * Usage:
+ *
  * @code{.cpp}
  *   auto& reg = SolverRegistry::instance();
  *   auto backend = reg.create("highs");  // loads plugin if needed

@@ -180,7 +180,7 @@ The CSV format is identical to the SDDP boundary cuts format
 
 ### 5.1 Architecture
 
-```
+```text
 gtopt_main()
   |
   +-> validate_planning(planning)   ← JSON input validation

@@ -27,9 +27,13 @@ namespace gtopt
  *
  * | Enum   | Accepted strings             | Inverse scale |
  * |--------|------------------------------|-------------------------------------|
- * | Power  | `"power"` (default)          | `scale_obj / (prob × discount ×
- * Δt)`| | Energy | `"energy"`                   | `scale_obj / (prob × discount
- * × Δt)`| | Raw    | `"raw"`, `"unitless"`        | `scale_obj / discount` |
+ * | Power  | `"power"` (default)   | see below |
+ * | Energy | `"energy"`            | see below |
+ * | Raw    | `"raw"`, `"unitless"` | see below |
+ *
+ * Inverse scale formulas:
+ * - Power/Energy: `scale_obj / (prob × discount × Δt)`
+ * - Raw: `scale_obj / discount`
  *
  * - **Power** — constraint on an instantaneous-power (MW) variable such as
  *   generator output, load, or line flow.  Dual unit: $/MW.

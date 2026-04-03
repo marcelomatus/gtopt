@@ -5,7 +5,7 @@ merge semantics, and solver configuration.
 
 ## Option Class Hierarchy
 
-```
+```text
 MainOptions                    (CLI-only, not in JSON)
   |
   +-- PlanningOptions          (JSON key: "options")
