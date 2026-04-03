@@ -54,7 +54,8 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   }
 
   // Get capacity information
-  auto&& [stage_capacity, capacity_col] = capacity_and_col(stage, lp);
+  auto&& [opt_capacity, capacity_col] = capacity_and_col(stage, lp);
+  const double stage_capacity = opt_capacity.value_or(LinearProblem::DblMax);
 
   const auto stage_input_efficiency =
       input_efficiency.optval(stage.uid()).value_or(1.0);

@@ -156,7 +156,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
   const auto& balance_rows_b = bus_b_lp.balance_rows_at(scenario, stage);
   const auto& blocks = stage.blocks();
 
-  const auto [stage_capacity, capacity_col] = capacity_and_col(stage, lp);
+  const auto [opt_capacity, capacity_col] = capacity_and_col(stage, lp);
+  const double stage_capacity = opt_capacity.value_or(LinearProblem::DblMax);
   const auto stage_tcost = tcost.at(stage.uid()).value_or(0.0);
 
   // ── Resolve loss mode via the modular engine ──────────────────────
@@ -169,7 +170,20 @@ bool LineLP::add_to_lp(SystemContext& sc,
   const auto V = voltage.at(stage.uid()).value_or(0.0);
   const int nseg =
       std::max(1, line().loss_segments.value_or(sc.options().loss_segments()));
-  const double fmax = std::max(stage_capacity, 0.0);
+  // Use finite opt_capacity for fmax; when no capacity is defined
+  // (opt_capacity is nullopt), fall back to the scheduled tmax values
+  // (actual flow limits).
+  double fmax = 0.0;
+  if (opt_capacity) {
+    fmax = std::max(*opt_capacity, 0.0);
+  } else {
+    for (const auto& block : blocks) {
+      const auto buid = block.uid();
+      const double tab = tmax_ab.at(stage.uid(), buid).value_or(0.0);
+      const double tba = tmax_ba.at(stage.uid(), buid).value_or(0.0);
+      fmax = std::max({fmax, tab, tba});
+    }
+  }
   const auto allocation = line().loss_allocation_mode_enum();
 
   const auto loss_config = line_losses::make_config(
