@@ -88,9 +88,15 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
 
     // Use value: negative objective coefficient on the flow variable
     // (benefit — positive use_value incentivizes flow).
-    // No global fallback: only per-element use_value applies.
-    const auto block_use_value =
-        use_value_sched.at(stage.uid(), buid).value_or(0.0);
+    // Per-element use_value takes precedence; falls back to global
+    // hydro_use_value ($/m³) × duration × 3600 to convert to $/(m³/s).
+    auto block_use_value = use_value_sched.at(stage.uid(), buid).value_or(0.0);
+    if (block_use_value == 0.0) {
+      const auto global_uv = options.hydro_use_value().value_or(0.0);
+      if (global_uv > 0.0) {
+        block_use_value = global_uv * block.duration() * 3600.0;
+      }
+    }
 
     auto flow_col_name =
         sc.lp_col_label(scenario, stage, block, cname, "flow", uid());
