@@ -133,6 +133,16 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        continue-on-error: true
+
+      - name: Warn on deployment failure
+        if: steps.deployment.outcome == 'failure'
+        run: |
+          echo "::warning::GitHub Pages deployment failed. Ensure GitHub Pages is enabled in repo settings (Settings → Pages → Source: GitHub Actions)."
+          echo "## ⚠️ Pages deployment skipped" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The documentation was built successfully but could not be deployed to GitHub Pages." >> $GITHUB_STEP_SUMMARY
+          echo "To enable deployment, go to **Settings → Pages** and set Source to **GitHub Actions**." >> $GITHUB_STEP_SUMMARY
 
   build-white-paper:
     runs-on: ubuntu-latest
