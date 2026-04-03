@@ -406,7 +406,8 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
     SPDLOG_DEBUG("    Scene {} phase {} solved ok", scene_index, phase_index);
 
     // update state variable dependents with the last solution
-    const auto& solution_vector = system_sp.linear_interface().get_col_sol();
+    const auto& solution_vector =
+        system_sp.linear_interface().get_col_sol_raw();
 
     for (auto&& state_var :
          simulation().state_variables(scene_index, phase_index)

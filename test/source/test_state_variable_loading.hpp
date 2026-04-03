@@ -162,8 +162,7 @@ TEST_CASE(  // NOLINT
         if (names[c].empty()) {
           continue;
         }
-        const auto scale = li.get_col_scale(ColIndex {static_cast<int>(c)});
-        const auto phys_val = col_sol[ColIndex {static_cast<int>(c)}] * scale;
+        const auto phys_val = col_sol[ColIndex {static_cast<int>(c)}];
         // Only track non-zero values for comparison
         if (std::abs(phys_val) > 1e-12) {
           ref_values.push_back(RefValue {

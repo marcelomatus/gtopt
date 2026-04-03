@@ -468,7 +468,7 @@ SolverTestResult test_initial_solve_optimal(std::string_view solver)
                 __LINE__);
 
       // Primal solution: x1+x2 == 4.
-      const auto sol = lp.get_col_sol();
+      const auto sol = lp.get_col_sol_raw();
       TC_CHECK(ctx, sol.size() == 2);
       const double x1_val = sol[0];
       const double x2_val = sol[1];
@@ -479,11 +479,11 @@ SolverTestResult test_initial_solve_optimal(std::string_view solver)
 
       // Dual solution: shadow price of r1 should be 1.0 (cost of 1 more unit
       // of RHS).
-      const auto dual = lp.get_row_dual();
+      const auto dual = lp.get_row_dual_raw();
       TC_CHECK(ctx, dual.size() == 1);
 
       // Reduced costs: both at zero (active variables on boundary).
-      const auto rc = lp.get_col_cost();
+      const auto rc = lp.get_col_cost_raw();
       TC_CHECK(ctx, rc.size() == 2);
 
       // Kappa: must be >= 0.
@@ -619,10 +619,10 @@ SolverTestResult test_warm_start(std::string_view solver)
     TC_REQUIRE(ctx, lp.is_optimal());
 
     // Capture solution and use it as a warm start.
-    const auto col_sol_vec =
-        std::vector<double>(lp.get_col_sol().begin(), lp.get_col_sol().end());
-    const auto row_dual_vec =
-        std::vector<double>(lp.get_row_dual().begin(), lp.get_row_dual().end());
+    const auto col_sol_vec = std::vector<double>(lp.get_col_sol_raw().begin(),
+                                                 lp.get_col_sol_raw().end());
+    const auto row_dual_vec = std::vector<double>(lp.get_row_dual_raw().begin(),
+                                                  lp.get_row_dual_raw().end());
 
     lp.set_warm_start_solution(col_sol_vec, row_dual_vec);
 
@@ -924,7 +924,7 @@ SolverTestResult test_barrier_threads(std::string_view solver)
     TC_CHECK(ctx, li.is_optimal());
     TC_CHECK_APPROX(ctx, li.get_obj_value(), 17.0, kEps);
 
-    const auto sol = li.get_col_sol();
+    const auto sol = li.get_col_sol_raw();
     TC_REQUIRE(ctx, sol.size() == 4);
     TC_CHECK(ctx, sol[0] + sol[1] >= 5.0 - kEps);
     TC_CHECK(ctx, sol[1] + sol[2] >= 3.0 - kEps);

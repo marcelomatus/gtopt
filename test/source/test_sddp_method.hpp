@@ -2546,7 +2546,7 @@ TEST_CASE(  // NOLINT
   };
 
   auto cut = build_benders_cut(
-      alpha_col, links, li.get_col_cost(), li.get_obj_value(), "opt_cut");
+      alpha_col, links, li.get_col_cost_raw(), li.get_obj_value(), "opt_cut");
 
   CHECK(cut.name == "opt_cut");
   CHECK(cut.get_coeff(alpha_col) == doctest::Approx(1.0));
@@ -2859,7 +2859,7 @@ TEST_CASE(  // NOLINT
           .source_upp = 100.0,
       },
   };
-  propagate_trial_values(links, phase0.get_col_sol(), phase1);
+  propagate_trial_values(links, phase0.get_col_sol_raw(), phase1);
   CHECK(links[0].trial_value == doctest::Approx(20.0));
 
   // Solve phase 1
@@ -2871,7 +2871,7 @@ TEST_CASE(  // NOLINT
   // Backward: build optimality cut and add to phase 0
   auto cut = build_benders_cut(alpha_col,
                                links,
-                               phase1.get_col_cost(),
+                               phase1.get_col_cost_raw(),
                                phase1.get_obj_value(),
                                "iter1_cut");
   phase0.add_row(cut);
@@ -2885,7 +2885,7 @@ TEST_CASE(  // NOLINT
   // Lower bound must increase (cut tightens approximation)
   CHECK(lb_after > lb_before);
   // Phase 0 should now choose larger x0
-  CHECK(phase0.get_col_sol()[x0] > 20.0 + 1e-6);
+  CHECK(phase0.get_col_sol_raw()[x0] > 20.0 + 1e-6);
 }
 
 // ─── BendersCut class tests ──────────────────────────────────────────────────

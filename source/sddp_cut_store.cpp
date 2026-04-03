@@ -172,7 +172,7 @@ void SDDPCutStore::update_stored_cut_duals(const PlanningLP& planning_lp)
     const auto& li =
         planning_lp.system(sit->second, pit->second).linear_interface();
     const auto row_idx = static_cast<std::size_t>(cut.row);
-    const auto duals = li.get_row_dual();
+    const auto duals = li.get_row_dual_raw();
     if (row_idx < duals.size()) {
       cut.dual = duals[row_idx];
     }
@@ -219,7 +219,7 @@ void SDDPCutStore::prune_inactive_cuts(
         continue;
       }
 
-      const auto duals = li.get_row_dual();
+      const auto duals = li.get_row_dual_raw();
 
       struct CutInfo
       {

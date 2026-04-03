@@ -606,9 +606,11 @@ in an AMPL-inspired pseudo-script.  Each constraint is a named linear
 demands, flow rights, volume rights, etc.) and can optionally restrict
 its domain to specific scenarios, stages, or blocks.
 
-For the Laja agreement, the total generation flow must equal the sum of
-all partitioned extraction categories (irrigation, electrical, mixed,
-and anticipated discharge):
+For the Laja agreement, the total turbine flow (``gasto turbinado'')
+must equal the sum of all partitioned extraction categories---irrigation
+rights (``derechos de riego''), electrical rights (``derechos
+el\'ectricos''), mixed rights (``derechos mixtos''), and anticipated
+discharge (``gasto anticipado''):
 \begin{equation}
 \label{eq:uc_partition}
 \xi^\text{gen} = \xi^\text{irr} + \xi^\text{elec}
@@ -616,16 +618,33 @@ and anticipated discharge):
 \end{equation}
 In the \texttt{.pampl} template this constraint reads:
 \begin{verbatim}
-constraint laja_partition "Flow partition":
-  flow_right('laja_total_gen').flow =
-      flow_right('laja_irr_rights').flow
-    + flow_right('laja_elec_rights').flow
-    + flow_right('laja_mixed_rights').flow
-    + flow_right('laja_anticipated').flow;
+constraint laja_particion_derechos
+    "Flow partition":
+  flow_right('laja_q_turbinado').flow =
+      flow_right('laja_der_riego').flow
+    + flow_right('laja_der_electrico').flow
+    + flow_right('laja_der_mixto').flow
+    + flow_right('laja_gasto_anticipado').flow;
 \end{verbatim}
 
-This single UserConstraint replaces the hardcoded balance node that
-traditional tools implement as a dedicated data structure.
+Entity names follow the PLP Spanish naming conventions (e.g.,
+\texttt{laja\_der\_riego} for PLP's \texttt{IQDR}, ``Derecho de
+Riego'') to maintain traceability with the reference Fortran
+implementation.  This single UserConstraint replaces the hardcoded
+balance node that traditional tools implement as a dedicated data
+structure.
+
+When a FlowRight has a positive \texttt{fail\_cost} and a nonzero
+\texttt{discharge}, a deficit coupling constraint is automatically
+generated:
+\begin{equation}
+\label{eq:deficit_coupling}
+\xi_{i,b} + \delta_{i,b} \geq d_{i,b}
+\end{equation}
+where $\delta_{i,b}$ is the deficit variable penalized in the
+objective.  This ensures the optimizer only uses the deficit
+variable when the flow is genuinely constrained by junction
+balance or dynamic bounds.
 
 For the Maule Convention, the ordinary reserve zone enforces a
 proportional split between electric ($p_e$) and irrigation ($p_r$)
@@ -637,14 +656,22 @@ extraction from the same shared flow:
 \xi^\text{irr}_\text{ord}  &\leq
   p_r \bigl(\xi^\text{elec}_\text{ord} + \xi^\text{irr}_\text{ord}\bigr)
 \end{align}
-where $p_e + p_r = 1$.  These two UserConstraints replace the hardcoded
-Fortran proportional-split logic in PLP's \texttt{genpdmaulen.f}.
+where $p_e + p_r = 1$.  In \gtopt{}, these constraints reference the
+Maule FlowRights using Spanish naming
+(\texttt{maule\_gasto\_ordinario\_elec} for PLP's \texttt{IQMOE},
+\texttt{maule\_gasto\_ordinario\_riego} for \texttt{IQMOR}),
+replacing the hardcoded Fortran proportional-split logic in PLP's
+\texttt{genpdmaulen.f}.
 
 Named scalar or monthly-indexed \emph{UserParams} ($p_e$, $p_r$, cost
 arrays, seasonal demand curves, etc.) are defined in the same script
 file and resolved automatically from the stage calendar month, enabling
-seasonally-varying constraints without per-stage hardcoding.  The
-\texttt{plp2gtopt} converter generates these templates automatically
+seasonally-varying constraints without per-stage hardcoding.
+Each agreement is maintained in a separate \texttt{.pampl} file
+(e.g., \texttt{laja\_agreement.pampl}, \texttt{maule\_agreement.pampl})
+and loaded via the \texttt{user\_constraint\_files} array field in the
+system JSON, keeping each agreement self-contained.
+The \texttt{plp2gtopt} converter generates these templates automatically
 from the parsed Fortran agreement parameters.
 
 \subsubsection{Volume-Dependent Dynamic Bounds}

@@ -262,7 +262,7 @@ public:
     const auto& li = sys.linear_interface();
     const auto col = eini_col_at(scenario, stage);
     if (li.is_optimal()) {
-      return physical_col_value(li.get_col_sol(), col);
+      return physical_col_value(li.get_col_sol_raw(), col);
     }
     const auto& warm = li.warm_col_sol();
     if (!warm.empty() && static_cast<size_t>(col) < warm.size()) {
@@ -300,7 +300,7 @@ public:
     }
     const auto col = eini_col_at(scenario, stage);
     if (li.is_optimal()) {
-      return physical_col_value(li.get_col_sol(), col);
+      return physical_col_value(li.get_col_sol_raw(), col);
     }
     const auto& warm = li.warm_col_sol();
     if (!warm.empty() && static_cast<size_t>(col) < warm.size()) {
@@ -321,7 +321,7 @@ public:
   {
     const auto col = efin_col_at(scenario, stage);
     if (li.is_optimal()) {
-      return physical_col_value(li.get_col_sol(), col);
+      return physical_col_value(li.get_col_sol_raw(), col);
     }
     const auto& warm = li.warm_col_sol();
     if (!warm.empty() && static_cast<size_t>(col) < warm.size()) {
@@ -725,84 +725,33 @@ public:
   {
     const auto pid = id();
 
-    // Primal outputs: LP variable is in scaled units
-    // (physical/m_energy_scale_). Multiply by m_energy_scale_ to recover
-    // physical energy/volume.
-    //
-    // Reduced cost (cost) outputs: the LP reduced cost is per unit of the LP
-    // variable.  To convert to per unit of the physical variable, divide by
-    // m_energy_scale_:  rc_phys = rc_LP / energy_scale.
-    // This is the inverse of the primal rescaling, ensuring that the output
-    // is invariant to the choice of energy_scale.
-    //
-    // The scale factor is stored in SparseCol::scale at column creation time;
-    // col_scale_sol/cost provide uniform rescaling helpers.
-    if (std::abs(m_energy_scale_ - 1.0)
-        > std::numeric_limits<double>::epsilon())
-    {
-      const auto sol_r = col_scale_sol(m_energy_scale_);
-      const auto cost_r = col_scale_cost(m_energy_scale_);
-      out.add_col_sol(cname, "eini", pid, eini_cols, sol_r);
-      out.add_col_cost(cname, "eini", pid, eini_cols, cost_r);
-      out.add_col_sol(cname, "sini", pid, sini_cols, sol_r);
-      out.add_col_cost(cname, "sini", pid, sini_cols, cost_r);
-      out.add_col_sol(cname, "efin", pid, efin_cols, sol_r);
-      out.add_col_cost(cname, "efin", pid, efin_cols, cost_r);
-      out.add_col_sol(cname, "volumen", pid, energy_cols, sol_r);
-      out.add_col_cost(cname, "volumen", pid, energy_cols, cost_r);
-    } else {
-      out.add_col_sol(cname, "eini", pid, eini_cols);
-      out.add_col_cost(cname, "eini", pid, eini_cols);
-      out.add_col_sol(cname, "sini", pid, sini_cols);
-      out.add_col_cost(cname, "sini", pid, sini_cols);
-      out.add_col_sol(cname, "efin", pid, efin_cols);
-      out.add_col_cost(cname, "efin", pid, efin_cols);
-      out.add_col_sol(cname, "volumen", pid, energy_cols);
-      out.add_col_cost(cname, "volumen", pid, energy_cols);
-    }
+    // Primal and reduced-cost outputs: the LinearInterface now returns
+    // physical values from get_col_sol() (LP × col_scale) and
+    // get_col_cost() (LP / col_scale), so no manual rescaling needed.
+    out.add_col_sol(cname, "eini", pid, eini_cols);
+    out.add_col_cost(cname, "eini", pid, eini_cols);
+    out.add_col_sol(cname, "sini", pid, sini_cols);
+    out.add_col_cost(cname, "sini", pid, sini_cols);
+    out.add_col_sol(cname, "efin", pid, efin_cols);
+    out.add_col_cost(cname, "efin", pid, efin_cols);
+    out.add_col_sol(cname, "volumen", pid, energy_cols);
+    out.add_col_cost(cname, "volumen", pid, energy_cols);
 
     // Dual output: output_dual_scale = dc_stage_scale / energy_scale.
-    // This corrects both the daily-cycle time-scaling (dc_stage_scale) and the
-    // energy variable scaling (1/energy_scale).  When neither applies the map
-    // is empty and the flat() function defaults to 1.0 (no correction).
+    // Row equilibration is already removed by get_row_dual().
+    // This corrects the daily-cycle time-scaling (dc_stage_scale) and the
+    // energy-balance RHS scaling (1/energy_scale).
     out.add_row_dual(cname, "volumen", pid, energy_rows, output_dual_scale);
 
     out.add_row_dual(cname, "capacity", pid, capacity_rows);
     out.add_row_dual(cname, "efin", pid, efin_rows);
 
-    // Soft emin slack: LP variable is in physical/m_energy_scale_ units.
-    if (std::abs(m_energy_scale_ - 1.0)
-        > std::numeric_limits<double>::epsilon())
-    {
-      out.add_col_sol(cname,
-                      "soft_emin",
-                      pid,
-                      soft_emin_slack_cols,
-                      col_scale_sol(m_energy_scale_));
-      out.add_col_cost(cname,
-                       "soft_emin",
-                       pid,
-                       soft_emin_slack_cols,
-                       col_scale_cost(m_energy_scale_));
-    } else {
-      out.add_col_sol(cname, "soft_emin", pid, soft_emin_slack_cols);
-      out.add_col_cost(cname, "soft_emin", pid, soft_emin_slack_cols);
-    }
+    out.add_col_sol(cname, "soft_emin", pid, soft_emin_slack_cols);
+    out.add_col_cost(cname, "soft_emin", pid, soft_emin_slack_cols);
     out.add_row_dual(cname, "soft_emin", pid, soft_emin_rows);
 
-    // Drain LP variable is in physical/m_flow_scale_ units; multiply primal
-    // by m_flow_scale_ to recover physical units, divide cost by m_flow_scale_.
-    // Uses col_scale_sol/cost helpers for uniform rescaling.
-    if (std::abs(m_flow_scale_ - 1.0) > std::numeric_limits<double>::epsilon())
-    {
-      out.add_col_sol(
-          cname, "drain", pid, drain_cols, col_scale_sol(m_flow_scale_));
-      out.add_col_cost(
-          cname, "drain", pid, drain_cols, col_scale_cost(m_flow_scale_));
-    } else {
-      out.add_col_sol(cname, "drain", pid, drain_cols);
-      out.add_col_cost(cname, "drain", pid, drain_cols);
-    }
+    out.add_col_sol(cname, "drain", pid, drain_cols);
+    out.add_col_cost(cname, "drain", pid, drain_cols);
 
     return true;
   }

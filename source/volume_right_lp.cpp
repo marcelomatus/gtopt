@@ -65,13 +65,17 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   const auto& options = sc.options();
   const auto scale_objective = options.scale_objective();
 
-  // Resolve energy_scale: use explicit value, inherit from
-  // the source reservoir or parent VolumeRight (keeps scaling
-  // consistent within the rights hierarchy), else default 1.0.
+  // Resolve energy_scale: explicit field > VariableScaleMap >
+  // inherit from source reservoir or parent VolumeRight > default.
   const double energy_scale = [&]
   {
     if (volume_right().energy_scale.has_value()) {
       return *volume_right().energy_scale;
+    }
+    const auto vs =
+        options.variable_scale_map().lookup("VolumeRight", "energy", uid());
+    if (vs != 1.0) {
+      return vs;
     }
     if (const auto& r_ref = volume_right().reservoir; r_ref.has_value()) {
       const ReservoirLPSId r_sid(*r_ref);
@@ -85,6 +89,14 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     return VolumeRight::default_energy_scale;
   }();
 
+  // Resolve flow_scale: VariableScaleMap > default (1.0).
+  const double flow_scale = [&]
+  {
+    const auto fs =
+        options.variable_scale_map().lookup("VolumeRight", "flow", uid());
+    return (fs != 1.0) ? fs : 1.0;
+  }();
+
   // Evaluate initial bound rule if present
   const auto& opt_rule = volume_right().bound_rule;
   auto initial_rule_bound = std::numeric_limits<Real>::max();
@@ -94,6 +106,8 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     const auto initial_volume = rsv.reservoir().eini.value_or(0.0);
     initial_rule_bound = evaluate_bound_rule(*opt_rule, initial_volume);
   }
+
+  const double inv_flow_scale = 1.0 / flow_scale;
 
   BIndexHolder<ColIndex> extraction_cols;
   map_reserve(extraction_cols, blocks.size());
@@ -112,7 +126,8 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
         sc.lp_col_label(scenario, stage, block, cname, "extraction", uid());
     const auto fcol = lp.add_col(SparseCol {
         .name = std::move(col_name),
-        .uppb = uppb,
+        .uppb = uppb * inv_flow_scale,
+        .scale = flow_scale,
     });
 
     extraction_cols[buid] = fcol;
@@ -132,7 +147,8 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
           sc.lp_col_label(scenario, stage, block, cname, "saving", uid());
       const auto fcol = lp.add_col(SparseCol {
           .name = std::move(col_name),
-          .uppb = uppb,
+          .uppb = uppb * inv_flow_scale,
+          .scale = flow_scale,
       });
       saving_cols[buid] = fcol;
     }
@@ -158,6 +174,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
       .daily_cycle = false,
       .skip_state_link = is_reset_stage && is_cross_phase,
       .energy_scale = energy_scale,
+      .flow_scale = flow_scale,
   };
 
   if (!StorageBase::add_to_lp(cname,
@@ -227,8 +244,10 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
 
     for (auto&& block : blocks) {
       const auto buid = block.uid();
-      const auto coeff =
-          flow_conversion_rate() * block.duration() * dir / energy_scale;
+      // extraction LP var = physical / flow_scale, so multiply by
+      // flow_scale to restore physical units in the parent balance.
+      const auto coeff = flow_conversion_rate() * block.duration() * dir
+          * flow_scale / energy_scale;
       lp.row_at(vr_erows.at(buid))[extraction_cols.at(buid)] = coeff;
     }
   }
@@ -236,8 +255,8 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   // Consumptive coupling: extraction removes water from physical Reservoir.
   // Rights are always consumptive — when a reservoir is set, extraction
   // is subtracted from the reservoir's energy balance (outflow).
-  // Coefficient: +fcr × duration / r_energy_scale (same sign as the
-  // reservoir's own extraction variable).
+  // Coefficient: +fcr × duration × flow_scale / r_energy_scale
+  // (flow_scale restores physical m³/s from the scaled LP variable).
   if (const auto& r_ref = volume_right().reservoir; r_ref.has_value()) {
     const ReservoirLPSId r_sid(*r_ref);
     const auto& r_lp = sc.element(r_sid);
@@ -246,8 +265,8 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
 
     for (auto&& block : blocks) {
       const auto buid = block.uid();
-      const auto coeff =
-          +flow_conversion_rate() * block.duration() / r_energy_scale;
+      const auto coeff = +flow_conversion_rate() * block.duration() * flow_scale
+          / r_energy_scale;
       lp.row_at(r_erows.at(buid))[extraction_cols.at(buid)] = coeff;
     }
   }
@@ -279,7 +298,10 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     for (auto&& block : blocks) {
       const auto buid = block.uid();
       const auto duration = block.duration();
-      const auto coeff = flow_conversion_rate() * duration * inv_energy_scale;
+      // extraction LP var = physical / flow_scale, so multiply by
+      // flow_scale to convert back to physical m³/s for the demand sum.
+      const auto coeff =
+          flow_conversion_rate() * duration * flow_scale * inv_energy_scale;
       drow[extraction_cols.at(buid)] = coeff;
     }
     drow[fail_col] = 1.0;
@@ -332,7 +354,8 @@ int VolumeRightLP::update_lp(SystemLP& sys,
   const auto& my_extraction_cols = extraction_cols_.at(st_key);
 
   for (const auto& [buid, col] : my_extraction_cols) {
-    li.set_col_upp(col, new_bound);
+    const auto col_scale = li.get_col_scale(col);
+    li.set_col_upp(col, new_bound / col_scale);
     ++total;
   }
 
@@ -341,16 +364,10 @@ int VolumeRightLP::update_lp(SystemLP& sys,
   if (const auto& rm = volume_right().reset_month;
       rm.has_value() && stage.month() == rm)
   {
-    const auto energy_scale = [&]
-    {
-      if (volume_right().energy_scale.has_value()) {
-        return *volume_right().energy_scale;
-      }
-      return rsv.energy_scale();
-    }();
     const auto eini_col = eini_col_at(scenario, stage);
-    li.set_col_low(eini_col, new_bound / energy_scale);
-    li.set_col_upp(eini_col, new_bound / energy_scale);
+    const auto es = li.get_col_scale(eini_col);
+    li.set_col_low(eini_col, new_bound / es);
+    li.set_col_upp(eini_col, new_bound / es);
     ++total;
   }
 

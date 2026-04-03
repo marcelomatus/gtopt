@@ -64,8 +64,8 @@ auto save_state_csv(const PlanningLP& planning_lp,
           continue;
         }
 
-        const auto col_sol = li.get_col_sol();
-        const auto col_rc = li.get_col_cost();
+        const auto col_sol = li.get_col_sol_raw();
+        const auto col_rc = li.get_col_cost_raw();
         const auto& names = li.col_index_to_name();
         const auto ncols = static_cast<size_t>(li.get_numcols());
         const auto phase_uid = phase.uid();

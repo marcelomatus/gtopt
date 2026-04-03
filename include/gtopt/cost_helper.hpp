@@ -25,6 +25,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include <gtopt/index_holder.hpp>
 #include <gtopt/planning_options_lp.hpp>
 
@@ -171,75 +173,57 @@ public:
   }
 
   /**
-   * @brief Calculates inverse cost factors for blocks (1/cost_factor)
+   * @brief Returns cached inverse cost factors for blocks (1/cost_factor).
    *
-   * Computes the inverse of the cost factors used to scale dual prices,
-   * applying:
-   * - Scenario probability weighting
-   * - Stage discount factor
-   * - Block duration
-   * - Objective scaling
-   *
+   * Lazily computed on first call, then cached for subsequent accesses.
    * Formula: 1 / (probability * discount * duration / scale_objective)
    *
-   * @return Matrix of inverse cost factors by scenario/stage/block
+   * @return Const reference to cached matrix of inverse cost factors
    */
-  [[nodiscard]] block_factor_matrix_t block_icost_factors() const;
+  [[nodiscard]] const block_factor_matrix_t& block_icost_factors() const;
 
   /**
-   * @brief Calculates discount-only inverse cost factors for blocks.
+   * @brief Returns cached discount-only inverse cost factors for blocks.
    *
-   * Returns a `block_factor_matrix_t` where every entry equals
-   * `scale_obj / discount[t]`, regardless of scenario probability and
-   * block duration.  Used to scale dual values of "raw/unitless" user
-   * constraints where the physical units have no probability or duration
-   * component.
-   *
+   * Lazily computed on first call, then cached.
    * Formula: scale_objective / discount[t]   (same for all s, b in stage t)
    *
-   * @return Matrix of discount-only inverse cost factors by
-   * scenario/stage/block
+   * @return Const reference to cached matrix of discount-only inverse cost
+   * factors
    */
-  [[nodiscard]] block_factor_matrix_t block_discount_icost_factors() const;
+  [[nodiscard]] const block_factor_matrix_t& block_discount_icost_factors()
+      const;
 
   /**
-   * @brief Calculates inverse cost factors for stages (1/cost_factor)
+   * @brief Returns cached inverse cost factors for stages (1/cost_factor).
    *
-   * Computes the inverse of the cost factors used to scale dual prices,
-   * applying:
-   * - Stage discount factor
-   * - Stage duration
-   * - Objective scaling
-   *
+   * Lazily computed on first call (probability = 1.0), then cached.
    * Formula: 1 / (discount * duration / scale_objective)
    *
-   * @return Vector of inverse cost factors by stage
+   * @return Const reference to cached vector of inverse cost factors
    */
-  [[nodiscard]] stage_factor_matrix_t stage_icost_factors(
-      double probability = 1.0) const;
+  [[nodiscard]] const stage_factor_matrix_t& stage_icost_factors() const;
 
   /**
-   * @brief Calculates inverse cost factors for scenario-stage pairs
-   * (1/cost_factor)
+   * @brief Returns cached inverse cost factors for scenario-stage pairs.
    *
-   * Computes the inverse of the cost factors used to scale dual prices,
-   * applying:
-   * - Scenario probability weighting
-   * - Stage discount factor
-   * - Stage duration
-   * - Objective scaling
-   *
+   * Lazily computed on first call, then cached.
    * Formula: 1 / (probability * discount * duration / scale_objective)
    *
-   * @return Matrix of inverse cost factors by scenario/stage
+   * @return Const reference to cached matrix of inverse cost factors
    */
-  [[nodiscard]] scenario_stage_factor_matrix_t scenario_stage_icost_factors()
-      const;
+  [[nodiscard]] const scenario_stage_factor_matrix_t&
+  scenario_stage_icost_factors() const;
 
 private:
   std::reference_wrapper<const PlanningOptionsLP> m_options_;
   std::reference_wrapper<const std::vector<ScenarioLP>> m_scenarios_;
   std::reference_wrapper<const std::vector<StageLP>> m_stages_;
+
+  mutable std::optional<block_factor_matrix_t> m_block_icost_cache_;
+  mutable std::optional<block_factor_matrix_t> m_block_discount_icost_cache_;
+  mutable std::optional<stage_factor_matrix_t> m_stage_icost_cache_;
+  mutable std::optional<scenario_stage_factor_matrix_t> m_ss_icost_cache_;
 };
 
 }  // namespace gtopt

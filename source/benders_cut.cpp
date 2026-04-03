@@ -316,7 +316,7 @@ auto build_feasibility_cut(const LinearInterface& li,
 
   auto cut = build_benders_cut(alpha_col,
                                links,
-                               elastic->clone.get_col_cost(),
+                               elastic->clone.get_col_cost_raw(),
                                elastic->clone.get_obj_value(),
                                name,
                                scale_alpha);
@@ -334,7 +334,7 @@ auto build_multi_cuts(const ElasticSolveResult& elastic,
 {
   std::vector<SparseRow> cuts;
 
-  const auto& dep_sol = elastic.clone.get_col_sol();
+  const auto& dep_sol = elastic.clone.get_col_sol_raw();
   const auto& link_infos = elastic.link_infos;
   const std::size_t nlinks = links.size();
 
@@ -610,7 +610,7 @@ auto BendersCut::build_feasibility_cut(const LinearInterface& li,
 
   auto cut = build_benders_cut(alpha_col,
                                links,
-                               elastic->clone.get_col_cost(),
+                               elastic->clone.get_col_cost_raw(),
                                elastic->clone.get_obj_value(),
                                name,
                                scale_alpha);

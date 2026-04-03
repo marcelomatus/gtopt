@@ -47,10 +47,6 @@ public:
   using ArrowArrays = std::vector<ArrowArray>;
   using ArrowFieldArrays = std::pair<ArrowFields, ArrowArrays>;
 
-  using ColSolSpan = decltype(std::declval<LinearInterface&>().get_col_sol());
-  using RowDualSpan = decltype(std::declval<LinearInterface&>().get_row_dual());
-  using ColCostSpan = decltype(std::declval<LinearInterface&>().get_col_cost());
-
   using ValidVector = std::vector<bool>;
   template<typename Type = double>
   using FieldType =
@@ -70,321 +66,218 @@ public:
 
   [[nodiscard]] auto&& options() const { return sc.get().options(); }
 
-  template<typename Holder, typename Op, typename Factor>
-  [[nodiscard]] constexpr auto flat(const Holder& holder,
-                                    Op op,
-                                    const Factor& factor) const
-  {
-    return sc.get().flat(holder, op, factor);
-  }
+  // ── STB/GSTB block-indexed overloads ─────────────────────────────
 
-  [[nodiscard]] constexpr auto field_name(const Id& id) const
-  {
-    return options().use_uid_fname() ? as_label<':'>("uid", get_uid(id))
-                                     : as_label<':'>(get_name(id), get_uid(id));
-  }
-
-  template<typename IndexHolder,
-           typename Span,
-           typename Prelude,
-           typename Operation,
-           typename Factor = std::span<double>>
-  void add_field(std::string_view cname,
-                 std::string_view fname,
-                 std::string_view sname,
-                 const Id& id,
-                 const IndexHolder& holder,
-                 const Span& value_span,
-                 const Prelude* prelude,
-                 Operation op,
-                 const Factor& factor)
-  {
-    if (holder.empty() || value_span.empty()) {
-      return;
-    }
-
-    auto&& [values, valid] =
-        flat(holder, [&](auto i) { return op(value_span[i]); }, factor);
-
-    if (values.empty()) {
-      return;
-    }
-
-    field_vector_map[ClassFieldName {cname, as_label(fname, sname)}]
-        .emplace_back(
-            field_name(id), std::move(values), std::move(valid), prelude);
-  }
-
-  template<typename Operation = std::identity>
   constexpr void add_col_sol(std::string_view cname,
                              std::string_view col_name,
                              const Id& id,
-                             const GSTBIndexHolder<ColIndex>& holder,
-                             Operation op = {})
+                             const GSTBIndexHolder<ColIndex>& holder)
   {
-    return add_field(cname,
-                     col_name,
-                     "sol",
-                     id,
-                     holder,
-                     col_sol_span,
-                     &stb_prelude,
-                     op,
-                     block_factor_matrix_t {});
+    add_field(cname,
+              col_name,
+              "sol",
+              id,
+              holder,
+              col_sol_span,
+              &stb_prelude,
+              block_factor_matrix_t {});
   }
 
-  template<typename Operation = std::identity>
   constexpr void add_col_sol(std::string_view cname,
                              std::string_view col_name,
                              const Id& id,
-                             const STBIndexHolder<ColIndex>& holder,
-                             Operation op = {})
+                             const STBIndexHolder<ColIndex>& holder)
   {
-    return add_field(cname,
-                     col_name,
-                     "sol",
-                     id,
-                     holder,
-                     col_sol_span,
-                     &stb_prelude,
-                     op,
-                     block_factor_matrix_t {});
+    add_field(cname,
+              col_name,
+              "sol",
+              id,
+              holder,
+              col_sol_span,
+              &stb_prelude,
+              block_factor_matrix_t {});
   }
 
-  template<typename Operation = std::identity>
   constexpr void add_col_cost(std::string_view cname,
                               std::string_view col_name,
                               const Id& id,
-                              const GSTBIndexHolder<ColIndex>& holder,
-                              Operation op = {})
+                              const GSTBIndexHolder<ColIndex>& holder)
   {
-    return add_field(cname,
-                     col_name,
-                     "cost",
-                     id,
-                     holder,
-                     col_cost_span,
-                     &stb_prelude,
-                     op,
-                     block_cost_factors);
+    add_field(cname,
+              col_name,
+              "cost",
+              id,
+              holder,
+              col_cost_span,
+              &stb_prelude,
+              sc.get().block_icost_factors());
   }
 
-  template<typename Operation = std::identity>
   constexpr void add_col_cost(std::string_view cname,
                               std::string_view col_name,
                               const Id& id,
-                              const STBIndexHolder<ColIndex>& holder,
-                              Operation op = {})
+                              const STBIndexHolder<ColIndex>& holder)
   {
-    return add_field(cname,
-                     col_name,
-                     "cost",
-                     id,
-                     holder,
-                     col_cost_span,
-                     &stb_prelude,
-                     op,
-                     block_cost_factors);
+    add_field(cname,
+              col_name,
+              "cost",
+              id,
+              holder,
+              col_cost_span,
+              &stb_prelude,
+              sc.get().block_icost_factors());
   }
 
-  template<typename Operation = std::identity>
   constexpr void add_row_dual(std::string_view cname,
                               std::string_view row_name,
                               const Id& id,
-                              const GSTBIndexHolder<RowIndex>& holder,
-                              Operation op = {})
+                              const GSTBIndexHolder<RowIndex>& holder)
   {
-    return add_field(cname,
-                     row_name,
-                     "dual",
-                     id,
-                     holder,
-                     row_dual_span,
-                     &stb_prelude,
-                     op,
-                     block_cost_factors);
+    add_field(cname,
+              row_name,
+              "dual",
+              id,
+              holder,
+              row_dual_span,
+              &stb_prelude,
+              sc.get().block_icost_factors());
   }
 
-  template<typename Operation = std::identity>
   constexpr void add_row_dual(std::string_view cname,
                               std::string_view row_name,
                               const Id& id,
-                              const STBIndexHolder<RowIndex>& holder,
-                              Operation op = {})
+                              const STBIndexHolder<RowIndex>& holder)
   {
-    return add_field(cname,
-                     row_name,
-                     "dual",
-                     id,
-                     holder,
-                     row_dual_span,
-                     &stb_prelude,
-                     op,
-                     block_cost_factors);
+    add_field(cname,
+              row_name,
+              "dual",
+              id,
+              holder,
+              row_dual_span,
+              &stb_prelude,
+              sc.get().block_icost_factors());
   }
 
   /// add_row_dual with an additional per-(scenario,stage) back-scale factor.
-  /// Used by StorageLP::add_to_output for daily-cycle dual correction:
-  /// when daily_cycle is active for a stage, the LP dual is stage_dur/24
-  /// times larger than the physical dual, so we multiply by 24/stage_dur.
-  /// When @p st_scale is empty (no stage used daily_cycle), every scale
-  /// defaults to 1.0 and the output is identical to the plain add_row_dual.
-  template<typename Operation = std::identity>
+  /// Used by StorageLP::add_to_output for daily-cycle dual correction.
   constexpr void add_row_dual(std::string_view cname,
                               std::string_view row_name,
                               const Id& id,
                               const STBIndexHolder<RowIndex>& holder,
-                              const STIndexHolder<double>& st_scale,
-                              Operation op = {})
+                              const STIndexHolder<double>& st_scale)
   {
-    if (holder.empty() || row_dual_span.empty()) {
-      return;
-    }
-
-    auto&& [values, valid] = sc.get().flat(
-        holder,
-        [&](auto i) { return op(row_dual_span[i]); },
-        block_cost_factors,
-        st_scale);
-
-    if (values.empty()) {
-      return;
-    }
-
-    field_vector_map[ClassFieldName {cname, as_label(row_name, "dual")}]
-        .emplace_back(
-            field_name(id), std::move(values), std::move(valid), &stb_prelude);
+    add_field_st_scaled(
+        cname, row_name, "dual", id, holder, row_dual_span, st_scale);
   }
 
   /// add_row_dual using discount-only scaling (`scale_obj / discount[t]`).
-  /// Used by user constraints with `constraint_type = "raw"` or `"unitless"`:
-  /// the dual value has no physical unit so probability and block duration
-  /// are NOT removed — only the stage discount factor is inverted.
-  template<typename Operation = std::identity>
   constexpr void add_row_dual_raw(std::string_view cname,
                                   std::string_view row_name,
                                   const Id& id,
-                                  const STBIndexHolder<RowIndex>& holder,
-                                  Operation op = {})
+                                  const STBIndexHolder<RowIndex>& holder)
   {
-    return add_field(cname,
-                     row_name,
-                     "dual",
-                     id,
-                     holder,
-                     row_dual_span,
-                     &stb_prelude,
-                     op,
-                     discount_block_cost_factors);
+    add_field(cname,
+              row_name,
+              "dual",
+              id,
+              holder,
+              row_dual_span,
+              &stb_prelude,
+              sc.get().block_discount_icost_factors());
   }
 
-  ///
-  template<typename Operation = std::identity>
+  // ── ST scenario-stage-indexed overloads ──────────────────────────
+
   constexpr void add_col_sol(std::string_view cname,
                              std::string_view col_name,
                              const Id& id,
-                             const STIndexHolder<ColIndex>& holder,
-                             Operation op = {})
+                             const STIndexHolder<ColIndex>& holder)
   {
-    return add_field(cname,
-                     col_name,
-                     "sol",
-                     id,
-                     holder,
-                     col_sol_span,
-                     &st_prelude,
-                     op,
-                     scenario_stage_factor_matrix_t {});
+    add_field(cname,
+              col_name,
+              "sol",
+              id,
+              holder,
+              col_sol_span,
+              &st_prelude,
+              scenario_stage_factor_matrix_t {});
   }
 
-  template<typename Operation = std::identity>
   constexpr void add_col_cost(std::string_view cname,
                               std::string_view col_name,
                               const Id& id,
-                              const STIndexHolder<ColIndex>& holder,
-                              Operation op = {})
+                              const STIndexHolder<ColIndex>& holder)
   {
-    return add_field(cname,
-                     col_name,
-                     "cost",
-                     id,
-                     holder,
-                     col_cost_span,
-                     &st_prelude,
-                     op,
-                     scenario_stage_cost_factors);
+    add_field(cname,
+              col_name,
+              "cost",
+              id,
+              holder,
+              col_cost_span,
+              &st_prelude,
+              sc.get().scenario_stage_icost_factors());
   }
 
-  template<typename Operation = std::identity>
   constexpr void add_row_dual(std::string_view cname,
                               std::string_view row_name,
                               const Id& id,
-                              const STIndexHolder<RowIndex>& holder,
-                              Operation op = {})
+                              const STIndexHolder<RowIndex>& holder)
   {
-    return add_field(cname,
-                     row_name,
-                     "dual",
-                     id,
-                     holder,
-                     row_dual_span,
-                     &st_prelude,
-                     op,
-                     scenario_stage_cost_factors);
+    add_field(cname,
+              row_name,
+              "dual",
+              id,
+              holder,
+              row_dual_span,
+              &st_prelude,
+              sc.get().scenario_stage_icost_factors());
   }
 
-  template<typename Operation = std::identity>
+  // ── T stage-indexed overloads ────────────────────────────────────
+
   constexpr void add_col_sol(std::string_view cname,
                              std::string_view col_name,
                              const Id& id,
-                             const TIndexHolder<ColIndex>& holder,
-                             Operation op = {})
+                             const TIndexHolder<ColIndex>& holder)
   {
-    return add_field(cname,
-                     col_name,
-                     "sol",
-                     id,
-                     holder,
-                     col_sol_span,
-                     &t_prelude,
-                     op,
-                     stage_factor_matrix_t {});
+    add_field(cname,
+              col_name,
+              "sol",
+              id,
+              holder,
+              col_sol_span,
+              &t_prelude,
+              stage_factor_matrix_t {});
   }
 
-  template<typename Operation = std::identity>
   constexpr void add_col_cost(std::string_view cname,
                               std::string_view col_name,
                               const Id& id,
-                              const TIndexHolder<ColIndex>& holder,
-                              Operation op = {})
+                              const TIndexHolder<ColIndex>& holder)
   {
-    return add_field(cname,
-                     col_name,
-                     "cost",
-                     id,
-                     holder,
-                     col_cost_span,
-                     &t_prelude,
-                     op,
-                     stage_cost_factors);
+    add_field(cname,
+              col_name,
+              "cost",
+              id,
+              holder,
+              col_cost_span,
+              &t_prelude,
+              sc.get().stage_icost_factors());
   }
 
-  template<typename Operation = std::identity>
   constexpr void add_row_dual(std::string_view cname,
                               std::string_view row_name,
                               const Id& id,
-                              const TIndexHolder<RowIndex>& holder,
-                              Operation op = {})
+                              const TIndexHolder<RowIndex>& holder)
   {
-    return add_field(cname,
-                     row_name,
-                     "dual",
-                     id,
-                     holder,
-                     row_dual_span,
-                     &t_prelude,
-                     op,
-                     stage_cost_factors);
+    add_field(cname,
+              row_name,
+              "dual",
+              id,
+              holder,
+              row_dual_span,
+              &t_prelude,
+              sc.get().stage_icost_factors());
   }
 
   void write() const;
@@ -395,24 +288,81 @@ private:
   SceneUid m_scene_uid_;
   PhaseUid m_phase_uid_;
 
-  double sol_obj_value;
-  double sol_status;
-  double sol_kappa;
-
-  ColSolSpan col_sol_span;
-  ColCostSpan col_cost_span;
-  RowDualSpan row_dual_span;
-
-  block_factor_matrix_t block_cost_factors;
-  block_factor_matrix_t discount_block_cost_factors;
-  stage_factor_matrix_t stage_cost_factors;
-  scenario_stage_factor_matrix_t scenario_stage_cost_factors;
+  ScaledView col_sol_span;
+  ScaledView col_cost_span;
+  ScaledView row_dual_span;
 
   ArrowFieldArrays stb_prelude;
   ArrowFieldArrays st_prelude;
   ArrowFieldArrays t_prelude;
 
   FieldVectorMap<double> field_vector_map;
+
+  // ── private helpers ──────────────────────────────────────────────
+
+  [[nodiscard]] constexpr auto field_name(const Id& id) const
+  {
+    return options().use_uid_fname() ? as_label<':'>("uid", get_uid(id))
+                                     : as_label<':'>(get_name(id), get_uid(id));
+  }
+
+  template<typename IndexHolder,
+           typename Span,
+           typename Prelude,
+           typename Factor = std::span<double>>
+  void add_field(std::string_view cname,
+                 std::string_view fname,
+                 std::string_view sname,
+                 const Id& id,
+                 const IndexHolder& holder,
+                 const Span& value_span,
+                 const Prelude* prelude,
+                 const Factor& factor)
+  {
+    if (holder.empty() || value_span.empty()) {
+      return;
+    }
+
+    auto&& [values, valid] =
+        sc.get().flat(holder, [&](auto i) { return value_span[i]; }, factor);
+
+    if (values.empty()) {
+      return;
+    }
+
+    field_vector_map[ClassFieldName {cname, as_label(fname, sname)}]
+        .emplace_back(
+            field_name(id), std::move(values), std::move(valid), prelude);
+  }
+
+  /// add_field variant with additional per-(scenario,stage) back-scale.
+  template<typename IndexHolder, typename Span>
+  void add_field_st_scaled(std::string_view cname,
+                           std::string_view fname,
+                           std::string_view sname,
+                           const Id& id,
+                           const IndexHolder& holder,
+                           const Span& value_span,
+                           const STIndexHolder<double>& st_scale)
+  {
+    if (holder.empty() || value_span.empty()) {
+      return;
+    }
+
+    auto&& [values, valid] = sc.get().flat(
+        holder,
+        [&](auto i) { return value_span[i]; },
+        sc.get().block_icost_factors(),
+        st_scale);
+
+    if (values.empty()) {
+      return;
+    }
+
+    field_vector_map[ClassFieldName {cname, as_label(fname, sname)}]
+        .emplace_back(
+            field_name(id), std::move(values), std::move(valid), &stb_prelude);
+  }
 };
 
 }  // namespace gtopt

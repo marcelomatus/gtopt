@@ -1,0 +1,790 @@
+# Irrigation Agreements — Modeling Guide
+
+gtopt models Chilean irrigation agreements (Convenios de Riego) through
+three generic, data-driven entity types — **FlowRight**, **VolumeRight**,
+and **UserConstraint** — that form a **rights-domain layer** parallel to
+the physical hydro topology.  This document describes the legal context,
+the LP formulation, the entity mapping, and the PLP-to-gtopt comparison.
+
+---
+
+## Table of Contents
+
+1. [Legal and Historical Context](#1-legal-and-historical-context)
+2. [Architecture Overview](#2-architecture-overview)
+3. [FlowRight — Flow-Based Water Rights](#3-flowright--flow-based-water-rights)
+4. [VolumeRight — Volume-Based Water Rights](#4-volumeright--volume-based-water-rights)
+5. [UserConstraint and PAMPL Files](#5-userconstraint-and-pampl-files)
+6. [Laja Agreement (Convenio del Laja)](#6-laja-agreement-convenio-del-laja)
+7. [Maule Agreement (Convenio del Maule)](#7-maule-agreement-convenio-del-maule)
+8. [PLP-to-gtopt Name Mapping](#8-plp-to-gtopt-name-mapping)
+9. [PLP vs gtopt LP Comparison](#9-plp-vs-gtopt-lp-comparison)
+10. [Known Simplifications and Gaps](#10-known-simplifications-and-gaps)
+11. [Configuration and Usage](#11-configuration-and-usage)
+12. [See Also](#12-see-also)
+
+---
+
+## 1. Legal and Historical Context
+
+### 1.1 Overview
+
+Chile's major hydroelectric systems share water with agricultural
+irrigation under legally binding agreements signed decades before the
+modern electricity market.  These agreements constrain how much water a
+hydro operator can turbine, divert, or store, depending on reservoir
+volume, season, and accumulated rights usage.
+
+gtopt currently models two agreements:
+
+| Feature | Laja Agreement | Maule Agreement |
+|---------|----------------|-----------------|
+| Year signed | 1958 (updated 2017) | 1947 (updated 1983) |
+| Parties | DOH + ENDESA (now Enel) | DOH + ENDESA/Colbun |
+| Primary reservoir | Laguna del Laja (~6,000 hm³) | Lago Maule + Colbun + Invernada |
+| Regulation horizon | Multi-annual (unique in Chile) | Annual / seasonal |
+| Irrigation area | ~117,000 ha (Biobio region) | ~90,000+ ha (Maule region) |
+| Hydroelectric capacity | ~1,150 MW (El Toro + 4 cascade) | ~800 MW (Colbun + Machicura) |
+| Key mechanism | 4-zone piecewise-linear rights | 3-zone proportional allocation |
+
+### 1.2 Laja Agreement — Legal Background
+
+The Convenio del Laja governs the allocation of water from Laguna del
+Laja between hydroelectric generation (El Toro, 450 MW) and irrigation
+of approximately 117,000 hectares in the Biobio region.
+
+The reservoir volume is divided into **4 zones**, each with different
+allocation factors for three rights categories:
+
+- **Derechos de Riego** (irrigation rights) — priority water for
+  agriculture, active primarily Sep–Mar
+- **Derechos Eléctricos** (electrical rights) — water available for
+  hydroelectric generation year-round
+- **Derechos Mixtos** (mixed rights) — shared allocation with
+  season-dependent usage
+
+The total rights for each category are computed as a piecewise-linear
+function of reservoir volume:
+
+```
+Rights(V) = Base + Σᵢ [ Factorᵢ × min(Vᵢ, Widthᵢ) ]
+```
+
+At the start of each hydrological year (April), volume rights are
+**re-provisioned** based on current reservoir volume.  A fourth category,
+**Gasto Anticipado** (anticipated discharge), allows early extraction of
+future irrigation rights under certain conditions.
+
+Three **economy accumulators** (ENDESA, Reserve, Alto Polcura) track
+unused rights that carry forward across years.
+
+### 1.3 Maule Agreement — Legal Background
+
+The Convenio del Maule governs water allocation from the Colbun reservoir
+system between ENDESA/Colbun (electric generation) and irrigators
+(~90,000+ ha in the Maule region).
+
+The Colbun reservoir volume is divided into **3 operational zones**:
+
+1. **Reserva Extraordinaria** (bottom, 0–129 hm³): No extraction rights
+   for either party
+2. **Reserva Ordinaria** (middle, 129–581 hm³): Proportional allocation
+   — typically 20% electric / 80% irrigation
+3. **Zona Normal** (top, above 581 hm³): Full extraction rights for both
+   parties
+
+Additional elements include:
+
+- **Resolución 105** (DGA, 1983): Mandatory minimum ecological flow at
+  the Melado river junction point, year-round
+- **La Invernada**: Auxiliary reservoir with winter storage/bypass
+  decisions and an economy accumulator
+- **Bocatoma Cañelón**: Physical intake point with associated costs
+- **Districts**: Proportional allocation of irrigation flow among
+  withdrawal districts (7+ districts with fixed percentage shares)
+
+---
+
+## 2. Architecture Overview
+
+### 2.1 Design Principle
+
+Rights entities are **not part of the physical hydro topology**.  They
+create their own LP variables and constraints, and couple to physical
+elements (reservoirs, junctions) through explicit references:
+
+```
+  ┌─────────────────────────────────────────────────────────┐
+  │              PHYSICAL DOMAIN (hydro topology)            │
+  │   Reservoir ──► Waterway ──► Turbine ──► Generator      │
+  │      │ volume                                            │
+  └──────┼──────────────────────────────────────────────────┘
+         │ volume drives bound_rule
+         ▼
+  ┌─────────────────────────────────────────────────────────┐
+  │              RIGHTS DOMAIN (water rights accounting)     │
+  │                                                          │
+  │   FlowRight ────► UserConstraint (flow partition)        │
+  │       │                                                  │
+  │       ▼                                                  │
+  │   VolumeRight (accumulated extraction, state variable)   │
+  │       │                                                  │
+  │       ▼                                                  │
+  │   bound_rule (volume-dependent dynamic bounds)           │
+  └─────────────────────────────────────────────────────────┘
+```
+
+### 2.2 Entity Summary
+
+| gtopt Entity | Purpose | PLP Equivalent |
+|---|---|---|
+| **FlowRight** | Flow-based right (m³/s) per block | IQ* variables (IQDR, IQDE, IQMNE, etc.) |
+| **VolumeRight** | Volume-based right (hm³) across stages | IV* variables (IVDRF, IVDEF, VMGEMF, etc.) |
+| **UserConstraint** | Proportional allocation, identities | Percentage splits, flow partitions |
+| **RightBoundRule** | Volume-dependent dynamic bounds | PLP `FijaLaja`/`FijaMaule` bound modification |
+
+---
+
+## 3. FlowRight — Flow-Based Water Rights
+
+### 3.1 Concept
+
+A FlowRight represents a consumptive flow entitlement at a point in the
+hydro network.  It creates LP flow variables per block with two operating
+modes:
+
+- **Fixed mode** (default): `lowb = uppb = discharge` — the flow is
+  fixed to the required extraction rate
+- **Variable mode**: When `fmax > 0` and `discharge = 0`, bounds are
+  `[0, fmax]` — the optimizer decides the flow
+
+### 3.2 Key Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `discharge` | STBRealFieldSched | Required flow [m³/s] per (scenario, stage, block) |
+| `fmax` | OptTBRealFieldSched | Maximum flow for variable mode [m³/s] |
+| `junction` | OptSingleId | Physical junction coupling (consumptive withdrawal) |
+| `direction` | OptInt (+1/-1) | Sign in UserConstraint flow balance |
+| `use_average` | OptBool | Creates stage-average hourly flow variable (qeh) |
+| `fail_cost` | OptTBRealFieldSched | Penalty for unmet demand [$/m³/s·h] |
+| `use_value` | OptTBRealFieldSched | Benefit value for flow usage [$/m³/s·h] |
+| `bound_rule` | Optional | Volume-dependent dynamic bound on flow |
+
+### 3.3 LP Variables and Constraints
+
+**Per block `b`:**
+
+| Variable | Bounds | Objective | Condition |
+|----------|--------|-----------|-----------|
+| `frt_flow` | [lowb, uppb] | `-use_value / scale_obj` | Always |
+| `frt_fail` | [0, ∞) | `+fail_cost / scale_obj` | If `fail_cost > 0` |
+
+**Deficit coupling** (when `fail_cost > 0` and `discharge > 0`):
+
+```
+flow + fail >= discharge
+```
+
+This ensures the fail variable absorbs under-delivery when the flow is
+constrained by junction balance or bound rules.  Without this constraint,
+the fail variable would remain zero (dead variable).
+
+**Stage-average variable** (when `use_average = true`):
+
+```
+qeh = Σ_b [ flow(b) × dur(b) / dur_stage ]
+```
+
+This mirrors PLP's "H"-suffix variables (IQDRH, IQDEH, etc.) that
+compute duration-weighted stage averages.
+
+### 3.4 Junction Coupling
+
+When `junction` is set, the flow is subtracted from the junction
+balance row (consumptive withdrawal):
+
+```
+junction_balance_row[flow_col] = -1.0
+```
+
+### 3.5 Bound Rule (Volume-Dependent Bounds)
+
+The optional `bound_rule` defines a piecewise-linear function mapping
+reservoir volume to maximum allowed flow:
+
+```json
+{
+  "bound_rule": {
+    "reservoir": "ELTORO",
+    "segments": [
+      {"volume": 0,    "slope": 0.00, "constant": 570},
+      {"volume": 1200, "slope": 0.40, "constant": 90},
+      {"volume": 1900, "slope": 0.25, "constant": 375}
+    ],
+    "cap": 5000
+  }
+}
+```
+
+During `update_lp()`, the bound is re-evaluated using the current
+reservoir volume and flow column upper bounds are updated accordingly.
+
+---
+
+## 4. VolumeRight — Volume-Based Water Rights
+
+### 4.1 Concept
+
+A VolumeRight models accumulated volume entitlements (hm³) from
+reservoirs.  It acts as a "dummy reservoir" (StorageLP pattern) for
+rights accounting, tracking cumulative extraction across stages with
+SDDP state-variable coupling.
+
+### 4.2 Key Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `reservoir` | OptSingleId | Physical source reservoir |
+| `right_reservoir` | OptSingleId | Parent VolumeRight (hierarchical) |
+| `emin` / `emax` | OptTRealFieldSched | Volume bounds [hm³] |
+| `eini` | OptReal | Initial accumulated volume [hm³] |
+| `demand` | OptTRealFieldSched | Required delivery per stage [hm³] |
+| `fmax` | OptTBRealFieldSched | Maximum extraction rate [m³/s] |
+| `fail_cost` | OptReal | Penalty for unmet volume demand [$/hm³] |
+| `reset_month` | Optional | Month when rights are re-provisioned |
+| `bound_rule` | Optional | Volume-dependent dynamic bound |
+| `saving_rate` | OptTBRealFieldSched | Economy deposit rate [m³/s] |
+| `flow_conversion_rate` | OptReal | m³/s·h → hm³ (default 0.0036) |
+
+### 4.3 LP Formulation
+
+**Storage balance per block:**
+
+```
+vol(b) = vol(b-1) + fcr × dur(b) × saving(b) / escale
+                   - fcr × dur(b) × extraction(b) / escale
+```
+
+Where `fcr = 0.0036 hm³/(m³/s·h)` is the flow conversion rate.
+
+**Demand constraint per stage** (if `demand > 0`):
+
+```
+Σ_b [ fcr × dur(b) × extraction(b) ] + fail >= demand / escale
+```
+
+**Reset at `reset_month`:**
+When the stage month matches `reset_month`, the VolumeRight is
+re-provisioned.  With a `bound_rule`, the new initial volume is computed
+from the piecewise-linear function evaluated at the physical reservoir's
+current volume.  Without a bound rule, the volume resets to `emax`.
+
+### 4.4 Coupling
+
+- **Physical reservoir**: Extraction subtracted from reservoir energy
+  balance (consumptive outflow)
+- **Parent VolumeRight**: When `right_reservoir` is set, extraction
+  couples to the parent's energy balance (hierarchical rights)
+- **SDDP state variable**: Volume carried across phases via state
+  variable linking (backward cuts capture irrigation opportunity cost)
+
+---
+
+## 5. UserConstraint and PAMPL Files
+
+### 5.1 Role in Irrigation Agreements
+
+UserConstraints express the inter-right relationships that cannot be
+captured by individual FlowRight or VolumeRight entities:
+
+- **Flow partitions**: Total turbine flow = sum of extraction rights
+- **Percentage allocations**: Ordinary reserve split (20% electric / 80%
+  irrigation)
+- **District proportional allocation**: Each district receives a fixed
+  percentage of total irrigation flow
+- **Balance equations**: La Invernada inflow/outflow balance
+
+### 5.2 PAMPL File Format
+
+Constraints are defined in `.pampl` files (pseudo-AMPL) with
+parameterized Jinja2 templates:
+
+```pampl
+# Flow partition: total generation = sum of extractions
+constraint laja_particion_derechos "Flow partition":
+  flow_right('laja_q_turbinado').flow
+    = flow_right('laja_der_riego').flow
+    + flow_right('laja_der_electrico').flow
+    + flow_right('laja_der_mixto').flow
+    + flow_right('laja_gasto_anticipado').flow;
+
+# Parameters
+param vol_muerto = 0;
+param irr_base = 570;
+param irr_factor_1 = 0.00;
+```
+
+### 5.3 Multi-File Support
+
+The `user_constraint_files` (plural) field in `System` supports loading
+multiple PAMPL files independently:
+
+```json
+{
+  "system": {
+    "user_constraint_files": [
+      "laja_agreement.pampl",
+      "maule_agreement.pampl"
+    ]
+  }
+}
+```
+
+Each file is parsed separately with auto-incremented UIDs to avoid
+collisions.  This keeps each agreement self-contained.
+
+See [User Constraints — Syntax Reference](user-constraints.md) for the
+complete constraint expression syntax.
+
+---
+
+## 6. Laja Agreement (Convenio del Laja)
+
+### 6.1 Entity Diagram
+
+```
+                     Laguna del Laja (~6,000 hm³)
+                              |
+                     [tunnel / waterway]
+                              |
+                              v
+                      El Toro (450 MW)
+                              |
+                 +────────────v─────────────+
+                 |    UserConstraint         |
+                 | laja_particion_derechos   |
+                 |    qgt = qdr+qde+qdm+qga |
+                 +──┬───┬───┬───┬───────────+
+                    |   |   |   |
+        +-----------+   |   |   +----------+
+        |               |   |              |
+        v               v   v              v
+  laja_der_riego  laja_der_  laja_der_  laja_gasto_
+    (irrigation)  electrico    mixto    anticipado
+     (qdr)          (qde)     (qdm)      (qga)
+        |               |   |              |
+        v               v   v              v
+  [VolumeRight]   [VolumeRight]      [VolumeRight]
+  laja_vol_       laja_vol_          laja_vol_
+  der_riego       der_electrico      der_mixto
+   (IVDRF)          (IVDEF)           (IVDMF)
+```
+
+### 6.2 FlowRight Entities
+
+| Name | Purpose | Direction | Use Average | Costs |
+|------|---------|-----------|-------------|-------|
+| `laja_q_turbinado` | Total turbine flow | +1 (supply) | Yes | — |
+| `laja_der_riego` | Irrigation rights | -1 (demand) | Yes | fail: `cost_irr_ns`, value: `cost_irr_uso` |
+| `laja_der_electrico` | Electrical rights | -1 (demand) | Yes | fail: `cost_elec_ns`, value: `cost_elec_uso` |
+| `laja_der_mixto` | Mixed rights | -1 (demand) | Yes | value: `cost_mixed` |
+| `laja_gasto_anticipado` | Anticipated discharge | -1 (demand) | Yes | fail: from `monthly_cost_anticipated` |
+| `{district}_{category}` | District withdrawal | -1 (demand) | No | fail: `cost_irr_ns × cost_factor` |
+
+### 6.3 VolumeRight Entities
+
+| Name | Purpose | Reset | Bound Rule | Economy |
+|------|---------|-------|------------|---------|
+| `laja_vol_der_riego` | Irrigation volume | April | 4-zone piecewise | No |
+| `laja_vol_der_electrico` | Electrical volume | April | 4-zone piecewise | No |
+| `laja_vol_der_mixto` | Mixed volume | April | 4-zone piecewise | No |
+| `laja_vol_gasto_anticipado` | Anticipated volume | April | Same as irrigation | No |
+| `laja_vol_econ_endesa` | ENDESA economy | None | None | Yes (saving) |
+| `laja_vol_econ_reserva` | Reserve economy | None | None | Yes (saving) |
+| `laja_vol_econ_polcura` | Alto Polcura economy | None | None | Yes (saving) |
+
+### 6.4 Volume Zone Formula
+
+```
+  Rights
+  (m³/s)
+  5000 ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ cap
+       │                                        ╱
+  1125 │ · · · · · · · · · · · · · · · · · · ·╱ (V=3000)
+       │                                    ╱
+       │                             slope=0.25
+       │                           ╱
+   638 │ · · · · · · · · · · · ·╱
+       │                slope=0.40
+   570 │▓▓▓▓▓▓▓▓▓▓▓▓▓▓╱
+       │  slope=0.00 ╱
+       └────────────┼───────┼────────┼──────────── V (hm³)
+       0          1200    1370     1900          5582
+              Zone 1  │Zone 2│ Zone 3 │   Zone 4
+```
+
+### 6.5 UserConstraints
+
+| Name | Expression |
+|------|-----------|
+| `laja_particion_derechos` | `flow_right('laja_q_turbinado').flow = flow_right('laja_der_riego').flow + flow_right('laja_der_electrico').flow + flow_right('laja_der_mixto').flow + flow_right('laja_gasto_anticipado').flow` |
+
+---
+
+## 7. Maule Agreement (Convenio del Maule)
+
+### 7.1 Entity Diagram
+
+```
+  Laguna del Maule          Rio Maule tributaries
+       |                           |
+       v                           v
+  +---------+  +----------+  +----------+  +-----------+
+  | Cipreses |  |Invernada |  | Melado   |  |  Colbun   |
+  +---------+  +----------+  +----------+  +-----------+
+       |            |              |              |
+       v            v              v              v
+  maule_gasto    invernada    maule_gasto    maule_
+  _normal_elec   _embalsar    _ordinario_   resolucion
+    (IQMNE)      (IQHINV)    elec (IQMOE)  _105 (IQR105)
+       |            |              |              |
+       v            v              v              v
+  [VolumeRight]  [VolumeRight]  [VolumeRight]  [fixed]
+  monthly/annual  economy       reserve
+```
+
+### 7.2 FlowRight Entities
+
+| Name | Purpose | Direction | Use Average | Costs |
+|------|---------|-----------|-------------|-------|
+| `maule_gasto_normal_elec` | Normal electric | -1 | Yes | fail: `penalizador_1` |
+| `maule_gasto_normal_riego` | Normal irrigation | -1 | Yes | fail: `costo_riego_ns`, value: `valor_riego` |
+| `maule_gasto_ordinario_elec` | Ordinary reserve electric | -1 | Yes | — |
+| `maule_gasto_ordinario_riego` | Ordinary reserve irrigation | -1 | Yes | value: `valor_riego` |
+| `maule_compensacion_elec` | ENDESA compensation | -1 | Yes | — |
+| `maule_resolucion_105` | Minimum ecological flow | -1 | No | fail: `costo_riego_ns_res105` |
+| `invernada_deficit` | Invernada deficit flow | +1 | No | — |
+| `invernada_sin_deficit` | Invernada no-deficit flow | +1 | No | — |
+| `invernada_caudal_natural` | Invernada natural inflow | +1 | No | — |
+| `invernada_embalsar` | Invernada storage | -1 | No | value: `costo_embalsar` |
+| `invernada_no_embalsar` | Invernada bypass | -1 | No | value: `costo_no_embalsar` |
+| `maule_bocatoma_canelon` | Cañelón intake | -1 | No | value: `costo_canelon` |
+| `retiro_*` (per district) | District withdrawal | -1 | No | — |
+
+### 7.3 VolumeRight Entities
+
+| Name | Purpose | Reset | Reservoir |
+|------|---------|-------|-----------|
+| `maule_vol_gasto_elec_mensual` | Monthly electric accumulator | January | Colbun |
+| `maule_vol_gasto_elec_anual` | Annual electric accumulator | June | Colbun |
+| `maule_vol_gasto_riego_temp` | Seasonal irrigation accumulator | June | Colbun |
+| `maule_vol_compensacion_elec` | ENDESA compensation volume | None | Colbun |
+| `maule_vol_reserva_ord_elec` | Extraordinary reserve electric | None | Colbun |
+| `maule_vol_reserva_ord_riego` | Extraordinary reserve irrigation | None | Colbun |
+| `invernada_vol_econ` | La Invernada winter economy | None | Invernada |
+
+### 7.4 UserConstraints
+
+| Name | Expression | Purpose |
+|------|-----------|---------|
+| `invernada_balance` | `deficit + sin_deficit + caudal_natural = embalsar + no_embalsar` | Invernada flow balance |
+| `maule_pct_ordinario_elec` | `elec_ord <= pct% × (elec_ord + irr_ord)` | Electric share cap in ordinary zone |
+| `maule_pct_ordinario_riego` | `irr_ord <= pct% × (elec_ord + irr_ord)` | Irrigation share cap in ordinary zone |
+| `dist_retiro_*` | `district.flow {<= or =} pct% × normal_irrigation` | Per-district proportional allocation |
+
+---
+
+## 8. PLP-to-gtopt Name Mapping
+
+### 8.1 Laja Agreement
+
+| PLP Variable | PLP Name | gtopt FlowRight | gtopt VolumeRight |
+|---|---|---|---|
+| IQGT | Gasto Turbinado | `laja_q_turbinado` | — |
+| IQDR | Derecho de Riego | `laja_der_riego` | `laja_vol_der_riego` |
+| IQDE | Derecho Eléctrico | `laja_der_electrico` | `laja_vol_der_electrico` |
+| IQDM | Derecho Mixto | `laja_der_mixto` | `laja_vol_der_mixto` |
+| IQGA | Gasto Anticipado | `laja_gasto_anticipado` | `laja_vol_gasto_anticipado` |
+| IVESF | Economía ENDESA | — | `laja_vol_econ_endesa` |
+| IVERF | Economía Reserva | — | `laja_vol_econ_reserva` |
+| IVAPF | Economía Polcura | — | `laja_vol_econ_polcura` |
+| — | Partición Derechos | — | UserConstraint: `laja_particion_derechos` |
+
+### 8.2 Maule Agreement
+
+| PLP Variable | PLP Name | gtopt FlowRight | gtopt VolumeRight |
+|---|---|---|---|
+| IQMNE | Gasto Normal Eléctrico | `maule_gasto_normal_elec` | `maule_vol_gasto_elec_mensual` |
+| IQMNR | Gasto Normal Riego | `maule_gasto_normal_riego` | `maule_vol_gasto_riego_temp` |
+| IQMOE | Gasto Ordinario Eléctrico | `maule_gasto_ordinario_elec` | `maule_vol_reserva_ord_elec` |
+| IQMOR | Gasto Ordinario Riego | `maule_gasto_ordinario_riego` | `maule_vol_reserva_ord_riego` |
+| IQMCE | Compensación Eléctrica | `maule_compensacion_elec` | `maule_vol_compensacion_elec` |
+| IQR105 | Resolución 105 | `maule_resolucion_105` | — |
+| — | Gasto Eléctrico Anual | — | `maule_vol_gasto_elec_anual` |
+| IQHINV | Embalsar (Invernada) | `invernada_embalsar` | — |
+| IQHNEIN | No Embalsar (Invernada) | `invernada_no_embalsar` | — |
+| IQHSDI | Sin Déficit (Invernada) | `invernada_sin_deficit` | — |
+| IQHCNI | Caudal Natural (Invernada) | `invernada_caudal_natural` | — |
+| — | Bocatoma Cañelón | `maule_bocatoma_canelon` | — |
+| IVMDEIF | Economía Invernada | — | `invernada_vol_econ` |
+
+### 8.3 Maule UserConstraints
+
+| PLP Origin | gtopt Name |
+|---|---|
+| `genpdmaulen.f` balance | `invernada_balance` |
+| `genpdmaulen.f` % ordinario eléctrico | `maule_pct_ordinario_elec` |
+| `genpdmaulen.f` % ordinario riego | `maule_pct_ordinario_riego` |
+| `genpdmaulen.f` district allocation | `dist_retiro_*` (per district) |
+
+---
+
+## 9. PLP vs gtopt LP Comparison
+
+### 9.1 Laja — Column (Variable) Comparison
+
+| PLP Variable | PLP Name | Unit | gtopt LP Column | Status |
+|---|---|---|---|---|
+| IQDR (per block) | qdr_j | m³/s | `frt_flow_{laja_der_riego}` | **Match** |
+| IQDE (per block) | qde_j | m³/s | `frt_flow_{laja_der_electrico}` | **Match** |
+| IQDM (per block) | qdm_j | m³/s | `frt_flow_{laja_der_mixto}` | **Match** |
+| IQGA (per block) | qga_j | m³/s | `frt_flow_{laja_gasto_anticipado}` | **Match** |
+| IQRI (per district) | qri_j | m³/s | `frt_flow_{district_category}` | **Match** |
+| IQDRH | qdrh | m³/s | `frt_qeh_{laja_der_riego}` | **Match** |
+| IQDEH | qdeh | m³/s | `frt_qeh_{laja_der_electrico}` | **Match** |
+| IQDMH | qdmh | m³/s | `frt_qeh_{laja_der_mixto}` | **Match** |
+| IQGAH | qgah | m³/s | `frt_qeh_{laja_gasto_anticipado}` | **Match** |
+| IQGTH | qgth | m³/s | `frt_qeh_{laja_q_turbinado}` | **Match** |
+| IVDRF | ivdrf | hm³ | `vrt_efin_{laja_vol_der_riego}` | **Match** |
+| IVDEF | ivdef | hm³ | `vrt_efin_{laja_vol_der_electrico}` | **Match** |
+| IVDMF | ivdmf | hm³ | `vrt_efin_{laja_vol_der_mixto}` | **Match** |
+| IVGAF | ivgaf | hm³ | `vrt_efin_{laja_vol_gasto_anticipado}` | **Match** |
+| IVESF | ivesf | hm³ | `vrt_efin_{laja_vol_econ_endesa}` | **Match** |
+| IVERF | iverf | hm³ | `vrt_efin_{laja_vol_econ_reserva}` | **Match** |
+| IVAPF | ivapf | hm³ | `vrt_efin_{laja_vol_econ_polcura}` | **Match** |
+| IVESN | ivesn | hm³ | `vrt_saving_{laja_vol_econ_endesa}` | **Match** |
+| IVERN | ivern | hm³ | `vrt_saving_{laja_vol_econ_reserva}` | **Match** |
+| IVAPN | ivapn | hm³ | `vrt_saving_{laja_vol_econ_polcura}` | **Match** |
+| IQGESH | iqgesh | m³/s | `vrt_extraction_{laja_vol_econ_endesa}` | **Match** |
+| IQGERH | iqgerh | m³/s | `vrt_extraction_{laja_vol_econ_reserva}` | **Match** |
+| IQGAPH | iqgaph | m³/s | `vrt_extraction_{laja_vol_econ_polcura}` | **Match** |
+| IQRS/IQPR/IQNR/IQER/IQSR | supply partition | m³/s | — | **Not modeled** ¹ |
+| IQLAJA | total discharge | m³/s | — | **Not modeled** ² |
+| IQDEFM / IQHI | fixed flows | m³/s | — | **Not modeled** ³ |
+
+**Notes:**
+1. PLP decomposes irrigation rights into sub-categories (primary 80%,
+   new 20%, emergency, saltos) via a separate balance node.  In gtopt,
+   districts withdraw directly — the allocation is preserved through
+   fixed discharge schedules.
+2. Total Laja discharge is implicitly satisfied by the reservoir balance
+   in the hydro model.
+3. Minimum turbine flow and intermediate basin flow are handled by the
+   hydro model, not the rights module.
+
+### 9.2 Laja — Row (Constraint) Comparison
+
+| PLP Constraint | Equation | gtopt Equivalent | Status |
+|---|---|---|---|
+| Flow partition (per block) | `qgt = qdr + qde + qdm + qga` | UserConstraint `laja_particion_derechos` | **Match** |
+| Hourly accumulation (×5) | `qeh = Σ dur_ratio × flow` | FlowRight `use_average=True` | **Match** |
+| Volume accumulation (×4) | `IVDRF = prev - dt × IQDRH` | VolumeRight balance | **Match** |
+| Economy balances (×3) | `IVESF = prev + saving - extraction` | VolumeRight balance (with saving) | **Match** |
+| Max daily rights (×4) | `fmax × usage_factor` | FlowRight `fmax` schedule | **Match** |
+| Deficit coupling | `flow + fail >= discharge` | FlowRight demand row | **Match** |
+| Supply partition | `IQRS = IQPR + IQNR + IQER + IQSR` | — | **Not modeled** ¹ |
+| Total discharge identity | `IQLAJA = IQGTH - filtration` | — | **Not modeled** ² |
+
+### 9.3 Maule — Column (Variable) Comparison
+
+| PLP Variable | PLP Name | Unit | gtopt LP Column | Status |
+|---|---|---|---|---|
+| IQMNE (per block) | qmne_j | m³/s | `frt_flow_{maule_gasto_normal_elec}` | **Match** |
+| IQMNR (per block) | qmnr_j | m³/s | `frt_flow_{maule_gasto_normal_riego}` | **Match** |
+| IQMOE (per block) | qmoe_j | m³/s | `frt_flow_{maule_gasto_ordinario_elec}` | **Match** |
+| IQMOR (per block) | qmor_j | m³/s | `frt_flow_{maule_gasto_ordinario_riego}` | **Match** |
+| IQMCE (per block) | qmce_j | m³/s | `frt_flow_{maule_compensacion_elec}` | **Match** |
+| IQCANELON | qcan_j | m³/s | `frt_flow_{maule_bocatoma_canelon}` | **Match** |
+| IQIDN | qidn_j | m³/s | `frt_flow_{invernada_deficit}` | **Match** |
+| IQISD | qisd_j | m³/s | `frt_flow_{invernada_sin_deficit}` | **Match** |
+| IQRI (per district) | qri_j | m³/s | `frt_flow_{retiro_*}` | **Match** |
+| QR105 | qr105 | m³/s | `frt_flow_{maule_resolucion_105}` | **Match** |
+| QNINV | qninv | m³/s | `frt_flow_{invernada_caudal_natural}` | **Match** |
+| QHINV | qhinv | m³/s | `frt_flow_{invernada_embalsar}` | **Match** |
+| QHNEIN | qhnein | m³/s | `frt_flow_{invernada_no_embalsar}` | **Match** |
+| VMGEMF | vmgemf | hm³ | `vrt_efin_{maule_vol_gasto_elec_mensual}` | **Match** |
+| VMGEAF | vmgeaf | hm³ | `vrt_efin_{maule_vol_gasto_elec_anual}` | **Match** |
+| VMGRTF | vmgrtf | hm³ | `vrt_efin_{maule_vol_gasto_riego_temp}` | **Match** |
+| VMDOEF | vmdoef | hm³ | `vrt_efin_{maule_vol_reserva_ord_elec}` | **Match** |
+| VMDORF | vmdorf | hm³ | `vrt_efin_{maule_vol_reserva_ord_riego}` | **Match** |
+| VMDCEF | vmdcef | hm³ | `vrt_efin_{maule_vol_compensacion_elec}` | **Match** |
+| VMDEIF | vmdeif | hm³ | `vrt_efin_{invernada_vol_econ}` | **Match** |
+| IQMEI (extraordinary flow) | qmei_j | m³/s | — | **Not modeled** ⁴ |
+| IQTER (total irrigation) | qter_j | m³/s | — | **Not modeled** ⁵ |
+| VMGOEF/VMGORF (ordinary accum) | vmgoef/f | hm³ | — | **Not modeled** ⁶ |
+| VMUTIL/VMREB (auxiliary) | vmutil | hm³ | — | **Not modeled** ⁷ |
+
+**Notes:**
+4. Extraordinary zone block-level flow (IQMEI) is not explicitly modeled.
+   Only active when reservoir is in the extraordinary zone (rare).
+5. Total irrigation delivery is implicit (sum of district flows).
+6. PLP tracks ordinary reserve extraction as state variables; gtopt
+   enforces the percentage constraint per-block (tighter enforcement).
+7. Auxiliary volume accounting variables handled by `bound_rule`.
+
+### 9.4 Maule — Row (Constraint) Comparison
+
+| PLP Constraint | Equation | gtopt Equivalent | Status |
+|---|---|---|---|
+| Invernada balance | `deficit + no_deficit + natural = storage + bypass` | UserConstraint `invernada_balance` | **Match** |
+| % ordinary electric | `elec_ord <= pct × total_ord` | UserConstraint `maule_pct_ordinario_elec` | **Match** |
+| % ordinary irrigation | `irr_ord <= pct × total_ord` | UserConstraint `maule_pct_ordinario_riego` | **Match** |
+| District allocation (×N) | `district = pct × total_irrigation` | UserConstraint `dist_retiro_*` | **Match** |
+| Volume balances (×7) | `vol = prev + dt × flow` | VolumeRight balance rows | **Match** |
+| Hourly accumulation (×10+) | `qeh = Σ dur_ratio × flow` | FlowRight `use_average` | **Match** |
+| Res 105 minimum | `flow = ecological_requirement` | FlowRight `discharge` | **Match** |
+| Per-central flow partition | `central_flow = Σ rights_flows` | — | **Not modeled** ⁸ |
+| Delivery constraint | delivery equation | — | **Not modeled** ⁵ |
+| Armerillo balance | flow reconstruction | — | **Not modeled** ⁹ |
+
+**Notes:**
+8. PLP partitions each central's turbine flow into rights categories.
+   gtopt uses aggregated FlowRights across all centrals — the
+   optimization allocates extraction optimally anyway.
+9. Armerillo flow reconstruction is an accounting identity for
+   reporting, not an optimization constraint.
+
+### 9.5 Coverage Summary
+
+| Category | PLP Vars | gtopt Vars | Coverage |
+|---|---|---|---|
+| Laja block flows | 4 types | 4 FlowRights | 100% |
+| Laja stage accumulators | 4 rights + 3 economy | 4 + 3 VolumeRights | 100% |
+| Laja hourly accumulators | 5 | 5 (FlowRight averaging) | 100% |
+| Laja supply partition | 5 | 0 | 0% — modeled differently |
+| Laja districts | N × NBlk | N × NBlk | 100% |
+| Maule block flows | 9 types | 7 FlowRights | 78% |
+| Maule stage accumulators | 9 state vars | 7 VolumeRights | 78% |
+| Maule Invernada | 6 flows | 5 FlowRights | 83% |
+| Maule districts | N × NBlk | N × NBlk | 100% |
+
+### 9.6 Key Structural Differences
+
+1. **Per-central vs aggregated flow partition**: PLP partitions each
+   central's turbine flow into rights categories.  gtopt uses aggregated
+   FlowRights — the optimization allocates extraction across centrals.
+
+2. **Irrigation supply decomposition (Laja)**: PLP has an explicit
+   80%/20% split between primary and new irrigators.  gtopt districts
+   have fixed demand schedules that implicitly enforce the same split.
+
+3. **Ordinary reserve accumulation (Maule)**: PLP tracks accumulated
+   ordinary reserve extraction as state variables.  gtopt enforces the
+   percentage constraint per-block (tighter, no temporal smoothing).
+
+4. **Dynamic min turbine bounds**: PLP computes minimum generation
+   bounds from irrigation demand and economics.  gtopt relies on
+   demand satisfaction penalties (fail_cost) to incentivize generation.
+
+---
+
+## 10. Known Simplifications and Gaps
+
+### 10.1 Economy Reset/Cap Rules (Laja)
+
+| Economy | PLP Behavior | gtopt Behavior | Impact |
+|---------|-------------|----------------|--------|
+| ENDESA (IVESF) | Caps new provisions on reservoir overflow | Simple accumulator (no cap) | Minor — overflow is rare |
+| Reserve (IVERF) | Resets to zero when exiting lower cushion | Simple accumulator (no reset) | Low — reserve economies are emergency-only |
+| Alto Polcura (IVAPF) | No reset | No reset | None — equivalent |
+
+### 10.2 La Invernada Economy (Maule)
+
+PLP has conditional reset rules and seasonal usage windows for La
+Invernada economy that are not modeled in gtopt.  The current
+implementation is a simple accumulator.
+
+### 10.3 Multi-Year Data Overrides
+
+PLP supports annual tables for irrigation percentages (`pct_riego_manual`)
+and Resolution 105 flows (`caudal_res105_manual`) that change year by
+year.  These multi-year override tables are not consumed by the gtopt
+converter.
+
+### 10.4 Colbun 425 Extraction Limit
+
+PLP imposes additional extraction limits when Colbun volume falls below
+elevation 425.  This volume-conditional bound is not modeled in gtopt.
+
+### 10.5 Data Coverage
+
+- **Laja**: 43/51 config keys used (84%)
+- **Maule**: 31/55 config keys used (56%)
+
+Unused keys are primarily: hydro model concerns, multi-year overrides,
+auto-modulation logic, PLP-specific flags, and accumulated volume caps.
+
+---
+
+## 11. Configuration and Usage
+
+### 11.1 PLP-to-gtopt Conversion
+
+```bash
+# Convert PLP case including irrigation agreements
+plp2gtopt -i /path/to/plp_case -o /path/to/gtopt_case
+
+# With first scenario only (faster)
+plp2gtopt -i /path/to/plp_case -o /path/to/gtopt_case --first-scenario
+```
+
+The converter automatically detects `plplajam.dat` and `plpmaulen.dat`
+in the input directory and generates the corresponding FlowRight,
+VolumeRight, UserConstraint, and PAMPL entities.
+
+### 11.2 Output Files
+
+The converter produces:
+- `system.json` — contains `flow_right_array`, `volume_right_array`, and
+  `user_constraint_files` pointing to the PAMPL files
+- `laja_agreement.pampl` — Laja constraint definitions and parameters
+- `maule_agreement.pampl` — Maule constraint definitions and parameters
+
+### 11.3 Running with LP Debug
+
+To inspect the irrigation LP structure:
+
+```bash
+gtopt /path/to/case --lp-names-level 2 \
+  -s lp_debug_options.json
+```
+
+Where `lp_debug_options.json` contains:
+
+```json
+{
+  "options": {
+    "lp_debug": true,
+    "lp_compression": "uncompressed"
+  }
+}
+```
+
+This writes `.lp` files to `results/logs/` where irrigation variables
+and constraints can be inspected.
+
+---
+
+## 12. See Also
+
+- **[User Constraints — Syntax Reference](user-constraints.md)** —
+  Complete constraint expression syntax and PAMPL format
+- **[Input Data Reference](input-data.md)** — JSON schema for
+  FlowRight, VolumeRight, and UserConstraint fields
+- **[Mathematical Formulation](formulation/mathematical-formulation.md)**
+  — LP/MIP formulation including water rights
+- **[PLP Implementation Analysis](analysis/irrigation_agreements/plp_implementation.md)**
+  — Detailed Fortran source analysis
+- **[LP Column & Row Audit](analysis/irrigation_agreements/lp_column_row_audit.md)**
+  — Exhaustive PLP vs gtopt variable/constraint comparison
