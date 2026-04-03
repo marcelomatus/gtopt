@@ -113,7 +113,6 @@ public:
   {
     ColIndex eini_col {};  ///< Stage eini column
     ColIndex efin_col {};  ///< Stage efin column
-    double energy_scale {1.0};  ///< Reservoir energy scale factor
     Real current_slope {0.0};  ///< Current physical slope in the LP constraint
     Real current_rhs {0.0};  ///< Current RHS in the LP constraint
   };

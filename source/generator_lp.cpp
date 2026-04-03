@@ -79,7 +79,8 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
-  auto&& [stage_capacity, capacity_col] = capacity_and_col(stage, lp);
+  auto&& [opt_capacity, capacity_col] = capacity_and_col(stage, lp);
+  const double stage_capacity = opt_capacity.value_or(LinearProblem::DblMax);
 
   const auto stage_gcost = gcost.optval(stage.uid()).value_or(0.0);
   const auto stage_lossfactor = lossfactor.optval(stage.uid()).value_or(0.0);

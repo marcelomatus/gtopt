@@ -1,8 +1,7 @@
 #include <algorithm>
 #include <numbers>
-#include <ranges>
-#include <string>
 
+#include <gtopt/line_losses.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
@@ -26,175 +25,6 @@ LineLP::LineLP(const Line& pline, const InputContext& ic)
     , phase_shift_deg(ic, ClassName, id(), std::move(line().phase_shift_deg))
 {
   SPDLOG_DEBUG("LineLP created: uid={} name='{}'", id().first, id().second);
-}
-
-// ── compute_loss_params ─────────────────────────────────────────────
-
-LineLP::LossParams LineLP::compute_loss_params(const SystemContext& sc,
-                                               const StageLP& stage) const
-{
-  const auto lf = sc.stage_lossfactor(stage, lossfactor);
-  const bool has_lin = lf > 0.0;
-
-  const auto R = resistance.at(stage.uid()).value_or(0.0);
-  const auto V = voltage.at(stage.uid()).value_or(0.0);
-  const int nseg =
-      std::max(1, line().loss_segments.value_or(sc.options().loss_segments()));
-
-  // Quadratic model: resistance > 0, voltage > 0, nseg > 1,
-  // use_line_losses enabled (per-line override or global), and no explicit
-  // lossfactor.
-  const bool use_losses =
-      line().use_line_losses.value_or(sc.options().use_line_losses());
-  const bool has_quad =
-      !has_lin && use_losses && R > 0.0 && V > 0.0 && nseg > 1;
-
-  return {
-      .lossfactor = lf,
-      .resistance = R,
-      .V2 = V * V,
-      .nseg = nseg,
-      .has_linear_loss = has_lin,
-      .has_quadratic_loss = has_quad,
-      .has_loss = has_lin || has_quad,
-  };
-}
-
-// ── add_quadratic_flow_direction ────────────────────────────────────
-//
-// Piecewise-linear approximation of P_loss = R · f² / V².
-// Divide [0, tmax] into nseg segments.  Segment k (1-based) has:
-//   width      = tmax / nseg
-//   loss_coeff = width · R · (2k−1) / V²
-//
-// Variables created per call:
-//   f_total   ∈ [0, tmax]       — total flow (Kirchhoff, capacity, output)
-//   f_seg_k   ∈ [0, width]      — segment variables × nseg
-//   loss      ∈ [0, +∞)         — total power lost
-// Constraints:
-//   f_total   = Σ f_seg_k        (linking)
-//   loss      = Σ loss_k·f_seg_k (loss tracking)
-// Bus balance:
-//   sending:   −f_total          (power leaves)
-//   receiving: +f_total − loss   (power arrives, net of losses)
-//
-// Units: R [Ω], f [MW], V [kV] → P_loss [MW].
-
-LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
-    SystemContext& sc,
-    const ScenarioLP& scenario,
-    const StageLP& stage,
-    const BlockLP& block,
-    LinearProblem& lp,
-    SparseRow& sending_brow,
-    SparseRow& receiving_brow,
-    double block_tmax,
-    double block_tcost,
-    const LossParams& loss,
-    std::optional<ColIndex> capacity_col,
-    const DirectionLabels& labels)
-{
-  static constexpr std::string_view cname = ClassName.short_name();
-
-  if (block_tmax <= 0.0) {
-    return {};
-  }
-
-  const int nseg = loss.nseg;
-  const auto reserve_sz = static_cast<size_t>(nseg) + 1;
-  const double seg_width = block_tmax / nseg;
-
-  // Total flow variable (for Kirchhoff, capacity, and output)
-  const auto flow_col = lp.add_col({
-      .name =
-          sc.lp_col_label(scenario, stage, block, cname, labels.flow, uid()),
-      .lowb = 0,
-      .uppb = block_tmax,
-      .cost = block_tcost,
-  });
-
-  // Linking: f_total − Σ f_seg_k = 0
-  auto linkrow =
-      SparseRow {
-          .name = sc.lp_row_label(
-              scenario, stage, block, cname, labels.link, uid()),
-      }
-          .equal(0);
-  linkrow.reserve(reserve_sz);
-  linkrow[flow_col] = +1.0;
-
-  // Loss variable: tracks total power lost
-  const auto loss_col = lp.add_col({
-      .name =
-          sc.lp_col_label(scenario, stage, block, cname, labels.loss, uid()),
-      .lowb = 0,
-      .uppb = LinearProblem::DblMax,
-  });
-
-  // Loss linking: loss − Σ loss_k · f_seg_k = 0
-  auto lossrow =
-      SparseRow {
-          .name = sc.lp_row_label(
-              scenario, stage, block, cname, labels.loss_link, uid()),
-      }
-          .equal(0);
-  lossrow.reserve(reserve_sz);
-  lossrow[loss_col] = +1.0;
-
-  // Allocate losses between sender and receiver based on mode.
-  // Energy conservation: net = -flow + flow - loss = -loss (always).
-  // The loss_col is subtracted; the allocation controls WHERE.
-  const auto mode = line().loss_allocation_mode_enum();
-  sending_brow[flow_col] = -1.0;
-  receiving_brow[flow_col] = +1.0;
-  switch (mode) {
-    case LossAllocationMode::sender:
-      sending_brow[loss_col] = -1.0;
-      break;
-    case LossAllocationMode::split:
-      sending_brow[loss_col] = -0.5;
-      receiving_brow[loss_col] = -0.5;
-      break;
-    case LossAllocationMode::receiver:
-    default:
-      receiving_brow[loss_col] = -1.0;
-      break;
-  }
-
-  // Add segment variables with increasing loss coefficients
-  for (const auto k : iota_range(1, nseg + 1)) {
-    const double loss_k = seg_width * loss.resistance * ((2 * k) - 1) / loss.V2;
-
-    const auto seg_col = lp.add_col({
-        .name =
-            sc.lp_col_label(scenario, stage, block, cname, labels.seg, uid())
-            + std::to_string(k),
-        .lowb = 0,
-        .uppb = seg_width,
-    });
-
-    linkrow[seg_col] = -1.0;
-    lossrow[seg_col] = -loss_k;
-  }
-
-  [[maybe_unused]] auto linkrow_idx = lp.add_row(std::move(linkrow));
-  [[maybe_unused]] auto lossrow_idx = lp.add_row(std::move(lossrow));
-
-  // Capacity constraint on total flow
-  std::optional<RowIndex> cap_row;
-  if (capacity_col) {
-    auto cprow =
-        SparseRow {
-            .name = sc.lp_row_label(
-                scenario, stage, block, cname, labels.cap, uid()),
-        }
-            .greater_equal(0);
-    cprow[*capacity_col] = 1;
-    cprow[flow_col] = -1;
-    cap_row = lp.add_row(std::move(cprow));
-  }
-
-  return {.flow_col = flow_col, .loss_col = loss_col, .capacity_row = cap_row};
 }
 
 // ── add_kirchhoff_rows ──────────────────────────────────────────────
@@ -326,9 +156,38 @@ bool LineLP::add_to_lp(SystemContext& sc,
   const auto& balance_rows_b = bus_b_lp.balance_rows_at(scenario, stage);
   const auto& blocks = stage.blocks();
 
-  const auto [stage_capacity, capacity_col] = capacity_and_col(stage, lp);
+  const auto [opt_capacity, capacity_col] = capacity_and_col(stage, lp);
+  const double stage_capacity = opt_capacity.value_or(LinearProblem::DblMax);
   const auto stage_tcost = tcost.at(stage.uid()).value_or(0.0);
-  const auto loss = compute_loss_params(sc, stage);
+
+  // ── Resolve loss mode via the modular engine ──────────────────────
+  const bool has_expansion = capacity_col.has_value();
+  const auto loss_mode =
+      line_losses::resolve_mode(line(), sc.options(), has_expansion);
+
+  const auto lf = lossfactor.at(stage.uid()).value_or(0.0);
+  const auto R = resistance.at(stage.uid()).value_or(0.0);
+  const auto V = voltage.at(stage.uid()).value_or(0.0);
+  const int nseg =
+      std::max(1, line().loss_segments.value_or(sc.options().loss_segments()));
+  // Use finite opt_capacity for fmax; when no capacity is defined
+  // (opt_capacity is nullopt), fall back to the scheduled tmax values
+  // (actual flow limits).
+  double fmax = 0.0;
+  if (opt_capacity) {
+    fmax = std::max(*opt_capacity, 0.0);
+  } else {
+    for (const auto& block : blocks) {
+      const auto buid = block.uid();
+      const double tab = tmax_ab.at(stage.uid(), buid).value_or(0.0);
+      const double tba = tmax_ba.at(stage.uid(), buid).value_or(0.0);
+      fmax = std::max({fmax, tab, tba});
+    }
+  }
+  const auto allocation = line().loss_allocation_mode_enum();
+
+  const auto loss_config = line_losses::make_config(
+      loss_mode, line(), allocation, lf, R, V, nseg, fmax);
 
   BIndexHolder<ColIndex> fpcols;
   BIndexHolder<RowIndex> cprows;
@@ -351,147 +210,38 @@ bool LineLP::add_to_lp(SystemContext& sc,
     const auto block_tcost =
         sc.block_ecost(scenario, stage, block, stage_tcost);
 
-    if (loss.has_quadratic_loss) {
-      // ── Quadratic model: A→B direction ────────────────────────────
-      auto [fp, lp_col, cp] = add_quadratic_flow_direction(sc,
-                                                           scenario,
-                                                           stage,
-                                                           block,
-                                                           lp,
-                                                           brow_a,
-                                                           brow_b,
-                                                           block_tmax_ab,
-                                                           block_tcost,
-                                                           loss,
-                                                           capacity_col,
-                                                           positive_labels);
+    auto result = line_losses::add_block(loss_config,
+                                         sc,
+                                         scenario,
+                                         stage,
+                                         block,
+                                         lp,
+                                         brow_a,
+                                         brow_b,
+                                         block_tmax_ab,
+                                         block_tmax_ba,
+                                         block_tcost,
+                                         capacity_col,
+                                         uid(),
+                                         cname);
 
-      if (fp) {
-        fpcols[buid] = *fp;
-      }
-      if (lp_col) {
-        lpcols[buid] = *lp_col;
-      }
-      if (cp) {
-        cprows[buid] = *cp;
-      }
-
-      // ── Quadratic model: B→A direction ────────────────────────────
-      auto [fn, ln_col, cn] = add_quadratic_flow_direction(sc,
-                                                           scenario,
-                                                           stage,
-                                                           block,
-                                                           lp,
-                                                           brow_b,
-                                                           brow_a,
-                                                           block_tmax_ba,
-                                                           block_tcost,
-                                                           loss,
-                                                           capacity_col,
-                                                           negative_labels);
-
-      if (fn) {
-        fncols[buid] = *fn;
-      }
-      if (ln_col) {
-        lncols[buid] = *ln_col;
-      }
-      if (cn) {
-        cnrows[buid] = *cn;
-      }
-
-    } else {
-      // ── Linear loss model ─────────────────────────────────────────
-
-      if (!loss.has_loss || block_tmax_ab > 0.0) {
-        const auto fpc = lp.add_col({
-            .name = sc.lp_col_label(scenario, stage, block, cname, "fp", uid()),
-            .lowb = loss.has_loss ? 0.0 : -block_tmax_ba,
-            .uppb = block_tmax_ab,
-            .cost = block_tcost,
-        });
-        fpcols[buid] = fpc;
-
-        // A→B: bus_a is sender, bus_b is receiver.
-        // Loss allocation splits the loss factor between sender
-        // (PerdEms) and receiver (PerdRec) while preserving energy:
-        //   sender:  -(1 + PerdEms·λ)   receiver: +(1 - PerdRec·λ)
-        //   where PerdEms + PerdRec = 1.0
-        {
-          const auto lf = loss.lossfactor;
-          const auto mode = line().loss_allocation_mode_enum();
-          switch (mode) {
-            case LossAllocationMode::sender:
-              brow_a[fpc] = -(1 + lf);
-              brow_b[fpc] = +1;
-              break;
-            case LossAllocationMode::split:
-              brow_a[fpc] = -(1 + lf / 2);
-              brow_b[fpc] = +(1 - lf / 2);
-              break;
-            case LossAllocationMode::receiver:
-            default:
-              brow_a[fpc] = -1;
-              brow_b[fpc] = +(1 - lf);
-              break;
-          }
-        }
-
-        if (capacity_col) {
-          auto cprow =
-              SparseRow {
-                  .name = sc.lp_row_label(
-                      scenario, stage, block, cname, "capp", uid()),
-              }
-                  .greater_equal(0);
-          cprow[*capacity_col] = 1;
-          cprow[fpc] = -1;
-          cprows[buid] = lp.add_row(std::move(cprow));
-        }
-      }
-
-      if (loss.has_loss && block_tmax_ba > 0.0) {
-        const auto fnc = lp.add_col({
-            .name = sc.lp_col_label(scenario, stage, block, cname, "fn", uid()),
-            .lowb = 0,
-            .uppb = block_tmax_ba,
-            .cost = block_tcost,
-        });
-        fncols[buid] = fnc;
-
-        // B→A: bus_b is sender, bus_a is receiver
-        {
-          const auto lf = loss.lossfactor;
-          const auto mode = line().loss_allocation_mode_enum();
-          switch (mode) {
-            case LossAllocationMode::sender:
-              brow_b[fnc] = -(1 + lf);
-              brow_a[fnc] = +1;
-              break;
-            case LossAllocationMode::split:
-              brow_b[fnc] = -(1 + lf / 2);
-              brow_a[fnc] = +(1 - lf / 2);
-              break;
-            case LossAllocationMode::receiver:
-            default:
-              brow_b[fnc] = -1;
-              brow_a[fnc] = +(1 - lf);
-              break;
-          }
-        }
-
-        if (capacity_col) {
-          auto cnrow =
-              SparseRow {
-                  .name = sc.lp_row_label(
-                      scenario, stage, block, cname, "capn", uid()),
-              }
-                  .greater_equal(0);
-          cnrow[*capacity_col] = 1;
-          cnrow[fnc] = -1;
-          cnrows[buid] = lp.add_row(std::move(cnrow));
-        }
-      }
+    if (result.fp_col) {
+      fpcols[buid] = *result.fp_col;
+    }
+    if (result.fn_col) {
+      fncols[buid] = *result.fn_col;
+    }
+    if (result.lossp_col) {
+      lpcols[buid] = *result.lossp_col;
+    }
+    if (result.lossn_col) {
+      lncols[buid] = *result.lossn_col;
+    }
+    if (result.capp_row) {
+      cprows[buid] = *result.capp_row;
+    }
+    if (result.capn_row) {
+      cnrows[buid] = *result.capn_row;
     }
   }
 

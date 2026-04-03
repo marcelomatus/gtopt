@@ -38,6 +38,20 @@ struct StorageOptions
   /// use_state_variable=false.
   bool daily_cycle {false};
 
+  /// Skip linking sini to the previous phase's efin at this cross-phase
+  /// boundary.  When true, the sini column is left free (within emin/emax
+  /// bounds) so that the caller can fix it to a provisioned value (e.g.,
+  /// VolumeRight reset_month).  The efin StateVariable is still registered
+  /// for outgoing propagation to the next phase.
+  ///
+  /// This prevents SDDP from propagating stale duals backward through a
+  /// rights reset boundary, and from overwriting the provisioned eini with
+  /// the previous phase's efin trial value in the forward pass.
+  ///
+  /// Should only be set when the stage is a phase boundary AND the storage
+  /// element's initial state is independently determined (reset/reprovision).
+  bool skip_state_link {false};
+
   /// Energy (volume) scale factor: the LP energy variable is divided by this
   /// value so that the LP works in scaled units (physical_energy /
   /// energy_scale). Default 1.0 = no scaling. For reservoirs the default is
@@ -248,7 +262,7 @@ public:
     const auto& li = sys.linear_interface();
     const auto col = eini_col_at(scenario, stage);
     if (li.is_optimal()) {
-      return physical_col_value(li.get_col_sol(), col);
+      return physical_col_value(li.get_col_sol_raw(), col);
     }
     const auto& warm = li.warm_col_sol();
     if (!warm.empty() && static_cast<size_t>(col) < warm.size()) {
@@ -286,7 +300,7 @@ public:
     }
     const auto col = eini_col_at(scenario, stage);
     if (li.is_optimal()) {
-      return physical_col_value(li.get_col_sol(), col);
+      return physical_col_value(li.get_col_sol_raw(), col);
     }
     const auto& warm = li.warm_col_sol();
     if (!warm.empty() && static_cast<size_t>(col) < warm.size()) {
@@ -307,7 +321,7 @@ public:
   {
     const auto col = efin_col_at(scenario, stage);
     if (li.is_optimal()) {
-      return physical_col_value(li.get_col_sol(), col);
+      return physical_col_value(li.get_col_sol_raw(), col);
     }
     const auto& warm = li.warm_col_sol();
     if (!warm.empty() && static_cast<size_t>(col) < warm.size()) {
@@ -446,7 +460,7 @@ public:
           .uppb = lp_emax,
           .scale = energy_scale,
       });
-      if (effective_usv) {
+      if (effective_usv && !opts.skip_state_link) {
         // Link as DependentVariable of the previous phase's efin StateVariable
         // so that PlanningLP::resolve_scene_phases() and the SDDP forward pass
         // can propagate the trial value.
@@ -462,6 +476,13 @@ public:
               cname,
               static_cast<int>(uid()));
         }
+      } else if (effective_usv && opts.skip_state_link) {
+        SPDLOG_TRACE(
+            "StorageLP: skipping state link at phase boundary "
+            "(class='{}' uid={}) — eini is independently provisioned "
+            "(reset_month or similar).",
+            cname,
+            static_cast<int>(uid()));
       }
       // If !use_state_variable: sini is free (within emin/emax bounds).
       // An efin==eini close constraint is added after the block loop below.
@@ -517,24 +538,28 @@ public:
       // simplifies to flow_conversion_rate × duration — avoiding LP
       // coefficients that change with energy_scale.
       //
-      // fout_cols may be empty (e.g., VolumeRight with source_flow_right
-      // coupling — outflow is injected separately after this call).
-      // finp_cols are always present.
+      // fout_cols and finp_cols may each be empty.  VolumeRight with
+      // source_flow_right passes empty finp (outflow injected later);
+      // VolumeRight always passes empty fout (outflow via FlowRight).
       const auto has_fout = fout_cols.contains(buid);
-      const auto finp_col = finp_cols.at(buid);
+      const auto has_finp = finp_cols.contains(buid);
 
       if (has_fout) {
         const auto fout_col = fout_cols.at(buid);
         erow[fout_col] = +(flow_conversion_rate / fout_efficiency)
             * block.duration() * dc_stage_scale * flow_scale / energy_scale;
 
-        // if the input and output are the same, we only need one entry
-        if (fout_col != finp_col) {
-          erow[finp_col] = -(flow_conversion_rate * finp_efficiency)
-              * block.duration() * dc_stage_scale * flow_scale / energy_scale;
+        if (has_finp) {
+          const auto finp_col = finp_cols.at(buid);
+          // if the input and output are the same, we only need one entry
+          if (fout_col != finp_col) {
+            erow[finp_col] = -(flow_conversion_rate * finp_efficiency)
+                * block.duration() * dc_stage_scale * flow_scale / energy_scale;
+          }
         }
-      } else {
+      } else if (has_finp) {
         // No fout — finp is a pure inflow (adds to storage volume).
+        const auto finp_col = finp_cols.at(buid);
         erow[finp_col] = -(flow_conversion_rate * finp_efficiency)
             * block.duration() * dc_stage_scale * flow_scale / energy_scale;
       }
@@ -700,84 +725,33 @@ public:
   {
     const auto pid = id();
 
-    // Primal outputs: LP variable is in scaled units
-    // (physical/m_energy_scale_). Multiply by m_energy_scale_ to recover
-    // physical energy/volume.
-    //
-    // Reduced cost (cost) outputs: the LP reduced cost is per unit of the LP
-    // variable.  To convert to per unit of the physical variable, divide by
-    // m_energy_scale_:  rc_phys = rc_LP / energy_scale.
-    // This is the inverse of the primal rescaling, ensuring that the output
-    // is invariant to the choice of energy_scale.
-    //
-    // The scale factor is stored in SparseCol::scale at column creation time;
-    // col_scale_sol/cost provide uniform rescaling helpers.
-    if (std::abs(m_energy_scale_ - 1.0)
-        > std::numeric_limits<double>::epsilon())
-    {
-      const auto sol_r = col_scale_sol(m_energy_scale_);
-      const auto cost_r = col_scale_cost(m_energy_scale_);
-      out.add_col_sol(cname, "eini", pid, eini_cols, sol_r);
-      out.add_col_cost(cname, "eini", pid, eini_cols, cost_r);
-      out.add_col_sol(cname, "sini", pid, sini_cols, sol_r);
-      out.add_col_cost(cname, "sini", pid, sini_cols, cost_r);
-      out.add_col_sol(cname, "efin", pid, efin_cols, sol_r);
-      out.add_col_cost(cname, "efin", pid, efin_cols, cost_r);
-      out.add_col_sol(cname, "volumen", pid, energy_cols, sol_r);
-      out.add_col_cost(cname, "volumen", pid, energy_cols, cost_r);
-    } else {
-      out.add_col_sol(cname, "eini", pid, eini_cols);
-      out.add_col_cost(cname, "eini", pid, eini_cols);
-      out.add_col_sol(cname, "sini", pid, sini_cols);
-      out.add_col_cost(cname, "sini", pid, sini_cols);
-      out.add_col_sol(cname, "efin", pid, efin_cols);
-      out.add_col_cost(cname, "efin", pid, efin_cols);
-      out.add_col_sol(cname, "volumen", pid, energy_cols);
-      out.add_col_cost(cname, "volumen", pid, energy_cols);
-    }
+    // Primal and reduced-cost outputs: the LinearInterface now returns
+    // physical values from get_col_sol() (LP × col_scale) and
+    // get_col_cost() (LP / col_scale), so no manual rescaling needed.
+    out.add_col_sol(cname, "eini", pid, eini_cols);
+    out.add_col_cost(cname, "eini", pid, eini_cols);
+    out.add_col_sol(cname, "sini", pid, sini_cols);
+    out.add_col_cost(cname, "sini", pid, sini_cols);
+    out.add_col_sol(cname, "efin", pid, efin_cols);
+    out.add_col_cost(cname, "efin", pid, efin_cols);
+    out.add_col_sol(cname, "volumen", pid, energy_cols);
+    out.add_col_cost(cname, "volumen", pid, energy_cols);
 
     // Dual output: output_dual_scale = dc_stage_scale / energy_scale.
-    // This corrects both the daily-cycle time-scaling (dc_stage_scale) and the
-    // energy variable scaling (1/energy_scale).  When neither applies the map
-    // is empty and the flat() function defaults to 1.0 (no correction).
+    // Row equilibration is already removed by get_row_dual().
+    // This corrects the daily-cycle time-scaling (dc_stage_scale) and the
+    // energy-balance RHS scaling (1/energy_scale).
     out.add_row_dual(cname, "volumen", pid, energy_rows, output_dual_scale);
 
     out.add_row_dual(cname, "capacity", pid, capacity_rows);
     out.add_row_dual(cname, "efin", pid, efin_rows);
 
-    // Soft emin slack: LP variable is in physical/m_energy_scale_ units.
-    if (std::abs(m_energy_scale_ - 1.0)
-        > std::numeric_limits<double>::epsilon())
-    {
-      out.add_col_sol(cname,
-                      "soft_emin",
-                      pid,
-                      soft_emin_slack_cols,
-                      col_scale_sol(m_energy_scale_));
-      out.add_col_cost(cname,
-                       "soft_emin",
-                       pid,
-                       soft_emin_slack_cols,
-                       col_scale_cost(m_energy_scale_));
-    } else {
-      out.add_col_sol(cname, "soft_emin", pid, soft_emin_slack_cols);
-      out.add_col_cost(cname, "soft_emin", pid, soft_emin_slack_cols);
-    }
+    out.add_col_sol(cname, "soft_emin", pid, soft_emin_slack_cols);
+    out.add_col_cost(cname, "soft_emin", pid, soft_emin_slack_cols);
     out.add_row_dual(cname, "soft_emin", pid, soft_emin_rows);
 
-    // Drain LP variable is in physical/m_flow_scale_ units; multiply primal
-    // by m_flow_scale_ to recover physical units, divide cost by m_flow_scale_.
-    // Uses col_scale_sol/cost helpers for uniform rescaling.
-    if (std::abs(m_flow_scale_ - 1.0) > std::numeric_limits<double>::epsilon())
-    {
-      out.add_col_sol(
-          cname, "drain", pid, drain_cols, col_scale_sol(m_flow_scale_));
-      out.add_col_cost(
-          cname, "drain", pid, drain_cols, col_scale_cost(m_flow_scale_));
-    } else {
-      out.add_col_sol(cname, "drain", pid, drain_cols);
-      out.add_col_cost(cname, "drain", pid, drain_cols);
-    }
+    out.add_col_sol(cname, "drain", pid, drain_cols);
+    out.add_col_cost(cname, "drain", pid, drain_cols);
 
     return true;
   }

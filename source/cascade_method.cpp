@@ -131,8 +131,9 @@ auto CascadePlanningMethod::collect_named_targets(const SDDPMethod& solver,
                               .col_index_to_name();
 
       for (const auto& link : state.outgoing_links) {
-        const auto col = static_cast<std::size_t>(link.source_col);
-        if (col >= names.size() || names[col].empty()) {
+        const auto col = link.source_col;
+        const auto col_sz = static_cast<size_t>(col);
+        if (col_sz >= names.size() || names[col].empty()) {
           SPDLOG_DEBUG(
               "Cascade: skipping unnamed state col {} "
               "(scene={}, phase={})",
@@ -141,8 +142,8 @@ auto CascadePlanningMethod::collect_named_targets(const SDDPMethod& solver,
               phase);
           continue;
         }
-        const double val = (col < state.forward_col_sol.size())
-            ? state.forward_col_sol[col]
+        const double val = (col_sz < state.forward_col_sol.size())
+            ? state.forward_col_sol[col_sz]
             : 0.0;
 
         targets.push_back({

@@ -65,6 +65,7 @@ class TestWaterRightsIntegration:
             capture_output=True,
             text=True,
             timeout=120,
+            check=False,
         )
         assert result.returncode == 0, (
             f"plp2gtopt failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
@@ -93,7 +94,7 @@ class TestWaterRightsIntegration:
             # May be in a PAMPL file instead of inline
             return
         names = {uc["name"] for uc in ucs}
-        assert "laja_partition" in names
+        assert "laja_particion_derechos" in names
 
     def test_laja_flow_rights_count(self, converted_case):
         """Laja creates flow rights for irr, elec, mixed, anticipated + districts."""
@@ -118,12 +119,12 @@ class TestWaterRightsIntegration:
         vrs = converted_case["system"].get("volume_right_array", [])
         names = {vr["name"] for vr in vrs}
         expected = {
-            "laja_vol_irr",
-            "laja_vol_elec",
-            "laja_vol_mixed",
-            "laja_vol_anticipated",
+            "laja_vol_der_riego",
+            "laja_vol_der_electrico",
+            "laja_vol_der_mixto",
+            "laja_vol_gasto_anticipado",
             "laja_vol_econ_endesa",
-            "laja_vol_econ_reserve",
+            "laja_vol_econ_reserva",
             "laja_vol_econ_polcura",
         }
         missing = expected - names
@@ -134,10 +135,10 @@ class TestWaterRightsIntegration:
         frs = converted_case["system"].get("flow_right_array", [])
         names = {fr["name"] for fr in frs}
         expected = {
-            "laja_irr_rights",
-            "laja_elec_rights",
-            "laja_mixed_rights",
-            "laja_anticipated",
+            "laja_der_riego",
+            "laja_der_electrico",
+            "laja_der_mixto",
+            "laja_gasto_anticipado",
         }
         missing = expected - names
         assert not missing, f"Missing Laja flow rights: {missing}"
@@ -178,21 +179,25 @@ class TestWaterRightsIntegration:
         """Verify extraordinary reserve volume rights are created."""
         vrs = converted_case["system"].get("volume_right_array", [])
         names = {vr["name"] for vr in vrs}
-        assert "maule_vol_rext_elec" in names, "Missing maule_vol_rext_elec"
-        assert "maule_vol_rext_riego" in names, "Missing maule_vol_rext_riego"
+        assert "maule_vol_reserva_ord_elec" in names, (
+            "Missing maule_vol_reserva_ord_elec"
+        )
+        assert "maule_vol_reserva_ord_riego" in names, (
+            "Missing maule_vol_reserva_ord_riego"
+        )
 
     def test_maule_volume_right_names(self, converted_case):
         """Verify all expected Maule volume rights exist."""
         vrs = converted_case["system"].get("volume_right_array", [])
         names = {vr["name"] for vr in vrs}
         expected = {
-            "maule_vol_elec_monthly",
-            "maule_vol_elec_annual",
-            "maule_vol_irr_seasonal",
-            "maule_vol_compensation",
+            "maule_vol_gasto_elec_mensual",
+            "maule_vol_gasto_elec_anual",
+            "maule_vol_gasto_riego_temp",
+            "maule_vol_compensacion_elec",
             "maule_vol_econ_invernada",
-            "maule_vol_rext_elec",
-            "maule_vol_rext_riego",
+            "maule_vol_reserva_ord_elec",
+            "maule_vol_reserva_ord_riego",
         }
         missing = expected - names
         assert not missing, f"Missing Maule volume rights: {missing}"
@@ -208,10 +213,11 @@ class TestWaterRightsIntegration:
         assert "param" in content, "PAMPL file has no params"
 
     def test_user_constraint_file_set(self, converted_case):
-        """user_constraint_file is set in the system JSON."""
-        uc_file = converted_case["system"].get("user_constraint_file")
-        assert uc_file is not None, "user_constraint_file not set"
-        assert uc_file.endswith(".pampl"), f"Expected .pampl file, got {uc_file}"
+        """user_constraint_files (plural) is set in the system JSON."""
+        uc_files = converted_case["system"].get("user_constraint_files", [])
+        assert len(uc_files) >= 1, "user_constraint_files not set"
+        for f in uc_files:
+            assert f.endswith(".pampl"), f"Expected .pampl file, got {f}"
 
     # -- Combined counts --
 
@@ -222,8 +228,9 @@ class TestWaterRightsIntegration:
             assert len(ucs) >= 2
         else:
             # Constraints are in PAMPL files — verify files exist
+            uc_files = converted_case["system"].get("user_constraint_files", [])
             uc_file = converted_case["system"].get("user_constraint_file")
-            assert uc_file is not None, "No user_constraint_array or file"
+            assert uc_files or uc_file, "No user_constraint_array or file(s)"
 
     def test_total_flow_rights(self, converted_case):
         """Total flow rights from both agreements."""
@@ -274,6 +281,7 @@ class TestGtoptLpBuild:
             capture_output=True,
             text=True,
             timeout=120,
+            check=False,
         )
         assert conv_result.returncode == 0, f"plp2gtopt failed: {conv_result.stderr}"
 
@@ -300,6 +308,7 @@ class TestGtoptLpBuild:
             text=True,
             timeout=300,
             cwd=str(output_dir),
+            check=False,
         )
         return {
             "returncode": gtopt_result.returncode,

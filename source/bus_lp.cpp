@@ -118,13 +118,9 @@ bool BusLP::add_to_output(OutputContext& out) const
 
   out.add_row_dual(cname, "balance", pid, balance_rows);
 
-  // Convention: physical = LP × scale_theta (stored in SparseCol::scale).
-  // col_scale_sol/cost use it uniformly.
-  const auto scale_theta =
-      out.options().variable_scale_map().lookup("Bus", "theta", uid());
-  out.add_col_sol(cname, "theta", pid, theta_cols, col_scale_sol(scale_theta));
-  out.add_col_cost(
-      cname, "theta", pid, theta_cols, col_scale_cost(scale_theta));
+  // Physical = LP × scale_theta, auto-descaled by LinearInterface.
+  out.add_col_sol(cname, "theta", pid, theta_cols);
+  out.add_col_cost(cname, "theta", pid, theta_cols);
 
   return true;
 }

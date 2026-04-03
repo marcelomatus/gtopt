@@ -37,8 +37,8 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
 
   auto&& load_cols = demand.load_cols_at(scenario, stage);
 
-  const auto [stage_capacity, capacity_col] =
-      demand.capacity_and_col(stage, lp);
+  const auto [opt_capacity, capacity_col] = demand.capacity_and_col(stage, lp);
+  const double stage_capacity = opt_capacity.value_or(LinearProblem::DblMax);
 
   if (!capacity_col && !demand.demand().capacity) {
     SPDLOG_WARN(

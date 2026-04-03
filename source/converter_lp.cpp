@@ -40,7 +40,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
-  const auto [stage_capacity, capacity_col] = capacity_and_col(stage, lp);
+  const auto [opt_capacity, capacity_col] = capacity_and_col(stage, lp);
 
   const auto stage_conversion_rate =
       conversion_rate.at(stage.uid()).value_or(1.0);

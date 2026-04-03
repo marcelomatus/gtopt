@@ -735,10 +735,19 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     }
 
     //
-    // Load user constraints from external file (if specified)
+    // Load user constraints from external file(s)
     //
+    // Collect all constraint file paths: singular + plural fields.
+    std::vector<std::string> uc_paths;
     if (const auto& uc_file = my_planning.system.user_constraint_file) {
-      auto filepath = std::filesystem::path {*uc_file};
+      uc_paths.push_back(*uc_file);
+    }
+    for (const auto& f : my_planning.system.user_constraint_files) {
+      uc_paths.push_back(f);
+    }
+
+    for (const auto& uc_name : uc_paths) {
+      auto filepath = std::filesystem::path {uc_name};
       // Resolve relative paths against input_directory
       if (filepath.is_relative() && my_planning.options.input_directory) {
         auto resolved =

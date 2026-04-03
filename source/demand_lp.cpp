@@ -48,7 +48,8 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
-  const auto [stage_capacity, capacity_col] = capacity_and_col(stage, lp);
+  const auto [opt_capacity, capacity_col] = capacity_and_col(stage, lp);
+  const double stage_capacity = opt_capacity.value_or(LinearProblem::DblMax);
   const auto stage_fcost = sc.demand_fail_cost(stage, fcost);
   const auto stage_lossfactor = lossfactor.optval(stage.uid()).value_or(0.0);
 

@@ -93,6 +93,7 @@ public:
 private:
   SolverRegistry();
   void discover_default_paths();
+  void validate_loaded_solvers();
 
   struct PluginHandle
   {
@@ -101,6 +102,9 @@ private:
     std::string plugin_name;
     std::vector<std::string> solver_names;
   };
+
+  [[nodiscard]] static bool validate_solver_subprocess(
+      const PluginHandle& plugin, const std::string& solver_name);
 
   std::vector<PluginHandle> m_plugins_;
   std::vector<std::string> m_searched_dirs_;

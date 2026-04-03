@@ -179,24 +179,10 @@ bool ReservoirLP::add_to_output(OutputContext& out) const
 {
   static constexpr std::string_view cname = ClassName.full_name();
 
-  // rsv_fext LP variable is in physical_flow / energy_scale units; multiply
-  // primal by energy_scale to recover m³/s, divide reduced cost accordingly.
-  // Uses col_scale_sol/cost helpers for uniform rescaling.
-  if (std::abs(energy_scale() - 1.0) > std::numeric_limits<double>::epsilon()) {
-    out.add_col_sol(cname,
-                    "extraction",
-                    id(),
-                    extraction_cols,
-                    col_scale_sol(energy_scale()));
-    out.add_col_cost(cname,
-                     "extraction",
-                     id(),
-                     extraction_cols,
-                     col_scale_cost(energy_scale()));
-  } else {
-    out.add_col_sol(cname, "extraction", id(), extraction_cols);
-    out.add_col_cost(cname, "extraction", id(), extraction_cols);
-  }
+  // Extraction columns have .scale = flow_scale; auto-descaled by
+  // LinearInterface's get_col_sol() / get_col_cost().
+  out.add_col_sol(cname, "extraction", id(), extraction_cols);
+  out.add_col_cost(cname, "extraction", id(), extraction_cols);
 
   return StorageBase::add_to_output(out, ClassName.full_name());
 }

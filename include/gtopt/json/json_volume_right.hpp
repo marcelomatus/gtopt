@@ -42,13 +42,13 @@ struct VolumeRightConstructor
       OptTBRealFieldSched fmax,
       OptReal fail_cost,
       OptReal priority,
+      OptTBRealFieldSched saving_rate,
       OptReal flow_conversion_rate,
       OptReal energy_scale,
       OptName energy_scale_mode,
       OptBool use_state_variable,
       OptTRealFieldSched annual_loss,
       OptName reset_month_str,
-      OptSingleId source_flow_right,
       std::optional<gtopt::RightBoundRule> bound_rule) const
   {
     VolumeRight vr;
@@ -70,6 +70,7 @@ struct VolumeRightConstructor
     vr.fmax = std::move(fmax);
     vr.fail_cost = fail_cost;
     vr.priority = priority;
+    vr.saving_rate = std::move(saving_rate);
     vr.flow_conversion_rate = flow_conversion_rate;
     vr.energy_scale = energy_scale;
     vr.energy_scale_mode = std::move(energy_scale_mode);
@@ -78,7 +79,6 @@ struct VolumeRightConstructor
     if (reset_month_str) {
       vr.reset_month = gtopt::enum_from_name<MonthType>(*reset_month_str);
     }
-    vr.source_flow_right = std::move(source_flow_right);
     vr.bound_rule = std::move(bound_rule);
     return vr;
   }
@@ -110,6 +110,9 @@ struct json_data_contract<VolumeRight>
       json_variant_null<"fmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_number_null<"fail_cost", OptReal>,
       json_number_null<"priority", OptReal>,
+      json_variant_null<"saving_rate",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
       json_number_null<"flow_conversion_rate", OptReal>,
       json_number_null<"energy_scale", OptReal>,
       json_string_null<"energy_scale_mode", OptName>,
@@ -118,7 +121,6 @@ struct json_data_contract<VolumeRight>
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,
       json_string_null<"reset_month", OptName>,
-      json_variant_null<"source_flow_right", OptSingleId, jvtl_SingleId>,
       json_class_null<"bound_rule", std::optional<RightBoundRule>>>;
 
   constexpr static auto to_json_data(VolumeRight const& vr)
@@ -141,13 +143,13 @@ struct json_data_contract<VolumeRight>
                            vr.fmax,
                            vr.fail_cost,
                            vr.priority,
+                           vr.saving_rate,
                            vr.flow_conversion_rate,
                            vr.energy_scale,
                            vr.energy_scale_mode,
                            vr.use_state_variable,
                            vr.annual_loss,
                            detail::enum_to_opt_name(vr.reset_month),
-                           vr.source_flow_right,
                            vr.bound_rule);
   }
 };

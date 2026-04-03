@@ -26,9 +26,103 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/solver_backend.hpp>
 #include <gtopt/solver_options.hpp>
+#include <gtopt/strong_index_vector.hpp>
 
 namespace gtopt
 {
+
+/// Zero-copy lazy view that applies a per-element scale factor.
+///
+/// Models a random-access range: `view[i]` returns `data[i] * scales[i]`
+/// (or `data[i] / scales[i]` when constructed with `divides`).
+/// When scales are empty, returns raw data unchanged.
+///
+/// Accepts any integer-like index type (int, size_t, ColIndex, RowIndex).
+class ScaledView
+{
+public:
+  enum class Op : uint8_t
+  {
+    multiply,
+    divide,
+  };
+
+  constexpr ScaledView() noexcept = default;
+
+  constexpr ScaledView(const double* data,
+                       size_t n,
+                       const double* scales,
+                       size_t ns,
+                       Op op = Op::multiply) noexcept
+      : data_(data, n)
+      , scales_(scales, ns)
+      , op_(op)
+  {
+  }
+
+  /// Construct from a raw span (no scaling).
+  constexpr explicit ScaledView(std::span<const double> raw) noexcept
+      : data_(raw)
+  {
+  }
+
+  [[nodiscard]] constexpr double operator[](auto idx) const noexcept
+  {
+    const auto i = static_cast<size_t>(idx);
+    if (i >= scales_.size()) {
+      return data_[i];
+    }
+    return (op_ == Op::multiply) ? data_[i] * scales_[i]
+                                 : data_[i] / scales_[i];
+  }
+
+  [[nodiscard]] constexpr size_t size() const noexcept { return data_.size(); }
+  [[nodiscard]] constexpr bool empty() const noexcept { return data_.empty(); }
+
+  /// Iterator support for range-for loops.
+  class iterator
+  {
+  public:
+    using value_type = double;
+    using difference_type = ptrdiff_t;
+
+    constexpr iterator() noexcept = default;
+    constexpr iterator(const ScaledView* view, size_t pos) noexcept
+        : view_(view)
+        , pos_(pos)
+    {
+    }
+
+    constexpr double operator*() const noexcept { return (*view_)[pos_]; }
+    constexpr iterator& operator++() noexcept
+    {
+      ++pos_;
+      return *this;
+    }
+    constexpr iterator operator++(int) noexcept
+    {
+      auto tmp = *this;
+      ++pos_;
+      return tmp;
+    }
+    constexpr bool operator==(const iterator& o) const noexcept = default;
+
+  private:
+    const ScaledView* view_ {};
+    size_t pos_ {};
+  };
+
+  [[nodiscard]] constexpr iterator begin() const noexcept { return {this, 0}; }
+  [[nodiscard]] constexpr iterator end() const noexcept
+  {
+    return {this, data_.size()};
+  }
+
+private:
+  std::span<const double> data_ {};
+  std::span<const double> scales_ {};
+  Op op_ {Op::multiply};
+};
 
 class LinearInterface
 {
@@ -428,21 +522,60 @@ public:
   }
 
   /**
-   * @brief Gets the solution values for all variables
-   * @return Span view of solution values
+   * @brief Gets raw LP solution values (no descaling).
+   *
+   * Returns solver values as-is, in LP units.  Use this for SDDP
+   * state propagation, cut generation, and any internal LP algebra
+   * that operates in scaled coordinates.
+   * @return Span view of raw LP solution values
    */
-  [[nodiscard]] auto get_col_sol() const
+  [[nodiscard]] auto get_col_sol_raw() const
   {
     return std::span(m_backend_->col_solution(), get_numcols());
   }
 
   /**
-   * @brief Gets the reduced costs for all variables
-   * @return Span view of reduced costs
+   * @brief Gets physical solution values (LP × col_scale).
+   *
+   * Returns a zero-copy lazy view: each access computes
+   * `LP_value × col_scale` on the fly.  When col_scales are empty,
+   * returns raw values unchanged.
+   * @return ScaledView over solver solution memory
    */
-  [[nodiscard]] auto get_col_cost() const
+  [[nodiscard]] ScaledView get_col_sol() const noexcept
+  {
+    const auto n = get_numcols();
+    return {m_backend_->col_solution(),
+            n,
+            m_col_scales_.data(),
+            m_col_scales_.size(),
+            ScaledView::Op::multiply};
+  }
+
+  /**
+   * @brief Gets raw LP reduced costs (no descaling).
+   * @return Span view of raw LP reduced costs
+   */
+  [[nodiscard]] auto get_col_cost_raw() const
   {
     return std::span(m_backend_->reduced_cost(), get_numcols());
+  }
+
+  /**
+   * @brief Gets physical reduced costs (LP / col_scale).
+   *
+   * Returns a zero-copy lazy view: each access computes
+   * `LP_rc / col_scale` on the fly.
+   * @return ScaledView over solver reduced-cost memory
+   */
+  [[nodiscard]] ScaledView get_col_cost() const noexcept
+  {
+    const auto n = get_numcols();
+    return {m_backend_->reduced_cost(),
+            n,
+            m_col_scales_.data(),
+            m_col_scales_.size(),
+            ScaledView::Op::divide};
   }
 
   /**
@@ -457,9 +590,8 @@ public:
    */
   [[nodiscard]] constexpr double get_col_scale(ColIndex index) const noexcept
   {
-    const auto i = static_cast<size_t>(index);
-    if (i < m_col_scales_.size()) {
-      return m_col_scales_[i];
+    if (static_cast<size_t>(index) < m_col_scales_.size()) {
+      return m_col_scales_[index];
     }
     return 1.0;
   }
@@ -469,38 +601,68 @@ public:
    * @return Const reference to the column scale vector (empty if not
    * populated)
    */
-  [[nodiscard]] constexpr const std::vector<double>& get_col_scales()
-      const noexcept
+  [[nodiscard]] constexpr const auto& get_col_scales() const noexcept
   {
     return m_col_scales_;
   }
 
   /**
-   * @brief Gets the dual values (shadow prices) for all constraints.
+   * @brief Gets the row equilibration scale factor for a single row.
+   *
+   * Row equilibration divides each row by s = max|coeff|, so the LP dual
+   * is π_LP = s × π_phys.  get_row_scale() returns s.
+   *
+   * @param index Row index
+   * @return Scale factor (1.0 if row_scales is empty or not populated)
+   */
+  [[nodiscard]] constexpr double get_row_scale(RowIndex index) const noexcept
+  {
+    if (static_cast<size_t>(index) < m_row_scales_.size()) {
+      return m_row_scales_[index];
+    }
+    return 1.0;
+  }
+
+  /**
+   * @brief Gets all row equilibration scale factors.
+   * @return Const reference to the row scale vector (empty if not populated)
+   */
+  [[nodiscard]] constexpr const auto& get_row_scales() const noexcept
+  {
+    return m_row_scales_;
+  }
+
+  /**
+   * @brief Gets raw solver dual values (no descaling).
+   *
+   * Returns solver duals as-is.  Use this for internal LP algebra
+   * that operates in solver coordinates (e.g. cut coefficient
+   * computation where row equilibration is accounted for separately).
+   * @return Span view of raw solver dual values
+   */
+  [[nodiscard]] auto get_row_dual_raw() const
+  {
+    return std::span(m_backend_->row_price(), get_numrows());
+  }
+
+  /**
+   * @brief Gets physical dual values (shadow prices).
    *
    * When row equilibration is active, the raw solver duals are divided
    * by the per-row scale factor to recover physical units.
    * Row equilibration divides each row by s = max|coeff|, so the LP dual
    * is π_LP = s × π_phys, hence π_phys = π_LP / s.
-   * @return Span view of dual values
+   * @return Span view of physical dual values
    */
-  [[nodiscard]] auto get_row_dual() const -> std::span<const double>
+  /// @return Zero-copy lazy view: `dual_LP / row_scale` per element.
+  [[nodiscard]] ScaledView get_row_dual() const noexcept
   {
     const auto n = get_numrows();
-    const std::span<const double> raw_span {m_backend_->row_price(), n};
-    if (m_row_scales_.empty()) {
-      return raw_span;
-    }
-    // Apply row-equilibration unscaling: dual_phys = dual_LP / row_scale.
-    // Rows added after initial build (e.g. SDDP cuts) have no scale entry;
-    // treat them as scale=1.0 (unscaled).
-    const auto n_scaled = m_row_scales_.size();
-    m_unscaled_duals_.resize(n);
-    for (size_t i = 0; i < n; ++i) {
-      m_unscaled_duals_[i] =
-          (i < n_scaled) ? raw_span[i] / m_row_scales_[i] : raw_span[i];
-    }
-    return m_unscaled_duals_;
+    return {m_backend_->row_price(),
+            n,
+            m_row_scales_.data(),
+            m_row_scales_.size(),
+            ScaledView::Op::divide};
   }
 
   void set_col_sol(std::span<const double> sol);
@@ -558,16 +720,14 @@ public:
 
   /// Column index → name vector (empty string for unnamed columns).
   /// Populated alongside col_name_map when lp_names_level >= 1.
-  [[nodiscard]] constexpr const std::vector<std::string>& col_index_to_name()
-      const noexcept
+  [[nodiscard]] constexpr const auto& col_index_to_name() const noexcept
   {
     return m_col_index_to_name_;
   }
 
   /// Row index → name vector (empty string for unnamed rows).
   /// Populated alongside row_name_map when lp_names_level >= 1.
-  [[nodiscard]] constexpr const std::vector<std::string>& row_index_to_name()
-      const noexcept
+  [[nodiscard]] constexpr const auto& row_index_to_name() const noexcept
   {
     return m_row_index_to_name_;
   }
@@ -577,14 +737,13 @@ public:
   /// @{
 
   /// Return the warm column solution vector (empty if no state loaded).
-  [[nodiscard]] constexpr const std::vector<double>& warm_col_sol()
-      const noexcept
+  [[nodiscard]] constexpr const auto& warm_col_sol() const noexcept
   {
     return m_warm_col_sol_;
   }
 
   /// Set the warm column solution from a loaded state file.
-  void set_warm_col_sol(std::vector<double> sol) noexcept
+  void set_warm_col_sol(StrongIndexVector<ColIndex, double> sol) noexcept
   {
     m_warm_col_sol_ = std::move(sol);
   }
@@ -697,24 +856,19 @@ private:
   /// Populated when lp_names_level >= 1.
   name_index_map_t m_row_names_;  ///< Row (constraint) name → row index
   name_index_map_t m_col_names_;  ///< Column (variable) name → col index
-  std::vector<std::string> m_col_index_to_name_;  ///< Col index → name
-  std::vector<std::string> m_row_index_to_name_;  ///< Row index → name
+  StrongIndexVector<ColIndex, std::string> m_col_index_to_name_;
+  StrongIndexVector<RowIndex, std::string> m_row_index_to_name_;
 
   size_t m_base_numrows_ {};  ///< Row count before any cuts were added
 
-  std::vector<double> m_col_scales_;  ///< Per-column physical-to-LP scale
-                                      ///< factors (physical = LP × scale)
-
-  std::vector<double> m_row_scales_;  ///< Per-row equilibration scale factors.
-                                      ///< dual_physical = dual_LP × row_scale.
-                                      ///< Empty when row equilibration is off.
-  mutable std::vector<double> m_unscaled_duals_;  ///< Cached dual unscaling buf
+  StrongIndexVector<ColIndex, double> m_col_scales_;
+  StrongIndexVector<RowIndex, double> m_row_scales_;
 
   /// Warm column solution loaded from a previous run's state file.
   /// Used by StorageLP::physical_eini/efin as fallback when
   /// !is_optimal() (hot start before first solve).  Empty if no
   /// state was loaded.
-  std::vector<double> m_warm_col_sol_;
+  StrongIndexVector<ColIndex, double> m_warm_col_sol_;
 
   size_t m_stats_nnz_ {};
   size_t m_stats_zeroed_ {};

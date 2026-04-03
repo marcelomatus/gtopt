@@ -43,6 +43,7 @@
 
 #include <gtopt/index_holder.hpp>
 #include <gtopt/simulation_lp.hpp>
+#include <gtopt/utils.hpp>
 
 namespace gtopt
 {
@@ -241,14 +242,17 @@ public:
     bool need_valids = false;
 
     size_t idx = 0;
-    for (size_t count = 0; auto&& suid : m_active_scenarios_) {
-      for (auto [tidx, tuid] : enumerate(m_active_stages_)) {
-        for (auto&& buid : m_active_stage_blocks_[tidx]) {
+    for (size_t count = 0;
+         const auto [si, suid] : enumerate<ScenarioIndex>(m_active_scenarios_))
+    {
+      for (const auto [ti, tuid] : enumerate<StageIndex>(m_active_stages_)) {
+        for (const auto [bi, buid] :
+             enumerate<BlockIndex>(m_active_stage_blocks_[ti]))
+        {
           auto&& stbiter = hstb.find({suid, tuid, buid});
           if (stbiter != hstb.end()) {
             const auto value = proj(stbiter->second);
-            values[idx] =
-                factor.empty() ? value : value * factor[suid][tuid][buid];
+            values[idx] = factor.empty() ? value : value * factor[si][ti][bi];
             valid[idx] = true;
             ++count;
 
@@ -280,19 +284,18 @@ public:
 
     size_t idx = 0;
     for (size_t count = 0;
-         const auto [sidx, suid] : std::views::enumerate(m_active_scenarios_))
+         const auto [si, suid] : enumerate<ScenarioIndex>(m_active_scenarios_))
     {
-      for (const auto [tidx, tuid] : std::views::enumerate(m_active_stages_)) {
+      for (const auto [ti, tuid] : enumerate<StageIndex>(m_active_stages_)) {
         auto&& stiter = hstb.find({suid, tuid});
         const auto has_stuid = stiter != hstb.end() && !stiter->second.empty();
 
-        for (const auto [bidx, buid] :
-             std::views::enumerate(m_active_stage_blocks_[tidx]))
+        for (const auto [bi, buid] :
+             enumerate<BlockIndex>(m_active_stage_blocks_[ti]))
         {
           if (has_stuid) {
             const auto value = proj(stiter->second.at(buid));
-            values[idx] =
-                factor.empty() ? value : value * factor[sidx][tidx][bidx];
+            values[idx] = factor.empty() ? value : value * factor[si][ti][bi];
 
             valid[idx] = true;
             ++count;
@@ -336,23 +339,22 @@ public:
 
     size_t idx = 0;
     for (size_t count = 0;
-         const auto [sidx, suid] : std::views::enumerate(m_active_scenarios_))
+         const auto [si, suid] : enumerate<ScenarioIndex>(m_active_scenarios_))
     {
-      for (const auto [tidx, tuid] : std::views::enumerate(m_active_stages_)) {
+      for (const auto [ti, tuid] : enumerate<StageIndex>(m_active_stages_)) {
         auto&& stiter = hstb.find({suid, tuid});
         const auto has_stuid = stiter != hstb.end() && !stiter->second.empty();
 
         const auto ss_iter = st_scale.find({suid, tuid});
         const double ss = (ss_iter != st_scale.end()) ? ss_iter->second : 1.0;
 
-        for (const auto [bidx, buid] :
-             std::views::enumerate(m_active_stage_blocks_[tidx]))
+        for (const auto [bi, buid] :
+             enumerate<BlockIndex>(m_active_stage_blocks_[ti]))
         {
           if (has_stuid) {
             const auto value = proj(stiter->second.at(buid));
-            values[idx] = factor.empty()
-                ? value * ss
-                : value * ss * factor[sidx][tidx][bidx];
+            values[idx] =
+                factor.empty() ? value * ss : value * ss * factor[si][ti][bi];
 
             valid[idx] = true;
             ++count;
@@ -384,15 +386,15 @@ public:
 
     size_t idx = 0;
     for (size_t count = 0;
-         const auto [sidx, suid] : std::views::enumerate(m_active_scenarios_))
+         const auto [si, suid] : enumerate<ScenarioIndex>(m_active_scenarios_))
     {
-      for (const auto [tidx, tuid] : std::views::enumerate(m_active_stages_)) {
+      for (const auto [ti, tuid] : enumerate<StageIndex>(m_active_stages_)) {
         auto&& stiter = hst.find({suid, tuid});
         const auto has_stuid = stiter != hst.end();
 
         if (has_stuid) {
           const auto value = proj(stiter->second);
-          values[idx] = factor.empty() ? value : value * factor[sidx][tidx];
+          values[idx] = factor.empty() ? value : value * factor[si][ti];
           valid[idx] = true;
           ++count;
 
@@ -422,14 +424,14 @@ public:
 
     size_t idx = 0;
     for (size_t count = 0;
-         const auto [tidx, tuid] : std::views::enumerate(m_active_stages_))
+         const auto [ti, tuid] : enumerate<StageIndex>(m_active_stages_))
     {
       auto&& titer = ht.find(tuid);
       const auto has_tuid = titer != ht.end();
 
       if (has_tuid) {
         const auto value = proj(titer->second);
-        values[idx] = factor.empty() ? value : value * factor[tidx];
+        values[idx] = factor.empty() ? value : value * factor[ti];
 
         valid[idx] = true;
         ++count;

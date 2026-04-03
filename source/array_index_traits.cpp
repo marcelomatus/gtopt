@@ -28,53 +28,24 @@ namespace gtopt
 namespace
 {
 
-// Try to open a gzip-compressed file and return a decompressed InputStream.
-[[nodiscard]] auto open_gzip_stream(const std::string& gz_filename)
+// Open a compressed file and return a decompressed InputStream.
+[[nodiscard]] auto open_compressed_stream(const std::string& filename,
+                                          arrow::Compression::type codec_type)
     -> arrow::Result<std::shared_ptr<arrow::io::InputStream>>
 {
-  ARROW_ASSIGN_OR_RAISE(auto raw_file,
-                        arrow::io::ReadableFile::Open(gz_filename));
-  ARROW_ASSIGN_OR_RAISE(auto codec,
-                        arrow::util::Codec::Create(arrow::Compression::GZIP));
+  ARROW_ASSIGN_OR_RAISE(auto raw_file, arrow::io::ReadableFile::Open(filename));
+  ARROW_ASSIGN_OR_RAISE(auto codec, arrow::util::Codec::Create(codec_type));
   return arrow::io::CompressedInputStream::Make(codec.get(), raw_file);
 }
 
-// Try to open a zstd-compressed file and return a decompressed InputStream.
-[[nodiscard]] auto open_zstd_stream(const std::string& zst_filename)
-    -> arrow::Result<std::shared_ptr<arrow::io::InputStream>>
-{
-  ARROW_ASSIGN_OR_RAISE(auto raw_file,
-                        arrow::io::ReadableFile::Open(zst_filename));
-  ARROW_ASSIGN_OR_RAISE(auto codec,
-                        arrow::util::Codec::Create(arrow::Compression::ZSTD));
-  return arrow::io::CompressedInputStream::Make(codec.get(), raw_file);
-}
-
-// Decompress a gzip file into a random-access buffer (needed for Parquet).
-[[nodiscard]] auto decompress_gzip_to_buffer(const std::string& gz_filename)
+// Decompress a compressed file into a random-access buffer (needed for
+// Parquet).
+[[nodiscard]] auto decompress_to_buffer(const std::string& filename,
+                                        arrow::Compression::type codec_type)
     -> arrow::Result<std::shared_ptr<arrow::io::RandomAccessFile>>
 {
-  ARROW_ASSIGN_OR_RAISE(auto stream, open_gzip_stream(gz_filename));
-
-  // Read compressed stream in chunks into a buffer builder
-  arrow::BufferBuilder builder;
-  constexpr auto chunk_size = static_cast<int64_t>(1024 * 1024);  // 1 MB chunks
-  while (true) {
-    ARROW_ASSIGN_OR_RAISE(auto chunk, stream->Read(chunk_size));
-    if (chunk->size() == 0) {
-      break;
-    }
-    ARROW_RETURN_NOT_OK(builder.Append(chunk->data(), chunk->size()));
-  }
-  ARROW_ASSIGN_OR_RAISE(auto buffer, builder.Finish());
-  return std::make_shared<arrow::io::BufferReader>(buffer);
-}
-
-// Decompress a zstd file into a random-access buffer (needed for Parquet).
-[[nodiscard]] auto decompress_zstd_to_buffer(const std::string& zst_filename)
-    -> arrow::Result<std::shared_ptr<arrow::io::RandomAccessFile>>
-{
-  ARROW_ASSIGN_OR_RAISE(auto stream, open_zstd_stream(zst_filename));
+  ARROW_ASSIGN_OR_RAISE(auto stream,
+                        open_compressed_stream(filename, codec_type));
 
   // Read compressed stream in chunks into a buffer builder
   arrow::BufferBuilder builder;
@@ -152,7 +123,8 @@ namespace
 
   // Try .csv.gz as first fallback
   SPDLOG_DEBUG("csv_read_table: trying gzip file '{}'", gz_filename);
-  auto maybe_gz_stream = open_gzip_stream(gz_filename);
+  auto maybe_gz_stream =
+      open_compressed_stream(gz_filename, arrow::Compression::GZIP);
   if (maybe_gz_stream.ok()) {
     auto maybe_table = try_read_csv(*maybe_gz_stream);
     if (maybe_table.ok()) {
@@ -175,7 +147,8 @@ namespace
 
   // Try .csv.zst as second fallback (default output compression is zstd)
   SPDLOG_DEBUG("csv_read_table: trying zstd file '{}'", zst_filename);
-  auto maybe_zst_stream = open_zstd_stream(zst_filename);
+  auto maybe_zst_stream =
+      open_compressed_stream(zst_filename, arrow::Compression::ZSTD);
   if (!maybe_zst_stream.ok()) {
     SPDLOG_DEBUG("csv_read_table: failed to open '{}': {}",
                  zst_filename,
@@ -287,7 +260,8 @@ namespace
   // Try .parquet.gz as first fallback
   SPDLOG_DEBUG("parquet_read_table: trying gzip file '{}'", gz_filename);
   {
-    auto maybe_buffer = decompress_gzip_to_buffer(gz_filename);
+    auto maybe_buffer =
+        decompress_to_buffer(gz_filename, arrow::Compression::GZIP);
     if (maybe_buffer.ok()) {
       return try_open_parquet(*maybe_buffer, gz_filename);
     }
@@ -299,7 +273,8 @@ namespace
   // Try .parquet.zst as second fallback
   SPDLOG_DEBUG("parquet_read_table: trying zstd file '{}'", zst_filename);
   {
-    auto maybe_buffer = decompress_zstd_to_buffer(zst_filename);
+    auto maybe_buffer =
+        decompress_to_buffer(zst_filename, arrow::Compression::ZSTD);
     if (maybe_buffer.ok()) {
       return try_open_parquet(*maybe_buffer, zst_filename);
     }

@@ -104,25 +104,28 @@ struct CapacityObjectBase
   }
 
   /**
-   * @brief Get capacity value and optional column index for a stage
-   * @tparam Out Return type (defaults to pair<double, optional<ColIndex>>)
+   * @brief Query capacity value and optional expansion column for a stage.
+   *
+   * Returns `{std::optional<double>, std::optional<ColIndex>}`.
+   * The capacity is `nullopt` when no expansion column exists AND no
+   * capacity schedule value is defined — i.e. when the physical capacity
+   * is truly undefined.  Callers that need a numeric fallback should use
+   * `value_or(default)` on the returned optional.
+   *
    * @param stage The stage to query
-   * @param lp Linear problem reference to check column bounds
-   * @return Pair containing:
-   *   - First: Capacity value (upper bound if column exists, else schedule
-   * value)
-   *   - Second: Optional column index if exists
+   * @param lp    Linear problem reference (needed for expansion col bounds)
    */
-  template<typename Out = std::pair<double, std::optional<ColIndex>>>
-  [[nodiscard]] constexpr auto capacity_and_col(const StageLP& stage,
-                                                LinearProblem& lp) const -> Out
-  {
-    auto&& capacity_col = capacity_col_at(stage);
-    if (capacity_col) {
-      return {lp.get_col_uppb(*capacity_col), capacity_col};
-    }
+  using CapacityAndCol =
+      std::pair<std::optional<double>, std::optional<ColIndex>>;
 
-    return {capacity_at(stage), {}};
+  [[nodiscard]] constexpr auto capacity_and_col(const StageLP& stage,
+                                                LinearProblem& lp) const
+      -> CapacityAndCol
+  {
+    if (auto col = capacity_col_at(stage)) {
+      return {lp.get_col_uppb(*col), col};
+    }
+    return {m_capacity_.at(stage.uid()), {}};
   }
 
   /**

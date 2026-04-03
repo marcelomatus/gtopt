@@ -32,8 +32,12 @@ struct ModelOptions
   OptBool use_single_bus {};
   /// Apply DC Kirchhoff voltage-law constraints.
   OptBool use_kirchhoff {};
-  /// Model resistive line losses.
+  /// @deprecated Use `line_losses_mode` instead.
   OptBool use_line_losses {};
+  /// Line losses model selection.  See LineLossesMode enum for values:
+  /// `"none"`, `"linear"`, `"piecewise"`, `"bidirectional"`, `"adaptive"`,
+  /// `"dynamic"`.  When unset, defaults to `"adaptive"`.
+  OptName line_losses_mode {};
   /// Minimum bus voltage [kV] below which Kirchhoff is not applied.
   OptReal kirchhoff_threshold {};
   /// Number of piecewise-linear segments for quadratic line losses.
@@ -58,6 +62,7 @@ struct ModelOptions
     merge_opt(use_single_bus, opts.use_single_bus);
     merge_opt(use_kirchhoff, opts.use_kirchhoff);
     merge_opt(use_line_losses, opts.use_line_losses);
+    merge_opt(line_losses_mode, opts.line_losses_mode);
     merge_opt(kirchhoff_threshold, opts.kirchhoff_threshold);
     merge_opt(loss_segments, opts.loss_segments);
     merge_opt(scale_objective, opts.scale_objective);
@@ -72,11 +77,11 @@ struct ModelOptions
   [[nodiscard]] bool has_any() const noexcept
   {
     return use_single_bus.has_value() || use_kirchhoff.has_value()
-        || use_line_losses.has_value() || kirchhoff_threshold.has_value()
-        || loss_segments.has_value() || scale_objective.has_value()
-        || scale_theta.has_value() || demand_fail_cost.has_value()
-        || reserve_fail_cost.has_value() || hydro_fail_cost.has_value()
-        || hydro_use_value.has_value();
+        || use_line_losses.has_value() || line_losses_mode.has_value()
+        || kirchhoff_threshold.has_value() || loss_segments.has_value()
+        || scale_objective.has_value() || scale_theta.has_value()
+        || demand_fail_cost.has_value() || reserve_fail_cost.has_value()
+        || hydro_fail_cost.has_value() || hydro_use_value.has_value();
   }
 };
 

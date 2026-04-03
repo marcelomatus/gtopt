@@ -18,7 +18,6 @@
 
 #pragma once
 
-#include <gtopt/flow_right_lp.hpp>
 #include <gtopt/right_bound_rule.hpp>
 #include <gtopt/storage_lp.hpp>
 #include <gtopt/volume_right.hpp>
@@ -74,14 +73,23 @@ public:
                               const ScenarioLP& scenario,
                               const StageLP& stage);
 
-  /// Return the input flow column indices for (scenario, stage).
+  /// Return the extraction flow column indices for (scenario, stage).
   /// These are the decision variables for how much right volume is
-  /// delivered per block.  External entities can reference these
+  /// extracted per block.  External entities can reference these
   /// to couple into this VolumeRight's balance.
-  [[nodiscard]] const auto& finp_cols_at(const ScenarioLP& scenario,
-                                         const StageLP& stage) const
+  [[nodiscard]] const auto& extraction_cols_at(const ScenarioLP& scenario,
+                                               const StageLP& stage) const
   {
-    return finp_cols_map.at({scenario.uid(), stage.uid()});
+    return extraction_cols_.at({scenario.uid(), stage.uid()});
+  }
+
+  /// Return the saving (inflow) column indices for (scenario, stage).
+  /// These are the decision variables for how much savings are deposited
+  /// per block.  Only populated when saving_rate is set.
+  [[nodiscard]] const auto& saving_cols_at(const ScenarioLP& scenario,
+                                           const StageLP& stage) const
+  {
+    return saving_cols_.at({scenario.uid(), stage.uid()});
   }
 
   /// @name Parameter accessors for user constraint resolution
@@ -90,6 +98,10 @@ public:
   {
     return fmax.at(s, b);
   }
+  [[nodiscard]] auto param_saving_rate(StageUid s, BlockUid b) const
+  {
+    return saving_rate.at(s, b);
+  }
   [[nodiscard]] auto param_demand(StageUid s) const { return demand.at(s); }
   [[nodiscard]] auto param_fail_cost() const { return fail_cost; }
   /// @}
@@ -97,8 +109,10 @@ public:
 private:
   OptTRealSched demand;
   OptTBRealSched fmax;
+  OptTBRealSched saving_rate;
   double fail_cost {0.0};
-  STBIndexHolder<ColIndex> finp_cols_map;
+  STBIndexHolder<ColIndex> extraction_cols_;
+  STBIndexHolder<ColIndex> saving_cols_;
 
   /// Cached bound rule evaluation per (scenario, stage).
   struct BoundState

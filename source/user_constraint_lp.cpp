@@ -276,6 +276,8 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
       *adjusted_expr.upper_bound -= param_shift;
     }
     apply_constraint_bounds(row, adjusted_expr);
+    const auto row_name = row.name;
+    const auto row_nterms = row.size();
     const auto row_idx = lp.add_row(std::move(row));
     block_rows[block.uid()] = row_idx;
     if (is_debug) {
@@ -283,19 +285,20 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
           "  user_constraint '{}': row '{}' added (idx={}, "
           "{} terms, param_shift={})",
           uc.name,
-          row.name,
+          row_name,
           static_cast<int>(row_idx),
-          row.size(),
+          row_nterms,
           param_shift);
     }
   }
 
   if (!block_rows.empty()) {
+    const auto n_rows = block_rows.size();
     m_rows_[{scenario.uid(), stage.uid()}] = std::move(block_rows);
     if (is_debug) {
       spdlog::info("user_constraint '{}': {} rows for s{}_t{}",
                    uc.name,
-                   block_rows.size(),
+                   n_rows,
                    static_cast<int>(scenario.uid()),
                    static_cast<int>(stage.uid()));
     }

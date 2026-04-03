@@ -84,7 +84,6 @@ public:
   {
     ColIndex eini_col {};
     ColIndex efin_col {};
-    double energy_scale {1.0};
     Real current_slope {0.0};
     Real current_rhs {0.0};
   };

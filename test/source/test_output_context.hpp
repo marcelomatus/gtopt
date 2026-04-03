@@ -9,7 +9,6 @@
 #include <fstream>
 #include <memory>
 #include <string>
-#include <vector>
 
 #include <doctest/doctest.h>
 #include <gtopt/array_index_traits.hpp>
@@ -993,4 +992,293 @@ TEST_CASE("probe_parquet_codec - lzo typically unavailable")  // NOLINT
   const auto result = probe_parquet_codec("lzo");
   // Falls back to gzip or "" if lzo is unavailable
   CHECK((result == "lzo" || result == "gzip" || result.empty()));
+}
+
+// ---------------------------------------------------------------------------
+// OutputContext — ScaledView auto-descaling through output pipeline
+// ---------------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "OutputContext - ScaledView descaled values appear in output files")
+{
+  using namespace gtopt;
+
+  // Build a system with a single scaled generator
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  const Array<Generator> gen_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 200.0,
+      },
+  };
+  const Array<Demand> dem_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 50.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_test_scaled_out";
+  std::filesystem::create_directories(tmpdir);
+
+  PlanningOptions opts;
+  opts.output_directory = tmpdir.string();
+  opts.output_format = DataFormat::parquet;
+
+  const System system = {
+      .name = "ScaledOutputTest",
+      .bus_array = bus_array,
+      .demand_array = dem_array,
+      .generator_array = gen_array,
+  };
+
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+
+  // Verify that ScaledView returns physical values, not raw LP values.
+  // get_col_sol() returns ScaledView (physical = LP × col_scale).
+  // For unscaled columns (scale=1), physical == LP.
+  const auto col_sol = lp.get_col_sol();
+  const auto col_sol_raw = lp.get_col_sol_raw();
+  CHECK(!col_sol.empty());
+  CHECK(col_sol.size() == col_sol_raw.size());
+
+  // For each column: physical == raw * scale.
+  // With no VariableScale entries, all scales default to 1.0.
+  for (size_t i = 0; i < col_sol.size(); ++i) {
+    const double scale = lp.get_col_scale(ColIndex {static_cast<Index>(i)});
+    CHECK(col_sol[i] == doctest::Approx(col_sol_raw[i] * scale));
+  }
+
+  // Write output and verify files exist
+  system_lp.write_out();
+  CHECK(std::filesystem::exists(tmpdir / "Generator"));
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+// ---------------------------------------------------------------------------
+// OutputContext — multiple generators produce grouped output
+// ---------------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "OutputContext - multiple generators produce correctly grouped fields")
+{
+  using namespace gtopt;
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  const Array<Generator> gen_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 200.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "g2",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 100.0,
+      },
+  };
+  const Array<Demand> dem_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 80.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_test_multi_gen";
+  std::filesystem::create_directories(tmpdir);
+
+  PlanningOptions opts;
+  opts.output_directory = tmpdir.string();
+  opts.output_format = DataFormat::parquet;
+
+  const System system = {
+      .name = "MultiGenTest",
+      .bus_array = bus_array,
+      .demand_array = dem_array,
+      .generator_array = gen_array,
+  };
+
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+
+  system_lp.write_out();
+
+  // Both generators should produce sol and cost outputs grouped under
+  // Generator/
+  const auto gen_dir = tmpdir / "Generator";
+  CHECK(std::filesystem::exists(gen_dir));
+
+  // generation_sol and generation_cost files should exist with columns for
+  // both generators (as_label joins with '_')
+  CHECK(std::filesystem::exists(gen_dir / "generation_sol.parquet"));
+  CHECK(std::filesystem::exists(gen_dir / "generation_cost.parquet"));
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+// ---------------------------------------------------------------------------
+// OutputContext — empty holder produces no output file
+// ---------------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "OutputContext - empty system produces no output directories")
+{
+  using namespace gtopt;
+
+  // System with bus and demand only — no generators, no reservoirs
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  const Array<Demand> dem_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 50.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_test_empty";
+  std::filesystem::create_directories(tmpdir);
+
+  PlanningOptions opts;
+  opts.output_directory = tmpdir.string();
+  opts.output_format = DataFormat::parquet;
+  opts.demand_fail_cost = 1000.0;  // make LP feasible without generators
+
+  const System system = {
+      .name = "EmptyTest",
+      .bus_array = bus_array,
+      .demand_array = dem_array,
+  };
+
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+
+  system_lp.write_out();
+
+  // No Generator or Reservoir directory should be created
+  CHECK(!std::filesystem::exists(tmpdir / "Generator"));
+  CHECK(!std::filesystem::exists(tmpdir / "Reservoir"));
+
+  // But Demand and Bus should exist (they have output columns)
+  CHECK(std::filesystem::exists(tmpdir / "Demand"));
+
+  std::filesystem::remove_all(tmpdir);
 }

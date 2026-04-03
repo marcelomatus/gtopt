@@ -150,6 +150,7 @@ private:
   mutable std::vector<double> m_col_dual_;
   mutable std::vector<double> m_row_dual_;
   mutable bool m_solution_valid_ {};
+  bool m_load_failed_ {};
 
   void cache_solution() const;
 };
