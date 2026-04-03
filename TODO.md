@@ -32,11 +32,8 @@ Tracked in [GitHub Issues](https://github.com/marcelomatus/gtopt/issues).
     remains correct.
   - Must run *after* the existing row equilibration pass (or replace it).
 
-## Planning / SDDP
+## Completed
 
-- [ ] Check loading of state variables ([#325](https://github.com/marcelomatus/gtopt/issues/325))
-- [ ] Check stage/scenario setting with phase `eini`/`efin` ([#326](https://github.com/marcelomatus/gtopt/issues/326))
-
-## Refactoring
-
-- [ ] Refactor named enum ([#327](https://github.com/marcelomatus/gtopt/issues/327))
+- [x] Check loading of state variables ([#325](https://github.com/marcelomatus/gtopt/issues/325)) — test suite added 2026-04-01
+- [x] Check stage/scenario setting with phase `eini`/`efin` ([#326](https://github.com/marcelomatus/gtopt/issues/326)) — fixed 2026-03-16
+- [x] Refactor named enum ([#327](https://github.com/marcelomatus/gtopt/issues/327)) — `NamedEnum` concept in `enum_option.hpp`
