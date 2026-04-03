@@ -29,7 +29,7 @@ EXTRACT_ALL = YES
 RECURSIVE = YES
 OUTPUT_DIRECTORY = @DOXYGEN_OUTPUT_DIRECTORY@
 
-# File patterns to process
+# File patterns — .dox is not in the default list so must be listed explicitly
 FILE_PATTERNS = *.hpp *.cpp *.h *.md *.dox
 
 # Use the README as a main page
@@ -77,4 +77,4 @@ MACRO_EXPANSION = YES
 EXPAND_ONLY_PREDEF = NO
 
 # Exclude test code and build directories from API docs
-EXCLUDE_PATTERNS = */test/* */build/* */cpm_modules/* */.git/*
+EXCLUDE_PATTERNS = */test/* */build/* */cpm_modules/*
