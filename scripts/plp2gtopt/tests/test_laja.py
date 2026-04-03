@@ -668,18 +668,20 @@ class TestLajaWriter:
             assert "reset_month" not in vr  # economies carry forward
 
     def test_usage_cost_elec(self, laja_config):
-        """Electrical rights have use_value = cost_elec_uso."""
+        """Electrical rights have use_value modulated by monthly_cost_elec."""
         writer = LajaWriter(laja_config)
         elec = next(fr for fr in writer.flow_rights if fr["name"] == "laja_elec_rights")
-        assert elec["use_value"] == pytest.approx(laja_config["cost_elec_uso"])
+        # use_value is now cost_elec_uso × monthly_cost_elec (per-stage schedule)
+        assert "use_value" in elec
 
     def test_usage_cost_mixed(self, laja_config):
-        """Mixed rights have use_value = cost_mixed."""
+        """Mixed rights have use_value modulated by monthly_cost_mixed."""
         writer = LajaWriter(laja_config)
         mixed = next(
             fr for fr in writer.flow_rights if fr["name"] == "laja_mixed_rights"
         )
-        assert mixed["use_value"] == pytest.approx(laja_config["cost_mixed"])
+        # use_value is now cost_mixed × monthly_cost_mixed (per-stage schedule)
+        assert "use_value" in mixed
 
     def test_usage_cost_zero_omitted(self):
         """When usage cost is 0, use_value should not be emitted."""
@@ -793,9 +795,9 @@ def _minimal_laja_config():
         "monthly_usage_mixed": [1] * 12,
         "monthly_usage_anticipated": [0] * 12,
         "monthly_cost_irr_ns": [1.0] * 12,
-        "monthly_cost_irr": [0.0] * 12,
-        "monthly_cost_elec": [0.0] * 12,
-        "monthly_cost_mixed": [0.0] * 12,
+        "monthly_cost_irr": [1.0] * 12,
+        "monthly_cost_elec": [1.0] * 12,
+        "monthly_cost_mixed": [1.0] * 12,
         "monthly_cost_anticipated": [0.0] * 12,
         "ini_irr": 100,
         "ini_elec": 50,

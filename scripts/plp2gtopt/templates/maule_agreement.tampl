@@ -158,14 +158,20 @@ param pct_riego_mensual[month] = [{{ pct_riego_mensual | join(', ') }}];
 param caudal_res105[month] = [{{ caudal_res105 | join(', ') }}];
 
 # ---------------------------------------------------------------------------
-# Penalty costs
+# Invernada storage/bypass costs
 # ---------------------------------------------------------------------------
+#
+# PLP: "Penalizadores Convenio" in plpmaulen.dat
+# These are objective function costs on the Invernada storage and bypass
+# FlowRights, NOT general penalty costs.
+#   CostoEmbalsar    → applied to invernada_storage (IQHINV)
+#   CostoNoEmbalsar  → applied to invernada_bypass  (IQHNEIN)
 
-# Penalty for excess electric extraction [$/hm3]
-param penalizador_1 = {{ penalizador_1 }};
+# Cost for storing water in La Invernada [$/m3/s·h]
+param costo_embalsar = {{ costo_embalsar | default(1500.0) }};
 
-# Penalty for excess irrigation extraction [$/hm3]
-param penalizador_2 = {{ penalizador_2 | default(1000.0) }};
+# Cost for bypassing La Invernada (not storing) [$/m3/s·h]
+param costo_no_embalsar = {{ costo_no_embalsar | default(1000.0) }};
 
 # Penalty for unserved irrigation demand [$/hm3]
 param costo_riego_ns_maule = {{ costo_riego_ns_maule | default(1000.0) }};
@@ -176,6 +182,24 @@ param costo_riego_ns_res105 = {{ costo_riego_ns_res105 | default(1000.0) }};
 # ---------------------------------------------------------------------------
 # La Invernada winter economy parameters
 # ---------------------------------------------------------------------------
+#
+# PLP variable: IVMDEIF (La Invernada economy volume)
+# Modeled as a VolumeRight with purpose="economy":
+#   - `saving` variable: inflow (unused winter storage rights deposited)
+#   - `extraction` variable: outflow (economy spending)
+#   - Balance: economy_vol = prev + saving - extraction
+#
+# ┌─────────────────────────────────────────────────────────────────────┐
+# │ SIMPLIFICATION: Economy reset/cap rules NOT implemented            │
+# │                                                                    │
+# │ La Invernada economy is modeled as a simple accumulator with no    │
+# │ conditional reset or overflow cap.  PLP's more complex Invernada   │
+# │ rules (seasonal usage windows, acumulable flag) are not yet        │
+# │ represented in the gtopt constraint structure.                     │
+# │                                                                    │
+# │ To implement later, consider UserConstraints with monthly          │
+# │ activation schedules and StorageLP drain for overflow.             │
+# └─────────────────────────────────────────────────────────────────────┘
 
 # La Invernada winter economy usage cost [$/hm3]
 param econ_inver_costo = {{ econ_inver_costo | default(0.0) }};

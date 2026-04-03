@@ -230,11 +230,15 @@ class LajaWriter:
             }
         )
 
-        # --- Monthly cost modulation (fail_cost × monthly factor) ---
-        def _monthly_fail_cost(
+        # --- Monthly cost modulation (cost × monthly factor) ---
+        def _monthly_cost(
             base_cost: float, monthly_factors: List[float]
         ) -> float | List[List[float]]:
-            """Build per-stage fail_cost by multiplying base × monthly factor."""
+            """Build per-stage cost by multiplying base × monthly factor.
+
+            Used for both fail_cost and use_value modulation.
+            PLP: CQVarEta(I,IEta) = CQVar(I) * FactMenCQVar(I, Mes).
+            """
             modulated = self._hydro_to_stage_schedule(monthly_factors)
             return self._to_tb_sched([base_cost * f for f in modulated])
 
@@ -250,12 +254,12 @@ class LajaWriter:
             "discharge": 0,
             "fmax": fmax_irr,
             "use_average": True,
-            "fail_cost": _monthly_fail_cost(
-                cfg["cost_irr_ns"], cfg["monthly_cost_irr_ns"]
-            ),
+            "fail_cost": _monthly_cost(cfg["cost_irr_ns"], cfg["monthly_cost_irr_ns"]),
         }
         if cfg.get("cost_irr_uso", 0) > 0:
-            fr_irr["use_value"] = cfg["cost_irr_uso"]
+            fr_irr["use_value"] = _monthly_cost(
+                cfg["cost_irr_uso"], cfg["monthly_cost_irr"]
+            )
         self.flow_rights.append(fr_irr)
 
         # --- FlowRight: Electrical rights (qde) ---
@@ -268,12 +272,12 @@ class LajaWriter:
             "discharge": 0,
             "fmax": fmax_elec,
             "use_average": True,
-            "fail_cost": _monthly_fail_cost(
-                cfg["cost_elec_ns"], cfg["monthly_cost_elec"]
-            ),
+            "fail_cost": _monthly_cost(cfg["cost_elec_ns"], cfg["monthly_cost_elec"]),
         }
         if cfg["cost_elec_uso"] > 0:
-            fr_elec["use_value"] = cfg["cost_elec_uso"]
+            fr_elec["use_value"] = _monthly_cost(
+                cfg["cost_elec_uso"], cfg["monthly_cost_elec"]
+            )
         self.flow_rights.append(fr_elec)
 
         # --- FlowRight: Mixed rights (qdm) ---
@@ -288,7 +292,9 @@ class LajaWriter:
             "use_average": True,
         }
         if cfg["cost_mixed"] > 0:
-            fr_mixed["use_value"] = cfg["cost_mixed"]
+            fr_mixed["use_value"] = _monthly_cost(
+                cfg["cost_mixed"], cfg["monthly_cost_mixed"]
+            )
         self.flow_rights.append(fr_mixed)
 
         # --- FlowRight: Anticipated discharge (qga) ---
@@ -301,7 +307,7 @@ class LajaWriter:
             "discharge": 0,
             "fmax": fmax_antic,
             "use_average": True,
-            "fail_cost": _monthly_fail_cost(
+            "fail_cost": _monthly_cost(
                 cfg.get("cost_irr_ns", 0),
                 cfg["monthly_cost_anticipated"],
             ),
@@ -311,8 +317,8 @@ class LajaWriter:
         # --- VolumeRight: Irrigation volume accumulator (IVDRF) ---
         # bound_rule dynamically caps extraction rate based on reservoir
         # volume (PLP DerRiego formula: base + Σ factor_i × zone_volume_i).
-        # source_flow_right couples to the FlowRight so that turbine
-        # extraction automatically decrements the rights volume.
+        # Extraction is coupled to the reservoir via UserConstraint
+        # (laja_partition), not through source_flow_right.
         vr_irr_uid = self._next_uid()
         self.volume_rights.append(
             {
@@ -320,7 +326,6 @@ class LajaWriter:
                 "name": "laja_vol_irr",
                 "purpose": "irrigation",
                 "reservoir": central,
-                "source_flow_right": "laja_irr_rights",
                 "eini": cfg["ini_irr"],
                 "emax": cfg["max_irr"],
                 "use_state_variable": True,
@@ -341,7 +346,6 @@ class LajaWriter:
                 "name": "laja_vol_elec",
                 "purpose": "generation",
                 "reservoir": central,
-                "source_flow_right": "laja_elec_rights",
                 "eini": cfg["ini_elec"],
                 "emax": cfg["max_elec"],
                 "use_state_variable": True,
@@ -362,7 +366,6 @@ class LajaWriter:
                 "name": "laja_vol_mixed",
                 "purpose": "mixed",
                 "reservoir": central,
-                "source_flow_right": "laja_mixed_rights",
                 "eini": cfg["ini_mixed"],
                 "emax": cfg["max_mixed"],
                 "use_state_variable": True,
@@ -383,7 +386,6 @@ class LajaWriter:
                 "name": "laja_vol_anticipated",
                 "purpose": "anticipated",
                 "reservoir": central,
-                "source_flow_right": "laja_anticipated",
                 "eini": cfg["ini_anticipated"],
                 "emax": cfg["max_anticipated"],
                 "use_state_variable": True,
@@ -397,7 +399,10 @@ class LajaWriter:
         )
 
         # --- VolumeRight: ENDESA economy accumulator (IVESF) ---
-        # Tracks unused extraction rights carried forward (no annual reset)
+        # Tracks unused ENDESA extraction rights carried forward.
+        # PLP: IVESF = prev + IVESN - IQGESH*dt
+        # saving = unused rights deposited; extraction = economy spending.
+        # No annual reset; no overflow cap (see laja_agreement.tampl).
         vr_econ_endesa_uid = self._next_uid()
         self.volume_rights.append(
             {
@@ -405,12 +410,15 @@ class LajaWriter:
                 "name": "laja_vol_econ_endesa",
                 "purpose": "economy",
                 "reservoir": central,
-                "eini": 0,
+                "eini": cfg.get("ini_econ_endesa", 0),
+                "saving_rate": cfg.get("qmax_elec", 200),
                 "use_state_variable": True,
             }
         )
 
         # --- VolumeRight: Reserve economy accumulator (IVERF) ---
+        # PLP: generated only in lower cushion; reset when exiting cushion.
+        # gtopt simplification: simple accumulator (no conditional reset).
         vr_econ_reserve_uid = self._next_uid()
         self.volume_rights.append(
             {
@@ -418,12 +426,14 @@ class LajaWriter:
                 "name": "laja_vol_econ_reserve",
                 "purpose": "economy",
                 "reservoir": central,
-                "eini": 0,
+                "eini": cfg.get("ini_econ_reserve", 0),
+                "saving_rate": cfg.get("qmax_elec", 200),
                 "use_state_variable": True,
             }
         )
 
         # --- VolumeRight: Alto Polcura economy accumulator (IVAPF) ---
+        # PLP: direct Alto Polcura river inflows, always accumulated.
         vr_econ_polcura_uid = self._next_uid()
         self.volume_rights.append(
             {
@@ -431,7 +441,8 @@ class LajaWriter:
                 "name": "laja_vol_econ_polcura",
                 "purpose": "economy",
                 "reservoir": central,
-                "eini": 0,
+                "eini": cfg.get("ini_econ_polcura", 0),
+                "saving_rate": cfg.get("qmax_elec", 200),
                 "use_state_variable": True,
             }
         )

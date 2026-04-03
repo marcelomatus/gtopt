@@ -138,6 +138,15 @@ struct VolumeRight
   /// rights compete for the same water.
   OptReal priority {};
 
+  // ── Saving (economy inflow) fields ────────────────────────────────
+
+  /// Maximum saving deposit rate per block [m³/s].
+  /// Only meaningful for economy VolumeRights (purpose="economy"):
+  /// represents the rate at which unused rights are converted into
+  /// savings.  When set, a `saving` LP variable is created per block.
+  /// PLP: IVESN/IVERN/IVAPN.
+  OptTBRealFieldSched saving_rate {};
+
   // ── Storage configuration ──────────────────────────────────────────
 
   OptReal flow_conversion_rate {
@@ -153,30 +162,23 @@ struct VolumeRight
 
   OptTRealFieldSched annual_loss {};  ///< Annual fractional loss [p.u./year]
 
-  /// Calendar month at which the accumulated volume resets to zero.
-  /// When the stage's month matches reset_month, the eini column is
-  /// fixed at 0 — implementing seasonal volume accounting (e.g., Maule
-  /// irrigation rights reset each April for the hydrological year).
+  /// Calendar month at which rights are re-provisioned.
+  /// When the stage's month matches reset_month, eini is set to:
+  ///   - evaluate_bound_rule(reservoir_volume) if bound_rule is set
+  ///     (dynamic provisioning based on current reservoir level,
+  ///     PLP: DerRiego = Base + Σ(Factor_i × Zone_Volume_i))
+  ///   - emax if no bound_rule (simple full reprovision)
+  /// This implements seasonal/annual rights accounting (e.g., Laja
+  /// irrigation rights re-provisioned each April for the hydro year).
   std::optional<MonthType> reset_month {};
 
-  /// Reference to a FlowRight whose per-block flow drives the outflow
-  /// from this VolumeRight.  When set, the FlowRight's flow columns
-  /// appear in the VolumeRight's energy balance with a positive
-  /// coefficient (outflow = rights consumed), efficiency 1.0.
-  ///
-  /// This mirrors PLP's coupling where IQDRH (stage-average flow)
-  /// both participates in the flow partition and decrements the
-  /// volume right (IVDRF = prev - dur × IQDRH).
-  ///
-  /// In gtopt, the coupling is per-block:
-  /// `efin(b) = efin(b-1) - fcr × dur(b) × flow_right.flow(b) / escale`
-  OptSingleId source_flow_right {};
-
-  /// Volume-dependent bound rule for dynamic fmax adjustment.
-  /// When set, update_lp evaluates the piecewise-linear function
-  /// at the referenced reservoir's current volume and updates the
-  /// finp column upper bound to min(fmax, rule_value).
-  /// This implements PLP cushion zone logic (Laja/Maule).
+  /// Volume-dependent bound rule for dynamic extraction adjustment.
+  /// Serves two purposes:
+  /// 1. Per-block: caps extraction rate to min(fmax, rule_value)
+  /// 2. At reset_month: provisions eini = rule_value (annual quota)
+  /// Both evaluated from the referenced reservoir's current volume
+  /// via a piecewise-linear function.  Implements PLP cushion zone
+  /// logic (Laja/Maule).
   std::optional<RightBoundRule> bound_rule {};
 };
 

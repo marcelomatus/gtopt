@@ -439,12 +439,22 @@ namespace
       return std::nullopt;
     }
 
-    // ── volume_right: water-rights volume input flow variable ────────
+    // ── volume_right: water-rights extraction flow variable ──────────
     if (ref.element_type == "volume_right") {
       const auto& vrt =
           sc.get_element(ObjectSingleId<VolumeRightLP> {single_id});
-      if (ref.attribute == "flow" || ref.attribute == "finp") {
-        const auto& cols = vrt.finp_cols_at(scenario, stage);
+      if (ref.attribute == "extraction" || ref.attribute == "flow"
+          || ref.attribute == "fout")
+      {
+        const auto& cols = vrt.extraction_cols_at(scenario, stage);
+        if (const auto it = cols.find(buid); it != cols.end()) {
+          return ResolvedCol {
+              .col = it->second,
+          };
+        }
+      }
+      if (ref.attribute == "saving") {
+        const auto& cols = vrt.saving_cols_at(scenario, stage);
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,

@@ -201,6 +201,52 @@ param ini_anticipated = {{ ini_anticipated }};
 # Economy accumulators (carry-forward of unused extraction rights) [hm3]
 # These track surplus rights not exercised; initialized to 0.0 when
 # not available in the dat file (PLP default).
+#
+# PLP variables: IVESF (ENDESA), IVERF (reserve), IVAPF (Alto Polcura)
+# Each economy is modeled as a VolumeRight with purpose="economy":
+#   - `saving` variable: inflow (new savings from unused rights)
+#   - `extraction` variable: outflow (spending of saved water)
+#   - Balance: economy_vol = prev + saving - extraction
+#
+# Note: ELTORO/Laguna del Laja has no economy drain (spillage) because
+# there is no physical overflow path for the rights ledger — the
+# reservoir's own drain handles physical spill separately.
+#
+# PLP economy generation rules (genpdlaja.f):
+#   ENDESA (IVESN): = max(GastoAnuMax - actual_extraction, 0) × duration
+#     → unused annual rights become savings; zero in lower cushion
+#   Reserve (IVERN): generated only in lower cushion from irrigation deficit
+#     → reset to zero when reservoir exits lower cushion
+#   Alto Polcura (IVAPN): = Alto Polcura river inflow × duration
+#     → direct river contributions, always accumulated
+#
+# ┌─────────────────────────────────────────────────────────────────────┐
+# │ SIMPLIFICATION: Economy reset/cap rules NOT implemented            │
+# │                                                                    │
+# │ In PLP, the three economy types have conditional reset and         │
+# │ overflow rules that are NOT modeled in the current gtopt version:  │
+# │                                                                    │
+# │ 1. IVERF (reserve) — PLP resets to zero when the reservoir         │
+# │    exits the lower cushion zone (ColchonInferiorActivo=FALSE).     │
+# │    gtopt: modeled as simple accumulator (no conditional reset).    │
+# │    Impact: reserve economies may over-accumulate in normal         │
+# │    operation; in practice, reserve economies are only generated    │
+# │    during emergency (lower cushion), which is rare.                │
+# │                                                                    │
+# │ 2. IVESF (ENDESA) — PLP caps new provisions when the reservoir    │
+# │    overflows (IVRB > 0) via IVRBES spillage variable.             │
+# │    gtopt: no economy overflow cap.  In practice, the reservoir's   │
+# │    own drain handles physical spill; the rights ledger overflow    │
+# │    is a secondary accounting constraint.                           │
+# │                                                                    │
+# │ 3. IVAPF (Alto Polcura) — no reset in PLP either; OK as-is.       │
+# │                                                                    │
+# │ To implement these rules later, consider:                          │
+# │   - IVERF: a volume-conditional reset_rule (like bound_rule but    │
+# │     for zeroing state when reservoir > threshold)                  │
+# │   - IVESF: StorageLP drain_cost/drain_capacity (already supported │
+# │     by StorageLP infrastructure, just not exposed in VolumeRight)  │
+# └─────────────────────────────────────────────────────────────────────┘
 param ini_econ_endesa = {{ ini_econ_endesa | default(0.0) }};
 param ini_econ_reserve = {{ ini_econ_reserve | default(0.0) }};
 param ini_econ_polcura = {{ ini_econ_polcura | default(0.0) }};

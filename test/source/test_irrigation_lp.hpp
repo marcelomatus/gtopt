@@ -1783,108 +1783,371 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "VolumeRight with source_flow_right couples FlowRight outflow to "
-    "volume balance")
+    "Rights exhaustion limits generation despite available water")
 {
-  // A FlowRight with fmax=100 m³/s and a VolumeRight that tracks
-  // accumulated extraction via source_flow_right.  The VolumeRight
-  // starts at eini=0 and the FlowRight's flow should appear as
-  // outflow in the volume balance (efin = eini - fcr*dur*flow).
+  // Physical model: reservoir → waterway → j_down (drain=true).
+  // A user constraint couples reservoir extraction to VolumeRight extraction:
+  //   rsv_extraction = vrt_extraction
+  // VolumeRight tracks remaining rights (eini=limit → depletes to 0).
+  // When vrt_vol hits 0, extraction must stop →
+  // turbine stops → thermal generator fills the gap at higher cost.
   //
-  // With a single 24h block, extracting 100 m³/s for 24h consumes
-  // 0.0036 × 24 × 100 = 8.64 hm³.
+  // No FlowRight — the VolumeRight extraction IS the physical extraction.
 
-  const Array<Bus> bus_array = {
-      {
-          .uid = Uid {1},
-          .name = "b1",
-      },
+  auto solve = [](double rights_limit) -> double
+  {
+    const Array<Bus> bus_array = {
+        {
+            .uid = Uid {1},
+            .name = "b1",
+        },
+    };
+    const Array<Generator> generator_array = {
+        {
+            .uid = Uid {1},
+            .name = "hydro",
+            .bus = Uid {1},
+            .gcost = 0.0,
+            .capacity = 200.0,
+        },
+        {
+            .uid = Uid {2},
+            .name = "thermal",
+            .bus = Uid {1},
+            .gcost = 100.0,
+            .capacity = 200.0,
+        },
+    };
+    const Array<Demand> demand_array = {
+        {
+            .uid = Uid {1},
+            .name = "d1",
+            .bus = Uid {1},
+            .capacity = 50.0,
+        },
+    };
+    const Array<Junction> junction_array = {
+        {
+            .uid = Uid {1},
+            .name = "j_rsv",
+        },
+        {
+            .uid = Uid {2},
+            .name = "j_down",
+            .drain = true,
+        },
+    };
+    const Array<Waterway> waterway_array = {
+        {
+            .uid = Uid {1},
+            .name = "ww",
+            .junction_a = Uid {1},
+            .junction_b = Uid {2},
+            .fmin = 0.0,
+            .fmax = 200.0,
+        },
+    };
+    const Array<Reservoir> reservoir_array = {
+        {
+            .uid = Uid {1},
+            .name = "rsv",
+            .junction = Uid {1},
+            .capacity = 200.0,
+            .emin = 0.0,
+            .emax = 200.0,
+            .eini = 100.0,
+        },
+    };
+    const Array<Turbine> turbine_array = {
+        {
+            .uid = Uid {1},
+            .name = "tur",
+            .waterway = Uid {1},
+            .generator = Uid {1},
+            .conversion_rate = 2.0,
+        },
+    };
+    // VolumeRight: starts at rights_limit and depletes toward 0.
+    // extraction = extraction flow (m³/s), coupled to reservoir via user
+    // constraint.
+    const Array<VolumeRight> volume_right_array = {
+        {
+            .uid = Uid {1},
+            .name = "rights_vol",
+            .emax = rights_limit,
+            .eini = rights_limit,
+            .fmax = 200.0,
+        },
+    };
+    // User constraint ties reservoir extraction to VolumeRight extraction:
+    //   rsv_extraction = vrt_extraction  (physical extraction IS rights
+    //   consumption)
+    const Array<UserConstraint> user_constraint_array = {
+        {
+            .uid = Uid {1},
+            .name = "rsv_vrt_couple",
+            .expression =
+                R"(reservoir("rsv").extraction = volume_right("rights_vol").extraction)",
+            .constraint_type = "raw",
+        },
+    };
+
+    const Simulation simulation = {
+        .block_array =
+            {
+                {
+                    .uid = Uid {1},
+                    .duration = 24,
+                },
+            },
+        .stage_array =
+            {
+                {
+                    .uid = Uid {1},
+                    .first_block = 0,
+                    .count_block = 1,
+                },
+                {
+                    .uid = Uid {2},
+                    .first_block = 0,
+                    .count_block = 1,
+                },
+            },
+        .scenario_array =
+            {
+                {
+                    .uid = Uid {0},
+                },
+            },
+    };
+
+    const System system = {
+        .name = "RightsExhaustionTest",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .junction_array = junction_array,
+        .waterway_array = waterway_array,
+        .reservoir_array = reservoir_array,
+        .turbine_array = turbine_array,
+        .volume_right_array = volume_right_array,
+        .user_constraint_array = user_constraint_array,
+    };
+
+    const PlanningOptionsLP options;
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+    auto&& lp = system_lp.linear_interface();
+    auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+    return lp.get_obj_value();
   };
 
-  const Array<Generator> generator_array = {
-      {
-          .uid = Uid {1},
-          .name = "gen1",
-          .bus = Uid {1},
-          .gcost = 10.0,
-          .capacity = 200.0,
-      },
+  // With 100 hm³ of rights (plenty): all demand served by hydro → cost ≈ 0
+  // Demand = 50 MW, conv_rate = 2.0, so need 25 m³/s.
+  // 2 stages × 24h × 25 m³/s × 0.0036 = 4.32 hm³ needed, 100 available.
+  const auto cost_unlimited = solve(100.0);
+  CHECK(cost_unlimited == doctest::Approx(0.0).epsilon(0.01));
+
+  // With 3 hm³ of rights (< 4.32 hm³ needed): thermal must fill the gap.
+  // The optimizer allocates rights optimally across stages, so partial
+  // hydro is possible — but total cost must be strictly positive.
+  const auto cost_limited = solve(3.0);
+  CHECK(cost_limited > cost_unlimited);
+}
+
+TEST_CASE(  // NOLINT
+    "VolumeRight economy with saving variable accumulates unused rights")
+{
+  // Model: a rights VolumeRight extracts water, an economy VolumeRight
+  // receives the unused portion as savings via a user constraint:
+  //   rights.extraction + economy.saving <= max_extraction_flow
+  //
+  // The economy VolumeRight uses saving_rate to enable the saving variable.
+  // When the rights holder doesn't fully exercise their entitlement,
+  // the remainder flows into the economy accumulator.
+  //
+  // Setup:
+  //   - 1 bus, 1 hydro generator, 1 thermal, 1 demand (50 MW)
+  //   - reservoir → waterway → downstream junction
+  //   - rights VolumeRight: emax=100 hm³, extraction coupled to reservoir
+  //   - economy VolumeRight: eini=0, saving_rate=200 m³/s, accumulates
+  //   - user constraint: rights.extraction + economy.saving = 50 m³/s
+  //     (the max_flow limit — unused portion becomes savings)
+  //   - 2 stages × 24h blocks
+
+  auto solve = [](double saving_max_rate) -> double
+  {
+    const Array<Bus> bus_array = {
+        {
+            .uid = Uid {1},
+            .name = "b1",
+        },
+    };
+    const Array<Generator> generator_array = {
+        {
+            .uid = Uid {1},
+            .name = "hydro",
+            .bus = Uid {1},
+            .gcost = 0.0,
+            .capacity = 200.0,
+        },
+        {
+            .uid = Uid {2},
+            .name = "thermal",
+            .bus = Uid {1},
+            .gcost = 100.0,
+            .capacity = 200.0,
+        },
+    };
+    const Array<Demand> demand_array = {
+        {
+            .uid = Uid {1},
+            .name = "d1",
+            .bus = Uid {1},
+            .capacity = 50.0,
+        },
+    };
+    const Array<Junction> junction_array = {
+        {
+            .uid = Uid {1},
+            .name = "j_rsv",
+        },
+        {
+            .uid = Uid {2},
+            .name = "j_down",
+            .drain = true,
+        },
+    };
+    const Array<Waterway> waterway_array = {
+        {
+            .uid = Uid {1},
+            .name = "ww",
+            .junction_a = Uid {1},
+            .junction_b = Uid {2},
+            .fmin = 0.0,
+            .fmax = 200.0,
+        },
+    };
+    const Array<Reservoir> reservoir_array = {
+        {
+            .uid = Uid {1},
+            .name = "rsv",
+            .junction = Uid {1},
+            .capacity = 200.0,
+            .emin = 0.0,
+            .emax = 200.0,
+            .eini = 100.0,
+        },
+    };
+    const Array<Turbine> turbine_array = {
+        {
+            .uid = Uid {1},
+            .name = "tur",
+            .waterway = Uid {1},
+            .generator = Uid {1},
+            .conversion_rate = 2.0,
+        },
+    };
+    // Rights VolumeRight: starts at 100 hm³, extraction depletes it.
+    // Economy VolumeRight: starts at 0, saving_rate allows deposits.
+    const Array<VolumeRight> volume_right_array = {
+        {
+            .uid = Uid {1},
+            .name = "rights_vol",
+            .emax = 100.0,
+            .eini = 100.0,
+            .fmax = 200.0,
+        },
+        {
+            .uid = Uid {2},
+            .name = "economy_vol",
+            .purpose = "economy",
+            .emax = 100.0,
+            .eini = 0.0,
+            .saving_rate = saving_max_rate,
+        },
+    };
+    // User constraints:
+    // 1. rsv extraction = rights extraction (physical coupling)
+    // 2. rights extraction + economy saving = 50 m³/s
+    //    (unused portion of 50 m³/s max flow becomes savings)
+    const Array<UserConstraint> user_constraint_array = {
+        {
+            .uid = Uid {1},
+            .name = "rsv_vrt_couple",
+            .expression =
+                R"(reservoir("rsv").extraction = volume_right("rights_vol").extraction)",
+            .constraint_type = "raw",
+        },
+        {
+            .uid = Uid {2},
+            .name = "saving_balance",
+            .expression =
+                R"(volume_right("rights_vol").extraction + volume_right("economy_vol").saving = 50)",
+            .constraint_type = "raw",
+        },
+    };
+
+    const Simulation simulation = {
+        .block_array =
+            {
+                {
+                    .uid = Uid {1},
+                    .duration = 24,
+                },
+            },
+        .stage_array =
+            {
+                {
+                    .uid = Uid {1},
+                    .first_block = 0,
+                    .count_block = 1,
+                },
+                {
+                    .uid = Uid {2},
+                    .first_block = 0,
+                    .count_block = 1,
+                },
+            },
+        .scenario_array =
+            {
+                {
+                    .uid = Uid {0},
+                },
+            },
+    };
+
+    const System system = {
+        .name = "EconomySavingTest",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .junction_array = junction_array,
+        .waterway_array = waterway_array,
+        .reservoir_array = reservoir_array,
+        .turbine_array = turbine_array,
+        .volume_right_array = volume_right_array,
+        .user_constraint_array = user_constraint_array,
+    };
+
+    const PlanningOptionsLP options;
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+    auto&& lp = system_lp.linear_interface();
+    auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+    return lp.get_obj_value();
   };
 
-  const Array<Demand> demand_array = {
-      {
-          .uid = Uid {1},
-          .name = "d1",
-          .bus = Uid {1},
-          .capacity = 50.0,
-      },
-  };
-
-  // FlowRight with variable mode (fmax > 0, discharge = 0)
-  const Array<FlowRight> flow_right_array = {
-      {
-          .uid = Uid {1},
-          .name = "extraction_flow",
-          .discharge = 0.0,
-          .fmax = 100.0,
-          .use_average = true,
-      },
-  };
-
-  // VolumeRight coupled to FlowRight via source_flow_right
-  const Array<VolumeRight> volume_right_array = {
-      {
-          .uid = Uid {1},
-          .name = "rights_volume",
-          .emax = 500.0,
-          .eini = 0.0,
-          .use_state_variable = false,
-          .source_flow_right = Name {"extraction_flow"},
-      },
-  };
-
-  const Simulation simulation = {
-      .block_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .duration = 24,
-              },
-          },
-      .stage_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .first_block = 0,
-                  .count_block = 1,
-              },
-          },
-      .scenario_array =
-          {
-              {
-                  .uid = Uid {0},
-              },
-          },
-  };
-
-  const System system = {
-      .name = "SourceFlowRightTest",
-      .bus_array = bus_array,
-      .demand_array = demand_array,
-      .generator_array = generator_array,
-      .flow_right_array = flow_right_array,
-      .volume_right_array = volume_right_array,
-  };
-
-  const PlanningOptionsLP options;
-  SimulationLP simulation_lp(simulation, options);
-  SystemLP system_lp(system, simulation_lp);
-
-  auto&& lp = system_lp.linear_interface();
-  CHECK(lp.get_numrows() > 0);
-  CHECK(lp.get_numcols() > 0);
-
-  auto result = lp.resolve();
-  REQUIRE(result.has_value());
-  CHECK(result.value() == 0);
+  // With saving enabled: the constraint forces
+  //   rights.extraction + economy.saving = 50 m³/s
+  // Hydro needs 25 m³/s for 50 MW (conv_rate=2.0), so:
+  //   rights.extraction = 25, economy.saving = 25
+  // The economy accumulates 25 m³/s × 24h × 0.0036 = 0.216 hm³/stage
+  // All demand served by hydro → cost ≈ 0.
+  const auto cost_with_saving = solve(200.0);
+  CHECK(cost_with_saving == doctest::Approx(0.0).epsilon(0.01));
 }

@@ -38,6 +38,20 @@ struct StorageOptions
   /// use_state_variable=false.
   bool daily_cycle {false};
 
+  /// Skip linking sini to the previous phase's efin at this cross-phase
+  /// boundary.  When true, the sini column is left free (within emin/emax
+  /// bounds) so that the caller can fix it to a provisioned value (e.g.,
+  /// VolumeRight reset_month).  The efin StateVariable is still registered
+  /// for outgoing propagation to the next phase.
+  ///
+  /// This prevents SDDP from propagating stale duals backward through a
+  /// rights reset boundary, and from overwriting the provisioned eini with
+  /// the previous phase's efin trial value in the forward pass.
+  ///
+  /// Should only be set when the stage is a phase boundary AND the storage
+  /// element's initial state is independently determined (reset/reprovision).
+  bool skip_state_link {false};
+
   /// Energy (volume) scale factor: the LP energy variable is divided by this
   /// value so that the LP works in scaled units (physical_energy /
   /// energy_scale). Default 1.0 = no scaling. For reservoirs the default is
@@ -446,7 +460,7 @@ public:
           .uppb = lp_emax,
           .scale = energy_scale,
       });
-      if (effective_usv) {
+      if (effective_usv && !opts.skip_state_link) {
         // Link as DependentVariable of the previous phase's efin StateVariable
         // so that PlanningLP::resolve_scene_phases() and the SDDP forward pass
         // can propagate the trial value.
@@ -462,6 +476,13 @@ public:
               cname,
               static_cast<int>(uid()));
         }
+      } else if (effective_usv && opts.skip_state_link) {
+        SPDLOG_TRACE(
+            "StorageLP: skipping state link at phase boundary "
+            "(class='{}' uid={}) — eini is independently provisioned "
+            "(reset_month or similar).",
+            cname,
+            static_cast<int>(uid()));
       }
       // If !use_state_variable: sini is free (within emin/emax bounds).
       // An efin==eini close constraint is added after the block loop below.
@@ -517,24 +538,28 @@ public:
       // simplifies to flow_conversion_rate × duration — avoiding LP
       // coefficients that change with energy_scale.
       //
-      // fout_cols may be empty (e.g., VolumeRight with source_flow_right
-      // coupling — outflow is injected separately after this call).
-      // finp_cols are always present.
+      // fout_cols and finp_cols may each be empty.  VolumeRight with
+      // source_flow_right passes empty finp (outflow injected later);
+      // VolumeRight always passes empty fout (outflow via FlowRight).
       const auto has_fout = fout_cols.contains(buid);
-      const auto finp_col = finp_cols.at(buid);
+      const auto has_finp = finp_cols.contains(buid);
 
       if (has_fout) {
         const auto fout_col = fout_cols.at(buid);
         erow[fout_col] = +(flow_conversion_rate / fout_efficiency)
             * block.duration() * dc_stage_scale * flow_scale / energy_scale;
 
-        // if the input and output are the same, we only need one entry
-        if (fout_col != finp_col) {
-          erow[finp_col] = -(flow_conversion_rate * finp_efficiency)
-              * block.duration() * dc_stage_scale * flow_scale / energy_scale;
+        if (has_finp) {
+          const auto finp_col = finp_cols.at(buid);
+          // if the input and output are the same, we only need one entry
+          if (fout_col != finp_col) {
+            erow[finp_col] = -(flow_conversion_rate * finp_efficiency)
+                * block.duration() * dc_stage_scale * flow_scale / energy_scale;
+          }
         }
-      } else {
+      } else if (has_finp) {
         // No fout — finp is a pure inflow (adds to storage volume).
+        const auto finp_col = finp_cols.at(buid);
         erow[finp_col] = -(flow_conversion_rate * finp_efficiency)
             * block.duration() * dc_stage_scale * flow_scale / energy_scale;
       }

@@ -331,7 +331,7 @@ class MauleWriter:
                 "name": "maule_vol_elec_monthly",
                 "purpose": "generation",
                 "reservoir": res_colbun,
-                "source_flow_right": "maule_elec_normal",
+                # source_flow_right removed — coupling via UserConstraint
                 "eini": cfg["v_gasto_elec_men_ini"],
                 "emax": cfg["gasto_elec_men_max"],
                 "use_state_variable": True,
@@ -348,7 +348,7 @@ class MauleWriter:
                 "name": "maule_vol_elec_annual",
                 "purpose": "generation",
                 "reservoir": res_colbun,
-                "source_flow_right": "maule_elec_normal",
+                # source_flow_right removed — coupling via UserConstraint
                 "eini": cfg["v_gasto_elec_anu_ini"],
                 "emax": cfg["v_der_elect_anu_max"],
                 "use_state_variable": True,
@@ -364,7 +364,7 @@ class MauleWriter:
                 "name": "maule_vol_irr_seasonal",
                 "purpose": "irrigation",
                 "reservoir": res_colbun,
-                "source_flow_right": "maule_irr_normal",
+                # source_flow_right removed — coupling via UserConstraint
                 "eini": cfg["v_gasto_riego_ini"],
                 "emax": cfg["v_der_riego_temp_max"],
                 "use_state_variable": True,
@@ -380,7 +380,7 @@ class MauleWriter:
                 "name": "maule_vol_compensation",
                 "purpose": "generation",
                 "reservoir": res_colbun,
-                "source_flow_right": "maule_compensation",
+                # source_flow_right removed — coupling via UserConstraint
                 "eini": cfg["v_comp_elec_ini"],
                 "emax": cfg["v_comp_elec_max"],
                 "use_state_variable": True,
@@ -398,7 +398,7 @@ class MauleWriter:
                 "name": "maule_vol_rext_elec",
                 "purpose": "generation",
                 "reservoir": res_colbun,
-                "source_flow_right": "maule_elec_ordinary",
+                # source_flow_right removed — coupling via UserConstraint
                 "eini": cfg.get("v_gasto_rext_elec_ini", 0.0),
                 "emax": cfg["v_reserva_extraord"],
                 "use_state_variable": True,
@@ -416,14 +416,16 @@ class MauleWriter:
                 "name": "maule_vol_rext_riego",
                 "purpose": "irrigation",
                 "reservoir": res_colbun,
-                "source_flow_right": "maule_irr_ordinary",
+                # source_flow_right removed — coupling via UserConstraint
                 "eini": cfg.get("v_gasto_rext_riego_ini", 0.0),
                 "emax": cfg["v_reserva_extraord"],
                 "use_state_variable": True,
             }
         )
 
-        # --- VolumeRight: La Invernada winter economy ---
+        # --- VolumeRight: La Invernada winter economy (IVMDEIF) ---
+        # Tracks unused winter storage rights.
+        # saving = deposits from unused rights; extraction = spending.
         vr_econ_uid = self._next_uid()
         self.volume_rights.append(
             {
@@ -432,6 +434,7 @@ class MauleWriter:
                 "purpose": "economy",
                 "reservoir": cfg["central_invernada"],
                 "eini": cfg["v_econ_inver_ini"],
+                "saving_rate": cfg.get("qmax_invernada", 200),
                 "use_state_variable": True,
             }
         )
@@ -476,6 +479,7 @@ class MauleWriter:
         )
 
         # --- FlowRight: La Invernada storage to reservoir (IQHEIN) ---
+        # PLP: FO(IQHINV) = FCau * CostoEmbalsar
         fr_hein_uid = self._next_uid()
         fr_hein: Dict[str, Any] = {
             "uid": fr_hein_uid,
@@ -485,23 +489,26 @@ class MauleWriter:
             "discharge": 0,
             "use_average": True,
         }
-        econ_costo = cfg.get("econ_inver_costo", 0.0)
-        if econ_costo > 0:
-            fr_hein["use_value"] = econ_costo
+        costo_embalsar = cfg.get("costo_embalsar", 1500.0)
+        if costo_embalsar > 0:
+            fr_hein["use_value"] = costo_embalsar
         self.flow_rights.append(fr_hein)
 
         # --- FlowRight: La Invernada bypass (IQHNEIN) ---
+        # PLP: FO(IQHNEIN) = FCau * CostoNoEmbalsar
         fr_hnein_uid = self._next_uid()
-        self.flow_rights.append(
-            {
-                "uid": fr_hnein_uid,
-                "name": "invernada_bypass",
-                "purpose": "economy",
-                "direction": -1,
-                "discharge": 0,
-                "use_average": True,
-            }
-        )
+        fr_hnein: Dict[str, Any] = {
+            "uid": fr_hnein_uid,
+            "name": "invernada_bypass",
+            "purpose": "economy",
+            "direction": -1,
+            "discharge": 0,
+            "use_average": True,
+        }
+        costo_no_embalsar = cfg.get("costo_no_embalsar", 1000.0)
+        if costo_no_embalsar > 0:
+            fr_hnein["use_value"] = costo_no_embalsar
+        self.flow_rights.append(fr_hnein)
 
         # --- FlowRight: Bocatoma Canelon ---
         costo_canelon = cfg.get("costo_canelon", 0.0)

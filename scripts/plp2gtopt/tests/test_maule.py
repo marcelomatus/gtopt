@@ -485,6 +485,8 @@ def _minimal_maule_config():
         "costo_riego_ns_maule": 1000.0,
         "costo_riego_ns_res105": 1000.0,
         "econ_inver_costo": 0.5,
+        "costo_embalsar": 1500.0,
+        "costo_no_embalsar": 1000.0,
         "bocatoma_canelon": "BCanelon",
         "costo_canelon": 10.0,
         "districts": [
@@ -587,18 +589,27 @@ class TestMauleInvernadaBalance:
         assert not missing, f"Missing Invernada FlowRights: {missing}"
 
     def test_invernada_storage_use_value(self):
-        """Storage FlowRight should have use_value from econ_inver_costo."""
+        """Storage FlowRight should have use_value from costo_embalsar."""
         cfg = _minimal_maule_config()
         writer = MauleWriter(cfg)
         storage = next(
             fr for fr in writer.flow_rights if fr["name"] == "invernada_storage"
         )
-        assert storage["use_value"] == pytest.approx(0.5)
+        assert storage["use_value"] == pytest.approx(1500.0)
+
+    def test_invernada_bypass_use_value(self):
+        """Bypass FlowRight should have use_value from costo_no_embalsar."""
+        cfg = _minimal_maule_config()
+        writer = MauleWriter(cfg)
+        bypass = next(
+            fr for fr in writer.flow_rights if fr["name"] == "invernada_bypass"
+        )
+        assert bypass["use_value"] == pytest.approx(1000.0)
 
     def test_invernada_storage_zero_cost_omitted(self):
-        """When econ_inver_costo is 0, use_value should not be emitted."""
+        """When costo_embalsar is 0, use_value should not be emitted."""
         cfg = _minimal_maule_config()
-        cfg["econ_inver_costo"] = 0.0
+        cfg["costo_embalsar"] = 0.0
         writer = MauleWriter(cfg)
         storage = next(
             fr for fr in writer.flow_rights if fr["name"] == "invernada_storage"
