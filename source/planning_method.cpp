@@ -24,7 +24,7 @@ std::unique_ptr<PlanningMethod> make_planning_method(
     const PlanningOptionsLP& options, size_t num_phases)
 {
   // Validate enum option strings and warn about unknown values
-  for (const auto& w : options.validate_enum_options()) {
+  for (const auto& w : PlanningOptionsLP::validate_enum_options()) {
     SPDLOG_WARN("Options: {}", w);
   }
 

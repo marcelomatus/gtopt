@@ -108,7 +108,7 @@ public:
    */
   [[nodiscard]] int update_lp(SystemLP& sys,
                               const ScenarioLP& scenario,
-                              const StageLP& stage);
+                              const StageLP& stage) const;
 
   /**
    * @brief Update the conversion-rate LP coefficient for a given volume

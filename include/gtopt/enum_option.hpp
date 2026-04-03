@@ -130,7 +130,10 @@ template<NamedEnum E>
 [[nodiscard]] constexpr auto enum_from_name(std::string_view name) noexcept
     -> std::optional<E>
 {
-  return enum_from_name(enum_entries(E {}), name);
+  return enum_from_name(
+      enum_entries(
+          E {}),  // NOLINT(bugprone-invalid-enum-default-initialization)
+      name);
 }
 
 /**

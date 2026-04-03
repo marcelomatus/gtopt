@@ -67,7 +67,7 @@ auto save_state_csv(const PlanningLP& planning_lp,
         const auto col_sol = li.get_col_sol_raw();
         const auto col_rc = li.get_col_cost_raw();
         const auto& names = li.col_index_to_name();
-        const auto ncols = static_cast<size_t>(li.get_numcols());
+        const auto ncols = li.get_numcols();
         const auto phase_uid = phase.uid();
         const auto scene_uid = scene.uid();
 
@@ -131,8 +131,8 @@ auto load_state_csv(PlanningLP& planning_lp, const std::string& filepath)
     const auto& sim = planning_lp.simulation();
     for (auto&& [si, _sc] : enumerate<SceneIndex>(sim.scenes())) {
       for (auto&& [pi, _ph] : enumerate<PhaseIndex>(sim.phases())) {
-        const auto ncols = static_cast<size_t>(
-            planning_lp.system(si, pi).linear_interface().get_numcols());
+        const auto ncols =
+            planning_lp.system(si, pi).linear_interface().get_numcols();
         entries.push_back(WarmEntry {
             .scene = si,
             .phase = pi,

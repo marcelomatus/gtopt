@@ -54,33 +54,30 @@ public:
                        const double* scales,
                        size_t ns,
                        Op op = Op::multiply) noexcept
-      : data_(data)
-      , n_(n)
-      , scales_(scales)
-      , ns_(ns)
+      : data_(data, n)
+      , scales_(scales, ns)
       , op_(op)
   {
   }
 
   /// Construct from a raw span (no scaling).
   constexpr explicit ScaledView(std::span<const double> raw) noexcept
-      : data_(raw.data())
-      , n_(raw.size())
+      : data_(raw)
   {
   }
 
   [[nodiscard]] constexpr double operator[](auto idx) const noexcept
   {
     const auto i = static_cast<size_t>(idx);
-    if (i >= ns_) {
+    if (i >= scales_.size()) {
       return data_[i];
     }
     return (op_ == Op::multiply) ? data_[i] * scales_[i]
                                  : data_[i] / scales_[i];
   }
 
-  [[nodiscard]] constexpr size_t size() const noexcept { return n_; }
-  [[nodiscard]] constexpr bool empty() const noexcept { return n_ == 0; }
+  [[nodiscard]] constexpr size_t size() const noexcept { return data_.size(); }
+  [[nodiscard]] constexpr bool empty() const noexcept { return data_.empty(); }
 
   /// Iterator support for range-for loops.
   class iterator
@@ -116,13 +113,14 @@ public:
   };
 
   [[nodiscard]] constexpr iterator begin() const noexcept { return {this, 0}; }
-  [[nodiscard]] constexpr iterator end() const noexcept { return {this, n_}; }
+  [[nodiscard]] constexpr iterator end() const noexcept
+  {
+    return {this, data_.size()};
+  }
 
 private:
-  const double* data_ {};
-  size_t n_ {};
-  const double* scales_ {};
-  size_t ns_ {};
+  std::span<const double> data_ {};
+  std::span<const double> scales_ {};
   Op op_ {Op::multiply};
 };
 
