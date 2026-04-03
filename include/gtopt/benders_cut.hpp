@@ -240,6 +240,13 @@ struct ElasticSolveResult
     std::span<const double> forward_row_dual = {})
     -> std::optional<ElasticSolveResult>;
 
+/// @brief Result structure for feasibility cut building
+struct FeasibilityCutResult
+{
+  SparseRow cut {};  ///< The feasibility Benders cut
+  ElasticSolveResult elastic;  ///< Clone + slack info (for multi-cut)
+};
+
 /// Build a Benders feasibility cut from a solved elastic clone.
 ///
 /// This wraps the common pattern: clone → relax → solve → extract cut.
@@ -253,12 +260,6 @@ struct ElasticSolveResult
 /// @param name        Name for the resulting cut row
 /// @return A feasibility cut (SparseRow) and the ElasticSolveResult,
 ///         or nullopt if the elastic solve fails.
-struct FeasibilityCutResult
-{
-  SparseRow cut {};  ///< The feasibility Benders cut
-  ElasticSolveResult elastic;  ///< Clone + slack info (for multi-cut)
-};
-
 [[nodiscard]] auto build_feasibility_cut(const LinearInterface& li,
                                          ColIndex alpha_col,
                                          std::span<const StateVarLink> links,

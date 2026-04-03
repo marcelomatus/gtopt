@@ -236,10 +236,6 @@ public:
   ///   3. Previous phase's efin (via sys.prev_phase_sys())
   ///   4. default_eini (system initial volume / vini)
   ///
-  /// @tparam SystemLPT  The SystemLP type (templated to avoid circular
-  ///   include between storage_lp.hpp and system_lp.hpp).
-  /// @tparam SIdT       Strongly-typed object single-ID used for cross-phase
-  ///   element lookup.
   /// @param sys          Current SystemLP (provides linear_interface and
   ///   prev_phase_sys for cross-phase lookups).
   /// @param scenario     Current scenario LP object.

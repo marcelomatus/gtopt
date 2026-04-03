@@ -19,7 +19,7 @@
  *
  * ### Laja cushion zone example
  *
- * ```
+ * ```text
  * Rights_irr = 570 + 0.00*min(V,1200) + 0.40*min(max(V-1200,0),700)
  *            + 0.25*max(V-1900,0)
  * ```

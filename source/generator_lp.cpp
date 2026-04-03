@@ -26,7 +26,7 @@ namespace gtopt
 /**
  * @brief Constructs a GeneratorLP from a Generator
  * @param ic Input context for parameter processing
- * @param pgenerator Generator object to convert to LP representation
+ * @param generator Generator object to convert to LP representation
  *
  * Creates an LP representation of a generator including time-dependent
  * parameters like minimum/maximum generation limits, loss factors, and costs.

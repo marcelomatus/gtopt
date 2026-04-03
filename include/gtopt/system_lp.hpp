@@ -238,7 +238,6 @@ public:
 
   /**
    * @brief Add element to appropriate collection
-   * @tparam Element Type of element to add
    * @param e Element to add
    * @return Result of collection push_back
    */
@@ -252,7 +251,6 @@ public:
 
   /**
    * @brief Get all elements of specific type
-   * @tparam Element Type of elements to retrieve
    * @return Reference to elements container
    */
   template<typename Element, typename Self>
@@ -265,9 +263,6 @@ public:
 
   /**
    * @brief Get element by ID
-   * @tparam Element Type of element
-   * @tparam Self    Deduced object type (const or non-const)
-   * @tparam Id      ID type template
    * @param self     The object instance (deduced via explicit object parameter)
    * @param id       Element ID
    * @return Reference to the element
@@ -283,8 +278,6 @@ public:
 
   /**
    * @brief Get index of element by ID
-   * @tparam Element Type of element
-   * @tparam Id ID type template
    * @param id Element ID
    * @return Index of the element
    */

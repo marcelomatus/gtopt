@@ -590,7 +590,7 @@ struct BackwardPassOutcome
  * - **Sentinel file**: same as PLP's `userstop` — check for a sentinel
  *   file on disk.
  *
- * @code
+ * @code{.cpp}
  * SDDPMethod sddp(planning_lp, SDDPOptions{.max_iterations = 100});
  *
  * // Register a callback that prints progress and stops at gap < 1e-6

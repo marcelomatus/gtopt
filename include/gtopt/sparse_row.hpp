@@ -159,10 +159,6 @@ struct SparseRow
 
   /**
    * Converts to flat representation for solver interfaces
-   * @tparam Int Index type (default: size_t)
-   * @tparam Dbl Value type (default: double)
-   * @tparam KVec Key vector type (default: std::vector<Int>)
-   * @tparam VVec Value vector type (default: std::vector<Dbl>)
    * @param eps Epsilon for zero comparison (values < eps are treated as 0)
    * @return Pair of vectors containing indices and values
    */

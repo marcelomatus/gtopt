@@ -203,8 +203,6 @@ public:
 
   /**
    * @brief Retrieves a state variable by its key
-   * @tparam Self Type of the object (deduced using 'this' parameter)
-   * @tparam Key  Type of the key (default state_variable_key_t)
    * @param self  The object instance (deduced via explicit object parameter)
    * @param key   The key to search for
    * @return Optional reference to the state variable if found (const or

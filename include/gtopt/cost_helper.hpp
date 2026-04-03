@@ -33,18 +33,6 @@
 namespace gtopt::detail
 {
 
-/**
- * @brief Helper function to compute final cost factor
- *
- * Calculates: (probability * discount * duration) / objective_scale
- *
- * @param scale_obj Objective scaling factor
- * @param probability Scenario probability factor
- * @param discount Stage discount factor
- * @param duration Time duration
- * @return Combined cost factor
- */
-
 }  // namespace gtopt::detail
 
 namespace gtopt

@@ -214,9 +214,6 @@ public:
    * - Values vector with projected/scaled values
    * - Valid vector marking which indices had data
    *
-   * @tparam Projection Callable that transforms source values (double ->
-   * double)
-   * @tparam Factor Optional scaling factors (default: no scaling)
    * @param hstb The GSTB-indexed data holder
    * @param proj Projection function to apply to each value
    * @param factor Optional scaling factors (applied after projection)

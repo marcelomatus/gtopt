@@ -13,7 +13,7 @@
  * ### Piecewise-linear evaluation (matches PLP Fortran `FRendimientos`)
  *
  * The efficiency is the **minimum** over all segments (concave envelope):
- * ```
+ * ```text
  * efficiency(V) = min_i { constant_i + slope_i × (V − volume_i) }
  * ```
  * Here `constant_i` is the efficiency **at the breakpoint** `volume_i`
@@ -116,7 +116,7 @@ struct ReservoirProductionFactor
  * @brief Evaluate the piecewise-linear concave efficiency function
  *
  * Implements the PLP `FRendimientos` function (plp-frendim.f):
- * ```
+ * ```text
  * result = min over all segments of
  *          { constant_i + slope_i × (volume − volume_breakpoint_i) }
  * ```

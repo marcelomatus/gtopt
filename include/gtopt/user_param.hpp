@@ -9,7 +9,7 @@
  * monthly-indexed parameter for use in pseudo-AMPL constraint scripts.
  *
  * Parameters can be defined in a pseudo-AMPL script file:
- * ```
+ * ```text
  * # Scalar parameter
  * param pct_elec = 35;
  *

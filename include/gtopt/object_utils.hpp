@@ -31,7 +31,6 @@ class ObjectUtils
 public:
   /**
    * @brief Generates a state variable key for the object
-   * @tparam Self CRTP self type
    * @param self Reference to the object
    * @param scenario Scenario context
    * @param stage Stage context
@@ -60,10 +59,6 @@ public:
 
   /**
    * @brief Generates a label for a variable in the optimization problem
-   * @tparam Self CRTP self type
-   * @tparam SystemContext Type of the system context
-   * @tparam StageLP Type of the stage
-   * @tparam Args Types of additional arguments
    * @param self Reference to the object
    * @param sc System context
    * @param scenario Scenario context

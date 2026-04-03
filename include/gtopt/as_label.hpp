@@ -24,7 +24,7 @@
  * - Any type formattable via std::format
  *
  * Example usage:
- * @code
+ * @code{.cpp}
  * auto label1 = as_label("prefix", 42, "suffix"); // "prefix_42_suffix"
  * auto label2 = as_label<'-'>("a", "b", "c");    // "a-b-c"
  * @endcode
@@ -302,7 +302,7 @@ template<char sep = '_'>
  * @note The function is constexpr and noexcept when possible
  *
  * Example:
- * @code
+ * @code{.cpp}
  * auto label = as_label("config", "value", 42); // "config_value_42"
  * @endcode
  */

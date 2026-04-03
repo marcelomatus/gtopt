@@ -13,7 +13,7 @@
  *
  * ### Expression syntax (AMPL-inspired)
  *
- * ```
+ * ```text
  * generator("TORO").generation + generator("uid:23").generation <= 300,
  *     for(stage in {4,5,6}, block in 1..30)
  * ```

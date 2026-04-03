@@ -13,8 +13,10 @@
  * 2. Per-block averaging constraints linking block flows to `qeh`:
  *    `qeh - (dur_b / dur_stage) × flow_b = 0`
  * 3. A stage-level inequality (volume-dependent discharge cap):
- *    @code qeh - slope * energy_scale * 0.5 * eini
- *         - slope * energy_scale * 0.5 * efin  <= intercept @endcode
+ *    @code{.text}
+ *    qeh - slope * energy_scale * 0.5 * eini
+ *        - slope * energy_scale * 0.5 * efin  <= intercept
+ *    @endcode
  *
  * When the ReservoirDischargeLimit has multiple piecewise segments,
  * `update_lp()` selects the active segment based on the reservoir volume from

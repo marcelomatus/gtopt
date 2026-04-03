@@ -9,7 +9,7 @@
  * into an adjacent reservoir.  The seepage flow is modelled as a
  * piecewise-linear function of the reservoir's average volume:
  *
- * ```
+ * ```text
  * seepage [m³/s] = slope_i × avg_volume [hm³] + constant_i [m³/s]
  * ```
  *
@@ -18,7 +18,7 @@
  * (matches PLP Fortran `FFiltracionesi`):
  *
  * ### Piecewise-linear evaluation (PLP formula)
- * ```
+ * ```text
  * Find segment i such that: segments[i].volume ≤ V < segments[i+1].volume
  * seepage(V) = constant_i + slope_i × V
  * ```
@@ -193,7 +193,7 @@ struct ReservoirSeepage
  * @brief Evaluate the piecewise-linear seepage function
  *
  * Implements the PLP seepage model (matches Fortran `FFiltracionesi`):
- * ```
+ * ```text
  * Find the segment i where volume_i ≤ volume < volume_{i+1},
  * then compute:  result = constant_i + slope_i × volume
  * ```

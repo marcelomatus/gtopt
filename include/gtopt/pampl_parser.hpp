@@ -16,7 +16,7 @@
  * ignored everywhere.
  *
  * **Formal grammar (pseudo-BNF):**
- * ```
+ * ```text
  * pampl_file      := constraint_stmt*
  *
  * constraint_stmt := constraint_hdr? constraint_expr ';'

@@ -34,16 +34,11 @@
 namespace gtopt
 {
 /**
- * @brief A linear programming representation of an object with capacity
- * constraints
+ * @brief Base class providing capacity constraint logic for LP objects
  *
- * @tparam Object The type of object being modeled, must provide
- * capacity-related attributes
- *
- * This class extends ObjectLP to handle capacity constraints, expansion
- * capabilities, and associated costs in a linear programming formulation.
+ * This class handles capacity constraints, expansion capabilities,
+ * and associated costs in a linear programming formulation.
  */
-
 struct CapacityObjectBase
 {
   [[nodiscard]] constexpr const Id& id() const noexcept { return m_id_; }
@@ -103,6 +98,10 @@ struct CapacityObjectBase
     return m_capacity_.at(stage.uid()).value_or(def_capacity);
   }
 
+  /// Pair of optional capacity value and optional expansion column index.
+  using CapacityAndCol =
+      std::pair<std::optional<double>, std::optional<ColIndex>>;
+
   /**
    * @brief Query capacity value and optional expansion column for a stage.
    *
@@ -115,9 +114,6 @@ struct CapacityObjectBase
    * @param stage The stage to query
    * @param lp    Linear problem reference (needed for expansion col bounds)
    */
-  using CapacityAndCol =
-      std::pair<std::optional<double>, std::optional<ColIndex>>;
-
   [[nodiscard]] constexpr auto capacity_and_col(const StageLP& stage,
                                                 LinearProblem& lp) const
       -> CapacityAndCol
@@ -222,6 +218,13 @@ private:
   TIndexHolder<RowIndex> capacost_rows;
 };
 
+/**
+ * @brief A linear programming representation of an object with capacity
+ * constraints
+ *
+ * @tparam Object The type of object being modeled, must provide
+ * capacity-related attributes
+ */
 template<typename Object>
 struct CapacityObjectLP
     : public ObjectLP<Object>

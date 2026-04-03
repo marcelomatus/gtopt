@@ -652,9 +652,8 @@ public:
    * by the per-row scale factor to recover physical units.
    * Row equilibration divides each row by s = max|coeff|, so the LP dual
    * is π_LP = s × π_phys, hence π_phys = π_LP / s.
-   * @return Span view of physical dual values
+   * @return Zero-copy lazy view: `dual_LP / row_scale` per element.
    */
-  /// @return Zero-copy lazy view: `dual_LP / row_scale` per element.
   [[nodiscard]] ScaledView get_row_dual() const noexcept
   {
     const auto n = get_numrows();

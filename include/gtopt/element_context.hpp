@@ -64,7 +64,6 @@ public:
 
   /**
    * @brief Gets a container of all elements of a specific type.
-   * @tparam Element The type of elements to retrieve.
    * @return A const reference to the container of elements.
    */
   template<typename Element>
@@ -75,8 +74,6 @@ public:
 
   /**
    * @brief Gets the index of an element by its ID.
-   * @tparam Element The type of the element.
-   * @tparam Id The ID type wrapper (e.g., ObjectId).
    * @param id The ID of the element.
    * @return The ElementIndex for the given ID.
    * @throws std::out_of_range if the element is not found.
@@ -89,8 +86,6 @@ public:
 
   /**
    * @brief Gets a reference to an element by its ID.
-   * @tparam Element The type of the element.
-   * @tparam Id The ID type wrapper (e.g., ObjectId).
    * @param id The ID of the element.
    * @return A reference to the element.
    * @throws std::out_of_range if the element is not found.
@@ -103,7 +98,6 @@ public:
 
   /**
    * @brief Adds a new element to the system.
-   * @tparam Element The type of the element.
    * @param element The element to add (rvalue reference).
    * @return The ElementIndex of the newly added element.
    */
@@ -121,11 +115,6 @@ public:
    * it creates a new element using the provided attributes and original object
    * data.
    *
-   * @tparam Element The type of the element to find or create.
-   * @tparam Self The type of this ElementContext object.
-   * @tparam Object The type of the original object containing base data (uid,
-   * name, etc.).
-   * @tparam Attrs The type of the attributes for creating a new element.
    * @param self The ElementContext instance.
    * @param objori The original object with base data.
    * @param element_var A variant holding either a Uid, a Name, or Attrs.

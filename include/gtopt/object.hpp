@@ -54,7 +54,6 @@ struct Object
 {
   /**
    * @brief Gets the object's identifier (explicit object syntax)
-   * @tparam Self CRTP self type
    * @param self Reference to this object
    * @return Id containing the object's uid and name
    */

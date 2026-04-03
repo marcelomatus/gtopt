@@ -12,7 +12,7 @@
  * drawdown).
  *
  * The constraint per stage is:
- * ```
+ * ```text
  * qeh ≤ a(seg) × V_avg + b(seg)
  * ```
  * where `qeh` is the stage-average hourly discharge [m³/s], `V_avg` is the

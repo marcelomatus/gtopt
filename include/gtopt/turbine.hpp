@@ -10,7 +10,7 @@
  * electrical power [MW].
  *
  * ### Conversion relationship
- * ```
+ * ```text
  * power [MW] = conversion_rate [MW·s/m³] × flow [m³/s]
  * ```
  *

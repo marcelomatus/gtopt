@@ -49,7 +49,6 @@ struct ElementTraits
 
   /**
    * @brief Gets the index of an element by its ID.
-   * @tparam Id The ID type wrapper.
    * @param sc The system context.
    * @param id The ID of the element.
    * @return The `ElementIndex` for the given ID.
@@ -63,7 +62,6 @@ struct ElementTraits
 
   /**
    * @brief Gets a reference to an element by its ID.
-   * @tparam Id The ID type wrapper.
    * @param sc The system context.
    * @param id The ID of the element.
    * @return A reference to the element.
@@ -81,7 +79,6 @@ struct ElementTraits
 
   /**
    * @brief Adds a new element to the system.
-   * @tparam ElementType2 The type of the element to add.
    * @param sc The system context.
    * @param e The element to add.
    * @return The `ElementIndex` of the newly added element.
@@ -143,7 +140,6 @@ struct ElementTraits<SystemContext, BusLP>
 
   /**
    * @brief Gets a reference to a bus element by its `ElementIndex`.
-   * @tparam BusType The bus type (e.g., `BusLP`).
    * @param sc The system context.
    * @param id The index of the bus element.
    * @return A reference to the bus element.
@@ -160,7 +156,6 @@ struct ElementTraits<SystemContext, BusLP>
 
   /**
    * @brief Adds a new `BusLP` element to the system.
-   * @tparam ElementType2 The type of the element to add.
    * @param sc The system context.
    * @param e The `BusLP` element to add.
    * @return The `ElementIndex` of the newly added element.
@@ -175,8 +170,6 @@ struct ElementTraits<SystemContext, BusLP>
 
 /**
  * @brief Free function to get a container of all elements of a specific type.
- * @tparam Element The type of elements to retrieve.
- * @tparam SystemContext The context providing access to the system model.
  * @param sc The system context.
  * @return A reference to the container of elements.
  */
@@ -188,9 +181,6 @@ template<typename Element, typename SystemContext>
 
 /**
  * @brief Free function to get the index of an element by its ID.
- * @tparam Element The type of the element.
- * @tparam SystemContext The context providing access to the system model.
- * @tparam Id The ID type wrapper.
  * @param sc The system context.
  * @param id The ID of the element.
  * @return The `ElementIndex` for the given ID.
@@ -204,9 +194,6 @@ template<typename Element, typename SystemContext, template<typename> class Id>
 
 /**
  * @brief Free function to get a reference to an element by its ID.
- * @tparam Element The type of the element.
- * @tparam SystemContext The context providing access to the system model.
- * @tparam Id The ID type wrapper.
  * @param sc The system context.
  * @param id The ID of the element.
  * @return A reference to the element.
@@ -220,9 +207,6 @@ template<typename Element, typename SystemContext, template<typename> class Id>
 
 /**
  * @brief Free function to add a new element to the system.
- * @tparam Element The type of element to create.
- * @tparam SystemContext The context providing access to the system model.
- * @tparam E The type of the element instance to add.
  * @param sc The system context.
  * @param element The element to add.
  * @return The `ElementIndex` of the newly added element.

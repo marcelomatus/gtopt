@@ -57,7 +57,7 @@ namespace gtopt
  *
  * The reservoir accumulates and releases water between time blocks. The
  * volume balance per block is:
- * ```
+ * ```text
  * V[t+1] = V[t] × (1 − annual_loss/8760 × duration)
  *        + flow_conversion_rate × (inflows − outflows) × duration
  * ```

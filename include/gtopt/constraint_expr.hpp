@@ -87,7 +87,7 @@
  *
  * ### Grammar (pseudo-BNF)
  *
- * ```
+ * ```text
  * constraint   := expr comp_op expr [',' for_clause]
  *              |  number comp_op expr comp_op number [',' for_clause]
  *
