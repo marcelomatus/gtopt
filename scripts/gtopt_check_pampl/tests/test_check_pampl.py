@@ -137,8 +137,7 @@ class TestCheckParamDeclarations:
         source = "param x[year] = [1,2,3,4,5,6,7,8,9,10,11,12];"
         findings = check_param_declarations(source)
         assert any(
-            f.severity == Severity.WARNING and "year" in f.message
-            for f in findings
+            f.severity == Severity.WARNING and "year" in f.message for f in findings
         )
 
 
@@ -155,17 +154,13 @@ class TestCheckElementReferences:
         source = _read(ERRORS_DIR / "unknown_elements.pampl")
         findings = check_element_references(source)
         assert any(
-            f.severity == Severity.WARNING and "motor" in f.message
-            for f in findings
+            f.severity == Severity.WARNING and "motor" in f.message for f in findings
         )
 
     def test_unknown_variable(self):
         source = _read(ERRORS_DIR / "unknown_elements.pampl")
         findings = check_element_references(source)
-        assert any(
-            f.severity == Severity.NOTE and "rpm" in f.message
-            for f in findings
-        )
+        assert any(f.severity == Severity.NOTE and "rpm" in f.message for f in findings)
 
 
 # ── check_operator_usage ──────────────────────────────────────────────────
@@ -251,8 +246,7 @@ class TestCheckInactiveConstraints:
         source = _read(VALID_DIR / "battery_constraints.pampl")
         findings = check_inactive_constraints(source)
         assert any(
-            f.severity == Severity.NOTE and "bat_reserve" in f.message
-            for f in findings
+            f.severity == Severity.NOTE and "bat_reserve" in f.message for f in findings
         )
 
     def test_no_inactive(self):
@@ -313,9 +307,10 @@ class TestRunAllChecks:
         if len(findings) >= 2:
             sev_order = {Severity.CRITICAL: 0, Severity.WARNING: 1, Severity.NOTE: 2}
             for i in range(len(findings) - 1):
-                assert sev_order[findings[i].severity] <= sev_order[
-                    findings[i + 1].severity
-                ]
+                assert (
+                    sev_order[findings[i].severity]
+                    <= sev_order[findings[i + 1].severity]
+                )
 
 
 # ── Config ────────────────────────────────────────────────────────────────

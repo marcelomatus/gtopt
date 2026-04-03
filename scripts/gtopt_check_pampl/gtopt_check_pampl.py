@@ -124,9 +124,6 @@ def check_pampl(
             enabled.add(check_id)
 
     # Only enable template_variables for .tampl files
-    has_tampl = any(
-        p.endswith(".tampl") for p in file_paths
-    )
 
     all_findings: list[Finding] = []
     has_critical = False

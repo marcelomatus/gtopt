@@ -11,7 +11,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from pathlib import Path
 from typing import Any
 
 
@@ -91,9 +90,7 @@ _RE_SUM_EXPR = re.compile(r"\bsum\s*\(")
 _RE_TEMPLATE_VAR = re.compile(r"\{\{.*?\}\}")
 _RE_TEMPLATE_BLOCK = re.compile(r"\{%.*?%\}")
 _RE_MONTHLY_PARAM = re.compile(r"\bparam\s+\w+\s*\[\s*month\s*\]")
-_RE_PARAM_VALUE = re.compile(
-    r"\bparam\s+(\w+)\s*(?:\[\s*month\s*\])?\s*=\s*"
-)
+_RE_PARAM_VALUE = re.compile(r"\bparam\s+(\w+)\s*(?:\[\s*month\s*\])?\s*=\s*")
 
 
 # ── Individual check functions ──────────────────────────────────────────────
@@ -214,9 +211,9 @@ def check_semicolons(
             continue
 
         # Detect statement starts
-        if re.match(
-            r"^\s*(?:inactive\s+)?constraint\s+\w+", stripped
-        ) or re.match(r"^\s*param\s+\w+", stripped):
+        if re.match(r"^\s*(?:inactive\s+)?constraint\s+\w+", stripped) or re.match(
+            r"^\s*param\s+\w+", stripped
+        ):
             if in_statement:
                 findings.append(
                     Finding(
@@ -354,9 +351,7 @@ def check_param_declarations(
                 )
 
         # Monthly param with wrong bracket syntax
-        monthly_match = re.match(
-            r"^\s*param\s+\w+\s*\[\s*(\w+)\s*\]", stripped
-        )
+        monthly_match = re.match(r"^\s*param\s+\w+\s*\[\s*(\w+)\s*\]", stripped)
         if monthly_match and monthly_match.group(1) != "month":
             findings.append(
                 Finding(
@@ -479,7 +474,10 @@ def check_operator_usage(
                 Finding(
                     check_id="operator_usage",
                     severity=Severity.WARNING,
-                    message=f"'==' found near line {stmt_start_line}; use '=' for equality constraints",
+                    message=(
+                        f"'==' found near line {stmt_start_line}; "
+                        f"use '=' for equality constraints"
+                    ),
                     line=stmt_start_line,
                     file=filename,
                     action="Replace '==' with '='.",
@@ -492,7 +490,11 @@ def check_operator_usage(
                 Finding(
                     check_id="operator_usage",
                     severity=Severity.CRITICAL,
-                    message=f"Inequality operator found near line {stmt_start_line}; not supported in LP constraints",
+                    message=(
+                        f"Inequality operator found near line "
+                        f"{stmt_start_line}; not supported in "
+                        f"LP constraints"
+                    ),
                     line=stmt_start_line,
                     file=filename,
                     action="LP constraints only support <=, >=, and =.",
@@ -645,9 +647,7 @@ def check_duplicate_names(
         stripped = _strip_comments(line).strip()
 
         # Constraint names
-        header_match = re.match(
-            r"^\s*(?:inactive\s+)?constraint\s+(\w+)", stripped
-        )
+        header_match = re.match(r"^\s*(?:inactive\s+)?constraint\s+(\w+)", stripped)
         if header_match:
             name = header_match.group(1)
             if name in constraint_names:
@@ -818,9 +818,7 @@ def run_all_checks(
 
     # Sort by severity (CRITICAL first), then by line number
     severity_order = {Severity.CRITICAL: 0, Severity.WARNING: 1, Severity.NOTE: 2}
-    findings.sort(
-        key=lambda f: (severity_order.get(f.severity, 9), f.line or 0)
-    )
+    findings.sort(key=lambda f: (severity_order.get(f.severity, 9), f.line or 0))
 
     return findings
 
