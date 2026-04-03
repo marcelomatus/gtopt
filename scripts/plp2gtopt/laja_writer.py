@@ -221,7 +221,7 @@ class LajaWriter:
         self.flow_rights.append(
             {
                 "uid": fr_total_uid,
-                "name": "laja_total_gen",
+                "name": "laja_q_turbinado",
                 "purpose": "generation",
                 "direction": 1,
                 "discharge": 0,
@@ -248,7 +248,7 @@ class LajaWriter:
         fr_irr_uid = self._next_uid()
         fr_irr: Dict[str, Any] = {
             "uid": fr_irr_uid,
-            "name": "laja_irr_rights",
+            "name": "laja_der_riego",
             "purpose": "irrigation",
             "direction": -1,
             "discharge": 0,
@@ -266,7 +266,7 @@ class LajaWriter:
         fr_elec_uid = self._next_uid()
         fr_elec: Dict[str, Any] = {
             "uid": fr_elec_uid,
-            "name": "laja_elec_rights",
+            "name": "laja_der_electrico",
             "purpose": "generation",
             "direction": -1,
             "discharge": 0,
@@ -284,7 +284,7 @@ class LajaWriter:
         fr_mixed_uid = self._next_uid()
         fr_mixed: Dict[str, Any] = {
             "uid": fr_mixed_uid,
-            "name": "laja_mixed_rights",
+            "name": "laja_der_mixto",
             "purpose": "mixed",
             "direction": -1,
             "discharge": 0,
@@ -301,7 +301,7 @@ class LajaWriter:
         fr_antic_uid = self._next_uid()
         fr_antic: Dict[str, Any] = {
             "uid": fr_antic_uid,
-            "name": "laja_anticipated",
+            "name": "laja_gasto_anticipado",
             "purpose": "anticipated",
             "direction": -1,
             "discharge": 0,
@@ -318,12 +318,12 @@ class LajaWriter:
         # bound_rule dynamically caps extraction rate based on reservoir
         # volume (PLP DerRiego formula: base + Σ factor_i × zone_volume_i).
         # Extraction is coupled to the reservoir via UserConstraint
-        # (laja_partition), not through source_flow_right.
+        # (laja_particion_derechos), not through source_flow_right.
         vr_irr_uid = self._next_uid()
         self.volume_rights.append(
             {
                 "uid": vr_irr_uid,
-                "name": "laja_vol_irr",
+                "name": "laja_vol_der_riego",
                 "purpose": "irrigation",
                 "reservoir": central,
                 "eini": cfg["ini_irr"],
@@ -343,7 +343,7 @@ class LajaWriter:
         self.volume_rights.append(
             {
                 "uid": vr_elec_uid,
-                "name": "laja_vol_elec",
+                "name": "laja_vol_der_electrico",
                 "purpose": "generation",
                 "reservoir": central,
                 "eini": cfg["ini_elec"],
@@ -363,7 +363,7 @@ class LajaWriter:
         self.volume_rights.append(
             {
                 "uid": vr_mixed_uid,
-                "name": "laja_vol_mixed",
+                "name": "laja_vol_der_mixto",
                 "purpose": "mixed",
                 "reservoir": central,
                 "eini": cfg["ini_mixed"],
@@ -383,7 +383,7 @@ class LajaWriter:
         self.volume_rights.append(
             {
                 "uid": vr_antic_uid,
-                "name": "laja_vol_anticipated",
+                "name": "laja_vol_gasto_anticipado",
                 "purpose": "anticipated",
                 "reservoir": central,
                 "eini": cfg["ini_anticipated"],
@@ -423,7 +423,7 @@ class LajaWriter:
         self.volume_rights.append(
             {
                 "uid": vr_econ_reserve_uid,
-                "name": "laja_vol_econ_reserve",
+                "name": "laja_vol_econ_reserva",
                 "purpose": "economy",
                 "reservoir": central,
                 "eini": cfg.get("ini_econ_reserve", 0),
@@ -505,13 +505,13 @@ class LajaWriter:
         self.user_constraints.append(
             {
                 "uid": uc_partition_uid,
-                "name": "laja_partition",
+                "name": "laja_particion_derechos",
                 "expression": (
-                    "flow_right('laja_total_gen').flow = "
-                    "flow_right('laja_irr_rights').flow "
-                    "+ flow_right('laja_elec_rights').flow "
-                    "+ flow_right('laja_mixed_rights').flow "
-                    "+ flow_right('laja_anticipated').flow"
+                    "flow_right('laja_q_turbinado').flow = "
+                    "flow_right('laja_der_riego').flow "
+                    "+ flow_right('laja_der_electrico').flow "
+                    "+ flow_right('laja_der_mixto').flow "
+                    "+ flow_right('laja_gasto_anticipado').flow"
                 ),
                 "description": (
                     "Flow partition: total generation equals sum of extractions"

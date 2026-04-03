@@ -86,6 +86,27 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
       lowb = std::min(lowb, uppb);
     }
 
+    // Deficit variable: penalized in objective when demand unmet.
+    // Per-element fail_cost (already in $/flow-unit) takes precedence.
+    // Falls back to global hydro_fail_cost ($/m³) × duration × 3600
+    // to convert from $/m³ to $/(m³/s) for the block.
+    auto block_fail_cost = fail_cost_sched.at(stage.uid(), buid).value_or(0.0);
+    if (block_fail_cost == 0.0) {
+      const auto global_fc = options.hydro_fail_cost().value_or(0.0);
+      if (global_fc > 0.0) {
+        block_fail_cost = global_fc * block.duration() * 3600.0;
+      }
+    }
+
+    // When fail_cost is active and there is a target discharge,
+    // relax the flow lower bound to 0 so the optimizer can
+    // under-deliver when constrained (junction balance, bound rule).
+    // The deficit coupling constraint below captures the shortfall.
+    const bool has_deficit = block_fail_cost > 0.0 && block_discharge > 0.0;
+    if (has_deficit) {
+      lowb = 0.0;
+    }
+
     // Use value: negative objective coefficient on the flow variable
     // (benefit — positive use_value incentivizes flow).
     // Per-element use_value takes precedence; falls back to global
@@ -108,17 +129,6 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     });
     fcols[buid] = fcol;
 
-    // Deficit variable: penalized in objective when demand unmet.
-    // Per-element fail_cost (already in $/flow-unit) takes precedence.
-    // Falls back to global hydro_fail_cost ($/m³) × duration × 3600
-    // to convert from $/m³ to $/(m³/s) for the block.
-    auto block_fail_cost = fail_cost_sched.at(stage.uid(), buid).value_or(0.0);
-    if (block_fail_cost == 0.0) {
-      const auto global_fc = options.hydro_fail_cost().value_or(0.0);
-      if (global_fc > 0.0) {
-        block_fail_cost = global_fc * block.duration() * 3600.0;
-      }
-    }
     if (block_fail_cost > 0.0) {
       auto fail_col_name =
           sc.lp_col_label(scenario, stage, block, cname, "fail", uid());
@@ -127,6 +137,21 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
           .cost = block_fail_cost / scale_objective,
       });
       ffails[buid] = fail_col;
+
+      // Deficit coupling: flow + fail >= discharge.
+      // Without this constraint the fail variable is uncoupled
+      // (dead) and the optimizer always sets it to 0.
+      if (has_deficit) {
+        auto demand_row =
+            SparseRow {
+                .name = sc.lp_row_label(
+                    scenario, stage, block, cname, "demand", uid()),
+            }
+                .greater_equal(block_discharge);
+        demand_row[fcol] = 1.0;
+        demand_row[fail_col] = 1.0;
+        [[maybe_unused]] const auto drow = lp.add_row(std::move(demand_row));
+      }
     }
   }
 

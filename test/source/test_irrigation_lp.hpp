@@ -2329,9 +2329,95 @@ TEST_CASE(  // NOLINT
     CHECK(found_benefit);
     CHECK(found_penalty);
 
+    // Verify flow lower bound is relaxed to 0 (deficit coupling)
+    const auto col_low = lp.get_col_low();
+    bool found_relaxed = false;
+    for (size_t i = 0; i < lp.get_numcols(); ++i) {
+      if (obj_coeffs[i] < 0.0
+          && doctest::Approx(obj_coeffs[i]).epsilon(1e-6)
+              == -use_val / scale_obj)
+      {
+        CHECK(col_low[i] == doctest::Approx(0.0));
+        found_relaxed = true;
+      }
+    }
+    CHECK(found_relaxed);
+
     auto result = lp.resolve();
     REQUIRE(result.has_value());
     CHECK(result.value() == 0);
+
+    // flow should equal discharge (10.0) when unconstrained,
+    // fail should be 0 (no deficit)
+    const auto sol = lp.get_col_sol();
+    for (size_t i = 0; i < lp.get_numcols(); ++i) {
+      if (obj_coeffs[i] > 0.0
+          && doctest::Approx(obj_coeffs[i]).epsilon(1e-6)
+              == fail_val / scale_obj)
+      {
+        CHECK(sol[i] == doctest::Approx(0.0));
+      }
+    }
+  }
+
+  SUBCASE("fail_cost deficit coupling - fail absorbs shortfall")
+  {
+    // FlowRight demands 80 m³/s from junction j_down, but the hydro
+    // system only delivers 100 m³/s inflow total (through one turbine).
+    // After serving 50 MW demand via gen1 (50/2.0 = 25 m³/s turbine flow),
+    // the junction has limited water.  With discharge=80 and junction
+    // coupling, the FlowRight can't always fully deliver, so fail > 0.
+    const auto discharge = 80.0;
+    const auto fail_val = 5000.0;
+
+    const Array<FlowRight> flow_right_array = {
+        {
+            .uid = Uid {1},
+            .name = "heavy_demand",
+            .junction = Uid {2},
+            .discharge = discharge,
+            .fail_cost = fail_val,
+        },
+    };
+
+    const System system = {
+        .name = "DeficitCouplingTest",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .junction_array = junction_array,
+        .waterway_array = waterway_array,
+        .flow_array = flow_array,
+        .reservoir_array = reservoir_array,
+        .turbine_array = turbine_array,
+        .flow_right_array = flow_right_array,
+    };
+
+    const PlanningOptionsLP options;
+    const auto scale_obj = options.scale_objective();
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+
+    auto&& lp = system_lp.linear_interface();
+    auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+
+    // The fail variable should be non-zero: the FlowRight can't get
+    // the full 80 m³/s because the junction's water is limited.
+    const auto obj_coeffs = lp.get_obj_coeff();
+    const auto sol = lp.get_col_sol();
+    double total_fail = 0.0;
+    for (size_t i = 0; i < lp.get_numcols(); ++i) {
+      if (obj_coeffs[i] > 0.0
+          && doctest::Approx(obj_coeffs[i]).epsilon(1e-6)
+              == fail_val / scale_obj)
+      {
+        total_fail += sol[i];
+      }
+    }
+    // With limited water, some deficit should exist
+    CHECK(total_fail > 0.0);
   }
 
   SUBCASE("hydro_use_value global fallback")

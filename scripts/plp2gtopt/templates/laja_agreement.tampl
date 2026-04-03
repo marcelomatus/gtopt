@@ -18,6 +18,26 @@
 #
 #   Rights(V) = base + Sum_i(factor_i * min(zone_volume_i, width_i))
 #
+# ---------------------------------------------------------------------------
+# Name Mapping: PLP (Fortran) <-> gtopt
+# ---------------------------------------------------------------------------
+#
+#   PLP Variable    PLP Name              gtopt FlowRight          gtopt VolumeRight
+#   ------------    --------------------  ---------------------    -----------------------
+#   IQGT            Gasto Turbinado       laja_q_turbinado         --
+#   IQDR            Derecho de Riego      laja_der_riego           laja_vol_der_riego
+#   IQDE            Derecho Electrico     laja_der_electrico       laja_vol_der_electrico
+#   IQDM            Derecho Mixto         laja_der_mixto           laja_vol_der_mixto
+#   IQGA            Gasto Anticipado      laja_gasto_anticipado    laja_vol_gasto_anticipado
+#   IVESF           Economia ENDESA       --                       laja_vol_econ_reserva
+#   --              Particion Derechos    --                       -- (constraint: laja_particion_derechos)
+#
+#   IVDRF           Vol. Der. Riego       --                       laja_vol_der_riego
+#   IVDEF           Vol. Der. Electrico   --                       laja_vol_der_electrico
+#   IVDMF           Vol. Der. Mixto       --                       laja_vol_der_mixto
+#   IVAPF           Vol. Gasto Antic.     --                       laja_vol_gasto_anticipado
+#   IVESF           Vol. Econ. Reserva    --                       laja_vol_econ_reserva
+#
 # Water System Topology:
 #
 #                        Laguna del Laja
@@ -31,21 +51,21 @@
 #                     +-------+-------+
 #                             |
 #                     +-------v--------+
-#                     | UserConstraint  |
-#                     | laja_partition  |
-#                     | (flow balance)  |
+#                     | UserConstraint              |
+#                     | laja_particion_derechos      |
+#                     | (flow balance)               |
 #                     +--+-+-+-+-------+
 #                        | | | |
 #            +-----------+ | | +------------+
 #            |             | |              |
 #            v             v v              v
-#     laja_irr_rights  laja_elec  laja_mixed  laja_anticipated
-#       (qdr)         (qde)      (qdm)        (qga)
+#   laja_der_riego  laja_der_elec  laja_der_mixto  laja_gasto_anticipado
+#       (qdr)         (qde)          (qdm)              (qga)
 #            |             | |              |
 #            v             v v              v
 #     [VolumeRight]  [VolumeRight]   [VolumeRight]
-#     laja_vol_irr   laja_vol_elec   laja_vol_mixed
-#     (IVDRF)        (IVDEF)         (IVDMF)
+# laja_vol_der_riego laja_vol_der_electrico laja_vol_der_mixto
+#     (IVDRF)            (IVDEF)           (IVDMF)
 #
 # PLP source reference:
 #   genpdlajam.f -- LP constraint matrix assembly
@@ -61,8 +81,8 @@
 # Total generation flow must equal the sum of all extraction rights.
 # ---------------------------------------------------------------------------
 
-constraint laja_partition "Flow partition: total generation = sum of extractions":
-  flow_right('laja_total_gen').flow = flow_right('laja_irr_rights').flow + flow_right('laja_elec_rights').flow + flow_right('laja_mixed_rights').flow + flow_right('laja_anticipated').flow;
+constraint laja_particion_derechos "Flow partition: total generation = sum of extractions":
+  flow_right('laja_q_turbinado').flow = flow_right('laja_der_riego').flow + flow_right('laja_der_electrico').flow + flow_right('laja_der_mixto').flow + flow_right('laja_gasto_anticipado').flow;
 
 # ---------------------------------------------------------------------------
 # Volume zone parameters

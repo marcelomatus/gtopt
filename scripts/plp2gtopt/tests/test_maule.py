@@ -222,7 +222,7 @@ class TestMauleWriter:
         writer = MauleWriter(maule_config)
 
         elec_normal = next(
-            fr for fr in writer.flow_rights if fr["name"] == "maule_elec_normal"
+            fr for fr in writer.flow_rights if fr["name"] == "maule_gasto_normal_elec"
         )
         assert "bound_rule" in elec_normal
         rule = elec_normal["bound_rule"]
@@ -233,27 +233,39 @@ class TestMauleWriter:
         writer = MauleWriter(maule_config)
 
         vol_elec_annual = next(
-            vr for vr in writer.volume_rights if vr["name"] == "maule_vol_elec_annual"
+            vr
+            for vr in writer.volume_rights
+            if vr["name"] == "maule_vol_gasto_elec_anual"
         )
         assert vol_elec_annual["reset_month"] == "june"
         assert vol_elec_annual["emax"] == pytest.approx(250.0)
 
         vol_irr = next(
-            vr for vr in writer.volume_rights if vr["name"] == "maule_vol_irr_seasonal"
+            vr
+            for vr in writer.volume_rights
+            if vr["name"] == "maule_vol_gasto_riego_temp"
         )
         assert vol_irr["reset_month"] == "june"
 
     def test_res105_fixed_mode(self, maule_config):
         writer = MauleWriter(maule_config)
 
-        res105 = next(fr for fr in writer.flow_rights if fr["name"] == "maule_res105")
+        res105 = next(
+            fr for fr in writer.flow_rights if fr["name"] == "maule_resolucion_105"
+        )
         assert "discharge" in res105
         assert res105["purpose"] == "environmental"
 
     def test_district_flow_rights(self, maule_config):
         writer = MauleWriter(maule_config)
 
-        district_names = {d["name"] for d in maule_config["districts"]}
+        # Writer transforms Rie* district names to retiro_* prefix
+        def transform_name(raw: str) -> str:
+            if raw.startswith("Rie"):
+                return "retiro_" + raw[3:]
+            return raw
+
+        district_names = {transform_name(d["name"]) for d in maule_config["districts"]}
         fr_names = {fr["name"] for fr in writer.flow_rights}
         assert district_names.issubset(fr_names)
 
@@ -294,7 +306,7 @@ class TestMauleWriter:
         writer = MauleWriter(maule_config)
 
         elec_normal = next(
-            fr for fr in writer.flow_rights if fr["name"] == "maule_elec_normal"
+            fr for fr in writer.flow_rights if fr["name"] == "maule_gasto_normal_elec"
         )
         segs = elec_normal["bound_rule"]["segments"]
         # Segment 0: inactive at volume=0
@@ -311,7 +323,7 @@ class TestMauleWriter:
         """Ordinary reserve FlowRights must have 3 bound_rule segments."""
         writer = MauleWriter(maule_config)
 
-        for name in ["maule_elec_ordinary", "maule_irr_ordinary"]:
+        for name in ["maule_gasto_ordinario_elec", "maule_gasto_ordinario_riego"]:
             fr = next(f for f in writer.flow_rights if f["name"] == name)
             segs = fr["bound_rule"]["segments"]
             assert len(segs) == 3, f"{name} should have 3 segments"
@@ -331,7 +343,7 @@ class TestMauleWriter:
     def test_compensation_flow_right(self, maule_config):
         writer = MauleWriter(maule_config)
         comp = next(
-            fr for fr in writer.flow_rights if fr["name"] == "maule_compensation"
+            fr for fr in writer.flow_rights if fr["name"] == "maule_compensacion_elec"
         )
         assert comp["purpose"] == "generation"
         assert comp["fmax"] == pytest.approx(maule_config["gasto_elec_dia_max"])
@@ -346,12 +358,20 @@ class TestMauleWriter:
         """Districts with has_slack=True use <=, others use =."""
         writer = MauleWriter(maule_config)
 
-        districts_by_name = {d["name"]: d for d in maule_config["districts"]}
+        # Map transformed names (retiro_*) back to raw config entries
+        def raw_to_transformed(raw: str) -> str:
+            if raw.startswith("Rie"):
+                return "retiro_" + raw[3:]
+            return raw
+
+        districts_by_transformed = {
+            raw_to_transformed(d["name"]): d for d in maule_config["districts"]
+        }
         for uc in writer.user_constraints:
             if not uc["name"].startswith("dist_"):
                 continue
             district_name = uc["name"][len("dist_") :]
-            d = districts_by_name[district_name]
+            d = districts_by_transformed[district_name]
             if d["has_slack"]:
                 assert "<=" in uc["expression"], f"{district_name} should use <="
             else:
@@ -361,7 +381,9 @@ class TestMauleWriter:
     def test_volume_rights_compensation_no_reset(self, maule_config):
         writer = MauleWriter(maule_config)
         vol_comp = next(
-            vr for vr in writer.volume_rights if vr["name"] == "maule_vol_compensation"
+            vr
+            for vr in writer.volume_rights
+            if vr["name"] == "maule_vol_compensacion_elec"
         )
         assert "reset_month" not in vol_comp
 
@@ -379,7 +401,9 @@ class TestMauleWriter:
     def test_volume_rights_monthly_reset(self, maule_config):
         writer = MauleWriter(maule_config)
         vol_monthly = next(
-            vr for vr in writer.volume_rights if vr["name"] == "maule_vol_elec_monthly"
+            vr
+            for vr in writer.volume_rights
+            if vr["name"] == "maule_vol_gasto_elec_mensual"
         )
         assert vol_monthly["reset_month"] == "january"
         assert vol_monthly["emax"] == pytest.approx(maule_config["gasto_elec_men_max"])
@@ -549,10 +573,10 @@ class TestMauleInvernadaBalance:
         writer = MauleWriter(cfg)
         inv_names = {
             "invernada_deficit",
-            "invernada_no_deficit",
-            "invernada_natural_inflow",
-            "invernada_storage",
-            "invernada_bypass",
+            "invernada_sin_deficit",
+            "invernada_caudal_natural",
+            "invernada_embalsar",
+            "invernada_no_embalsar",
         }
         inv_frs = [fr for fr in writer.flow_rights if fr["name"] in inv_names]
         assert len(inv_frs) == 5
@@ -565,12 +589,12 @@ class TestMauleInvernadaBalance:
 
         for name in [
             "invernada_deficit",
-            "invernada_no_deficit",
-            "invernada_natural_inflow",
+            "invernada_sin_deficit",
+            "invernada_caudal_natural",
         ]:
             assert fr_by_name[name]["direction"] == 1
 
-        for name in ["invernada_storage", "invernada_bypass"]:
+        for name in ["invernada_embalsar", "invernada_no_embalsar"]:
             assert fr_by_name[name]["direction"] == -1
 
     def test_invernada_flow_rights_exist(self):
@@ -579,10 +603,10 @@ class TestMauleInvernadaBalance:
         writer = MauleWriter(cfg)
         inv_names = {
             "invernada_deficit",
-            "invernada_no_deficit",
-            "invernada_natural_inflow",
-            "invernada_storage",
-            "invernada_bypass",
+            "invernada_sin_deficit",
+            "invernada_caudal_natural",
+            "invernada_embalsar",
+            "invernada_no_embalsar",
         }
         fr_names = {fr["name"] for fr in writer.flow_rights}
         missing = inv_names - fr_names
@@ -593,7 +617,7 @@ class TestMauleInvernadaBalance:
         cfg = _minimal_maule_config()
         writer = MauleWriter(cfg)
         storage = next(
-            fr for fr in writer.flow_rights if fr["name"] == "invernada_storage"
+            fr for fr in writer.flow_rights if fr["name"] == "invernada_embalsar"
         )
         assert storage["use_value"] == pytest.approx(1500.0)
 
@@ -602,7 +626,7 @@ class TestMauleInvernadaBalance:
         cfg = _minimal_maule_config()
         writer = MauleWriter(cfg)
         bypass = next(
-            fr for fr in writer.flow_rights if fr["name"] == "invernada_bypass"
+            fr for fr in writer.flow_rights if fr["name"] == "invernada_no_embalsar"
         )
         assert bypass["use_value"] == pytest.approx(1000.0)
 
@@ -612,7 +636,7 @@ class TestMauleInvernadaBalance:
         cfg["costo_embalsar"] = 0.0
         writer = MauleWriter(cfg)
         storage = next(
-            fr for fr in writer.flow_rights if fr["name"] == "invernada_storage"
+            fr for fr in writer.flow_rights if fr["name"] == "invernada_embalsar"
         )
         assert "use_value" not in storage
 
@@ -624,7 +648,8 @@ class TestMauleBocatomaCanelon:
         cfg = _minimal_maule_config()
         writer = MauleWriter(cfg)
         canelon = next(
-            (fr for fr in writer.flow_rights if fr["name"] == "BCanelon"), None
+            (fr for fr in writer.flow_rights if fr["name"] == "maule_bocatoma_canelon"),
+            None,
         )
         assert canelon is not None
         assert canelon["use_value"] == pytest.approx(10.0)
@@ -636,7 +661,8 @@ class TestMauleBocatomaCanelon:
         cfg["costo_canelon"] = 0.0
         writer = MauleWriter(cfg)
         canelon = next(
-            (fr for fr in writer.flow_rights if fr["name"] == "BCanelon"), None
+            (fr for fr in writer.flow_rights if fr["name"] == "maule_bocatoma_canelon"),
+            None,
         )
         assert canelon is None
 
@@ -646,7 +672,6 @@ class TestMaulePamplGeneration:
 
     def test_generate_pampl_creates_file(self):
         import tempfile
-        from pathlib import Path
 
         cfg = _minimal_maule_config()
         writer = MauleWriter(cfg)
@@ -660,7 +685,6 @@ class TestMaulePamplGeneration:
 
     def test_generate_pampl_contains_params(self):
         import tempfile
-        from pathlib import Path
 
         cfg = _minimal_maule_config()
         writer = MauleWriter(cfg)
@@ -678,7 +702,6 @@ class TestMaulePamplGeneration:
 
     def test_generate_pampl_contains_constraints(self):
         import tempfile
-        from pathlib import Path
 
         cfg = _minimal_maule_config()
         writer = MauleWriter(cfg)
@@ -688,15 +711,14 @@ class TestMaulePamplGeneration:
             content = (tmp_path / "maule_agreement.pampl").read_text()
 
             # Should contain constraint headers
-            assert "constraint maule_ord_elec_pct" in content
-            assert "constraint maule_ord_irr_pct" in content
+            assert "constraint maule_pct_ordinario_elec" in content
+            assert "constraint maule_pct_ordinario_riego" in content
             # Should contain district constraints
             assert "constraint dist_Dist1" in content
             assert "constraint dist_Dist2" in content
 
     def test_generate_pampl_district_operators(self):
         import tempfile
-        from pathlib import Path
 
         cfg = _minimal_maule_config()
         writer = MauleWriter(cfg)
@@ -716,7 +738,6 @@ class TestMaulePamplGeneration:
 
     def test_generate_pampl_header_comment(self):
         import tempfile
-        from pathlib import Path
 
         cfg = _minimal_maule_config()
         writer = MauleWriter(cfg)
@@ -731,7 +752,6 @@ class TestMaulePamplGeneration:
 
     def test_to_json_dict_with_output_dir(self):
         import tempfile
-        from pathlib import Path
 
         cfg = _minimal_maule_config()
         writer = MauleWriter(cfg)
@@ -756,7 +776,6 @@ class TestMaulePamplGeneration:
 
     def test_generate_pampl_monthly_arrays(self):
         import tempfile
-        from pathlib import Path
 
         cfg = _minimal_maule_config()
         writer = MauleWriter(cfg)

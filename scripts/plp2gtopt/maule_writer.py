@@ -170,7 +170,7 @@ class MauleWriter:
         self.flow_rights.append(
             {
                 "uid": fr_elec_normal_uid,
-                "name": "maule_elec_normal",
+                "name": "maule_gasto_normal_elec",
                 "purpose": "generation",
                 "direction": -1,
                 "discharge": 0,
@@ -199,7 +199,7 @@ class MauleWriter:
         irr_fmax_schedule = self._monthly_fmax_schedule(pct_riego, riego_max)
         fr_irr_normal: Dict[str, Any] = {
             "uid": fr_irr_normal_uid,
-            "name": "maule_irr_normal",
+            "name": "maule_gasto_normal_riego",
             "purpose": "irrigation",
             "direction": -1,
             "discharge": 0,
@@ -233,7 +233,7 @@ class MauleWriter:
         self.flow_rights.append(
             {
                 "uid": fr_elec_ord_uid,
-                "name": "maule_elec_ordinary",
+                "name": "maule_gasto_ordinario_elec",
                 "purpose": "generation",
                 "direction": -1,
                 "discharge": 0,
@@ -262,7 +262,7 @@ class MauleWriter:
         fr_irr_ord_uid = self._next_uid()
         fr_irr_ord: Dict[str, Any] = {
             "uid": fr_irr_ord_uid,
-            "name": "maule_irr_ordinary",
+            "name": "maule_gasto_ordinario_riego",
             "purpose": "irrigation",
             "direction": -1,
             "discharge": 0,
@@ -294,7 +294,7 @@ class MauleWriter:
         self.flow_rights.append(
             {
                 "uid": fr_comp_uid,
-                "name": "maule_compensation",
+                "name": "maule_compensacion_elec",
                 "purpose": "generation",
                 "direction": -1,
                 "discharge": 0,
@@ -310,7 +310,7 @@ class MauleWriter:
         res105_discharge = self._to_stb_sched(res105_values)
         fr_res105: Dict[str, Any] = {
             "uid": fr_res105_uid,
-            "name": "maule_res105",
+            "name": "maule_resolucion_105",
             "purpose": "environmental",
             "direction": -1,
             "discharge": res105_discharge,
@@ -323,12 +323,12 @@ class MauleWriter:
         self.flow_rights.append(fr_res105)
 
         # --- VolumeRight: Monthly electric accumulator (IVMGEMF) ---
-        # Coupled to maule_elec_normal: FlowRight flow decrements volume.
+        # Coupled to maule_gasto_normal_elec: FlowRight flow decrements volume.
         vr_elec_men_uid = self._next_uid()
         self.volume_rights.append(
             {
                 "uid": vr_elec_men_uid,
-                "name": "maule_vol_elec_monthly",
+                "name": "maule_vol_gasto_elec_mensual",
                 "purpose": "generation",
                 "reservoir": res_colbun,
                 # source_flow_right removed — coupling via UserConstraint
@@ -340,12 +340,12 @@ class MauleWriter:
         )
 
         # --- VolumeRight: Annual electric accumulator (IVMGEAF) ---
-        # Also coupled to maule_elec_normal (same flow, different reset).
+        # Also coupled to maule_gasto_normal_elec (same flow, different reset).
         vr_elec_anu_uid = self._next_uid()
         self.volume_rights.append(
             {
                 "uid": vr_elec_anu_uid,
-                "name": "maule_vol_elec_annual",
+                "name": "maule_vol_gasto_elec_anual",
                 "purpose": "generation",
                 "reservoir": res_colbun,
                 # source_flow_right removed — coupling via UserConstraint
@@ -361,7 +361,7 @@ class MauleWriter:
         self.volume_rights.append(
             {
                 "uid": vr_irr_uid,
-                "name": "maule_vol_irr_seasonal",
+                "name": "maule_vol_gasto_riego_temp",
                 "purpose": "irrigation",
                 "reservoir": res_colbun,
                 # source_flow_right removed — coupling via UserConstraint
@@ -377,7 +377,7 @@ class MauleWriter:
         self.volume_rights.append(
             {
                 "uid": vr_comp_uid,
-                "name": "maule_vol_compensation",
+                "name": "maule_vol_compensacion_elec",
                 "purpose": "generation",
                 "reservoir": res_colbun,
                 # source_flow_right removed — coupling via UserConstraint
@@ -395,7 +395,7 @@ class MauleWriter:
         self.volume_rights.append(
             {
                 "uid": vr_rext_elec_uid,
-                "name": "maule_vol_rext_elec",
+                "name": "maule_vol_reserva_ord_elec",
                 "purpose": "generation",
                 "reservoir": res_colbun,
                 # source_flow_right removed — coupling via UserConstraint
@@ -413,7 +413,7 @@ class MauleWriter:
         self.volume_rights.append(
             {
                 "uid": vr_rext_riego_uid,
-                "name": "maule_vol_rext_riego",
+                "name": "maule_vol_reserva_ord_riego",
                 "purpose": "irrigation",
                 "reservoir": res_colbun,
                 # source_flow_right removed — coupling via UserConstraint
@@ -457,7 +457,7 @@ class MauleWriter:
         self.flow_rights.append(
             {
                 "uid": fr_isd_uid,
-                "name": "invernada_no_deficit",
+                "name": "invernada_sin_deficit",
                 "purpose": "irrigation",
                 "direction": 1,
                 "discharge": 0,
@@ -470,7 +470,7 @@ class MauleWriter:
         self.flow_rights.append(
             {
                 "uid": fr_ninv_uid,
-                "name": "invernada_natural_inflow",
+                "name": "invernada_caudal_natural",
                 "purpose": "irrigation",
                 "direction": 1,
                 "discharge": 0,
@@ -483,7 +483,7 @@ class MauleWriter:
         fr_hein_uid = self._next_uid()
         fr_hein: Dict[str, Any] = {
             "uid": fr_hein_uid,
-            "name": "invernada_storage",
+            "name": "invernada_embalsar",
             "purpose": "economy",
             "direction": -1,
             "discharge": 0,
@@ -499,7 +499,7 @@ class MauleWriter:
         fr_hnein_uid = self._next_uid()
         fr_hnein: Dict[str, Any] = {
             "uid": fr_hnein_uid,
-            "name": "invernada_bypass",
+            "name": "invernada_no_embalsar",
             "purpose": "economy",
             "direction": -1,
             "discharge": 0,
@@ -517,7 +517,7 @@ class MauleWriter:
             self.flow_rights.append(
                 {
                     "uid": fr_canelon_uid,
-                    "name": cfg.get("bocatoma_canelon", "bocatoma_canelon"),
+                    "name": "maule_bocatoma_canelon",
                     "purpose": "irrigation",
                     "direction": -1,
                     "discharge": 0,
@@ -534,10 +534,10 @@ class MauleWriter:
                 "name": "invernada_balance",
                 "expression": (
                     "flow_right('invernada_deficit').flow "
-                    "+ flow_right('invernada_no_deficit').flow "
-                    "+ flow_right('invernada_natural_inflow').flow "
-                    "= flow_right('invernada_storage').flow "
-                    "+ flow_right('invernada_bypass').flow"
+                    "+ flow_right('invernada_sin_deficit').flow "
+                    "+ flow_right('invernada_caudal_natural').flow "
+                    "= flow_right('invernada_embalsar').flow "
+                    "+ flow_right('invernada_no_embalsar').flow"
                 ),
                 "description": ("La Invernada winter balance: inflows equal outflows"),
             }
@@ -550,11 +550,11 @@ class MauleWriter:
         self.user_constraints.append(
             {
                 "uid": uc_elec_pct_uid,
-                "name": "maule_ord_elec_pct",
+                "name": "maule_pct_ordinario_elec",
                 "expression": (
-                    f"flow_right('maule_elec_ordinary').flow <= "
-                    f"{pct_elec / 100.0} * flow_right('maule_elec_ordinary').flow "
-                    f"+ {pct_elec / 100.0} * flow_right('maule_irr_ordinary').flow"
+                    f"flow_right('maule_gasto_ordinario_elec').flow <= "
+                    f"{pct_elec / 100.0} * flow_right('maule_gasto_ordinario_elec').flow "
+                    f"+ {pct_elec / 100.0} * flow_right('maule_gasto_ordinario_riego').flow"
                 ),
                 "description": (
                     f"Electric capped at {pct_elec}% of total ordinary reserve flow"
@@ -568,11 +568,11 @@ class MauleWriter:
         self.user_constraints.append(
             {
                 "uid": uc_irr_pct_uid,
-                "name": "maule_ord_irr_pct",
+                "name": "maule_pct_ordinario_riego",
                 "expression": (
-                    f"flow_right('maule_irr_ordinary').flow <= "
-                    f"{pct_riego_r / 100.0} * flow_right('maule_elec_ordinary').flow "
-                    f"+ {pct_riego_r / 100.0} * flow_right('maule_irr_ordinary').flow"
+                    f"flow_right('maule_gasto_ordinario_riego').flow <= "
+                    f"{pct_riego_r / 100.0} * flow_right('maule_gasto_ordinario_elec').flow "
+                    f"+ {pct_riego_r / 100.0} * flow_right('maule_gasto_ordinario_riego').flow"
                 ),
                 "description": (
                     f"Irrigation capped at {pct_riego_r}% of total ordinary reserve flow"
@@ -586,10 +586,17 @@ class MauleWriter:
             pct = district["percentage"]
             constraint_op = "<=" if district["has_slack"] else "="
 
+            # Transform district name: Rie prefix → retiro_ prefix
+            raw_name = district["name"]
+            if raw_name.startswith("Rie"):
+                fr_name = "retiro_" + raw_name[3:]
+            else:
+                fr_name = raw_name
+
             self.flow_rights.append(
                 {
                     "uid": d_uid,
-                    "name": district["name"],
+                    "name": fr_name,
                     "purpose": "irrigation",
                     "direction": -1,
                     "discharge": 0,
@@ -602,13 +609,13 @@ class MauleWriter:
             self.user_constraints.append(
                 {
                     "uid": uc_uid,
-                    "name": f"dist_{district['name']}",
+                    "name": f"dist_{fr_name}",
                     "expression": (
-                        f"flow_right('{district['name']}').flow "
+                        f"flow_right('{fr_name}').flow "
                         f"{constraint_op} "
-                        f"{pct / 100.0} * flow_right('maule_irr_normal').flow"
+                        f"{pct / 100.0} * flow_right('maule_gasto_normal_riego').flow"
                     ),
-                    "description": (f"{district['name']}: {pct}% of total irrigation"),
+                    "description": (f"{fr_name}: {pct}% of total irrigation"),
                 }
             )
 
