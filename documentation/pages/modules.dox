@@ -1,0 +1,49 @@
+/**
+ * @defgroup core Core Types
+ * @brief Fundamental types, identifiers, and utilities used throughout gtopt.
+ *
+ * Includes basic types (Uid, Name, Real), strong type wrappers, field
+ * schedules, and common utility functions.
+ */
+
+/**
+ * @defgroup system Power System Model
+ * @brief Components that define the physical power system.
+ *
+ * The System class aggregates all electrical and hydraulic components:
+ * buses, generators, demands, lines, batteries, converters, reserve zones,
+ * junctions, waterways, reservoirs, turbines, flows, and filtrations.
+ */
+
+/**
+ * @defgroup lp LP Formulation
+ * @brief Linear programming formulation and solver interface.
+ *
+ * Classes that assemble the sparse LP/MIP problem from the power system
+ * model and interact with solver backends (CLP, CBC, CPLEX, HiGHS).
+ */
+
+/**
+ * @defgroup io Input/Output
+ * @brief Data I/O via Apache Arrow (Parquet and CSV).
+ *
+ * Input context reads planning data from Parquet/CSV/JSON files.
+ * Output context writes solution arrays to Parquet/CSV files.
+ */
+
+/**
+ * @defgroup planning Planning
+ * @brief Multi-stage planning problem definition and orchestration.
+ *
+ * The Planning class defines the full optimization problem including
+ * simulation parameters, options, and the system model. PlanningLP
+ * assembles and solves the LP formulation.
+ */
+
+/**
+ * @defgroup hydro Hydro Components
+ * @brief Hydraulic cascade modeling for hydro-thermal systems.
+ *
+ * Junctions, waterways, reservoirs, turbines, flows, and filtrations
+ * model cascaded hydro systems with volume balance and water routing.
+ */

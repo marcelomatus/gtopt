@@ -4,8 +4,11 @@
 [![Webservice](https://github.com/marcelomatus/gtopt/actions/workflows/webservice.yml/badge.svg)](https://github.com/marcelomatus/gtopt/actions/workflows/webservice.yml)
 [![Guiservice](https://github.com/marcelomatus/gtopt/actions/workflows/guiservice.yml/badge.svg)](https://github.com/marcelomatus/gtopt/actions/workflows/guiservice.yml)
 [![Style](https://github.com/marcelomatus/gtopt/actions/workflows/style.yml/badge.svg)](https://github.com/marcelomatus/gtopt/actions/workflows/style.yml)
+[![Docs](https://github.com/marcelomatus/gtopt/actions/workflows/docs.yml/badge.svg)](https://github.com/marcelomatus/gtopt/actions/workflows/docs.yml)
 
 A high-performance C++ tool for **Generation and Transmission Expansion Planning (GTEP)**. It minimizes the total expected cost of operation and expansion of electrical power systems.
+
+> **[📖 API Documentation](https://marcelomatus.github.io/gtopt/)** — Doxygen-generated C++ API reference, deployed automatically via GitHub Pages.
 
 ## Documentation Guide
 
