@@ -54,7 +54,7 @@ void SDDPCutStore::store_cut(SceneIndex scene,
   };
   stored.coefficients.reserve(cut.cmap.size());
   for (const auto& [col, coeff] : cut.cmap) {
-    stored.coefficients.emplace_back(static_cast<int>(col), coeff);
+    stored.coefficients.emplace_back(col, coeff);
   }
   if (single_cut_storage) {
     m_scene_cuts_[scene].push_back(std::move(stored));
@@ -294,14 +294,13 @@ void SDDPCutStore::prune_inactive_cuts(
   };
 
   auto was_deleted = [](const std::vector<Index>& deleted, RowIndex row) -> bool
-  { return std::ranges::binary_search(deleted, static_cast<Index>(row)); };
+  { return std::ranges::binary_search(deleted, Index {row}); };
 
   auto compute_shift = [](const std::vector<Index>& deleted,
                           RowIndex row) -> RowIndex
   {
     return RowIndex {static_cast<Index>(
-        std::ranges::lower_bound(deleted, static_cast<Index>(row) + 1)
-        - deleted.begin())};
+        std::ranges::lower_bound(deleted, Index {row} + 1) - deleted.begin())};
   };
 
   auto update_cuts = [&](std::vector<StoredCut>& cuts)
@@ -413,7 +412,7 @@ void SDDPCutStore::apply_cut_sharing_for_iteration(
         .uppb = LinearProblem::DblMax,
     };
     for (const auto& [col, coeff] : sc.coefficients) {
-      row[ColIndex {col}] = coeff;
+      row[col] = coeff;
     }
     return row;
   };

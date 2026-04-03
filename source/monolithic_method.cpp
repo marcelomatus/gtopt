@@ -34,7 +34,7 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
 
   // ── Monitoring setup ──
   const auto solve_start = std::chrono::steady_clock::now();
-  const auto num_scenes = static_cast<int>(planning_lp.systems().size());
+  const auto num_scenes = static_cast<Index>(planning_lp.systems().size());
 
   SPDLOG_INFO("MonolithicMethod: starting {} scene(s)", num_scenes);
 
@@ -246,11 +246,11 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
       json += "  \"scene_times\": [";
       {
         const std::scoped_lock lk(times_mutex);
-        for (int i = 0; i < num_scenes; ++i) {
+        for (const auto [i, t] : std::views::enumerate(scene_times)) {
           if (i > 0) {
             json += ", ";
           }
-          json += std::format("{:.4f}", scene_times[i]);
+          json += std::format("{:.4f}", t);
         }
       }
       json += "],\n";

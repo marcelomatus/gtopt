@@ -194,8 +194,8 @@ TEST_CASE("StoredCut preserves strong-typed scene and phase UIDs")  // NOLINT
       .rhs = -1.5,
       .coefficients =
           {
-              {0, 1.0},
-              {3, -2.0},
+              {ColIndex {0}, 1.0},
+              {ColIndex {3}, -2.0},
           },
   };
 

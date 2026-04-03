@@ -67,23 +67,23 @@ std::vector<double> compute_scene_weights(
     std::span<const uint8_t> scene_feasible,
     ProbabilityRescaleMode rescale_mode) noexcept
 {
-  const auto num_scenes = static_cast<int>(scene_feasible.size());
-  std::vector<double> weights(static_cast<std::size_t>(num_scenes), 0.0);
+  const auto num_scenes = scene_feasible.size();
+  std::vector<double> weights(num_scenes, 0.0);
   double total = 0.0;
 
-  for (int si = 0; si < num_scenes; ++si) {
-    if (scene_feasible[static_cast<std::size_t>(si)] == 0U) {
+  for (const auto [si, feasible] : std::views::enumerate(scene_feasible)) {
+    if (feasible == 0U) {
       continue;  // Infeasible → weight stays 0
     }
     if (std::cmp_less(si, scenes.size())) {
-      for (const auto& sc : scenes[static_cast<std::size_t>(si)].scenarios()) {
-        weights[static_cast<std::size_t>(si)] += sc.probability_factor();
+      for (const auto& sc : scenes[si].scenarios()) {
+        weights[si] += sc.probability_factor();
       }
     }
-    if (weights[static_cast<std::size_t>(si)] <= 0.0) {
-      weights[static_cast<std::size_t>(si)] = 1.0;  // fallback equal weight
+    if (weights[si] <= 0.0) {
+      weights[si] = 1.0;  // fallback equal weight
     }
-    total += weights[static_cast<std::size_t>(si)];
+    total += weights[si];
   }
 
   // Runtime rescaling: normalize feasible-scene weights to sum 1.0
@@ -97,16 +97,16 @@ std::vector<double> compute_scene_weights(
   } else {
     // All infeasible or zero probability → equal weight among feasible
     int feasible_count = 0;
-    for (int si = 0; si < num_scenes; ++si) {
-      if (scene_feasible[static_cast<std::size_t>(si)] != 0U) {
+    for (const auto [si, feasible] : std::views::enumerate(scene_feasible)) {
+      if (feasible != 0U) {
         ++feasible_count;
       }
     }
     if (feasible_count > 0) {
       const double eq_w = 1.0 / static_cast<double>(feasible_count);
-      for (int si = 0; si < num_scenes; ++si) {
-        if (scene_feasible[static_cast<std::size_t>(si)] != 0U) {
-          weights[static_cast<std::size_t>(si)] = eq_w;
+      for (const auto [si, feasible] : std::views::enumerate(scene_feasible)) {
+        if (feasible != 0U) {
+          weights[si] = eq_w;
         }
       }
     }
@@ -381,7 +381,7 @@ bool SDDPMethod::should_dispatch_update_lp(IterationIndex iteration) const
   //  - update_lp == false  → explicitly skip
   //  - update_lp == true   → force dispatch (bypass skip count)
   //  - not specified        → default behaviour (respect global skip count)
-  if (std::cmp_less(static_cast<Index>(iteration), m_iterations_.size())) {
+  if (std::cmp_less(Index {iteration}, m_iterations_.size())) {
     const auto& iter_lp = m_iterations_[iteration];
 
     if (iter_lp.has_explicit_update_lp()) {
@@ -410,7 +410,7 @@ int SDDPMethod::update_lp_for_phase(SceneIndex scene, PhaseIndex phase)
   const auto lookup = planning_lp().options().sddp_state_variable_lookup_mode();
   if (phase > PhaseIndex {0} && lookup == StateVariableLookupMode::cross_phase)
   {
-    const auto prev = PhaseIndex {static_cast<Index>(phase) - 1};
+    const auto prev = phase - PhaseIndex {1};
     sys.set_prev_phase_sys(&planning_lp().system(scene, prev));
   } else {
     sys.set_prev_phase_sys(nullptr);
@@ -1079,9 +1079,9 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
     out.scene_upper_bounds[si_sz] = *fwd;
     ++out.scenes_solved;
     m_scenes_done_.fetch_add(1);
-    const auto si = static_cast<Index>(scene);
-    if ((si + 1) % 4 == 0 || si + 1 == num_scenes) {
-      SPDLOG_DEBUG("SDDP forward: {}/{} scenes completed", si + 1, num_scenes);
+    if ((scene + 1) % 4 == 0 || scene + 1 == num_scenes) {
+      SPDLOG_DEBUG(
+          "SDDP forward: {}/{} scenes completed", scene + 1, num_scenes);
     }
   }
 

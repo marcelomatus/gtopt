@@ -88,8 +88,8 @@ void write_cut_coefficients(std::ostream& ofs,
 {
   const auto& names = li.col_index_to_name();
   for (const auto& [col, coeff] : cut.coefficients) {
-    const auto scale = li.get_col_scale(ColIndex {col});
-    const auto idx = static_cast<size_t>(col);
+    const auto scale = li.get_col_scale(col);
+    const auto idx = static_cast<size_t>(Index {col});
     const bool has_name = idx < names.size() && !names[idx].empty();
     if (has_name) {
       // Name-based format (portable across LP structure changes)

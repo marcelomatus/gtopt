@@ -55,7 +55,7 @@ struct StoredCut
   std::optional<double> dual {};  ///< Row dual value (nullopt = unknown)
   RowIndex row {};  ///< LP row index where this cut was added
   /// Coefficient pairs: (column_index, coefficient)
-  std::vector<std::pair<int, double>> coefficients {};
+  std::vector<std::pair<ColIndex, double>> coefficients {};
 };
 
 /// Thread-safe storage for SDDP Benders cuts (combined + per-scene).

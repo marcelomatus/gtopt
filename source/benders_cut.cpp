@@ -57,9 +57,9 @@ void propagate_trial_values_row_dual(std::span<StateVarLink> links,
       target_li.set_row_upp(link.coupling_row, link.trial_value);
 
       SPDLOG_TRACE("row_dual propagation: col {} = {:.4f} (updated row {})",
-                   static_cast<Index>(link.dependent_col),
+                   link.dependent_col,
                    link.trial_value,
-                   static_cast<Index>(link.coupling_row));
+                   link.coupling_row);
     } else {
       // First call: add explicit coupling constraint x_dep = trial_value.
       auto coupling = SparseRow {
@@ -73,9 +73,9 @@ void propagate_trial_values_row_dual(std::span<StateVarLink> links,
 
       SPDLOG_TRACE(
           "row_dual propagation: col {} = {:.4f} via new coupling row {}",
-          static_cast<Index>(link.dependent_col),
+          link.dependent_col,
           link.trial_value,
-          static_cast<Index>(link.coupling_row));
+          link.coupling_row);
     }
   }
 }
@@ -244,11 +244,11 @@ RelaxedVarInfo relax_fixed_state_variable(LinearInterface& li,
   SPDLOG_TRACE(
       "SDDP elastic: phase {} col {} relaxed to [{:.2f}, {:.2f}] "
       "(source bounds from phase {})",
-      static_cast<Index>(phase),
-      static_cast<Index>(dep),
+      phase,
+      dep,
       link.source_low,
       link.source_upp,
-      static_cast<Index>(link.source_phase));
+      link.source_phase);
 
   return RelaxedVarInfo {
       .relaxed = true,
