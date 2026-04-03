@@ -2,6 +2,20 @@
 
 Tracked in [GitHub Issues](https://github.com/marcelomatus/gtopt/issues).
 
+## Hydro / Irrigation
+
+- [ ] Revisar el uso de caudales promedios en el Maule
+- [ ] Revisar los limites de caudales diarios, mensuales
+- [ ] Revisar el pampl, como se usa lo de los meses
+
+## Losses
+
+- [ ] Revisar el modelo de perdidas por uno mas liviano (3x PLP)
+
+## LP Build
+
+- [ ] Verificar que no hay ninguna escala de col manual
+
 ## Performance
 
 - [ ] Replace memory malloc with suggested alternative ([#321](https://github.com/marcelomatus/gtopt/issues/321))
