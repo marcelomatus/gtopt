@@ -703,7 +703,7 @@ When the SDDP gap does not close within the expected number of iterations:
   short, loading `boundary_cuts_file` can provide a better terminal
   approximation and speed convergence.
 - **Monitor progress**: use the SDDP monitoring API (`api_enabled: true`)
-  and the `sddp_monitor` script to visualize the convergence trajectory.
+  and the `gtopt_monitor` script to visualize the convergence trajectory.
   Check the `gap_change` column in `solution.csv` to assess whether the
   gap has plateaued.
 

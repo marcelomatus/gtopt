@@ -22,7 +22,7 @@ This project includes comprehensive documentation for different use cases:
 - **[Usage Guide](docs/usage.md)** - Complete command-line reference, examples, and advanced usage patterns
 - **[Input Data Reference](docs/input-data.md)** - Input data structure and file format reference
 - **[User Constraints](docs/user-constraints.md)** - User-defined LP constraints: AMPL-inspired syntax, domain specs, external files
-- **[Scripts Guide](docs/scripts-guide.md)** - Python utilities: conversion ([plp2gtopt](docs/scripts/plp2gtopt.md), [pp2gtopt](docs/scripts/pp2gtopt.md), [igtopt](docs/scripts/igtopt.md), [ts2gtopt](docs/scripts/ts2gtopt.md), [cvs2parquet](docs/scripts/cvs2parquet.md), [gtopt2pp](#gtopt2pp)), visualization ([gtopt_diagram](docs/scripts/gtopt_diagram.md)), validation ([gtopt_check_json](#gtopt_check_json), [gtopt_check_lp](#gtopt_check_lp), [gtopt_check_output](#gtopt_check_output)), and solver management ([run_gtopt](#run_gtopt), [sddp_monitor](#sddp_monitor))
+- **[Scripts Guide](docs/scripts-guide.md)** - Python utilities: conversion ([plp2gtopt](docs/scripts/plp2gtopt.md), [pp2gtopt](docs/scripts/pp2gtopt.md), [igtopt](docs/scripts/igtopt.md), [ts2gtopt](docs/scripts/ts2gtopt.md), [cvs2parquet](docs/scripts/cvs2parquet.md), [gtopt2pp](#gtopt2pp)), visualization ([gtopt_diagram](docs/scripts/gtopt_diagram.md)), validation ([gtopt_check_json](#gtopt_check_json), [gtopt_check_lp](#gtopt_check_lp), [gtopt_check_output](#gtopt_check_output)), and solver management ([run_gtopt](#run_gtopt), [gtopt_monitor](#gtopt_monitor))
 - **[Tool Comparison](docs/tools/comparison.md)** - Detailed comparison of gtopt vs PLP, pandapower, and other tools (elements, parameters, units, methodology)
 - **[SDDP Method](docs/methods/sddp.md)** - SDDP solver: theory, options, monitoring API, elastic filter modes, and JSON configuration
 - **[Cascade Method](docs/methods/cascade.md)** - Cascade solver: multi-level hybrid SDDP with warm-start
@@ -143,7 +143,7 @@ validating, and post-processing data for use with gtopt:
 | `gtopt_compare` | Compare gtopt results against pandapower DC OPF |
 | **Running & Monitoring** | |
 | `run_gtopt` | Smart solver wrapper with pre/post-flight checks |
-| `sddp_monitor` | Live SDDP convergence monitoring dashboard |
+| `gtopt_monitor` | Live solver convergence monitoring dashboard |
 | **Validation & Diagnostics** | |
 | `gtopt_check_json` | Validate JSON planning files and report issues |
 | `gtopt_check_lp` | Diagnose infeasible LP files (static + solver + AI) |

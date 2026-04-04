@@ -49,7 +49,7 @@ pandapower net ──→ pp2gtopt  ──→ JSON + Parquet ──→ gtopt ─�
 | `gtopt_compare` | Cross-validation against pandapower DC OPF |
 | `gtopt_diagram` | Network topology diagram generator |
 | `run_gtopt` | Execution manager |
-| `sddp_monitor` | SDDP convergence monitoring |
+| `gtopt_monitor` | Solver convergence monitoring |
 | `gtopt_check_*` | Input validation and diagnostics (4 tools) |
 | `cvs2parquet` | CSV → Parquet converter |
 | `ts2gtopt` | Time-series → horizon converter |

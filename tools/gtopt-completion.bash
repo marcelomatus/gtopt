@@ -692,9 +692,9 @@ _run_gtopt()
 complete -F _run_gtopt run_gtopt
 
 # ---------------------------------------------------------------------------
-# sddp_monitor
+# gtopt_monitor (formerly sddp_monitor)
 # ---------------------------------------------------------------------------
-_sddp_monitor()
+_gtopt_monitor()
 {
     local cur prev
     _init_completion || return
@@ -723,7 +723,8 @@ _sddp_monitor()
         _filedir -d
     fi
 }
-complete -F _sddp_monitor sddp_monitor
+complete -F _gtopt_monitor gtopt_monitor
+complete -F _gtopt_monitor sddp_monitor
 
 # ---------------------------------------------------------------------------
 # gtopt_config  (if available as a standalone command)

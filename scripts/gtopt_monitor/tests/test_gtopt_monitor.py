@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
-"""Unit tests for sddp_monitor."""
+"""Unit tests for gtopt_monitor."""
 
 import json
 import sys
@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from sddp_monitor.sddp_monitor import (
+from gtopt_monitor.gtopt_monitor import (
     find_planning_json,
     get_option,
     load_status,
@@ -219,7 +219,7 @@ class TestRunText:
         fpath = tmp_path / "sddp_status.json"
         fpath.write_text(json.dumps(converged), encoding="utf-8")
 
-        with patch("sddp_monitor.sddp_monitor.time.sleep"):
+        with patch("gtopt_monitor.gtopt_monitor.time.sleep"):
             run_text(fpath, poll_interval=0.1)
 
         captured = capsys.readouterr().out
@@ -237,7 +237,7 @@ class TestRunText:
             if call_count >= 2:
                 raise KeyboardInterrupt
 
-        with patch("sddp_monitor.sddp_monitor.time.sleep", side_effect=mock_sleep):
+        with patch("gtopt_monitor.gtopt_monitor.time.sleep", side_effect=mock_sleep):
             run_text(status_file, poll_interval=0.1)
 
         captured = capsys.readouterr().out
@@ -256,7 +256,7 @@ class TestRunText:
             if call_count >= 3:
                 raise KeyboardInterrupt
 
-        with patch("sddp_monitor.sddp_monitor.time.sleep", side_effect=mock_sleep):
+        with patch("gtopt_monitor.gtopt_monitor.time.sleep", side_effect=mock_sleep):
             run_text(missing, poll_interval=0.1)
 
         # Should not have printed any status line (only header + interrupt msg)
@@ -280,7 +280,7 @@ class TestRunText:
             ),
             encoding="utf-8",
         )
-        with patch("sddp_monitor.sddp_monitor.time.sleep"):
+        with patch("gtopt_monitor.gtopt_monitor.time.sleep"):
             run_text(fpath, poll_interval=2.5)
 
         captured = capsys.readouterr().out
@@ -325,7 +325,7 @@ class TestRunText:
                 # Switch to converged after two polls
                 fpath.write_text(converged_data, encoding="utf-8")
 
-        with patch("sddp_monitor.sddp_monitor.time.sleep", side_effect=mock_sleep):
+        with patch("gtopt_monitor.gtopt_monitor.time.sleep", side_effect=mock_sleep):
             run_text(fpath, poll_interval=0.1)
 
         captured = capsys.readouterr().out
@@ -542,8 +542,8 @@ class TestMain:
 
     def test_default_args_calls_run_gui(self) -> None:
         """With no arguments, main calls run_gui with defaults."""
-        with patch("sddp_monitor.sddp_monitor.run_gui") as mock_gui, patch(
-            "sys.argv", ["sddp_monitor"]
+        with patch("gtopt_monitor.gtopt_monitor.run_gui") as mock_gui, patch(
+            "sys.argv", ["gtopt_monitor"]
         ):
             main()
         mock_gui.assert_called_once()
@@ -553,8 +553,8 @@ class TestMain:
 
     def test_no_gui_flag_calls_run_text(self) -> None:
         """--no-gui flag dispatches to run_text."""
-        with patch("sddp_monitor.sddp_monitor.run_text") as mock_text, patch(
-            "sys.argv", ["sddp_monitor", "--no-gui"]
+        with patch("gtopt_monitor.gtopt_monitor.run_text") as mock_text, patch(
+            "sys.argv", ["gtopt_monitor", "--no-gui"]
         ):
             main()
         mock_text.assert_called_once()
@@ -564,8 +564,8 @@ class TestMain:
 
     def test_custom_status_file(self) -> None:
         """--status-file sets the path passed to run_gui."""
-        with patch("sddp_monitor.sddp_monitor.run_gui") as mock_gui, patch(
-            "sys.argv", ["sddp_monitor", "--status-file", "/tmp/my_status.json"]
+        with patch("gtopt_monitor.gtopt_monitor.run_gui") as mock_gui, patch(
+            "sys.argv", ["gtopt_monitor", "--status-file", "/tmp/my_status.json"]
         ):
             main()
         call_args = mock_gui.call_args
@@ -573,8 +573,8 @@ class TestMain:
 
     def test_custom_poll_interval(self) -> None:
         """--poll sets the polling interval passed to run_text."""
-        with patch("sddp_monitor.sddp_monitor.run_text") as mock_text, patch(
-            "sys.argv", ["sddp_monitor", "--no-gui", "--poll", "0.5"]
+        with patch("gtopt_monitor.gtopt_monitor.run_text") as mock_text, patch(
+            "sys.argv", ["gtopt_monitor", "--no-gui", "--poll", "0.5"]
         ):
             main()
         call_args = mock_text.call_args
@@ -582,10 +582,10 @@ class TestMain:
 
     def test_all_custom_args(self) -> None:
         """All CLI arguments are forwarded correctly."""
-        with patch("sddp_monitor.sddp_monitor.run_text") as mock_text, patch(
+        with patch("gtopt_monitor.gtopt_monitor.run_text") as mock_text, patch(
             "sys.argv",
             [
-                "sddp_monitor",
+                "gtopt_monitor",
                 "--no-gui",
                 "--status-file",
                 "/custom/path.json",

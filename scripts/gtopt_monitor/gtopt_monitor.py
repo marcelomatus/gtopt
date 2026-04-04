@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-sddp_monitor.py — Interactive SDDP solver monitoring dashboard.
+gtopt_monitor.py — Interactive solver monitoring dashboard for gtopt.
 
-Polls the JSON status file written by the gtopt SDDP solver and displays
+Polls the JSON status file written by the gtopt solver and displays
 live line-graphs in two figure windows:
 
   Figure 1 – Real-time / time-series charts (updated every POLL_INTERVAL s):
@@ -16,7 +16,7 @@ live line-graphs in two figure windows:
 
 Usage
 -----
-  python sddp_monitor.py [--status-file PATH] [--poll SECONDS] [--no-gui]
+  gtopt_monitor [--status-file PATH] [--poll SECONDS] [--no-gui]
 
   --status-file PATH   Path to the sddp_status.json file produced by gtopt.
                        Default: output/sddp_status.json

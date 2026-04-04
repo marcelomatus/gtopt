@@ -104,9 +104,9 @@ ruff format scripts/ guiservice/
 
 # Lint + type-check (from scripts/ directory)
 cd scripts
-ruff check cvs2parquet gtopt_check_output gtopt_compare gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt run_gtopt sddp_monitor ts2gtopt
-pylint --jobs=0 cvs2parquet gtopt_check_output gtopt_compare gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt run_gtopt sddp_monitor ts2gtopt
-mypy cvs2parquet gtopt_check_output gtopt_compare gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt run_gtopt sddp_monitor ts2gtopt --ignore-missing-imports
+ruff check cvs2parquet gtopt_check_output gtopt_compare gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt run_gtopt gtopt_monitor ts2gtopt
+pylint --jobs=0 cvs2parquet gtopt_check_output gtopt_compare gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt run_gtopt gtopt_monitor ts2gtopt
+mypy cvs2parquet gtopt_check_output gtopt_compare gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt run_gtopt gtopt_monitor ts2gtopt --ignore-missing-imports
 ```
 
 > **CRITICAL — pylint exit code**: pylint prints `10.00/10` even with warnings.

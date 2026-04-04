@@ -21,7 +21,7 @@ preparing, converting, visualizing, and post-processing data for use with gtopt.
   - [gtopt_compare](#gtopt_compare) · [full docs](scripts/gtopt_compare.md)
 - **Running & Monitoring**
   - [run_gtopt](#run_gtopt) — smart solver wrapper with pre/post-flight checks
-  - [sddp_monitor](#sddp_monitor) — live SDDP convergence dashboard
+  - [gtopt_monitor](#gtopt_monitor) — live solver convergence dashboard
 - **Validation & Diagnostics**
   - [gtopt_check_json](#gtopt_check_json) — validate JSON planning files
   - [gtopt_check_lp](#gtopt_check_lp) — diagnose infeasible LP files
@@ -47,7 +47,7 @@ pip install ./scripts
 This registers all 16 command-line tools on your `PATH`:
 `gtopt_diagram`, `plp2gtopt`, `pp2gtopt`, `gtopt2pp`, `igtopt`,
 `cvs2parquet`, `ts2gtopt`, `gtopt_compare`, `run_gtopt`,
-`sddp_monitor`, `gtopt_check_json`, `gtopt_check_lp`,
+`gtopt_monitor`, `gtopt_check_json`, `gtopt_check_lp`,
 `gtopt_check_output`, `gtopt_check_solvers`, `gtopt_compress_lp`, and
 `gtopt_field_extractor`.  An editable install is useful during
 development:
@@ -85,7 +85,7 @@ Each command-line tool lives in its own Python package directory under
 | `gtopt_check_solvers/` | `gtopt_check_solvers` | LP solver plugin discovery & validation |
 | `gtopt_compress_lp/` | `gtopt_compress_lp` | LP debug file compressor |
 | `gtopt_config/` | *(library)* | Unified configuration management |
-| `sddp_monitor/` | `sddp_monitor` | SDDP solver live monitoring dashboard |
+| `gtopt_monitor/` | `gtopt_monitor` | Live solver monitoring dashboard |
 | `ts2gtopt/` | `ts2gtopt` | Time-series → gtopt block schedule converter |
 
 ### Dependencies
@@ -98,7 +98,7 @@ Each command-line tool lives in its own Python package directory under
 | `openpyxl` | Excel file support (`igtopt`) |
 | `pandapower` | Power system network data (`pp2gtopt`, `gtopt2pp`, `gtopt_compare`) |
 | `rich` | Styled terminal output (`gtopt_check_json`, `plp2gtopt`, `igtopt`, `run_gtopt`) |
-| `matplotlib` *(optional)* | live charts (`sddp_monitor` GUI mode) |
+| `matplotlib` *(optional)* | live charts (`gtopt_monitor` GUI mode) |
 | `graphviz` *(optional)* | SVG/PNG/PDF rendering (`gtopt_diagram`) |
 | `pyvis` *(optional)* | Interactive HTML diagrams (`gtopt_diagram`) |
 | `cairosvg` *(optional)* | High-res PNG/PDF export (`gtopt_diagram`) |
@@ -1376,10 +1376,11 @@ run_gtopt --init-config     # via run_gtopt --list-checks / --init-config
 
 ---
 
-## sddp_monitor
+## gtopt_monitor
 
-Interactive **SDDP solver monitoring dashboard**.  Polls the JSON status file
-written by the gtopt SDDP solver and displays live charts in two figure windows:
+Interactive **solver monitoring dashboard** for gtopt.  Polls the JSON status file
+written by the gtopt solver (SDDP or monolithic) and displays live charts in two
+figure windows:
 
 - **Figure 1** – Real-time charts: CPU load (%) and active worker threads vs wall-clock seconds.
 - **Figure 2** – Iteration-indexed charts: objective upper/lower bounds per scene and convergence
@@ -1387,14 +1388,20 @@ written by the gtopt SDDP solver and displays live charts in two figure windows:
 
 ```bash
 # Monitor the default output/sddp_status.json
-sddp_monitor
+gtopt_monitor
 
 # Specify a custom status file and polling interval
-sddp_monitor --status-file /path/to/sddp_status.json --poll 2.0
+gtopt_monitor --status-file /path/to/sddp_status.json --poll 2.0
 
 # Headless mode (print to stdout, no GUI window)
-sddp_monitor --no-gui
+gtopt_monitor --no-gui
+
+# Query a planning option value
+gtopt_monitor --get method --case-dir ./mycase
+gtopt_monitor --get sddp_options.max_iterations --case-dir ./mycase
 ```
+
+The `sddp_monitor` command is still available as a backward-compatible alias.
 
 The tool exits when the solver reports "converged" or when you press Ctrl-C.
 

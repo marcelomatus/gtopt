@@ -97,7 +97,7 @@ provides a comprehensive reference for agents.
   `igtopt`, `cvs2parquet`, `ts2gtopt`, `gtopt_compare`
 - **Newly documented** (8): `run_gtopt`, `gtopt_check_json`, `gtopt_check_lp`,
   `gtopt_check_output`, `gtopt_compress_lp`, `gtopt2pp`, `gtopt_config`,
-  `sddp_monitor` (expanded)
+  `gtopt_monitor` (expanded, renamed from `sddp_monitor`)
 - Each new tool section includes: purpose, basic usage, CLI options table,
   and integration notes
 

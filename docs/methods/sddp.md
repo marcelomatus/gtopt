@@ -1183,7 +1183,7 @@ enough that convergence is achieved quickly.
 `SolverMonitor` is a reusable class that samples `AdaptiveWorkPool`
 statistics (CPU load, active worker count) in a background `std::jthread`
 and writes them to a JSON status file for external monitoring tools such as
-`scripts/sddp_monitor.py`.
+`scripts/gtopt_monitor/gtopt_monitor.py`.
 
 Both `SDDPMethod` and `MonolithicMethod` create a local `SolverMonitor`
 during their `solve()` call.

@@ -1839,14 +1839,14 @@ the solver parameters change (cuts inherited, possibly different apertures).
 
 ### 14.4 Monitoring cascade progress
 
-Use `sddp_monitor` to watch convergence in real time:
+Use `gtopt_monitor` to watch convergence in real time:
 
 ```bash
 # In one terminal: run the solver
 gtopt case.json
 
 # In another terminal: monitor convergence
-sddp_monitor --status-file output/sddp_status.json
+gtopt_monitor --status-file output/sddp_status.json
 ```
 
 The monitoring dashboard shows per-scene upper/lower bounds and gap across all
