@@ -45,7 +45,7 @@ _gtopt()
             --solver --verbose -v --quiet -q
             --system-file -s --set
             --lp-file -l --lp-names-level -n --matrix-eps -e
-            --lp-build -c
+            --lp-only -c
             --json-file -j --fast-parsing -p --check-json -J
             --stats -S --trace-log -T
             --sddp-num-apertures --recover"
@@ -93,12 +93,18 @@ _gtopt_check_json()
         -l|--log-level)
             COMPREPLY=( $(compgen -W "DEBUG INFO WARNING ERROR" -- "$cur") )
             return ;;
+        --ai-provider)
+            return ;;
+        --ai-model|--ai-prompt|--ai-key)
+            return ;;
     esac
 
     if [[ "$cur" == -* ]]; then
         COMPREPLY=( $(compgen -W "--info --config --init-config --no-color
             --show-simulation --show-config --quiet -q
-            --log-level -l --version -V --help -h" -- "$cur") )
+            --log-level -l --version -V
+            --ai --no-ai --ai-provider --ai-model --ai-prompt --ai-key
+            --help -h" -- "$cur") )
     else
         _gtopt_filedir_ext "json"
     fi
@@ -128,6 +134,8 @@ _gtopt_check_lp()
             return ;;
         --email|--solver-url|--timeout|--optimal-eps|--feasible-eps|--barrier-eps)
             return ;;
+        --ai-provider|--ai-model|--ai-prompt|--ai-key)
+            return ;;
     esac
 
     if [[ "$cur" == -* ]]; then
@@ -135,7 +143,9 @@ _gtopt_check_lp()
             --solver --algo --optimal-eps --feasible-eps --barrier-eps
             --email --solver-url --timeout --output --no-color --full
             --verbose -v --log-level -l --config --init-config
-            --no-setup --show-config --benchmark --help -h" -- "$cur") )
+            --no-setup --show-config --benchmark
+            --ai --no-ai --ai-provider --ai-model --ai-prompt --ai-key
+            --version --help -h" -- "$cur") )
     else
         _gtopt_filedir_ext "lp|lp.gz|lp.zst|lp.lz4"
     fi
@@ -178,9 +188,11 @@ _gtopt_check_output()
     _init_completion || return
 
     case "$prev" in
-        --case)
+        -r|--results-dir)
+            _filedir -d
             return ;;
-        --tol|--tol-lmp)
+        -j|--json-file|--config)
+            _filedir
             return ;;
         -l|--log-level)
             COMPREPLY=( $(compgen -W "DEBUG INFO WARNING ERROR" -- "$cur") )
@@ -188,7 +200,8 @@ _gtopt_check_output()
     esac
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=( $(compgen -W "--case --tol --tol-lmp --quiet --no-color
+        COMPREPLY=( $(compgen -W "--results-dir -r --json-file -j
+            --quiet -q --no-color --config --init-config
             --log-level -l --version -V --help -h" -- "$cur") )
     else
         _filedir -d
@@ -206,7 +219,7 @@ _gtopt_compare()
 
     case "$prev" in
         --case)
-            COMPREPLY=( $(compgen -W "bat_4b_24 ieee_4b_ori ieee30b plp s1b" -- "$cur") )
+            COMPREPLY=( $(compgen -W "bat_4b_24 ieee30b ieee_4b_ori ieee_57b plp plp_bat_4b_24 s1b" -- "$cur") )
             return ;;
         --gtopt-output|--plp-output)
             _filedir -d
@@ -293,7 +306,14 @@ _gtopt_diagram()
         -a|--aggregate)
             COMPREPLY=( $(compgen -W "auto none bus type global" -- "$cur") )
             return ;;
-        -g|--top-gens|--focus-hops|--max-nodes|--voltage-threshold)
+        --palette)
+            COMPREPLY=( $(compgen -W "default colorblind" -- "$cur") )
+            return ;;
+        -l|--log-level)
+            COMPREPLY=( $(compgen -W "DEBUG INFO WARNING ERROR CRITICAL" -- "$cur") )
+            return ;;
+        -g|--top-gens|--focus-hops|--max-nodes|--voltage-threshold|\
+        --scenario|--stage|--block)
             return ;;
         --filter-type)
             COMPREPLY=( $(compgen -W "hydro solar wind thermal battery" -- "$cur") )
@@ -308,6 +328,8 @@ _gtopt_diagram()
             --aggregate -a --no-generators --top-gens -g
             --filter-type --focus-bus --focus-generator --focus-area
             --focus-hops --max-nodes --voltage-threshold --hide-isolated
+            --compact --show --palette --scenario --stage --block
+            --log-level -l --version -V --no-color
             --help -h" -- "$cur") )
     else
         _gtopt_filedir_ext "json"
@@ -404,8 +426,11 @@ _plp2gtopt()
         -i|--input-dir|-o|--output-dir|--aperture-directory|-A)
             _filedir -d
             return ;;
-        -f|--output-file|--variable-scales-file)
+        -f|--output-file|--variable-scales-file|-X|--log)
             _filedir
+            return ;;
+        -x|--excel-file)
+            _gtopt_filedir_ext "xlsx"
             return ;;
         -F|--output-format|-I|--input-format)
             COMPREPLY=( $(compgen -W "parquet csv" -- "$cur") )
@@ -423,19 +448,21 @@ _plp2gtopt()
             COMPREPLY=( $(compgen -W "none expected accumulate max" -- "$cur") )
             return ;;
         --rsv-scale-mode)
-            COMPREPLY=( $(compgen -W "default auto" -- "$cur") )
+            COMPREPLY=( $(compgen -W "plp auto" -- "$cur") )
+            return ;;
+        --pasada-mode)
+            COMPREPLY=( $(compgen -W "auto hydro flow-turbine profile" -- "$cur") )
             return ;;
         -l|--log-level)
             COMPREPLY=( $(compgen -W "DEBUG INFO WARNING ERROR CRITICAL" -- "$cur") )
             return ;;
-        --log)
-            _filedir
-            return ;;
         -s|--last-stage|-d|--discount-rate|-m|--management-factor|-t|--last-time|\
         -n|--name|--sys-version|--compression-level|--demand-fail-cost|\
-        --reserve-fail-cost|--scale-objective|-y|--hydrologies|\
+        --reserve-fail-cost|--scale-objective|--scale-theta|--scale-alpha|\
+        -y|--hydrologies|--soft-emin-cost|\
         -p|--probability-factors|-a|--num-apertures|--boundary-max-iterations|\
-        -g|--stage-grouping|--rsv-energy-scale|--bat-energy-scale)
+        -g|--stages-phase|--rsv-energy-scale|--bat-energy-scale|\
+        --stationary-tol|--stationary-window|--tech-overrides)
             return ;;
     esac
 
@@ -444,19 +471,30 @@ _plp2gtopt()
             --last-stage -s --discount-rate -d --management-factor -m
             --last-time -t --name -n --sys-version
             --output-format -F --input-format -I --compression -c
-            --compression-level
+            --compression-level --zip -z --excel-output -E --excel-file -x
             --demand-fail-cost --reserve-fail-cost --scale-objective
-            --use-single-bus -b --use-kirchhoff -k --use-line-losses -L
+            --scale-theta --scale-alpha
+            --use-single-bus -b --use-kirchhoff -k --no-use-kirchhoff
+            --use-line-losses -L
             --hydrologies -y --first-scenario --show-simulation
             --probability-factors -p
             --solver -S --num-apertures -a --aperture-directory -A
             --cut-sharing-mode --boundary-cuts-mode
             --boundary-max-iterations --no-boundary-cuts --hot-start-cuts
+            --stationary-tol --stationary-window
             --info --validate
-            --variable-scales-template --variable-scales-file
-            --no-auto-rsv-energy-scale --no-auto-bat-energy-scale
+            --variable-scales-template --variable-scales-file -X
+            --auto-rsv-energy-scale --no-auto-rsv-energy-scale
+            --auto-bat-energy-scale --no-auto-bat-energy-scale
             --rsv-scale-mode --rsv-energy-scale --bat-energy-scale
-            --stage-grouping -g
+            --clamp-battery-efficiency --no-clamp-battery-efficiency
+            --soft-emin-cost
+            --embed-reservoir-constraints --no-embed-reservoir-constraints
+            --pasada-mode
+            --tech-detect --no-tech-detect --tech-overrides --tech-list
+            --stages-phase -g
+            --emit-water-rights --no-emit-water-rights
+            --check --no-check --init-config
             --log --log-level -l --no-color --version -V --help -h" -- "$cur") )
     else
         _filedir -d
@@ -473,13 +511,18 @@ _plp_compress_case()
     _init_completion || return
 
     case "$prev" in
-        -o|--output)
+        --codec)
+            COMPREPLY=( $(compgen -W "xz gzip zstd lz4" -- "$cur") )
+            return ;;
+        --codec-args)
+            return ;;
+        --color)
+            COMPREPLY=( $(compgen -W "auto always never" -- "$cur") )
+            return ;;
+        --config)
             _filedir
             return ;;
-        --format)
-            COMPREPLY=( $(compgen -W "tar.gz zip tar tar.bz2 tar.xz" -- "$cur") )
-            return ;;
-        --exclude)
+        --split-mb)
             return ;;
         -l|--log-level)
             COMPREPLY=( $(compgen -W "DEBUG INFO WARNING ERROR" -- "$cur") )
@@ -487,8 +530,9 @@ _plp_compress_case()
     esac
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=( $(compgen -W "--output -o --format --exclude --quiet
-            --no-color --log-level -l --version -V --help -h" -- "$cur") )
+        COMPREPLY=( $(compgen -W "--decompress -d --codec --codec-args
+            --split-mb --color --config --show-config
+            --log-level -l --version --help -h" -- "$cur") )
     else
         _filedir -d
     fi
@@ -566,8 +610,22 @@ _ts2gtopt()
         -o|--output)
             _filedir -d
             return ;;
-        -H|--horizon|-P|--planning)
+        -H|--horizon|--output-horizon)
             _gtopt_filedir_ext "json"
+            return ;;
+        -P|--planning)
+            _gtopt_filedir_ext "json"
+            return ;;
+        -f|--format)
+            COMPREPLY=( $(compgen -W "parquet csv" -- "$cur") )
+            return ;;
+        -a|--agg)
+            COMPREPLY=( $(compgen -W "mean median min max sum" -- "$cur") )
+            return ;;
+        -c|--compression)
+            return ;;
+        -l|--log-level)
+            COMPREPLY=( $(compgen -W "DEBUG INFO WARNING ERROR CRITICAL" -- "$cur") )
             return ;;
         -y|--year|-s|--stages|-b|--blocks|-i|--interval-hours|-t|--time-column)
             return ;;
@@ -584,7 +642,10 @@ _ts2gtopt()
         COMPREPLY=( $(compgen -W "--output -o --horizon -H --planning -P
             --year -y --stages -s --blocks -b
             --preset --list-presets --interval-hours -i
-            --time-column -t --help -h" -- "$cur") )
+            --time-column -t --agg -a --format -f --compression -c
+            --output-horizon --verify
+            --log-level -l --version -V --no-color
+            --help -h" -- "$cur") )
     else
         _gtopt_filedir_ext "csv|parquet"
     fi
@@ -600,16 +661,29 @@ _run_gtopt()
     _init_completion || return
 
     case "$prev" in
-        --solver)
-            COMPREPLY=( $(compgen -W "clp cbc cplex highs" -- "$cur") )
+        -C|--compression)
+            COMPREPLY=( $(compgen -W "zstd gzip snappy lz4 none" -- "$cur") )
             return ;;
-        --output-dir)
+        -o|--output-dir)
             _filedir -d
+            return ;;
+        --export-json)
+            _gtopt_filedir_ext "json"
+            return ;;
+        -l|--log-level)
+            COMPREPLY=( $(compgen -W "DEBUG INFO WARNING ERROR CRITICAL" -- "$cur") )
+            return ;;
+        -t|--threads|--plp-args|--enable-check|--disable-check)
             return ;;
     esac
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=( $(compgen -W "--solver --verbose --quiet --output-dir
+        COMPREPLY=( $(compgen -W "--threads -t --compression -C
+            --output-dir -o --plp-args
+            --check --no-check --strict
+            --enable-check --disable-check --list-checks
+            --convert-only --export-json --dry-run
+            --log-level -l --version -V --no-color
             --help -h" -- "$cur") )
     else
         _filedir -d
@@ -626,12 +700,25 @@ _sddp_monitor()
     _init_completion || return
 
     case "$prev" in
-        --interval)
+        --status-file)
+            _filedir
+            return ;;
+        --poll)
+            return ;;
+        --case-dir)
+            _filedir -d
+            return ;;
+        --get)
+            return ;;
+        -l|--log-level)
+            COMPREPLY=( $(compgen -W "DEBUG INFO WARNING ERROR CRITICAL" -- "$cur") )
             return ;;
     esac
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=( $(compgen -W "--interval --plot --verbose --help -h" -- "$cur") )
+        COMPREPLY=( $(compgen -W "--status-file --poll --no-gui --no-color
+            --log-level -l --get --case-dir
+            --version -V --help -h" -- "$cur") )
     else
         _filedir -d
     fi
