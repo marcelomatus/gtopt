@@ -834,7 +834,7 @@ void setup_trace_log(const MainOptions& opts)
       opts.matrix_eps,
       do_stats,
       opts.solver,
-      planning.options.lp_build_options.row_equilibration);
+      planning.options.lp_build_options.equilibration_method);
 
   if (do_stats) {
     log_pre_solve_stats(opts.planning_files, planning);
@@ -1032,18 +1032,6 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
     try {
       const bool do_stats = opts.print_stats.value_or(true)
           || my_planning.options.lp_build_options.compute_stats.value_or(false);
-      // CLI --lp-names-level overrides --set; fall back to merged planning
-      // value.
-      const auto eff_names_level = opts.lp_names_level
-          ? opts.lp_names_level
-          : my_planning.options.lp_build_options.names_level;
-      const auto flat_opts = make_lp_build_options(
-          eff_names_level,
-          opts.matrix_eps,
-          do_stats,
-          opts.solver,
-          my_planning.options.lp_build_options.equilibration_method);
-
       const auto flat_opts = prepare_lp_build(my_planning, opts, do_stats);
 
       spdlog::info("=== Building LP model ===");

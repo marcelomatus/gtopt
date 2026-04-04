@@ -89,31 +89,17 @@ struct Ieee9bEquilibrationResult
   int solve_status {-1};
   double obj_value {0.0};
   // Rows read from Generator/generation_sol.csv (per generator column values)
-  std::vector<double> generation;  ///< summed generation per generator UID
+  std::vector<double> generation;  ///< generation per generator UID
   // Rows read from Line/flowp_sol.csv (per line column values)
   std::vector<double> flowp;  ///< flow per line UID
+  // Rows read from Demand/load_sol.csv (per demand column values)
+  std::vector<double> load;  ///< served load per demand UID
+  // Rows read from Bus/balance_dual.csv (per bus column values)
+  std::vector<double> balance_dual;  ///< LMP per bus UID
 };
 
-/// Collect all double values from a named column in a CSV table.
-/// Returns empty vector on any error.
-auto read_double_column(const gtopt::ArrowTable& table,
-                        const std::string& col_name) -> std::vector<double>
-{
-  auto col = table->GetColumnByName(col_name);
-  if (!col || col->num_chunks() == 0) {
-    return {};
-  }
-  const auto arr = std::static_pointer_cast<arrow::DoubleArray>(col->chunk(0));
-  std::vector<double> vals;
-  vals.reserve(static_cast<size_t>(arr->length()));
-  for (int64_t i = 0; i < arr->length(); ++i) {
-    vals.push_back(arr->IsNull(i) ? 0.0 : arr->Value(i));
-  }
-  return vals;
-}
-
 /// Solve IEEE 9-bus with the given equilibration method.
-/// Writes output to @p out_dir and reads back generation_sol and flowp_sol.
+/// Writes output to @p out_dir and reads back output CSV files.
 auto solve_ieee9b_eq(gtopt::LpEquilibrationMethod method,
                      const std::filesystem::path& out_dir)
     -> Ieee9bEquilibrationResult
@@ -147,34 +133,35 @@ auto solve_ieee9b_eq(gtopt::LpEquilibrationMethod method,
   // Write output files.
   planning_lp.write_out();
 
-  // Read back Generator/generation_sol CSV.
-  const auto gen_path = out_dir / "Generator" / "generation_sol";
-  if (auto tbl = csv_read_table(gen_path); tbl.has_value()) {
-    // Columns: scenario, stage, block, uid:1, uid:2, uid:3
-    for (const auto& col_name : {"uid:1", "uid:2", "uid:3"}) {
-      auto vals = read_double_column(*tbl, col_name);
-      // Sum over all rows (only 1 row for a single block/stage/scenario).
-      double total = 0.0;
-      for (const double v : vals) {
-        total += v;
-      }
-      res.generation.push_back(total);
+  // Helper: read all uid:N values from a CSV table into a vector.
+  auto read_uid_values = [](const std::filesystem::path& path,
+                            int count) -> std::vector<double>
+  {
+    std::vector<double> out;
+    auto tbl = csv_read_table(path);
+    if (!tbl.has_value()) {
+      return out;
     }
-  }
-
-  // Read back Line/flowp_sol CSV.
-  const auto flowp_path = out_dir / "Line" / "flowp_sol";
-  if (auto tbl = csv_read_table(flowp_path); tbl.has_value()) {
-    for (int uid = 1; uid <= 9; ++uid) {
+    for (int uid = 1; uid <= count; ++uid) {
       const auto col_name = std::format("uid:{}", uid);
-      auto vals = read_double_column(*tbl, col_name);
-      double total = 0.0;
-      for (const double v : vals) {
-        total += v;
+      auto col = (*tbl)->GetColumnByName(col_name);
+      if (!col || col->num_chunks() == 0) {
+        out.push_back(0.0);
+        continue;
       }
-      res.flowp.push_back(total);
+      const auto arr =
+          std::static_pointer_cast<arrow::DoubleArray>(col->chunk(0));
+      // Single row (1 block × 1 stage × 1 scenario).
+      out.push_back(arr->length() > 0 ? arr->Value(0) : 0.0);
     }
-  }
+    return out;
+  };
+
+  // Read back all output CSV files.
+  res.generation = read_uid_values(out_dir / "Generator" / "generation_sol", 3);
+  res.flowp = read_uid_values(out_dir / "Line" / "flowp_sol", 9);
+  res.load = read_uid_values(out_dir / "Demand" / "load_sol", 3);
+  res.balance_dual = read_uid_values(out_dir / "Bus" / "balance_dual", 9);
 
   return res;
 }
@@ -208,45 +195,14 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "IEEE 9-bus equilibration - all modes produce identical objective")
+    "IEEE 9-bus equilibration - all modes produce identical physical outputs")
 {
   using namespace gtopt;
 
   const auto tmp_base =
-      std::filesystem::temp_directory_path() / "gtopt_eq_test_obj";
+      std::filesystem::temp_directory_path() / "gtopt_eq_test_all";
 
-  const auto out_none = tmp_base / "none";
-  const auto out_row = tmp_base / "row_max";
-  const auto out_ruiz = tmp_base / "ruiz";
-
-  const auto res_none = solve_ieee9b_eq(LpEquilibrationMethod::none, out_none);
-  const auto res_row = solve_ieee9b_eq(LpEquilibrationMethod::row_max, out_row);
-  const auto res_ruiz = solve_ieee9b_eq(LpEquilibrationMethod::ruiz, out_ruiz);
-
-  REQUIRE(res_none.solve_status == 1);
-  REQUIRE(res_row.solve_status == 1);
-  REQUIRE(res_ruiz.solve_status == 1);
-
-  // All equilibration modes must produce the same physical objective.
-  MESSAGE("obj none:    ", res_none.obj_value);
-  MESSAGE("obj row_max: ", res_row.obj_value);
-  MESSAGE("obj ruiz:    ", res_ruiz.obj_value);
-  CHECK(res_row.obj_value == doctest::Approx(res_none.obj_value).epsilon(1e-8));
-  CHECK(res_ruiz.obj_value
-        == doctest::Approx(res_none.obj_value).epsilon(1e-8));
-
-  std::filesystem::remove_all(tmp_base);
-}
-
-TEST_CASE(  // NOLINT
-    "IEEE 9-bus equilibration - all modes produce identical generation "
-    "dispatch")
-{
-  using namespace gtopt;
-
-  const auto tmp_base =
-      std::filesystem::temp_directory_path() / "gtopt_eq_test_gen";
-
+  // Solve once per equilibration mode.
   const auto res_none =
       solve_ieee9b_eq(LpEquilibrationMethod::none, tmp_base / "none");
   const auto res_row =
@@ -258,92 +214,96 @@ TEST_CASE(  // NOLINT
   REQUIRE(res_row.solve_status == 1);
   REQUIRE(res_ruiz.solve_status == 1);
 
-  // Generation dispatch must be the same from all modes (same physical model).
-  REQUIRE(res_none.generation.size() == 3);
-  REQUIRE(res_row.generation.size() == 3);
-  REQUIRE(res_ruiz.generation.size() == 3);
-
-  for (size_t g = 0; g < 3; ++g) {
-    CAPTURE(g);
-    MESSAGE("gen[", g, "] none:    ", res_none.generation[g]);
-    MESSAGE("gen[", g, "] row_max: ", res_row.generation[g]);
-    MESSAGE("gen[", g, "] ruiz:    ", res_ruiz.generation[g]);
-    CHECK(res_row.generation[g]
-          == doctest::Approx(res_none.generation[g]).epsilon(1e-8));
-    CHECK(res_ruiz.generation[g]
-          == doctest::Approx(res_none.generation[g]).epsilon(1e-8));
+  SUBCASE("objective value")
+  {
+    MESSAGE("obj none:    ", res_none.obj_value);
+    MESSAGE("obj row_max: ", res_row.obj_value);
+    MESSAGE("obj ruiz:    ", res_ruiz.obj_value);
+    CHECK(res_row.obj_value
+          == doctest::Approx(res_none.obj_value).epsilon(1e-8));
+    CHECK(res_ruiz.obj_value
+          == doctest::Approx(res_none.obj_value).epsilon(1e-8));
   }
 
-  // Sanity: total generation > 0 and each generator non-negative.
-  for (const double gen : res_none.generation) {
-    CHECK(gen >= 0.0);
-  }
-  const double total_gen_none =
-      res_none.generation[0] + res_none.generation[1] + res_none.generation[2];
-  CHECK(total_gen_none > 0.0);
+  SUBCASE("generation dispatch from CSV")
+  {
+    REQUIRE(res_none.generation.size() == 3);
+    REQUIRE(res_row.generation.size() == 3);
+    REQUIRE(res_ruiz.generation.size() == 3);
 
-  std::filesystem::remove_all(tmp_base);
-}
+    for (size_t g = 0; g < 3; ++g) {
+      CAPTURE(g);
+      MESSAGE("gen[", g, "] none:    ", res_none.generation[g]);
+      MESSAGE("gen[", g, "] row_max: ", res_row.generation[g]);
+      MESSAGE("gen[", g, "] ruiz:    ", res_ruiz.generation[g]);
+      CHECK(res_row.generation[g]
+            == doctest::Approx(res_none.generation[g]).epsilon(1e-8));
+      CHECK(res_ruiz.generation[g]
+            == doctest::Approx(res_none.generation[g]).epsilon(1e-8));
+    }
 
-TEST_CASE(  // NOLINT
-    "IEEE 9-bus equilibration - all modes produce identical line flows")
-{
-  using namespace gtopt;
-
-  const auto tmp_base =
-      std::filesystem::temp_directory_path() / "gtopt_eq_test_flow";
-
-  const auto res_none =
-      solve_ieee9b_eq(LpEquilibrationMethod::none, tmp_base / "none");
-  const auto res_row =
-      solve_ieee9b_eq(LpEquilibrationMethod::row_max, tmp_base / "row_max");
-  const auto res_ruiz =
-      solve_ieee9b_eq(LpEquilibrationMethod::ruiz, tmp_base / "ruiz");
-
-  REQUIRE(res_none.solve_status == 1);
-  REQUIRE(res_row.solve_status == 1);
-  REQUIRE(res_ruiz.solve_status == 1);
-
-  // Line flows must be the same from all equilibration modes.
-  REQUIRE(res_none.flowp.size() == 9);
-  REQUIRE(res_row.flowp.size() == 9);
-  REQUIRE(res_ruiz.flowp.size() == 9);
-
-  for (size_t l = 0; l < 9; ++l) {
-    CAPTURE(l);
-    MESSAGE("flow[", l, "] none:    ", res_none.flowp[l]);
-    MESSAGE("flow[", l, "] row_max: ", res_row.flowp[l]);
-    MESSAGE("flow[", l, "] ruiz:    ", res_ruiz.flowp[l]);
-    CHECK(res_row.flowp[l] == doctest::Approx(res_none.flowp[l]).epsilon(1e-8));
-    CHECK(res_ruiz.flowp[l]
-          == doctest::Approx(res_none.flowp[l]).epsilon(1e-8));
+    // Sanity: total generation > 0 and each generator non-negative.
+    for (const double gen : res_none.generation) {
+      CHECK(gen >= 0.0);
+    }
   }
 
-  std::filesystem::remove_all(tmp_base);
-}
+  SUBCASE("line flows from CSV")
+  {
+    REQUIRE(res_none.flowp.size() == 9);
+    REQUIRE(res_row.flowp.size() == 9);
+    REQUIRE(res_ruiz.flowp.size() == 9);
 
-TEST_CASE(  // NOLINT
-    "IEEE 9-bus equilibration - output CSV files exist for all modes")
-{
-  using namespace gtopt;
+    for (size_t l = 0; l < 9; ++l) {
+      CAPTURE(l);
+      CHECK(res_row.flowp[l]
+            == doctest::Approx(res_none.flowp[l]).epsilon(1e-8));
+      CHECK(res_ruiz.flowp[l]
+            == doctest::Approx(res_none.flowp[l]).epsilon(1e-8));
+    }
+  }
 
-  const auto tmp_base =
-      std::filesystem::temp_directory_path() / "gtopt_eq_test_files";
+  SUBCASE("served demand from CSV")
+  {
+    REQUIRE(res_none.load.size() == 3);
+    REQUIRE(res_row.load.size() == 3);
+    REQUIRE(res_ruiz.load.size() == 3);
 
-  for (const auto* mode_name : {"none", "row_max", "ruiz"}) {
-    CAPTURE(mode_name);
-    const auto method = enum_from_name<LpEquilibrationMethod>(mode_name);
-    REQUIRE(method.has_value());
+    for (size_t d = 0; d < 3; ++d) {
+      CAPTURE(d);
+      CHECK(res_row.load[d] == doctest::Approx(res_none.load[d]).epsilon(1e-8));
+      CHECK(res_ruiz.load[d]
+            == doctest::Approx(res_none.load[d]).epsilon(1e-8));
+    }
+  }
 
-    const auto out_dir = tmp_base / mode_name;
-    const auto res = solve_ieee9b_eq(*method, out_dir);
-    REQUIRE(res.solve_status == 1);
+  SUBCASE("bus LMP (balance dual) from CSV")
+  {
+    REQUIRE(res_none.balance_dual.size() == 9);
+    REQUIRE(res_row.balance_dual.size() == 9);
+    REQUIRE(res_ruiz.balance_dual.size() == 9);
 
-    // Verify the key output files were created.
-    CHECK(
-        std::filesystem::exists(out_dir / "Generator" / "generation_sol.csv"));
-    CHECK(std::filesystem::exists(out_dir / "Line" / "flowp_sol.csv"));
-    CHECK(std::filesystem::exists(out_dir / "solution.csv"));
+    for (size_t b = 0; b < 9; ++b) {
+      CAPTURE(b);
+      CHECK(res_row.balance_dual[b]
+            == doctest::Approx(res_none.balance_dual[b]).epsilon(1e-8));
+      CHECK(res_ruiz.balance_dual[b]
+            == doctest::Approx(res_none.balance_dual[b]).epsilon(1e-8));
+    }
+  }
+
+  SUBCASE("output CSV files exist")
+  {
+    for (const auto* dir : {(tmp_base / "none").c_str(),
+                            (tmp_base / "row_max").c_str(),
+                            (tmp_base / "ruiz").c_str()})
+    {
+      const std::filesystem::path d(dir);
+      CHECK(std::filesystem::exists(d / "Generator" / "generation_sol.csv"));
+      CHECK(std::filesystem::exists(d / "Line" / "flowp_sol.csv"));
+      CHECK(std::filesystem::exists(d / "Demand" / "load_sol.csv"));
+      CHECK(std::filesystem::exists(d / "solution.csv"));
+    }
   }
 
   std::filesystem::remove_all(tmp_base);
