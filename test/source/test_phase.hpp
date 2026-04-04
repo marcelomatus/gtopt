@@ -64,6 +64,7 @@ TEST_CASE("Phase designated initializer construction")
   const Phase phase {
       .uid = Uid {2},
       .name = "operational",
+      .active = {},
       .first_stage = 5,
       .count_stage = 20,
   };
@@ -91,6 +92,8 @@ TEST_CASE("Phase with dynamic_extent covers all stages")
 {
   const Phase phase {
       .uid = Uid {1},
+      .name = {},
+      .active = {},
       .first_stage = 3,
       .count_stage = std::dynamic_extent,
   };
@@ -113,11 +116,15 @@ TEST_CASE("Phase array construction")  // NOLINT
   const Array<Phase> phases {
       {
           .uid = Uid {1},
+          .name = {},
+          .active = {},
           .first_stage = 0,
           .count_stage = 5,
       },
       {
           .uid = Uid {2},
+          .name = {},
+          .active = {},
           .first_stage = 5,
           .count_stage = 10,
       },

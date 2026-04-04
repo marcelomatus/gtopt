@@ -60,6 +60,7 @@ TEST_CASE("Scene designated initializer construction")
   const Scene scene {
       .uid = Uid {2},
       .name = "all_scenarios",
+      .active = {},
       .first_scenario = 0,
       .count_scenario = 10,
   };
@@ -75,6 +76,8 @@ TEST_CASE("Scene with dynamic_extent covers all scenarios")
 {
   const Scene scene {
       .uid = Uid {1},
+      .name = {},
+      .active = {},
       .first_scenario = 2,
       .count_scenario = std::dynamic_extent,
   };
@@ -102,11 +105,15 @@ TEST_CASE("Scene array construction")  // NOLINT
   const Array<Scene> scenes {
       {
           .uid = Uid {1},
+          .name = {},
+          .active = {},
           .first_scenario = 0,
           .count_scenario = 3,
       },
       {
           .uid = Uid {2},
+          .name = {},
+          .active = {},
           .first_scenario = 3,
           .count_scenario = 4,
       },

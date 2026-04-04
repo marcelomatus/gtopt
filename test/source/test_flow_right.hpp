@@ -55,10 +55,13 @@ TEST_CASE("FlowRight designated initializer construction")
   const FlowRight fr {
       .uid = Uid {2},
       .name = "env_flow",
+      .active = {},
       .purpose = "environmental",
       .junction = SingleId {Uid {10}},
       .direction = -1,
       .discharge = 25.0,
+      .fmax = {},
+      .use_average = {},
       .fail_cost = 10000.0,
   };
 
@@ -136,6 +139,7 @@ TEST_CASE("FlowRight with different purposes")  // NOLINT
     const FlowRight fr {
         .uid = Uid {10},
         .name = "irr",
+        .active = {},
         .purpose = "irrigation",
     };
     CHECK(fr.purpose.value() == "irrigation");
@@ -146,6 +150,7 @@ TEST_CASE("FlowRight with different purposes")  // NOLINT
     const FlowRight fr {
         .uid = Uid {11},
         .name = "gen",
+        .active = {},
         .purpose = "generation",
     };
     CHECK(fr.purpose.value() == "generation");
@@ -156,6 +161,7 @@ TEST_CASE("FlowRight with different purposes")  // NOLINT
     const FlowRight fr {
         .uid = Uid {12},
         .name = "env",
+        .active = {},
         .purpose = "environmental",
     };
     CHECK(fr.purpose.value() == "environmental");

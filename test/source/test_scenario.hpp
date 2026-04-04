@@ -58,6 +58,7 @@ TEST_CASE("Scenario designated initializer construction")
   const Scenario scenario {
       .uid = Uid {2},
       .name = "wet_year",
+      .active = {},
       .probability_factor = 0.7,
   };
 
@@ -72,6 +73,7 @@ TEST_CASE("Scenario with zero probability")
   const Scenario scenario {
       .uid = Uid {3},
       .name = "extreme",
+      .active = {},
       .probability_factor = 0.0,
   };
 
@@ -93,16 +95,19 @@ TEST_CASE("Scenario array with probability weighting")  // NOLINT
       {
           .uid = Uid {1},
           .name = "dry",
+          .active = {},
           .probability_factor = 0.3,
       },
       {
           .uid = Uid {2},
           .name = "normal",
+          .active = {},
           .probability_factor = 0.5,
       },
       {
           .uid = Uid {3},
           .name = "wet",
+          .active = {},
           .probability_factor = 0.2,
       },
   };
