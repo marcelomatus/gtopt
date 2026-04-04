@@ -1043,6 +1043,15 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
       spdlog::info(
           std::format("  Build lp time {:.3f}s", build_sw.elapsed().count()));
 
+      // Log the active solver backend so monitoring tools can display it.
+      if (!planning_lp.systems().empty()
+          && !planning_lp.systems().front().empty())
+      {
+        const auto& li =
+            planning_lp.systems().front().front().linear_interface();
+        spdlog::info(std::format("  Solver: {}", li.solver_id()));
+      }
+
       if (opts.lp_file) {
         planning_lp.write_lp(opts.lp_file.value());
       }

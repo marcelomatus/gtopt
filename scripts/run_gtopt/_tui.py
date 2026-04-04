@@ -881,12 +881,20 @@ class SolverDisplay:
 
     # -- public API --------------------------------------------------------
 
+    # Pattern to detect "Solver: name/version" from gtopt log output
+    _SOLVER_RE = re.compile(r"Solver:\s+(\S+)")
+
     def add_log_line(self, line: str) -> None:
         """Append a solver output line (thread-safe)."""
         stripped = line.rstrip()
         with self._lock:
             self._log_lines.append(stripped)
             self._phase_tracker.process_line(stripped)
+            # Detect solver from log output (e.g. "  Solver: cplex/22.1.1")
+            if not self._system_stats.get("solver"):
+                m = self._SOLVER_RE.search(stripped)
+                if m:
+                    self._system_stats["solver"] = m.group(1)
 
     def start(self) -> None:
         """Launch the dashboard render thread."""
