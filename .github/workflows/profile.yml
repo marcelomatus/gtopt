@@ -57,7 +57,7 @@ jobs:
     name: Profile (${{ inputs.case || 'cases/ieee_9b_ori' }})
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -70,10 +70,13 @@ jobs:
             Ubuntu-clang-
           max-size: 2G
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: "**/cpm_modules"
           key: profile-clang-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          restore-keys: |
+            profile-clang-cpm-modules-
+            Ubuntu-clang-cpm-modules-
 
       - name: install dependencies
         uses: ./.github/actions/install-apt-deps
@@ -86,23 +89,11 @@ jobs:
           version: 21
           install-coverage-runtime: 'false'
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      - name: Set up Python with uv
+        uses: ./.github/actions/setup-python-uv
 
-      - name: Cache uv packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/uv
-          key: ${{ runner.os }}-uv-scripts-${{ hashFiles('scripts/pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-uv-scripts-
-
-      - name: Install uv and pre-install scripts dependencies
-        run: |
-          pip install uv
-          uv pip install --system -q -e "./scripts[dev]" graphviz
+      - name: Pre-install scripts dependencies
+        run: uv pip install --system -q -e "./scripts[dev]" graphviz
 
       - name: Configure profiling sub-project
         run: |
@@ -122,7 +113,7 @@ jobs:
         run: cmake --build build-profiling -j$(nproc)
 
       - name: Upload profiling artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cpp-profile-${{ github.run_number }}
           path: reports/profiling/

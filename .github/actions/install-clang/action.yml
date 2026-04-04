@@ -67,7 +67,7 @@ runs:
 
     - name: install full LLVM/Clang suite (cached)
       if: ${{ inputs.packages == '' }}
-      uses: awalsh128/cache-apt-pkgs-action@latest
+      uses: awalsh128/cache-apt-pkgs-action@v1
       with:
         packages: >-
           clang-${{ inputs.version }}
@@ -105,7 +105,7 @@ runs:
 
     - name: install specific LLVM packages (cached)
       if: ${{ inputs.packages != '' }}
-      uses: awalsh128/cache-apt-pkgs-action@latest
+      uses: awalsh128/cache-apt-pkgs-action@v1
       with:
         packages: ${{ env.LLVM_VERSIONED_PKGS }}
         version: 1.0
@@ -125,7 +125,7 @@ runs:
 
     - name: install clang coverage runtime (cached)
       if: ${{ inputs.install-coverage-runtime == 'true' }}
-      uses: awalsh128/cache-apt-pkgs-action@latest
+      uses: awalsh128/cache-apt-pkgs-action@v1
       with:
         packages: libclang-rt-${{ inputs.version }}-dev
         version: 1.0

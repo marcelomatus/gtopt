@@ -14,7 +14,7 @@ runs:
   using: composite
   steps:
     - name: install GCC (cached)
-      uses: awalsh128/cache-apt-pkgs-action@latest
+      uses: awalsh128/cache-apt-pkgs-action@v1
       with:
         packages: gcc-${{ inputs.version }} g++-${{ inputs.version }}
         version: 1.0

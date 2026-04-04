@@ -1,0 +1,40 @@
+name: Setup Python with uv
+description: >
+  Sets up Python 3.12, configures the uv package cache, and installs uv.
+  Consolidates the repeated Python + uv setup pattern used across multiple
+  workflows into a single reusable action.
+
+inputs:
+  cache-suffix:
+    description: >
+      Suffix for the uv cache key.  Use a different value per dependency file
+      to keep caches separate (e.g. "scripts", "guiservice").
+    default: 'scripts'
+  cache-dependency-path:
+    description: >
+      Path to the dependency file whose hash is included in the cache key
+      (e.g. scripts/pyproject.toml, guiservice/requirements.txt).
+    default: 'scripts/pyproject.toml'
+  python-version:
+    description: Python version to install
+    default: '3.12'
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Cache uv packages
+      uses: actions/cache@v5
+      with:
+        path: ~/.cache/uv
+        key: ${{ runner.os }}-uv-${{ inputs.cache-suffix }}-${{ hashFiles(inputs.cache-dependency-path) }}
+        restore-keys: |
+          ${{ runner.os }}-uv-${{ inputs.cache-suffix }}-
+
+    - name: Install uv
+      shell: bash
+      run: pip install uv

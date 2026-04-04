@@ -1,5 +1,5 @@
 name: Scripts
-# uv package cache added to all jobs (actions/cache@v4 → ~/.cache/uv)
+# uv package cache added to all jobs (actions/cache@v5 via setup-python-uv → ~/.cache/uv)
 
 on:
   push:
@@ -35,23 +35,10 @@ jobs:
     name: unit-tests
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Cache uv packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/uv
-          key: ${{ runner.os }}-uv-scripts-${{ hashFiles('scripts/pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-uv-scripts-
-
-      - name: Install uv
-        run: pip install uv
+      - name: Set up Python with uv
+        uses: ./.github/actions/setup-python-uv
 
       - name: Install scripts package and dev dependencies
         run: uv pip install --system -e "./scripts[dev]" graphviz
@@ -78,7 +65,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: python-coverage-xml
           path: scripts/coverage.xml
@@ -106,26 +93,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     name: integration-tests
-    needs: test
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Cache uv packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/uv
-          key: ${{ runner.os }}-uv-scripts-${{ hashFiles('scripts/pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-uv-scripts-
-
-      - name: Install uv
-        run: pip install uv
+      - name: Set up Python with uv
+        uses: ./.github/actions/setup-python-uv
 
       - name: Install scripts package and dev dependencies
         run: uv pip install --system -e "./scripts[dev]" graphviz
@@ -195,26 +168,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     name: cmake-install
-    needs: test
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Cache uv packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/uv
-          key: ${{ runner.os }}-uv-scripts-${{ hashFiles('scripts/pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-uv-scripts-
-
-      - name: Install uv
-        run: pip install uv
+      - name: Set up Python with uv
+        uses: ./.github/actions/setup-python-uv
 
       # Pre-install runtime deps before cmake configure so that cmake's
       # find_program(PYTHON_EXECUTABLE) picks the same Python whose packages
@@ -356,23 +315,10 @@ jobs:
     name: lint
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Cache uv packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/uv
-          key: ${{ runner.os }}-uv-scripts-${{ hashFiles('scripts/pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-uv-scripts-
-
-      - name: Install uv
-        run: pip install uv
+      - name: Set up Python with uv
+        uses: ./.github/actions/setup-python-uv
 
       - name: Install dev dependencies
         run: uv pip install --system -e "./scripts[dev]"

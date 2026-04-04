@@ -17,7 +17,7 @@ runs:
   using: composite
   steps:
     - name: install base packages (cached)
-      uses: awalsh128/cache-apt-pkgs-action@latest
+      uses: awalsh128/cache-apt-pkgs-action@v1
       with:
         packages: ccache coinor-libcbc-dev libboost-container-dev libspdlog-dev liblapack-dev libblas-dev liblapack3 libblas3 lcov zlib1g-dev libzstd-dev zstd ca-certificates lsb-release wget ${{ inputs.extra-packages }}
         version: 1.1
@@ -70,7 +70,7 @@ runs:
         done
 
     - name: install Arrow and Parquet (cached)
-      uses: awalsh128/cache-apt-pkgs-action@latest
+      uses: awalsh128/cache-apt-pkgs-action@v1
       with:
         packages: libarrow-dev libparquet-dev
         version: 1.0

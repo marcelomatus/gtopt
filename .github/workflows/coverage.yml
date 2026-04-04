@@ -48,7 +48,7 @@ jobs:
     name: Coverage (${{ inputs.compiler || 'clang' }})
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -60,10 +60,13 @@ jobs:
             coverage-${{ inputs.compiler || 'clang' }}-
           max-size: 2G
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: "**/cpm_modules"
           key: coverage-${{ inputs.compiler || 'clang' }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          restore-keys: |
+            coverage-${{ inputs.compiler || 'clang' }}-cpm-modules-
+            Ubuntu-${{ inputs.compiler || 'clang' }}-cpm-modules-
 
       - name: install dependencies
         uses: ./.github/actions/install-apt-deps
@@ -81,23 +84,11 @@ jobs:
           version: 21
           install-coverage-runtime: 'true'
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      - name: Set up Python with uv
+        uses: ./.github/actions/setup-python-uv
 
-      - name: Cache uv packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/uv
-          key: ${{ runner.os }}-uv-scripts-${{ hashFiles('scripts/pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-uv-scripts-
-
-      - name: Install uv and pre-install scripts dependencies
-        run: |
-          pip install uv
-          uv pip install --system -q -e "./scripts[dev]" graphviz
+      - name: Pre-install scripts dependencies
+        run: uv pip install --system -q -e "./scripts[dev]" graphviz
 
       - name: Configure coverage sub-project
         run: |
@@ -111,7 +102,7 @@ jobs:
         run: cmake --build build-coverage -j$(nproc)
 
       - name: Upload C++ coverage HTML report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cpp-coverage-report-${{ inputs.compiler || 'clang' }}
           path: reports/coverage/html/
@@ -119,7 +110,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload Python coverage HTML report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: python-coverage-report
           path: reports/coverage/python/
@@ -127,7 +118,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload coverage.info artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-info-${{ inputs.compiler || 'clang' }}
           path: reports/coverage/coverage.info

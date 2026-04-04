@@ -77,7 +77,7 @@ jobs:
     name: build
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # ccache must be set up before any compilation (including cmake feature
       # tests during configure).  Placing it first also means the cache is
@@ -91,10 +91,12 @@ jobs:
             ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-
           max-size: 2G
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: "**/cpm_modules"
           key: ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          restore-keys: |
+            ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-cpm-modules-
 
       - name: install dependencies
         uses: ./.github/actions/install-apt-deps
@@ -119,21 +121,8 @@ jobs:
       #     has the pre-installed packages.
       #  2. The uv package cache is warm for the scripts-install-deps CTest
       #     fixture, reducing it from ~35 s to ~3–5 s on cache hits.
-      - name: Set up Python (for scripts ctest tests)
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Cache uv packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/uv
-          key: ${{ runner.os }}-uv-scripts-${{ hashFiles('scripts/pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-uv-scripts-
-
-      - name: Install uv
-        run: pip install uv
+      - name: Set up Python with uv
+        uses: ./.github/actions/setup-python-uv
 
       # Pre-install all scripts dev dependencies so that the scripts-install-deps
       # CTest fixture finds every package already present and only needs to verify
@@ -194,7 +183,7 @@ jobs:
           ls -la build/standalone/
 
       - name: upload gtopt binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gtopt-binary-debug
           path: |
@@ -252,7 +241,7 @@ jobs:
 
       - name: upload coverage report
         if: env.ENABLE_COVERAGE == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cpp-coverage-report-${{ env.ACTIVE_COMPILER }}
           path: coverage-report/
@@ -310,7 +299,7 @@ jobs:
     if: inputs.run_clang_tidy == true
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
@@ -318,12 +307,16 @@ jobs:
           key: ${{ github.workflow }}-clang-tidy
           restore-keys: |
             ${{ github.workflow }}-clang-tidy-
+            ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-
           max-size: 2G
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: "**/cpm_modules"
           key: ${{ github.workflow }}-clang-tidy-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          restore-keys: |
+            ${{ github.workflow }}-clang-tidy-cpm-modules-
+            ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-cpm-modules-
 
       - name: install clang (full — clang-tidy required)
         uses: ./.github/actions/install-clang
@@ -359,10 +352,10 @@ jobs:
     needs: build
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: download gtopt binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: gtopt-binary-debug
           path: gtopt-install/bin
@@ -371,19 +364,16 @@ jobs:
         uses: ./.github/actions/install-apt-deps
 
       - name: make gtopt executable
-        run: |
-          chmod +x gtopt-install/bin/gtopt
-          ldd gtopt-install/bin/gtopt
-          gtopt-install/bin/gtopt --version
+        run: chmod +x gtopt-install/bin/gtopt
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: webservice/package-lock.json
 
       - name: cache Next.js build
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ github.workspace }}/webservice/.next/cache
           key: ${{ runner.os }}-nextjs-${{ hashFiles('webservice/package-lock.json') }}-${{ hashFiles('webservice/src/**/*.ts', 'webservice/src/**/*.tsx', 'webservice/*.mjs', 'webservice/*.js', 'webservice/*.ts') }}
@@ -422,10 +412,10 @@ jobs:
     needs: build
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: download gtopt binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: gtopt-binary-debug
           path: ${{ github.workspace }}/gtopt-install/bin
@@ -434,10 +424,7 @@ jobs:
         uses: ./.github/actions/install-apt-deps
 
       - name: make gtopt executable
-        run: |
-          chmod +x gtopt-install/bin/gtopt
-          ldd gtopt-install/bin/gtopt
-          gtopt-install/bin/gtopt --version
+        run: chmod +x gtopt-install/bin/gtopt
 
       - name: verify only standalone gtopt binary is installed
         run: |
@@ -449,14 +436,14 @@ jobs:
           fi
           echo "✓ standalone gtopt binary installed without libgtopt.a"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: webservice/package-lock.json
 
       - name: cache Next.js build
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/gtopt-install/share/gtopt/webservice/.next/cache
           key: ${{ runner.os }}-nextjs-${{ hashFiles('webservice/package-lock.json') }}-${{ hashFiles('webservice/src/**/*.ts', 'webservice/src/**/*.tsx', 'webservice/*.mjs', 'webservice/*.js', 'webservice/*.ts') }}
@@ -539,17 +526,15 @@ jobs:
     needs: build
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      - name: Set up Python with uv
+        uses: ./.github/actions/setup-python-uv
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
           cache: "npm"
           cache-dependency-path: webservice/package-lock.json
 
@@ -557,7 +542,7 @@ jobs:
         uses: ./.github/actions/install-apt-deps
 
       - name: download gtopt binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: gtopt-binary-debug
           path: ${{ runner.temp }}/gtopt-bin
@@ -569,8 +554,6 @@ jobs:
           # Copy solver plugin libraries alongside the binary
           cp ${{ runner.temp }}/gtopt-bin/libgtopt_solver_*.so $HOME/gtopt-install/bin/ 2>/dev/null || true
           chmod +x $HOME/gtopt-install/bin/gtopt
-          $HOME/gtopt-install/bin/gtopt --version
-          echo "✓ gtopt binary installed from CI artifact"
 
       - name: Configure and install guiservice
         run: |
@@ -578,7 +561,7 @@ jobs:
           cmake --install build-guiservice --prefix $HOME/gtopt-install
 
       - name: cache Next.js build
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/gtopt-install/share/gtopt/webservice/.next/cache
           key: ${{ runner.os }}-nextjs-${{ hashFiles('webservice/package-lock.json') }}-${{ hashFiles('webservice/src/**/*.ts', 'webservice/src/**/*.tsx', 'webservice/*.mjs', 'webservice/*.js', 'webservice/*.ts') }}

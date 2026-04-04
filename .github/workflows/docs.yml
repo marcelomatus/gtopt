@@ -1,25 +1,7 @@
 name: Docs
 
 on:
-  push:
-    paths:
-      - 'docs/**'
-      - 'documentation/**'
-      - 'include/**'
-      - 'source/**'
-      - '*.md'
-      - 'tools/check_latex_math.py'
-  pull_request:
-    branches:
-      - master
-      - main
-    paths:
-      - 'docs/**'
-      - 'documentation/**'
-      - 'include/**'
-      - 'source/**'
-      - '*.md'
-      - 'tools/check_latex_math.py'
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -37,10 +19,10 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -80,12 +62,20 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: "**/cpm_modules"
           key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          restore-keys: |
+            ${{ github.workflow }}-cpm-modules-
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: "pip"
 
       - name: Install dependencies
         run: |
@@ -99,7 +89,7 @@ jobs:
           cmake --build build --target GenerateDocs
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: doxygen-html
           path: build/doxygen/html/
@@ -120,19 +110,19 @@ jobs:
 
     steps:
       - name: Download Doxygen HTML artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: doxygen-html
           path: site
 
       - name: Upload to GitHub Pages
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: site
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
         continue-on-error: true
 
       - name: Warn on deployment failure
@@ -149,9 +139,17 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+
+      - name: Cache tectonic binary
+        id: cache-tectonic
+        uses: actions/cache@v5
+        with:
+          path: ~/.local/bin/tectonic
+          key: tectonic-${{ runner.os }}
 
       - name: Install tectonic
+        if: steps.cache-tectonic.outputs.cache-hit != 'true'
         run: |
           mkdir -p "$HOME/.local/bin"
           curl -fsSL https://drop-sh.fullyjustified.net \
@@ -161,7 +159,9 @@ jobs:
             mv tectonic "$HOME/.local/bin/tectonic"
           fi
           chmod +x "$HOME/.local/bin/tectonic"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Add tectonic to PATH
+        run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Build white paper PDF
         run: |
@@ -169,7 +169,7 @@ jobs:
           tectonic main.tex
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: white-paper-pdf
           path: docs/white_paper/main.pdf

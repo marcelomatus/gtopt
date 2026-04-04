@@ -34,7 +34,7 @@ jobs:
     name: clang-tidy
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
@@ -42,12 +42,16 @@ jobs:
           key: ${{ github.workflow }}-clang-tidy
           restore-keys: |
             ${{ github.workflow }}-clang-tidy-
+            Ubuntu-clang-
           max-size: 2G
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: "**/cpm_modules"
           key: ${{ github.workflow }}-clang-tidy-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          restore-keys: |
+            ${{ github.workflow }}-clang-tidy-cpm-modules-
+            Ubuntu-clang-cpm-modules-
 
       - name: install clang (full — clang-tidy required)
         uses: ./.github/actions/install-clang

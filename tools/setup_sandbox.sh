@@ -14,16 +14,12 @@
 #
 # What this script does (in the same order as .github/workflows/ubuntu.yml):
 #   1. Install ccache + base APT packages (COIN-OR, Boost, spdlog, LAPACK, etc.)
-#   2. Install Arrow/Parquet via conda (conda-forge).
-#   3. Try to install Clang 21 from the LLVM APT repository (preferred).
+#   2-3. Install Arrow/Parquet (conda) AND Clang 21 compiler IN PARALLEL.
 #      If the LLVM APT repository is unavailable, fall back to GCC 14.
-#      Registers unversioned alternatives (clang/clang++/clang-format/… or
-#      gcc/g++ depending on what was installed).
 #   4. Pre-install Python scripts dev dependencies (speeds up CTest fixture).
-#   5. Install tectonic (self-contained LaTeX engine for white paper PDF).
-#   6. (Optional) cmake configure — uses whichever compiler was installed.
-#   7. (Optional) cmake --build + ctest.
-#   8. (Optional) After a successful build, copy compile_commands.json to
+#   5. (Optional) cmake configure — uses whichever compiler was installed.
+#   6. (Optional) cmake --build + ctest.
+#   7. (Optional) After a successful build, copy compile_commands.json to
 #      tools/compile_commands.json in the repository.  This allows agents
 #      to run clang-tidy on individual files without rebuilding:
 #        clang-tidy -p tools/compile_commands.json source/my_file.cpp
@@ -111,177 +107,159 @@ sudo apt-get install -y --no-install-recommends \
   ca-certificates lsb-release wget
 ok "ccache and base packages installed"
 
-# ── Step 2: Arrow / Parquet ───────────────────────────────────────────────────
-# Always use conda-forge.  The APT Arrow packages (packages.apache.org) are
-# NOT used in sandbox/agent environments because the APT libarrow version can
-# conflict with the conda libarrow at link time (versioned curl symbols such as
-# curl_global_cleanup@CURL_OPENSSL_4 are undefined in the system libcurl),
-# causing undefined-reference errors even when cmake finds the right headers.
-# Conda gives a self-consistent Arrow+Parquet+Boost set that always matches.
-log "Installing Arrow/Parquet via conda-forge..."
+# ── Steps 2-3: Arrow/Parquet + Compiler (in parallel) ────────────────────────
+# These two installations are independent and can run concurrently, saving
+# ~1-2 minutes on fresh setups.
 
-# Ensure conda itself works.  Some sandbox images ship a broken certifi
-# package (ImportError: cannot import name 'where') or a libmamba solver
-# that cannot load.  Fix both before proceeding.
-if command -v conda &>/dev/null; then
-  # Fix certifi if broken: reinstall so conda can reach PyPI/conda-forge
-  if ! python3 -c "import certifi; certifi.where()" &>/dev/null; then
-    warn "certifi is broken in conda's Python — reinstalling..."
-    pip install certifi --force-reinstall --upgrade --quiet 2>/dev/null || true
-    # Verify the fix worked
+# --- Arrow / Parquet via conda-forge ---
+install_arrow() {
+  # Always use conda-forge.  The APT Arrow packages (packages.apache.org) are
+  # NOT used in sandbox/agent environments because the APT libarrow version can
+  # conflict with the conda libarrow at link time.
+  # Conda gives a self-consistent Arrow+Parquet+Boost set that always matches.
+
+  # Ensure conda itself works.  Some sandbox images ship a broken certifi
+  # package (ImportError: cannot import name 'where') or a libmamba solver
+  # that cannot load.  Fix both before proceeding.
+  if command -v conda &>/dev/null; then
     if ! python3 -c "import certifi; certifi.where()" &>/dev/null; then
-      warn "certifi still broken after reinstall — conda operations may fail"
+      warn "certifi is broken in conda's Python -- reinstalling..."
+      pip install certifi --force-reinstall --upgrade --quiet 2>/dev/null || true
+    fi
+    if ! conda info --base &>/dev/null 2>&1; then
+      warn "conda default solver is broken -- switching to classic solver"
+      conda config --set solver classic 2>/dev/null || true
     fi
   fi
-  # Force classic solver if libmamba is broken
-  if ! conda info --base &>/dev/null 2>&1; then
-    warn "conda default solver is broken — switching to classic solver"
-    conda config --set solver classic 2>/dev/null || true
+
+  # Check that the *real* Arrow library is installed (not just the dummy
+  # arrow-cpp transitional package v0.2.post).
+  local CONDA_PREFIX_DIR
+  CONDA_PREFIX_DIR="$(conda info --base 2>/dev/null || echo "")"
+  if [[ -n "$CONDA_PREFIX_DIR" ]] && \
+     find "$CONDA_PREFIX_DIR" -name "ArrowConfig.cmake" -print -quit 2>/dev/null | grep -q .; then
+    ok "Arrow/Parquet already installed via conda (ArrowConfig.cmake found)"
+    return 0
   fi
-fi
 
-ARROW_INSTALLED_VIA="conda"
-# Check that the *real* Arrow library is installed (not just the dummy
-# arrow-cpp transitional package v0.2.post).  The definitive test is whether
-# cmake can actually find ArrowConfig.cmake inside the conda prefix.
-CONDA_PREFIX_DIR="$(conda info --base 2>/dev/null || echo "")"
-ARROW_CONFIG_FOUND=false
-if [[ -n "$CONDA_PREFIX_DIR" ]] && \
-   find "$CONDA_PREFIX_DIR" -name "ArrowConfig.cmake" -print -quit 2>/dev/null | grep -q .; then
-  ARROW_CONFIG_FOUND=true
-fi
-
-if $ARROW_CONFIG_FOUND; then
-  ok "Arrow/Parquet already installed via conda (ArrowConfig.cmake found)"
-else
   if ! command -v conda &>/dev/null; then
     echo "ERROR: conda not found.  Install Miniconda/Anaconda first." >&2
-    exit 1
+    return 1
   fi
-  # Remove the dummy transitional arrow-cpp package if present, then install
-  # the real libarrow + libparquet packages from conda-forge.
   log "Installing real Arrow/Parquet libraries via conda-forge..."
   conda remove -y --force arrow-cpp parquet-cpp 2>/dev/null || true
-  # Try default solver first; fall back to classic if it fails (e.g. broken libmamba)
   if ! conda install -y -c conda-forge libarrow libparquet boost-cpp 2>/dev/null; then
-    warn "conda install failed with default solver — retrying with classic solver..."
+    warn "conda install failed with default solver -- retrying with classic solver..."
     conda install -y --solver=classic -c conda-forge libarrow libparquet boost-cpp
   fi
   ok "Arrow/Parquet installed via conda-forge"
+}
+
+# --- Compiler: Clang 21 preferred, GCC 14 fallback ---
+install_compiler() {
+  local VER=$CLANG_VERSION
+
+  if (
+    set -e
+
+    for attempt in 1 2 3; do
+      wget -qO /tmp/llvm-snapshot.gpg.key \
+        https://apt.llvm.org/llvm-snapshot.gpg.key && break
+      echo "Attempt ${attempt}/3: wget gpg key failed; retrying in 15 s..." >&2
+      if [[ $attempt -lt 3 ]]; then sleep 15; else exit 1; fi
+    done
+
+    sudo gpg --yes --dearmor -o /usr/share/keyrings/llvm-snapshot.gpg \
+      /tmp/llvm-snapshot.gpg.key
+
+    echo "deb [signed-by=/usr/share/keyrings/llvm-snapshot.gpg] \
+    https://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-${VER} main" \
+      | sudo tee /etc/apt/sources.list.d/llvm-${VER}.list
+
+    for attempt in 1 2 3; do
+      sudo apt-get update -q \
+        -o "Dir::Etc::sourcelist=/etc/apt/sources.list.d/llvm-${VER}.list" \
+        -o "Dir::Etc::sourceparts=-" && break
+      echo "Attempt ${attempt}/3: apt-get update failed; retrying in 15 s..." >&2
+      if [[ $attempt -lt 3 ]]; then sleep 15; else exit 1; fi
+    done
+
+    sudo apt-get install -y --no-install-recommends \
+      clang-${VER} clang-tools-${VER} clang-format-${VER} clang-tidy-${VER} \
+      llvm-${VER}-dev llvm-${VER}-tools libomp-${VER}-dev \
+      libc++-${VER}-dev libc++abi-${VER}-dev \
+      libclang-common-${VER}-dev libclang-${VER}-dev libclang-cpp${VER}-dev
+  ); then
+    for versioned in /usr/bin/clang*-${VER} /usr/bin/llvm*-${VER}; do
+      [ -e "$versioned" ] || continue
+      base=$(basename "$versioned" "-${VER}")
+      sudo update-alternatives --remove-all "$base" 2>/dev/null || true
+      sudo update-alternatives --install /usr/bin/"$base" "$base" \
+        "$versioned" 100
+    done
+    ok "Clang ${VER} installed and registered as default 'clang'/'clang++'"
+    echo "clang" > /tmp/_sandbox_compiler
+  else
+    warn "Clang ${VER} installation failed (LLVM APT repo unreachable?)."
+    warn "Falling back to GCC 14."
+    sudo apt-get install -y --no-install-recommends gcc-14 g++-14
+    ok "GCC 14 installed as fallback compiler"
+    echo "gcc" > /tmp/_sandbox_compiler
+  fi
+}
+
+log "Installing Arrow/Parquet and compiler in parallel..."
+install_arrow &
+ARROW_PID=$!
+install_compiler &
+COMPILER_PID=$!
+
+ARROW_OK=true
+COMPILER_OK=true
+wait $ARROW_PID || ARROW_OK=false
+wait $COMPILER_PID || COMPILER_OK=false
+
+if ! $ARROW_OK; then
+  echo "ERROR: Arrow/Parquet installation failed." >&2
+  exit 1
+fi
+if ! $COMPILER_OK; then
+  echo "ERROR: Compiler installation failed." >&2
+  exit 1
 fi
 
-# ── Step 3: Compiler — Clang 21 preferred, GCC 14 fallback ───────────────────
-# We try to install Clang 21 from the LLVM APT repository first (preferred,
-# matches CI).  If any step fails (e.g. the LLVM APT repo is temporarily
-# unreachable), we fall back silently to GCC 14 which is always available on
-# Ubuntu 24.04.  Either compiler produces a fully working gtopt build.
-VER=$CLANG_VERSION
-CLANG_INSTALLED=false
-CC=gcc-14
-CXX=g++-14
-
-log "Attempting to install Clang ${VER} from LLVM APT repository..."
-
-# Use a sub-shell so a failure inside does not abort the outer script.
-if (
-  set -e
-
-  # Fetch GPG key (with retries — apt.llvm.org is intermittently slow)
-  for attempt in 1 2 3; do
-    wget -qO /tmp/llvm-snapshot.gpg.key \
-      https://apt.llvm.org/llvm-snapshot.gpg.key && break
-    echo "⚠ Attempt ${attempt}/3: wget gpg key failed; retrying in 15 s..." >&2
-    if [[ $attempt -lt 3 ]]; then sleep 15; else exit 1; fi
-  done
-
-  sudo gpg --yes --dearmor -o /usr/share/keyrings/llvm-snapshot.gpg \
-    /tmp/llvm-snapshot.gpg.key
-
-  echo "deb [signed-by=/usr/share/keyrings/llvm-snapshot.gpg] \
-  https://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-${VER} main" \
-    | sudo tee /etc/apt/sources.list.d/llvm-${VER}.list
-
-  for attempt in 1 2 3; do
-    sudo apt-get update -q \
-      -o "Dir::Etc::sourcelist=/etc/apt/sources.list.d/llvm-${VER}.list" \
-      -o "Dir::Etc::sourceparts=-" && break
-    echo "⚠ Attempt ${attempt}/3: apt-get update failed; retrying in 15 s..." >&2
-    if [[ $attempt -lt 3 ]]; then sleep 15; else exit 1; fi
-  done
-
-  sudo apt-get install -y --no-install-recommends \
-    clang-${VER} clang-tools-${VER} clang-format-${VER} clang-tidy-${VER} \
-    llvm-${VER}-dev llvm-${VER}-tools libomp-${VER}-dev \
-    libc++-${VER}-dev libc++abi-${VER}-dev \
-    libclang-common-${VER}-dev libclang-${VER}-dev libclang-cpp${VER}-dev
-); then
-  # Register unversioned alternatives so 'clang', 'clang++', etc. resolve to
-  # the installed version without a suffix (matches install-clang/action.yml).
-  for versioned in /usr/bin/clang*-${VER} /usr/bin/llvm*-${VER}; do
-    [ -e "$versioned" ] || continue
-    base=$(basename "$versioned" "-${VER}")
-    sudo update-alternatives --remove-all "$base" 2>/dev/null || true
-    sudo update-alternatives --install /usr/bin/"$base" "$base" \
-      "$versioned" 100
-  done
-  ok "Clang ${VER} installed and registered as default 'clang'/'clang++'"
+ARROW_INSTALLED_VIA="conda"
+if [[ -f /tmp/_sandbox_compiler ]] && [[ "$(cat /tmp/_sandbox_compiler)" == "clang" ]]; then
   CLANG_INSTALLED=true
   CC=clang
   CXX=clang++
 else
-  warn "Clang ${VER} installation failed (LLVM APT repo unreachable?)."
-  warn "Falling back to GCC 14 — install gcc-14 / g++-14 if not present."
-  sudo apt-get install -y --no-install-recommends gcc-14 g++-14
-  ok "GCC 14 installed as fallback compiler"
+  CLANG_INSTALLED=false
   CC=gcc-14
   CXX=g++-14
 fi
+rm -f /tmp/_sandbox_compiler
 
-# ── Step 4: Python scripts dependencies ───────────────────────────────────────
-# Pre-installing these BEFORE cmake configure ensures cmake's
+# ── Step 4: Python scripts dependencies ──────────────────────────────────────
+# Pre-installing BEFORE cmake configure ensures cmake's
 # find_program(PYTHON_EXECUTABLE) picks the same Python that already has all
 # packages, reducing the scripts-install-deps CTest fixture from ~35 s to ~3 s.
 if $INSTALL_PYTHON; then
-  # Ensure uv is available (install it via pip if missing)
   if ! command -v uv &>/dev/null; then
-    log "uv not found — installing via pip..."
+    log "uv not found -- installing via pip..."
     pip install --break-system-packages uv -q 2>/dev/null \
       || pip install uv -q
     ok "uv installed"
   fi
   log "Pre-installing Python scripts dev dependencies..."
-  # --break-system-packages is needed on Ubuntu 24.04+ (PEP 668) where the
-  # system Python is marked as externally-managed.
   uv pip install --system --break-system-packages -q -e "./scripts[dev]" graphviz 2>/dev/null \
     || uv pip install --system -q -e "./scripts[dev]" graphviz 2>/dev/null \
     || pip install --break-system-packages -q -e "./scripts[dev]" graphviz 2>/dev/null \
-    || { warn "Python scripts dep install failed — CTest fixture will install them (slower)."; }
+    || { warn "Python scripts dep install failed -- CTest fixture will install them (slower)."; }
   ok "Python scripts dev dependencies installed"
 fi
 
-# ── Step 5: Tectonic (LaTeX engine for white paper PDF) ──────────────────────
-# Tectonic is a self-contained LaTeX engine that auto-downloads packages on
-# first run (IEEEtran, fonts, BibTeX styles).  No TeX Live required.
-if ! command -v tectonic &>/dev/null; then
-  log "Installing tectonic (LaTeX engine for white paper)..."
-  TECTONIC_DIR="${HOME}/.local/bin"
-  mkdir -p "${TECTONIC_DIR}"
-  if curl -fsSL https://drop-sh.fullyjustified.net \
-       | sh -s -- --prefix "${HOME}/.local" 2>/dev/null; then
-    # Installer may drop the binary in cwd instead of prefix on some versions
-    if [[ -f "${REPO_ROOT}/tectonic" ]]; then
-      mv "${REPO_ROOT}/tectonic" "${TECTONIC_DIR}/tectonic"
-    fi
-    chmod +x "${TECTONIC_DIR}/tectonic"
-    ok "tectonic installed to ${TECTONIC_DIR}/tectonic"
-  else
-    warn "tectonic installation failed — white paper PDF build unavailable"
-  fi
-else
-  ok "tectonic already installed: $(command -v tectonic)"
-fi
-
-# ── Steps 6–7: Configure and build (optional) ─────────────────────────────────
+# ── Steps 5-6: Configure and build (optional) ─────────────────────────────────
 if $DO_CONFIGURE; then
   # Determine the cmake prefix path – always conda for Arrow in sandboxes
   CMAKE_PREFIX_ARG="-DCMAKE_PREFIX_PATH=$(conda info --base)"
@@ -321,9 +299,9 @@ if $DO_BUILD; then
   # without rebuilding.  Commit it so agent sessions work without a build:
   #   clang-tidy -p tools/compile_commands.json source/my_file.cpp
   if $SAVE_CCJSON && [[ -f build/compile_commands.json ]]; then
-    log "Saving compile_commands.json → tools/compile_commands.json..."
+    log "Saving compile_commands.json to tools/compile_commands.json..."
     cp build/compile_commands.json tools/compile_commands.json
-    ok "compile_commands.json saved — run clang-tidy without rebuilding:"
+    ok "compile_commands.json saved -- run clang-tidy without rebuilding:"
     ok "  clang-tidy -p tools/compile_commands.json source/my_file.cpp"
   fi
 fi
@@ -335,7 +313,7 @@ else
   COMPILER_LINE=" Compiler     : GCC 14 fallback ($(${CXX} --version 2>/dev/null | head -1))"
 fi
 echo ""
-echo "═══════════════════════════════════════════════════════"
+echo "======================================================="
 echo " gtopt sandbox setup complete"
 echo " Arrow source : ${ARROW_INSTALLED_VIA}"
 echo "${COMPILER_LINE}"
@@ -352,7 +330,7 @@ if ! $CLANG_INSTALLED; then
   echo "       Re-run this script when the LLVM APT repository is reachable"
   echo "       to switch to Clang 21."
 fi
-echo "═══════════════════════════════════════════════════════"
+echo "======================================================="
 echo ""
 echo "Next steps:"
 if ! $DO_CONFIGURE; then
