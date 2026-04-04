@@ -1,0 +1,15 @@
+# =============================================================================
+# Error: Bad template syntax (.tampl)
+# =============================================================================
+# Unmatched Jinja2 template blocks and variables.
+
+param value = {{ unclosed_var ;
+
+{% for item in items %}
+constraint loop_{{ item }}:
+  generator('G1').generation <= {{ item }};
+# Missing {% endfor %}
+
+{% if condition %}
+param cond_val = 100;
+# Missing {% endif %}

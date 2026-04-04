@@ -1,0 +1,6 @@
+# =============================================================================
+# Error: Invalid 'inactive' usage
+# =============================================================================
+# The 'inactive' keyword must be followed by 'constraint'.
+
+inactive oops: generator('G1').generation <= 100;

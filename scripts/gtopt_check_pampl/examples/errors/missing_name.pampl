@@ -1,0 +1,6 @@
+# =============================================================================
+# Error: Missing constraint name
+# =============================================================================
+# The 'constraint' keyword requires a name identifier.
+
+constraint : generator('G1').generation <= 100;

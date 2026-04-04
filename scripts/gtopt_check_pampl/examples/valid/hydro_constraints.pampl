@@ -1,0 +1,22 @@
+# =============================================================================
+# Hydro cascade constraints
+# =============================================================================
+#
+# User constraints for hydro systems with junctions, reservoirs, and turbines.
+# These supplement the built-in hydro LP formulation with operational rules
+# (e.g., minimum ecological flows, irrigation agreements).
+
+# Minimum ecological flow downstream of reservoir
+param min_eco_flow = 5.0;
+
+constraint eco_flow "Minimum ecological flow at junction J1":
+  flow('eco_J1').flow >= min_eco_flow;
+
+# Reservoir volume balance constraint (equality)
+constraint rsv_balance "Reservoir R1 end-of-stage volume":
+  reservoir('R1').volume = 500;
+
+// C++ style comment also works
+constraint irrigation "Irrigation withdrawal limit":
+  flow_right('irr_district1').flow <= 20,
+  for(stage in {1,2,3,4});
