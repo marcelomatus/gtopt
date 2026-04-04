@@ -379,7 +379,7 @@ TEST_CASE("Linear problem lp_build row ordering")
   lp.set_coeff(r2, c1, 6.0);
 
   const auto flat = lp.lp_build({
-      .row_equilibration = false,
+      .equilibration_method = LpEquilibrationMethod::none,
   });
 
   REQUIRE(flat.ncols == 2);
@@ -588,7 +588,7 @@ TEST_CASE("Linear problem lp_build with epsilon filtering")
   // With eps=0.01, both c1 entries should be filtered out
   const auto flat = lp.lp_build({
       .eps = 0.01,
-      .row_equilibration = false,
+      .equilibration_method = LpEquilibrationMethod::none,
   });
 
   REQUIRE(flat.ncols == 2);
@@ -626,7 +626,7 @@ TEST_CASE(
     const auto flat = lp.lp_build({
         .col_with_names = true,
         .compute_stats = true,
-        .row_equilibration = false,
+        .equilibration_method = LpEquilibrationMethod::none,
     });
 
     // All three pass the default eps=0 filter → nnz=3
@@ -652,7 +652,7 @@ TEST_CASE(
         .eps = 1.0,
         .col_with_names = true,
         .compute_stats = true,
-        .row_equilibration = false,
+        .equilibration_method = LpEquilibrationMethod::none,
     });
 
     // Only 100.0 passes eps=1.0; 0.5 and 1e-12 are zeroed
@@ -677,7 +677,7 @@ TEST_CASE(
         .col_with_names = false,
         .col_with_name_map = false,
         .compute_stats = true,
-        .row_equilibration = false,
+        .equilibration_method = LpEquilibrationMethod::none,
     });
 
     CHECK(flat.stats_max_col == 0);
@@ -719,7 +719,7 @@ TEST_CASE("Linear problem set_coeff overwrite preserves correctness")
 
   // Verify flat conversion has exactly one entry, not two
   const auto flat = lp.lp_build({
-      .row_equilibration = false,
+      .equilibration_method = LpEquilibrationMethod::none,
   });
   CHECK(flat.ncols == 1);
   CHECK(flat.nrows == 1);
@@ -769,7 +769,7 @@ TEST_CASE("lp_build name map skips empty column names")
 // Row equilibration scaling tests
 // ---------------------------------------------------------------
 
-TEST_CASE("lp_build row_equilibration normalizes row max to 1")  // NOLINT
+TEST_CASE("lp_build row_max equilibration normalizes row max to 1")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -801,10 +801,10 @@ TEST_CASE("lp_build row_equilibration normalizes row max to 1")  // NOLINT
   r1.bound(-4.0, 10.0);  // RHS: [-4, 10] → scaled [-2, 5]
   std::ignore = lp.add_row(std::move(r1));
 
-  SUBCASE("without row_equilibration — coefficients unchanged")
+  SUBCASE("without equilibration — coefficients unchanged")
   {
     const auto flat = lp.lp_build({
-        .row_equilibration = false,
+        .equilibration_method = LpEquilibrationMethod::none,
     });
 
     CHECK(flat.row_scales.empty());
@@ -822,10 +822,10 @@ TEST_CASE("lp_build row_equilibration normalizes row max to 1")  // NOLINT
     CHECK(flat.rowub[0] == doctest::Approx(50.0));
   }
 
-  SUBCASE("with row_equilibration — row max normalized to 1")
+  SUBCASE("with row_max — row max normalized to 1")
   {
     const auto flat = lp.lp_build({
-        .row_equilibration = true,
+        .equilibration_method = LpEquilibrationMethod::row_max,
     });
 
     REQUIRE(flat.row_scales.size() == 2);
@@ -864,7 +864,7 @@ TEST_CASE("lp_build row_equilibration normalizes row max to 1")  // NOLINT
   }
 }
 
-TEST_CASE("LinearInterface row_equilibration unscales duals")  // NOLINT
+TEST_CASE("LinearInterface row_max equilibration unscales duals")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -886,10 +886,10 @@ TEST_CASE("LinearInterface row_equilibration unscales duals")  // NOLINT
   r0.greater_equal(5000.0);
   std::ignore = lp.add_row(std::move(r0));
 
-  SUBCASE("without row_equilibration")
+  SUBCASE("without equilibration")
   {
     const auto flat = lp.lp_build({
-        .row_equilibration = false,
+        .equilibration_method = LpEquilibrationMethod::none,
     });
     LinearInterface li("", flat);
     std::ignore = li.initial_solve({});
@@ -901,10 +901,10 @@ TEST_CASE("LinearInterface row_equilibration unscales duals")  // NOLINT
     CHECK(duals[0] == doctest::Approx(0.001).epsilon(1e-4));
   }
 
-  SUBCASE("with row_equilibration — duals match physical values")
+  SUBCASE("with row_max — duals match physical values")
   {
     const auto flat = lp.lp_build({
-        .row_equilibration = true,
+        .equilibration_method = LpEquilibrationMethod::row_max,
     });
     REQUIRE(flat.row_scales.size() == 1);
     CHECK(flat.row_scales[0] == doctest::Approx(1000.0));
@@ -921,11 +921,11 @@ TEST_CASE("LinearInterface row_equilibration unscales duals")  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "LinearInterface row_equilibration handles dynamically added rows")
+    "LinearInterface row_max equilibration handles dynamically added rows")
 {
   using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
-  // Build LP with one row, enable row_equilibration, then add a new row
+  // Build LP with one row, enable row_max equilibration, then add a new row
   // after construction (simulating SDDP cut addition).  get_row_dual()
   // must not crash on the newly added row that has no scale entry.
   LinearProblem lp("dynamic_row_test");
@@ -945,7 +945,7 @@ TEST_CASE(  // NOLINT
   std::ignore = lp.add_row(std::move(r0));
 
   const auto flat = lp.lp_build({
-      .row_equilibration = true,
+      .equilibration_method = LpEquilibrationMethod::row_max,
   });
   REQUIRE(flat.row_scales.size() == 1);
   CHECK(flat.row_scales[0] == doctest::Approx(500.0));
@@ -1014,7 +1014,7 @@ TEST_CASE("lp_build per-row-type coefficient stats")  // NOLINT
   const auto flat = lp.lp_build({
       .row_with_names = true,
       .compute_stats = true,
-      .row_equilibration = false,
+      .equilibration_method = LpEquilibrationMethod::none,
   });
 
   REQUIRE(!flat.row_type_stats.empty());
@@ -1079,4 +1079,301 @@ TEST_CASE("lp_build per-row-type stats empty without compute_stats")  // NOLINT
       .compute_stats = false,
   });
   CHECK(flat.row_type_stats.empty());
+}
+
+// ---------------------------------------------------------------
+// Ruiz geometric-mean iterative scaling tests
+// ---------------------------------------------------------------
+
+TEST_CASE("lp_build ruiz scaling equilibrates rows and columns")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Matrix:
+  //   Row 0: [1000, 0.01]    bounds [0, 500]
+  //   Row 1: [0.5,  200]     bounds [-100, 1000]
+  // This has very different row and column scales: ideal for Ruiz.
+  LinearProblem lp("ruiz_test");
+
+  const auto c0 = lp.add_col(SparseCol {
+      .name = "c0",
+      .lowb = 0,
+      .uppb = 100,
+      .cost = 10.0,
+  });
+  const auto c1 = lp.add_col(SparseCol {
+      .name = "c1",
+      .lowb = -50,
+      .uppb = 50,
+      .cost = 0.5,
+  });
+
+  auto r0 = SparseRow {.name = "r0"};
+  r0[c0] = 1000.0;
+  r0[c1] = 0.01;
+  r0.bound(0.0, 500.0);
+  std::ignore = lp.add_row(std::move(r0));
+
+  auto r1 = SparseRow {.name = "r1"};
+  r1[c0] = 0.5;
+  r1[c1] = 200.0;
+  r1.bound(-100.0, 1000.0);
+  std::ignore = lp.add_row(std::move(r1));
+
+  SUBCASE("ruiz produces non-empty row_scales")
+  {
+    const auto flat = lp.lp_build({
+        .equilibration_method = LpEquilibrationMethod::ruiz,
+    });
+
+    // row_scales must be populated
+    REQUIRE(flat.row_scales.size() == 2);
+    CHECK(flat.row_scales[0] > 0.0);
+    CHECK(flat.row_scales[1] > 0.0);
+
+    // col_scales must be modified from 1.0 for at least one column
+    REQUIRE(flat.col_scales.size() == 2);
+    const bool col_scaled =
+        (flat.col_scales[0] != 1.0) || (flat.col_scales[1] != 1.0);
+    CHECK(col_scaled);
+  }
+
+  SUBCASE("ruiz reduces coefficient range vs unscaled")
+  {
+    const auto flat_none = lp.lp_build({
+        .compute_stats = true,
+        .equilibration_method = LpEquilibrationMethod::none,
+    });
+    const auto flat_ruiz = lp.lp_build({
+        .compute_stats = true,
+        .equilibration_method = LpEquilibrationMethod::ruiz,
+    });
+
+    // Ruiz should produce a tighter max/min ratio than no scaling.
+    const double ratio_none = flat_none.stats_coeff_ratio();
+    const double ratio_ruiz = flat_ruiz.stats_coeff_ratio();
+    CHECK(ratio_ruiz < ratio_none);
+  }
+
+  SUBCASE("ruiz vs row_max — ruiz should produce tighter or equal ratio")
+  {
+    const auto flat_row = lp.lp_build({
+        .compute_stats = true,
+        .equilibration_method = LpEquilibrationMethod::row_max,
+    });
+    const auto flat_ruiz = lp.lp_build({
+        .compute_stats = true,
+        .equilibration_method = LpEquilibrationMethod::ruiz,
+    });
+
+    const double ratio_row = flat_row.stats_coeff_ratio();
+    const double ratio_ruiz = flat_ruiz.stats_coeff_ratio();
+    // Ruiz is at least as good as row_max for heterogeneous problems.
+    CHECK(ratio_ruiz <= ratio_row);
+  }
+
+  SUBCASE("ruiz convergence — all inf-norms near 1.0 after scaling")
+  {
+    const auto flat = lp.lp_build({
+        .equilibration_method = LpEquilibrationMethod::ruiz,
+    });
+
+    const auto nrows = static_cast<size_t>(flat.nrows);
+    const auto ncols = static_cast<size_t>(flat.ncols);
+
+    // Compute row infinity-norms of the scaled matrix.
+    std::vector<double> row_inf(nrows, 0.0);
+    for (size_t k = 0; k < flat.matval.size(); ++k) {
+      const auto r = static_cast<size_t>(flat.matind[k]);
+      row_inf[r] = std::max(row_inf[r], std::abs(flat.matval[k]));
+    }
+
+    // Compute column infinity-norms of the scaled matrix.
+    std::vector<double> col_inf(ncols, 0.0);
+    for (size_t j = 0; j < ncols; ++j) {
+      const auto beg = static_cast<size_t>(flat.matbeg[j]);
+      const auto end = static_cast<size_t>(flat.matbeg[j + 1]);
+      for (size_t k = beg; k < end; ++k) {
+        col_inf[j] = std::max(col_inf[j], std::abs(flat.matval[k]));
+      }
+    }
+
+    // All non-zero norms should be close to 1.0 (within default tolerance).
+    for (size_t r = 0; r < nrows; ++r) {
+      if (row_inf[r] > 0.0) {
+        CHECK(row_inf[r] == doctest::Approx(1.0).epsilon(0.01));
+      }
+    }
+    for (size_t j = 0; j < ncols; ++j) {
+      if (col_inf[j] > 0.0) {
+        CHECK(col_inf[j] == doctest::Approx(1.0).epsilon(0.01));
+      }
+    }
+  }
+}
+
+TEST_CASE("lp_build ruiz scaling on identity-like matrix is near no-op")
+{  // NOLINT
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // A well-scaled matrix: all coefficients near 1.0.
+  // Ruiz should converge in 1 iteration with scales ≈ 1.0.
+  LinearProblem lp("ruiz_identity_test");
+
+  const auto c0 = lp.add_col(SparseCol {.name = "c0", .cost = 1.0});
+  const auto c1 = lp.add_col(SparseCol {.name = "c1", .cost = 1.0});
+
+  auto r0 = SparseRow {.name = "r0"};
+  r0[c0] = 1.0;
+  r0[c1] = 0.8;
+  r0.bound(0.0, 10.0);
+  std::ignore = lp.add_row(std::move(r0));
+
+  auto r1 = SparseRow {.name = "r1"};
+  r1[c0] = 0.9;
+  r1[c1] = 1.0;
+  r1.bound(0.0, 10.0);
+  std::ignore = lp.add_row(std::move(r1));
+
+  const auto flat = lp.lp_build({
+      .equilibration_method = LpEquilibrationMethod::ruiz,
+  });
+
+  // Scales should be close to 1.0.
+  REQUIRE(flat.row_scales.size() == 2);
+  CHECK(flat.row_scales[0] == doctest::Approx(1.0).epsilon(0.1));
+  CHECK(flat.row_scales[1] == doctest::Approx(1.0).epsilon(0.1));
+  CHECK(flat.col_scales[0] == doctest::Approx(1.0).epsilon(0.1));
+  CHECK(flat.col_scales[1] == doctest::Approx(1.0).epsilon(0.1));
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface ruiz scaling solves correctly and unscales duals")
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // min x s.t. 1000*x >= 5000, 0 <= x <= 100, cost = 1
+  // Optimal: x = 5, obj = 5, dual = 1/1000 = 0.001
+  LinearProblem lp("ruiz_solve_test");
+
+  const auto c0 = lp.add_col(SparseCol {
+      .name = "x",
+      .lowb = 0,
+      .uppb = 100,
+      .cost = 1.0,
+  });
+
+  auto r0 = SparseRow {.name = "r0"};
+  r0[c0] = 1000.0;
+  r0.greater_equal(5000.0);
+  std::ignore = lp.add_row(std::move(r0));
+
+  SUBCASE("ruiz scaling produces correct primal and dual")
+  {
+    const auto flat = lp.lp_build({
+        .equilibration_method = LpEquilibrationMethod::ruiz,
+    });
+    REQUIRE(!flat.row_scales.empty());
+
+    LinearInterface li("", flat);
+    std::ignore = li.initial_solve({});
+    REQUIRE(li.is_optimal());
+
+    // Primal: physical x = 5
+    const auto sol = li.get_col_sol();
+    REQUIRE(sol.size() == 1);
+    CHECK(sol[0] == doctest::Approx(5.0).epsilon(1e-4));
+
+    // Dual: physical dual = 0.001
+    const auto duals = li.get_row_dual();
+    REQUIRE(duals.size() == 1);
+    CHECK(duals[0] == doctest::Approx(0.001).epsilon(1e-4));
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface ruiz scaling 2-var LP produces correct solution")
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // min 2x + 3y s.t.
+  //   1000*x +    1*y >= 2000   (binding: x ≈ 2)
+  //      1*x + 500*y >= 1000   (binding: y ≈ 2)
+  //   0 <= x <= 100, 0 <= y <= 100
+  // Near-optimal: x ≈ 2, y ≈ 2, obj ≈ 10
+  LinearProblem lp("ruiz_2var_test");
+
+  const auto cx = lp.add_col(SparseCol {
+      .name = "x",
+      .lowb = 0,
+      .uppb = 100,
+      .cost = 2.0,
+  });
+  const auto cy = lp.add_col(SparseCol {
+      .name = "y",
+      .lowb = 0,
+      .uppb = 100,
+      .cost = 3.0,
+  });
+
+  auto r0 = SparseRow {.name = "r0"};
+  r0[cx] = 1000.0;
+  r0[cy] = 1.0;
+  r0.greater_equal(2000.0);
+  std::ignore = lp.add_row(std::move(r0));
+
+  auto r1 = SparseRow {.name = "r1"};
+  r1[cx] = 1.0;
+  r1[cy] = 500.0;
+  r1.greater_equal(1000.0);
+  std::ignore = lp.add_row(std::move(r1));
+
+  // Solve without scaling
+  const auto flat_none = lp.lp_build({
+      .equilibration_method = LpEquilibrationMethod::none,
+  });
+  LinearInterface li_none("", flat_none);
+  std::ignore = li_none.initial_solve({});
+  REQUIRE(li_none.is_optimal());
+  const auto sol_none = li_none.get_col_sol();
+
+  // Solve with Ruiz scaling
+  const auto flat_ruiz = lp.lp_build({
+      .equilibration_method = LpEquilibrationMethod::ruiz,
+  });
+  LinearInterface li_ruiz("", flat_ruiz);
+  std::ignore = li_ruiz.initial_solve({});
+  REQUIRE(li_ruiz.is_optimal());
+  const auto sol_ruiz = li_ruiz.get_col_sol();
+
+  // Both should give the same physical solution.
+  REQUIRE(sol_none.size() == 2);
+  REQUIRE(sol_ruiz.size() == 2);
+  CHECK(sol_ruiz[0] == doctest::Approx(sol_none[0]).epsilon(1e-4));
+  CHECK(sol_ruiz[1] == doctest::Approx(sol_none[1]).epsilon(1e-4));
+
+  // Duals should also match after unscaling.
+  const auto duals_none = li_none.get_row_dual();
+  const auto duals_ruiz = li_ruiz.get_row_dual();
+  REQUIRE(duals_none.size() == 2);
+  REQUIRE(duals_ruiz.size() == 2);
+  CHECK(duals_ruiz[0] == doctest::Approx(duals_none[0]).epsilon(1e-4));
+  CHECK(duals_ruiz[1] == doctest::Approx(duals_none[1]).epsilon(1e-4));
+}
+
+TEST_CASE("LpEquilibrationMethod enum_name round-trip")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  CHECK(enum_name(LpEquilibrationMethod::none) == "none");
+  CHECK(enum_name(LpEquilibrationMethod::row_max) == "row_max");
+  CHECK(enum_name(LpEquilibrationMethod::ruiz) == "ruiz");
+
+  CHECK(enum_from_name<LpEquilibrationMethod>("none")
+        == LpEquilibrationMethod::none);
+  CHECK(enum_from_name<LpEquilibrationMethod>("row_max")
+        == LpEquilibrationMethod::row_max);
+  CHECK(enum_from_name<LpEquilibrationMethod>("ruiz")
+        == LpEquilibrationMethod::ruiz);
+  CHECK_FALSE(enum_from_name<LpEquilibrationMethod>("invalid").has_value());
 }

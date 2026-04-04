@@ -10,16 +10,21 @@
  */
 
 #include <cmath>
+#include <filesystem>
 #include <format>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
+#include <arrow/array.h>
 #include <doctest/doctest.h>
+#include <gtopt/array_index_traits.hpp>
 #include <gtopt/block_lp.hpp>
 #include <gtopt/constraint_parser.hpp>
 #include <gtopt/cost_helper.hpp>
 #include <gtopt/json/json_planning.hpp>
+#include <gtopt/lp_build_enums.hpp>
 #include <gtopt/monolithic_method.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
@@ -35,6 +40,7 @@ using namespace gtopt;
 #include "test_ieee14_planning.hpp"
 #include "test_ieee14b_ori_planning.hpp"
 #include "test_ieee4b_ori_planning.hpp"
+#include "test_ieee9b_equilibration.hpp"
 #include "test_ieee9b_ori_planning.hpp"
 #include "test_scale_lp_effects.hpp"
 #include "test_unified_battery_planning.hpp"

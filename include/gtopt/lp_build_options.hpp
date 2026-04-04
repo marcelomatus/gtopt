@@ -43,9 +43,10 @@ struct LpBuildOptions
   bool row_with_name_map {false};  ///< Include row name mapping
   bool move_names {true};  ///< Move instead of copy names
   OptBool compute_stats {};  ///< Compute coefficient min/max/ratio
-  OptBool row_equilibration {};  ///< Apply per-row equilibration scaling.
-                                 ///< Each row's max |coefficient| is
-                                 ///< normalized to 1.0 to reduce kappa.
+  std::optional<LpEquilibrationMethod>
+      equilibration_method {};  ///< Matrix equilibration method.
+                                ///< See LpEquilibrationMethod for options.
+                                ///< Default is `none` (no scaling).
   LpNamesLevel lp_names_level {LpNamesLevel::minimal};  ///< Computed naming
                                                         ///< level (internal)
   std::string solver_name {};  ///< Solver backend name (empty = auto-detect)
@@ -72,7 +73,7 @@ struct LpBuildOptions
   {
     merge_opt(names_level, other.names_level);
     merge_opt(lp_coeff_ratio_threshold, other.lp_coeff_ratio_threshold);
-    merge_opt(row_equilibration, other.row_equilibration);
+    merge_opt(equilibration_method, other.equilibration_method);
     merge_opt(compute_stats, other.compute_stats);
   }
 };

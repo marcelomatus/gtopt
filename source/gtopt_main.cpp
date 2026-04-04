@@ -558,9 +558,9 @@ void log_pre_solve_stats(
                       : std::format("{:.6g} (auto)",
                                     PlanningOptionsLP::default_scale_theta)));
   spdlog::info(std::format(
-      "  row_equilibration: {}",
-      plan_opts.lp_build_options.row_equilibration.value_or(true) ? "true"
-                                                                  : "false"));
+      "  equilibration   : {}",
+      enum_name(plan_opts.lp_build_options.equilibration_method.value_or(
+          LpEquilibrationMethod::none))));
   spdlog::info(
       std::format("  demand_fail_cost: {}", mo.demand_fail_cost.value_or(0.0)));
   spdlog::info(std::format("  input_directory : {}",
@@ -834,7 +834,7 @@ void setup_trace_log(const MainOptions& opts)
       opts.matrix_eps,
       do_stats,
       opts.solver,
-      planning.options.lp_build_options.row_equilibration);
+      planning.options.lp_build_options.equilibration_method);
 
   if (do_stats) {
     log_pre_solve_stats(opts.planning_files, planning);
@@ -1032,7 +1032,6 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
     try {
       const bool do_stats = opts.print_stats.value_or(true)
           || my_planning.options.lp_build_options.compute_stats.value_or(false);
-
       const auto flat_opts = prepare_lp_build(my_planning, opts, do_stats);
 
       spdlog::info("=== Building LP model ===");
