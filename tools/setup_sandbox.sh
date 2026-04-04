@@ -186,11 +186,12 @@ install_compiler() {
 
     sudo apt-get install -y --no-install-recommends \
       clang-${VER} clang-tools-${VER} clang-format-${VER} clang-tidy-${VER} \
+      lld-${VER} \
       llvm-${VER}-dev llvm-${VER}-tools libomp-${VER}-dev \
       libc++-${VER}-dev libc++abi-${VER}-dev \
       libclang-common-${VER}-dev libclang-${VER}-dev libclang-cpp${VER}-dev
   ); then
-    for versioned in /usr/bin/clang*-${VER} /usr/bin/llvm*-${VER}; do
+    for versioned in /usr/bin/clang*-${VER} /usr/bin/llvm*-${VER} /usr/bin/lld-${VER} /usr/bin/ld.lld-${VER} /usr/bin/wasm-ld-${VER} /usr/bin/lld-link-${VER}; do
       [ -e "$versioned" ] || continue
       base=$(basename "$versioned" "-${VER}")
       sudo update-alternatives --remove-all "$base" 2>/dev/null || true

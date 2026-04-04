@@ -19,7 +19,7 @@ runs:
       run: |
         sudo apt-get update -q
         sudo apt-get install -y --no-install-recommends \
-          ccache coinor-libcbc-dev libboost-container-dev libspdlog-dev \
+          ccache lld coinor-libcbc-dev libboost-container-dev libspdlog-dev \
           liblapack-dev libblas-dev liblapack3 libblas3 lcov \
           zlib1g-dev libzstd-dev zstd ca-certificates lsb-release wget \
           ${{ inputs.extra-packages }}

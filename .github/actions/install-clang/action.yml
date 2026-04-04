@@ -108,7 +108,7 @@ runs:
       shell: bash
       run: |
         VER=${{ inputs.version }}
-        for versioned in /usr/bin/clang*-${VER} /usr/bin/llvm*-${VER}; do
+        for versioned in /usr/bin/clang*-${VER} /usr/bin/llvm*-${VER} /usr/bin/lld-${VER} /usr/bin/ld.lld-${VER} /usr/bin/wasm-ld-${VER} /usr/bin/lld-link-${VER}; do
           [ -e "$versioned" ] || continue
           base=$(basename "$versioned" "-${VER}")
           # Remove any pre-installed alternative (e.g. llvm-18) before registering
