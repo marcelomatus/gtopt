@@ -2,8 +2,8 @@ name: Install APT build dependencies
 description: >
   Installs C++ build dependencies (COIN-OR, Boost, spdlog) and Apache
   Arrow/Parquet from the official Apache Arrow APT repository.
-  Uses awalsh128/cache-apt-pkgs-action for APT package caching to speed
-  up repeated runs. Sets DEBIAN_FRONTEND=noninteractive for the Arrow
+  Uses actions/cache to cache downloaded .deb files so repeated runs
+  skip the download. Sets DEBIAN_FRONTEND=noninteractive for the Arrow
   repository bootstrap step.
 
 inputs:
@@ -16,21 +16,27 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: install base packages (cached)
-      uses: awalsh128/cache-apt-pkgs-action@v1
+    - name: cache APT packages
+      uses: actions/cache@v5
       with:
-        packages: ccache coinor-libcbc-dev libboost-container-dev libspdlog-dev liblapack-dev libblas-dev liblapack3 libblas3 lcov zlib1g-dev libzstd-dev zstd ca-certificates lsb-release wget ${{ inputs.extra-packages }}
-        version: 1.1
-        execute_install_scripts: true
+        path: /var/cache/apt/archives/*.deb
+        key: apt-base-${{ runner.os }}-${{ hashFiles('.github/actions/install-apt-deps/action.yml') }}
+        restore-keys: |
+          apt-base-${{ runner.os }}-
+
+    - name: install base packages
+      shell: bash
+      run: |
+        sudo apt-get update -q
+        sudo apt-get install -y --no-install-recommends \
+          ccache coinor-libcbc-dev libboost-container-dev libspdlog-dev \
+          liblapack-dev libblas-dev liblapack3 libblas3 lcov \
+          zlib1g-dev libzstd-dev zstd ca-certificates lsb-release wget \
+          ${{ inputs.extra-packages }}
 
     - name: ensure LAPACK runtime is present
       shell: bash
       run: |
-        # Refresh linker cache and re-run update-alternatives so that the
-        # liblapack.so and libblas.so symlinks exist even when packages were
-        # restored from a cache snapshot (awalsh128/cache-apt-pkgs-action may
-        # skip dpkg trigger scripts that create the alternatives symlinks).
-        # (liblapack3 and libblas3 are installed via the cached step above.)
         DEB_ARCH=$(dpkg --print-architecture)-linux-gnu
         sudo ldconfig
         sudo update-alternatives --auto "liblapack.so-${DEB_ARCH}" 2>/dev/null || true
@@ -52,10 +58,8 @@ runs:
         done
         sudo apt-get install -y -q --no-install-recommends \
           "./apache-arrow-apt-source-latest-${CODENAME}.deb"
-        # Update only the newly added Arrow source (avoids re-fetching all Ubuntu
-        # package lists; a full apt-get update is not needed here).
+        # Update only the newly added Arrow source.
         ARROW_SRC=$(find /etc/apt/sources.list.d -name 'apache-arrow.*' -print -quit 2>/dev/null || true)
-        # Retry apt-get update — the Arrow repo may be transiently unreachable.
         for attempt in 1 2 3; do
           if [ -n "$ARROW_SRC" ]; then
             sudo apt-get update -q \
@@ -69,9 +73,7 @@ runs:
           sleep 15
         done
 
-    - name: install Arrow and Parquet (cached)
-      uses: awalsh128/cache-apt-pkgs-action@v1
-      with:
-        packages: libarrow-dev libparquet-dev
-        version: 1.0
-        execute_install_scripts: true
+    - name: install Arrow and Parquet
+      shell: bash
+      run: |
+        sudo apt-get install -y --no-install-recommends libarrow-dev libparquet-dev

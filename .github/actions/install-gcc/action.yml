@@ -2,8 +2,8 @@ name: Install GCC
 description: >
   Installs GCC from the Ubuntu APT repository and registers unversioned
   update-alternatives entries so that 'gcc', 'g++', and 'gcov' resolve to
-  the requested version.  Uses awalsh128/cache-apt-pkgs-action to cache
-  the downloaded packages so repeated runs skip the download.
+  the requested version.  Uses actions/cache to cache downloaded .deb files
+  so repeated runs skip the download.
 
 inputs:
   version:
@@ -13,12 +13,18 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: install GCC (cached)
-      uses: awalsh128/cache-apt-pkgs-action@v1
+    - name: cache GCC APT packages
+      uses: actions/cache@v5
       with:
-        packages: gcc-${{ inputs.version }} g++-${{ inputs.version }}
-        version: 1.0
-        execute_install_scripts: true
+        path: /var/cache/apt/archives/*.deb
+        key: apt-gcc-${{ runner.os }}-${{ inputs.version }}
+
+    - name: install GCC
+      shell: bash
+      run: |
+        sudo apt-get update -q
+        sudo apt-get install -y --no-install-recommends \
+          gcc-${{ inputs.version }} g++-${{ inputs.version }}
 
     - name: register unversioned GCC alternatives
       shell: bash
