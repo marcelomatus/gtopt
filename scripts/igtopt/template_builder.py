@@ -2043,86 +2043,70 @@ def parse_simulation_arrays(json_simulation_hpp: pathlib.Path) -> list[str]:
     return re.findall(r'json_array_null<"([^"]+)"', text)
 
 
-def _build_workbook(  # noqa: PLR0912,PLR0915
-    output_path: pathlib.Path, header_dir: pathlib.Path
-) -> None:
-    """Build the Excel template workbook and write to *output_path*."""
-    try:
-        import openpyxl
-        from openpyxl.styles import (
-            Alignment,
-            Font,
-            PatternFill,
-        )
-        from openpyxl.utils import get_column_letter
-    except ImportError as exc:
-        print(
-            f"Error: openpyxl is required.  Install it with: pip install openpyxl\n{exc}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+class _WorkbookStyles:
+    """Container for all Excel template styling objects."""
 
-    # Styles
-    TITLE_FONT = Font(name="Calibri", size=16, bold=True, color="1F3864")
-    HEADING_FONT = Font(name="Calibri", size=12, bold=True, color="2F5496")
-    BODY_FONT = Font(name="Calibri", size=10)
-    FOOTER_FONT = Font(name="Calibri", size=9, italic=True, color="808080")
-    HEADER_FILL = PatternFill("solid", fgColor="1F3864")
-    ALT_ROW_FILL = PatternFill("solid", fgColor="DCE6F1")
-    HELP_FILL = PatternFill("solid", fgColor="EBF3FB")
-    REQUIRED_FILL = PatternFill("solid", fgColor="FFF2CC")
-    HEADER_FONT_WHITE = Font(name="Calibri", bold=True, color="FFFFFF")
-    TABLE_HEADER_FILL = PatternFill("solid", fgColor="4472C4")
-    TABLE_HEADER_FONT = Font(name="Calibri", bold=True, color="FFFFFF")
+    def __init__(self) -> None:
+        from openpyxl.styles import Font, PatternFill
 
-    wb = openpyxl.Workbook()
-    default_sheet = wb.active
-    default_sheet.title = ".introduction"
+        self.title_font = Font(name="Calibri", size=16, bold=True, color="1F3864")
+        self.heading_font = Font(name="Calibri", size=12, bold=True, color="2F5496")
+        self.body_font = Font(name="Calibri", size=10)
+        self.footer_font = Font(name="Calibri", size=9, italic=True, color="808080")
+        self.header_fill = PatternFill("solid", fgColor="1F3864")
+        self.alt_row_fill = PatternFill("solid", fgColor="DCE6F1")
+        self.help_fill = PatternFill("solid", fgColor="EBF3FB")
+        self.required_fill = PatternFill("solid", fgColor="FFF2CC")
+        self.header_font_white = Font(name="Calibri", bold=True, color="FFFFFF")
+        self.table_header_fill = PatternFill("solid", fgColor="4472C4")
+        self.table_header_font = Font(name="Calibri", bold=True, color="FFFFFF")
+        self.optional_header_fill = PatternFill("solid", fgColor="2F5496")
 
-    # ------------------------------------------------------------------
-    # .introduction sheet
-    # ------------------------------------------------------------------
-    ws = default_sheet
+
+def _build_introduction_sheet(ws: Any, styles: _WorkbookStyles) -> None:
+    """Populate the .introduction worksheet."""
     ws.column_dimensions["A"].width = 28
     ws.column_dimensions["B"].width = 14
     ws.column_dimensions["C"].width = 58
 
     row = 1
     for entry in _INTRO_LINES:
-        if entry[-1] == "TITLE":
+        kind = entry[-1]
+        if kind == "TITLE":
             cell = ws.cell(row=row, column=1, value=entry[0])
-            cell.font = TITLE_FONT
+            cell.font = styles.title_font
             ws.merge_cells(f"A{row}:C{row}")
-        elif entry[-1] == "HEADING":
+        elif kind == "HEADING":
             cell = ws.cell(row=row, column=1, value=entry[0])
-            cell.font = HEADING_FONT
+            cell.font = styles.heading_font
             ws.merge_cells(f"A{row}:C{row}")
-        elif entry[-1] == "BODY":
+        elif kind == "BODY":
             cell = ws.cell(row=row, column=1, value=entry[0])
-            cell.font = BODY_FONT
+            cell.font = styles.body_font
             ws.merge_cells(f"A{row}:C{row}")
-        elif entry[-1] == "FOOTER":
+        elif kind == "FOOTER":
             cell = ws.cell(row=row, column=1, value=entry[0])
-            cell.font = FOOTER_FONT
+            cell.font = styles.footer_font
             ws.merge_cells(f"A{row}:C{row}")
-        elif entry[-1] == "TABLE_HEADER":
+        elif kind == "TABLE_HEADER":
             for col_idx, val in enumerate(entry[:3], start=1):
                 c = ws.cell(row=row, column=col_idx, value=val)
-                c.font = TABLE_HEADER_FONT
-                c.fill = TABLE_HEADER_FILL
-        elif entry[-1] == "TABLE":
+                c.font = styles.table_header_font
+                c.fill = styles.table_header_fill
+        elif kind == "TABLE":
             for col_idx, val in enumerate(entry[:3], start=1):
                 c = ws.cell(row=row, column=col_idx, value=val)
-                c.font = BODY_FONT
+                c.font = styles.body_font
                 if row % 2 == 0:
-                    c.fill = ALT_ROW_FILL
-        elif entry[0] == "":
-            pass  # blank spacer row
+                    c.fill = styles.alt_row_fill
+        # blank spacer rows (entry[0] == "") are left empty
         row += 1
 
-    # ------------------------------------------------------------------
-    # options sheet
-    # ------------------------------------------------------------------
+
+def _build_options_sheet(wb: Any, styles: _WorkbookStyles) -> None:
+    """Create and populate the options worksheet."""
+    from openpyxl.styles import Alignment, Font
+
     ws_opts = wb.create_sheet("options")
     ws_opts.column_dimensions["A"].width = 34
     ws_opts.column_dimensions["B"].width = 22
@@ -2131,8 +2115,8 @@ def _build_workbook(  # noqa: PLR0912,PLR0915
     # Header row
     for col_idx, header in enumerate(["option", "value", "description"], start=1):
         c = ws_opts.cell(row=1, column=col_idx, value=header)
-        c.font = HEADER_FONT_WHITE
-        c.fill = HEADER_FILL
+        c.font = styles.header_font_white
+        c.fill = styles.header_fill
         c.alignment = Alignment(horizontal="left")
 
     for row_idx, (key, desc, default) in enumerate(_OPTIONS_FIELDS, start=2):
@@ -2145,108 +2129,102 @@ def _build_workbook(  # noqa: PLR0912,PLR0915
 
     ws_opts.freeze_panes = "A2"
 
-    # ------------------------------------------------------------------
-    # Helper to build a data sheet
-    # ------------------------------------------------------------------
-    def _add_data_sheet(
-        sheet_name: str,
-        fields: list[tuple[str, str, bool, str, Any]],
-        examples: list[dict[str, Any]] | None = None,
-    ) -> None:
-        ws_data = wb.create_sheet(sheet_name)
 
-        num_fields = len(fields)
-        for col_idx, (fname, ftype, required, desc, _example) in enumerate(
-            fields, start=1
-        ):
-            # Header row
-            header_cell = ws_data.cell(row=1, column=col_idx, value=fname)
-            header_cell.font = HEADER_FONT_WHITE
-            if required:
-                header_cell.fill = HEADER_FILL  # dark blue = required
-            else:
-                header_cell.fill = PatternFill("solid", fgColor="2F5496")  # medium
-            header_cell.alignment = Alignment(horizontal="left")
+def _add_data_sheet(
+    wb: Any,
+    styles: _WorkbookStyles,
+    sheet_name: str,
+    fields: list[tuple[str, str, bool, str, Any]],
+    examples: list[dict[str, Any]] | None = None,
+) -> None:
+    """Create a data worksheet with headers, help row, and example data."""
+    from openpyxl.styles import Alignment, Font
+    from openpyxl.utils import get_column_letter
 
-            # Help row
-            help_text = f"[{ftype}]{'*' if required else ''} {desc}"
-            help_cell = ws_data.cell(row=2, column=col_idx, value=help_text)
-            help_cell.font = Font(name="Calibri", size=8, italic=True, color="404040")
-            if required:
-                help_cell.fill = REQUIRED_FILL
-            else:
-                help_cell.fill = HELP_FILL
+    ws_data = wb.create_sheet(sheet_name)
 
-        # Column widths
-        for col_idx, (fname, _ft, _req, _desc, _ex) in enumerate(fields, start=1):
-            col_letter = get_column_letter(col_idx)
-            ws_data.column_dimensions[col_letter].width = max(14, len(fname) + 4)
-
-        # Example rows
-        if examples:
-            for row_offset, example_row in enumerate(examples):
-                data_row = 3 + row_offset
-                for col_idx, (fname, _ft, _req, _desc, _default_ex) in enumerate(
-                    fields, start=1
-                ):
-                    val = example_row.get(fname, None)
-                    if val is not None:
-                        ws_data.cell(row=data_row, column=col_idx, value=val)
+    num_fields = len(fields)
+    for col_idx, (fname, ftype, required, desc, _example) in enumerate(fields, start=1):
+        # Header row
+        header_cell = ws_data.cell(row=1, column=col_idx, value=fname)
+        header_cell.font = styles.header_font_white
+        if required:
+            header_cell.fill = styles.header_fill  # dark blue = required
         else:
-            # Pre-fill a single blank example row using per-field defaults
-            for col_idx, (_fname, _ft, _req, _desc, example) in enumerate(
+            header_cell.fill = styles.optional_header_fill  # medium
+        header_cell.alignment = Alignment(horizontal="left")
+
+        # Help row
+        help_text = f"[{ftype}]{'*' if required else ''} {desc}"
+        help_cell = ws_data.cell(row=2, column=col_idx, value=help_text)
+        help_cell.font = Font(name="Calibri", size=8, italic=True, color="404040")
+        if required:
+            help_cell.fill = styles.required_fill
+        else:
+            help_cell.fill = styles.help_fill
+
+    # Column widths
+    for col_idx, (fname, _ft, _req, _desc, _ex) in enumerate(fields, start=1):
+        col_letter = get_column_letter(col_idx)
+        ws_data.column_dimensions[col_letter].width = max(14, len(fname) + 4)
+
+    # Example rows
+    if examples:
+        for row_offset, example_row in enumerate(examples):
+            data_row = 3 + row_offset
+            for col_idx, (fname, _ft, _req, _desc, _default_ex) in enumerate(
                 fields, start=1
             ):
-                if example is not None:
-                    ws_data.cell(row=3, column=col_idx, value=example)
+                val = example_row.get(fname, None)
+                if val is not None:
+                    ws_data.cell(row=data_row, column=col_idx, value=val)
+    else:
+        # Pre-fill a single blank example row using per-field defaults
+        for col_idx, (_fname, _ft, _req, _desc, example) in enumerate(fields, start=1):
+            if example is not None:
+                ws_data.cell(row=3, column=col_idx, value=example)
 
-        ws_data.freeze_panes = "A3"
+    ws_data.freeze_panes = "A3"
 
-        # Legend in a far-right column
-        legend_col = num_fields + 2
-        leg_label = ws_data.cell(row=1, column=legend_col, value="Legend")
-        leg_label.font = Font(bold=True)
-        ws_data.cell(row=2, column=legend_col, value="Dark blue = required")
-        ws_data.cell(row=3, column=legend_col, value="Medium blue = optional")
-        ws_data.cell(row=4, column=legend_col, value="* = required field")
-        ws_data.cell(
-            row=5,
-            column=legend_col,
-            value="number|array|filename: scalar, inline array, or filename",
-        )
-        ws_data.column_dimensions[get_column_letter(legend_col)].width = 46
+    # Legend in a far-right column
+    legend_col = num_fields + 2
+    leg_label = ws_data.cell(row=1, column=legend_col, value="Legend")
+    leg_label.font = Font(bold=True)
+    ws_data.cell(row=2, column=legend_col, value="Dark blue = required")
+    ws_data.cell(row=3, column=legend_col, value="Medium blue = optional")
+    ws_data.cell(row=4, column=legend_col, value="* = required field")
+    ws_data.cell(
+        row=5,
+        column=legend_col,
+        value="number|array|filename: scalar, inline array, or filename",
+    )
+    ws_data.column_dimensions[get_column_letter(legend_col)].width = 46
 
-    # ------------------------------------------------------------------
-    # Simulation sheets
-    # ------------------------------------------------------------------
-    for sheet in _TEMPLATE_SIMULATION_SHEETS:
+
+def _build_array_sheets(
+    wb: Any,
+    styles: _WorkbookStyles,
+    sheet_list: list[str],
+) -> None:
+    """Create data sheets for a list of array names from FIELD_META."""
+    for sheet in sheet_list:
         fields = FIELD_META.get(sheet, [])
         if not fields:
             continue
         examples = _EXAMPLES.get(sheet)
-        _add_data_sheet(sheet, fields, examples)
+        _add_data_sheet(wb, styles, sheet, fields, examples)
 
-    # ------------------------------------------------------------------
-    # System sheets
-    # ------------------------------------------------------------------
-    for sheet in _TEMPLATE_SYSTEM_SHEETS:
-        fields = FIELD_META.get(sheet, [])
-        if not fields:
-            continue
-        examples = _EXAMPLES.get(sheet)
-        _add_data_sheet(sheet, fields, examples)
 
-    # ------------------------------------------------------------------
-    # Example time-series sheets
-    # ------------------------------------------------------------------
+def _build_timeseries_sheets(wb: Any, styles: _WorkbookStyles) -> None:
+    """Create the example time-series worksheets (Demand@lmax, etc.)."""
     # Demand@lmax
     ws_ts = wb.create_sheet("Demand@lmax")
     for col_idx, header in enumerate(
         ["scenario", "stage", "block", "d1", "d2"], start=1
     ):
         c = ws_ts.cell(row=1, column=col_idx, value=header)
-        c.font = HEADER_FONT_WHITE
-        c.fill = HEADER_FILL
+        c.font = styles.header_font_white
+        c.fill = styles.header_fill
     ws_ts.cell(row=2, column=1, value=1)
     ws_ts.cell(row=2, column=2, value=1)
     ws_ts.cell(row=2, column=3, value=1)
@@ -2260,17 +2238,17 @@ def _build_workbook(  # noqa: PLR0912,PLR0915
         ["scenario", "stage", "block", "g_solar"], start=1
     ):
         c = ws_ts2.cell(row=1, column=col_idx, value=header)
-        c.font = HEADER_FONT_WHITE
-        c.fill = HEADER_FILL
+        c.font = styles.header_font_white
+        c.fill = styles.header_fill
     ws_ts2.cell(row=2, column=1, value=1)
     ws_ts2.cell(row=2, column=2, value=1)
     ws_ts2.cell(row=2, column=3, value=1)
     ws_ts2.cell(row=2, column=4, value=0.75)
     ws_ts2.freeze_panes = "A2"
 
-    # ------------------------------------------------------------------
-    # Boundary cuts sheet (SDDP future-cost function / varphi)
-    # ------------------------------------------------------------------
+
+def _build_boundary_cuts_sheet(wb: Any, styles: _WorkbookStyles) -> None:
+    """Create the boundary_cuts example worksheet."""
     ws_bc = wb.create_sheet("boundary_cuts")
     bc_headers = [
         "name",
@@ -2282,8 +2260,8 @@ def _build_workbook(  # noqa: PLR0912,PLR0915
     ]
     for col_idx, header in enumerate(bc_headers, start=1):
         cell = ws_bc.cell(row=1, column=col_idx, value=header)
-        cell.font = HEADER_FONT_WHITE
-        cell.fill = HEADER_FILL
+        cell.font = styles.header_font_white
+        cell.fill = styles.header_fill
     # Example row
     ws_bc.cell(row=2, column=1, value="bc_1_1")
     ws_bc.cell(row=2, column=2, value=1)
@@ -2309,6 +2287,31 @@ def _build_workbook(  # noqa: PLR0912,PLR0915
         value="# 'iteration' = SDDP iteration (PLP IPDNumIte); "
         "'scene' = scene UID (PLP ISimul maps to scene UID in plp2gtopt).",
     )
+
+
+def _build_workbook(output_path: pathlib.Path, header_dir: pathlib.Path) -> None:
+    """Build the Excel template workbook and write to *output_path*."""
+    try:
+        import openpyxl
+    except ImportError as exc:
+        print(
+            f"Error: openpyxl is required.  Install it with: pip install openpyxl\n{exc}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    styles = _WorkbookStyles()
+
+    wb = openpyxl.Workbook()
+    default_sheet = wb.active
+    default_sheet.title = ".introduction"
+
+    _build_introduction_sheet(default_sheet, styles)
+    _build_options_sheet(wb, styles)
+    _build_array_sheets(wb, styles, _TEMPLATE_SIMULATION_SHEETS)
+    _build_array_sheets(wb, styles, _TEMPLATE_SYSTEM_SHEETS)
+    _build_timeseries_sheets(wb, styles)
+    _build_boundary_cuts_sheet(wb, styles)
 
     wb.save(output_path)
     print(f"Template written to: {output_path}", file=sys.stderr)
