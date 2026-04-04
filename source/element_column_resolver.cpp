@@ -461,6 +461,9 @@ namespace
         }
       } else if (ref.attribute == "energy" || ref.attribute == "volume") {
         // Per-block accumulated rights volume column.
+        // "volume" is the domain-natural name for water rights;
+        // "energy" is the StorageLP base-class name — both resolve
+        // to the same LP column, consistent with reservoir and battery.
         const auto& cols = vrt.energy_cols_at(scenario, stage);
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
