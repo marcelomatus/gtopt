@@ -8,7 +8,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from sddp_monitor.sddp_monitor import load_status, main, print_status, run_gui, run_text
+from sddp_monitor.sddp_monitor import (
+    find_planning_json,
+    get_option,
+    load_status,
+    main,
+    print_status,
+    run_gui,
+    run_text,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -587,3 +595,134 @@ class TestMain:
         ):
             main()
         mock_text.assert_called_once_with(Path("/custom/path.json"), 3.0)
+
+    def test_get_option_prints_value(
+        self, capsys: pytest.CaptureFixture, tmp_path: Path
+    ) -> None:
+        """--get prints the requested option value and exits."""
+        planning = {
+            "options": {
+                "method": "sddp",
+                "sddp_options": {"max_iterations": 50},
+            }
+        }
+        case_dir = tmp_path / "mycase"
+        case_dir.mkdir()
+        (case_dir / "mycase.json").write_text(json.dumps(planning), encoding="utf-8")
+        main(["--get", "method", "--case-dir", str(case_dir)])
+        assert capsys.readouterr().out.strip() == "sddp"
+
+    def test_get_nested_option(
+        self, capsys: pytest.CaptureFixture, tmp_path: Path
+    ) -> None:
+        """--get navigates dotted paths into nested dicts."""
+        planning = {
+            "options": {
+                "sddp_options": {"max_iterations": 42},
+            }
+        }
+        case_dir = tmp_path / "nested"
+        case_dir.mkdir()
+        (case_dir / "nested.json").write_text(json.dumps(planning), encoding="utf-8")
+        main(["--get", "sddp_options.max_iterations", "--case-dir", str(case_dir)])
+        assert capsys.readouterr().out.strip() == "42"
+
+    def test_get_missing_option_exits(self, tmp_path: Path) -> None:
+        """--get exits with error when the option path does not exist."""
+        planning = {"options": {"method": "sddp"}}
+        case_dir = tmp_path / "miss"
+        case_dir.mkdir()
+        (case_dir / "miss.json").write_text(json.dumps(planning), encoding="utf-8")
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--get", "no_such_option", "--case-dir", str(case_dir)])
+        assert exc_info.value.code == 1
+
+    def test_get_dict_option_prints_json(
+        self, capsys: pytest.CaptureFixture, tmp_path: Path
+    ) -> None:
+        """--get prints dict values as formatted JSON."""
+        planning = {
+            "options": {
+                "sddp_options": {"max_iterations": 10, "convergence_tol": 0.01},
+            }
+        }
+        case_dir = tmp_path / "dictcase"
+        case_dir.mkdir()
+        (case_dir / "dictcase.json").write_text(json.dumps(planning), encoding="utf-8")
+        main(["--get", "sddp_options", "--case-dir", str(case_dir)])
+        output = json.loads(capsys.readouterr().out)
+        assert output["max_iterations"] == 10
+
+
+# ---------------------------------------------------------------------------
+# Tests for get_option
+# ---------------------------------------------------------------------------
+
+
+class TestGetOption:
+    """Tests for the get_option helper."""
+
+    def test_simple_key(self, tmp_path: Path) -> None:
+        planning = {"options": {"method": "sddp"}}
+        f = tmp_path / "p.json"
+        f.write_text(json.dumps(planning), encoding="utf-8")
+        assert get_option(f, "method") == "sddp"
+
+    def test_nested_key(self, tmp_path: Path) -> None:
+        planning = {"options": {"sddp_options": {"max_iterations": 5}}}
+        f = tmp_path / "p.json"
+        f.write_text(json.dumps(planning), encoding="utf-8")
+        assert get_option(f, "sddp_options.max_iterations") == 5
+
+    def test_missing_key_raises(self, tmp_path: Path) -> None:
+        planning = {"options": {"method": "sddp"}}
+        f = tmp_path / "p.json"
+        f.write_text(json.dumps(planning), encoding="utf-8")
+        with pytest.raises(KeyError, match="no_such"):
+            get_option(f, "no_such")
+
+    def test_missing_nested_key_raises(self, tmp_path: Path) -> None:
+        planning = {"options": {"sddp_options": {}}}
+        f = tmp_path / "p.json"
+        f.write_text(json.dumps(planning), encoding="utf-8")
+        with pytest.raises(KeyError, match="missing key 'threads'"):
+            get_option(f, "sddp_options.threads")
+
+    def test_no_options_key(self, tmp_path: Path) -> None:
+        f = tmp_path / "p.json"
+        f.write_text("{}", encoding="utf-8")
+        with pytest.raises(KeyError):
+            get_option(f, "method")
+
+
+# ---------------------------------------------------------------------------
+# Tests for find_planning_json
+# ---------------------------------------------------------------------------
+
+
+class TestFindPlanningJson:
+    """Tests for the find_planning_json helper."""
+
+    def test_directory_with_matching_name(self, tmp_path: Path) -> None:
+        case_dir = tmp_path / "mycase"
+        case_dir.mkdir()
+        expected = case_dir / "mycase.json"
+        expected.write_text("{}", encoding="utf-8")
+        assert find_planning_json(case_dir) == expected
+
+    def test_json_file_directly(self, tmp_path: Path) -> None:
+        f = tmp_path / "plan.json"
+        f.write_text("{}", encoding="utf-8")
+        assert find_planning_json(f) == f
+
+    def test_fallback_to_any_json(self, tmp_path: Path) -> None:
+        case_dir = tmp_path / "other"
+        case_dir.mkdir()
+        f = case_dir / "something.json"
+        f.write_text("{}", encoding="utf-8")
+        assert find_planning_json(case_dir) == f
+
+    def test_empty_directory_returns_none(self, tmp_path: Path) -> None:
+        case_dir = tmp_path / "empty"
+        case_dir.mkdir()
+        assert find_planning_json(case_dir) is None

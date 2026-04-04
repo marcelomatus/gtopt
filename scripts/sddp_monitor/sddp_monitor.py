@@ -64,6 +64,48 @@ def load_status(path: Path) -> dict[str, Any] | None:
         return None
 
 
+def get_option(planning_json: Path, dotted_key: str) -> Any:
+    """Read a planning option value by dotted path.
+
+    The *dotted_key* is relative to ``planning.options``.
+    For example ``"method"`` returns ``planning["options"]["method"]``,
+    and ``"sddp_options.max_iterations"`` navigates into the nested dict.
+
+    Returns the value (str, int, float, bool, list, dict, or None) or
+    raises ``KeyError`` if the path does not exist.
+    """
+    text = planning_json.read_text(encoding="utf-8")
+    data = json.loads(text)
+
+    # Start from the "options" subtree
+    node: Any = data.get("options", {})
+    parts = dotted_key.split(".")
+    for part in parts:
+        if not isinstance(node, dict) or part not in node:
+            raise KeyError(
+                f"option '{dotted_key}' not found (missing key '{part}' in path)"
+            )
+        node = node[part]
+    return node
+
+
+def find_planning_json(case_dir: Path) -> Path | None:
+    """Locate the planning JSON file for a case directory.
+
+    Looks for ``<dir>/<dir_name>.json`` first, then any ``*.json`` file
+    in the directory.  Returns None if nothing is found.
+    """
+    if case_dir.is_file() and case_dir.suffix == ".json":
+        return case_dir
+    candidate = case_dir / f"{case_dir.name}.json"
+    if candidate.is_file():
+        return candidate
+    for p in sorted(case_dir.glob("*.json")):
+        if p.is_file():
+            return p
+    return None
+
+
 def print_status(data: dict[str, Any]) -> None:
     """Print a brief status summary to stdout."""
     status = data.get("status", "unknown")
@@ -328,6 +370,21 @@ def main(argv: list[str] | None = None) -> None:
         help="Logging verbosity (default: %(default)s).",
     )
     parser.add_argument(
+        "--get",
+        metavar="OPTION",
+        help=(
+            "Query a planning option value by dotted path and exit. "
+            "Path is relative to planning.options, e.g. "
+            "'method', 'sddp_options.max_iterations'. "
+            "Requires --case-dir (or auto-detects from --status-file parent)."
+        ),
+    )
+    parser.add_argument(
+        "--case-dir",
+        metavar="DIR",
+        help="Case directory containing the planning JSON (for --get).",
+    )
+    parser.add_argument(
         "-V",
         "--version",
         action="version",
@@ -339,6 +396,28 @@ def main(argv: list[str] | None = None) -> None:
         level=getattr(logging, args.log_level),
         format="%(levelname)s: %(message)s",
     )
+
+    # --get: query a single option value and exit
+    if args.get:
+        case_dir = (
+            Path(args.case_dir)
+            if args.case_dir
+            else Path(args.status_file).parent.parent
+        )
+        json_path = find_planning_json(case_dir)
+        if json_path is None:
+            print(f"ERROR: no planning JSON found in {case_dir}", file=sys.stderr)
+            sys.exit(1)
+        try:
+            value = get_option(json_path, args.get)
+        except KeyError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            sys.exit(1)
+        if isinstance(value, (dict, list)):
+            print(json.dumps(value, indent=2))
+        else:
+            print(value)
+        return
 
     status_file = Path(args.status_file)
 
