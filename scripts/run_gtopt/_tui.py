@@ -908,7 +908,7 @@ class SolverDisplay:
         """Launch the dashboard render thread."""
         self._start_time = time.monotonic()
         # Initialize system stats (populated from log output and CLI flags)
-        self._system_stats: dict[str, Any] = {}
+        self._system_stats = {}
         if self._solver_hint:
             self._system_stats["solver"] = self._solver_hint
         self._thread = threading.Thread(
