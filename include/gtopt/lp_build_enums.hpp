@@ -53,4 +53,44 @@ constexpr auto enum_entries(LpNamesLevel /*tag*/) noexcept
   return std::span {lp_names_level_entries};
 }
 
+// --- LpEquilibrationMethod --------------------------------------------------
+
+/**
+ * @brief LP matrix equilibration method for numerical conditioning.
+ *
+ * Controls how the constraint matrix is scaled before being sent to the
+ * LP solver.  Better-conditioned matrices produce more accurate solutions
+ * and reduce solver iterations.
+ *
+ * - `none`:    No equilibration (default).
+ * - `row_max`: Per-row max-abs normalization.  Each row is divided by its
+ *              largest |coefficient| so that every row's infinity-norm
+ *              becomes 1.0.
+ * - `ruiz`:    Ruiz geometric-mean iterative scaling.  Alternately
+ *              normalizes rows and columns by sqrt(infinity-norm) until
+ *              convergence.  Produces a better-conditioned matrix than
+ *              single-pass row_max, especially for problems with
+ *              heterogeneous variable scales.
+ *              Ref: Ruiz, D. (2001) "A scaling algorithm to equilibrate
+ *              both rows and columns norms in matrices".
+ */
+enum class LpEquilibrationMethod : uint8_t
+{
+  none = 0,  ///< No equilibration (default)
+  row_max = 1,  ///< Per-row max-abs normalization
+  ruiz = 2,  ///< Ruiz geometric-mean iterative scaling
+};
+
+inline constexpr auto lp_equilibration_method_entries =
+    std::to_array<EnumEntry<LpEquilibrationMethod>>({
+        {.name = "none", .value = LpEquilibrationMethod::none},
+        {.name = "row_max", .value = LpEquilibrationMethod::row_max},
+        {.name = "ruiz", .value = LpEquilibrationMethod::ruiz},
+    });
+
+constexpr auto enum_entries(LpEquilibrationMethod /*tag*/) noexcept
+{
+  return std::span {lp_equilibration_method_entries};
+}
+
 }  // namespace gtopt

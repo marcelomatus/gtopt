@@ -12,6 +12,7 @@
  */
 
 #include <algorithm>
+#include <cmath>
 #include <ranges>
 #include <unordered_map>
 
@@ -20,6 +21,199 @@
 
 namespace gtopt
 {
+
+namespace
+{
+
+// ── Row-max equilibration (single pass) ─────────────────────────────
+// Scale each row so that its largest |coefficient| becomes 1.0.
+// Returns the per-row scale factors (max |coeff| per row, or 1.0 for
+// empty rows).
+
+auto apply_row_max_equilibration(
+    std::span<const FlatLinearProblem::index_t> matind,
+    std::span<double> matval,
+    std::span<double> rowlb,
+    std::span<double> rowub,
+    double infinity) -> std::vector<double>
+{
+  const auto nrows = rowlb.size();
+
+  // 1. Compute row max |coefficient| from the CSC matrix.
+  std::vector<double> row_scales(nrows, 0.0);
+  for (size_t k = 0; k < matval.size(); ++k) {
+    const auto r = static_cast<size_t>(matind[k]);
+    row_scales[r] = std::max(row_scales[r], std::abs(matval[k]));
+  }
+
+  // 2. Use 1.0 for empty or zero-max rows.
+  for (auto& s : row_scales) {
+    if (s == 0.0) {
+      s = 1.0;
+    }
+  }
+
+  // 3. Apply scaling to matrix coefficients.
+  for (size_t k = 0; k < matval.size(); ++k) {
+    const auto r = static_cast<size_t>(matind[k]);
+    matval[k] /= row_scales[r];
+  }
+
+  // 4. Scale row bounds (RHS), preserving infinite bounds.
+  for (size_t r = 0; r < nrows; ++r) {
+    const double s = row_scales[r];
+    if (s != 1.0) {
+      if (rowlb[r] > -infinity) {
+        rowlb[r] /= s;
+      }
+      if (rowub[r] < infinity) {
+        rowub[r] /= s;
+      }
+    }
+  }
+
+  return row_scales;
+}
+
+// ── Ruiz geometric-mean iterative scaling ───────────────────────────
+// Alternately normalizes rows and columns by sqrt(infinity-norm)
+// until convergence.  Updates row_scales, col_scales, row/col bounds,
+// and objective coefficients.
+//
+// Reference: Ruiz, D. (2001) "A scaling algorithm to equilibrate both
+// rows and columns norms in matrices".
+
+struct RuizScalingResult
+{
+  std::vector<double> row_scales;
+  // col_scales are updated in-place (passed by reference)
+};
+
+auto apply_ruiz_scaling(std::span<const FlatLinearProblem::index_t> matbeg,
+                        std::span<const FlatLinearProblem::index_t> matind,
+                        std::span<double> matval,
+                        std::span<double> rowlb,
+                        std::span<double> rowub,
+                        std::span<double> collb,
+                        std::span<double> colub,
+                        std::span<double> objval,
+                        std::span<double> col_scales,
+                        double infinity,
+                        int max_iterations = 10,
+                        double tolerance = 1e-3) -> std::vector<double>
+{
+  const auto nrows = rowlb.size();
+  const auto ncols = collb.size();
+
+  // Cumulative row scales (product of per-iteration sqrt factors).
+  std::vector<double> cum_row_scales(nrows, 1.0);
+
+  std::vector<double> row_inf_norm(nrows);
+  std::vector<double> col_inf_norm(ncols);
+
+  for (int iter = 0; iter < max_iterations; ++iter) {
+    // 1. Compute row infinity-norms.
+    std::ranges::fill(row_inf_norm, 0.0);
+    for (size_t k = 0; k < matval.size(); ++k) {
+      const auto r = static_cast<size_t>(matind[k]);
+      row_inf_norm[r] = std::max(row_inf_norm[r], std::abs(matval[k]));
+    }
+
+    // 2. Compute column infinity-norms.
+    std::ranges::fill(col_inf_norm, 0.0);
+    for (size_t j = 0; j < ncols; ++j) {
+      const auto beg = static_cast<size_t>(matbeg[j]);
+      const auto end = static_cast<size_t>(matbeg[j + 1]);
+      for (size_t k = beg; k < end; ++k) {
+        col_inf_norm[j] = std::max(col_inf_norm[j], std::abs(matval[k]));
+      }
+    }
+
+    // 3. Convergence check: all norms close to 1.0 (skip zeros).
+    double max_deviation = 0.0;
+    for (size_t r = 0; r < nrows; ++r) {
+      if (row_inf_norm[r] > 0.0) {
+        max_deviation =
+            std::max(max_deviation, std::abs(row_inf_norm[r] - 1.0));
+      }
+    }
+    for (size_t j = 0; j < ncols; ++j) {
+      if (col_inf_norm[j] > 0.0) {
+        max_deviation =
+            std::max(max_deviation, std::abs(col_inf_norm[j] - 1.0));
+      }
+    }
+    if (max_deviation < tolerance) {
+      break;
+    }
+
+    // 4. Compute per-iteration scaling factors: sqrt(inf-norm).
+    //    Use 1.0 for empty rows/columns to avoid division by zero.
+    std::vector<double> row_factor(nrows);
+    for (size_t r = 0; r < nrows; ++r) {
+      row_factor[r] =
+          (row_inf_norm[r] > 0.0) ? std::sqrt(row_inf_norm[r]) : 1.0;
+    }
+
+    std::vector<double> col_factor(ncols);
+    for (size_t j = 0; j < ncols; ++j) {
+      col_factor[j] =
+          (col_inf_norm[j] > 0.0) ? std::sqrt(col_inf_norm[j]) : 1.0;
+    }
+
+    // 5. Apply row + column scaling to matrix coefficients.
+    for (size_t j = 0; j < ncols; ++j) {
+      const auto beg = static_cast<size_t>(matbeg[j]);
+      const auto end = static_cast<size_t>(matbeg[j + 1]);
+      const double cf = col_factor[j];
+      for (size_t k = beg; k < end; ++k) {
+        const auto r = static_cast<size_t>(matind[k]);
+        matval[k] /= (row_factor[r] * cf);
+      }
+    }
+
+    // 6. Scale row bounds, preserving infinite bounds.
+    for (size_t r = 0; r < nrows; ++r) {
+      const double rf = row_factor[r];
+      if (rf != 1.0) {
+        if (rowlb[r] > -infinity) {
+          rowlb[r] /= rf;
+        }
+        if (rowub[r] < infinity) {
+          rowub[r] /= rf;
+        }
+      }
+    }
+
+    // 7. Scale column bounds and objective.
+    //    Column scaling substitutes y_j = x_j * col_factor[j]:
+    //      collb *= col_factor, colub *= col_factor
+    //      objval /= col_factor
+    //      col_scales /= col_factor
+    for (size_t j = 0; j < ncols; ++j) {
+      const double cf = col_factor[j];
+      if (cf != 1.0) {
+        if (collb[j] > -infinity) {
+          collb[j] *= cf;
+        }
+        if (colub[j] < infinity) {
+          colub[j] *= cf;
+        }
+        objval[j] /= cf;
+        col_scales[j] /= cf;
+      }
+    }
+
+    // 8. Accumulate row scales.
+    for (size_t r = 0; r < nrows; ++r) {
+      cum_row_scales[r] *= row_factor[r];
+    }
+  }
+
+  return cum_row_scales;
+}
+
+}  // namespace
 
 auto LinearProblem::lp_build(const LpBuildOptions& opts) -> FlatLinearProblem
 {
@@ -218,80 +412,63 @@ auto LinearProblem::lp_build(const LpBuildOptions& opts) -> FlatLinearProblem
     }
   }
 
-  // ── Row equilibration scaling ─────────────────────────────────────
-  // Scale each row so that its largest |coefficient| becomes 1.0.
-  // This reduces the condition number by compressing the coefficient
-  // range across rows.  The row_scales vector stores the inverse of
-  // the scaling factor: dual_physical = dual_LP × row_scale[i].
+  // ── Matrix equilibration scaling ────────────────────────────────────
+  // Dispatch to the selected equilibration method.  The row_scales
+  // vector stores the cumulative divisor per row:
+  //   dual_physical = dual_LP / row_scale[i]
+  // Column scales are updated in-place inside col_scales.
+
+  const auto eq_method =
+      opts.equilibration_method.value_or(LpEquilibrationMethod::none);
+
   std::vector<double> row_scales_vec;
-  if (opts.row_equilibration.value_or(true)) {
-    // 1. Compute row max |coefficient| from the CSC matrix.
-    std::vector<double> row_max(nrows, 0.0);
-    for (size_t k = 0; k < matval.size(); ++k) {
-      const auto r = static_cast<size_t>(matind[k]);
-      row_max[r] = std::max(row_max[r], std::abs(matval[k]));
-    }
+  if (eq_method == LpEquilibrationMethod::row_max) {
+    row_scales_vec =
+        apply_row_max_equilibration(matind, matval, rowlb, rowub, m_infinity_);
+  } else if (eq_method == LpEquilibrationMethod::ruiz) {
+    row_scales_vec = apply_ruiz_scaling(matbeg,
+                                        matind,
+                                        matval,
+                                        rowlb,
+                                        rowub,
+                                        collb,
+                                        colub,
+                                        objval,
+                                        col_scales,
+                                        m_infinity_);
+  }
 
-    // 2. Compute scale = 1/max (identity for empty or zero-max rows).
-    row_scales_vec.resize(nrows);
-    for (size_t r = 0; r < static_cast<size_t>(nrows); ++r) {
-      row_scales_vec[r] = (row_max[r] > 0.0) ? row_max[r] : 1.0;
-    }
-
-    // 3. Apply scaling to matrix coefficients.
-    for (size_t k = 0; k < matval.size(); ++k) {
-      const auto r = static_cast<size_t>(matind[k]);
-      matval[k] /= row_scales_vec[r];
-    }
-
-    // 4. Scale row bounds (RHS), preserving infinite bounds.
-    const double inf = m_infinity_;
-    for (size_t r = 0; r < static_cast<size_t>(nrows); ++r) {
-      const double s = row_scales_vec[r];
-      if (s != 1.0) {
-        if (rowlb[r] > -inf) {
-          rowlb[r] /= s;
+  if (!row_scales_vec.empty() && do_stats) {
+    // Recompute coefficient stats after equilibration so the reported
+    // ratio reflects the actual matrix sent to the solver.
+    stats_max = 0.0;
+    stats_min = std::numeric_limits<double>::max();
+    stats_max_col = -1;
+    stats_min_col = -1;
+    for (size_t c = 0; c < ncols; ++c) {
+      const auto beg = static_cast<size_t>(matbeg[c]);
+      const auto end = static_cast<size_t>(matbeg[c + 1]);
+      for (size_t k = beg; k < end; ++k) {
+        const double abs_v = std::abs(matval[k]);
+        if (abs_v > stats_max) {
+          stats_max = abs_v;
+          stats_max_col = static_cast<fp_index_t>(c);
         }
-        if (rowub[r] < inf) {
-          rowub[r] /= s;
-        }
-      }
-    }
-
-    // 5. Recompute coefficient stats after equilibration so the reported
-    //    ratio reflects the actual matrix sent to the solver.
-    if (do_stats) {
-      stats_max = 0.0;
-      stats_min = std::numeric_limits<double>::max();
-      stats_max_col = -1;
-      stats_min_col = -1;
-      for (size_t c = 0; c < ncols; ++c) {
-        const auto beg = static_cast<size_t>(matbeg[c]);
-        const auto end = static_cast<size_t>(matbeg[c + 1]);
-        for (size_t k = beg; k < end; ++k) {
-          const double abs_v = std::abs(matval[k]);
-          if (abs_v > stats_max) {
-            stats_max = abs_v;
-            stats_max_col = static_cast<fp_index_t>(c);
-          }
-          if (abs_v >= eff_stats_eps && abs_v < stats_min) {
-            stats_min = abs_v;
-            stats_min_col = static_cast<fp_index_t>(c);
-          }
+        if (abs_v >= eff_stats_eps && abs_v < stats_min) {
+          stats_min = abs_v;
+          stats_min_col = static_cast<fp_index_t>(c);
         }
       }
-      // Update column name references for the new min/max columns.
-      stats_max_col_name =
-          (stats_max_col >= 0
-           && static_cast<size_t>(stats_max_col) < colnm.size())
-          ? colnm[static_cast<size_t>(stats_max_col)]
-          : "";
-      stats_min_col_name =
-          (stats_min_col >= 0
-           && static_cast<size_t>(stats_min_col) < colnm.size())
-          ? colnm[static_cast<size_t>(stats_min_col)]
-          : "";
     }
+    // Update column name references for the new min/max columns.
+    stats_max_col_name = (stats_max_col >= 0
+                          && static_cast<size_t>(stats_max_col) < colnm.size())
+        ? colnm[static_cast<size_t>(stats_max_col)]
+        : "";
+    stats_min_col_name = (stats_min_col >= 0
+                          && static_cast<size_t>(stats_min_col) < colnm.size())
+        ? colnm[static_cast<size_t>(stats_min_col)]
+        : "";
   }
 
   // ── Per-row-type coefficient statistics ──────────────────────────────

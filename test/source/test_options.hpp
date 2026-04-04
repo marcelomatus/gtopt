@@ -637,14 +637,15 @@ TEST_CASE("Options - Solver options merge with scaling")  // NOLINT
   CHECK(*base2.solver_options.scaling == SolverScaling::automatic);
 }
 
-TEST_CASE("Options - LpBuildOptions row_equilibration merge_opt")  // NOLINT
+TEST_CASE(  // NOLINT
+    "Options - LpBuildOptions equilibration_method merge_opt")
 {
   using namespace gtopt;
 
   SUBCASE("default is nullopt")
   {
     PlanningOptions base {};
-    CHECK_FALSE(base.lp_build_options.row_equilibration.has_value());
+    CHECK_FALSE(base.lp_build_options.equilibration_method.has_value());
   }
 
   SUBCASE("nullopt + nullopt = nullopt")
@@ -652,35 +653,42 @@ TEST_CASE("Options - LpBuildOptions row_equilibration merge_opt")  // NOLINT
     PlanningOptions base {};
     PlanningOptions overlay {};
     base.merge(std::move(overlay));
-    CHECK_FALSE(base.lp_build_options.row_equilibration.has_value());
+    CHECK_FALSE(base.lp_build_options.equilibration_method.has_value());
   }
 
   SUBCASE("overlay wins over nullopt")
   {
     PlanningOptions base {};
     PlanningOptions overlay {};
-    overlay.lp_build_options.row_equilibration = false;
+    overlay.lp_build_options.equilibration_method =
+        LpEquilibrationMethod::row_max;
     base.merge(std::move(overlay));
-    CHECK(base.lp_build_options.row_equilibration.value_or(true) == false);
+    CHECK(base.lp_build_options.equilibration_method.value_or(
+              LpEquilibrationMethod::none)
+          == LpEquilibrationMethod::row_max);
   }
 
   SUBCASE("overlay wins over base")
   {
     PlanningOptions base {};
-    base.lp_build_options.row_equilibration = true;
+    base.lp_build_options.equilibration_method = LpEquilibrationMethod::row_max;
     PlanningOptions overlay {};
-    overlay.lp_build_options.row_equilibration = false;
+    overlay.lp_build_options.equilibration_method = LpEquilibrationMethod::ruiz;
     base.merge(std::move(overlay));
-    CHECK(base.lp_build_options.row_equilibration.value_or(true) == false);
+    CHECK(base.lp_build_options.equilibration_method.value_or(
+              LpEquilibrationMethod::none)
+          == LpEquilibrationMethod::ruiz);
   }
 
   SUBCASE("base preserved when overlay is nullopt")
   {
     PlanningOptions base {};
-    base.lp_build_options.row_equilibration = false;
+    base.lp_build_options.equilibration_method = LpEquilibrationMethod::row_max;
     PlanningOptions overlay {};
     base.merge(std::move(overlay));
-    CHECK(base.lp_build_options.row_equilibration.value_or(true) == false);
+    CHECK(base.lp_build_options.equilibration_method.value_or(
+              LpEquilibrationMethod::none)
+          == LpEquilibrationMethod::row_max);
   }
 }
 

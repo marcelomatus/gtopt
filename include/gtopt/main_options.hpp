@@ -500,11 +500,13 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 /**
  * @brief Build LpBuildOptions from command-line parameters
  *
- * @param lp_names_level    Optional LP naming level
- * @param matrix_eps        Optional epsilon tolerance for matrix coefficients
- * @param compute_stats     Whether to compute LP statistics (default false)
- * @param lp_solver         Optional solver name to use
- * @param row_equilibration Optional flag to enable row equilibration scaling
+ * @param lp_names_level       Optional LP naming level
+ * @param matrix_eps           Optional epsilon tolerance for matrix
+ *                             coefficients
+ * @param compute_stats        Whether to compute LP statistics (default
+ *                             false)
+ * @param lp_solver            Optional solver name to use
+ * @param equilibration_method Optional equilibration method
  * @return LpBuildOptions configured according to the parameters
  */
 [[nodiscard]] inline LpBuildOptions make_lp_build_options(
@@ -512,7 +514,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     const std::optional<double>& matrix_eps,
     bool compute_stats = false,
     const std::optional<std::string>& lp_solver = {},
-    OptBool row_equilibration = {})
+    std::optional<LpEquilibrationMethod> equilibration_method = {})
 {
   const auto eps = matrix_eps.value_or(0);
   const auto lvl = lp_names_level.value_or(LpNamesLevel::minimal);
@@ -526,7 +528,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   lp_build_opts.compute_stats = compute_stats;
   lp_build_opts.lp_names_level = lvl;
   lp_build_opts.solver_name = lp_solver.value_or("");
-  lp_build_opts.row_equilibration = row_equilibration;
+  lp_build_opts.equilibration_method = equilibration_method;
 
   return lp_build_opts;
 }

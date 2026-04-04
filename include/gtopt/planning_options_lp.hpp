@@ -401,10 +401,11 @@ public:
         default_lp_coeff_ratio_threshold);
   }
 
-  /// Whether per-row equilibration scaling is enabled.
-  [[nodiscard]] constexpr bool row_equilibration() const noexcept
+  /// The matrix equilibration method to use.
+  [[nodiscard]] constexpr auto equilibration_method() const noexcept
   {
-    return m_options_.lp_build_options.row_equilibration.value_or(true);
+    return m_options_.lp_build_options.equilibration_method.value_or(
+        LpEquilibrationMethod::none);
   }
 
   /// Controls error handling for user constraint resolution.

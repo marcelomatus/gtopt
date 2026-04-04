@@ -558,9 +558,9 @@ void log_pre_solve_stats(
                       : std::format("{:.6g} (auto)",
                                     PlanningOptionsLP::default_scale_theta)));
   spdlog::info(std::format(
-      "  row_equilibration: {}",
-      plan_opts.lp_build_options.row_equilibration.value_or(true) ? "true"
-                                                                  : "false"));
+      "  equilibration   : {}",
+      enum_name(plan_opts.lp_build_options.equilibration_method.value_or(
+          LpEquilibrationMethod::none))));
   spdlog::info(
       std::format("  demand_fail_cost: {}", mo.demand_fail_cost.value_or(0.0)));
   spdlog::info(std::format("  input_directory : {}",
@@ -870,7 +870,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
           opts.matrix_eps,
           do_stats,
           opts.solver,
-          my_planning.options.lp_build_options.row_equilibration);
+          my_planning.options.lp_build_options.equilibration_method);
 
       if (do_stats) {
         log_pre_solve_stats(opts.planning_files, my_planning);

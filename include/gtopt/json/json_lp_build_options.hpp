@@ -16,13 +16,13 @@ namespace daw::json
 {
 using gtopt::LpBuildOptions;
 
-/// Custom construction for LpBuildOptions: only the two user-facing
+/// Custom construction for LpBuildOptions: only the user-facing
 /// optional fields are exposed in JSON; all other fields keep defaults.
 struct LpBuildOptionsConstructor
 {
   [[nodiscard]] LpBuildOptions operator()(OptInt names_level_int,
                                           OptReal lp_coeff_ratio_threshold,
-                                          OptBool row_equilibration,
+                                          OptName equilibration_method_name,
                                           OptBool compute_stats) const
   {
     LpBuildOptions opts;
@@ -30,7 +30,11 @@ struct LpBuildOptionsConstructor
       opts.names_level = static_cast<gtopt::LpNamesLevel>(*names_level_int);
     }
     opts.lp_coeff_ratio_threshold = lp_coeff_ratio_threshold;
-    opts.row_equilibration = row_equilibration;
+    if (equilibration_method_name) {
+      opts.equilibration_method =
+          gtopt::enum_from_name<gtopt::LpEquilibrationMethod>(
+              *equilibration_method_name);
+    }
     opts.compute_stats = compute_stats;
     return opts;
   }
@@ -44,7 +48,7 @@ struct json_data_contract<LpBuildOptions>
   using type =
       json_member_list<json_number_null<"names_level", OptInt>,
                        json_number_null<"lp_coeff_ratio_threshold", OptReal>,
-                       json_bool_null<"row_equilibration", OptBool>,
+                       json_string_null<"equilibration_method", OptName>,
                        json_bool_null<"compute_stats", OptBool>>;
 
   static auto to_json_data(LpBuildOptions const& opt)
@@ -52,10 +56,11 @@ struct json_data_contract<LpBuildOptions>
     const OptInt names_int = opt.names_level
         ? OptInt {static_cast<int>(*opt.names_level)}
         : OptInt {};
-    return std::make_tuple(names_int,
-                           opt.lp_coeff_ratio_threshold,
-                           opt.row_equilibration,
-                           opt.compute_stats);
+    const OptName eq_name = opt.equilibration_method
+        ? OptName {std::string(gtopt::enum_name(*opt.equilibration_method))}
+        : OptName {};
+    return std::make_tuple(
+        names_int, opt.lp_coeff_ratio_threshold, eq_name, opt.compute_stats);
   }
 };
 
