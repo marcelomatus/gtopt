@@ -78,6 +78,24 @@ set_source_files_properties(
 include(UnityBuild)
 target_enable_unity_build(${PROJECT_NAME})
 
+# ---- Precompiled headers for tests ----
+target_precompile_headers(${PROJECT_NAME} PRIVATE
+  <algorithm>
+  <chrono>
+  <cstdint>
+  <expected>
+  <filesystem>
+  <format>
+  <optional>
+  <ranges>
+  <span>
+  <string>
+  <string_view>
+  <utility>
+  <vector>
+  <spdlog/spdlog.h>
+)
+
 if(NOT TEST_INSTALLED_VERSION)
   include(CompilerWarnings)
   target_set_warnings(${PROJECT_NAME})
