@@ -12,6 +12,7 @@ A high-performance C++ tool for **Generation and Transmission Expansion Planning
 This project includes comprehensive documentation for different use cases:
 
 - **[README.md](README.md)** (this file) - Project overview, quick installation, and basic usage
+- **[Understanding gtopt](docs/overview.md)** - Global overview: repository layout, architecture layers, data flow, and technology stack
 - **[Planning Guide](docs/planning-guide.md)** - Complete planning guide: time structure, system elements, JSON format, and worked examples
 - **[Mathematical Formulation](docs/formulation/mathematical-formulation.md)** - Full LP/MIP optimization formulation with LaTeX notation
 - **[Building Guide](BUILDING.md)** - Detailed build instructions for all platforms, dependencies, and troubleshooting
