@@ -106,6 +106,7 @@ _NON_FILE_FIELDS = frozenset(
         "source_scenario",
         "probability_factor",
         "energy_scale_mode",
+        "loss_allocation_mode",
     }
 )
 
