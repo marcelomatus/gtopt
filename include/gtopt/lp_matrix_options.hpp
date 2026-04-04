@@ -1,11 +1,11 @@
 /**
- * @file      lp_build_options.hpp
+ * @file      lp_matrix_options.hpp
  * @brief     Configuration options for LP matrix assembly
  * @date      Mon Mar 24 2026
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module defines the LpBuildOptions structure that controls how
+ * This module defines the LpMatrixOptions structure that controls how
  * LinearProblem instances are converted into the flat (column-major)
  * representation consumed by LP solver backends.
  */
@@ -16,19 +16,19 @@
 #include <string>
 
 #include <gtopt/basic_types.hpp>
-#include <gtopt/lp_build_enums.hpp>
+#include <gtopt/lp_matrix_enums.hpp>
 #include <gtopt/utils.hpp>
 
 namespace gtopt
 {
 
-// ─── LpBuildOptions struct ──────────────────────────────────────────────────
+// ─── LpMatrixOptions struct ──────────────────────────────────────────────────
 
 /**
- * @struct LpBuildOptions
+ * @struct LpMatrixOptions
  * @brief Configuration options for converting to flat LP representation
  */
-struct LpBuildOptions
+struct LpMatrixOptions
 {
   double eps {0};  ///< Coefficient epsilon: |v| <= eps is treated as zero.
                    ///< If negative, no filtering is applied.
@@ -66,10 +66,10 @@ struct LpBuildOptions
    * value, a per-scene/phase breakdown is printed.  (default: 1e7) */
   OptReal lp_coeff_ratio_threshold {};
 
-  /// Merge optional fields from another LpBuildOptions.
+  /// Merge optional fields from another LpMatrixOptions.
   /// Non-optional fields (eps, col_with_names, etc.) are not merged —
   /// first-value-wins semantics like SolverOptions.
-  void merge(const LpBuildOptions& other)
+  void merge(const LpMatrixOptions& other)
   {
     merge_opt(names_level, other.names_level);
     merge_opt(lp_coeff_ratio_threshold, other.lp_coeff_ratio_threshold);

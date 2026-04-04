@@ -18,7 +18,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include <gtopt/lp_build_options.hpp>
+#include <gtopt/lp_matrix_options.hpp>
 #include <gtopt/sparse_row.hpp>
 #include <gtopt/strong_index_vector.hpp>
 
@@ -64,7 +64,7 @@ struct FlatLinearProblem
   std::string name;  ///< Problem name
 
   /// @name Coefficient statistics (populated when
-  /// LpBuildOptions::compute_stats)
+  /// LpMatrixOptions::compute_stats)
   /// @{
   size_t stats_nnz {};  ///< Non-zero count for the constraint matrix A
   size_t stats_zeroed {};  ///< Count of non-zero entries filtered out by eps
@@ -318,7 +318,7 @@ public:
    * @param opts LP build options
    * @return Flat representation of the problem
    */
-  [[nodiscard]] FlatLinearProblem lp_build(const LpBuildOptions& opts = {});
+  [[nodiscard]] FlatLinearProblem flatten(const LpMatrixOptions& opts = {});
 
 private:
   /// Clamp a bound in-place: DblMax → +infinity, -DblMax → -infinity.

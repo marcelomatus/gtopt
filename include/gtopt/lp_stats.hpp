@@ -12,8 +12,8 @@
  * is below a configurable threshold the output is a single summary line;
  * otherwise a per-scene/phase table is printed.
  *
- * The actual min/max/nnz values are computed inside LinearProblem::lp_build()
- * when LpBuildOptions::compute_stats is true, and stored in the
+ * The actual min/max/nnz values are computed inside LinearProblem::flatten()
+ * when LpMatrixOptions::compute_stats is true, and stored in the
  * FlatLinearProblem struct.
  */
 
@@ -33,7 +33,7 @@ namespace gtopt
  *
  * Groups constraint rows by their type label (e.g. "bal", "theta", "cap")
  * and reports the coefficient range within each group.  Only populated when
- * both `compute_stats` and `row_with_names` are enabled in LpBuildOptions.
+ * both `compute_stats` and `row_with_names` are enabled in LpMatrixOptions.
  */
 struct RowTypeStats
 {

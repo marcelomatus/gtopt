@@ -36,7 +36,7 @@
 #pragma once
 
 #include <gtopt/cascade_options.hpp>
-#include <gtopt/lp_build_options.hpp>
+#include <gtopt/lp_matrix_options.hpp>
 #include <gtopt/model_options.hpp>
 #include <gtopt/monolithic_options.hpp>
 #include <gtopt/planning_enums.hpp>
@@ -156,7 +156,7 @@ struct PlanningOptions
    * Both the monolithic and SDDP solvers exit immediately after LP matrix
    * assembly — no solving occurs at all.
    * Combine with `lp_debug=true` to save every scene/phase LP file. */
-  OptBool lp_build {};
+  OptBool lp_only {};
 
   /** @brief Minimum scene UID for selective LP debug saving (inclusive).
    *  When set together with lp_debug=true, only scenes with
@@ -218,15 +218,15 @@ struct PlanningOptions
   // ── LP build options (grouped sub-object) ──────────────────────────────
   /** @brief LP matrix assembly configuration (epsilon, naming, stats, etc.)
    *
-   * Exposes the full @c LpBuildOptions struct as a JSON sub-object so that
+   * Exposes the full @c LpMatrixOptions struct as a JSON sub-object so that
    * users can set LP assembly parameters directly in the planning JSON:
    *
    * ```json
-   * { "options": { "lp_build_options": { "eps": 1e-10,
+   * { "options": { "lp_matrix_options": { "eps": 1e-10,
    *                                      "compute_stats": true } } }
    * ```
    */
-  LpBuildOptions lp_build_options {};
+  LpMatrixOptions lp_matrix_options {};
 
   // ── Variable scaling ──────────────────────────────────────────────────────
   /** @brief Per-class/variable LP scale overrides.
@@ -319,7 +319,7 @@ struct PlanningOptions
     merge_opt(log_directory, std::move(opts.log_directory));
     merge_opt(lp_debug, opts.lp_debug);
     merge_opt(lp_compression, opts.lp_compression);
-    merge_opt(lp_build, opts.lp_build);
+    merge_opt(lp_only, opts.lp_only);
     merge_opt(lp_debug_scene_min, opts.lp_debug_scene_min);
     merge_opt(lp_debug_scene_max, opts.lp_debug_scene_max);
     merge_opt(lp_debug_phase_min, opts.lp_debug_phase_min);
@@ -343,7 +343,7 @@ struct PlanningOptions
     solver_options.merge(opts.solver_options);
 
     // Merge LP build options
-    lp_build_options.merge(opts.lp_build_options);
+    lp_matrix_options.merge(opts.lp_matrix_options);
 
     // Merge constraint mode
     merge_opt(constraint_mode, opts.constraint_mode);

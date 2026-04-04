@@ -13,17 +13,15 @@
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
+using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
-
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
 // ─── LineLossesMode enum ────────────────────────────────────────────
 
 TEST_CASE("LineLossesMode enum parsing")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   SUBCASE("round-trip all values")
   {
     for (const auto& entry : line_losses_mode_entries) {
@@ -45,8 +43,6 @@ TEST_CASE("LineLossesMode enum parsing")
 
 TEST_CASE("Line line_losses_mode_enum accessor")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   SUBCASE("default is nullopt (inherit from global)")
   {
     Line line;
@@ -74,8 +70,6 @@ TEST_CASE("Line line_losses_mode_enum accessor")
 
 TEST_CASE("line_losses::resolve_mode fallback chain")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   PlanningOptions opts;
   // Global default is adaptive (from
   // PlanningOptionsLP::default_line_losses_mode)
@@ -161,8 +155,6 @@ TEST_CASE("line_losses::resolve_mode fallback chain")
 
 TEST_CASE("line_losses::make_config validates and auto-computes")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   Line line;
 
   SUBCASE("linear mode with explicit lossfactor")
@@ -388,8 +380,6 @@ static auto solve_with_mode(std::string_view mode_name, int loss_segments = 3)
 
 TEST_CASE("line_losses engine - none mode produces zero-loss objective")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // gen=100MW at $10, obj = 100*10/1000 = 1.0 (no losses)
   const auto obj = solve_with_mode("none");
   CHECK(obj == doctest::Approx(1.0).epsilon(0.001));
@@ -397,8 +387,6 @@ TEST_CASE("line_losses engine - none mode produces zero-loss objective")
 
 TEST_CASE("line_losses engine - linear mode produces small loss overhead")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // With auto-computed lossfactor = R*fmax/V² = 0.01*200/10000 = 0.0002
   // Very small loss → obj just slightly above 1.0
   const auto obj = solve_with_mode("linear");
@@ -408,8 +396,6 @@ TEST_CASE("line_losses engine - linear mode produces small loss overhead")
 
 TEST_CASE("line_losses engine - piecewise mode produces loss overhead")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // PWL approximation of R*f²/V² with 3 segments
   const auto obj = solve_with_mode("piecewise");
   CHECK(obj > 1.0);
@@ -418,8 +404,6 @@ TEST_CASE("line_losses engine - piecewise mode produces loss overhead")
 
 TEST_CASE("line_losses engine - bidirectional mode produces loss overhead")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Same quadratic loss but with two-direction decomposition
   const auto obj = solve_with_mode("bidirectional");
   CHECK(obj > 1.0);
@@ -430,8 +414,6 @@ TEST_CASE(
     "line_losses engine - piecewise and bidirectional produce similar "
     "objectives")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   const auto obj_pw = solve_with_mode("piecewise");
   const auto obj_bi = solve_with_mode("bidirectional");
   // Both approximate the same quadratic loss; should agree closely.
@@ -440,8 +422,6 @@ TEST_CASE(
 
 TEST_CASE("line_losses engine - adaptive mode selects based on expansion")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Without expansion → piecewise.  We can test this indirectly:
   // adaptive with no expcap should match piecewise objective.
   const auto obj_adaptive = solve_with_mode("adaptive");
@@ -451,8 +431,6 @@ TEST_CASE("line_losses engine - adaptive mode selects based on expansion")
 
 TEST_CASE("line_losses engine - global model_options.line_losses_mode")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   const Array<Bus> bus_array = {
       {.uid = Uid {1}, .name = "b1"},
       {.uid = Uid {2}, .name = "b2"},
@@ -610,13 +588,13 @@ private:
     opts.use_single_bus = false;
     opts.use_kirchhoff = false;
     opts.scale_objective = 1000.0;
-    opts.lp_build_options.names_level = LpNamesLevel::cols_and_rows;
+    opts.lp_matrix_options.names_level = LpNamesLevel::cols_and_rows;
     return PlanningOptionsLP(opts);
   }
 
-  static LpBuildOptions build_opts()
+  static LpMatrixOptions build_opts()
   {
-    LpBuildOptions bo;
+    LpMatrixOptions bo;
     bo.lp_names_level = LpNamesLevel::cols_and_rows;
     bo.col_with_names = true;
     bo.col_with_name_map = true;
@@ -688,8 +666,6 @@ static auto find_row(const LinearInterface& li, std::string_view substr)
 
 TEST_CASE("line_losses LP structure - none mode")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   LPFixture fix("none");
   auto& li = fix.lp();
 
@@ -720,8 +696,6 @@ TEST_CASE("line_losses LP structure - none mode")
 
 TEST_CASE("line_losses LP structure - linear mode")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Use explicit lossfactor=0.05 for predictable coefficients
   LPFixture fix("linear",
                 /*loss_segments=*/1,
@@ -778,8 +752,6 @@ TEST_CASE("line_losses LP structure - linear mode")
 
 TEST_CASE("line_losses LP structure - piecewise mode")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // 3 segments, R=0.01, V=100 → V²=10000
   LPFixture fix("piecewise", /*loss_segments=*/3);
   auto& li = fix.lp();
@@ -873,8 +845,6 @@ TEST_CASE("line_losses LP structure - piecewise mode")
 
 TEST_CASE("line_losses LP structure - bidirectional mode")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // 3 segments per direction, R=0.01, V=100
   LPFixture fix("bidirectional", /*loss_segments=*/3);
   auto& li = fix.lp();
@@ -963,8 +933,6 @@ TEST_CASE("line_losses LP structure - bidirectional mode")
 
 TEST_CASE("line_losses LP structure - linear auto-compute lossfactor from R/V")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // No explicit lossfactor; R=0.01, V=100, fmax=200
   // Auto-computed: λ = R·fmax/V² = 0.01·200/10000 = 0.0002
   LPFixture fix("linear",
@@ -985,8 +953,6 @@ TEST_CASE("line_losses LP structure - linear auto-compute lossfactor from R/V")
 
 TEST_CASE("line_losses LP structure - dynamic mode matches piecewise")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   LPFixture fix_dyn("dynamic", /*loss_segments=*/3);
   LPFixture fix_pw("piecewise", /*loss_segments=*/3);
   auto& li_dyn = fix_dyn.lp();
@@ -1018,7 +984,7 @@ TEST_CASE("line_losses LP structure - dynamic mode matches piecewise")
 constexpr std::string_view ieee9b_losses_json = R"({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_build_options": {"names_level": 1},
+    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": false,
@@ -1091,8 +1057,6 @@ auto solve_ieee9b_with_mode(std::string_view mode_name)
 
 TEST_CASE("IEEE 9-bus losses modes - all modes solve successfully")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   for (const auto* mode : {"none", "linear", "piecewise", "bidirectional"}) {
     CAPTURE(mode);
     auto [obj, status] = solve_ieee9b_with_mode(mode);
@@ -1103,8 +1067,6 @@ TEST_CASE("IEEE 9-bus losses modes - all modes solve successfully")
 
 TEST_CASE("IEEE 9-bus losses modes - objective comparison")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto [obj_none, st_none] = solve_ieee9b_with_mode("none");
   auto [obj_lin, st_lin] = solve_ieee9b_with_mode("linear");
   auto [obj_pw, st_pw] = solve_ieee9b_with_mode("piecewise");
@@ -1150,8 +1112,6 @@ TEST_CASE("IEEE 9-bus losses modes - objective comparison")
 
 TEST_CASE("IEEE 9-bus losses modes - dynamic falls back to piecewise")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto [obj_dyn, st_dyn] = solve_ieee9b_with_mode("dynamic");
   auto [obj_pw, st_pw] = solve_ieee9b_with_mode("piecewise");
 
@@ -1164,8 +1124,6 @@ TEST_CASE("IEEE 9-bus losses modes - dynamic falls back to piecewise")
 
 TEST_CASE("IEEE 9-bus losses modes - lines have resistance defined")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = daw::json::from_json<Planning>(ieee9b_losses_json);
   for (const auto& line : planning.system.line_array) {
     CAPTURE(line.name);

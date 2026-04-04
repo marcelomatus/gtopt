@@ -1,6 +1,6 @@
 /**
- * @file      test_lp_build_options_json.hpp
- * @brief     JSON serialization tests for LpBuildOptions
+ * @file      test_lp_matrix_options_json.hpp
+ * @brief     JSON serialization tests for LpMatrixOptions
  * @date      2026-03-25
  * @copyright BSD-3-Clause
  */
@@ -10,16 +10,16 @@
 #include <string_view>
 
 #include <doctest/doctest.h>
-#include <gtopt/json/json_lp_build_options.hpp>
+#include <gtopt/json/json_lp_matrix_options.hpp>
 
-TEST_CASE("LpBuildOptions JSON - Full deserialization")
+TEST_CASE("LpMatrixOptions JSON - Full deserialization")
 {
   const std::string_view json_data = R"({
     "names_level": 2,
     "lp_coeff_ratio_threshold": 1e8
   })";
 
-  const auto opts = daw::json::from_json<LpBuildOptions>(json_data);
+  const auto opts = daw::json::from_json<LpMatrixOptions>(json_data);
 
   REQUIRE(opts.names_level.has_value());
   CHECK(*opts.names_level == LpNamesLevel::cols_and_rows);
@@ -27,12 +27,12 @@ TEST_CASE("LpBuildOptions JSON - Full deserialization")
   CHECK(*opts.lp_coeff_ratio_threshold == doctest::Approx(1e8));
 }
 
-TEST_CASE("LpBuildOptions JSON - names_level values")
+TEST_CASE("LpMatrixOptions JSON - names_level values")
 {
   SUBCASE("minimal (0)")
   {
     const std::string_view json_data = R"({"names_level": 0})";
-    const auto opts = daw::json::from_json<LpBuildOptions>(json_data);
+    const auto opts = daw::json::from_json<LpMatrixOptions>(json_data);
     REQUIRE(opts.names_level.has_value());
     CHECK(*opts.names_level == LpNamesLevel::minimal);
   }
@@ -40,7 +40,7 @@ TEST_CASE("LpBuildOptions JSON - names_level values")
   SUBCASE("only_cols (1)")
   {
     const std::string_view json_data = R"({"names_level": 1})";
-    const auto opts = daw::json::from_json<LpBuildOptions>(json_data);
+    const auto opts = daw::json::from_json<LpMatrixOptions>(json_data);
     REQUIRE(opts.names_level.has_value());
     CHECK(*opts.names_level == LpNamesLevel::only_cols);
   }
@@ -48,16 +48,16 @@ TEST_CASE("LpBuildOptions JSON - names_level values")
   SUBCASE("cols_and_rows (2)")
   {
     const std::string_view json_data = R"({"names_level": 2})";
-    const auto opts = daw::json::from_json<LpBuildOptions>(json_data);
+    const auto opts = daw::json::from_json<LpMatrixOptions>(json_data);
     REQUIRE(opts.names_level.has_value());
     CHECK(*opts.names_level == LpNamesLevel::cols_and_rows);
   }
 }
 
-TEST_CASE("LpBuildOptions JSON - Missing fields keep defaults")
+TEST_CASE("LpMatrixOptions JSON - Missing fields keep defaults")
 {
   const std::string_view json_data = R"({})";
-  const auto opts = daw::json::from_json<LpBuildOptions>(json_data);
+  const auto opts = daw::json::from_json<LpMatrixOptions>(json_data);
 
   CHECK_FALSE(opts.names_level.has_value());
   CHECK_FALSE(opts.lp_coeff_ratio_threshold.has_value());
@@ -68,16 +68,16 @@ TEST_CASE("LpBuildOptions JSON - Missing fields keep defaults")
   CHECK_FALSE(opts.compute_stats.has_value());
 }
 
-TEST_CASE("LpBuildOptions JSON - Round-trip serialization")
+TEST_CASE("LpMatrixOptions JSON - Round-trip serialization")
 {
-  LpBuildOptions original;
+  LpMatrixOptions original;
   original.names_level = LpNamesLevel::only_cols;
   original.lp_coeff_ratio_threshold = 5e6;
 
   const auto json = daw::json::to_json(original);
   CHECK(!json.empty());
 
-  const auto rt = daw::json::from_json<LpBuildOptions>(json);
+  const auto rt = daw::json::from_json<LpMatrixOptions>(json);
 
   REQUIRE(rt.names_level.has_value());
   CHECK(*rt.names_level == LpNamesLevel::only_cols);

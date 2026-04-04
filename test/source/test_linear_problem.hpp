@@ -86,7 +86,7 @@ TEST_CASE("Linear problem matrix operations")
   // Test flat conversion with different options
   SUBCASE("Flat conversion options")
   {
-    auto flat_full = lp.lp_build({
+    auto flat_full = lp.flatten({
         .col_with_names = true,
         .row_with_names = true,
         .col_with_name_map = true,
@@ -96,7 +96,7 @@ TEST_CASE("Linear problem matrix operations")
     CHECK(flat_full.nrows == 3);
     CHECK(flat_full.matval.size() == 5);
 
-    auto flat_minimal = lp.lp_build({
+    auto flat_minimal = lp.flatten({
         .col_with_names = false,
         .row_with_names = false,
         .col_with_name_map = false,
@@ -127,7 +127,7 @@ TEST_CASE("Linear problem edge cases")
   // Test empty problem conversions
   SUBCASE("Empty problem to flat")
   {
-    auto flat = lp.lp_build();
+    auto flat = lp.flatten();
     CHECK(flat.ncols == 0);
     CHECK(flat.nrows == 0);
     CHECK(flat.matbeg.empty());
@@ -165,7 +165,7 @@ TEST_CASE("Linear problem advanced operations")
 
   {
     gtopt::LinearProblem lp;
-    auto&& flat_lp = lp.lp_build();
+    auto&& flat_lp = lp.flatten();
 
     REQUIRE(flat_lp.ncols == 0);
     REQUIRE(flat_lp.nrows == 0);
@@ -259,7 +259,7 @@ TEST_CASE("Linear problem advanced operations")
   lp.col_at(col2).cost = 20;
 
   {
-    const auto flat_lp = lp.lp_build({
+    const auto flat_lp = lp.flatten({
         .col_with_names = true,
         .row_with_names = true,
         .col_with_name_map = true,
@@ -311,7 +311,7 @@ TEST_CASE("Linear problem advanced operations")
 
   {
     const auto flat_lp =
-        lp.lp_build({.col_with_names = false, .col_with_name_map = false});
+        lp.flatten({.col_with_names = false, .col_with_name_map = false});
 
     REQUIRE(flat_lp.ncols == 2);
     REQUIRE(flat_lp.nrows == 2);
@@ -357,7 +357,7 @@ TEST_CASE("Linear problem advanced operations")
   }
 }
 
-TEST_CASE("Linear problem lp_build row ordering")
+TEST_CASE("Linear problem flatten row ordering")
 {
   // Verify that the two-pass algorithm produces correctly sorted row
   // indices within each column, matching the expected column-major format.
@@ -378,7 +378,7 @@ TEST_CASE("Linear problem lp_build row ordering")
   lp.set_coeff(r1, c1, 5.0);
   lp.set_coeff(r2, c1, 6.0);
 
-  const auto flat = lp.lp_build({
+  const auto flat = lp.flatten({
       .equilibration_method = LpEquilibrationMethod::none,
   });
 
@@ -406,7 +406,7 @@ TEST_CASE("Linear problem lp_build row ordering")
   CHECK(flat.matval[4] == 6.0);
 }
 
-TEST_CASE("Linear problem lp_build column and row names")
+TEST_CASE("Linear problem flatten column and row names")
 {
   gtopt::LinearProblem lp("names_test");
 
@@ -424,7 +424,7 @@ TEST_CASE("Linear problem lp_build column and row names")
   SUBCASE("col_with_names only (no maps)")
   {
     const auto flat =
-        lp.lp_build({.col_with_names = true, .col_with_name_map = false});
+        lp.flatten({.col_with_names = true, .col_with_name_map = false});
 
     REQUIRE(flat.colnm.size() == 3);
     CHECK(flat.colnm[0] == "alpha");
@@ -438,7 +438,7 @@ TEST_CASE("Linear problem lp_build column and row names")
 
   SUBCASE("row_with_names only (no maps)")
   {
-    const auto flat = lp.lp_build({
+    const auto flat = lp.flatten({
         .col_with_names = false,
         .row_with_names = true,
         .col_with_name_map = false,
@@ -456,7 +456,7 @@ TEST_CASE("Linear problem lp_build column and row names")
 
   SUBCASE("both names enabled (no maps)")
   {
-    const auto flat = lp.lp_build({
+    const auto flat = lp.flatten({
         .col_with_names = true,
         .row_with_names = true,
         .col_with_name_map = false,
@@ -478,7 +478,7 @@ TEST_CASE("Linear problem lp_build column and row names")
 
   SUBCASE("col_with_name_map implies colnm populated")
   {
-    const auto flat = lp.lp_build({.col_with_name_map = true});
+    const auto flat = lp.flatten({.col_with_name_map = true});
 
     REQUIRE(flat.colnm.size() == 3);
     CHECK(flat.colnm[0] == "alpha");
@@ -496,7 +496,7 @@ TEST_CASE("Linear problem lp_build column and row names")
 
   SUBCASE("row_with_name_map implies rownm populated")
   {
-    const auto flat = lp.lp_build({
+    const auto flat = lp.flatten({
         .col_with_names = false,
         .col_with_name_map = false,
         .row_with_name_map = true,
@@ -516,7 +516,7 @@ TEST_CASE("Linear problem lp_build column and row names")
 
   SUBCASE("all names and maps enabled")
   {
-    const auto flat = lp.lp_build({
+    const auto flat = lp.flatten({
         .col_with_names = true,
         .row_with_names = true,
         .col_with_name_map = true,
@@ -542,11 +542,11 @@ TEST_CASE("Linear problem lp_build column and row names")
     CHECK(flat.rowmp.at("con2") == 1);
   }
 
-  SUBCASE("default LpBuildOptions (level 0: col names only, no name map)")
+  SUBCASE("default LpMatrixOptions (level 0: col names only, no name map)")
   {
-    const auto flat = lp.lp_build();
+    const auto flat = lp.flatten();
 
-    // Default LpBuildOptions has col_with_names=true, col_with_name_map=false
+    // Default LpMatrixOptions has col_with_names=true, col_with_name_map=false
     REQUIRE(flat.colnm.size() == 3);
     CHECK(flat.colnm[0] == "alpha");
     CHECK(flat.colnm[1] == "beta");
@@ -559,7 +559,7 @@ TEST_CASE("Linear problem lp_build column and row names")
 
   SUBCASE("col_with_name_map builds name-to-index map")
   {
-    const auto flat = lp.lp_build({
+    const auto flat = lp.flatten({
         .col_with_name_map = true,
     });
 
@@ -570,7 +570,7 @@ TEST_CASE("Linear problem lp_build column and row names")
   }
 }
 
-TEST_CASE("Linear problem lp_build with epsilon filtering")
+TEST_CASE("Linear problem flatten with epsilon filtering")
 {
   gtopt::LinearProblem lp("eps_test");
 
@@ -586,7 +586,7 @@ TEST_CASE("Linear problem lp_build with epsilon filtering")
   lp.set_coeff(r1, c1, 0.0005);  // Even smaller
 
   // With eps=0.01, both c1 entries should be filtered out
-  const auto flat = lp.lp_build({
+  const auto flat = lp.flatten({
       .eps = 0.01,
       .equilibration_method = LpEquilibrationMethod::none,
   });
@@ -603,9 +603,9 @@ TEST_CASE("Linear problem lp_build with epsilon filtering")
 }
 
 TEST_CASE(
-    "Linear problem lp_build compute_stats with col names and zeroed count")  // NOLINT
+    "Linear problem flatten compute_stats with col names and zeroed count")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
   LinearProblem lp("stats_test");
 
@@ -623,7 +623,7 @@ TEST_CASE(
 
   SUBCASE("compute_stats=true with default stats_eps=1e-10")
   {
-    const auto flat = lp.lp_build({
+    const auto flat = lp.flatten({
         .col_with_names = true,
         .compute_stats = true,
         .equilibration_method = LpEquilibrationMethod::none,
@@ -648,7 +648,7 @@ TEST_CASE(
 
   SUBCASE("compute_stats=true with eps=1.0 (filters 0.5 and 1e-12)")
   {
-    const auto flat = lp.lp_build({
+    const auto flat = lp.flatten({
         .eps = 1.0,
         .col_with_names = true,
         .compute_stats = true,
@@ -673,7 +673,7 @@ TEST_CASE(
   {
     // col_with_names=false AND col_with_name_map=false: indices available,
     // names empty
-    const auto flat = lp.lp_build({
+    const auto flat = lp.flatten({
         .col_with_names = false,
         .col_with_name_map = false,
         .compute_stats = true,
@@ -688,7 +688,7 @@ TEST_CASE(
 
   SUBCASE("compute_stats=false — stats fields stay default")
   {
-    const auto flat = lp.lp_build({
+    const auto flat = lp.flatten({
         .col_with_names = true,
         .compute_stats = false,
     });
@@ -718,7 +718,7 @@ TEST_CASE("Linear problem set_coeff overwrite preserves correctness")
   CHECK(lp.get_coeff(r0, c0) == doctest::Approx(5.0));
 
   // Verify flat conversion has exactly one entry, not two
-  const auto flat = lp.lp_build({
+  const auto flat = lp.flatten({
       .equilibration_method = LpEquilibrationMethod::none,
   });
   CHECK(flat.ncols == 1);
@@ -727,7 +727,7 @@ TEST_CASE("Linear problem set_coeff overwrite preserves correctness")
   CHECK(flat.matval[0] == doctest::Approx(5.0));
 }
 
-TEST_CASE("lp_build name map skips empty column names")
+TEST_CASE("flatten name map skips empty column names")
 {
   gtopt::LinearProblem lp("empty_names_test");
 
@@ -739,7 +739,7 @@ TEST_CASE("lp_build name map skips empty column names")
   [[maybe_unused]] const auto c2 = lp.add_col(gtopt::SparseCol {.name = ""});
   [[maybe_unused]] const auto c3 = lp.add_col(gtopt::SparseCol {.name = ""});
 
-  // lp_build requires at least one row to produce output
+  // flatten requires at least one row to produce output
   auto rrow = gtopt::SparseRow {.name = "r0"};
   rrow[c0] = 1;
   [[maybe_unused]] const auto r0 = lp.add_row(std::move(rrow.less_equal(1)));
@@ -747,7 +747,7 @@ TEST_CASE("lp_build name map skips empty column names")
   REQUIRE(lp.get_numcols() == 4);
   REQUIRE(lp.get_numrows() == 1);
 
-  auto flat = lp.lp_build({
+  auto flat = lp.flatten({
       .col_with_names = true,
       .col_with_name_map = true,
   });
@@ -769,9 +769,9 @@ TEST_CASE("lp_build name map skips empty column names")
 // Row equilibration scaling tests
 // ---------------------------------------------------------------
 
-TEST_CASE("lp_build row_max equilibration normalizes row max to 1")  // NOLINT
+TEST_CASE("flatten row_max equilibration normalizes row max to 1")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
   LinearProblem lp("row_eq_test");
 
@@ -803,7 +803,7 @@ TEST_CASE("lp_build row_max equilibration normalizes row max to 1")  // NOLINT
 
   SUBCASE("without equilibration — coefficients unchanged")
   {
-    const auto flat = lp.lp_build({
+    const auto flat = lp.flatten({
         .equilibration_method = LpEquilibrationMethod::none,
     });
 
@@ -824,7 +824,7 @@ TEST_CASE("lp_build row_max equilibration normalizes row max to 1")  // NOLINT
 
   SUBCASE("with row_max — row max normalized to 1")
   {
-    const auto flat = lp.lp_build({
+    const auto flat = lp.flatten({
         .equilibration_method = LpEquilibrationMethod::row_max,
     });
 
@@ -866,7 +866,7 @@ TEST_CASE("lp_build row_max equilibration normalizes row max to 1")  // NOLINT
 
 TEST_CASE("LinearInterface row_max equilibration unscales duals")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
   // Build a small LP: min x s.t. x >= 5, solve, verify dual unscaling.
   // Row: [1000] * x >= 5000  (large coefficient for scaling test)
@@ -888,7 +888,7 @@ TEST_CASE("LinearInterface row_max equilibration unscales duals")  // NOLINT
 
   SUBCASE("without equilibration")
   {
-    const auto flat = lp.lp_build({
+    const auto flat = lp.flatten({
         .equilibration_method = LpEquilibrationMethod::none,
     });
     LinearInterface li("", flat);
@@ -903,7 +903,7 @@ TEST_CASE("LinearInterface row_max equilibration unscales duals")  // NOLINT
 
   SUBCASE("with row_max — duals match physical values")
   {
-    const auto flat = lp.lp_build({
+    const auto flat = lp.flatten({
         .equilibration_method = LpEquilibrationMethod::row_max,
     });
     REQUIRE(flat.row_scales.size() == 1);
@@ -923,7 +923,7 @@ TEST_CASE("LinearInterface row_max equilibration unscales duals")  // NOLINT
 TEST_CASE(  // NOLINT
     "LinearInterface row_max equilibration handles dynamically added rows")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
   // Build LP with one row, enable row_max equilibration, then add a new row
   // after construction (simulating SDDP cut addition).  get_row_dual()
@@ -944,7 +944,7 @@ TEST_CASE(  // NOLINT
   r0.greater_equal(2500.0);
   std::ignore = lp.add_row(std::move(r0));
 
-  const auto flat = lp.lp_build({
+  const auto flat = lp.flatten({
       .equilibration_method = LpEquilibrationMethod::row_max,
   });
   REQUIRE(flat.row_scales.size() == 1);
@@ -978,9 +978,9 @@ TEST_CASE(  // NOLINT
   CHECK(duals[1] == doctest::Approx(0.0).epsilon(1e-4));
 }
 
-TEST_CASE("lp_build per-row-type coefficient stats")  // NOLINT
+TEST_CASE("flatten per-row-type coefficient stats")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
   // Build a small LP with named rows of different constraint types.
   // Row name format: cname_type_uid_... → type is 2nd underscore token.
@@ -1011,7 +1011,7 @@ TEST_CASE("lp_build per-row-type coefficient stats")  // NOLINT
 
   // Build with stats and row names enabled, without equilibration
   // so coefficient values are preserved for exact comparison.
-  const auto flat = lp.lp_build({
+  const auto flat = lp.flatten({
       .row_with_names = true,
       .compute_stats = true,
       .equilibration_method = LpEquilibrationMethod::none,
@@ -1043,9 +1043,9 @@ TEST_CASE("lp_build per-row-type coefficient stats")  // NOLINT
   CHECK(theta_entry->min_abs == doctest::Approx(0.001));
 }
 
-TEST_CASE("lp_build per-row-type stats empty without row names")  // NOLINT
+TEST_CASE("flatten per-row-type stats empty without row names")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
   LinearProblem lp("no_row_names_test");
   const auto c0 = lp.add_col(SparseCol {.name = "x0", .cost = 1.0});
@@ -1055,16 +1055,16 @@ TEST_CASE("lp_build per-row-type stats empty without row names")  // NOLINT
   std::ignore = lp.add_row(std::move(r0));
 
   // stats enabled but row names NOT enabled → row_type_stats should be empty
-  const auto flat = lp.lp_build({
+  const auto flat = lp.flatten({
       .row_with_names = false,
       .compute_stats = true,
   });
   CHECK(flat.row_type_stats.empty());
 }
 
-TEST_CASE("lp_build per-row-type stats empty without compute_stats")  // NOLINT
+TEST_CASE("flatten per-row-type stats empty without compute_stats")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
   LinearProblem lp("no_stats_test");
   const auto c0 = lp.add_col(SparseCol {.name = "x0", .cost = 1.0});
@@ -1074,7 +1074,7 @@ TEST_CASE("lp_build per-row-type stats empty without compute_stats")  // NOLINT
   std::ignore = lp.add_row(std::move(r0));
 
   // row names enabled but stats NOT enabled → row_type_stats should be empty
-  const auto flat = lp.lp_build({
+  const auto flat = lp.flatten({
       .row_with_names = true,
       .compute_stats = false,
   });
@@ -1085,9 +1085,9 @@ TEST_CASE("lp_build per-row-type stats empty without compute_stats")  // NOLINT
 // Ruiz geometric-mean iterative scaling tests
 // ---------------------------------------------------------------
 
-TEST_CASE("lp_build ruiz scaling equilibrates rows and columns")  // NOLINT
+TEST_CASE("flatten ruiz scaling equilibrates rows and columns")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
   // Matrix:
   //   Row 0: [1000, 0.01]    bounds [0, 500]
@@ -1122,7 +1122,7 @@ TEST_CASE("lp_build ruiz scaling equilibrates rows and columns")  // NOLINT
 
   SUBCASE("ruiz produces non-empty row_scales")
   {
-    const auto flat = lp.lp_build({
+    const auto flat = lp.flatten({
         .equilibration_method = LpEquilibrationMethod::ruiz,
     });
 
@@ -1140,11 +1140,11 @@ TEST_CASE("lp_build ruiz scaling equilibrates rows and columns")  // NOLINT
 
   SUBCASE("ruiz reduces coefficient range vs unscaled")
   {
-    const auto flat_none = lp.lp_build({
+    const auto flat_none = lp.flatten({
         .compute_stats = true,
         .equilibration_method = LpEquilibrationMethod::none,
     });
-    const auto flat_ruiz = lp.lp_build({
+    const auto flat_ruiz = lp.flatten({
         .compute_stats = true,
         .equilibration_method = LpEquilibrationMethod::ruiz,
     });
@@ -1157,11 +1157,11 @@ TEST_CASE("lp_build ruiz scaling equilibrates rows and columns")  // NOLINT
 
   SUBCASE("ruiz vs row_max — ruiz should produce tighter or equal ratio")
   {
-    const auto flat_row = lp.lp_build({
+    const auto flat_row = lp.flatten({
         .compute_stats = true,
         .equilibration_method = LpEquilibrationMethod::row_max,
     });
-    const auto flat_ruiz = lp.lp_build({
+    const auto flat_ruiz = lp.flatten({
         .compute_stats = true,
         .equilibration_method = LpEquilibrationMethod::ruiz,
     });
@@ -1174,7 +1174,7 @@ TEST_CASE("lp_build ruiz scaling equilibrates rows and columns")  // NOLINT
 
   SUBCASE("ruiz convergence — all inf-norms near 1.0 after scaling")
   {
-    const auto flat = lp.lp_build({
+    const auto flat = lp.flatten({
         .equilibration_method = LpEquilibrationMethod::ruiz,
     });
 
@@ -1212,9 +1212,9 @@ TEST_CASE("lp_build ruiz scaling equilibrates rows and columns")  // NOLINT
   }
 }
 
-TEST_CASE("lp_build ruiz scaling on identity-like matrix is near no-op")
+TEST_CASE("flatten ruiz scaling on identity-like matrix is near no-op")
 {  // NOLINT
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
   // A well-scaled matrix: all coefficients near 1.0.
   // Ruiz should converge in 1 iteration with scales ≈ 1.0.
@@ -1235,7 +1235,7 @@ TEST_CASE("lp_build ruiz scaling on identity-like matrix is near no-op")
   r1.bound(0.0, 10.0);
   std::ignore = lp.add_row(std::move(r1));
 
-  const auto flat = lp.lp_build({
+  const auto flat = lp.flatten({
       .equilibration_method = LpEquilibrationMethod::ruiz,
   });
 
@@ -1250,7 +1250,7 @@ TEST_CASE("lp_build ruiz scaling on identity-like matrix is near no-op")
 TEST_CASE(  // NOLINT
     "LinearInterface ruiz scaling solves correctly and unscales duals")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
   // min x s.t. 1000*x >= 5000, 0 <= x <= 100, cost = 1
   // Optimal: x = 5, obj = 5, dual = 1/1000 = 0.001
@@ -1270,7 +1270,7 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("ruiz scaling produces correct primal and dual")
   {
-    const auto flat = lp.lp_build({
+    const auto flat = lp.flatten({
         .equilibration_method = LpEquilibrationMethod::ruiz,
     });
     REQUIRE(!flat.row_scales.empty());
@@ -1294,7 +1294,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "LinearInterface ruiz scaling 2-var LP produces correct solution")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
   // min 2x + 3y s.t.
   //   1000*x +    1*y >= 2000   (binding: x ≈ 2)
@@ -1329,7 +1329,7 @@ TEST_CASE(  // NOLINT
   std::ignore = lp.add_row(std::move(r1));
 
   // Solve without scaling
-  const auto flat_none = lp.lp_build({
+  const auto flat_none = lp.flatten({
       .equilibration_method = LpEquilibrationMethod::none,
   });
   LinearInterface li_none("", flat_none);
@@ -1338,7 +1338,7 @@ TEST_CASE(  // NOLINT
   const auto sol_none = li_none.get_col_sol();
 
   // Solve with Ruiz scaling
-  const auto flat_ruiz = lp.lp_build({
+  const auto flat_ruiz = lp.flatten({
       .equilibration_method = LpEquilibrationMethod::ruiz,
   });
   LinearInterface li_ruiz("", flat_ruiz);
@@ -1363,7 +1363,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("LpEquilibrationMethod enum_name round-trip")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
   CHECK(enum_name(LpEquilibrationMethod::none) == "none");
   CHECK(enum_name(LpEquilibrationMethod::row_max) == "row_max");

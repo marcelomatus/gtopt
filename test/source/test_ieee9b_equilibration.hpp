@@ -26,7 +26,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/array_index_traits.hpp>
 #include <gtopt/json/json_planning.hpp>
-#include <gtopt/lp_build_enums.hpp>
+#include <gtopt/lp_matrix_enums.hpp>
 #include <gtopt/planning_lp.hpp>
 
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
@@ -37,7 +37,7 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 constexpr std::string_view ieee9b_eq_json = R"({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_build_options": {"names_level": 1},
+    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": false,
@@ -112,7 +112,7 @@ auto solve_ieee9b_eq(gtopt::LpEquilibrationMethod method,
   Planning base;
   base.merge(daw::json::from_json<Planning>(ieee9b_eq_json));
   base.options.output_directory = out_dir.string();
-  base.options.lp_build_options.equilibration_method = method;
+  base.options.lp_matrix_options.equilibration_method = method;
 
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();

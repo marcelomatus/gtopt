@@ -112,7 +112,7 @@ TEST_CASE("Planning daw json test 2 - large scale")
 static constexpr std::string_view planning_json = R"({
   "options": {
     "annual_discount_rate": 0.1,
-    "lp_build_options": {"names_level": 1},
+    "lp_matrix_options": {"names_level": 1},
     "output_compression": "uncompressed",
     "demand_fail_cost": 1000,
     "scale_objective": 1000

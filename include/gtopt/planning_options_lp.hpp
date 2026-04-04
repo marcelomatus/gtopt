@@ -230,7 +230,7 @@ public:
    */
   [[nodiscard]] constexpr auto names_level() const -> LpNamesLevel
   {
-    return m_options_.lp_build_options.names_level.value_or(
+    return m_options_.lp_matrix_options.names_level.value_or(
         default_names_level);
   }
 
@@ -374,7 +374,7 @@ public:
   }
 
   /**
-   * @brief Gets the lp_build flag, using default if not set.
+   * @brief Gets the lp_only flag, using default if not set.
    *
    * When true, the solver builds all scene×phase LP matrices but skips
    * solving entirely.  Applies uniformly to both the monolithic solver and
@@ -383,9 +383,9 @@ public:
    *
    * @return Whether to stop after LP building
    */
-  [[nodiscard]] constexpr auto lp_build() const
+  [[nodiscard]] constexpr auto lp_only() const
   {
-    return m_options_.lp_build.value_or(false);
+    return m_options_.lp_only.value_or(false);
   }
 
   /**
@@ -397,14 +397,14 @@ public:
   [[nodiscard]] constexpr auto lp_coeff_ratio_threshold() const
   {
     static constexpr double default_lp_coeff_ratio_threshold = 1e7;
-    return m_options_.lp_build_options.lp_coeff_ratio_threshold.value_or(
+    return m_options_.lp_matrix_options.lp_coeff_ratio_threshold.value_or(
         default_lp_coeff_ratio_threshold);
   }
 
   /// The matrix equilibration method to use.
   [[nodiscard]] constexpr auto equilibration_method() const noexcept
   {
-    return m_options_.lp_build_options.equilibration_method.value_or(
+    return m_options_.lp_matrix_options.equilibration_method.value_or(
         LpEquilibrationMethod::none);
   }
 

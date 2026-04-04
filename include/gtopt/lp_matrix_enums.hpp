@@ -1,12 +1,12 @@
 /**
- * @file      lp_build_enums.hpp
- * @brief     Named enum types for LP build options
+ * @file      lp_matrix_enums.hpp
+ * @brief     Named enum types for LP matrix options
  * @date      2026-03-29
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * Defines all enum types used by LpBuildOptions.  Extracted from
- * lp_build_options.hpp so that the struct definition stays focused on
+ * Defines all enum types used by LpMatrixOptions.  Extracted from
+ * lp_matrix_options.hpp so that the struct definition stays focused on
  * the option fields.
  */
 

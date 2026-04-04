@@ -1,6 +1,6 @@
 /**
- * @file      json_lp_build_options.hpp
- * @brief     JSON serialization for LP build options
+ * @file      json_lp_matrix_options.hpp
+ * @brief     JSON serialization for LP matrix options
  * @date      Mon Mar 24 2026
  * @author    marcelo
  * @copyright BSD-3-Clause
@@ -10,22 +10,22 @@
 
 #include <daw/json/daw_json_link.h>
 #include <gtopt/json/json_basic_types.hpp>
-#include <gtopt/lp_build_options.hpp>
+#include <gtopt/lp_matrix_options.hpp>
 
 namespace daw::json
 {
-using gtopt::LpBuildOptions;
+using gtopt::LpMatrixOptions;
 
-/// Custom construction for LpBuildOptions: only the user-facing
+/// Custom construction for LpMatrixOptions: only the user-facing
 /// optional fields are exposed in JSON; all other fields keep defaults.
-struct LpBuildOptionsConstructor
+struct LpMatrixOptionsConstructor
 {
-  [[nodiscard]] LpBuildOptions operator()(OptInt names_level_int,
-                                          OptReal lp_coeff_ratio_threshold,
-                                          OptName equilibration_method_name,
-                                          OptBool compute_stats) const
+  [[nodiscard]] LpMatrixOptions operator()(OptInt names_level_int,
+                                           OptReal lp_coeff_ratio_threshold,
+                                           OptName equilibration_method_name,
+                                           OptBool compute_stats) const
   {
-    LpBuildOptions opts;
+    LpMatrixOptions opts;
     if (names_level_int) {
       opts.names_level = static_cast<gtopt::LpNamesLevel>(*names_level_int);
     }
@@ -41,9 +41,9 @@ struct LpBuildOptionsConstructor
 };
 
 template<>
-struct json_data_contract<LpBuildOptions>
+struct json_data_contract<LpMatrixOptions>
 {
-  using constructor_t = LpBuildOptionsConstructor;
+  using constructor_t = LpMatrixOptionsConstructor;
 
   using type =
       json_member_list<json_number_null<"names_level", OptInt>,
@@ -51,7 +51,7 @@ struct json_data_contract<LpBuildOptions>
                        json_string_null<"equilibration_method", OptName>,
                        json_bool_null<"compute_stats", OptBool>>;
 
-  static auto to_json_data(LpBuildOptions const& opt)
+  static auto to_json_data(LpMatrixOptions const& opt)
   {
     const OptInt names_int = opt.names_level
         ? OptInt {static_cast<int>(*opt.names_level)}

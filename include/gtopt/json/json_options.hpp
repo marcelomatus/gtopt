@@ -13,7 +13,7 @@
 #include <gtopt/json/json_cascade_options.hpp>
 #include <gtopt/json/json_enum_option.hpp>
 #include <gtopt/json/json_field_sched.hpp>
-#include <gtopt/json/json_lp_build_options.hpp>
+#include <gtopt/json/json_lp_matrix_options.hpp>
 #include <gtopt/json/json_model_options.hpp>
 #include <gtopt/json/json_monolithic_options.hpp>
 #include <gtopt/json/json_sddp_options.hpp>
@@ -27,7 +27,7 @@ namespace daw::json
 using gtopt::CompressionCodec;
 using gtopt::ConstraintMode;
 using gtopt::DataFormat;
-using gtopt::LpBuildOptions;
+using gtopt::LpMatrixOptions;
 using gtopt::MethodType;
 using gtopt::PlanningOptions;
 using gtopt::SolverOptions;
@@ -59,7 +59,7 @@ struct PlanningOptionsConstructor
       OptName log_directory,
       OptBool lp_debug,
       OptName lp_compression_str,
-      OptBool lp_build,
+      OptBool lp_only,
       OptInt lp_debug_scene_min,
       OptInt lp_debug_scene_max,
       OptInt lp_debug_phase_min,
@@ -69,7 +69,7 @@ struct PlanningOptionsConstructor
       SddpOptions sddp_options,
       CascadeOptions cascade_options,
       SolverOptions solver_options,
-      LpBuildOptions lp_build_options,
+      LpMatrixOptions lp_matrix_options,
       gtopt::Array<VariableScale> variable_scales,
       OptName constraint_mode_str) const
   {
@@ -142,13 +142,13 @@ struct PlanningOptionsConstructor
           gtopt::enum_from_name<CompressionCodec>(*output_compression_str);
     }
     // Backward compat: deprecated "use_lp_names" maps to
-    // lp_build_options.names_level when the new field is not set.
+    // lp_matrix_options.names_level when the new field is not set.
     if (use_lp_names) {
       spdlog::warn(
           "deprecated option 'use_lp_names': "
-          "use 'lp_build_options.names_level' instead");
-      if (!lp_build_options.names_level) {
-        lp_build_options.names_level =
+          "use 'lp_matrix_options.names_level' instead");
+      if (!lp_matrix_options.names_level) {
+        lp_matrix_options.names_level =
             static_cast<gtopt::LpNamesLevel>(*use_lp_names);
       }
     }
@@ -162,7 +162,7 @@ struct PlanningOptionsConstructor
       opts.lp_compression =
           gtopt::enum_from_name<CompressionCodec>(*lp_compression_str);
     }
-    opts.lp_build = lp_build;
+    opts.lp_only = lp_only;
     opts.lp_debug_scene_min = lp_debug_scene_min;
     opts.lp_debug_scene_max = lp_debug_scene_max;
     opts.lp_debug_phase_min = lp_debug_phase_min;
@@ -172,7 +172,7 @@ struct PlanningOptionsConstructor
     opts.sddp_options = std::move(sddp_options);
     opts.cascade_options = std::move(cascade_options);
     opts.solver_options = solver_options;
-    opts.lp_build_options = std::move(lp_build_options);
+    opts.lp_matrix_options = std::move(lp_matrix_options);
     opts.variable_scales = std::move(variable_scales);
     if (constraint_mode_str) {
       opts.constraint_mode =
@@ -213,7 +213,7 @@ struct json_data_contract<PlanningOptions>
                        json_string_null<"log_directory", OptName>,
                        json_bool_null<"lp_debug", OptBool>,
                        json_string_null<"lp_compression", OptName>,
-                       json_bool_null<"lp_build", OptBool>,
+                       json_bool_null<"lp_only", OptBool>,
                        json_number_null<"lp_debug_scene_min", OptInt>,
                        json_number_null<"lp_debug_scene_max", OptInt>,
                        json_number_null<"lp_debug_phase_min", OptInt>,
@@ -224,7 +224,7 @@ struct json_data_contract<PlanningOptions>
                        json_class_null<"sddp_options", SddpOptions>,
                        json_class_null<"cascade_options", CascadeOptions>,
                        json_class_null<"solver_options", SolverOptions>,
-                       json_class_null<"lp_build_options", LpBuildOptions>,
+                       json_class_null<"lp_matrix_options", LpMatrixOptions>,
                        json_array_null<"variable_scales",
                                        gtopt::Array<VariableScale>,
                                        VariableScale>,
@@ -257,7 +257,7 @@ struct json_data_contract<PlanningOptions>
                            opt.log_directory,
                            opt.lp_debug,
                            detail::enum_to_opt_name(opt.lp_compression),
-                           opt.lp_build,
+                           opt.lp_only,
                            opt.lp_debug_scene_min,
                            opt.lp_debug_scene_max,
                            opt.lp_debug_phase_min,
@@ -268,7 +268,7 @@ struct json_data_contract<PlanningOptions>
                            opt.sddp_options,
                            opt.cascade_options,
                            opt.solver_options,
-                           opt.lp_build_options,
+                           opt.lp_matrix_options,
                            opt.variable_scales,
                            detail::enum_to_opt_name(opt.constraint_mode));
   }

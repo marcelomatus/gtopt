@@ -94,7 +94,7 @@ void PlanningLP::auto_scale_theta(Planning& planning)
 auto PlanningLP::create_systems(System& system,
                                 SimulationLP& simulation,
                                 const PlanningOptionsLP& options,
-                                const LpBuildOptions& flat_opts)
+                                const LpMatrixOptions& flat_opts)
     -> scene_phase_systems_t
 {
   system.expand_batteries();

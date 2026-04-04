@@ -750,7 +750,7 @@ public:
 
   /// @name LP coefficient statistics (populated during load_flat from
   ///       FlatLinearProblem::stats_* fields, which are computed in
-  ///       LinearProblem::lp_build when LpBuildOptions::compute_stats is true).
+  ///       LinearProblem::flatten when LpMatrixOptions::compute_stats is true).
   /// @{
   [[nodiscard]] constexpr size_t lp_stats_nnz() const noexcept
   {

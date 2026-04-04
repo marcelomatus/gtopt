@@ -215,7 +215,7 @@ auto apply_ruiz_scaling(std::span<const FlatLinearProblem::index_t> matbeg,
 
 }  // namespace
 
-auto LinearProblem::lp_build(const LpBuildOptions& opts) -> FlatLinearProblem
+auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
 {
   const size_t ncols = get_numcols();
   const size_t nrows = get_numrows();
@@ -570,8 +570,7 @@ auto LinearProblem::lp_build(const LpBuildOptions& opts) -> FlatLinearProblem
       .rownm = std::move(rownm),
       .colmp = std::move(colmp),
       .rowmp = std::move(rowmp),
-      .name =
-          pname,  // always copy (trivially small, enables multiple lp_build)
+      .name = pname,  // always copy (trivially small, enables multiple flatten)
       .stats_nnz = stats_nnz,
       .stats_zeroed = stats_zeroed,
       .stats_max_abs = stats_max,

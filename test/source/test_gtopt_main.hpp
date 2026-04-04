@@ -8,7 +8,7 @@
  * Covers source/gtopt_main.cpp:
  *   - error path when a planning file does not exist
  *   - fast-parsing path
- *   - lp_build=true (build all LPs but skip solve)
+ *   - lp_only=true (build all LPs but skip solve)
  *   - json_file output
  *   - stats=true (pre- and post-solve statistics)
  *   - json_file write failure (invalid output path)
@@ -76,23 +76,23 @@ TEST_CASE("gtopt_main - returns error for nonexistent file")
   CHECK(!result.error().empty());
 }
 
-TEST_CASE("gtopt_main - lp_build=true completes successfully")
+TEST_CASE("gtopt_main - lp_only=true completes successfully")
 {
-  const auto stem = write_tmp_json("gtopt_main_lp_build", minimal_json);
+  const auto stem = write_tmp_json("gtopt_main_lp_only", minimal_json);
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
-      .lp_build = true,
+      .lp_only = true,
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
 }
 
-TEST_CASE("gtopt_main - fast_parsing path, lp_build=true")
+TEST_CASE("gtopt_main - fast_parsing path, lp_only=true")
 {
   const auto stem = write_tmp_json("gtopt_main_fast_parse", minimal_json);
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
-      .lp_build = true,
+      .lp_only = true,
       .fast_parsing = true,
   });
   REQUIRE(result.has_value());
@@ -107,7 +107,7 @@ TEST_CASE("gtopt_main - json_file output written")
 
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
-      .lp_build = true,
+      .lp_only = true,
       .json_file = json_out,
   });
   REQUIRE(result.has_value());
@@ -134,12 +134,12 @@ TEST_CASE("gtopt_main - full solve with single-bus override")
   CHECK(*result == 0);
 }
 
-TEST_CASE("gtopt_main - stats=true, lp_build (no crash)")
+TEST_CASE("gtopt_main - stats=true, lp_only (no crash)")
 {
   const auto stem = write_tmp_json("gtopt_main_stats_create", minimal_json);
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
-      .lp_build = true,
+      .lp_only = true,
       .print_stats = true,
   });
   REQUIRE(result.has_value());
@@ -192,10 +192,10 @@ TEST_CASE("gtopt_main - multiple planning files merged")
   const auto stem1 = write_tmp_json("gtopt_main_merge1", part1);
   const auto stem2 = write_tmp_json("gtopt_main_merge2", part2);
 
-  // lp_build=true validates parsing + merging without needing a full solve
+  // lp_only=true validates parsing + merging without needing a full solve
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem1.string(), stem2.string()},
-      .lp_build = true,
+      .lp_only = true,
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
@@ -211,7 +211,7 @@ TEST_CASE("gtopt_main - returns error for invalid JSON content")
   CHECK(!result.error().empty());
 }
 
-TEST_CASE("gtopt_main - stats=true, lp_build (covers log_pre_solve_stats)")
+TEST_CASE("gtopt_main - stats=true, lp_only (covers log_pre_solve_stats)")
 {
   // Richer system to exercise more stat counters
   constexpr auto rich_json = R"({
@@ -240,7 +240,7 @@ TEST_CASE("gtopt_main - stats=true, lp_build (covers log_pre_solve_stats)")
   const auto stem = write_tmp_json("gtopt_main_rich_stats", rich_json);
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
-      .lp_build = true,
+      .lp_only = true,
       .print_stats = true,
   });
   REQUIRE(result.has_value());
@@ -259,7 +259,7 @@ TEST_CASE("gtopt_main - json_file output fails for invalid output path")
   const auto stem = write_tmp_json("gtopt_main_json_fail_path", minimal_json);
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
-      .lp_build = true,
+      .lp_only = true,
       .json_file = "/nonexistent_directory_xyz_abc/out_file",
   });
   CHECK_FALSE(result.has_value());
@@ -268,15 +268,15 @@ TEST_CASE("gtopt_main - json_file output fails for invalid output path")
 
 TEST_CASE("gtopt_main - lp_file option writes LP file successfully")
 {
-  // Setting lp_file together with lp_build=true causes write_lp() to be
-  // called (line 322) before the lp_build early return.
+  // Setting lp_file together with lp_only=true causes write_lp() to be
+  // called (line 322) before the lp_only early return.
   const auto stem = write_tmp_json("gtopt_main_lp_file_ok", minimal_json);
   const auto lp_out =
       (std::filesystem::temp_directory_path() / "gtopt_main_lp_out").string();
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
       .lp_file = lp_out,
-      .lp_build = true,
+      .lp_only = true,
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
@@ -294,7 +294,7 @@ TEST_CASE("gtopt_main - lp_file with invalid path silently fails (no throw)")
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
       .lp_file = lp_path,
-      .lp_build = true,
+      .lp_only = true,
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
@@ -618,7 +618,7 @@ TEST_CASE("gtopt_main - check_json=true warns on unknown fields")  // NOLINT
   const auto stem = write_tmp_json("gtopt_main_check_json", json_with_unknown);
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
-      .lp_build = true,
+      .lp_only = true,
       .check_json = true,
   });
   // The unknown field triggers a warning but parsing still succeeds
@@ -687,7 +687,7 @@ TEST_CASE("gtopt_main - explicit trace_log path")  // NOLINT
 
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
-      .lp_build = true,
+      .lp_only = true,
       .trace_log = trace_path,
   });
   REQUIRE(result.has_value());
@@ -698,7 +698,7 @@ TEST_CASE("gtopt_main - explicit trace_log path")  // NOLINT
 TEST_CASE("gtopt_main - multiple files full solve")  // NOLINT
 {
   // Two files that merge into a complete planning, then do a full solve
-  // (not lp_build) to cover the output-writing path with merged data.
+  // (not lp_only) to cover the output-writing path with merged data.
   constexpr auto merge_part1 = R"({
     "options": {
       "demand_fail_cost": 1000,
@@ -832,7 +832,7 @@ TEST_CASE("gtopt_main - empty planning_files returns error")  // NOLINT
   // doesn't crash.
   auto result = gtopt_main(MainOptions {
       .planning_files = {},
-      .lp_build = true,
+      .lp_only = true,
   });
   // An empty planning may fail during LP build; either way, no crash.
   // We just check it returns (success or error).
@@ -842,12 +842,12 @@ TEST_CASE("gtopt_main - empty planning_files returns error")  // NOLINT
 TEST_CASE("gtopt_main - names_level=cols_and_rows with stats")  // NOLINT
 {
   // Exercise names_level=cols_and_rows (names + map) with stats to cover the
-  // make_lp_build_options paths for higher naming levels.
+  // make_lp_matrix_options paths for higher naming levels.
   const auto stem = write_tmp_json("gtopt_main_lp_names2", minimal_json);
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
       .lp_names_level = LpNamesLevel::cols_and_rows,
-      .lp_build = true,
+      .lp_only = true,
       .print_stats = true,
   });
   REQUIRE(result.has_value());
@@ -980,7 +980,7 @@ TEST_CASE("gtopt_main - demand_fail_cost=0 triggers warning")  // NOLINT
   const auto stem = write_tmp_json("gtopt_main_no_dfc", no_dfc_json);
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
-      .lp_build = true,
+      .lp_only = true,
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
@@ -1005,7 +1005,7 @@ TEST_CASE(  // NOLINT
   auto result = gtopt_main(MainOptions {
       .planning_files = {"alt_plan"},
       .input_directory = input_dir.string(),
-      .lp_build = true,
+      .lp_only = true,
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
@@ -1025,7 +1025,7 @@ TEST_CASE(  // NOLINT
 
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
-      .lp_build = true,
+      .lp_only = true,
       .log_directory = log_dir.string(),
   });
   REQUIRE(result.has_value());

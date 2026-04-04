@@ -24,7 +24,7 @@
 #include <gtopt/constraint_parser.hpp>
 #include <gtopt/cost_helper.hpp>
 #include <gtopt/json/json_planning.hpp>
-#include <gtopt/lp_build_enums.hpp>
+#include <gtopt/lp_matrix_enums.hpp>
 #include <gtopt/monolithic_method.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>

@@ -202,7 +202,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// monolithic and SDDP solvers.  If lp_debug is also true, every LP
   /// file is saved before returning.  Useful for profiling LP build time
   /// without solver overhead.
-  bool lp_build {false};
+  bool lp_only {false};
 
   /// Compression format for LP debug files ("gzip" / "uncompressed" / "").
   /// Empty or "uncompressed" means no compression; any other value uses

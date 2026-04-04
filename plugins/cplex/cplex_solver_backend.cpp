@@ -219,7 +219,7 @@ void CplexSolverBackend::load_problem(int ncols,
   }
 
   // CPLEX requires sorted row indices within each column (CSC format).
-  // The LinearProblem::lp_build() two-pass algorithm produces unsorted
+  // The LinearProblem::flatten() two-pass algorithm produces unsorted
   // indices (rows are added to columns in row-enumeration order, not
   // sorted order). Create sorted copies for CPLEX.
   // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)

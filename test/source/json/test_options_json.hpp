@@ -25,7 +25,7 @@ TEST_CASE("json_options - Deserialization of Options from JSON")
     "output_compression": "gzip",
     "use_uid_fname": false,
     "annual_discount_rate": 0.05,
-    "lp_build_options": {
+    "lp_matrix_options": {
       "names_level": 1
     }
   })";
@@ -99,9 +99,9 @@ TEST_CASE("json_options - Deserialization of Options from JSON")
     CHECK(*options.output_compression == CompressionCodec::gzip);
   }
 
-  REQUIRE(options.lp_build_options.names_level.has_value());
-  if (options.lp_build_options.names_level) {
-    CHECK(*options.lp_build_options.names_level == LpNamesLevel::only_cols);
+  REQUIRE(options.lp_matrix_options.names_level.has_value());
+  if (options.lp_matrix_options.names_level) {
+    CHECK(*options.lp_matrix_options.names_level == LpNamesLevel::only_cols);
   }
 
   REQUIRE(options.use_uid_fname.has_value());
@@ -157,7 +157,7 @@ TEST_CASE(
   CHECK_FALSE(options.scale_theta.has_value());
   CHECK_FALSE(options.output_format.has_value());
   CHECK_FALSE(options.output_compression.has_value());
-  CHECK_FALSE(options.lp_build_options.names_level.has_value());
+  CHECK_FALSE(options.lp_matrix_options.names_level.has_value());
   CHECK_FALSE(options.use_uid_fname.has_value());
   CHECK_FALSE(options.annual_discount_rate.has_value());
 }
@@ -173,7 +173,7 @@ TEST_CASE("json_options - Round-trip serialization and deserialization")
       .use_kirchhoff = true,
       .scale_objective = 100.0,
       .output_directory = "output_dir",
-      .lp_build_options {
+      .lp_matrix_options {
           .names_level = LpNamesLevel::minimal,
       },
   };
@@ -190,8 +190,8 @@ TEST_CASE("json_options - Round-trip serialization and deserialization")
   CHECK(deserialized.use_kirchhoff == original.use_kirchhoff);
   CHECK(deserialized.scale_objective == original.scale_objective);
   CHECK(deserialized.output_directory == original.output_directory);
-  CHECK(deserialized.lp_build_options.names_level
-        == original.lp_build_options.names_level);
+  CHECK(deserialized.lp_matrix_options.names_level
+        == original.lp_matrix_options.names_level);
 
   // Check that unpopulated fields remain empty
   CHECK_FALSE(deserialized.input_format.has_value());

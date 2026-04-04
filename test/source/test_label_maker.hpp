@@ -9,7 +9,7 @@ TEST_CASE("LabelMaker basic functionality")
 {
   using namespace gtopt;
   PlanningOptions options;
-  options.lp_build_options.names_level = LpNamesLevel::only_cols;
+  options.lp_matrix_options.names_level = LpNamesLevel::only_cols;
   const PlanningOptionsLP options_lp(options);
   const LabelMaker maker(options_lp);
 
@@ -23,7 +23,7 @@ TEST_CASE("LabelMaker basic functionality")
   SUBCASE("Empty labels when disabled")
   {
     PlanningOptions disabled_options;
-    disabled_options.lp_build_options.names_level = LpNamesLevel::minimal;
+    disabled_options.lp_matrix_options.names_level = LpNamesLevel::minimal;
     const PlanningOptionsLP disabled_options_lp(disabled_options);
     const LabelMaker disabled_maker(disabled_options_lp);
 
@@ -35,7 +35,7 @@ TEST_CASE("LabelMaker basic functionality")
 TEST_CASE("LabelMaker with StageLP")
 {
   PlanningOptions options;
-  options.lp_build_options.names_level = LpNamesLevel::only_cols;
+  options.lp_matrix_options.names_level = LpNamesLevel::only_cols;
   const PlanningOptionsLP options_lp(options);
   const LabelMaker maker(options_lp);
 
@@ -54,7 +54,7 @@ TEST_CASE("LabelMaker with StageLP")
 TEST_CASE("LabelMaker with ScenarioLP and StageLP")
 {
   PlanningOptions options;
-  options.lp_build_options.names_level = LpNamesLevel::only_cols;
+  options.lp_matrix_options.names_level = LpNamesLevel::only_cols;
   const PlanningOptionsLP options_lp(options);
   const LabelMaker maker(options_lp);
 
@@ -80,7 +80,7 @@ TEST_CASE("LabelMaker with ScenarioLP and StageLP")
 TEST_CASE("LabelMaker with BlockLP")
 {
   PlanningOptions options;
-  options.lp_build_options.names_level = LpNamesLevel::only_cols;
+  options.lp_matrix_options.names_level = LpNamesLevel::only_cols;
   const PlanningOptionsLP options_lp(options);
   const LabelMaker maker(options_lp);
 
@@ -101,7 +101,7 @@ TEST_CASE("LabelMaker with BlockLP")
 TEST_CASE("LabelMaker edge cases")
 {
   PlanningOptions options;
-  options.lp_build_options.names_level = LpNamesLevel::only_cols;
+  options.lp_matrix_options.names_level = LpNamesLevel::only_cols;
   const PlanningOptionsLP options_lp(options);
   const LabelMaker maker(options_lp);
 

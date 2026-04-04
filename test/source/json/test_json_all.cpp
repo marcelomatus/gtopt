@@ -33,7 +33,7 @@
 #include <gtopt/json/json_generator_profile.hpp>
 #include <gtopt/json/json_junction.hpp>
 #include <gtopt/json/json_line.hpp>
-#include <gtopt/json/json_lp_build_options.hpp>
+#include <gtopt/json/json_lp_matrix_options.hpp>
 #include <gtopt/json/json_model_options.hpp>
 #include <gtopt/json/json_monolithic_options.hpp>
 #include <gtopt/json/json_options.hpp>
@@ -72,7 +72,7 @@ using namespace gtopt;
 #include "test_generator_profile_json.hpp"
 #include "test_junction_json.hpp"
 #include "test_line_json.hpp"
-#include "test_lp_build_options_json.hpp"
+#include "test_lp_matrix_options_json.hpp"
 #include "test_model_options_json.hpp"
 #include "test_monolithic_options_json.hpp"
 #include "test_optimization_json.hpp"

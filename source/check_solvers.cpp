@@ -131,11 +131,11 @@ struct TestContext
   lp.set_coeff(r1, x1, 1.0);
   lp.set_coeff(r1, x2, 1.0);
 
-  LpBuildOptions opts;
+  LpMatrixOptions opts;
   opts.col_with_names = true;
   opts.row_with_names = true;
   opts.compute_stats = true;
-  return lp.lp_build(opts);
+  return lp.flatten(opts);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -416,7 +416,7 @@ SolverTestResult test_load_flat_stats(std::string_view solver)
     TC_CHECK(ctx, lp.get_numcols() == 2);
     TC_CHECK(ctx, lp.get_numrows() == 1);
 
-    // Stats are populated by lp_build with compute_stats=true.
+    // Stats are populated by flatten with compute_stats=true.
     // There are 2 non-zero coefficients (both =1.0).
     TC_CHECK(ctx, lp.lp_stats_nnz() >= 2);
     TC_CHECK(ctx, lp.lp_stats_max_abs() >= 1.0);
@@ -764,10 +764,10 @@ SolverTestResult test_maximisation(std::string_view solver)
     lp_model.set_coeff(r1, x1, 1.0);
     lp_model.set_coeff(r1, x2, 1.0);
 
-    LpBuildOptions opts;
+    LpMatrixOptions opts;
     opts.col_with_names = true;
     opts.row_with_names = true;
-    const auto flat = lp_model.lp_build(opts);
+    const auto flat = lp_model.flatten(opts);
 
     LinearInterface lp(solver, flat);
     const auto result = lp.initial_solve(SolverOptions {
@@ -836,9 +836,9 @@ SolverTestResult test_col_scales(std::string_view solver)
     lp_model.set_coeff(r1, x1, 1.0);
     lp_model.set_coeff(r1, x2, 1.0);
 
-    LpBuildOptions opts;
+    LpMatrixOptions opts;
     opts.col_with_names = true;
-    auto flat = lp_model.lp_build(opts);
+    auto flat = lp_model.flatten(opts);
     flat.col_scales = {2.0, 3.0};  // inject manual scales
 
     const LinearInterface lp(solver, flat);
@@ -904,10 +904,10 @@ SolverTestResult test_barrier_threads(std::string_view solver)
     lp.set_coeff(r3, x3, 1.0);
     lp.set_coeff(r3, x4, 1.0);
 
-    LpBuildOptions opts;
+    LpMatrixOptions opts;
     opts.col_with_names = true;
     opts.row_with_names = true;
-    const auto flat = lp.lp_build(opts);
+    const auto flat = lp.flatten(opts);
 
     LinearInterface li(solver, flat);
 
@@ -975,10 +975,10 @@ SolverTestResult test_barrier_resolve(std::string_view solver)
     lp.set_coeff(r3, x3, 1.0);
     lp.set_coeff(r3, x4, 1.0);
 
-    LpBuildOptions opts;
+    LpMatrixOptions opts;
     opts.col_with_names = true;
     opts.row_with_names = true;
-    const auto flat = lp.lp_build(opts);
+    const auto flat = lp.flatten(opts);
 
     LinearInterface li(solver, flat);
 

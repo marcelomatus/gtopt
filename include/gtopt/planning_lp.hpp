@@ -44,7 +44,7 @@ private:
   static auto create_systems(System& system,
                              SimulationLP& simulation,
                              const PlanningOptionsLP& options,
-                             const LpBuildOptions& flat_opts)
+                             const LpMatrixOptions& flat_opts)
       -> scene_phase_systems_t;
 
   /// Compute adaptive scale_theta from median line reactance when not
@@ -61,7 +61,7 @@ public:
   template<typename PlanningT>
     requires(std::is_same_v<std::remove_cvref_t<PlanningT>, gtopt::Planning>)
   explicit PlanningLP(PlanningT&& planning,
-                      const LpBuildOptions& flat_opts = {})
+                      const LpMatrixOptions& flat_opts = {})
       : m_planning_(  // NOLINT
             [&]() -> decltype(auto)
             {

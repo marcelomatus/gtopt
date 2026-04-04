@@ -13,7 +13,7 @@
  *  6. Multi-scene SDDP solving
  *  7. Solver interface integration (monolithic vs SDDP dispatch)
  *  8. Simple 2-phase linear Benders cut and aperture tests
- *  9. lp_build=true builds all LP matrices, no solving
+ *  9. lp_only=true builds all LP matrices, no solving
  */
 
 #include <cmath>
@@ -28,10 +28,10 @@
 #include <gtopt/planning_method.hpp>
 #include <gtopt/sddp_method.hpp>
 
+using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
-
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
 /// Create a 3-phase hydro+thermal planning problem.
 ///
@@ -299,8 +299,6 @@ auto make_single_phase_planning() -> Planning
 
 TEST_CASE("build_benders_cut produces valid cut row")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   const auto alpha = ColIndex {0};
   const auto src = ColIndex {1};
   const auto dep = ColIndex {2};
@@ -333,8 +331,6 @@ TEST_CASE("build_benders_cut produces valid cut row")  // NOLINT
 
 TEST_CASE("relax_fixed_state_variable respects source bounds")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   LinearInterface li;
 
   // Create a column and fix it at 80.0
@@ -359,8 +355,6 @@ TEST_CASE("relax_fixed_state_variable respects source bounds")  // NOLINT
 
 TEST_CASE("relax_fixed_state_variable skips non-fixed columns")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   LinearInterface li;
   const auto col = li.add_col("dep", 0.0, 100.0);
 
@@ -376,8 +370,6 @@ TEST_CASE("relax_fixed_state_variable skips non-fixed columns")  // NOLINT
 
 TEST_CASE("average_benders_cut computes correct average")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   const auto alpha = ColIndex {0};
   const auto src = ColIndex {1};
 
@@ -410,8 +402,6 @@ TEST_CASE("average_benders_cut computes correct average")  // NOLINT
 
 TEST_CASE("parse_cut_sharing_mode")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   CHECK(parse_cut_sharing_mode("none") == CutSharingMode::none);
   CHECK(parse_cut_sharing_mode("expected") == CutSharingMode::expected);
   CHECK(parse_cut_sharing_mode("accumulate") == CutSharingMode::accumulate);
@@ -422,8 +412,6 @@ TEST_CASE("parse_cut_sharing_mode")  // NOLINT
 
 TEST_CASE("parse_elastic_filter_mode")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Canonical names (underscore)
   CHECK(parse_elastic_filter_mode("single_cut")
         == ElasticFilterMode::single_cut);
@@ -438,8 +426,6 @@ TEST_CASE("parse_elastic_filter_mode")  // NOLINT
 
 TEST_CASE("relax_fixed_state_variable returns slack column indices")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   LinearInterface li;
 
   // Create a column and fix it at 50.0
@@ -469,8 +455,6 @@ TEST_CASE("relax_fixed_state_variable returns slack column indices")  // NOLINT
 
 TEST_CASE("SDDPMethod - 3-phase hydro+thermal converges")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -505,8 +489,6 @@ TEST_CASE("SDDPMethod - 3-phase hydro+thermal converges")  // NOLINT
 
 TEST_CASE("SDDPMethod - requires at least 2 phases")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_single_phase_planning();
 
   PlanningLP planning_lp(std::move(planning));
@@ -517,8 +499,6 @@ TEST_CASE("SDDPMethod - requires at least 2 phases")  // NOLINT
 
 TEST_CASE("SDDPMethod - cut persistence save and load")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -547,8 +527,6 @@ TEST_CASE("SDDPMethod - cut persistence save and load")  // NOLINT
 
 TEST_CASE("MonolithicMethod - solves single-phase problem")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_single_phase_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -560,8 +538,6 @@ TEST_CASE("MonolithicMethod - solves single-phase problem")  // NOLINT
 
 TEST_CASE("MonolithicMethod - solves 3-phase problem")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -573,8 +549,6 @@ TEST_CASE("MonolithicMethod - solves 3-phase problem")  // NOLINT
 
 TEST_CASE("make_planning_method factory - monolithic")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   const PlanningOptionsLP options_lp;
   auto solver = make_planning_method(options_lp);
   REQUIRE(solver != nullptr);
@@ -589,8 +563,6 @@ TEST_CASE("make_planning_method factory - monolithic")  // NOLINT
 
 TEST_CASE("make_planning_method factory - sddp")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   PlanningOptions opts;
   opts.method = MethodType::sddp;
   const PlanningOptionsLP options_lp(std::move(opts));
@@ -600,8 +572,6 @@ TEST_CASE("make_planning_method factory - sddp")  // NOLINT
 
 TEST_CASE("PlanningLP::resolve uses method option")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_single_phase_planning();
   // Default method is "monolithic"
   PlanningLP planning_lp(std::move(planning));
@@ -613,8 +583,6 @@ TEST_CASE("PlanningLP::resolve uses method option")  // NOLINT
 
 TEST_CASE("PlanningOptions method and sddp_cut_sharing_mode")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   PlanningOptions opts;
   opts.method = MethodType::sddp;
   opts.sddp_options.cut_sharing_mode = CutSharingMode::expected;
@@ -626,8 +594,6 @@ TEST_CASE("PlanningOptions method and sddp_cut_sharing_mode")  // NOLINT
 
 TEST_CASE("PlanningOptions method defaults")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   const PlanningOptionsLP options_lp;
   CHECK(options_lp.method_type_enum() == MethodType::monolithic);
   CHECK(options_lp.sddp_cut_sharing_mode() == "none");
@@ -635,8 +601,6 @@ TEST_CASE("PlanningOptions method defaults")  // NOLINT
 
 TEST_CASE("PlanningOptions top-level method")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   PlanningOptions opts;
   opts.method = MethodType::sddp;
 
@@ -646,8 +610,6 @@ TEST_CASE("PlanningOptions top-level method")  // NOLINT
 
 TEST_CASE("PlanningOptions method from JSON top-level field")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Verify that "method": "sddp" in the top-level options block is
   // correctly parsed — this is the only supported way to select the solver.
   constexpr std::string_view json_str = R"json(
@@ -1336,8 +1298,6 @@ TEST_CASE(
     "Integration: monolithic vs SDDP - reservoir "  // NOLINT
     "(5 phases × 8 blocks)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // ─── 1. Solve with the monolithic solver ──
   auto planning_mono = make_5phase_reservoir_planning();
   PlanningLP plp_mono(std::move(planning_mono));
@@ -1406,8 +1366,6 @@ TEST_CASE(
     "Integration: monolithic vs SDDP - small reservoir "  // NOLINT
     "state coupling (5 phases)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // ─── 1. Solve with the monolithic solver ──
   auto planning_mono = make_5phase_small_reservoir_planning();
   PlanningLP plp_mono(std::move(planning_mono));
@@ -1469,8 +1427,6 @@ TEST_CASE(
     "Integration: monolithic vs SDDP - expansion case "  // NOLINT
     "(5 phases)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // ─── 1. Solve with the monolithic solver ──
   auto planning_mono = make_5phase_expansion_planning();
   PlanningLP plp_mono(std::move(planning_mono));
@@ -1531,8 +1487,6 @@ TEST_CASE(
     "Integration: monolithic vs SDDP - yearly hydro "  // NOLINT
     "(12 phases × 24 blocks)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // ─── 1. Solve with the monolithic solver ──
   auto planning_mono = make_12phase_yearly_hydro_planning();
   PlanningLP plp_mono(std::move(planning_mono));
@@ -1594,8 +1548,6 @@ TEST_CASE(
 
 TEST_CASE("SDDPMethod API - iteration callback")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1632,8 +1584,6 @@ TEST_CASE("SDDPMethod API - iteration callback")  // NOLINT
 
 TEST_CASE("SDDPMethod API - programmatic stop")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1663,8 +1613,6 @@ TEST_CASE("SDDPMethod API - programmatic stop")  // NOLINT
 
 TEST_CASE("SDDPMethod API - live query atomics")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1708,16 +1656,12 @@ TEST_CASE("SDDPMethod API - live query atomics")  // NOLINT
 
 TEST_CASE("weighted_average_benders_cut - empty input")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   const auto result = weighted_average_benders_cut({}, {}, "empty");
   CHECK(result.name.empty());
 }
 
 TEST_CASE("weighted_average_benders_cut - single cut")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   const auto alpha = ColIndex {0};
   const auto src = ColIndex {1};
 
@@ -1739,8 +1683,6 @@ TEST_CASE("weighted_average_benders_cut - single cut")  // NOLINT
 TEST_CASE(
     "weighted_average_benders_cut - equal weights same as average")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   const auto alpha = ColIndex {0};
   const auto src = ColIndex {1};
 
@@ -1769,8 +1711,6 @@ TEST_CASE(
 TEST_CASE(
     "weighted_average_benders_cut - probability weights applied")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   const auto alpha = ColIndex {0};
   const auto src = ColIndex {1};
 
@@ -1800,8 +1740,6 @@ TEST_CASE(
 
 TEST_CASE("weighted_average_benders_cut - unnormalised weights")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   const auto src = ColIndex {0};
 
   SparseRow cut1;
@@ -1827,8 +1765,6 @@ TEST_CASE("weighted_average_benders_cut - unnormalised weights")  // NOLINT
 TEST_CASE(
     "weighted_average_benders_cut - zero weight scene excluded")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   const auto src = ColIndex {0};
 
   SparseRow cut1;
@@ -1852,8 +1788,6 @@ TEST_CASE(
 TEST_CASE(
     "weighted_average_benders_cut - all zero weights returns empty")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   const auto src = ColIndex {0};
 
   SparseRow cut1;
@@ -1872,8 +1806,6 @@ TEST_CASE(
 
 TEST_CASE("SDDPMethod - multi_cut_threshold=0 forces multi-cut mode")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Use the 3-phase hydro planning; set threshold=0 so any infeasibility
   // instantly uses multi-cut mode.  The problem should still converge.
   auto planning = make_3phase_hydro_planning();
@@ -1895,8 +1827,6 @@ TEST_CASE("SDDPMethod - multi_cut_threshold=0 forces multi-cut mode")  // NOLINT
 
 TEST_CASE("SDDPMethod - multi_cut_threshold<0 disables auto-switch")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Negative threshold disables automatic multi-cut switching entirely.
   // The problem should still converge with single-cut only.
   auto planning = make_3phase_hydro_planning();
@@ -2096,8 +2026,6 @@ inline auto make_2scene_3phase_hydro_planning(double prob1 = 0.7,
 
 TEST_CASE("SDDPMethod 2-scene - probability-weighted bounds")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Two scenes with probabilities 0.7 and 0.3.
   // UB and LB should be probability-weighted expectations, not simple averages.
   auto planning = make_2scene_3phase_hydro_planning(0.7, 0.3);
@@ -2139,8 +2067,6 @@ TEST_CASE("SDDPMethod 2-scene - probability-weighted bounds")  // NOLINT
 TEST_CASE(
     "SDDPMethod 2-scene - equal weights same as simple average")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Equal probability weights → result should match simple average
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   PlanningLP planning_lp(std::move(planning));
@@ -2166,8 +2092,6 @@ TEST_CASE(
 TEST_CASE(
     "SDDPMethod 2-scene Expected cut sharing with prob weights")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Verify that Expected cut-sharing mode produces the same convergence
   // outcome whether we use equal or unequal probability weights.
   // The solver should converge in both cases.
@@ -2218,8 +2142,6 @@ TEST_CASE(
 
 TEST_CASE("update_lp - no-op when no updatable elements")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Build a minimal system WITHOUT a ReservoirProductionFactor element.
   // update_lp should return 0 (nothing to update).
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
@@ -2314,8 +2236,6 @@ TEST_CASE("update_lp - no-op when no updatable elements")  // NOLINT
 TEST_CASE(
     "ReservoirSeepageLP::update_lp is a no-op without segments")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Verify the trivial no-op path of ReservoirSeepageLP::update_lp by calling
   // update_lp on a system that has seepage without
   // piecewise segments (static slope/constant only).
@@ -2416,8 +2336,6 @@ TEST_CASE(
 
 TEST_CASE("SDDPMethod API - monitoring API stop-request file")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Verify that the solver stops gracefully when the monitoring API
   // stop-request file (sddp_stop_request.json) is created in the tmp dir.
   const auto tmp_dir =
@@ -2460,8 +2378,6 @@ TEST_CASE("SDDPMethod API - monitoring API stop-request file")  // NOLINT
 
 TEST_CASE("make_solver_work_pool creates a working pool")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto pool = make_solver_work_pool();
   REQUIRE(pool != nullptr);
 
@@ -2477,8 +2393,6 @@ TEST_CASE("make_solver_work_pool creates a working pool")  // NOLINT
 
 TEST_CASE("make_solver_work_pool with custom cpu_factor")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Use a small cpu_factor to verify it parameterises correctly
   auto pool = make_solver_work_pool(0.5);
   REQUIRE(pool != nullptr);
@@ -2490,8 +2404,6 @@ TEST_CASE("make_solver_work_pool with custom cpu_factor")  // NOLINT
 
 TEST_CASE("SDDPIterationResult contains timing information")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -2518,8 +2430,6 @@ TEST_CASE("SDDPIterationResult contains timing information")  // NOLINT
 
 TEST_CASE("SDDPMethod API - status file contains timing fields")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   const auto tmp_dir =
       std::filesystem::temp_directory_path() / "test_sddp_timing_status";
   std::filesystem::remove_all(tmp_dir);
@@ -2557,8 +2467,6 @@ TEST_CASE("SDDPMethod API - status file contains timing fields")  // NOLINT
 
 TEST_CASE("MonolithicMethod uses work pool from factory")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Verify that MonolithicMethod works correctly after the refactoring
   // to use make_solver_work_pool()
   auto planning = make_single_phase_planning();
@@ -2572,8 +2480,6 @@ TEST_CASE("MonolithicMethod uses work pool from factory")  // NOLINT
 
 TEST_CASE("MonolithicMethod with 3-phase uses work pool")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Verify multi-phase monolithic solving after refactoring
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -2592,8 +2498,6 @@ TEST_CASE("MonolithicMethod with 3-phase uses work pool")  // NOLINT
 TEST_CASE(  // NOLINT
     "build_benders_cut - optimality cut from LP solve")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Build a simple LP:
   //   min  10*x0 + 20*x1 + alpha
   //   s.t. x0 + x1 + dep >= 100   (demand)
@@ -2655,8 +2559,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "elastic_filter_solve - relaxes fixed column and solves clone")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   LinearInterface li;
   const auto x0 = li.add_col("x0", 0.0, 200.0);
   li.set_obj_coeff(x0, 10.0);
@@ -2702,8 +2604,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "elastic_filter_solve - returns nullopt for non-fixed column")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   LinearInterface li;
   const auto x0 = li.add_col("x0", 0.0, 100.0);
   li.set_obj_coeff(x0, 10.0);
@@ -2735,8 +2635,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "build_feasibility_cut - produces valid cut from elastic solve")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   LinearInterface li;
   const auto x0 = li.add_col("x0", 0.0, 200.0);
   li.set_obj_coeff(x0, 10.0);
@@ -2782,8 +2680,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "build_feasibility_cut - returns nullopt for non-fixed column")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   LinearInterface li;
   const auto x0 = li.add_col("x0", 0.0, 100.0);
   li.set_obj_coeff(x0, 10.0);
@@ -2816,8 +2712,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "build_multi_cuts - generates bound cuts from elastic slack")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // LP infeasible when dep fixed at 50: x0+dep>=200, x0<=80
   LinearInterface li;
   const auto x0 = li.add_col("x0", 0.0, 80.0);
@@ -2873,8 +2767,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "build_multi_cuts - returns empty when no slack is active")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Feasible LP with dep fixed
   LinearInterface li;
   const auto x0 = li.add_col("x0", 0.0, 200.0);
@@ -2914,8 +2806,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Benders cut tightens lower bound in two-phase LP")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Simulate a minimal 2-phase decomposition manually:
   //
   // Phase 0: min 10*x0 + alpha, s.t. x0 >= 20, x0 in [0,100]
@@ -3009,8 +2899,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(
     "BendersCut - default construction and no-pool elastic_filter_solve")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Build a simple LP where dep is fixed at 50 and x0 <= 80; demand >= 100.
   // With dep=50 the LP is feasible; the elastic filter should relax dep.
   LinearInterface li;
@@ -3066,8 +2954,6 @@ TEST_CASE(
 
 TEST_CASE("BendersCut - elastic_filter_solve with work pool")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Same LP as above but with a live work pool.
   LinearInterface li;
   const auto x0 = li.add_col("x0", 0.0, 200.0);
@@ -3138,8 +3024,6 @@ TEST_CASE("BendersCut - elastic_filter_solve with work pool")  // NOLINT
 
 TEST_CASE("BendersCut - build_feasibility_cut increments counter")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   LinearInterface li;
   const auto x0 = li.add_col("x0", 0.0, 200.0);
   li.set_obj_coeff(x0, 10.0);
@@ -3190,8 +3074,6 @@ TEST_CASE("BendersCut - build_feasibility_cut increments counter")  // NOLINT
 
 TEST_CASE("BendersCut - set_pool updates pool reference")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   BendersCut bc;
   CHECK(bc.pool() == nullptr);
 
@@ -3422,8 +3304,6 @@ auto make_2phase_2scenario_planning() -> Planning
 
 TEST_CASE("SDDPMethod - 2-phase linear converges")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_2phase_linear_planning();
   PlanningLP plp(std::move(planning));
 
@@ -3473,8 +3353,6 @@ TEST_CASE("SDDPMethod - 2-phase linear converges")  // NOLINT
 
 TEST_CASE("SDDPMethod - 2-phase with apertures converges")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_2phase_2scenario_planning();
   PlanningLP plp(std::move(planning));
 
@@ -3515,8 +3393,6 @@ TEST_CASE("SDDPMethod - 2-phase with apertures converges")  // NOLINT
 TEST_CASE(
     "compute_scene_weights - all scenes feasible, equal probability")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // 3 feasible scenes, no SceneLP objects (uses fallback weight=1)
   const std::vector<uint8_t> feasible {1, 1, 1};
   const std::vector<SceneLP> scenes {};  // empty → uses fallback 1.0 per scene
@@ -3529,8 +3405,6 @@ TEST_CASE(
 
 TEST_CASE("compute_scene_weights - one scene infeasible")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // scene 1 infeasible → weight must be 0, remaining two share probability
   const std::vector<uint8_t> feasible {1, 0, 1};
   const std::vector<SceneLP> scenes {};
@@ -3544,8 +3418,6 @@ TEST_CASE("compute_scene_weights - one scene infeasible")  // NOLINT
 TEST_CASE(
     "compute_scene_weights - all scenes infeasible returns zeros")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   const std::vector<uint8_t> feasible {0, 0, 0};
   const std::vector<SceneLP> scenes {};
   const auto w = compute_scene_weights(scenes, feasible);
@@ -3558,8 +3430,6 @@ TEST_CASE(
 TEST_CASE(
     "compute_scene_weights - single feasible scene gets weight 1")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   const std::vector<uint8_t> feasible {0, 1, 0};
   const std::vector<SceneLP> scenes {};
   const auto w = compute_scene_weights(scenes, feasible);
@@ -3571,82 +3441,68 @@ TEST_CASE(
 
 TEST_CASE("compute_convergence_gap - basic gap")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   CHECK(compute_convergence_gap(100.0, 90.0) == doctest::Approx(0.1));
 }
 
 TEST_CASE(
     "compute_convergence_gap - zero upper bound uses denominator 1")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // denom = max(1.0, |0.0|) = 1.0
   CHECK(compute_convergence_gap(0.0, -1.0) == doctest::Approx(1.0));
 }
 
 TEST_CASE("compute_convergence_gap - converged returns zero gap")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   CHECK(compute_convergence_gap(50.0, 50.0) == doctest::Approx(0.0));
 }
 
 TEST_CASE("compute_convergence_gap - large absolute upper bound")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // denom = max(1.0, 1000.0) = 1000.0 → gap = 10/1000 = 0.01
   CHECK(compute_convergence_gap(1000.0, 990.0) == doctest::Approx(0.01));
 }
 
-// ─── lp_build tests ─────────────────────────────────────────────────────
+// ─── lp_only tests ─────────────────────────────────────────────────────
 
-TEST_CASE("SDDPMethod - lp_build=true builds LP only, no solving")  // NOLINT
+TEST_CASE("SDDPMethod - lp_only=true builds LP only, no solving")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_3phase_hydro_planning();
 
   // Use the 3-phase hydro planning that the other SDDP tests use.
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 100;  // would run many iterations normally
-  sddp_opts.lp_build = true;  // build LP only — no solving whatsoever
+  sddp_opts.lp_only = true;  // build LP only — no solving whatsoever
 
   PlanningLP planning_lp(std::move(planning));
   SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();
 
   REQUIRE(results.has_value());
-  // lp_build returns immediately before initialize_solver()
+  // lp_only returns immediately before initialize_solver()
   // → empty results vector (no forward pass, no iterations)
   CHECK(results->empty());
 }
 
-TEST_CASE("SDDPPlanningMethod - lp_build=true returns 0")  // NOLINT
+TEST_CASE("SDDPPlanningMethod - lp_only=true returns 0")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_3phase_hydro_planning();
   planning.options.method = MethodType::sddp;
-  planning.options.lp_build = OptBool {true};
+  planning.options.lp_only = OptBool {true};
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
-  // lp_build succeeds with return value 0 (no solving performed)
+  // lp_only succeeds with return value 0 (no solving performed)
   REQUIRE(result.has_value());
   CHECK(*result == 0);
 }
 
 TEST_CASE(
-    "gtopt_main - lp_build=true with SDDP solver builds LP only")  // NOLINT
+    "gtopt_main - lp_only=true with SDDP solver builds LP only")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Minimal multi-phase SDDP JSON: two phases so the SDDP solver accepts it.
-  // lp_build should build the LP and return 0 without any solving.
-  constexpr auto sddp_lp_build_json = R"({
+  // lp_only should build the LP and return 0 without any solving.
+  constexpr auto sddp_lp_only_json = R"({
     "options": {
       "demand_fail_cost": 1000,
       "output_compression": "uncompressed",
@@ -3669,7 +3525,7 @@ TEST_CASE(
       ]
     },
     "system": {
-      "name": "sddp_lp_build_test",
+      "name": "sddp_lp_only_test",
       "bus_array": [{"uid": 1, "name": "b1"}],
       "generator_array": [
         {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
@@ -3680,16 +3536,15 @@ TEST_CASE(
     }
   })";
 
-  const auto tmp =
-      std::filesystem::temp_directory_path() / "sddp_lp_build_test";
+  const auto tmp = std::filesystem::temp_directory_path() / "sddp_lp_only_test";
   {
     std::ofstream ofs(tmp.string() + ".json");
-    ofs << sddp_lp_build_json;
+    ofs << sddp_lp_only_json;
   }
 
   auto result = gtopt_main(MainOptions {
       .planning_files = {tmp.string()},
-      .lp_build = true,
+      .lp_only = true,
   });
 
   REQUIRE(result.has_value());
@@ -3893,8 +3748,6 @@ auto make_nphase_simple_hydro_planning(int num_phases) -> Planning
 TEST_CASE(  // NOLINT
     "SDDP backward pass - 1-phase (boundary): solver rejects single phase")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Phase count = 1 is below the SDDP minimum of 2.
   // The solver must return an error rather than solving.
   auto planning = make_nphase_simple_hydro_planning(1);
@@ -3917,8 +3770,6 @@ TEST_CASE(  // NOLINT
     "SDDP backward pass - 2-phase (boundary): lower bound rises after "
     "backward pass")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_nphase_simple_hydro_planning(2);
   PlanningLP plp(std::move(planning));
 
@@ -3958,8 +3809,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDP backward pass - 2-phase: one cut added per iteration (N-1 = 1)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_nphase_simple_hydro_planning(2);
   PlanningLP plp(std::move(planning));
 
@@ -3980,8 +3829,6 @@ TEST_CASE(  // NOLINT
     "SDDP forward propagation - 2-phase: forward objective populated for "
     "each phase")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_nphase_simple_hydro_planning(2);
   PlanningLP plp(std::move(planning));
 
@@ -4010,8 +3857,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDP backward pass - 3-phase: two cuts added per iteration (N-1 = 2)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_nphase_simple_hydro_planning(3);
   PlanningLP plp(std::move(planning));
 
@@ -4030,8 +3875,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDP forward propagation - 3-phase: state variables link all phases")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_nphase_simple_hydro_planning(3);
   PlanningLP plp(std::move(planning));
 
@@ -4069,8 +3912,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDP backward pass - 3-phase: lower bound rises after backward pass")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_nphase_simple_hydro_planning(3);
   PlanningLP plp(std::move(planning));
 
@@ -4104,8 +3945,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDP backward pass - 4-phase: three cuts added per iteration (N-1 = 3)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_nphase_simple_hydro_planning(4);
   PlanningLP plp(std::move(planning));
 
@@ -4124,8 +3963,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDP forward propagation - 4-phase: state links span all phases")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_nphase_simple_hydro_planning(4);
   PlanningLP plp(std::move(planning));
 
@@ -4148,8 +3985,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDP backward pass - 4-phase: lower bound rises and converges")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_nphase_simple_hydro_planning(4);
   PlanningLP plp(std::move(planning));
 
@@ -4183,8 +4018,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDP backward pass - 5-phase: four cuts added per iteration (N-1 = 4)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_nphase_simple_hydro_planning(5);
   PlanningLP plp(std::move(planning));
 
@@ -4203,8 +4036,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDP forward propagation - 5-phase: state links span phases 0..3")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_nphase_simple_hydro_planning(5);
   PlanningLP plp(std::move(planning));
 
@@ -4228,8 +4059,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDP backward pass - 5-phase: lower bound rises and converges")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_nphase_simple_hydro_planning(5);
   PlanningLP plp(std::move(planning));
 
@@ -4264,8 +4093,6 @@ TEST_CASE(  // NOLINT
     "SDDP backward pass - stored cuts equal (N-1) per iteration across "
     "phase counts")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // For each phase count n ∈ {2, 3, 4, 5} run exactly k iterations and verify
   // that the total stored cuts equals k × (n-1).  This directly validates the
   // backward loop range [1, n) and confirms the predicate fix allows the full
@@ -4302,8 +4129,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDP vs monolithic - N-phase (2..5) objectives agree within 5%")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Parameterised over n ∈ {2, 3, 4, 5}.
   // Verifies that the SDDP upper bound at convergence is within 5% of the
   // monolithic total objective, confirming correct forward propagation
@@ -4359,8 +4184,6 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("SDDPMethod - forget_first_cuts removes inherited cuts")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Solve to generate some cuts, then use forget_first_cuts to remove a
   // subset and verify LP row counts and stored cut counts are consistent.
   auto planning = make_3phase_hydro_planning();
@@ -4472,8 +4295,6 @@ TEST_CASE("SDDPMethod - forget_first_cuts removes inherited cuts")  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod primary convergence - gap < convergence_tol stops the loop")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // 3-phase hydro problem converges in a few iterations.
   // Verify that the primary criterion (gap < convergence_tol) fires and that
   // SDDPIterationResult fields are properly populated.
@@ -4509,8 +4330,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod stationary convergence - fires when gap stops improving")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // The hydro problem converges to a gap of ~0 after a few iterations.
   // By setting convergence_tol to a negative value (-1.0), the primary
   // criterion (gap < convergence_tol) can never be satisfied.
@@ -4551,8 +4370,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod stationary convergence - gap_change populated after window")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Verify that gap_change is 1.0 only for the first iteration (no prior
   // result), and is computed from iteration 1 onward using
   // min(window, available) look-back.  Stationary convergence still
@@ -4590,8 +4407,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "PlanningLP::SddpSummary populated after SDDP solve")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // After a successful SDDP solve, PlanningLP::sddp_summary() must contain
   // meaningful gap/gap_change/converged values, and write_out() must emit
   // gap and gap_change columns in solution.csv.
@@ -4667,8 +4482,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(
     "SystemLP::update_lp dispatches to all HasUpdateLP elements")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Build a system with all three HasUpdateLP element types:
   //   ReservoirProductionFactorLP, ReservoirSeepageLP,
   //   ReservoirDischargeLimitLP
@@ -5055,8 +4868,6 @@ inline auto make_tight_reservoir_3phase_planning() -> Planning
 TEST_CASE(  // NOLINT
     "SDDPMethod — forward pass elastic fallback converges")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_tight_reservoir_3phase_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -5075,8 +4886,6 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("SDDPMethod — warm_start=false converges")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -5098,8 +4907,6 @@ TEST_CASE("SDDPMethod — warm_start=false converges")  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — cut_sharing accumulate mode via solve")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
   PlanningLP planning_lp(std::move(planning));
 
@@ -5119,8 +4926,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — cut_sharing expected mode via solve")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_2scene_3phase_hydro_planning(0.7, 0.3);
   PlanningLP planning_lp(std::move(planning));
 
@@ -5140,8 +4945,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — cut_sharing max mode via solve")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   PlanningLP planning_lp(std::move(planning));
 
@@ -5163,8 +4966,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — cut pruning bounds stored cuts")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -5191,8 +4992,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — stationary convergence triggers")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -5223,8 +5022,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — simulation_mode runs evaluation only")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // First train the solver to get cuts
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -5253,8 +5050,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — cut_coeff_mode row_dual converges")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_2phase_linear_planning();
   PlanningLP plp(std::move(planning));
 
@@ -5288,8 +5083,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — reduced_cost and row_dual produce same objective")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   // Solve the same problem with both modes and verify they converge to
   // the same objective value (within tolerance).
   auto planning_rc = make_2phase_linear_planning();
@@ -5329,8 +5122,6 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — row_dual with 3-phase hydro converges")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
   auto planning = make_3phase_hydro_planning();
   PlanningLP plp(std::move(planning));
 

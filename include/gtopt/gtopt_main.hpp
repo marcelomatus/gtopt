@@ -19,7 +19,7 @@
 #include <string>
 #include <vector>
 
-#include <gtopt/lp_build_options.hpp>
+#include <gtopt/lp_matrix_options.hpp>
 #include <gtopt/solver_options.hpp>
 
 namespace gtopt
@@ -78,7 +78,7 @@ struct MainOptions
   /** @brief Epsilon tolerance for LP matrix coefficients */
   std::optional<double> matrix_eps {};
   /** @brief Build all scene/phase LP matrices but skip solving entirely */
-  std::optional<bool> lp_build {};
+  std::optional<bool> lp_only {};
   /** @brief Save debug LP files to the log directory (monolithic: one per
    * scene/phase; SDDP: one per iteration/scene/phase) */
   std::optional<bool> lp_debug {};

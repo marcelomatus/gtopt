@@ -33,7 +33,7 @@ TEST_CASE("Options - Default construction")
   CHECK_FALSE(options.output_directory.has_value());
   CHECK_FALSE(options.output_format.has_value());
   CHECK_FALSE(options.output_compression.has_value());
-  CHECK_FALSE(options.lp_build_options.names_level.has_value());
+  CHECK_FALSE(options.lp_matrix_options.names_level.has_value());
   CHECK_FALSE(options.use_uid_fname.has_value());
   CHECK_FALSE(options.annual_discount_rate.has_value());
   // Check solver_options defaults (sentinel values — backend fills in optimal)
@@ -62,7 +62,7 @@ TEST_CASE("Options - Construction with values")
       .output_format = DataFormat::csv,
       .output_compression = CompressionCodec::gzip,
       .use_uid_fname = false,
-      .lp_build_options {
+      .lp_matrix_options {
           .names_level = LpNamesLevel::only_cols,
       },
   };
@@ -107,8 +107,8 @@ TEST_CASE("Options - Construction with values")
   REQUIRE(options.output_compression.has_value());
   CHECK(*options.output_compression == CompressionCodec::gzip);
 
-  REQUIRE(options.lp_build_options.names_level.has_value());
-  CHECK(*options.lp_build_options.names_level == LpNamesLevel::only_cols);
+  REQUIRE(options.lp_matrix_options.names_level.has_value());
+  CHECK(*options.lp_matrix_options.names_level == LpNamesLevel::only_cols);
 
   REQUIRE(options.use_uid_fname.has_value());
   CHECK(*options.use_uid_fname == false);
@@ -441,7 +441,7 @@ TEST_CASE("PlanningOptionsLP - Test all accessor methods")
       .output_format = DataFormat::parquet,
       .output_compression = CompressionCodec::bzip2,
       .use_uid_fname = true,
-      .lp_build_options {
+      .lp_matrix_options {
           .names_level = LpNamesLevel::only_cols,
       },
   };
@@ -638,14 +638,14 @@ TEST_CASE("Options - Solver options merge with scaling")  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "Options - LpBuildOptions equilibration_method merge_opt")
+    "Options - LpMatrixOptions equilibration_method merge_opt")
 {
   using namespace gtopt;
 
   SUBCASE("default is nullopt")
   {
     PlanningOptions base {};
-    CHECK_FALSE(base.lp_build_options.equilibration_method.has_value());
+    CHECK_FALSE(base.lp_matrix_options.equilibration_method.has_value());
   }
 
   SUBCASE("nullopt + nullopt = nullopt")
@@ -653,17 +653,17 @@ TEST_CASE(  // NOLINT
     PlanningOptions base {};
     PlanningOptions overlay {};
     base.merge(std::move(overlay));
-    CHECK_FALSE(base.lp_build_options.equilibration_method.has_value());
+    CHECK_FALSE(base.lp_matrix_options.equilibration_method.has_value());
   }
 
   SUBCASE("overlay wins over nullopt")
   {
     PlanningOptions base {};
     PlanningOptions overlay {};
-    overlay.lp_build_options.equilibration_method =
+    overlay.lp_matrix_options.equilibration_method =
         LpEquilibrationMethod::row_max;
     base.merge(std::move(overlay));
-    CHECK(base.lp_build_options.equilibration_method.value_or(
+    CHECK(base.lp_matrix_options.equilibration_method.value_or(
               LpEquilibrationMethod::none)
           == LpEquilibrationMethod::row_max);
   }
@@ -671,11 +671,13 @@ TEST_CASE(  // NOLINT
   SUBCASE("overlay wins over base")
   {
     PlanningOptions base {};
-    base.lp_build_options.equilibration_method = LpEquilibrationMethod::row_max;
+    base.lp_matrix_options.equilibration_method =
+        LpEquilibrationMethod::row_max;
     PlanningOptions overlay {};
-    overlay.lp_build_options.equilibration_method = LpEquilibrationMethod::ruiz;
+    overlay.lp_matrix_options.equilibration_method =
+        LpEquilibrationMethod::ruiz;
     base.merge(std::move(overlay));
-    CHECK(base.lp_build_options.equilibration_method.value_or(
+    CHECK(base.lp_matrix_options.equilibration_method.value_or(
               LpEquilibrationMethod::none)
           == LpEquilibrationMethod::ruiz);
   }
@@ -683,40 +685,41 @@ TEST_CASE(  // NOLINT
   SUBCASE("base preserved when overlay is nullopt")
   {
     PlanningOptions base {};
-    base.lp_build_options.equilibration_method = LpEquilibrationMethod::row_max;
+    base.lp_matrix_options.equilibration_method =
+        LpEquilibrationMethod::row_max;
     PlanningOptions overlay {};
     base.merge(std::move(overlay));
-    CHECK(base.lp_build_options.equilibration_method.value_or(
+    CHECK(base.lp_matrix_options.equilibration_method.value_or(
               LpEquilibrationMethod::none)
           == LpEquilibrationMethod::row_max);
   }
 }
 
-TEST_CASE("Options - LpBuildOptions lp_coeff_ratio_threshold merge")  // NOLINT
+TEST_CASE("Options - LpMatrixOptions lp_coeff_ratio_threshold merge")  // NOLINT
 {
   using namespace gtopt;
 
   // merge_opt is last-value-wins: overlay replaces base
   PlanningOptions base {};
-  base.lp_build_options.lp_coeff_ratio_threshold = 1e7;
+  base.lp_matrix_options.lp_coeff_ratio_threshold = 1e7;
   PlanningOptions overlay {};
-  overlay.lp_build_options.lp_coeff_ratio_threshold = 1e5;
+  overlay.lp_matrix_options.lp_coeff_ratio_threshold = 1e5;
 
   base.merge(std::move(overlay));
 
-  REQUIRE(base.lp_build_options.lp_coeff_ratio_threshold.has_value());
-  CHECK(base.lp_build_options.lp_coeff_ratio_threshold.value_or(0.0)
+  REQUIRE(base.lp_matrix_options.lp_coeff_ratio_threshold.has_value());
+  CHECK(base.lp_matrix_options.lp_coeff_ratio_threshold.value_or(0.0)
         == doctest::Approx(1e5));
 
   // Overlay without value does NOT overwrite base
   PlanningOptions base2 {};
-  base2.lp_build_options.lp_coeff_ratio_threshold = 1e7;
+  base2.lp_matrix_options.lp_coeff_ratio_threshold = 1e7;
   PlanningOptions overlay2 {};
 
   base2.merge(std::move(overlay2));
 
-  REQUIRE(base2.lp_build_options.lp_coeff_ratio_threshold.has_value());
-  CHECK(base2.lp_build_options.lp_coeff_ratio_threshold.value_or(0.0)
+  REQUIRE(base2.lp_matrix_options.lp_coeff_ratio_threshold.has_value());
+  CHECK(base2.lp_matrix_options.lp_coeff_ratio_threshold.value_or(0.0)
         == doctest::Approx(1e7));
 }
 

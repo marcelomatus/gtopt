@@ -7,7 +7,7 @@
  *
  * This module provides utility functions for parsing command-line options
  * using a modern C++ command-line parser, applying parsed options to Planning
- * configurations, and building LpBuildOptions from command-line parameters.
+ * configurations, and building LpMatrixOptions from command-line parameters.
  */
 
 #pragma once
@@ -129,7 +129,7 @@ template<typename T>
       ("matrix-eps,e",
        po::value<double>(),
        "epsilon threshold for treating LP matrix coefficients as zero")  //
-      ("lp-build,c",
+      ("lp-only,c",
        po::value<bool>().implicit_value(/*v=*/true),
        "build all LP matrices then exit without solving (combine with -l to "
        "save them)")  //
@@ -247,7 +247,7 @@ inline void apply_cli_options(
   }
 
   if (lp_names_level) {
-    planning.options.lp_build_options.names_level = lp_names_level;
+    planning.options.lp_matrix_options.names_level = lp_names_level;
   }
 
   if (output_directory) {
@@ -322,7 +322,7 @@ inline void apply_cli_options(
   }
 
   if (lp_coeff_ratio_threshold) {
-    planning.options.lp_build_options.lp_coeff_ratio_threshold =
+    planning.options.lp_matrix_options.lp_coeff_ratio_threshold =
         lp_coeff_ratio_threshold;
   }
 }
@@ -421,7 +421,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   warn_deprecated_cli(opts.lp_compression, "lp-compression", "lp_compression");
   warn_deprecated_cli(opts.lp_coeff_ratio_threshold,
                       "lp-coeff-ratio",
-                      "lp_build_options.lp_coeff_ratio_threshold");
+                      "lp_matrix_options.lp_coeff_ratio_threshold");
 
   apply_cli_options(planning,
                     opts.use_single_bus,
@@ -498,7 +498,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 }
 
 /**
- * @brief Build LpBuildOptions from command-line parameters
+ * @brief Build LpMatrixOptions from command-line parameters
  *
  * @param lp_names_level       Optional LP naming level
  * @param matrix_eps           Optional epsilon tolerance for matrix
@@ -507,9 +507,9 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
  *                             false)
  * @param lp_solver            Optional solver name to use
  * @param equilibration_method Optional equilibration method
- * @return LpBuildOptions configured according to the parameters
+ * @return LpMatrixOptions configured according to the parameters
  */
-[[nodiscard]] inline LpBuildOptions make_lp_build_options(
+[[nodiscard]] inline LpMatrixOptions make_lp_matrix_options(
     const std::optional<LpNamesLevel>& lp_names_level,
     const std::optional<double>& matrix_eps,
     bool compute_stats = false,
@@ -519,18 +519,18 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   const auto eps = matrix_eps.value_or(0);
   const auto lvl = lp_names_level.value_or(LpNamesLevel::minimal);
 
-  LpBuildOptions lp_build_opts;
-  lp_build_opts.eps = eps;
-  lp_build_opts.col_with_names = lvl >= LpNamesLevel::minimal;
-  lp_build_opts.row_with_names = lvl >= LpNamesLevel::only_cols;
-  lp_build_opts.col_with_name_map = lvl >= LpNamesLevel::only_cols;
-  lp_build_opts.row_with_name_map = lvl >= LpNamesLevel::only_cols;
-  lp_build_opts.compute_stats = compute_stats;
-  lp_build_opts.lp_names_level = lvl;
-  lp_build_opts.solver_name = lp_solver.value_or("");
-  lp_build_opts.equilibration_method = equilibration_method;
+  LpMatrixOptions lp_matrix_opts;
+  lp_matrix_opts.eps = eps;
+  lp_matrix_opts.col_with_names = lvl >= LpNamesLevel::minimal;
+  lp_matrix_opts.row_with_names = lvl >= LpNamesLevel::only_cols;
+  lp_matrix_opts.col_with_name_map = lvl >= LpNamesLevel::only_cols;
+  lp_matrix_opts.row_with_name_map = lvl >= LpNamesLevel::only_cols;
+  lp_matrix_opts.compute_stats = compute_stats;
+  lp_matrix_opts.lp_names_level = lvl;
+  lp_matrix_opts.solver_name = lp_solver.value_or("");
+  lp_matrix_opts.equilibration_method = equilibration_method;
 
-  return lp_build_opts;
+  return lp_matrix_opts;
 }
 
 /**
@@ -565,7 +565,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
         return std::nullopt;
       }(),
       .matrix_eps = get_opt<double>(vm, "matrix-eps"),
-      .lp_build = get_opt<bool>(vm, "lp-build"),
+      .lp_only = get_opt<bool>(vm, "lp-only"),
       .lp_debug = get_opt<bool>(vm, "lp-debug"),
       .lp_compression = get_opt<std::string>(vm, "lp-compression"),
       .lp_coeff_ratio_threshold = get_opt<double>(vm, "lp-coeff-ratio"),
@@ -698,7 +698,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     }
   }
   opts.matrix_eps = get_dbl("matrix-eps");
-  opts.lp_build = get_bool("lp-build");
+  opts.lp_only = get_bool("lp-only");
   opts.lp_debug = get_bool("lp-debug");
   opts.lp_compression = get_str("lp-compression");
   opts.lp_coeff_ratio_threshold = get_dbl("lp-coeff-ratio");
@@ -850,7 +850,7 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.lp_file, defaults.lp_file);
   merge(opts.lp_names_level, defaults.lp_names_level);
   merge(opts.matrix_eps, defaults.matrix_eps);
-  merge(opts.lp_build, defaults.lp_build);
+  merge(opts.lp_only, defaults.lp_only);
   merge(opts.lp_debug, defaults.lp_debug);
   merge(opts.lp_compression, defaults.lp_compression);
   merge(opts.lp_coeff_ratio_threshold, defaults.lp_coeff_ratio_threshold);

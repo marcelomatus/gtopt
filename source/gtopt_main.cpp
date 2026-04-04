@@ -11,7 +11,7 @@
  * Key options handled here:
  *  - `planning_files`: list of JSON case file stems to load and merge.
  *  - `fast_parsing`: use lenient (non-strict) JSON parsing.
- *  - `lp_build`: build all scene/phase LP matrices but skip solving;
+ *  - `lp_only`: build all scene/phase LP matrices but skip solving;
  *    validating input without running the solver.
  *  - `json_file`: write the merged Planning to a JSON file before solving.
  *  - `lp_file`: write the flat LP model to a `.lp` file before solving.
@@ -559,7 +559,7 @@ void log_pre_solve_stats(
                                     PlanningOptionsLP::default_scale_theta)));
   spdlog::info(std::format(
       "  equilibration   : {}",
-      enum_name(plan_opts.lp_build_options.equilibration_method.value_or(
+      enum_name(plan_opts.lp_matrix_options.equilibration_method.value_or(
           LpEquilibrationMethod::none))));
   spdlog::info(
       std::format("  demand_fail_cost: {}", mo.demand_fail_cost.value_or(0.0)));
@@ -783,9 +783,9 @@ void setup_trace_log(const MainOptions& opts)
       enum_from_name<CompressionCodec>(probe_parquet_codec(
           PlanningOptionsLP(planning.options).output_compression()));
 
-  // Propagate lp_build so the SDDP solver also sees it.
-  if (opts.lp_build) {
-    planning.options.lp_build = opts.lp_build;
+  // Propagate lp_only so the SDDP solver also sees it.
+  if (opts.lp_only) {
+    planning.options.lp_only = opts.lp_only;
   }
 
   // Load user constraints from external file(s)
@@ -820,21 +820,21 @@ void setup_trace_log(const MainOptions& opts)
 /// Prepare LP build options and apply per-solver config.
 ///
 /// Logs pre-build statistics if @p do_stats is true.  The returned
-/// LpBuildOptions should be passed to the PlanningLP constructor.
-[[nodiscard]] LpBuildOptions prepare_lp_build(Planning& planning,
-                                              const MainOptions& opts,
-                                              bool do_stats)
+/// LpMatrixOptions should be passed to the PlanningLP constructor.
+[[nodiscard]] LpMatrixOptions prepare_matrix_options(Planning& planning,
+                                                     const MainOptions& opts,
+                                                     bool do_stats)
 {
   // CLI --lp-names-level overrides --set; fall back to merged planning.
   const auto eff_names_level = opts.lp_names_level
       ? opts.lp_names_level
-      : planning.options.lp_build_options.names_level;
-  auto flat_opts = make_lp_build_options(
+      : planning.options.lp_matrix_options.names_level;
+  auto flat_opts = make_lp_matrix_options(
       eff_names_level,
       opts.matrix_eps,
       do_stats,
       opts.solver,
-      planning.options.lp_build_options.equilibration_method);
+      planning.options.lp_matrix_options.equilibration_method);
 
   if (do_stats) {
     log_pre_solve_stats(opts.planning_files, planning);
@@ -1031,8 +1031,10 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
     // Build the LP model
     try {
       const bool do_stats = opts.print_stats.value_or(true)
-          || my_planning.options.lp_build_options.compute_stats.value_or(false);
-      const auto flat_opts = prepare_lp_build(my_planning, opts, do_stats);
+          || my_planning.options.lp_matrix_options.compute_stats.value_or(
+              false);
+      const auto flat_opts =
+          prepare_matrix_options(my_planning, opts, do_stats);
 
       spdlog::info("=== Building LP model ===");
       const spdlog::stopwatch build_sw;
@@ -1049,9 +1051,9 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
         log_lp_coefficient_stats(planning_lp);
       }
 
-      // lp_build: skip solving if only LP assembly was requested
-      if (opts.lp_build.value_or(false) || planning_lp.options().lp_build()) {
-        spdlog::info("lp_build: all LP matrices built, skipping solve");
+      // lp_only: skip solving if only LP assembly was requested
+      if (opts.lp_only.value_or(false) || planning_lp.options().lp_only()) {
+        spdlog::info("lp_only: all LP matrices built, skipping solve");
         return 0;
       }
 

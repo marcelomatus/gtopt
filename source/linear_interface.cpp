@@ -185,7 +185,7 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   // Preserve per-row equilibration scale factors (empty when disabled).
   m_row_scales_.assign(flat_lp.row_scales.begin(), flat_lp.row_scales.end());
 
-  // Preserve coefficient statistics computed during lp_build().
+  // Preserve coefficient statistics computed during flatten().
   m_stats_nnz_ = flat_lp.stats_nnz;
   m_stats_zeroed_ = flat_lp.stats_zeroed;
   m_stats_max_abs_ = flat_lp.stats_max_abs;

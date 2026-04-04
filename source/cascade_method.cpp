@@ -291,7 +291,7 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     {
       auto modified_planning = clone_planning_with_overrides(
           planning_lp.planning(), effective_model);
-      // Default LpBuildOptions (level 0) provides col names for state variable
+      // Default LpMatrixOptions (level 0) provides col names for state variable
       // transfer — no explicit override needed.
       auto new_lp = std::make_unique<PlanningLP>(std::move(modified_planning));
       current_lp = new_lp.get();

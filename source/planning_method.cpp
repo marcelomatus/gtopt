@@ -118,7 +118,7 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       // Logging and API
       sddp_opts.log_directory = std::string(options.log_directory());
       sddp_opts.lp_debug = options.lp_debug();
-      sddp_opts.lp_build = options.lp_build();
+      sddp_opts.lp_only = options.lp_only();
       sddp_opts.lp_debug_compression = std::string(options.lp_compression());
       sddp_opts.lp_debug_scene_min = options.lp_debug_scene_min();
       sddp_opts.lp_debug_scene_max = options.lp_debug_scene_max();
@@ -249,7 +249,7 @@ std::unique_ptr<PlanningMethod> make_planning_method(
 
       sddp_opts.log_directory = std::string(options.log_directory());
       sddp_opts.lp_debug = options.lp_debug();
-      sddp_opts.lp_build = options.lp_build();
+      sddp_opts.lp_only = options.lp_only();
       sddp_opts.lp_debug_compression = std::string(options.lp_compression());
       sddp_opts.lp_debug_scene_min = options.lp_debug_scene_min();
       sddp_opts.lp_debug_scene_max = options.lp_debug_scene_max();

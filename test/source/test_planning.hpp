@@ -124,7 +124,7 @@ TEST_CASE("PlanningLP - Default construction")
   };
 
   // Convert options to flat options
-  const LpBuildOptions flat_options;
+  const LpMatrixOptions flat_options;
 
   // Test constructor
   const PlanningLP planning_lp(planning, flat_options);
@@ -174,7 +174,7 @@ TEST_CASE("PlanningLP - Create simulations")
   };
 
   // Create flat options
-  const LpBuildOptions flat_options;
+  const LpMatrixOptions flat_options;
 
   // Create planning_lp
   const PlanningLP planning_lp(planning, flat_options);
@@ -221,7 +221,7 @@ TEST_CASE("PlanningLP - Write LP file")
   };
 
   // Create flat options with lp_names_level=1 so row names are tracked.
-  LpBuildOptions flat_options;
+  LpMatrixOptions flat_options;
   flat_options.row_with_names = true;
   flat_options.row_with_name_map = true;
   flat_options.lp_names_level = LpNamesLevel::only_cols;
@@ -283,7 +283,7 @@ TEST_CASE("PlanningLP - Run LP")
   };
 
   // Create flat options
-  const LpBuildOptions flat_options;
+  const LpMatrixOptions flat_options;
 
   // Create planning_lp
   PlanningLP planning_lp(planning, flat_options);
@@ -332,7 +332,7 @@ TEST_CASE("PlanningLP - Run with write_only flag")
   };
 
   // Create flat options with lp_names_level=1 so row names are tracked.
-  LpBuildOptions flat_options;
+  LpMatrixOptions flat_options;
   flat_options.row_with_names = true;
   flat_options.row_with_name_map = true;
   flat_options.lp_names_level = LpNamesLevel::only_cols;
@@ -850,7 +850,7 @@ TEST_CASE("PlanningLP - auto_scale_theta with const Planning")
 static constexpr std::string_view planning_json = R"({
   "options": {
     "annual_discount_rate": 0.1,
-    "lp_build_options": {"names_level": 1},
+    "lp_matrix_options": {"names_level": 1},
     "output_compression": "uncompressed",
     "demand_fail_cost": 1000,
     "scale_objective": 1000
