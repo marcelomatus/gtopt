@@ -164,11 +164,10 @@ else()
   message(STATUS "PatchMcss: anonymous namespace patch already applied in parse_xml")
 endif()
 
-# ---------- Patch 5: Suppress warning for .text language in programlisting ---
-# Doxygen emits <programlisting filename=".text"> for ```text code blocks.
-# m.css doesn't recognize .text and logs a warning before falling back to
-# TextLexer anyway.  Fix: check for '.text' before the lexer lookup and
-# use TextLexer directly.
+# ---------- Patch 5: Map custom extensions to Pygments lexers ----------------
+# Doxygen emits <programlisting filename=".ext"> for ```ext code blocks.
+# m.css doesn't recognize .text/.pampl/.tampl and logs warnings.
+# Fix: map these extensions to known Pygments lexers before the fallback.
 set(_old_unrecognized [==[            # Otherwise try to find lexer by filename
             else:
                 # Put some bogus prefix to the filename in case it is just
@@ -179,7 +178,8 @@ set(_old_unrecognized [==[            # Otherwise try to find lexer by filename
                     lexer = TextLexer()
                 else: lexer = lexer()]==])
 
-set(_new_unrecognized [==[            # Otherwise try to find lexer by filename
+# Previous version of this patch only handled .text
+set(_old_text_only [==[            # Otherwise try to find lexer by filename
             else:
                 # Treat .text as plain text without warning
                 if filename == '.text':
@@ -193,18 +193,43 @@ set(_new_unrecognized [==[            # Otherwise try to find lexer by filename
                         lexer = TextLexer()
                     else: lexer = lexer()]==])
 
+set(_new_unrecognized [==[            # Otherwise try to find lexer by filename
+            else:
+                # Map custom extensions to known Pygments lexers
+                _custom_lang_map = {'.text': 'text', '.pampl': 'ampl', '.tampl': 'ampl', '.ampl': 'ampl', '.csv': 'text', '.mermaid': 'text'}
+                if filename in _custom_lang_map:
+                    from pygments.lexers import get_lexer_by_name as _get
+                    lexer = _get(_custom_lang_map[filename])
+                else:
+                    # Put some bogus prefix to the filename in case it is just
+                    # `.ext`
+                    lexer = find_lexer_class_for_filename("code" + filename)
+                    if not lexer:
+                        logging.warning("{}: unrecognized language of {} in <programlisting>, highlighting disabled".format(state.current, filename))
+                        lexer = TextLexer()
+                    else: lexer = lexer()]==])
+
 string(FIND "${_mcss_src}" "${_new_unrecognized}" _already_patched_text)
 if(_already_patched_text EQUAL -1)
-  string(FIND "${_mcss_src}" "${_old_unrecognized}" _found_text)
-  if(NOT _found_text EQUAL -1)
-    string(REPLACE "${_old_unrecognized}" "${_new_unrecognized}" _mcss_src "${_mcss_src}")
+  # Try replacing the .text-only version (old Patch 5)
+  string(FIND "${_mcss_src}" "${_old_text_only}" _found_text_only)
+  if(NOT _found_text_only EQUAL -1)
+    string(REPLACE "${_old_text_only}" "${_new_unrecognized}" _mcss_src "${_mcss_src}")
     set(_mcss_changed TRUE)
-    message(STATUS "PatchMcss: applied .text language recognition patch")
+    message(STATUS "PatchMcss: upgraded .text patch to custom language map")
   else()
-    message(WARNING "PatchMcss: .text language patch target not found")
+    # Try the original unpatched version
+    string(FIND "${_mcss_src}" "${_old_unrecognized}" _found_text)
+    if(NOT _found_text EQUAL -1)
+      string(REPLACE "${_old_unrecognized}" "${_new_unrecognized}" _mcss_src "${_mcss_src}")
+      set(_mcss_changed TRUE)
+      message(STATUS "PatchMcss: applied custom language map patch")
+    else()
+      message(WARNING "PatchMcss: custom language map patch target not found")
+    endif()
   endif()
 else()
-  message(STATUS "PatchMcss: .text language patch already applied")
+  message(STATUS "PatchMcss: custom language map patch already applied")
 endif()
 
 # ---------- Patch 6: Template param name extraction from <ref> tags ----------

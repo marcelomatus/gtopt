@@ -32,6 +32,12 @@ OUTPUT_DIRECTORY = @DOXYGEN_OUTPUT_DIRECTORY@
 # File patterns — .dox is not in the default list so must be listed explicitly
 FILE_PATTERNS = *.hpp *.cpp *.h *.md *.dox
 
+# Map custom file extensions to known languages for syntax highlighting
+# in fenced code blocks (```pampl, ```tampl).  The actual highlighting is
+# handled by the m.css PatchMcss.cmake patch that maps .pampl/.tampl to
+# the Pygments AMPL lexer.
+EXTENSION_MAPPING = pampl=C tampl=C
+
 # Use the README as a main page
 USE_MDFILE_AS_MAINPAGE = @DOXYGEN_PROJECT_ROOT@/README.md
 
