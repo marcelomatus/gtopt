@@ -1062,7 +1062,7 @@ gtopt/
         ├── install-apt-deps/        # Installs COIN-OR, Boost, spdlog, Arrow/Parquet
         ├── install-clang/           # Installs Clang/LLVM from apt.llvm.org
         ├── install-gcc/             # Registers GCC unversioned alternatives
-        └── setup-llvm-alternatives/ # Registers LLVM unversioned alternatives
+        └── setup-python-uv/        # Python 3.12 + uv cache setup
 ```
 
 ### Key headers to understand first

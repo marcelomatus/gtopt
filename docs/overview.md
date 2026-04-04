@@ -379,7 +379,6 @@ Located in `.github/workflows/`:
 | `webservice.yml` | push / PR to main | Next.js build + e2e tests |
 | `docs.yml` | push to master | Doxygen + m.css docs → GitHub Pages |
 | `coverage.yml` | manual / push | C++ and Python coverage reports |
-| `clang-tidy.yml` | manual dispatch | Full static analysis |
 
 ---
 

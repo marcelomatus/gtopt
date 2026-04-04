@@ -190,6 +190,7 @@ jobs:
             build/standalone/gtopt
             build/standalone/libgtopt_solver_*.so
           retention-days: 7
+          if-no-files-found: warn
 
       - name: collect coverage (unit + integration)
         if: env.ENABLE_COVERAGE == 'true'
@@ -246,6 +247,7 @@ jobs:
           name: cpp-coverage-report-${{ env.ACTIVE_COMPILER }}
           path: coverage-report/
           retention-days: 30
+          if-no-files-found: warn
 
       - name: generate coverage summary
         if: env.ENABLE_COVERAGE == 'true'

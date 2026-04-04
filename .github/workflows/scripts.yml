@@ -70,6 +70,7 @@ jobs:
           name: python-coverage-xml
           path: scripts/coverage.xml
           retention-days: 30
+          if-no-files-found: warn
 
       - name: Generate coverage summary
         working-directory: scripts

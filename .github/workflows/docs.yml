@@ -93,6 +93,7 @@ jobs:
         with:
           name: doxygen-html
           path: build/doxygen/html/
+          if-no-files-found: warn
 
   deploy-pages:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
@@ -173,3 +174,4 @@ jobs:
         with:
           name: white-paper-pdf
           path: docs/white_paper/main.pdf
+          if-no-files-found: warn
