@@ -10,14 +10,19 @@
  */
 
 #include <doctest/doctest.h>
+#include <gtopt/block.hpp>
 #include <gtopt/block_lp.hpp>
 #include <gtopt/flat_helper.hpp>
+#include <gtopt/iteration.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/phase.hpp>
 #include <gtopt/planning.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
+#include <gtopt/scenario.hpp>
 #include <gtopt/scenario_lp.hpp>
+#include <gtopt/scene.hpp>
 #include <gtopt/simulation.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/stage_lp.hpp>
@@ -26,6 +31,11 @@
 using namespace gtopt;
 
 #include "test_annual_discount_rate.hpp"
+#include "test_block.hpp"
 #include "test_flat_helper.hpp"
+#include "test_iteration.hpp"
+#include "test_phase.hpp"
 #include "test_planning.hpp"
+#include "test_scenario.hpp"
+#include "test_scene.hpp"
 #include "test_simulation_lp.hpp"
