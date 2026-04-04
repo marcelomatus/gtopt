@@ -40,6 +40,8 @@ struct SDDPStatusSnapshot
   int min_iterations {};  ///< SDDPOptions::min_iterations
   int current_pass {};  ///< 0=idle, 1=forward, 2=backward
   int scenes_done {};  ///< Scenes completed in current pass
+  std::string solver {};  ///< Solver identity ("name/version")
+  std::string method {};  ///< Planning method ("sddp", "monolithic", …)
 };
 
 /// Write SDDP status JSON to a file.

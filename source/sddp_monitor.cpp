@@ -65,6 +65,12 @@ void write_sddp_api_status(const std::string& filepath,
   json += std::format("  \"min_iterations\": {},\n", snapshot.min_iterations);
   json += std::format("  \"current_pass\": {},\n", snapshot.current_pass);
   json += std::format("  \"scenes_done\": {},\n", snapshot.scenes_done);
+  if (!snapshot.solver.empty()) {
+    json += std::format("  \"solver\": \"{}\",\n", snapshot.solver);
+  }
+  if (!snapshot.method.empty()) {
+    json += std::format("  \"method\": \"{}\",\n", snapshot.method);
+  }
 
   // ── Iteration history ──
   json += "  \"history\": [\n";

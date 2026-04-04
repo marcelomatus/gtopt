@@ -916,6 +916,21 @@ class SolverDisplay:
         )
         self._thread.start()
 
+    def _sync_stats_from_status(self) -> None:
+        """Propagate solver/method from the status JSON into _system_stats."""
+        status = self._status
+        if not status:
+            return
+        with self._lock:
+            if not self._system_stats.get("solver"):
+                solver = status.get("solver", "")
+                if solver:
+                    self._system_stats["solver"] = solver
+            if not self._system_stats.get("method"):
+                method = status.get("method", "")
+                if method:
+                    self._system_stats["method"] = method
+
     def stop(self) -> None:
         """Signal the render thread to finish and wait for it."""
         self._stop.set()
@@ -1091,10 +1106,12 @@ class SolverDisplay:
                     if self._status_file is None or not self._status_file.is_file():
                         self._status_file = _find_status_file(self._case_dir)
                     self._status = _load_status(self._status_file)
+                    self._sync_stats_from_status()
                     live.update(self._build_display())
 
                 # One final render
                 self._status = _load_status(self._status_file)
+                self._sync_stats_from_status()
                 with self._lock:
                     self._phase_tracker.finish_all()
                 live.update(self._build_display())

@@ -239,6 +239,15 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
       json += "{\n";
       json += std::format("  \"version\": 1,\n");
       json += std::format("  \"status\": \"done\",\n");
+      json += std::format("  \"method\": \"monolithic\",\n");
+      // Query the actual solver identity from the first available LP
+      if (!planning_lp.systems().empty()
+          && !planning_lp.systems().front().empty())
+      {
+        const auto& li =
+            planning_lp.systems().front().front().linear_interface();
+        json += std::format("  \"solver\": \"{}\",\n", li.solver_id());
+      }
       json += std::format("  \"elapsed_s\": {:.3f},\n", elapsed);
       json += std::format("  \"total_scenes\": {},\n", num_scenes);
       json += std::format("  \"scenes_done\": {},\n", scenes_done.load());

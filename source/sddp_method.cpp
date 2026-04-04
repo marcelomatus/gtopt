@@ -1417,6 +1417,15 @@ void SDDPMethod::maybe_write_api_status(
   const double elapsed = std::chrono::duration<double>(
                              std::chrono::steady_clock::now() - solve_start)
                              .count();
+  // Query the actual solver identity from the first available LP
+  std::string solver_id;
+  if (!planning_lp().systems().empty()
+      && !planning_lp().systems().front().empty())
+  {
+    solver_id =
+        planning_lp().systems().front().front().linear_interface().solver_id();
+  }
+
   const SDDPStatusSnapshot snapshot {
       .iteration = m_current_iteration_.load(),
       .gap = m_current_gap_.load(),
@@ -1427,6 +1436,8 @@ void SDDPMethod::maybe_write_api_status(
       .min_iterations = m_options_.min_iterations,
       .current_pass = m_current_pass_.load(),
       .scenes_done = m_scenes_done_.load(),
+      .solver = std::move(solver_id),
+      .method = "sddp",
   };
   write_sddp_api_status(status_file, results, elapsed, snapshot, monitor);
 }
