@@ -1,0 +1,21 @@
+# =============================================================================
+# Multi-constraint file with domain restrictions
+# =============================================================================
+#
+# Demonstrates multiple constraints with for-clauses (domain restrictions)
+# that apply only to specific stages and blocks.
+
+# Peak-hour generation limit (applies to blocks 18-22, evening peak)
+constraint peak_gen_limit "Evening peak generation cap":
+  generator('G1').generation + generator('G2').generation <= 400,
+  for(block in 18..22);
+
+# Off-peak must-run constraint (blocks 1-6, nighttime)
+constraint offpeak_must_run "Minimum nighttime generation":
+  generator('G1').generation >= 50,
+  for(block in 1..6);
+
+# Seasonal line flow limit (stages 1-3, summer)
+constraint summer_flow "Summer transmission limit on L1":
+  line('L1').flow <= 150,
+  for(stage in {1,2,3});

@@ -1,0 +1,20 @@
+# =============================================================================
+# Battery constraints
+# =============================================================================
+#
+# User constraints for battery storage operation.  These complement the
+# built-in battery LP formulation with additional operational requirements.
+
+# Minimum state-of-charge at end of each day (block 24)
+constraint bat_min_soc "Battery B1 end-of-day SoC floor":
+  battery('B1').energy >= 100,
+  for(block in {24});
+
+# Maximum charge rate during peak hours
+constraint bat_peak_charge "No charging during peak":
+  battery('B1').charge <= 0,
+  for(block in 17..21);
+
+# Inactive constraint — kept for reference
+inactive constraint bat_reserve "Battery reserve margin":
+  battery('B1').energy >= 200;
