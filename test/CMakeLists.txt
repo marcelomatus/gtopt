@@ -67,6 +67,17 @@ target_link_libraries(
   gtopt::gtopt
 )
 
+# ---- Unity build ----
+# Exclude main.cpp from unity batching — it defines
+# DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN which emits doctest's implementation
+# and must be compiled as a standalone translation unit.
+set_source_files_properties(
+  "${CMAKE_CURRENT_SOURCE_DIR}/source/main.cpp"
+  PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON
+)
+include(UnityBuild)
+target_enable_unity_build(${PROJECT_NAME})
+
 if(NOT TEST_INSTALLED_VERSION)
   include(CompilerWarnings)
   target_set_warnings(${PROJECT_NAME})

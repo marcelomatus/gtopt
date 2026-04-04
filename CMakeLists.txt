@@ -15,6 +15,7 @@ list(APPEND CMAKE_MODULE_PATH
      "${CMAKE_CURRENT_SOURCE_DIR}/cmake"
 )
 include(CxxStandard)
+include(FastLinker)
 
 include(CompilerCheck)
 
@@ -112,6 +113,11 @@ file(GLOB_RECURSE sources CONFIGURE_DEPENDS
 
 add_library(${PROJECT_NAME} ${headers} ${sources})
 
+# PIC is required because the static libgtopt.a is linked into shared
+# library solver plugins (libgtopt_solver_*.so).  Without PIC, linkers
+# like mold reject the R_X86_64_PC32 relocations.
+set_target_properties(${PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 # being a cross-platform target, we enforce standards conformance on MSVC
 target_compile_options(
   ${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->"
@@ -148,6 +154,28 @@ target_link_libraries(
 if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND NOT APPLE)
   target_link_libraries(${PROJECT_NAME} PUBLIC stdc++)
 endif()
+
+# ---- Unity build ----
+include(UnityBuild)
+target_enable_unity_build(${PROJECT_NAME})
+
+# ---- Precompiled headers ----
+target_precompile_headers(${PROJECT_NAME} PRIVATE
+  <algorithm>
+  <chrono>
+  <cstdint>
+  <expected>
+  <filesystem>
+  <format>
+  <optional>
+  <ranges>
+  <span>
+  <string>
+  <string_view>
+  <utility>
+  <vector>
+  <spdlog/spdlog.h>
+)
 
 # enable compiler warnings
 include(cmake_local/CompilerWarnings.cmake)

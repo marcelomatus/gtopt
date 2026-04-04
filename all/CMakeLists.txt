@@ -78,6 +78,9 @@ list(APPEND CMAKE_MODULE_PATH
 # sub-projects.
 include(BuildTypeDefault)
 
+# ---- Fast linker (mold > lld > default) ----
+include(FastLinker)
+
 # ---- Install prefix default ----
 # Defaults CMAKE_INSTALL_PREFIX to ~/.local for non-root users.
 # Must come before add_subdirectory() so install() rules in sub-projects see

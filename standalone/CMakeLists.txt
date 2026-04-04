@@ -12,6 +12,7 @@ list(APPEND CMAKE_MODULE_PATH
 include(DefaultInstallPrefix)
 include(BuildTypeDefault)
 include(CxxStandard)
+include(FastLinker)
 include(Ccache)
 
 # ---- Options ----
