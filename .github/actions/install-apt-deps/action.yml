@@ -58,17 +58,12 @@ runs:
         done
         sudo apt-get install -y -q --no-install-recommends \
           "./apache-arrow-apt-source-latest-${CODENAME}.deb"
-        # Update only the newly added Arrow source.
-        ARROW_SRC=$(find /etc/apt/sources.list.d -name 'apache-arrow.*' -print -quit 2>/dev/null || true)
+        # Full apt-get update after adding the Arrow source.  A scoped update
+        # (Dir::Etc::sourcelist=arrow-only) is NOT sufficient because Arrow
+        # packages depend on system packages (libabsl-dev, libbrotli-dev, etc.)
+        # whose versions may have changed since the runner image was built.
         for attempt in 1 2 3; do
-          if [ -n "$ARROW_SRC" ]; then
-            sudo apt-get update -q \
-              -o "Dir::Etc::sourcelist=${ARROW_SRC}" \
-              -o "Dir::Etc::sourceparts=-" \
-              && break
-          else
-            sudo apt-get update -q && break
-          fi
+          sudo apt-get update -q && break
           echo "Attempt $attempt/3: apt-get update failed, retrying in 15s..."
           sleep 15
         done
