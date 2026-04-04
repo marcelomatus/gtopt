@@ -228,9 +228,12 @@ TEST_CASE(  // NOLINT
   REQUIRE(res_ruiz.solve_status == 1);
 
   // All equilibration modes must produce the same physical objective.
-  CHECK(res_row.obj_value == doctest::Approx(res_none.obj_value).epsilon(1e-4));
+  MESSAGE("obj none:    ", res_none.obj_value);
+  MESSAGE("obj row_max: ", res_row.obj_value);
+  MESSAGE("obj ruiz:    ", res_ruiz.obj_value);
+  CHECK(res_row.obj_value == doctest::Approx(res_none.obj_value).epsilon(1e-8));
   CHECK(res_ruiz.obj_value
-        == doctest::Approx(res_none.obj_value).epsilon(1e-4));
+        == doctest::Approx(res_none.obj_value).epsilon(1e-8));
 
   std::filesystem::remove_all(tmp_base);
 }
@@ -262,10 +265,13 @@ TEST_CASE(  // NOLINT
 
   for (size_t g = 0; g < 3; ++g) {
     CAPTURE(g);
+    MESSAGE("gen[", g, "] none:    ", res_none.generation[g]);
+    MESSAGE("gen[", g, "] row_max: ", res_row.generation[g]);
+    MESSAGE("gen[", g, "] ruiz:    ", res_ruiz.generation[g]);
     CHECK(res_row.generation[g]
-          == doctest::Approx(res_none.generation[g]).epsilon(1e-3));
+          == doctest::Approx(res_none.generation[g]).epsilon(1e-8));
     CHECK(res_ruiz.generation[g]
-          == doctest::Approx(res_none.generation[g]).epsilon(1e-3));
+          == doctest::Approx(res_none.generation[g]).epsilon(1e-8));
   }
 
   // Sanity: total generation > 0 and each generator non-negative.
@@ -305,9 +311,12 @@ TEST_CASE(  // NOLINT
 
   for (size_t l = 0; l < 9; ++l) {
     CAPTURE(l);
-    CHECK(res_row.flowp[l] == doctest::Approx(res_none.flowp[l]).epsilon(1e-3));
+    MESSAGE("flow[", l, "] none:    ", res_none.flowp[l]);
+    MESSAGE("flow[", l, "] row_max: ", res_row.flowp[l]);
+    MESSAGE("flow[", l, "] ruiz:    ", res_ruiz.flowp[l]);
+    CHECK(res_row.flowp[l] == doctest::Approx(res_none.flowp[l]).epsilon(1e-8));
     CHECK(res_ruiz.flowp[l]
-          == doctest::Approx(res_none.flowp[l]).epsilon(1e-3));
+          == doctest::Approx(res_none.flowp[l]).epsilon(1e-8));
   }
 
   std::filesystem::remove_all(tmp_base);
