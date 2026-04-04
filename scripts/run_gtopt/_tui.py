@@ -328,6 +328,7 @@ def _load_system_stats(json_path: Path | None) -> dict[str, Any]:
 
     # Options summary
     method = options.get("method", "?")
+    solver = options.get("solver", "")
     scale_obj = options.get("scale_objective")
     kirchhoff = options.get("use_kirchhoff")
     single_bus = options.get("use_single_bus")
@@ -338,6 +339,7 @@ def _load_system_stats(json_path: Path | None) -> dict[str, Any]:
         "stages": len(stages),
         "blocks": len(blocks),
         "method": method,
+        "solver": solver,
         "scale_objective": scale_obj,
         "use_kirchhoff": kirchhoff,
         "use_single_bus": single_bus,
@@ -398,19 +400,33 @@ def _poll_key(cbreak_active: bool) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _build_header(case_name: str, data: dict, elapsed: float) -> Panel:
+def _build_header(
+    case_name: str,
+    data: dict,
+    elapsed: float,
+    system_stats: dict | None = None,
+) -> Panel:
     from rich.panel import Panel  # noqa: PLC0415
     from rich.table import Table  # noqa: PLC0415
     from rich.text import Text  # noqa: PLC0415
 
     status_str = data.get("status", "starting")
-    method = (
-        "sddp"
-        if data.get("max_iterations")
-        else "monolithic"
-        if data.get("total_scenes") is not None
-        else "..."
-    )
+
+    # Method: prefer planning JSON, fall back to status JSON inference
+    stats = system_stats or {}
+    method = stats.get("method", "")
+    if not method or method == "?":
+        method = (
+            "sddp"
+            if data.get("max_iterations")
+            else "monolithic"
+            if data.get("total_scenes") is not None
+            else "..."
+        )
+
+    # Solver: from planning JSON options
+    solver = stats.get("solver", "")
+
     style_map = {
         "running": "bold yellow",
         "converged": "bold green",
@@ -421,13 +437,19 @@ def _build_header(case_name: str, data: dict, elapsed: float) -> Panel:
     }
     status_style = style_map.get(status_str, "bold white")
 
+    # Build info line: "Method: sddp  Solver: cplex"
+    info_parts = [f"Method: {method}"]
+    if solver:
+        info_parts.append(f"Solver: {solver}")
+    info_text = "  ".join(info_parts)
+
     grid = Table.grid(padding=(0, 2))
     grid.add_column(ratio=1)
     grid.add_column(justify="center", ratio=1)
     grid.add_column(justify="right", ratio=1)
     grid.add_row(
         Text(f"Case: {case_name}", style="bold"),
-        Text(f"Method: {method}", style="dim"),
+        Text(info_text, style="dim"),
         Text(_format_elapsed(elapsed), style="bold cyan"),
     )
     grid.add_row(Text(status_str, style=status_style), "", "")
@@ -779,6 +801,14 @@ def _build_stats_overlay(stats: dict[str, Any]) -> Panel:
         "Method",
         Text(str(stats.get("method", "?")), style="cyan"),
     )
+    solver = stats.get("solver", "")
+    if solver:
+        grid.add_row(
+            "Solver",
+            Text(solver, style="cyan"),
+            "",
+            Text("", style="cyan"),
+        )
 
     # Key options
     rows: list[tuple[str, str]] = []
@@ -826,11 +856,13 @@ class SolverDisplay:
         case_name: str,
         case_dir: Path,
         poll_interval: float = _POLL_INTERVAL,
+        solver_hint: str = "",
     ) -> None:
         self.case_name = case_name
         self.poll_interval = poll_interval
         self._status_file: Path | None = None
         self._case_dir = case_dir
+        self._solver_hint = solver_hint
 
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -862,6 +894,9 @@ class SolverDisplay:
         # Pre-load system stats from the planning JSON
         json_path = _find_planning_json(self._case_dir)
         self._system_stats = _load_system_stats(json_path)
+        # CLI --solver overrides planning JSON solver
+        if self._solver_hint and not self._system_stats.get("solver"):
+            self._system_stats["solver"] = self._solver_hint
         self._thread = threading.Thread(
             target=self._run_loop, daemon=True, name="gtopt-tui"
         )
@@ -979,7 +1014,9 @@ class SolverDisplay:
                     )
             self._phase_tracker.tick()
 
-        panels: list[Any] = [_build_header(self.case_name, data, elapsed)]
+        panels: list[Any] = [
+            _build_header(self.case_name, data, elapsed, self._system_stats)
+        ]
         panels.append(_build_plan_panel(self._phase_tracker))
 
         has_sddp = bool(data.get("max_iterations"))

@@ -171,9 +171,17 @@ def _run_interactive(cmd: list[str], env: dict[str, str], case_dir: Path) -> int
     case_name = case_path.stem if case_path.is_file() else case_path.name
     log_path = _setup_log_file(case_path)
 
+    # Extract --solver from command line for display
+    solver_hint = ""
+    for i, arg in enumerate(cmd):
+        if arg == "--solver" and i + 1 < len(cmd):
+            solver_hint = cmd[i + 1]
+            break
+
     display = SolverDisplay(
         case_name=case_name,
         case_dir=case_path,
+        solver_hint=solver_hint,
     )
     display.start()
 
