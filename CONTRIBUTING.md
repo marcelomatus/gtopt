@@ -95,18 +95,18 @@ cd build && ctest
 ### Python
 
 - **Version**: Python ≥ 3.12 (CI uses 3.12)
-- **Formatting**: `black` with **88-char** line length (configured in
+- **Formatting**: `ruff format` (88-char line length, configured in
   `pyproject.toml`)
-- **Import sorting**: `isort` (profile `black`)
-- **Linting**: `ruff` + `pylint`; see `.flake8` and `.pylintrc`
+- **Linting**: `ruff check` + `pylint`; see `.pylintrc`
 - **Type checking**: `mypy`
 
 ```bash
+cd scripts
 pip install -e ".[dev]"   # install dev dependencies
-black . && isort .
-ruff check . && pylint scripts/ guiservice/
-mypy scripts/ guiservice/
-pytest
+ruff format . && ruff check .
+pylint --jobs=0 cvs2parquet igtopt plp2gtopt pp2gtopt ts2gtopt
+mypy cvs2parquet igtopt plp2gtopt pp2gtopt ts2gtopt --ignore-missing-imports
+pytest -n auto
 ```
 
 ### Pre-commit Hooks
@@ -118,13 +118,16 @@ pip install pre-commit
 pre-commit install
 ```
 
-Hooks include: trailing whitespace, YAML validation, Black, Flake8, Pylint,
-ShellCheck, yamllint, markdownlint, and cmake-format.
+Hooks include: trailing whitespace, YAML validation, ruff (lint + format),
+Pylint, ShellCheck, yamllint, markdownlint, and clang-format (v21).
 
-> **CI auto-format**: The `autoformat.yml` workflow runs `clang-format` on
-> every push to non-main branches and commits a fixup automatically. Local
-> violations are therefore non-blocking, but running `cmake --build build
-> --target format` before pushing keeps the history clean.
+A separate git hook (`.githooks/pre-commit`, auto-installed by CMake) also
+runs clang-format on staged C/C++ files and re-stages them automatically.
+
+> **CI auto-format**: The `autoformat.yml` workflow runs `clang-format` and
+> `ruff format` on every push to non-main branches and commits a fixup
+> automatically. Local violations are therefore non-blocking, but running
+> pre-commit checks before pushing keeps the history clean.
 
 ## Pull Request Process
 

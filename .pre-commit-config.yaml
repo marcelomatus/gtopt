@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -8,40 +8,44 @@ repos:
       - id: check-added-large-files
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.0
+    rev: v0.9.9
     hooks:
       - id: ruff          # lint + auto-fix (replaces flake8)
+        args: [--fix]
+        files: ^(scripts|guiservice)/
       - id: ruff-format   # format (replaces black)
+        files: ^(scripts|guiservice)/
 
   - repo: https://github.com/PyCQA/pylint
-    rev: v3.3.7
+    rev: v3.3.9
     hooks:
       - id: pylint
-        args: [--output-format=text, --score=no, --fail-under=8.0]
+        args: [--output-format=text, --score=no]
+        files: ^(scripts|guiservice)/
 
   - repo: https://github.com/koalaman/shellcheck-precommit
-    rev: v0.10.0
+    rev: v0.9.0
     hooks:
       - id: shellcheck
 
   - repo: https://github.com/adrienverge/yamllint.git
-    rev: v1.37.1
+    rev: v1.9.0
     hooks:
       - id: yamllint
         args: [-d=relaxed]
 
   - repo: https://github.com/igorshubovych/markdownlint-cli.git
-    rev: v0.45.0
+    rev: v0.9.0
     hooks:
       - id: markdownlint
         args: [--config=.markdownlint.json]
 
-  # Clang-format pinned to the same major version used by CI.
+  # Clang-format pinned to the same major version used by CI (Clang 21).
   # pre-commit/mirrors-clang-format ships clang-format as a self-contained
   # Python wheel, so every developer and CI job gets the exact same binary
   # regardless of what is installed on the host system.
   - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: v19.1.7
+    rev: v21.1.6
     hooks:
       - id: clang-format
         types_or: [c, c++]
