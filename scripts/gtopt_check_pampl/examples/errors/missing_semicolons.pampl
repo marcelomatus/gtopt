@@ -1,0 +1,10 @@
+# =============================================================================
+# Error: Missing semicolons
+# =============================================================================
+# This file has constraints missing their terminating semicolons.
+
+constraint no_semi "Missing semicolon":
+  generator('G1').generation <= 100
+
+constraint also_no_semi:
+  demand('D1').load >= 50

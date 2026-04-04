@@ -19,6 +19,11 @@ the LP formulation, the entity mapping, and the PLP-to-gtopt comparison.
 7. [Maule Agreement (Convenio del Maule)](#7-maule-agreement-convenio-del-maule)
 8. [PLP-to-gtopt Name Mapping](#8-plp-to-gtopt-name-mapping)
 9. [PLP vs gtopt LP Comparison](#9-plp-vs-gtopt-lp-comparison)
+   - [LP Variable Naming Conventions](#90-lp-variable-naming-conventions)
+   - [Coefficient Scaling](#90b-coefficient-scaling)
+   - [Reservoir Balance Comparison](#97-reservoir-balance-comparison-stage-1-block-1-dur7h)
+   - [Objective Coefficient Comparison](#98-objective-coefficient-comparison-laja-march)
+   - [Volume Right Bounds Comparison](#99-volume-right-bounds-comparison-march)
 10. [Known Simplifications and Gaps](#10-known-simplifications-and-gaps)
 11. [Configuration and Usage](#11-configuration-and-usage)
 12. [See Also](#12-see-also)
@@ -542,36 +547,155 @@ complete constraint expression syntax.
 
 ## 9. PLP vs gtopt LP Comparison
 
+### 9.0 LP Variable Naming Conventions
+
+#### PLP LP Names (from Fortran `genpdlajam.f` / `genpdmaule.f`)
+
+PLP constructs column names with a **prefix** (`l_` for Laja, `m_` for
+Maule) + **base name** + optional **block suffix**:
+
+- **Block-level**: `l_qdr_1`, `l_qdr_2`, ..., `m_qmne_1`, `m_qmne_2`, ...
+- **Stage-level**: `l_vdrf`, `l_qdrh`, `m_vmgemf`, `m_qmneh`
+
+Constraint rows use generic indices (`c1`, `c2`, ...) — not named.
+
+| Prefix | Laja Block Vars | Laja Stage Vars |
+|--------|----------------|-----------------|
+| `l_qdr_j` | Irrigation rights flow (IQDR) | `l_qdrh` (hourly avg) |
+| `l_qde_j` | Electric rights flow (IQDE) | `l_qdeh` (hourly avg) |
+| `l_qdm_j` | Mixed rights flow (IQDM) | `l_qdmh` (hourly avg) |
+| `l_qga_j` | Anticipated flow (IQGA) | `l_qgah` (hourly avg) |
+| `l_qriK_j` | Retiro K flow | `l_qrihK` / `l_qrdhK` / `l_qrhrK` |
+| — | — | `l_vdrf`/`l_vdef`/`l_vdmf`/`l_vgaf` (volume spent) |
+| — | — | `l_qgth` (turbined avg), `l_qlaja` (total) |
+
+| Prefix | Maule Block Vars | Maule Stage Vars |
+|--------|-----------------|------------------|
+| `m_qmne_j` | Normal electric (IQMNE) | `m_qmneh` (hourly avg) |
+| `m_qmnr_j` | Normal irrigation (IQMNR) | `m_qmnrh` (hourly avg) |
+| `m_qmoe_j` | Ordinary electric (IQMOE) | `m_qmoeh` (hourly avg) |
+| `m_qmor_j` | Ordinary irrigation (IQMOR) | `m_qmorh` (hourly avg) |
+| `m_qmce_j` | Compensation (IQMCE) | `m_qmceh` (hourly avg) |
+| `m_qmei_j` | Winter savings (IQMEI) | `m_qmeih` (hourly avg) |
+| `m_qidn_j` | Invernada deficit (IQIDN) | `m_qidnh` (hourly avg) |
+| `m_qisd_j` | Invernada no-deficit (IQISD) | `m_qisdh` (hourly avg) |
+| `m_qter_j` | Delivered to irrigation (IQTER) | `m_qterh` (hourly avg) |
+| — | — | `m_vmgemf`..`m_vmdeif` (volume accumulators) |
+| — | — | `m_qr105`/`m_qa105` (Res 105), `m_qhinv`/`m_qhnein` |
+
+#### gtopt LP Names (with `--lp-names-level 2`)
+
+gtopt uses structured names with entity-type prefix and UID suffix:
+
+```
+{entity_prefix}_{uid}_{scenario}_{stage}_{block}
+```
+
+| Prefix | Entity | Example |
+|--------|--------|---------|
+| `frt_flow_` | FlowRight per-block flow | `frt_flow_2001_51_1_1` |
+| `frt_fail_` | FlowRight deficit variable | `frt_fail_2001_51_1_1` |
+| `frt_qeh_` | FlowRight stage-average | `frt_qeh_2001_51_1` |
+| `vrt_vol_` | VolumeRight end volume | `vrt_vol_2005_51_1_1` |
+| `vrt_extraction_` | VolumeRight extraction rate | `vrt_extraction_2005_51_1_1` |
+| `vrt_sini_` | VolumeRight initial state | `vrt_sini_2005_51_1` |
+| `vrt_saving_` | VolumeRight economy deposit | `vrt_saving_2009_51_1_1` |
+| `rsv_vol_` | Reservoir end volume | `rsv_vol_37_51_1_1` |
+| `rsv_fext_` | Reservoir total extraction | `rsv_fext_37_51_1_1` |
+
+PAMPL constraints use their defined name with suffixes:
+`laja_particion_derechos_s51_t1_b1`
+
+### 9.0b Coefficient Scaling
+
+Both systems convert flow (m³/s) to volume using duration, but with
+different unit scaling:
+
+| Factor | PLP | gtopt |
+|--------|-----|-------|
+| Flow → volume coefficient | `dur_hours × 3.6` (units: 1000 m³) | `dur_hours × 3.6e-3 × flow_scale / energy_scale` (units: scaled hm³) |
+| Objective scaling | None (raw $/hm³) | Divided by `scale_objective` (default 1e7) |
+| Volume storage units | 1000 m³ | hm³ / `energy_scale` |
+
+**Per-reservoir `variable_scales`** in gtopt provide numerical
+conditioning without changing the mathematical formulation:
+
+| Reservoir | energy_scale | flow_scale | Purpose |
+|-----------|-------------|------------|---------|
+| CIPRESES (6) | 100 | 0.1 | Small reservoir (~175 hm³) |
+| COLBUN (28) | 1000 | 1.0 | Medium reservoir (~1500 hm³) |
+| EL TORO (37) | 10000 | 10.0 | Large reservoir (~5586 hm³) |
+
+The `rsv_fext` and `rsv_drain` variables use the reservoir's
+`flow_scale`, while `vrt_extraction` variables use native m³/s
+(`flow_scale=1`). This creates apparent coefficient ratios in the
+reservoir balance:
+
+```
+rsv_fext coefficient = dur_hr × 3.6e-3 × flow_scale / energy_scale
+vrt_extraction coeff = dur_hr × 3.6e-3 × 1.0      / energy_scale
+ratio = 1 / flow_scale
+```
+
+| Reservoir | fext coeff (b1, 7h) | extraction coeff | Ratio | Explanation |
+|-----------|-------------------|-----------------|-------|-------------|
+| CIPRESES (6) | 2.52e-05 | 2.52e-04 | **10×** | 1/0.1 = 10 |
+| COLBUN (28) | 2.52e-05 | 2.52e-05 | **1×** | 1/1.0 = 1 |
+| EL TORO (37) | 2.52e-05 | 2.52e-06 | **0.1×** | 1/10.0 = 0.1 |
+
+These ratios are **correct numerical conditioning**, not anomalies.
+PLP uses uniform coefficients (`dur × 3.6`) because all flows are in
+native m³/s without per-reservoir scaling.
+
+**Verified for block 1 (duration = 7 hours):**
+- PLP: `25.2 = 7 × 3.6` (uniform for all flow terms)
+- gtopt CIPRESES: `2.52e-05 = 7 × 3.6e-3 × 0.1 / 100`
+- gtopt COLBUN: `2.52e-05 = 7 × 3.6e-3 × 1.0 / 1000`
+- gtopt EL TORO: `2.52e-05 = 7 × 3.6e-3 × 10.0 / 10000`
+
+### 9.0c Filtration Coefficient Verification
+
+**PLP** (CIPRESES rsv 6): `qf6 = 12.103 + 1.9689e-05 × vf6`
+(where vf6 in 1000 m³, so slope per hm³ = 0.019689)
+
+**gtopt**: `wwy_flow_134 = 12.103 + 0.9845 × (eini + vf_last)`
+(in scaled units, energy_scale=100, so slope per hm³ =
+2 × 0.9845 / 100 = 0.019689)
+
+**Exact match** — gtopt uses average of initial and final volume; the
+coefficients are algebraically equivalent.
+
 ### 9.1 Laja — Column (Variable) Comparison
 
-| PLP Variable | PLP Name | Unit | gtopt LP Column | Status |
+| PLP Index | PLP LP Name | Unit | gtopt LP Column | Status |
 |---|---|---|---|---|
-| IQDR (per block) | qdr_j | m³/s | `frt_flow_{laja_der_riego}` | **Match** |
-| IQDE (per block) | qde_j | m³/s | `frt_flow_{laja_der_electrico}` | **Match** |
-| IQDM (per block) | qdm_j | m³/s | `frt_flow_{laja_der_mixto}` | **Match** |
-| IQGA (per block) | qga_j | m³/s | `frt_flow_{laja_gasto_anticipado}` | **Match** |
-| IQRI (per district) | qri_j | m³/s | `frt_flow_{district_category}` | **Match** |
-| IQDRH | qdrh | m³/s | `frt_qeh_{laja_der_riego}` | **Match** |
-| IQDEH | qdeh | m³/s | `frt_qeh_{laja_der_electrico}` | **Match** |
-| IQDMH | qdmh | m³/s | `frt_qeh_{laja_der_mixto}` | **Match** |
-| IQGAH | qgah | m³/s | `frt_qeh_{laja_gasto_anticipado}` | **Match** |
-| IQGTH | qgth | m³/s | `frt_qeh_{laja_q_turbinado}` | **Match** |
-| IVDRF | ivdrf | hm³ | `vrt_efin_{laja_vol_der_riego}` | **Match** |
-| IVDEF | ivdef | hm³ | `vrt_efin_{laja_vol_der_electrico}` | **Match** |
-| IVDMF | ivdmf | hm³ | `vrt_efin_{laja_vol_der_mixto}` | **Match** |
-| IVGAF | ivgaf | hm³ | `vrt_efin_{laja_vol_gasto_anticipado}` | **Match** |
-| IVESF | ivesf | hm³ | `vrt_efin_{laja_vol_econ_endesa}` | **Match** |
-| IVERF | iverf | hm³ | `vrt_efin_{laja_vol_econ_reserva}` | **Match** |
-| IVAPF | ivapf | hm³ | `vrt_efin_{laja_vol_econ_polcura}` | **Match** |
-| IVESN | ivesn | hm³ | `vrt_saving_{laja_vol_econ_endesa}` | **Match** |
-| IVERN | ivern | hm³ | `vrt_saving_{laja_vol_econ_reserva}` | **Match** |
-| IVAPN | ivapn | hm³ | `vrt_saving_{laja_vol_econ_polcura}` | **Match** |
-| IQGESH | iqgesh | m³/s | `vrt_extraction_{laja_vol_econ_endesa}` | **Match** |
-| IQGERH | iqgerh | m³/s | `vrt_extraction_{laja_vol_econ_reserva}` | **Match** |
-| IQGAPH | iqgaph | m³/s | `vrt_extraction_{laja_vol_econ_polcura}` | **Match** |
-| IQRS/IQPR/IQNR/IQER/IQSR | supply partition | m³/s | — | **Not modeled** ¹ |
-| IQLAJA | total discharge | m³/s | — | **Not modeled** ² |
-| IQDEFM / IQHI | fixed flows | m³/s | — | **Not modeled** ³ |
+| IQGT (per block) | `l_qgt_j` | m³/s | `frt_flow_{laja_q_turbinado}` | **Match** |
+| IQDR (per block) | `l_qdr_j` | m³/s | `frt_flow_{laja_der_riego}` | **Match** |
+| IQDE (per block) | `l_qde_j` | m³/s | `frt_flow_{laja_der_electrico}` | **Match** |
+| IQDM (per block) | `l_qdm_j` | m³/s | `frt_flow_{laja_der_mixto}` | **Match** |
+| IQGA (per block) | `l_qga_j` | m³/s | `frt_flow_{laja_gasto_anticipado}` | **Match** |
+| IQRI (per district) | `l_qriK_j` | m³/s | `frt_flow_{district_category}` | **Match** |
+| IQDRH | `l_qdrh` | m³/s | `frt_qeh_{laja_der_riego}` | **Match** |
+| IQDEH | `l_qdeh` | m³/s | `frt_qeh_{laja_der_electrico}` | **Match** |
+| IQDMH | `l_qdmh` | m³/s | `frt_qeh_{laja_der_mixto}` | **Match** |
+| IQGAH | `l_qgah` | m³/s | `frt_qeh_{laja_gasto_anticipado}` | **Match** |
+| IQGTH | `l_qgth` | m³/s | `frt_qeh_{laja_q_turbinado}` | **Match** |
+| IVDRF | `l_vdrf` | hm³ | `vrt_vol_{laja_vol_der_riego}` | **Match** |
+| IVDEF | `l_vdef` | hm³ | `vrt_vol_{laja_vol_der_electrico}` | **Match** |
+| IVDMF | `l_vdmf` | hm³ | `vrt_vol_{laja_vol_der_mixto}` | **Match** |
+| IVGAF | `l_vgaf` | hm³ | `vrt_vol_{laja_vol_gasto_anticipado}` | **Match** |
+| IVESF | `l_vesf` | hm³ | `vrt_vol_{laja_vol_econ_endesa}` | **Match** |
+| IVERF | `l_verf` | hm³ | `vrt_vol_{laja_vol_econ_reserva}` | **Match** |
+| IVAPF | `l_vapf` | hm³ | `vrt_vol_{laja_vol_econ_polcura}` | **Match** |
+| IVESN (saving) | `l_vesn` | hm³ | `vrt_saving_{laja_vol_econ_endesa}` | **Match** |
+| IVERN (saving) | `l_vern` | hm³ | `vrt_saving_{laja_vol_econ_reserva}` | **Match** |
+| IVAPN (saving) | `l_vapn` | hm³ | `vrt_saving_{laja_vol_econ_polcura}` | **Match** |
+| — (extraction) | — | m³/s | `vrt_extraction_{laja_vol_econ_endesa}` | **Match** |
+| — (extraction) | — | m³/s | `vrt_extraction_{laja_vol_econ_reserva}` | **Match** |
+| — (extraction) | — | m³/s | `vrt_extraction_{laja_vol_econ_polcura}` | **Match** |
+| IQRS/IQPR/IQNR/IQER/IQSR | `l_qrs`/`l_qpr`/`l_qnr`/`l_qer`/`l_qsr` | m³/s | — | **Not modeled** ¹ |
+| IQLAJA | `l_qlaja` | m³/s | — | **Not modeled** ² |
+| IQDEFM / IQHI | `l_qdefm`/`l_qhi` | m³/s | — | **Not modeled** ³ |
 
 **Notes:**
 1. PLP decomposes irrigation rights into sub-categories (primary 80%,
@@ -598,32 +722,32 @@ complete constraint expression syntax.
 
 ### 9.3 Maule — Column (Variable) Comparison
 
-| PLP Variable | PLP Name | Unit | gtopt LP Column | Status |
+| PLP Index | PLP LP Name | Unit | gtopt LP Column | Status |
 |---|---|---|---|---|
-| IQMNE (per block) | qmne_j | m³/s | `frt_flow_{maule_gasto_normal_elec}` | **Match** |
-| IQMNR (per block) | qmnr_j | m³/s | `frt_flow_{maule_gasto_normal_riego}` | **Match** |
-| IQMOE (per block) | qmoe_j | m³/s | `frt_flow_{maule_gasto_ordinario_elec}` | **Match** |
-| IQMOR (per block) | qmor_j | m³/s | `frt_flow_{maule_gasto_ordinario_riego}` | **Match** |
-| IQMCE (per block) | qmce_j | m³/s | `frt_flow_{maule_compensacion_elec}` | **Match** |
-| IQCANELON | qcan_j | m³/s | `frt_flow_{maule_bocatoma_canelon}` | **Match** |
-| IQIDN | qidn_j | m³/s | `frt_flow_{invernada_deficit}` | **Match** |
-| IQISD | qisd_j | m³/s | `frt_flow_{invernada_sin_deficit}` | **Match** |
-| IQRI (per district) | qri_j | m³/s | `frt_flow_{retiro_*}` | **Match** |
-| QR105 | qr105 | m³/s | `frt_flow_{maule_resolucion_105}` | **Match** |
-| QNINV | qninv | m³/s | `frt_flow_{invernada_caudal_natural}` | **Match** |
-| QHINV | qhinv | m³/s | `frt_flow_{invernada_embalsar}` | **Match** |
-| QHNEIN | qhnein | m³/s | `frt_flow_{invernada_no_embalsar}` | **Match** |
-| VMGEMF | vmgemf | hm³ | `vrt_efin_{maule_vol_gasto_elec_mensual}` | **Match** |
-| VMGEAF | vmgeaf | hm³ | `vrt_efin_{maule_vol_gasto_elec_anual}` | **Match** |
-| VMGRTF | vmgrtf | hm³ | `vrt_efin_{maule_vol_gasto_riego_temp}` | **Match** |
-| VMDOEF | vmdoef | hm³ | `vrt_efin_{maule_vol_reserva_ord_elec}` | **Match** |
-| VMDORF | vmdorf | hm³ | `vrt_efin_{maule_vol_reserva_ord_riego}` | **Match** |
-| VMDCEF | vmdcef | hm³ | `vrt_efin_{maule_vol_compensacion_elec}` | **Match** |
-| VMDEIF | vmdeif | hm³ | `vrt_efin_{invernada_vol_econ}` | **Match** |
-| IQMEI (extraordinary flow) | qmei_j | m³/s | — | **Not modeled** ⁴ |
-| IQTER (total irrigation) | qter_j | m³/s | — | **Not modeled** ⁵ |
-| VMGOEF/VMGORF (ordinary accum) | vmgoef/f | hm³ | — | **Not modeled** ⁶ |
-| VMUTIL/VMREB (auxiliary) | vmutil | hm³ | — | **Not modeled** ⁷ |
+| IQMNE (per block) | `m_qmne_j` | m³/s | `frt_flow_{maule_gasto_normal_elec}` | **Match** |
+| IQMNR (per block) | `m_qmnr_j` | m³/s | `frt_flow_{maule_gasto_normal_riego}` | **Match** |
+| IQMOE (per block) | `m_qmoe_j` | m³/s | `frt_flow_{maule_gasto_ordinario_elec}` | **Match** |
+| IQMOR (per block) | `m_qmor_j` | m³/s | `frt_flow_{maule_gasto_ordinario_riego}` | **Match** |
+| IQMCE (per block) | `m_qmce_j` | m³/s | `frt_flow_{maule_compensacion_elec}` | **Match** |
+| IQCANELON | `m_qcan_j` | m³/s | `frt_flow_{maule_bocatoma_canelon}` | **Match** |
+| IQIDN | `m_qidn_j` | m³/s | `frt_flow_{invernada_deficit}` | **Match** |
+| IQISD | `m_qisd_j` | m³/s | `frt_flow_{invernada_sin_deficit}` | **Match** |
+| IQRI (per district) | `m_qriK_j` | m³/s | `frt_flow_{retiro_*}` | **Match** |
+| IQR105 | `m_qr105` | m³/s | `frt_flow_{maule_resolucion_105}` | **Match** |
+| IQNINV | `m_qninv` | m³/s | `frt_flow_{invernada_caudal_natural}` | **Match** |
+| IQHINV | `m_qhinv` | m³/s | `frt_flow_{invernada_embalsar}` | **Match** |
+| IQHNEIN | `m_qhnein` | m³/s | `frt_flow_{invernada_no_embalsar}` | **Match** |
+| IVMGEMF | `m_vmgemf` | hm³ | `vrt_vol_{maule_vol_gasto_elec_mensual}` | **Match** |
+| IVMGEAF | `m_vmgeaf` | hm³ | `vrt_vol_{maule_vol_gasto_elec_anual}` | **Match** |
+| IVMGRTF | `m_vmgrtf` | hm³ | `vrt_vol_{maule_vol_gasto_riego_temp}` | **Match** |
+| IVMDOEF | `m_vmdoef` | hm³ | `vrt_vol_{maule_vol_reserva_ord_elec}` | **Match** |
+| IVMDORF | `m_vmdorf` | hm³ | `vrt_vol_{maule_vol_reserva_ord_riego}` | **Match** |
+| IVMDCEF | `m_vmdcef` | hm³ | `vrt_vol_{maule_vol_compensacion_elec}` | **Match** |
+| IVMDEIF | `m_vmdeif` | hm³ | `vrt_vol_{invernada_vol_econ}` | **Match** |
+| IQMEI (extraordinary) | `m_qmei_j` | m³/s | — | **Not modeled** ⁴ |
+| IQTER (total irrigation) | `m_qter_j` | m³/s | — | **Not modeled** ⁵ |
+| VMGOEF/VMGORF (ordinary) | `m_vmgoef`/`m_vmgorf` | hm³ | — | **Not modeled** ⁶ |
+| VMUTIL/VMREB (auxiliary) | `m_vmutil`/`m_vmreb` | hm³ | — | **Not modeled** ⁷ |
 
 **Notes:**
 4. Extraordinary zone block-level flow (IQMEI) is not explicitly modeled.
@@ -686,6 +810,98 @@ complete constraint expression syntax.
 4. **Dynamic min turbine bounds**: PLP computes minimum generation
    bounds from irrigation demand and economics.  gtopt relies on
    demand satisfaction penalties (fail_cost) to incentivize generation.
+
+### 9.7 Reservoir Balance Comparison (Stage 1, Block 1, dur=7h)
+
+The reservoir balance is where irrigation variables couple to the
+physical hydro model.  Coefficient matching was verified on freshly
+generated LP files (April 2026).
+
+#### CIPRESES (rsv 6, energy_scale=100, flow_scale=0.1)
+
+**PLP:**
+```
+c238: 25.2 qg6_1 + 25.2 qv6_1 - 25.2 qaf6_1 + 25.2 qe6_1 + 25.2 qf6 = 861.84
+```
+All flow terms: `25.2 = 7 × 3.6` (uniform).
+
+**gtopt:**
+```
+rsv_vol_6: +2.52e-05 rsv_fext_6 + 2.52e-05 rsv_drain_6
+           + 0.000252 vrt_extraction_1012 - rsv_sini_6 + rsv_vol_6 = 0
+```
+- `rsv_fext` coeff: `7 × 3.6e-3 × 0.1 / 100 = 2.52e-05` ✓
+- `vrt_extraction` coeff: `7 × 3.6e-3 × 1.0 / 100 = 2.52e-04`
+  (10× fext — because `1/flow_scale = 1/0.1 = 10`) ✓
+
+#### EL TORO (rsv 37, energy_scale=10000, flow_scale=10)
+
+**PLP:**
+```
+c241: 25.2 qg37_1 + 25.2 qv37_1 - 25.2 qaf37_1 + 25.2 qe37_1 = 1400.544
+```
+
+**gtopt:**
+```
+rsv_vol_37: +2.52e-05 rsv_fext_37 + 2.52e-05 rsv_drain_37
+            + 2.52e-06 vrt_extraction_2005 (laja_vol_irr)
+            + 2.52e-06 vrt_extraction_2006 (laja_vol_elec)
+            + 2.52e-06 vrt_extraction_2007 (laja_vol_mixed)
+            + 2.52e-06 vrt_extraction_2008 (laja_vol_anticipated)
+            + 2.52e-06 vrt_extraction_2009 (laja_vol_econ_endesa)
+            + 2.52e-06 vrt_extraction_2010 (laja_vol_econ_reserve)
+            + 2.52e-06 vrt_extraction_2011 (laja_vol_econ_polcura)
+            - rsv_sini_37 + rsv_vol_37 = 0
+```
+- `rsv_fext` coeff: `7 × 3.6e-3 × 10 / 10000 = 2.52e-05` ✓
+- `vrt_extraction` coeff: `7 × 3.6e-3 × 1.0 / 10000 = 2.52e-06`
+  (0.1× fext — because `1/flow_scale = 1/10 = 0.1`) ✓
+
+#### COLBUN (rsv 28, energy_scale=1000, flow_scale=1)
+
+**PLP:**
+```
+c240: 25.2 qg28_1 + 25.2 qv28_1 - 25.2 qv25_1 - 25.2 qaf28_1
+      + 25.2 qe28_1 + 25.2 qx28@1_1 + 25.2 qx28@2_1 + 25.2 qf28 = 1726.2
+```
+PLP uses 2 aggregate extraction vars: `qx28@1` (0–24 m³/s),
+`qx28@2` (0–50 m³/s).
+
+**gtopt:**
+```
+rsv_vol_28: +2.52e-05 rsv_fext_28 + 2.52e-05 rsv_drain_28
+            + 2.52e-05 vrt_extraction_1006 (maule_vol_elec_mensual)
+            + 2.52e-05 vrt_extraction_1007 (maule_vol_elec_anual)
+            + 2.52e-05 vrt_extraction_1008 (maule_vol_riego_temp)
+            + 2.52e-05 vrt_extraction_1009 (maule_vol_compensacion)
+            + 2.52e-05 vrt_extraction_1010 (maule_vol_rext_elec)
+            + 2.52e-05 vrt_extraction_1011 (maule_vol_rext_riego)
+            - rsv_sini_28 + rsv_vol_28 = 0
+```
+- All coefficients: `7 × 3.6e-3 × 1.0 / 1000 = 2.52e-05` (uniform) ✓
+- PLP's 2 aggregate vars → gtopt's 6 granular vars (finer tracking)
+
+### 9.8 Objective Coefficient Comparison (Laja, March)
+
+| Variable | gtopt coeff | × scale_obj (1e7) | PAMPL param | Match |
+|---|---|---|---|---|
+| `frt_fail` irr rights | 0.00011 | 1100 | `cost_irr_ns=1100` | ✓ |
+| `frt_fail` elec rights | 0.0001265 | 1265 | `cost_elec_ns=1150 × month[12]=1.1` | ✓ |
+| `frt_flow` elec (usage) | -1.1e-08 | -0.11 | `cost_elec_uso=0.1 × month[12]=1.1` | ✓ |
+| `frt_flow` mixed (usage) | -1e-07 | -1.0 | `cost_mixed=1.0` | ✓ |
+
+### 9.9 Volume Right Bounds Comparison (March)
+
+| VolumeRight | PAMPL param | Bound (hm³) | Match |
+|---|---|---|---|
+| `laja_vol_der_riego` | `max_irr=5000` | ≤ 5000 | ✓ |
+| `laja_vol_der_electrico` | `max_elec=1200` | ≤ 1200 | ✓ |
+| `laja_vol_der_mixto` | `max_mixed=30` | ≤ 30 | ✓ |
+| `laja_vol_gasto_anticipado` | `max_anticipated=5000` | ≤ 5000 | ✓ |
+| `maule_vol_gasto_elec_mensual` | `gasto_elec_men_max=25` | ≤ 25 | ✓ |
+| `maule_vol_reserva_ord_elec` | `v_der_elect_anu_max=250` | ≤ 250 | ✓ |
+| `maule_vol_reserva_ord_riego` | `v_der_riego_temp_max=800` | ≤ 800 | ✓ |
+| `maule_vol_compensacion_elec` | `v_comp_elec_max=350` | ≤ 350 | ✓ |
 
 ---
 
