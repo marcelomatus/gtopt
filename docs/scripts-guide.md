@@ -195,7 +195,7 @@ used for sizing and labeling diagram elements.
 
 ### All options
 
-```
+```text
 positional arguments:
   json_file             gtopt JSON planning file
 
@@ -262,7 +262,7 @@ are silently parsed and appended to the JSON output.
 
 **`plpcenre.dat` format** (*Archivo de Rendimiento de Embalses*):
 
-```
+```text
 # Number of entries
 N
 # For each entry:
@@ -275,7 +275,7 @@ idx  volume  slope  constant  scale  ← one line per segment
 
 **`plpcenfi.dat` format** (*Archivo de Centrales Filtración*):
 
-```
+```text
 # Number of entries
 N
 # For each entry:
@@ -392,7 +392,7 @@ plp2gtopt -z -i plp_case_2y -o gtopt_case_2y
 
 The ZIP layout is:
 
-```
+```text
 gtopt_case_2y.zip
 ├── gtopt_case_2y.json          ← main system/simulation/options config
 └── gtopt_case_2y/              ← input_directory (data files)
@@ -414,7 +414,7 @@ gtopt_case_2y.zip
 After a successful conversion, `plp2gtopt` logs statistics (at INFO level)
 similar to the pre-solve statistics printed by the `gtopt` solver:
 
-```
+```text
 === System statistics ===
   System name     : plp2gtopt
 === System elements  ===
@@ -650,7 +650,7 @@ igtopt system.xlsx --zip
 After a successful conversion, `igtopt` logs statistics (at INFO level)
 similar to those printed by `plp2gtopt`:
 
-```
+```text
 === System statistics ===
   Buses           : 57
   Generators      : 7
@@ -708,7 +708,7 @@ starts with `.` (e.g. `.notes`) are silently skipped.
 Any sheet whose name contains `@` encodes a time-series table that is written
 as a Parquet (or CSV) file to the `input_directory`.  The naming convention is:
 
-```
+```text
 <component_type>@<field_name>
 ```
 
@@ -851,7 +851,7 @@ reconstruct_output_hours("output/", hour_map, output_hour_dir="output_hour/")
 
 ### CLI reference
 
-```
+```text
 ts2gtopt [options] INPUT [INPUT ...]
 
 Positional arguments:
@@ -1402,7 +1402,7 @@ The tool exits when the solver reports "converged" or when you press Ctrl-C.
 
 In headless mode (`--no-gui`), the tool prints a summary table to stdout:
 
-```
+```text
 [Time]  [Iter]  [LB]           [UB]           [Gap]      [Status]
   7.1s   45     12345.1234   12450.5678     0.008765   running
 ```

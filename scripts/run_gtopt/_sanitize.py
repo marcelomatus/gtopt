@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 log = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ _VALID_ELASTIC_MODES = {"single_cut", "multi_cut", "backpropagate", "cut"}
 _VALID_BOUNDARY_MODES = {"noload", "separated", "combined"}
 
 
-def _get_model_opt(opts: dict, key: str, default: object = None) -> object:
+def _get_model_opt(opts: dict, key: str, default: Any = None) -> Any:
     """Get a model option from model_options sub-dict or flat (deprecated).
 
     Prefers the ``model_options`` sub-dict value when both locations exist.
@@ -40,7 +41,7 @@ def _get_model_opt(opts: dict, key: str, default: object = None) -> object:
     return opts.get(key, default)
 
 
-def _set_model_opt(opts: dict, key: str, value: object) -> None:
+def _set_model_opt(opts: dict, key: str, value: Any) -> None:
     """Set a model option in its canonical location.
 
     Writes to ``model_options`` if that sub-dict exists, otherwise writes

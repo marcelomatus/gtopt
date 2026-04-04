@@ -189,10 +189,23 @@ TEST_CASE("Factor matrix generation")
 
   SUBCASE("block_icost_factors")
   {
-    auto factors = helper.block_icost_factors();
+    const auto& factors = helper.block_icost_factors();
     REQUIRE(factors.size() == 2);  // scenarios
     REQUIRE(factors[0].size() == 2);  // stages
-    // Just verify the structure - exact values depend on BlockLP
+    // Verify exact values: 1/(prob * discount * duration / scale_obj)
+    // scale_obj=1.0, duration=1.0 for all blocks
+    CHECK(factors[0][0][0] == doctest::Approx(1.0 / (0.6 * 0.9 * 1.0)));
+    CHECK(factors[1][1][0] == doctest::Approx(1.0 / (0.4 * 0.8 * 1.0)));
+  }
+
+  SUBCASE("block_discount_icost_factors")
+  {
+    const auto& factors = helper.block_discount_icost_factors();
+    REQUIRE(factors.size() == 2);
+    // Discount-only: scale_obj / discount[t], same for all scenarios
+    CHECK(factors[0][0][0] == doctest::Approx(1.0 / 0.9));
+    CHECK(factors[0][1][0] == doctest::Approx(1.0 / 0.8));
+    CHECK(factors[1][0][0] == doctest::Approx(1.0 / 0.9));
   }
 
   SUBCASE("stage_icost_factors")
@@ -212,5 +225,59 @@ TEST_CASE("Factor matrix generation")
     CHECK(factors[0][1] == doctest::Approx(1.0 / (0.6 * 0.8)));
     CHECK(factors[1][0] == doctest::Approx(1.0 / (0.4 * 0.9)));
     CHECK(factors[1][1] == doctest::Approx(1.0 / (0.4 * 0.8)));
+  }
+}
+
+TEST_CASE("CostHelper lazy caching returns same reference")  // NOLINT
+{
+  using namespace gtopt;
+  PlanningOptions opt;
+  opt.scale_objective = 1.0;
+  const PlanningOptionsLP options {opt};
+
+  std::vector<Scenario> scenarios(1);
+  scenarios[0].probability_factor = 1.0;
+  std::vector<ScenarioLP> scenario_lps;
+  scenario_lps.emplace_back(scenarios[0]);
+
+  std::vector<Block> pblocks(1);
+  pblocks[0].duration = 1.0;
+
+  std::vector<Stage> stages(1);
+  stages[0].first_block = 0;
+  stages[0].count_block = 1;
+  stages[0].discount_factor = 0.95;
+
+  std::vector<StageLP> stage_lps;
+  stage_lps.emplace_back(stages[0], pblocks);
+
+  const CostHelper helper(options, scenario_lps, stage_lps);
+
+  SUBCASE("block_icost_factors returns same address on repeated calls")
+  {
+    const auto* p1 = &helper.block_icost_factors();
+    const auto* p2 = &helper.block_icost_factors();
+    CHECK(p1 == p2);
+  }
+
+  SUBCASE("block_discount_icost_factors returns same address")
+  {
+    const auto* p1 = &helper.block_discount_icost_factors();
+    const auto* p2 = &helper.block_discount_icost_factors();
+    CHECK(p1 == p2);
+  }
+
+  SUBCASE("stage_icost_factors returns same address")
+  {
+    const auto* p1 = &helper.stage_icost_factors();
+    const auto* p2 = &helper.stage_icost_factors();
+    CHECK(p1 == p2);
+  }
+
+  SUBCASE("scenario_stage_icost_factors returns same address")
+  {
+    const auto* p1 = &helper.scenario_stage_icost_factors();
+    const auto* p2 = &helper.scenario_stage_icost_factors();
+    CHECK(p1 == p2);
   }
 }

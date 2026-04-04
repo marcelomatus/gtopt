@@ -1,3 +1,4 @@
+# -*- mode: ampl; -*-
 # =============================================================================
 # Maule Irrigation Agreement (Convenio del Maule)
 # =============================================================================
@@ -18,6 +19,33 @@
 #   3. Normal Zone (top): above {{ v_reserva_extraord + v_reserva_ordinaria }} hm3
 #      Full extraction rights for both parties
 #
+# ---------------------------------------------------------------------------
+# Name Mapping: PLP (Fortran) <-> gtopt
+# ---------------------------------------------------------------------------
+#
+#   PLP Variable    PLP Name                    gtopt FlowRight                  gtopt VolumeRight
+#   ------------    ------------------------    ----------------------------     ---------------------------------
+#   IQMNE           Gasto Normal Electrico      maule_gasto_normal_elec          maule_vol_gasto_elec_mensual
+#   IQMNR           Gasto Normal Riego          maule_gasto_normal_riego         maule_vol_gasto_riego_temp
+#   IQMOE           Gasto Ordinario Electrico   maule_gasto_ordinario_elec       maule_vol_reserva_ord_elec
+#   IQMOR           Gasto Ordinario Riego       maule_gasto_ordinario_riego      maule_vol_reserva_ord_riego
+#   IQMCE           Compensacion Electrica      maule_compensacion_elec          maule_vol_compensacion_elec
+#   IQR105          Resolucion 105              maule_resolucion_105             --
+#   --              Gasto Elec. Anual           --                               maule_vol_gasto_elec_anual
+#   IQHINV          Embalsar (Invernada)        invernada_embalsar               --
+#   IQHNEIN         No Embalsar (Invernada)     invernada_no_embalsar            --
+#   IQHSDI          Sin Deficit (Invernada)     invernada_sin_deficit            --
+#   IQHCNI          Caudal Natural (Invernada)  invernada_caudal_natural         --
+#   --              Bocatoma Canelon            maule_bocatoma_canelon           --
+#   IVMDEIF         Econ. Invernada             --                               invernada_vol_econ
+#
+#   Constraint          PLP origin             gtopt UserConstraint
+#   ------------------  ---------------------  ---------------------------------
+#   Balance Invernada   genpdmaulen.f          invernada_balance
+#   % Ordinario Elec    genpdmaulen.f          maule_pct_ordinario_elec
+#   % Ordinario Riego   genpdmaulen.f          maule_pct_ordinario_riego
+#   Dist. retiro_*      genpdmaulen.f          dist_retiro_* (per district)
+#
 # Water System Topology:
 #
 #   Laguna del Maule                    Rio Maule tributaries
@@ -28,10 +56,9 @@
 #   +---------+    +----------+    +----------+    +-----------+
 #        |              |               |               |
 #        v              v               v               v
-#        |              |               |               |
-#        v              v               v               v
-#   maule_elec_normal  maule_irr  maule_elec_ord  maule_res105
-#     (IQMNE)         (IQMNR)    (IQMOE)          (Res. 105)
+#   maule_gasto      invernada    maule_gasto     maule_resolucion
+#   _normal_elec     _embalsar    _ordinario_elec _105
+#     (IQMNE)       (IQHINV)       (IQMOE)        (IQR105)
 #        |              |               |               |
 #        v              v               v               v
 #   [VolumeRight]  [VolumeRight]   [VolumeRight]  [fixed discharge]
@@ -158,14 +185,20 @@ param pct_riego_mensual[month] = [{{ pct_riego_mensual | join(', ') }}];
 param caudal_res105[month] = [{{ caudal_res105 | join(', ') }}];
 
 # ---------------------------------------------------------------------------
-# Penalty costs
+# Invernada storage/bypass costs
 # ---------------------------------------------------------------------------
+#
+# PLP: "Penalizadores Convenio" in plpmaulen.dat
+# These are objective function costs on the Invernada storage and bypass
+# FlowRights, NOT general penalty costs.
+#   CostoEmbalsar    → applied to invernada_storage (IQHINV)
+#   CostoNoEmbalsar  → applied to invernada_bypass  (IQHNEIN)
 
-# Penalty for excess electric extraction [$/hm3]
-param penalizador_1 = {{ penalizador_1 }};
+# Cost for storing water in La Invernada [$/m3/s·h]
+param costo_embalsar = {{ costo_embalsar | default(1500.0) }};
 
-# Penalty for excess irrigation extraction [$/hm3]
-param penalizador_2 = {{ penalizador_2 | default(1000.0) }};
+# Cost for bypassing La Invernada (not storing) [$/m3/s·h]
+param costo_no_embalsar = {{ costo_no_embalsar | default(1000.0) }};
 
 # Penalty for unserved irrigation demand [$/hm3]
 param costo_riego_ns_maule = {{ costo_riego_ns_maule | default(1000.0) }};
@@ -176,6 +209,24 @@ param costo_riego_ns_res105 = {{ costo_riego_ns_res105 | default(1000.0) }};
 # ---------------------------------------------------------------------------
 # La Invernada winter economy parameters
 # ---------------------------------------------------------------------------
+#
+# PLP variable: IVMDEIF (La Invernada economy volume)
+# Modeled as a VolumeRight with purpose="economy":
+#   - `saving` variable: inflow (unused winter storage rights deposited)
+#   - `extraction` variable: outflow (economy spending)
+#   - Balance: economy_vol = prev + saving - extraction
+#
+# ┌─────────────────────────────────────────────────────────────────────┐
+# │ SIMPLIFICATION: Economy reset/cap rules NOT implemented            │
+# │                                                                    │
+# │ La Invernada economy is modeled as a simple accumulator with no    │
+# │ conditional reset or overflow cap.  PLP's more complex Invernada   │
+# │ rules (seasonal usage windows, acumulable flag) are not yet        │
+# │ represented in the gtopt constraint structure.                     │
+# │                                                                    │
+# │ To implement later, consider UserConstraints with monthly          │
+# │ activation schedules and StorageLP drain for overflow.             │
+# └─────────────────────────────────────────────────────────────────────┘
 
 # La Invernada winter economy usage cost [$/hm3]
 param econ_inver_costo = {{ econ_inver_costo | default(0.0) }};
@@ -210,7 +261,7 @@ param costo_canelon = {{ costo_canelon }};
 # ---------------------------------------------------------------------------
 
 constraint invernada_balance "La Invernada: inflows = outflows":
-  flow_right('invernada_deficit').flow + flow_right('invernada_no_deficit').flow + flow_right('invernada_natural_inflow').flow = flow_right('invernada_storage').flow + flow_right('invernada_bypass').flow;
+  flow_right('invernada_deficit').flow + flow_right('invernada_sin_deficit').flow + flow_right('invernada_caudal_natural').flow = flow_right('invernada_embalsar').flow + flow_right('invernada_no_embalsar').flow;
 
 # ---------------------------------------------------------------------------
 # Ordinary reserve percentage allocation constraints
@@ -225,12 +276,12 @@ constraint invernada_balance "La Invernada: inflows = outflows":
 
 # Electric capped at {{ pct_elec_reserva }}% of total ordinary reserve flow
 # Rewritten: (1 - pct/100) * elec_flow <= (pct/100) * irr_flow
-constraint maule_ord_elec_pct "Electric capped at {{ pct_elec_reserva }}% of total ordinary reserve flow":
-  flow_right('maule_elec_ordinary').flow <= {{ pct_elec_reserva / 100.0 }} * flow_right('maule_elec_ordinary').flow + {{ pct_elec_reserva / 100.0 }} * flow_right('maule_irr_ordinary').flow;
+constraint maule_pct_ordinario_elec "Electric capped at {{ pct_elec_reserva }}% of total ordinary reserve flow":
+  flow_right('maule_gasto_ordinario_elec').flow <= {{ pct_elec_reserva / 100.0 }} * flow_right('maule_gasto_ordinario_elec').flow + {{ pct_elec_reserva / 100.0 }} * flow_right('maule_gasto_ordinario_riego').flow;
 
 # Irrigation capped at {{ pct_riego_reserva }}% of total ordinary reserve flow
-constraint maule_ord_irr_pct "Irrigation capped at {{ pct_riego_reserva }}% of total ordinary reserve flow":
-  flow_right('maule_irr_ordinary').flow <= {{ pct_riego_reserva / 100.0 }} * flow_right('maule_elec_ordinary').flow + {{ pct_riego_reserva / 100.0 }} * flow_right('maule_irr_ordinary').flow;
+constraint maule_pct_ordinario_riego "Irrigation capped at {{ pct_riego_reserva }}% of total ordinary reserve flow":
+  flow_right('maule_gasto_ordinario_riego').flow <= {{ pct_riego_reserva / 100.0 }} * flow_right('maule_gasto_ordinario_elec').flow + {{ pct_riego_reserva / 100.0 }} * flow_right('maule_gasto_ordinario_riego').flow;
 
 # ---------------------------------------------------------------------------
 # District proportional allocation constraints
@@ -242,7 +293,7 @@ constraint maule_ord_irr_pct "Irrigation capped at {{ pct_riego_reserva }}% of t
 {% for district in districts %}
 # {{ district.name }}: {{ district.percentage }}% of total irrigation
 constraint dist_{{ district.name }} "{{ district.name }}: {{ district.percentage }}% of total irrigation":
-  flow_right('{{ district.name }}').flow {{ '<=' if district.has_slack else '=' }} {{ district.percentage / 100.0 }} * flow_right('maule_irr_normal').flow;
+  flow_right('{{ district.name }}').flow {{ '<=' if district.has_slack else '=' }} {{ district.percentage / 100.0 }} * flow_right('maule_gasto_normal_riego').flow;
 {% endfor %}
 
 # =============================================================================

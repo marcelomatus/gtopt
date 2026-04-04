@@ -64,24 +64,25 @@ auto save_state_csv(const PlanningLP& planning_lp,
           continue;
         }
 
-        const auto col_sol = li.get_col_sol();
-        const auto col_rc = li.get_col_cost();
+        const auto col_sol = li.get_col_sol_raw();
+        const auto col_rc = li.get_col_cost_raw();
         const auto& names = li.col_index_to_name();
-        const auto ncols = static_cast<size_t>(li.get_numcols());
+        const auto ncols = li.get_numcols();
         const auto phase_uid = phase.uid();
         const auto scene_uid = scene.uid();
 
         for (size_t c = 0; c < ncols && c < names.size(); ++c) {
-          if (names[c].empty()) {
+          const auto ci = ColIndex {static_cast<int>(c)};
+          if (names[ci].empty()) {
             continue;
           }
-          const auto scale = li.get_col_scale(ColIndex {static_cast<int>(c)});
-          const auto phys_val = col_sol[ColIndex {static_cast<int>(c)}] * scale;
+          const auto scale = li.get_col_scale(ci);
+          const auto phys_val = col_sol[ci] * scale;
           const auto rc = c < static_cast<size_t>(col_rc.size())
-              ? static_cast<double>(col_rc[ColIndex {static_cast<int>(c)}])
+              ? static_cast<double>(col_rc[ci])
               : 0.0;
 
-          ofs << names[c] << "," << phase_uid << "," << scene_uid << ","
+          ofs << names[ci] << "," << phase_uid << "," << scene_uid << ","
               << phys_val << "," << rc << "\n";
           ++count;
         }
@@ -130,8 +131,8 @@ auto load_state_csv(PlanningLP& planning_lp, const std::string& filepath)
     const auto& sim = planning_lp.simulation();
     for (auto&& [si, _sc] : enumerate<SceneIndex>(sim.scenes())) {
       for (auto&& [pi, _ph] : enumerate<PhaseIndex>(sim.phases())) {
-        const auto ncols = static_cast<size_t>(
-            planning_lp.system(si, pi).linear_interface().get_numcols());
+        const auto ncols =
+            planning_lp.system(si, pi).linear_interface().get_numcols();
         entries.push_back(WarmEntry {
             .scene = si,
             .phase = pi,
@@ -229,9 +230,11 @@ auto load_state_csv(PlanningLP& planning_lp, const std::string& filepath)
     // Inject warm solutions into each LinearInterface
     for (auto& e : entries) {
       if (e.has_data) {
+        StrongIndexVector<ColIndex, double> warm(e.col_sol.begin(),
+                                                 e.col_sol.end());
         planning_lp.system(e.scene, e.phase)
             .linear_interface()
-            .set_warm_col_sol(std::move(e.col_sol));
+            .set_warm_col_sol(std::move(warm));
       }
     }
 

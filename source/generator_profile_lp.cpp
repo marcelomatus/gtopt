@@ -40,8 +40,9 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
 
   auto&& generation_cols = generator.generation_cols_at(scenario, stage);
 
-  const auto [stage_capacity, capacity_col] =
+  const auto [opt_capacity, capacity_col] =
       generator.capacity_and_col(stage, lp);
+  const double stage_capacity = opt_capacity.value_or(LinearProblem::DblMax);
 
   if (!capacity_col && !generator.generator().capacity) {
     SPDLOG_WARN(

@@ -31,7 +31,7 @@
  * | junction           | drain                                               |
  * | flow               | flow (alias: discharge)                             |
  * | flow_right         | flow, fail                                          |
- * | volume_right       | flow (alias: finp)                                  |
+ * | volume_right       | extraction (aliases: flow, fout), saving             |
  * | seepage            | flow (alias: seepage)                               |
  * | reserve_provision  | up (aliases: uprovision, up_provision),             |
  * |                    | dn (aliases: dprovision, dn_provision, down)        |
@@ -87,7 +87,7 @@
  *
  * ### Grammar (pseudo-BNF)
  *
- * ```
+ * ```text
  * constraint   := expr comp_op expr [',' for_clause]
  *              |  number comp_op expr comp_op number [',' for_clause]
  *

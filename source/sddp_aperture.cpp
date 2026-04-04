@@ -321,14 +321,14 @@ auto solve_apertures_for_phase(
           auto cut = (cut_coeff_mode == CutCoeffMode::row_dual)
               ? build_benders_cut_from_row_duals(src_state.alpha_col,
                                                  src_state.outgoing_links,
-                                                 clone.get_row_dual(),
+                                                 clone.get_row_dual_raw(),
                                                  clone.get_obj_value(),
                                                  cut_name,
                                                  scale_alpha,
                                                  cut_coeff_eps)
               : build_benders_cut(src_state.alpha_col,
                                   src_state.outgoing_links,
-                                  clone.get_col_cost(),
+                                  clone.get_col_cost_raw(),
                                   clone.get_obj_value(),
                                   cut_name,
                                   scale_alpha,

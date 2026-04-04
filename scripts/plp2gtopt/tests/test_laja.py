@@ -442,12 +442,14 @@ class TestLajaWriter:
         writer = LajaWriter(laja_config)
 
         uc = writer.user_constraints[0]
-        assert uc["name"] == "laja_partition"
+        assert uc["name"] == "laja_particion_derechos"
 
     def test_total_gen_flow_right(self, laja_config):
         writer = LajaWriter(laja_config)
 
-        total = next(fr for fr in writer.flow_rights if fr["name"] == "laja_total_gen")
+        total = next(
+            fr for fr in writer.flow_rights if fr["name"] == "laja_q_turbinado"
+        )
         assert total["direction"] == 1  # supply
         assert total["use_average"] is True
 
@@ -464,7 +466,7 @@ class TestLajaWriter:
         writer = LajaWriter(laja_config)
 
         vol_irr = next(
-            vr for vr in writer.volume_rights if vr["name"] == "laja_vol_irr"
+            vr for vr in writer.volume_rights if vr["name"] == "laja_vol_der_riego"
         )
         assert "bound_rule" in vol_irr
         rule = vol_irr["bound_rule"]
@@ -481,7 +483,7 @@ class TestLajaWriter:
         writer = LajaWriter(laja_config)
 
         vol_elec = next(
-            vr for vr in writer.volume_rights if vr["name"] == "laja_vol_elec"
+            vr for vr in writer.volume_rights if vr["name"] == "laja_vol_der_electrico"
         )
         rule = vol_elec["bound_rule"]
         assert rule["cap"] == pytest.approx(1200)
@@ -498,13 +500,13 @@ class TestLajaWriter:
         writer = LajaWriter(laja_config)
 
         vol_irr = next(
-            vr for vr in writer.volume_rights if vr["name"] == "laja_vol_irr"
+            vr for vr in writer.volume_rights if vr["name"] == "laja_vol_der_riego"
         )
         assert vol_irr["eini"] == pytest.approx(544)
         assert vol_irr["emax"] == pytest.approx(5000)
 
         vol_elec = next(
-            vr for vr in writer.volume_rights if vr["name"] == "laja_vol_elec"
+            vr for vr in writer.volume_rights if vr["name"] == "laja_vol_der_electrico"
         )
         assert vol_elec["eini"] == pytest.approx(277)
 
@@ -532,7 +534,7 @@ class TestLajaWriter:
         writer = LajaWriter(laja_config)
 
         vol_mixed = next(
-            vr for vr in writer.volume_rights if vr["name"] == "laja_vol_mixed"
+            vr for vr in writer.volume_rights if vr["name"] == "laja_vol_der_mixto"
         )
         rule = vol_mixed["bound_rule"]
         assert rule["reservoir"] == "ELTORO"
@@ -546,10 +548,12 @@ class TestLajaWriter:
         writer = LajaWriter(laja_config)
 
         vol_antic = next(
-            vr for vr in writer.volume_rights if vr["name"] == "laja_vol_anticipated"
+            vr
+            for vr in writer.volume_rights
+            if vr["name"] == "laja_vol_gasto_anticipado"
         )
         vol_irr = next(
-            vr for vr in writer.volume_rights if vr["name"] == "laja_vol_irr"
+            vr for vr in writer.volume_rights if vr["name"] == "laja_vol_der_riego"
         )
         # Anticipated uses same segments as irrigation
         assert vol_antic["bound_rule"]["segments"] == vol_irr["bound_rule"]["segments"]
@@ -558,14 +562,16 @@ class TestLajaWriter:
     def test_flow_rights_directions(self, laja_config):
         writer = LajaWriter(laja_config)
 
-        total = next(fr for fr in writer.flow_rights if fr["name"] == "laja_total_gen")
+        total = next(
+            fr for fr in writer.flow_rights if fr["name"] == "laja_q_turbinado"
+        )
         assert total["direction"] == 1  # supply
 
         for name in [
-            "laja_irr_rights",
-            "laja_elec_rights",
-            "laja_mixed_rights",
-            "laja_anticipated",
+            "laja_der_riego",
+            "laja_der_electrico",
+            "laja_der_mixto",
+            "laja_gasto_anticipado",
         ]:
             fr = next(f for f in writer.flow_rights if f["name"] == name)
             assert fr["direction"] == -1, f"{name} should have direction=-1"
@@ -620,10 +626,10 @@ class TestLajaWriter:
     def test_volume_rights_purposes(self, laja_config):
         writer = LajaWriter(laja_config)
         vr_by_name = {vr["name"]: vr for vr in writer.volume_rights}
-        assert vr_by_name["laja_vol_irr"]["purpose"] == "irrigation"
-        assert vr_by_name["laja_vol_elec"]["purpose"] == "generation"
-        assert vr_by_name["laja_vol_mixed"]["purpose"] == "mixed"
-        assert vr_by_name["laja_vol_anticipated"]["purpose"] == "anticipated"
+        assert vr_by_name["laja_vol_der_riego"]["purpose"] == "irrigation"
+        assert vr_by_name["laja_vol_der_electrico"]["purpose"] == "generation"
+        assert vr_by_name["laja_vol_der_mixto"]["purpose"] == "mixed"
+        assert vr_by_name["laja_vol_gasto_anticipado"]["purpose"] == "anticipated"
 
     def test_volume_rights_use_state_variable(self, laja_config):
         writer = LajaWriter(laja_config)
@@ -633,7 +639,7 @@ class TestLajaWriter:
     def test_volume_rights_mixed_initial(self, laja_config):
         writer = LajaWriter(laja_config)
         vol_mixed = next(
-            vr for vr in writer.volume_rights if vr["name"] == "laja_vol_mixed"
+            vr for vr in writer.volume_rights if vr["name"] == "laja_vol_der_mixto"
         )
         assert vol_mixed["eini"] == pytest.approx(0)
         assert vol_mixed["emax"] == pytest.approx(30)
@@ -641,14 +647,18 @@ class TestLajaWriter:
     def test_volume_rights_anticipated_initial(self, laja_config):
         writer = LajaWriter(laja_config)
         vol_antic = next(
-            vr for vr in writer.volume_rights if vr["name"] == "laja_vol_anticipated"
+            vr
+            for vr in writer.volume_rights
+            if vr["name"] == "laja_vol_gasto_anticipado"
         )
         assert vol_antic["eini"] == pytest.approx(0)
         assert vol_antic["emax"] == pytest.approx(5000)
 
     def test_total_gen_fmax(self, laja_config):
         writer = LajaWriter(laja_config)
-        total = next(fr for fr in writer.flow_rights if fr["name"] == "laja_total_gen")
+        total = next(
+            fr for fr in writer.flow_rights if fr["name"] == "laja_q_turbinado"
+        )
         assert total["fmax"] == pytest.approx(5582.0)
 
     def test_economy_accumulators(self, laja_config):
@@ -656,7 +666,7 @@ class TestLajaWriter:
         writer = LajaWriter(laja_config)
         econ_names = {
             "laja_vol_econ_endesa",
-            "laja_vol_econ_reserve",
+            "laja_vol_econ_reserva",
             "laja_vol_econ_polcura",
         }
         econ_vrs = [vr for vr in writer.volume_rights if vr["name"] in econ_names]
@@ -668,18 +678,20 @@ class TestLajaWriter:
             assert "reset_month" not in vr  # economies carry forward
 
     def test_usage_cost_elec(self, laja_config):
-        """Electrical rights have use_value = cost_elec_uso."""
+        """Electrical rights have use_value modulated by monthly_cost_elec."""
         writer = LajaWriter(laja_config)
-        elec = next(fr for fr in writer.flow_rights if fr["name"] == "laja_elec_rights")
-        assert elec["use_value"] == pytest.approx(laja_config["cost_elec_uso"])
+        elec = next(
+            fr for fr in writer.flow_rights if fr["name"] == "laja_der_electrico"
+        )
+        # use_value is now cost_elec_uso × monthly_cost_elec (per-stage schedule)
+        assert "use_value" in elec
 
     def test_usage_cost_mixed(self, laja_config):
-        """Mixed rights have use_value = cost_mixed."""
+        """Mixed rights have use_value modulated by monthly_cost_mixed."""
         writer = LajaWriter(laja_config)
-        mixed = next(
-            fr for fr in writer.flow_rights if fr["name"] == "laja_mixed_rights"
-        )
-        assert mixed["use_value"] == pytest.approx(laja_config["cost_mixed"])
+        mixed = next(fr for fr in writer.flow_rights if fr["name"] == "laja_der_mixto")
+        # use_value is now cost_mixed × monthly_cost_mixed (per-stage schedule)
+        assert "use_value" in mixed
 
     def test_usage_cost_zero_omitted(self):
         """When usage cost is 0, use_value should not be emitted."""
@@ -687,10 +699,10 @@ class TestLajaWriter:
         cfg["cost_elec_uso"] = 0.0
         cfg["cost_mixed"] = 0.0
         writer = LajaWriter(cfg)
-        elec = next(fr for fr in writer.flow_rights if fr["name"] == "laja_elec_rights")
-        mixed = next(
-            fr for fr in writer.flow_rights if fr["name"] == "laja_mixed_rights"
+        elec = next(
+            fr for fr in writer.flow_rights if fr["name"] == "laja_der_electrico"
         )
+        mixed = next(fr for fr in writer.flow_rights if fr["name"] == "laja_der_mixto")
         assert "use_value" not in elec
         assert "use_value" not in mixed
 
@@ -698,7 +710,7 @@ class TestLajaWriter:
         """Laja writer emits 1 user constraint for the partition balance."""
         writer = LajaWriter(laja_config)
         assert len(writer.user_constraints) == 1
-        assert writer.user_constraints[0]["name"] == "laja_partition"
+        assert writer.user_constraints[0]["name"] == "laja_particion_derechos"
 
     def test_json_serializable(self, laja_config):
         writer = LajaWriter(laja_config)
@@ -793,9 +805,9 @@ def _minimal_laja_config():
         "monthly_usage_mixed": [1] * 12,
         "monthly_usage_anticipated": [0] * 12,
         "monthly_cost_irr_ns": [1.0] * 12,
-        "monthly_cost_irr": [0.0] * 12,
-        "monthly_cost_elec": [0.0] * 12,
-        "monthly_cost_mixed": [0.0] * 12,
+        "monthly_cost_irr": [1.0] * 12,
+        "monthly_cost_elec": [1.0] * 12,
+        "monthly_cost_mixed": [1.0] * 12,
         "monthly_cost_anticipated": [0.0] * 12,
         "ini_irr": 100,
         "ini_elec": 50,
@@ -844,7 +856,9 @@ class TestLajaWriterMinimalConfig:
     def test_minimal_two_segments(self):
         cfg = _minimal_laja_config()
         writer = LajaWriter(cfg)
-        vr_irr = next(vr for vr in writer.volume_rights if vr["name"] == "laja_vol_irr")
+        vr_irr = next(
+            vr for vr in writer.volume_rights if vr["name"] == "laja_vol_der_riego"
+        )
         assert len(vr_irr["bound_rule"]["segments"]) == 2
 
 

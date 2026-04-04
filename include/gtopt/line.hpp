@@ -87,8 +87,16 @@ struct Line
                                     ///< Use p.u. when voltage is omitted
                                     ///< (default). Susceptance: B = V² / X.
   OptTRealFieldSched lossfactor {};  ///< Lumped loss factor [p.u.]
-  OptBool use_line_losses {};  ///< Whether to model resistive line losses
-                               ///< (default: from Options)
+  OptBool use_line_losses {};  ///< @deprecated Use `line_losses_mode` instead.
+                               ///< Kept for backward compatibility:
+                               ///< `true` maps to the global default mode,
+                               ///< `false` maps to `none`.
+  OptName
+      line_losses_mode {};  ///< Loss model selection (per-line override).
+                            ///< See LineLossesMode for valid values:
+                            ///< `"none"`, `"linear"`, `"piecewise"`,
+                            ///< `"bidirectional"`, `"adaptive"`, `"dynamic"`.
+                            ///< When unset, inherits from ModelOptions.
   OptInt loss_segments {};  ///< Number of piecewise-linear segments for
                             ///< quadratic losses (default: from Options)
 
@@ -96,6 +104,16 @@ struct Line
                                     ///< sender and receiver buses:
                                     ///< `"receiver"` (default), `"sender"`,
                                     ///< or `"split"` (50/50, PLP default).
+
+  /// Parse line_losses_mode string to enum (nullopt = inherit from global).
+  [[nodiscard]] constexpr std::optional<LineLossesMode> line_losses_mode_enum()
+      const noexcept
+  {
+    if (line_losses_mode.has_value()) {
+      return enum_from_name<LineLossesMode>(*line_losses_mode);
+    }
+    return std::nullopt;
+  }
 
   /// Parse loss_allocation_mode string to enum (receiver if unset).
   [[nodiscard]] constexpr LossAllocationMode loss_allocation_mode_enum()

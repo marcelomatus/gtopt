@@ -18,6 +18,7 @@
 #include <vector>
 
 #include <gtopt/enum_option.hpp>
+#include <gtopt/line_enums.hpp>
 #include <gtopt/planning_options.hpp>
 #include <gtopt/variable_scale.hpp>
 
@@ -42,8 +43,11 @@ public:
   static constexpr DataFormat default_input_format = DataFormat::parquet;
 
   // Default values for optimization parameters
-  /** @brief Default setting for line loss modeling */
+  /** @brief Default setting for line loss modeling (deprecated) */
   static constexpr Bool default_use_line_losses = true;
+  /** @brief Default line losses mode */
+  static constexpr LineLossesMode default_line_losses_mode =
+      LineLossesMode::adaptive;
   /** @brief Default number of flow segments per line (1 = linear model,
    * &gt;1 = piecewise-linear quadratic approximation of P_loss = R·f²/V²) */
   static constexpr Int default_loss_segments = 1;
@@ -152,11 +156,31 @@ public:
     return m_options_.model_options.reserve_fail_cost;
   }
 
+  /// @brief Gets the line losses mode, with backward-compat fallback.
+  ///
+  /// Priority: model_options.line_losses_mode (string) →
+  ///           model_options.use_line_losses (bool, deprecated) →
+  ///           default_line_losses_mode (adaptive).
+  [[nodiscard]] constexpr LineLossesMode line_losses_mode() const
+  {
+    if (m_options_.model_options.line_losses_mode.has_value()) {
+      return enum_from_name<LineLossesMode>(
+                 *m_options_.model_options.line_losses_mode)
+          .value_or(default_line_losses_mode);
+    }
+    if (m_options_.model_options.use_line_losses.has_value()) {
+      return *m_options_.model_options.use_line_losses
+          ? default_line_losses_mode
+          : LineLossesMode::none;
+    }
+    return default_line_losses_mode;
+  }
+
   /// @brief Gets the line loss modeling flag from model_options.
+  /// @deprecated Use line_losses_mode() instead.
   [[nodiscard]] constexpr auto use_line_losses() const
   {
-    return m_options_.model_options.use_line_losses.value_or(
-        default_use_line_losses);
+    return line_losses_mode() != LineLossesMode::none;
   }
 
   /// @brief Gets the number of piecewise-linear loss segments.

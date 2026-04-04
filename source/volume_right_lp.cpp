@@ -14,24 +14,21 @@
  *
  * ## Balance equation
  *
- * When `source_flow_right` is set (PLP-style coupling):
- *
- *   efin(b) = efin(b-1) - fcr × dur(b) × flow_right.flow(b) / escale
- *                        + fcr × dur(b) × finp(b) / escale
+ *   efin(b) = efin(b-1) + fcr × dur(b) × saving(b) / escale
+ *                        - fcr × dur(b) × extraction(b) / escale
  *
  * The volume starts at emax (full rights entitlement) and decrements
- * as the FlowRight extracts water.  At reset_month, eini resets to 0.
- * Efficiency is 1.0 for both inflow and outflow — rights are consumed
- * 1:1 without loss.
+ * as extraction occurs (depletion model).  Economy VolumeRights
+ * (purpose="economy") use the saving variable to receive deposits
+ * of unused rights (PLP: IVESN/IVERN/IVAPN).
  *
- * When `source_flow_right` is NOT set:
+ * At reset_month, eini is re-provisioned:
+ *   - With bound_rule: eini = evaluate_bound_rule(reservoir_volume)
+ *     (PLP: DerRiego = Base + Σ(Factor_i × Zone_Volume_i))
+ *   - Without bound_rule: eini = emax (simple full reprovision)
  *
- *   efin(b) = efin(b-1) + fcr × dur(b) × finp(b) / escale
- *
- * Rights only accumulate via finp (original accumulation model).
+ * Efficiency is 1.0 — rights are consumed 1:1 without loss.
  */
-
-#include <gtopt/flow_right_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/reservoir_enums.hpp>
@@ -48,6 +45,7 @@ VolumeRightLP::VolumeRightLP(const VolumeRight& pvol, const InputContext& ic)
     : StorageBase(pvol, ic, ClassName)
     , demand(ic, ClassName, id(), std::move(volume_right().demand))
     , fmax(ic, ClassName, id(), std::move(volume_right().fmax))
+    , saving_rate(ic, ClassName, id(), std::move(volume_right().saving_rate))
     , fail_cost(volume_right().fail_cost.value_or(0.0))
 {
 }
@@ -67,13 +65,17 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   const auto& options = sc.options();
   const auto scale_objective = options.scale_objective();
 
-  // Resolve energy_scale: use explicit value, inherit from
-  // the source reservoir or parent VolumeRight (keeps scaling
-  // consistent within the rights hierarchy), else default 1.0.
+  // Resolve energy_scale: explicit field > VariableScaleMap >
+  // inherit from source reservoir or parent VolumeRight > default.
   const double energy_scale = [&]
   {
     if (volume_right().energy_scale.has_value()) {
       return *volume_right().energy_scale;
+    }
+    const auto vs =
+        options.variable_scale_map().lookup("VolumeRight", "energy", uid());
+    if (vs != 1.0) {
+      return vs;
     }
     if (const auto& r_ref = volume_right().reservoir; r_ref.has_value()) {
       const ReservoirLPSId r_sid(*r_ref);
@@ -87,6 +89,14 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     return VolumeRight::default_energy_scale;
   }();
 
+  // Resolve flow_scale: VariableScaleMap > default (1.0).
+  const double flow_scale = [&]
+  {
+    const auto fs =
+        options.variable_scale_map().lookup("VolumeRight", "flow", uid());
+    return (fs != 1.0) ? fs : 1.0;
+  }();
+
   // Evaluate initial bound rule if present
   const auto& opt_rule = volume_right().bound_rule;
   auto initial_rule_bound = std::numeric_limits<Real>::max();
@@ -97,8 +107,10 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     initial_rule_bound = evaluate_bound_rule(*opt_rule, initial_volume);
   }
 
-  BIndexHolder<ColIndex> finp_cols;
-  map_reserve(finp_cols, blocks.size());
+  const double inv_flow_scale = 1.0 / flow_scale;
+
+  BIndexHolder<ColIndex> extraction_cols;
+  map_reserve(extraction_cols, blocks.size());
 
   for (auto&& block : blocks) {
     const auto buid = block.uid();
@@ -111,32 +123,58 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     }
 
     auto col_name =
-        sc.lp_col_label(scenario, stage, block, cname, "finp", uid());
+        sc.lp_col_label(scenario, stage, block, cname, "extraction", uid());
     const auto fcol = lp.add_col(SparseCol {
         .name = std::move(col_name),
-        .uppb = uppb,
+        .uppb = uppb * inv_flow_scale,
+        .scale = flow_scale,
     });
 
-    finp_cols[buid] = fcol;
+    extraction_cols[buid] = fcol;
   }
 
-  // The storage balance tracks accumulated rights volume.
+  // Create saving (inflow) columns for economy VolumeRights.
+  // When saving_rate is set, a saving variable is created per block
+  // representing deposits of unused rights into this economy.
+  BIndexHolder<ColIndex> saving_cols;
+  if (volume_right().saving_rate.has_value()) {
+    map_reserve(saving_cols, blocks.size());
+    for (auto&& block : blocks) {
+      const auto buid = block.uid();
+      const auto uppb =
+          saving_rate.at(stage.uid(), buid).value_or(LinearProblem::DblMax);
+      auto col_name =
+          sc.lp_col_label(scenario, stage, block, cname, "saving", uid());
+      const auto fcol = lp.add_col(SparseCol {
+          .name = std::move(col_name),
+          .uppb = uppb * inv_flow_scale,
+          .scale = flow_scale,
+      });
+      saving_cols[buid] = fcol;
+    }
+  }
+
+  // The storage balance tracks remaining rights volume.
   //
-  // When source_flow_right is set, the FlowRight's per-block flow columns
-  // are injected as outflow into the energy balance AFTER the StorageBase
-  // call.  We pass empty fout_cols to StorageBase; the FlowRight coupling
-  // adds the outflow coefficients directly to the energy rows.
+  //   vrt_vol = vrt_prev + fcr × dur × saving / escale
+  //                       - fcr × dur × extraction / escale
   //
-  // When source_flow_right is NOT set, finp accumulates volume
-  // (inflow-only model).
+  // Efficiency = 1.0 (rights consumed 1:1, no loss).
   //
-  // In both cases, finp_efficiency = 1.0 and fout_efficiency = 1.0
-  // (rights are consumed 1:1, no loss).
-  const BIndexHolder<ColIndex> empty_fout_cols;
+  // When reset_month fires at a cross-phase boundary, skip state variable
+  // linking: the sini value is independently provisioned, so backward
+  // duals and forward trial values from the previous phase are meaningless.
+  const auto& rm = volume_right().reset_month;
+  const bool is_reset_stage = rm.has_value() && stage.month() == rm;
+  const auto [prev_stg, prev_ph] = sc.prev_stage(stage);
+  const bool is_cross_phase = (prev_stg != nullptr && prev_ph != nullptr);
+
   const StorageOptions opts {
       .use_state_variable = volume_right().use_state_variable.value_or(true),
       .daily_cycle = false,
+      .skip_state_link = is_reset_stage && is_cross_phase,
       .energy_scale = energy_scale,
+      .flow_scale = flow_scale,
   };
 
   if (!StorageBase::add_to_lp(cname,
@@ -145,9 +183,9 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
                               stage,
                               lp,
                               flow_conversion_rate(),
-                              finp_cols,
+                              saving_cols,
                               1.0,
-                              empty_fout_cols,
+                              extraction_cols,
                               1.0,
                               LinearProblem::DblMax,
                               std::nullopt,
@@ -160,50 +198,41 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     return false;
   }
 
-  // Reset accumulated volume at the designated month boundary.
-  // When the stage's month matches reset_month, fix eini to 0
-  // (e.g., Maule irrigation rights reset each April).
-  if (const auto& rm = volume_right().reset_month;
-      rm.has_value() && stage.month() == rm)
-  {
-    auto& eini = lp.col_at(eini_col_at(scenario, stage));
-    eini.lowb = 0.0;
-    eini.uppb = 0.0;
+  // Dynamic provisioning at the designated month boundary.
+  // When the stage's month matches reset_month, re-provision the
+  // rights volume for the new period (PLP: FijaLajaMBloA / FijaMaule).
+  //
+  // With bound_rule: eini = evaluate_bound_rule(reservoir_volume)
+  //   → dynamic provisioning based on current reservoir level.
+  //   This matches PLP's DerRiego = Base + Σ(Factor_i × Zone_Volume_i).
+  //
+  // Without bound_rule: eini = emax (simple full reprovision).
+  //
+  // Note: when this fires at a cross-phase boundary, skip_state_link
+  // ensures that the SDDP forward pass does not overwrite this value
+  // with the previous phase's efin, and backward duals are not
+  // propagated through the reset.
+  if (is_reset_stage) {
+    const auto provision = opt_rule.has_value()
+        ? initial_rule_bound
+        : param_emax(stage.uid()).value_or(0.0);
+    auto& eini_col = lp.col_at(eini_col_at(scenario, stage));
+    eini_col.lowb = provision / energy_scale;
+    eini_col.uppb = provision / energy_scale;
   }
 
-  // Store finp_cols for external coupling access
+  // Store columns for external coupling access
   const auto st_key = std::pair {scenario.uid(), stage.uid()};
-  finp_cols_map[st_key] = finp_cols;
+  extraction_cols_[st_key] = extraction_cols;
+  if (!saving_cols.empty()) {
+    saving_cols_[st_key] = saving_cols;
+  }
 
   // Store bound rule state for update_lp
   if (opt_rule.has_value()) {
     m_bound_states_[st_key] = BoundState {
         .current_bound = initial_rule_bound,
     };
-  }
-
-  // ── Source FlowRight coupling (outflow from rights volume) ─────────
-  // When source_flow_right is set, inject the FlowRight's per-block
-  // flow columns into the energy balance rows as outflow.  This
-  // implements PLP's coupling: IVDRF = prev - fcr × dur × IQDRH.
-  //
-  // The coefficient is positive (outflow reduces volume):
-  //   coeff = +fcr × dur(b) / energy_scale
-  //
-  // Efficiency is 1.0 — rights are consumed 1:1.
-  if (const auto& fr_ref = volume_right().source_flow_right; fr_ref.has_value())
-  {
-    const FlowRightLPSId fr_sid(*fr_ref);
-    const auto& fr_lp = sc.element(fr_sid);
-    const auto& fr_flow_cols = fr_lp.flow_cols_at(scenario, stage);
-    const auto& erows = energy_rows_at(scenario, stage);
-
-    for (auto&& block : blocks) {
-      const auto buid = block.uid();
-      const auto coeff =
-          flow_conversion_rate() * block.duration() / energy_scale;
-      lp.row_at(erows.at(buid))[fr_flow_cols.at(buid)] = coeff;
-    }
   }
 
   // Couple to parent VolumeRight's energy balance if linked
@@ -215,17 +244,19 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
 
     for (auto&& block : blocks) {
       const auto buid = block.uid();
-      const auto coeff =
-          flow_conversion_rate() * block.duration() * dir / energy_scale;
-      lp.row_at(vr_erows.at(buid))[finp_cols.at(buid)] = coeff;
+      // extraction LP var = physical / flow_scale, so multiply by
+      // flow_scale to restore physical units in the parent balance.
+      const auto coeff = flow_conversion_rate() * block.duration() * dir
+          * flow_scale / energy_scale;
+      lp.row_at(vr_erows.at(buid))[extraction_cols.at(buid)] = coeff;
     }
   }
 
   // Consumptive coupling: extraction removes water from physical Reservoir.
-  // Rights are always consumptive — when a reservoir is set, finp flow
+  // Rights are always consumptive — when a reservoir is set, extraction
   // is subtracted from the reservoir's energy balance (outflow).
-  // Coefficient: +fcr × duration / r_energy_scale (same sign as the
-  // reservoir's own fout variable).
+  // Coefficient: +fcr × duration × flow_scale / r_energy_scale
+  // (flow_scale restores physical m³/s from the scaled LP variable).
   if (const auto& r_ref = volume_right().reservoir; r_ref.has_value()) {
     const ReservoirLPSId r_sid(*r_ref);
     const auto& r_lp = sc.element(r_sid);
@@ -234,14 +265,14 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
 
     for (auto&& block : blocks) {
       const auto buid = block.uid();
-      const auto coeff =
-          +flow_conversion_rate() * block.duration() / r_energy_scale;
-      lp.row_at(r_erows.at(buid))[finp_cols.at(buid)] = coeff;
+      const auto coeff = +flow_conversion_rate() * block.duration() * flow_scale
+          / r_energy_scale;
+      lp.row_at(r_erows.at(buid))[extraction_cols.at(buid)] = coeff;
     }
   }
 
   // Add demand satisfaction constraint with deficit penalty.
-  // sum_b [duration_b * flow_conversion_rate * finp(b)] + fail >= demand
+  // sum_b [duration_b * flow_conversion_rate * extraction(b)] + fail >= demand
   // Implemented per-stage: if demand is specified, create a fail variable
   // and a constraint row.
   const auto stage_demand = demand.at(stage.uid());
@@ -257,7 +288,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     });
 
     // Demand satisfaction constraint:
-    // sum_b [coeff_b * finp(b)] + fail >= demand / energy_scale
+    // sum_b [coeff_b * extraction(b)] + fail >= demand / energy_scale
     auto demand_row_name =
         sc.lp_row_label(scenario, stage, cname, "demand", uid());
     SparseRow drow {
@@ -267,8 +298,11 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     for (auto&& block : blocks) {
       const auto buid = block.uid();
       const auto duration = block.duration();
-      const auto coeff = flow_conversion_rate() * duration * inv_energy_scale;
-      drow[finp_cols.at(buid)] = coeff;
+      // extraction LP var = physical / flow_scale, so multiply by
+      // flow_scale to convert back to physical m³/s for the demand sum.
+      const auto coeff =
+          flow_conversion_rate() * duration * flow_scale * inv_energy_scale;
+      drow[extraction_cols.at(buid)] = coeff;
     }
     drow[fail_col] = 1.0;
 
@@ -317,10 +351,23 @@ int VolumeRightLP::update_lp(SystemLP& sys,
   }
 
   int total = 0;
-  const auto& my_finp_cols = finp_cols_map.at(st_key);
+  const auto& my_extraction_cols = extraction_cols_.at(st_key);
 
-  for (const auto& [buid, col] : my_finp_cols) {
-    li.set_col_upp(col, new_bound);
+  for (const auto& [buid, col] : my_extraction_cols) {
+    const auto col_scale = li.get_col_scale(col);
+    li.set_col_upp(col, new_bound / col_scale);
+    ++total;
+  }
+
+  // Dynamic provisioning: at reset_month, update eini to the new
+  // bound_rule value (PLP: DerRiego recomputed from reservoir volume).
+  if (const auto& rm = volume_right().reset_month;
+      rm.has_value() && stage.month() == rm)
+  {
+    const auto eini_col = eini_col_at(scenario, stage);
+    const auto es = li.get_col_scale(eini_col);
+    li.set_col_low(eini_col, new_bound / es);
+    li.set_col_upp(eini_col, new_bound / es);
     ++total;
   }
 

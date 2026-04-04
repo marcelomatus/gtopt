@@ -107,10 +107,6 @@ public:
   }
 
   /**
-   * @brief Gets the simulation scenarios
-   * @return Const reference to vector of SimulationLP
-   */
-  /**
    * @brief Gets the simulation LP model
    * @return Const reference to SimulationLP
    */

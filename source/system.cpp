@@ -283,6 +283,12 @@ void System::merge(System&& sys)  // NOLINT
   if (sys.user_constraint_file.has_value()) {
     user_constraint_file = std::move(sys.user_constraint_file);
   }
+
+  if (!sys.user_constraint_files.empty()) {
+    for (auto& f : sys.user_constraint_files) {
+      user_constraint_files.push_back(std::move(f));
+    }
+  }
 }
 
 }  // namespace gtopt

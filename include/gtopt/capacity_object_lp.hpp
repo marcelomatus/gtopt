@@ -34,16 +34,11 @@
 namespace gtopt
 {
 /**
- * @brief A linear programming representation of an object with capacity
- * constraints
+ * @brief Base class providing capacity constraint logic for LP objects
  *
- * @tparam Object The type of object being modeled, must provide
- * capacity-related attributes
- *
- * This class extends ObjectLP to handle capacity constraints, expansion
- * capabilities, and associated costs in a linear programming formulation.
+ * This class handles capacity constraints, expansion capabilities,
+ * and associated costs in a linear programming formulation.
  */
-
 struct CapacityObjectBase
 {
   [[nodiscard]] constexpr const Id& id() const noexcept { return m_id_; }
@@ -103,26 +98,30 @@ struct CapacityObjectBase
     return m_capacity_.at(stage.uid()).value_or(def_capacity);
   }
 
-  /**
-   * @brief Get capacity value and optional column index for a stage
-   * @tparam Out Return type (defaults to pair<double, optional<ColIndex>>)
-   * @param stage The stage to query
-   * @param lp Linear problem reference to check column bounds
-   * @return Pair containing:
-   *   - First: Capacity value (upper bound if column exists, else schedule
-   * value)
-   *   - Second: Optional column index if exists
-   */
-  template<typename Out = std::pair<double, std::optional<ColIndex>>>
-  [[nodiscard]] constexpr auto capacity_and_col(const StageLP& stage,
-                                                LinearProblem& lp) const -> Out
-  {
-    auto&& capacity_col = capacity_col_at(stage);
-    if (capacity_col) {
-      return {lp.get_col_uppb(*capacity_col), capacity_col};
-    }
+  /// Pair of optional capacity value and optional expansion column index.
+  using CapacityAndCol =
+      std::pair<std::optional<double>, std::optional<ColIndex>>;
 
-    return {capacity_at(stage), {}};
+  /**
+   * @brief Query capacity value and optional expansion column for a stage.
+   *
+   * Returns `{std::optional<double>, std::optional<ColIndex>}`.
+   * The capacity is `nullopt` when no expansion column exists AND no
+   * capacity schedule value is defined — i.e. when the physical capacity
+   * is truly undefined.  Callers that need a numeric fallback should use
+   * `value_or(default)` on the returned optional.
+   *
+   * @param stage The stage to query
+   * @param lp    Linear problem reference (needed for expansion col bounds)
+   */
+  [[nodiscard]] constexpr auto capacity_and_col(const StageLP& stage,
+                                                LinearProblem& lp) const
+      -> CapacityAndCol
+  {
+    if (auto col = capacity_col_at(stage)) {
+      return {lp.get_col_uppb(*col), col};
+    }
+    return {m_capacity_.at(stage.uid()), {}};
   }
 
   /**
@@ -219,6 +218,13 @@ private:
   TIndexHolder<RowIndex> capacost_rows;
 };
 
+/**
+ * @brief A linear programming representation of an object with capacity
+ * constraints
+ *
+ * @tparam Object The type of object being modeled, must provide
+ * capacity-related attributes
+ */
 template<typename Object>
 struct CapacityObjectLP
     : public ObjectLP<Object>

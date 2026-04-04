@@ -106,7 +106,8 @@ namespace gtopt
  * losses.
  *
  * The energy balance per block is:
- * ```
+ *
+ * ```text
  * SoC[t+1] = SoC[t] × (1 − annual_loss/8760) + input_efficiency × charge
  *            − discharge / output_efficiency
  * ```

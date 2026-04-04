@@ -137,8 +137,8 @@ void HighsSolverBackend::load_problem(int ncols,
   }
 
   const auto status = m_highs_->passModel(std::move(lp));
-  if (status != HighsStatus::kOk) {
-    throw std::runtime_error("HiGHS: failed to load problem");
+  if (status == HighsStatus::kError) {
+    m_load_failed_ = true;
   }
 }
 
@@ -361,6 +361,9 @@ void HighsSolverBackend::set_row_price(const double* price)
 void HighsSolverBackend::initial_solve()
 {
   m_solution_valid_ = false;
+  if (m_load_failed_) {
+    return;
+  }
   const auto status = m_highs_->run();
   if (status == HighsStatus::kError) {
     throw std::runtime_error("HiGHS: solver error during initial_solve");
@@ -371,6 +374,12 @@ void HighsSolverBackend::resolve()
 {
   // HiGHS automatically warm-starts from previous basis
   m_solution_valid_ = false;
+  if (m_load_failed_) {
+    // passModel failed (e.g. contradictory bounds) — skip run so
+    // is_proven_optimal() returns false and the caller reports
+    // infeasibility.
+    return;
+  }
   const auto status = m_highs_->run();
   if (status == HighsStatus::kError) {
     throw std::runtime_error("HiGHS: solver error during resolve");

@@ -606,6 +606,381 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
   }
 }
 
+/// Set up trace-level file sink for detailed SPDLOG_TRACE output.
+///
+/// When --trace-log is given explicitly, uses that path; otherwise
+/// auto-creates a numbered file inside the log directory
+/// (e.g. logs/trace_1.log, logs/trace_2.log).
+void setup_trace_log(const MainOptions& opts)
+{
+  const auto log_dir = std::filesystem::path(
+      opts.log_directory.has_value()
+          ? opts.log_directory.value()
+          : (std::filesystem::path(opts.output_directory.value_or("output"))
+             / "logs")
+                .string());
+  std::string trace_path;
+
+  if (opts.trace_log.has_value()) {
+    trace_path = opts.trace_log.value();
+  } else {
+    // Find the next available trace_N.log in log_dir
+    try {
+      std::filesystem::create_directories(log_dir);
+    } catch (const std::filesystem::filesystem_error& fe) {
+      spdlog::warn("could not create log directory '{}': {}",
+                   log_dir.string(),
+                   fe.what());
+    }
+    int n = 1;
+    constexpr int max_trace_files = 10000;
+    for (; n <= max_trace_files; ++n) {
+      auto candidate = log_dir / std::format("trace_{}.log", n);
+      if (!std::filesystem::exists(candidate)) {
+        trace_path = candidate.string();
+        break;
+      }
+    }
+    if (trace_path.empty()) {
+      // All slots used — fall back to timestamp-based name
+      const auto now = std::chrono::system_clock::now();
+      const auto ts = std::chrono::duration_cast<std::chrono::seconds>(
+                          now.time_since_epoch())
+                          .count();
+      trace_path = (log_dir / std::format("trace_{}.log", ts)).string();
+    }
+  }
+
+  try {
+    const auto parent = std::filesystem::path(trace_path).parent_path();
+    if (!parent.empty()) {
+      std::filesystem::create_directories(parent);
+    }
+    auto trace_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
+        trace_path, /*truncate=*/true);
+    trace_sink->set_level(spdlog::level::trace);
+    // Keep the first sink (assumed to be the console/stdout sink) at its
+    // current level so trace messages only go to the file, not terminal.
+    auto& sinks = spdlog::default_logger()->sinks();
+    if (!sinks.empty()) {
+      sinks.front()->set_level(spdlog::default_logger()->level());
+    }
+    sinks.push_back(std::move(trace_sink));
+    spdlog::set_level(spdlog::level::trace);
+    spdlog::info("trace log file: {}", trace_path);
+  } catch (const spdlog::spdlog_ex& ex) {
+    spdlog::warn("could not open trace log file: {}", ex.what());
+  }
+}
+
+/// Load user constraints from external file(s) referenced in planning.
+///
+/// Supports both .pampl and JSON array formats.  Resolves relative paths
+/// against input_directory and assigns UIDs to avoid collisions.
+[[nodiscard]] std::expected<void, std::string> load_user_constraints(
+    Planning& planning)
+{
+  std::vector<std::string> uc_paths;
+  if (const auto& uc_file = planning.system.user_constraint_file) {
+    uc_paths.push_back(*uc_file);
+  }
+  for (const auto& f : planning.system.user_constraint_files) {
+    uc_paths.push_back(f);
+  }
+
+  for (const auto& uc_name : uc_paths) {
+    auto filepath = std::filesystem::path {uc_name};
+    // Resolve relative paths against input_directory
+    if (filepath.is_relative() && planning.options.input_directory) {
+      auto alt =
+          std::filesystem::path {*planning.options.input_directory} / filepath;
+      if (std::filesystem::exists(alt)) {
+        filepath = std::move(alt);
+      }
+    }
+    const auto ext = filepath.extension().string();
+
+    try {
+      // Determine next UID to avoid collisions with inline constraints
+      const auto& existing = planning.system.user_constraint_array;
+      Uid next_uid = Uid {1};
+      for (const auto& uc : existing) {
+        if (uc.uid >= next_uid) {
+          next_uid = uc.uid + Uid {1};
+        }
+      }
+
+      if (ext == ".pampl") {
+        auto pampl_result =
+            PamplParser::parse_file(filepath.string(), next_uid);
+        spdlog::info(
+            std::format("Loaded {} constraint(s) and {} param(s) from PAMPL"
+                        " file '{}'",
+                        pampl_result.constraints.size(),
+                        pampl_result.params.size(),
+                        filepath.string()));
+
+        auto& arr = planning.system.user_constraint_array;
+        arr.insert(arr.end(),
+                   std::make_move_iterator(pampl_result.constraints.begin()),
+                   std::make_move_iterator(pampl_result.constraints.end()));
+
+        auto& parr = planning.system.user_param_array;
+        parr.insert(parr.end(),
+                    std::make_move_iterator(pampl_result.params.begin()),
+                    std::make_move_iterator(pampl_result.params.end()));
+      } else {
+        // Default: treat as JSON array of UserConstraint
+        auto file_content = daw::read_file(filepath.string());
+        if (!file_content) {
+          return std::unexpected(std::format(
+              "Cannot read user_constraint_file '{}'", filepath.string()));
+        }
+        auto loaded =
+            daw::json::from_json<std::vector<UserConstraint>>(*file_content);
+        spdlog::info(
+            std::format("Loaded {} user constraint(s) from JSON file '{}'",
+                        loaded.size(),
+                        filepath.string()));
+
+        auto& arr = planning.system.user_constraint_array;
+        arr.insert(arr.end(),
+                   std::make_move_iterator(loaded.begin()),
+                   std::make_move_iterator(loaded.end()));
+      }
+
+    } catch (const std::exception& ex) {
+      return std::unexpected(
+          std::format("Error loading user_constraint_file '{}': {}",
+                      filepath.string(),
+                      ex.what()));
+    }
+  }
+  return {};
+}
+
+/// Apply --set overrides, CLI flags, codec probing, user constraint
+/// loading, demand_fail_cost warning, and planning validation.
+///
+/// Returns 0 on success, EXIT_FAILURE when --set fails (matching the
+/// original behaviour that returns a valid int exit code, not an error
+/// string), or an error string for other failures.
+[[nodiscard]] std::expected<int, std::string> configure_planning(
+    Planning& planning, const MainOptions& opts)
+{
+  // Apply --set key=value overrides (before specific CLI flags)
+  if (!opts.set_options.empty()) {
+    if (!apply_set_options(planning, opts.set_options)) {
+      return EXIT_FAILURE;
+    }
+  }
+
+  // Specific CLI flags override --set
+  apply_cli_options(planning, opts);
+
+  // Probe the Arrow/Parquet runtime once for the best available codec.
+  planning.options.output_compression =
+      enum_from_name<CompressionCodec>(probe_parquet_codec(
+          PlanningOptionsLP(planning.options).output_compression()));
+
+  // Propagate lp_build so the SDDP solver also sees it.
+  if (opts.lp_build) {
+    planning.options.lp_build = opts.lp_build;
+  }
+
+  // Load user constraints from external file(s)
+  if (auto uc_result = load_user_constraints(planning); !uc_result) {
+    return std::unexpected(std::move(uc_result.error()));
+  }
+
+  // Warn when demand_fail_cost is 0 or not set
+  {
+    const auto dfc =
+        planning.options.model_options.demand_fail_cost.value_or(0.0);
+    if (dfc == 0.0) {
+      spdlog::warn(
+          "demand_fail_cost is 0: unserved load has no penalty. "
+          "Set demand_fail_cost > 0 to penalize load shedding.");
+    }
+  }
+
+  // Validate planning (referential integrity, ranges, completeness)
+  {
+    const auto vresult = validate_planning(planning);
+    if (!vresult.ok()) {
+      return std::unexpected(
+          std::format("Planning validation failed with {} error(s)",  // NOLINT
+                      vresult.errors.size()));
+    }
+  }
+
+  return 0;
+}
+
+/// Prepare LP build options and apply per-solver config.
+///
+/// Logs pre-build statistics if @p do_stats is true.  The returned
+/// LpBuildOptions should be passed to the PlanningLP constructor.
+[[nodiscard]] LpBuildOptions prepare_lp_build(Planning& planning,
+                                              const MainOptions& opts,
+                                              bool do_stats)
+{
+  // CLI --lp-names-level overrides --set; fall back to merged planning.
+  const auto eff_names_level = opts.lp_names_level
+      ? opts.lp_names_level
+      : planning.options.lp_build_options.names_level;
+  auto flat_opts = make_lp_build_options(
+      eff_names_level,
+      opts.matrix_eps,
+      do_stats,
+      opts.solver,
+      planning.options.lp_build_options.row_equilibration);
+
+  if (do_stats) {
+    log_pre_solve_stats(opts.planning_files, planning);
+  }
+
+  // Apply per-solver config from .gtopt.conf [solver.<name>] sections.
+  if (const auto& solver_key = flat_opts.solver_name; !solver_key.empty()) {
+    if (const auto it = opts.solver_configs.find(solver_key);
+        it != opts.solver_configs.end())
+    {
+      auto& so = planning.options.solver_options;
+      auto conf = it->second;
+      conf.overlay(so);
+      so = conf;
+    }
+  }
+
+  return flat_opts;
+}
+
+/// Log LP coefficient statistics for all scene x phase LPs.
+void log_lp_coefficient_stats(const PlanningLP& planning_lp)
+{
+  std::vector<ScenePhaseLPStats> lp_entries;
+  for (auto&& [si, phase_systems] :
+       std::views::enumerate(planning_lp.systems()))
+  {
+    for (auto&& [pi, system_lp] : std::views::enumerate(phase_systems)) {
+      const auto& li = system_lp.linear_interface();
+      lp_entries.push_back({
+          .scene_uid = static_cast<int>(system_lp.scene().uid()),
+          .phase_uid = static_cast<int>(system_lp.phase().uid()),
+          .num_vars = static_cast<int>(li.get_numcols()),
+          .num_constraints = static_cast<int>(li.get_numrows()),
+          .stats_nnz = li.lp_stats_nnz(),
+          .stats_zeroed = li.lp_stats_zeroed(),
+          .stats_max_abs = li.lp_stats_max_abs(),
+          .stats_min_abs = li.lp_stats_min_abs(),
+          .stats_max_col = static_cast<int>(li.lp_stats_max_col()),
+          .stats_min_col = static_cast<int>(li.lp_stats_min_col()),
+          .stats_max_col_name = std::string(li.lp_stats_max_col_name()),
+          .stats_min_col_name = std::string(li.lp_stats_min_col_name()),
+          .row_type_stats =
+              [&]
+          {
+            std::vector<RowTypeStats> rts;
+            for (const auto& e : li.lp_row_type_stats()) {
+              rts.push_back({
+                  .type = e.type,
+                  .count = e.count,
+                  .nnz = e.nnz,
+                  .max_abs = e.max_abs,
+                  .min_abs = e.min_abs,
+              });
+            }
+            return rts;
+          }(),
+      });
+    }
+  }
+  log_lp_stats_summary(lp_entries,
+                       planning_lp.options().lp_coeff_ratio_threshold());
+}
+
+/// Run the solver and return whether an optimal solution was found.
+[[nodiscard]] bool run_solver(PlanningLP& planning_lp)
+{
+  const spdlog::stopwatch solve_sw;
+
+  const auto& plp_opts_ref = planning_lp.options();
+  const auto method = plp_opts_ref.method_type_enum();
+  const SolverOptions solver_opts =
+      (method == MethodType::sddp || method == MethodType::cascade)
+      ? plp_opts_ref.sddp_forward_solver_options()
+      : plp_opts_ref.monolithic_solver_options();
+  const auto result = planning_lp.resolve(solver_opts);
+  const auto solve_elapsed =
+      std::chrono::duration<double>(solve_sw.elapsed()).count();
+  spdlog::info(std::format("  Optimization time {:.3f}s", solve_elapsed));
+
+  if (result.has_value()) {
+    return true;
+  }
+
+  const auto& err = result.error();
+  // Use warn for non-optimal (e.g. time-limit with feasible incumbent),
+  // error only for hard failures such as infeasibility.
+  const auto msg = std::format(
+      "Solver did not find an optimal solution: "
+      "{} (code={})",
+      err.message,
+      static_cast<int>(err.code));
+  if (err.code == ErrorCode::SolverError) {
+    spdlog::warn(msg);
+  } else {
+    spdlog::error(msg);
+  }
+  // Format optional tolerances: show "(default)" when not set.
+  const auto eps_str = [](std::optional<double> v) -> std::string
+  { return v ? std::format("{}", *v) : "(default)"; };
+  spdlog::error(
+      std::format("  Solver options used:"
+                  " algorithm={}, threads={}, presolve={},"
+                  " optimal_eps={}, feasible_eps={}, barrier_eps={},"
+                  " log_level={}",
+                  solver_opts.algorithm,
+                  solver_opts.threads,
+                  solver_opts.presolve,
+                  eps_str(solver_opts.optimal_eps),
+                  eps_str(solver_opts.feasible_eps),
+                  eps_str(solver_opts.barrier_eps),
+                  solver_opts.log_level));
+  return false;
+}
+
+/// Write solution output and save planning JSON to the output directory.
+[[nodiscard]] std::expected<void, std::string> write_solution_output(
+    PlanningLP& planning_lp)
+{
+  spdlog::info("=== Output writing ===");
+  const spdlog::stopwatch out_sw;
+  try {
+    planning_lp.write_out();
+  } catch (const std::exception& ex) {
+    return std::unexpected(std::format("Error writing output: {}", ex.what()));
+  }
+
+  // Save the merged planning JSON into the output directory so that
+  // post-processing tools have a self-contained reference.
+  {
+    const auto out_dir = planning_lp.options().output_directory();
+    const auto planning_json =
+        (std::filesystem::path(out_dir) / "planning.json").string();
+    auto pj_result = write_json_output(planning_lp.planning(), planning_json);
+    if (pj_result) {
+      spdlog::info("  planning JSON saved to {}", planning_json);
+    } else {
+      spdlog::warn("  failed to save planning JSON: {}", pj_result.error());
+    }
+  }
+
+  spdlog::info(
+      std::format("  Write output time {:.3f}s", out_sw.elapsed().count()));
+  return {};
+}
+
 }  // namespace
 
 [[nodiscard]] std::expected<int, std::string> gtopt_main(
@@ -618,75 +993,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
   }
   const auto& opts = *resolved;
 
-  // ── Set up trace log file ──
-  // Always enable a trace-level file sink so that detailed SPDLOG_TRACE
-  // messages are captured for later review.  When --trace-log is given
-  // explicitly, use that path; otherwise auto-create a numbered file
-  // inside the log directory (e.g. logs/trace_1.log, logs/trace_2.log)
-  // to avoid overwriting previous runs.
-  {
-    // When log_directory is not explicitly set, default to
-    // output_directory/logs so all output is consolidated.
-    const auto log_dir = std::filesystem::path(
-        opts.log_directory.has_value()
-            ? opts.log_directory.value()
-            : (std::filesystem::path(opts.output_directory.value_or("output"))
-               / "logs")
-                  .string());
-    std::string trace_path;
-
-    if (opts.trace_log.has_value()) {
-      trace_path = opts.trace_log.value();
-    } else {
-      // Find the next available trace_N.log in log_dir
-      try {
-        std::filesystem::create_directories(log_dir);
-      } catch (const std::filesystem::filesystem_error& fe) {
-        spdlog::warn("could not create log directory '{}': {}",
-                     log_dir.string(),
-                     fe.what());
-      }
-      int n = 1;
-      constexpr int max_trace_files = 10000;
-      for (; n <= max_trace_files; ++n) {
-        auto candidate = log_dir / std::format("trace_{}.log", n);
-        if (!std::filesystem::exists(candidate)) {
-          trace_path = candidate.string();
-          break;
-        }
-      }
-      if (trace_path.empty()) {
-        // All slots used — fall back to timestamp-based name
-        const auto now = std::chrono::system_clock::now();
-        const auto ts = std::chrono::duration_cast<std::chrono::seconds>(
-                            now.time_since_epoch())
-                            .count();
-        trace_path = (log_dir / std::format("trace_{}.log", ts)).string();
-      }
-    }
-
-    try {
-      const auto parent = std::filesystem::path(trace_path).parent_path();
-      if (!parent.empty()) {
-        std::filesystem::create_directories(parent);
-      }
-      auto trace_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
-          trace_path, /*truncate=*/true);
-      trace_sink->set_level(spdlog::level::trace);
-      // Keep the first sink (assumed to be the console/stdout sink created by
-      // spdlog's default logger) at its current level so trace messages only
-      // go to the file sink, not the terminal.
-      auto& sinks = spdlog::default_logger()->sinks();
-      if (!sinks.empty()) {
-        sinks.front()->set_level(spdlog::default_logger()->level());
-      }
-      sinks.push_back(std::move(trace_sink));
-      spdlog::set_level(spdlog::level::trace);
-      spdlog::info("trace log file: {}", trace_path);
-    } catch (const spdlog::spdlog_ex& ex) {
-      spdlog::warn("could not open trace log file: {}", ex.what());
-    }
-  }
+  setup_trace_log(opts);
 
   const auto strict_parsing = !opts.fast_parsing.value_or(false);
   if (!strict_parsing) {  // NOLINT
@@ -694,9 +1001,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
   }
 
   try {
-    //
     // Parse planning JSON files
-    //
     auto parse_result = parse_planning_files(opts.planning_files,
                                              strict_parsing,
                                              opts.check_json.value_or(false),
@@ -706,334 +1011,68 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     }
     Planning my_planning = std::move(*parse_result);
 
-    //
-    // Apply --set key=value overrides (before specific CLI flags)
-    //
-    if (!opts.set_options.empty()) {
-      if (!apply_set_options(my_planning, opts.set_options)) {
-        return EXIT_FAILURE;
-      }
+    // Apply options, load user constraints, and validate
+    auto cfg = configure_planning(my_planning, opts);
+    if (!cfg) {
+      return std::unexpected(std::move(cfg.error()));
+    }
+    if (*cfg != 0) {
+      return *cfg;
     }
 
-    //
-    // Update the planning options (specific CLI flags override --set)
-    //
-    apply_cli_options(my_planning, opts);
-
-    // Probe the Arrow/Parquet runtime once to determine the best available
-    // codec for the requested output_compression.  Stores the result back so
-    // every downstream write (parquet + csv, across all scenes/phases) uses
-    // the same pre-validated codec without re-probing on each file.
-    my_planning.options.output_compression =
-        enum_from_name<CompressionCodec>(probe_parquet_codec(
-            PlanningOptionsLP(my_planning.options).output_compression()));
-
-    // Propagate lp_build into planning options so the SDDP solver
-    // also sees it when called via planning_lp.resolve().
-    if (opts.lp_build) {
-      my_planning.options.lp_build = opts.lp_build;
-    }
-
-    //
-    // Load user constraints from external file (if specified)
-    //
-    if (const auto& uc_file = my_planning.system.user_constraint_file) {
-      auto filepath = std::filesystem::path {*uc_file};
-      // Resolve relative paths against input_directory
-      if (filepath.is_relative() && my_planning.options.input_directory) {
-        auto resolved =
-            std::filesystem::path {*my_planning.options.input_directory}
-            / filepath;
-        if (std::filesystem::exists(resolved)) {
-          filepath = std::move(resolved);
-        }
-      }
-      const auto ext = filepath.extension().string();
-
-      try {
-        // Determine next UID to avoid collisions with inline constraints
-        const auto& existing = my_planning.system.user_constraint_array;
-        Uid next_uid = Uid {1};
-        for (const auto& uc : existing) {
-          if (uc.uid >= next_uid) {
-            next_uid = uc.uid + Uid {1};
-          }
-        }
-
-        if (ext == ".pampl") {
-          auto pampl_result =
-              PamplParser::parse_file(filepath.string(), next_uid);
-          spdlog::info(std::format(
-              "Loaded {} constraint(s) and {} param(s) from PAMPL file '{}'",
-              pampl_result.constraints.size(),
-              pampl_result.params.size(),
-              filepath.string()));
-
-          // Append loaded constraints
-          auto& arr = my_planning.system.user_constraint_array;
-          arr.insert(arr.end(),
-                     std::make_move_iterator(pampl_result.constraints.begin()),
-                     std::make_move_iterator(pampl_result.constraints.end()));
-
-          // Append loaded params
-          auto& parr = my_planning.system.user_param_array;
-          parr.insert(parr.end(),
-                      std::make_move_iterator(pampl_result.params.begin()),
-                      std::make_move_iterator(pampl_result.params.end()));
-        } else {
-          // Default: treat as JSON array of UserConstraint
-          auto file_content = daw::read_file(filepath.string());
-          if (!file_content) {
-            return std::unexpected(std::format(
-                "Cannot read user_constraint_file '{}'", filepath.string()));
-          }
-          auto loaded =
-              daw::json::from_json<std::vector<UserConstraint>>(*file_content);
-          spdlog::info(
-              std::format("Loaded {} user constraint(s) from JSON file '{}'",
-                          loaded.size(),
-                          filepath.string()));
-
-          // Append loaded constraints to the planning system
-          auto& arr = my_planning.system.user_constraint_array;
-          arr.insert(arr.end(),
-                     std::make_move_iterator(loaded.begin()),
-                     std::make_move_iterator(loaded.end()));
-        }
-
-      } catch (const std::exception& ex) {
-        return std::unexpected(
-            std::format("Error loading user_constraint_file '{}': {}",
-                        filepath.string(),
-                        ex.what()));
-      }
-    }
-
-    //
-    // Warn when demand_fail_cost is 0 or not set
-    //
-    {
-      const auto dfc =
-          my_planning.options.model_options.demand_fail_cost.value_or(0.0);
-      if (dfc == 0.0) {
-        spdlog::warn(
-            "demand_fail_cost is 0: unserved load has no penalty. "
-            "Set demand_fail_cost > 0 to penalize load shedding.");
-      }
-    }
-
-    //
-    // Validate planning (referential integrity, ranges, completeness)
-    //
-    {
-      const auto vresult = validate_planning(my_planning);
-      if (!vresult.ok()) {
-        return std::unexpected(std::format(
-            "Planning validation failed with {} error(s)",  // NOLINT
-            vresult.errors.size()));
-      }
-    }
-
-    //
     // Write JSON output if requested
-    //
     if (opts.json_file) {
-      auto write_result =
-          write_json_output(my_planning, opts.json_file.value());
-      if (!write_result) {
-        return std::unexpected(std::move(write_result.error()));
+      auto wr = write_json_output(my_planning, opts.json_file.value());
+      if (!wr) {
+        return std::unexpected(std::move(wr.error()));
       }
     }
 
-    //
-    // Create and load the LP
-    //
+    // Build the LP model
     try {
       const bool do_stats = opts.print_stats.value_or(true)
           || my_planning.options.lp_build_options.compute_stats.value_or(false);
-      // CLI --lp-names-level overrides --set; fall back to merged planning
-      // value.
-      const auto eff_names_level = opts.lp_names_level
-          ? opts.lp_names_level
-          : my_planning.options.lp_build_options.names_level;
-      const auto flat_opts = make_lp_build_options(
-          eff_names_level,
-          opts.matrix_eps,
-          do_stats,
-          opts.solver,
-          my_planning.options.lp_build_options.row_equilibration);
 
-      if (do_stats) {
-        log_pre_solve_stats(opts.planning_files, my_planning);
-      }
-
-      // Apply per-solver config from .gtopt.conf [solver.<name>] sections.
-      // The solver name comes from --solver CLI / config, or from the
-      // auto-detected default in LpBuildOptions.
-      if (const auto& solver_key = flat_opts.solver_name; !solver_key.empty()) {
-        if (const auto it = opts.solver_configs.find(solver_key);
-            it != opts.solver_configs.end())
-        {
-          auto& so = my_planning.options.solver_options;
-          auto conf = it->second;
-          conf.overlay(so);
-          so = conf;
-        }
-      }
+      const auto flat_opts = prepare_lp_build(my_planning, opts, do_stats);
 
       spdlog::info("=== Building LP model ===");
-      const spdlog::stopwatch sw;
+      const spdlog::stopwatch build_sw;
       PlanningLP planning_lp {std::move(my_planning),  // NOLINT
                               flat_opts};
       spdlog::info(
-          std::format("  Build lp time {:.3f}s", sw.elapsed().count()));
+          std::format("  Build lp time {:.3f}s", build_sw.elapsed().count()));
 
       if (opts.lp_file) {
         planning_lp.write_lp(opts.lp_file.value());
       }
 
-      // LP coefficient static analysis: the stats were computed during
-      // lp_build() and stored in the LinearInterface of each scene×phase LP.
-      // When the global coefficient ratio is below lp_coeff_ratio_threshold
-      // only a one-line summary is emitted; otherwise per-scene/phase details.
       if (do_stats) {
-        std::vector<ScenePhaseLPStats> lp_entries;
-        for (auto&& [si, phase_systems] :
-             std::views::enumerate(planning_lp.systems()))
-        {
-          for (auto&& [pi, system_lp] : std::views::enumerate(phase_systems)) {
-            const auto& li = system_lp.linear_interface();
-            lp_entries.push_back({
-                .scene_uid = static_cast<int>(system_lp.scene().uid()),
-                .phase_uid = static_cast<int>(system_lp.phase().uid()),
-                .num_vars = static_cast<int>(li.get_numcols()),
-                .num_constraints = static_cast<int>(li.get_numrows()),
-                .stats_nnz = li.lp_stats_nnz(),
-                .stats_zeroed = li.lp_stats_zeroed(),
-                .stats_max_abs = li.lp_stats_max_abs(),
-                .stats_min_abs = li.lp_stats_min_abs(),
-                .stats_max_col = static_cast<int>(li.lp_stats_max_col()),
-                .stats_min_col = static_cast<int>(li.lp_stats_min_col()),
-                .stats_max_col_name = std::string(li.lp_stats_max_col_name()),
-                .stats_min_col_name = std::string(li.lp_stats_min_col_name()),
-                .row_type_stats =
-                    [&]
-                {
-                  std::vector<RowTypeStats> rts;
-                  for (const auto& e : li.lp_row_type_stats()) {
-                    rts.push_back({
-                        .type = e.type,
-                        .count = e.count,
-                        .nnz = e.nnz,
-                        .max_abs = e.max_abs,
-                        .min_abs = e.min_abs,
-                    });
-                  }
-                  return rts;
-                }(),
-            });
-          }
-        }
-        log_lp_stats_summary(lp_entries,
-                             planning_lp.options().lp_coeff_ratio_threshold());
+        log_lp_coefficient_stats(planning_lp);
       }
 
-      // lp_build: LP matrix assembly is done (all scene×phase LPs exist
-      // in memory and, if lp_file was set, are saved to disk).  Exit before
-      // ANY solving — this applies to both the monolithic and SDDP solvers.
-      // Check both the CLI flag and the JSON option (planning_lp.options()).
+      // lp_build: skip solving if only LP assembly was requested
       if (opts.lp_build.value_or(false) || planning_lp.options().lp_build()) {
         spdlog::info("lp_build: all LP matrices built, skipping solve");
         return 0;
       }
 
+      // Solve the LP
       spdlog::info("=== System optimization ===");
-      bool optimal = false;
-      {
-        const spdlog::stopwatch solve_sw;
-
-        const auto& plp_opts_ref = planning_lp.options();
-        const auto method = plp_opts_ref.method_type_enum();
-        const SolverOptions solver_opts =
-            (method == MethodType::sddp || method == MethodType::cascade)
-            ? plp_opts_ref.sddp_forward_solver_options()
-            : plp_opts_ref.monolithic_solver_options();
-        const auto result = planning_lp.resolve(solver_opts);
-        const auto solve_elapsed =
-            std::chrono::duration<double>(solve_sw.elapsed()).count();
-        spdlog::info(std::format("  Optimization time {:.3f}s", solve_elapsed));
-
-        optimal = result.has_value();
-
-        if (!optimal) {
-          const auto& err = result.error();
-          // Use warn for non-optimal (e.g. time-limit reached with a feasible
-          // incumbent), error only for hard failures such as infeasibility.
-          const auto msg = std::format(
-              "Solver did not find an optimal solution: "
-              "{} (code={})",
-              err.message,
-              static_cast<int>(err.code));
-          if (err.code == ErrorCode::SolverError) {
-            spdlog::warn(msg);
-          } else {
-            spdlog::error(msg);
-          }
-          // Format optional tolerances: show "(default)" when not set.
-          const auto eps_str = [](std::optional<double> v) -> std::string
-          { return v ? std::format("{}", *v) : "(default)"; };
-          spdlog::error(
-              std::format("  Solver options used:"
-                          " algorithm={}, threads={}, presolve={},"
-                          " optimal_eps={}, feasible_eps={}, barrier_eps={},"
-                          " log_level={}",
-                          solver_opts.algorithm,
-                          solver_opts.threads,
-                          solver_opts.presolve,
-                          eps_str(solver_opts.optimal_eps),
-                          eps_str(solver_opts.feasible_eps),
-                          eps_str(solver_opts.barrier_eps),
-                          solver_opts.log_level));
-        }
-      }
+      const bool optimal = run_solver(planning_lp);
 
       if (do_stats) {
         log_post_solve_stats(planning_lp, optimal);
       }
 
       if (!optimal) {
-        return 1;  // non optimal solution found, but no critical error occurred
+        return 1;
       }
 
-      spdlog::info("=== Output writing ===");
-      const spdlog::stopwatch out_sw;
-      try {
-        planning_lp.write_out();
-      } catch (const std::exception& ex) {
-        return std::unexpected(
-            std::format("Error writing output: {}", ex.what()));
+      // Write solution output
+      if (auto wr = write_solution_output(planning_lp); !wr) {
+        return std::unexpected(std::move(wr.error()));
       }
 
-      // Save the merged planning JSON into the output directory so that
-      // post-processing tools (gtopt_check_output, gtopt_compare) have a
-      // self-contained reference to the solved case's input data.
-      {
-        const auto out_dir = planning_lp.options().output_directory();
-        const auto planning_json =
-            (std::filesystem::path(out_dir) / "planning.json").string();
-        auto pj_result =
-            write_json_output(planning_lp.planning(), planning_json);
-        if (pj_result) {
-          spdlog::info("  planning JSON saved to {}", planning_json);
-        } else {
-          spdlog::warn("  failed to save planning JSON: {}", pj_result.error());
-        }
-      }
-
-      spdlog::info(
-          std::format("  Write output time {:.3f}s", out_sw.elapsed().count()));
-
-      // Return main conventional success
       return 0;
 
     } catch (const std::exception& ex) {

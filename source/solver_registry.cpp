@@ -16,6 +16,7 @@
 #include <dlfcn.h>
 #include <gtopt/solver_registry.hpp>
 #include <spdlog/spdlog.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 namespace gtopt
@@ -57,6 +58,7 @@ std::string join_strings(const std::vector<std::string>& strs,
 SolverRegistry::SolverRegistry()
 {
   discover_default_paths();
+  validate_loaded_solvers();
 }
 
 // Intentionally do NOT dlclose() plugin handles.
@@ -213,6 +215,92 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
   });
 
   return true;
+}
+
+bool SolverRegistry::validate_solver_subprocess(const PluginHandle& plugin,
+                                                const std::string& solver_name)
+{
+  // Fork a child process to test the solver backend.
+  // This isolates the parent from SEGFAULTs caused by ABI mismatches
+  // in the underlying solver library (e.g. COIN-OR compiled with GCC
+  // but the plugin loaded into a Clang-compiled binary).
+  const pid_t pid = ::fork();
+
+  if (pid == -1) {
+    // fork() failed — cannot validate, assume solver is usable.
+    SPDLOG_WARN("fork() failed while validating solver '{}', assuming usable",
+                solver_name);
+    return true;
+  }
+
+  if (pid == 0) {
+    // Child process: create a backend and call minimal virtual methods.
+    // Any crash here terminates only the child, not the parent.
+    // NOLINTNEXTLINE(concurrency-mt-unsafe) - single-threaded child
+    auto* backend = plugin.create_fn(solver_name.c_str());
+    if (backend == nullptr) {
+      ::_exit(1);  // NOLINT(concurrency-mt-unsafe)
+    }
+    // Exercise the vtable with low-cost accessors.
+    const auto name = backend->solver_name();
+    const auto inf = backend->infinity();
+    (void)name;
+    (void)inf;
+    delete backend;  // NOLINT(cppcoreguidelines-owning-memory)
+    ::_exit(0);  // NOLINT(concurrency-mt-unsafe)
+  }
+
+  // Parent: wait for the child to finish.
+  int status = 0;
+  ::waitpid(pid, &status, 0);
+
+  // NOLINTNEXTLINE(hicpp-signed-bitwise) - POSIX macros use bitwise ops
+  if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+    return true;
+  }
+
+  // Build a diagnostic message.
+  std::string detail;
+  // NOLINTNEXTLINE(hicpp-signed-bitwise)
+  if (WIFSIGNALED(status)) {
+    // NOLINTNEXTLINE(hicpp-signed-bitwise)
+    detail = std::format("signal {}", WTERMSIG(status));
+  } else {
+    // NOLINTNEXTLINE(hicpp-signed-bitwise)
+    detail = std::format("exit code {}", WEXITSTATUS(status));
+  }
+  const auto msg = std::format(
+      "Solver '{}' from plugin '{}' failed validation ({}). "
+      "This usually indicates an ABI mismatch between the solver "
+      "library and the gtopt binary (e.g. mixed gcc/clang compilers).",
+      solver_name,
+      plugin.plugin_name,
+      detail);
+  SPDLOG_WARN("{}", msg);
+
+  return false;
+}
+
+void SolverRegistry::validate_loaded_solvers()
+{
+  for (auto& plugin : m_plugins_) {
+    std::erase_if(plugin.solver_names,
+                  [this, &plugin](const std::string& name)
+                  {
+                    if (!validate_solver_subprocess(plugin, name)) {
+                      m_load_errors_.push_back(
+                          std::format("Solver '{}' removed: failed subprocess "
+                                      "validation",
+                                      name));
+                      return true;
+                    }
+                    return false;
+                  });
+  }
+
+  // Remove plugins with no remaining solver names.
+  std::erase_if(m_plugins_,
+                [](const PluginHandle& p) { return p.solver_names.empty(); });
 }
 
 std::unique_ptr<SolverBackend> SolverRegistry::create(

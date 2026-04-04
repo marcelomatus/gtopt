@@ -199,8 +199,8 @@ TEST_CASE(
           .rhs = 42.0,
           .coefficients =
               {
-                  {0, 1.5},
-                  {1, -2.5},
+                  {ColIndex {0}, 1.5},
+                  {ColIndex {1}, -2.5},
               },
       },
   };

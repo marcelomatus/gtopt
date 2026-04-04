@@ -64,7 +64,7 @@ auto SDDPMethod::feasibility_backpropagate(SceneIndex scene,
           // produce a trial point that is known feasible for the
           // current phase, avoiding further infeasibility without
           // adding a cut row.
-          const auto& dep_sol = elastic_result->clone.get_col_sol();
+          const auto& dep_sol = elastic_result->clone.get_col_sol_raw();
           for (const auto& link : prev_state.outgoing_links) {
             const double feasible_val = dep_sol[link.dependent_col];
             prev_li.set_col_low(link.source_col, feasible_val);
@@ -81,7 +81,7 @@ auto SDDPMethod::feasibility_backpropagate(SceneIndex scene,
           auto feas_cut =
               build_benders_cut(prev_state.alpha_col,
                                 prev_state.outgoing_links,
-                                elastic_result->clone.get_col_cost(),
+                                elastic_result->clone.get_col_cost_raw(),
                                 elastic_result->clone.get_obj_value(),
                                 sddp_label("sddp",
                                            "fcut",

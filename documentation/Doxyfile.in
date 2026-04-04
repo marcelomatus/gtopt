@@ -1,0 +1,86 @@
+# Configuration for Doxygen for use with CMake
+# Only options that deviate from the default are included
+# To create a new Doxyfile containing all available options, call `doxygen -g`
+
+# Get Project name and version from CMake
+PROJECT_NAME = @DOXYGEN_PROJECT_NAME@
+PROJECT_NUMBER = @DOXYGEN_PROJECT_VERSION@
+PROJECT_BRIEF = "Generation and Transmission Expansion Planning"
+
+# Add sources — headers, source files, and documentation pages
+INPUT = @DOXYGEN_PROJECT_ROOT@/README.md \
+        @DOXYGEN_PROJECT_ROOT@/include \
+        @DOXYGEN_PROJECT_ROOT@/source \
+        @DOXYGEN_PROJECT_ROOT@/documentation/pages \
+        @DOXYGEN_PROJECT_ROOT@/BUILDING.md \
+        @DOXYGEN_PROJECT_ROOT@/CONTRIBUTING.md \
+        @DOXYGEN_PROJECT_ROOT@/CHANGELOG.md \
+        @DOXYGEN_PROJECT_ROOT@/docs/usage.md \
+        @DOXYGEN_PROJECT_ROOT@/docs/input-data.md \
+        @DOXYGEN_PROJECT_ROOT@/docs/planning-guide.md \
+        @DOXYGEN_PROJECT_ROOT@/docs/planning-options.md \
+        @DOXYGEN_PROJECT_ROOT@/docs/scripts-guide.md \
+        @DOXYGEN_PROJECT_ROOT@/docs/user-constraints.md \
+        @DOXYGEN_PROJECT_ROOT@/docs/methods/monolithic.md \
+        @DOXYGEN_PROJECT_ROOT@/docs/methods/sddp.md \
+        @DOXYGEN_PROJECT_ROOT@/docs/methods/cascade.md
+
+EXTRACT_ALL = YES
+RECURSIVE = YES
+OUTPUT_DIRECTORY = @DOXYGEN_OUTPUT_DIRECTORY@
+
+# File patterns — .dox is not in the default list so must be listed explicitly
+FILE_PATTERNS = *.hpp *.cpp *.h *.md *.dox
+
+# Map custom file extensions to known languages for syntax highlighting
+# in fenced code blocks (```pampl, ```tampl).  The actual highlighting is
+# handled by the m.css PatchMcss.cmake patch that maps .pampl/.tampl to
+# the Pygments AMPL lexer.
+EXTENSION_MAPPING = pampl=C tampl=C
+
+# Use the README as a main page
+USE_MDFILE_AS_MAINPAGE = @DOXYGEN_PROJECT_ROOT@/README.md
+
+# set relative include paths
+FULL_PATH_NAMES = YES
+STRIP_FROM_PATH = @DOXYGEN_PROJECT_ROOT@/include @DOXYGEN_PROJECT_ROOT@
+STRIP_FROM_INC_PATH = @DOXYGEN_PROJECT_ROOT@/include
+
+# We use m.css to generate the html documentation, so we only need XML output
+GENERATE_XML = YES
+GENERATE_HTML = NO
+GENERATE_LATEX = NO
+XML_PROGRAMLISTING = NO
+CREATE_SUBDIRS = NO
+
+# Include all directories, files and namespaces in the documentation
+# Disable to include only explicitly documented objects
+M_SHOW_UNDOCUMENTED = YES
+
+# Suppress warnings for unresolved Markdown links (GitHub-flavored links
+# in README.md are not Doxygen \ref targets) and parameter mismatches.
+WARN_IF_UNDOCUMENTED = NO
+WARN_IF_DOC_ERROR = NO
+AUTOLINK_SUPPORT = NO
+
+# Enable source browsing for cross-referenced code
+SOURCE_BROWSER = YES
+INLINE_SOURCES = NO
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION = YES
+
+# Sort members alphabetically for easier navigation
+SORT_MEMBER_DOCS = YES
+SORT_BRIEF_DOCS = YES
+
+# Improve class/struct documentation
+INHERIT_DOCS = YES
+INLINE_INHERITED_MEMB = YES
+
+# Macro expansion for better parsing
+ENABLE_PREPROCESSING = YES
+MACRO_EXPANSION = YES
+EXPAND_ONLY_PREDEF = NO
+
+# Exclude test code and build directories from API docs
+EXCLUDE_PATTERNS = */test/* */build/* */cpm_modules/*

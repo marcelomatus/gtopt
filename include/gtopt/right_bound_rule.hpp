@@ -19,11 +19,13 @@
  *
  * ### Laja cushion zone example
  *
- * ```
+ * ```text
  * Rights_irr = 570 + 0.00*min(V,1200) + 0.40*min(max(V-1200,0),700)
  *            + 0.25*max(V-1900,0)
  * ```
+ *
  * maps to segments:
+ *
  * ```json
  * [
  *   {"volume": 0,    "slope": 0.00, "constant": 570},
@@ -31,6 +33,7 @@
  *   {"volume": 1900, "slope": 0.25, "constant": 375}
  * ]
  * ```
+ *
  * with `cap = 5000`.
  */
 
@@ -55,8 +58,7 @@ namespace gtopt
  *
  * For a continuous piecewise function the constants are chosen so that
  * adjacent segments agree at the breakpoint:
- * `constant_i = constant_{i-1} + slope_{i-1} * volume_i
- *             - slope_i * volume_i`
+ * `constant_i = constant_{i-1} + slope_{i-1} * volume_i - slope_i * volume_i`
  */
 struct RightBoundSegment
 {

@@ -12,7 +12,7 @@
  * drawdown).
  *
  * The constraint per stage is:
- * ```
+ * ```text
  * qeh ≤ a(seg) × V_avg + b(seg)
  * ```
  * where `qeh` is the stage-average hourly discharge [m³/s], `V_avg` is the
@@ -54,8 +54,9 @@ namespace gtopt
 /**
  * @brief One segment of the piecewise-linear drawdown limit curve
  *
- * Each segment defines a linear function `max_discharge = slope × V +
- * intercept` active when `V ≥ volume` (and `V < next_segment.volume`).
+ * Each segment defines a linear function
+ * `max_discharge = slope × V + intercept`
+ * active when `V ≥ volume` (and `V < next_segment.volume`).
  */
 struct ReservoirDischargeLimitSegment
 {
@@ -123,8 +124,11 @@ struct ReservoirDischargeLimit
  * @brief LP constraint coefficients for the drawdown limit
  *
  * The stage-level constraint is:
- *   `qeh - slope × ScaleVol × 0.5 × eini - slope × ScaleVol × 0.5 × efin ≤
- * intercept`
+ *
+ * ```text
+ * qeh - slope × ScaleVol × 0.5 × eini
+ *     - slope × ScaleVol × 0.5 × efin ≤ intercept
+ * ```
  */
 struct ReservoirDischargeLimitCoeffs
 {

@@ -323,10 +323,25 @@ class MauleParser(BaseParser):
         self._config["econ_inver_costo"] = float(parts[2])
         idx = self._next_idx(idx, lines)
 
-        # Penalizadores (2 values)
-        parts = lines[idx].split()
-        self._config["penalizador_1"] = float(parts[0])
-        self._config["penalizador_2"] = float(parts[1]) if len(parts) > 1 else 0.0
+        # Costo de embalsar / "Penalizadores Convenio" (optional)
+        # PLP (genpdmaule.f:1797): CostoEmbalsar applied to IQHINV
+        # (invernada_storage flow), CostoNoEmbalsar applied to IQHNEIN
+        # (invernada_bypass flow).  Defaults: 1500/1000.
+        # In the .dat file this line is labeled "Penalizadores Convenio".
+        try:
+            idx = self._next_idx(idx, lines)
+            parts = lines[idx].split()
+            self._config["costo_embalsar"] = float(parts[0])
+            self._config["costo_no_embalsar"] = (
+                float(parts[1]) if len(parts) > 1 else 1000.0
+            )
+        except (IndexError, ValueError):
+            self._config["costo_embalsar"] = 1500.0
+            self._config["costo_no_embalsar"] = 1000.0
+
+        # Backward compatibility: keep penalizador_1/2 as aliases
+        self._config["penalizador_1"] = self._config["costo_embalsar"]
+        self._config["penalizador_2"] = self._config["costo_no_embalsar"]
 
         # Store as single item for BaseParser compatibility
         self._append({"name": "maule_convention", **self._config})

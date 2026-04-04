@@ -83,7 +83,8 @@ struct json_data_contract<System>
       json_array_null<"user_constraint_array",
                       Array<UserConstraint>,
                       UserConstraint>,
-      json_string_null<"user_constraint_file", OptName>>;
+      json_string_null<"user_constraint_file", OptName>,
+      json_array_null<"user_constraint_files", std::vector<Name>, std::string>>;
 
   [[nodiscard]] constexpr static auto to_json_data(System const& system)
   {
@@ -111,7 +112,8 @@ struct json_data_contract<System>
                                  system.volume_right_array,
                                  system.user_param_array,
                                  system.user_constraint_array,
-                                 system.user_constraint_file);
+                                 system.user_constraint_file,
+                                 system.user_constraint_files);
   }
 };
 }  // namespace daw::json

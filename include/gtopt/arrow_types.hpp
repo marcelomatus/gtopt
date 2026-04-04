@@ -80,6 +80,9 @@ constexpr auto is_compatible_double_type(arrow::Type::type type_id) -> bool
   return type_id == arrow::Type::FLOAT || type_id == arrow::Type::DOUBLE;
 }
 
+namespace detail
+{
+
 /**
  * @brief Cast an Arrow array chunk to Int32Array, handling int8/int16/int64
  *        conversion
@@ -87,9 +90,6 @@ constexpr auto is_compatible_double_type(arrow::Type::type type_id) -> bool
  * @return A shared pointer to an Int32Array, or nullptr if the type is
  *         incompatible
  */
-namespace detail
-{
-
 template<typename SourceArrayType>
 inline auto widen_to_int32_array(const arrow::Array& chunk)
     -> std::shared_ptr<arrow::Int32Array>

@@ -10,7 +10,7 @@
  * define the multi-stage, multi-scenario optimization horizon.
  *
  * ### Time-structure hierarchy
- * ```
+ * ```text
  * Scenario  (probability_factor)
  *   └─ Phase
  *        └─ Stage  (discount_factor, first_block, count_block)

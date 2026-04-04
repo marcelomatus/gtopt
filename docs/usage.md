@@ -238,7 +238,7 @@ Via JSON:
 ```
 
 Via CLI:
-```
+```bash
 gtopt mycase --set lp_debug=true --set log_directory=logs \
   --set output_compression=zstd
 ```
@@ -368,7 +368,7 @@ Defines the physical power system components:
 Time-varying parameters (e.g., load profiles) are stored as data files in the
 input directory, organized by component type:
 
-```
+```text
 system_c0/
 └── Demand/
     └── lmax.parquet      # Load profile for demand "d1"
@@ -388,7 +388,7 @@ single-bus system with one generator and one demand with capacity expansion.
 
 ### File layout
 
-```
+```text
 cases/c0/
 ├── system_c0.json          # System configuration
 ├── system_c0/              # Input data directory
@@ -426,7 +426,7 @@ gtopt system_c0.json --set output_directory=/tmp/c0_results
 
 On success, gtopt logs its progress and exits with code 0:
 
-```
+```text
 [info] starting gtopt 1.0
 [info] parsing input file system_c0.json
 [info] parsing all json files 0.001s
@@ -437,7 +437,7 @@ On success, gtopt logs its progress and exits with code 0:
 
 The solver produces a `solution.csv` summary:
 
-```
+```text
 scene,phase,status,status_name,obj_value,kappa,gap,gap_change
 0,0,0,optimal,23.163424,1,0,1.0
 ```

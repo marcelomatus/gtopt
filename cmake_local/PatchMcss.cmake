@@ -119,6 +119,186 @@ else()
   message(STATUS "PatchMcss: argsstring patch already applied")
 endif()
 
+# ---------- Patch 4: Anonymous namespace crash ----------
+# Doxygen emits namespace compounds with empty <compoundname/> for anonymous
+# namespaces.  m.css calls .text on the element which is None, crashing in
+# html.escape() (extract_metadata) and `'@' in None` (parse_xml).
+# Fix both sites: guard compoundname.text against None and skip/return early.
+
+# 4a: extract_metadata — html.escape(compoundname.text) → AttributeError
+set(_old_extract_meta [==[    compound.name = html.escape(compounddef.find('title').text if compound.kind in ['page', 'group'] and compounddef.findtext('title') else compounddef.find('compoundname').text)]==])
+set(_new_extract_meta [==[    _cn_text = compounddef.find('title').text if compound.kind in ['page', 'group'] and compounddef.findtext('title') else (compounddef.find('compoundname').text if compounddef.find('compoundname') is not None else None)
+    if _cn_text is None:
+        return
+    compound.name = html.escape(_cn_text)]==])
+
+string(FIND "${_mcss_src}" "${_new_extract_meta}" _already_patched_anon)
+if(_already_patched_anon EQUAL -1)
+  string(FIND "${_mcss_src}" "${_old_extract_meta}" _found_anon)
+  if(NOT _found_anon EQUAL -1)
+    string(REPLACE "${_old_extract_meta}" "${_new_extract_meta}" _mcss_src "${_mcss_src}")
+    set(_mcss_changed TRUE)
+    message(STATUS "PatchMcss: applied anonymous namespace guard in extract_metadata")
+  else()
+    message(WARNING "PatchMcss: anonymous namespace patch target not found in extract_metadata")
+  endif()
+else()
+  message(STATUS "PatchMcss: anonymous namespace patch already applied in extract_metadata")
+endif()
+
+# 4b: parse_xml — '@' in compoundname.text → TypeError when text is None
+set(_old_parse_xml_anon [==[        (compounddef.attrib['kind'] == 'namespace' and '@' in compounddef.find('compoundname').text)):]==])
+set(_new_parse_xml_anon [==[        (compounddef.attrib['kind'] == 'namespace' and (compounddef.find('compoundname').text is None or '@' in compounddef.find('compoundname').text))):]==])
+
+string(FIND "${_mcss_src}" "${_new_parse_xml_anon}" _already_patched_parse)
+if(_already_patched_parse EQUAL -1)
+  string(FIND "${_mcss_src}" "${_old_parse_xml_anon}" _found_parse)
+  if(NOT _found_parse EQUAL -1)
+    string(REPLACE "${_old_parse_xml_anon}" "${_new_parse_xml_anon}" _mcss_src "${_mcss_src}")
+    set(_mcss_changed TRUE)
+    message(STATUS "PatchMcss: applied anonymous namespace guard in parse_xml")
+  else()
+    message(WARNING "PatchMcss: anonymous namespace patch target not found in parse_xml")
+  endif()
+else()
+  message(STATUS "PatchMcss: anonymous namespace patch already applied in parse_xml")
+endif()
+
+# ---------- Patch 5: Map custom extensions to Pygments lexers ----------------
+# Doxygen emits <programlisting filename=".ext"> for ```ext code blocks.
+# m.css doesn't recognize .text/.pampl/.tampl and logs warnings.
+# Fix: map these extensions to known Pygments lexers before the fallback.
+set(_old_unrecognized [==[            # Otherwise try to find lexer by filename
+            else:
+                # Put some bogus prefix to the filename in case it is just
+                # `.ext`
+                lexer = find_lexer_class_for_filename("code" + filename)
+                if not lexer:
+                    logging.warning("{}: unrecognized language of {} in <programlisting>, highlighting disabled".format(state.current, filename))
+                    lexer = TextLexer()
+                else: lexer = lexer()]==])
+
+# Previous version of this patch only handled .text
+set(_old_text_only [==[            # Otherwise try to find lexer by filename
+            else:
+                # Treat .text as plain text without warning
+                if filename == '.text':
+                    lexer = TextLexer()
+                else:
+                    # Put some bogus prefix to the filename in case it is just
+                    # `.ext`
+                    lexer = find_lexer_class_for_filename("code" + filename)
+                    if not lexer:
+                        logging.warning("{}: unrecognized language of {} in <programlisting>, highlighting disabled".format(state.current, filename))
+                        lexer = TextLexer()
+                    else: lexer = lexer()]==])
+
+set(_new_unrecognized [==[            # Otherwise try to find lexer by filename
+            else:
+                # Map custom extensions to known Pygments lexers
+                _custom_lang_map = {'.text': 'text', '.pampl': 'ampl', '.tampl': 'ampl', '.ampl': 'ampl', '.csv': 'text', '.mermaid': 'text'}
+                if filename in _custom_lang_map:
+                    from pygments.lexers import get_lexer_by_name as _get
+                    lexer = _get(_custom_lang_map[filename])
+                else:
+                    # Put some bogus prefix to the filename in case it is just
+                    # `.ext`
+                    lexer = find_lexer_class_for_filename("code" + filename)
+                    if not lexer:
+                        logging.warning("{}: unrecognized language of {} in <programlisting>, highlighting disabled".format(state.current, filename))
+                        lexer = TextLexer()
+                    else: lexer = lexer()]==])
+
+string(FIND "${_mcss_src}" "${_new_unrecognized}" _already_patched_text)
+if(_already_patched_text EQUAL -1)
+  # Try replacing the .text-only version (old Patch 5)
+  string(FIND "${_mcss_src}" "${_old_text_only}" _found_text_only)
+  if(NOT _found_text_only EQUAL -1)
+    string(REPLACE "${_old_text_only}" "${_new_unrecognized}" _mcss_src "${_mcss_src}")
+    set(_mcss_changed TRUE)
+    message(STATUS "PatchMcss: upgraded .text patch to custom language map")
+  else()
+    # Try the original unpatched version
+    string(FIND "${_mcss_src}" "${_old_unrecognized}" _found_text)
+    if(NOT _found_text EQUAL -1)
+      string(REPLACE "${_old_unrecognized}" "${_new_unrecognized}" _mcss_src "${_mcss_src}")
+      set(_mcss_changed TRUE)
+      message(STATUS "PatchMcss: applied custom language map patch")
+    else()
+      message(WARNING "PatchMcss: custom language map patch target not found")
+    endif()
+  endif()
+else()
+  message(STATUS "PatchMcss: custom language map patch already applied")
+endif()
+
+# ---------- Patch 6: Template param name extraction from <ref> tags ----------
+# Doxygen >= 1.9.8 wraps template parameter names in <ref> tags within
+# <type> when <declname> is absent.  parse_type() converts refs to HTML
+# <a> tags, so the `type[-1].isalnum()` heuristic fails (last char is '>').
+# Fix: after the existing heuristic fails, fall back to extracting the
+# name from the raw XML text of <type>, stripping 'typename'/'class'.
+set(_old_tpl_name [==[        declname = i.find('declname')
+        if declname is not None:
+            # declname or decltype?!
+            template.name = declname.text
+        # Doxygen sometimes puts both in type, extract that, but only in case
+        # it's not too crazy to do (i.e., no pointer values, no nameless
+        # FooBar<T, U> types). Using rpartition() to split on the last found
+        # space, but in case of nothing found, rpartition() puts the full
+        # string into [2] instead of [0], so we have to account for that.
+        elif template.type[-1].isalnum():
+            parts = template.type.rpartition(' ')
+            if parts[1]:
+                template.type = parts[0]
+                template.name = parts[2]
+            else:
+                template.type = parts[2]
+                template.name = ''
+        else:
+            template.name = '']==])
+
+set(_new_tpl_name [==[        declname = i.find('declname')
+        if declname is not None:
+            # declname or decltype?!
+            template.name = declname.text
+        # Doxygen sometimes puts both in type, extract that, but only in case
+        # it's not too crazy to do (i.e., no pointer values, no nameless
+        # FooBar<T, U> types). Using rpartition() to split on the last found
+        # space, but in case of nothing found, rpartition() puts the full
+        # string into [2] instead of [0], so we have to account for that.
+        elif template.type[-1].isalnum():
+            parts = template.type.rpartition(' ')
+            if parts[1]:
+                template.type = parts[0]
+                template.name = parts[2]
+            else:
+                template.type = parts[2]
+                template.name = ''
+        else:
+            # Fallback: extract name from raw XML text (handles <ref> tags
+            # wrapping 'typename Foo' that parse_type() turns into HTML).
+            _raw = ''.join(i.find('type').itertext()).strip()
+            _parts = _raw.rsplit(None, 1)
+            if len(_parts) == 2 and _parts[0] in ('typename', 'class'):
+                template.name = _parts[1]
+            else:
+                template.name = '']==])
+
+string(FIND "${_mcss_src}" "${_new_tpl_name}" _already_patched_tpl)
+if(_already_patched_tpl EQUAL -1)
+  string(FIND "${_mcss_src}" "${_old_tpl_name}" _found_tpl)
+  if(NOT _found_tpl EQUAL -1)
+    string(REPLACE "${_old_tpl_name}" "${_new_tpl_name}" _mcss_src "${_mcss_src}")
+    set(_mcss_changed TRUE)
+    message(STATUS "PatchMcss: applied template param name extraction patch")
+  else()
+    message(WARNING "PatchMcss: template param name patch target not found")
+  endif()
+else()
+  message(STATUS "PatchMcss: template param name patch already applied")
+endif()
+
 # ---------- Write patched file ----------
 if(_mcss_changed)
   file(WRITE "${_mcss_doxygen_py}" "${_mcss_src}")

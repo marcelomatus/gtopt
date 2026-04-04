@@ -100,8 +100,10 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
     if (phase != PhaseIndex {0}) {
       const auto prev = phase - PhaseIndex {1};
       auto& prev_st = phase_states[prev];
-      const auto& prev_sol =
-          planning_lp().system(scene, prev).linear_interface().get_col_sol();
+      const auto& prev_sol = planning_lp()
+                                 .system(scene, prev)
+                                 .linear_interface()
+                                 .get_col_sol_raw();
 
       const auto coeff_mode = m_options_.cut_coeff_mode;
       if (coeff_mode == CutCoeffMode::row_dual) {
@@ -266,19 +268,20 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
         const auto obj = solved_li.get_obj_value();
         state.forward_full_obj = obj;
 
-        const auto rc = solved_li.get_col_cost();
+        const auto rc = solved_li.get_col_cost_raw();
         state.forward_col_cost.assign(rc.begin(), rc.end());
 
         // Save primal/dual solution for aperture warm-start (pre-padded
         // so set_warm_start_solution can use a subspan without allocation).
         const auto n_links = state.outgoing_links.size();
-        assign_padded(state.forward_col_sol, solved_li.get_col_sol(), n_links);
         assign_padded(
-            state.forward_row_dual, solved_li.get_row_dual(), 2 * n_links);
+            state.forward_col_sol, solved_li.get_col_sol_raw(), n_links);
+        assign_padded(
+            state.forward_row_dual, solved_li.get_row_dual_raw(), 2 * n_links);
 
         const auto sa = m_options_.scale_alpha;
         const auto alpha_val = (state.alpha_col != ColIndex {unknown_index})
-            ? solved_li.get_col_sol()[state.alpha_col] * sa
+            ? solved_li.get_col_sol_raw()[state.alpha_col] * sa
             : 0.0;
         state.forward_objective = obj - alpha_val;
         total_opex += state.forward_objective;
@@ -336,18 +339,18 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
       const auto obj = li.get_obj_value();
       state.forward_full_obj = obj;
 
-      const auto rc = li.get_col_cost();
+      const auto rc = li.get_col_cost_raw();
       state.forward_col_cost.assign(rc.begin(), rc.end());
 
       // Save primal/dual solution for aperture warm-start (pre-padded
       // so set_warm_start_solution can use a subspan without allocation).
       const auto n_links = state.outgoing_links.size();
-      assign_padded(state.forward_col_sol, li.get_col_sol(), n_links);
-      assign_padded(state.forward_row_dual, li.get_row_dual(), 2 * n_links);
+      assign_padded(state.forward_col_sol, li.get_col_sol_raw(), n_links);
+      assign_padded(state.forward_row_dual, li.get_row_dual_raw(), 2 * n_links);
 
       const auto sa = m_options_.scale_alpha;
       const auto alpha_val = (state.alpha_col != ColIndex {unknown_index})
-          ? li.get_col_sol()[state.alpha_col] * sa
+          ? li.get_col_sol_raw()[state.alpha_col] * sa
           : 0.0;
       state.forward_objective = obj - alpha_val;
       total_opex += state.forward_objective;

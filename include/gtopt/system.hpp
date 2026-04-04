@@ -110,7 +110,9 @@ struct System
   Array<UserConstraint>
       user_constraint_array {};  ///< User-defined LP constraints
   OptName
-      user_constraint_file {};  ///< External JSON file with constraint array
+      user_constraint_file {};  ///< External JSON/PAMPL file with constraints
+  std::vector<Name>
+      user_constraint_files {};  ///< Multiple external constraint files
 
   /**
    * @brief Merges another system into this one

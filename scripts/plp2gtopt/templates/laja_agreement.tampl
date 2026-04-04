@@ -1,3 +1,4 @@
+# -*- mode: ampl; -*-
 # =============================================================================
 # Laja Irrigation Agreement (Convenio del Laja)
 # =============================================================================
@@ -18,6 +19,26 @@
 #
 #   Rights(V) = base + Sum_i(factor_i * min(zone_volume_i, width_i))
 #
+# ---------------------------------------------------------------------------
+# Name Mapping: PLP (Fortran) <-> gtopt
+# ---------------------------------------------------------------------------
+#
+#   PLP Variable    PLP Name              gtopt FlowRight          gtopt VolumeRight
+#   ------------    --------------------  ---------------------    -----------------------
+#   IQGT            Gasto Turbinado       laja_q_turbinado         --
+#   IQDR            Derecho de Riego      laja_der_riego           laja_vol_der_riego
+#   IQDE            Derecho Electrico     laja_der_electrico       laja_vol_der_electrico
+#   IQDM            Derecho Mixto         laja_der_mixto           laja_vol_der_mixto
+#   IQGA            Gasto Anticipado      laja_gasto_anticipado    laja_vol_gasto_anticipado
+#   IVESF           Economia ENDESA       --                       laja_vol_econ_reserva
+#   --              Particion Derechos    --                       -- (constraint: laja_particion_derechos)
+#
+#   IVDRF           Vol. Der. Riego       --                       laja_vol_der_riego
+#   IVDEF           Vol. Der. Electrico   --                       laja_vol_der_electrico
+#   IVDMF           Vol. Der. Mixto       --                       laja_vol_der_mixto
+#   IVAPF           Vol. Gasto Antic.     --                       laja_vol_gasto_anticipado
+#   IVESF           Vol. Econ. Reserva    --                       laja_vol_econ_reserva
+#
 # Water System Topology:
 #
 #                        Laguna del Laja
@@ -31,21 +52,21 @@
 #                     +-------+-------+
 #                             |
 #                     +-------v--------+
-#                     | UserConstraint  |
-#                     | laja_partition  |
-#                     | (flow balance)  |
+#                     | UserConstraint              |
+#                     | laja_particion_derechos      |
+#                     | (flow balance)               |
 #                     +--+-+-+-+-------+
 #                        | | | |
 #            +-----------+ | | +------------+
 #            |             | |              |
 #            v             v v              v
-#     laja_irr_rights  laja_elec  laja_mixed  laja_anticipated
-#       (qdr)         (qde)      (qdm)        (qga)
+#   laja_der_riego  laja_der_elec  laja_der_mixto  laja_gasto_anticipado
+#       (qdr)         (qde)          (qdm)              (qga)
 #            |             | |              |
 #            v             v v              v
 #     [VolumeRight]  [VolumeRight]   [VolumeRight]
-#     laja_vol_irr   laja_vol_elec   laja_vol_mixed
-#     (IVDRF)        (IVDEF)         (IVDMF)
+# laja_vol_der_riego laja_vol_der_electrico laja_vol_der_mixto
+#     (IVDRF)            (IVDEF)           (IVDMF)
 #
 # PLP source reference:
 #   genpdlajam.f -- LP constraint matrix assembly
@@ -61,8 +82,8 @@
 # Total generation flow must equal the sum of all extraction rights.
 # ---------------------------------------------------------------------------
 
-constraint laja_partition "Flow partition: total generation = sum of extractions":
-  flow_right('laja_total_gen').flow = flow_right('laja_irr_rights').flow + flow_right('laja_elec_rights').flow + flow_right('laja_mixed_rights').flow + flow_right('laja_anticipated').flow;
+constraint laja_particion_derechos "Flow partition: total generation = sum of extractions":
+  flow_right('laja_q_turbinado').flow = flow_right('laja_der_riego').flow + flow_right('laja_der_electrico').flow + flow_right('laja_der_mixto').flow + flow_right('laja_gasto_anticipado').flow;
 
 # ---------------------------------------------------------------------------
 # Volume zone parameters
@@ -201,6 +222,52 @@ param ini_anticipated = {{ ini_anticipated }};
 # Economy accumulators (carry-forward of unused extraction rights) [hm3]
 # These track surplus rights not exercised; initialized to 0.0 when
 # not available in the dat file (PLP default).
+#
+# PLP variables: IVESF (ENDESA), IVERF (reserve), IVAPF (Alto Polcura)
+# Each economy is modeled as a VolumeRight with purpose="economy":
+#   - `saving` variable: inflow (new savings from unused rights)
+#   - `extraction` variable: outflow (spending of saved water)
+#   - Balance: economy_vol = prev + saving - extraction
+#
+# Note: ELTORO/Laguna del Laja has no economy drain (spillage) because
+# there is no physical overflow path for the rights ledger — the
+# reservoir's own drain handles physical spill separately.
+#
+# PLP economy generation rules (genpdlaja.f):
+#   ENDESA (IVESN): = max(GastoAnuMax - actual_extraction, 0) × duration
+#     → unused annual rights become savings; zero in lower cushion
+#   Reserve (IVERN): generated only in lower cushion from irrigation deficit
+#     → reset to zero when reservoir exits lower cushion
+#   Alto Polcura (IVAPN): = Alto Polcura river inflow × duration
+#     → direct river contributions, always accumulated
+#
+# ┌─────────────────────────────────────────────────────────────────────┐
+# │ SIMPLIFICATION: Economy reset/cap rules NOT implemented            │
+# │                                                                    │
+# │ In PLP, the three economy types have conditional reset and         │
+# │ overflow rules that are NOT modeled in the current gtopt version:  │
+# │                                                                    │
+# │ 1. IVERF (reserve) — PLP resets to zero when the reservoir         │
+# │    exits the lower cushion zone (ColchonInferiorActivo=FALSE).     │
+# │    gtopt: modeled as simple accumulator (no conditional reset).    │
+# │    Impact: reserve economies may over-accumulate in normal         │
+# │    operation; in practice, reserve economies are only generated    │
+# │    during emergency (lower cushion), which is rare.                │
+# │                                                                    │
+# │ 2. IVESF (ENDESA) — PLP caps new provisions when the reservoir    │
+# │    overflows (IVRB > 0) via IVRBES spillage variable.             │
+# │    gtopt: no economy overflow cap.  In practice, the reservoir's   │
+# │    own drain handles physical spill; the rights ledger overflow    │
+# │    is a secondary accounting constraint.                           │
+# │                                                                    │
+# │ 3. IVAPF (Alto Polcura) — no reset in PLP either; OK as-is.       │
+# │                                                                    │
+# │ To implement these rules later, consider:                          │
+# │   - IVERF: a volume-conditional reset_rule (like bound_rule but    │
+# │     for zeroing state when reservoir > threshold)                  │
+# │   - IVESF: StorageLP drain_cost/drain_capacity (already supported │
+# │     by StorageLP infrastructure, just not exposed in VolumeRight)  │
+# └─────────────────────────────────────────────────────────────────────┘
 param ini_econ_endesa = {{ ini_econ_endesa | default(0.0) }};
 param ini_econ_reserve = {{ ini_econ_reserve | default(0.0) }};
 param ini_econ_polcura = {{ ini_econ_polcura | default(0.0) }};

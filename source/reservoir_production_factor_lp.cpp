@@ -93,7 +93,7 @@ bool ReservoirProductionFactorLP::add_to_output(
 
 int ReservoirProductionFactorLP::update_lp(SystemLP& sys,
                                            const ScenarioLP& scenario,
-                                           const StageLP& stage)
+                                           const StageLP& stage) const
 {
   const auto& rsv = sys.element<ReservoirLP>(reservoir_sid());
 

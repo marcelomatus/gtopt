@@ -135,7 +135,6 @@ public:
   ~SolverMonitor() = default;
 
   /// Start the background sampling thread.
-  /// @tparam Pool        Any work pool type that provides `get_statistics()`.
   /// @param pool         The work pool to sample statistics from.
   /// @param start_time   Reference time-point for timestamp computation.
   /// @param thread_name  Name to assign the background thread (Linux only).

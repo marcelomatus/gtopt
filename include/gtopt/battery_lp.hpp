@@ -62,7 +62,6 @@ public:
    * @param scenario Current scenario LP object.
    * @param stage    Current stage LP object.
    * @param lp       Linear problem to add variables and constraints to
-   * @return True if successful, false otherwise
    */
   bool add_to_lp(SystemContext& sc,
                  const ScenarioLP& scenario,
@@ -72,7 +71,6 @@ public:
   /**
    * @brief Adds battery output results to the output context
    * @param out Output context to add results to
-   * @return True if successful, false otherwise
    */
   bool add_to_output(OutputContext& out) const;
 

@@ -265,7 +265,6 @@ public:
 
   /**
    * @brief Get the index of an element by its ID (name, UID, or compound ID)
-   * @tparam ID The type of identifier to lookup
    * @param id The identifier to lookup
    * @return A strongly-typed index to the element
    * @throws std::out_of_range if the element is not found
@@ -277,13 +276,10 @@ public:
   }
 
   /**
-   * @brief Get a reference to an element by its ID (const version)
-   * @tparam Self Deduced type of the collection object (enables
-   * const/non-const).
-   * @tparam ID The type of identifier to lookup
+   * @brief Get a reference to an element by its ID
    * @param self The collection object (deduced; supports const and non-const).
    * @param id The identifier to lookup
-   * @return A const reference to the requested element
+   * @return A reference to the requested element
    * @throws std::out_of_range if the element is not found
    */
   template<typename Self, typename ID>

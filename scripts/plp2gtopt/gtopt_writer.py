@@ -690,25 +690,14 @@ class GTOptWriter:
             )
             _merge_writer("Maule", mw.to_json_dict(output_dir=output_dir))
 
-        # Combine multiple PAMPL files into a single file if needed
-        if len(pampl_files) > 1 and output_dir is not None:
-            combined_name = "water_rights.pampl"
-            combined_path = Path(output_dir) / combined_name
-            with open(combined_path, "w", encoding="utf-8") as out:
-                for i, pf in enumerate(pampl_files):
-                    pf_path = Path(output_dir) / pf
-                    if pf_path.exists():
-                        if i > 0:
-                            out.write("\n\n")
-                        out.write(pf_path.read_text(encoding="utf-8"))
-            self.planning["system"]["user_constraint_file"] = combined_name
+        # Use user_constraint_files (plural) to keep PAMPL files separate
+        if pampl_files:
+            self.planning["system"]["user_constraint_files"] = pampl_files
             _logger.info(
-                "Combined %d PAMPL files into %s",
+                "Registered %d PAMPL file(s): %s",
                 len(pampl_files),
-                combined_name,
+                ", ".join(pampl_files),
             )
-        elif len(pampl_files) == 1:
-            self.planning["system"]["user_constraint_file"] = pampl_files[0]
 
     def process_flow_turbines(self, options):
         """Create Flow + Turbine(flow=ref) for hydro pasada centrals.

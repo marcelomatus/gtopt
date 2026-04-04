@@ -26,7 +26,7 @@ namespace gtopt
 /**
  * @brief Constructs a GeneratorLP from a Generator
  * @param ic Input context for parameter processing
- * @param pgenerator Generator object to convert to LP representation
+ * @param generator Generator object to convert to LP representation
  *
  * Creates an LP representation of a generator including time-dependent
  * parameters like minimum/maximum generation limits, loss factors, and costs.
@@ -79,7 +79,8 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
-  auto&& [stage_capacity, capacity_col] = capacity_and_col(stage, lp);
+  auto&& [opt_capacity, capacity_col] = capacity_and_col(stage, lp);
+  const double stage_capacity = opt_capacity.value_or(LinearProblem::DblMax);
 
   const auto stage_gcost = gcost.optval(stage.uid()).value_or(0.0);
   const auto stage_lossfactor = lossfactor.optval(stage.uid()).value_or(0.0);

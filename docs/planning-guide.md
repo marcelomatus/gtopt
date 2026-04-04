@@ -224,7 +224,7 @@ apply to which phase.
 
 The complete time hierarchy in gtopt is:
 
-```
+```text
 Planning
  ├─ Scene (independent LP trajectory, one per scene)
  │    └─ Phase (Benders decomposition level; state variables propagate via cuts)
@@ -255,7 +255,7 @@ gtopt formulation is equivalent to the PLP formulation:
 
 For a typical seasonal study with 2 hydrological trajectories:
 
-```
+```text
 Scene 1 ("dry") → groups Scenario "dry year" (prob=0.3)
    Phase 1 ("summer") → LP₁: Stages 1-3 (Jan, Feb, Mar)
        ↓ state variables (reservoir vol, capacity)
@@ -297,7 +297,7 @@ A gtopt case is defined by **one or more JSON files** passed on the command
 line. Multiple files are merged in order, so you can split options, simulation,
 and system across files.
 
-```
+```bash
 gtopt base_options.json simulation.json system.json
 ```
 
@@ -971,7 +971,7 @@ cvs2parquet --schema input/Generator/pmax.csv input/Generator/pmax.parquet
 When a JSON field value is a **string** it is treated as a filename (without
 extension).  The file is looked up in:
 
-```
+```text
 <input_directory>/<ClassName>/<field_name>.<format>
 ```
 
@@ -984,7 +984,7 @@ where:
 
 **Full directory example**:
 
-```
+```text
 my_case/
 ├── my_case.json              # Main planning file
 └── input/                    # input_directory = "input"
@@ -1209,7 +1209,7 @@ The generated HTML includes:
 After a successful run, gtopt writes result files in `output_directory`
 (default: `output/`) using the same tabular format as input files.
 
-```
+```text
 output/
 ├── solution.csv                    # Objective, status, iterations
 ├── Bus/
@@ -1283,7 +1283,7 @@ gtopt ieee_4b_ori.json
 
 Expected log output:
 
-```
+```text
 [info] starting gtopt ...
 [info] parsing input file ieee_4b_ori.json
 [info] creating lp ...
@@ -1542,7 +1542,7 @@ pq.write_table(pa.Table.from_pandas(df),
 
 The effective power output of the solar generator in each scenario and block is:
 
-```
+```text
 power_output[scenario][block] = pmax * profile[scenario][block]
 ```
 
@@ -1705,7 +1705,7 @@ target constraints from the Level 0 reservoir volumes, guiding the forward pass.
 
 **How it works:**
 
-```
+```text
 ┌─────────────────────────────────────────────────────┐
 │  Level 0: uninodal_benders                          │
 │  ┌──────────┐  ┌──────────┐       ┌──────────┐     │
@@ -1744,7 +1744,7 @@ gtopt sddp_hydro_3phase.json
 The solver logs per-level statistics (including `gap_change` when the
 stationary-gap criterion is enabled):
 
-```
+```text
 [info] ═══ Cascade level 0: uninodal_benders ═══
 [info] SDDP iter 1: gap=0.782000 gap_change=1.000000 cuts=3
 [info] SDDP iter 2: gap=0.321000 gap_change=1.000000 cuts=6
@@ -1824,7 +1824,7 @@ the solver strategy:
 
 **How the 3 levels work:**
 
-```
+```text
 Level 0 (benders_uninodal)           Level 1 (guided_full_network)     Level 2 (refined_with_cuts)
 ┌──────────────────────┐             ┌──────────────────────┐          ┌──────────────────────┐
 │ Single-bus Benders    │   targets   │ Full network SDDP    │  cuts    │ Same LP, inherits    │

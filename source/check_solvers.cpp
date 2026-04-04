@@ -394,8 +394,8 @@ SolverTestResult test_name_maps(std::string_view solver)
 
     const auto& col_idx_to_name = lp.col_index_to_name();
     TC_CHECK(ctx, col_idx_to_name.size() == 2);
-    TC_CHECK(ctx, col_idx_to_name[static_cast<size_t>(x1)] == "x1");
-    TC_CHECK(ctx, col_idx_to_name[static_cast<size_t>(x2)] == "x2");
+    TC_CHECK(ctx, col_idx_to_name[x1] == "x1");
+    TC_CHECK(ctx, col_idx_to_name[x2] == "x2");
 
   } catch (const std::exception& ex) {
     return make_result("name_maps", /*test_passed=*/false, ex.what());
@@ -468,7 +468,7 @@ SolverTestResult test_initial_solve_optimal(std::string_view solver)
                 __LINE__);
 
       // Primal solution: x1+x2 == 4.
-      const auto sol = lp.get_col_sol();
+      const auto sol = lp.get_col_sol_raw();
       TC_CHECK(ctx, sol.size() == 2);
       const double x1_val = sol[0];
       const double x2_val = sol[1];
@@ -479,11 +479,11 @@ SolverTestResult test_initial_solve_optimal(std::string_view solver)
 
       // Dual solution: shadow price of r1 should be 1.0 (cost of 1 more unit
       // of RHS).
-      const auto dual = lp.get_row_dual();
+      const auto dual = lp.get_row_dual_raw();
       TC_CHECK(ctx, dual.size() == 1);
 
       // Reduced costs: both at zero (active variables on boundary).
-      const auto rc = lp.get_col_cost();
+      const auto rc = lp.get_col_cost_raw();
       TC_CHECK(ctx, rc.size() == 2);
 
       // Kappa: must be >= 0.
@@ -619,10 +619,10 @@ SolverTestResult test_warm_start(std::string_view solver)
     TC_REQUIRE(ctx, lp.is_optimal());
 
     // Capture solution and use it as a warm start.
-    const auto col_sol_vec =
-        std::vector<double>(lp.get_col_sol().begin(), lp.get_col_sol().end());
-    const auto row_dual_vec =
-        std::vector<double>(lp.get_row_dual().begin(), lp.get_row_dual().end());
+    const auto col_sol_vec = std::vector<double>(lp.get_col_sol_raw().begin(),
+                                                 lp.get_col_sol_raw().end());
+    const auto row_dual_vec = std::vector<double>(lp.get_row_dual_raw().begin(),
+                                                  lp.get_row_dual_raw().end());
 
     lp.set_warm_start_solution(col_sol_vec, row_dual_vec);
 
@@ -795,10 +795,9 @@ SolverTestResult test_warm_col_sol_accessors(std::string_view solver)
     LinearInterface lp(solver);
     lp.add_col("x", 0.0, 10.0);
 
-    const std::vector<double> hint = {5.0};
-    lp.set_warm_col_sol(std::vector<double>(hint));
+    lp.set_warm_col_sol(StrongIndexVector<ColIndex, double> {5.0});
     TC_CHECK(ctx, lp.warm_col_sol().size() == 1);
-    TC_CHECK_APPROX(ctx, lp.warm_col_sol()[0], 5.0, 1e-12);
+    TC_CHECK_APPROX(ctx, lp.warm_col_sol()[ColIndex {0}], 5.0, 1e-12);
 
   } catch (const std::exception& ex) {
     return make_result(
@@ -924,7 +923,7 @@ SolverTestResult test_barrier_threads(std::string_view solver)
     TC_CHECK(ctx, li.is_optimal());
     TC_CHECK_APPROX(ctx, li.get_obj_value(), 17.0, kEps);
 
-    const auto sol = li.get_col_sol();
+    const auto sol = li.get_col_sol_raw();
     TC_REQUIRE(ctx, sol.size() == 4);
     TC_CHECK(ctx, sol[0] + sol[1] >= 5.0 - kEps);
     TC_CHECK(ctx, sol[1] + sol[2] >= 3.0 - kEps);
@@ -1027,26 +1026,26 @@ struct TestEntry
 [[nodiscard]] const std::vector<TestEntry>& all_tests()
 {
   static const std::vector<TestEntry> tests {
-      {"construction", test_construction},
-      {"add_col", test_add_col},
-      {"add_row", test_add_row},
-      {"obj_coeff", test_obj_coeff},
-      {"get_set_coeff", test_get_set_coeff},
-      {"variable_types", test_variable_types},
-      {"name_maps", test_name_maps},
-      {"load_flat_stats", test_load_flat_stats},
-      {"initial_solve_optimal", test_initial_solve_optimal},
-      {"primal_infeasible", test_primal_infeasible},
-      {"resolve", test_resolve},
-      {"clone", test_clone},
-      {"warm_start", test_warm_start},
-      {"base_numrows_reset", test_base_numrows_reset},
-      {"write_lp", test_write_lp},
-      {"maximisation", test_maximisation},
-      {"warm_col_sol_accessors", test_warm_col_sol_accessors},
-      {"col_scales", test_col_scales},
-      {"barrier_threads", test_barrier_threads},
-      {"barrier_resolve", test_barrier_resolve},
+      {.name = "construction", .fn = test_construction},
+      {.name = "add_col", .fn = test_add_col},
+      {.name = "add_row", .fn = test_add_row},
+      {.name = "obj_coeff", .fn = test_obj_coeff},
+      {.name = "get_set_coeff", .fn = test_get_set_coeff},
+      {.name = "variable_types", .fn = test_variable_types},
+      {.name = "name_maps", .fn = test_name_maps},
+      {.name = "load_flat_stats", .fn = test_load_flat_stats},
+      {.name = "initial_solve_optimal", .fn = test_initial_solve_optimal},
+      {.name = "primal_infeasible", .fn = test_primal_infeasible},
+      {.name = "resolve", .fn = test_resolve},
+      {.name = "clone", .fn = test_clone},
+      {.name = "warm_start", .fn = test_warm_start},
+      {.name = "base_numrows_reset", .fn = test_base_numrows_reset},
+      {.name = "write_lp", .fn = test_write_lp},
+      {.name = "maximisation", .fn = test_maximisation},
+      {.name = "warm_col_sol_accessors", .fn = test_warm_col_sol_accessors},
+      {.name = "col_scales", .fn = test_col_scales},
+      {.name = "barrier_threads", .fn = test_barrier_threads},
+      {.name = "barrier_resolve", .fn = test_barrier_resolve},
   };
   return tests;
 }

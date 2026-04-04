@@ -54,7 +54,8 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   }
 
   // Get capacity information
-  auto&& [stage_capacity, capacity_col] = capacity_and_col(stage, lp);
+  auto&& [opt_capacity, capacity_col] = capacity_and_col(stage, lp);
+  const double stage_capacity = opt_capacity.value_or(LinearProblem::DblMax);
 
   const auto stage_input_efficiency =
       input_efficiency.optval(stage.uid()).value_or(1.0);
@@ -64,21 +65,6 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   // Get blocks for this stage
   const auto& blocks = stage.blocks();
 
-  // Create finp variables for each time block
-  BIndexHolder<ColIndex> finps;
-  BIndexHolder<ColIndex> fouts;
-  map_reserve(finps, blocks.size());
-  map_reserve(fouts, blocks.size());
-
-  for (auto&& block : blocks) {
-    const auto buid = block.uid();
-    finps[buid] = lp.add_col(SparseCol {
-        .name = sc.lp_col_label(scenario, stage, block, cname, "finp", uid()),
-    });
-    fouts[buid] = lp.add_col(SparseCol {
-        .name = sc.lp_col_label(scenario, stage, block, cname, "fout", uid()),
-    });
-  }
   // Resolve energy_scale: per-element field > VariableScaleMap > default.
   const auto es = [&]
   {
@@ -96,6 +82,27 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
         sc.options().variable_scale_map().lookup("Battery", "flow", uid());
     return (vs != 1.0) ? vs : 1.0;
   }();
+
+  // Create finp/fout variables for each time block.
+  // Scale is set to flow_scale so that the user-constraint resolver and
+  // output infrastructure can automatically convert between LP and physical
+  // units via SparseCol::scale (physical_value = LP_value × flow_scale).
+  BIndexHolder<ColIndex> finps;
+  BIndexHolder<ColIndex> fouts;
+  map_reserve(finps, blocks.size());
+  map_reserve(fouts, blocks.size());
+
+  for (auto&& block : blocks) {
+    const auto buid = block.uid();
+    finps[buid] = lp.add_col(SparseCol {
+        .name = sc.lp_col_label(scenario, stage, block, cname, "finp", uid()),
+        .scale = fs,
+    });
+    fouts[buid] = lp.add_col(SparseCol {
+        .name = sc.lp_col_label(scenario, stage, block, cname, "fout", uid()),
+        .scale = fs,
+    });
+  }
   const StorageOptions opts {
       .use_state_variable = battery().use_state_variable.value_or(false),
       .daily_cycle = battery().daily_cycle.value_or(true),

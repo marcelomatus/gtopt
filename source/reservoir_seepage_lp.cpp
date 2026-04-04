@@ -110,7 +110,6 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
   m_states_[st_key] = ReservoirSeepageState {
       .eini_col = eini_col,
       .efin_col = efin_col,
-      .energy_scale = energy_scale,
       .current_slope = effective_slope,
       .current_rhs = effective_rhs,
   };
@@ -160,7 +159,8 @@ int ReservoirSeepageLP::update_lp(SystemLP& sys,
   }
 
   int total = 0;
-  const auto new_lp_slope = new_slope * state.energy_scale;
+  const auto es = li.get_col_scale(state.eini_col);
+  const auto new_lp_slope = new_slope * es;
   const auto& frows = seepage_rows.at(st_key);
 
   for (const auto& [buid, row] : frows) {

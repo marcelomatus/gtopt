@@ -15,7 +15,7 @@ endif()
 # importable package name here when a new script module is introduced.
 execute_process(
   COMMAND "${PYTHON_EXECUTABLE}" -c
-    "import pytest, plp2gtopt, igtopt, cvs2parquet, ts2gtopt, pp2gtopt"
+    "import pytest, plp2gtopt, igtopt, cvs2parquet, ts2gtopt, pp2gtopt, gtopt_compare, gtopt_check_lp, gtopt_check_json, gtopt2pp, gtopt_diagram"
   RESULT_VARIABLE _import_check_rc
   OUTPUT_QUIET ERROR_QUIET
 )
@@ -37,8 +37,24 @@ endif()
 execute_process(
   COMMAND "${PYTHON_EXECUTABLE}" -m pip install -q -e "${SCRIPTS_DIR}[dev]"
   RESULT_VARIABLE _pip_rc
+  ERROR_VARIABLE _pip_stderr
 )
 
 if(NOT _pip_rc EQUAL 0)
-  message(FATAL_ERROR "pip install failed (exit code ${_pip_rc})")
+  # Retry with --break-system-packages for externally-managed environments
+  # (PEP 668, common on Debian/Ubuntu 24.04+).
+  execute_process(
+    COMMAND "${PYTHON_EXECUTABLE}" -m pip install -q
+            --break-system-packages -e "${SCRIPTS_DIR}[dev]"
+    RESULT_VARIABLE _pip_rc
+    ERROR_VARIABLE _pip_stderr
+  )
+endif()
+
+if(NOT _pip_rc EQUAL 0)
+  message(FATAL_ERROR
+    "pip install failed (exit code ${_pip_rc}).\n"
+    "stderr: ${_pip_stderr}\n"
+    "Hint: run 'pip install -e ${SCRIPTS_DIR}[dev]' manually to diagnose."
+  )
 endif()

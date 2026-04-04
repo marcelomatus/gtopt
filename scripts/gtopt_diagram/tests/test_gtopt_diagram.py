@@ -486,7 +486,7 @@ class TestShowOption:
         json_path = tmp_path / "mini.json"
         json_path.write_text(json.dumps(_MINI_PLANNING))
 
-        with mock.patch.object(gd, "_show_mermaid") as mock_show:
+        with mock.patch("gtopt_diagram.cli._show_mermaid") as mock_show:
             rc = gd.main(
                 [
                     str(json_path),
@@ -508,7 +508,7 @@ class TestShowOption:
         json_path.write_text(json.dumps(_MINI_PLANNING))
         out_path = tmp_path / "out.md"
 
-        with mock.patch.object(gd, "_show_mermaid") as mock_show:
+        with mock.patch("gtopt_diagram.cli._show_mermaid") as mock_show:
             rc = gd.main(
                 [
                     str(json_path),
@@ -550,7 +550,7 @@ class TestShowOption:
         svg_file = tmp_path / "test.svg"
         svg_file.write_text("<svg/>")
 
-        with mock.patch("gtopt_diagram.gtopt_diagram.webbrowser.open") as mock_open:
+        with mock.patch("gtopt_diagram._renderers.webbrowser.open") as mock_open:
             gd.display_diagram(str(svg_file), "svg")
 
         mock_open.assert_called_once()
@@ -766,7 +766,7 @@ class TestDefaultShow:
         json_path = tmp_path / "mini.json"
         json_path.write_text(json.dumps(_MINI_PLANNING))
 
-        with mock.patch.object(gd, "_show_mermaid") as mock_show:
+        with mock.patch("gtopt_diagram.cli._show_mermaid") as mock_show:
             rc = gd.main(
                 [
                     str(json_path),

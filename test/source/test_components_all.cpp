@@ -40,3 +40,4 @@ using namespace gtopt;
 #include "test_generator.hpp"
 #include "test_generator_profile.hpp"
 #include "test_line.hpp"
+#include "test_line_losses.hpp"

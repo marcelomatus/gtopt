@@ -50,16 +50,17 @@ constexpr int kDiagTailLines = 10;
  *
  * Searches PATH for the @c gtopt_check_lp binary.  If found, spawns it
  * directly (without invoking a shell) via @c posix_spawn with:
- * @code
+ *
+ * @code{.text}
  *   gtopt_check_lp --quiet --no-color --no-ai --timeout <timeout_seconds>
  *                   [--algo <algo>]
  *                   [--optimal-eps <v>] [--feasible-eps <v>]
  *                   [--barrier-eps <v>]
  *                   <lp_file>
  * @endcode
- * and returns the captured stdout+stderr.  If the binary is not on PATH or
- * the file does not exist, an empty string is returned so callers can skip
- * logging silently.
+ *
+ * If the binary is not on PATH or the file does not exist, an empty string
+ * is returned so callers can skip logging silently.
  *
  * The @c --quiet flag ensures the child process never stalls waiting for
  * input and always exits with code 0, even when no solver is available or
@@ -85,9 +86,11 @@ constexpr int kDiagTailLines = 10;
  *
  * Searches PATH for the @c gtopt_check_json binary.  If found, spawns it
  * directly (without invoking a shell) via @c posix_spawn with:
- * @code
+ *
+ * @code{.text}
  *   gtopt_check_json --info --no-color <file1.json> [<file2.json> ...]
  * @endcode
+ *
  * stdout and stderr are captured and returned as a string so the caller can
  * forward every line through the spdlog INFO stream (instead of writing
  * directly to the terminal).  An optional @c timeout wrapper prevents

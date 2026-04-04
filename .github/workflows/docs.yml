@@ -6,6 +6,7 @@ on:
       - 'docs/**'
       - 'documentation/**'
       - 'include/**'
+      - 'source/**'
       - '*.md'
       - 'tools/check_latex_math.py'
   pull_request:
@@ -16,6 +17,7 @@ on:
       - 'docs/**'
       - 'documentation/**'
       - 'include/**'
+      - 'source/**'
       - '*.md'
       - 'tools/check_latex_math.py'
 
@@ -101,6 +103,46 @@ jobs:
         with:
           name: doxygen-html
           path: build/doxygen/html/
+
+  deploy-pages:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+    needs: build-doxygen
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Download Doxygen HTML artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: doxygen-html
+          path: site
+
+      - name: Upload to GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+
+      - name: Warn on deployment failure
+        if: steps.deployment.outcome == 'failure'
+        run: |
+          echo "::warning::GitHub Pages deployment failed. Ensure GitHub Pages is enabled in repo settings (Settings → Pages → Source: GitHub Actions)."
+          echo "## ⚠️ Pages deployment skipped" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The documentation was built successfully but could not be deployed to GitHub Pages." >> $GITHUB_STEP_SUMMARY
+          echo "To enable deployment, go to **Settings → Pages** and set Source to **GitHub Actions**." >> $GITHUB_STEP_SUMMARY
 
   build-white-paper:
     runs-on: ubuntu-latest

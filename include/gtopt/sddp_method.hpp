@@ -52,511 +52,36 @@
 #pragma once
 
 #include <atomic>
-#include <chrono>
 #include <expected>
-#include <functional>
-#include <mutex>
-#include <optional>
-#include <span>
 #include <string>
-#include <string_view>
 #include <vector>
 
 #include <gtopt/aperture.hpp>
 #include <gtopt/aperture_data_cache.hpp>
-#include <gtopt/benders_cut.hpp>
 #include <gtopt/enum_option.hpp>
 #include <gtopt/error.hpp>
 #include <gtopt/iteration_lp.hpp>
 #include <gtopt/label_maker.hpp>
-#include <gtopt/linear_problem.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_method.hpp>
 #include <gtopt/sddp_aperture.hpp>
 #include <gtopt/sddp_clone_pool.hpp>
-#include <gtopt/sddp_common.hpp>
 #include <gtopt/sddp_cut_sharing.hpp>
 #include <gtopt/sddp_cut_store.hpp>
 #include <gtopt/sddp_pool.hpp>
+#include <gtopt/sddp_types.hpp>
 #include <gtopt/solver_monitor.hpp>
-#include <gtopt/solver_options.hpp>
 #include <gtopt/state_variable.hpp>
 
 namespace gtopt
 {
 
-// ─── Cut sharing mode ───────────────────────────────────────────────────────
-// CutSharingMode is now defined in <gtopt/sddp_enums.hpp>.
-// The generic enum_from_name<CutSharingMode>() replaces the old
-// parse_cut_sharing_mode() free function.
-
-/// Parse a cut-sharing mode from a string (backward-compatible wrapper).
-/// ("none", "expected", "accumulate", "max")
-[[nodiscard]] CutSharingMode parse_cut_sharing_mode(std::string_view name);
-
-// ─── Configuration ──────────────────────────────────────────────────────────
-
-/// File naming patterns for per-scene cut files
-namespace sddp_file
-{
-/// Combined cut file name
-constexpr auto combined_cuts = "sddp_cuts.csv";
-/// Versioned cut file pattern: format with iteration number
-constexpr auto versioned_cuts_fmt = "sddp_cuts_{}.csv";
-/// Per-scene cut file pattern: format with scene UID
-constexpr auto scene_cuts_fmt = "scene_{}.csv";
-/// Error-prefixed cut file pattern for infeasible scenes (scene UID)
-constexpr auto error_scene_cuts_fmt = "error_scene_{}.csv";
-/// Error LP file pattern for infeasible scene/phase (scene UID, phase UID)
-constexpr auto error_lp_fmt = "error_scene_{}_phase_{}";
-/// Debug LP file pattern: format with iteration, scene UID, phase UID
-constexpr auto debug_lp_fmt = "gtopt_iter_{}_scene_{}_phase_{}";
-/// Sentinel file name: if this file exists in the output directory, the
-/// SDDP solver stops gracefully after the current iteration and saves cuts.
-/// Created externally (e.g. by the webservice stop endpoint).
-constexpr auto stop_sentinel = "sddp_stop";
-/// State variable column solution (latest)
-constexpr auto state_cols = "sddp_state.csv";
-/// Versioned state column solution: format with iteration number
-constexpr auto versioned_state_fmt = "sddp_state_{}.csv";
-/// Monitoring API stop-request file name: if this file exists, the solver
-/// stops gracefully after the current iteration (same behaviour as the
-/// sentinel file).  Written by the webservice soft-stop endpoint as part of
-/// the bidirectional monitoring API.  Complements rather than replaces the
-/// sentinel mechanism so that external scripts using the raw sentinel still
-/// work.  The solver checks: sentinel_file exists || stop_request file exists.
-constexpr auto stop_request = "sddp_stop_request.json";
-}  // namespace sddp_file
-
-// ─── Elastic filter mode ────────────────────────────────────────────────────
-// ElasticFilterMode is now defined in <gtopt/sddp_enums.hpp>.
-// The generic enum_from_name<ElasticFilterMode>() replaces the old
-// parse_elastic_filter_mode() free function.
-
-/// Parse an elastic filter mode from a string (backward-compatible wrapper).
-/// Accepts "single_cut" / "cut" (= single_cut), "multi_cut",
-/// "backpropagate".
-[[nodiscard]] ElasticFilterMode parse_elastic_filter_mode(
-    std::string_view name);
-
-/// Configuration options for the SDDP iterative solver
-struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
-{
-  int max_iterations {100};  ///< Maximum forward/backward iterations
-  int min_iterations {2};  ///< Minimum iterations before convergence
-  double convergence_tol {1e-4};  ///< Relative gap tolerance for convergence
-  double elastic_penalty {1e6};  ///< Penalty for elastic slack variables
-  double alpha_min {0.0};  ///< Lower bound for future cost variable α ($)
-  double alpha_max {1e15};  ///< Upper bound for future cost variable α ($)
-  double scale_alpha {10'000'000};  ///< Scale divisor for α (PLP varphi scale)
-  CutSharingMode cut_sharing {CutSharingMode::none};  ///< Cut sharing mode
-
-  /// Elastic filter mode: how to handle backward-pass infeasibility.
-  /// `single_cut` (default) adds a single Benders feasibility cut to the
-  /// previous phase.  `multi_cut` adds the same cut plus one
-  /// bound-constraint cut per activated slack variable.
-  /// `backpropagate` updates the source column bounds to match the
-  /// elastic-clone solution (PLP mechanism).
-  ElasticFilterMode elastic_filter_mode {ElasticFilterMode::single_cut};
-
-  /// How Benders cut coefficients are extracted from solved subproblems.
-  /// `reduced_cost` (default): reduced costs of fixed dependent columns.
-  /// `row_dual`: row duals of explicit coupling constraint rows (PLP-style).
-  CutCoeffMode cut_coeff_mode {CutCoeffMode::reduced_cost};
-
-  /// Absolute tolerance for filtering tiny Benders cut coefficients.
-  /// Coefficients with |value| < cut_coeff_eps are dropped from the cut.
-  /// 0.0 = no filtering (default).
-  double cut_coeff_eps {0.0};
-
-  /// Maximum allowed absolute coefficient in a Benders cut row.
-  /// When max|coeff| exceeds this, the entire row is rescaled uniformly.
-  /// 0.0 = disabled (default).
-  double cut_coeff_max {0.0};
-
-  /// Forward-pass infeasibility counter threshold for automatic switching
-  /// from single_cut to multi_cut.  When the forward pass has encountered
-  /// infeasibility at (scene, phase) more than this many times without
-  /// recovery, the backward-pass infeasibility handler switches to multi_cut
-  /// mode for that (scene, phase).
-  ///  = 0  always use multi_cut for any infeasibility (force multi_cut).
-  ///  > 0  switch to multi_cut after the counter exceeds this threshold.
-  ///  < 0  never auto-switch (disabled; use explicit mode only).
-  /// Default: 10.
-  int multi_cut_threshold {10};
-
-  /// Save cuts to CSV after each training iteration (default: true).
-  /// When false, cuts are only saved at the end of the solve or on stop.
-  bool save_per_iteration {true};
-
-  /// Save feasibility cuts produced during the simulation pass (default:
-  /// false).  When false, only training-iteration cuts are persisted,
-  /// ensuring hot-start reproducibility.
-  bool save_simulation_cuts {false};
-
-  /// Global solve timeout in seconds (0 = no timeout).
-  /// When non-zero, each forward-pass LP solve is given this time limit;
-  /// if exceeded, the LP is saved to a debug file, a CRITICAL message is
-  /// logged, and the scene is marked as failed.
-  double solve_timeout {0.0};
-
-  /// File path for saving cuts (empty = no save)
-  std::string cuts_output_file {};
-  /// File path for loading initial cuts (empty = no load / cold start)
-  std::string cuts_input_file {};
-  /// Hot-start mode: controls both cut loading and output file handling.
-  /// - `none`:    cold start — no cuts loaded (default)
-  /// - `keep`:    load cuts; keep original output file unchanged
-  /// - `append`:  load cuts; append new cuts to original file
-  /// - `replace`: load cuts; replace original file with all cuts
-  HotStartMode cut_recovery_mode {HotStartMode::none};
-
-  /// Controls what is recovered from a previous SDDP run:
-  /// - `none`:  no recovery (cold start)
-  /// - `cuts`:  recover only Benders cuts
-  /// - `full`:  recover cuts + state variable solutions (default)
-  RecoveryMode recovery_mode {RecoveryMode::full};
-
-  /// Path to a sentinel file: if the file exists, the solver stops
-  /// gracefully after the current iteration (analogous to PLP's userstop).
-  /// All accumulated cuts are saved before stopping.
-  std::string sentinel_file {};
-
-  /// Directory for log and error LP files (default: "logs").
-  /// Error LP files for infeasible scenes are saved here.
-  std::string log_directory {"logs"};
-
-  /// When true, save a debug LP file for every (iteration, scene, phase)
-  /// during the forward pass to log_directory.
-  /// Files are named using sddp_file::debug_lp_fmt.
-  bool lp_debug {false};
-
-  /// When true, build all scene×phase LP matrices and exit immediately —
-  /// no solving of any kind is performed.  Applies to both the monolithic
-  /// and SDDP solvers.  If lp_debug is also true, every LP file is saved
-  /// before returning.  Useful for profiling LP build time without solver
-  /// overhead.
-  bool lp_build {false};
-
-  /// Compression format for LP debug files ("gzip" / "uncompressed" / "").
-  /// Empty or "uncompressed" means no compression; any other value uses gzip.
-  std::string lp_debug_compression {};
-
-  /// Selective LP debug filters: when set, only save LP files whose
-  /// scene/phase UIDs fall within [min, max] (inclusive).
-  OptInt lp_debug_scene_min {};
-  OptInt lp_debug_scene_max {};
-  OptInt lp_debug_phase_min {};
-  OptInt lp_debug_phase_max {};
-
-  /// Enable the monitoring API: write a JSON status file after each iteration
-  /// and periodically update real-time workpool statistics.  Consumers
-  /// (e.g. sddp_monitor.py) can poll this file to display live charts.
-  /// Default: true.
-  bool enable_api {true};
-
-  /// Path for the JSON status file.  If empty, the solver writes to
-  /// "<output_directory>/sddp_status.json" (derived at solve time from the
-  /// PlanningLP options).
-  std::string api_status_file {};
-
-  /// Path for the monitoring API stop-request file.  When this file exists
-  /// the solver stops gracefully after the current iteration and saves cuts,
-  /// exactly like the sentinel_file mechanism.  The file is written by the
-  /// webservice soft-stop endpoint as part of the bidirectional monitoring
-  /// API.  Use sddp_file::stop_request ("sddp_stop_request.json") as the
-  /// filename in the output directory.  Empty = feature disabled.
-  std::string api_stop_request_file {};
-
-  /// Interval at which the background monitoring thread refreshes real-time
-  /// workpool statistics (CPU load, active workers) in the status file.
-  std::chrono::milliseconds api_update_interval {500};
-
-  /// Number of apertures (hydrological realisations) to solve in each
-  /// backward-pass phase.  Each aperture clones the phase LP and updates
-  /// the flow column bounds to the corresponding scenario's discharge values,
-  /// then solves the clone to obtain an independent Benders cut.  The final
-  /// cut added to the previous phase is the probability-weighted average of
-  /// all aperture cuts (expected cut).
-  /// Aperture UIDs for the backward pass.
-  ///
-  ///  nullopt – use per-phase `Phase::apertures` or simulation-level
-  ///            `aperture_array` (default behaviour).
-  ///  empty   – no apertures; use pure Benders backward pass.
-  ///  [1,2,3] – use exactly these aperture UIDs, overriding per-phase sets.
-  ///
-  /// When a non-empty list is given but no matching `Aperture` definitions
-  /// exist in `simulation.aperture_array`, synthetic apertures are built
-  /// from scenarios whose UIDs match.
-  ///
-  /// Note: apertures only update flow column bounds (affluent values).
-  /// Other stochastic parameters (demand, generator profiles) are not
-  /// updated.  State variable bounds remain fixed at the forward-pass
-  /// trial values.
-  std::optional<std::vector<Uid>> apertures {};
-
-  /// Timeout in seconds for individual aperture LP solves in the backward
-  /// pass.  When an aperture LP exceeds this time, it is treated as
-  /// infeasible (skipped), a WARNING is logged, and the solver continues
-  /// with the remaining apertures.  0 = no timeout (default).
-  double aperture_timeout {0.0};
-
-  /// Save LP files for infeasible apertures to log_directory (default: false).
-  bool save_aperture_lp {false};
-
-  /// Enable warm-start optimizations for SDDP resolves (forward pass,
-  /// backward pass, apertures, elastic filter).  When true, resolves use
-  /// dual simplex + no presolve, pivoting from the saved forward-pass
-  /// solution.  Especially important when the initial solve uses barrier
-  /// (the default).
-  bool warm_start {true};
-
-  /// Maximum number of retained cuts per (scene, phase) LP after pruning.
-  /// 0 = unlimited (default, no pruning).  When non-zero, at every
-  /// cut_prune_interval iterations the solver removes inactive cuts
-  /// (|dual| < prune_dual_threshold) until at most max_cuts_per_phase
-  /// active cuts remain.
-  int max_cuts_per_phase {0};
-
-  /// Number of iterations between cut pruning passes.
-  /// Only used when max_cuts_per_phase > 0.  Default: 10.
-  int cut_prune_interval {10};
-
-  /// Dual-value threshold for considering a cut inactive.
-  /// Cuts with |dual| below this value are candidates for removal.
-  /// Default: 1e-8.
-  double prune_dual_threshold {1e-8};
-
-  /// Use single cut storage: store cuts only in per-scene vectors.
-  /// Combined storage for persistence is built on demand from the
-  /// per-scene vectors.  Halves the memory cost of stored cuts.
-  /// Default: false (backward compatible).
-  bool single_cut_storage {false};
-
-  /// Maximum total stored cuts per scene (0 = unlimited).  When
-  /// non-zero, the oldest cuts beyond this limit are dropped after
-  /// each iteration.  Default: 0 (no cap).
-  int max_stored_cuts {0};
-
-  /// Reuse a cached LP clone for aperture solves instead of cloning
-  /// anew each time.  The clone's column bounds are reset from the
-  /// source LP before each solve; rows beyond the base count are
-  /// deleted.  Avoids repeated heap allocations for the CLP solver
-  /// internal matrix.  Default: true.
-  bool use_clone_pool {true};
-
-  /// CSV file with boundary (future-cost) cuts for the last phase.
-  ///
-  /// These cuts approximate the expected future cost beyond the planning
-  /// horizon, analogous to PLP's "planos de embalse" (reservoir future-cost
-  /// function).  Each cut has the form:
-  ///   α ≥ rhs + Σ_i coeff_i · state_var_i
-  ///
-  /// The CSV header row names the state variables (reservoirs / batteries).
-  /// The solver maps these names to LP columns in the last phase and adds
-  /// each cut as a lower-bound constraint on the future cost variable α.
-  /// Empty = no boundary cuts.
-  std::string boundary_cuts_file {};
-
-  /// How boundary cuts are loaded:
-  /// - "noload"    — skip loading even if a file is specified
-  /// - "separated" — assign each cut to the scene matching its `scene`
-  ///                 column (scene UID); unmatched UIDs are skipped
-  /// - "combined"  — broadcast all cuts to all scenes
-  /// Default: "separated".
-  BoundaryCutsMode boundary_cuts_mode {BoundaryCutsMode::separated};
-
-  /// Maximum number of SDDP iterations to load from the boundary cuts
-  /// file.  Only cuts from the last N distinct iterations (by the
-  /// `iteration` column / PLP IPDNumIte) are retained.  0 = load all.
-  int boundary_max_iterations {0};
-
-  /// How to handle cut rows referencing state variables not in the model.
-  MissingCutVarMode missing_cut_var_mode {MissingCutVarMode::skip_coeff};
-
-  /// CSV file with named-variable hot-start cuts for all phases.
-  ///
-  /// Unlike boundary cuts (which apply only to the last phase), these
-  /// cuts include a `phase` column indicating which phase they belong to.
-  /// The solver resolves named state-variable headers (reservoir / battery /
-  /// junction) to LP column indices in the specified phase, then adds each
-  /// cut as a lower-bound constraint on the corresponding α variable:
-  ///   α_phase ≥ rhs + Σ_i coeff_i · state_var_i[phase]
-  ///
-  /// Format:
-  ///   name,iteration,scene,phase,rhs,StateVar1,StateVar2,...
-  ///
-  /// Empty = no named hot-start cuts.
-  std::string named_cuts_file {};
-
-  // ── Secondary (stationary gap) convergence ──────────────────────────────
-
-  /// Tolerance for the secondary stationary-gap convergence criterion.
-  ///
-  /// When the relative change in the convergence gap over the last
-  /// `stationary_window` iterations falls below this value, the solver
-  /// declares convergence even if the gap is above `convergence_tol`.
-  /// This handles problems where the SDDP gap converges to a non-zero
-  /// stationary value due to stochastic noise or problem structure
-  /// (a known theoretical limitation of SDDP/Benders on certain programs).
-  ///
-  /// Criterion (after min_iterations and stationary_window iters done):
-  ///   gap_change = |gap[i] − gap[i − window]| / max(1e-10, gap[i − window])
-  ///   gap_change < stationary_tol → declare convergence
-  ///
-  /// Convergence criterion mode.  Default: statistical (PLP-style).
-  ConvergenceMode convergence_mode {ConvergenceMode::statistical};
-
-  /// Default: 0.01 (1%).  Set to 0.0 to disable.
-  double stationary_tol {0.01};
-
-  /// Number of iterations to look back when checking gap stationarity.
-  /// Only used when stationary_tol > 0.0.  Default: 10.
-  int stationary_window {10};
-
-  /// Confidence level for statistical convergence criterion (0-1).
-  /// When > 0 and multiple scenes exist, convergence is also checked via
-  /// confidence interval: UB - LB <= z_{α/2} * σ (PLP-style).
-  /// Combined with stationary_tol, also declares convergence when the
-  /// gap stabilises above the CI threshold (non-zero gap case).
-  /// Default: 0.95 (95% CI).
-  double convergence_confidence {0.95};
-
-  /// Optional LP solver options for the forward pass.
-  /// When set, these override the global solver options for forward-pass
-  /// solves.  The options are pre-merged with the global solver options at
-  /// construction time (forward takes precedence).
-  std::optional<SolverOptions> forward_solver_options {};
-
-  /// Optional LP solver options for the backward pass.
-  /// When set, these override the global solver options for backward-pass
-  /// solves.  The options are pre-merged with the global solver options at
-  /// construction time (backward takes precedence).
-  std::optional<SolverOptions> backward_solver_options {};
-};
-
-// ─── Iteration result ───────────────────────────────────────────────────────
-
-/// Result of a single SDDP iteration (forward + backward pass)
-struct SDDPIterationResult
-{
-  IterationIndex iteration {};  ///< Iteration number (0-based)
-  double lower_bound {};  ///< Lower bound (phase 0 objective including α)
-  double upper_bound {};  ///< Upper bound (sum of actual phase costs)
-  double gap {};  ///< Relative gap: (UB − LB) / max(1, |UB|)
-  /// Relative change in gap vs. `stationary_window` iterations ago.
-  /// Populated only when `stationary_tol > 0` and enough iterations have
-  /// elapsed; 1.0 otherwise (meaning "not yet checked / not applicable").
-  double gap_change {1.0};
-  bool converged {};  ///< True if gap < convergence tolerance
-  /// True when convergence was declared by the stationary-gap criterion
-  /// (gap_change < stationary_tol) rather than the primary criterion.
-  bool stationary_converged {};
-  /// True when convergence was declared by the statistical CI criterion
-  /// (|UB - LB| <= z_{α/2} * σ / √N) rather than the primary criterion.
-  bool statistical_converged {};
-  int cuts_added {};  ///< Number of Benders cuts added this iteration
-  bool feasibility_issue {};  ///< True if elastic filter was activated
-
-  /// Wall-clock time in seconds for the forward pass (all scenes).
-  double forward_pass_s {};
-  /// Wall-clock time in seconds for the backward pass (all scenes).
-  double backward_pass_s {};
-  /// Total wall-clock time in seconds for this iteration.
-  double iteration_s {};
-
-  /// Number of successful elastic-filter solves this iteration.
-  /// Each elastic-filter solve corresponds to an LP infeasibility event;
-  /// in the backward pass these become Benders feasibility cuts.
-  int infeasible_cuts_added {};
-
-  /// Per-scene upper bounds (forward-pass costs).  Size = num_scenes.
-  std::vector<double> scene_upper_bounds {};
-  /// Per-scene lower bounds (phase-0 objective values).  Size = num_scenes.
-  std::vector<double> scene_lower_bounds {};
-};
-
-// ─── Utility free functions (independently testable) ─────────────────────────
-
-/// Compute normalised per-scene probability weights.
-///
-/// For each scene: weight = sum of scenario probability_factors if positive,
-/// else 1.0.  Infeasible scenes (scene_feasible[si]==0) get weight 0.
-/// Weights are normalised to sum to 1 across feasible scenes.
-/// Falls back to equal weights when no positive probabilities are found.
-///
-/// @param scenes         The scene objects from SimulationLP
-/// @param scene_feasible Per-scene feasibility flag (0 = infeasible);
-///                       output size equals scene_feasible.size()
-/// @param rescale_mode   When `runtime`, normalize weights over feasible
-///                       scenes to sum 1.0.  When `build` or `none`, use
-///                       raw probability weights (no re-normalization).
-/// @returns Weight vector of size scene_feasible.size()
-[[nodiscard]] std::vector<double> compute_scene_weights(
-    std::span<const SceneLP> scenes,
-    std::span<const uint8_t> scene_feasible,
-    ProbabilityRescaleMode rescale_mode =
-        ProbabilityRescaleMode::runtime) noexcept;
-
-/// Compute relative convergence gap: (UB - LB) / max(1.0, |UB|).
-/// Always returns a non-negative value.
-[[nodiscard]] double compute_convergence_gap(double upper_bound,
-                                             double lower_bound) noexcept;
-
-// ─── State variable linkage, elastic filter, and cut functions ──────────────
-// Now provided by <gtopt/benders_cut.hpp> — included above.
-// The following types and functions are available via that header:
-//   StateVarLink, RelaxedVarInfo, ElasticSolveResult, FeasibilityCutResult,
-//   propagate_trial_values(), build_benders_cut(),
-//   relax_fixed_state_variable(), elastic_filter_solve(),
-//   build_feasibility_cut(), build_multi_cuts(), average_benders_cut(),
-//   weighted_average_benders_cut()
-
-// ─── Per-phase tracking ─────────────────────────────────────────────────────
-
-/// Per-phase SDDP state: α variable, outgoing links, forward-pass cost
-struct PhaseStateInfo
-{
-  ColIndex alpha_col {unknown_index};  ///< α column (unknown for last)
-  std::vector<StateVarLink> outgoing_links {};  ///< Links TO the next phase
-  size_t base_nrows {0};  ///< Row count before any Benders cuts were added
-  double forward_objective {0.0};  ///< Opex from last forward pass
-  /// Full LP objective from last forward solve (including α).
-  /// Cached for the backward pass so the original LP need not be re-queried.
-  double forward_full_obj {0.0};
-  /// Reduced costs from last forward solve (cached for backward pass).
-  std::vector<double> forward_col_cost {};
-  /// Primal solution from last forward solve (warm-start for apertures).
-  std::vector<double> forward_col_sol {};
-  /// Dual solution from last forward solve (warm-start for apertures).
-  std::vector<double> forward_row_dual {};
-};
-
-// ─── Callback / observer API ────────────────────────────────────────────────
-
-/// Callback invoked after each SDDP iteration.
-/// If the callback returns `true`, the solver stops after this iteration.
-using SDDPIterationCallback =
-    std::function<bool(const SDDPIterationResult& result)>;
-
-/// Outcome of running the forward pass across all scenes
-struct ForwardPassOutcome
-{
-  std::vector<double> scene_upper_bounds {};
-  std::vector<uint8_t> scene_feasible {};
-  int scenes_solved {0};
-  bool has_feasibility_issue {false};
-  double elapsed_s {0.0};
-};
-
-/// Outcome of running the backward pass across all scenes
-struct BackwardPassOutcome
-{
-  int total_cuts {0};
-  bool has_feasibility_issue {false};
-  double elapsed_s {0.0};
-};
+// Types (SDDPOptions, SDDPIterationResult, PhaseStateInfo,
+// ForwardPassOutcome, BackwardPassOutcome, SDDPIterationCallback,
+// sddp_file, compute_scene_weights, compute_convergence_gap,
+// parse_cut_sharing_mode, parse_elastic_filter_mode) are provided by
+// <gtopt/sddp_types.hpp> — included above.
 
 // ─── SDDPMethod ─────────────────────────────────────────────────────────────
 
@@ -590,7 +115,7 @@ struct BackwardPassOutcome
  * - **Sentinel file**: same as PLP's `userstop` — check for a sentinel
  *   file on disk.
  *
- * @code
+ * @code{.cpp}
  * SDDPMethod sddp(planning_lp, SDDPOptions{.max_iterations = 100});
  *
  * // Register a callback that prints progress and stops at gap < 1e-6
@@ -1148,8 +673,9 @@ private:
 
   bool m_initialized_ {false};
 
-  /// Preallocated iteration vector, sized to `iteration_offset +
-  /// max_iterations`. Default-constructed entries represent iterations with no
+  /// Preallocated iteration vector, sized to
+  /// `iteration_offset + max_iterations`.
+  /// Default-constructed entries represent iterations with no
   /// user override. Populated in initialize_solver() after iteration_offset is
   /// known.
   StrongIndexVector<IterationIndex, IterationLP> m_iterations_ {};

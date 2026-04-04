@@ -146,7 +146,7 @@ binding.
 
 **Example: 6-phase system with cut inheritance**
 
-```
+```text
 Level 0 [training]:   up to 15 iters, converges with N cuts
 Level 1 [with_cuts]:  inherits N cuts -> converges in fewer iters
 ```
@@ -190,7 +190,7 @@ skipped.
 
 **Example: 6-phase system with target inheritance**
 
-```
+```text
 Level 0 [training]:      up to 15 iters, converges
 Level 1 [with_targets]:  elastic targets guide forward pass,
                          converges in <= level 0 iters
@@ -204,7 +204,7 @@ iterations as level 0, reaching the same optimal value.
 
 A 3-level cascade can combine both mechanisms:
 
-```
+```text
 Level 0 [benders]:  uninodal, fast convergence, rough solution
 Level 1 [guided]:   full network + targets from level 0
 Level 2 [refined]:  same LP as level 1, inherits cuts -> faster

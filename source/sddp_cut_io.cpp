@@ -88,12 +88,12 @@ void write_cut_coefficients(std::ostream& ofs,
 {
   const auto& names = li.col_index_to_name();
   for (const auto& [col, coeff] : cut.coefficients) {
-    const auto scale = li.get_col_scale(ColIndex {col});
-    const auto idx = static_cast<size_t>(col);
-    const bool has_name = idx < names.size() && !names[idx].empty();
+    const auto scale = li.get_col_scale(col);
+    const auto col_sz = static_cast<size_t>(col);
+    const bool has_name = col_sz < names.size() && !names[col].empty();
     if (has_name) {
       // Name-based format (portable across LP structure changes)
-      ofs << "," << names[idx] << "=" << (coeff * scale_obj / scale);
+      ofs << "," << names[col] << "=" << (coeff * scale_obj / scale);
     } else {
       // Fallback to index-based format for unnamed columns
       ofs << "," << col << ":" << (coeff * scale_obj / scale);
@@ -556,19 +556,20 @@ auto load_cuts_csv(PlanningLP& planning_lp,
           // Warn if the LP structure may have changed (column name
           // available but index-based format was used)
           const auto& idx_names = li_ref.col_index_to_name();
+          const auto fc = ColIndex {file_col};
           if (static_cast<size_t>(file_col) < idx_names.size()
-              && !idx_names[static_cast<size_t>(file_col)].empty())
+              && !idx_names[fc].empty())
           {
             SPDLOG_DEBUG(
                 "SDDP load_cuts: legacy index-based coefficient "
                 "col={} (name='{}') in cut '{}'; consider "
                 "re-saving cuts with named format",
                 file_col,
-                idx_names[static_cast<size_t>(file_col)],
+                idx_names[fc],
                 cut_name);
           }
           resolved_coeffs.push_back({
-              .col = ColIndex {file_col},
+              .col = fc,
               .coeff = coeff,
           });
         }

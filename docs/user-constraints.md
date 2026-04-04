@@ -54,7 +54,7 @@ must not exceed 300 MW in every scenario, stage, and block.
 
 A constraint expression has three parts:
 
-```
+```text
 <linear_expression> <operator> <rhs> [, for(<domain>)]
 ```
 
@@ -69,7 +69,7 @@ A constraint expression has three parts:
 
 Range constraints bound an expression from both sides:
 
-```
+```text
 100 <= generator('G1').generation <= 500
 ```
 
@@ -79,7 +79,7 @@ This creates a single LP row with both lower and upper bounds.
 
 Elements are referenced by type and identifier (name or UID):
 
-```
+```text
 generator('TORO').generation    -- by name
 generator('uid:23').generation  -- by UID
 ```
@@ -147,7 +147,7 @@ for the fact that the LP variable stores `volume_physical / energy_scale`.
 Elements can be referenced by **name** (single-quoted string) or by **numeric UID**
 (bare integer):
 
-```
+```text
 # By name (single-quoted string)
 generator('TORO').generation
 demand('D1').load
@@ -164,7 +164,7 @@ battery(1).energy              -- equivalent to battery('uid:1')
 
 **Mixing name and UID references** in the same expression is allowed:
 
-```
+```text
 generator('G1').generation + generator(5).generation <= 300
 ```
 
@@ -178,7 +178,7 @@ element individually.
 
 ### Syntax
 
-```
+```text
 sum( element_type ( id_list ) . attribute )
 ```
 
@@ -188,7 +188,7 @@ Where `id_list` is one of:
 
 ### Examples
 
-```
+```text
 # Sum generation over specific generators (by name)
 sum(generator('G1', 'G2', 'G3').generation) <= 500
 
@@ -248,14 +248,14 @@ Use a `for(...)` clause to restrict the domain:
 
 Both `in` and `=` are accepted:
 
-```
+```text
 for(stage in {1,2,3})     -- using 'in'
 for(stage = 1)            -- using '=' (single value)
 ```
 
 Unspecified dimensions default to `all`:
 
-```
+```text
 for(block in 1..24)       -- all scenarios, all stages, blocks 1-24
 ```
 
@@ -266,7 +266,7 @@ for(block in 1..24)       -- all scenarios, all stages, blocks 1-24
 Expressions support line comments using `#` or `//`. Everything after the
 comment marker to the end of the line is ignored:
 
-```
+```text
 generator('G1').generation <= 100   # limit gen output
 
 generator('G1').generation          // first gen
@@ -277,7 +277,7 @@ generator('G1').generation          // first gen
 Multi-line expressions with comments are useful for documenting complex
 constraints:
 
-```
+```text
 # Total system generation capacity constraint
 sum(generator(all).generation)    # MW total
 <= 1000                          # system-wide limit
@@ -558,9 +558,9 @@ Constrain total up-reserve in a zone across all provisions:
 
 ## 9. External Constraint Files
 
-When there are many constraints, store them in a separate JSON file:
+When there are many constraints, store them in a separate file.
 
-### Main case file
+### JSON format
 
 ```json
 {
@@ -571,7 +571,7 @@ When there are many constraints, store them in a separate JSON file:
 }
 ```
 
-### External file (`constraints.json`)
+External JSON file (`constraints.json`):
 
 ```json
 [
@@ -588,10 +588,59 @@ When there are many constraints, store them in a separate JSON file:
 ]
 ```
 
+### PAMPL format
+
+PAMPL (pseudo-AMPL) files provide a more readable syntax with named
+constraints, parameters, and comments:
+
+```pampl
+# System constraints
+param pct_elec = 35;
+param seasonal[month] = [0,0,0,100,100,100,100,100,100,100,0,0];
+
+constraint gen_limit "Combined generation limit":
+  generator('G1').generation + generator('G2').generation <= 300;
+
+constraint seasonal_limit:
+  generator('G1').generation <= pct_elec * seasonal[month];
+```
+
+PAMPL files are loaded automatically when referenced:
+
+```json
+{
+  "system": {
+    "user_constraint_file": "constraints.pampl"
+  }
+}
+```
+
+### Multiple external files
+
+Use `user_constraint_files` (plural, array) to load multiple files
+independently. Each file is parsed with auto-incremented UIDs to avoid
+collisions:
+
+```json
+{
+  "system": {
+    "user_constraint_files": [
+      "laja_agreement.pampl",
+      "maule_agreement.pampl"
+    ]
+  }
+}
+```
+
+This keeps each constraint set self-contained and avoids combining
+files. Both `user_constraint_file` (singular) and
+`user_constraint_files` (plural) can coexist — all sources are
+accumulated.
+
 ### Combining inline and external
 
-Both `user_constraint_array` and `user_constraint_file` can be used
-simultaneously. Constraints from both sources are accumulated:
+Both `user_constraint_array` and external files can be used
+simultaneously. Constraints from all sources are accumulated:
 
 ```json
 {
@@ -599,7 +648,7 @@ simultaneously. Constraints from both sources are accumulated:
     "user_constraint_array": [
       {"uid": 1, "name": "inline_limit", "expression": "..."}
     ],
-    "user_constraint_file": "more_constraints.json"
+    "user_constraint_files": ["more_constraints.pampl"]
   }
 }
 ```
@@ -617,7 +666,7 @@ gtopt base.json overrides.json
 
 ## 10. Formal Grammar (BNF)
 
-```
+```text
 constraint     := expr comp_op expr [',' for_clause]
                |  number comp_op expr comp_op number [',' for_clause]
 
@@ -777,6 +826,8 @@ The gtopt constraint language is intentionally **narrower** than AMPL:
 
 ## 13. See Also
 
+- **[Irrigation Agreements](irrigation-agreements.md)** — Laja and Maule
+  agreement modeling, FlowRight/VolumeRight entities, PLP comparison
 - **[Input Data Reference](input-data.md)** — Full JSON input format specification
   (§3.18 for UserConstraint fields)
 - **[Mathematical Formulation](formulation/mathematical-formulation.md)**
