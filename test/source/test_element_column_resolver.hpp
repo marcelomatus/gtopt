@@ -661,3 +661,77 @@ TEST_CASE(  // NOLINT
   const auto& li = planning_lp.systems().front().front().linear_interface();
   CHECK(li.is_optimal());
 }
+
+TEST_CASE(  // NOLINT
+    "element_column_resolver - volume_right.eini and volume_right.efin state "
+    "variables")
+{
+  // Test that volume_right.eini and volume_right.efin resolve to the
+  // initial/final rights-volume state columns.  This enables PAMPL
+  // constraints to reference or set these state variables — critical
+  // for month-based reset of Maule/Laja volume rights.
+  static constexpr std::string_view vrt_state_json = R"json({
+    "options": {
+      "annual_discount_rate": 0.0,
+      "lp_build_options": {"names_level": 1},
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "use_single_bus": true,
+      "demand_fail_cost": 1000,
+      "scale_objective": 1000
+    },
+    "simulation": {
+      "block_array": [
+        {"uid": 1, "duration": 1},
+        {"uid": 2, "duration": 1}
+      ],
+      "stage_array": [
+        {"uid": 1, "first_block": 0, "count_block": 2, "active": 1}
+      ],
+      "scenario_array": [{"uid": 1, "probability_factor": 1}]
+    },
+    "system": {
+      "name": "vrt_state_test",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 200,
+         "gcost": 20, "capacity": 200}
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[50, 50]]}
+      ],
+      "volume_right_array": [
+        {
+          "uid": 1, "name": "vrt1",
+          "emin": 0, "emax": 100, "eini": 50,
+          "fmax": 200
+        }
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1, "name": "vrt_eini_lower",
+          "expression": "volume_right(\"vrt1\").eini >= 10"
+        },
+        {
+          "uid": 2, "name": "vrt_efin_upper",
+          "expression": "volume_right(\"vrt1\").efin <= 90"
+        },
+        {
+          "uid": 3, "name": "vrt_volume_bound",
+          "expression": "volume_right(\"vrt1\").volume <= 80"
+        }
+      ]
+    }
+  })json";
+
+  Planning base;
+  base.merge(daw::json::from_json<Planning>(vrt_state_json));
+  PlanningLP planning_lp(std::move(base));
+  auto result = planning_lp.resolve();
+
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 1);
+
+  const auto& li = planning_lp.systems().front().front().linear_interface();
+  CHECK(li.is_optimal());
+}
