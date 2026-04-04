@@ -1,5 +1,9 @@
 # Convenio del Laja -- Research Summary
 
+> **See also**: [Laja Agreement Template](../../../scripts/plp2gtopt/templates/laja.md) —
+> complete gtopt entity specifications with basin topology diagrams, LaTeX
+> formulations, and embedded JSON/PAMPL template code.
+
 ## Overview
 
 The "Convenio del Laja" (Laja Irrigation Agreement) is a water management convention

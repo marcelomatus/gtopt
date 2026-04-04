@@ -994,6 +994,21 @@ and constraints can be inspected.
 
 ## 12. See Also
 
+### Agreement Template Specifications
+
+- **[Laja Agreement Template](../scripts/plp2gtopt/templates/laja.md)** —
+  Complete specification of the Laja irrigation agreement: basin topology
+  (Mermaid diagrams), piecewise-linear volume zone model (LaTeX formulas),
+  FlowRight/VolumeRight/UserConstraint entity definitions (`laja.tson`),
+  and AMPL constraint parameters (`laja_agreement.tampl`)
+- **[Maule Agreement Template](../scripts/plp2gtopt/templates/maule.md)** —
+  Complete specification of the Maule irrigation agreement: three-zone
+  reservoir operation, Armerillo control point, La Invernada winter
+  storage, Resolution 105 ecological flow, 7 irrigation districts,
+  entity definitions (`maule.tson`) and constraints (`maule_agreement.tampl`)
+
+### Reference Documentation
+
 - **[User Constraints — Syntax Reference](user-constraints.md)** —
   Complete constraint expression syntax and PAMPL format
 - **[Input Data Reference](input-data.md)** — JSON schema for
