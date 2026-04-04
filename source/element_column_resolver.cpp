@@ -472,13 +472,49 @@ namespace
               .scale = lp.get_col_scale(it->second),
           };
         }
-      }
-      if (ref.attribute == "saving") {
+      } else if (ref.attribute == "saving") {
         const auto& cols = vrt.saving_cols_at(scenario, stage);
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
               .scale = lp.get_col_scale(it->second),
+          };
+        }
+      } else if (ref.attribute == "energy" || ref.attribute == "volume") {
+        // Per-block accumulated rights volume column.
+        // "volume" is the domain-natural name for water rights;
+        // "energy" is the StorageLP base-class name — both resolve
+        // to the same LP column, consistent with reservoir and battery.
+        const auto& cols = vrt.energy_cols_at(scenario, stage);
+        if (const auto it = cols.find(buid); it != cols.end()) {
+          return ResolvedCol {
+              .col = it->second,
+              .scale = lp.get_col_scale(it->second),
+          };
+        }
+      } else if (ref.attribute == "eini") {
+        // Stage-level initial rights volume column (state variable).
+        // Enables PAMPL constraints to reference or set the initial
+        // accumulated volume at the start of a stage — critical for
+        // month-based reset of Maule/Laja volume rights.
+        const auto col = vrt.eini_col_at(scenario, stage);
+        return ResolvedCol {
+            .col = col,
+            .scale = lp.get_col_scale(col),
+        };
+      } else if (ref.attribute == "efin") {
+        // Stage-level final rights volume column.
+        const auto col = vrt.efin_col_at(scenario, stage);
+        return ResolvedCol {
+            .col = col,
+            .scale = lp.get_col_scale(col),
+        };
+      } else if (ref.attribute == "soft_emin") {
+        // Stage-level soft minimum volume slack column.
+        if (auto col = vrt.soft_emin_col_at(scenario, stage)) {
+          return ResolvedCol {
+              .col = *col,
+              .scale = lp.get_col_scale(*col),
           };
         }
       }
@@ -708,6 +744,12 @@ namespace
       }
       if (ref.attribute == "emax") {
         return vrt.param_emax(suid);
+      }
+      if (ref.attribute == "demand") {
+        return vrt.param_demand(suid);
+      }
+      if (ref.attribute == "saving_rate") {
+        return vrt.param_saving_rate(suid, buid);
       }
       if (ref.attribute == "fail_cost") {
         return vrt.param_fail_cost();

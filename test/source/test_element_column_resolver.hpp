@@ -662,17 +662,82 @@ TEST_CASE(  // NOLINT
   CHECK(li.is_optimal());
 }
 
-// ─── Column-scale awareness in user constraint resolver ─────────────────────
-//
-// Verifies that resolve_single_col populates ResolvedCol::scale from
-// lp.get_col_scale() for ALL element types — not just the originally
-// scaled ones (battery, reservoir, bus).  The test creates a system
-// where reservoir volume is scaled (energy_scale=1000) and verifies
-// that a user constraint on reservoir.volume correctly applies the
-// scale factor to the LP coefficient.  A second constraint on
-// generator.generation (scale=1.0) ensures unscaled columns work too.
+TEST_CASE(  // NOLINT
+    "element_column_resolver - volume_right.eini and volume_right.efin state "
+    "variables")
+{
+  // Test that volume_right.eini and volume_right.efin resolve to the
+  // initial/final rights-volume state columns.  This enables PAMPL
+  // constraints to reference or set these state variables — critical
+  // for month-based reset of Maule/Laja volume rights.
+  static constexpr std::string_view vrt_state_json = R"json({
+    "options": {
+      "annual_discount_rate": 0.0,
+      "lp_build_options": {"names_level": 1},
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "use_single_bus": true,
+      "demand_fail_cost": 1000,
+      "scale_objective": 1000
+    },
+    "simulation": {
+      "block_array": [
+        {"uid": 1, "duration": 1},
+        {"uid": 2, "duration": 1}
+      ],
+      "stage_array": [
+        {"uid": 1, "first_block": 0, "count_block": 2, "active": 1}
+      ],
+      "scenario_array": [{"uid": 1, "probability_factor": 1}]
+    },
+    "system": {
+      "name": "vrt_state_test",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 200,
+         "gcost": 20, "capacity": 200}
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[50, 50]]}
+      ],
+      "volume_right_array": [
+        {
+          "uid": 1, "name": "vrt1",
+          "emin": 0, "emax": 100, "eini": 50,
+          "fmax": 200
+        }
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1, "name": "vrt_eini_lower",
+          "expression": "volume_right(\"vrt1\").eini >= 10"
+        },
+        {
+          "uid": 2, "name": "vrt_efin_upper",
+          "expression": "volume_right(\"vrt1\").efin <= 90"
+        },
+        {
+          "uid": 3, "name": "vrt_volume_bound",
+          "expression": "volume_right(\"vrt1\").volume <= 80"
+        }
+      ]
+    }
+  })json";
 
-// clang-format off
+  Planning base;
+  base.merge(daw::json::from_json<Planning>(vrt_state_json));
+  // ─── Column-scale awareness in user constraint resolver
+  // ─────────────────────
+  //
+  // Verifies that resolve_single_col populates ResolvedCol::scale from
+  // lp.get_col_scale() for ALL element types — not just the originally
+  // scaled ones (battery, reservoir, bus).  The test creates a system
+  // where reservoir volume is scaled (energy_scale=1000) and verifies
+  // that a user constraint on reservoir.volume correctly applies the
+  // scale factor to the LP coefficient.  A second constraint on
+  // generator.generation (scale=1.0) ensures unscaled columns work too.
+
+  // clang-format off
 static constexpr std::string_view resolver_scale_aware_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
@@ -726,34 +791,34 @@ static constexpr std::string_view resolver_scale_aware_json = R"json({
     ]
   }
 })json";
-// clang-format on
+  // clang-format on
 
-TEST_CASE(  // NOLINT
-    "element_column_resolver - scale-aware: scaled reservoir + unscaled "
-    "generator")
-{
-  // reservoir rsv1 has energy_scale=1000, so the LP variable for volume is
-  // physical_volume / 1000.  The user constraint "volume <= 5000" should
-  // produce an LP row with coefficient = 1000 (the col_scale) and
-  // RHS = 5000 (in physical units).  The constraint is correctly
-  // dimensioned because coeff × LP_var = 1000 × (phys/1000) = phys.
-  //
-  // generator g1 has default scale=1.0, so the user constraint
-  // "generation <= 250" has coefficient = 1.0.
-  //
-  // Both constraints should be properly resolved and the LP should solve.
-  Planning base;
-  base.merge(daw::json::from_json<Planning>(resolver_scale_aware_json));
-  PlanningLP planning_lp(std::move(base));
-  auto result = planning_lp.resolve();
+  TEST_CASE(  // NOLINT
+      "element_column_resolver - scale-aware: scaled reservoir + unscaled "
+      "generator")
+  {
+    // reservoir rsv1 has energy_scale=1000, so the LP variable for volume is
+    // physical_volume / 1000.  The user constraint "volume <= 5000" should
+    // produce an LP row with coefficient = 1000 (the col_scale) and
+    // RHS = 5000 (in physical units).  The constraint is correctly
+    // dimensioned because coeff × LP_var = 1000 × (phys/1000) = phys.
+    //
+    // generator g1 has default scale=1.0, so the user constraint
+    // "generation <= 250" has coefficient = 1.0.
+    //
+    // Both constraints should be properly resolved and the LP should solve.
+    Planning base;
+    base.merge(daw::json::from_json<Planning>(resolver_scale_aware_json));
+    PlanningLP planning_lp(std::move(base));
+    auto result = planning_lp.resolve();
 
-  REQUIRE(result.has_value());
-  CHECK(result.value() == 1);
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 1);
 
-  const auto& li = planning_lp.systems().front().front().linear_interface();
-  CHECK(li.is_optimal());
+    const auto& li = planning_lp.systems().front().front().linear_interface();
+    CHECK(li.is_optimal());
 
-  // Verify the LP is feasible and produces a non-negative objective.
-  const auto obj = li.get_obj_value();
-  CHECK(obj >= 0.0);
-}
+    // Verify the LP is feasible and produces a non-negative objective.
+    const auto obj = li.get_obj_value();
+    CHECK(obj >= 0.0);
+  }
