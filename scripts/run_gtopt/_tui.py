@@ -412,7 +412,7 @@ def _build_header(
 
     status_str = data.get("status", "starting")
 
-    # Method: prefer planning JSON, fall back to status JSON inference
+    # Method: from status JSON or log detection
     stats = system_stats or {}
     method = stats.get("method", "")
     if not method or method == "?":
@@ -424,7 +424,7 @@ def _build_header(
             else "..."
         )
 
-    # Solver: from planning JSON options
+    # Solver: from log detection or CLI flag
     solver = stats.get("solver", "")
 
     style_map = {
@@ -881,8 +881,10 @@ class SolverDisplay:
 
     # -- public API --------------------------------------------------------
 
-    # Pattern to detect "Solver: name/version" from gtopt log output
+    # Patterns to detect solver and method from gtopt log output
     _SOLVER_RE = re.compile(r"Solver:\s+(\S+)")
+    _SDDP_RE = re.compile(r"SDDP:")
+    _MONO_RE = re.compile(r"Monolithic(?:Method|Solver):")
 
     def add_log_line(self, line: str) -> None:
         """Append a solver output line (thread-safe)."""
@@ -895,15 +897,19 @@ class SolverDisplay:
                 m = self._SOLVER_RE.search(stripped)
                 if m:
                     self._system_stats["solver"] = m.group(1)
+            # Detect method from log output
+            if not self._system_stats.get("method"):
+                if self._SDDP_RE.search(stripped):
+                    self._system_stats["method"] = "sddp"
+                elif self._MONO_RE.search(stripped):
+                    self._system_stats["method"] = "monolithic"
 
     def start(self) -> None:
         """Launch the dashboard render thread."""
         self._start_time = time.monotonic()
-        # Pre-load system stats from the planning JSON
-        json_path = _find_planning_json(self._case_dir)
-        self._system_stats = _load_system_stats(json_path)
-        # CLI --solver overrides planning JSON solver
-        if self._solver_hint and not self._system_stats.get("solver"):
+        # Initialize system stats (populated from log output and CLI flags)
+        self._system_stats: dict[str, Any] = {}
+        if self._solver_hint:
             self._system_stats["solver"] = self._solver_hint
         self._thread = threading.Thread(
             target=self._run_loop, daemon=True, name="gtopt-tui"
@@ -970,6 +976,14 @@ class SolverDisplay:
         elif key in ("i", "I"):
             self._show_stats = not self._show_stats
             self._show_help = False
+            # Lazy-load stats from planning JSON on first toggle
+            if self._show_stats and not self._system_stats.get("elements"):
+                json_path = _find_planning_json(self._case_dir)
+                file_stats = _load_system_stats(json_path)
+                # Merge file stats under log-detected values (log wins)
+                for k, v in file_stats.items():
+                    if k not in self._system_stats or not self._system_stats[k]:
+                        self._system_stats[k] = v
         elif key in ("h", "H", "?"):
             self._show_help = not self._show_help
             self._show_stats = False

@@ -687,8 +687,8 @@ def test_handle_key_stop_via_s(tmp_path: Path):
     assert (tmp_path / "output" / "sddp_stop_request.json").is_file()
 
 
-def test_system_stats_loaded_on_start(tmp_path: Path):
-    """System stats are loaded from planning JSON when display starts."""
+def test_system_stats_not_loaded_on_start(tmp_path: Path):
+    """System stats are NOT loaded on start — they are lazy-loaded on 'i' key."""
     json_path = _make_planning_json(tmp_path)
     case_dir = json_path.parent
 
@@ -701,6 +701,23 @@ def test_system_stats_loaded_on_start(tmp_path: Path):
     time.sleep(0.2)
     display.stop()
 
+    # Stats should NOT be loaded at startup (lazy-loaded on 'i' key press)
+    assert display._system_stats.get("elements") is None
+
+
+def test_system_stats_lazy_loaded_on_i_key(tmp_path: Path):
+    """System stats are lazy-loaded from planning JSON on 'i' key press."""
+    json_path = _make_planning_json(tmp_path)
+    case_dir = json_path.parent
+
+    display = SolverDisplay(
+        case_name="test",
+        case_dir=case_dir,
+        poll_interval=0.1,
+    )
+    display._handle_key("i")
+
+    assert display._show_stats is True
     assert display._system_stats.get("elements", {}).get("Generator") == 2
 
 
