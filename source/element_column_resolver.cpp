@@ -112,6 +112,7 @@ namespace
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
+              .scale = lp.get_col_scale(it->second),
           };
         }
       } else if (ref.attribute == "capainst" || ref.attribute == "capacity") {
@@ -120,6 +121,7 @@ namespace
         if (auto col = gen.capacity_col_at(stage)) {
           return ResolvedCol {
               .col = *col,
+              .scale = lp.get_col_scale(*col),
           };
         }
       }
@@ -134,6 +136,7 @@ namespace
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
+              .scale = lp.get_col_scale(it->second),
           };
         }
       } else if (ref.attribute == "fail") {
@@ -141,6 +144,7 @@ namespace
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
+              .scale = lp.get_col_scale(it->second),
           };
         }
       } else if (ref.attribute == "capainst" || ref.attribute == "capacity") {
@@ -148,6 +152,7 @@ namespace
         if (auto col = dem.capacity_col_at(stage)) {
           return ResolvedCol {
               .col = *col,
+              .scale = lp.get_col_scale(*col),
           };
         }
       }
@@ -163,6 +168,7 @@ namespace
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
+              .scale = lp.get_col_scale(it->second),
           };
         }
       } else if (ref.attribute == "flown") {
@@ -170,6 +176,7 @@ namespace
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
+              .scale = lp.get_col_scale(it->second),
           };
         }
       } else if (ref.attribute == "lossp") {
@@ -177,6 +184,7 @@ namespace
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
+              .scale = lp.get_col_scale(it->second),
           };
         }
       } else if (ref.attribute == "lossn") {
@@ -184,6 +192,7 @@ namespace
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
+              .scale = lp.get_col_scale(it->second),
           };
         }
       } else if (ref.attribute == "capainst" || ref.attribute == "capacity") {
@@ -191,6 +200,7 @@ namespace
         if (auto col = ln.capacity_col_at(stage)) {
           return ResolvedCol {
               .col = *col,
+              .scale = lp.get_col_scale(*col),
           };
         }
       }
@@ -262,6 +272,7 @@ namespace
         if (auto col = bat.capacity_col_at(stage)) {
           return ResolvedCol {
               .col = *col,
+              .scale = lp.get_col_scale(*col),
           };
         }
       }
@@ -329,6 +340,7 @@ namespace
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
+              .scale = lp.get_col_scale(it->second),
           };
         }
       }
@@ -344,6 +356,7 @@ namespace
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
+              .scale = lp.get_col_scale(it->second),
           };
         }
       }
@@ -360,6 +373,7 @@ namespace
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
+              .scale = lp.get_col_scale(it->second),
           };
         }
       } else if (ref.attribute == "charge") {
@@ -368,6 +382,7 @@ namespace
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
+              .scale = lp.get_col_scale(it->second),
           };
         }
       }
@@ -398,6 +413,7 @@ namespace
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
+              .scale = lp.get_col_scale(it->second),
           };
         }
       }
@@ -412,6 +428,7 @@ namespace
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
+              .scale = lp.get_col_scale(it->second),
           };
         }
       }
@@ -426,6 +443,7 @@ namespace
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
+              .scale = lp.get_col_scale(it->second),
           };
         }
       } else if (ref.attribute == "fail") {
@@ -433,6 +451,7 @@ namespace
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
+              .scale = lp.get_col_scale(it->second),
           };
         }
       }
@@ -450,6 +469,7 @@ namespace
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
+              .scale = lp.get_col_scale(it->second),
           };
         }
       }
@@ -458,6 +478,7 @@ namespace
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
+              .scale = lp.get_col_scale(it->second),
           };
         }
       }
@@ -473,6 +494,7 @@ namespace
         if (const auto it = cols.find(buid); it != cols.end()) {
           return ResolvedCol {
               .col = it->second,
+              .scale = lp.get_col_scale(it->second),
           };
         }
       }
@@ -489,6 +511,7 @@ namespace
         if (auto col = rp.lookup_up_provision_col(scenario, stage, buid)) {
           return ResolvedCol {
               .col = *col,
+              .scale = lp.get_col_scale(*col),
           };
         }
         return std::nullopt;
@@ -499,6 +522,7 @@ namespace
         if (auto col = rp.lookup_dn_provision_col(scenario, stage, buid)) {
           return ResolvedCol {
               .col = *col,
+              .scale = lp.get_col_scale(*col),
           };
         }
         return std::nullopt;
@@ -516,6 +540,7 @@ namespace
         if (auto col = rz.lookup_urequirement_col(scenario, stage, buid)) {
           return ResolvedCol {
               .col = *col,
+              .scale = lp.get_col_scale(*col),
           };
         }
         return std::nullopt;
@@ -527,6 +552,7 @@ namespace
         if (auto col = rz.lookup_drequirement_col(scenario, stage, buid)) {
           return ResolvedCol {
               .col = *col,
+              .scale = lp.get_col_scale(*col),
           };
         }
         return std::nullopt;
