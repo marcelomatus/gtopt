@@ -71,8 +71,16 @@ target_link_libraries(
 # Exclude main.cpp from unity batching — it defines
 # DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN which emits doctest's implementation
 # and must be compiled as a standalone translation unit.
+#
+# Exclude the heaviest test aggregators (>90s each) so they compile
+# standalone in parallel instead of creating bottleneck batches.
 set_source_files_properties(
   "${CMAKE_CURRENT_SOURCE_DIR}/source/main.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/source/json/test_json_all.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/source/test_simulation_all.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/source/test_planning_all.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/source/test_sddp_all.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/source/test_components_all.cpp"
   PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON
 )
 include(UnityBuild)
