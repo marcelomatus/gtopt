@@ -2,8 +2,7 @@ name: Install GCC
 description: >
   Installs GCC from the Ubuntu APT repository and registers unversioned
   update-alternatives entries so that 'gcc', 'g++', and 'gcov' resolve to
-  the requested version.  Uses actions/cache to cache downloaded .deb files
-  so repeated runs skip the download.
+  the requested version.
 
 inputs:
   version:
@@ -13,12 +12,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: cache GCC APT packages
-      uses: actions/cache@v5
-      with:
-        path: /var/cache/apt/archives/*.deb
-        key: apt-gcc-${{ runner.os }}-${{ inputs.version }}
-
     - name: install GCC
       shell: bash
       run: |

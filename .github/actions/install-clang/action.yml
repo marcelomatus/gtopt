@@ -5,8 +5,7 @@ description: >
   entry.  Any conflicting pre-installed alternative (e.g. from the
   Ubuntu-bundled llvm-18) is evicted first, so tools like clang, clang++,
   clang-format, clang-tidy, llvm-cov, llvm-profdata, etc. are all reachable
-  without a version suffix.  Uses actions/cache to cache downloaded .deb files
-  so repeated runs skip the ~600 MB download.
+  without a version suffix.
 
   NOTE: clang-22 packages are not yet available in the apt.llvm.org
   repository.  The KyleMayes install-llvm-action marketplace action also does
@@ -53,23 +52,14 @@ runs:
         echo "deb [signed-by=/usr/share/keyrings/llvm-snapshot.gpg] \
           https://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-${VER} main" \
           | sudo tee /etc/apt/sources.list.d/llvm-${VER}.list
-        # Update only the newly added LLVM source.
+        # Full update after adding LLVM repo — LLVM packages may depend on
+        # system packages (e.g. libipt2) whose versions have changed since the
+        # runner image was built.
         for attempt in 1 2 3; do
-          sudo apt-get update -q \
-            -o "Dir::Etc::sourcelist=/etc/apt/sources.list.d/llvm-${VER}.list" \
-            -o "Dir::Etc::sourceparts=-" \
-            && break
+          sudo apt-get update -q && break
           echo "Attempt $attempt/3: apt-get update failed, retrying in 15s..."
           sleep 15
         done
-
-    - name: cache LLVM APT packages
-      uses: actions/cache@v5
-      with:
-        path: /var/cache/apt/archives/*.deb
-        key: apt-llvm-${{ runner.os }}-${{ inputs.version }}-${{ inputs.packages || 'full' }}
-        restore-keys: |
-          apt-llvm-${{ runner.os }}-${{ inputs.version }}-
 
     - name: install full LLVM/Clang suite
       if: ${{ inputs.packages == '' }}
