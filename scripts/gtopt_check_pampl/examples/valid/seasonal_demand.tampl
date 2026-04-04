@@ -1,0 +1,28 @@
+# =============================================================================
+# Seasonal Demand Response Template
+# =============================================================================
+#
+# Template for modeling demand-side management with seasonal parameters.
+# Used by plp2gtopt to generate case-specific demand response constraints.
+#
+# Template variables:
+#   {{ demand_name }}    — demand element name
+#   {{ base_demand }}    — base demand level [MW]
+#   {{ monthly_factors }} — 12-element list of monthly scaling factors
+#   {{ dr_fraction }}    — demand response fraction [0..1]
+#   {{ dr_cost }}        — demand response cost [$/MWh]
+
+# Seasonal demand profile
+param base_load = {{ base_demand }};
+param dr_pct = {{ dr_fraction }};
+
+param seasonal_demand[month] = [{{ monthly_factors | join(', ') }}];
+
+# Demand response constraint: load reduction limited to dr_pct of base
+constraint dr_limit "Demand response limit for {{ demand_name }}":
+  demand('{{ demand_name }}').load >= base_load * (1 - dr_pct);
+
+{% if dr_cost > 0 %}
+# Cost parameter for demand response activation
+param dr_activation_cost = {{ dr_cost }};
+{% endif %}

@@ -1,0 +1,9 @@
+# =============================================================================
+# Simple generation limit constraint
+# =============================================================================
+#
+# Limits the output of a single generator to a maximum MW value.
+# This is the simplest possible user constraint in gtopt.
+
+constraint gen_cap_limit "Maximum generation for G1":
+  generator('G1').generation <= 300;

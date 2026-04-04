@@ -1,0 +1,25 @@
+# =============================================================================
+# Simple Renewable Curtailment Template
+# =============================================================================
+#
+# Template for constraining renewable generation based on grid capacity.
+# Variables are filled by Jinja2 rendering with case-specific data.
+#
+# Template variables:
+#   {{ solar_gen }}     — name of the solar generator
+#   {{ wind_gen }}      — name of the wind generator
+#   {{ max_renewable }} — maximum total renewable output [MW]
+#   {{ curtail_blocks }} — list of block indices with curtailment
+
+# Maximum total renewable output
+param max_ren = {{ max_renewable }};
+
+constraint renewable_limit "Total renewable output cap":
+  generator('{{ solar_gen }}').generation + generator('{{ wind_gen }}').generation <= max_ren;
+
+# Curtailment blocks (grid congestion)
+{% for blk in curtail_blocks %}
+constraint curtail_{{ blk }} "Curtailment in block {{ blk }}":
+  generator('{{ solar_gen }}').generation <= {{ max_renewable * 0.5 }},
+  for(block in {{ "{" }}{{ blk }}{{ "}" }});
+{% endfor %}

@@ -1,0 +1,10 @@
+# =============================================================================
+# Error: Invalid operator usage
+# =============================================================================
+# LP constraints only support <=, >=, and =.  Not == or !=.
+
+constraint bad_eq "Uses == instead of =":
+  generator('G1').generation == 100;
+
+constraint bad_neq "Uses != which is not LP-compatible":
+  demand('D1').load != 0;

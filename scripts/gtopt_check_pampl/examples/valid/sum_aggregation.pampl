@@ -1,0 +1,17 @@
+# =============================================================================
+# Sum aggregation constraints
+# =============================================================================
+#
+# Demonstrates the sum() aggregation function for constraints that apply
+# across all elements of a given type.
+
+# Total system generation cap
+constraint system_gen_cap "Total system generation limit":
+  sum(generator(all).generation) <= 2000;
+
+# Total demand served must meet a minimum level
+constraint min_demand "Minimum total demand served":
+  sum(demand(all).load) >= 500;
+
+# Bare expression (no header) — auto-named as uc_<uid>
+sum(generator(all).generation) + sum(battery(all).discharge) <= 2500;
