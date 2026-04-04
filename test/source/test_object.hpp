@@ -60,8 +60,9 @@ TEST_CASE("id() free function creates Id from object")  // NOLINT
   const TestObj obj;
   const auto obj_id = id(obj);
 
-  CHECK(obj_id.uid == Uid {10});
-  CHECK(obj_id.name == "my_obj");
+  // Id is std::pair<Uid, Name>
+  CHECK(obj_id.first == Uid {10});
+  CHECK(obj_id.second == "my_obj");
 }
 
 TEST_CASE("id() with default-constructed object")  // NOLINT
@@ -75,6 +76,7 @@ TEST_CASE("id() with default-constructed object")  // NOLINT
   const TestObj obj;
   const auto obj_id = id(obj);
 
-  CHECK(obj_id.uid == Uid {unknown_uid});
-  CHECK(obj_id.name == Name {});
+  // Id is std::pair<Uid, Name>
+  CHECK(obj_id.first == Uid {unknown_uid});
+  CHECK(obj_id.second == Name {});
 }

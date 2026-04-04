@@ -79,6 +79,7 @@ TEST_CASE("Flow designated initializer construction")
   const Flow flow {
       .uid = Uid {2},
       .name = "env_discharge",
+      .active = {},
       .direction = -1,
       .junction = SingleId {Uid {5}},
       .discharge = 50.0,
@@ -129,6 +130,9 @@ TEST_CASE("Flow without junction (flow-turbine mode)")
   const Flow flow {
       .uid = Uid {5},
       .name = "pasada_flow",
+      .active = {},
+      .direction = {},
+      .junction = {},
       .discharge = 200.0,
   };
 
