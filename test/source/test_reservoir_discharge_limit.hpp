@@ -5,10 +5,10 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 TEST_CASE("ReservoirDischargeLimit construction and default values")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const ReservoirDischargeLimit ddl;
 
   CHECK(ddl.uid == Uid {unknown_uid});
@@ -22,6 +22,8 @@ TEST_CASE("ReservoirDischargeLimit construction and default values")
 
 TEST_CASE("ReservoirDischargeLimit attribute assignment")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   ReservoirDischargeLimit ddl;
 
   ddl.uid = 1;
@@ -50,6 +52,8 @@ TEST_CASE("ReservoirDischargeLimit attribute assignment")
 
 TEST_CASE("ReservoirDischargeLimitSegment construction")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const ReservoirDischargeLimitSegment seg;
 
   CHECK(seg.volume == 0.0);
@@ -59,6 +63,8 @@ TEST_CASE("ReservoirDischargeLimitSegment construction")
 
 TEST_CASE("find_active_rdl_segment")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const std::vector<ReservoirDischargeLimitSegment> segments = {
       {.volume = 0.0, .slope = 6.9868e-5, .intercept = 15.787},
       {.volume = 757000.0, .slope = 1.3985e-4, .intercept = 57.454},
@@ -97,6 +103,8 @@ TEST_CASE("find_active_rdl_segment")
 
 TEST_CASE("select_rdl_coeffs")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("empty segments returns zeros")
   {
     const std::vector<ReservoirDischargeLimitSegment> segments {};
@@ -124,6 +132,8 @@ TEST_CASE("select_rdl_coeffs")
 
 TEST_CASE("ReservoirDischargeLimitLP - basic single-block LP constraint")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Array<Bus> bus_array = {{
       .uid = Uid {1},
       .name = "b1",
@@ -256,6 +266,8 @@ TEST_CASE("ReservoirDischargeLimitLP - basic single-block LP constraint")
 
 TEST_CASE("ReservoirDischargeLimitLP - multi-block averaging constraint")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // With multiple blocks, qeh should be the weighted average of flows
   const Array<Bus> bus_array = {{
       .uid = Uid {1},
@@ -405,6 +417,8 @@ TEST_CASE("ReservoirDischargeLimitLP - multi-block averaging constraint")
 
 TEST_CASE("ReservoirDischargeLimitLP - empty segments is a no-op")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // ReservoirDischargeLimit with empty segments should not add any constraints
   const Array<Bus> bus_array = {{
       .uid = Uid {1},
@@ -542,6 +556,8 @@ TEST_CASE("ReservoirDischargeLimitLP - empty segments is a no-op")
 
 TEST_CASE("ReservoirDischargeLimitLP - binding discharge limit")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Set a very tight discharge limit and verify the LP respects it
   const Array<Bus> bus_array = {{
       .uid = Uid {1},
@@ -696,6 +712,8 @@ TEST_CASE("ReservoirDischargeLimitLP - binding discharge limit")
 
 TEST_CASE("ReservoirDischargeLimitLP - update_lp with piecewise segments")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Two segments: seg1 for V < 5000, seg2 for V >= 5000.
   // eini=5000 → seg2 at construction. update_lp iter=0/phase=0 uses eini →
   // same segment → no change.
@@ -840,6 +858,8 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp with piecewise segments")
 
 TEST_CASE("ReservoirDischargeLimitLP - update_lp with different eini segment")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // eini=1000 → seg1 (volume < 5000). update_lp iter=0/phase=0 uses eini.
   const Array<Bus> bus_array = {{
       .uid = Uid {1},
@@ -974,6 +994,8 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp with different eini segment")
 
 TEST_CASE("ReservoirDischargeLimitLP - update_lp is a no-op without segments")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // ReservoirDischargeLimit with 1 segment → update_lp returns 0
   const Array<Bus> bus_array = {{
       .uid = Uid {1},

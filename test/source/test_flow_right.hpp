@@ -2,10 +2,10 @@
 #include <doctest/doctest.h>
 #include <gtopt/flow_right.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 TEST_CASE("FlowRight construction and default values")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const FlowRight fr;
 
   CHECK(fr.uid == Uid {unknown_uid});
@@ -24,6 +24,8 @@ TEST_CASE("FlowRight construction and default values")
 
 TEST_CASE("FlowRight attribute assignment")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   FlowRight fr;
 
   fr.uid = 1001;
@@ -52,6 +54,8 @@ TEST_CASE("FlowRight attribute assignment")
 
 TEST_CASE("FlowRight designated initializer construction")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const FlowRight fr {
       .uid = Uid {2},
       .name = "env_flow",
@@ -75,6 +79,8 @@ TEST_CASE("FlowRight designated initializer construction")
 
 TEST_CASE("FlowRight with bound rule")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   FlowRight fr;
   fr.uid = 3;
   fr.name = "cushion_right";
@@ -113,6 +119,8 @@ TEST_CASE("FlowRight with bound rule")
 
 TEST_CASE("FlowRight with monthly discharge schedule")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   FlowRight fr;
   fr.uid = 4;
   fr.name = "seasonal_right";
@@ -134,6 +142,8 @@ TEST_CASE("FlowRight with monthly discharge schedule")
 
 TEST_CASE("FlowRight with different purposes")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("irrigation purpose")
   {
     const FlowRight fr {

@@ -41,3 +41,4 @@ using namespace gtopt;
 #include "test_reservoir_production_factor.hpp"
 #include "test_reservoir_seepage.hpp"
 #include "test_right_bound_rule.hpp"
+#include "test_turbine_lp.hpp"

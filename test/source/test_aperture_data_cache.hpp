@@ -8,8 +8,6 @@
 #include <gtopt/aperture_data_cache.hpp>
 #include <parquet/arrow/writer.h>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
 
@@ -90,6 +88,8 @@ void write_test_parquet(
 
 TEST_CASE("ApertureDataCache default construction")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const ApertureDataCache cache;
   CHECK(cache.empty());
   CHECK(cache.scenario_uids().empty());
@@ -97,6 +97,8 @@ TEST_CASE("ApertureDataCache default construction")  // NOLINT
 
 TEST_CASE("ApertureDataCache nonexistent directory")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const ApertureDataCache cache(std::filesystem::temp_directory_path()
                                 / "nonexistent_aperture_cache_dir_xyz");
   CHECK(cache.empty());
@@ -105,6 +107,8 @@ TEST_CASE("ApertureDataCache nonexistent directory")  // NOLINT
 
 TEST_CASE("ApertureDataCache loads parquet files")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpDir tmp("test_aperture_cache_load");
 
   // Create directory structure: aperture_dir/Flow/RAPEL.parquet
@@ -209,6 +213,8 @@ TEST_CASE("ApertureDataCache loads parquet files")  // NOLINT
 
 TEST_CASE("ApertureDataCache multiple classes and elements")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpDir tmp("test_aperture_cache_multi");
 
   // Create Flow/RAPEL.parquet
@@ -269,6 +275,8 @@ TEST_CASE("ApertureDataCache multiple classes and elements")  // NOLINT
 
 TEST_CASE("ApertureDataCache ignores non-parquet files")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpDir tmp("test_aperture_cache_ignore");
 
   const auto flow_dir = tmp.path / "Flow";
@@ -286,6 +294,8 @@ TEST_CASE("ApertureDataCache ignores non-parquet files")  // NOLINT
 
 TEST_CASE("ApertureDataCache ignores files at root level")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpDir tmp("test_aperture_cache_root_file");
 
   // Create a parquet file directly in the root (not in a subdirectory)
@@ -312,6 +322,8 @@ TEST_CASE("ApertureDataCache ignores files at root level")  // NOLINT
 
 TEST_CASE("ApertureDataCache handles empty directory")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpDir tmp("test_aperture_cache_empty_dir");
 
   // Create a class directory with no parquet files

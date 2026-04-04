@@ -12,21 +12,25 @@
  * - VariableScale struct and VariableScaleMap lookup
  */
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
+
+using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
 // ── SparseCol::scale field ──────────────────────────────────────────────────
 
 TEST_CASE("SparseCol default scale is 1.0")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const SparseCol col {};
   CHECK(col.scale == doctest::Approx(1.0));
 }
 
 TEST_CASE("SparseCol scale via designated initializer")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const SparseCol col {
       .name = "theta_b1",
       .lowb = -3.14,
@@ -39,6 +43,8 @@ TEST_CASE("SparseCol scale via designated initializer")  // NOLINT
 
 TEST_CASE("SparseCol scale with energy_scale")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const SparseCol col {
       .name = "vol_r1",
       .lowb = 0.0,
@@ -53,6 +59,8 @@ TEST_CASE("SparseCol scale with energy_scale")  // NOLINT
 
 TEST_CASE("LinearProblem get_col_scale returns stored scale")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   LinearProblem lp("scale_test");
 
   const auto c1 = lp.add_col(SparseCol {
@@ -76,6 +84,8 @@ TEST_CASE("LinearProblem get_col_scale returns stored scale")  // NOLINT
 
 TEST_CASE("col_scale_sol rescales LP primal to physical")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("reservoir volume: physical = LP × 100000")
   {
     const auto rescale = col_scale_sol(100000.0);
@@ -101,6 +111,8 @@ TEST_CASE("col_scale_sol rescales LP primal to physical")  // NOLINT
 
 TEST_CASE("col_scale_cost rescales LP reduced cost to physical")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("reservoir volume: rc_phys = rc_LP / 100000")
   {
     const auto rescale = col_scale_cost(100000.0);
@@ -134,6 +146,8 @@ TEST_CASE("col_scale_cost rescales LP reduced cost to physical")  // NOLINT
 
 TEST_CASE("VariableScale default construction")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const VariableScale vs {};
   CHECK(vs.class_name.empty());
   CHECK(vs.variable.empty());
@@ -143,6 +157,8 @@ TEST_CASE("VariableScale default construction")  // NOLINT
 
 TEST_CASE("VariableScale designated initializer")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const VariableScale vs {
       .class_name = "Reservoir",
       .variable = "energy",
@@ -158,6 +174,8 @@ TEST_CASE("VariableScale designated initializer")  // NOLINT
 
 TEST_CASE("VariableScaleMap default lookup returns 1.0")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const VariableScaleMap map;
   CHECK(map.empty());
   CHECK(map.lookup("Bus", "theta") == doctest::Approx(1.0));
@@ -166,6 +184,8 @@ TEST_CASE("VariableScaleMap default lookup returns 1.0")  // NOLINT
 
 TEST_CASE("VariableScaleMap per-class lookup")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const std::vector<VariableScale> scales {
       {
           .class_name = "Bus",
@@ -189,6 +209,8 @@ TEST_CASE("VariableScaleMap per-class lookup")  // NOLINT
 TEST_CASE(
     "VariableScaleMap priority: per-element > per-class > default")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const std::vector<VariableScale> scales {
       {
           .class_name = "Reservoir",
@@ -220,6 +242,8 @@ TEST_CASE(
 
 TEST_CASE("Integration: LP column scale drives output rescaling")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   LinearProblem lp("lifecycle_test");
 
   // Simulate bus theta: LP = physical / scale_theta, scale = scale_theta

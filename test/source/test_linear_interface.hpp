@@ -435,7 +435,7 @@ TEST_CASE("LinearInterface - get_status and status checks")
 
 TEST_CASE("LinearInterface - get_kappa returns meaningful condition number")
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // Build a problem with a non-trivial basis matrix to get kappa > 1.
   // Use coefficients with different magnitudes to create a condition
@@ -492,7 +492,7 @@ TEST_CASE("LinearInterface - get_kappa returns meaningful condition number")
 
 TEST_CASE("LinearInterface - get_kappa with explicit solver")
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // Test kappa with each available solver backend.
   // HiGHS uses Highs::getKappa(exact=true) which computes the actual
@@ -791,7 +791,7 @@ TEST_CASE("LinearInterface - duplicate name detection level 2 (error)")
 
 TEST_CASE("LinearInterface - clone preserves solution")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // Build a simple LP:  min 2x1 + 3x2  s.t.  x1 + x2 >= 5,  x1,x2 in [0,10]
   LinearInterface li;
@@ -824,7 +824,7 @@ TEST_CASE("LinearInterface - clone preserves solution")  // NOLINT
 TEST_CASE("LinearInterface - warm-start clone resolves after bound change")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // LP: min 2x1 + x2  s.t.  x1 + x2 >= 10,  x1 in [0,20], x2 in [0,20]
   // Optimal: x1=0, x2=10 → obj=10
@@ -868,7 +868,7 @@ TEST_CASE(
     "LinearInterface - warm-start clone works after barrier initial solve")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // LP: min 3x1 + 2x2  s.t.  x1 + x2 >= 8,  x1 in [0,10], x2 in [0,10]
   LinearInterface li;
@@ -914,7 +914,7 @@ TEST_CASE(
 TEST_CASE("LinearInterface - set_warm_start_solution exact dimensions")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // LP: min 2x1 + x2  s.t.  x1 + x2 >= 10
   LinearInterface li;
@@ -959,7 +959,7 @@ TEST_CASE("LinearInterface - set_warm_start_solution exact dimensions")
 TEST_CASE("LinearInterface - set_warm_start_solution pads extra rows")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // LP: min 2x1 + x2  s.t.  x1 + x2 >= 10
   LinearInterface li;
@@ -1009,7 +1009,7 @@ TEST_CASE("LinearInterface - set_warm_start_solution pads extra rows")
 TEST_CASE("LinearInterface - set_warm_start_solution pads extra columns")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // LP: min 2x1 + x2  s.t.  x1 + x2 >= 10
   LinearInterface li;
@@ -1054,7 +1054,7 @@ TEST_CASE("LinearInterface - set_warm_start_solution pads extra columns")
 TEST_CASE("LinearInterface - set_warm_start_solution ignores stale snapshot")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // LP: min x1  s.t.  x1 >= 5
   LinearInterface li;
@@ -1084,7 +1084,7 @@ TEST_CASE("LinearInterface - set_warm_start_solution ignores stale snapshot")
 TEST_CASE("LinearInterface - set_warm_start_solution with empty spans is no-op")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   LinearInterface li;
   const auto x1 = li.add_col("x1", 0.0, 10.0);
@@ -1189,7 +1189,7 @@ TEST_CASE("LinearInterface - load_flat without names (level 0)")  // NOLINT
 TEST_CASE("LinearInterface - initial_solve returns error on infeasible LP")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // Create an infeasible LP: x >= 10 AND x <= 5
   LinearInterface li;
@@ -1218,7 +1218,7 @@ TEST_CASE("LinearInterface - initial_solve returns error on infeasible LP")
 
 TEST_CASE("LinearInterface - resolve returns error on infeasible LP")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // Create an infeasible LP: x >= 10 AND x <= 5
   LinearInterface li;
@@ -1239,7 +1239,7 @@ TEST_CASE("LinearInterface - resolve returns error on infeasible LP")  // NOLINT
 
 TEST_CASE("LinearInterface - get_coeff on empty LP returns zero")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   LinearInterface li;
   const auto col = li.add_col("x", 0.0, 10.0);
@@ -1250,7 +1250,7 @@ TEST_CASE("LinearInterface - get_coeff on empty LP returns zero")  // NOLINT
 
 TEST_CASE("LinearInterface - set_coeff and get_coeff round trip")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   LinearInterface li;
   const auto x1 = li.add_col("x1", 0.0, 10.0);
@@ -1274,7 +1274,7 @@ TEST_CASE("LinearInterface - set_coeff and get_coeff round trip")  // NOLINT
 
 TEST_CASE("LinearInterface - set_log_file direct call")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   LinearInterface li;
   li.set_log_file("/tmp/test_direct_log");
@@ -1302,7 +1302,7 @@ TEST_CASE("LinearInterface - set_log_file direct call")  // NOLINT
 
 TEST_CASE("LinearInterface - solve with time_limit option")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   LinearInterface li;
   const auto x1 = li.add_col("x1", 0.0, 10.0);
@@ -1324,7 +1324,7 @@ TEST_CASE("LinearInterface - solve with time_limit option")  // NOLINT
 
 TEST_CASE("LinearInterface - row_index_to_name via load_flat")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   LinearProblem lp("RowNames");
   const auto c1 = lp.add_col({
@@ -1387,7 +1387,7 @@ TEST_CASE("LinearInterface - row_index_to_name via load_flat")  // NOLINT
 
 TEST_CASE("LinearInterface - row_index_to_name updated by add_row")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   LinearInterface li;
   li.set_lp_names_level(1);
@@ -1429,7 +1429,7 @@ TEST_CASE("LinearInterface - row_index_to_name updated by add_row")  // NOLINT
 TEST_CASE(
     "LinearInterface - row_index_to_name rebuilt after delete_rows")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   LinearInterface li;
   li.set_lp_names_level(2);
@@ -1532,7 +1532,7 @@ TEST_CASE(
 
 TEST_CASE("LinearInterface - row_index_to_name empty at level 0")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   LinearInterface li;
   li.set_lp_names_level(0);
@@ -1558,7 +1558,7 @@ TEST_CASE("LinearInterface - row_index_to_name empty at level 0")  // NOLINT
 TEST_CASE("LinearInterface - algorithm fallback on infeasible initial_solve")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // Infeasible LP: x >= 10 AND x <= 5 — no algorithm can solve it.
   // The fallback cycle should try all 3 algorithms and still fail,
@@ -1592,7 +1592,7 @@ TEST_CASE("LinearInterface - algorithm fallback on infeasible initial_solve")
 TEST_CASE("LinearInterface - algorithm fallback on infeasible resolve")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // Same infeasible LP tested via resolve path.
   for (const auto algo :
@@ -1625,7 +1625,7 @@ TEST_CASE(
     "LinearInterface - optimal LP succeeds without fallback for all algorithms")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // Feasible LP: min x + y, s.t. x + y >= 4, x,y >= 0  →  obj = 4.
   // All algorithms should succeed on the first attempt (no fallback needed).
@@ -1659,7 +1659,7 @@ TEST_CASE(
     "LinearInterface - fallback cycle on resolve after feasible "
     "initial_solve")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // Solve a feasible LP, then make it infeasible via bound change and resolve.
   // The fallback cycle should engage and ultimately fail.
@@ -1695,7 +1695,7 @@ TEST_CASE(
 
 TEST_CASE("LinearInterface - max_fallbacks=0 disables fallback")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // Infeasible LP with max_fallbacks=0: should fail immediately without
   // the "fallback" keyword in the error message.
@@ -1736,7 +1736,7 @@ TEST_CASE("LinearInterface - max_fallbacks=0 disables fallback")  // NOLINT
 
 TEST_CASE("LinearInterface - max_fallbacks=1 tries one alternative")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // Infeasible LP with max_fallbacks=1: should try one fallback and still
   // fail, but the error should mention "fallback".

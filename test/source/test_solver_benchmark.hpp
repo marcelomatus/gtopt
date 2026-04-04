@@ -20,10 +20,10 @@
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_registry.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
+
+using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
 // ─── LP builder ─────────────────────────────────────────────────────────────
 
@@ -353,6 +353,8 @@ void run_solver_benchmark(const FlatLinearProblem& flat_lp,
 
 TEST_CASE("Solver benchmark: small dispatch LP")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto flat_lp = build_dispatch_lp(/*n_bus=*/20,
                                          /*n_gen_per_bus=*/5,
                                          /*n_blocks=*/4);
@@ -363,6 +365,8 @@ TEST_CASE("Solver benchmark: small dispatch LP")  // NOLINT
 
 TEST_CASE("Solver benchmark: large dispatch LP")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto flat_lp = build_dispatch_lp(/*n_bus=*/200,
                                          /*n_gen_per_bus=*/20,
                                          /*n_blocks=*/12);

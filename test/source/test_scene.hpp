@@ -2,10 +2,10 @@
 #include <doctest/doctest.h>
 #include <gtopt/scene.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 TEST_CASE("Scene construction and default values")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Scene scene;
 
   CHECK(scene.uid == Uid {unknown_uid});
@@ -18,6 +18,8 @@ TEST_CASE("Scene construction and default values")
 
 TEST_CASE("Scene is_active default behaviour")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("default is active when unset")
   {
     const Scene scene;
@@ -41,6 +43,8 @@ TEST_CASE("Scene is_active default behaviour")  // NOLINT
 
 TEST_CASE("Scene attribute assignment")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Scene scene;
 
   scene.uid = 1;
@@ -57,6 +61,8 @@ TEST_CASE("Scene attribute assignment")
 
 TEST_CASE("Scene designated initializer construction")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Scene scene {
       .uid = Uid {2},
       .name = "all_scenarios",
@@ -74,6 +80,8 @@ TEST_CASE("Scene designated initializer construction")
 
 TEST_CASE("Scene with dynamic_extent covers all scenarios")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Scene scene {
       .uid = Uid {1},
       .name = {},
@@ -88,6 +96,8 @@ TEST_CASE("Scene with dynamic_extent covers all scenarios")
 
 TEST_CASE("SceneUid, SceneIndex and OptSceneIndex strong types")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const SceneUid suid {3};
   const SceneIndex sidx {1};
   const OptSceneIndex opt_sidx {SceneIndex {5}};
@@ -102,6 +112,8 @@ TEST_CASE("SceneUid, SceneIndex and OptSceneIndex strong types")
 
 TEST_CASE("Scene array construction")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Array<Scene> scenes {
       {
           .uid = Uid {1},

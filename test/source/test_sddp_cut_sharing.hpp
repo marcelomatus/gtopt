@@ -8,14 +8,14 @@
 #include <doctest/doctest.h>
 #include <gtopt/sddp_cut_sharing.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 // ---------------------------------------------------------------------------
 // share_cuts_for_phase — none mode (no-op)
 // ---------------------------------------------------------------------------
 
 TEST_CASE("share_cuts_for_phase none mode is a no-op")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP plp(planning);
 
@@ -53,6 +53,8 @@ TEST_CASE("share_cuts_for_phase none mode is a no-op")  // NOLINT
 
 TEST_CASE("share_cuts_for_phase single scene returns early")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // With only 1 scene, no sharing is possible regardless of mode
   auto planning = make_3phase_hydro_planning();
   PlanningLP plp(planning);
@@ -92,6 +94,8 @@ TEST_CASE("share_cuts_for_phase single scene returns early")  // NOLINT
 
 TEST_CASE("share_cuts_for_phase with empty cuts is a no-op")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP plp(planning);
 
@@ -121,6 +125,8 @@ TEST_CASE("share_cuts_for_phase with empty cuts is a no-op")  // NOLINT
 TEST_CASE(  // NOLINT
     "share_cuts_for_phase accumulate mode sums all cuts")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
   PlanningLP plp(std::move(planning));
 
@@ -175,6 +181,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "share_cuts_for_phase expected mode sums scene-averaged cuts")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_2scene_3phase_hydro_planning(0.7, 0.3);
   PlanningLP plp(std::move(planning));
 
@@ -226,6 +234,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "share_cuts_for_phase max mode adds all cuts to all scenes")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   PlanningLP plp(std::move(planning));
 
@@ -286,6 +296,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "share_cuts_for_phase accumulate with one empty scene")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
   PlanningLP plp(std::move(planning));
 
@@ -327,6 +339,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "share_cuts_for_phase expected with empty cuts returns early")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_2scene_3phase_hydro_planning(0.7, 0.3);
   PlanningLP plp(std::move(planning));
 

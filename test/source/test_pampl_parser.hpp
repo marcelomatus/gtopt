@@ -11,14 +11,14 @@
 #include <doctest/doctest.h>
 #include <gtopt/pampl_parser.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 TEST_SUITE("PamplParser")
 {
   // ── Bare expression (no header) ───────────────────────────────────────────
 
   TEST_CASE("Bare expression assigns uid and auto-name")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     const auto result =
         PamplParser::parse("generator('G1').generation <= 100;", Uid {1});
     const auto& ucs = result.constraints;
@@ -36,6 +36,8 @@ TEST_SUITE("PamplParser")
 
   TEST_CASE("constraint header sets name")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     const auto& ucs =
         PamplParser::parse(
             "constraint gen_limit: generator('G1').generation <= 100;")
@@ -51,6 +53,8 @@ TEST_SUITE("PamplParser")
 
   TEST_CASE("constraint header with description (double quotes)")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     const auto& ucs = PamplParser::parse(
                           "constraint gen_limit \"Max generation for G1\": "
                           "generator('G1').generation <= 100;")
@@ -64,6 +68,8 @@ TEST_SUITE("PamplParser")
 
   TEST_CASE("constraint header with description (single quotes)")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     const auto& ucs = PamplParser::parse(
                           "constraint gen_limit 'Max generation for G1': "
                           "generator('G1').generation <= 100;")
@@ -79,6 +85,8 @@ TEST_SUITE("PamplParser")
 
   TEST_CASE("inactive constraint sets active=false")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     const auto& ucs =
         PamplParser::parse(
             "inactive constraint flow_check: line('L1').flow <= 200;")
@@ -93,6 +101,8 @@ TEST_SUITE("PamplParser")
 
   TEST_CASE("Multiple constraints are parsed in order")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     const std::string src = R"(
 constraint first: generator('G1').generation <= 100;
 inactive constraint second: demand('D1').load >= 50;
@@ -117,6 +127,8 @@ sum(generator(all).generation) <= 1000;
 
   TEST_CASE("Hash comments are ignored")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     const std::string src = R"(
 # This is a comment
 constraint gen_limit:
@@ -131,6 +143,8 @@ constraint gen_limit:
 
   TEST_CASE("Double-slash comments are ignored")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     const std::string src = R"(
 // Double-slash comment
 constraint gen_limit:
@@ -146,6 +160,8 @@ constraint gen_limit:
 
   TEST_CASE("UID sequence starts at start_uid")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     const auto& ucs = PamplParser::parse(
                           "constraint a: generator('G1').generation <= 100;\n"
                           "constraint b: demand('D1').load >= 50;",
@@ -161,6 +177,8 @@ constraint gen_limit:
 
   TEST_CASE("For-clause in expression is preserved")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     const auto& ucs =
         PamplParser::parse(
             "constraint domain_limit:\n"
@@ -176,6 +194,8 @@ constraint gen_limit:
 
   TEST_CASE("Single-quote element id in expression")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     const auto& ucs =
         PamplParser::parse("constraint q: generator('G1').generation <= 100;")
             .constraints;
@@ -187,6 +207,8 @@ constraint gen_limit:
 
   TEST_CASE("Empty source produces empty result")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK(PamplParser::parse("").constraints.empty());
     CHECK(PamplParser::parse("  # just a comment\n  ").constraints.empty());
   }
@@ -195,6 +217,8 @@ constraint gen_limit:
 
   TEST_CASE("Missing semicolon throws")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS(
         (void)PamplParser::parse("generator('G1').generation <= 100"),
         std::invalid_argument);
@@ -202,6 +226,8 @@ constraint gen_limit:
 
   TEST_CASE("Missing constraint name after 'constraint' keyword throws")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS((void)PamplParser::parse(
                         "constraint : generator('G1').generation <= 100;"),
                     std::invalid_argument);
@@ -209,6 +235,8 @@ constraint gen_limit:
 
   TEST_CASE("'inactive' without 'constraint' keyword throws")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS((void)PamplParser::parse(
                         "inactive oops: generator('G1').generation <= 100;"),
                     std::invalid_argument);
@@ -218,6 +246,8 @@ constraint gen_limit:
 
   TEST_CASE("Scalar param declaration")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     const auto result = PamplParser::parse("param pct_elec = 35;");
 
     CHECK(result.constraints.empty());
@@ -229,6 +259,8 @@ constraint gen_limit:
 
   TEST_CASE("Monthly param declaration")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     const auto result = PamplParser::parse(
         "param irr[month] = [0, 0, 0, 100, 100, 100, "
         "100, 100, 100, 100, 0, 0];");
@@ -245,6 +277,8 @@ constraint gen_limit:
 
   TEST_CASE("Params and constraints mixed")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     const std::string src = R"(
 # Define parameters
 param limit = 500;
@@ -267,12 +301,16 @@ constraint gen_cap:
 
   TEST_CASE("Monthly param with wrong element count throws")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS((void)PamplParser::parse("param bad[month] = [1, 2, 3];"),
                     std::invalid_argument);
   }
 
   TEST_CASE("Negative param values")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     const auto result = PamplParser::parse("param offset = -42.5;");
     REQUIRE(result.params.size() == 1);
     CHECK(result.params[0].value.value_or(0) == doctest::Approx(-42.5));

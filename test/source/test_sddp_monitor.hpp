@@ -20,12 +20,12 @@
 #include <gtopt/sddp_monitor.hpp>
 #include <gtopt/solver_monitor.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 // ─── SDDPStatusSnapshot tests ───────────────────────────────────────────────
 
 TEST_CASE("SDDPStatusSnapshot default construction")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const SDDPStatusSnapshot snap {};
 
   CHECK(snap.iteration == 0);
@@ -41,6 +41,8 @@ TEST_CASE("SDDPStatusSnapshot default construction")  // NOLINT
 
 TEST_CASE("SDDPStatusSnapshot with custom values")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const SDDPStatusSnapshot snap {
       .iteration = 5,
       .gap = 0.01,
@@ -68,6 +70,8 @@ TEST_CASE("SDDPStatusSnapshot with custom values")  // NOLINT
 
 TEST_CASE("SDDPIterationResult default construction")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const SDDPIterationResult result {};
 
   CHECK(result.iteration == 0);
@@ -89,6 +93,8 @@ TEST_CASE("SDDPIterationResult default construction")  // NOLINT
 
 TEST_CASE("write_sddp_api_status produces valid JSON")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto tmp_file =
       (std::filesystem::temp_directory_path() / "gtopt_test_sddp_status.json")
           .string();
@@ -188,6 +194,8 @@ TEST_CASE("write_sddp_api_status produces valid JSON")  // NOLINT
 
 TEST_CASE("write_sddp_api_status handles empty results")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto tmp_file = (std::filesystem::temp_directory_path()
                          / "gtopt_test_sddp_status_empty.json")
                             .string();
@@ -220,6 +228,8 @@ TEST_CASE(
     "write_sddp_api_status shows converged status when "
     "converged")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto tmp_file = (std::filesystem::temp_directory_path()
                          / "gtopt_test_sddp_status_converged.json")
                             .string();

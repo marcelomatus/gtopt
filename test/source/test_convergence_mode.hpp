@@ -16,8 +16,6 @@
 #include <gtopt/sddp_enums.hpp>
 #include <gtopt/sddp_options.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
 
@@ -25,6 +23,8 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 
 TEST_CASE("ConvergenceMode enum_from_name")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("gap_only parses correctly")
   {
     const auto result = enum_from_name<ConvergenceMode>("gap_only");
@@ -58,6 +58,8 @@ TEST_CASE("ConvergenceMode enum_from_name")  // NOLINT
 
 TEST_CASE("ConvergenceMode enum_name")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CHECK(enum_name(ConvergenceMode::gap_only) == "gap_only");
   CHECK(enum_name(ConvergenceMode::gap_stationary) == "gap_stationary");
   CHECK(enum_name(ConvergenceMode::statistical) == "statistical");
@@ -65,6 +67,8 @@ TEST_CASE("ConvergenceMode enum_name")  // NOLINT
 
 TEST_CASE("ConvergenceMode entries table has 3 entries")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto entries = enum_entries(ConvergenceMode {});
   CHECK(entries.size() == 3);
 }
@@ -72,6 +76,8 @@ TEST_CASE("ConvergenceMode entries table has 3 entries")  // NOLINT
 TEST_CASE(  // NOLINT
     "ConvergenceMode round-trip from_name/enum_name")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   constexpr std::array names = {
       std::string_view {"gap_only"},
       std::string_view {"gap_stationary"},
@@ -90,6 +96,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SddpOptions convergence defaults are nullopt")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const SddpOptions opts {};
 
   CHECK_FALSE(opts.convergence_mode.has_value());
@@ -104,6 +112,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "ConvergenceMode underlying integer values")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CHECK(static_cast<uint8_t>(ConvergenceMode::gap_only) == 0);
   CHECK(static_cast<uint8_t>(ConvergenceMode::gap_stationary) == 1);
   CHECK(static_cast<uint8_t>(ConvergenceMode::statistical) == 2);
@@ -114,6 +124,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SddpOptions merge convergence fields")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SddpOptions base {
       .convergence_tol = 1e-4,
       .convergence_mode = ConvergenceMode::gap_only,
@@ -137,6 +149,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SddpOptions merge does not overwrite convergence with nullopt")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SddpOptions base {
       .convergence_mode = ConvergenceMode::gap_stationary,
       .stationary_tol = 0.05,
@@ -157,6 +171,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SddpOptions construction with all convergence fields")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const SddpOptions opts {
       .convergence_tol = 1e-4,
       .convergence_mode = ConvergenceMode::statistical,

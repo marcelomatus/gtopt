@@ -7,12 +7,12 @@
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/work_pool.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 // ─── BasicTaskRequirements template tests ───────────────────────────────────
 
 TEST_CASE("BasicTaskRequirements template key")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("default key type is int64_t")
   {
     const BasicTaskRequirements<> req;
@@ -45,6 +45,8 @@ TEST_CASE("BasicTaskRequirements template key")  // NOLINT
 TEST_CASE(
     "Task ordering: std::less semantics (smaller key = higher priority)")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("smaller int64_t key → higher priority in max-heap")
   {
     // Lower key = higher priority (operator< returns true when this has LOWER
@@ -101,6 +103,8 @@ TEST_CASE(
 
 TEST_CASE("BasicWorkPool with int64_t key")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   using namespace std::chrono_literals;
 
   AdaptiveWorkPool pool;
@@ -164,6 +168,8 @@ TEST_CASE("BasicWorkPool with int64_t key")  // NOLINT
 
 TEST_CASE("WorkPool basic functionality")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   using namespace std::chrono_literals;
 
   AdaptiveWorkPool pool;
@@ -293,6 +299,8 @@ TEST_CASE("WorkPool basic functionality")
 
 TEST_CASE("WorkPool stress testing")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   using namespace std::chrono_literals;
 
   constexpr int max_threads = 16;
@@ -410,6 +418,8 @@ TEST_CASE("WorkPool stress testing")
 
 TEST_CASE("CPUMonitor basic functionality")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CPUMonitor monitor;
 
   SUBCASE("Start/stop monitoring")
@@ -437,6 +447,8 @@ TEST_CASE("CPUMonitor basic functionality")
 
 TEST_CASE("CPUMonitor edge cases")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CPUMonitor monitor;
 
   SUBCASE("Double start")
@@ -459,6 +471,8 @@ TEST_CASE("CPUMonitor edge cases")
 
 TEST_CASE("Mock CPU monitoring")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   class MockCPUMonitor : public CPUMonitor
   {
   public:
@@ -487,6 +501,8 @@ TEST_CASE("Mock CPU monitoring")
 
 TEST_CASE("CPUMonitor default interval")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const CPUMonitor monitor;
 
   CHECK(monitor.get_load() == doctest::Approx(0.0));
@@ -495,6 +511,8 @@ TEST_CASE("CPUMonitor default interval")
 
 TEST_CASE("CPUMonitor set_interval")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CPUMonitor monitor;
 
   monitor.set_interval(std::chrono::milliseconds {200});
@@ -506,6 +524,8 @@ TEST_CASE("CPUMonitor set_interval")
 
 TEST_CASE("CPUMonitor get_system_cpu_usage with fallback")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const double usage = CPUMonitor::get_system_cpu_usage(42.0);
 
   CHECK(usage >= 0.0);
@@ -514,6 +534,8 @@ TEST_CASE("CPUMonitor get_system_cpu_usage with fallback")
 
 TEST_CASE("CPUMonitor start and sample load")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CPUMonitor monitor;
   monitor.set_interval(std::chrono::milliseconds {50});
 
@@ -527,6 +549,8 @@ TEST_CASE("CPUMonitor start and sample load")
 
 TEST_CASE("CPUMonitor repeated get_system_cpu_usage calls")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // First call initializes the static last_idle/last_total atomics.
   // Second call exercises the delta calculation path (total_delta != 0).
   const double first = CPUMonitor::get_system_cpu_usage(99.0);
@@ -549,6 +573,8 @@ TEST_CASE("CPUMonitor repeated get_system_cpu_usage calls")
 
 TEST_CASE("CPUMonitor RAII destructor stops thread")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Verify that the destructor stops the monitoring thread cleanly
   // (exercises the stop() call inside ~CPUMonitor)
   {
@@ -563,6 +589,8 @@ TEST_CASE("CPUMonitor RAII destructor stops thread")
 
 TEST_CASE("CPUMonitor thread updates current_load_ over time")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CPUMonitor monitor;
   monitor.set_interval(std::chrono::milliseconds {20});
   monitor.start();
@@ -585,6 +613,8 @@ TEST_CASE("CPUMonitor thread updates current_load_ over time")
 
 TEST_CASE("CPUMonitor start-stop-start cycle")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CPUMonitor monitor;
   monitor.set_interval(std::chrono::milliseconds {30});
 
@@ -608,6 +638,8 @@ TEST_CASE("CPUMonitor start-stop-start cycle")
 
 TEST_CASE("CPUMonitor double stop is safe")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CPUMonitor monitor;
   monitor.set_interval(std::chrono::milliseconds {30});
 

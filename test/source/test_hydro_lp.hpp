@@ -11,10 +11,10 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 TEST_CASE("SystemLP with hydro components - junction, waterway, reservoir")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
 
   // Generator connected to turbine
@@ -107,6 +107,8 @@ TEST_CASE("SystemLP with hydro components - junction, waterway, reservoir")
 
 TEST_CASE("SystemLP with flow component")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
 
   const Array<Generator> generator_array = {
@@ -186,6 +188,8 @@ TEST_CASE("SystemLP with flow component")
 
 TEST_CASE("SystemLP with multi-stage hydro system")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
 
   const Array<Generator> generator_array = {
@@ -301,6 +305,8 @@ TEST_CASE("SystemLP with multi-stage hydro system")
 TEST_CASE(  // NOLINT
     "Reservoir energy_scale invariance – same solution for different scales")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Helper lambda: builds and solves a hydro LP with the given energy_scale,
   // returns the objective value.
   auto solve_with_scale = [](double scale) -> double
@@ -478,6 +484,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Reservoir variable_scales option – invariance and LP coefficient change")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   struct ScaleResult
   {
     double objective;
@@ -695,6 +703,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Reservoir flow variable_scale – objective invariance with volume+flow")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Helper: builds and solves a hydro LP with energy_scale and optional
   // flow_scale via variable_scales, returns the objective value.
   auto solve_with_scales = [](double energy_scale, double flow_scale) -> double

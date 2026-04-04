@@ -605,7 +605,7 @@ TEST_CASE("Linear problem lp_build with epsilon filtering")
 TEST_CASE(
     "Linear problem lp_build compute_stats with col names and zeroed count")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   LinearProblem lp("stats_test");
 
@@ -771,7 +771,7 @@ TEST_CASE("lp_build name map skips empty column names")
 
 TEST_CASE("lp_build row_max equilibration normalizes row max to 1")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   LinearProblem lp("row_eq_test");
 
@@ -866,7 +866,7 @@ TEST_CASE("lp_build row_max equilibration normalizes row max to 1")  // NOLINT
 
 TEST_CASE("LinearInterface row_max equilibration unscales duals")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // Build a small LP: min x s.t. x >= 5, solve, verify dual unscaling.
   // Row: [1000] * x >= 5000  (large coefficient for scaling test)
@@ -923,7 +923,7 @@ TEST_CASE("LinearInterface row_max equilibration unscales duals")  // NOLINT
 TEST_CASE(  // NOLINT
     "LinearInterface row_max equilibration handles dynamically added rows")
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // Build LP with one row, enable row_max equilibration, then add a new row
   // after construction (simulating SDDP cut addition).  get_row_dual()
@@ -980,7 +980,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("lp_build per-row-type coefficient stats")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // Build a small LP with named rows of different constraint types.
   // Row name format: cname_type_uid_... → type is 2nd underscore token.
@@ -1045,7 +1045,7 @@ TEST_CASE("lp_build per-row-type coefficient stats")  // NOLINT
 
 TEST_CASE("lp_build per-row-type stats empty without row names")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   LinearProblem lp("no_row_names_test");
   const auto c0 = lp.add_col(SparseCol {.name = "x0", .cost = 1.0});
@@ -1064,7 +1064,7 @@ TEST_CASE("lp_build per-row-type stats empty without row names")  // NOLINT
 
 TEST_CASE("lp_build per-row-type stats empty without compute_stats")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   LinearProblem lp("no_stats_test");
   const auto c0 = lp.add_col(SparseCol {.name = "x0", .cost = 1.0});
@@ -1087,7 +1087,7 @@ TEST_CASE("lp_build per-row-type stats empty without compute_stats")  // NOLINT
 
 TEST_CASE("lp_build ruiz scaling equilibrates rows and columns")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // Matrix:
   //   Row 0: [1000, 0.01]    bounds [0, 500]
@@ -1214,7 +1214,7 @@ TEST_CASE("lp_build ruiz scaling equilibrates rows and columns")  // NOLINT
 
 TEST_CASE("lp_build ruiz scaling on identity-like matrix is near no-op")
 {  // NOLINT
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // A well-scaled matrix: all coefficients near 1.0.
   // Ruiz should converge in 1 iteration with scales ≈ 1.0.
@@ -1250,7 +1250,7 @@ TEST_CASE("lp_build ruiz scaling on identity-like matrix is near no-op")
 TEST_CASE(  // NOLINT
     "LinearInterface ruiz scaling solves correctly and unscales duals")
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // min x s.t. 1000*x >= 5000, 0 <= x <= 100, cost = 1
   // Optimal: x = 5, obj = 5, dual = 1/1000 = 0.001
@@ -1294,7 +1294,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "LinearInterface ruiz scaling 2-var LP produces correct solution")
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // min 2x + 3y s.t.
   //   1000*x +    1*y >= 2000   (binding: x ≈ 2)
@@ -1363,7 +1363,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("LpEquilibrationMethod enum_name round-trip")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   CHECK(enum_name(LpEquilibrationMethod::none) == "none");
   CHECK(enum_name(LpEquilibrationMethod::row_max) == "row_max");

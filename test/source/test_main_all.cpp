@@ -40,3 +40,4 @@ using namespace gtopt;
 #include "test_set_cli_option.hpp"
 #include "test_solver_registry.hpp"
 #include "test_work_pool.hpp"
+#include "test_work_pool_coverage.hpp"

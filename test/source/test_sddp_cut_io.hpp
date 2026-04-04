@@ -39,10 +39,10 @@
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_method.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
+
+using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
 /// Helper to create scene_phase_states matching a PlanningLP.
 auto make_scene_phase_states(const PlanningLP& planning_lp)
@@ -75,6 +75,8 @@ auto make_test_dir(const std::string& test_name) -> std::filesystem::path
 
 TEST_CASE("build_phase_uid_map produces correct mapping")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   const PlanningLP planning_lp(std::move(planning));
 
@@ -94,6 +96,8 @@ TEST_CASE("build_phase_uid_map produces correct mapping")  // NOLINT
 
 TEST_CASE("build_phase_uid_map with single-phase planning")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_single_phase_planning();
   const PlanningLP planning_lp(std::move(planning));
 
@@ -112,6 +116,8 @@ TEST_CASE("build_phase_uid_map with single-phase planning")  // NOLINT
 
 TEST_CASE("save_cuts_csv writes a valid CSV file")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -151,6 +157,8 @@ TEST_CASE("save_cuts_csv writes a valid CSV file")  // NOLINT
 
 TEST_CASE("save_cuts_csv with empty cuts vector writes header only")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   const PlanningLP planning_lp(std::move(planning));
 
@@ -183,6 +191,8 @@ TEST_CASE(
     "save_cuts_csv with unknown phase UID uses unscaled "
     "fallback")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   const PlanningLP planning_lp(std::move(planning));
 
@@ -224,6 +234,8 @@ TEST_CASE(
 
 TEST_CASE("save_cuts_csv creates parent directories")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   const PlanningLP planning_lp(std::move(planning));
 
@@ -245,6 +257,8 @@ TEST_CASE("save_cuts_csv creates parent directories")  // NOLINT
 
 TEST_CASE("save and load cuts round-trip via SDDPMethod")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto tmp_dir = std::filesystem::temp_directory_path();
   const auto cuts_file = (tmp_dir / "gtopt_test_cut_io_roundtrip.csv").string();
 
@@ -295,6 +309,8 @@ TEST_CASE("save and load cuts round-trip via SDDPMethod")  // NOLINT
 
 TEST_CASE("load_cuts_csv returns error for nonexistent file")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -307,6 +323,8 @@ TEST_CASE("load_cuts_csv returns error for nonexistent file")  // NOLINT
 
 TEST_CASE("load_cuts_csv handles header-only file")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -333,6 +351,8 @@ TEST_CASE(
     "load_cuts_csv skips comment lines and blank lines in "
     "body")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -359,6 +379,8 @@ TEST_CASE(
 
 TEST_CASE("load_cuts_csv skips cuts with unknown phase UID")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -387,6 +409,8 @@ TEST_CASE(
     "load_cuts_csv parses coefficients and loads valid "
     "cuts")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -415,6 +439,8 @@ TEST_CASE(
     "load_cuts_csv skips malformed lines and loads valid "
     "ones")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -451,6 +477,8 @@ TEST_CASE(
 
 TEST_CASE("save_scene_cuts_csv creates per-scene file")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -494,6 +522,8 @@ TEST_CASE(
     "save_scene_cuts_csv with empty cuts creates empty "
     "file")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   const PlanningLP planning_lp(std::move(planning));
 
@@ -521,6 +551,8 @@ TEST_CASE(
     "load_scene_cuts_from_directory loads files and skips "
     "errors")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   // Enable LP names at level 1 so SDDP cuts get named (required for CSV
   // round-trip: the loader rejects rows with empty name columns).
@@ -573,6 +605,8 @@ TEST_CASE(
     "load_scene_cuts_from_directory returns 0 for nonexistent "
     "dir")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -587,6 +621,8 @@ TEST_CASE(
     "load_scene_cuts_from_directory skips non-scene "
     "and non-csv files")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -622,6 +658,8 @@ TEST_CASE(
     "load_scene_cuts_from_directory loads sddp_cuts.csv "
     "combined file")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -648,6 +686,8 @@ TEST_CASE(
 
 TEST_CASE("load_boundary_cuts_csv noload mode returns 0")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -667,6 +707,8 @@ TEST_CASE(
     "load_boundary_cuts_csv returns error for nonexistent "
     "file")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -689,6 +731,8 @@ TEST_CASE(
     "load_boundary_cuts_csv rejects header with too few "
     "columns")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -721,6 +765,8 @@ TEST_CASE(
     "load_boundary_cuts_csv separated mode loads cuts with "
     "matching scene UID")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -760,6 +806,8 @@ TEST_CASE(
     "load_boundary_cuts_csv shared mode broadcasts to all "
     "scenes")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -792,6 +840,8 @@ TEST_CASE(
     "load_boundary_cuts_csv legacy format without iteration "
     "column")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -822,6 +872,8 @@ TEST_CASE(
 
 TEST_CASE("load_boundary_cuts_csv filters by max_iterations")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -860,6 +912,8 @@ TEST_CASE(
     "load_boundary_cuts_csv skips cuts with unknown scene "
     "UID in separated mode")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -895,6 +949,8 @@ TEST_CASE(
     "load_boundary_cuts_csv with unmatched state variable "
     "header")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -929,6 +985,8 @@ TEST_CASE(
     "load_boundary_cuts_csv with ClassName:ElementName "
     "header")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -961,6 +1019,8 @@ TEST_CASE(
     "load_boundary_cuts_csv with wrong class filter in "
     "header")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -994,6 +1054,8 @@ TEST_CASE(
     "load_boundary_cuts_csv with zero coefficients "
     "skipped")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1026,6 +1088,8 @@ TEST_CASE(
     "load_boundary_cuts_csv creates alpha column on "
     "demand")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1069,6 +1133,8 @@ TEST_CASE(
     "load_boundary_cuts_csv with empty body loads 0 "
     "cuts")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1102,6 +1168,8 @@ TEST_CASE(
     "load_named_cuts_csv returns error for nonexistent "
     "file")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1122,6 +1190,8 @@ TEST_CASE(
     "load_named_cuts_csv rejects header with too few "
     "columns")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1152,6 +1222,8 @@ TEST_CASE(
     "load_named_cuts_csv rejects header with wrong phase "
     "column name")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1182,6 +1254,8 @@ TEST_CASE(
     "load_named_cuts_csv loads cuts for specific "
     "phases")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1220,6 +1294,8 @@ TEST_CASE(
     "load_named_cuts_csv skips cuts with unknown phase "
     "UID")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1251,6 +1327,8 @@ TEST_CASE(
 
 TEST_CASE("load_named_cuts_csv with empty body loads 0 cuts")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1280,6 +1358,8 @@ TEST_CASE(
     "load_named_cuts_csv with ClassName:ElementName "
     "header")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1309,6 +1389,8 @@ TEST_CASE(
     "load_named_cuts_csv with wrong class filter skips "
     "coefficient")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1340,6 +1422,8 @@ TEST_CASE(
     "load_named_cuts_csv with zero coefficient "
     "skipped")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1369,6 +1453,8 @@ TEST_CASE(
     "load_named_cuts_csv with multiple state variable "
     "columns")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1400,6 +1486,8 @@ TEST_CASE(
     "load_named_cuts_csv skips blank lines in "
     "body")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1432,6 +1520,8 @@ TEST_CASE(
     "load_named_cuts_csv caches per-phase column "
     "maps")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1466,6 +1556,8 @@ TEST_CASE(
     "load_boundary_cuts_csv handles Windows \\r\\n line "
     "endings in header")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1502,6 +1594,8 @@ TEST_CASE(
     "load_named_cuts_csv handles Windows \\r\\n line "
     "endings in header")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1533,6 +1627,8 @@ TEST_CASE(
     "load_cuts_csv handles Windows \\r\\n line endings in "
     "data lines")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1561,6 +1657,8 @@ TEST_CASE(
     "load_boundary_cuts_csv handles Windows \\r\\n line "
     "endings in data lines")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1595,6 +1693,8 @@ TEST_CASE(
     "load_named_cuts_csv handles Windows \\r\\n line "
     "endings in data lines")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 

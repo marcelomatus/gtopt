@@ -1050,7 +1050,7 @@ TEST_CASE("LineLP - per-line use_line_losses overrides global option")
 TEST_CASE(
     "Transformer with off-nominal tap ratio changes Kirchhoff susceptance")
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // Two-bus system: bus1 → bus2 via a transformer.
   // With tap_ratio = τ the effective susceptance is B/τ, so for equal
@@ -1161,7 +1161,7 @@ TEST_CASE(
 
 TEST_CASE("Phase-shifting transformer modifies Kirchhoff RHS")
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // Simple 2-bus system connected by a PST.  With a non-zero phase shift the
   // Kirchhoff equality RHS changes from 0 to -scale_theta * phi_rad; the LP

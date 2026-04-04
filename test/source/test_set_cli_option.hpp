@@ -22,8 +22,6 @@
 #include <doctest/doctest.h>
 #include <gtopt/gtopt_main.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
 
@@ -70,6 +68,8 @@ std::filesystem::path write_set_test_json(const std::string& name,
 
 TEST_CASE("--set auto-type detection: true is parsed as bool")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto stem = write_set_test_json("set_cli_bool_true", set_test_json);
   auto result = gtopt_main(MainOptions {
       .planning_files =
@@ -89,6 +89,8 @@ TEST_CASE("--set auto-type detection: true is parsed as bool")
 
 TEST_CASE("--set auto-type detection: false is parsed as bool")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto stem = write_set_test_json("set_cli_bool_false", set_test_json);
   auto result = gtopt_main(MainOptions {
       .planning_files =
@@ -110,6 +112,8 @@ TEST_CASE("--set auto-type detection: false is parsed as bool")
 
 TEST_CASE("--set auto-type detection: integer value")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto stem = write_set_test_json("set_cli_int", set_test_json);
   auto result = gtopt_main(MainOptions {
       .planning_files =
@@ -131,6 +135,8 @@ TEST_CASE("--set auto-type detection: integer value")
 
 TEST_CASE("--set auto-type detection: double value")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto stem = write_set_test_json("set_cli_double", set_test_json);
   auto result = gtopt_main(MainOptions {
       .planning_files =
@@ -152,6 +158,8 @@ TEST_CASE("--set auto-type detection: double value")
 
 TEST_CASE("--set auto-type detection: string value")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto stem = write_set_test_json("set_cli_string", set_test_json);
   auto result = gtopt_main(MainOptions {
       .planning_files =
@@ -173,6 +181,8 @@ TEST_CASE("--set auto-type detection: string value")
 
 TEST_CASE("--set dotted path: single-level key")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto stem = write_set_test_json("set_cli_single_path", set_test_json);
   auto result = gtopt_main(MainOptions {
       .planning_files =
@@ -194,6 +204,8 @@ TEST_CASE("--set dotted path: single-level key")
 
 TEST_CASE("--set dotted path: two-level nested key")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto stem = write_set_test_json("set_cli_two_level", set_test_json);
   auto result = gtopt_main(MainOptions {
       .planning_files =
@@ -215,6 +227,8 @@ TEST_CASE("--set dotted path: two-level nested key")
 
 TEST_CASE("--set dotted path: three-level nested key")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto stem = write_set_test_json("set_cli_three_level", set_test_json);
   auto result = gtopt_main(MainOptions {
       .planning_files =
@@ -236,6 +250,8 @@ TEST_CASE("--set dotted path: three-level nested key")
 
 TEST_CASE("--set multiple options applied together")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto stem = write_set_test_json("set_cli_multi", set_test_json);
   auto result = gtopt_main(MainOptions {
       .planning_files =
@@ -259,6 +275,8 @@ TEST_CASE("--set multiple options applied together")
 
 TEST_CASE("--set solver_options.threads via direct setter")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto stem =
       write_set_test_json("set_cli_solver_threads", set_test_json);
   auto result = gtopt_main(MainOptions {
@@ -279,6 +297,8 @@ TEST_CASE("--set solver_options.threads via direct setter")
 
 TEST_CASE("--set solver_options.presolve via direct setter")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto stem =
       write_set_test_json("set_cli_solver_presolve", set_test_json);
   auto result = gtopt_main(MainOptions {
@@ -301,6 +321,8 @@ TEST_CASE("--set solver_options.presolve via direct setter")
 
 TEST_CASE("--set invalid format: missing equals sign")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto stem = write_set_test_json("set_cli_no_eq", set_test_json);
   auto result = gtopt_main(MainOptions {
       .planning_files =
@@ -323,6 +345,8 @@ TEST_CASE("--set invalid format: missing equals sign")
 
 TEST_CASE("--set invalid format: empty key (leading =)")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto stem = write_set_test_json("set_cli_empty_key", set_test_json);
   auto result = gtopt_main(MainOptions {
       .planning_files =
@@ -345,6 +369,8 @@ TEST_CASE("--set invalid format: empty key (leading =)")
 
 TEST_CASE("--set unknown option path succeeds silently")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto stem = write_set_test_json("set_cli_unknown_path", set_test_json);
   auto result = gtopt_main(MainOptions {
       .planning_files =
@@ -368,6 +394,8 @@ TEST_CASE("--set unknown option path succeeds silently")
 
 TEST_CASE("--set auto-type detection: scientific notation double")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto stem = write_set_test_json("set_cli_scientific", set_test_json);
   auto result = gtopt_main(MainOptions {
       .planning_files =
@@ -389,6 +417,8 @@ TEST_CASE("--set auto-type detection: scientific notation double")
 
 TEST_CASE("--set auto-type detection: negative integer")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto stem = write_set_test_json("set_cli_neg_int", set_test_json);
   auto result = gtopt_main(MainOptions {
       .planning_files =
@@ -410,6 +440,8 @@ TEST_CASE("--set auto-type detection: negative integer")
 
 TEST_CASE("--set demand_fail_cost override in full solve")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto stem = write_set_test_json("set_cli_full_solve", set_test_json);
   const auto out_dir =
       (std::filesystem::temp_directory_path() / "set_cli_output").string();

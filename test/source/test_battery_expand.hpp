@@ -6,10 +6,10 @@
 #include <gtopt/generator.hpp>
 #include <gtopt/system.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 TEST_CASE("Battery new fields default to nullopt")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Battery battery;
 
   CHECK_FALSE(battery.bus.has_value());
@@ -20,6 +20,8 @@ TEST_CASE("Battery new fields default to nullopt")  // NOLINT
 
 TEST_CASE("Battery unified field assignment")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Battery battery;
 
   battery.uid = 1;
@@ -44,6 +46,8 @@ TEST_CASE("Battery unified field assignment")  // NOLINT
 
 TEST_CASE("System::expand_batteries with unified definition")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   System system;
   system.name = "ExpandTest";
 
@@ -124,6 +128,8 @@ TEST_CASE("System::expand_batteries with unified definition")  // NOLINT
 
 TEST_CASE("expand_batteries skips batteries without bus")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   System system;
   system.name = "SkipTest";
 
@@ -152,6 +158,8 @@ TEST_CASE("expand_batteries skips batteries without bus")  // NOLINT
 
 TEST_CASE("expand_batteries is idempotent")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   System system;
   system.name = "IdempotentTest";
 
@@ -182,6 +190,8 @@ TEST_CASE("expand_batteries is idempotent")  // NOLINT
 
 TEST_CASE("expand_batteries multiple batteries")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   System system;
   system.name = "MultiBatteryTest";
 
@@ -243,6 +253,8 @@ TEST_CASE("expand_batteries multiple batteries")  // NOLINT
 TEST_CASE(
     "expand_batteries with source_generator creates internal bus")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   System system;
   system.name = "CoupledBatteryTest";
 
@@ -317,6 +329,8 @@ TEST_CASE(
 TEST_CASE(
     "expand_batteries source_generator with existing bus is overridden")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   System system;
   system.name = "OverrideBusTest";
 
@@ -374,6 +388,8 @@ TEST_CASE(
 
 TEST_CASE("expand_batteries source_generator not found logs warning")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   System system;
   system.name = "MissingSourceGenTest";
 

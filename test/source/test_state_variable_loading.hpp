@@ -24,13 +24,13 @@
 #include <gtopt/sddp_state_io.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 // ─── 1. State variable registration in multi-phase planning ─────────────────
 
 TEST_CASE(  // NOLINT
     "State variables: reservoir efin registered for each phase")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -66,6 +66,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "State variables: efin has dependent variable linking to next phase sini")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -116,6 +118,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "State variable loading: round-trip preserves reservoir efin values")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -226,6 +230,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "State variable loading: physical_efin uses warm solution when LP unsolved")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -298,6 +304,8 @@ TEST_CASE(  // NOLINT
     "State variable loading: battery with use_state_variable=true registers "
     "efin and links across phases")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Build a 2-phase planning with a battery that has use_state_variable=true
   Array<Block> block_array;
   for (int i = 0; i < 4; ++i) {
@@ -460,6 +468,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "State variable loading: malformed CSV lines are silently skipped")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 

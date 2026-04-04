@@ -24,8 +24,6 @@
 #include <doctest/doctest.h>
 #include <gtopt/lp_debug_writer.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
 
@@ -70,18 +68,24 @@ struct TmpFile
 
 TEST_CASE("LpDebugWriter default-constructed is inactive")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const LpDebugWriter writer;
   CHECK_FALSE(writer.is_active());
 }
 
 TEST_CASE("LpDebugWriter with empty directory is inactive")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const LpDebugWriter writer("", "gzip");
   CHECK_FALSE(writer.is_active());
 }
 
 TEST_CASE("LpDebugWriter with non-empty directory is active")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const LpDebugWriter writer("/tmp/lp_dbg_active_test");
   CHECK(writer.is_active());
 }
@@ -89,6 +93,8 @@ TEST_CASE("LpDebugWriter with non-empty directory is active")  // NOLINT
 TEST_CASE(
     "LpDebugWriter compress_async no-op when compression is none")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpFile tmp("test_lp_nocompress.lp");
   {
     LpDebugWriter writer(tmp.path.parent_path().string(),
@@ -103,6 +109,8 @@ TEST_CASE(
 
 TEST_CASE("LpDebugWriter compress_async uncompressed is no-op")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpFile tmp("test_lp_uncompressed.lp");
   {
     LpDebugWriter writer(tmp.path.parent_path().string(),
@@ -117,6 +125,8 @@ TEST_CASE("LpDebugWriter compress_async uncompressed is no-op")  // NOLINT
 TEST_CASE(
     "LpDebugWriter compress_async gzip creates .gz and removes .lp")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpFile tmp("test_lp_gzip.lp");
   const auto gz = std::filesystem::path(tmp.path.string() + ".gz");
   std::filesystem::remove(gz);  // ensure clean state
@@ -136,6 +146,8 @@ TEST_CASE(
 TEST_CASE(
     "LpDebugWriter compress_async zstd creates .zst and removes .lp")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpFile tmp("test_lp_zstd.lp");
   const auto zst = std::filesystem::path(tmp.path.string() + ".zst");
   std::filesystem::remove(zst);  // ensure clean state
@@ -154,6 +166,8 @@ TEST_CASE(
 
 TEST_CASE("LpDebugWriter drain clears futures and is re-entrant")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto lp1 = make_tmp_lp("test_drain1.lp");
   const auto lp2 = make_tmp_lp("test_drain2.lp");
   const auto gz1 = std::filesystem::path(lp1.string() + ".gz");
@@ -174,6 +188,8 @@ TEST_CASE("LpDebugWriter drain clears futures and is re-entrant")  // NOLINT
 
 TEST_CASE("LpDebugWriter compress_async empty compression is no-op")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpFile tmp("test_lp_empty_codec.lp");
   {
     LpDebugWriter writer(tmp.path.parent_path().string(),
@@ -188,6 +204,8 @@ TEST_CASE("LpDebugWriter compress_async empty compression is no-op")  // NOLINT
 
 TEST_CASE("LpDebugWriter compress_async with nonexistent file")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto bogus_path =
       std::filesystem::temp_directory_path() / "nonexistent_lp_file.lp";
   std::filesystem::remove(bogus_path);  // ensure it doesn't exist
@@ -203,6 +221,8 @@ TEST_CASE("LpDebugWriter compress_async with nonexistent file")  // NOLINT
 
 TEST_CASE("LpDebugWriter compress_async zstd with nonexistent file")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto bogus_path =
       std::filesystem::temp_directory_path() / "nonexistent_zstd_file.lp";
   std::filesystem::remove(bogus_path);
@@ -218,6 +238,8 @@ TEST_CASE(
     "LpDebugWriter compress_async with unknown codec "
     "falls back")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpFile tmp("test_lp_unknown_codec.lp");
   const auto zst = std::filesystem::path(tmp.path.string() + ".zst");
   const auto gz = std::filesystem::path(tmp.path.string() + ".gz");
@@ -241,6 +263,8 @@ TEST_CASE(
 
 TEST_CASE("LpDebugWriter drain on inactive writer is safe")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   LpDebugWriter writer;
   CHECK_FALSE(writer.is_active());
   writer.drain();  // should not crash or throw
@@ -248,6 +272,8 @@ TEST_CASE("LpDebugWriter drain on inactive writer is safe")  // NOLINT
 
 TEST_CASE("LpDebugWriter multiple compress_async + drain cycle")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   constexpr int kCount = 5;
   std::vector<std::filesystem::path> lp_files;
   std::vector<std::filesystem::path> gz_files;
@@ -280,6 +306,8 @@ TEST_CASE("LpDebugWriter multiple compress_async + drain cycle")  // NOLINT
 
 TEST_CASE("LpDebugWriter compress_async zstd then gzip in sequence")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Test switching codecs between writer instances
   const TmpFile tmp1("test_lp_zstd_seq.lp");
   const TmpFile tmp2("test_lp_gzip_seq.lp");
@@ -307,6 +335,8 @@ TEST_CASE("LpDebugWriter compress_async zstd then gzip in sequence")  // NOLINT
 
 TEST_CASE("LpDebugWriter compress with lz4 codec")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpFile tmp("test_lp_lz4.lp");
   const auto lz4 = std::filesystem::path(tmp.path.string() + ".lz4");
   const auto zst = std::filesystem::path(tmp.path.string() + ".zst");
@@ -331,6 +361,8 @@ TEST_CASE("LpDebugWriter compress with lz4 codec")  // NOLINT
 
 TEST_CASE("LpDebugWriter compress with bzip2 codec")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpFile tmp("test_lp_bzip2.lp");
   const auto bz2 = std::filesystem::path(tmp.path.string() + ".bz2");
   const auto zst = std::filesystem::path(tmp.path.string() + ".zst");
@@ -355,6 +387,8 @@ TEST_CASE("LpDebugWriter compress with bzip2 codec")  // NOLINT
 
 TEST_CASE("LpDebugWriter compress with xz codec")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpFile tmp("test_lp_xz.lp");
   const auto xz = std::filesystem::path(tmp.path.string() + ".xz");
   const auto zst = std::filesystem::path(tmp.path.string() + ".zst");
@@ -380,6 +414,8 @@ TEST_CASE("LpDebugWriter compress with xz codec")  // NOLINT
 
 TEST_CASE("gzip_lp_file_inline compresses and removes original")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpFile tmp("test_gzip_inline.lp");
   const auto result = gzip_lp_file_inline(tmp.path.string());
 
@@ -392,12 +428,16 @@ TEST_CASE("gzip_lp_file_inline compresses and removes original")  // NOLINT
 
 TEST_CASE("gzip_lp_file_inline with nonexistent file returns empty")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto result = gzip_lp_file_inline("/tmp/nonexistent_gzip_inline.lp");
   CHECK(result.empty());
 }
 
 TEST_CASE("zstd_lp_file_inline compresses and removes original")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpFile tmp("test_zstd_inline.lp");
   const auto result = zstd_lp_file_inline(tmp.path.string());
 
@@ -410,12 +450,16 @@ TEST_CASE("zstd_lp_file_inline compresses and removes original")  // NOLINT
 
 TEST_CASE("zstd_lp_file_inline with nonexistent file returns empty")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto result = zstd_lp_file_inline("/tmp/nonexistent_zstd_inline.lp");
   CHECK(result.empty());
 }
 
 TEST_CASE("compress_lp_file with none returns src_path")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpFile tmp("test_compress_none.lp");
   const auto result = compress_lp_file(tmp.path.string(), "none");
   CHECK(result == tmp.path.string());
@@ -424,6 +468,8 @@ TEST_CASE("compress_lp_file with none returns src_path")  // NOLINT
 
 TEST_CASE("compress_lp_file with auto cascade")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpFile tmp("test_compress_auto.lp");
   // Empty string triggers auto-cascade
   const auto result = compress_lp_file(tmp.path.string(), "");
@@ -436,6 +482,8 @@ TEST_CASE("compress_lp_file with auto cascade")  // NOLINT
 
 TEST_CASE("compress_lp_file with explicit gzip")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpFile tmp("test_compress_gzip_direct.lp");
   const auto result = compress_lp_file(tmp.path.string(), "gzip");
 
@@ -447,6 +495,8 @@ TEST_CASE("compress_lp_file with explicit gzip")  // NOLINT
 
 TEST_CASE("compress_lp_file with explicit zstd")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpFile tmp("test_compress_zstd_direct.lp");
   const auto result = compress_lp_file(tmp.path.string(), "zstd");
 
@@ -458,6 +508,8 @@ TEST_CASE("compress_lp_file with explicit zstd")  // NOLINT
 
 TEST_CASE("compress_lp_file with unknown codec falls back")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpFile tmp("test_compress_unknown.lp");
   const auto result = compress_lp_file(tmp.path.string(), "brotli");
 
@@ -468,6 +520,8 @@ TEST_CASE("compress_lp_file with unknown codec falls back")  // NOLINT
 
 TEST_CASE("compress_lp_file with nonexistent file")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // compress_lp_file should handle gracefully
   const auto result =
       compress_lp_file("/tmp/nonexistent_compress_test.lp", "zstd");
@@ -479,12 +533,16 @@ TEST_CASE("compress_lp_file with nonexistent file")  // NOLINT
 
 TEST_CASE("LpDebugWriter inactive when directory empty")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   LpDebugWriter writer("", "", nullptr);
   CHECK_FALSE(writer.is_active());
 }
 
 TEST_CASE("LpDebugWriter active when directory set")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto tmp = std::filesystem::temp_directory_path() / "lp_debug_test";
   LpDebugWriter writer(tmp.string(), "none", nullptr);
   CHECK(writer.is_active());
@@ -493,12 +551,16 @@ TEST_CASE("LpDebugWriter active when directory set")  // NOLINT
 
 TEST_CASE("LpDebugWriter drain with no futures is safe")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   LpDebugWriter writer("", "", nullptr);
   writer.drain();  // should not throw
 }
 
 TEST_CASE("compress_lp_file with codec none returns path")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpFile tmp("test_codec_none.lp");
   const auto result = compress_lp_file(tmp.path.string(), "none");
   CHECK(result == tmp.path.string());
@@ -506,6 +568,8 @@ TEST_CASE("compress_lp_file with codec none returns path")  // NOLINT
 
 TEST_CASE("gzip_lp_file_inline compresses and removes source")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpFile tmp("test_gzip_inline.lp");
   const auto result = gzip_lp_file_inline(tmp.path.string());
   CHECK_FALSE(result.empty());
@@ -517,6 +581,8 @@ TEST_CASE("gzip_lp_file_inline compresses and removes source")  // NOLINT
 
 TEST_CASE("zstd_lp_file_inline compresses and removes source")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpFile tmp("test_zstd_inline.lp");
   const auto result = zstd_lp_file_inline(tmp.path.string());
   CHECK_FALSE(result.empty());
@@ -528,6 +594,8 @@ TEST_CASE("zstd_lp_file_inline compresses and removes source")  // NOLINT
 
 TEST_CASE("gzip_lp_file_inline with nonexistent file returns empty")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto result =
       gzip_lp_file_inline("/tmp/nonexistent_gzip_test_12345.lp");
   CHECK(result.empty());
@@ -535,6 +603,8 @@ TEST_CASE("gzip_lp_file_inline with nonexistent file returns empty")  // NOLINT
 
 TEST_CASE("zstd_lp_file_inline with nonexistent file returns empty")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto result =
       zstd_lp_file_inline("/tmp/nonexistent_zstd_test_12345.lp");
   CHECK(result.empty());

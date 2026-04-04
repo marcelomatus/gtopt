@@ -10,10 +10,10 @@
 #include <gtopt/flow_right.hpp>
 #include <gtopt/volume_right.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 TEST_CASE("FlowRight construction and default values")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const FlowRight fr;
 
   CHECK(fr.uid == Uid {unknown_uid});
@@ -28,6 +28,8 @@ TEST_CASE("FlowRight construction and default values")
 
 TEST_CASE("FlowRight attribute assignment")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   FlowRight fr;
 
   fr.uid = 100;
@@ -54,6 +56,8 @@ TEST_CASE("FlowRight attribute assignment")
 
 TEST_CASE("FlowRight with seasonal discharge schedule")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   FlowRight fr;
   fr.uid = 101;
   fr.name = "seasonal_right";
@@ -85,6 +89,8 @@ TEST_CASE("FlowRight with seasonal discharge schedule")
 
 TEST_CASE("VolumeRight construction and default values")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const VolumeRight vr;
 
   CHECK(vr.uid == Uid {unknown_uid});
@@ -112,6 +118,8 @@ TEST_CASE("VolumeRight construction and default values")
 
 TEST_CASE("VolumeRight attribute assignment")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   VolumeRight vr;
 
   vr.uid = 200;
@@ -141,12 +149,16 @@ TEST_CASE("VolumeRight attribute assignment")
 
 TEST_CASE("VolumeRight default constants")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CHECK(VolumeRight::default_flow_conversion_rate == doctest::Approx(0.0036));
   CHECK(VolumeRight::default_energy_scale == doctest::Approx(1.0));
 }
 
 TEST_CASE("VolumeRight use_state_variable defaults and explicit set")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("default is nullopt (coupled by convention)")
   {
     const VolumeRight vr;
@@ -173,6 +185,8 @@ TEST_CASE("VolumeRight use_state_variable defaults and explicit set")
 
 TEST_CASE("FlowRight with direction")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   FlowRight fr;
   fr.uid = 102;
   fr.name = "supply_flow";
@@ -185,6 +199,8 @@ TEST_CASE("FlowRight with direction")
 
 TEST_CASE("FlowRight with fmax for variable mode")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   FlowRight fr;
   fr.uid = 103;
   fr.name = "variable_right";
@@ -202,6 +218,8 @@ TEST_CASE("FlowRight with fmax for variable mode")
 
 TEST_CASE("FlowRight use_value field")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   FlowRight fr;
   fr.uid = 110;
   fr.name = "benefit_right";
@@ -237,6 +255,8 @@ TEST_CASE("FlowRight use_value field")
 
 TEST_CASE("FlowRight fail_cost as schedule")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   FlowRight fr;
   fr.uid = 112;
   fr.name = "scheduled_fail";
@@ -267,6 +287,8 @@ TEST_CASE("FlowRight fail_cost as schedule")
 
 TEST_CASE("FlowRight use_average flag")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   FlowRight fr;
   fr.uid = 105;
   fr.name = "avg_right";
@@ -283,6 +305,8 @@ TEST_CASE("FlowRight use_average flag")
 
 TEST_CASE("VolumeRight with right_reservoir and direction")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   VolumeRight vr;
   vr.uid = 201;
   vr.name = "child_vol";
@@ -299,6 +323,8 @@ TEST_CASE("VolumeRight with right_reservoir and direction")
 
 TEST_CASE("RightBoundSegment default construction")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const RightBoundSegment seg;
   CHECK(seg.volume == doctest::Approx(0.0));
   CHECK(seg.slope == doctest::Approx(0.0));
@@ -307,6 +333,8 @@ TEST_CASE("RightBoundSegment default construction")
 
 TEST_CASE("evaluate_bound_rule - Laja 4-zone cushion model")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Laja irrigation formula:
   //   Rights = 570 + 0.00*min(V,1200) + 0.40*min(max(V-1200,0),700)
   //          + 0.25*max(V-1900,0)
@@ -373,6 +401,8 @@ TEST_CASE("evaluate_bound_rule - Laja 4-zone cushion model")
 
 TEST_CASE("evaluate_bound_rule - step function (Maule style)")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Simple step function: 0 below 500, 100 above 500
   const RightBoundRule rule {
       .reservoir = Uid {1},
@@ -399,6 +429,8 @@ TEST_CASE("evaluate_bound_rule - step function (Maule style)")
 
 TEST_CASE("evaluate_bound_rule - floor clamp")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const RightBoundRule rule {
       .reservoir = Uid {1},
       .segments =
@@ -421,6 +453,8 @@ TEST_CASE("evaluate_bound_rule - floor clamp")
 
 TEST_CASE("evaluate_bound_rule - empty segments returns cap or 0")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("no cap, no segments → 0")
   {
     const RightBoundRule rule {
@@ -441,6 +475,8 @@ TEST_CASE("evaluate_bound_rule - empty segments returns cap or 0")
 
 TEST_CASE("FlowRight bound_rule field")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   FlowRight fr;
   fr.uid = 110;
   fr.name = "bounded_flow";
@@ -474,6 +510,8 @@ TEST_CASE("FlowRight bound_rule field")
 
 TEST_CASE("VolumeRight bound_rule field")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   VolumeRight vr;
   vr.uid = 210;
   vr.name = "bounded_vol";

@@ -15,10 +15,10 @@
 #include <gtopt/config_file.hpp>
 #include <gtopt/main_options.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 TEST_CASE("parse_ini_file - Basic sections and key-value pairs")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto tmp =
       std::filesystem::temp_directory_path() / "test_ini_basic.ini";
   {
@@ -49,6 +49,8 @@ TEST_CASE("parse_ini_file - Basic sections and key-value pairs")
 
 TEST_CASE("parse_ini_file - Comments and blank lines")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto tmp =
       std::filesystem::temp_directory_path() / "test_ini_comments.ini";
   {
@@ -74,6 +76,8 @@ TEST_CASE("parse_ini_file - Comments and blank lines")
 
 TEST_CASE("parse_ini_file - Whitespace trimming")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto tmp = std::filesystem::temp_directory_path() / "test_ini_trim.ini";
   {
     std::ofstream f(tmp);
@@ -93,12 +97,16 @@ TEST_CASE("parse_ini_file - Whitespace trimming")
 
 TEST_CASE("parse_ini_file - Nonexistent file returns empty")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto data = parse_ini_file("/tmp/nonexistent_gtopt_test_file.ini");
   CHECK(data.empty());
 }
 
 TEST_CASE("parse_ini_file - Empty value")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto tmp =
       std::filesystem::temp_directory_path() / "test_ini_empty.ini";
   {
@@ -119,6 +127,8 @@ TEST_CASE("parse_ini_file - Empty value")
 
 TEST_CASE("load_gtopt_config - Reads [gtopt] section via GTOPT_CONFIG")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto tmp =
       std::filesystem::temp_directory_path() / "test_gtopt_config.conf";
   {
@@ -167,6 +177,8 @@ TEST_CASE("load_gtopt_config - Reads [gtopt] section via GTOPT_CONFIG")
 
 TEST_CASE("merge_config_defaults - CLI overrides config")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   MainOptions cli_opts;
   cli_opts.solver = "clp";
   cli_opts.threads = 2;
@@ -195,6 +207,8 @@ TEST_CASE("merge_config_defaults - CLI overrides config")
 
 TEST_CASE("merge_config_defaults - Empty config changes nothing")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   MainOptions cli_opts;
   cli_opts.solver = "clp";
 

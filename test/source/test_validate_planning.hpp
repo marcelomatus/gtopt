@@ -2,10 +2,10 @@
 #include <doctest/doctest.h>
 #include <gtopt/validate_planning.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
+
+using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
 /// Build a minimal valid Planning with one bus, one block, one stage.
 [[nodiscard]] Planning make_minimal_planning()
@@ -34,6 +34,8 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 
 TEST_CASE("validate_planning - minimal valid planning passes")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto p = make_minimal_planning();
   auto result = validate_planning(p);
   CHECK(result.ok());
@@ -43,6 +45,8 @@ TEST_CASE("validate_planning - minimal valid planning passes")  // NOLINT
 
 TEST_CASE("validate_planning - empty bus_array is an error")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto p = make_minimal_planning();
   p.system.bus_array.clear();
   auto result = validate_planning(p);
@@ -52,6 +56,8 @@ TEST_CASE("validate_planning - empty bus_array is an error")  // NOLINT
 
 TEST_CASE("validate_planning - empty block_array is an error")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto p = make_minimal_planning();
   p.simulation.block_array.clear();
   auto result = validate_planning(p);
@@ -61,6 +67,8 @@ TEST_CASE("validate_planning - empty block_array is an error")  // NOLINT
 
 TEST_CASE("validate_planning - empty stage_array is an error")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto p = make_minimal_planning();
   p.simulation.stage_array.clear();
   auto result = validate_planning(p);
@@ -71,6 +79,8 @@ TEST_CASE("validate_planning - empty stage_array is an error")  // NOLINT
 TEST_CASE(
     "validate_planning - all empty arrays reports multiple errors")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Planning p;
   auto result = validate_planning(p);
   CHECK_FALSE(result.ok());
@@ -79,6 +89,8 @@ TEST_CASE(
 
 TEST_CASE("validate_planning - block duration <= 0 is an error")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto p = make_minimal_planning();
   p.simulation.block_array[0].duration = 0.0;
   auto result = validate_planning(p);
@@ -95,6 +107,8 @@ TEST_CASE("validate_planning - block duration <= 0 is an error")  // NOLINT
 
 TEST_CASE("validate_planning - stage count_block == 0 is an error")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto p = make_minimal_planning();
   p.simulation.stage_array[0].count_block = 0;
   auto result = validate_planning(p);
@@ -104,6 +118,8 @@ TEST_CASE("validate_planning - stage count_block == 0 is an error")  // NOLINT
 TEST_CASE(
     "validate_planning - generator negative capacity is a warning")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto p = make_minimal_planning();
   Generator gen;
   gen.uid = Uid {1};
@@ -122,6 +138,8 @@ TEST_CASE(
 TEST_CASE(
     "validate_planning - generator with valid capacity has no warnings")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto p = make_minimal_planning();
   Generator gen;
   gen.uid = Uid {1};
@@ -138,6 +156,8 @@ TEST_CASE(
 
 TEST_CASE("validate_planning - generator referencing invalid bus")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto p = make_minimal_planning();
   Generator gen;
   gen.uid = Uid {1};
@@ -151,6 +171,8 @@ TEST_CASE("validate_planning - generator referencing invalid bus")  // NOLINT
 
 TEST_CASE("validate_planning - demand referencing invalid bus")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto p = make_minimal_planning();
   Demand dem;
   dem.uid = Uid {1};
@@ -164,6 +186,8 @@ TEST_CASE("validate_planning - demand referencing invalid bus")  // NOLINT
 TEST_CASE(
     "validate_planning - line referencing invalid bus_a and bus_b")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto p = make_minimal_planning();
   Line line;
   line.uid = Uid {1};
@@ -179,6 +203,8 @@ TEST_CASE(
 
 TEST_CASE("validate_planning - line with valid bus references")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto p = make_minimal_planning();
   Line line;
   line.uid = Uid {1};
@@ -192,6 +218,8 @@ TEST_CASE("validate_planning - line with valid bus references")  // NOLINT
 
 TEST_CASE("validate_planning - generator referenced by name (valid)")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto p = make_minimal_planning();
   Generator gen;
   gen.uid = Uid {1};
@@ -205,6 +233,8 @@ TEST_CASE("validate_planning - generator referenced by name (valid)")  // NOLINT
 TEST_CASE(
     "validate_planning - generator referenced by name (invalid)")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto p = make_minimal_planning();
   Generator gen;
   gen.uid = Uid {1};
@@ -217,6 +247,8 @@ TEST_CASE(
 
 TEST_CASE("validate_planning - converter with invalid refs")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto p = make_minimal_planning();
 
   // Add a battery, generator, demand for valid refs
@@ -293,6 +325,8 @@ TEST_CASE("validate_planning - converter with invalid refs")  // NOLINT
 
 TEST_CASE("validate_planning - hydro element refs")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto p = make_minimal_planning();
 
   // Add junctions
@@ -377,6 +411,8 @@ TEST_CASE("validate_planning - hydro element refs")  // NOLINT
 
 TEST_CASE("validate_planning - turbine refs")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto p = make_minimal_planning();
 
   // Add generator and waterway/junction for valid refs
@@ -442,6 +478,8 @@ TEST_CASE("validate_planning - turbine refs")  // NOLINT
 
 TEST_CASE("ValidationResult - ok() semantics")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   ValidationResult r;
   CHECK(r.ok());
 
@@ -459,6 +497,8 @@ TEST_CASE("ValidationResult - ok() semantics")  // NOLINT
 TEST_CASE(
     "validate_planning - scenario probabilities summing to 1.0")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto p = make_minimal_planning();
   p.simulation.scenario_array = {
       {
@@ -478,6 +518,8 @@ TEST_CASE(
 TEST_CASE(  // NOLINT
     "validate_planning - scenario probabilities not summing to 1.0 warns")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto p = make_minimal_planning();
   p.simulation.scenario_array = {
       {
@@ -520,6 +562,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "validate_planning - per-scene probability rescaling with scenes")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto p = make_minimal_planning();
   p.simulation.scenario_array = {
       {
@@ -558,6 +602,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "validate_planning - scene scenario range exceeds array is an error")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto p = make_minimal_planning();
   p.simulation.scenario_array = {
       {

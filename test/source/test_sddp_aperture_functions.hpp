@@ -11,16 +11,18 @@
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/sddp_aperture.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
+
+using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
 // ─── build_effective_apertures ──────────────────────────────────────────────
 
 TEST_CASE(
     "build_effective_apertures — empty phase_apertures uses all active")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const std::vector<Aperture> defs {
       {
           .uid = Uid {1},
@@ -49,6 +51,8 @@ TEST_CASE(
 TEST_CASE(
     "build_effective_apertures — inactive apertures are excluded")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const std::vector<Aperture> defs {
       {
           .uid = Uid {1},
@@ -69,6 +73,8 @@ TEST_CASE(
 TEST_CASE(
     "build_effective_apertures — deduplicates phase_apertures with counts")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const std::vector<Aperture> defs {
       {
           .uid = Uid {1},
@@ -107,6 +113,8 @@ TEST_CASE(
 TEST_CASE(
     "build_effective_apertures — preserves first-appearance order")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const std::vector<Aperture> defs {
       {
           .uid = Uid {1},
@@ -139,6 +147,8 @@ TEST_CASE(
 TEST_CASE(
     "build_effective_apertures — unknown UIDs in phase_apertures are skipped")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const std::vector<Aperture> defs {
       {
           .uid = Uid {1},
@@ -160,6 +170,8 @@ TEST_CASE(
 TEST_CASE(
     "build_effective_apertures — empty defs yields empty result")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const std::vector<Aperture> defs {};
   const auto result = build_effective_apertures(defs, {});
   CHECK(result.empty());
@@ -168,6 +180,8 @@ TEST_CASE(
 TEST_CASE(
     "build_effective_apertures — inactive apertures in phase list are skipped")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const std::vector<Aperture> defs {
       {
           .uid = Uid {1},
@@ -195,6 +209,8 @@ TEST_CASE(
 TEST_CASE(
     "build_synthetic_apertures — creates N apertures with equal probability")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const std::vector<ScenarioLP> scenarios {
       ScenarioLP {
           Scenario {
@@ -238,6 +254,8 @@ TEST_CASE(
 
 TEST_CASE("build_synthetic_apertures — caps at scenario count")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const std::vector<ScenarioLP> scenarios {
       ScenarioLP {
           Scenario {
@@ -262,6 +280,8 @@ TEST_CASE("build_synthetic_apertures — caps at scenario count")  // NOLINT
 TEST_CASE(
     "build_synthetic_apertures — single aperture gets probability 1.0")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const std::vector<ScenarioLP> scenarios {
       ScenarioLP {
           Scenario {
@@ -288,6 +308,8 @@ TEST_CASE(
 
 TEST_CASE("ApertureValueFn — lambda returning value")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const ApertureValueFn fn = [](StageUid /*st*/,
                                 BlockUid /*bl*/) -> std::optional<double>
   { return 42.0; };
@@ -299,6 +321,8 @@ TEST_CASE("ApertureValueFn — lambda returning value")  // NOLINT
 
 TEST_CASE("ApertureValueFn — lambda returning nullopt")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const ApertureValueFn fn = [](StageUid /*st*/,
                                 BlockUid /*bl*/) -> std::optional<double>
   { return std::nullopt; };
@@ -309,6 +333,8 @@ TEST_CASE("ApertureValueFn — lambda returning nullopt")  // NOLINT
 
 TEST_CASE("ApertureValueFn — cache-backed lambda")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Simulate a cache lookup pattern
   std::map<std::pair<int, int>, double> cache {
       {
@@ -346,6 +372,8 @@ TEST_CASE("ApertureValueFn — cache-backed lambda")  // NOLINT
 
 TEST_CASE("ApertureCutResult default construction")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const ApertureCutResult result;
   CHECK(result.weight == doctest::Approx(0.0));
   CHECK_FALSE(result.feasible);
@@ -360,6 +388,8 @@ TEST_CASE("ApertureCutResult default construction")  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod aperture with empty aperture_array falls back to Benders")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_2phase_2scenario_planning();
   PlanningLP plp(std::move(planning));
 
@@ -384,6 +414,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod aperture with synthetic apertures converges")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_2phase_2scenario_planning();
   PlanningLP plp(std::move(planning));
 
@@ -408,6 +440,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod aperture timeout triggers fallback")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_2phase_2scenario_planning();
   PlanningLP plp(std::move(planning));
 
@@ -428,6 +462,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod aperture on single-scenario problem uses Benders")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP plp(std::move(planning));
 

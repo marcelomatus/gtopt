@@ -12,14 +12,14 @@
 #include <doctest/doctest.h>
 #include <gtopt/constraint_parser.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 TEST_SUITE("ConstraintParser")
 {
   // ── Basic constraints ──────────────────────────────────────────────────
 
   TEST_CASE("Parse simple generator constraint")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(generator("G1").generation <= 100)");
 
     CHECK(expr.constraint_type == ConstraintType::LESS_EQUAL);
@@ -35,6 +35,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse two-element sum constraint")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(generator("TORO").generation + generator("uid:23").generation <= 300, for(stage in {4,5,6}, block in 1..30))");
 
@@ -57,6 +59,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse constraint with coefficients")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(2.5 * generator("G1").generation - 1.5 * demand("D1").load >= 50)");
 
@@ -76,6 +80,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse equality constraint")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(generator("G1").generation = 100)");
 
     CHECK(expr.constraint_type == ConstraintType::EQUAL);
@@ -90,6 +96,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse constraint with for clause - explicit set")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(generator("G1").generation <= 100, for(stage in {1,2,3}))");
 
@@ -106,6 +114,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse constraint with for clause - all keyword")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(generator("G1").generation <= 100, for(stage in all, block in all))");
 
@@ -116,6 +126,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse constraint with scenario domain")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(generator("G1").generation <= 100, for(scenario in {1,2}))");
 
@@ -127,6 +139,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse for clause with = in for clause")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(generator("G1").generation <= 100, for(stage = 1, block = 5))");
 
@@ -138,6 +152,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse for clause with all three dimensions")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(generator("G1").generation <= 100, for(scenario in {1,2}, stage in 3..5, block in all))");
 
@@ -152,6 +168,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse for clause with mixed range and values in braces")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(generator("G1").generation <= 100, for(block in {1, 3..5, 8, 10..12}))");
 
@@ -168,6 +186,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse range constraint")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr =
         ConstraintParser::parse(R"(10 <= generator("G1").generation <= 200)");
 
@@ -182,6 +202,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse GEQ range constraint")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr =
         ConstraintParser::parse(R"(200 >= generator("G1").generation >= 10)");
 
@@ -194,6 +216,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse line flow constraint")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(line("L1_2").flow <= 300)");
 
     REQUIRE(expr.terms.size() == 1);
@@ -206,6 +230,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse battery energy constraint")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(battery("BESS1").energy <= 500)");
 
     REQUIRE(expr.terms.size() == 1);
@@ -218,6 +244,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse demand fail constraint")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(demand("D1").fail <= 10)");
 
     REQUIRE(expr.terms.size() == 1);
@@ -229,6 +257,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse demand load and fail in same expression")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(demand("D1").load + demand("D1").fail = 100)");
 
@@ -246,6 +276,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse mixed name and uid references")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(generator("TORO").generation + demand("uid:10").load <= 500)");
 
@@ -263,6 +295,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse three-element sum constraint")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(generator("G1").generation + generator("G2").generation + generator("G3").generation <= 500)");
 
@@ -280,6 +314,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse mixed-type multi-element expression")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(2 * generator("G1").generation - demand("D1").load + line("L1").flow >= 0)");
 
@@ -303,6 +339,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse with variables on both sides of >=")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(generator("G1").generation >= demand("D1").load)");
 
@@ -320,6 +358,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse constraint with constant on both sides")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr =
         ConstraintParser::parse(R"(generator("G1").generation + 10 <= 50)");
 
@@ -336,6 +376,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse with extra whitespace")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(   generator( "G1" ) . generation   <=   100   )");
 
@@ -349,6 +391,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse with no whitespace")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(generator("G1").generation<=100)");
 
     CHECK(expr.constraint_type == ConstraintType::LESS_EQUAL);
@@ -362,6 +406,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse with named constraint")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse("my_limit",
                                         R"(generator("G1").generation <= 100)");
 
@@ -372,12 +418,16 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Error: empty expression")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse("")),
                     std::invalid_argument);
   }
 
   TEST_CASE("Error: missing constraint operator")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
                         R"(generator("G1").generation 100)")),
                     std::invalid_argument);
@@ -385,6 +435,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Error: invalid element type")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
                         R"(foo("G1").generation <= 100)")),
                     std::invalid_argument);
@@ -392,6 +444,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Error: unterminated string")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
                         R"(generator("G1).generation <= 100)")),
                     std::invalid_argument);
@@ -399,6 +453,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Error: invalid for clause dimension")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS(
         static_cast<void>(ConstraintParser::parse(
             R"(generator("G1").generation <= 100, for(week in {1}))")),
@@ -407,6 +463,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Error: missing attribute")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS(
         static_cast<void>(ConstraintParser::parse(R"(generator("G1") <= 100)")),
         std::invalid_argument);
@@ -414,6 +472,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Error: number after star is not element type")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS(
         static_cast<void>(ConstraintParser::parse(R"(2 * 3 <= 100)")),
         std::invalid_argument);
@@ -423,6 +483,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse generator with bare numeric UID")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(generator(3).generation <= 200)");
 
     CHECK(expr.constraint_type == ConstraintType::LESS_EQUAL);
@@ -437,6 +499,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse demand with bare numeric UID")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(demand(7).load >= 50)");
 
     CHECK(expr.constraint_type == ConstraintType::GREATER_EQUAL);
@@ -451,6 +515,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse mixed name and numeric UID references")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(generator("G1").generation + generator(5).generation <= 300)");
 
@@ -465,6 +531,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse coefficient with numeric UID")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr =
         ConstraintParser::parse(R"(2.5 * generator(1).generation <= 100)");
 
@@ -479,6 +547,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse converter element")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(converter("CV1").charge <= 100)");
 
     REQUIRE(expr.terms.size() == 1);
@@ -491,6 +561,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse reservoir element")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(reservoir("RES1").volume >= 1000)");
 
     REQUIRE(expr.terms.size() == 1);
@@ -503,6 +575,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse bus element")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(bus("B1").theta <= 3.14)");
 
     REQUIRE(expr.terms.size() == 1);
@@ -515,6 +589,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse waterway element")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(waterway(2).flow <= 500)");
 
     REQUIRE(expr.terms.size() == 1);
@@ -527,6 +603,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse turbine element")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(turbine("T1").generation <= 80)");
 
     REQUIRE(expr.terms.size() == 1);
@@ -541,6 +619,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse junction drain element")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(junction("J1").drain <= 1000)");
 
     REQUIRE(expr.terms.size() == 1);
@@ -553,6 +633,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse flow discharge element")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(flow("F1").discharge >= 10)");
 
     REQUIRE(expr.terms.size() == 1);
@@ -565,6 +647,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse flow element with numeric UID")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(flow(3).flow <= 500)");
 
     REQUIRE(expr.terms.size() == 1);
@@ -577,6 +661,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse seepage element")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(seepage("FIL1").flow <= 200)");
 
     REQUIRE(expr.terms.size() == 1);
@@ -589,6 +675,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse reserve_provision element")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(reserve_provision("RP1").up <= 50)");
 
     REQUIRE(expr.terms.size() == 1);
@@ -601,6 +689,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse reserve_zone element")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(reserve_zone("RZ1").dn >= 10)");
 
     REQUIRE(expr.terms.size() == 1);
@@ -613,6 +703,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse cross-element hydro constraint")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(waterway("WW1").flow + junction("J1").drain <= 500)");
 
@@ -629,6 +721,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse sum over all flows")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(sum(flow(all).flow) <= 1000)");
 
     REQUIRE(expr.terms.size() == 1);
@@ -641,6 +735,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse sum over explicit junctions")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr =
         ConstraintParser::parse(R"(sum(junction("J1","J2").drain) <= 500)");
 
@@ -659,6 +755,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse line with flowp attribute")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(line("L1").flowp <= 150)");
 
     REQUIRE(expr.terms[0].element.has_value());
@@ -669,6 +767,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse line with lossp attribute")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(line("L1").lossp <= 10)");
 
     REQUIRE(expr.terms[0].element.has_value());
@@ -679,6 +779,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse line with lossn attribute")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(line("L1").lossn <= 10)");
 
     REQUIRE(expr.terms[0].element.has_value());
@@ -689,6 +791,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse battery with charge and discharge attributes")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(battery("B1").charge + battery("B1").discharge <= 100)");
 
@@ -705,6 +809,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse sum with explicit element list")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(sum(generator("G1","G2","G3").generation) <= 500)");
 
@@ -726,6 +832,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse sum over all generators")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr =
         ConstraintParser::parse(R"(sum(generator(all).generation) <= 1000)");
 
@@ -740,6 +848,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse sum with coefficient")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr =
         ConstraintParser::parse(R"(0.5 * sum(demand("D1","D2").load) <= 200)");
 
@@ -754,6 +864,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse sum with numeric UIDs")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr =
         ConstraintParser::parse(R"(sum(generator(1, 2, 3).generation) <= 500)");
 
@@ -768,6 +880,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse sum with mixed name and numeric UIDs")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(sum(generator("G1", 2, "uid:3").generation) <= 500)");
 
@@ -782,6 +896,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse sum plus single element")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(sum(generator("G1","G2").generation) + demand("D1").load <= 1000)");
 
@@ -796,6 +912,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse sum subtraction")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(sum(generator(all).generation) - sum(demand(all).load) = 0)");
 
@@ -809,6 +927,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse sum with domain clause")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(sum(generator(all).generation) <= 500, for(block in 1..12))");
 
@@ -826,6 +946,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse expression with hash comment")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         "generator(\"G1\").generation <= 100 # limit gen output");
 
@@ -839,6 +961,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse expression with double-slash comment")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         "generator(\"G1\").generation <= 100 // limit gen output");
 
@@ -848,6 +972,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse multiline expression with comments")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         "# Limit total generation\n"
         "generator(\"G1\").generation  # first gen\n"
@@ -863,6 +989,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse cross-element constraint with converter and battery")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(converter("CV1").discharge - battery("B1").energy <= 0)");
 
@@ -881,6 +1009,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse range constraint with numeric UID")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr =
         ConstraintParser::parse(R"(50 <= generator(1).generation <= 250)");
 
@@ -899,6 +1029,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Single-quote element id is accepted")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     // generator('G1') must parse identically to generator("G1")
     auto expr = ConstraintParser::parse(R"(generator('G1').generation <= 100)");
 
@@ -914,6 +1046,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Mixed single- and double-quote element ids")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(generator('G1').generation + generator("G2").generation <= 300)");
 
@@ -928,6 +1062,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Single-quote uid: reference")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr =
         ConstraintParser::parse(R"(generator('uid:5').generation <= 200)");
 
@@ -941,6 +1077,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("sum(all, type=) parses type_filter")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(sum(generator(all, type="hydro").generation) <= 500)");
 
@@ -958,6 +1096,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("sum(all) without type_filter has nullopt type_filter")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr =
         ConstraintParser::parse(R"(sum(generator(all).generation) <= 1000)");
 
@@ -970,6 +1110,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("sum(all, type=) with single-quote type value")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(sum(demand(all, type='industrial').load) >= 100)");
 
@@ -987,6 +1129,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse battery spill attribute")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(battery("B1").spill <= 10)");
 
     REQUIRE(expr.terms.size() == 1);
@@ -999,6 +1143,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse battery drain alias")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(battery("B1").drain <= 5)");
 
     REQUIRE(expr.terms.size() == 1);
@@ -1010,6 +1156,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse reservoir spill attribute")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(reservoir("RES1").spill <= 100)");
 
     REQUIRE(expr.terms.size() == 1);
@@ -1022,6 +1170,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse reservoir drain alias")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(R"(reservoir("RES1").drain <= 50)");
 
     REQUIRE(expr.terms.size() == 1);
@@ -1033,6 +1183,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse reservoir extraction attribute")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr =
         ConstraintParser::parse(R"(reservoir("RES1").extraction <= 200)");
 
@@ -1046,6 +1198,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse cross-element with reservoir extraction and battery spill")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr = ConstraintParser::parse(
         R"(reservoir("R1").extraction + battery("B1").spill <= 300)");
 
@@ -1064,6 +1218,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Error: unexpected character in expression")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
                         R"(generator("G1").generation @ 100)")),
                     std::invalid_argument);
@@ -1071,6 +1227,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Error: range constraint with non-constant lower bound")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS(
         static_cast<void>(ConstraintParser::parse(
             R"(generator("G1").generation <= generator("G2").generation <= 100)")),
@@ -1079,6 +1237,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Error: range constraint with non-constant upper bound")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS(
         static_cast<void>(ConstraintParser::parse(
             R"(10 <= generator("G1").generation <= demand("D1").load)")),
@@ -1087,6 +1247,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Error: missing 'in' or '=' after dimension in for clause")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
                         R"(generator("G1").generation <= 100, for(stage 1))")),
                     std::invalid_argument);
@@ -1094,6 +1256,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Error: non-element type after comma in sum(all,...)")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
                         R"(sum(generator(all, foo).generation) <= 100)")),
                     std::invalid_argument);
@@ -1101,6 +1265,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Error: non-string type value in sum(all, type=)")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
                         R"(sum(generator(all, type=123).generation) <= 100)")),
                     std::invalid_argument);
@@ -1108,6 +1274,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Error: unexpected token in sum element list")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
                         R"(sum(generator(<=).generation) <= 100)")),
                     std::invalid_argument);
@@ -1115,6 +1283,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Error: non-element type in sum()")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
                         R"(sum(foo("G1").generation) <= 100)")),
                     std::invalid_argument);
@@ -1122,6 +1292,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Error: non-ident dimension in for clause")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS(
         static_cast<void>(ConstraintParser::parse(
             R"(generator("G1").generation <= 100, for(123 in all))")),
@@ -1130,6 +1302,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Lexer peek does not consume token")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     // Verifying peek() by parsing a valid expression where peek is exercised
     // This expression triggers the single-value parsing path (no braces)
     auto expr = ConstraintParser::parse(
@@ -1142,6 +1316,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse for clause without comma separator")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     // 'for' directly after expression (no comma)
     auto expr = ConstraintParser::parse(
         R"(generator("G1").generation <= 100 for(stage in 1..3))");
@@ -1152,6 +1328,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse with escape character in string literal")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr =
         ConstraintParser::parse(R"(generator("G\"1").generation <= 100)");
     REQUIRE(expr.terms.size() == 1);
@@ -1162,6 +1340,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parse with leading plus sign")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     auto expr =
         ConstraintParser::parse(R"(+generator("G1").generation <= 100)");
     CHECK(expr.constraint_type == ConstraintType::LESS_EQUAL);
@@ -1171,6 +1351,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Error: bad element id type (not string or number)")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
                         R"(generator(<=).generation <= 100)")),
                     std::invalid_argument);
@@ -1178,6 +1360,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Error: missing attribute after dot")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS(static_cast<void>(
                         ConstraintParser::parse(R"(generator("G1"). <= 100)")),
                     std::invalid_argument);
@@ -1185,6 +1369,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Error: missing attribute after dot in sum")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
                         R"(sum(generator("G1"). ) <= 100)")),
                     std::invalid_argument);
@@ -1192,6 +1378,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Error: expected number after .. in index set")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS(
         static_cast<void>(ConstraintParser::parse(
             R"(generator("G1").generation <= 100, for(block in 1..foo))")),
@@ -1200,6 +1388,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Error: expected number after .. in braced index set")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS(
         static_cast<void>(ConstraintParser::parse(
             R"(generator("G1").generation <= 100, for(block in {1..foo}))")),
@@ -1208,6 +1398,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Error: non-number in braced index set")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS(
         static_cast<void>(ConstraintParser::parse(
             R"(generator("G1").generation <= 100, for(block in {foo}))")),
@@ -1216,6 +1408,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Error: invalid index set starting token")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     CHECK_THROWS_AS(
         static_cast<void>(ConstraintParser::parse(
             R"(generator("G1").generation <= 100, for(block in <=))")),
@@ -1226,6 +1420,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Bare parameter name on RHS")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     const auto expr = ConstraintParser::parse(
         "param_rhs", R"(generator("G1").generation <= my_limit)");
 
@@ -1252,6 +1448,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parameter name with coefficient")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     const auto expr = ConstraintParser::parse(
         "param_coeff", R"(generator("G1").generation <= 2 * scale_factor)");
 
@@ -1267,6 +1465,8 @@ TEST_SUITE("ConstraintParser")
 
   TEST_CASE("Parameter name on LHS")
   {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
     const auto expr = ConstraintParser::parse(
         "param_lhs", R"(generator("G1").generation + offset <= 100)");
 

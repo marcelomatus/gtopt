@@ -29,10 +29,10 @@
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/stage_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
+
+using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
 // ---------------------------------------------------------------
 // Helper: IEEE 4-bus JSON template with replaceable scale values
@@ -116,6 +116,8 @@ auto solve_ieee4b(double scale_obj,
 
 TEST_CASE("scale_objective — LP objective scales inversely")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Physical cost = 250 MW × 20 $/MWh = 5000 $
   // LP obj = 5000 / scale_objective
   constexpr double physical_cost = 250.0 * 20.0;
@@ -141,6 +143,8 @@ TEST_CASE("scale_objective — LP objective scales inversely")  // NOLINT
 TEST_CASE(  // NOLINT
     "scale_theta — Kirchhoff coefficients scale with theta")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Convention: physical = LP × scale_theta, LP = physical / scale_theta.
   // Theta bounds: ±2π / scale_theta.
   // Smaller scale_theta → larger LP bounds → scaled-up theta.
@@ -195,6 +199,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "scale_theta — different values produce different kappa")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   constexpr double scale_obj = 10'000.0;
 
   // scale_theta=1.0 → theta bounds ≈ ±6.28 (no scaling)
@@ -230,6 +236,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "scale_objective — appropriate scaling reduces kappa")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   constexpr double scale_theta = 0.0001;
 
   auto [obj_1, kappa_1] = solve_ieee4b(1.0, scale_theta);
@@ -249,6 +257,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "CostHelper — cost_factor inversely proportional to scale_objective")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   for (const auto scale : {1.0, 1'000.0, 10'000'000.0}) {
     PlanningOptions opt;
     opt.scale_objective = scale;
@@ -282,6 +292,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "CostHelper — inverse cost factors scale with scale_objective")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   for (const auto scale : {1.0, 1'000.0, 10'000'000.0}) {
     PlanningOptions opt;
     opt.scale_objective = scale;
@@ -322,6 +334,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "VariableScale — auto-populated from scale_theta and scale_alpha")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("default options inject Bus.theta and Sddp.alpha")
   {
     const PlanningOptionsLP lp_opts {};
@@ -380,6 +394,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "PlanningOptionsLP — defaults match PLP scale values")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const PlanningOptions empty_opts {};
   const PlanningOptionsLP lp_opts {empty_opts};
 

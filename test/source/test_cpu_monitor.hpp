@@ -5,10 +5,10 @@
 #include <doctest/doctest.h>
 #include <gtopt/cpu_monitor.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 TEST_CASE("CPUMonitor default construction")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const CPUMonitor mon;
 
   SUBCASE("initial load is zero")
@@ -24,6 +24,8 @@ TEST_CASE("CPUMonitor default construction")  // NOLINT
 
 TEST_CASE("CPUMonitor set_interval")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CPUMonitor mon;
   mon.set_interval(std::chrono::milliseconds(50));
   CHECK(mon.get_interval() == std::chrono::milliseconds(50));
@@ -31,6 +33,8 @@ TEST_CASE("CPUMonitor set_interval")  // NOLINT
 
 TEST_CASE("CPUMonitor get_system_cpu_usage")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("returns a value between 0 and 100 or the fallback")
   {
     const auto usage = CPUMonitor::get_system_cpu_usage(42.0);
@@ -62,6 +66,8 @@ TEST_CASE("CPUMonitor get_system_cpu_usage")  // NOLINT
 
 TEST_CASE("CPUMonitor start and stop")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CPUMonitor mon;
   mon.set_interval(std::chrono::milliseconds(10));
 

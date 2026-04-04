@@ -8,20 +8,22 @@
 #include <doctest/doctest.h>
 #include <gtopt/sddp_clone_pool.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 // ---------------------------------------------------------------------------
 // SDDPClonePool basic construction
 // ---------------------------------------------------------------------------
 
 TEST_CASE("SDDPClonePool default constructed is empty")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const SDDPClonePool pool;
   CHECK_FALSE(pool.is_allocated());
 }
 
 TEST_CASE("SDDPClonePool allocate marks pool as allocated")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SDDPClonePool pool;
   pool.allocate(2, 3);
   CHECK(pool.is_allocated());
@@ -29,6 +31,8 @@ TEST_CASE("SDDPClonePool allocate marks pool as allocated")  // NOLINT
 
 TEST_CASE("SDDPClonePool get_ptr returns nullptr when not allocated")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SDDPClonePool pool;
 
   auto planning = make_3phase_hydro_planning();
@@ -39,6 +43,8 @@ TEST_CASE("SDDPClonePool get_ptr returns nullptr when not allocated")  // NOLINT
 
 TEST_CASE("SDDPClonePool get_or_create returns valid clone")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP plp(planning);
 
@@ -65,6 +71,8 @@ TEST_CASE("SDDPClonePool get_or_create returns valid clone")  // NOLINT
 
 TEST_CASE("SDDPClonePool get_or_create reuses clone on second call")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP plp(planning);
 
@@ -93,6 +101,8 @@ TEST_CASE("SDDPClonePool get_or_create reuses clone on second call")  // NOLINT
 TEST_CASE(
     "SDDPClonePool different phases produce independent clones")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP plp(planning);
 
@@ -121,6 +131,8 @@ TEST_CASE(
 
 TEST_CASE("SDDPClonePool get_ptr returns non-null when allocated")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP plp(planning);
 

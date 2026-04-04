@@ -12,12 +12,12 @@
 #include <doctest/doctest.h>
 #include <gtopt/sddp_pool.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 // ─── SDDPTaskKey and constant tests ──────────────────────────────────────────
 
 TEST_CASE("SDDPTaskKey type and constants")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("SDDPTaskKey is a 4-tuple of int")
   {
     static_assert(std::same_as<SDDPTaskKey, std::tuple<int, int, int, int>>);
@@ -54,6 +54,8 @@ TEST_CASE("SDDPTaskKey type and constants")  // NOLINT
 
 TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   using STask = Task<void, SDDPTaskKey, std::less<>>;
   using SReq = BasicTaskRequirements<SDDPTaskKey>;
 
@@ -158,6 +160,8 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
 
 TEST_CASE("SDDPWorkPool type traits")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("key_type is SDDPTaskKey")
   {
     static_assert(std::same_as<SDDPWorkPool::key_type, SDDPTaskKey>);
@@ -176,6 +180,8 @@ TEST_CASE("SDDPWorkPool type traits")  // NOLINT
 
 TEST_CASE("SDDPWorkPool submit and execute")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("submit task with SDDP tuple key")
   {
     SDDPWorkPool pool;
@@ -295,6 +301,8 @@ TEST_CASE("SDDPWorkPool submit and execute")  // NOLINT
 
 TEST_CASE("make_sddp_work_pool factory")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("creates and starts SDDPWorkPool")
   {
     auto pool = make_sddp_work_pool(0.5);

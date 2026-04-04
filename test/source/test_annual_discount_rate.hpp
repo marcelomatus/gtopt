@@ -11,12 +11,12 @@
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/simulation.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 // --- Struct-level tests ---
 
 TEST_CASE("Simulation annual_discount_rate - struct defaults")
 {  // NOLINT
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("default-constructed Simulation has nullopt")
   {
     const Simulation sim {};
@@ -36,6 +36,8 @@ TEST_CASE("Simulation annual_discount_rate - struct defaults")
 
 TEST_CASE("Simulation annual_discount_rate - merge behavior")
 {  // NOLINT
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("merge overwrites nullopt with value")
   {
     Simulation base {};
@@ -79,6 +81,8 @@ TEST_CASE("Simulation annual_discount_rate - merge behavior")
 
 TEST_CASE("annual_discount_rate - PlanningOptionsLP fallback chain")
 {  // NOLINT
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("default PlanningOptionsLP returns 0.0")
   {
     const PlanningOptionsLP opts {};

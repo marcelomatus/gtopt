@@ -15,10 +15,10 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 TEST_CASE("Simulation - Constructor initialization")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   using Uid = gtopt::Uid;
 
   // Create arrays for system components
@@ -122,6 +122,8 @@ TEST_CASE("Simulation - Basic LP run without solving")
 
 TEST_CASE("SimulationLP - empty phase_array falls back to default Phase")
 {  // NOLINT
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Regression test: when JSON provides "phase_array": [] the Simulation
   // member is empty, overriding the struct default {Phase{}}.
   // SimulationLP must still produce exactly one active phase.
@@ -144,6 +146,8 @@ TEST_CASE("SimulationLP - empty phase_array falls back to default Phase")
 
 TEST_CASE("SimulationLP - empty scene_array falls back to default Scene")
 {  // NOLINT
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Regression test: when JSON provides "scene_array": [] the Simulation
   // member is empty, overriding the struct default {Scene{}}.
   // SimulationLP must still produce exactly one active scene.
@@ -168,6 +172,8 @@ TEST_CASE(
     "SimulationLP - both phase_array and scene_array empty fall back to "
     "defaults")
 {  // NOLINT
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const PlanningOptionsLP options_lp({});
 
   const Simulation simulation {
@@ -187,6 +193,8 @@ TEST_CASE(
 TEST_CASE(
     "PlanningLP - resolves correctly with empty phase_array and scene_array")
 {  // NOLINT
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Verifies the full solve pipeline works when phase_array/scene_array are
   // empty (as can happen via direct JSON deserialization without merge).
 
@@ -247,6 +255,8 @@ TEST_CASE(
     "PlanningLP - JSON with empty phase_array and scene_array resolves "
     "correctly")
 {  // NOLINT
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Verifies that a JSON file explicitly containing empty phase_array and
   // scene_array does not break the solver; the fallback defaults are used.
   const Planning planning =

@@ -9,13 +9,15 @@
 #include <doctest/doctest.h>
 #include <gtopt/aperture_data_cache.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
 
+using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
 TEST_CASE("ApertureDataCache multi-stage multi-block lookup")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpDir tmp("test_aperture_cache_multistage");
 
   // 3 stages × 2 blocks × 2 scenarios
@@ -89,6 +91,8 @@ TEST_CASE("ApertureDataCache multi-stage multi-block lookup")  // NOLINT
 
 TEST_CASE("ApertureDataCache many scenarios bulk loading")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpDir tmp("test_aperture_cache_bulk");
 
   // 10 scenarios × 5 stages × 2 blocks = 100 entries per element
@@ -167,6 +171,8 @@ TEST_CASE("ApertureDataCache many scenarios bulk loading")  // NOLINT
 
 TEST_CASE("ApertureDataCache multiple elements in same class")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TmpDir tmp("test_aperture_cache_multi_elem");
 
   write_test_parquet(tmp.path / "Flow" / "RIVER_A.parquet",

@@ -18,8 +18,6 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 // clang-format off
 
 /// System with diverse element types, each referenced by a user constraint.
@@ -182,6 +180,8 @@ static constexpr std::string_view resolver_unknown_json = R"json({
 TEST_CASE(  // NOLINT
     "element_column_resolver - diverse element types solve correctly")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Planning base;
   base.merge(daw::json::from_json<Planning>(resolver_diverse_json));
   PlanningLP planning_lp(std::move(base));
@@ -195,6 +195,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "element_column_resolver - generator constraint binds and affects solution")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Without constraint: g1 dispatches up to 300 MW at cost 20 $/MWh.
   // With constraint g1+g2<=400: total gen limited.  Demand is 100+100=200
   // in two blocks so constraint shouldn't bind.  Check solve succeeds.
@@ -213,6 +215,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "element_column_resolver - sum(generator.generation) resolves all gens")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // The sum_all_gens constraint: sum(generator.generation) <= 500
   // With 2 generators and demand of ~200, this shouldn't bind but should
   // resolve both generator columns.
@@ -228,6 +232,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "element_column_resolver - uid reference resolves generator")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // generator(1).generation uses uid:1 form internally
   Planning base;
   base.merge(daw::json::from_json<Planning>(resolver_uid_ref_json));
@@ -245,6 +251,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "element_column_resolver - unknown element/attribute skipped gracefully")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Constraints referencing nonexistent elements or unknown attributes
   // should be silently skipped (no rows added, no crash).
   Planning base;
@@ -260,6 +268,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "element_column_resolver - battery energy constraint with LP scaling")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Battery energy columns have non-unit LP scale.  Test that the
   // resolver correctly applies get_col_scale for battery attributes.
   static constexpr std::string_view bat_energy_json = R"json({
@@ -319,6 +329,8 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("ElementColumnResolver - uid syntax in constraint")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   static constexpr std::string_view uid_ref_json = R"json({
     "options": {
       "demand_fail_cost": 1000,
@@ -366,6 +378,8 @@ TEST_CASE("ElementColumnResolver - uid syntax in constraint")  // NOLINT
 TEST_CASE(  // NOLINT
     "ElementColumnResolver - unknown element name logs warning")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   static constexpr std::string_view bad_ref_json = R"json({
     "options": {
       "demand_fail_cost": 1000,
@@ -412,6 +426,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "element_column_resolver - generator.capainst stage-level variable")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Test that generator.capainst resolves to the capacity expansion column.
   // The constraint generator("g1").capainst <= 300 should bind since
   // g1 has expcap=100, expmod=5 (max 500 MW expansion) and capainst <= 300.
@@ -468,6 +484,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "element_column_resolver - battery.eini and battery.efin state variables")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Test that battery.eini and battery.efin resolve to the initial/final
   // energy state columns.  These are stage-level variables.
   static constexpr std::string_view bat_state_json = R"json({
@@ -536,6 +554,8 @@ TEST_CASE(  // NOLINT
     "element_column_resolver - reservoir.eini and reservoir.efin state "
     "variables")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Test that reservoir.eini and reservoir.efin resolve to the initial/final
   // volume state columns for reservoir objects.
   static constexpr std::string_view rsv_state_json = R"json({
@@ -606,6 +626,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "element_column_resolver - sum(bus(all).theta) collects all buses")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Test that sum over bus theta works via collect_sum_cols.
   // sum(bus.theta) includes all bus theta variables.
   static constexpr std::string_view sum_bus_json = R"json({
@@ -666,6 +688,8 @@ TEST_CASE(  // NOLINT
     "element_column_resolver - volume_right.eini and volume_right.efin state "
     "variables")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Test that volume_right.eini and volume_right.efin resolve to the
   // initial/final rights-volume state columns.  This enables PAMPL
   // constraints to reference or set these state variables — critical
@@ -807,6 +831,8 @@ TEST_CASE(  // NOLINT
     "element_column_resolver - scale-aware: scaled reservoir + unscaled "
     "generator")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // reservoir rsv1 has energy_scale=1000, so the LP variable for volume is
   // physical_volume / 1000.  The user constraint "volume <= 5000" should
   // produce an LP row with coefficient = 1000 (the col_scale) and

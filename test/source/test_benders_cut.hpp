@@ -10,14 +10,14 @@
 #include <doctest/doctest.h>
 #include <gtopt/benders_cut.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 // ---------------------------------------------------------------------------
 // build_benders_cut
 // ---------------------------------------------------------------------------
 
 TEST_CASE("build_benders_cut basic optimality cut")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Simple 2-link scenario:
   //   α >= z + rc1*(x1 - v1) + rc2*(x2 - v2)
   const ColIndex alpha {
@@ -76,6 +76,8 @@ TEST_CASE("build_benders_cut basic optimality cut")  // NOLINT
 
 TEST_CASE("build_benders_cut with empty links")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const ColIndex alpha {
       0,
   };
@@ -94,6 +96,8 @@ TEST_CASE("build_benders_cut with empty links")  // NOLINT
 
 TEST_CASE("average_benders_cut with empty vector")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const std::vector<SparseRow> empty;
   auto avg = average_benders_cut(empty, "avg_empty");
   CHECK(avg.name.empty());
@@ -101,6 +105,8 @@ TEST_CASE("average_benders_cut with empty vector")  // NOLINT
 
 TEST_CASE("average_benders_cut with single cut")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto cut = SparseRow {
       .name = "original",
       .lowb = 10.0,
@@ -132,6 +138,8 @@ TEST_CASE("average_benders_cut with single cut")  // NOLINT
 
 TEST_CASE("average_benders_cut with multiple cuts")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto cut1 = SparseRow {
       .name = "c1",
       .lowb = 10.0,
@@ -183,6 +191,8 @@ TEST_CASE("average_benders_cut with multiple cuts")  // NOLINT
 
 TEST_CASE("weighted_average_benders_cut empty")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const std::vector<SparseRow> empty;
   const std::vector<double> weights;
   auto wavg = weighted_average_benders_cut(empty, weights, "wempty");
@@ -191,6 +201,8 @@ TEST_CASE("weighted_average_benders_cut empty")  // NOLINT
 
 TEST_CASE("weighted_average_benders_cut size mismatch")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto c1 = SparseRow {
       .name = "c1",
       .lowb = 10.0,
@@ -214,6 +226,8 @@ TEST_CASE("weighted_average_benders_cut size mismatch")  // NOLINT
 
 TEST_CASE("weighted_average_benders_cut zero total weight")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto c1 = SparseRow {
       .name = "c1",
       .lowb = 10.0,
@@ -236,6 +250,8 @@ TEST_CASE("weighted_average_benders_cut zero total weight")  // NOLINT
 
 TEST_CASE("weighted_average_benders_cut single cut")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto c1 = SparseRow {
       .name = "c1",
       .lowb = 10.0,
@@ -263,6 +279,8 @@ TEST_CASE("weighted_average_benders_cut single cut")  // NOLINT
 
 TEST_CASE("weighted_average_benders_cut multiple cuts")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto c1 = SparseRow {
       .name = "c1",
       .lowb = 10.0,
@@ -308,6 +326,8 @@ TEST_CASE("weighted_average_benders_cut multiple cuts")  // NOLINT
 
 TEST_CASE("accumulate_benders_cuts empty")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const std::vector<SparseRow> empty;
   auto acc = accumulate_benders_cuts(empty, "acc_empty");
   CHECK(acc.name.empty());
@@ -315,6 +335,8 @@ TEST_CASE("accumulate_benders_cuts empty")  // NOLINT
 
 TEST_CASE("accumulate_benders_cuts single cut")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto c1 = SparseRow {
       .name = "c1",
       .lowb = 10.0,
@@ -338,6 +360,8 @@ TEST_CASE("accumulate_benders_cuts single cut")  // NOLINT
 
 TEST_CASE("accumulate_benders_cuts multiple cuts sums")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto c1 = SparseRow {
       .name = "c1",
       .lowb = 10.0,
@@ -394,6 +418,8 @@ TEST_CASE("accumulate_benders_cuts multiple cuts sums")  // NOLINT
 
 TEST_CASE("propagate_trial_values sets bounds")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   LinearInterface li;
   // source columns
   const auto s1 = li.add_col("s1", 0.0, 100.0);
@@ -438,6 +464,8 @@ TEST_CASE("propagate_trial_values sets bounds")  // NOLINT
 
 TEST_CASE("relax_fixed_state_variable relaxes a fixed column")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   LinearInterface li;
   const auto dep = li.add_col("dep", 0.0, 100.0);
 
@@ -492,6 +520,8 @@ TEST_CASE("relax_fixed_state_variable relaxes a fixed column")  // NOLINT
 
 TEST_CASE("relax_fixed_state_variable skips unfixed column")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   LinearInterface li;
   const auto dep = li.add_col("dep", 0.0, 100.0);
 
@@ -524,6 +554,8 @@ TEST_CASE("relax_fixed_state_variable skips unfixed column")  // NOLINT
 
 TEST_CASE("BendersCut default construction and counter")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   BendersCut bc;
   CHECK(bc.pool() == nullptr);
   CHECK(bc.infeasible_cut_count() == 0);
@@ -537,6 +569,8 @@ TEST_CASE("BendersCut default construction and counter")  // NOLINT
 
 TEST_CASE("build_multi_cuts with no relaxed links returns empty")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   ElasticSolveResult elastic;
   elastic.link_infos = {
       {
@@ -576,6 +610,8 @@ TEST_CASE("build_multi_cuts with no relaxed links returns empty")  // NOLINT
 
 TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Build a small LP that will serve as the "cloned" elastic LP.
   // We need columns for: dep0, dep1, sup0, sdn0, sup1, sdn1
   LinearInterface cloned_li;
@@ -686,6 +722,8 @@ TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
 
 TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Build a simple LP with one state variable link:
   // min x1 + 1000*alpha  s.t.  x1 >= 5, alpha >= 0
   LinearInterface li;
@@ -744,6 +782,8 @@ TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
 
 TEST_CASE("propagate_trial_values_row_dual adds coupling rows")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   LinearInterface li;
   // source columns
   const auto s1 = li.add_col("s1", 0.0, 100.0);
@@ -819,6 +859,8 @@ TEST_CASE("propagate_trial_values_row_dual adds coupling rows")  // NOLINT
 
 TEST_CASE("build_benders_cut_from_row_duals basic cut")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Same scenario as build_benders_cut, but using row duals instead of
   // reduced costs.  The math is identical:
   //   α >= z + π1*(x1 - v1) + π2*(x2 - v2)
@@ -889,6 +931,8 @@ TEST_CASE(
     "build_benders_cut and row_duals produce same cut for equivalent "
     "duals")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // When reduced costs and row duals report the same values, the two
   // cut builders must produce identical results.
   const ColIndex alpha {
@@ -953,6 +997,8 @@ TEST_CASE(
 
 TEST_CASE("build_benders_cut filters tiny coefficients via cut_coeff_eps")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const ColIndex alpha {
       0,
   };
@@ -1037,6 +1083,8 @@ TEST_CASE("build_benders_cut filters tiny coefficients via cut_coeff_eps")
 
 TEST_CASE("rescale_benders_cut scales down large coefficients")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const ColIndex alpha {
       0,
   };
@@ -1073,6 +1121,8 @@ TEST_CASE("rescale_benders_cut scales down large coefficients")
 
 TEST_CASE("rescale_benders_cut does nothing when below threshold")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const ColIndex alpha {
       0,
   };
@@ -1096,6 +1146,8 @@ TEST_CASE("rescale_benders_cut does nothing when below threshold")
 
 TEST_CASE("rescale_benders_cut disabled when threshold is zero")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const ColIndex alpha {
       0,
   };
@@ -1119,6 +1171,8 @@ TEST_CASE("rescale_benders_cut disabled when threshold is zero")
 
 TEST_CASE("filter_cut_coefficients removes small coefficients")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const ColIndex alpha {
       0,
   };
@@ -1154,6 +1208,8 @@ TEST_CASE("filter_cut_coefficients removes small coefficients")
 
 TEST_CASE("filter_cut_coefficients preserves alpha even if tiny")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const ColIndex alpha {
       0,
   };
@@ -1170,6 +1226,8 @@ TEST_CASE("filter_cut_coefficients preserves alpha even if tiny")
 
 TEST_CASE("rescale then filter produces clean cut")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const ColIndex alpha {
       0,
   };
@@ -1215,6 +1273,8 @@ TEST_CASE(
     "build_benders_cut_from_row_duals filters tiny coefficients via "
     "cut_coeff_eps")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const ColIndex alpha {
       0,
   };

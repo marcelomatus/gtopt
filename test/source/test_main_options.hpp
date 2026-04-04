@@ -18,8 +18,6 @@
 #include <gtopt/main_options.hpp>
 #include <gtopt/solver_options.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 // ---- Helper to parse command-line args into a variables_map ----
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
@@ -44,6 +42,8 @@ po::variables_map parse_args(const std::vector<std::string>& args,
 
 TEST_CASE("get_opt - returns value when present")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto desc = make_options_description();
   auto vm = parse_args({"--output-directory", "/tmp/out"}, desc);
 
@@ -54,6 +54,8 @@ TEST_CASE("get_opt - returns value when present")
 
 TEST_CASE("get_opt - returns nullopt when absent")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto desc = make_options_description();
   auto vm = parse_args({}, desc);
 
@@ -63,6 +65,8 @@ TEST_CASE("get_opt - returns nullopt when absent")
 
 TEST_CASE("get_opt - works with bool type")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto desc = make_options_description();
   auto vm = parse_args({"--use-single-bus"}, desc);
 
@@ -73,6 +77,8 @@ TEST_CASE("get_opt - works with bool type")
 
 TEST_CASE("get_opt - works with string type for names-level")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto desc = make_options_description();
   auto vm = parse_args({"--lp-names-level", "cols_and_rows"}, desc);
 
@@ -83,6 +89,8 @@ TEST_CASE("get_opt - works with string type for names-level")
 
 TEST_CASE("get_opt - works with double type")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto desc = make_options_description();
   auto vm = parse_args({"--matrix-eps", "0.001"}, desc);
 
@@ -93,6 +101,8 @@ TEST_CASE("get_opt - works with double type")
 
 TEST_CASE("get_opt - implicit bool value")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto desc = make_options_description();
   auto vm = parse_args({"--use-kirchhoff"}, desc);
 
@@ -103,6 +113,8 @@ TEST_CASE("get_opt - implicit bool value")
 
 TEST_CASE("get_opt - implicit string value for names-level")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto desc = make_options_description();
   auto vm = parse_args({"--lp-names-level"}, desc);
 
@@ -115,6 +127,8 @@ TEST_CASE("get_opt - implicit string value for names-level")
 
 TEST_CASE("make_options_description - contains expected options")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto desc = make_options_description();
 
   // Verify key options are registered by parsing them
@@ -130,6 +144,8 @@ TEST_CASE("make_options_description - contains expected options")
 
 TEST_CASE("make_options_description - short options work")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto desc = make_options_description();
 
   auto vm = parse_args({"-b"}, desc);
@@ -147,6 +163,8 @@ TEST_CASE("make_options_description - short options work")
 
 TEST_CASE("make_options_description - positional system-file")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto desc = make_options_description();
   auto vm = parse_args({"my_system.json"}, desc);
 
@@ -158,6 +176,8 @@ TEST_CASE("make_options_description - positional system-file")
 
 TEST_CASE("make_options_description - multiple positional files")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto desc = make_options_description();
   auto vm = parse_args({"file1.json", "file2.json"}, desc);
 
@@ -170,6 +190,8 @@ TEST_CASE("make_options_description - multiple positional files")
 
 TEST_CASE("make_options_description - string options")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto desc = make_options_description();
   auto vm = parse_args(
       {
@@ -203,6 +225,8 @@ TEST_CASE("make_options_description - string options")
 
 TEST_CASE("apply_cli_options - no options applied")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Planning planning {};
   apply_cli_options(planning,
                     std::nullopt,
@@ -226,6 +250,8 @@ TEST_CASE("apply_cli_options - no options applied")
 
 TEST_CASE("apply_cli_options - all options applied")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Planning planning {};
   apply_cli_options(planning,
                     true,
@@ -273,6 +299,8 @@ TEST_CASE("apply_cli_options - all options applied")
 
 TEST_CASE("apply_cli_options - partial options applied")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Planning planning {};
   apply_cli_options(planning,
                     true,
@@ -300,6 +328,8 @@ TEST_CASE("apply_cli_options - partial options applied")
 
 TEST_CASE("apply_cli_options - does not overwrite existing when nullopt")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Planning planning {};
   planning.options.output_directory = "original_dir";
   planning.options.use_kirchhoff = true;
@@ -325,6 +355,8 @@ TEST_CASE("apply_cli_options - does not overwrite existing when nullopt")
 
 TEST_CASE("apply_cli_options - overwrites existing when value provided")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Planning planning {};
   planning.options.output_directory = "original_dir";
 
@@ -347,6 +379,8 @@ TEST_CASE("apply_cli_options - overwrites existing when value provided")
 
 TEST_CASE("apply_cli_options(MainOptions) - no options applied")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Planning planning {};
   apply_cli_options(planning, MainOptions {});
 
@@ -361,6 +395,8 @@ TEST_CASE("apply_cli_options(MainOptions) - no options applied")
 
 TEST_CASE("apply_cli_options(MainOptions) - all options applied")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Planning planning {};
   apply_cli_options(planning,
                     MainOptions {
@@ -401,6 +437,8 @@ TEST_CASE("apply_cli_options(MainOptions) - all options applied")
 
 TEST_CASE("apply_cli_options(MainOptions) - does not overwrite when nullopt")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Planning planning {};
   planning.options.output_directory = "existing";
   planning.options.use_kirchhoff = true;
@@ -418,6 +456,8 @@ TEST_CASE("apply_cli_options(MainOptions) - does not overwrite when nullopt")
 
 TEST_CASE("apply_cli_options(MainOptions) - overwrites existing when provided")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Planning planning {};
   planning.options.output_directory = "original";
 
@@ -432,6 +472,8 @@ TEST_CASE("apply_cli_options(MainOptions) - overwrites existing when provided")
 
 TEST_CASE("make_lp_build_options - defaults when both nullopt")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto opts = make_lp_build_options(std::nullopt, std::nullopt);
 
   CHECK(opts.eps == doctest::Approx(0.0));
@@ -445,6 +487,8 @@ TEST_CASE("make_lp_build_options - defaults when both nullopt")
 TEST_CASE(
     "make_lp_build_options - names_level minimal col names for state vars")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto opts = make_lp_build_options(
       std::optional<LpNamesLevel>(LpNamesLevel::minimal), std::nullopt);
 
@@ -457,6 +501,8 @@ TEST_CASE(
 TEST_CASE(
     "make_lp_build_options - names_level only_cols enables col and row names")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto opts = make_lp_build_options(
       std::optional<LpNamesLevel>(LpNamesLevel::only_cols), std::nullopt);
 
@@ -470,6 +516,8 @@ TEST_CASE(
     "make_lp_build_options - names_level cols_and_rows enables names and "
     "errors")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto opts = make_lp_build_options(
       std::optional<LpNamesLevel>(LpNamesLevel::cols_and_rows), std::nullopt);
 
@@ -481,6 +529,8 @@ TEST_CASE(
 
 TEST_CASE("make_lp_build_options - custom eps value")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto opts = make_lp_build_options(std::nullopt, std::optional<double>(0.001));
 
   CHECK(opts.eps == doctest::Approx(0.001));
@@ -488,6 +538,8 @@ TEST_CASE("make_lp_build_options - custom eps value")
 
 TEST_CASE("make_lp_build_options - both parameters provided")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto opts = make_lp_build_options(
       std::optional<LpNamesLevel>(LpNamesLevel::cols_and_rows),
       std::optional<double>(1e-6));
@@ -503,6 +555,8 @@ TEST_CASE("make_lp_build_options - both parameters provided")
 
 TEST_CASE("Integration - parse and extract all option types")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto desc = make_options_description();
   auto vm = parse_args(
       {
@@ -580,6 +634,8 @@ TEST_CASE("Integration - parse and extract all option types")
 
 TEST_CASE("LPAlgo enum_from_name - recognises all valid names")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CHECK(enum_from_name<LPAlgo>("default").value_or(LPAlgo::barrier)
         == LPAlgo::default_algo);
   CHECK(enum_from_name<LPAlgo>("primal").value_or(LPAlgo::default_algo)
@@ -592,6 +648,8 @@ TEST_CASE("LPAlgo enum_from_name - recognises all valid names")  // NOLINT
 
 TEST_CASE("LPAlgo enum_from_name - returns nullopt for unknown name")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CHECK_FALSE(enum_from_name<LPAlgo>("interior").has_value());
   CHECK_FALSE(enum_from_name<LPAlgo>("").has_value());
   CHECK_FALSE(enum_from_name<LPAlgo>("Barrier").has_value());  // case-sensitive
@@ -599,6 +657,8 @@ TEST_CASE("LPAlgo enum_from_name - returns nullopt for unknown name")  // NOLINT
 
 TEST_CASE("LPAlgo enum_name - round-trips all enumerators")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CHECK(enum_name(LPAlgo::default_algo) == "default");
   CHECK(enum_name(LPAlgo::primal) == "primal");
   CHECK(enum_name(LPAlgo::dual) == "dual");
@@ -607,6 +667,8 @@ TEST_CASE("LPAlgo enum_name - round-trips all enumerators")  // NOLINT
 
 TEST_CASE("LPAlgo enum_name - unknown value returns 'unknown'")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CHECK(enum_name(LPAlgo::last_algo) == "unknown");
 }
 
@@ -614,6 +676,8 @@ TEST_CASE("LPAlgo enum_name - unknown value returns 'unknown'")  // NOLINT
 
 TEST_CASE("parse_lp_algorithm - accepts algorithm names")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CHECK(parse_lp_algorithm("default") == 0);
   CHECK(parse_lp_algorithm("primal") == 1);
   CHECK(parse_lp_algorithm("dual") == 2);
@@ -622,6 +686,8 @@ TEST_CASE("parse_lp_algorithm - accepts algorithm names")  // NOLINT
 
 TEST_CASE("parse_lp_algorithm - accepts numeric strings")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CHECK(parse_lp_algorithm("0") == 0);
   CHECK(parse_lp_algorithm("1") == 1);
   CHECK(parse_lp_algorithm("2") == 2);
@@ -631,6 +697,8 @@ TEST_CASE("parse_lp_algorithm - accepts numeric strings")  // NOLINT
 TEST_CASE(
     "parse_lp_algorithm - rejects unknown names and out-of-range numbers")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto throws = [](const std::string& s)
   { [[maybe_unused]] auto r = parse_lp_algorithm(s); };
   CHECK_THROWS_AS(throws("interior"), cli::parse_error);
@@ -644,6 +712,8 @@ TEST_CASE(
 
 TEST_CASE("--algorithm - accepts name via CLI")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto desc = make_options_description();
 
   SUBCASE("barrier name")
@@ -679,6 +749,8 @@ TEST_CASE("--algorithm - accepts name via CLI")  // NOLINT
 
 TEST_CASE("--algorithm - accepts numeric value via CLI")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto desc = make_options_description();
   auto vm = parse_args({"--algorithm", "2"}, desc);
   const auto opts = parse_main_options(vm, {});
@@ -688,6 +760,8 @@ TEST_CASE("--algorithm - accepts numeric value via CLI")  // NOLINT
 
 TEST_CASE("-a short option - accepts name")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto desc = make_options_description();
   auto vm = parse_args({"-a", "barrier"}, desc);
   const auto opts = parse_main_options(vm, {});
@@ -697,6 +771,8 @@ TEST_CASE("-a short option - accepts name")  // NOLINT
 
 TEST_CASE("--algorithm - invalid name throws at parse_main_options")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto desc = make_options_description();
   auto vm = parse_args({"--algorithm", "unknown_algo"}, desc);
   // Wrap in lambda to avoid [[nodiscard]] warning on the throw path
@@ -709,6 +785,8 @@ TEST_CASE("--algorithm - invalid name throws at parse_main_options")  // NOLINT
 
 TEST_CASE("--recover flag - parsed via CLI")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto desc = make_options_description();
 
   SUBCASE("not passed → recover is nullopt")
@@ -737,6 +815,8 @@ TEST_CASE("--recover flag - parsed via CLI")  // NOLINT
 
 TEST_CASE("--recover gates recovery_mode in apply_cli_options")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("without --recover, recovery_mode forced to none")
   {
     Planning planning {};

@@ -18,7 +18,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/cli_options.hpp>
 
-using namespace gtopt::cli;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt::cli;  // NOLINT(google-build-using-namespace)
 
 // ---- variables_map tests ----
 

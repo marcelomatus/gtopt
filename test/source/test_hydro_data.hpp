@@ -7,10 +7,10 @@
 #include <gtopt/turbine.hpp>
 #include <gtopt/waterway.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 TEST_CASE("Junction construction and default values")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Junction junction;
 
   CHECK(junction.uid == Uid {unknown_uid});
@@ -21,6 +21,8 @@ TEST_CASE("Junction construction and default values")
 
 TEST_CASE("Junction attribute assignment")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Junction junction;
 
   junction.uid = 7001;
@@ -37,6 +39,8 @@ TEST_CASE("Junction attribute assignment")
 
 TEST_CASE("Junction with drain disabled")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Junction junction;
 
   junction.uid = 7002;
@@ -50,6 +54,8 @@ TEST_CASE("Junction with drain disabled")
 
 TEST_CASE("Turbine construction and default values")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Turbine turbine;
 
   CHECK(turbine.uid == Uid {unknown_uid});
@@ -66,6 +72,8 @@ TEST_CASE("Turbine construction and default values")
 
 TEST_CASE("Turbine attribute assignment")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Turbine turbine;
 
   turbine.uid = 5001;
@@ -98,6 +106,8 @@ TEST_CASE("Turbine attribute assignment")
 
 TEST_CASE("Turbine with time-varying conversion rate")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Turbine turbine;
 
   std::vector<Real> rate_schedule = {0.80, 0.85, 0.90, 0.82};
@@ -116,6 +126,8 @@ TEST_CASE("Turbine with time-varying conversion rate")
 
 TEST_CASE("Waterway construction and default values")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Waterway waterway;
 
   CHECK(waterway.uid == Uid {unknown_uid});
@@ -142,6 +154,8 @@ TEST_CASE("Waterway construction and default values")
 
 TEST_CASE("Waterway attribute assignment")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Waterway waterway;
 
   waterway.uid = 6001;
@@ -171,6 +185,8 @@ TEST_CASE("Waterway attribute assignment")
 
 TEST_CASE("Waterway with time-block flow limits")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Waterway waterway;
 
   // OptTBRealFieldSched uses 2D vectors (time x block)
@@ -205,6 +221,8 @@ TEST_CASE("Waterway with time-block flow limits")
 
 TEST_CASE("Reservoir construction and default values")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Reservoir reservoir;
 
   CHECK(reservoir.uid == Uid {unknown_uid});
@@ -248,6 +266,8 @@ TEST_CASE("Reservoir construction and default values")
 
 TEST_CASE("Reservoir attribute assignment")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Reservoir reservoir;
 
   reservoir.uid = 9001;
@@ -298,6 +318,8 @@ TEST_CASE("Reservoir attribute assignment")
 
 TEST_CASE("Reservoir with time-varying volume limits")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Reservoir reservoir;
 
   std::vector<Real> emin_schedule = {8000.0, 10000.0, 12000.0, 9000.0};
@@ -326,6 +348,8 @@ TEST_CASE("Reservoir with time-varying volume limits")
 
 TEST_CASE("Reservoir use_state_variable defaults and explicit set")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("default is nullopt (coupled by convention)")
   {
     const Reservoir rsv;

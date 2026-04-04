@@ -14,10 +14,10 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 TEST_CASE("SystemLP with FlowRight - basic LP construction")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Array<Bus> bus_array = {
       {.uid = Uid {1}, .name = "b1"},
   };
@@ -76,6 +76,8 @@ TEST_CASE("SystemLP with FlowRight - basic LP construction")
 TEST_CASE(  // NOLINT
     "SystemLP with FlowRight - does not change bus balance when added")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Build two identical systems: one with FlowRight, one without.
   // Verify they produce the same objective (irrigation flow is accounting
   // only, it should not affect the electrical dispatch).
@@ -148,6 +150,8 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("SystemLP with FlowRight - zero fail_cost produces no deficit")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Array<Bus> bus_array = {
       {.uid = Uid {1}, .name = "b1"},
   };
@@ -200,6 +204,8 @@ TEST_CASE("SystemLP with FlowRight - zero fail_cost produces no deficit")
 
 TEST_CASE("SystemLP with VolumeRight - basic LP construction")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Array<Bus> bus_array = {
       {.uid = Uid {1}, .name = "b1"},
   };
@@ -264,6 +270,8 @@ TEST_CASE("SystemLP with VolumeRight - basic LP construction")
 TEST_CASE(  // NOLINT
     "SystemLP with VolumeRight - does not change bus balance when added")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto solve = [](bool with_irrigation) -> double
   {
     const Array<Bus> bus_array = {
@@ -339,6 +347,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SystemLP with VolumeRight - multi-stage storage accumulation")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Array<Bus> bus_array = {
       {.uid = Uid {1}, .name = "b1"},
   };
@@ -404,6 +414,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SystemLP with both FlowRight and VolumeRight together")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Array<Bus> bus_array = {
       {.uid = Uid {1}, .name = "b1"},
   };
@@ -481,6 +493,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SystemLP with FlowRight and hydro system - coexistence test")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Verify FlowRight coexists with hydro components without
   // interfering with the hydrological mass balance.
   const Array<Bus> bus_array = {
@@ -597,6 +611,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "FlowRight variable mode - fmax creates variable column")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Array<Bus> bus_array = {
       {
           .uid = Uid {1},
@@ -688,6 +704,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "FlowRight subtracts from physical junction balance")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Hydro system with junction + FlowRight (always consumptive)
   const Array<Bus> bus_array = {
       {
@@ -831,6 +849,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "VolumeRight subtracts from physical reservoir balance")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Array<Bus> bus_array = {
       {
           .uid = Uid {1},
@@ -976,6 +996,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "VolumeRight right_reservoir coupling - child connects to parent balance")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Array<Bus> bus_array = {
       {
           .uid = Uid {1},
@@ -1067,6 +1089,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "FlowRight use_average - creates stage-average qeh variable")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Array<Bus> bus_array = {
       {
           .uid = Uid {1},
@@ -1194,6 +1218,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "FlowRight with bound_rule - LP construction and bound application")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Hydro system with reservoir whose volume drives the bound rule
   const Array<Bus> bus_array = {
       {
@@ -1355,6 +1381,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "VolumeRight with bound_rule - LP construction and bound application")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Array<Bus> bus_array = {
       {
           .uid = Uid {1},
@@ -1517,6 +1545,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "FlowRight bound_rule deactivation - zero bound fixes variable at 0")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // When reservoir volume is below the threshold, bound evaluates to 0.
   // The flow column should be fixed at 0.
   const Array<Bus> bus_array = {
@@ -1679,6 +1709,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "FlowRight use_average with variable mode partition")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // A partition where qeh is created for the total supply
   // and the variable withdrawal rights.  Tests that both
   // variable mode AND use_average work together.
@@ -1785,6 +1817,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Rights exhaustion limits generation despite available water")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Physical model: reservoir → waterway → j_down (drain=true).
   // A user constraint couples reservoir extraction to VolumeRight extraction:
   //   rsv_extraction = vrt_extraction
@@ -1960,6 +1994,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "VolumeRight economy with saving variable accumulates unused rights")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Model: a rights VolumeRight extracts water, an economy VolumeRight
   // receives the unused portion as savings via a user constraint:
   //   rights.extraction + economy.saving <= max_extraction_flow
@@ -2155,6 +2191,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "FlowRight extraction - use_value, fail_cost, use_average, and junction")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Verifies:
   //  1. Per-element use_value creates a negative obj coefficient (benefit)
   //  2. Per-element fail_cost creates a deficit variable with penalty

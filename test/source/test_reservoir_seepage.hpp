@@ -4,10 +4,10 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 TEST_CASE("ReservoirSeepage construction and default values")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const ReservoirSeepage seepage;
 
   CHECK(seepage.uid == Uid {unknown_uid});
@@ -23,6 +23,8 @@ TEST_CASE("ReservoirSeepage construction and default values")
 
 TEST_CASE("ReservoirSeepage attribute assignment")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   ReservoirSeepage seepage;
 
   seepage.uid = 8001;
@@ -48,6 +50,8 @@ TEST_CASE("ReservoirSeepage attribute assignment")
 
 TEST_CASE("ReservoirSeepage with zero slope")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   ReservoirSeepage seepage;
 
   seepage.uid = 8002;
@@ -62,6 +66,8 @@ TEST_CASE("ReservoirSeepage with zero slope")
 
 TEST_CASE("ReservoirSeepageLP - basic seepage constraint")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
 
   const Array<Generator> generator_array = {
@@ -167,6 +173,8 @@ TEST_CASE("ReservoirSeepageLP - basic seepage constraint")
 
 TEST_CASE("ReservoirSeepageLP - multi-block seepage")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
 
   const Array<Generator> generator_array = {
@@ -278,6 +286,8 @@ TEST_CASE("ReservoirSeepageLP - multi-block seepage")
 
 TEST_CASE("ReservoirSeepageSegment construction")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const ReservoirSeepageSegment seg;
 
   CHECK(seg.volume == 0.0);
@@ -287,12 +297,16 @@ TEST_CASE("ReservoirSeepageSegment construction")
 
 TEST_CASE("evaluate_seepage with empty segments")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const std::vector<ReservoirSeepageSegment> segments {};
   CHECK(evaluate_seepage(segments, 100.0) == 0.0);
 }
 
 TEST_CASE("evaluate_seepage with single segment")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const std::vector<ReservoirSeepageSegment> segments {
       {.volume = 0.0, .slope = 0.001, .constant = 2.0},
   };
@@ -306,6 +320,8 @@ TEST_CASE("evaluate_seepage with single segment")
 
 TEST_CASE("evaluate_seepage with two segments (piecewise linear)")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Two segments modelling a piecewise-linear seepage curve:
   //   seg1: constant=2.0 (y-intercept), slope=0.001, breakpoint=0.0
   //         → seepage = 2.0 + 0.001 * V  (applies when V < 500)
@@ -333,6 +349,8 @@ TEST_CASE("evaluate_seepage with two segments (piecewise linear)")
 
 TEST_CASE("select_seepage_coeffs with two segments")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Constants are y-intercepts (PLP format: seepage = constant + slope * V).
   // seg1: y-intercept=2.0, slope=0.001, breakpoint=0.0
   // seg2: y-intercept=2.7, slope=0.0002, breakpoint=500.0
@@ -362,6 +380,8 @@ TEST_CASE("select_seepage_coeffs with two segments")
 
 TEST_CASE("select_seepage_coeffs empty segments")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const std::vector<ReservoirSeepageSegment> segments {};
   auto c = select_seepage_coeffs(segments, 100.0);
   CHECK(c.slope == 0.0);
@@ -370,6 +390,8 @@ TEST_CASE("select_seepage_coeffs empty segments")
 
 TEST_CASE("ReservoirSeepage with segments default")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   ReservoirSeepage seepage;
   CHECK(seepage.segments.empty());
 
@@ -382,6 +404,8 @@ TEST_CASE("ReservoirSeepage with segments default")
 
 TEST_CASE("ReservoirSeepageLP - piecewise segments LP constraint")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Array<Bus> bus_array = {
       {
           .uid = Uid {1},
@@ -528,6 +552,8 @@ TEST_CASE("ReservoirSeepageLP - piecewise segments LP constraint")
 
 TEST_CASE("ReservoirSeepageLP - per-stage slope/constant schedule")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Test that slope and constant can be provided as per-stage arrays
   // (simulating what plpmanfi.dat Parquet files would provide).
 
@@ -686,6 +712,8 @@ TEST_CASE("ReservoirSeepageLP - per-stage slope/constant schedule")
 
 TEST_CASE("ReservoirSeepageLP - seepage_cols_at accessor")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Verify seepage_cols_at() returns valid per-block column indices.
   const Array<Bus> bus_array = {
       {
@@ -827,6 +855,8 @@ TEST_CASE("ReservoirSeepageLP - seepage_cols_at accessor")
 
 TEST_CASE("ReservoirSeepageLP - add_to_output via write_out")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Solve then call write_out() which exercises
   // ReservoirSeepageLP::add_to_output.
   const auto tmpdir =
@@ -983,6 +1013,8 @@ TEST_CASE("ReservoirSeepageLP - add_to_output via write_out")
 
 TEST_CASE("ReservoirSeepageLP - update_lp with piecewise segments")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Piecewise segments with eini=5000 -> seg2 at construction.
   // update_lp iter=0/phase=0 uses eini -> same segment -> no change.
   const Array<Bus> bus_array = {
@@ -1157,6 +1189,8 @@ TEST_CASE("ReservoirSeepageLP - update_lp with piecewise segments")
 
 TEST_CASE("ReservoirSeepageLP - update_lp with different eini segment")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // eini=1000 -> seg1 (volume < 3000). update_lp iter=0/phase=0 uses eini.
   const Array<Bus> bus_array = {
       {
@@ -1320,6 +1354,8 @@ TEST_CASE("ReservoirSeepageLP - update_lp with different eini segment")
 
 TEST_CASE("ReservoirSeepageLP - zero-slope segment edge case")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Single segment with zero slope -- pure constant seepage.
   const Array<Bus> bus_array = {
       {
@@ -1484,6 +1520,8 @@ TEST_CASE("ReservoirSeepageLP - zero-slope segment edge case")
 
 TEST_CASE("ReservoirSeepageLP - multi-stage segments with output")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Two stages with piecewise segments -- exercises add_to_lp across stages,
   // seepage_cols_at for multiple keys, and add_to_output.
   const auto tmpdir =

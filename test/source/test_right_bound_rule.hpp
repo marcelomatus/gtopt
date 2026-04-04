@@ -2,10 +2,10 @@
 #include <doctest/doctest.h>
 #include <gtopt/right_bound_rule.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 TEST_CASE("RightBoundSegment construction and defaults")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const RightBoundSegment seg;
 
   CHECK(seg.volume == doctest::Approx(0.0));
@@ -15,6 +15,8 @@ TEST_CASE("RightBoundSegment construction and defaults")
 
 TEST_CASE("RightBoundSegment designated initializer")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const RightBoundSegment seg {
       .volume = 1200.0,
       .slope = 0.4,
@@ -28,6 +30,8 @@ TEST_CASE("RightBoundSegment designated initializer")
 
 TEST_CASE("RightBoundRule construction and defaults")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const RightBoundRule rule;
 
   CHECK(std::get<Uid>(rule.reservoir) == Uid {unknown_uid});
@@ -38,6 +42,8 @@ TEST_CASE("RightBoundRule construction and defaults")
 
 TEST_CASE("RightBoundRule with Laja cushion zone segments")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Laja 4-zone example from the documentation:
   // Rights_irr = 570 + 0.00*min(V,1200) + 0.40*min(max(V-1200,0),700)
   //            + 0.25*max(V-1900,0)
@@ -72,6 +78,8 @@ TEST_CASE("RightBoundRule with Laja cushion zone segments")
 
 TEST_CASE("find_active_bound_segment")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const std::vector<RightBoundSegment> segments {
       {
           .volume = 0.0,
@@ -148,6 +156,8 @@ TEST_CASE("find_active_bound_segment")  // NOLINT
 
 TEST_CASE("evaluate_bound_rule with empty segments")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const RightBoundRule rule {
       .reservoir = SingleId {Uid {1}},
       .cap = 100.0,
@@ -158,6 +168,8 @@ TEST_CASE("evaluate_bound_rule with empty segments")
 
 TEST_CASE("evaluate_bound_rule with empty segments and no cap")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const RightBoundRule rule {
       .reservoir = SingleId {Uid {1}},
   };
@@ -167,6 +179,8 @@ TEST_CASE("evaluate_bound_rule with empty segments and no cap")
 
 TEST_CASE("evaluate_bound_rule Laja cushion zone")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const RightBoundRule rule {
       .reservoir = SingleId {Uid {9001}},
       .segments =
@@ -223,6 +237,8 @@ TEST_CASE("evaluate_bound_rule Laja cushion zone")  // NOLINT
 
 TEST_CASE("evaluate_bound_rule with cap")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const RightBoundRule rule {
       .reservoir = SingleId {Uid {1}},
       .segments =
@@ -244,6 +260,8 @@ TEST_CASE("evaluate_bound_rule with cap")
 
 TEST_CASE("evaluate_bound_rule with floor")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const RightBoundRule rule {
       .reservoir = SingleId {Uid {1}},
       .segments =
@@ -265,6 +283,8 @@ TEST_CASE("evaluate_bound_rule with floor")
 
 TEST_CASE("evaluate_bound_rule with both cap and floor")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const RightBoundRule rule {
       .reservoir = SingleId {Uid {1}},
       .segments =

@@ -35,12 +35,12 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 // ─── 1. Aperture struct ─────────────────────────────────────────────────────
 
 TEST_CASE("Aperture struct defaults")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Aperture ap;
 
   SUBCASE("default uid is unknown")
@@ -89,6 +89,8 @@ TEST_CASE("Aperture struct defaults")  // NOLINT
 
 TEST_CASE("Aperture JSON parsing")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("minimal fields")
   {
     constexpr std::string_view json = R"({
@@ -174,6 +176,8 @@ TEST_CASE("Aperture JSON parsing")  // NOLINT
 
 TEST_CASE("FlowLP update_aperture updates bounds correctly")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Build a hydro system with 2 scenarios and different discharge per scenario.
   // Scenario 1: discharge = 10 m³/s, Scenario 2: discharge = 30 m³/s.
   // After building the LP for scenario 1 (base), calling
@@ -526,6 +530,8 @@ TEST_CASE(
     "FlowLP clone bound retrieval — two apertures independently"
     " updated")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Create a hydro system with 3 scenarios and verify that two independent
   // clones can each be updated to a different aperture scenario, and that
   // the new affluent (discharge) values are independently retrievable from
@@ -852,6 +858,8 @@ TEST_CASE(
 
 TEST_CASE("FlowLP update_aperture with inactive flow")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // An inactive flow should return true immediately (no-op).
   const Array<Bus> bus_array = {
       {
@@ -988,6 +996,8 @@ TEST_CASE("FlowLP update_aperture with inactive flow")  // NOLINT
 
 TEST_CASE("FlowLP update_aperture with non-matching scenario key")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // When the base_scenario UID doesn't match any registered flow_cols key,
   // update_aperture should return true (no columns to update).
 
@@ -1136,6 +1146,8 @@ TEST_CASE("FlowLP update_aperture with non-matching scenario key")  // NOLINT
 
 TEST_CASE("PlanningOptionsLP sddp_aperture_directory accessor")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("default is empty string")
   {
     const PlanningOptionsLP options;
@@ -1165,6 +1177,8 @@ TEST_CASE("PlanningOptionsLP sddp_aperture_directory accessor")  // NOLINT
 
 TEST_CASE("FlowLP aperture bound update affects LP objective value")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Build a small hydro system where changing flow discharge via aperture
   // update measurably changes the LP objective value.
   // Higher inflow → more hydro generation → lower cost (hydro is cheaper).
@@ -1551,6 +1565,8 @@ auto make_2phase_aperture_planning() -> Planning
 
 TEST_CASE("SDDPMethod with explicit aperture_array converges")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_2phase_aperture_planning();
   PlanningLP plp(std::move(planning));
 
@@ -1595,6 +1611,8 @@ TEST_CASE("SDDPMethod with explicit aperture_array converges")  // NOLINT
 TEST_CASE(
     "SDDPMethod explicit aperture vs apertures option both work")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Both approaches should produce valid results with cuts added.
   auto planning_explicit = make_2phase_aperture_planning();
 
@@ -1639,6 +1657,8 @@ TEST_CASE(
 
 TEST_CASE("Aperture clone LP feasibility diagnostics")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Verify that aperture-updated clones are feasible by construction.
   // The LP is built with columns for ALL scenarios (each scenario has its own
   // flow columns in the junction balance).  update_aperture only

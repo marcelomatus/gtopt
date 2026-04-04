@@ -21,8 +21,6 @@
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/sddp_state_io.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
 
@@ -40,6 +38,8 @@ auto make_state_test_dir(const std::string& test_name) -> std::filesystem::path
 
 TEST_CASE("save_state_csv writes valid CSV after SDDP solve")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -81,6 +81,8 @@ TEST_CASE("save_state_csv writes valid CSV after SDDP solve")  // NOLINT
 TEST_CASE(  // NOLINT
     "save_state_csv / load_state_csv round-trip preserves warm solutions")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -130,6 +132,8 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("load_state_csv with nonexistent file returns error")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -141,6 +145,8 @@ TEST_CASE("load_state_csv with nonexistent file returns error")  // NOLINT
 TEST_CASE(  // NOLINT
     "save_state_csv with unsolved LP writes header but no data rows")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   const PlanningLP planning_lp(std::move(planning));
 
@@ -167,6 +173,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "load_state_csv with empty/header-only file is a no-op")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -197,6 +205,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "load_state_csv handles Windows \\r\\n line endings")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 

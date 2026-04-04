@@ -15,10 +15,10 @@
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 TEST_CASE("Battery construction and default values")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Battery battery;
 
   // Check default values
@@ -41,6 +41,8 @@ TEST_CASE("Battery construction and default values")
 
 TEST_CASE("Battery attribute assignment")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Battery battery;
 
   // Assign values
@@ -96,6 +98,8 @@ TEST_CASE("Battery attribute assignment")
 
 TEST_CASE("Battery field schedules")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Battery battery;
 
   // Create a simple schedule with direct Real values
@@ -119,6 +123,8 @@ TEST_CASE("Battery field schedules")
 // We'll use a simplified approach instead of mocks for now
 TEST_CASE("BatteryLP construction")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Battery battery;
   battery.uid = 1001;
   battery.name = "TestBattery";
@@ -138,6 +144,8 @@ TEST_CASE("BatteryLP construction")
 
 TEST_CASE("Battery validation test")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Battery battery;
   battery.uid = 1001;
   battery.name = "TestBattery";
@@ -150,6 +158,8 @@ TEST_CASE("Battery validation test")
 
 TEST_CASE("Battery use_state_variable defaults and explicit set")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("default is nullopt (decoupled by convention)")
   {
     const Battery bat;
@@ -205,6 +215,8 @@ TEST_CASE("Battery use_state_variable defaults and explicit set")  // NOLINT
 TEST_CASE(  // NOLINT
     "Battery decoupled (default) produces feasible LP with eclose row")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Array<Bus> bus_array = {
       {
           .uid = Uid {1},
@@ -303,6 +315,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Battery coupled (use_state_variable=true) produces feasible LP")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Array<Bus> bus_array = {
       {
           .uid = Uid {1},
@@ -397,6 +411,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "StorageLP physical accessor methods and scale conversion")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Array<Bus> bus_array = {
       {
           .uid = Uid {1},
@@ -508,6 +524,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Battery energy_scale invariance – same solution for different scales")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Helper lambda: builds and solves a single-battery LP with the given scale,
   // returns the objective value.
   auto solve_with_scale = [](double scale) -> double
@@ -621,6 +639,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Battery variable_scales option – invariance and LP coefficient change")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   struct ScaleResult
   {
     double objective;

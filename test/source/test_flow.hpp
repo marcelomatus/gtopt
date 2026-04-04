@@ -2,10 +2,10 @@
 #include <doctest/doctest.h>
 #include <gtopt/flow.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 TEST_CASE("Flow construction and default values")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Flow flow;
 
   CHECK(flow.uid == Uid {unknown_uid});
@@ -21,6 +21,8 @@ TEST_CASE("Flow construction and default values")
 
 TEST_CASE("Flow is_input method")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("default direction is inflow")
   {
     const Flow flow;
@@ -58,6 +60,8 @@ TEST_CASE("Flow is_input method")  // NOLINT
 
 TEST_CASE("Flow attribute assignment")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Flow flow;
 
   flow.uid = 1001;
@@ -76,6 +80,8 @@ TEST_CASE("Flow attribute assignment")
 
 TEST_CASE("Flow designated initializer construction")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Flow flow {
       .uid = Uid {2},
       .name = "env_discharge",
@@ -94,6 +100,8 @@ TEST_CASE("Flow designated initializer construction")
 
 TEST_CASE("Flow with vector discharge schedule")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Flow flow;
   flow.uid = 3;
   flow.name = "seasonal_inflow";
@@ -115,6 +123,8 @@ TEST_CASE("Flow with vector discharge schedule")
 
 TEST_CASE("Flow with file schedule")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Flow flow;
   flow.uid = 4;
   flow.name = "file_inflow";
@@ -127,6 +137,8 @@ TEST_CASE("Flow with file schedule")
 
 TEST_CASE("Flow without junction (flow-turbine mode)")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Flow flow {
       .uid = Uid {5},
       .name = "pasada_flow",

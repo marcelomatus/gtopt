@@ -11,8 +11,6 @@
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning_options_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
 
@@ -20,6 +18,8 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 
 TEST_CASE("ModelOptions defaults are all nullopt")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const ModelOptions opts;
   CHECK(!opts.use_single_bus.has_value());
   CHECK(!opts.use_kirchhoff.has_value());
@@ -34,6 +34,8 @@ TEST_CASE("ModelOptions defaults are all nullopt")  // NOLINT
 
 TEST_CASE("CascadeTransition defaults are all nullopt")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const CascadeTransition trans;
   CHECK(!trans.inherit_optimality_cuts.has_value());
   CHECK(!trans.inherit_feasibility_cuts.has_value());
@@ -46,6 +48,8 @@ TEST_CASE("CascadeTransition defaults are all nullopt")  // NOLINT
 
 TEST_CASE("CascadeLevelMethod defaults are all nullopt")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const CascadeLevelMethod solver;
   CHECK(!solver.max_iterations.has_value());
   CHECK(!solver.apertures.has_value());
@@ -54,6 +58,8 @@ TEST_CASE("CascadeLevelMethod defaults are all nullopt")  // NOLINT
 
 TEST_CASE("CascadeLevel defaults")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const CascadeLevel level;
   CHECK(!level.name.has_value());
   CHECK(!level.model_options.has_value());
@@ -63,6 +69,8 @@ TEST_CASE("CascadeLevel defaults")  // NOLINT
 
 TEST_CASE("CascadeOptions empty level_array by default")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const CascadeOptions opts;
   CHECK(opts.level_array.empty());
   CHECK(!opts.sddp_options.max_iterations.has_value());
@@ -71,6 +79,8 @@ TEST_CASE("CascadeOptions empty level_array by default")  // NOLINT
 
 TEST_CASE("NamedStateTarget default initialization")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const NamedStateTarget t;
   CHECK(t.var_name.empty());
   CHECK(t.target_value == 0.0);
@@ -78,6 +88,8 @@ TEST_CASE("NamedStateTarget default initialization")  // NOLINT
 
 TEST_CASE("MethodType::cascade enum")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("cascade value is 2")
   {
     CHECK(static_cast<int>(MethodType::cascade) == 2);
@@ -94,6 +106,8 @@ TEST_CASE("MethodType::cascade enum")  // NOLINT
 
 TEST_CASE("PlanningOptionsLP cascade_levels empty by default")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const PlanningOptionsLP options_lp;
   CHECK(!options_lp.has_cascade_levels());
   CHECK(options_lp.cascade_levels().empty());
@@ -103,6 +117,8 @@ TEST_CASE("PlanningOptionsLP cascade_levels empty by default")  // NOLINT
 
 TEST_CASE("JSON parsing of cascade method")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   constexpr std::string_view json_str = R"json(
   {
     "options": {
@@ -119,6 +135,8 @@ TEST_CASE("JSON parsing of cascade method")  // NOLINT
 
 TEST_CASE("JSON parsing of cascade levels")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   constexpr std::string_view json_str = R"json(
   {
     "options": {
@@ -212,6 +230,8 @@ TEST_CASE("JSON parsing of cascade levels")  // NOLINT
 
 TEST_CASE("JSON cascade options with empty levels uses defaults")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   constexpr std::string_view json_str = R"json(
   {
     "options": {
@@ -230,6 +250,8 @@ TEST_CASE("JSON cascade options with empty levels uses defaults")  // NOLINT
 
 TEST_CASE("make_planning_method factory - cascade")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   PlanningOptions opts;
   opts.method = MethodType::cascade;
   opts.sddp_options.max_iterations = OptInt {20};
@@ -242,6 +264,8 @@ TEST_CASE("make_planning_method factory - cascade")  // NOLINT
 TEST_CASE("make_planning_method factory - cascade single phase falls back")
 // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   PlanningOptions opts;
   opts.method = MethodType::cascade;
   const PlanningOptionsLP options_lp(std::move(opts));
@@ -254,6 +278,8 @@ TEST_CASE("make_planning_method factory - cascade single phase falls back")
 
 TEST_CASE("CascadePlanningMethod basic 3-phase hydro")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -324,6 +350,8 @@ TEST_CASE("CascadePlanningMethod basic 3-phase hydro")  // NOLINT
 
 TEST_CASE("CascadePlanningMethod with empty options = single level")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Empty CascadeOptions should be equivalent to one level with
   // the base SDDP solver and default model options.
   auto planning1 = make_3phase_hydro_planning();
@@ -359,6 +387,8 @@ TEST_CASE("CascadePlanningMethod with empty options = single level")  // NOLINT
 
 TEST_CASE("CascadePlanningMethod 5-phase reservoir")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_5phase_reservoir_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -422,6 +452,8 @@ TEST_CASE("CascadePlanningMethod 5-phase reservoir")  // NOLINT
 
 TEST_CASE("CascadeLevelMethod merge overwrites set fields only")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CascadeLevelMethod base;
   base.max_iterations = OptInt {10};
   base.convergence_tol = OptReal {0.01};
@@ -483,6 +515,8 @@ TEST_CASE("CascadeLevelMethod merge overwrites set fields only")  // NOLINT
 
 TEST_CASE("CascadeTransition merge overwrites set fields only")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CascadeTransition base;
   base.inherit_targets = OptInt {-1};
   base.target_penalty = OptReal {500.0};
@@ -503,6 +537,8 @@ TEST_CASE("CascadeTransition merge overwrites set fields only")  // NOLINT
 TEST_CASE("CascadeOptions merge overwrites global fields and level_array")
 // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CascadeOptions base;
   base.sddp_options.max_iterations = OptInt {50};
   base.sddp_options.convergence_tol = OptReal {0.01};
@@ -548,6 +584,8 @@ TEST_CASE("CascadeOptions merge overwrites global fields and level_array")
 
 TEST_CASE("ModelOptions merge overwrites set fields only")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   ModelOptions base;
   base.use_single_bus = OptBool {true};
   base.demand_fail_cost = 1000.0;
@@ -567,6 +605,8 @@ TEST_CASE("ModelOptions merge overwrites set fields only")  // NOLINT
 
 TEST_CASE("CascadePlanningMethod SDDP option priority chain")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // This test verifies the 3-layer priority:
   // base SDDPOptions → cascade global → per-level CascadeLevelMethod.
   // Since build_level_sddp_opts is private, we test through solve()
@@ -674,6 +714,8 @@ TEST_CASE("CascadePlanningMethod SDDP option priority chain")  // NOLINT
 TEST_CASE("CascadePlanningMethod empty CascadeOptions = single level")
 // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Empty cascade options should behave as a single level with
   // the base SDDP solver and default model options.
   auto planning1 = make_3phase_hydro_planning();
@@ -709,6 +751,8 @@ TEST_CASE("CascadePlanningMethod empty CascadeOptions = single level")
 
 TEST_CASE("Cascade level aperture semantics")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -775,6 +819,8 @@ TEST_CASE("Cascade level aperture semantics")  // NOLINT
 
 TEST_CASE("Cascade 2-level with target inheritance")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -839,6 +885,8 @@ TEST_CASE("Cascade 2-level with target inheritance")  // NOLINT
 
 TEST_CASE("Cascade 2-level with optimality cut inheritance")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -891,6 +939,8 @@ TEST_CASE("Cascade 2-level with optimality cut inheritance")  // NOLINT
 
 TEST_CASE("Cascade reuses LP when model_options absent")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -935,6 +985,8 @@ TEST_CASE("Cascade reuses LP when model_options absent")  // NOLINT
 
 TEST_CASE("Cascade 3-level mixed transitions")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1008,6 +1060,8 @@ TEST_CASE("Cascade 3-level mixed transitions")  // NOLINT
 
 TEST_CASE("Cascade 5-phase with dual threshold cut filter")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_5phase_reservoir_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1062,6 +1116,8 @@ TEST_CASE("Cascade 5-phase with dual threshold cut filter")  // NOLINT
 
 TEST_CASE("Cascade global convergence_tol applies to all levels")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1102,6 +1158,8 @@ TEST_CASE("Cascade global convergence_tol applies to all levels")  // NOLINT
 TEST_CASE("Single-level cascade produces same result as direct SDDP")
 // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Run SDDP directly
   auto planning1 = make_3phase_hydro_planning();
   PlanningLP planning_lp1(std::move(planning1));
@@ -1534,6 +1592,8 @@ auto make_6phase_2bus_hydro_planning() -> Planning
 TEST_CASE("Cascade 2-level with multi-bus network and cut inheritance")
 // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_2bus_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -1633,6 +1693,8 @@ TEST_CASE("Cascade 2-level with multi-bus network and cut inheritance")
 
 TEST_CASE("SDDP baseline (6-phase, no cascade)")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Baseline: plain SDDP solver on the same 6-phase hydro system,
   // for comparison with cascade cut/target inheritance tests.
   auto planning = make_6phase_2bus_hydro_planning();
@@ -1677,6 +1739,8 @@ TEST_CASE("SDDP baseline (6-phase, no cascade)")  // NOLINT
 TEST_CASE("Cascade 2-level with cut inheritance only (6-phase)")
 // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // 6 phases ⇒ more state links ⇒ Benders needs more iterations to converge,
   // making the effect of inherited cuts clearly visible.
   auto planning = make_6phase_2bus_hydro_planning();
@@ -1783,6 +1847,8 @@ TEST_CASE("Cascade 2-level with cut inheritance only (6-phase)")
 TEST_CASE("Cascade 2-level with target inheritance only (6-phase)")
 // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // 6 phases ⇒ more state links ⇒ targets from level 0 guide level 1
   // toward the optimal reservoir trajectory, reducing iterations.
   auto planning = make_6phase_2bus_hydro_planning();
@@ -1894,6 +1960,8 @@ TEST_CASE("Cascade 2-level with target inheritance only (6-phase)")
 
 TEST_CASE("Cascade 3-level with targets then cuts (6-phase)")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Level 0: fast uninodal Benders to get rough solution.
   // Level 1: full network guided by uninodal targets.
   // Level 2: same network, inherits cuts from level 1 ⇒ faster convergence.
@@ -2014,6 +2082,8 @@ TEST_CASE("Cascade 3-level with targets then cuts (6-phase)")  // NOLINT
 TEST_CASE("Cascade 2-level inherit_optimality_cuts=3 (forget after 3 iters)")
 // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Level 1 inherits optimality cuts, uses them for 3 iterations, then
   // forgets them and continues with only self-generated cuts.
   // inherit_optimality_cuts=3 means: inherit, but drop after 3 iters.
@@ -2094,6 +2164,8 @@ TEST_CASE("Cascade 2-level inherit_optimality_cuts=3 (forget after 3 iters)")
 TEST_CASE(  // NOLINT
     "Cascade 2-level with custom target tolerances (3-phase)")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -2142,6 +2214,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Cascade 2-level inherit_optimality_cuts keeps cuts (3-phase)")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -2197,6 +2271,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Cascade 2-level forget inherited cuts after N iterations (3-phase)")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -2244,6 +2320,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Cascade 3-level progressive refinement (3-phase)")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -2309,6 +2387,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Cascade 2-level with both targets and cuts (3-phase)")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 

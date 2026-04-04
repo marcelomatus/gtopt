@@ -19,6 +19,7 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_method.hpp>
 #include <gtopt/scenario_lp.hpp>
+#include <gtopt/scene_lp.hpp>
 #include <gtopt/sddp_aperture.hpp>
 #include <gtopt/sddp_clone_pool.hpp>
 #include <gtopt/sddp_cut_io.hpp>
@@ -48,6 +49,7 @@ using namespace gtopt;  // NOLINT(google-build-using-namespace)
 #include "test_sddp_clone_pool.hpp"
 #include "test_sddp_cut_sharing.hpp"
 #include "test_sddp_feasibility.hpp"
+#include "test_sddp_coverage.hpp"
 #include "test_cascade_method.hpp"
 #include "test_convergence_mode.hpp"
 #include "test_monolithic_method.hpp"

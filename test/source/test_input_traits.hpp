@@ -29,10 +29,10 @@
 #include <gtopt/system_lp.hpp>
 #include <parquet/arrow/writer.h>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
+
+using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
 /// Create the directory tree and write a Parquet file with the given schema
 /// and arrays.  Returns the stem path (without .parquet extension).
@@ -217,6 +217,8 @@ void write_stb_double_parquet(const std::filesystem::path& input_dir,
 
 TEST_CASE("InputTraits FileSched double - TBRealSched via Parquet")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto tmp_root =
       std::filesystem::temp_directory_path() / "test_input_traits_tb";
   std::filesystem::remove_all(tmp_root);
@@ -257,6 +259,8 @@ TEST_CASE("InputTraits FileSched double - TBRealSched via Parquet")
 
 TEST_CASE("InputTraits FileSched double - STBRealSched via Parquet")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto tmp_root =
       std::filesystem::temp_directory_path() / "test_input_traits_stb";
   std::filesystem::remove_all(tmp_root);
@@ -299,6 +303,8 @@ TEST_CASE("InputTraits FileSched double - STBRealSched via Parquet")
 
 TEST_CASE("InputTraits FileSched double - TRealSched via Parquet")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto tmp_root =
       std::filesystem::temp_directory_path() / "test_input_traits_t";
   std::filesystem::remove_all(tmp_root);
@@ -354,6 +360,8 @@ TEST_CASE("InputTraits FileSched double - TRealSched via Parquet")
 
 TEST_CASE("InputTraits FileSched int32 - ActiveSched via Parquet")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto tmp_root =
       std::filesystem::temp_directory_path() / "test_input_traits_int";
   std::filesystem::remove_all(tmp_root);
@@ -391,6 +399,8 @@ TEST_CASE("InputTraits FileSched int32 - ActiveSched via Parquet")
 
 TEST_CASE("InputTraits FileSched - OptSchedule via Parquet")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto tmp_root =
       std::filesystem::temp_directory_path() / "test_input_traits_opt";
   std::filesystem::remove_all(tmp_root);
@@ -436,6 +446,8 @@ TEST_CASE("InputTraits FileSched - OptSchedule via Parquet")
 
 TEST_CASE("InputTraits OptSchedule empty returns nullopt")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const OptTBRealSched sched;
 
   CHECK_FALSE(sched.has_value());
@@ -448,6 +460,8 @@ TEST_CASE("InputTraits OptSchedule empty returns nullopt")
 
 TEST_CASE("InputTraits FileSched - column found by name")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto tmp_root =
       std::filesystem::temp_directory_path() / "test_input_traits_byname";
   std::filesystem::remove_all(tmp_root);
@@ -489,6 +503,8 @@ TEST_CASE("InputTraits FileSched - column found by name")
 
 TEST_CASE("InputTraits scalar path via Schedule")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const TBRealSched sched {5.5};
   CHECK(sched.at(StageUid {1}, BlockUid {1}) == doctest::Approx(5.5));
   CHECK(sched.at(StageUid {2}, BlockUid {3}) == doctest::Approx(5.5));
@@ -496,6 +512,8 @@ TEST_CASE("InputTraits scalar path via Schedule")
 
 TEST_CASE("InputTraits vector path via Schedule with InputContext")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto sim = make_test_simulation();
   const PlanningOptionsLP options;
   SimulationLP simulation {sim, options};
@@ -521,6 +539,8 @@ TEST_CASE("InputTraits vector path via Schedule with InputContext")
 
 TEST_CASE("InputTraits FileSched - float32 widened to double")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto tmp_root =
       std::filesystem::temp_directory_path() / "test_input_traits_f32";
   std::filesystem::remove_all(tmp_root);
@@ -577,6 +597,8 @@ TEST_CASE("InputTraits FileSched - float32 widened to double")
 
 TEST_CASE("InputTraits FileSched - int16 widened to int32")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto tmp_root =
       std::filesystem::temp_directory_path() / "test_input_traits_i16";
   std::filesystem::remove_all(tmp_root);
@@ -633,6 +655,8 @@ TEST_CASE("InputTraits FileSched - int16 widened to int32")
 
 TEST_CASE("InputTraits FileSched - CSV fallback")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto tmp_root =
       std::filesystem::temp_directory_path() / "test_input_traits_csv";
   std::filesystem::remove_all(tmp_root);
@@ -680,6 +704,8 @@ TEST_CASE("InputTraits FileSched - CSV fallback")
 
 TEST_CASE("InputTraits scalar OptTBRealSched returns constant")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto sim = make_test_simulation();
   const PlanningOptions opts;
   const PlanningOptionsLP options {opts};
@@ -706,6 +732,8 @@ TEST_CASE("InputTraits scalar OptTBRealSched returns constant")
 
 TEST_CASE("InputTraits nullopt OptTBRealSched returns nullopt")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto sim = make_test_simulation();
   const PlanningOptions opts;
   const PlanningOptionsLP options {opts};

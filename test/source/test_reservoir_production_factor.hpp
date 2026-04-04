@@ -16,13 +16,13 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 // ─── evaluate_production_factor tests
 // ──────────────────────────────────────────────
 
 TEST_CASE("evaluate_production_factor with empty segments returns 1.0")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const std::vector<ProductionFactorSegment> segments {};
   CHECK(evaluate_production_factor(segments, 0.0) == doctest::Approx(1.0));
   CHECK(evaluate_production_factor(segments, 500.0) == doctest::Approx(1.0));
@@ -30,6 +30,8 @@ TEST_CASE("evaluate_production_factor with empty segments returns 1.0")
 
 TEST_CASE("evaluate_production_factor with single segment")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // constant = 1.2, slope = 0.0002, volume breakpoint = 0
   // efficiency(V) = 1.2 + 0.0002 * (V - 0) = 1.2 + 0.0002 * V
   const std::vector<ProductionFactorSegment> segments {
@@ -44,6 +46,8 @@ TEST_CASE("evaluate_production_factor with single segment")
 TEST_CASE(
     "evaluate_production_factor with multiple segments (concave envelope)")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Two segments creating a concave envelope (PLP FRendimientos style):
   // constant is the value AT the breakpoint (point-slope form).
   // seg1: constant=2.0, slope=0.001, volume=0.0 → 2.0 + 0.001 * (V-0)
@@ -65,6 +69,8 @@ TEST_CASE(
 
 TEST_CASE("evaluate_production_factor never returns negative")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // slope = -0.01 → at large volume, result would go negative
   const std::vector<ProductionFactorSegment> segments {
       {.volume = 0.0, .slope = -0.01, .constant = 1.0},
@@ -80,6 +86,8 @@ TEST_CASE("evaluate_production_factor never returns negative")
 
 TEST_CASE("ReservoirProductionFactor default construction")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const ReservoirProductionFactor re;
 
   CHECK(re.uid == Uid {unknown_uid});
@@ -93,6 +101,8 @@ TEST_CASE("ReservoirProductionFactor default construction")
 
 TEST_CASE("ReservoirProductionFactor attribute assignment")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   ReservoirProductionFactor re;
 
   re.uid = 9001;
@@ -119,6 +129,8 @@ TEST_CASE("ReservoirProductionFactor attribute assignment")
 
 TEST_CASE("ProductionFactorSegment default values")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const ProductionFactorSegment seg;
 
   CHECK(seg.volume == doctest::Approx(0.0));
@@ -130,6 +142,8 @@ TEST_CASE("ProductionFactorSegment default values")
 
 TEST_CASE("Turbine main_reservoir field")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("default has no main_reservoir")
   {
     const Turbine turbine;
@@ -151,6 +165,8 @@ TEST_CASE("Turbine main_reservoir field")
 
 TEST_CASE("SystemLP with reservoir production factor element")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Array<Bus> bus_array = {
       {
           .uid = Uid {1},
@@ -343,6 +359,8 @@ TEST_CASE("SystemLP with reservoir production factor element")
 
 TEST_CASE("ReservoirProductionFactorLP - update_lp with different eini segment")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // eini=100 → seg1 (volume < 800). update_lp iter=0/phase=0 uses eini.
   // The initial conversion_rate=1.0 from Turbine will be overwritten by
   // the production factor evaluated at eini=100.
@@ -484,6 +502,8 @@ TEST_CASE(
     "ReservoirProductionFactorLP - update_lp with empty segments is "
     "no-op")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // Empty segments → mean_production_factor is used directly, no update_lp
   const Array<Bus> bus_array = {{
       .uid = Uid {1},

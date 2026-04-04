@@ -11,12 +11,12 @@
 #include <gtopt/enum_option.hpp>
 #include <gtopt/planning_options_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 // ─── Generic framework tests ─────────────────────────────────────────────────
 
 TEST_CASE("enum_from_name returns matching value")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto result = enum_from_name(std::span {method_type_entries}, "sddp");
   REQUIRE(result.has_value());
   CHECK(result.value_or(MethodType::monolithic) == MethodType::sddp);
@@ -24,12 +24,16 @@ TEST_CASE("enum_from_name returns matching value")  // NOLINT
 
 TEST_CASE("enum_from_name returns nullopt for unknown name")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const auto result = enum_from_name(std::span {method_type_entries}, "bogus");
   CHECK_FALSE(result.has_value());
 }
 
 TEST_CASE("enum_name returns canonical name for known value")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CHECK(enum_name(std::span {method_type_entries}, MethodType::monolithic)
         == "monolithic");
   CHECK(enum_name(std::span {method_type_entries}, MethodType::sddp) == "sddp");
@@ -37,6 +41,8 @@ TEST_CASE("enum_name returns canonical name for known value")  // NOLINT
 
 TEST_CASE("enum_name returns 'unknown' for out-of-range value")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CHECK(enum_name(std::span {method_type_entries}, static_cast<MethodType>(99))
         == "unknown");
 }
@@ -45,6 +51,8 @@ TEST_CASE("enum_name returns 'unknown' for out-of-range value")  // NOLINT
 
 TEST_CASE("ADL enum_from_name<E> and enum_name(E)")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CHECK(enum_from_name<MethodType>("monolithic") == MethodType::monolithic);
   CHECK(enum_from_name<MethodType>("sddp") == MethodType::sddp);
   CHECK_FALSE(enum_from_name<MethodType>("unknown").has_value());
@@ -57,6 +65,8 @@ TEST_CASE("ADL enum_from_name<E> and enum_name(E)")  // NOLINT
 
 TEST_CASE("MethodType from_name and name")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CHECK(enum_from_name<MethodType>("monolithic").value_or(MethodType::sddp)
         == MethodType::monolithic);
   CHECK(enum_from_name<MethodType>("sddp").value_or(MethodType::monolithic)
@@ -71,6 +81,8 @@ TEST_CASE("MethodType from_name and name")  // NOLINT
 
 TEST_CASE("SolveMode from_name")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CHECK(enum_from_name<SolveMode>("monolithic").value_or(SolveMode::sequential)
         == SolveMode::monolithic);
   CHECK(enum_from_name<SolveMode>("sequential").value_or(SolveMode::monolithic)
@@ -82,6 +94,8 @@ TEST_CASE("SolveMode from_name")  // NOLINT
 
 TEST_CASE("BoundaryCutsMode from_name")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CHECK(enum_from_name<BoundaryCutsMode>("noload").value_or(
             BoundaryCutsMode::separated)
         == BoundaryCutsMode::noload);
@@ -98,6 +112,8 @@ TEST_CASE("BoundaryCutsMode from_name")  // NOLINT
 
 TEST_CASE("DataFormat from_name and name")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CHECK(enum_from_name<DataFormat>("parquet").value_or(DataFormat::csv)
         == DataFormat::parquet);
   CHECK(enum_from_name<DataFormat>("csv").value_or(DataFormat::parquet)
@@ -112,6 +128,8 @@ TEST_CASE("DataFormat from_name and name")  // NOLINT
 
 TEST_CASE("CompressionCodec from_name")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CHECK(enum_from_name<CompressionCodec>("zstd").value_or(
             CompressionCodec::uncompressed)
         == CompressionCodec::zstd);
@@ -146,6 +164,8 @@ TEST_CASE("CompressionCodec from_name")  // NOLINT
 
 TEST_CASE("CutSharingMode from_name")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CHECK(
       enum_from_name<CutSharingMode>("none").value_or(CutSharingMode::expected)
       == CutSharingMode::none);
@@ -164,6 +184,8 @@ TEST_CASE("CutSharingMode from_name")  // NOLINT
 
 TEST_CASE("ElasticFilterMode from_name")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CHECK(enum_from_name<ElasticFilterMode>("single_cut")
             .value_or(ElasticFilterMode::multi_cut)
         == ElasticFilterMode::single_cut);
@@ -184,6 +206,8 @@ TEST_CASE("ElasticFilterMode from_name")  // NOLINT
 
 TEST_CASE("HotStartMode from_name")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CHECK(enum_from_name<HotStartMode>("none").value_or(HotStartMode::replace)
         == HotStartMode::none);
   CHECK(enum_from_name<HotStartMode>("keep").value_or(HotStartMode::none)
@@ -199,6 +223,8 @@ TEST_CASE("HotStartMode from_name")  // NOLINT
 
 TEST_CASE("LpNamesLevel from_name and name")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CHECK(
       enum_from_name<LpNamesLevel>("minimal").value_or(LpNamesLevel::only_cols)
       == LpNamesLevel::minimal);
@@ -220,6 +246,8 @@ TEST_CASE("LpNamesLevel from_name and name")  // NOLINT
 
 TEST_CASE("PlanningOptionsLP enum accessors return correct defaults")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const PlanningOptionsLP opts;
 
   SUBCASE("method_type_enum defaults to monolithic")
@@ -251,6 +279,8 @@ TEST_CASE("PlanningOptionsLP enum accessors return correct defaults")  // NOLINT
 
 TEST_CASE("PlanningOptionsLP enum accessors parse explicit values")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   PlanningOptions raw;
   raw.method = MethodType::sddp;
   raw.sddp_options.boundary_cuts_mode = BoundaryCutsMode::combined;
@@ -271,6 +301,8 @@ TEST_CASE("PlanningOptionsLP enum accessors parse explicit values")  // NOLINT
 
 TEST_CASE("validate_enum_options returns empty for valid defaults")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const PlanningOptionsLP opts;
   const auto warnings = opts.validate_enum_options();
   CHECK(warnings.empty());
@@ -279,6 +311,8 @@ TEST_CASE("validate_enum_options returns empty for valid defaults")  // NOLINT
 TEST_CASE("validate_enum_options returns empty for valid explicit values")
 // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   PlanningOptions raw;
   raw.method = MethodType::sddp;
   raw.input_format = DataFormat::csv;
@@ -300,6 +334,8 @@ TEST_CASE(
     "validate_enum_options returns empty for typed enum "
     "values")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // With typed enum fields, invalid strings are rejected at JSON parse
   // time.  Validation of already-constructed Options always succeeds.
   PlanningOptions raw;
@@ -313,6 +349,8 @@ TEST_CASE(
     "validate_enum_options returns empty for multiple typed enum "
     "values")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   // With typed enum fields, invalid strings are rejected at JSON parse
   // time.  Multiple valid enum assignments always pass validation.
   PlanningOptions raw;
@@ -326,6 +364,8 @@ TEST_CASE(
 
 TEST_CASE("sddp_cut_recovery_mode explicit values")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("cut_recovery_mode=replace maps to replace")
   {
     PlanningOptions raw;
@@ -364,6 +404,8 @@ TEST_CASE("sddp_cut_recovery_mode explicit values")  // NOLINT
 TEST_CASE(
     "StateVariableLookupMode enum from_name and name round-trip")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   CHECK(enum_from_name<StateVariableLookupMode>("warm_start")
             .value_or(StateVariableLookupMode::cross_phase)
         == StateVariableLookupMode::warm_start);
@@ -378,6 +420,8 @@ TEST_CASE(
 
 TEST_CASE("sddp_state_variable_lookup_mode default is warm_start")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const PlanningOptionsLP opts(PlanningOptions {});
   CHECK(opts.sddp_state_variable_lookup_mode()
         == StateVariableLookupMode::warm_start);
@@ -385,6 +429,8 @@ TEST_CASE("sddp_state_variable_lookup_mode default is warm_start")  // NOLINT
 
 TEST_CASE("sddp_state_variable_lookup_mode cross_phase when set")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   PlanningOptions raw;
   raw.sddp_options.state_variable_lookup_mode =
       StateVariableLookupMode::cross_phase;

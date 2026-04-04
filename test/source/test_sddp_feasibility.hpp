@@ -14,10 +14,10 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_method.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
+
+using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
 /// Create a 3-phase hydro+thermal problem where the middle phase has
 /// demand exceeding total generation capacity, forcing elastic fallback
@@ -479,6 +479,8 @@ auto make_deep_backpropagation_planning() -> Planning
 TEST_CASE(  // NOLINT
     "feasibility_backpropagate — single_cut mode adds feasibility cut")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_infeasible_middle_phase_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -505,6 +507,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "feasibility_backpropagate — multi_cut mode adds multi-cuts")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_infeasible_middle_phase_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -530,6 +534,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "feasibility_backpropagate — backpropagate mode updates bounds")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_infeasible_middle_phase_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -555,6 +561,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "feasibility_backpropagate — multi_cut_threshold=0 forces multi-cut")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_infeasible_middle_phase_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -581,6 +589,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "feasibility_backpropagate — fully infeasible returns error")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_fully_infeasible_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -609,6 +619,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "feasibility_backpropagate — feasible problem needs no elastic")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_feasible_2phase_thermal_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -640,6 +652,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "feasibility_backpropagate — multi-scene single_cut converges")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_multi_scene_infeasible_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -661,6 +675,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "feasibility_backpropagate — multi-scene multi_cut converges")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_multi_scene_infeasible_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -682,6 +698,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "feasibility_backpropagate — multi-scene backpropagate converges")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_multi_scene_infeasible_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -707,6 +725,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "feasibility_backpropagate — deep 4-phase single_cut converges")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_deep_backpropagation_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -728,6 +748,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "feasibility_backpropagate — deep 4-phase multi_cut converges")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_deep_backpropagation_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -749,6 +771,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "feasibility_backpropagate — deep 4-phase backpropagate converges")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_deep_backpropagation_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -774,6 +798,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "feasibility_backpropagate — multi_cut_threshold=1 auto-switches")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_infeasible_middle_phase_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -800,6 +826,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "feasibility_backpropagate — multi_cut_threshold<0 disables switch")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_infeasible_middle_phase_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -826,6 +854,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "feasibility_backpropagate — low elastic penalty converges")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_infeasible_middle_phase_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -847,6 +877,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "feasibility_backpropagate — very high elastic penalty converges")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_infeasible_middle_phase_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -872,6 +904,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "feasibility_backpropagate — scale_alpha=1 converges")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_infeasible_middle_phase_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -898,6 +932,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "feasibility_backpropagate — fully infeasible multi_cut")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_fully_infeasible_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -925,6 +961,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "feasibility_backpropagate — fully infeasible backpropagate")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   auto planning = make_fully_infeasible_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -939,8 +977,107 @@ TEST_CASE(  // NOLINT
   auto results = sddp.solve();
 
   // Either error or non-convergence is acceptable for a
-  // fundamentally infeasible problem.
+  // fundamentally infeasible problem (backpropagate mode).
   if (results.has_value()) {
     CHECK_FALSE(results->back().converged);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Deep backpropagation with multi-scene (4 phases, 2 scenarios)
+// ---------------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "feasibility_backpropagate — deep 4-phase multi-scene backpropagate")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_deep_backpropagation_planning();
+
+  // Add a second scenario
+  planning.simulation.scenario_array.push_back(Scenario {
+      .uid = Uid {2},
+      .probability_factor = 0.5,
+  });
+  planning.simulation.scenario_array[0].probability_factor = 0.5;
+
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 50;
+  sddp_opts.convergence_tol = 1e-3;
+  sddp_opts.elastic_penalty = 1e6;
+  sddp_opts.elastic_filter_mode = ElasticFilterMode::backpropagate;
+  sddp_opts.enable_api = false;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+  CHECK(results->back().converged);
+}
+
+// ---------------------------------------------------------------------------
+// Convergence bounds: lower <= upper on converged infeasible-middle problem
+// ---------------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "feasibility_backpropagate — converged bounds are consistent")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_infeasible_middle_phase_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 30;
+  sddp_opts.convergence_tol = 1e-3;
+  sddp_opts.elastic_penalty = 1e6;
+  sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
+  sddp_opts.enable_api = false;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  const auto& last = results->back();
+  if (last.converged) {
+    // Lower bound should be <= upper bound at convergence
+    CHECK(last.lower_bound <= last.upper_bound + 1e-6);
+    // Both bounds should be finite
+    CHECK(last.lower_bound > -1e30);
+    CHECK(last.upper_bound < 1e30);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Feasible 2-phase: verify exact objective with multi_cut mode
+// ---------------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "feasibility_backpropagate — feasible 2-phase multi_cut objective")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_feasible_2phase_thermal_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 20;
+  sddp_opts.convergence_tol = 1e-4;
+  sddp_opts.elastic_penalty = 1e6;
+  sddp_opts.elastic_filter_mode = ElasticFilterMode::multi_cut;
+  sddp_opts.enable_api = false;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  CHECK(results->back().converged);
+
+  // 100 MW demand, $50/MWh thermal, 2 phases x 4 blocks x 1 hour each
+  // = 100 * 50 * 8 = 40000
+  CHECK(results->back().lower_bound == doctest::Approx(40000.0).epsilon(0.01));
 }

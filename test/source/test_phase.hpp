@@ -4,10 +4,10 @@
 #include <doctest/doctest.h>
 #include <gtopt/phase.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
 TEST_CASE("Phase construction and default values")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Phase phase;
 
   CHECK(phase.uid == Uid {unknown_uid});
@@ -21,6 +21,8 @@ TEST_CASE("Phase construction and default values")
 
 TEST_CASE("Phase is_active default behaviour")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   SUBCASE("default is active when unset")
   {
     const Phase phase;
@@ -44,6 +46,8 @@ TEST_CASE("Phase is_active default behaviour")  // NOLINT
 
 TEST_CASE("Phase attribute assignment")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Phase phase;
 
   phase.uid = 1;
@@ -61,6 +65,8 @@ TEST_CASE("Phase attribute assignment")
 
 TEST_CASE("Phase designated initializer construction")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Phase phase {
       .uid = Uid {2},
       .name = "operational",
@@ -78,6 +84,8 @@ TEST_CASE("Phase designated initializer construction")
 
 TEST_CASE("Phase with apertures")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   Phase phase;
   phase.uid = 3;
   phase.apertures = {Uid {10}, Uid {20}, Uid {30}};
@@ -90,6 +98,8 @@ TEST_CASE("Phase with apertures")
 
 TEST_CASE("Phase with dynamic_extent covers all stages")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Phase phase {
       .uid = Uid {1},
       .name = {},
@@ -104,6 +114,8 @@ TEST_CASE("Phase with dynamic_extent covers all stages")
 
 TEST_CASE("PhaseUid and PhaseIndex strong types")
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const PhaseUid puid {5};
   const PhaseIndex pidx {2};
 
@@ -113,6 +125,8 @@ TEST_CASE("PhaseUid and PhaseIndex strong types")
 
 TEST_CASE("Phase array construction")  // NOLINT
 {
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
   const Array<Phase> phases {
       {
           .uid = Uid {1},
