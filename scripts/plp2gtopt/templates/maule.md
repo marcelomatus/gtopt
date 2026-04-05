@@ -311,25 +311,15 @@ model:
 
 ```mermaid
 graph TD
-    subgraph "Colbun Reservoir Zones"
-        TOP["VolMax hm³"] --- NORMAL
-        NORMAL["🔵 <b>Normal Zone</b><br/>Elec: 30 m³/s · Irr: 200 m³/s · Comp: allowed"]
-        NORMAL --- MID["581 hm³"]
-        MID --- ORDINARY
-        ORDINARY["🟡 <b>Ordinary Reserve</b> (452 hm³)<br/>20% ENDESA · 80% Irrigators"]
-        ORDINARY --- LOW["129 hm³"]
-        LOW --- EXTRA
-        EXTRA["🔴 <b>Extraordinary Reserve</b><br/>No extraction · Minimal flows only"]
-        EXTRA --- BOT["0 hm³"]
-    end
+    NORMAL["🔵 <b>Normal Zone</b><br/>581 — VolMax hm³<br/>Elec: 30 m³/s · Irr: 200 m³/s · Comp: allowed"]
+    NORMAL -->|"581 hm³"| ORDINARY
+    ORDINARY["🟡 <b>Ordinary Reserve</b><br/>129 — 581 hm³ (452 hm³)<br/>20% ENDESA · 80% Irrigators"]
+    ORDINARY -->|"129 hm³"| EXTRA
+    EXTRA["🔴 <b>Extraordinary Reserve</b><br/>0 — 129 hm³<br/>No extraction · Minimal flows only"]
 
     style NORMAL fill:#4a90d9,color:#fff
     style ORDINARY fill:#f0ad4e,color:#000
     style EXTRA fill:#d9534f,color:#fff
-    style TOP fill:none,stroke:none,color:#333
-    style MID fill:none,stroke:none,color:#666,font-weight:bold
-    style LOW fill:none,stroke:none,color:#666,font-weight:bold
-    style BOT fill:none,stroke:none,color:#333
 ```
 
 The 3-segment pattern for ordinary reserve achieves zone exclusivity:

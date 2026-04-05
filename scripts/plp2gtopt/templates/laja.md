@@ -305,30 +305,18 @@ electric, and mixed rights.
 
 ```mermaid
 graph TD
-    subgraph "Laguna del Laja — Volume Zones"
-        TOP["VolMax = 5,582 hm³"] --- Z4
-        Z4["🔵 <b>Zone 4</b> (3,682 hm³)<br/>Irr +0.25 · Elec +0.65"]
-        Z4 --- B3["1,900 hm³"]
-        B3 --- Z3
-        Z3["🟢 <b>Zone 3</b> (530 hm³)<br/>Irr +0.40 · Elec +0.40"]
-        Z3 --- B2["1,370 hm³"]
-        B2 --- Z2
-        Z2["🟡 <b>Zone 2</b> (170 hm³)<br/>Irr +0.40 · Elec +0.05"]
-        Z2 --- B1["1,200 hm³"]
-        B1 --- Z1
-        Z1["🟠 <b>Zone 1</b> (1,200 hm³)<br/>Irr +0.00 (flat=570) · Elec +0.05 · Mixed +1.00"]
-        Z1 --- BOT["VolMuerto = 0 hm³"]
-    end
+    Z4["🔵 <b>Zone 4</b><br/>1,900 — 5,582 hm³ (3,682 hm³)<br/>Irr +0.25 · Elec +0.65"]
+    Z4 -->|"1,900 hm³"| Z3
+    Z3["🟢 <b>Zone 3</b><br/>1,370 — 1,900 hm³ (530 hm³)<br/>Irr +0.40 · Elec +0.40"]
+    Z3 -->|"1,370 hm³"| Z2
+    Z2["🟡 <b>Zone 2</b><br/>1,200 — 1,370 hm³ (170 hm³)<br/>Irr +0.40 · Elec +0.05"]
+    Z2 -->|"1,200 hm³"| Z1
+    Z1["🟠 <b>Zone 1</b><br/>0 — 1,200 hm³ (1,200 hm³)<br/>Irr +0.00 (flat=570) · Elec +0.05 · Mixed +1.00"]
 
     style Z4 fill:#4a90d9,color:#fff
     style Z3 fill:#5cb85c,color:#fff
     style Z2 fill:#f0ad4e,color:#000
     style Z1 fill:#e67e22,color:#fff
-    style TOP fill:none,stroke:none,color:#333
-    style B3 fill:none,stroke:none,color:#666,font-weight:bold
-    style B2 fill:none,stroke:none,color:#666,font-weight:bold
-    style B1 fill:none,stroke:none,color:#666,font-weight:bold
-    style BOT fill:none,stroke:none,color:#333
 ```
 
 The converter (`_zones_to_bound_rule_segments`) transforms the PLP zone
