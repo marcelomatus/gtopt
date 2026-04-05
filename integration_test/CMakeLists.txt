@@ -80,6 +80,9 @@ include(${CMAKE_SCRIPTS_DIR}/add_sddp_case.cmake)
 include(${CMAKE_SCRIPTS_DIR}/FindPandapower.cmake)
 include(${CMAKE_SCRIPTS_DIR}/add_pandapower_comparison.cmake)
 
+# ---- Options ----
+option(GTOPT_SLOW_TESTS "Register slow integration tests (case_2y)" OFF)
+
 # ---- Register e2e test cases ----
 # To add a new case, place it under cases/<name>/ with a system JSON file and
 # an output/ directory containing the expected CSV results, then add a line:
@@ -108,9 +111,12 @@ add_e2e_case(exp_bat_4b_24 exp_bat_4b_24.json)
 # that has method="sddp", then add a line:
 #   add_sddp_case(<name> <system_json> [MAX_ITERATIONS <n>])
 add_sddp_case(sddp_hydro_3phase sddp_hydro_3phase.json MAX_ITERATIONS 3)
-add_sddp_case(gtopt_case_2y gtopt_case_2y.json MAX_ITERATIONS 1 TIMEOUT 600)
-add_sddp_case(gtopt_case_2y_fs gtopt_case_2y_fs.json
-  MAX_ITERATIONS 0 ALLOWED_EXIT_CODES "0;1")
+if(GTOPT_SLOW_TESTS)
+  add_sddp_case(gtopt_case_2y gtopt_case_2y.json
+    MAX_ITERATIONS 1 TIMEOUT 600 LABELS slow)
+  add_sddp_case(gtopt_case_2y_fs gtopt_case_2y_fs.json
+    MAX_ITERATIONS 0 ALLOWED_EXIT_CODES "0;1" LABELS slow)
+endif()
 
 # ---- Pandapower comparison tests ----
 add_pandapower_comparison(s1b)

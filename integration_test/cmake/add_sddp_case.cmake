@@ -2,14 +2,15 @@
 #
 # Usage:
 #   add_sddp_case(<case_name> <system_json>
-#     [MAX_ITERATIONS <n>] [ALLOWED_EXIT_CODES <list>])
+#     [MAX_ITERATIONS <n>] [TIMEOUT <seconds>]
+#     [ALLOWED_EXIT_CODES <list>] [LABELS <list>])
 #
 # Registers two CTest tests:
 #   e2e_<case_name>_sddp_solve    - run gtopt in SDDP mode
 #   e2e_<case_name>_sddp_validate - validate solver_status.json and solution.csv
 
 function(add_sddp_case case_name system_json)
-  cmake_parse_arguments(ARG "" "MAX_ITERATIONS;TIMEOUT" "ALLOWED_EXIT_CODES" ${ARGN})
+  cmake_parse_arguments(ARG "" "MAX_ITERATIONS;TIMEOUT" "ALLOWED_EXIT_CODES;LABELS" ${ARGN})
 
   if(NOT DEFINED ARG_MAX_ITERATIONS)
     set(ARG_MAX_ITERATIONS 1)
@@ -43,9 +44,15 @@ function(add_sddp_case case_name system_json)
       -P ${CMAKE_SCRIPTS_DIR}/run_sddp_gtopt.cmake
     WORKING_DIRECTORY "${case_dir}"
   )
+  # Build label list: always include "sddp", plus any caller-specified labels
+  set(_labels "sddp")
+  if(ARG_LABELS)
+    list(APPEND _labels ${ARG_LABELS})
+  endif()
+
   set_tests_properties(e2e_${case_name}_sddp_solve PROPERTIES
     TIMEOUT ${ARG_TIMEOUT}
-    LABELS "sddp"
+    LABELS "${_labels}"
   )
 
   # Test 2: validate SDDP status and solution
@@ -57,6 +64,6 @@ function(add_sddp_case case_name system_json)
   )
   set_tests_properties(e2e_${case_name}_sddp_validate PROPERTIES
     DEPENDS e2e_${case_name}_sddp_solve
-    LABELS "sddp"
+    LABELS "${_labels}"
   )
 endfunction()

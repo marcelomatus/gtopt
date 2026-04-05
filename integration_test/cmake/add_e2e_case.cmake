@@ -50,6 +50,8 @@ Example
 include_guard(GLOBAL)
 
 function(add_e2e_case case_name system_json)
+  cmake_parse_arguments(ARG "" "" "LABELS" ${ARGN})
+
   # Allow callers to override the target; default to ${PROJECT_NAME}
   if(NOT DEFINED GTOPT_EXECUTABLE_TARGET)
     set(GTOPT_EXECUTABLE_TARGET "${PROJECT_NAME}")
@@ -81,6 +83,11 @@ function(add_e2e_case case_name system_json)
     WORKING_DIRECTORY "${case_dir}"
   )
 
+  # Apply labels to solve test
+  if(ARG_LABELS)
+    set_tests_properties(e2e_${case_name}_solve PROPERTIES LABELS "${ARG_LABELS}")
+  endif()
+
   # Test 2: validate the solution output structure and status
   add_test(
     NAME e2e_${case_name}_validate_solution
@@ -92,6 +99,10 @@ function(add_e2e_case case_name system_json)
   set_tests_properties(e2e_${case_name}_validate_solution
     PROPERTIES DEPENDS e2e_${case_name}_solve
   )
+  if(ARG_LABELS)
+    set_tests_properties(e2e_${case_name}_validate_solution
+      PROPERTIES LABELS "${ARG_LABELS}")
+  endif()
 
   # Test 3: compare each expected CSV file against actual output
   # Use solver-specific golden files when available
@@ -115,5 +126,9 @@ function(add_e2e_case case_name system_json)
     set_tests_properties(e2e_${case_name}_compare_${test_suffix}
       PROPERTIES DEPENDS e2e_${case_name}_solve
     )
+    if(ARG_LABELS)
+      set_tests_properties(e2e_${case_name}_compare_${test_suffix}
+        PROPERTIES LABELS "${ARG_LABELS}")
+    endif()
   endforeach()
 endfunction()
