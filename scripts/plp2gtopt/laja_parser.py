@@ -235,7 +235,7 @@ class LajaParser(BaseParser):
         self._config["districts"] = districts
 
         # --- Historical filtration ---
-        self._config["filtration"] = self._parse_float(lines[idx])
+        self._config["filtracion_laja"] = self._parse_float(lines[idx])
         idx = self._next_idx(idx, lines)
 
         # Default irrigation demands per regante category [m3/s]

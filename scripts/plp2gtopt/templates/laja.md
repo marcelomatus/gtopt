@@ -1036,16 +1036,16 @@ param monthly_cost_anticipated[month] = [{{ monthly_cost_anticipated | join(', '
 ```
 
 
-## Filtration
+## Filtracion Laja
 
 Natural seepage from the reservoir, a constant loss term.
 
 ```pampl laja_agreement.tampl
 # ---------------------------------------------------------------------------
-# Filtration (natural seepage from reservoir) [m3/s]
+# Filtracion Laja (natural seepage from reservoir) [m3/s]
 # ---------------------------------------------------------------------------
 
-param filtration = {{ filtration }};
+param filtracion_laja = {{ filtracion_laja }};
 
 # =============================================================================
 # End of Laja Agreement Parameters
