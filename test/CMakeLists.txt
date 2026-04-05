@@ -117,27 +117,6 @@ endif()
 include(GtoptPlugin)
 gtopt_require_solver_plugins(${PROJECT_NAME})
 
-# ---- Ensure test binary can find plugins ----
-# Plugins are built to ${CMAKE_BINARY_DIR}/plugins but the test binary
-# searches <exe_dir>/plugins/ first.  When the test binary sits in a
-# subdirectory (e.g. build/test/ under the all/ super-project), that
-# path differs.  Create a symlink so <exe_dir>/plugins always resolves
-# to the actual plugin output directory.
-set(_plugin_src "${CMAKE_BINARY_DIR}/plugins")
-get_target_property(_test_dir ${PROJECT_NAME} RUNTIME_OUTPUT_DIRECTORY)
-if(NOT _test_dir)
-  set(_test_dir "${CMAKE_CURRENT_BINARY_DIR}")
-endif()
-set(_plugin_link "${_test_dir}/plugins")
-if(NOT _plugin_src STREQUAL _plugin_link)
-  add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E rm -rf "${_plugin_link}"
-    COMMAND ${CMAKE_COMMAND} -E create_symlink "${_plugin_src}" "${_plugin_link}"
-    COMMENT "Symlinking plugins: ${_plugin_link} -> ${_plugin_src}"
-    VERBATIM
-  )
-endif()
-
 # ---- Test registration ----
 enable_testing()
 include(TestParallelism)

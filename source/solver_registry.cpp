@@ -202,10 +202,10 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
     solver_names.emplace_back(*names);
   }
 
-  SPDLOG_DEBUG("Loaded solver plugin '{}' from {} (solvers: {})",
-               plugin_name,
-               path.string(),
-               join_strings(solver_names, ", "));
+  SPDLOG_INFO("Loaded solver plugin '{}' from {} (solvers: {})",
+              plugin_name,
+              path.string(),
+              join_strings(solver_names, ", "));
 
   m_plugins_.push_back(PluginHandle {
       .dl_handle = handle,
