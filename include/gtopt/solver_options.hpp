@@ -85,12 +85,15 @@ struct SolverOptions
    *
    *  Crossover converts the interior-point solution into a basic feasible
    *  solution, producing exact dual values (row prices / reduced costs).
-   *  Currently only disabled for the elastic filter clone solve
-   *  (SDDPMethod::elastic_solve), which never needs duals.
    *
-   *  All SDDP main passes (forward, backward, simulation) keep crossover
-   *  enabled because the backward pass needs forward-pass duals for
-   *  Benders cut generation.
+   *  The SDDP forward pass sets crossover=false for speed.  When the
+   *  backward pass needs forward-pass duals (no-aperture Benders cuts),
+   *  LinearInterface::ensure_duals() lazily triggers crossover on demand
+   *  by checking SolverBackend::has_duals() and re-solving if needed.
+   *  CLP/CBC always produce duals (simplex), so no re-solve occurs.
+   *
+   *  The elastic filter clone solve also disables crossover (never needs
+   *  duals).
    *
    *  Only meaningful when algorithm == barrier.  Simplex methods always
    *  produce duals by construction.
@@ -98,7 +101,7 @@ struct SolverOptions
    *  Backend mapping:
    *  - CPLEX: true → `BARCROSSALG=1` (primal), false → `BARCROSSALG=-1`
    *  - HiGHS: false → `run_crossover="off"`
-   *  - MindOpt: false → `SolutionTarget=2` (interior-point only)
+   *  - MindOpt: true → `SolutionTarget=0`, false → `SolutionTarget=2`
    *  - CLP: ignored (CLP barrier always does crossover)
    */
   bool crossover {true};

@@ -142,7 +142,7 @@ public:
   void forget_first_cuts(int count, PlanningLP& planning_lp);
 
   /// Update dual values of stored cuts from the current LP solution.
-  void update_stored_cut_duals(const PlanningLP& planning_lp);
+  void update_stored_cut_duals(PlanningLP& planning_lp);
 
   /// Prune inactive cuts from all (scene, phase) LPs.
   void prune_inactive_cuts(

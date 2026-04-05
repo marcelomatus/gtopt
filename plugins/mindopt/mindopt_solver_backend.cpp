@@ -647,6 +647,7 @@ void MindOptSolverBackend::apply_options(const SolverOptions& opts)
   if (opts.reuse_basis && opts.algorithm != LPAlgo::barrier) {
     m_algorithm_ = LPAlgo::dual;
     m_presolve_ = false;
+
     MDOsetintparam(m_env_, MDO_INT_PAR_METHOD, 1);  // dual simplex
     MDOsetintparam(m_env_, MDO_INT_PAR_PRESOLVE, 0);
     return;
@@ -664,9 +665,9 @@ void MindOptSolverBackend::apply_options(const SolverOptions& opts)
       break;
     case LPAlgo::barrier:
       MDOsetintparam(m_env_, MDO_INT_PAR_METHOD, 2);  // barrier/IPM
-      if (!opts.crossover) {
-        MDOsetintparam(m_env_, MDO_INT_PAR_SOLUTION_TARGET, 2);
-      }
+      // SolutionTarget: 0 = basic (with crossover), 2 = interior-point only
+      MDOsetintparam(
+          m_env_, MDO_INT_PAR_SOLUTION_TARGET, opts.crossover ? 0 : 2);
       break;
     case LPAlgo::last_algo:
       break;

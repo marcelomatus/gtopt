@@ -596,7 +596,11 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene,
   const auto sa = m_options_.scale_alpha;
   const auto ceps = m_options_.cut_coeff_eps;
   const auto cmax = m_options_.cut_coeff_max;
-  auto cut = (coeff_mode == CutCoeffMode::row_dual)
+  // Use row duals when available; fall back to reduced costs when
+  // forward_row_dual is empty (e.g. elastic solve cleared it).
+  const bool use_row_duals = coeff_mode == CutCoeffMode::row_dual
+      && !target_state.forward_row_dual.empty();
+  auto cut = use_row_duals
       ? build_benders_cut_from_row_duals(
             src_state.alpha_col,
             src_state.outgoing_links,

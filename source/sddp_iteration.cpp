@@ -71,12 +71,11 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
   // Compute per-pass solver options: forward/backward options override
   // the base lp_opts when configured in SDDPOptions.
-  // NOTE: crossover stays enabled (default true) in all SDDP passes.
-  // The backward pass needs forward-pass duals for Benders cut generation,
-  // so the forward barrier solve must produce proper duals via crossover.
-  // Only the elastic filter (clone solve) disables crossover — see
-  // SDDPMethod::elastic_solve().
-  const auto fwd_opts = m_options_.forward_solver_options.value_or(lp_opts);
+  // Forward pass disables crossover for speed — duals are lazily
+  // computed via LinearInterface::ensure_duals() only when the backward
+  // pass actually needs them (e.g. no-aperture Benders cut generation).
+  auto fwd_opts = m_options_.forward_solver_options.value_or(lp_opts);
+  fwd_opts.crossover = false;
   const auto bwd_opts = m_options_.backward_solver_options.value_or(lp_opts);
 
   // Monitoring setup

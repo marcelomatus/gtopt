@@ -551,6 +551,7 @@ std::expected<int, Error> LinearInterface::initial_solve(
     // Start from backend-optimal defaults, overlay user settings on top.
     auto effective = m_backend_->optimal_options();
     effective.overlay(solver_options);
+    m_last_solver_options_ = effective;
 
     m_backend_->apply_options(effective);
 
@@ -637,6 +638,7 @@ std::expected<int, Error> LinearInterface::resolve(
     // Start from backend-optimal defaults, overlay user settings on top.
     auto effective = m_backend_->optimal_options();
     effective.overlay(solver_options);
+    m_last_solver_options_ = effective;
 
     m_backend_->apply_options(effective);
 
@@ -713,6 +715,31 @@ std::expected<int, Error> LinearInterface::resolve(
         .message = std::format("Unexpected error in resolve: {}", e.what()),
     });
   }
+}
+
+// ── Lazy crossover ──
+
+void LinearInterface::ensure_duals()
+{
+  // Duals are always available unless we solved with barrier w/o crossover.
+  // CLP/CBC (simplex-only) always produce vertex duals regardless of options.
+  if (m_last_solver_options_.algorithm != LPAlgo::barrier
+      || m_last_solver_options_.crossover)
+  {
+    return;  // solver already has proper vertex duals
+  }
+
+  // Re-solve with crossover enabled to obtain vertex duals.
+  // The solver warm-starts from the interior-point solution.
+  auto opts = m_last_solver_options_;
+  opts.crossover = true;
+  m_backend_->apply_options(opts);
+  m_backend_->resolve();
+
+  // Update cached options so subsequent dual accesses don't re-solve.
+  m_last_solver_options_.crossover = true;
+
+  SPDLOG_INFO("lazy crossover: computed duals on demand ({})", get_prob_name());
 }
 
 // ── Status ──

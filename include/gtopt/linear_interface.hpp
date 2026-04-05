@@ -632,6 +632,12 @@ public:
     return m_row_scales_;
   }
 
+  /** @brief Lazily compute vertex duals via crossover if the backend
+   *  lacks them (barrier without crossover).  No-op when has_duals()
+   *  is already true (simplex, or barrier with crossover).
+   */
+  void ensure_duals();
+
   /**
    * @brief Gets raw solver dual values (no descaling).
    *
@@ -640,8 +646,9 @@ public:
    * computation where row equilibration is accounted for separately).
    * @return Span view of raw solver dual values
    */
-  [[nodiscard]] auto get_row_dual_raw() const
+  [[nodiscard]] auto get_row_dual_raw()
   {
+    ensure_duals();
     return std::span(m_backend_->row_price(), get_numrows());
   }
 
@@ -654,8 +661,9 @@ public:
    * is π_LP = s × π_phys, hence π_phys = π_LP / s.
    * @return Zero-copy lazy view: `dual_LP / row_scale` per element.
    */
-  [[nodiscard]] ScaledView get_row_dual() const noexcept
+  [[nodiscard]] ScaledView get_row_dual() noexcept
   {
+    ensure_duals();
     const auto n = get_numrows();
     return {m_backend_->row_price(),
             n,
@@ -848,6 +856,7 @@ private:
   void close_log_handler();
 
   std::unique_ptr<SolverBackend> m_backend_;
+  SolverOptions m_last_solver_options_ {};  ///< Options from last solve
   std::string m_log_file_ {};
   int m_lp_names_level_ {};  ///< LP name uniqueness-check level (0–2)
 

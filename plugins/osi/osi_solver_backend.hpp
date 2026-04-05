@@ -121,7 +121,6 @@ public:
   [[nodiscard]] bool is_abandoned() const override;
   [[nodiscard]] bool is_proven_primal_infeasible() const override;
   [[nodiscard]] bool is_proven_dual_infeasible() const override;
-
   // ---- options ----
   void apply_options(const SolverOptions& opts) override;
   [[nodiscard]] SolverOptions optimal_options() const override;

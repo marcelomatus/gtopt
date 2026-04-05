@@ -185,7 +185,7 @@ void PlanningLP::write_lp(const std::string& filename) const
   }
 }
 
-void PlanningLP::write_out() const
+void PlanningLP::write_out()
 {
   const auto num_scenes = static_cast<int>(m_systems_.size());
   const auto num_phases =

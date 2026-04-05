@@ -111,7 +111,6 @@ public:
   [[nodiscard]] bool is_abandoned() const override;
   [[nodiscard]] bool is_proven_primal_infeasible() const override;
   [[nodiscard]] bool is_proven_dual_infeasible() const override;
-
   // ---- solver options ----
   void apply_options(const SolverOptions& opts) override;
   [[nodiscard]] SolverOptions optimal_options() const override;
@@ -157,7 +156,6 @@ private:
   mutable std::vector<double> m_row_price_;
 
   int m_solve_status_ {0};
-
   // Cached option values (updated by apply_options)
   LPAlgo m_algorithm_ {LPAlgo::default_algo};
   int m_threads_ {0};
