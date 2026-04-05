@@ -137,20 +137,17 @@ void SDDPMethod::update_max_kappa(SceneIndex scene,
     return;
   }
 
-  constexpr double default_kappa_threshold = 1e10;
+  constexpr double default_kappa_threshold = 1e9;
   const double threshold =
       sim.kappa_threshold.value_or(default_kappa_threshold);
   if (kappa <= threshold) {
     return;
   }
 
-  spdlog::warn(
-      "High kappa {:.2e} (threshold {:.2e}) at scene {} phase {} iter {}",
-      kappa,
-      threshold,
-      scene_uid(scene),
-      phase_uid(phase),
-      iteration);
+  spdlog::warn("{}: high kappa {:.2e} (threshold {:.2e})",
+               sddp_log("Kappa", iteration, scene_uid(scene), phase_uid(phase)),
+               kappa,
+               threshold);
 
   if (mode == KappaWarningMode::save_lp && !m_options_.log_directory.empty()) {
     std::filesystem::create_directories(m_options_.log_directory);
@@ -272,6 +269,7 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene)
 {
   const auto& sim = planning_lp().simulation();
   const auto& phases = sim.phases();
+  const auto scale_obj = planning_lp().options().scale_objective();
 
   auto& phase_states = m_scene_phase_states_[scene];
 
@@ -286,6 +284,12 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene)
     const auto next_phase = phase + PhaseIndex {1};
 
     for (const auto& [key, svar] : sim.state_variables(scene, phase)) {
+      // Per-variable state cost from StateVariable (set at registration time
+      // by ReservoirLP, BatteryLP, etc.).  Pre-divide by scale_objective so
+      // it is consistent with the global penalty.
+      const auto link_scost =
+          (svar.scost() > 0.0) ? svar.scost() / scale_obj : 0.0;
+
       for (const auto& dep : svar.dependent_variables()) {
         if (dep.phase_index() != next_phase || dep.scene_index() != scene) {
           continue;
@@ -298,6 +302,8 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene)
             .target_phase = dep.phase_index(),
             .source_low = col_lo[svar.col()],
             .source_upp = col_hi[svar.col()],
+            .var_scale = svar.var_scale(),
+            .scost = link_scost,
         });
       }
     }
@@ -329,9 +335,16 @@ std::optional<SDDPMethod::ElasticResult> SDDPMethod::elastic_solve(
   elastic_opts.reuse_basis = m_options_.warm_start;
   const auto& cur_state = m_scene_phase_states_[scene][phase];
 
+  // Scale the elastic penalty by cost_factor so it is consistent with all
+  // other LP objective coefficients that go through stage_ecost / cost_factor.
+  // The per-variable physical-unit scaling (var_scale) is applied inside
+  // relax_fixed_state_variable() using each link's var_scale field.
+  const auto scale_obj = planning_lp().options().scale_objective();
+  const auto scaled_penalty = m_options_.elastic_penalty / scale_obj;
+
   auto result = m_benders_cut_.elastic_filter_solve(li,
                                                     prev_state.outgoing_links,
-                                                    m_options_.elastic_penalty,
+                                                    scaled_penalty,
                                                     elastic_opts,
                                                     cur_state.forward_col_sol,
                                                     cur_state.forward_row_dual);
@@ -433,11 +446,9 @@ void SDDPMethod::dispatch_update_lp(SceneIndex scene, IterationIndex iteration)
 
     if (updated > 0) {
       SPDLOG_TRACE(
-          "SDDP: updated {} LP elements for scene {} phase {} (iter {})",
-          updated,
-          scene,
-          phase,
-          iteration);
+          "{}: updated {} LP elements",
+          sddp_log("Update", iteration, scene_uid(scene), phase_uid(phase)),
+          updated);
     }
   }
 }
@@ -608,10 +619,11 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene,
   store_cut(scene, prev_phase, cut, CutType::Optimality, cut_row);
   ++cuts_added;
 
-  SPDLOG_TRACE("SDDP backward: scene {} cut for phase {} rhs={:.4f}",
-               scene_uid(scene),
-               phase_uid(prev_phase),
-               cut.lowb);
+  SPDLOG_TRACE(
+      "{}: cut for phase {} rhs={:.4f}",
+      sddp_log("Backward", iteration, scene_uid(scene), phase_uid(phase)),
+      phase_uid(prev_phase),
+      cut.lowb);
 
   // Re-solve source and handle iterative feasibility backpropagation.
   // Feasibility cuts are never shared between scenes — they stay local.
@@ -623,11 +635,10 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene,
     }
     if (!r.has_value() || !src_li.is_optimal()) {
       SPDLOG_WARN(
-          "SDDP backward: iter {} scene {} phase {} non-optimal after cut "
-          "(status {}), starting feasibility backpropagation",
-          iteration,
-          scene_uid(scene),
-          phase_uid(prev_phase),
+          "{}: non-optimal after cut (status {}), starting feasibility "
+          "backpropagation",
+          sddp_log(
+              "Backward", iteration, scene_uid(scene), phase_uid(prev_phase)),
           src_li.get_status());
       auto bp_result = feasibility_backpropagate(
           scene, prev_phase, cut_offset + cuts_added, opts, iteration);
@@ -652,9 +663,8 @@ auto SDDPMethod::backward_pass(SceneIndex scene,
       static_cast<Index>(planning_lp().simulation().phases().size());
   int total_cuts = 0;
 
-  SPDLOG_DEBUG("SDDP backward: scene {} iter {} starting ({} phases)",
-               scene_uid(scene),
-               iteration,
+  SPDLOG_DEBUG("{}: starting ({} phases)",
+               sddp_log("Backward", iteration, scene_uid(scene)),
                num_phases);
 
   // Iterate backward from last phase to phase 1
@@ -664,10 +674,10 @@ auto SDDPMethod::backward_pass(SceneIndex scene,
     if (should_stop()) {
       return std::unexpected(Error {
           .code = ErrorCode::SolverError,
-          .message =
-              std::format("SDDP backward: cancelled at scene {} phase {}",
-                          scene_uid(scene),
-                          phase_uid(phase)),
+          .message = std::format(
+              "{}: cancelled",
+              sddp_log(
+                  "Backward", iteration, scene_uid(scene), phase_uid(phase))),
       });
     }
 
@@ -679,9 +689,8 @@ auto SDDPMethod::backward_pass(SceneIndex scene,
     total_cuts += *step_result;
   }
 
-  SPDLOG_DEBUG("SDDP backward: scene {} iter {} done, {} cuts added",
-               scene_uid(scene),
-               iteration,
+  SPDLOG_DEBUG("{}: done, {} cuts added",
+               sddp_log("Backward", iteration, scene_uid(scene)),
                total_cuts);
   return total_cuts;
 }
@@ -1045,7 +1054,9 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
   m_current_pass_.store(1);
   m_scenes_done_.store(0);
 
-  SPDLOG_INFO("SDDP forward: dispatching {} scene(s) to work pool", num_scenes);
+  SPDLOG_INFO("{}: dispatching {} scene(s) to work pool",
+              sddp_log("Forward", iter),
+              num_scenes);
 
   const auto fwd_start = std::chrono::steady_clock::now();
   std::vector<std::future<std::expected<double, Error>>> futures;
@@ -1069,8 +1080,9 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
     const auto si_sz = static_cast<std::size_t>(scene);
     auto fwd = futures[si_sz].get();
     if (!fwd.has_value()) {
-      SPDLOG_WARN(
-          "SDDP forward: scene {} failed: {}", scene, fwd.error().message);
+      SPDLOG_WARN("{}: failed: {}",
+                  sddp_log("Forward", iter, scene_uid(scene)),
+                  fwd.error().message);
       out.has_feasibility_issue = true;
       out.scene_feasible[si_sz] = 0;
       m_scenes_done_.fetch_add(1);
@@ -1080,8 +1092,10 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
     ++out.scenes_solved;
     m_scenes_done_.fetch_add(1);
     if ((scene + 1) % 4 == 0 || scene + 1 == num_scenes) {
-      SPDLOG_DEBUG(
-          "SDDP forward: {}/{} scenes completed", scene + 1, num_scenes);
+      SPDLOG_DEBUG("{}: {}/{} scenes completed",
+                   sddp_log("Forward", iter),
+                   scene + 1,
+                   num_scenes);
     }
   }
 
@@ -1134,8 +1148,9 @@ auto SDDPMethod::run_backward_pass_all_scenes(
       static_cast<Index>(planning_lp().simulation().scenes().size());
 
   SPDLOG_INFO(
-      "SDDP backward: dispatching {} scene(s) to work pool "
+      "{}: dispatching {} scene(s) to work pool "
       "(cut_sharing=none, apertures={})",
+      sddp_log("Backward", iter),
       num_scenes,
       !m_options_.apertures || !m_options_.apertures->empty() ? "enabled"
                                                               : "disabled");
@@ -1171,7 +1186,8 @@ auto SDDPMethod::run_backward_pass_all_scenes(
     auto bwd = fut.get();
     ++bwd_done;
     if (!bwd.has_value()) {
-      SPDLOG_WARN("SDDP backward: failed: {}", bwd.error().message);
+      SPDLOG_WARN(
+          "{}: failed: {}", sddp_log("Backward", iter), bwd.error().message);
       out.has_feasibility_issue = true;
       m_scenes_done_.fetch_add(1);
       continue;
@@ -1179,8 +1195,10 @@ auto SDDPMethod::run_backward_pass_all_scenes(
     out.total_cuts += *bwd;
     m_scenes_done_.fetch_add(1);
     if (bwd_done % 4 == 0 || bwd_done == bwd_total) {
-      SPDLOG_DEBUG(
-          "SDDP backward: {}/{} scenes completed", bwd_done, bwd_total);
+      SPDLOG_DEBUG("{}: {}/{} scenes completed",
+                   sddp_log("Backward", iter),
+                   bwd_done,
+                   bwd_total);
     }
   }
 

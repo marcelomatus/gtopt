@@ -13,6 +13,9 @@
 
 #pragma once
 
+#include <format>
+#include <string>
+
 #include <gtopt/basic_types.hpp>
 #include <gtopt/iteration.hpp>
 
@@ -25,5 +28,52 @@ class ScenarioLP;
 class SystemLP;
 class PhaseLP;
 struct PhaseStateInfo;
+
+// ─── Uniform SDDP log prefix ────────────────────────────────────────────────
+//
+// Every SDDP info/warn log line uses:
+//   "SDDP <Phase> [i<iter> s<scene> p<phase>]: <message>"
+//   "SDDP <Phase> [i<iter> s<scene> p<phase> a<aperture>]: <message>"
+//
+// where <Phase> is Forward, Backward, Aperture, etc.
+// The bracketed key is easy to parse in run_gtopt:
+//   re.compile(r"SDDP (\w+) \[i(\d+) s(\d+) p(\d+)(?:\s+a(\d+))?\]")
+//
+// Parameters accept any formattable type (int, SceneUid, PhaseUid, etc.).
+
+/// "SDDP Forward [i0 s1 p2]" — with phase tag and per-phase key.
+template<typename S, typename P>
+[[nodiscard]] inline std::string sddp_log(std::string_view tag,
+                                          IterationIndex iter,
+                                          S scene,
+                                          P phase)
+{
+  return std::format("SDDP {} [i{} s{} p{}]", tag, iter, scene, phase);
+}
+
+/// "SDDP Aperture [i0 s1 p2 a5]" — with aperture uid appended.
+template<typename S, typename P, typename A>
+[[nodiscard]] inline std::string sddp_log(
+    std::string_view tag, IterationIndex iter, S scene, P phase, A aperture)
+{
+  return std::format(
+      "SDDP {} [i{} s{} p{} a{}]", tag, iter, scene, phase, aperture);
+}
+
+/// "SDDP Forward [i0 s1]" — scene-level (no phase).
+template<typename S>
+[[nodiscard]] inline std::string sddp_log(std::string_view tag,
+                                          IterationIndex iter,
+                                          S scene)
+{
+  return std::format("SDDP {} [i{} s{}]", tag, iter, scene);
+}
+
+/// "SDDP Init [i0]" — iteration-level only.
+[[nodiscard]] inline std::string sddp_log(std::string_view tag,
+                                          IterationIndex iter)
+{
+  return std::format("SDDP {} [i{}]", tag, iter);
+}
 
 }  // namespace gtopt

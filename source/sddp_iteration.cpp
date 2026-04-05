@@ -94,12 +94,13 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       const auto iter_start = std::chrono::steady_clock::now();
 
       if (should_stop()) {
-        SPDLOG_INFO("SDDP: stop requested, halting after {} iterations",
+        SPDLOG_INFO("{}: stop requested, halting after {} iterations",
+                    sddp_log("Iter", iter),
                     iter - m_iteration_offset_);
         break;
       }
 
-      SPDLOG_INFO("SDDP: === iteration {} / {} ===", iter, iter_last);
+      SPDLOG_INFO("{}: === {}/{} ===", sddp_log("Iter", iter), iter, iter_last);
 
       SDDPIterationResult ir {
           .iteration = iter,
@@ -107,7 +108,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       m_benders_cut_.reset_infeasible_cut_count();
 
       // ── Forward pass ──
-      SPDLOG_DEBUG("SDDP: starting forward pass (iter {})", iter);
+      SPDLOG_DEBUG("{}: starting forward pass", sddp_log("Forward", iter));
       auto fwd = run_forward_pass_all_scenes(*sddp_pool, fwd_opts, iter);
       if (!fwd.has_value()) {
         monitor.stop();
@@ -117,9 +118,11 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       ir.forward_pass_s = fwd->elapsed_s;
       if (fwd->has_feasibility_issue) {
         ir.feasibility_issue = true;
-        SPDLOG_INFO("SDDP: iter {} forward pass has feasibility issues", iter);
+        SPDLOG_INFO("{}: forward pass has feasibility issues",
+                    sddp_log("Forward", iter));
       }
-      SPDLOG_DEBUG("SDDP: forward pass done in {:.3f}s", fwd->elapsed_s);
+      SPDLOG_DEBUG(
+          "{}: done in {:.3f}s", sddp_log("Forward", iter), fwd->elapsed_s);
 
       // ── Scene weights and bounds ──
       const auto& scenes = planning_lp().simulation().scenes();
@@ -131,7 +134,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       compute_iteration_bounds(ir, fwd->scene_feasible, weights);
 
       // ── Backward pass ──
-      SPDLOG_DEBUG("SDDP: starting backward pass (iter {})", iter);
+      SPDLOG_DEBUG("{}: starting backward pass", sddp_log("Backward", iter));
       // Save per-scene cut counts for cut sharing offset tracking
       const auto cuts_before = m_cut_store_.stored_cuts().size();
       const auto num_scenes_bwd =
@@ -149,12 +152,14 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       ir.backward_pass_s = bwd.elapsed_s;
       if (bwd.has_feasibility_issue) {
         ir.feasibility_issue = true;
-        SPDLOG_INFO("SDDP: iter {} backward pass has feasibility issues", iter);
+        SPDLOG_INFO("{}: backward pass has feasibility issues",
+                    sddp_log("Backward", iter));
       }
       ir.iteration_s = std::chrono::duration<double>(
                            std::chrono::steady_clock::now() - iter_start)
                            .count();
-      SPDLOG_DEBUG("SDDP: backward pass done in {:.3f}s, {} cuts added",
+      SPDLOG_DEBUG("{}: done in {:.3f}s, {} cuts added",
+                   sddp_log("Backward", iter),
                    bwd.elapsed_s,
                    bwd.total_cuts);
 
@@ -230,9 +235,9 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         ir.stationary_converged = true;
         m_converged_.store(true);
         SPDLOG_INFO(
-            "SDDP iter {}: stationary gap convergence "
+            "{}: stationary gap convergence "
             "(gap_change={:.6f} < stationary_tol={:.6f}) [CONVERGED]",
-            iter,
+            sddp_log("Iter", iter),
             ir.gap_change,
             m_options_.stationary_tol);
       }
@@ -291,10 +296,10 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
           ir.statistical_converged = true;
           m_converged_.store(true);
           SPDLOG_INFO(
-              "SDDP iter {}: statistical CI convergence "
+              "{}: statistical CI convergence "
               "(UB-LB={:.4f} <= z*σ={:.4f}, z={:.3f}, "
               "σ={:.4f}, N={}) [CONVERGED]",
-              iter,
+              sddp_log("Iter", iter),
               gap_abs,
               ci_threshold,
               z_score,
@@ -309,10 +314,10 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
           ir.stationary_converged = true;
           m_converged_.store(true);
           SPDLOG_INFO(
-              "SDDP iter {}: statistical + stationary convergence "
+              "{}: statistical + stationary convergence "
               "(UB-LB={:.4f} > z*σ={:.4f} but gap_change={:.6f} "
               "< stationary_tol={:.6f}) [CONVERGED]",
-              iter,
+              sddp_log("Iter", iter),
               gap_abs,
               ci_threshold,
               ir.gap_change,
@@ -323,10 +328,10 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       results.push_back(ir);
 
       SPDLOG_INFO(
-          "SDDP: iter {} done in {:.3f}s (fwd {:.2f}s + bwd {:.2f}s) — "
+          "{}: done in {:.3f}s (fwd {:.2f}s + bwd {:.2f}s) — "
           "UB={:.4f} LB={:.4f} gap={:.6f} gap_change={:.6f} "
           "cuts={} infeas_cuts={} {}",
-          iter,
+          sddp_log("Iter", iter),
           ir.iteration_s,
           ir.forward_pass_s,
           ir.backward_pass_s,
@@ -346,7 +351,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
       // ── Iteration callback ──
       if (m_iteration_callback_ && m_iteration_callback_(ir)) {
-        SPDLOG_INFO("SDDP: callback requested stop at iter {}", iter);
+        SPDLOG_INFO("{}: callback requested stop", sddp_log("Iter", iter));
         break;
       }
 
@@ -371,7 +376,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         : IterationIndex {results.back().iteration + IterationIndex {1}};
     const auto final_start = std::chrono::steady_clock::now();
 
-    SPDLOG_INFO("SDDP: === simulation pass (iter {}) ===", final_iter);
+    SPDLOG_INFO("{}: === simulation pass ===", sddp_log("Sim", final_iter));
 
     // Suppress stop checks so the simulation pass always completes.
     // The stop was already honoured by exiting the iteration loop.
@@ -411,8 +416,9 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     results.push_back(ir);
 
     SPDLOG_INFO(
-        "SDDP: simulation pass done in {:.3f}s — "
+        "{}: done in {:.3f}s — "
         "UB={:.4f} LB={:.4f} gap={:.6f} gap_change={:.6f} {}",
+        sddp_log("Sim", final_iter),
         ir.iteration_s,
         ir.upper_bound,
         ir.lower_bound,

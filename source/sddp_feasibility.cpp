@@ -38,11 +38,10 @@ auto SDDPMethod::feasibility_backpropagate(SceneIndex scene,
   for (auto back_phase = start_phase;; --back_phase) {
     if (back_phase > PhaseIndex {0}) {
       SPDLOG_WARN(
-          "SDDP backward: scene {} phase {} infeasible after "
-          "cut, backpropagating to phase {}",
-          scene,
-          back_phase,
-          back_phase - PhaseIndex {1});
+          "{}: infeasible after cut, backpropagating to phase {}",
+          sddp_log(
+              "Backward", iteration, scene_uid(scene), phase_uid(back_phase)),
+          phase_uid(back_phase - PhaseIndex {1}));
     }
 
     // Clone the LP, apply elastic filter, solve the clone.
