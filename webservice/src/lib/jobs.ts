@@ -316,7 +316,7 @@ export async function stopJob(token: string): Promise<boolean> {
 
 /**
  * Read the solver monitor status JSON file for a job.
- * Checks for sddp_status.json first, then monolithic_status.json.
+ * Checks for solver_status.json first, then legacy names.
  * Returns the parsed JSON object or null if not found.
  */
 export async function getJobMonitorData(
@@ -324,6 +324,7 @@ export async function getJobMonitorData(
 ): Promise<Record<string, unknown> | null> {
   const outputDir = getJobOutputDir(token);
   const candidates = [
+    path.join(outputDir, "solver_status.json"),
     path.join(outputDir, "sddp_status.json"),
     path.join(outputDir, "monolithic_status.json"),
   ];

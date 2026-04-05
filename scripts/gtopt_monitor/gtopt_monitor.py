@@ -18,8 +18,8 @@ Usage
 -----
   gtopt_monitor [--status-file PATH] [--poll SECONDS] [--no-gui]
 
-  --status-file PATH   Path to the sddp_status.json file produced by gtopt.
-                       Default: output/sddp_status.json
+  --status-file PATH   Path to the solver_status.json file produced by gtopt.
+                       Default: output/solver_status.json
   --poll SECONDS       Polling interval in seconds (default: 1.0).
   --no-gui             Print status to stdout instead of opening a GUI window
                        (useful in headless / CI environments).
@@ -340,8 +340,8 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument(
         "--status-file",
-        default="output/sddp_status.json",
-        help="Path to the sddp_status.json file (default: output/sddp_status.json)",
+        default="output/solver_status.json",
+        help="Path to the solver_status.json file (default: output/solver_status.json)",
     )
     parser.add_argument(
         "--poll",

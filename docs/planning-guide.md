@@ -1846,7 +1846,7 @@ Use `gtopt_monitor` to watch convergence in real time:
 gtopt case.json
 
 # In another terminal: monitor convergence
-gtopt_monitor --status-file output/sddp_status.json
+gtopt_monitor --status-file output/solver_status.json
 ```
 
 The monitoring dashboard shows per-scene upper/lower bounds and gap across all

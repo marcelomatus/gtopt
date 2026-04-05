@@ -53,7 +53,7 @@ def converged_status() -> dict:
 @pytest.fixture()
 def status_file(tmp_path: Path, sample_status: dict) -> Path:
     """Write sample_status to a temporary JSON file and return the path."""
-    fpath = tmp_path / "sddp_status.json"
+    fpath = tmp_path / "solver_status.json"
     fpath.write_text(json.dumps(sample_status), encoding="utf-8")
     return fpath
 
@@ -216,7 +216,7 @@ class TestRunText:
             "upper_bound": 500.05,
             "elapsed_s": 30.0,
         }
-        fpath = tmp_path / "sddp_status.json"
+        fpath = tmp_path / "solver_status.json"
         fpath.write_text(json.dumps(converged), encoding="utf-8")
 
         with patch("gtopt_monitor.gtopt_monitor.time.sleep"):
@@ -266,7 +266,7 @@ class TestRunText:
 
     def test_prints_header(self, capsys: pytest.CaptureFixture, tmp_path: Path) -> None:
         """run_text prints the monitoring header with file path and poll interval."""
-        fpath = tmp_path / "sddp_status.json"
+        fpath = tmp_path / "solver_status.json"
         fpath.write_text(
             json.dumps(
                 {
@@ -291,7 +291,7 @@ class TestRunText:
         self, capsys: pytest.CaptureFixture, tmp_path: Path
     ) -> None:
         """run_text polls multiple times before convergence."""
-        fpath = tmp_path / "sddp_status.json"
+        fpath = tmp_path / "solver_status.json"
         poll_count = 0
 
         running_data = json.dumps(
@@ -412,7 +412,7 @@ class TestRunGui:
         self, capsys: pytest.CaptureFixture, tmp_path: Path
     ) -> None:
         """run_gui prints an error and exits when matplotlib is missing."""
-        fpath = tmp_path / "sddp_status.json"
+        fpath = tmp_path / "solver_status.json"
 
         # Save and remove real matplotlib modules
         keys = [
@@ -469,7 +469,7 @@ class TestRunGui:
                 },
             ],
         }
-        fpath = tmp_path / "sddp_status.json"
+        fpath = tmp_path / "solver_status.json"
         fpath.write_text(json.dumps(converged_data), encoding="utf-8")
 
         mock_plt, mock_ticker, _mock_fig1, _mock_fig2 = _make_mock_plt()
@@ -484,7 +484,7 @@ class TestRunGui:
 
     def test_gui_window_close_exits(self, tmp_path: Path) -> None:
         """run_gui exits when a figure window is closed."""
-        fpath = tmp_path / "sddp_status.json"
+        fpath = tmp_path / "solver_status.json"
         fpath.write_text(json.dumps({"status": "running"}), encoding="utf-8")
 
         mock_plt, mock_ticker, _mock_fig1, _mock_fig2 = _make_mock_plt()
@@ -500,7 +500,7 @@ class TestRunGui:
         self, capsys: pytest.CaptureFixture, tmp_path: Path
     ) -> None:
         """run_gui handles KeyboardInterrupt gracefully."""
-        fpath = tmp_path / "sddp_status.json"
+        fpath = tmp_path / "solver_status.json"
         fpath.write_text(json.dumps({"status": "running"}), encoding="utf-8")
 
         mock_plt, mock_ticker, _mock_fig1, _mock_fig2 = _make_mock_plt()
@@ -548,7 +548,7 @@ class TestMain:
             main()
         mock_gui.assert_called_once()
         call_args = mock_gui.call_args
-        assert call_args[0][0] == Path("output/sddp_status.json")
+        assert call_args[0][0] == Path("output/solver_status.json")
         assert call_args[0][1] == 1.0
 
     def test_no_gui_flag_calls_run_text(self) -> None:
@@ -559,7 +559,7 @@ class TestMain:
             main()
         mock_text.assert_called_once()
         call_args = mock_text.call_args
-        assert call_args[0][0] == Path("output/sddp_status.json")
+        assert call_args[0][0] == Path("output/solver_status.json")
         assert call_args[0][1] == 1.0
 
     def test_custom_status_file(self) -> None:

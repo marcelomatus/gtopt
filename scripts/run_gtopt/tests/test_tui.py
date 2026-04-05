@@ -202,7 +202,17 @@ def test_load_status_corrupt(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def test_find_status_file_sddp(tmp_path: Path):
+def test_find_status_file_solver(tmp_path: Path):
+    output = tmp_path / "output"
+    output.mkdir()
+    status = output / "solver_status.json"
+    status.write_text("{}")
+    result = _find_status_file(tmp_path)
+    assert result == status
+
+
+def test_find_status_file_legacy_sddp(tmp_path: Path):
+    """Falls back to legacy sddp_status.json for older builds."""
     output = tmp_path / "output"
     output.mkdir()
     sddp = output / "sddp_status.json"
@@ -211,7 +221,8 @@ def test_find_status_file_sddp(tmp_path: Path):
     assert result == sddp
 
 
-def test_find_status_file_monolithic(tmp_path: Path):
+def test_find_status_file_legacy_monolithic(tmp_path: Path):
+    """Falls back to legacy monolithic_status.json for older builds."""
     output = tmp_path / "output"
     output.mkdir()
     mono = output / "monolithic_status.json"
@@ -220,33 +231,22 @@ def test_find_status_file_monolithic(tmp_path: Path):
     assert result == mono
 
 
-def test_find_status_file_prefers_sddp(tmp_path: Path):
-    output = tmp_path / "output"
-    output.mkdir()
-    sddp = output / "sddp_status.json"
-    sddp.write_text("{}")
-    mono = output / "monolithic_status.json"
-    mono.write_text("{}")
-    result = _find_status_file(tmp_path)
-    assert result == sddp
-
-
 def test_find_status_file_json_input(tmp_path: Path):
     """When case_dir is a JSON file, look in its parent's output/."""
     output = tmp_path / "output"
     output.mkdir()
-    sddp = output / "sddp_status.json"
-    sddp.write_text("{}")
+    status = output / "solver_status.json"
+    status.write_text("{}")
     json_file = tmp_path / "case.json"
     json_file.write_text("{}")
     result = _find_status_file(json_file)
-    assert result == sddp
+    assert result == status
 
 
 def test_find_status_file_fallback(tmp_path: Path):
-    """When no status files exist, returns sddp path as default."""
+    """When no status files exist, returns solver_status.json as default."""
     result = _find_status_file(tmp_path)
-    assert result.name == "sddp_status.json"
+    assert result.name == "solver_status.json"
 
 
 # ---------------------------------------------------------------------------
@@ -515,7 +515,7 @@ def test_solver_display_reads_status(tmp_path: Path):
     display.start()
 
     # Write status file after start
-    status_file = output / "sddp_status.json"
+    status_file = output / "solver_status.json"
     status_file.write_text(json.dumps({"status": "running", "iteration": 3}))
 
     time.sleep(0.5)

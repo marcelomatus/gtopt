@@ -1387,11 +1387,11 @@ figure windows:
   gap vs iteration number.
 
 ```bash
-# Monitor the default output/sddp_status.json
+# Monitor the default output/solver_status.json
 gtopt_monitor
 
 # Specify a custom status file and polling interval
-gtopt_monitor --status-file /path/to/sddp_status.json --poll 2.0
+gtopt_monitor --status-file /path/to/solver_status.json --poll 2.0
 
 # Headless mode (print to stdout, no GUI window)
 gtopt_monitor --no-gui
@@ -1418,7 +1418,7 @@ In headless mode (`--no-gui`), the tool prints a summary table to stdout:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--status-file PATH` | `output/sddp_status.json` | Path to SDDP status file |
+| `--status-file PATH` | `output/solver_status.json` | Path to solver status file |
 | `--poll SECONDS` | `1.0` | Polling interval |
 | `--no-gui` | off | Print to stdout instead of GUI windows |
 

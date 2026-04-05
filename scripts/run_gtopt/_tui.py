@@ -54,7 +54,7 @@ _REFRESH_PER_SECOND = 4  # Rich Live refresh rate
 _SPARKLINE_WIDTH = 24
 _PROGRESS_BAR_WIDTH = 40
 
-# Pass names from the C++ SDDPStatusSnapshot::current_pass enum
+# Pass names from the C++ SolverStatusSnapshot::current_pass enum
 _PASS_NAMES = {0: "idle", 1: "forward", 2: "backward"}
 _PASS_STYLES = {0: "dim", 1: "bold green", 2: "bold magenta"}
 
@@ -455,16 +455,19 @@ def _load_status(path: Path | None) -> dict[str, Any]:
 def _find_status_file(case_dir: Path) -> Path:
     """Derive the expected status-file path from *case_dir*.
 
-    The C++ solver writes ``sddp_status.json`` (SDDP method) or
-    ``monolithic_status.json`` (monolithic method) under the output
+    The C++ solver writes ``solver_status.json`` under the output
     directory — which defaults to ``<case>/output/``.
+    Falls back to legacy names for backward compatibility.
     """
     base = case_dir.parent if case_dir.is_file() else case_dir
     output_dir = base / "output"
-    # Prefer SDDP (more detailed), fall back to monolithic
+    status = output_dir / "solver_status.json"
+    if status.is_file():
+        return status
+    # Legacy fallback for older gtopt builds
     sddp = output_dir / "sddp_status.json"
     mono = output_dir / "monolithic_status.json"
-    return sddp if sddp.is_file() else mono if mono.is_file() else sddp
+    return sddp if sddp.is_file() else mono if mono.is_file() else status
 
 
 def _find_planning_json(case_dir: Path) -> Path | None:
@@ -693,6 +696,66 @@ def _build_progress(data: dict) -> Panel:
         )
 
     return Panel(text, border_style="dim cyan", padding=(0, 1))
+
+
+def _build_async_panel(data: dict) -> Panel | None:
+    """Render async scene execution state when max_async_spread > 0."""
+    from rich.panel import Panel  # noqa: PLC0415
+    from rich.table import Table  # noqa: PLC0415
+    from rich.text import Text  # noqa: PLC0415
+
+    async_data = data.get("async")
+    if not async_data:
+        return None
+
+    spread = async_data.get("spread", 0)
+    max_spread = async_data.get("max_async_spread", 0)
+    converged = async_data.get("converged_scenes", 0)
+    pending = async_data.get("pool_tasks_pending", 0)
+    active = async_data.get("pool_tasks_active", 0)
+    cpu = async_data.get("pool_cpu_load", 0.0)
+    iters = async_data.get("scene_iterations", [])
+    states = async_data.get("scene_states", [])
+
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style="bold", min_width=16)
+    grid.add_column(min_width=12)
+    grid.add_column(style="bold", min_width=16)
+    grid.add_column(min_width=12)
+
+    spread_style = "bold red" if spread >= max_spread else "cyan"
+    grid.add_row(
+        "Spread",
+        Text(f"{spread}/{max_spread}", style=spread_style),
+        "Converged",
+        Text(str(converged), style="bold green" if converged else "dim"),
+    )
+    grid.add_row(
+        "Pool pending",
+        Text(str(pending), style="cyan"),
+        "Pool active",
+        Text(str(active), style="cyan"),
+    )
+    if cpu > 0:
+        grid.add_row("CPU load", Text(f"{cpu:.0f}%", style="cyan"), "", "")
+
+    # Compact per-scene iteration display (up to 20 scenes)
+    if iters:
+        scene_parts: list[str] = []
+        for si, it_val in enumerate(iters[:20]):
+            st = states[si] if si < len(states) else "?"
+            style = "green" if st == "done" else "cyan" if st == "training" else "dim"
+            scene_parts.append(f"[{style}]s{si}:{it_val}[/{style}]")
+        scene_text = Text.from_markup("  " + "  ".join(scene_parts))
+        grid.add_row("", "", "", "")
+        grid.add_row(scene_text, "", "", "")
+
+    return Panel(
+        grid,
+        title="[bold]Async Scenes[/bold]",
+        border_style="dim cyan",
+        padding=(0, 1),
+    )
 
 
 def _build_stats(data: dict) -> Panel:
@@ -1359,6 +1422,9 @@ class SolverDisplay:
         if has_sddp:
             panels.append(_build_progress(data))
             panels.append(_build_stats(data))
+            async_panel = _build_async_panel(data)
+            if async_panel is not None:
+                panels.append(async_panel)
             if data.get("history"):
                 panels.append(_build_history(data))
             rt = data.get("realtime", {})

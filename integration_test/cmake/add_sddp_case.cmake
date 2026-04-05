@@ -6,7 +6,7 @@
 #
 # Registers two CTest tests:
 #   e2e_<case_name>_sddp_solve    - run gtopt in SDDP mode
-#   e2e_<case_name>_sddp_validate - validate sddp_status.json and solution.csv
+#   e2e_<case_name>_sddp_validate - validate solver_status.json and solution.csv
 
 function(add_sddp_case case_name system_json)
   cmake_parse_arguments(ARG "" "MAX_ITERATIONS" "ALLOWED_EXIT_CODES" ${ARGN})
