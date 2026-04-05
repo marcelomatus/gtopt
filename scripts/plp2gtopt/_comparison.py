@@ -919,12 +919,6 @@ def _log_comparison(
             note="PLP ScaleAng",
         )
         _scale_row(
-            "scale_alpha",
-            "1e7",
-            sddp_opts.get("scale_alpha", ""),
-            note="PLP varphi scale",
-        )
-        _scale_row(
             "demand_fail_cost",
             "1000",
             model_opts.get("demand_fail_cost", ""),

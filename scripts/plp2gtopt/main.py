@@ -202,7 +202,6 @@ _SECTION_DEFAULTS: dict[str, str] = {
     "state_fail_cost": "1000.0",
     "scale_objective": "10000000.0",
     "scale_theta": "0.0001",
-    "scale_alpha": "10000000.0",
     "discount_rate": "0.0",
     "rsv_scale_mode": "auto",
 }
@@ -280,7 +279,6 @@ def build_options(args: argparse.Namespace) -> dict:
         "excel_file": args.excel_file,
         "name": name,
         "sys_version": args.sys_version,
-        "scale_alpha": args.scale_alpha,
         "solver_type": args.solver_type,
         "stages_phase": args.stages_phase,
         "num_apertures": args.num_apertures,

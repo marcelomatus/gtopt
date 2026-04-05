@@ -302,7 +302,7 @@ TEST_CASE("load_cuts_csv returns error for nonexistent file")  // NOLINT
 
   const LabelMaker label_maker(planning_lp.options());
   auto result = load_cuts_csv(
-      planning_lp, "/tmp/gtopt_nonexistent_cuts.csv", label_maker);
+      planning_lp, "/tmp/gtopt_nonexistent_cuts.csv", 1.0, label_maker);
   CHECK_FALSE(result.has_value());
   CHECK(result.error().code == ErrorCode::FileIOError);
 }
@@ -324,7 +324,7 @@ TEST_CASE("load_cuts_csv handles header-only file")  // NOLINT
   }
 
   const LabelMaker label_maker(planning_lp.options());
-  auto result = load_cuts_csv(planning_lp, tmp_file, label_maker);
+  auto result = load_cuts_csv(planning_lp, tmp_file, 1.0, label_maker);
   REQUIRE(result.has_value());
   CHECK(result->count == 0);
 
@@ -352,7 +352,7 @@ TEST_CASE(
   }
 
   const LabelMaker label_maker(planning_lp.options());
-  auto result = load_cuts_csv(planning_lp, tmp_file, label_maker);
+  auto result = load_cuts_csv(planning_lp, tmp_file, 1.0, label_maker);
   REQUIRE(result.has_value());
   CHECK(result->count == 0);
 
@@ -377,7 +377,7 @@ TEST_CASE("load_cuts_csv skips cuts with unknown phase UID")  // NOLINT
   }
 
   const LabelMaker label_maker(planning_lp.options());
-  auto result = load_cuts_csv(planning_lp, tmp_file, label_maker);
+  auto result = load_cuts_csv(planning_lp, tmp_file, 1.0, label_maker);
   REQUIRE(result.has_value());
   // The cut should be skipped (unknown phase), so 0 loaded
   CHECK(result->count == 0);
@@ -406,7 +406,7 @@ TEST_CASE(
   }
 
   const LabelMaker label_maker(planning_lp.options());
-  auto result = load_cuts_csv(planning_lp, tmp_file, label_maker);
+  auto result = load_cuts_csv(planning_lp, tmp_file, 1.0, label_maker);
   REQUIRE(result.has_value());
   CHECK(result->count == 2);
 
@@ -441,7 +441,7 @@ TEST_CASE(
   }
 
   const LabelMaker label_maker(planning_lp.options());
-  auto result = load_cuts_csv(planning_lp, tmp_file, label_maker);
+  auto result = load_cuts_csv(planning_lp, tmp_file, 1.0, label_maker);
   REQUIRE(result.has_value());
   // Only the 2 valid lines should be loaded
   CHECK(result->count == 2);
@@ -563,7 +563,7 @@ TEST_CASE(
   // from the SDDP solve, so column indices from the saved cuts are valid)
   const LabelMaker label_maker(planning_lp.options());
   auto load_result =
-      load_scene_cuts_from_directory(planning_lp, tmp_dir, label_maker);
+      load_scene_cuts_from_directory(planning_lp, tmp_dir, 1.0, label_maker);
   REQUIRE(load_result.has_value());
   CHECK(load_result->count > 0);
 
@@ -580,7 +580,7 @@ TEST_CASE(
 
   const LabelMaker label_maker(planning_lp.options());
   auto result = load_scene_cuts_from_directory(
-      planning_lp, "/tmp/gtopt_nonexistent_dir_xyz", label_maker);
+      planning_lp, "/tmp/gtopt_nonexistent_dir_xyz", 1.0, label_maker);
   REQUIRE(result.has_value());
   CHECK(result->count == 0);
 }
@@ -611,7 +611,7 @@ TEST_CASE(
 
   const LabelMaker label_maker(planning_lp.options());
   auto result = load_scene_cuts_from_directory(
-      planning_lp, tmp_dir.string(), label_maker);
+      planning_lp, tmp_dir.string(), 1.0, label_maker);
   REQUIRE(result.has_value());
   // random_file.csv does not start with "scene_" and is not sddp_cuts.csv
   // scene_1.txt does not end with .csv
@@ -639,7 +639,7 @@ TEST_CASE(
 
   const LabelMaker label_maker(planning_lp.options());
   auto result = load_scene_cuts_from_directory(
-      planning_lp, tmp_dir.string(), label_maker);
+      planning_lp, tmp_dir.string(), 1.0, label_maker);
   REQUIRE(result.has_value());
   CHECK(result->count == 1);
 
@@ -1552,7 +1552,7 @@ TEST_CASE(
   }
 
   const LabelMaker label_maker(planning_lp.options());
-  auto result = load_cuts_csv(planning_lp, tmp_file, label_maker);
+  auto result = load_cuts_csv(planning_lp, tmp_file, 1.0, label_maker);
   REQUIRE(result.has_value());
   CHECK(result->count == 2);
 

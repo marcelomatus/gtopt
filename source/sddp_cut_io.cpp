@@ -65,13 +65,8 @@ auto build_scene_uid_map(const PlanningLP& planning_lp)
 
 // ─── Helper: state-variable name matching ───────────────────────────────────
 
-namespace
-{
-
 // ─── Auto-scale alpha helper ────────────────────────────────────────────────
 
-/// Compute the effective scale_alpha: if the option is > 0 use it,
-/// otherwise auto-compute as max(var_scale) across all state variables.
 auto effective_scale_alpha(const PlanningLP& planning_lp,
                            double option_scale_alpha) -> double
 {
@@ -89,6 +84,9 @@ auto effective_scale_alpha(const PlanningLP& planning_lp,
   }
   return max_vs;
 }
+
+namespace
+{
 
 /// Returns true if *col_name* is a final-state-variable name that can
 /// appear in boundary/hot-start cut CSV headers (efin, soc, vfin).
@@ -331,9 +329,11 @@ auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
 
 auto load_cuts_csv(PlanningLP& planning_lp,
                    const std::string& filepath,
+                   double scale_alpha,
                    const LabelMaker& label_maker)
     -> std::expected<CutLoadResult, Error>
 {
+  const auto sa = scale_alpha;  // row scale for loaded cuts
   try {
     std::ifstream ifs(filepath);
     if (!ifs.is_open()) {
@@ -496,11 +496,13 @@ auto load_cuts_csv(PlanningLP& planning_lp,
       }
 
       // RHS in CSV is in physical objective units; convert to LP
-      // space.
+      // space.  Row scale = scale_alpha so the cut is consistent with
+      // optimality/feasibility cuts built by build_benders_cut().
       auto row = SparseRow {
           .name = label_maker.lp_label("loaded", cut_name),
           .lowb = rhs / scale_obj,
           .uppb = LinearProblem::DblMax,
+          .scale = sa,
       };
 
       // Resolve the phase UID to a PhaseIndex
@@ -633,6 +635,7 @@ auto load_cuts_csv(PlanningLP& planning_lp,
 
 auto load_scene_cuts_from_directory(PlanningLP& planning_lp,
                                     const std::string& directory,
+                                    double scale_alpha,
                                     const LabelMaker& label_maker)
     -> std::expected<CutLoadResult, Error>
 {
@@ -663,8 +666,8 @@ auto load_scene_cuts_from_directory(PlanningLP& planning_lp,
       continue;
     }
 
-    auto result =
-        load_cuts_csv(planning_lp, entry.path().string(), label_maker);
+    auto result = load_cuts_csv(
+        planning_lp, entry.path().string(), scale_alpha, label_maker);
     if (result.has_value()) {
       total.count += result->count;
       total.max_iteration =

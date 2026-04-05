@@ -172,7 +172,6 @@ class TestBuildOptions:
             "excel_output": False,
             "excel_file": None,
             "sys_version": "",
-            "scale_alpha": 10000000.0,
             "solver_type": "sddp",
             "stages_phase": None,
             "num_apertures": None,

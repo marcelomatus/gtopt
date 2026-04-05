@@ -125,10 +125,6 @@ class GTOptWriter:
         stationary_window = options.get("stationary_window", 4)
         sddp_opts["stationary_window"] = stationary_window
 
-        scale_alpha = options.get("scale_alpha")
-        if scale_alpha is not None:
-            sddp_opts["scale_alpha"] = scale_alpha
-
         # Cut coefficient tolerances (PLP OptiEPS equivalent).
         # cut_coeff_eps: drop coefficients with |value| < eps (default 1e-8).
         # cut_coeff_max: rescale entire cut when max|coeff| > threshold.
