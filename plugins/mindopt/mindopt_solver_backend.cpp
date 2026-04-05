@@ -15,7 +15,9 @@
 #include "mindopt_solver_backend.hpp"
 
 #include <Mindopt.h>
+#include <fcntl.h>
 #include <gtopt/solver_options.hpp>
+#include <unistd.h>
 
 namespace gtopt
 {
@@ -35,16 +37,36 @@ void MindOptSolverBackend::check_error(int rc, const char* func) const
 
 MindOptSolverBackend::MindOptSolverBackend()
 {
+  // Redirect stdout to /dev/null before any MindOpt calls.
+  // MindOpt prints a banner to stdout that cannot be suppressed via API.
+  const int saved_stdout = ::dup(STDOUT_FILENO);
+  const int devnull = ::open("/dev/null", O_WRONLY);  // NOLINT
+  if (devnull >= 0) {
+    ::dup2(devnull, STDOUT_FILENO);
+    ::close(devnull);
+  }
+
   int rc = MDOemptyenv(&m_env_);
   if (rc != MDO_OKAY) {
+    // Restore stdout before throwing
+    if (saved_stdout >= 0) {
+      ::dup2(saved_stdout, STDOUT_FILENO);
+      ::close(saved_stdout);
+    }
     throw std::runtime_error(
         std::format("MindOpt: MDOemptyenv failed (rc={})", rc));
   }
 
-  // Suppress console output before starting the environment
   MDOsetintparam(m_env_, MDO_INT_PAR_OUTPUT_FLAG, 0);
+  MDOsetintparam(m_env_, MDO_INT_PAR_LOG_TO_CONSOLE, 0);
 
   rc = MDOstartenv(m_env_);
+
+  // Restore stdout
+  if (saved_stdout >= 0) {
+    ::dup2(saved_stdout, STDOUT_FILENO);
+    ::close(saved_stdout);
+  }
   if (rc != MDO_OKAY) {
     const char* msg = MDOexplainerror(rc);
     MDOfreeenv(m_env_);
@@ -642,6 +664,9 @@ void MindOptSolverBackend::apply_options(const SolverOptions& opts)
       break;
     case LPAlgo::barrier:
       MDOsetintparam(m_env_, MDO_INT_PAR_METHOD, 2);  // barrier/IPM
+      if (!opts.crossover) {
+        MDOsetintparam(m_env_, MDO_INT_PAR_SOLUTION_TARGET, 2);
+      }
       break;
     case LPAlgo::last_algo:
       break;

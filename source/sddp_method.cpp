@@ -333,6 +333,7 @@ std::optional<SDDPMethod::ElasticResult> SDDPMethod::elastic_solve(
   // Use the previous iteration's forward-pass solution (if any) as hint.
   auto elastic_opts = opts;
   elastic_opts.reuse_basis = m_options_.warm_start;
+  elastic_opts.crossover = false;
   const auto& cur_state = m_scene_phase_states_[scene][phase];
 
   // Scale the elastic penalty by cost_factor so it is consistent with all

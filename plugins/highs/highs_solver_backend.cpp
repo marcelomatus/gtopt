@@ -530,6 +530,9 @@ void HighsSolverBackend::apply_options(const SolverOptions& opts)
       if (const auto beps = opts.barrier_eps; beps && *beps > 0) {
         m_highs_->setOptionValue("ipm_optimality_tolerance", *beps);
       }
+      if (!opts.crossover) {
+        m_highs_->setOptionValue("run_crossover", "off");
+      }
       break;
     case LPAlgo::last_algo:
       break;

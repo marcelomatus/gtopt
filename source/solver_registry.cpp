@@ -353,8 +353,14 @@ std::string_view SolverRegistry::default_solver() const
     SPDLOG_WARN("GTOPT_SOLVER='{}' not available, falling back to auto", env);
   }
 
-  // Priority order: highs > cplex > cbc > clp
-  static constexpr std::array preferred = {"highs", "cplex", "cbc", "clp"};
+  // Priority order: cplex > highs > mindopt > cbc > clp
+  static constexpr std::array preferred = {
+      "cplex",
+      "highs",
+      "mindopt",
+      "cbc",
+      "clp",
+  };
   for (const auto* name : preferred) {
     if (has_solver(name)) {
       return name;
