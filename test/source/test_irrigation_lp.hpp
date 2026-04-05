@@ -559,7 +559,7 @@ TEST_CASE(  // NOLINT
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 2.0,
+          .production_factor = 2.0,
       },
   };
 
@@ -784,7 +784,7 @@ TEST_CASE(  // NOLINT
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 2.0,
+          .production_factor = 2.0,
       },
   };
 
@@ -928,7 +928,7 @@ TEST_CASE(  // NOLINT
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 2.0,
+          .production_factor = 2.0,
       },
   };
 
@@ -1298,7 +1298,7 @@ TEST_CASE(  // NOLINT
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 2.0,
+          .production_factor = 2.0,
       },
   };
 
@@ -1460,7 +1460,7 @@ TEST_CASE(  // NOLINT
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 2.0,
+          .production_factor = 2.0,
       },
   };
 
@@ -1626,7 +1626,7 @@ TEST_CASE(  // NOLINT
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 2.0,
+          .production_factor = 2.0,
       },
   };
 
@@ -1898,7 +1898,7 @@ TEST_CASE(  // NOLINT
             .name = "tur",
             .waterway = Uid {1},
             .generator = Uid {1},
-            .conversion_rate = 2.0,
+            .production_factor = 2.0,
         },
     };
     // VolumeRight: starts at rights_limit and depletes toward 0.
@@ -2083,7 +2083,7 @@ TEST_CASE(  // NOLINT
             .name = "tur",
             .waterway = Uid {1},
             .generator = Uid {1},
-            .conversion_rate = 2.0,
+            .production_factor = 2.0,
         },
     };
     // Rights VolumeRight: starts at 100 hm³, extraction depletes it.
@@ -2282,7 +2282,7 @@ TEST_CASE(  // NOLINT
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 2.0,
+          .production_factor = 2.0,
       },
   };
 

@@ -1,5 +1,9 @@
 # Convenio del Maule: Research Summary
 
+> **See also**: [Maule Agreement Template](../../../scripts/plp2gtopt/templates/maule.md) —
+> complete gtopt entity specifications with basin topology diagrams, LaTeX
+> formulations, and embedded JSON/PAMPL template code.
+
 ## Irrigation and Hydroelectric Water Rights on the Maule River System
 
 **Research Date:** April 2026

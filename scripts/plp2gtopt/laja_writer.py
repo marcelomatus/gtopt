@@ -14,6 +14,11 @@ Key conversion: PLP volume zone formula
 is a piecewise-linear function of total volume, which maps directly to
 the gtopt ``bound_rule`` segment format.
 
+The JSON entity structure is defined in the ``laja.tson`` template file,
+which uses @param@ m4-style syntax for parameter substitution.  Computed
+values (bound_rule segments, schedules, costs) are pre-computed here and
+passed as template context.
+
 See also:
   gtopt_vs_plp_comparison.md -- detailed variable mapping
   plp_implementation.md -- PLP Fortran source reference
@@ -23,6 +28,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import jinja2
+
+from plp2gtopt.template_engine import render_tson
 
 
 # Hydrological year mapping: PLP uses Apr=1..Mar=12
@@ -92,6 +99,10 @@ def _zones_to_bound_rule_segments(
 class LajaWriter:
     """Emits FlowRight, VolumeRight, ReservoirSeepage, and UserConstraint
     entities for the Laja irrigation agreement.
+
+    The JSON entity structure is defined in ``templates/laja.tson``.
+    This class pre-computes all dynamic values (segments, schedules,
+    costs) and passes them as template context parameters.
 
     Args:
         laja_config: Parsed configuration from LajaParser.config
@@ -182,14 +193,18 @@ class LajaWriter:
         nblocks = self._options.get("blocks_per_stage", 1)
         return [[v] * nblocks for v in values]
 
-    def _build(self) -> None:
-        """Build all rights entities from the parsed configuration."""
+    def _prepare_context(self) -> Dict[str, Any]:
+        """Prepare the template context with all pre-computed values.
+
+        Returns a dict of parameters that the laja.tson template uses
+        via @param@ substitution.
+        """
         cfg = self._cfg
 
-        central = cfg["central_laja"]  # e.g. "ELTORO"
+        central = cfg["central_laja"]
         vol_muerto = cfg["vol_muerto"]
 
-        # --- Build bound_rule segments for each rights category ---
+        # --- Bound_rule segments for each rights category ---
         irr_segments = _zones_to_bound_rule_segments(
             cfg["irr_base"], cfg["irr_factors"], cfg["zone_widths"], vol_muerto
         )
@@ -215,244 +230,109 @@ class LajaWriter:
         fmax_mixed = _fmax(cfg["qmax_mixed"], usage_mixed)
         fmax_antic = _fmax(cfg["qmax_anticipated"], usage_antic)
 
-        # --- FlowRight: Total generation (qgt) ---
-        # direction=+1 (supply into the partition balance)
-        fr_total_uid = self._next_uid()
-        self.flow_rights.append(
-            {
-                "uid": fr_total_uid,
-                "name": "laja_q_turbinado",
-                "purpose": "generation",
-                "direction": 1,
-                "discharge": 0,
-                "fmax": cfg["vol_max"],  # effectively unbounded
-                "use_average": True,
-            }
-        )
-
-        # --- Monthly cost modulation (cost × monthly factor) ---
+        # --- Monthly cost modulation ---
         def _monthly_cost(
             base_cost: float, monthly_factors: List[float]
         ) -> float | List[List[float]]:
-            """Build per-stage cost by multiplying base × monthly factor.
-
-            Used for both fail_cost and use_value modulation.
-            PLP: CQVarEta(I,IEta) = CQVar(I) * FactMenCQVar(I, Mes).
-            """
             modulated = self._hydro_to_stage_schedule(monthly_factors)
             return self._to_tb_sched([base_cost * f for f in modulated])
 
-        # --- FlowRight: Irrigation rights (qdr) ---
-        # Flow cap is qmax × monthly_usage (m³/s).  The volume-dependent
-        # annual rights quota (hm³) is on the VolumeRight emax, not here.
-        fr_irr_uid = self._next_uid()
-        fr_irr: Dict[str, Any] = {
-            "uid": fr_irr_uid,
-            "name": "laja_der_riego",
-            "purpose": "irrigation",
-            "direction": -1,
-            "discharge": 0,
-            "fmax": fmax_irr,
-            "use_average": True,
-            "fail_cost": _monthly_cost(cfg["cost_irr_ns"], cfg["monthly_cost_irr_ns"]),
+        # Irrigation costs
+        fail_cost_irr = _monthly_cost(cfg["cost_irr_ns"], cfg["monthly_cost_irr_ns"])
+        use_value_irr = (
+            _monthly_cost(cfg["cost_irr_uso"], cfg["monthly_cost_irr"])
+            if cfg.get("cost_irr_uso", 0) > 0
+            else None
+        )
+
+        # Electric costs
+        fail_cost_elec = _monthly_cost(cfg["cost_elec_ns"], cfg["monthly_cost_elec"])
+        use_value_elec = (
+            _monthly_cost(cfg["cost_elec_uso"], cfg["monthly_cost_elec"])
+            if cfg["cost_elec_uso"] > 0
+            else None
+        )
+
+        # Mixed costs
+        use_value_mixed = (
+            _monthly_cost(cfg["cost_mixed"], cfg["monthly_cost_mixed"])
+            if cfg["cost_mixed"] > 0
+            else None
+        )
+
+        # Anticipated costs
+        fail_cost_antic = _monthly_cost(
+            cfg.get("cost_irr_ns", 0), cfg["monthly_cost_anticipated"]
+        )
+
+        # --- District flow rights (pre-computed) ---
+        district_flow_rights = self._compute_district_flow_rights()
+
+        # --- User constraint expressions ---
+        expression_partition = (
+            "flow_right('laja_q_turbinado').flow = "
+            "flow_right('laja_der_riego').flow "
+            "+ flow_right('laja_der_electrico').flow "
+            "+ flow_right('laja_der_mixto').flow "
+            "+ flow_right('laja_gasto_anticipado').flow"
+        )
+        description_partition = (
+            "Flow partition: total generation equals sum of extractions"
+        )
+
+        return {
+            # FlowRight: laja_q_turbinado
+            "vol_max": cfg["vol_max"],
+            # FlowRight: laja_der_riego
+            "fmax_irr": fmax_irr,
+            "fail_cost_irr": fail_cost_irr,
+            "use_value_irr": use_value_irr,
+            # FlowRight: laja_der_electrico
+            "fmax_elec": fmax_elec,
+            "fail_cost_elec": fail_cost_elec,
+            "use_value_elec": use_value_elec,
+            # FlowRight: laja_der_mixto
+            "fmax_mixed": fmax_mixed,
+            "use_value_mixed": use_value_mixed,
+            # FlowRight: laja_gasto_anticipado
+            "fmax_antic": fmax_antic,
+            "fail_cost_antic": fail_cost_antic,
+            # FlowRight: districts
+            "district_flow_rights": district_flow_rights,
+            # VolumeRight common
+            "central": central,
+            # VolumeRight: irrigation
+            "ini_irr": cfg["ini_irr"],
+            "max_irr": cfg["max_irr"],
+            "irr_segments": irr_segments,
+            # VolumeRight: electric
+            "ini_elec": cfg["ini_elec"],
+            "max_elec": cfg["max_elec"],
+            "elec_segments": elec_segments,
+            # VolumeRight: mixed
+            "ini_mixed": cfg["ini_mixed"],
+            "max_mixed": cfg["max_mixed"],
+            "mixed_segments": mixed_segments,
+            # VolumeRight: anticipated
+            "ini_anticipated": cfg["ini_anticipated"],
+            "max_anticipated": cfg["max_anticipated"],
+            # VolumeRight: economy
+            "ini_econ_endesa": cfg.get("ini_econ_endesa", 0),
+            "ini_econ_reserve": cfg.get("ini_econ_reserve", 0),
+            "ini_econ_polcura": cfg.get("ini_econ_polcura", 0),
+            "saving_rate_econ": cfg.get("qmax_elec", 200),
+            # UserConstraint: partition balance
+            "expression_partition": expression_partition,
+            "description_partition": description_partition,
         }
-        if cfg.get("cost_irr_uso", 0) > 0:
-            fr_irr["use_value"] = _monthly_cost(
-                cfg["cost_irr_uso"], cfg["monthly_cost_irr"]
-            )
-        self.flow_rights.append(fr_irr)
 
-        # --- FlowRight: Electrical rights (qde) ---
-        fr_elec_uid = self._next_uid()
-        fr_elec: Dict[str, Any] = {
-            "uid": fr_elec_uid,
-            "name": "laja_der_electrico",
-            "purpose": "generation",
-            "direction": -1,
-            "discharge": 0,
-            "fmax": fmax_elec,
-            "use_average": True,
-            "fail_cost": _monthly_cost(cfg["cost_elec_ns"], cfg["monthly_cost_elec"]),
-        }
-        if cfg["cost_elec_uso"] > 0:
-            fr_elec["use_value"] = _monthly_cost(
-                cfg["cost_elec_uso"], cfg["monthly_cost_elec"]
-            )
-        self.flow_rights.append(fr_elec)
+    def _compute_district_flow_rights(self) -> List[Dict[str, Any]]:
+        """Pre-compute district withdrawal FlowRight entities.
 
-        # --- FlowRight: Mixed rights (qdm) ---
-        fr_mixed_uid = self._next_uid()
-        fr_mixed: Dict[str, Any] = {
-            "uid": fr_mixed_uid,
-            "name": "laja_der_mixto",
-            "purpose": "mixed",
-            "direction": -1,
-            "discharge": 0,
-            "fmax": fmax_mixed,
-            "use_average": True,
-        }
-        if cfg["cost_mixed"] > 0:
-            fr_mixed["use_value"] = _monthly_cost(
-                cfg["cost_mixed"], cfg["monthly_cost_mixed"]
-            )
-        self.flow_rights.append(fr_mixed)
-
-        # --- FlowRight: Anticipated discharge (qga) ---
-        fr_antic_uid = self._next_uid()
-        fr_antic: Dict[str, Any] = {
-            "uid": fr_antic_uid,
-            "name": "laja_gasto_anticipado",
-            "purpose": "anticipated",
-            "direction": -1,
-            "discharge": 0,
-            "fmax": fmax_antic,
-            "use_average": True,
-            "fail_cost": _monthly_cost(
-                cfg.get("cost_irr_ns", 0),
-                cfg["monthly_cost_anticipated"],
-            ),
-        }
-        self.flow_rights.append(fr_antic)
-
-        # --- VolumeRight: Irrigation volume accumulator (IVDRF) ---
-        # bound_rule dynamically caps extraction rate based on reservoir
-        # volume (PLP DerRiego formula: base + Σ factor_i × zone_volume_i).
-        # Extraction is coupled to the reservoir via UserConstraint
-        # (laja_particion_derechos), not through source_flow_right.
-        vr_irr_uid = self._next_uid()
-        self.volume_rights.append(
-            {
-                "uid": vr_irr_uid,
-                "name": "laja_vol_der_riego",
-                "purpose": "irrigation",
-                "reservoir": central,
-                "eini": cfg["ini_irr"],
-                "emax": cfg["max_irr"],
-                "use_state_variable": True,
-                "reset_month": "april",
-                "bound_rule": {
-                    "reservoir": central,
-                    "segments": irr_segments,
-                    "cap": cfg["max_irr"],
-                },
-            }
-        )
-
-        # --- VolumeRight: Electrical volume accumulator (IVDEF) ---
-        vr_elec_uid = self._next_uid()
-        self.volume_rights.append(
-            {
-                "uid": vr_elec_uid,
-                "name": "laja_vol_der_electrico",
-                "purpose": "generation",
-                "reservoir": central,
-                "eini": cfg["ini_elec"],
-                "emax": cfg["max_elec"],
-                "use_state_variable": True,
-                "reset_month": "april",
-                "bound_rule": {
-                    "reservoir": central,
-                    "segments": elec_segments,
-                    "cap": cfg["max_elec"],
-                },
-            }
-        )
-
-        # --- VolumeRight: Mixed volume accumulator (IVDMF) ---
-        vr_mixed_uid = self._next_uid()
-        self.volume_rights.append(
-            {
-                "uid": vr_mixed_uid,
-                "name": "laja_vol_der_mixto",
-                "purpose": "mixed",
-                "reservoir": central,
-                "eini": cfg["ini_mixed"],
-                "emax": cfg["max_mixed"],
-                "use_state_variable": True,
-                "reset_month": "april",
-                "bound_rule": {
-                    "reservoir": central,
-                    "segments": mixed_segments,
-                    "cap": cfg["max_mixed"],
-                },
-            }
-        )
-
-        # --- VolumeRight: Anticipated volume accumulator (IVGAF) ---
-        vr_antic_uid = self._next_uid()
-        self.volume_rights.append(
-            {
-                "uid": vr_antic_uid,
-                "name": "laja_vol_gasto_anticipado",
-                "purpose": "anticipated",
-                "reservoir": central,
-                "eini": cfg["ini_anticipated"],
-                "emax": cfg["max_anticipated"],
-                "use_state_variable": True,
-                "reset_month": "april",
-                "bound_rule": {
-                    "reservoir": central,
-                    "segments": irr_segments,  # same zones as irrigation
-                    "cap": cfg["max_anticipated"],
-                },
-            }
-        )
-
-        # --- VolumeRight: ENDESA economy accumulator (IVESF) ---
-        # Tracks unused ENDESA extraction rights carried forward.
-        # PLP: IVESF = prev + IVESN - IQGESH*dt
-        # saving = unused rights deposited; extraction = economy spending.
-        # No annual reset; no overflow cap (see laja_agreement.tampl).
-        vr_econ_endesa_uid = self._next_uid()
-        self.volume_rights.append(
-            {
-                "uid": vr_econ_endesa_uid,
-                "name": "laja_vol_econ_endesa",
-                "purpose": "economy",
-                "reservoir": central,
-                "eini": cfg.get("ini_econ_endesa", 0),
-                "saving_rate": cfg.get("qmax_elec", 200),
-                "use_state_variable": True,
-            }
-        )
-
-        # --- VolumeRight: Reserve economy accumulator (IVERF) ---
-        # PLP: generated only in lower cushion; reset when exiting cushion.
-        # gtopt simplification: simple accumulator (no conditional reset).
-        vr_econ_reserve_uid = self._next_uid()
-        self.volume_rights.append(
-            {
-                "uid": vr_econ_reserve_uid,
-                "name": "laja_vol_econ_reserva",
-                "purpose": "economy",
-                "reservoir": central,
-                "eini": cfg.get("ini_econ_reserve", 0),
-                "saving_rate": cfg.get("qmax_elec", 200),
-                "use_state_variable": True,
-            }
-        )
-
-        # --- VolumeRight: Alto Polcura economy accumulator (IVAPF) ---
-        # PLP: direct Alto Polcura river inflows, always accumulated.
-        vr_econ_polcura_uid = self._next_uid()
-        self.volume_rights.append(
-            {
-                "uid": vr_econ_polcura_uid,
-                "name": "laja_vol_econ_polcura",
-                "purpose": "economy",
-                "reservoir": central,
-                "eini": cfg.get("ini_econ_polcura", 0),
-                "saving_rate": cfg.get("qmax_elec", 200),
-                "use_state_variable": True,
-            }
-        )
-
-        # NOTE: Laja filtration (cfg["filtration"]) is a physical seepage
-        # loss from the reservoir, not an irrigation agreement entity.
-        # It is handled by the base hydro model via ReservoirSeepage
-        # (requires a waterway reference), not by this writer.
-
-        # --- FlowRight: Withdrawal districts ---
+        Returns a list of dicts ready for JSON serialization.
+        Districts × categories, skipping zero-allocation entries.
+        """
+        cfg = self._cfg
         demands = {
             "1o_reg": cfg["demand_1o_reg"],
             "2o_reg": cfg["demand_2o_reg"],
@@ -472,52 +352,56 @@ class LajaWriter:
             "saltos": "pct_saltos",
         }
 
+        result: List[Dict[str, Any]] = []
         for district in cfg["districts"]:
             for category, demand_base in demands.items():
                 pct = district[pct_keys[category]]
                 if pct <= 0 and demand_base <= 0:
-                    continue  # Skip zero-allocation categories
+                    continue
 
                 seasonal = self._hydro_to_stage_schedule(cfg[seasonal_keys[category]])
-                # discharge = base_demand * percentage * seasonal_factor
                 discharge_values = [demand_base * pct * s for s in seasonal]
                 discharge_sched = self._to_stb_sched(discharge_values)
 
-                d_uid = self._next_uid()
                 fr_name = f"{district['name']}_{category}"
                 fr_district: Dict[str, Any] = {
-                    "uid": d_uid,
                     "name": fr_name,
                     "purpose": "irrigation",
                     "direction": -1,
                     "discharge": discharge_sched,
                     "fail_cost": cfg["cost_irr_ns"] * district["cost_factor"],
                 }
-                # Wire up district injection point to physical junction
                 injection = district.get("injection")
                 if injection:
                     fr_district["junction"] = injection
-                self.flow_rights.append(fr_district)
+                result.append(fr_district)
 
-        # --- UserConstraint: Flow partition balance ---
-        # qgt = qdr + qde + qdm + qga  (total generation = sum of extractions)
-        uc_partition_uid = self._next_uid()
-        self.user_constraints.append(
-            {
-                "uid": uc_partition_uid,
-                "name": "laja_particion_derechos",
-                "expression": (
-                    "flow_right('laja_q_turbinado').flow = "
-                    "flow_right('laja_der_riego').flow "
-                    "+ flow_right('laja_der_electrico').flow "
-                    "+ flow_right('laja_der_mixto').flow "
-                    "+ flow_right('laja_gasto_anticipado').flow"
-                ),
-                "description": (
-                    "Flow partition: total generation equals sum of extractions"
-                ),
-            }
-        )
+        return result
+
+    def _assign_uids(self) -> None:
+        """Assign unique UIDs to all entities after template rendering."""
+        for entity_list in [
+            self.flow_rights,
+            self.volume_rights,
+            self.user_constraints,
+        ]:
+            for entity in entity_list:
+                entity["uid"] = self._next_uid()
+
+    def _build(self) -> None:
+        """Build all rights entities from the parsed configuration.
+
+        Renders the laja.tson template with pre-computed context values,
+        then assigns unique UIDs to all entities.
+        """
+        context = self._prepare_context()
+        entities = render_tson("laja.tson", context)
+
+        self.flow_rights = entities.get("flow_right_array", [])
+        self.volume_rights = entities.get("volume_right_array", [])
+        self.user_constraints = entities.get("user_constraint_array", [])
+
+        self._assign_uids()
 
     def generate_pampl(self, output_path: Path) -> str:
         """Render the Laja agreement PAMPL file from the Jinja2 template.

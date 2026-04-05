@@ -77,6 +77,7 @@ struct SddpOptionsConstructor
       OptReal convergence_confidence,
       OptInt forward_max_fallbacks,
       OptInt backward_max_fallbacks,
+      OptInt max_async_spread,
       std::optional<SolverOptions> forward_solver_options,
       std::optional<SolverOptions> backward_solver_options) const
   {
@@ -154,6 +155,7 @@ struct SddpOptionsConstructor
     opts.convergence_confidence = convergence_confidence;
     opts.forward_max_fallbacks = forward_max_fallbacks;
     opts.backward_max_fallbacks = backward_max_fallbacks;
+    opts.max_async_spread = max_async_spread;
     opts.forward_solver_options = forward_solver_options;
     opts.backward_solver_options = backward_solver_options;
     return opts;
@@ -213,6 +215,7 @@ struct json_data_contract<SddpOptions>
       json_number_null<"convergence_confidence", OptReal>,
       json_number_null<"forward_max_fallbacks", OptInt>,
       json_number_null<"backward_max_fallbacks", OptInt>,
+      json_number_null<"max_async_spread", OptInt>,
       json_class_null<"forward_solver_options", SolverOptions>,
       json_class_null<"backward_solver_options", SolverOptions>>;
 
@@ -264,6 +267,7 @@ struct json_data_contract<SddpOptions>
         opt.convergence_confidence,
         opt.forward_max_fallbacks,
         opt.backward_max_fallbacks,
+        opt.max_async_spread,
         opt.forward_solver_options,
         opt.backward_solver_options);
   }

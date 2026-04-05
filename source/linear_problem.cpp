@@ -12,7 +12,9 @@
  */
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
+#include <cstdint>
 #include <ranges>
 #include <unordered_map>
 
@@ -24,6 +26,46 @@ namespace gtopt
 
 namespace
 {
+
+// ── Fast sqrt implementations ───────────────────────────────────────
+// Ruiz scaling is iterative and self-correcting, so approximate sqrt
+// only affects convergence speed, not final accuracy.
+
+/// IEEE 754 exponent halving (~2-3% accuracy, ~1 cycle).
+[[nodiscard]] inline auto sqrt_ieee_halve(double x) noexcept -> double
+{
+  auto bits = std::bit_cast<uint64_t>(x);
+  bits = (bits >> 1) + 0x1FF8'0000'0000'0000ULL;
+  return std::bit_cast<double>(bits);
+}
+
+/// IEEE halve + one Newton-Raphson step (~0.1% accuracy).
+[[nodiscard]] inline auto sqrt_newton1(double x) noexcept -> double
+{
+  const double y = sqrt_ieee_halve(x);
+  return 0.5 * (y + (x / y));
+}
+
+/// Standard library sqrt (exact).
+[[nodiscard]] inline auto sqrt_std(double x) noexcept -> double
+{
+  return std::sqrt(x);
+}
+
+/// Dispatch to the selected sqrt method.
+[[nodiscard]] inline auto fast_sqrt(double x, FastSqrtMethod method) noexcept
+    -> double
+{
+  switch (method) {
+    case FastSqrtMethod::ieee_halve:
+      return sqrt_ieee_halve(x);
+    case FastSqrtMethod::newton1:
+      return sqrt_newton1(x);
+    case FastSqrtMethod::std_sqrt:
+      return sqrt_std(x);
+  }
+  return sqrt_ieee_halve(x);
+}
 
 // ── Row-max equilibration (single pass) ─────────────────────────────
 // Scale each row so that its largest |coefficient| becomes 1.0.
@@ -46,29 +88,35 @@ auto apply_row_max_equilibration(
     row_scales[r] = std::max(row_scales[r], std::abs(matval[k]));
   }
 
-  // 2. Use 1.0 for empty or zero-max rows.
+  // 2. Convert to reciprocals (1/scale); use 1.0 for empty rows.
+  //    Multiplying by reciprocal is ~4x faster than dividing.
   for (auto& s : row_scales) {
-    if (s == 0.0) {
-      s = 1.0;
-    }
+    s = (s > 0.0) ? (1.0 / s) : 1.0;
   }
 
-  // 3. Apply scaling to matrix coefficients.
+  // 3. Apply scaling to matrix coefficients using reciprocal multiply.
   for (size_t k = 0; k < matval.size(); ++k) {
     const auto r = static_cast<size_t>(matind[k]);
-    matval[k] /= row_scales[r];
+    matval[k] *= row_scales[r];
   }
 
   // 4. Scale row bounds (RHS), preserving infinite bounds.
   for (size_t r = 0; r < nrows; ++r) {
-    const double s = row_scales[r];
-    if (s != 1.0) {
+    const double rs = row_scales[r];
+    if (rs != 1.0) {
       if (rowlb[r] > -infinity) {
-        rowlb[r] /= s;
+        rowlb[r] *= rs;
       }
       if (rowub[r] < infinity) {
-        rowub[r] /= s;
+        rowub[r] *= rs;
       }
+    }
+  }
+
+  // 5. Invert back to scale factors for the caller (who expects max-abs).
+  for (auto& s : row_scales) {
+    if (s != 1.0) {
+      s = 1.0 / s;
     }
   }
 
@@ -99,6 +147,7 @@ auto apply_ruiz_scaling(std::span<const FlatLinearProblem::index_t> matbeg,
                         std::span<double> objval,
                         std::span<double> col_scales,
                         double infinity,
+                        FastSqrtMethod sqrt_method = FastSqrtMethod::ieee_halve,
                         int max_iterations = 10,
                         double tolerance = 1e-3) -> std::vector<double>
 {
@@ -110,103 +159,102 @@ auto apply_ruiz_scaling(std::span<const FlatLinearProblem::index_t> matbeg,
 
   std::vector<double> row_inf_norm(nrows);
   std::vector<double> col_inf_norm(ncols);
+  std::vector<double> row_factor(nrows);
+  std::vector<double> col_factor(ncols);
 
   for (int iter = 0; iter < max_iterations; ++iter) {
-    // 1. Compute row infinity-norms.
+    // 1. Compute row and column infinity-norms in a single CSC pass.
     std::ranges::fill(row_inf_norm, 0.0);
-    for (size_t k = 0; k < matval.size(); ++k) {
-      const auto r = static_cast<size_t>(matind[k]);
-      row_inf_norm[r] = std::max(row_inf_norm[r], std::abs(matval[k]));
-    }
-
-    // 2. Compute column infinity-norms.
-    std::ranges::fill(col_inf_norm, 0.0);
     for (size_t j = 0; j < ncols; ++j) {
       const auto beg = static_cast<size_t>(matbeg[j]);
       const auto end = static_cast<size_t>(matbeg[j + 1]);
+      double cmax = 0.0;
       for (size_t k = beg; k < end; ++k) {
-        col_inf_norm[j] = std::max(col_inf_norm[j], std::abs(matval[k]));
+        const double av = std::abs(matval[k]);
+        const auto r = static_cast<size_t>(matind[k]);
+        row_inf_norm[r] = std::max(row_inf_norm[r], av);
+        cmax = std::max(cmax, av);
+      }
+      col_inf_norm[j] = cmax;
+    }
+
+    // 2. Compute row reciprocal factors and track convergence.
+    //    Store 1/sqrt(norm) so we multiply instead of divide (~4x faster).
+    double max_deviation = 0.0;
+    for (size_t r = 0; r < nrows; ++r) {
+      const double n = row_inf_norm[r];
+      if (n > 0.0) {
+        max_deviation = std::max(max_deviation, std::abs(n - 1.0));
+        row_factor[r] = 1.0 / fast_sqrt(n, sqrt_method);
+      } else {
+        row_factor[r] = 1.0;
       }
     }
 
-    // 3. Convergence check: all norms close to 1.0 (skip zeros).
-    double max_deviation = 0.0;
-    for (size_t r = 0; r < nrows; ++r) {
-      if (row_inf_norm[r] > 0.0) {
-        max_deviation =
-            std::max(max_deviation, std::abs(row_inf_norm[r] - 1.0));
-      }
-    }
+    // 3. Compute column reciprocal factors and track convergence.
     for (size_t j = 0; j < ncols; ++j) {
-      if (col_inf_norm[j] > 0.0) {
-        max_deviation =
-            std::max(max_deviation, std::abs(col_inf_norm[j] - 1.0));
+      const double n = col_inf_norm[j];
+      if (n > 0.0) {
+        max_deviation = std::max(max_deviation, std::abs(n - 1.0));
+        col_factor[j] = 1.0 / fast_sqrt(n, sqrt_method);
+      } else {
+        col_factor[j] = 1.0;
       }
     }
     if (max_deviation < tolerance) {
       break;
     }
 
-    // 4. Compute per-iteration scaling factors: sqrt(inf-norm).
-    //    Use 1.0 for empty rows/columns to avoid division by zero.
-    std::vector<double> row_factor(nrows);
-    for (size_t r = 0; r < nrows; ++r) {
-      row_factor[r] =
-          (row_inf_norm[r] > 0.0) ? std::sqrt(row_inf_norm[r]) : 1.0;
-    }
-
-    std::vector<double> col_factor(ncols);
-    for (size_t j = 0; j < ncols; ++j) {
-      col_factor[j] =
-          (col_inf_norm[j] > 0.0) ? std::sqrt(col_inf_norm[j]) : 1.0;
-    }
-
-    // 5. Apply row + column scaling to matrix coefficients.
+    // 4. Apply row + column scaling to matrix coefficients.
+    //    row_factor/col_factor are reciprocals, so multiply.
     for (size_t j = 0; j < ncols; ++j) {
       const auto beg = static_cast<size_t>(matbeg[j]);
       const auto end = static_cast<size_t>(matbeg[j + 1]);
       const double cf = col_factor[j];
       for (size_t k = beg; k < end; ++k) {
         const auto r = static_cast<size_t>(matind[k]);
-        matval[k] /= (row_factor[r] * cf);
+        matval[k] *= row_factor[r] * cf;
       }
     }
 
-    // 6. Scale row bounds, preserving infinite bounds.
+    // 5. Scale row bounds, preserving infinite bounds.
     for (size_t r = 0; r < nrows; ++r) {
       const double rf = row_factor[r];
       if (rf != 1.0) {
         if (rowlb[r] > -infinity) {
-          rowlb[r] /= rf;
+          rowlb[r] *= rf;
         }
         if (rowub[r] < infinity) {
-          rowub[r] /= rf;
+          rowub[r] *= rf;
         }
       }
     }
 
-    // 7. Scale column bounds and objective.
-    //    Column scaling substitutes y_j = x_j * col_factor[j]:
-    //      collb *= col_factor, colub *= col_factor
-    //      objval /= col_factor
-    //      col_scales /= col_factor
+    // 6. Scale column bounds and objective.
+    //    Column scaling substitutes y_j = x_j / col_factor[j]:
+    //    col_factor is 1/sqrt(norm), so:
+    //      collb /= col_factor (= *= sqrt(norm))
+    //      colub /= col_factor (= *= sqrt(norm))
+    //      objval *= col_factor
+    //      col_scales *= col_factor
     for (size_t j = 0; j < ncols; ++j) {
       const double cf = col_factor[j];
       if (cf != 1.0) {
+        const double cf_inv = 1.0 / cf;
         if (collb[j] > -infinity) {
-          collb[j] *= cf;
+          collb[j] *= cf_inv;
         }
         if (colub[j] < infinity) {
-          colub[j] *= cf;
+          colub[j] *= cf_inv;
         }
-        objval[j] /= cf;
-        col_scales[j] /= cf;
+        objval[j] *= cf;
+        col_scales[j] *= cf;
       }
     }
 
-    // 8. Accumulate row scales.
+    // 7. Accumulate row scales (reciprocal: divide instead of multiply).
     for (size_t r = 0; r < nrows; ++r) {
-      cum_row_scales[r] *= row_factor[r];
+      cum_row_scales[r] /= row_factor[r];
     }
   }
 
@@ -426,6 +474,8 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
     row_scales_vec =
         apply_row_max_equilibration(matind, matval, rowlb, rowub, m_infinity_);
   } else if (eq_method == LpEquilibrationMethod::ruiz) {
+    const auto sqrt_method =
+        opts.fast_sqrt_method.value_or(FastSqrtMethod::ieee_halve);
     row_scales_vec = apply_ruiz_scaling(matbeg,
                                         matind,
                                         matval,
@@ -435,7 +485,8 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
                                         colub,
                                         objval,
                                         col_scales,
-                                        m_infinity_);
+                                        m_infinity_,
+                                        sqrt_method);
   }
 
   if (!row_scales_vec.empty() && do_stats) {

@@ -234,7 +234,7 @@ TEST_CASE("SystemLP with reservoir production factor element")
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
           .main_reservoir = Uid {1},
       },
   };
@@ -362,7 +362,7 @@ TEST_CASE("ReservoirProductionFactorLP - update_lp with different eini segment")
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // eini=100 → seg1 (volume < 800). update_lp iter=0/phase=0 uses eini.
-  // The initial conversion_rate=1.0 from Turbine will be overwritten by
+  // The initial production_factor=1.0 from Turbine will be overwritten by
   // the production factor evaluated at eini=100.
   const Array<Bus> bus_array = {{
       .uid = Uid {1},
@@ -420,7 +420,7 @@ TEST_CASE("ReservoirProductionFactorLP - update_lp with different eini segment")
       .name = "tur1",
       .waterway = Uid {1},
       .generator = Uid {1},
-      .conversion_rate = 1.0,
+      .production_factor = 1.0,
       .main_reservoir = Uid {1},
   }};
 
@@ -561,7 +561,7 @@ TEST_CASE(
       .name = "tur1",
       .waterway = Uid {1},
       .generator = Uid {1},
-      .conversion_rate = 1.0,
+      .production_factor = 1.0,
       .main_reservoir = Uid {1},
   }};
 

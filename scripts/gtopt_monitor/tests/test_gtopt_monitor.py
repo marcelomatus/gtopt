@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
-"""Unit tests for sddp_monitor."""
+"""Unit tests for gtopt_monitor."""
 
 import json
 import sys
@@ -8,7 +8,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from sddp_monitor.sddp_monitor import load_status, main, print_status, run_gui, run_text
+from gtopt_monitor.gtopt_monitor import (
+    find_planning_json,
+    get_option,
+    load_status,
+    main,
+    print_status,
+    run_gui,
+    run_text,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -45,7 +53,7 @@ def converged_status() -> dict:
 @pytest.fixture()
 def status_file(tmp_path: Path, sample_status: dict) -> Path:
     """Write sample_status to a temporary JSON file and return the path."""
-    fpath = tmp_path / "sddp_status.json"
+    fpath = tmp_path / "solver_status.json"
     fpath.write_text(json.dumps(sample_status), encoding="utf-8")
     return fpath
 
@@ -208,10 +216,10 @@ class TestRunText:
             "upper_bound": 500.05,
             "elapsed_s": 30.0,
         }
-        fpath = tmp_path / "sddp_status.json"
+        fpath = tmp_path / "solver_status.json"
         fpath.write_text(json.dumps(converged), encoding="utf-8")
 
-        with patch("sddp_monitor.sddp_monitor.time.sleep"):
+        with patch("gtopt_monitor.gtopt_monitor.time.sleep"):
             run_text(fpath, poll_interval=0.1)
 
         captured = capsys.readouterr().out
@@ -229,7 +237,7 @@ class TestRunText:
             if call_count >= 2:
                 raise KeyboardInterrupt
 
-        with patch("sddp_monitor.sddp_monitor.time.sleep", side_effect=mock_sleep):
+        with patch("gtopt_monitor.gtopt_monitor.time.sleep", side_effect=mock_sleep):
             run_text(status_file, poll_interval=0.1)
 
         captured = capsys.readouterr().out
@@ -248,7 +256,7 @@ class TestRunText:
             if call_count >= 3:
                 raise KeyboardInterrupt
 
-        with patch("sddp_monitor.sddp_monitor.time.sleep", side_effect=mock_sleep):
+        with patch("gtopt_monitor.gtopt_monitor.time.sleep", side_effect=mock_sleep):
             run_text(missing, poll_interval=0.1)
 
         # Should not have printed any status line (only header + interrupt msg)
@@ -258,7 +266,7 @@ class TestRunText:
 
     def test_prints_header(self, capsys: pytest.CaptureFixture, tmp_path: Path) -> None:
         """run_text prints the monitoring header with file path and poll interval."""
-        fpath = tmp_path / "sddp_status.json"
+        fpath = tmp_path / "solver_status.json"
         fpath.write_text(
             json.dumps(
                 {
@@ -272,7 +280,7 @@ class TestRunText:
             ),
             encoding="utf-8",
         )
-        with patch("sddp_monitor.sddp_monitor.time.sleep"):
+        with patch("gtopt_monitor.gtopt_monitor.time.sleep"):
             run_text(fpath, poll_interval=2.5)
 
         captured = capsys.readouterr().out
@@ -283,7 +291,7 @@ class TestRunText:
         self, capsys: pytest.CaptureFixture, tmp_path: Path
     ) -> None:
         """run_text polls multiple times before convergence."""
-        fpath = tmp_path / "sddp_status.json"
+        fpath = tmp_path / "solver_status.json"
         poll_count = 0
 
         running_data = json.dumps(
@@ -317,7 +325,7 @@ class TestRunText:
                 # Switch to converged after two polls
                 fpath.write_text(converged_data, encoding="utf-8")
 
-        with patch("sddp_monitor.sddp_monitor.time.sleep", side_effect=mock_sleep):
+        with patch("gtopt_monitor.gtopt_monitor.time.sleep", side_effect=mock_sleep):
             run_text(fpath, poll_interval=0.1)
 
         captured = capsys.readouterr().out
@@ -404,7 +412,7 @@ class TestRunGui:
         self, capsys: pytest.CaptureFixture, tmp_path: Path
     ) -> None:
         """run_gui prints an error and exits when matplotlib is missing."""
-        fpath = tmp_path / "sddp_status.json"
+        fpath = tmp_path / "solver_status.json"
 
         # Save and remove real matplotlib modules
         keys = [
@@ -461,7 +469,7 @@ class TestRunGui:
                 },
             ],
         }
-        fpath = tmp_path / "sddp_status.json"
+        fpath = tmp_path / "solver_status.json"
         fpath.write_text(json.dumps(converged_data), encoding="utf-8")
 
         mock_plt, mock_ticker, _mock_fig1, _mock_fig2 = _make_mock_plt()
@@ -476,7 +484,7 @@ class TestRunGui:
 
     def test_gui_window_close_exits(self, tmp_path: Path) -> None:
         """run_gui exits when a figure window is closed."""
-        fpath = tmp_path / "sddp_status.json"
+        fpath = tmp_path / "solver_status.json"
         fpath.write_text(json.dumps({"status": "running"}), encoding="utf-8")
 
         mock_plt, mock_ticker, _mock_fig1, _mock_fig2 = _make_mock_plt()
@@ -492,7 +500,7 @@ class TestRunGui:
         self, capsys: pytest.CaptureFixture, tmp_path: Path
     ) -> None:
         """run_gui handles KeyboardInterrupt gracefully."""
-        fpath = tmp_path / "sddp_status.json"
+        fpath = tmp_path / "solver_status.json"
         fpath.write_text(json.dumps({"status": "running"}), encoding="utf-8")
 
         mock_plt, mock_ticker, _mock_fig1, _mock_fig2 = _make_mock_plt()
@@ -534,30 +542,30 @@ class TestMain:
 
     def test_default_args_calls_run_gui(self) -> None:
         """With no arguments, main calls run_gui with defaults."""
-        with patch("sddp_monitor.sddp_monitor.run_gui") as mock_gui, patch(
-            "sys.argv", ["sddp_monitor"]
+        with patch("gtopt_monitor.gtopt_monitor.run_gui") as mock_gui, patch(
+            "sys.argv", ["gtopt_monitor"]
         ):
             main()
         mock_gui.assert_called_once()
         call_args = mock_gui.call_args
-        assert call_args[0][0] == Path("output/sddp_status.json")
+        assert call_args[0][0] == Path("output/solver_status.json")
         assert call_args[0][1] == 1.0
 
     def test_no_gui_flag_calls_run_text(self) -> None:
         """--no-gui flag dispatches to run_text."""
-        with patch("sddp_monitor.sddp_monitor.run_text") as mock_text, patch(
-            "sys.argv", ["sddp_monitor", "--no-gui"]
+        with patch("gtopt_monitor.gtopt_monitor.run_text") as mock_text, patch(
+            "sys.argv", ["gtopt_monitor", "--no-gui"]
         ):
             main()
         mock_text.assert_called_once()
         call_args = mock_text.call_args
-        assert call_args[0][0] == Path("output/sddp_status.json")
+        assert call_args[0][0] == Path("output/solver_status.json")
         assert call_args[0][1] == 1.0
 
     def test_custom_status_file(self) -> None:
         """--status-file sets the path passed to run_gui."""
-        with patch("sddp_monitor.sddp_monitor.run_gui") as mock_gui, patch(
-            "sys.argv", ["sddp_monitor", "--status-file", "/tmp/my_status.json"]
+        with patch("gtopt_monitor.gtopt_monitor.run_gui") as mock_gui, patch(
+            "sys.argv", ["gtopt_monitor", "--status-file", "/tmp/my_status.json"]
         ):
             main()
         call_args = mock_gui.call_args
@@ -565,8 +573,8 @@ class TestMain:
 
     def test_custom_poll_interval(self) -> None:
         """--poll sets the polling interval passed to run_text."""
-        with patch("sddp_monitor.sddp_monitor.run_text") as mock_text, patch(
-            "sys.argv", ["sddp_monitor", "--no-gui", "--poll", "0.5"]
+        with patch("gtopt_monitor.gtopt_monitor.run_text") as mock_text, patch(
+            "sys.argv", ["gtopt_monitor", "--no-gui", "--poll", "0.5"]
         ):
             main()
         call_args = mock_text.call_args
@@ -574,10 +582,10 @@ class TestMain:
 
     def test_all_custom_args(self) -> None:
         """All CLI arguments are forwarded correctly."""
-        with patch("sddp_monitor.sddp_monitor.run_text") as mock_text, patch(
+        with patch("gtopt_monitor.gtopt_monitor.run_text") as mock_text, patch(
             "sys.argv",
             [
-                "sddp_monitor",
+                "gtopt_monitor",
                 "--no-gui",
                 "--status-file",
                 "/custom/path.json",
@@ -587,3 +595,134 @@ class TestMain:
         ):
             main()
         mock_text.assert_called_once_with(Path("/custom/path.json"), 3.0)
+
+    def test_get_option_prints_value(
+        self, capsys: pytest.CaptureFixture, tmp_path: Path
+    ) -> None:
+        """--get prints the requested option value and exits."""
+        planning = {
+            "options": {
+                "method": "sddp",
+                "sddp_options": {"max_iterations": 50},
+            }
+        }
+        case_dir = tmp_path / "mycase"
+        case_dir.mkdir()
+        (case_dir / "mycase.json").write_text(json.dumps(planning), encoding="utf-8")
+        main(["--get", "method", "--case-dir", str(case_dir)])
+        assert capsys.readouterr().out.strip() == "sddp"
+
+    def test_get_nested_option(
+        self, capsys: pytest.CaptureFixture, tmp_path: Path
+    ) -> None:
+        """--get navigates dotted paths into nested dicts."""
+        planning = {
+            "options": {
+                "sddp_options": {"max_iterations": 42},
+            }
+        }
+        case_dir = tmp_path / "nested"
+        case_dir.mkdir()
+        (case_dir / "nested.json").write_text(json.dumps(planning), encoding="utf-8")
+        main(["--get", "sddp_options.max_iterations", "--case-dir", str(case_dir)])
+        assert capsys.readouterr().out.strip() == "42"
+
+    def test_get_missing_option_exits(self, tmp_path: Path) -> None:
+        """--get exits with error when the option path does not exist."""
+        planning = {"options": {"method": "sddp"}}
+        case_dir = tmp_path / "miss"
+        case_dir.mkdir()
+        (case_dir / "miss.json").write_text(json.dumps(planning), encoding="utf-8")
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--get", "no_such_option", "--case-dir", str(case_dir)])
+        assert exc_info.value.code == 1
+
+    def test_get_dict_option_prints_json(
+        self, capsys: pytest.CaptureFixture, tmp_path: Path
+    ) -> None:
+        """--get prints dict values as formatted JSON."""
+        planning = {
+            "options": {
+                "sddp_options": {"max_iterations": 10, "convergence_tol": 0.01},
+            }
+        }
+        case_dir = tmp_path / "dictcase"
+        case_dir.mkdir()
+        (case_dir / "dictcase.json").write_text(json.dumps(planning), encoding="utf-8")
+        main(["--get", "sddp_options", "--case-dir", str(case_dir)])
+        output = json.loads(capsys.readouterr().out)
+        assert output["max_iterations"] == 10
+
+
+# ---------------------------------------------------------------------------
+# Tests for get_option
+# ---------------------------------------------------------------------------
+
+
+class TestGetOption:
+    """Tests for the get_option helper."""
+
+    def test_simple_key(self, tmp_path: Path) -> None:
+        planning = {"options": {"method": "sddp"}}
+        f = tmp_path / "p.json"
+        f.write_text(json.dumps(planning), encoding="utf-8")
+        assert get_option(f, "method") == "sddp"
+
+    def test_nested_key(self, tmp_path: Path) -> None:
+        planning = {"options": {"sddp_options": {"max_iterations": 5}}}
+        f = tmp_path / "p.json"
+        f.write_text(json.dumps(planning), encoding="utf-8")
+        assert get_option(f, "sddp_options.max_iterations") == 5
+
+    def test_missing_key_raises(self, tmp_path: Path) -> None:
+        planning = {"options": {"method": "sddp"}}
+        f = tmp_path / "p.json"
+        f.write_text(json.dumps(planning), encoding="utf-8")
+        with pytest.raises(KeyError, match="no_such"):
+            get_option(f, "no_such")
+
+    def test_missing_nested_key_raises(self, tmp_path: Path) -> None:
+        planning = {"options": {"sddp_options": {}}}
+        f = tmp_path / "p.json"
+        f.write_text(json.dumps(planning), encoding="utf-8")
+        with pytest.raises(KeyError, match="missing key 'threads'"):
+            get_option(f, "sddp_options.threads")
+
+    def test_no_options_key(self, tmp_path: Path) -> None:
+        f = tmp_path / "p.json"
+        f.write_text("{}", encoding="utf-8")
+        with pytest.raises(KeyError):
+            get_option(f, "method")
+
+
+# ---------------------------------------------------------------------------
+# Tests for find_planning_json
+# ---------------------------------------------------------------------------
+
+
+class TestFindPlanningJson:
+    """Tests for the find_planning_json helper."""
+
+    def test_directory_with_matching_name(self, tmp_path: Path) -> None:
+        case_dir = tmp_path / "mycase"
+        case_dir.mkdir()
+        expected = case_dir / "mycase.json"
+        expected.write_text("{}", encoding="utf-8")
+        assert find_planning_json(case_dir) == expected
+
+    def test_json_file_directly(self, tmp_path: Path) -> None:
+        f = tmp_path / "plan.json"
+        f.write_text("{}", encoding="utf-8")
+        assert find_planning_json(f) == f
+
+    def test_fallback_to_any_json(self, tmp_path: Path) -> None:
+        case_dir = tmp_path / "other"
+        case_dir.mkdir()
+        f = case_dir / "something.json"
+        f.write_text("{}", encoding="utf-8")
+        assert find_planning_json(case_dir) == f
+
+    def test_empty_directory_returns_none(self, tmp_path: Path) -> None:
+        case_dir = tmp_path / "empty"
+        case_dir.mkdir()
+        assert find_planning_json(case_dir) is None

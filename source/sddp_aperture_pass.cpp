@@ -87,7 +87,7 @@ auto SDDPMethod::make_aperture_submit_fn(PhaseIndex phase,
       if (fut.has_value()) {
         return std::move(*fut);
       }
-      SPDLOG_WARN("SDDP aperture: pool submit failed, running synchronously");
+      SPDLOG_WARN("SDDP Aperture: pool submit failed, running synchronously");
     }
     // Fallback: run synchronously
     std::promise<ApertureCutResult> p;
@@ -110,6 +110,10 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
 {
   auto& phase_states = m_scene_phase_states_[scene];
   int cuts_added = 0;
+  m_phase_grid_.record(static_cast<int>(iteration),
+                       static_cast<int>(scene_uid(scene)),
+                       static_cast<int>(phase_uid(phase)),
+                       GridCell::Aperture);
 
   const auto src_phase = phase - PhaseIndex {1};
   auto& src_li = planning_lp().system(scene, src_phase).linear_interface();
@@ -186,10 +190,11 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
     }
     ++cuts_added;
 
-    SPDLOG_TRACE("SDDP aperture fallback: scene {} cut for phase {} rhs={:.4f}",
-                 scene,
-                 src_phase,
-                 fallback_cut.lowb);
+    SPDLOG_TRACE(
+        "{}: fallback cut for phase {} rhs={:.4f}",
+        sddp_log("Aperture", iteration, scene_uid(scene), phase_uid(phase)),
+        src_phase,
+        fallback_cut.lowb);
 
     if (src_phase > PhaseIndex {0}) {
       auto r = src_li.resolve(opts);
@@ -198,11 +203,10 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       }
       if (!r.has_value() || !src_li.is_optimal()) {
         SPDLOG_WARN(
-            "SDDP backward: iter {} scene {} phase {} non-optimal after "
-            "fallback cut (status {}), skipping further backpropagation",
-            iteration,
-            scene_uid(scene),
-            phase_uid(src_phase),
+            "{}: non-optimal after fallback cut (status {}), "
+            "skipping further backpropagation",
+            sddp_log(
+                "Backward", iteration, scene_uid(scene), phase_uid(src_phase)),
             src_li.get_status());
       }
     }
@@ -221,10 +225,11 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
   }
   ++cuts_added;
 
-  SPDLOG_TRACE("SDDP aperture: scene {} cut for phase {} rhs={:.4f}",
-               scene,
-               src_phase,
-               expected_cut->lowb);
+  SPDLOG_TRACE(
+      "{}: cut for phase {} rhs={:.4f}",
+      sddp_log("Aperture", iteration, scene_uid(scene), phase_uid(phase)),
+      src_phase,
+      expected_cut->lowb);
 
   // Re-solve source phase after adding the cut to propagate feasibility.
   // Feasibility cuts are never shared between scenes.
@@ -235,11 +240,10 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
     }
     if (!r.has_value() || !src_li.is_optimal()) {
       SPDLOG_WARN(
-          "SDDP backward: iter {} scene {} phase {} non-optimal after "
-          "expected cut (status {}), skipping further backpropagation",
-          iteration,
-          scene_uid(scene),
-          phase_uid(src_phase),
+          "{}: non-optimal after expected cut (status {}), "
+          "skipping further backpropagation",
+          sddp_log(
+              "Backward", iteration, scene_uid(scene), phase_uid(src_phase)),
           src_li.get_status());
     }
   }
@@ -298,7 +302,8 @@ auto SDDPMethod::backward_pass_with_apertures_single_phase(
         const bool found = std::ranges::any_of(
             filtered, [uid](const auto& a) { return a.uid == uid; });
         if (!found) {
-          SPDLOG_WARN("SDDP apertures: requested UID {} not found, skipping",
+          SPDLOG_WARN("{}: requested UID {} not found, skipping",
+                      sddp_log("Aperture", iteration, scene_uid(scene)),
                       uid);
         }
       }
@@ -364,7 +369,8 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene,
         const bool found = std::ranges::any_of(
             filtered, [uid](const auto& a) { return a.uid == uid; });
         if (!found) {
-          SPDLOG_WARN("SDDP apertures: requested UID {} not found, skipping",
+          SPDLOG_WARN("{}: requested UID {} not found, skipping",
+                      sddp_log("Aperture", iteration, scene_uid(scene)),
                       uid);
         }
       }
@@ -388,13 +394,10 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene,
   int total_cuts = 0;
   [[maybe_unused]] const auto bwd_tid = std::this_thread::get_id();
 
-  SPDLOG_INFO(
-      "SDDP backward (apertures): scene {} iter {} starting ({} phases) "
-      "[thread {}]",
-      scene_uid(scene),
-      iteration,
-      num_phases - 1,
-      std::hash<std::thread::id> {}(bwd_tid) % 10000);
+  SPDLOG_INFO("{}: backward starting ({} phases) [thread {}]",
+              sddp_log("Aperture", iteration, scene_uid(scene)),
+              num_phases - 1,
+              std::hash<std::thread::id> {}(bwd_tid) % 10000);
 
   const auto& scene_lp = simulation.scenes()[scene];
   const auto& scene_scenarios = scene_lp.scenarios();
@@ -411,10 +414,10 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene,
     if (should_stop()) {
       return std::unexpected(Error {
           .code = ErrorCode::SolverError,
-          .message = std::format(
-              "SDDP backward (apertures): cancelled at scene {} phase {}",
-              scene_uid(scene),
-              phase_uid(phase)),
+          .message =
+              std::format("{}: cancelled at phase {}",
+                          sddp_log("Aperture", iteration, scene_uid(scene)),
+                          phase_uid(phase)),
       });
     }
 
@@ -491,9 +494,8 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene,
       ++total_cuts;
 
       SPDLOG_TRACE(
-          "SDDP aperture fallback: scene {} cut for phase {} "
-          "rhs={:.4f}",
-          scene,
+          "{}: fallback cut for phase {} rhs={:.4f}",
+          sddp_log("Aperture", iteration, scene_uid(scene), phase_uid(phase)),
           src_phase,
           fallback_cut.lowb);
 
@@ -504,12 +506,12 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene,
         }
         if (!r.has_value() || !src_li.is_optimal()) {
           SPDLOG_WARN(
-              "SDDP backward: iter {} scene {} phase {} non-optimal "
-              "after fallback cut (status {}), skipping further "
-              "backpropagation",
-              iteration,
-              scene_uid(scene),
-              phase_uid(src_phase),
+              "{}: non-optimal after fallback cut (status {}), "
+              "skipping further backpropagation",
+              sddp_log("Backward",
+                       iteration,
+                       scene_uid(scene),
+                       phase_uid(src_phase)),
               src_li.get_status());
         }
       }
@@ -528,10 +530,11 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene,
     }
     ++total_cuts;
 
-    SPDLOG_TRACE("SDDP aperture: scene {} cut for phase {} rhs={:.4f}",
-                 scene,
-                 src_phase,
-                 expected_cut->lowb);
+    SPDLOG_TRACE(
+        "{}: cut for phase {} rhs={:.4f}",
+        sddp_log("Aperture", iteration, scene_uid(scene), phase_uid(phase)),
+        src_phase,
+        expected_cut->lowb);
 
     // Re-solve source phase after adding the cut to propagate
     // feasibility.
@@ -542,12 +545,10 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene,
       }
       if (!r.has_value() || !src_li.is_optimal()) {
         SPDLOG_WARN(
-            "SDDP backward: iter {} scene {} phase {} non-optimal "
-            "after expected cut (status {}), skipping further "
-            "backpropagation",
-            iteration,
-            scene_uid(scene),
-            phase_uid(src_phase),
+            "{}: non-optimal after expected cut (status {}), "
+            "skipping further backpropagation",
+            sddp_log(
+                "Backward", iteration, scene_uid(scene), phase_uid(src_phase)),
             src_li.get_status());
       }
     }
@@ -556,9 +557,9 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene,
   // Log a single summary for all phases with infeasible apertures
   if (!infeasible_phases.empty()) {
     SPDLOG_WARN(
-        "SDDP aperture: scene {} — all apertures infeasible at {} "
-        "phase(s) [{}], used Benders fallback cuts",
-        scene_uid(scene),
+        "{}: all apertures infeasible at {} phase(s) [{}], "
+        "used Benders fallback cuts",
+        sddp_log("Aperture", iteration, scene_uid(scene)),
         infeasible_phases.size(),
         join_values(infeasible_phases));
   }

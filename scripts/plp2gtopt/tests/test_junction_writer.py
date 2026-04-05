@@ -259,7 +259,7 @@ def test_to_json_array_single_plant():
     assert turbine["uid"] == 1
     assert turbine["generator"] == "PlantA"
     assert turbine["waterway"] == ww1["name"]
-    assert turbine["conversion_rate"] == 0.9
+    assert turbine["production_factor"] == 0.9
 
     assert len(result["flow_array"]) == 1
     flow = result["flow_array"][0]
@@ -770,7 +770,7 @@ def test_embalse_ocean_junction_turbine_created():
     turbine = result["turbine_array"][0]
     assert turbine["name"] == "RAPEL"
     assert turbine["generator"] == "RAPEL"
-    assert turbine["conversion_rate"] == pytest.approx(0.9)
+    assert turbine["production_factor"] == pytest.approx(0.9)
     # The turbine's waterway must terminate at the ocean junction
     ww = next(w for w in result["waterway_array"] if w["name"] == turbine["waterway"])
     assert ww["junction_b"] == "RAPEL_ocean"

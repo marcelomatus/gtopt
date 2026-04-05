@@ -1,7 +1,7 @@
 /**
  * @file      reservoir_production_factor.hpp
- * @brief     Piecewise-linear turbine efficiency as a function of reservoir
- *            volume (hydraulic head)
+ * @brief     Piecewise-linear turbine production factor as a function of
+ *            reservoir volume (hydraulic head)
  * @date      Mon Mar 10 17:00:00 2026
  * @author    marcelo
  * @copyright BSD-3-Clause
@@ -12,13 +12,14 @@
  *
  * ### Piecewise-linear evaluation (matches PLP Fortran `FRendimientos`)
  *
- * The efficiency is the **minimum** over all segments (concave envelope):
+ * The production factor is the **minimum** over all segments (concave
+ * envelope):
  *
  * ```text
- * efficiency(V) = min_i { constant_i + slope_i × (V − volume_i) }
+ * prod_factor(V) = min_i { constant_i + slope_i × (V − volume_i) }
  * ```
  *
- * Here `constant_i` is the efficiency **at the breakpoint** `volume_i`
+ * Here `constant_i` is the production factor **at the breakpoint** `volume_i`
  * (point-slope form).  This matches the PLP Fortran function
  * `FRendimientos` in `plp-frendim.f`:
  *
@@ -28,7 +29,7 @@
  * ```
  *
  * **Note**: This differs from `ReservoirSeepageSegment` where `constant` is
- * the y-intercept at V = 0.  For efficiency, `constant` is the value
+ * the y-intercept at V = 0.  For production factor, `constant` is the value
  * **at** the breakpoint (point-slope form), not the y-intercept.
  *
  * Slopes must be given in **decreasing** order so the function is concave.
@@ -68,14 +69,14 @@ namespace gtopt
 {
 
 /**
- * @brief One segment of the piecewise-linear efficiency curve
+ * @brief One segment of the piecewise-linear production factor curve
  *
  * Each segment contributes `constant + slope × (V − volume)` to the
- * concave envelope.  The overall efficiency at volume V is the minimum
- * over all segments (matching PLP Fortran `FRendimientos`).
+ * concave envelope.  The overall production factor at volume V is the
+ * minimum over all segments (matching PLP Fortran `FRendimientos`).
  *
  * **Note**: Unlike `ReservoirSeepageSegment` where `constant` is the
- * y-intercept at V = 0, here `constant` is the efficiency value
+ * y-intercept at V = 0, here `constant` is the production factor value
  * **at the breakpoint** `volume` (point-slope form).
  */
 struct ProductionFactorSegment
@@ -83,12 +84,12 @@ struct ProductionFactorSegment
   Real volume {0.0};  ///< Volume breakpoint [hm³] (Fortran `Bordes`)
   Real slope {
       0.0,
-  };  ///< Slope at this breakpoint [efficiency per hm³] (`Pendientes`)
-  Real constant {0.0};  ///< Efficiency at breakpoint [MW·s/m³] (`Constantes`)
+  };  ///< Slope at this breakpoint [prod.factor per hm³] (`Pendientes`)
+  Real constant {0.0};  ///< Prod.factor at breakpoint [MW·s/m³] (`Constantes`)
 };
 
 /**
- * @brief Reservoir-dependent turbine efficiency (PLP "rendimiento")
+ * @brief Reservoir-dependent turbine production factor (PLP "rendimiento")
  *
  * Associates a turbine with a reservoir and provides a piecewise-linear
  * concave function mapping reservoir volume to turbine conversion rate.
@@ -96,7 +97,7 @@ struct ProductionFactorSegment
  * updated at each forward-pass iteration based on the average reservoir
  * volume `vavg = (vini + vfin) / 2` from the previous LP solve.
  *
- * @see Turbine for the turbine whose conversion_rate is modulated
+ * @see Turbine for the turbine whose production_factor is modulated
  * @see Reservoir for the reservoir whose volume drives the function
  * @see TurbineLP for the LP coefficient update mechanism
  */
@@ -109,14 +110,14 @@ struct ReservoirProductionFactor
   SingleId turbine {unknown_uid};  ///< ID of the related turbine
   SingleId reservoir {unknown_uid};  ///< ID of the related reservoir
 
-  Real mean_production_factor {1.0};  ///< Fallback / average efficiency value
+  Real mean_production_factor {1.0};  ///< Fallback / average production factor
 
   std::vector<ProductionFactorSegment>
       segments {};  ///< Piecewise-linear segments (slopes in decreasing order)
 };
 
 /**
- * @brief Evaluate the piecewise-linear concave efficiency function
+ * @brief Evaluate the piecewise-linear concave production factor function
  *
  * Implements the PLP `FRendimientos` function (plp-frendim.f):
  *
@@ -125,7 +126,7 @@ struct ReservoirProductionFactor
  *          { constant_i + slope_i × (volume − volume_breakpoint_i) }
  * ```
  *
- * Here `constant_i` is the efficiency **at** breakpoint_i (point-slope
+ * Here `constant_i` is the production factor **at** breakpoint_i (point-slope
  * form).  This is the concave-envelope minimum, matching the Fortran:
  *
  * ```fortran
@@ -136,9 +137,9 @@ struct ReservoirProductionFactor
  * **Difference from seepage**: `ReservoirSeepageSegment.constant` is the
  * y-intercept (value at V = 0), while `ProductionFactorSegment.constant` is
  * the value at the breakpoint.  ReservoirSeepage uses range-based segment
- * selection; efficiency uses concave-envelope minimum.
+ * selection; production factor uses concave-envelope minimum.
  *
- * Returns at least 0.0 (efficiency cannot be negative).
+ * Returns at least 0.0 (production factor cannot be negative).
  *
  * @param segments The piecewise-linear segments
  * @param volume Current reservoir volume [hm³]

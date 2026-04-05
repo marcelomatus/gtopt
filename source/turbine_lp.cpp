@@ -20,7 +20,9 @@ namespace gtopt
 {
 TurbineLP::TurbineLP(const Turbine& pturbine, InputContext& ic)
     : ObjectLP<Turbine>(pturbine)
-    , conversion_rate(ic, ClassName, id(), std::move(turbine().conversion_rate))
+    , production_factor(
+          ic, ClassName, id(), std::move(turbine().production_factor))
+    , efficiency(ic, ClassName, id(), std::move(turbine().efficiency))
     , capacity(ic, ClassName, id(), std::move(turbine().capacity))
 {
 }
@@ -48,8 +50,10 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  const auto stage_conversion_rate =
-      conversion_rate.at(stage.uid()).value_or(1.0);
+  const auto stage_production_factor =
+      production_factor.at(stage.uid()).value_or(1.0);
+  const auto stage_efficiency = efficiency.at(stage.uid()).value_or(1.0);
+  const auto stage_conversion_rate = stage_efficiency * stage_production_factor;
 
   const auto stage_capacity = capacity.at(stage.uid());
 
@@ -67,7 +71,7 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
     // ── Flow-connected turbine ─────────────────────────────────────
     // Use the FlowLP's column variable directly.  The flow column has
     // lowb == uppb == discharge[block], so the constraint:
-    //   gen_power <= conversion_rate × flow_col
+    //   gen_power <= efficiency × production_factor × flow_col
     // automatically adapts when FlowLP::update_aperture changes
     // the flow column bounds — no separate aperture update needed.
     const auto& flow_lp = sc.element<FlowLP>(flow_sid());

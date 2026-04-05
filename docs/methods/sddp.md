@@ -1183,22 +1183,22 @@ enough that convergence is achieved quickly.
 `SolverMonitor` is a reusable class that samples `AdaptiveWorkPool`
 statistics (CPU load, active worker count) in a background `std::jthread`
 and writes them to a JSON status file for external monitoring tools such as
-`scripts/sddp_monitor.py`.
+`scripts/gtopt_monitor/gtopt_monitor.py`.
 
 Both `SDDPMethod` and `MonolithicMethod` create a local `SolverMonitor`
 during their `solve()` call.
 
-**SDDP status file** (`sddp_status.json`) contains:
+**Solver status file** (`solver_status.json`) contains:
 - `"version"`, `"timestamp"`, `"elapsed_s"`, `"status"`, `"iteration"`
 - `"lower_bound"`, `"upper_bound"`, `"gap"`, `"converged"`, `"max_iterations"`
+- `"solver"`, `"method"`: runtime solver identity and planning method
 - `"history"`: per-iteration array with `lower_bound`, `upper_bound`, `gap`,
   `converged`, `cuts_added`, `scene_upper_bounds`, `scene_lower_bounds`
+- `"phase_grid"`: per-(iteration, scene, phase) activity grid for TUI display
+- `"async"`: async scene execution state (when `max_async_spread > 0`)
 - `"realtime"`: rolling arrays of `timestamps`, `cpu_loads`, `active_workers`
 
-**Monolithic status file** (`monolithic_status.json`) contains:
-- `"version"`, `"status"`, `"elapsed_s"`, `"total_scenes"`, `"scenes_done"`
-- `"scene_times"`: wall-clock seconds per completed scene
-- `"realtime"`: same rolling CPU/worker arrays as SDDP
+Both SDDP and monolithic methods write to the same `solver_status.json` file.
 
 The status file is written **atomically** (write to `.tmp`, then rename) to
 allow external tools to read it without seeing a partial write.

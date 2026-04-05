@@ -11,13 +11,16 @@
  *
  * ### Conversion relationship
  * ```text
- * power [MW] = conversion_rate [MW·s/m³] × flow [m³/s]
+ * power [MW] = efficiency [p.u.] × production_factor [MW·s/m³] × flow [m³/s]
  * ```
  *
- * ### Variable efficiency (hydraulic head)
+ * The effective conversion rate is `efficiency × production_factor`.
+ * If `efficiency` is not set, it defaults to 1.0.
+ *
+ * ### Variable production factor (hydraulic head)
  * When `main_reservoir` is set, the turbine's conversion rate can vary
  * with the reservoir volume (hydraulic head).  The piecewise-linear
- * efficiency curve is provided by a matching `ReservoirProductionFactor`
+ * production factor curve is provided by a matching `ReservoirProductionFactor`
  * element.  During SDDP forward iterations the conversion-rate LP
  * coefficient is updated based on the current reservoir volume.
  *
@@ -31,9 +34,9 @@
  *   Useful for simple run-of-river (pasada) units.
  *
  * When `flow` is set, `waterway` is ignored.  The turbine's power
- * constraint becomes: `power ≤ discharge[block] × conversion_rate`.
- * Aperture updates automatically change the flow discharge, so the
- * turbine power bound varies correctly across scenarios.
+ * constraint becomes: `power ≤ discharge[block] × efficiency ×
+ * production_factor`. Aperture updates automatically change the flow discharge,
+ * so the turbine power bound varies correctly across scenarios.
  *
  * ### JSON Example (waterway mode)
  * ```json
@@ -42,7 +45,7 @@
  *   "name": "t1",
  *   "waterway": "w1_2",
  *   "generator": "g_hydro",
- *   "conversion_rate": 0.0025,
+ *   "production_factor": 0.0025,
  *   "capacity": 100,
  *   "main_reservoir": "res1"
  * }
@@ -55,7 +58,7 @@
  *   "name": "t_pasada",
  *   "flow": "f_river",
  *   "generator": "g_pasada",
- *   "conversion_rate": 1.0
+ *   "production_factor": 1.0
  * }
  * ```
  *
@@ -78,17 +81,18 @@ namespace gtopt
 /**
  * @brief Hydroelectric turbine converting water flow into electrical power
  *
- * A turbine draws water from a waterway, converts it at `conversion_rate`
- * into electrical power at the linked generator, and passes the remaining
- * flow to the downstream junction of the waterway.
+ * A turbine draws water from a waterway, converts it at `efficiency ×
+ * production_factor` into electrical power at the linked generator, and passes
+ * the remaining flow to the downstream junction of the waterway.
  *
  * When `main_reservoir` is specified, the turbine's conversion rate may be
  * updated dynamically by the SDDP solver using the piecewise-linear
- * efficiency curve from the corresponding `ReservoirProductionFactor` element.
+ * production factor curve from the corresponding `ReservoirProductionFactor`
+ * element.
  *
  * @see Waterway for the water channel
  * @see Generator for the power output representation
- * @see ReservoirProductionFactor for the piecewise-linear efficiency curve
+ * @see ReservoirProductionFactor for the piecewise-linear production factor
  * @see TurbineLP for the LP formulation
  */
 struct Turbine
@@ -107,7 +111,9 @@ struct Turbine
       drain {};  ///< If true, turbine can spill water without generating power
 
   OptTRealFieldSched
-      conversion_rate {};  ///< Water-to-power conversion factor [MW·s/m³]
+      production_factor {};  ///< Water-to-power production factor [MW·s/m³]
+  OptTRealFieldSched
+      efficiency {};  ///< Turbine efficiency [p.u.] (default 1.0)
   OptTRealFieldSched capacity {};  ///< Maximum turbine power output [MW]
 
   /// Optional ID of the main reservoir whose volume drives the turbine's

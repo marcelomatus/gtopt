@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.14)
 
-# validate_sddp_status.cmake - Validate SDDP solver status output
+# validate_sddp_status.cmake - Validate solver status output
 #
 # Usage:
 #   cmake -DOUTPUT_DIR=<path> -P validate_sddp_status.cmake
 #
 # Validates:
-#   1. A status file exists (sddp_status.json or monolithic_status.json)
+#   1. A status file exists (solver_status.json, or legacy sddp/monolithic)
 #   2. solution.csv exists and has at least one data row
 #   3. The status file contains expected fields
 
@@ -25,39 +25,45 @@ if(EXISTS "${exit_code_file}")
   endif()
 endif()
 
-# --- Check status file (SDDP or monolithic fallback) ---
+# --- Check status file (unified name, with legacy fallbacks) ---
+set(solver_status_file "${OUTPUT_DIR}/solver_status.json")
 set(sddp_status_file "${OUTPUT_DIR}/sddp_status.json")
 set(mono_status_file "${OUTPUT_DIR}/monolithic_status.json")
 
-if(EXISTS "${sddp_status_file}")
+if(EXISTS "${solver_status_file}")
+  set(status_file "${solver_status_file}")
+  set(status_type "solver")
+  message(STATUS "Found solver_status.json")
+elseif(EXISTS "${sddp_status_file}")
   set(status_file "${sddp_status_file}")
   set(status_type "sddp")
-  message(STATUS "Found sddp_status.json")
+  message(STATUS "Found sddp_status.json (legacy)")
 elseif(EXISTS "${mono_status_file}")
   set(status_file "${mono_status_file}")
   set(status_type "monolithic")
-  message(STATUS "Found monolithic_status.json (SDDP degraded to monolithic — single phase)")
+  message(STATUS "Found monolithic_status.json (legacy)")
 else()
   message(FATAL_ERROR
     "No status file found in ${OUTPUT_DIR}. "
-    "Expected sddp_status.json or monolithic_status.json")
+    "Expected solver_status.json")
 endif()
 
 file(READ "${status_file}" status_content)
 
-# Check that key fields are present
-if(status_type STREQUAL "sddp")
-  foreach(field "lower_bound" "upper_bound" "gap" "iteration")
-    string(FIND "${status_content}" "\"${field}\"" field_pos)
-    if(field_pos EQUAL -1)
-      message(FATAL_ERROR "sddp_status.json missing expected field: ${field}")
-    endif()
-  endforeach()
-else()
+# Check that key fields are present — the unified solver_status.json
+# always has the SDDP-level fields; legacy monolithic has fewer.
+if(status_type STREQUAL "monolithic")
   foreach(field "status" "elapsed_s")
     string(FIND "${status_content}" "\"${field}\"" field_pos)
     if(field_pos EQUAL -1)
-      message(FATAL_ERROR "monolithic_status.json missing expected field: ${field}")
+      message(FATAL_ERROR "Status file missing expected field: ${field}")
+    endif()
+  endforeach()
+else()
+  foreach(field "lower_bound" "upper_bound" "gap" "iteration")
+    string(FIND "${status_content}" "\"${field}\"" field_pos)
+    if(field_pos EQUAL -1)
+      message(FATAL_ERROR "Status file missing expected field: ${field}")
     endif()
   endforeach()
 endif()
@@ -91,4 +97,4 @@ endif()
 
 math(EXPR data_rows "${line_count} - 1")
 message(STATUS "solution.csv validated: ${data_rows} data row(s)")
-message(STATUS "SDDP validation passed")
+message(STATUS "Solver status validation passed")

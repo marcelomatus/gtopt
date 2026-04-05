@@ -11,7 +11,6 @@
  */
 
 #include <cmath>
-#include <limits>
 
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
@@ -25,6 +24,7 @@ namespace gtopt
 ReservoirLP::ReservoirLP(const Reservoir& preservoir, const InputContext& ic)
     : StorageBase(preservoir, ic, ClassName)
     , capacity(ic, ClassName, id(), std::move(reservoir().capacity))
+    , scost(ic, ClassName, id(), std::move(reservoir().scost))
 {
 }
 
@@ -130,11 +130,17 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
     brow[rc] = flow_scale;
   }
 
+  const auto mpf = reservoir().mean_production_factor.value_or(
+      Reservoir::default_mean_production_factor);
+  const auto stage_scost = sc.state_fail_cost(stage, scost);
+  const double rsv_scost = stage_scost.value_or(1.0) * mpf;
+
   const StorageOptions opts {
       .use_state_variable = reservoir().use_state_variable.value_or(true),
       .daily_cycle = reservoir().daily_cycle.value_or(false),
       .energy_scale = energy_scale,
       .flow_scale = flow_scale,
+      .scost = rsv_scost,
   };
   if (!StorageBase::add_to_lp(cname,
                               sc,

@@ -20,9 +20,10 @@ struct json_data_contract<Turbine>
       json_variant_null<"flow", OptSingleId, jvtl_SingleId>,
       json_variant<"generator", SingleId>,
       json_bool_null<"drain", OptBool>,
-      json_variant_null<"conversion_rate",
+      json_variant_null<"production_factor",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,
+      json_variant_null<"efficiency", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"capacity", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"main_reservoir", OptSingleId, jvtl_SingleId>>;
 
@@ -35,7 +36,8 @@ struct json_data_contract<Turbine>
                                  turbine.flow,
                                  turbine.generator,
                                  turbine.drain,
-                                 turbine.conversion_rate,
+                                 turbine.production_factor,
+                                 turbine.efficiency,
                                  turbine.capacity,
                                  turbine.main_reservoir);
   }

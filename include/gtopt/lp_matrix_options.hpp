@@ -47,6 +47,10 @@ struct LpMatrixOptions
       equilibration_method {};  ///< Matrix equilibration method.
                                 ///< See LpEquilibrationMethod for options.
                                 ///< Default is `none` (no scaling).
+  std::optional<FastSqrtMethod>
+      fast_sqrt_method {};  ///< Approximate sqrt for Ruiz scaling.
+                            ///< See FastSqrtMethod for options.
+                            ///< Default is `ieee_halve`.
   LpNamesLevel lp_names_level {LpNamesLevel::minimal};  ///< Computed naming
                                                         ///< level (internal)
   std::string solver_name {};  ///< Solver backend name (empty = auto-detect)
@@ -74,6 +78,7 @@ struct LpMatrixOptions
     merge_opt(names_level, other.names_level);
     merge_opt(lp_coeff_ratio_threshold, other.lp_coeff_ratio_threshold);
     merge_opt(equilibration_method, other.equilibration_method);
+    merge_opt(fast_sqrt_method, other.fast_sqrt_method);
     merge_opt(compute_stats, other.compute_stats);
   }
 };

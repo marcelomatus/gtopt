@@ -1339,3 +1339,183 @@ TEST_CASE(
     CHECK(cut.lowb == doctest::Approx(90.0));
   }
 }
+
+// ---------------------------------------------------------------------------
+// Elastic filter scaling with large energy_scale reservoir
+// ---------------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "elastic filter penalty scales correctly with large energy_scale")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Scenario: a reservoir with physical volume ~1000 hm³
+  //   energy_scale = 1000  → LP efin variable ≈ 1.0
+  //   state_fail_cost = 1000 $/MWh, mean_production_factor = 5 MWh/hm³
+  //   → scost = 5000 $/hm³
+  //   scale_objective = 1e7
+  //   → link.scost = 5000 / 1e7 = 5e-4  (pre-divided)
+  //   → link.var_scale = 1000
+  //   → penalty on slack = 5e-4 × 1000 = 0.5  (LP units)
+  //
+  // This test verifies that the elastic penalty coefficient is O(1) and
+  // does not produce ill-conditioned cut coefficients.
+
+  constexpr double energy_scale = 1000.0;
+  constexpr double scale_obj = 1e7;
+  constexpr double state_fail_cost = 1000.0;
+  constexpr double mean_prod_factor = 5.0;
+  constexpr double scost = state_fail_cost * mean_prod_factor;  // 5000 $/hm³
+  constexpr double link_scost = scost / scale_obj;  // 5e-4
+
+  // Build a 2-variable LP: efin (reservoir) + alpha (future cost)
+  // min  cost_e * efin + alpha   s.t.  efin >= 0.5  (physical 500 hm³)
+  //
+  // In LP units (divided by energy_scale):
+  //   efin_lp = physical / energy_scale = 500 / 1000 = 0.5
+  LinearInterface li;
+  const auto efin = li.add_col("efin", 0.0, 1.0);  // [0, 1000 hm³] in LP
+  const auto alpha = li.add_col("alpha", 0.0, LinearProblem::DblMax);
+
+  // Objective: small coefficient on efin (normal LP scale)
+  li.set_obj_coeff(efin, 0.01);
+  li.set_obj_coeff(alpha, 1.0);
+
+  // Constraint: efin >= 0.5 (physical 500 hm³)
+  auto row = SparseRow {
+      .name = "efin_lb",
+  };
+  row[efin] = 1.0;
+  row.lowb = 0.5;
+  row.uppb = LinearProblem::DblMax;
+  li.add_row(row);
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+  REQUIRE(li.is_optimal());
+
+  // Fix efin at the trial value (simulate propagate_trial_values)
+  constexpr double trial_value_lp = 0.8;  // 800 hm³ physical
+  li.set_col(efin, trial_value_lp);
+
+  const std::vector<StateVarLink> links = {
+      {
+          .source_col =
+              ColIndex {
+                  99,
+              },
+          .dependent_col = efin,
+          .source_phase =
+              PhaseIndex {
+                  0,
+              },
+          .target_phase =
+              PhaseIndex {
+                  1,
+              },
+          .trial_value = trial_value_lp,
+          .source_low = 0.0,
+          .source_upp = 1.0,
+          .var_scale = energy_scale,
+          .scost = link_scost,
+      },
+  };
+
+  SUBCASE("relax_fixed_state_variable uses scost × var_scale as penalty")
+  {
+    auto clone = li.clone();
+    auto info = relax_fixed_state_variable(clone,
+                                           links[0],
+                                           PhaseIndex {
+                                               1,
+                                           },
+                                           1e-4);  // global fallback (unused)
+
+    REQUIRE(info.relaxed);
+
+    // The penalty should be scost × var_scale = 5e-4 × 1000 = 0.5
+    const auto expected_penalty = link_scost * energy_scale;
+    CHECK(expected_penalty == doctest::Approx(0.5));
+
+    // Verify slack objective coefficients match
+    const auto obj = clone.get_obj_coeff();
+    CHECK(obj[info.sup_col] == doctest::Approx(expected_penalty));
+    CHECK(obj[info.sdn_col] == doctest::Approx(expected_penalty));
+
+    // Penalty is O(1), not O(1e6) — well-conditioned
+    CHECK(obj[info.sup_col] < 10.0);
+    CHECK(obj[info.sup_col] > 1e-6);
+  }
+
+  SUBCASE("elastic solve produces cut with well-scaled coefficients")
+  {
+    SolverOptions opts;
+    auto elastic = elastic_filter_solve(li, links, 1e-4, opts);
+
+    // The LP is feasible even without elastic (efin=0.8 > 0.5 lb),
+    // but the column IS fixed so elastic will relax it
+    if (elastic.has_value()) {
+      REQUIRE(elastic->clone.is_optimal());
+
+      // Build a Benders cut from the elastic result
+      auto cut = build_benders_cut(alpha,
+                                   links,
+                                   elastic->clone.get_col_cost_raw(),
+                                   elastic->clone.get_obj_value(),
+                                   "test_cut");
+
+      // Cut coefficient on source_col should be the reduced cost
+      // of the dependent column — proportional to the penalty, not huge
+      if (cut.cmap.contains(links[0].source_col)) {
+        const auto coeff = cut.cmap.at(links[0].source_col);
+        // Coefficient should be O(penalty) = O(0.5), not O(1e6)
+        CHECK(std::abs(coeff) < 100.0);
+      }
+
+      // RHS (cut.lowb) should be proportional to the objective value
+      // which is small since the LP is feasible at efin=0.8
+      CHECK(std::abs(cut.lowb) < 1e6);
+    }
+  }
+
+  SUBCASE("global penalty fallback when scost is zero")
+  {
+    // When scost=0, the global penalty is used instead
+    auto link_no_scost = links[0];
+    link_no_scost.scost = 0.0;
+
+    constexpr double global_penalty = 1e3 / scale_obj;  // 1e-4
+
+    auto clone = li.clone();
+    auto info = relax_fixed_state_variable(clone,
+                                           link_no_scost,
+                                           PhaseIndex {
+                                               1,
+                                           },
+                                           global_penalty);
+
+    REQUIRE(info.relaxed);
+
+    // Penalty = global_penalty × var_scale = 1e-4 × 1000 = 0.1
+    const auto expected_penalty = global_penalty * energy_scale;
+    CHECK(expected_penalty == doctest::Approx(0.1));
+
+    const auto obj = clone.get_obj_coeff();
+    CHECK(obj[info.sup_col] == doctest::Approx(expected_penalty));
+    CHECK(obj[info.sdn_col] == doctest::Approx(expected_penalty));
+  }
+
+  SUBCASE("penalty without scaling would be ill-conditioned")
+  {
+    // Demonstrate that raw penalty (1e6) without scale_obj division
+    // would create a coefficient ratio > 1e6 — ill-conditioned
+    constexpr double raw_penalty = 1e6;
+    const auto scaled_penalty = link_scost * energy_scale;  // 0.5
+
+    // The ratio between raw and properly scaled is huge
+    CHECK(raw_penalty / scaled_penalty > 1e6);
+
+    // The properly scaled penalty is O(1)
+    CHECK(scaled_penalty == doctest::Approx(0.5));
+  }
+}

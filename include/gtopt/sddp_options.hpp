@@ -350,6 +350,18 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   OptInt backward_max_fallbacks {};
 
+  /** @brief Maximum iteration spread between fastest and slowest scene
+   *  when cut_sharing is none and multiple scenes exist.
+   *
+   * When > 0, the solver runs scenes asynchronously: each scene
+   * progresses through its own forward/backward iteration loop.  The
+   * pool's SDDPTaskKey priority naturally schedules slower scenes first
+   * (lower iteration -> higher priority), self-regulating the spread.
+   *
+   * 0 = synchronous (current behavior, default).
+   */
+  OptInt max_async_spread {};
+
   /** @brief Optional LP solver configuration for SDDP forward pass.
    *
    * When set, these options are merged with the global
@@ -419,6 +431,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(convergence_confidence, opts.convergence_confidence);
     merge_opt(forward_max_fallbacks, opts.forward_max_fallbacks);
     merge_opt(backward_max_fallbacks, opts.backward_max_fallbacks);
+    merge_opt(max_async_spread, opts.max_async_spread);
     if (opts.forward_solver_options.has_value()) {
       if (forward_solver_options.has_value()) {
         forward_solver_options->merge(*opts.forward_solver_options);

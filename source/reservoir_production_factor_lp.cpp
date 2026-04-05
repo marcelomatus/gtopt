@@ -57,6 +57,7 @@ bool ReservoirProductionFactorLP::add_to_lp(const SystemContext& sc,
 
   const auto& conv_rows = turbine.conversion_rows_at(scenario, stage);
   const auto& flow_cols = waterway.flow_cols_at(scenario, stage);
+  const auto eff = turbine.stage_efficiency(stage.uid());
 
   const auto& blocks = stage.blocks();
 
@@ -69,6 +70,7 @@ bool ReservoirProductionFactorLP::add_to_lp(const SystemContext& sc,
       bmap[buid] = CoeffIndex {
           .row = conv_rows.at(buid),
           .col = flow_cols.at(buid),
+          .efficiency = eff,
       };
     }
   }
@@ -128,9 +130,9 @@ auto ReservoirProductionFactorLP::update_conversion_coeff(LinearInterface& li,
   int count = 0;
 
   for (const auto& [buid, ci] : bmap) {
-    // Turbine conversion row: generation − rate × flow = 0
-    // The flow coefficient is stored as −rate
-    li.set_coeff(ci.row, ci.col, -new_rate);
+    // Turbine conversion row: generation − efficiency × prod_factor × flow = 0
+    // The flow coefficient is stored as −(efficiency × prod_factor)
+    li.set_coeff(ci.row, ci.col, -(ci.efficiency * new_rate));
     ++count;
   }
 

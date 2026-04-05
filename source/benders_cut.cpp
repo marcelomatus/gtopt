@@ -223,11 +223,22 @@ RelaxedVarInfo relax_fixed_state_variable(LinearInterface& li,
   li.set_col_upp(dep, link.source_upp);
 
   // Penalised slack variables: up (overshoot) and dn (undershoot)
+  //
+  // When the link carries a per-variable state cost (scost > 0, e.g. from
+  // Reservoir::scost in $/hm³), use it instead of the global penalty.
+  // The scost is already in $/physical_unit, so we only need to divide
+  // by scale_objective (the caller pre-divides `penalty` by scale_obj,
+  // so we reconstruct the per-variable penalty the same way).
+  //
+  // Scale by var_scale: 1 LP unit of slack = var_scale physical units,
+  // so the cost per LP unit is base_penalty × var_scale.
+  const auto base_penalty = (link.scost > 0.0) ? link.scost : penalty;
+  const auto scaled_penalty = base_penalty * link.var_scale;
   const auto sup = li.add_col({}, 0.0, li.infinity());
-  li.set_obj_coeff(sup, penalty);
+  li.set_obj_coeff(sup, scaled_penalty);
 
   const auto sdn = li.add_col({}, 0.0, li.infinity());
-  li.set_obj_coeff(sdn, penalty);
+  li.set_obj_coeff(sdn, scaled_penalty);
 
   // dep + sup − sdn = trial_value
   auto elastic = SparseRow {

@@ -70,6 +70,7 @@
 #include <gtopt/sddp_cut_sharing.hpp>
 #include <gtopt/sddp_cut_store.hpp>
 #include <gtopt/sddp_pool.hpp>
+#include <gtopt/sddp_scene_tracker.hpp>
 #include <gtopt/sddp_types.hpp>
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/state_variable.hpp>
@@ -599,6 +600,15 @@ private:
       const SolverOptions& opts,
       IterationIndex iter) -> BackwardPassOutcome;
 
+  /// Asynchronous scene execution: when cut_sharing == none and
+  /// max_async_spread > 0, scenes run their own forward/backward
+  /// iteration loops at different speeds.  The SDDPTaskKey priority
+  /// (lower iteration = higher priority) self-regulates the spread.
+  [[nodiscard]] auto solve_async(SDDPWorkPool& pool,
+                                 const SolverOptions& fwd_opts,
+                                 const SolverOptions& bwd_opts)
+      -> std::expected<std::vector<SDDPIterationResult>, Error>;
+
   /// Compute and fill ir.upper_bound, ir.lower_bound, ir.scene_lower_bounds.
   void compute_iteration_bounds(SDDPIterationResult& ir,
                                 std::span<const uint8_t> scene_feasible,
@@ -700,6 +710,7 @@ private:
   std::atomic<bool> m_converged_ {false};
   std::atomic<int> m_current_pass_ {0};  ///< 0=idle, 1=forward, 2=backward
   std::atomic<int> m_scenes_done_ {0};  ///< Scenes completed in current pass
+  PhaseGridRecorder m_phase_grid_;  ///< Per-(iter,scene,phase) activity grid
 
   // ── BendersCut: wraps elastic-filter LP solves via the work pool ──
   /// Constructed with null pool; updated in solve() once the pool is created.

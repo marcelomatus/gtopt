@@ -1,14 +1,14 @@
 /**
- * @file      test_sddp_monitor.hpp
+ * @file      test_solver_status.hpp
  * @brief     Unit tests for the SDDP monitoring API
  * @date      2026-03-18
  * @copyright BSD-3-Clause
  *
  * Tests:
- *  1. SDDPStatusSnapshot default construction
+ *  1. SolverStatusSnapshot default construction
  *  2. SDDPIterationResult default construction
- *  3. write_sddp_api_status produces valid JSON with expected keys
- *  4. write_sddp_api_status handles empty results vector
+ *  3. write_solver_status produces valid JSON with expected keys
+ *  4. write_solver_status handles empty results vector
  */
 
 #include <filesystem>
@@ -17,16 +17,17 @@
 #include <string>
 
 #include <doctest/doctest.h>
-#include <gtopt/sddp_monitor.hpp>
 #include <gtopt/solver_monitor.hpp>
+#include <gtopt/solver_status.hpp>
 
-// ─── SDDPStatusSnapshot tests ───────────────────────────────────────────────
+// ─── SolverStatusSnapshot tests
+// ───────────────────────────────────────────────
 
-TEST_CASE("SDDPStatusSnapshot default construction")  // NOLINT
+TEST_CASE("SolverStatusSnapshot default construction")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  const SDDPStatusSnapshot snap {};
+  const SolverStatusSnapshot snap {};
 
   CHECK(snap.iteration == 0);
   CHECK(snap.gap == doctest::Approx(0.0));
@@ -39,11 +40,11 @@ TEST_CASE("SDDPStatusSnapshot default construction")  // NOLINT
   CHECK(snap.scenes_done == 0);
 }
 
-TEST_CASE("SDDPStatusSnapshot with custom values")  // NOLINT
+TEST_CASE("SolverStatusSnapshot with custom values")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  const SDDPStatusSnapshot snap {
+  const SolverStatusSnapshot snap {
       .iteration = 5,
       .gap = 0.01,
       .lower_bound = 1000.0,
@@ -89,9 +90,9 @@ TEST_CASE("SDDPIterationResult default construction")  // NOLINT
   CHECK(result.scene_lower_bounds.empty());
 }
 
-// ─── write_sddp_api_status tests ────────────────────────────────────────────
+// ─── write_solver_status tests ────────────────────────────────────────────
 
-TEST_CASE("write_sddp_api_status produces valid JSON")  // NOLINT
+TEST_CASE("write_solver_status produces valid JSON")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
@@ -99,7 +100,7 @@ TEST_CASE("write_sddp_api_status produces valid JSON")  // NOLINT
       (std::filesystem::temp_directory_path() / "gtopt_test_sddp_status.json")
           .string();
 
-  const SDDPStatusSnapshot snap {
+  const SolverStatusSnapshot snap {
       .iteration = 3,
       .gap = 0.05,
       .lower_bound = 950.0,
@@ -158,7 +159,7 @@ TEST_CASE("write_sddp_api_status produces valid JSON")  // NOLINT
   // Default-constructed SolverMonitor (no background thread started)
   const SolverMonitor monitor;
 
-  write_sddp_api_status(tmp_file, results, 2.5, snap, monitor);
+  write_solver_status(tmp_file, results, 2.5, snap, monitor);
   CHECK(std::filesystem::exists(tmp_file));
 
   // Read the file content
@@ -192,7 +193,7 @@ TEST_CASE("write_sddp_api_status produces valid JSON")  // NOLINT
   std::filesystem::remove(tmp_file);
 }
 
-TEST_CASE("write_sddp_api_status handles empty results")  // NOLINT
+TEST_CASE("write_solver_status handles empty results")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
@@ -200,7 +201,7 @@ TEST_CASE("write_sddp_api_status handles empty results")  // NOLINT
                          / "gtopt_test_sddp_status_empty.json")
                             .string();
 
-  const SDDPStatusSnapshot snap {
+  const SolverStatusSnapshot snap {
       .iteration = 0,
       .converged = false,
       .max_iterations = 50,
@@ -209,7 +210,7 @@ TEST_CASE("write_sddp_api_status handles empty results")  // NOLINT
   const std::vector<SDDPIterationResult> results;
   const SolverMonitor monitor;
 
-  write_sddp_api_status(tmp_file, results, 0.0, snap, monitor);
+  write_solver_status(tmp_file, results, 0.0, snap, monitor);
   CHECK(std::filesystem::exists(tmp_file));
 
   const std::ifstream ifs(tmp_file);
@@ -225,7 +226,7 @@ TEST_CASE("write_sddp_api_status handles empty results")  // NOLINT
 }
 
 TEST_CASE(
-    "write_sddp_api_status shows converged status when "
+    "write_solver_status shows converged status when "
     "converged")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
@@ -234,7 +235,7 @@ TEST_CASE(
                          / "gtopt_test_sddp_status_converged.json")
                             .string();
 
-  const SDDPStatusSnapshot snap {
+  const SolverStatusSnapshot snap {
       .iteration = 10,
       .gap = 1e-5,
       .lower_bound = 999.99,
@@ -247,7 +248,7 @@ TEST_CASE(
   const std::vector<SDDPIterationResult> results;
   const SolverMonitor monitor;
 
-  write_sddp_api_status(tmp_file, results, 5.0, snap, monitor);
+  write_solver_status(tmp_file, results, 5.0, snap, monitor);
 
   const std::ifstream ifs(tmp_file);
   std::ostringstream oss;

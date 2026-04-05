@@ -450,6 +450,14 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
         help="cost penalty for demand curtailment in $/MWh (default: %(default)s)",
     )
     parser.add_argument(
+        "--state-fail-cost",
+        dest="state_fail_cost",
+        type=float,
+        metavar="COST",
+        default=float(conf.get("state_fail_cost", "1000.0")),
+        help="penalty for state variable deviations in $/MWh (default: %(default)s)",
+    )
+    parser.add_argument(
         "--reserve-fail-cost",
         dest="reserve_fail_cost",
         type=float,

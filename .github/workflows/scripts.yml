@@ -330,8 +330,8 @@ jobs:
 
       - name: pylint
         working-directory: scripts
-        run: pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt gtopt2pp gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_solvers gtopt_compress_lp gtopt_config run_gtopt
+        run: pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt gtopt2pp gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_solvers gtopt_compress_lp gtopt_config run_gtopt
 
       - name: mypy
         working-directory: scripts
-        run: mypy gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt gtopt2pp gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_solvers gtopt_compress_lp gtopt_config run_gtopt --ignore-missing-imports
+        run: mypy gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt gtopt2pp gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_solvers gtopt_compress_lp gtopt_config run_gtopt --ignore-missing-imports

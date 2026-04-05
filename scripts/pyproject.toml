@@ -46,7 +46,8 @@ plp2gtopt             = "plp2gtopt.main:main"
 pp2gtopt              = "pp2gtopt.main:main"
 gtopt2pp              = "gtopt2pp.main:main"
 gtopt_check_json      = "gtopt_check_json.gtopt_check_json:main"
-sddp_monitor          = "sddp_monitor:main"
+gtopt_monitor         = "gtopt_monitor:main"
+sddp_monitor          = "gtopt_monitor:main"
 ts2gtopt              = "ts2gtopt.main:main"
 run_gtopt             = "run_gtopt.main:main"
 gtopt_check_output    = "gtopt_check_output.main:main"
@@ -69,7 +70,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["gtopt_compare*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "gtopt_check_output*", "gtopt_check_pampl*", "gtopt_compress_lp*", "gtopt_check_json*", "gtopt_check_solvers*", "gtopt_config*", "igtopt*", "plp2gtopt*", "plp_compress_case*", "pp2gtopt*", "gtopt2pp*", "run_gtopt*", "sddp_monitor*", "ts2gtopt*"]
+include = ["gtopt_compare*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "gtopt_check_output*", "gtopt_check_pampl*", "gtopt_compress_lp*", "gtopt_check_json*", "gtopt_check_solvers*", "gtopt_config*", "igtopt*", "plp2gtopt*", "plp_compress_case*", "pp2gtopt*", "gtopt2pp*", "run_gtopt*", "gtopt_monitor*", "ts2gtopt*"]
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +93,7 @@ testpaths = [
     "igtopt/tests",
     "plp2gtopt/tests",
     "pp2gtopt/tests",
-    "sddp_monitor/tests",
+    "gtopt_monitor/tests",
     "gtopt_config/tests",
     "gtopt_check_output/tests",
     "run_gtopt/tests",
@@ -105,7 +106,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["gtopt_compare", "cvs2parquet", "gtopt_diagram", "gtopt_field_extractor", "gtopt2pp", "igtopt", "plp2gtopt", "pp2gtopt", "sddp_monitor", "ts2gtopt"]
+source = ["gtopt_compare", "cvs2parquet", "gtopt_diagram", "gtopt_field_extractor", "gtopt2pp", "igtopt", "plp2gtopt", "pp2gtopt", "gtopt_monitor", "ts2gtopt"]
 omit = ["*/test*", "*/tests/*", "*/__pycache__/*", "*/venv/*"]
 
 [tool.coverage.report]
@@ -122,7 +123,7 @@ exclude_lines = [
 profile = "black"
 line_length = 88
 skip_gitignore = true
-known_first_party = ["cvs2parquet", "gtopt_compare", "gtopt_diagram", "gtopt_field_extractor", "gtopt2pp", "gtopt_check_json", "gtopt_check_lp", "gtopt_check_output", "gtopt_check_pampl", "gtopt_check_solvers", "gtopt_compress_lp", "gtopt_config", "igtopt", "plp2gtopt", "plp_compress_case", "pp2gtopt", "run_gtopt", "sddp_monitor", "ts2gtopt"]
+known_first_party = ["cvs2parquet", "gtopt_compare", "gtopt_diagram", "gtopt_field_extractor", "gtopt2pp", "gtopt_check_json", "gtopt_check_lp", "gtopt_check_output", "gtopt_check_pampl", "gtopt_check_solvers", "gtopt_compress_lp", "gtopt_config", "igtopt", "plp2gtopt", "plp_compress_case", "pp2gtopt", "run_gtopt", "gtopt_monitor", "ts2gtopt"]
 
 [tool.ruff]
 line-length = 88

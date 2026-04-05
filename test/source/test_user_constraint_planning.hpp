@@ -812,7 +812,7 @@ static constexpr std::string_view uc_hydro_json = R"json({
       {
         "uid": 1, "name": "tur1",
         "waterway": 1, "generator": 1,
-        "conversion_rate": 1.0
+        "production_factor": 1.0
       }
     ],
     "user_constraint_array": [
@@ -923,8 +923,8 @@ static constexpr std::string_view uc_hydro_sum_json = R"json({
       {"uid": 2, "name": "rsv2", "junction": 2, "capacity": 800, "emin": 0, "emax": 800, "eini": 400}
     ],
     "turbine_array": [
-      {"uid": 1, "name": "tur1", "waterway": 1, "generator": 1, "conversion_rate": 1.0},
-      {"uid": 2, "name": "tur2", "waterway": 2, "generator": 2, "conversion_rate": 1.0}
+      {"uid": 1, "name": "tur1", "waterway": 1, "generator": 1, "production_factor": 1.0},
+      {"uid": 2, "name": "tur2", "waterway": 2, "generator": 2, "production_factor": 1.0}
     ],
     "user_constraint_array": [
       {
@@ -1011,7 +1011,7 @@ static constexpr std::string_view uc_reservoir_extraction_json = R"json({
        "emin": 0, "emax": 1000, "eini": 500}
     ],
     "turbine_array": [
-      {"uid": 1, "name": "tur1", "waterway": 1, "generator": 1, "conversion_rate": 1.0}
+      {"uid": 1, "name": "tur1", "waterway": 1, "generator": 1, "production_factor": 1.0}
     ],
     "user_constraint_array": [
       {
@@ -1641,7 +1641,7 @@ static constexpr std::string_view uc_seepage_json = R"json({
       {"uid": 1, "name": "rsv1", "junction": 1, "capacity": 1000, "emin": 0, "emax": 1000, "eini": 500}
     ],
     "turbine_array": [
-      {"uid": 1, "name": "tur1", "waterway": 1, "generator": 1, "conversion_rate": 1.0}
+      {"uid": 1, "name": "tur1", "waterway": 1, "generator": 1, "production_factor": 1.0}
     ],
     "reservoir_seepage_array": [
       {

@@ -164,14 +164,17 @@ public:
   // Add method with deducing this and perfect forwarding
   template<typename Key = state_variable_key_t>
   [[nodiscard]]
-  constexpr auto add_state_variable(Key&& key, ColIndex col)
+  constexpr auto add_state_variable(Key&& key,
+                                    ColIndex col,
+                                    double scost = 0.0,
+                                    double var_scale = 1.0)
       -> const StateVariable&
   {
     auto&& map =
         m_global_variable_map_[key.lp_key.scene_index][key.lp_key.phase_index];
 
-    const auto [it, inserted] =
-        map.try_emplace(std::forward<Key>(key), key.lp_key, col);
+    const auto [it, inserted] = map.try_emplace(
+        std::forward<Key>(key), key.lp_key, col, scost, var_scale);
 
     if (!inserted) {
       const auto msg =

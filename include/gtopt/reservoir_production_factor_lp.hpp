@@ -1,6 +1,6 @@
 /**
  * @file      reservoir_production_factor_lp.hpp
- * @brief     LP representation of reservoir-dependent turbine efficiency
+ * @brief     LP representation of reservoir-dependent turbine production factor
  * @date      Mon Mar 10 17:00:00 2026
  * @author    marcelo
  * @copyright BSD-3-Clause
@@ -66,14 +66,14 @@ public:
     return ReservoirLPSId {production_factor().reservoir};
   }
 
-  /// Evaluate the piecewise-linear efficiency at the given volume
+  /// Evaluate the piecewise-linear production factor at the given volume
   [[nodiscard]] auto compute_production_factor(Real volume) const noexcept
       -> Real
   {
     return evaluate_production_factor(production_factor().segments, volume);
   }
 
-  /// Return the mean (fallback) efficiency value
+  /// Return the mean (fallback) production factor value
   [[nodiscard]] constexpr auto mean_production_factor() const noexcept -> Real
   {
     return production_factor().mean_production_factor;
@@ -100,8 +100,8 @@ public:
    * (`vavg = (vini + vfin) / 2`), falling back to the JSON `eini` value when
    * no previous solution is available (first stage of first phase).
    *
-   * Evaluates the piecewise-linear efficiency at that volume and sets the
-   * turbine conversion coefficient to `-efficiency` for every (row, col)
+   * Evaluates the piecewise-linear production factor at that volume and sets
+   * the turbine conversion coefficient to `-prod_factor` for every (row, col)
    * pair stored for the given (scenario, stage).
    *
    * @return Number of LP coefficients modified (0 if unchanged or skipped)
@@ -113,10 +113,11 @@ public:
   /**
    * @brief Update the conversion-rate LP coefficient for a given volume
    *
-   * Evaluates the piecewise-linear efficiency at @p volume and sets the
-   * coefficient to `-efficiency` for every (row, col) pair stored for the
+   * Evaluates the piecewise-linear production factor at @p volume and sets
+   * the coefficient to `-prod_factor` for every (row, col) pair stored for the
    * given (scenario, stage).  The negative sign matches the turbine
-   * conversion-row convention: `generation − conversion_rate × flow = 0`.
+   * conversion-row convention: `generation − efficiency × prod_factor × flow =
+   * 0`.
    *
    * @param li   The linear interface to modify
    * @param suid Scenario UID
@@ -134,6 +135,7 @@ public:
   {
     RowIndex row;  ///< Conversion-rate constraint row
     ColIndex col;  ///< Waterway flow column
+    Real efficiency {};  ///< Turbine efficiency [p.u.] for this stage
   };
 
   using BCoeffMap = flat_map<BlockUid, CoeffIndex>;

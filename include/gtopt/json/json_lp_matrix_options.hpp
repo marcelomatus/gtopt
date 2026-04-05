@@ -23,6 +23,7 @@ struct LpMatrixOptionsConstructor
   [[nodiscard]] LpMatrixOptions operator()(OptInt names_level_int,
                                            OptReal lp_coeff_ratio_threshold,
                                            OptName equilibration_method_name,
+                                           OptName fast_sqrt_method_name,
                                            OptBool compute_stats) const
   {
     LpMatrixOptions opts;
@@ -34,6 +35,10 @@ struct LpMatrixOptionsConstructor
       opts.equilibration_method =
           gtopt::enum_from_name<gtopt::LpEquilibrationMethod>(
               *equilibration_method_name);
+    }
+    if (fast_sqrt_method_name) {
+      opts.fast_sqrt_method =
+          gtopt::enum_from_name<gtopt::FastSqrtMethod>(*fast_sqrt_method_name);
     }
     opts.compute_stats = compute_stats;
     return opts;
@@ -49,6 +54,7 @@ struct json_data_contract<LpMatrixOptions>
       json_member_list<json_number_null<"names_level", OptInt>,
                        json_number_null<"lp_coeff_ratio_threshold", OptReal>,
                        json_string_null<"equilibration_method", OptName>,
+                       json_string_null<"fast_sqrt_method", OptName>,
                        json_bool_null<"compute_stats", OptBool>>;
 
   static auto to_json_data(LpMatrixOptions const& opt)
@@ -59,8 +65,14 @@ struct json_data_contract<LpMatrixOptions>
     const OptName eq_name = opt.equilibration_method
         ? OptName {std::string(gtopt::enum_name(*opt.equilibration_method))}
         : OptName {};
-    return std::make_tuple(
-        names_int, opt.lp_coeff_ratio_threshold, eq_name, opt.compute_stats);
+    const OptName sqrt_name = opt.fast_sqrt_method
+        ? OptName {std::string(gtopt::enum_name(*opt.fast_sqrt_method))}
+        : OptName {};
+    return std::make_tuple(names_int,
+                           opt.lp_coeff_ratio_threshold,
+                           eq_name,
+                           sqrt_name,
+                           opt.compute_stats);
   }
 };
 

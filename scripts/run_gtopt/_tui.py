@@ -54,7 +54,7 @@ _REFRESH_PER_SECOND = 4  # Rich Live refresh rate
 _SPARKLINE_WIDTH = 24
 _PROGRESS_BAR_WIDTH = 40
 
-# Pass names from the C++ SDDPStatusSnapshot::current_pass enum
+# Pass names from the C++ SolverStatusSnapshot::current_pass enum
 _PASS_NAMES = {0: "idle", 1: "forward", 2: "backward"}
 _PASS_STYLES = {0: "dim", 1: "bold green", 2: "bold magenta"}
 
@@ -63,6 +63,201 @@ _STOP_REQUEST_FILE = "sddp_stop_request.json"
 
 # Braille spinner frames (same cadence as plp2gtopt / Claude Code)
 _SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+# ---------------------------------------------------------------------------
+# SDDP phase grid — per-phase/iteration activity tracker
+# ---------------------------------------------------------------------------
+
+# Regex for the uniform "SDDP <Tag> [i<iter> s<scene> p<phase>]" format
+_SDDP_LOG_RE = re.compile(r"SDDP (\w+) \[i(\d+) s(\d+) p(\d+)(?:\s+a(\d+))?\]")
+
+# Cell states (priority order: higher overwrites lower)
+_GRID_IDLE = 0
+_GRID_FORWARD = 1
+_GRID_BACKWARD = 2
+_GRID_ELASTIC = 3  # elastic solve during forward pass
+_GRID_APERTURE = 4  # aperture pass (backward)
+_GRID_INFEASIBLE = 5  # infeasible / error
+
+# Cell rendering: (character, Rich style)
+_GRID_CELL_STYLES: dict[int, tuple[str, str]] = {
+    _GRID_IDLE: ("·", "dim"),
+    _GRID_FORWARD: ("▶", "bold cyan"),
+    _GRID_BACKWARD: ("◀", "bold magenta"),
+    _GRID_ELASTIC: ("◆", "bold yellow"),
+    _GRID_APERTURE: ("▣", "bold blue"),
+    _GRID_INFEASIBLE: ("✗", "bold red"),
+}
+
+# Maximum number of phases displayed in the grid
+_GRID_MAX_PHASES = 52
+# Maximum number of iterations shown (most recent)
+_GRID_MAX_ITERS = 12
+
+
+class SDDPGridTracker:
+    """Tracks SDDP forward/backward/elastic/aperture activity per (scene, iter, phase).
+
+    Parses log lines with the ``sddp_log()`` format and maintains a 3D grid:
+    ``grid[scene][(iter, phase)] -> cell_state``.
+
+    The grid is rendered as one small matrix per scene, with phases on X
+    and iterations on Y, using colored block characters.
+    """
+
+    def __init__(self) -> None:
+        # grid[scene][(iter, phase)] = cell_state
+        self._grid: dict[int, dict[tuple[int, int], int]] = {}
+        self._max_phase: int = 0
+        self._max_iter: int = 0
+        self._scenes: set[int] = set()
+        self._active_cell: tuple[int, int, int] | None = None  # (scene, iter, phase)
+        # Diagnostic counters for indicator lights
+        self._kappa_warnings: int = 0
+        self._elastic_count: int = 0
+        self._infeasible_count: int = 0
+        self._aperture_count: int = 0
+
+    def process_line(self, line: str) -> None:
+        """Parse an SDDP log line and update the grid."""
+        m = _SDDP_LOG_RE.search(line)
+        if m is None:
+            return
+
+        tag = m.group(1)
+        it = int(m.group(2))
+        sc = int(m.group(3))
+        ph = int(m.group(4))
+        has_aperture = m.group(5) is not None
+
+        # Determine cell state from tag + context
+        if tag == "Forward":
+            if "elastic" in line.lower():
+                state = _GRID_ELASTIC
+                self._elastic_count += 1
+            else:
+                state = _GRID_FORWARD
+        elif tag == "Backward":
+            if has_aperture:
+                state = _GRID_APERTURE
+                self._aperture_count += 1
+            else:
+                state = _GRID_BACKWARD
+        elif tag == "Aperture":
+            state = _GRID_APERTURE
+            self._aperture_count += 1
+        elif tag == "Elastic":
+            state = _GRID_ELASTIC
+            self._elastic_count += 1
+        elif tag == "Kappa":
+            self._kappa_warnings += 1
+            return
+        else:
+            # Iter, Sim, Update, Init — no phase-level grid info
+            return
+
+        # Check for infeasible markers
+        if "infeasib" in line.lower():
+            self._infeasible_count += 1
+            state = max(state, _GRID_INFEASIBLE)
+
+        # Update grid dimensions and state
+        self._scenes.add(sc)
+        self._max_phase = max(self._max_phase, ph)
+        self._max_iter = max(self._max_iter, it)
+
+        if sc not in self._grid:
+            self._grid[sc] = {}
+
+        # Only overwrite if new state has higher priority
+        cell_key = (it, ph)
+        current = self._grid[sc].get(cell_key, _GRID_IDLE)
+        if state > current:
+            self._grid[sc][cell_key] = state
+
+        self._active_cell = (sc, it, ph)
+
+    @property
+    def has_data(self) -> bool:
+        return bool(self._grid)
+
+    @property
+    def scenes(self) -> list[int]:
+        return sorted(self._scenes)
+
+    @property
+    def max_phase(self) -> int:
+        return self._max_phase
+
+    @property
+    def max_iter(self) -> int:
+        return self._max_iter
+
+    def get_cell(self, scene: int, iteration: int, phase: int) -> int:
+        sg = self._grid.get(scene)
+        if sg is None:
+            return _GRID_IDLE
+        return sg.get((iteration, phase), _GRID_IDLE)
+
+    @property
+    def active_cell(self) -> tuple[int, int, int] | None:
+        return self._active_cell
+
+    @property
+    def kappa_warnings(self) -> int:
+        return self._kappa_warnings
+
+    @property
+    def elastic_count(self) -> int:
+        return self._elastic_count
+
+    @property
+    def infeasible_count(self) -> int:
+        return self._infeasible_count
+
+    @property
+    def aperture_count(self) -> int:
+        return self._aperture_count
+
+    # Map C++ GridCell chars to Python grid states
+    _CELL_CHAR_MAP: dict[str, int] = {
+        "F": _GRID_FORWARD,
+        "B": _GRID_BACKWARD,
+        "E": _GRID_ELASTIC,
+        "A": _GRID_APERTURE,
+        "X": _GRID_INFEASIBLE,
+    }
+
+    def load_from_status(self, status: dict) -> None:
+        """Merge phase_grid data from the status JSON into the grid.
+
+        The C++ solver writes a ``phase_grid`` section with compact
+        per-row strings: ``{"i": 0, "s": 0, "cells": "FF.FEB..."}``.
+        This allows remote monitoring without parsing log lines.
+        """
+        grid_data = status.get("phase_grid")
+        if not grid_data:
+            return
+        for row in grid_data.get("rows", []):
+            it = row.get("i", 0)
+            sc = row.get("s", 0)
+            cells = row.get("cells", "")
+            if not cells:
+                continue
+            self._scenes.add(sc)
+            self._max_iter = max(self._max_iter, it)
+            self._max_phase = max(self._max_phase, len(cells) - 1)
+            if sc not in self._grid:
+                self._grid[sc] = {}
+            for ph, ch in enumerate(cells):
+                state = self._CELL_CHAR_MAP.get(ch, _GRID_IDLE)
+                if state == _GRID_IDLE:
+                    continue
+                cell_key = (it, ph)
+                current = self._grid[sc].get(cell_key, _GRID_IDLE)
+                if state > current:
+                    self._grid[sc][cell_key] = state
+
 
 # ---------------------------------------------------------------------------
 # Solver phase tracking (plan table)
@@ -260,16 +455,19 @@ def _load_status(path: Path | None) -> dict[str, Any]:
 def _find_status_file(case_dir: Path) -> Path:
     """Derive the expected status-file path from *case_dir*.
 
-    The C++ solver writes ``sddp_status.json`` (SDDP method) or
-    ``monolithic_status.json`` (monolithic method) under the output
+    The C++ solver writes ``solver_status.json`` under the output
     directory — which defaults to ``<case>/output/``.
+    Falls back to legacy names for backward compatibility.
     """
     base = case_dir.parent if case_dir.is_file() else case_dir
     output_dir = base / "output"
-    # Prefer SDDP (more detailed), fall back to monolithic
+    status = output_dir / "solver_status.json"
+    if status.is_file():
+        return status
+    # Legacy fallback for older gtopt builds
     sddp = output_dir / "sddp_status.json"
     mono = output_dir / "monolithic_status.json"
-    return sddp if sddp.is_file() else mono if mono.is_file() else sddp
+    return sddp if sddp.is_file() else mono if mono.is_file() else status
 
 
 def _find_planning_json(case_dir: Path) -> Path | None:
@@ -412,7 +610,7 @@ def _build_header(
 
     status_str = data.get("status", "starting")
 
-    # Method: prefer planning JSON, fall back to status JSON inference
+    # Method: from status JSON or log detection
     stats = system_stats or {}
     method = stats.get("method", "")
     if not method or method == "?":
@@ -424,7 +622,7 @@ def _build_header(
             else "..."
         )
 
-    # Solver: from planning JSON options
+    # Solver: from log detection or CLI flag
     solver = stats.get("solver", "")
 
     style_map = {
@@ -498,6 +696,66 @@ def _build_progress(data: dict) -> Panel:
         )
 
     return Panel(text, border_style="dim cyan", padding=(0, 1))
+
+
+def _build_async_panel(data: dict) -> Panel | None:
+    """Render async scene execution state when max_async_spread > 0."""
+    from rich.panel import Panel  # noqa: PLC0415
+    from rich.table import Table  # noqa: PLC0415
+    from rich.text import Text  # noqa: PLC0415
+
+    async_data = data.get("async")
+    if not async_data:
+        return None
+
+    spread = async_data.get("spread", 0)
+    max_spread = async_data.get("max_async_spread", 0)
+    converged = async_data.get("converged_scenes", 0)
+    pending = async_data.get("pool_tasks_pending", 0)
+    active = async_data.get("pool_tasks_active", 0)
+    cpu = async_data.get("pool_cpu_load", 0.0)
+    iters = async_data.get("scene_iterations", [])
+    states = async_data.get("scene_states", [])
+
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style="bold", min_width=16)
+    grid.add_column(min_width=12)
+    grid.add_column(style="bold", min_width=16)
+    grid.add_column(min_width=12)
+
+    spread_style = "bold red" if spread >= max_spread else "cyan"
+    grid.add_row(
+        "Spread",
+        Text(f"{spread}/{max_spread}", style=spread_style),
+        "Converged",
+        Text(str(converged), style="bold green" if converged else "dim"),
+    )
+    grid.add_row(
+        "Pool pending",
+        Text(str(pending), style="cyan"),
+        "Pool active",
+        Text(str(active), style="cyan"),
+    )
+    if cpu > 0:
+        grid.add_row("CPU load", Text(f"{cpu:.0f}%", style="cyan"), "", "")
+
+    # Compact per-scene iteration display (up to 20 scenes)
+    if iters:
+        scene_parts: list[str] = []
+        for si, it_val in enumerate(iters[:20]):
+            st = states[si] if si < len(states) else "?"
+            style = "green" if st == "done" else "cyan" if st == "training" else "dim"
+            scene_parts.append(f"[{style}]s{si}:{it_val}[/{style}]")
+        scene_text = Text.from_markup("  " + "  ".join(scene_parts))
+        grid.add_row("", "", "", "")
+        grid.add_row(scene_text, "", "", "")
+
+    return Panel(
+        grid,
+        title="[bold]Async Scenes[/bold]",
+        border_style="dim cyan",
+        padding=(0, 1),
+    )
 
 
 def _build_stats(data: dict) -> Panel:
@@ -681,6 +939,9 @@ def _build_command_bar(stop_sent: bool) -> Panel:
     else:
         text.append(" stop", style="")
     text.append("    ")
+    text.append("[g]", style="bold cyan")
+    text.append(" grid", style="")
+    text.append("    ")
     text.append("[i]", style="bold cyan")
     text.append(" stats", style="")
     text.append("    ")
@@ -735,6 +996,7 @@ def _build_help_overlay() -> Panel:
 
     commands = [
         ("s", "Graceful stop — finish current iteration, save cuts, exit"),
+        ("g", "Toggle SDDP phase grid (forward/backward/elastic/aperture)"),
         ("i", "Toggle system stats overlay (buses, generators, etc.)"),
         ("h", "Toggle this help overlay"),
         ("q", "Quit — terminate the solver immediately"),
@@ -834,6 +1096,96 @@ def _build_stats_overlay(stats: dict[str, Any]) -> Panel:
     )
 
 
+def _build_sddp_grid(tracker: SDDPGridTracker) -> Panel:
+    """Render the SDDP phase/iteration activity grid.
+
+    One matrix per scene.  X-axis = phases, Y-axis = iterations (most recent).
+    Each cell is a colored character showing the activity type.
+    """
+    from rich.panel import Panel  # noqa: PLC0415
+    from rich.text import Text  # noqa: PLC0415
+
+    text = Text()
+
+    max_ph = min(tracker.max_phase, _GRID_MAX_PHASES)
+    scenes = tracker.scenes
+
+    # Legend
+    text.append("  ")
+    for state, (char, style) in _GRID_CELL_STYLES.items():
+        if state == _GRID_IDLE:
+            continue
+        labels = {
+            _GRID_FORWARD: "fwd",
+            _GRID_BACKWARD: "bwd",
+            _GRID_ELASTIC: "elastic",
+            _GRID_APERTURE: "aperture",
+            _GRID_INFEASIBLE: "infeas",
+        }
+        text.append(char, style=style)
+        text.append(f" {labels.get(state, '?')}  ", style="dim")
+
+    # Indicator lights for diagnostics
+    indicators: list[tuple[str, str, str]] = []
+    if tracker.kappa_warnings > 0:
+        indicators.append(("kappa", str(tracker.kappa_warnings), "bold red"))
+    if tracker.elastic_count > 0:
+        indicators.append(("elastic", str(tracker.elastic_count), "bold yellow"))
+    if tracker.aperture_count > 0:
+        indicators.append(("aperture", str(tracker.aperture_count), "bold blue"))
+    if tracker.infeasible_count > 0:
+        indicators.append(("infeas", str(tracker.infeasible_count), "bold red"))
+    if indicators:
+        text.append("   ")
+        for label, count, ind_style in indicators:
+            text.append(f" {label}:", style="dim")
+            text.append(count, style=ind_style)
+    text.append("\n")
+
+    for sc in scenes:
+        # Scene header (compact — only show if multiple scenes)
+        if len(scenes) > 1:
+            text.append(f"  s{sc}", style="bold")
+            text.append("\n")
+
+        # Phase header row
+        text.append("     ")  # indent for iter label
+        for ph in range(max_ph + 1):
+            if ph % 5 == 0:
+                label = str(ph)
+                text.append(label, style="dim")
+                # Pad remaining chars of this label
+                text.append(" " * max(0, 1 - len(label)))
+            else:
+                text.append(" ", style="dim")
+        text.append("\n")
+
+        # Iteration rows (most recent _GRID_MAX_ITERS)
+        first_iter = max(0, tracker.max_iter - _GRID_MAX_ITERS + 1)
+        for it in range(first_iter, tracker.max_iter + 1):
+            text.append(f"  {it:>2} ", style="dim")
+            for ph in range(max_ph + 1):
+                state = tracker.get_cell(sc, it, ph)
+                char, style = _GRID_CELL_STYLES[state]
+                # Highlight current active cell with a blink-like effect
+                if (
+                    tracker.active_cell is not None
+                    and tracker.active_cell == (sc, it, ph)
+                    and state != _GRID_IDLE
+                ):
+                    text.append(char, style=f"{style} reverse")
+                else:
+                    text.append(char, style=style)
+            text.append("\n")
+
+    return Panel(
+        text,
+        title="[bold]SDDP Phase Grid[/bold]",
+        border_style="dim cyan",
+        padding=(0, 0),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Main display class
 # ---------------------------------------------------------------------------
@@ -871,15 +1223,22 @@ class SolverDisplay:
         self._start_time = time.monotonic()
         self._lock = threading.Lock()
         self._phase_tracker = SolverPhaseTracker()
+        self._grid_tracker = SDDPGridTracker()
 
         # Interactive command state
         self._show_help = False
         self._show_stats = False
+        self._show_grid = False
         self._stop_sent = False
         self._system_stats: dict[str, Any] = {}
         self.quit_requested = threading.Event()
 
     # -- public API --------------------------------------------------------
+
+    # Patterns to detect solver and method from gtopt log output
+    _SOLVER_RE = re.compile(r"Solver:\s+(\S+)")
+    _SDDP_RE = re.compile(r"SDDP:")
+    _MONO_RE = re.compile(r"Monolithic(?:Method|Solver):")
 
     def add_log_line(self, line: str) -> None:
         """Append a solver output line (thread-safe)."""
@@ -887,20 +1246,48 @@ class SolverDisplay:
         with self._lock:
             self._log_lines.append(stripped)
             self._phase_tracker.process_line(stripped)
+            self._grid_tracker.process_line(stripped)
+            # Detect solver from log output (e.g. "  Solver: cplex/22.1.1")
+            if not self._system_stats.get("solver"):
+                m = self._SOLVER_RE.search(stripped)
+                if m:
+                    self._system_stats["solver"] = m.group(1)
+            # Detect method from log output
+            if not self._system_stats.get("method"):
+                if self._SDDP_RE.search(stripped):
+                    self._system_stats["method"] = "sddp"
+                elif self._MONO_RE.search(stripped):
+                    self._system_stats["method"] = "monolithic"
 
     def start(self) -> None:
         """Launch the dashboard render thread."""
         self._start_time = time.monotonic()
-        # Pre-load system stats from the planning JSON
-        json_path = _find_planning_json(self._case_dir)
-        self._system_stats = _load_system_stats(json_path)
-        # CLI --solver overrides planning JSON solver
-        if self._solver_hint and not self._system_stats.get("solver"):
+        # Initialize system stats (populated from log output and CLI flags)
+        self._system_stats = {}
+        if self._solver_hint:
             self._system_stats["solver"] = self._solver_hint
         self._thread = threading.Thread(
             target=self._run_loop, daemon=True, name="gtopt-tui"
         )
         self._thread.start()
+
+    def _sync_stats_from_status(self) -> None:
+        """Propagate solver/method and phase grid from the status JSON."""
+        status = self._status
+        if not status:
+            return
+        with self._lock:
+            if not self._system_stats.get("solver"):
+                solver = status.get("solver", "")
+                if solver:
+                    self._system_stats["solver"] = solver
+            if not self._system_stats.get("method"):
+                method = status.get("method", "")
+                if method:
+                    self._system_stats["method"] = method
+            # Merge phase grid from status JSON (enables remote monitoring)
+            if "phase_grid" in status:
+                self._grid_tracker.load_from_status(status)
 
     def stop(self) -> None:
         """Signal the render thread to finish and wait for it."""
@@ -962,6 +1349,16 @@ class SolverDisplay:
         elif key in ("i", "I"):
             self._show_stats = not self._show_stats
             self._show_help = False
+            # Lazy-load stats from planning JSON on first toggle
+            if self._show_stats and not self._system_stats.get("elements"):
+                json_path = _find_planning_json(self._case_dir)
+                file_stats = _load_system_stats(json_path)
+                # Merge file stats under log-detected values (log wins)
+                for k, v in file_stats.items():
+                    if k not in self._system_stats or not self._system_stats[k]:
+                        self._system_stats[k] = v
+        elif key in ("g", "G"):
+            self._show_grid = not self._show_grid
         elif key in ("h", "H", "?"):
             self._show_help = not self._show_help
             self._show_stats = False
@@ -1025,6 +1422,9 @@ class SolverDisplay:
         if has_sddp:
             panels.append(_build_progress(data))
             panels.append(_build_stats(data))
+            async_panel = _build_async_panel(data)
+            if async_panel is not None:
+                panels.append(async_panel)
             if data.get("history"):
                 panels.append(_build_history(data))
             rt = data.get("realtime", {})
@@ -1035,6 +1435,10 @@ class SolverDisplay:
             rt = data.get("realtime", {})
             if rt.get("cpu_loads") or rt.get("active_workers"):
                 panels.append(_build_system(data))
+
+        # SDDP phase grid (auto-show for SDDP, toggle with 'g')
+        if self._show_grid and self._grid_tracker.has_data:
+            panels.append(_build_sddp_grid(self._grid_tracker))
 
         # Overlays
         if self._show_help:
@@ -1069,10 +1473,12 @@ class SolverDisplay:
                     if self._status_file is None or not self._status_file.is_file():
                         self._status_file = _find_status_file(self._case_dir)
                     self._status = _load_status(self._status_file)
+                    self._sync_stats_from_status()
                     live.update(self._build_display())
 
                 # One final render
                 self._status = _load_status(self._status_file)
+                self._sync_stats_from_status()
                 with self._lock:
                     self._phase_tracker.finish_all()
                 live.update(self._build_display())

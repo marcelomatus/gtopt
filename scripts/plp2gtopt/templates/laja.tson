@@ -1,0 +1,551 @@
+@# ================================================================= #@
+@# Laja Irrigation Agreement (Convenio del Laja, 1958/2017)          #@
+@# JSON Entity Template — FlowRight, VolumeRight, UserConstraint     #@
+@#                                                                   #@
+@# This template defines the gtopt JSON entity structure for the     #@
+@# Laja agreement.  Parameters marked @param@ are filled at render   #@
+@# time from values parsed from plplajam.dat and pre-computed by     #@
+@# laja_writer.py (bound_rule segments, schedules, costs).           #@
+@#                                                                   #@
+@# PLP Fortran sources (authoritative):                              #@
+@#   parlajam.f    — PAR_LAJAM parameter structure                   #@
+@#   leelajam.f    — plplajam.dat reader                             #@
+@#   genpdlajam.f  — LP constraint matrix assembly                   #@
+@#   plp-laja1.f   — per-stage bound modification (FijaLajaMBloA)    #@
+@#   plp-laja2.f   — post-solve state update (economics tracking)    #@
+@#                                                                   #@
+@# Key design difference PLP vs gtopt:                               #@
+@#   PLP: monolithic Fortran module with procedural bound setting    #@
+@#        (FijaLajaMBloA) that modifies LP column bounds each stage  #@
+@#   gtopt: declarative bound_rule segments on VolumeRight entities  #@
+@#          evaluated during update_lp() — mathematically equivalent #@
+@#          but data-driven rather than procedural                   #@
+@# ================================================================= #@
+
+@# ================================================================= #@
+@# LEGAL CONTEXT                                                     #@
+@#                                                                   #@
+@# The Convenio del Laja governs allocation of water from Laguna del #@
+@# Laja (~6,000 hm3, Chile's largest reservoir with multi-annual     #@
+@# regulation) between:                                              #@
+@#   - Hydroelectric generation: El Toro (450 MW) + 4-plant cascade  #@
+@#     (Abanico, Antuco, El Toro, Ralco) totaling ~1,150 MW         #@
+@#   - Agricultural irrigation: ~117,000 ha in the Biobio region     #@
+@#                                                                   #@
+@# The reservoir volume is divided into 4 zones with different       #@
+@# allocation factors for three rights categories (irrigation,       #@
+@# electric, mixed).  Rights are a piecewise-linear function of      #@
+@# reservoir volume:                                                 #@
+@#                                                                   #@
+@#   Rights(V) = Base + Sum_i [ Factor_i * min(Vi, Width_i) ]       #@
+@#                                                                   #@
+@# The hydrological year runs April-March.  At April 1, volume       #@
+@# rights (IVDRF, IVDEF, IVDMF, IVGAF) are re-provisioned based on  #@
+@# current reservoir volume via the bound_rule.                      #@
+@# ================================================================= #@
+
+@# ================================================================= #@
+@# VOLUME ZONE MODEL                                                 #@
+@#                                                                   #@
+@# PLP "Colchones" (zones from dead volume upward):                  #@
+@#                                                                   #@
+@#   VolMax = 5,582 hm3                                              #@
+@#   +---------------------------+                                   #@
+@#   |  Zone 4  (3,682 hm3)     |  segment[3]: V >= 1900            #@
+@#   |  Irr +0.25/hm3           |  slope=0.25, const=375            #@
+@#   |  Elec +0.65/hm3          |                                   #@
+@#   +-- 1,900 hm3 -------------+                                   #@
+@#   |  Zone 3  (530 hm3)       |  segment[2]: V >= 1370            #@
+@#   |  Irr +0.40/hm3           |  slope=0.40, const=90             #@
+@#   |  Elec +0.40/hm3          |                                   #@
+@#   +-- 1,370 hm3 -------------+                                   #@
+@#   |  Zone 2  (170 hm3)       |  segment[1]: V >= 1200            #@
+@#   |  Irr +0.40/hm3           |  slope=0.40, const=90             #@
+@#   |  Elec +0.05/hm3          |                                   #@
+@#   +-- 1,200 hm3 -------------+                                   #@
+@#   |  Zone 1  (1,200 hm3)     |  segment[0]: V >= 0               #@
+@#   |  Irr +0.00/hm3 (flat)    |  slope=0.00, const=570            #@
+@#   |  Elec +0.05/hm3          |  (Irr = 570 regardless of V)      #@
+@#   |  Mixed +1.00/hm3         |                                   #@
+@#   +-- VolMuerto = 0 ---------+                                   #@
+@#   Base: Irr=570, Elec=0, Mixed=30                                #@
+@#   Caps: Irr=5000, Elec=1200, Mixed=30                            #@
+@#                                                                   #@
+@# The converter (_zones_to_bound_rule_segments) transforms the PLP  #@
+@# zone formula into bound_rule segments where:                      #@
+@#   rights(V) = constant + slope * V   for V >= volume breakpoint   #@
+@#                                                                   #@
+@# Derivation example (irrigation):                                  #@
+@#   At V=1200: slope changes 0.00->0.40                             #@
+@#     constant = rights(1200) - 0.40*1200 = 570 - 480 = 90         #@
+@#   At V=1900: slope changes 0.40->0.25                             #@
+@#     constant = (570+0+68+212) - 0.25*1900 = 850-475 = 375        #@
+@# ================================================================= #@
+
+@# ================================================================= #@
+@# PLP-TO-GTOPT VARIABLE MAPPING                                     #@
+@#                                                                   #@
+@#   PLP Variable   PLP Name             gtopt FlowRight            #@
+@#   IQGT           Gasto Turbinado      laja_q_turbinado            #@
+@#   IQDR           Derecho de Riego     laja_der_riego              #@
+@#   IQDE           Derecho Electrico    laja_der_electrico          #@
+@#   IQDM           Derecho Mixto        laja_der_mixto              #@
+@#   IQGA           Gasto Anticipado     laja_gasto_anticipado       #@
+@#                                                                   #@
+@#   PLP Variable   PLP Name             gtopt VolumeRight           #@
+@#   IVDRF          Vol. Der. Riego      laja_vol_der_riego          #@
+@#   IVDEF          Vol. Der. Electrico  laja_vol_der_electrico      #@
+@#   IVDMF          Vol. Der. Mixto      laja_vol_der_mixto          #@
+@#   IVGAF          Vol. Gasto Antic.    laja_vol_gasto_anticipado   #@
+@#   IVESF          Vol. Econ. ENDESA    laja_vol_econ_endesa        #@
+@#   IVERF          Vol. Econ. Reserva   laja_vol_econ_reserva       #@
+@#   IVAPF          Vol. Econ. Polcura   laja_vol_econ_polcura       #@
+@#                                                                   #@
+@# Stage-Level Hourly Aggregates (PLP "H"-suffix variables):         #@
+@#   IQDRH, IQDEH, IQDMH, IQGAH, IQGTH                             #@
+@#   -> gtopt: FlowRight qeh column (use_average=true creates a      #@
+@#      stage-average hourly rate via averaging constraint:           #@
+@#      qeh - sum_b[dur_ratio(b) * flow(b)] = 0)                    #@
+@# ================================================================= #@
+
+@# ================================================================= #@
+@# PLP CONSTRAINT MAPPING (genpdlajam.f)                             #@
+@#                                                                   #@
+@# Block-level constraints (per block j):                            #@
+@#   R1: Flow partition:                                             #@
+@#       -qgt_j + qdr_j + qde_j + qdm_j + qga_j = 0                #@
+@#       -> UserConstraint laja_particion_derechos                   #@
+@#                                                                   #@
+@# Stage-level constraints:                                          #@
+@#   R4-R8: Averaging constraints (one per rights category):         #@
+@#       IQDRH - sum_j[dur_ratio_j * qdr_j] = 0                     #@
+@#       -> FlowRight qavg row (auto-created by use_average=true)    #@
+@#                                                                   #@
+@#   R9-R12: Volume accumulation (annual rights tracking):           #@
+@#       PLP:  IVDRF = Prev_IVDRF - (etadur/ScaleVol) * IQDRH       #@
+@#       gtopt: efin = eini - fcr * sum_b[dur(b) * finp(b)] / escale#@
+@#       -> VolumeRight energy balance row (StorageLP pattern)       #@
+@#       fcr = 0.0036 hm3/(m3/s*h) is the flow conversion rate      #@
+@# ================================================================= #@
+
+@# ================================================================= #@
+@# UPDATE_LP BEHAVIOR                                                #@
+@#                                                                   #@
+@# PLP: plp-laja1.f / FijaLajaMBloA — called each stage before      #@
+@#   LP solve.  Reads current reservoir volume, evaluates the zone   #@
+@#   formula, and sets column upper bounds for qdr/qde/qdm/qga.      #@
+@#                                                                   #@
+@# gtopt: Each VolumeRight with a bound_rule has the HasUpdateLP     #@
+@#   concept.  During SystemLP::update_lp(), the bound_rule is       #@
+@#   re-evaluated using the current reservoir volume (physical_eini  #@
+@#   or physical_efin), and the VolumeRight's emax is updated via    #@
+@#   set_col_upp.  This is mathematically equivalent to PLP's        #@
+@#   FijaLajaMBloA but driven by declarative data rather than        #@
+@#   procedural Fortran code.                                        #@
+@#                                                                   #@
+@# Reset behavior (reset_month=april):                               #@
+@#   When the stage month matches "april", the VolumeRight is        #@
+@#   re-provisioned: eini is recomputed from the bound_rule          #@
+@#   evaluated at current reservoir volume.  This mirrors PLP's      #@
+@#   April 1st re-initialization of IVDRF/IVDEF/IVDMF/IVGAF.        #@
+@# ================================================================= #@
+
+{
+  "flow_right_array": [
+    @# ============================================================= #@
+    @# FlowRight: laja_q_turbinado (PLP: IQGT)                      #@
+    @#                                                               #@
+    @# Total turbine flow at El Toro.  direction=+1 means this is a  #@
+    @# supply into the partition balance (UserConstraint).            #@
+    @# PLP: created by genpdlajam.f as the total generation variable #@
+    @# with bounds [0, VolMax].                                      #@
+    @#                                                               #@
+    @# In the flow partition: qgt = qdr + qde + qdm + qga            #@
+    @# This variable represents the LEFT side (total supply).        #@
+    @#                                                               #@
+    @# fmax = vol_max (effectively unbounded — the real caps come    #@
+    @# from the individual rights categories on the withdrawal side).#@
+    @# use_average=true creates the IQGTH hourly aggregate column.   #@
+    @# ============================================================= #@
+    {
+      "name": "laja_q_turbinado",
+      "purpose": "generation",
+      "direction": 1,
+      "discharge": 0,
+      "fmax": @vol_max@,
+      "use_average": true
+    },
+
+    @# ============================================================= #@
+    @# FlowRight: laja_der_riego (PLP: IQDR)                        #@
+    @#                                                               #@
+    @# Irrigation rights flow.  direction=-1 means withdrawal from   #@
+    @# the partition balance.  The flow cap (fmax) is pre-computed:  #@
+    @#   fmax = qmax_irr * monthly_usage_irr[month]                  #@
+    @# where monthly_usage_irr is 1.0 during irrigation season      #@
+    @# (Sep-Mar) and 0.0 during winter (May-Aug).                   #@
+    @#                                                               #@
+    @# PLP: genpdlajam.f creates qdr_j per block with upper bound   #@
+    @# set by FijaLajaMBloA from the volume zone formula.  The       #@
+    @# volume-dependent annual rights quota is on the VolumeRight    #@
+    @# (laja_vol_der_riego) via bound_rule, not on the FlowRight.   #@
+    @#                                                               #@
+    @# fail_cost: penalty for unserved irrigation demand.            #@
+    @# PLP: CRiegoNS (1100 $/m3/s) modulated by FactMenCQVar.       #@
+    @# use_value: benefit of irrigation usage (cost_irr_uso).        #@
+    @# Conditional — only emitted when cost_irr_uso > 0.            #@
+    @# ============================================================= #@
+    {
+      "name": "laja_der_riego",
+      "purpose": "irrigation",
+      "direction": -1,
+      "discharge": 0,
+      "fmax": @fmax_irr@,
+      "use_average": true,
+      "fail_cost": @fail_cost_irr@
+      @% if use_value_irr is not none %@
+      ,"use_value": @use_value_irr@
+      @% endif %@
+    },
+
+    @# ============================================================= #@
+    @# FlowRight: laja_der_electrico (PLP: IQDE)                    #@
+    @#                                                               #@
+    @# Electrical rights flow.  Active year-round (monthly_usage=1). #@
+    @# PLP: IQDEH hourly aggregate, volume tracked by IVDEF.         #@
+    @#                                                               #@
+    @# fail_cost: PLP CElectNS (1150 $/m3/s) * monthly modulation.  #@
+    @# use_value: benefit of electrical usage (cost_elec_uso=0.1).   #@
+    @# The small positive use_value acts as a tie-breaker in the     #@
+    @# optimizer, encouraging electrical extraction when other costs  #@
+    @# are equal (PLP: CUsoElect steering cost).                     #@
+    @# ============================================================= #@
+    {
+      "name": "laja_der_electrico",
+      "purpose": "generation",
+      "direction": -1,
+      "discharge": 0,
+      "fmax": @fmax_elec@,
+      "use_average": true,
+      "fail_cost": @fail_cost_elec@
+      @% if use_value_elec is not none %@
+      ,"use_value": @use_value_elec@
+      @% endif %@
+    },
+
+    @# ============================================================= #@
+    @# FlowRight: laja_der_mixto (PLP: IQDM)                        #@
+    @#                                                               #@
+    @# Mixed rights flow.  Shared allocation with season-dependent   #@
+    @# usage.  Active year-round (monthly_usage=1).                  #@
+    @# PLP: IQDMH hourly aggregate, volume tracked by IVDMF.         #@
+    @#                                                               #@
+    @# No fail_cost (mixed rights are not penalized for non-use).    #@
+    @# use_value: mixed usage cost (cost_mixed=1.0).                 #@
+    @# PLP: CMixto steering cost in objective function.              #@
+    @# ============================================================= #@
+    {
+      "name": "laja_der_mixto",
+      "purpose": "mixed",
+      "direction": -1,
+      "discharge": 0,
+      "fmax": @fmax_mixed@,
+      "use_average": true
+      @% if use_value_mixed is not none %@
+      ,"use_value": @use_value_mixed@
+      @% endif %@
+    },
+
+    @# ============================================================= #@
+    @# FlowRight: laja_gasto_anticipado (PLP: IQGA)                 #@
+    @#                                                               #@
+    @# Anticipated discharge.  Allows early extraction of future     #@
+    @# irrigation rights under certain conditions.  Active only      #@
+    @# Sep-Nov (hydrological months 6-8).                            #@
+    @# PLP: IQGAH hourly aggregate, volume tracked by IVGAF.         #@
+    @#                                                               #@
+    @# fail_cost: uses the irrigation non-served cost base           #@
+    @# (cost_irr_ns) modulated by monthly_cost_anticipated factors.  #@
+    @# ============================================================= #@
+    {
+      "name": "laja_gasto_anticipado",
+      "purpose": "anticipated",
+      "direction": -1,
+      "discharge": 0,
+      "fmax": @fmax_antic@,
+      "use_average": true,
+      "fail_cost": @fail_cost_antic@
+    }
+
+    @# ============================================================= #@
+    @# FlowRight: District withdrawals (PLP: per-district variables) #@
+    @#                                                               #@
+    @# PLP models 3 districts x 4 demand categories = up to 12      #@
+    @# withdrawal variables (zero-allocation combinations skipped):  #@
+    @#                                                               #@
+    @#   District     1oReg%  2oReg%  Emerg%  Saltos%  CostFactor   #@
+    @#   RIEGZACO      37.2    0.0    37.2     0.0      1.500       #@
+    @#   RieTucapel    62.8  100.0    62.8     0.0      1.000       #@
+    @#   RieSaltos      0.0    0.0     0.0   100.0      0.200       #@
+    @#                                                               #@
+    @# Each generates a FlowRight named {district}_{category} with:  #@
+    @#   discharge = base_demand * percentage * seasonal_factor       #@
+    @#              (STBRealFieldSched — varies by scenario/stage)    #@
+    @#   fail_cost = cost_irr_ns * cost_factor                       #@
+    @#              (e.g. RIEGZACO: 1100 * 1.5 = 1650)               #@
+    @#                                                               #@
+    @# RieSaltos has injection="LAJA_I" (physical junction coupling)  #@
+    @# meaning its withdrawal is subtracted from the LAJA_I junction #@
+    @# balance row in the LP (consumptive withdrawal).               #@
+    @#                                                               #@
+    @# Seasonal demand factors (hydrological year Apr=1..Mar=12):    #@
+    @#   1oReg:   1.0, 0,0,0,0, 1.0,1.0,1.0, 1.0,1.0,1.0,1.0      #@
+    @#   2oReg:   0.2, 0,0,0,0, 0.3,0.65,0.85, 1.0,0.8,0.5, 0.2   #@
+    @#   Saltos:  0, 0,0,0,0, 0,0,0, 0.5,1.0,1.0, 0                #@
+    @#                                                               #@
+    @# These are pre-computed in laja_writer._compute_district_flow_ #@
+    @# rights() because they involve schedule conversion (hydro year #@
+    @# -> stage mapping) that depends on the stage_parser.           #@
+    @# ============================================================= #@
+    @% for fr in district_flow_rights %@
+    ,@fr@
+    @% endfor %@
+  ],
+
+  "volume_right_array": [
+    @# ============================================================= #@
+    @# VolumeRight: laja_vol_der_riego (PLP: IVDRF)                  #@
+    @#                                                               #@
+    @# Irrigation volume accumulator.  Tracks cumulative irrigation  #@
+    @# extraction since April 1st (hydrological year start).         #@
+    @#                                                               #@
+    @# PLP balance equation (genpdlajam.f R9):                       #@
+    @#   IVDRF = Prev_IVDRF - (etadur/ScaleVol) * IQDRH             #@
+    @# gtopt equivalent:                                             #@
+    @#   efin = eini - fcr * sum_b[dur(b) * finp(b)] / energy_scale  #@
+    @# where fcr = 0.0036 hm3/(m3/s*h)                              #@
+    @#                                                               #@
+    @# bound_rule: piecewise-linear function mapping reservoir       #@
+    @# volume to maximum annual irrigation rights (emax).            #@
+    @# Evaluated during update_lp() each stage; at reset_month=april #@
+    @# the volume is re-provisioned from the bound_rule evaluated at #@
+    @# the current physical reservoir volume.                        #@
+    @#                                                               #@
+    @# PLP equivalent: FijaLajaMBloA computes DerRiego(V) using      #@
+    @#   Base=570 + Sum_i(FacDerR(i) * min(Vi, AnchCol(i)))          #@
+    @# and sets IVDRF upper bound accordingly.                       #@
+    @#                                                               #@
+    @# cap: maximum annual irrigation right (max_irr, typically      #@
+    @# 5000 hm3 — a practical upper limit, not a legal constraint).  #@
+    @#                                                               #@
+    @# use_state_variable=true: SDDP state coupling.  The volume     #@
+    @# is carried across phases via state variable linking, so        #@
+    @# backward cuts capture the irrigation opportunity cost.         #@
+    @# ============================================================= #@
+    {
+      "name": "laja_vol_der_riego",
+      "purpose": "irrigation",
+      "reservoir": @central@,
+      "eini": @ini_irr@,
+      "emax": @max_irr@,
+      "use_state_variable": true,
+      "reset_month": "april",
+      "bound_rule": {
+        "reservoir": @central@,
+        "segments": @irr_segments@,
+        "cap": @max_irr@
+      }
+    },
+
+    @# ============================================================= #@
+    @# VolumeRight: laja_vol_der_electrico (PLP: IVDEF)              #@
+    @#                                                               #@
+    @# Electrical volume accumulator.  Same pattern as irrigation    #@
+    @# but with electrical zone factors:                             #@
+    @#   Base=0, Factors=[0.05, 0.05, 0.40, 0.65], Cap=1200         #@
+    @#                                                               #@
+    @# PLP balance (R10):                                            #@
+    @#   IVDEF = Prev_IVDEF - (etadur/ScaleVol) * IQDEH             #@
+    @#                                                               #@
+    @# The bound_rule evaluates DerElec(V) = 0 + 0.05*V1 + 0.05*V2  #@
+    @# + 0.40*V3 + 0.65*V4, capped at 1200 hm3/year.               #@
+    @# ============================================================= #@
+    {
+      "name": "laja_vol_der_electrico",
+      "purpose": "generation",
+      "reservoir": @central@,
+      "eini": @ini_elec@,
+      "emax": @max_elec@,
+      "use_state_variable": true,
+      "reset_month": "april",
+      "bound_rule": {
+        "reservoir": @central@,
+        "segments": @elec_segments@,
+        "cap": @max_elec@
+      }
+    },
+
+    @# ============================================================= #@
+    @# VolumeRight: laja_vol_der_mixto (PLP: IVDMF)                  #@
+    @#                                                               #@
+    @# Mixed volume accumulator.  Mixed rights use zone factors:     #@
+    @#   Base=30, Factors=[1.00, 0.00, 0.00, 0.00], Cap=30          #@
+    @# Note: only Zone 1 contributes (1.00/hm3), and the base IS    #@
+    @# the cap (30 hm3).  So mixed rights are always exactly 30     #@
+    @# hm3/year for any non-zero reservoir volume.                   #@
+    @#                                                               #@
+    @# PLP balance (R11):                                            #@
+    @#   IVDMF = Prev_IVDMF - (etadur/ScaleVol) * IQDMH            #@
+    @# ============================================================= #@
+    {
+      "name": "laja_vol_der_mixto",
+      "purpose": "mixed",
+      "reservoir": @central@,
+      "eini": @ini_mixed@,
+      "emax": @max_mixed@,
+      "use_state_variable": true,
+      "reset_month": "april",
+      "bound_rule": {
+        "reservoir": @central@,
+        "segments": @mixed_segments@,
+        "cap": @max_mixed@
+      }
+    },
+
+    @# ============================================================= #@
+    @# VolumeRight: laja_vol_gasto_anticipado (PLP: IVGAF)           #@
+    @#                                                               #@
+    @# Anticipated discharge accumulator.  Tracks early extraction   #@
+    @# of future irrigation rights (Sep-Nov only).                   #@
+    @# Uses the SAME bound_rule segments as irrigation rights        #@
+    @# (irr_segments) because anticipated rights draw from the same  #@
+    @# volume zone formula as irrigation.                            #@
+    @#                                                               #@
+    @# PLP balance (R12):                                            #@
+    @#   IVGAF = Prev_IVGAF + (etadur/ScaleVol) * IQGAH             #@
+    @# Note: PLP accumulates POSITIVELY (adds extraction), while     #@
+    @# gtopt VolumeRight tracks remaining rights (subtracts).        #@
+    @# The sign convention is handled internally by StorageLP.       #@
+    @# ============================================================= #@
+    {
+      "name": "laja_vol_gasto_anticipado",
+      "purpose": "anticipated",
+      "reservoir": @central@,
+      "eini": @ini_anticipated@,
+      "emax": @max_anticipated@,
+      "use_state_variable": true,
+      "reset_month": "april",
+      "bound_rule": {
+        "reservoir": @central@,
+        "segments": @irr_segments@,
+        "cap": @max_anticipated@
+      }
+    },
+
+    @# ============================================================= #@
+    @# VolumeRight: laja_vol_econ_endesa (PLP: IVESF)                #@
+    @#                                                               #@
+    @# ENDESA economy accumulator.  Tracks unused ENDESA extraction  #@
+    @# rights carried forward across hydrological years.             #@
+    @#                                                               #@
+    @# PLP (genpdlajam.f / plp-laja2.f):                             #@
+    @#   IVESN = max(GastoAnuMax - actual_extraction, 0) * duration   #@
+    @#   IVESF = Prev_IVESF + IVESN - IQGESH * dt                    #@
+    @# Unused annual rights become savings; extraction spends them.  #@
+    @# Zero savings in lower cushion zone.                           #@
+    @#                                                               #@
+    @# gtopt: modeled as VolumeRight with purpose="economy":         #@
+    @#   saving variable: inflow (new savings from unused rights)    #@
+    @#   extraction variable: outflow (spending of saved water)      #@
+    @#   Balance: economy_vol = prev + saving - extraction           #@
+    @#                                                               #@
+    @# No reset_month: economy carries across April boundary.        #@
+    @# No bound_rule: economy is not volume-dependent.               #@
+    @# saving_rate: maximum saving deposit rate (qmax_elec).         #@
+    @#                                                               #@
+    @# SIMPLIFICATION: PLP caps new provisions when reservoir        #@
+    @# overflows (IVRB > 0) via IVRBES spillage variable.  gtopt    #@
+    @# does not implement this overflow cap.                         #@
+    @# ============================================================= #@
+    {
+      "name": "laja_vol_econ_endesa",
+      "purpose": "economy",
+      "reservoir": @central@,
+      "eini": @ini_econ_endesa@,
+      "saving_rate": @saving_rate_econ@,
+      "use_state_variable": true
+    },
+
+    @# ============================================================= #@
+    @# VolumeRight: laja_vol_econ_reserva (PLP: IVERF)               #@
+    @#                                                               #@
+    @# Reserve economy accumulator.  Generated only in lower cushion #@
+    @# zone from irrigation deficit.                                 #@
+    @#                                                               #@
+    @# PLP: IVERF generated when ColchonInferiorActivo=TRUE.         #@
+    @# Reset to zero when reservoir exits lower cushion.             #@
+    @#                                                               #@
+    @# SIMPLIFICATION: gtopt models this as a simple accumulator     #@
+    @# with no conditional reset.  Impact: reserve economies may     #@
+    @# over-accumulate in normal operation.  In practice, reserve    #@
+    @# economies are only generated during emergency (lower cushion  #@
+    @# zone), which is rare for Laguna del Laja.                     #@
+    @# ============================================================= #@
+    {
+      "name": "laja_vol_econ_reserva",
+      "purpose": "economy",
+      "reservoir": @central@,
+      "eini": @ini_econ_reserve@,
+      "saving_rate": @saving_rate_econ@,
+      "use_state_variable": true
+    },
+
+    @# ============================================================= #@
+    @# VolumeRight: laja_vol_econ_polcura (PLP: IVAPF)               #@
+    @#                                                               #@
+    @# Alto Polcura economy accumulator.  Direct Alto Polcura river  #@
+    @# inflows, always accumulated regardless of zone.               #@
+    @#                                                               #@
+    @# PLP: IVAPN = Alto Polcura river inflow * duration             #@
+    @# No conditional logic — always accumulated.                    #@
+    @# No reset in PLP either — accumulates indefinitely.            #@
+    @# ============================================================= #@
+    {
+      "name": "laja_vol_econ_polcura",
+      "purpose": "economy",
+      "reservoir": @central@,
+      "eini": @ini_econ_polcura@,
+      "saving_rate": @saving_rate_econ@,
+      "use_state_variable": true
+    }
+  ],
+
+  "user_constraint_array": [
+    @# ============================================================= #@
+    @# UserConstraint: laja_particion_derechos                       #@
+    @# PLP constraint R1 (genpdlajam.f):                             #@
+    @#   -qgt_j + qdr_j + qde_j + qdm_j + qga_j = 0                #@
+    @#                                                               #@
+    @# Flow partition balance: total generation flow must equal the   #@
+    @# sum of all extraction rights categories.  This is the core    #@
+    @# identity of the Laja convention — ALL water turbined through   #@
+    @# El Toro must be accounted for by one of the four rights       #@
+    @# categories.                                                   #@
+    @#                                                               #@
+    @# In PLP, this is the block-level constraint created by         #@
+    @# genpdlajam.f that ties the generation variable to the rights  #@
+    @# variables.  In gtopt, it would normally be a RightJunction    #@
+    @# (drain=false) but is expressed here as a UserConstraint for   #@
+    @# flexibility with the PAMPL file format.                       #@
+    @#                                                               #@
+    @# Note: the expression uses flow_right().flow which references  #@
+    @# the per-block extraction flow columns (not the qeh hourly     #@
+    @# averages).  The balance is enforced per-block.                #@
+    @# ============================================================= #@
+    {
+      "name": "laja_particion_derechos",
+      "expression": @expression_partition@,
+      "description": @description_partition@
+    }
+  ]
+}

@@ -257,7 +257,7 @@ TEST_CASE("OutputContext - write output with hydro and seepage")
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 

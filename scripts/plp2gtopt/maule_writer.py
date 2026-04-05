@@ -9,6 +9,11 @@ The Maule convention divides the Laguna del Maule / Colbun system into
 three operational zones (normal, ordinary reserve, extraordinary reserve)
 with volume-dependent rights allocation between ENDESA/Enel and irrigators.
 
+The JSON entity structure is defined in the ``maule.tson`` template file,
+which uses @param@ m4-style syntax for parameter substitution.  Computed
+values (schedules, zone thresholds, costs) are pre-computed here and
+passed as template context.
+
 See also:
   gtopt_vs_plp_comparison.md -- detailed variable mapping
   plp_implementation.md -- PLP Fortran source reference
@@ -18,6 +23,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import jinja2
+
+from plp2gtopt.template_engine import render_tson
 
 
 # Month names for gtopt Stage (1-indexed: january=1 .. december=12)
@@ -41,6 +48,10 @@ _MONTH_NAMES = [
 class MauleWriter:
     """Emits FlowRight, VolumeRight, and UserConstraint
     entities for the Maule irrigation agreement.
+
+    The JSON entity structure is defined in ``templates/maule.tson``.
+    This class pre-computes all dynamic values (schedules, costs,
+    zone thresholds) and passes them as template context parameters.
 
     Args:
         maule_config: Parsed configuration from MauleParser.config
@@ -150,439 +161,140 @@ class MauleWriter:
         schedule = self._monthly_schedule(monthly_flows)
         return self._to_tb_sched(schedule)
 
-    def _build(self) -> None:
-        """Build all rights entities from the parsed configuration."""
+    def _prepare_context(self) -> Dict[str, Any]:
+        """Prepare the template context with all pre-computed values.
+
+        Returns a dict of parameters that the maule.tson template uses
+        via @param@ substitution.
+        """
         cfg = self._cfg
 
-        # Reservoir references (used by bound_rule)
         res_colbun = cfg["central_colbun"]
-        v_extraord = cfg["v_reserva_extraord"]  # hm3
-        v_ordinaria = cfg["v_reserva_ordinaria"]  # hm3 (above extraord)
+        v_extraord = cfg["v_reserva_extraord"]
+        v_ordinaria = cfg["v_reserva_ordinaria"]
+        v_zone_extraord = v_extraord
+        v_zone_normal = v_extraord + v_ordinaria
 
-        # Total volume thresholds (cumulative)
-        v_zone_extraord = v_extraord  # 129 hm3
-        v_zone_normal = v_extraord + v_ordinaria  # 129 + 452 = 581 hm3
-
-        # --- FlowRight: Normal electric rights (IQMNE) ---
-        # Active in normal zone, fmax = gasto_elec_dia_max
-        fr_elec_normal_uid = self._next_uid()
         elec_day_max = cfg["gasto_elec_dia_max"]
-        self.flow_rights.append(
-            {
-                "uid": fr_elec_normal_uid,
-                "name": "maule_gasto_normal_elec",
-                "purpose": "generation",
-                "direction": -1,
-                "discharge": 0,
-                "fmax": elec_day_max,
-                "use_average": True,
-                "fail_cost": cfg.get("penalizador_1", 1500),
-                "bound_rule": {
-                    "reservoir": res_colbun,
-                    "segments": [
-                        {"volume": 0, "slope": 0, "constant": 0},
-                        {
-                            "volume": v_zone_normal,
-                            "slope": 0,
-                            "constant": elec_day_max,
-                        },
-                    ],
-                },
-            }
-        )
-
-        # --- FlowRight: Normal irrigation rights (IQMNR) ---
-        fr_irr_normal_uid = self._next_uid()
         riego_max = cfg["gasto_riego_max"]
-        # Monthly percentage schedule for irrigation
+
+        # --- Schedules ---
         pct_riego = cfg["pct_riego_mensual"]
         irr_fmax_schedule = self._monthly_fmax_schedule(pct_riego, riego_max)
-        fr_irr_normal: Dict[str, Any] = {
-            "uid": fr_irr_normal_uid,
-            "name": "maule_gasto_normal_riego",
-            "purpose": "irrigation",
-            "direction": -1,
-            "discharge": 0,
-            "fmax": irr_fmax_schedule,
-            "use_average": True,
-            "fail_cost": cfg.get("costo_riego_ns_maule", 1000),
-            "bound_rule": {
-                "reservoir": res_colbun,
-                "segments": [
-                    {"volume": 0, "slope": 0, "constant": 0},
-                    {
-                        "volume": v_zone_normal,
-                        "slope": 0,
-                        "constant": riego_max,
-                    },
-                ],
-            },
-        }
-        # Irrigation delivery benefit (negative cost = benefit in objective)
-        valor_riego = cfg.get("valor_riego_maule", 0)
-        if valor_riego > 0:
-            fr_irr_normal["use_value"] = valor_riego
-        self.flow_rights.append(fr_irr_normal)
 
-        # --- FlowRight: Ordinary reserve electric (IQMOE) ---
-        fr_elec_ord_uid = self._next_uid()
-        # In ordinary reserve zone, electric gets pct_elec_reserva % of flow
-        # Monthly modulation via mod_elec_reserva
         mod_elec = cfg["mod_elec_reserva"]
         elec_ord_fmax = self._monthly_fmax_schedule(mod_elec, elec_day_max)
-        self.flow_rights.append(
-            {
-                "uid": fr_elec_ord_uid,
-                "name": "maule_gasto_ordinario_elec",
-                "purpose": "generation",
-                "direction": -1,
-                "discharge": 0,
-                "fmax": elec_ord_fmax,
-                "use_average": True,
-                "bound_rule": {
-                    "reservoir": res_colbun,
-                    "segments": [
-                        {"volume": 0, "slope": 0, "constant": 0},
-                        {
-                            "volume": v_zone_extraord,
-                            "slope": 0,
-                            "constant": elec_day_max,
-                        },
-                        {
-                            "volume": v_zone_normal,
-                            "slope": 0,
-                            "constant": 0,
-                        },
-                    ],
-                },
-            }
-        )
 
-        # --- FlowRight: Ordinary reserve irrigation (IQMOR) ---
-        fr_irr_ord_uid = self._next_uid()
-        fr_irr_ord: Dict[str, Any] = {
-            "uid": fr_irr_ord_uid,
-            "name": "maule_gasto_ordinario_riego",
-            "purpose": "irrigation",
-            "direction": -1,
-            "discharge": 0,
-            "fmax": irr_fmax_schedule,
-            "use_average": True,
-            "bound_rule": {
-                "reservoir": res_colbun,
-                "segments": [
-                    {"volume": 0, "slope": 0, "constant": 0},
-                    {
-                        "volume": v_zone_extraord,
-                        "slope": 0,
-                        "constant": riego_max,
-                    },
-                    {
-                        "volume": v_zone_normal,
-                        "slope": 0,
-                        "constant": 0,
-                    },
-                ],
-            },
-        }
-        if valor_riego > 0:
-            fr_irr_ord["use_value"] = valor_riego
-        self.flow_rights.append(fr_irr_ord)
-
-        # --- FlowRight: ENDESA compensation (IQMCE) ---
-        fr_comp_uid = self._next_uid()
-        self.flow_rights.append(
-            {
-                "uid": fr_comp_uid,
-                "name": "maule_compensacion_elec",
-                "purpose": "generation",
-                "direction": -1,
-                "discharge": 0,
-                "fmax": elec_day_max,
-                "use_average": True,
-            }
-        )
-
-        # --- FlowRight: Resolution 105 minimum flows ---
-        fr_res105_uid = self._next_uid()
         caudal_res105 = cfg["caudal_res105"]
         res105_values = self._monthly_schedule(caudal_res105)
         res105_discharge = self._to_stb_sched(res105_values)
-        fr_res105: Dict[str, Any] = {
-            "uid": fr_res105_uid,
-            "name": "maule_resolucion_105",
-            "purpose": "environmental",
-            "direction": -1,
-            "discharge": res105_discharge,
-            "fail_cost": cfg.get("costo_riego_ns_res105", 1000),
-        }
-        # Res105 delivery benefit (negative cost = benefit in objective)
-        valor_res105 = cfg.get("valor_riego_res105", 0)
-        if valor_res105 > 0:
-            fr_res105["use_value"] = valor_res105
-        self.flow_rights.append(fr_res105)
 
-        # --- VolumeRight: Monthly electric accumulator (IVMGEMF) ---
-        # Coupled to maule_gasto_normal_elec: FlowRight flow decrements volume.
-        vr_elec_men_uid = self._next_uid()
-        self.volume_rights.append(
-            {
-                "uid": vr_elec_men_uid,
-                "name": "maule_vol_gasto_elec_mensual",
-                "purpose": "generation",
-                "reservoir": res_colbun,
-                # source_flow_right removed — coupling via UserConstraint
-                "eini": cfg["v_gasto_elec_men_ini"],
-                "emax": cfg["gasto_elec_men_max"],
-                "use_state_variable": True,
-                "reset_month": "january",
-            }
-        )
+        valor_riego = cfg.get("valor_riego_maule", 0)
+        valor_riego_res105 = cfg.get("valor_riego_res105", 0)
 
-        # --- VolumeRight: Annual electric accumulator (IVMGEAF) ---
-        # Also coupled to maule_gasto_normal_elec (same flow, different reset).
-        vr_elec_anu_uid = self._next_uid()
-        self.volume_rights.append(
-            {
-                "uid": vr_elec_anu_uid,
-                "name": "maule_vol_gasto_elec_anual",
-                "purpose": "generation",
-                "reservoir": res_colbun,
-                # source_flow_right removed — coupling via UserConstraint
-                "eini": cfg["v_gasto_elec_anu_ini"],
-                "emax": cfg["v_der_elect_anu_max"],
-                "use_state_variable": True,
-                "reset_month": "june",
-            }
-        )
-
-        # --- VolumeRight: Seasonal irrigation accumulator (IVMGRTF) ---
-        vr_irr_uid = self._next_uid()
-        self.volume_rights.append(
-            {
-                "uid": vr_irr_uid,
-                "name": "maule_vol_gasto_riego_temp",
-                "purpose": "irrigation",
-                "reservoir": res_colbun,
-                # source_flow_right removed — coupling via UserConstraint
-                "eini": cfg["v_gasto_riego_ini"],
-                "emax": cfg["v_der_riego_temp_max"],
-                "use_state_variable": True,
-                "reset_month": "june",
-            }
-        )
-
-        # --- VolumeRight: ENDESA compensation accumulator ---
-        vr_comp_uid = self._next_uid()
-        self.volume_rights.append(
-            {
-                "uid": vr_comp_uid,
-                "name": "maule_vol_compensacion_elec",
-                "purpose": "generation",
-                "reservoir": res_colbun,
-                # source_flow_right removed — coupling via UserConstraint
-                "eini": cfg["v_comp_elec_ini"],
-                "emax": cfg["v_comp_elec_max"],
-                "use_state_variable": True,
-            }
-        )
-
-        # --- VolumeRight: Extraordinary reserve electric accumulator ---
-        # Tracks accumulated electric extraction from the extraordinary
-        # reserve zone (bottom zone, 0..v_reserva_extraord hm3).
-        # PLP variable: v_gasto_rext_elec / v_der_rext_elec
-        vr_rext_elec_uid = self._next_uid()
-        self.volume_rights.append(
-            {
-                "uid": vr_rext_elec_uid,
-                "name": "maule_vol_reserva_ord_elec",
-                "purpose": "generation",
-                "reservoir": res_colbun,
-                # source_flow_right removed — coupling via UserConstraint
-                "eini": cfg.get("v_gasto_rext_elec_ini", 0.0),
-                "emax": cfg["v_reserva_extraord"],
-                "use_state_variable": True,
-            }
-        )
-
-        # --- VolumeRight: Extraordinary reserve irrigation accumulator ---
-        # Tracks accumulated irrigation extraction from the extraordinary
-        # reserve zone.
-        # PLP variable: v_gasto_rext_riego / v_der_rext_riego
-        vr_rext_riego_uid = self._next_uid()
-        self.volume_rights.append(
-            {
-                "uid": vr_rext_riego_uid,
-                "name": "maule_vol_reserva_ord_riego",
-                "purpose": "irrigation",
-                "reservoir": res_colbun,
-                # source_flow_right removed — coupling via UserConstraint
-                "eini": cfg.get("v_gasto_rext_riego_ini", 0.0),
-                "emax": cfg["v_reserva_extraord"],
-                "use_state_variable": True,
-            }
-        )
-
-        # --- VolumeRight: La Invernada winter economy (IVMDEIF) ---
-        # Tracks unused winter storage rights.
-        # saving = deposits from unused rights; extraction = spending.
-        vr_econ_uid = self._next_uid()
-        self.volume_rights.append(
-            {
-                "uid": vr_econ_uid,
-                "name": "maule_vol_econ_invernada",
-                "purpose": "economy",
-                "reservoir": cfg["central_invernada"],
-                "eini": cfg["v_econ_inver_ini"],
-                "saving_rate": cfg.get("qmax_invernada", 200),
-                "use_state_variable": True,
-            }
-        )
-
-        # --- FlowRight: La Invernada deficit discharge (IQIDN) ---
-        fr_idn_uid = self._next_uid()
-        self.flow_rights.append(
-            {
-                "uid": fr_idn_uid,
-                "name": "invernada_deficit",
-                "purpose": "irrigation",
-                "direction": 1,
-                "discharge": 0,
-                "use_average": True,
-            }
-        )
-
-        # --- FlowRight: La Invernada no-deficit storage (IQISD) ---
-        fr_isd_uid = self._next_uid()
-        self.flow_rights.append(
-            {
-                "uid": fr_isd_uid,
-                "name": "invernada_sin_deficit",
-                "purpose": "irrigation",
-                "direction": 1,
-                "discharge": 0,
-                "use_average": True,
-            }
-        )
-
-        # --- FlowRight: La Invernada natural inflow (IQNINV) ---
-        fr_ninv_uid = self._next_uid()
-        self.flow_rights.append(
-            {
-                "uid": fr_ninv_uid,
-                "name": "invernada_caudal_natural",
-                "purpose": "irrigation",
-                "direction": 1,
-                "discharge": 0,
-                "use_average": True,
-            }
-        )
-
-        # --- FlowRight: La Invernada storage to reservoir (IQHEIN) ---
-        # PLP: FO(IQHINV) = FCau * CostoEmbalsar
-        fr_hein_uid = self._next_uid()
-        fr_hein: Dict[str, Any] = {
-            "uid": fr_hein_uid,
-            "name": "invernada_embalsar",
-            "purpose": "economy",
-            "direction": -1,
-            "discharge": 0,
-            "use_average": True,
-        }
         costo_embalsar = cfg.get("costo_embalsar", 1500.0)
-        if costo_embalsar > 0:
-            fr_hein["use_value"] = costo_embalsar
-        self.flow_rights.append(fr_hein)
-
-        # --- FlowRight: La Invernada bypass (IQHNEIN) ---
-        # PLP: FO(IQHNEIN) = FCau * CostoNoEmbalsar
-        fr_hnein_uid = self._next_uid()
-        fr_hnein: Dict[str, Any] = {
-            "uid": fr_hnein_uid,
-            "name": "invernada_no_embalsar",
-            "purpose": "economy",
-            "direction": -1,
-            "discharge": 0,
-            "use_average": True,
-        }
         costo_no_embalsar = cfg.get("costo_no_embalsar", 1000.0)
-        if costo_no_embalsar > 0:
-            fr_hnein["use_value"] = costo_no_embalsar
-        self.flow_rights.append(fr_hnein)
-
-        # --- FlowRight: Bocatoma Canelon ---
         costo_canelon = cfg.get("costo_canelon", 0.0)
-        if costo_canelon > 0:
-            fr_canelon_uid = self._next_uid()
-            self.flow_rights.append(
-                {
-                    "uid": fr_canelon_uid,
-                    "name": "maule_bocatoma_canelon",
-                    "purpose": "irrigation",
-                    "direction": -1,
-                    "discharge": 0,
-                    "use_value": costo_canelon,
-                }
-            )
 
-        # --- UserConstraint: La Invernada flow balance ---
-        # deficit + no_deficit + natural_inflow = storage + bypass
-        uc_invernada_uid = self._next_uid()
-        self.user_constraints.append(
-            {
-                "uid": uc_invernada_uid,
-                "name": "invernada_balance",
-                "expression": (
-                    "flow_right('invernada_deficit').flow "
-                    "+ flow_right('invernada_sin_deficit').flow "
-                    "+ flow_right('invernada_caudal_natural').flow "
-                    "= flow_right('invernada_embalsar').flow "
-                    "+ flow_right('invernada_no_embalsar').flow"
-                ),
-                "description": ("La Invernada winter balance: inflows equal outflows"),
-            }
-        )
-
-        # --- UserConstraint: Percentage allocation in ordinary reserve ---
-        # Electric gets pct_elec_reserva% of total flow in ordinary zone
-        uc_elec_pct_uid = self._next_uid()
+        # --- User constraint expressions ---
         pct_elec = cfg["pct_elec_reserva"]
-        self.user_constraints.append(
-            {
-                "uid": uc_elec_pct_uid,
-                "name": "maule_pct_ordinario_elec",
-                "expression": (
-                    f"flow_right('maule_gasto_ordinario_elec').flow <= "
-                    f"{pct_elec / 100.0} * flow_right('maule_gasto_ordinario_elec').flow "
-                    f"+ {pct_elec / 100.0} * flow_right('maule_gasto_ordinario_riego').flow"
-                ),
-                "description": (
-                    f"Electric capped at {pct_elec}% of total ordinary reserve flow"
-                ),
-            }
-        )
-
-        # Irrigation gets pct_riego_reserva% of total flow in ordinary zone
-        uc_irr_pct_uid = self._next_uid()
         pct_riego_r = cfg["pct_riego_reserva"]
-        self.user_constraints.append(
-            {
-                "uid": uc_irr_pct_uid,
-                "name": "maule_pct_ordinario_riego",
-                "expression": (
-                    f"flow_right('maule_gasto_ordinario_riego').flow <= "
-                    f"{pct_riego_r / 100.0} * flow_right('maule_gasto_ordinario_elec').flow "
-                    f"+ {pct_riego_r / 100.0} * flow_right('maule_gasto_ordinario_riego').flow"
-                ),
-                "description": (
-                    f"Irrigation capped at {pct_riego_r}% of total ordinary reserve flow"
-                ),
-            }
+
+        expression_invernada = (
+            "flow_right('invernada_deficit').flow "
+            "+ flow_right('invernada_sin_deficit').flow "
+            "+ flow_right('invernada_caudal_natural').flow "
+            "= flow_right('invernada_embalsar').flow "
+            "+ flow_right('invernada_no_embalsar').flow"
+        )
+        description_invernada = "La Invernada winter balance: inflows equal outflows"
+
+        expression_pct_elec = (
+            f"flow_right('maule_gasto_ordinario_elec').flow <= "
+            f"{pct_elec / 100.0} * flow_right('maule_gasto_ordinario_elec').flow "
+            f"+ {pct_elec / 100.0} * flow_right('maule_gasto_ordinario_riego').flow"
+        )
+        description_pct_elec = (
+            f"Electric capped at {pct_elec}% of total ordinary reserve flow"
         )
 
-        # --- FlowRight: Withdrawal districts ---
+        expression_pct_riego = (
+            f"flow_right('maule_gasto_ordinario_riego').flow <= "
+            f"{pct_riego_r / 100.0} * flow_right('maule_gasto_ordinario_elec').flow "
+            f"+ {pct_riego_r / 100.0} * flow_right('maule_gasto_ordinario_riego').flow"
+        )
+        description_pct_riego = (
+            f"Irrigation capped at {pct_riego_r}% of total ordinary reserve flow"
+        )
+
+        # --- District entities (pre-computed) ---
+        district_flow_rights, district_constraints = self._compute_district_entities(
+            irr_fmax_schedule
+        )
+
+        return {
+            # Reservoir / zone thresholds
+            "res_colbun": res_colbun,
+            "v_zone_extraord": v_zone_extraord,
+            "v_zone_normal": v_zone_normal,
+            "v_reserva_extraord": v_extraord,
+            # Flow limits
+            "elec_day_max": elec_day_max,
+            "riego_max": riego_max,
+            # Schedules
+            "irr_fmax_schedule": irr_fmax_schedule,
+            "elec_ord_fmax": elec_ord_fmax,
+            "res105_discharge": res105_discharge,
+            # Costs / penalties
+            "penalizador_1": cfg.get("penalizador_1", 1500),
+            "costo_riego_ns_maule": cfg.get("costo_riego_ns_maule", 1000),
+            "valor_riego": valor_riego,
+            "costo_riego_ns_res105": cfg.get("costo_riego_ns_res105", 1000),
+            "valor_riego_res105": valor_riego_res105,
+            "costo_embalsar": costo_embalsar,
+            "costo_no_embalsar": costo_no_embalsar,
+            "costo_canelon": costo_canelon,
+            # VolumeRight initial values and caps
+            "v_gasto_elec_men_ini": cfg["v_gasto_elec_men_ini"],
+            "gasto_elec_men_max": cfg["gasto_elec_men_max"],
+            "v_gasto_elec_anu_ini": cfg["v_gasto_elec_anu_ini"],
+            "v_der_elect_anu_max": cfg["v_der_elect_anu_max"],
+            "v_gasto_riego_ini": cfg["v_gasto_riego_ini"],
+            "v_der_riego_temp_max": cfg["v_der_riego_temp_max"],
+            "v_comp_elec_ini": cfg["v_comp_elec_ini"],
+            "v_comp_elec_max": cfg["v_comp_elec_max"],
+            "v_gasto_rext_elec_ini": cfg.get("v_gasto_rext_elec_ini", 0.0),
+            "v_gasto_rext_riego_ini": cfg.get("v_gasto_rext_riego_ini", 0.0),
+            # La Invernada
+            "central_invernada": cfg["central_invernada"],
+            "v_econ_inver_ini": cfg["v_econ_inver_ini"],
+            "qmax_invernada": cfg.get("qmax_invernada", 200),
+            # UserConstraint expressions
+            "expression_invernada": expression_invernada,
+            "description_invernada": description_invernada,
+            "expression_pct_elec": expression_pct_elec,
+            "description_pct_elec": description_pct_elec,
+            "expression_pct_riego": expression_pct_riego,
+            "description_pct_riego": description_pct_riego,
+            # District entities
+            "district_flow_rights": district_flow_rights,
+            "district_constraints": district_constraints,
+        }
+
+    def _compute_district_entities(
+        self,
+        irr_fmax_schedule: float | List[List[float]],
+    ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """Pre-compute district FlowRight and UserConstraint entities.
+
+        Returns:
+            Tuple of (district_flow_rights, district_constraints).
+        """
+        cfg = self._cfg
+        district_flow_rights: List[Dict[str, Any]] = []
+        district_constraints: List[Dict[str, Any]] = []
+
         for district in cfg["districts"]:
-            d_uid = self._next_uid()
             pct = district["percentage"]
             constraint_op = "<=" if district["has_slack"] else "="
 
@@ -593,9 +305,8 @@ class MauleWriter:
             else:
                 fr_name = raw_name
 
-            self.flow_rights.append(
+            district_flow_rights.append(
                 {
-                    "uid": d_uid,
                     "name": fr_name,
                     "purpose": "irrigation",
                     "direction": -1,
@@ -604,20 +315,44 @@ class MauleWriter:
                 }
             )
 
-            # UserConstraint for proportional allocation
-            uc_uid = self._next_uid()
-            self.user_constraints.append(
+            district_constraints.append(
                 {
-                    "uid": uc_uid,
                     "name": f"dist_{fr_name}",
                     "expression": (
                         f"flow_right('{fr_name}').flow "
                         f"{constraint_op} "
                         f"{pct / 100.0} * flow_right('maule_gasto_normal_riego').flow"
                     ),
-                    "description": (f"{fr_name}: {pct}% of total irrigation"),
+                    "description": f"{fr_name}: {pct}% of total irrigation",
                 }
             )
+
+        return district_flow_rights, district_constraints
+
+    def _assign_uids(self) -> None:
+        """Assign unique UIDs to all entities after template rendering."""
+        for entity_list in [
+            self.flow_rights,
+            self.volume_rights,
+            self.user_constraints,
+        ]:
+            for entity in entity_list:
+                entity["uid"] = self._next_uid()
+
+    def _build(self) -> None:
+        """Build all rights entities from the parsed configuration.
+
+        Renders the maule.tson template with pre-computed context values,
+        then assigns unique UIDs to all entities.
+        """
+        context = self._prepare_context()
+        entities = render_tson("maule.tson", context)
+
+        self.flow_rights = entities.get("flow_right_array", [])
+        self.volume_rights = entities.get("volume_right_array", [])
+        self.user_constraints = entities.get("user_constraint_array", [])
+
+        self._assign_uids()
 
     def generate_pampl(self, output_path: Path) -> str:
         """Render the Maule agreement PAMPL file from the Jinja2 template.

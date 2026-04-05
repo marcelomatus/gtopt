@@ -144,9 +144,24 @@ public:
         class_name, element_uid, col_name, stage.phase_index(), stage.uid());
   }
 
-  constexpr explicit StateVariable(LPKey lp_key, ColIndex col) noexcept
+  constexpr explicit StateVariable(LPKey lp_key,
+                                   ColIndex col,
+                                   double scost = 0.0,
+                                   double var_scale = 1.0) noexcept
       : LPVariable(lp_key, col)
+      , m_scost_(scost)
+      , m_var_scale_(var_scale)
   {
+  }
+
+  /// State cost for elastic penalty [$/physical_unit].
+  /// When > 0, overrides the global elastic_penalty for this variable.
+  [[nodiscard]] constexpr auto scost() const noexcept { return m_scost_; }
+
+  /// Physical-to-LP scale: physical = LP × var_scale.
+  [[nodiscard]] constexpr auto var_scale() const noexcept
+  {
+    return m_var_scale_;
   }
 
   using DependentVariable = LPVariable;
@@ -178,6 +193,8 @@ public:
   }
 
 private:
+  double m_scost_ {0.0};
+  double m_var_scale_ {1.0};
   std::vector<DependentVariable> m_dependent_variables_;
 };
 

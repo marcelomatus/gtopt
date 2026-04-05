@@ -1377,3 +1377,95 @@ TEST_CASE("LpEquilibrationMethod enum_name round-trip")  // NOLINT
         == LpEquilibrationMethod::ruiz);
   CHECK_FALSE(enum_from_name<LpEquilibrationMethod>("invalid").has_value());
 }
+
+TEST_CASE("FastSqrtMethod enum_name round-trip")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  CHECK(enum_name(FastSqrtMethod::ieee_halve) == "ieee_halve");
+  CHECK(enum_name(FastSqrtMethod::newton1) == "newton1");
+  CHECK(enum_name(FastSqrtMethod::std_sqrt) == "std_sqrt");
+
+  CHECK(enum_from_name<FastSqrtMethod>("ieee_halve")
+        == FastSqrtMethod::ieee_halve);
+  CHECK(enum_from_name<FastSqrtMethod>("newton1") == FastSqrtMethod::newton1);
+  CHECK(enum_from_name<FastSqrtMethod>("std_sqrt") == FastSqrtMethod::std_sqrt);
+  CHECK_FALSE(enum_from_name<FastSqrtMethod>("invalid").has_value());
+}
+
+TEST_CASE(  // NOLINT
+    "Ruiz scaling all fast_sqrt methods produce equivalent solutions")
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Same 2-var LP from the ruiz 2-var test:
+  //   min 2x + 3y s.t.
+  //     1000*x +    1*y >= 2000
+  //        1*x + 500*y >= 1000
+  //     0 <= x <= 100, 0 <= y <= 100
+  LinearProblem lp("fast_sqrt_methods_test");
+
+  const auto cx = lp.add_col(SparseCol {
+      .name = "x",
+      .lowb = 0,
+      .uppb = 100,
+      .cost = 2.0,
+  });
+  const auto cy = lp.add_col(SparseCol {
+      .name = "y",
+      .lowb = 0,
+      .uppb = 100,
+      .cost = 3.0,
+  });
+
+  auto r0 = SparseRow {.name = "r0"};
+  r0[cx] = 1000.0;
+  r0[cy] = 1.0;
+  r0.greater_equal(2000.0);
+  std::ignore = lp.add_row(std::move(r0));
+
+  auto r1 = SparseRow {.name = "r1"};
+  r1[cx] = 1.0;
+  r1[cy] = 500.0;
+  r1.greater_equal(1000.0);
+  std::ignore = lp.add_row(std::move(r1));
+
+  // Reference: solve without scaling.
+  const auto flat_none = lp.flatten({
+      .equilibration_method = LpEquilibrationMethod::none,
+  });
+  LinearInterface li_none("", flat_none);
+  std::ignore = li_none.initial_solve({});
+  REQUIRE(li_none.is_optimal());
+  const auto sol_none = li_none.get_col_sol();
+  const auto duals_none = li_none.get_row_dual();
+
+  // Solve with each fast_sqrt_method and compare.
+  for (const auto method :
+       {
+           FastSqrtMethod::ieee_halve,
+           FastSqrtMethod::newton1,
+           FastSqrtMethod::std_sqrt,
+       })
+  {
+    CAPTURE(enum_name(method));
+
+    const auto flat = lp.flatten({
+        .equilibration_method = LpEquilibrationMethod::ruiz,
+        .fast_sqrt_method = method,
+    });
+    LinearInterface li("", flat);
+    std::ignore = li.initial_solve({});
+    REQUIRE(li.is_optimal());
+
+    const auto sol = li.get_col_sol();
+    REQUIRE(sol.size() == 2);
+    CHECK(sol[0] == doctest::Approx(sol_none[0]).epsilon(1e-4));
+    CHECK(sol[1] == doctest::Approx(sol_none[1]).epsilon(1e-4));
+
+    const auto duals = li.get_row_dual();
+    REQUIRE(duals.size() == 2);
+    CHECK(duals[0] == doctest::Approx(duals_none[0]).epsilon(1e-4));
+    CHECK(duals[1] == doctest::Approx(duals_none[1]).epsilon(1e-4));
+  }
+}

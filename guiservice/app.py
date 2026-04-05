@@ -1276,7 +1276,7 @@ def get_solve_monitor(token):
     """Poll the solver monitor status for a running job.
 
     Proxies to GET /api/jobs/:token/monitor on the webservice which reads
-    the solver JSON status file (sddp_status.json or monolithic_status.json)
+    the solver JSON status file (solver_status.json)
     written by the gtopt binary.
     Returns the parsed JSON or {"available": false} if not yet written.
     """

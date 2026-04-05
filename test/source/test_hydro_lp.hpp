@@ -67,7 +67,7 @@ TEST_CASE("SystemLP with hydro components - junction, waterway, reservoir")
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -156,7 +156,7 @@ TEST_CASE("SystemLP with flow component")
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -257,7 +257,7 @@ TEST_CASE("SystemLP with multi-stage hydro system")
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 2.0,
+          .production_factor = 2.0,
       },
   };
 
@@ -396,7 +396,7 @@ TEST_CASE(  // NOLINT
             .name = "tur1",
             .waterway = Uid {1},
             .generator = Uid {1},
-            .conversion_rate = 2.0,
+            .production_factor = 2.0,
         },
     };
 
@@ -581,7 +581,7 @@ TEST_CASE(  // NOLINT
             .name = "tur1",
             .waterway = Uid {1},
             .generator = Uid {1},
-            .conversion_rate = 2.0,
+            .production_factor = 2.0,
         },
     };
 
@@ -793,7 +793,7 @@ TEST_CASE(  // NOLINT
             .name = "tur1",
             .waterway = Uid {1},
             .generator = Uid {1},
-            .conversion_rate = 2.0,
+            .production_factor = 2.0,
         },
     };
 

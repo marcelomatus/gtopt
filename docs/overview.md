@@ -323,7 +323,7 @@ format, plus validation and visualization utilities:
 | `gtopt_diagram` | Generate network topology and planning diagrams |
 | `gtopt_compare` | Validate gtopt results against pandapower DC OPF |
 | `run_gtopt` | Smart solver wrapper with pre/post-flight checks |
-| `sddp_monitor` | Live SDDP convergence monitoring dashboard |
+| `gtopt_monitor` | Live solver convergence monitoring dashboard |
 | `gtopt_check_json` | Validate JSON planning files |
 | `gtopt_check_lp` | Diagnose infeasible LP files |
 | `gtopt_check_output` | Analyse solver output completeness |

@@ -1034,10 +1034,10 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
-            "conversion_rate",
+            "production_factor",
             _J_SCHED,
             False,
-            "Water-to-power conversion [MW/(m³/s)] (productivity)",
+            "Water-to-power production factor [MW/(m³/s)]",
             1.0,
         ),
         (

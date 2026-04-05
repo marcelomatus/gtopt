@@ -101,11 +101,13 @@ _NON_FILE_FIELDS = frozenset(
         "version",
         "capacity",
         "conversion_rate",
+        "production_factor",
         "efficiency",
         "embalse",
         "source_scenario",
         "probability_factor",
         "energy_scale_mode",
+        "loss_allocation_mode",
     }
 )
 

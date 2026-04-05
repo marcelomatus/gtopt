@@ -144,7 +144,7 @@ auto make_infeasible_middle_phase_planning() -> Planning
       .name = "tur1",
       .waterway = Uid {1},
       .generator = Uid {1},
-      .conversion_rate = 1.0,
+      .production_factor = 1.0,
   }};
 
   Simulation simulation = {
@@ -429,7 +429,7 @@ auto make_deep_backpropagation_planning() -> Planning
       .name = "tur1",
       .waterway = Uid {1},
       .generator = Uid {1},
-      .conversion_rate = 1.0,
+      .production_factor = 1.0,
   }};
 
   Simulation simulation = {

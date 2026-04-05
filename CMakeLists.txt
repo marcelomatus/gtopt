@@ -156,6 +156,14 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND NOT APPLE)
 endif()
 
 # ---- Unity build ----
+# Exclude gtopt_main.cpp from unity batching — it pulls in the full JSON
+# and LP machinery (json_planning.hpp, planning_lp.hpp, etc.) and takes
+# ~209s to compile vs ~30-50s for other files.  Compiling it standalone
+# lets it run in parallel with unity batches instead of blocking one.
+set_source_files_properties(
+  "${CMAKE_CURRENT_SOURCE_DIR}/source/gtopt_main.cpp"
+  PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON
+)
 include(UnityBuild)
 target_enable_unity_build(${PROJECT_NAME})
 

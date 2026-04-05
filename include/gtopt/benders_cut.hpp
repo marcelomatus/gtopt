@@ -79,6 +79,14 @@ struct StateVarLink
   /// Row index of the explicit coupling constraint (row_dual mode only).
   /// Set by propagate_trial_values_row_dual(); unknown_index otherwise.
   RowIndex coupling_row {unknown_index};
+  /// Variable scale factor: physical = LP × var_scale.
+  /// Used by the elastic filter to scale the penalty per LP unit.
+  double var_scale {1.0};
+  /// Per-variable state cost for elastic penalty [$/physical_unit / scale_obj].
+  /// When > 0, overrides the global penalty for this link.
+  /// Pre-divided by scale_objective during link construction for consistency
+  /// with the global penalty (which is also pre-divided by scale_objective).
+  double scost {0.0};
 };
 
 // ─── Elastic relaxation result ──────────────────────────────────────────────
