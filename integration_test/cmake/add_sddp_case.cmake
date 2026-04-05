@@ -9,10 +9,14 @@
 #   e2e_<case_name>_sddp_validate - validate solver_status.json and solution.csv
 
 function(add_sddp_case case_name system_json)
-  cmake_parse_arguments(ARG "" "MAX_ITERATIONS" "ALLOWED_EXIT_CODES" ${ARGN})
+  cmake_parse_arguments(ARG "" "MAX_ITERATIONS;TIMEOUT" "ALLOWED_EXIT_CODES" ${ARGN})
 
   if(NOT DEFINED ARG_MAX_ITERATIONS)
     set(ARG_MAX_ITERATIONS 1)
+  endif()
+
+  if(NOT DEFINED ARG_TIMEOUT)
+    set(ARG_TIMEOUT 300)
   endif()
 
   if(NOT DEFINED ARG_ALLOWED_EXIT_CODES)
@@ -40,7 +44,7 @@ function(add_sddp_case case_name system_json)
     WORKING_DIRECTORY "${case_dir}"
   )
   set_tests_properties(e2e_${case_name}_sddp_solve PROPERTIES
-    TIMEOUT 300
+    TIMEOUT ${ARG_TIMEOUT}
     LABELS "sddp"
   )
 

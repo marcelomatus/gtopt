@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "status": "done",
+  "method": "monolithic",
+  "solver": "mindopt/2.3.0",
+  "elapsed_s": 2.138,
+  "total_scenes": 1,
+  "scenes_done": 1,
+  "scene_times": [2.1168],
+  "realtime": {
+    "timestamps": [0.000, 0.531, 1.052, 1.553, 2.075],
+    "cpu_loads": [16.7, 9.7, 13.5, 11.2, 7.9],
+    "active_workers": [0, 1, 1, 1, 1]
+  }
+}

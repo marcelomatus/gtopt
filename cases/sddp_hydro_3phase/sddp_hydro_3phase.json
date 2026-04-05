@@ -1,5 +1,6 @@
 {
   "options": {
+    "method": "sddp",
     "demand_fail_cost": 1000.0,
     "use_single_bus": true,
     "scale_objective": 1.0,
@@ -167,7 +168,7 @@
         "name": "tur1",
         "waterway": 1,
         "generator": 1,
-        "conversion_rate": 1.0
+        "production_factor": 1.0
       }
     ]
   }
