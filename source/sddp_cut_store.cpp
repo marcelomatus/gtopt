@@ -157,7 +157,7 @@ void SDDPCutStore::forget_first_cuts(int count, PlanningLP& planning_lp)
 
 // ── update_stored_cut_duals ────────────────────────────────────────────────
 
-void SDDPCutStore::update_stored_cut_duals(const PlanningLP& planning_lp)
+void SDDPCutStore::update_stored_cut_duals(PlanningLP& planning_lp)
 {
   const auto phase_map = build_phase_uid_map(planning_lp);
   const auto scene_map = build_scene_uid_map(planning_lp);
@@ -169,8 +169,7 @@ void SDDPCutStore::update_stored_cut_duals(const PlanningLP& planning_lp)
     if (pit == phase_map.end() || sit == scene_map.end()) {
       return;
     }
-    const auto& li =
-        planning_lp.system(sit->second, pit->second).linear_interface();
+    auto& li = planning_lp.system(sit->second, pit->second).linear_interface();
     const auto row_idx = static_cast<std::size_t>(cut.row);
     const auto duals = li.get_row_dual_raw();
     if (row_idx < duals.size()) {

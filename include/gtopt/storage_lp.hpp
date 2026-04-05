@@ -404,13 +404,10 @@ public:
     const auto hour_loss =
         annual_loss.at(stage.uid()).value_or(0.0) / hours_per_year;
 
-    // Physical bounds; will be divided by energy_scale for LP variable bounds.
+    // Physical bounds — stored directly in SparseCol; flatten() converts
+    // to LP units by dividing by col.scale.
     const auto [stage_emax, stage_emin] =
         sc.stage_maxmin_at(stage, emax, emin, stage_capacity);
-
-    // LP variable bounds in scaled units.
-    const double lp_emax = stage_emax / energy_scale;
-    const double lp_emin = stage_emin / energy_scale;
 
     // Determine the initial-energy column (vicol / eini):
     //
@@ -441,8 +438,8 @@ public:
       // eini bounds are in LP (scaled) units.
       eicol = lp.add_col({
           .name = sc.state_col_label(scenario, stage, cname, "eini", uid()),
-          .lowb = storage().eini.value_or(stage_emin) / energy_scale,
-          .uppb = storage().eini.value_or(stage_emax) / energy_scale,
+          .lowb = storage().eini.value_or(stage_emin),
+          .uppb = storage().eini.value_or(stage_emax),
           .scale = energy_scale,
       });
     } else if (prev_phase == nullptr) {
@@ -457,8 +454,8 @@ public:
       // variables propagated by the forward pass.
       eicol = lp.add_col({
           .name = sc.state_col_label(scenario, stage, cname, "sini", uid()),
-          .lowb = lp_emin,
-          .uppb = lp_emax,
+          .lowb = stage_emin,
+          .uppb = stage_emax,
           .scale = energy_scale,
       });
       if (effective_usv && !opts.skip_state_link) {
@@ -523,8 +520,8 @@ public:
       //   last block (is_last_block) of the last stage.
       const auto ec = lp.add_col({
           .name = erow.name,
-          .lowb = lp_emin,
-          .uppb = lp_emax,
+          .lowb = stage_emin,
+          .uppb = stage_emax,
           .cost = stage_ecost,
           .scale = energy_scale,
       });
@@ -572,7 +569,7 @@ public:
             .name =
                 sc.lp_col_label(scenario, stage, block, cname, "drain", uid()),
             .lowb = 0,
-            .uppb = drain_capacity.value_or(LinearProblem::DblMax) / flow_scale,
+            .uppb = drain_capacity.value_or(LinearProblem::DblMax),
             .cost = sc.block_ecost(scenario, stage, block, *drain_cost)
                 * flow_scale,
             .scale = flow_scale,

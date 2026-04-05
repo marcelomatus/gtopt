@@ -66,8 +66,8 @@ auto SDDPMethod::feasibility_backpropagate(SceneIndex scene,
           const auto& dep_sol = elastic_result->clone.get_col_sol_raw();
           for (const auto& link : prev_state.outgoing_links) {
             const double feasible_val = dep_sol[link.dependent_col];
-            prev_li.set_col_low(link.source_col, feasible_val);
-            prev_li.set_col_upp(link.source_col, feasible_val);
+            prev_li.set_col_low_raw(link.source_col, feasible_val);
+            prev_li.set_col_upp_raw(link.source_col, feasible_val);
           }
           SPDLOG_TRACE(
               "SDDP backward (BackpropagateBounds): scene {} phase {} "

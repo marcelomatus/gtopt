@@ -333,10 +333,17 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   std::vector<double> rowub(nrows);
 
   for (const auto& [i, row] : std::views::enumerate(rows)) {
-    rowlb[i] = row.lowb;
-    rowub[i] = row.uppb;
+    const auto rs = row.scale;
+    const auto inv_rs = (rs != 1.0) ? 1.0 / rs : 1.0;
+    rowlb[i] = (rs != 1.0 && row.lowb > -m_infinity_ && row.lowb < m_infinity_)
+        ? row.lowb * inv_rs
+        : row.lowb;
+    rowub[i] = (rs != 1.0 && row.uppb > -m_infinity_ && row.uppb < m_infinity_)
+        ? row.uppb * inv_rs
+        : row.uppb;
 
-    for (const auto& [j, v] : row.cmap) {
+    for (const auto& [j, v_raw] : row.cmap) {
+      const auto v = v_raw * inv_rs;
       if (eps < 0 || std::abs(v) > eps) [[likely]] {
         const auto c = static_cast<size_t>(j);
         const auto pos = static_cast<size_t>(colpos[c]);
@@ -382,8 +389,16 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   colint.reserve(colints);
 
   for (const auto& [i, col] : std::views::enumerate(cols)) {
-    collb[i] = col.lowb;
-    colub[i] = col.uppb;
+    // SparseCol bounds are physical; convert to LP units by dividing
+    // by the column scale factor.  Infinite bounds are preserved as-is
+    // (IEEE 754 guarantees inf / finite = inf, but we skip the division
+    // for clarity and to avoid -inf / negative-scale sign issues).
+    const auto s = col.scale;
+    const auto inf = m_infinity_;
+    collb[i] = (s != 1.0 && col.lowb > -inf && col.lowb < inf) ? col.lowb / s
+                                                               : col.lowb;
+    colub[i] = (s != 1.0 && col.uppb > -inf && col.uppb < inf) ? col.uppb / s
+                                                               : col.uppb;
     objval[i] = col.cost;
     col_scales[i] = col.scale;
 
@@ -487,6 +502,31 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
                                         col_scales,
                                         m_infinity_,
                                         sqrt_method);
+  }
+
+  // Compose SparseRow scales with equilibration scales.
+  // Total row_scale = sparserow_scale × equilibration_scale, so that
+  //   dual_physical = dual_LP / total_row_scale.
+  // When equilibration is disabled (row_scales_vec empty) but some rows
+  // have non-unit SparseRow::scale, build the vector from those scales.
+  {
+    bool has_row_scale = false;
+    for (const auto& row : rows) {
+      if (row.scale != 1.0) {
+        has_row_scale = true;
+        break;
+      }
+    }
+    if (has_row_scale) {
+      if (row_scales_vec.empty()) {
+        row_scales_vec.resize(nrows, 1.0);
+      }
+      for (const auto& [i, row] : std::views::enumerate(rows)) {
+        if (row.scale != 1.0) {
+          row_scales_vec[static_cast<size_t>(i)] *= row.scale;
+        }
+      }
+    }
   }
 
   if (!row_scales_vec.empty() && do_stats) {

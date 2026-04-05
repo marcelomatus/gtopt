@@ -852,6 +852,9 @@ void CplexSolverBackend::apply_options(const SolverOptions& opts)
       if (const auto beps = opts.barrier_eps; beps && *beps > 0) {
         CPXsetdblparam(m_env_, CPX_PARAM_BAREPCOMP, *beps);
       }
+      // Crossover: primal (benchmark optimal) or none (forward training).
+      CPXsetintparam(
+          m_env_, CPX_PARAM_BARCROSSALG, opts.crossover ? 1 : CPX_ALG_NONE);
       break;
     case LPAlgo::last_algo:
       break;

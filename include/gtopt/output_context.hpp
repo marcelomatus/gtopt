@@ -60,7 +60,7 @@ public:
   using FieldVectorMap = std::map<ClassFieldName, FieldVector<Type>>;
 
   explicit OutputContext(const SystemContext& psc,
-                         const LinearInterface& linear_interface,
+                         LinearInterface& linear_interface,
                          SceneUid scene_uid = SceneUid {0},
                          PhaseUid phase_uid = PhaseUid {0});
 

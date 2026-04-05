@@ -53,9 +53,10 @@ struct SparseRow
   using size_type = cmap_t::size_type;
 
   std::string name;  ///< Row/constraint name
-  double lowb {0};  ///< Lower bound (default: 0)
-  double uppb {0};  ///< Upper bound (default: 0)
-  cmap_t cmap {};  ///< Sparse coefficient map
+  double lowb {0};  ///< Physical lower bound (default: 0)
+  double uppb {0};  ///< Physical upper bound (default: 0)
+  cmap_t cmap {};  ///< Sparse coefficient map (physical values)
+  double scale {1.0};  ///< Row scale: LP = physical / scale (default: 1.0)
 
   /**
    * Sets both lower and upper bounds for the constraint

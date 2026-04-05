@@ -335,7 +335,7 @@ public:
   /**
    * @brief Write output for all linear interfaces
    */
-  void write_out() const;
+  void write_out();
 
   [[nodiscard]] constexpr const auto& phase() const noexcept
   {

@@ -132,7 +132,7 @@ public:
   /**
    * @brief Writes solution output (implementation-defined destination)
    */
-  void write_out() const;
+  void write_out();
 
   // ── SDDP solve summary ──────────────────────────────────────────────────
 

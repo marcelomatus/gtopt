@@ -164,7 +164,9 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
     const auto sa = m_options_.scale_alpha;
     const auto ceps = m_options_.cut_coeff_eps;
     const auto cmax = m_options_.cut_coeff_max;
-    auto fallback_cut = (coeff_mode == CutCoeffMode::row_dual)
+    const bool use_row_duals = coeff_mode == CutCoeffMode::row_dual
+        && !target_state.forward_row_dual.empty();
+    auto fallback_cut = use_row_duals
         ? build_benders_cut_from_row_duals(
               src_state.alpha_col,
               src_state.outgoing_links,
@@ -467,7 +469,9 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene,
       const auto sa = m_options_.scale_alpha;
       const auto ceps = m_options_.cut_coeff_eps;
       const auto cmax2 = m_options_.cut_coeff_max;
-      auto fallback_cut = (coeff_mode2 == CutCoeffMode::row_dual)
+      const bool use_row_duals2 = coeff_mode2 == CutCoeffMode::row_dual
+          && !target_state.forward_row_dual.empty();
+      auto fallback_cut = use_row_duals2
           ? build_benders_cut_from_row_duals(
                 src_state.alpha_col,
                 src_state.outgoing_links,

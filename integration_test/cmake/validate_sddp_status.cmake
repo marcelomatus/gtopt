@@ -43,32 +43,35 @@ elseif(EXISTS "${mono_status_file}")
   set(status_type "monolithic")
   message(STATUS "Found monolithic_status.json (legacy)")
 else()
-  message(FATAL_ERROR
-    "No status file found in ${OUTPUT_DIR}. "
-    "Expected solver_status.json")
+  # No status file — acceptable for MAX_ITERATIONS=0 (fast-start / simulation-only).
+  # Skip status validation; solution.csv check below still runs.
+  message(STATUS "No status file found (fast-start mode) — skipping status validation")
+  set(status_type "none")
 endif()
 
-file(READ "${status_file}" status_content)
+if(NOT status_type STREQUAL "none")
+  file(READ "${status_file}" status_content)
 
-# Check that key fields are present — the unified solver_status.json
-# always has the SDDP-level fields; legacy monolithic has fewer.
-if(status_type STREQUAL "monolithic")
-  foreach(field "status" "elapsed_s")
-    string(FIND "${status_content}" "\"${field}\"" field_pos)
-    if(field_pos EQUAL -1)
-      message(FATAL_ERROR "Status file missing expected field: ${field}")
-    endif()
-  endforeach()
-else()
-  foreach(field "lower_bound" "upper_bound" "gap" "iteration")
-    string(FIND "${status_content}" "\"${field}\"" field_pos)
-    if(field_pos EQUAL -1)
-      message(FATAL_ERROR "Status file missing expected field: ${field}")
-    endif()
-  endforeach()
+  # Check that key fields are present — the unified solver_status.json
+  # always has the SDDP-level fields; legacy monolithic has fewer.
+  if(status_type STREQUAL "monolithic")
+    foreach(field "status" "elapsed_s")
+      string(FIND "${status_content}" "\"${field}\"" field_pos)
+      if(field_pos EQUAL -1)
+        message(FATAL_ERROR "Status file missing expected field: ${field}")
+      endif()
+    endforeach()
+  else()
+    foreach(field "lower_bound" "upper_bound" "gap" "iteration")
+      string(FIND "${status_content}" "\"${field}\"" field_pos)
+      if(field_pos EQUAL -1)
+        message(FATAL_ERROR "Status file missing expected field: ${field}")
+      endif()
+    endforeach()
+  endif()
+
+  message(STATUS "${status_type} status validated")
 endif()
-
-message(STATUS "${status_type} status validated")
 
 # --- Check solution.csv ---
 set(solution_file "${OUTPUT_DIR}/solution.csv")

@@ -81,6 +81,31 @@ struct SolverOptions
    */
   std::optional<SolverScaling> scaling {};
 
+  /** @brief Controls barrier crossover (internal, not user-visible).
+   *
+   *  Crossover converts the interior-point solution into a basic feasible
+   *  solution, producing exact dual values (row prices / reduced costs).
+   *
+   *  The SDDP forward pass sets crossover=false for speed.  When the
+   *  backward pass needs forward-pass duals (no-aperture Benders cuts),
+   *  LinearInterface::ensure_duals() lazily triggers crossover on demand
+   *  by checking SolverBackend::has_duals() and re-solving if needed.
+   *  CLP/CBC always produce duals (simplex), so no re-solve occurs.
+   *
+   *  The elastic filter clone solve also disables crossover (never needs
+   *  duals).
+   *
+   *  Only meaningful when algorithm == barrier.  Simplex methods always
+   *  produce duals by construction.
+   *
+   *  Backend mapping:
+   *  - CPLEX: true → `BARCROSSALG=1` (primal), false → `BARCROSSALG=-1`
+   *  - HiGHS: false → `run_crossover="off"`
+   *  - MindOpt: true → `SolutionTarget=0`, false → `SolutionTarget=2`
+   *  - CLP: ignored (CLP barrier always does crossover)
+   */
+  bool crossover {true};
+
   /** @brief Maximum algorithm fallback attempts on non-optimal solve.
    *
    *  When a solve returns non-optimal, the solver cycles through

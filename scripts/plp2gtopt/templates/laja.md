@@ -12,6 +12,25 @@
 > Code blocks are tagged with `{language} {filename} [section]` in the
 > fenced-block info string.  The parser concatenates blocks by filename
 > and assembles them into the target template files.
+>
+> ### Template Syntax
+>
+> The embedded code blocks use two templating conventions:
+>
+> | Syntax | Engine | Meaning | Example |
+> |--------|--------|---------|---------|
+> | `{{ var }}` | Jinja2 | Substitute a scalar value | `param vol_max = {{ vol_max }};` |
+> | `{{ list \| join(', ') }}` | Jinja2 | Expand a Python list into a comma-separated string | `[{{ costs \| join(', ') }}]` → `[1.0, 2.0, 3.0]` |
+> | `{{ var \| default(0.0) }}` | Jinja2 | Substitute with a fallback if the variable is undefined | `{{ ini_econ \| default(0.0) }}` → `0.0` |
+> | `{% for x in xs %} ... {% endfor %}` | Jinja2 | Loop over a list, emitting one block per element | Zone parameter declarations |
+> | `@var@` | TSON | Substitute a value in JSON template blocks | `"emax": @max_irr@` |
+> | `@% if cond %@ ... @% endif %@` | TSON | Conditional inclusion in JSON blocks | Omit `use_value` when not set |
+> | `@% for x in xs %@ ... @% endfor %@` | TSON | Loop in JSON blocks | Emit district FlowRight entries |
+>
+> **Jinja2** (`{{ }}`, `{% %}`) is used in `.tampl` (PAMPL) blocks.
+> **TSON** (`@ @`, `@% %@`) is used in `.tson` (JSON) blocks — same
+> semantics as Jinja2 but with `@` delimiters to avoid conflicts with
+> JSON braces.
 
 ## Overview
 
@@ -274,28 +293,30 @@ The reservoir volume is divided into 4 zones (PLP "Colchones") from dead
 volume upward, each with different allocation factors for irrigation,
 electric, and mixed rights.
 
-```
-  VolMax = 5,582 hm3
-  +---------------------------+
-  |  Zone 4  (3,682 hm3)     |  segment[3]: V >= 1900
-  |  Irr +0.25/hm3           |  slope=0.25, const=375
-  |  Elec +0.65/hm3          |
-  +-- 1,900 hm3 -------------+
-  |  Zone 3  (530 hm3)       |  segment[2]: V >= 1370
-  |  Irr +0.40/hm3           |  slope=0.40, const=90
-  |  Elec +0.40/hm3          |
-  +-- 1,370 hm3 -------------+
-  |  Zone 2  (170 hm3)       |  segment[1]: V >= 1200
-  |  Irr +0.40/hm3           |  slope=0.40, const=90
-  |  Elec +0.05/hm3          |
-  +-- 1,200 hm3 -------------+
-  |  Zone 1  (1,200 hm3)     |  segment[0]: V >= 0
-  |  Irr +0.00/hm3 (flat)    |  slope=0.00, const=570
-  |  Elec +0.05/hm3          |  (Irr = 570 regardless of V)
-  |  Mixed +1.00/hm3         |
-  +-- VolMuerto = 0 ---------+
-  Base: Irr=570, Elec=0, Mixed=30
-  Caps: Irr=5000, Elec=1200, Mixed=30
+| Zone | Volume Range | Width | Irr Factor | Elec Factor | Mixed Factor | Segment |
+|------|-------------|-------|------------|-------------|--------------|---------|
+| **Zone 4** | 1,900 — 5,582 hm³ | 3,682 hm³ | +0.25/hm³ | +0.65/hm³ | — | seg\[3\]: V≥1900, slope=0.25, const=375 |
+| **Zone 3** | 1,370 — 1,900 hm³ | 530 hm³ | +0.40/hm³ | +0.40/hm³ | — | seg\[2\]: V≥1370, slope=0.40, const=90 |
+| **Zone 2** | 1,200 — 1,370 hm³ | 170 hm³ | +0.40/hm³ | +0.05/hm³ | — | seg\[1\]: V≥1200, slope=0.40, const=90 |
+| **Zone 1** | 0 — 1,200 hm³ | 1,200 hm³ | +0.00 (flat) | +0.05/hm³ | +1.00/hm³ | seg\[0\]: V≥0, slope=0.00, const=570 |
+
+**Base rights**: Irr=570, Elec=0, Mixed=30 hm³/year —
+**Caps**: Irr=5,000, Elec=1,200, Mixed=30 hm³/year
+
+```mermaid
+graph TD
+    Z4["🔵 <b>Zone 4</b><br/>1,900 — 5,582 hm³ (3,682 hm³)<br/>Irr +0.25 · Elec +0.65"]
+    Z4 -->|"1,900 hm³"| Z3
+    Z3["🟢 <b>Zone 3</b><br/>1,370 — 1,900 hm³ (530 hm³)<br/>Irr +0.40 · Elec +0.40"]
+    Z3 -->|"1,370 hm³"| Z2
+    Z2["🟡 <b>Zone 2</b><br/>1,200 — 1,370 hm³ (170 hm³)<br/>Irr +0.40 · Elec +0.05"]
+    Z2 -->|"1,200 hm³"| Z1
+    Z1["🟠 <b>Zone 1</b><br/>0 — 1,200 hm³ (1,200 hm³)<br/>Irr +0.00 (flat=570) · Elec +0.05 · Mixed +1.00"]
+
+    style Z4 fill:#4a90d9,color:#fff
+    style Z3 fill:#5cb85c,color:#fff
+    style Z2 fill:#f0ad4e,color:#000
+    style Z1 fill:#e67e22,color:#fff
 ```
 
 The converter (`_zones_to_bound_rule_segments`) transforms the PLP zone
@@ -427,6 +448,12 @@ param cost_irr_uso = {{ cost_irr_uso }};
 # Irrigation season: typically Sep-Mar (hydrological months 6-12 and 1)
 param irr_usage[month] = [{{ monthly_usage_irr | join(', ') }}];
 ```
+
+The TSON block below defines the irrigation FlowRight.  `@var@`
+placeholders are substituted with computed values at rendering time.
+The `@% if use_value_irr is not none %@` conditional includes the
+`use_value` field only when `cost_irr_uso > 0` — otherwise the field
+is omitted entirely from the generated JSON.
 
 ```json laja.tson flow_right
 {
@@ -640,6 +667,13 @@ param seasonal_2o_reg[month] = [{{ seasonal_2o_reg | join(', ') }}];
 param seasonal_emergencia[month] = [{{ seasonal_emergencia | join(', ') }}];
 param seasonal_saltos[month] = [{{ seasonal_saltos | join(', ') }}];
 ```
+
+The following TSON block uses `@% for fr in district_flow_rights %@`
+to loop over pre-computed FlowRight JSON objects (one per
+district-category combination).  The `district_flow_rights` list is
+built by `laja_writer._compute_district_flow_rights()`, which combines
+district percentages, base demands, seasonal factors, and cost
+modulation into complete FlowRight entries.
 
 ```json laja.tson flow_right
 @% for fr in district_flow_rights %@
@@ -896,6 +930,11 @@ accumulated volume already extracted in the current hydrological year
 constants — they change between runs depending on the simulation start date
 and preceding operational history.
 
+The economy accumulators use `{{ var | default(0.0) }}` — the Jinja2
+`default` filter provides a fallback value of `0.0` when the variable
+is not present in the input data (e.g., older `plplajam.dat` files that
+predate economy tracking).
+
 ```pampl laja_agreement.tampl
 # ---------------------------------------------------------------------------
 # Initial-state parameters [hm3]
@@ -937,6 +976,12 @@ The expression uses `flow_right().flow` which references the per-block
 extraction flow columns (not the `qeh` hourly averages).  The balance is
 enforced per-block.
 
+The `@expression_partition@` placeholder is replaced at rendering time
+with the full AMPL-style expression string (e.g.,
+`"flow_right('laja_q_turbinado').flow - flow_right('laja_der_riego').flow - ... = 0"`).
+It is pre-built in Python rather than inlined here because it references
+all four rights FlowRight names dynamically.
+
 ```json laja.tson user_constraint
 {
   "name": "laja_particion_derechos",
@@ -948,8 +993,23 @@ enforced per-block.
 
 ## Cost Arrays
 
-Monthly cost modulation arrays for fail_cost and use_value on the various
-rights categories.
+Monthly cost modulation arrays for `fail_cost` and `use_value` on the
+various rights categories.  Each array has 12 values corresponding to
+the hydrological year (Apr=1 through Mar=12).
+
+The `{{ list | join(', ') }}` syntax expands a Python list into a
+comma-separated string at template rendering time.  For example, if
+`monthly_cost_irr_ns = [1100, 0, 0, 0, 0, 1100, 1100, ...]`, the
+rendered output becomes:
+`param monthly_cost_irr_ns[month] = [1100, 0, 0, 0, 0, 1100, 1100, ...];`
+
+| Array | Applied to | Purpose |
+|-------|-----------|---------|
+| `monthly_cost_irr_ns` | `laja_der_riego.fail_cost` | Penalty for unserved irrigation demand |
+| `monthly_cost_irr` | `laja_der_riego.use_value` | Benefit of irrigation usage |
+| `monthly_cost_elec` | `laja_der_electrico.fail_cost` | Penalty for unserved electrical demand |
+| `monthly_cost_mixed` | `laja_der_mixto.use_value` | Steering cost for mixed rights usage |
+| `monthly_cost_anticipated` | `laja_gasto_anticipado.fail_cost` | Penalty for unserved anticipated discharge |
 
 ```pampl laja_agreement.tampl
 # ---------------------------------------------------------------------------
@@ -964,16 +1024,16 @@ param monthly_cost_anticipated[month] = [{{ monthly_cost_anticipated | join(', '
 ```
 
 
-## Filtration
+## Filtracion Laja
 
 Natural seepage from the reservoir, a constant loss term.
 
 ```pampl laja_agreement.tampl
 # ---------------------------------------------------------------------------
-# Filtration (natural seepage from reservoir) [m3/s]
+# Filtracion Laja (natural seepage from reservoir) [m3/s]
 # ---------------------------------------------------------------------------
 
-param filtration = {{ filtration }};
+param filtracion_laja = {{ filtracion_laja }};
 
 # =============================================================================
 # End of Laja Agreement Parameters

@@ -406,8 +406,10 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
 
           if (save_result.has_value()) {
             const LabelMaker label_maker(current_lp->options());
+            const auto sa =
+                effective_scale_alpha(*current_lp, level_opts.scale_alpha);
             auto load_result =
-                load_cuts_csv(*current_lp, tmp_path.string(), label_maker);
+                load_cuts_csv(*current_lp, tmp_path.string(), sa, label_maker);
 
             if (load_result.has_value()) {
               inherited_cut_count = load_result->count;

@@ -144,4 +144,60 @@ else
   echo ""
 fi
 
+# ---------------------------------------------------------------------------
+# MindOpt benchmark
+# ---------------------------------------------------------------------------
+MINDOPT_HOME="${MINDOPT_HOME:-$HOME/mindopt/2.3.0/linux64-x86}"
+MINDOPT_BIN="$MINDOPT_HOME/bin/mindopt"
+
+run_mindopt() {
+  local label="$1"
+  shift
+  local params=("$@")
+  echo "=== MindOpt: $label ==="
+  for run in $(seq 1 "$RUNS"); do
+    local start end elapsed_ms result
+    start=$(date +%s%N)
+    result=$(LD_LIBRARY_PATH="$MINDOPT_HOME/lib:${LD_LIBRARY_PATH:-}" \
+      $MINDOPT_BIN "$LP" "${params[@]}" 2>&1) || true
+    end=$(date +%s%N)
+    elapsed_ms=$(( (end - start) / 1000000 ))
+    obj=$(echo "$result" | grep -oP 'Objective\s+:\s+\K[\S]+' | tail -1)
+    iters=$(echo "$result" | grep -oP 'Num\. iterations\s+:\s+\K[\d]+' || echo "N/A")
+    status=$(echo "$result" | grep -oP 'Optimizer status\s+:\s+\K\S+' || echo "N/A")
+    echo "  run$run: ${elapsed_ms}ms | iters=$iters | obj=$obj | $status"
+  done
+}
+
+if [[ -x "$MINDOPT_BIN" ]]; then
+  echo "## MindOpt Benchmark"
+  echo ""
+
+  # Method comparison
+  run_mindopt "AUTO (Method=-1, 4t)" Method=-1 NumThreads=4
+  run_mindopt "DUAL SIMPLEX (Method=1, 4t)" Method=1 NumThreads=4
+  run_mindopt "PRIMAL SIMPLEX (Method=0, 4t)" Method=0 NumThreads=4
+  run_mindopt "BARRIER (Method=2, 4t)" Method=2 NumThreads=4
+
+  # Best variants
+  run_mindopt "barrier, PostScaling=0" Method=2 NumThreads=4 PostScaling=0
+  run_mindopt "barrier, IPM/GapTol=1e-10" Method=2 NumThreads=4 IPM/GapTolerance=1e-10
+
+  # Thread sweep with barrier
+  for t in 1 2 4 8; do
+    run_mindopt "barrier, threads=$t" Method=2 NumThreads=$t
+  done
+
+  # Presolve
+  run_mindopt "barrier, presolve=off" Method=2 NumThreads=4 Presolve=0
+
+  # Dualization
+  run_mindopt "barrier, dualization=on" Method=2 NumThreads=4 Dualization=1
+
+  echo ""
+else
+  echo "## MindOpt: not found at $MINDOPT_BIN — skipping"
+  echo ""
+fi
+
 echo "# Benchmark complete."

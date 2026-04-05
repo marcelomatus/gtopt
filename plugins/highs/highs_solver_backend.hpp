@@ -109,7 +109,6 @@ public:
   [[nodiscard]] bool is_abandoned() const override;
   [[nodiscard]] bool is_proven_primal_infeasible() const override;
   [[nodiscard]] bool is_proven_dual_infeasible() const override;
-
   // ---- options ----
   void apply_options(const SolverOptions& opts) override;
   [[nodiscard]] SolverOptions optimal_options() const override;
@@ -144,7 +143,6 @@ private:
   int m_threads_ {0};
   bool m_presolve_ {true};
   int m_log_level_ {0};
-
   // Cached solution vectors (HiGHS returns by reference, we store copies)
   mutable std::vector<double> m_col_solution_;
   mutable std::vector<double> m_col_dual_;

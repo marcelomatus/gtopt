@@ -427,7 +427,7 @@ void OutputContext::write() const
 }
 
 OutputContext::OutputContext(const SystemContext& psc,
-                             const LinearInterface& linear_interface,
+                             LinearInterface& linear_interface,
                              SceneUid scene_uid,
                              PhaseUid phase_uid)
     : sc(psc)

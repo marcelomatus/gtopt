@@ -421,7 +421,7 @@ SystemLP::SystemLP(const System& system,
   create_lp(flat_opts);
 }
 
-void SystemLP::write_out() const
+void SystemLP::write_out()
 {
   OutputContext oc(
       system_context(), linear_interface(), scene().uid(), phase().uid());

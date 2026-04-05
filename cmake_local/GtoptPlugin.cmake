@@ -116,9 +116,14 @@ endfunction()
 gtopt_require_solver_plugins(<target>)
 
 Add build dependencies from ``<target>`` to all available solver plugin
-targets.  This ensures plugins are rebuilt before the target runs — a
-stale plugin with an incompatible SolverBackend ABI would crash at
-runtime.  Safe to call even if some plugin targets don't exist.
+targets and create a symlink so ``<exe_dir>/plugins`` always points to
+the freshly-built plugins in ``${CMAKE_BINARY_DIR}/plugins``.
+
+This ensures:
+1. Plugins are rebuilt before the target runs (ABI safety).
+2. The binary always loads the development plugins, not stale copies.
+
+Safe to call even if some plugin targets don't exist.
 
 Usage::
 
@@ -126,9 +131,34 @@ Usage::
 
 #]=======================================================================]
 function(gtopt_require_solver_plugins _target)
-  foreach(_plugin gtopt_solver_osi gtopt_solver_cplex gtopt_solver_highs)
+  foreach(_plugin
+      gtopt_solver_osi gtopt_solver_cplex gtopt_solver_highs
+      gtopt_solver_mindopt)
     if(TARGET ${_plugin})
       add_dependencies(${_target} ${_plugin})
     endif()
   endforeach()
+
+  # Symlink <exe_dir>/plugins → <build_root>/plugins so the binary
+  # always finds freshly-built plugins regardless of build layout.
+  # Only possible when the target was defined in this directory scope
+  # (CMake requires add_custom_command(TARGET ...) to be in the same dir).
+  get_target_property(_target_dir ${_target} SOURCE_DIR)
+  if(_target_dir STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    set(_plugin_src "${CMAKE_BINARY_DIR}/plugins")
+    get_target_property(_exe_dir ${_target} RUNTIME_OUTPUT_DIRECTORY)
+    if(NOT _exe_dir)
+      set(_exe_dir "${CMAKE_CURRENT_BINARY_DIR}")
+    endif()
+    set(_plugin_link "${_exe_dir}/plugins")
+    if(NOT _plugin_src STREQUAL _plugin_link)
+      add_custom_command(TARGET ${_target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E rm -rf "${_plugin_link}"
+        COMMAND ${CMAKE_COMMAND} -E create_symlink
+                "${_plugin_src}" "${_plugin_link}"
+        COMMENT "Symlinking plugins: ${_plugin_link} -> ${_plugin_src}"
+        VERBATIM
+      )
+    endif()
+  endif()
 endfunction()

@@ -261,8 +261,8 @@ class TestLajaParser:
         assert districts[2]["injection"] == "LAJA_I"
         assert districts[2]["pct_saltos"] == pytest.approx(1.0)
 
-    def test_filtration(self, laja_config):
-        assert laja_config["filtration"] == pytest.approx(47.0)
+    def test_filtracion_laja(self, laja_config):
+        assert laja_config["filtracion_laja"] == pytest.approx(47.0)
 
     def test_default_demands(self, laja_config):
         assert laja_config["demand_1o_reg"] == pytest.approx(90)
@@ -409,7 +409,7 @@ class TestLajaParser:
             "ini_mixed",
             "ini_anticipated",
             "districts",
-            "filtration",
+            "filtracion_laja",
             "demand_1o_reg",
             "demand_2o_reg",
             "demand_emergencia",
@@ -813,7 +813,7 @@ def _minimal_laja_config():
         "ini_elec": 50,
         "ini_mixed": 0,
         "ini_anticipated": 0,
-        "filtration": 10.0,
+        "filtracion_laja": 10.0,
         "districts": [
             {
                 "name": "D1",
@@ -884,7 +884,7 @@ class TestLajaPamplGeneration:
         assert "param elec_base = 0" in content
         assert "param vol_muerto = 0.0" in content
         assert "param vol_max = 1000.0" in content
-        assert "param filtration = 10.0" in content
+        assert "param filtracion_laja = 10.0" in content
 
     def test_generate_pampl_contains_monthly_arrays(self, tmp_path):
         cfg = _minimal_laja_config()

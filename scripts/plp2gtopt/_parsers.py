@@ -488,17 +488,6 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
         ),
     )
     parser.add_argument(
-        "--scale-alpha",
-        dest="scale_alpha",
-        type=float,
-        metavar="FACTOR",
-        default=float(conf.get("scale_alpha", "10000000.0")),
-        help=(
-            "SDDP future-cost (alpha/varphi) scaling factor. "
-            "Matches PLP's ScalePhi when PLP_SCALE_MODE=si (default: %(default)s)"
-        ),
-    )
-    parser.add_argument(
         "-b",
         "--use-single-bus",
         dest="use_single_bus",

@@ -242,7 +242,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
       // The original LP remains unmodified (PLP clone pattern).
       auto elastic_result = elastic_solve(scene, phase, opts);
       if (elastic_result.has_value()) {
-        const LinearInterface& solved_li = elastic_result->clone;
+        auto& solved_li = elastic_result->clone;
         m_phase_grid_.record(static_cast<int>(iteration),
                              static_cast<int>(scene_uid(scene)),
                              static_cast<int>(phase_uid(phase)),
@@ -259,13 +259,17 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
         const auto rc = solved_li.get_col_cost_raw();
         state.forward_col_cost.assign(rc.begin(), rc.end());
 
-        // Save primal/dual solution for aperture warm-start (pre-padded
+        // Save primal solution for aperture warm-start (pre-padded
         // so set_warm_start_solution can use a subspan without allocation).
+        // Duals are NOT cached from the elastic clone — the clone's LP is
+        // modified (relaxed bounds + slack variables), so its duals don't
+        // represent the original problem's shadow prices.  The backward
+        // pass detects empty forward_row_dual and falls back to reduced-
+        // cost-based cuts.
         const auto n_links = state.outgoing_links.size();
         assign_padded(
             state.forward_col_sol, solved_li.get_col_sol_raw(), n_links);
-        assign_padded(
-            state.forward_row_dual, solved_li.get_row_dual_raw(), 2 * n_links);
+        state.forward_row_dual.clear();
 
         const auto sa = m_options_.scale_alpha;
         const auto alpha_val = (state.alpha_col != ColIndex {unknown_index})

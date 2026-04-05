@@ -159,14 +159,12 @@ int ReservoirSeepageLP::update_lp(SystemLP& sys,
   }
 
   int total = 0;
-  const auto es = li.get_col_scale(state.eini_col);
-  const auto new_lp_slope = new_slope * es;
   const auto& frows = seepage_rows.at(st_key);
 
   for (const auto& [buid, row] : frows) {
     if (new_slope != state.current_slope) {
-      li.set_coeff(row, state.eini_col, -new_lp_slope * 0.5);
-      li.set_coeff(row, state.efin_col, -new_lp_slope * 0.5);
+      li.set_coeff(row, state.eini_col, -new_slope * 0.5);
+      li.set_coeff(row, state.efin_col, -new_slope * 0.5);
     }
     if (new_rhs != state.current_rhs) {
       li.set_rhs(row, new_rhs);

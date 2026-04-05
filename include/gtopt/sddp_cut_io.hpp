@@ -52,6 +52,13 @@ class PlanningLP;
 [[nodiscard]] auto build_scene_uid_map(const PlanningLP& planning_lp)
     -> flat_map<SceneUid, SceneIndex>;
 
+// ─── Scale helpers ─────────────────────────────────────────────────────────
+
+/// Compute the effective scale_alpha: if the option is > 0 use it,
+/// otherwise auto-compute as max(var_scale) across all state variables.
+[[nodiscard]] auto effective_scale_alpha(const PlanningLP& planning_lp,
+                                         double option_scale_alpha) -> double;
+
 // ─── Save functions ─────────────────────────────────────────────────────────
 
 /// Save accumulated cuts to a CSV file for hot-start.
@@ -99,6 +106,7 @@ class PlanningLP;
 /// @return CutLoadResult with count and max iteration, or an error
 [[nodiscard]] auto load_cuts_csv(PlanningLP& planning_lp,
                                  const std::string& filepath,
+                                 double scale_alpha,
                                  const LabelMaker& label_maker)
     -> std::expected<CutLoadResult, Error>;
 
@@ -110,10 +118,12 @@ class PlanningLP;
 ///
 /// @param planning_lp   The PlanningLP to add cuts to
 /// @param directory     Directory containing cut CSV files
+/// @param scale_alpha   Actual scale_alpha (computed from state var scales)
 /// @param label_maker   Label maker for LP row names
 /// @return CutLoadResult with total count and max iteration, or an error
 [[nodiscard]] auto load_scene_cuts_from_directory(PlanningLP& planning_lp,
                                                   const std::string& directory,
+                                                  double scale_alpha,
                                                   const LabelMaker& label_maker)
     -> std::expected<CutLoadResult, Error>;
 
