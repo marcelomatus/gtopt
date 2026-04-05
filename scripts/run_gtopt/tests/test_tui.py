@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from run_gtopt._tui import (
+    SDDPGridTracker,
     SolverDisplay,
     SolverPhaseTracker,
     _build_command_bar,
@@ -17,6 +18,7 @@ from run_gtopt._tui import (
     _build_log,
     _build_plan_panel,
     _build_progress,
+    _build_sddp_grid,
     _build_stats,
     _build_stats_overlay,
     _build_system,
@@ -26,6 +28,12 @@ from run_gtopt._tui import (
     _find_status_file,
     _format_elapsed,
     _format_number,
+    _GRID_APERTURE,
+    _GRID_BACKWARD,
+    _GRID_ELASTIC,
+    _GRID_FORWARD,
+    _GRID_IDLE,
+    _GRID_INFEASIBLE,
     _load_status,
     _load_system_stats,
     _poll_key,
@@ -828,3 +836,167 @@ def test_add_log_line_feeds_tracker(tmp_path: Path):
     display = SolverDisplay(case_name="test", case_dir=tmp_path)
     display.add_log_line("=== Building LP model ===\n")
     assert display._phase_tracker.states["build_lp"].status == "active"
+
+
+# ---------------------------------------------------------------------------
+# SDDPGridTracker tests
+# ---------------------------------------------------------------------------
+
+
+def test_grid_tracker_empty():
+    """Empty tracker has no data."""
+    tracker = SDDPGridTracker()
+    assert not tracker.has_data
+    assert tracker.scenes == []
+    assert tracker.max_phase == 0
+    assert tracker.max_iter == 0
+
+
+def test_grid_tracker_forward_pass():
+    """Forward pass lines populate the grid correctly."""
+    tracker = SDDPGridTracker()
+    tracker.process_line("SDDP Forward [i0 s0 p0]: solving phase")
+    tracker.process_line("SDDP Forward [i0 s0 p1]: solving phase")
+    tracker.process_line("SDDP Forward [i0 s0 p2]: solving phase")
+
+    assert tracker.has_data
+    assert tracker.scenes == [0]
+    assert tracker.max_phase == 2
+    assert tracker.max_iter == 0
+    assert tracker.get_cell(0, 0, 0) == _GRID_FORWARD
+    assert tracker.get_cell(0, 0, 1) == _GRID_FORWARD
+    assert tracker.get_cell(0, 0, 2) == _GRID_FORWARD
+    assert tracker.get_cell(0, 0, 3) == _GRID_IDLE  # not visited
+
+
+def test_grid_tracker_backward_pass():
+    """Backward pass lines create backward cells."""
+    tracker = SDDPGridTracker()
+    tracker.process_line("SDDP Forward [i1 s0 p0]: ok")
+    tracker.process_line("SDDP Forward [i1 s0 p1]: ok")
+    tracker.process_line("SDDP Backward [i1 s0 p1]: adding cut")
+    tracker.process_line("SDDP Backward [i1 s0 p0]: adding cut")
+
+    assert tracker.get_cell(0, 1, 0) == _GRID_BACKWARD  # overwritten by backward
+    assert tracker.get_cell(0, 1, 1) == _GRID_BACKWARD
+
+
+def test_grid_tracker_elastic():
+    """Elastic keyword in forward line triggers elastic state."""
+    tracker = SDDPGridTracker()
+    tracker.process_line(
+        "SDDP Forward [i2 s0 p5]: non-optimal (status 2), trying elastic solve"
+    )
+
+    assert tracker.get_cell(0, 2, 5) == _GRID_ELASTIC
+    assert tracker.elastic_count == 1
+
+
+def test_grid_tracker_aperture():
+    """Aperture tag creates aperture cells."""
+    tracker = SDDPGridTracker()
+    tracker.process_line("SDDP Aperture [i3 s1 p2 a0]: solving aperture")
+    tracker.process_line("SDDP Aperture [i3 s1 p2 a1]: solving aperture")
+
+    assert tracker.get_cell(1, 3, 2) == _GRID_APERTURE
+    assert tracker.aperture_count == 2
+
+
+def test_grid_tracker_backward_with_aperture():
+    """Backward with aperture uid is treated as aperture."""
+    tracker = SDDPGridTracker()
+    tracker.process_line("SDDP Backward [i3 s1 p2 a0]: cut added")
+
+    assert tracker.get_cell(1, 3, 2) == _GRID_APERTURE
+    assert tracker.aperture_count == 1
+
+
+def test_grid_tracker_kappa_warning():
+    """Kappa warnings increment counter but don't change grid."""
+    tracker = SDDPGridTracker()
+    tracker.process_line("SDDP Kappa [i0 s0 p3]: condition number 1.2e+10")
+
+    assert tracker.get_cell(0, 0, 3) == _GRID_IDLE  # kappa doesn't set cells
+    assert tracker.kappa_warnings == 1
+
+
+def test_grid_tracker_infeasible():
+    """Lines containing 'infeasib' set the infeasible state."""
+    tracker = SDDPGridTracker()
+    tracker.process_line(
+        "SDDP Forward [i0 s0 p0]: scene 0 is infeasible (backpropagated)"
+    )
+
+    assert tracker.get_cell(0, 0, 0) == _GRID_INFEASIBLE
+    assert tracker.infeasible_count == 1
+
+
+def test_grid_tracker_multiple_scenes():
+    """Multiple scenes are tracked independently."""
+    tracker = SDDPGridTracker()
+    tracker.process_line("SDDP Forward [i0 s0 p0]: ok")
+    tracker.process_line("SDDP Forward [i0 s1 p0]: ok")
+    tracker.process_line("SDDP Forward [i0 s2 p0]: ok")
+
+    assert tracker.scenes == [0, 1, 2]
+    assert tracker.get_cell(0, 0, 0) == _GRID_FORWARD
+    assert tracker.get_cell(1, 0, 0) == _GRID_FORWARD
+    assert tracker.get_cell(2, 0, 0) == _GRID_FORWARD
+
+
+def test_grid_tracker_priority():
+    """Higher-priority states overwrite lower ones."""
+    tracker = SDDPGridTracker()
+    tracker.process_line("SDDP Forward [i0 s0 p5]: ok")
+    assert tracker.get_cell(0, 0, 5) == _GRID_FORWARD
+
+    tracker.process_line("SDDP Backward [i0 s0 p5]: cut")
+    assert tracker.get_cell(0, 0, 5) == _GRID_BACKWARD
+
+    tracker.process_line("SDDP Forward [i0 s0 p5]: elastic")  # elastic > backward
+    assert tracker.get_cell(0, 0, 5) == _GRID_ELASTIC
+
+
+def test_grid_tracker_active_cell():
+    """Active cell tracks the last processed (scene, iter, phase)."""
+    tracker = SDDPGridTracker()
+    assert tracker.active_cell is None
+
+    tracker.process_line("SDDP Forward [i2 s1 p7]: ok")
+    assert tracker.active_cell == (1, 2, 7)
+
+
+def test_grid_tracker_ignores_non_sddp():
+    """Non-SDDP lines are ignored."""
+    tracker = SDDPGridTracker()
+    tracker.process_line("MonolithicMethod: solving scene 0")
+    tracker.process_line("Parse all input files time 0.5s")
+    assert not tracker.has_data
+
+
+def test_grid_tracker_ignores_iter_tag():
+    """Iter/Sim/Init tags without phase info are ignored."""
+    tracker = SDDPGridTracker()
+    tracker.process_line("SDDP Iter [i5 s0 p0]: === 5/100 ===")
+    # Iter tag returns early — no grid data
+    assert not tracker.has_data
+
+
+def test_build_sddp_grid_panel():
+    """Grid panel renders without error."""
+    tracker = SDDPGridTracker()
+    tracker.process_line("SDDP Forward [i0 s0 p0]: ok")
+    tracker.process_line("SDDP Forward [i0 s0 p1]: ok")
+    tracker.process_line("SDDP Backward [i0 s0 p1]: cut")
+    tracker.process_line("SDDP Forward [i1 s0 p0]: ok")
+    tracker.process_line("SDDP Forward [i1 s0 p1]: ok")
+    panel = _build_sddp_grid(tracker)
+    assert panel is not None
+
+
+def test_grid_tracker_display_integration(tmp_path: Path):
+    """SolverDisplay.add_log_line feeds the grid tracker."""
+    display = SolverDisplay(case_name="test", case_dir=tmp_path)
+    display.add_log_line("SDDP Forward [i0 s0 p3]: solving")
+    assert display._grid_tracker.has_data
+    assert display._grid_tracker.get_cell(0, 0, 3) == _GRID_FORWARD
