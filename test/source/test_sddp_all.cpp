@@ -25,9 +25,9 @@
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_cut_sharing.hpp>
 #include <gtopt/sddp_method.hpp>
-#include <gtopt/sddp_monitor.hpp>
 #include <gtopt/sddp_pool.hpp>
 #include <gtopt/solver_monitor.hpp>
+#include <gtopt/solver_status.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/validate_planning.hpp>
 #include <spdlog/spdlog.h>
@@ -50,6 +50,7 @@ using namespace gtopt;  // NOLINT(google-build-using-namespace)
 #include "test_sddp_cut_sharing.hpp"
 #include "test_sddp_feasibility.hpp"
 #include "test_sddp_coverage.hpp"
+#include "test_sddp_async.hpp"
 #include "test_cascade_method.hpp"
 #include "test_convergence_mode.hpp"
 #include "test_monolithic_method.hpp"

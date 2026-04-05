@@ -31,8 +31,8 @@
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_cut_sharing.hpp>
 #include <gtopt/sddp_method.hpp>
-#include <gtopt/sddp_monitor.hpp>
 #include <gtopt/sddp_pool.hpp>
+#include <gtopt/solver_status.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
 
@@ -820,7 +820,7 @@ auto SDDPMethod::load_state(const std::string& filepath)
 }
 
 // ── Monitoring API ───────────────────────────────────────────────────────────
-// Implementation moved to sddp_monitor.cpp (write_sddp_api_status free fn).
+// Implementation moved to sddp_monitor.cpp (write_solver_status free fn).
 // maybe_write_api_status below builds the snapshot and delegates.
 
 // ─── Private helper method implementations ───────────────────────────────────
@@ -1448,7 +1448,7 @@ void SDDPMethod::maybe_write_api_status(
         planning_lp().systems().front().front().linear_interface().solver_id();
   }
 
-  const SDDPStatusSnapshot snapshot {
+  const SolverStatusSnapshot snapshot {
       .iteration = m_current_iteration_.load(),
       .gap = m_current_gap_.load(),
       .lower_bound = m_current_lb_.load(),
@@ -1462,7 +1462,7 @@ void SDDPMethod::maybe_write_api_status(
       .method = "sddp",
       .phase_grid = &m_phase_grid_,
   };
-  write_sddp_api_status(status_file, results, elapsed, snapshot, monitor);
+  write_solver_status(status_file, results, elapsed, snapshot, monitor);
 }
 
 void SDDPMethod::save_cuts_for_iteration(

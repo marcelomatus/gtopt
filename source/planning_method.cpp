@@ -127,7 +127,7 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       sddp_opts.enable_api = options.sddp_api_enabled();
       if (!output_dir.empty()) {
         sddp_opts.api_status_file =
-            (std::filesystem::path(output_dir) / "sddp_status.json").string();
+            (std::filesystem::path(output_dir) / "solver_status.json").string();
         // The monitoring API stop-request file lets the webservice (or any
         // external tool) trigger a graceful stop without using the raw sentinel
         // file.  The solver checks: sentinel_file exists || stop_request
@@ -144,6 +144,9 @@ std::unique_ptr<PlanningMethod> make_planning_method(
 
       // Wire warm_start from SddpOptions config (default: true)
       sddp_opts.warm_start = options.sddp_warm_start();
+
+      // Wire async scene spread (0 = synchronous, default)
+      sddp_opts.max_async_spread = options.sddp_max_async_spread();
 
       // Wire solve_timeout from forward solver's time_limit (if set)
       {
@@ -258,7 +261,7 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       sddp_opts.enable_api = options.sddp_api_enabled();
       if (!output_dir.empty()) {
         sddp_opts.api_status_file =
-            (std::filesystem::path(output_dir) / "sddp_status.json").string();
+            (std::filesystem::path(output_dir) / "solver_status.json").string();
         sddp_opts.api_stop_request_file =
             (std::filesystem::path(output_dir) / sddp_file::stop_request)
                 .string();
@@ -299,8 +302,7 @@ std::unique_ptr<PlanningMethod> make_planning_method(
   if (options.sddp_api_enabled() && !output_dir_m.empty()) {
     solver->enable_api = true;
     solver->api_status_file =
-        (std::filesystem::path(output_dir_m) / "monolithic_status.json")
-            .string();
+        (std::filesystem::path(output_dir_m) / "solver_status.json").string();
   }
   solver->lp_debug = options.lp_debug();
   solver->lp_debug_directory = std::string(options.log_directory());

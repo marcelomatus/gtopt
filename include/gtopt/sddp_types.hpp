@@ -223,7 +223,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   bool enable_api {true};
 
   /// Path for the JSON status file.  If empty, the solver writes to
-  /// "<output_directory>/sddp_status.json" (derived at solve time from
+  /// "<output_directory>/solver_status.json" (derived at solve time from
   /// the PlanningLP options).
   std::string api_status_file {};
 
@@ -407,6 +407,15 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// backward-pass solves.  The options are pre-merged with the global
   /// solver options at construction time (backward takes precedence).
   std::optional<SolverOptions> backward_solver_options {};
+
+  /// Maximum iteration spread between fastest and slowest scene when
+  /// cut_sharing == none and multiple scenes exist.  When > 0, the
+  /// solver runs scenes asynchronously: each scene progresses through
+  /// its own forward/backward iteration loop, and the pool's priority
+  /// queue (SDDPTaskKey) naturally gives higher priority to scenes at
+  /// earlier iterations, self-regulating the spread.
+  /// 0 = synchronous (current behavior, default).
+  int max_async_spread {0};
 };
 
 // ─── Iteration result ───────────────────────────────────────────────────────
@@ -450,6 +459,13 @@ struct SDDPIterationResult
   /// Per-scene lower bounds (phase-0 objective values).  Size =
   /// num_scenes.
   std::vector<double> scene_lower_bounds {};
+
+  /// Per-scene iteration at the time this result was computed.
+  /// Populated only in async mode (max_async_spread > 0).  Shows the
+  /// iteration each scene had completed when this aggregate convergence
+  /// check was triggered.  Size = num_scenes when populated, empty
+  /// otherwise.
+  std::vector<int> scene_iterations {};
 };
 
 // ─── Utility free functions (independently testable) ────────────────────────

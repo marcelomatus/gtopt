@@ -1,13 +1,13 @@
 /**
- * @file      sddp_monitor.hpp
- * @brief     SDDP monitoring API: write iteration status to a JSON file
+ * @file      solver_status.hpp
+ * @brief     Solver monitoring API: write iteration status to a JSON file
  * @date      2026-03-18
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * Provides the `write_sddp_api_status()` free function that serialises
- * SDDP iteration history and real-time workpool statistics into a JSON
- * file for external monitoring tools (e.g. `scripts/sddp_monitor.py`).
+ * Provides the `write_solver_status()` free function that serialises
+ * solver iteration history and real-time workpool statistics into a JSON
+ * file for external monitoring tools (e.g. `scripts/gtopt_monitor.py`).
  *
  * Extracted from SDDPMethod::write_api_status() to decouple the
  * monitoring serialisation logic from the solver class.
@@ -25,11 +25,11 @@ namespace gtopt
 
 class SolverMonitor;
 
-/// Snapshot of the SDDP solver's live convergence state.
+/// Snapshot of the solver's live convergence state.
 ///
-/// Passed to `write_sddp_api_status()` so the free function does not
+/// Passed to `write_solver_status()` so the free function does not
 /// need access to the solver's atomic members or options struct.
-struct SDDPStatusSnapshot
+struct SolverStatusSnapshot
 {
   int iteration {};  ///< Current iteration number
   double gap {};  ///< Current relative convergence gap
@@ -43,9 +43,28 @@ struct SDDPStatusSnapshot
   std::string solver {};  ///< Solver identity ("name/version")
   std::string method {};  ///< Planning method ("sddp", "monolithic", …)
   const PhaseGridRecorder* phase_grid {};  ///< Non-owning; null if no grid
+
+  // ── Async scene execution fields (populated only in async mode) ──
+
+  /// Per-scene current iteration index (empty in sync mode).
+  std::vector<int> scene_iterations {};
+  /// Per-scene state label: "training", "simulation", "done" (empty in sync).
+  std::vector<std::string> scene_states {};
+  /// Number of scenes that have individually converged.
+  int converged_scenes {};
+  /// Current iteration spread (max - min across non-done scenes).
+  int spread {};
+  /// Configured maximum async spread (0 = synchronous).
+  int max_async_spread {};
+  /// WorkPool queue depth at snapshot time.
+  int pool_tasks_pending {};
+  /// WorkPool active tasks at snapshot time.
+  int pool_tasks_active {};
+  /// Current CPU load at snapshot time.
+  double pool_cpu_load {};
 };
 
-/// Write SDDP status JSON to a file.
+/// Write solver status JSON to a file.
 ///
 /// Builds a JSON string with the solver's current state, per-iteration
 /// history, and real-time workpool statistics, then writes it atomically
@@ -56,10 +75,10 @@ struct SDDPStatusSnapshot
 /// @param elapsed_seconds Total elapsed time since solve() started
 /// @param snapshot        Current solver state snapshot
 /// @param monitor         SolverMonitor for real-time workpool stats
-void write_sddp_api_status(const std::string& filepath,
-                           const std::vector<SDDPIterationResult>& results,
-                           double elapsed_seconds,
-                           const SDDPStatusSnapshot& snapshot,
-                           const SolverMonitor& monitor);
+void write_solver_status(const std::string& filepath,
+                         const std::vector<SDDPIterationResult>& results,
+                         double elapsed_seconds,
+                         const SolverStatusSnapshot& snapshot,
+                         const SolverMonitor& monitor);
 
 }  // namespace gtopt

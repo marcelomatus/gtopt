@@ -882,6 +882,12 @@ public:
     return m_options_.sddp_options.warm_start.value_or(true);
   }
 
+  /** @brief Maximum async iteration spread (0 = synchronous, default). */
+  [[nodiscard]] constexpr auto sddp_max_async_spread() const
+  {
+    return m_options_.sddp_options.max_async_spread.value_or(0);
+  }
+
   /** @brief How update_lp elements obtain reservoir/battery volume between
    *  phases (affects seepage, production factor, discharge limit only).
    *  Default: warm_start (no cross-phase lookup). */

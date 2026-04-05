@@ -952,7 +952,7 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
 
 /// Write solution output and save planning JSON to the output directory.
 [[nodiscard]] std::expected<void, std::string> write_solution_output(
-    PlanningLP& planning_lp)
+    const PlanningLP& planning_lp)
 {
   spdlog::info("=== Output writing ===");
   const spdlog::stopwatch out_sw;

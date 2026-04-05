@@ -88,7 +88,7 @@ public:
   }
 
   /// @return The turbine efficiency [p.u.] for the given stage (default 1.0)
-  [[nodiscard]] auto stage_efficiency(StageUid tuid) const noexcept -> Real
+  [[nodiscard]] auto stage_efficiency(StageUid tuid) const -> Real
   {
     return efficiency.at(tuid).value_or(1.0);
   }

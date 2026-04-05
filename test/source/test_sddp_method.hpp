@@ -2435,7 +2435,7 @@ TEST_CASE("SDDPMethod API - status file contains timing fields")  // NOLINT
   std::filesystem::remove_all(tmp_dir);
   std::filesystem::create_directories(tmp_dir);
 
-  const auto status_file = (tmp_dir / "sddp_status.json").string();
+  const auto status_file = (tmp_dir / "solver_status.json").string();
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));

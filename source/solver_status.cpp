@@ -1,11 +1,11 @@
 /**
- * @file      sddp_monitor.cpp
- * @brief     SDDP monitoring API implementation
+ * @file      solver_status.cpp
+ * @brief     Solver monitoring API implementation
  * @date      2026-03-18
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * Implements `write_sddp_api_status()`: serialises SDDP iteration
+ * Implements `write_solver_status()`: serialises solver iteration
  * history and real-time workpool statistics into a JSON status file
  * for external monitoring tools.
  *
@@ -17,17 +17,17 @@
 #include <format>
 #include <string>
 
-#include <gtopt/sddp_monitor.hpp>
 #include <gtopt/solver_monitor.hpp>
+#include <gtopt/solver_status.hpp>
 
 namespace gtopt
 {
 
-void write_sddp_api_status(const std::string& filepath,
-                           const std::vector<SDDPIterationResult>& results,
-                           double elapsed_seconds,
-                           const SDDPStatusSnapshot& snapshot,
-                           const SolverMonitor& monitor)
+void write_solver_status(const std::string& filepath,
+                         const std::vector<SDDPIterationResult>& results,
+                         double elapsed_seconds,
+                         const SolverStatusSnapshot& snapshot,
+                         const SolverMonitor& monitor)
 {
   // Build JSON manually using std::format to avoid adding a new
   // dependency.  This is monitoring output only — correctness over
@@ -72,6 +72,43 @@ void write_sddp_api_status(const std::string& filepath,
     json += std::format("  \"method\": \"{}\",\n", snapshot.method);
   }
 
+  // ── Async scene execution state (only when max_async_spread > 0) ──
+  if (snapshot.max_async_spread > 0) {
+    json += "  \"async\": {\n";
+    json += std::format("    \"max_async_spread\": {},\n",
+                        snapshot.max_async_spread);
+    json += std::format("    \"converged_scenes\": {},\n",
+                        snapshot.converged_scenes);
+    json += std::format("    \"spread\": {},\n", snapshot.spread);
+    json += std::format("    \"pool_tasks_pending\": {},\n",
+                        snapshot.pool_tasks_pending);
+    json += std::format("    \"pool_tasks_active\": {},\n",
+                        snapshot.pool_tasks_active);
+    json +=
+        std::format("    \"pool_cpu_load\": {:.1f},\n", snapshot.pool_cpu_load);
+
+    // Per-scene iterations
+    json += "    \"scene_iterations\": [";
+    for (std::size_t si = 0; si < snapshot.scene_iterations.size(); ++si) {
+      if (si > 0) {
+        json += ", ";
+      }
+      json += std::format("{}", snapshot.scene_iterations[si]);
+    }
+    json += "],\n";
+
+    // Per-scene states
+    json += "    \"scene_states\": [";
+    for (std::size_t si = 0; si < snapshot.scene_states.size(); ++si) {
+      if (si > 0) {
+        json += ", ";
+      }
+      json += std::format("\"{}\"", snapshot.scene_states[si]);
+    }
+    json += "]\n";
+    json += "  },\n";
+  }
+
   // ── Iteration history ──
   json += "  \"history\": [\n";
   for (std::size_t i = 0; i < results.size(); ++i) {
@@ -110,7 +147,20 @@ void write_sddp_api_status(const std::string& filepath,
       }
       json += std::format("{:.6f}", r.scene_lower_bounds[si]);
     }
-    json += "]\n";
+    json += "]";
+
+    // Per-scene iteration snapshot (async mode only)
+    if (!r.scene_iterations.empty()) {
+      json += ",\n      \"scene_iterations\": [";
+      for (std::size_t si = 0; si < r.scene_iterations.size(); ++si) {
+        if (si > 0) {
+          json += ", ";
+        }
+        json += std::format("{}", r.scene_iterations[si]);
+      }
+      json += "]";
+    }
+    json += "\n";
 
     json += (i + 1 < results.size()) ? "    },\n" : "    }\n";
   }
