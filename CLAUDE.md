@@ -29,7 +29,7 @@ conda for Arrow/Parquet, and saves `tools/compile_commands.json` for clang-tidy.
 sudo apt-get update && sudo apt-get install -y --no-install-recommends \
   ccache coinor-libcbc-dev libarrow-dev libparquet-dev \
   libboost-container-dev libspdlog-dev liblapack-dev libblas-dev \
-  zlib1g-dev libzstd-dev zstd lcov
+  zlib1g-dev libzstd-dev zstd lcov libcairo2-dev
 
 cmake -S all -B build -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
@@ -53,6 +53,8 @@ cd build && ctest --output-on-failure
 | `Could not find ArrowConfig.cmake` | Install Arrow (APT or conda) |
 | `No solver plugins found` | Install COIN-OR (`coinor-libcbc-dev`) and/or HiGHS; set `GTOPT_PLUGIN_DIR` if plugins are in a non-standard location |
 | Clang not found | Follow LLVM APT steps in `setup_sandbox.sh` or `.github/actions/install-clang/action.yml` |
+| `no library called "cairo-2" was found` | Install `libcairo2-dev` (needed by gtopt_diagram tests) |
+| `Could not find zstd` | Install `libzstd-dev` |
 
 ## Build Commands
 
