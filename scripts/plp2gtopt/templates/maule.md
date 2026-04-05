@@ -189,7 +189,7 @@ $$Q_{\text{inter}} + Q_{\text{inv}} + Q_{\text{maule}} - Q_{\text{elec}} - Q_{\t
 La Invernada is a seasonal reservoir at CIPRESES.  Five flow variables form
 a balance enforced by a UserConstraint:
 
-$$q_{\text{deficit}} + q_{\text{sin_deficit}} + q_{\text{natural}} = q_{\text{embalsar}} + q_{\text{no_embalsar}}$$
+$$q_{\text{deficit}} + q_{\text{sin-deficit}} + q_{\text{natural}} = q_{\text{embalsar}} + q_{\text{no-embalsar}}$$
 
 ```mermaid
 graph LR
@@ -217,7 +217,7 @@ graph LR
 
 Objective function costs on the Invernada flows:
 
-$$\text{cost}_{\text{emb}} = F_{\text{cau}} \cdot C_{\text{embalsar}} \cdot q_{\text{embalsar}}, \quad \text{cost}_{\text{bypass}} = F_{\text{cau}} \cdot C_{\text{no_embalsar}} \cdot q_{\text{no_embalsar}}$$
+$$\text{cost}_{\text{emb}} = F_{\text{cau}} \cdot C_{\text{embalsar}} \cdot q_{\text{embalsar}}, \quad \text{cost}_{\text{bypass}} = F_{\text{cau}} \cdot C_{\text{no-embalsar}} \cdot q_{\text{no-embalsar}}$$
 
 
 ## PLP-to-gtopt Variable Mapping
@@ -314,7 +314,7 @@ The 3-segment pattern for ordinary reserve achieves zone exclusivity:
 
 The effective flow upper bound for any FlowRight is:
 
-$$\bar{q}_j = \min\!\bigl(f_{\max}(m),\; \text{bound_rule}(V_{\text{Colbun}})\bigr)$$
+$$\bar{q}_j = \min\!\bigl(f_{\max}(m),\; \text{bound-rule}(V_{\text{Colbun}})\bigr)$$
 
 where $f_{\max}(m)$ is the monthly-modulated cap and $V_{\text{Colbun}}$ is the
 current Colbun reservoir volume.
@@ -1118,7 +1118,7 @@ FlowRights sets them to 0, making these constraints trivially satisfied
 
 For district $i$ with percentage $p_i$, the proportional allocation is:
 
-$$q_{\text{dist}_i} \;[\leq | =]\; \frac{p_i}{100} \cdot q_{\text{normal_riego}}$$
+$$q_{\text{dist}_i} \;[\leq | =]\; \frac{p_i}{100} \cdot q_{\text{normal-riego}}$$
 
 where districts with `has_slack=True` use $\leq$ and others use $=$.
 
