@@ -93,4 +93,36 @@ constexpr auto enum_entries(LpEquilibrationMethod /*tag*/) noexcept
   return std::span {lp_equilibration_method_entries};
 }
 
+// --- FastSqrtMethod ---------------------------------------------------------
+
+/**
+ * @brief Fast approximate sqrt method for Ruiz equilibration.
+ *
+ * Controls which sqrt implementation is used inside the Ruiz scaling
+ * loop.  Since Ruiz is iterative and self-correcting, an approximate
+ * sqrt only affects convergence speed, not final accuracy.
+ *
+ * - `ieee_halve`:  IEEE 754 exponent halving (~2-3% accuracy, ~1 cycle).
+ * - `newton1`:     ieee_halve + one Newton-Raphson step (~0.1% accuracy).
+ * - `std_sqrt`:    Standard library std::sqrt (exact, ~10-20 cycles).
+ */
+enum class FastSqrtMethod : uint8_t
+{
+  ieee_halve = 0,  ///< IEEE 754 exponent halving (default)
+  newton1 = 1,  ///< ieee_halve + one Newton-Raphson refinement
+  std_sqrt = 2,  ///< Standard library std::sqrt
+};
+
+inline constexpr auto fast_sqrt_method_entries =
+    std::to_array<EnumEntry<FastSqrtMethod>>({
+        {.name = "ieee_halve", .value = FastSqrtMethod::ieee_halve},
+        {.name = "newton1", .value = FastSqrtMethod::newton1},
+        {.name = "std_sqrt", .value = FastSqrtMethod::std_sqrt},
+    });
+
+constexpr auto enum_entries(FastSqrtMethod /*tag*/) noexcept
+{
+  return std::span {fast_sqrt_method_entries};
+}
+
 }  // namespace gtopt

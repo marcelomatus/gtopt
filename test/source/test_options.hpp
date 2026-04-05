@@ -695,6 +695,52 @@ TEST_CASE(  // NOLINT
   }
 }
 
+TEST_CASE(  // NOLINT
+    "Options - LpMatrixOptions fast_sqrt_method merge_opt")
+{
+  using namespace gtopt;
+
+  SUBCASE("default is nullopt")
+  {
+    PlanningOptions base {};
+    CHECK_FALSE(base.lp_matrix_options.fast_sqrt_method.has_value());
+  }
+
+  SUBCASE("overlay wins over nullopt")
+  {
+    PlanningOptions base {};
+    PlanningOptions overlay {};
+    overlay.lp_matrix_options.fast_sqrt_method = FastSqrtMethod::newton1;
+    base.merge(std::move(overlay));
+    CHECK(base.lp_matrix_options.fast_sqrt_method.value_or(
+              FastSqrtMethod::ieee_halve)
+          == FastSqrtMethod::newton1);
+  }
+
+  SUBCASE("overlay wins over base")
+  {
+    PlanningOptions base {};
+    base.lp_matrix_options.fast_sqrt_method = FastSqrtMethod::ieee_halve;
+    PlanningOptions overlay {};
+    overlay.lp_matrix_options.fast_sqrt_method = FastSqrtMethod::std_sqrt;
+    base.merge(std::move(overlay));
+    CHECK(base.lp_matrix_options.fast_sqrt_method.value_or(
+              FastSqrtMethod::ieee_halve)
+          == FastSqrtMethod::std_sqrt);
+  }
+
+  SUBCASE("base preserved when overlay is nullopt")
+  {
+    PlanningOptions base {};
+    base.lp_matrix_options.fast_sqrt_method = FastSqrtMethod::newton1;
+    PlanningOptions overlay {};
+    base.merge(std::move(overlay));
+    CHECK(base.lp_matrix_options.fast_sqrt_method.value_or(
+              FastSqrtMethod::ieee_halve)
+          == FastSqrtMethod::newton1);
+  }
+}
+
 TEST_CASE("Options - LpMatrixOptions lp_coeff_ratio_threshold merge")  // NOLINT
 {
   using namespace gtopt;
