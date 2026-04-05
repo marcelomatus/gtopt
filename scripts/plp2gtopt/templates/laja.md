@@ -12,6 +12,25 @@
 > Code blocks are tagged with `{language} {filename} [section]` in the
 > fenced-block info string.  The parser concatenates blocks by filename
 > and assembles them into the target template files.
+>
+> ### Template Syntax
+>
+> The embedded code blocks use two templating conventions:
+>
+> | Syntax | Engine | Meaning | Example |
+> |--------|--------|---------|---------|
+> | `{{ var }}` | Jinja2 | Substitute a scalar value | `param vol_max = {{ vol_max }};` |
+> | `{{ list \| join(', ') }}` | Jinja2 | Expand a Python list into a comma-separated string | `[{{ costs \| join(', ') }}]` → `[1.0, 2.0, 3.0]` |
+> | `{{ var \| default(0.0) }}` | Jinja2 | Substitute with a fallback if the variable is undefined | `{{ ini_econ \| default(0.0) }}` → `0.0` |
+> | `{% for x in xs %} ... {% endfor %}` | Jinja2 | Loop over a list, emitting one block per element | Zone parameter declarations |
+> | `@var@` | TSON | Substitute a value in JSON template blocks | `"emax": @max_irr@` |
+> | `@% if cond %@ ... @% endif %@` | TSON | Conditional inclusion in JSON blocks | Omit `use_value` when not set |
+> | `@% for x in xs %@ ... @% endfor %@` | TSON | Loop in JSON blocks | Emit district FlowRight entries |
+>
+> **Jinja2** (`{{ }}`, `{% %}`) is used in `.tampl` (PAMPL) blocks.
+> **TSON** (`@ @`, `@% %@`) is used in `.tson` (JSON) blocks — same
+> semantics as Jinja2 but with `@` delimiters to avoid conflicts with
+> JSON braces.
 
 ## Overview
 
@@ -442,6 +461,12 @@ param cost_irr_uso = {{ cost_irr_uso }};
 param irr_usage[month] = [{{ monthly_usage_irr | join(', ') }}];
 ```
 
+The TSON block below defines the irrigation FlowRight.  `@var@`
+placeholders are substituted with computed values at rendering time.
+The `@% if use_value_irr is not none %@` conditional includes the
+`use_value` field only when `cost_irr_uso > 0` — otherwise the field
+is omitted entirely from the generated JSON.
+
 ```json laja.tson flow_right
 {
   "name": "laja_der_riego",
@@ -654,6 +679,13 @@ param seasonal_2o_reg[month] = [{{ seasonal_2o_reg | join(', ') }}];
 param seasonal_emergencia[month] = [{{ seasonal_emergencia | join(', ') }}];
 param seasonal_saltos[month] = [{{ seasonal_saltos | join(', ') }}];
 ```
+
+The following TSON block uses `@% for fr in district_flow_rights %@`
+to loop over pre-computed FlowRight JSON objects (one per
+district-category combination).  The `district_flow_rights` list is
+built by `laja_writer._compute_district_flow_rights()`, which combines
+district percentages, base demands, seasonal factors, and cost
+modulation into complete FlowRight entries.
 
 ```json laja.tson flow_right
 @% for fr in district_flow_rights %@
@@ -910,6 +942,11 @@ accumulated volume already extracted in the current hydrological year
 constants — they change between runs depending on the simulation start date
 and preceding operational history.
 
+The economy accumulators use `{{ var | default(0.0) }}` — the Jinja2
+`default` filter provides a fallback value of `0.0` when the variable
+is not present in the input data (e.g., older `plplajam.dat` files that
+predate economy tracking).
+
 ```pampl laja_agreement.tampl
 # ---------------------------------------------------------------------------
 # Initial-state parameters [hm3]
@@ -951,6 +988,12 @@ The expression uses `flow_right().flow` which references the per-block
 extraction flow columns (not the `qeh` hourly averages).  The balance is
 enforced per-block.
 
+The `@expression_partition@` placeholder is replaced at rendering time
+with the full AMPL-style expression string (e.g.,
+`"flow_right('laja_q_turbinado').flow - flow_right('laja_der_riego').flow - ... = 0"`).
+It is pre-built in Python rather than inlined here because it references
+all four rights FlowRight names dynamically.
+
 ```json laja.tson user_constraint
 {
   "name": "laja_particion_derechos",
@@ -962,8 +1005,23 @@ enforced per-block.
 
 ## Cost Arrays
 
-Monthly cost modulation arrays for fail_cost and use_value on the various
-rights categories.
+Monthly cost modulation arrays for `fail_cost` and `use_value` on the
+various rights categories.  Each array has 12 values corresponding to
+the hydrological year (Apr=1 through Mar=12).
+
+The `{{ list | join(', ') }}` syntax expands a Python list into a
+comma-separated string at template rendering time.  For example, if
+`monthly_cost_irr_ns = [1100, 0, 0, 0, 0, 1100, 1100, ...]`, the
+rendered output becomes:
+`param monthly_cost_irr_ns[month] = [1100, 0, 0, 0, 0, 1100, 1100, ...];`
+
+| Array | Applied to | Purpose |
+|-------|-----------|---------|
+| `monthly_cost_irr_ns` | `laja_der_riego.fail_cost` | Penalty for unserved irrigation demand |
+| `monthly_cost_irr` | `laja_der_riego.use_value` | Benefit of irrigation usage |
+| `monthly_cost_elec` | `laja_der_electrico.fail_cost` | Penalty for unserved electrical demand |
+| `monthly_cost_mixed` | `laja_der_mixto.use_value` | Steering cost for mixed rights usage |
+| `monthly_cost_anticipated` | `laja_gasto_anticipado.fail_cost` | Penalty for unserved anticipated discharge |
 
 ```pampl laja_agreement.tampl
 # ---------------------------------------------------------------------------

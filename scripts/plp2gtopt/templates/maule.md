@@ -12,6 +12,25 @@
 > Code blocks are tagged with `{language} {filename} [section]` in the
 > fenced-block info string.  The parser concatenates blocks by filename
 > and assembles them into the target template files.
+>
+> ### Template Syntax
+>
+> The embedded code blocks use two templating conventions:
+>
+> | Syntax | Engine | Meaning | Example |
+> |--------|--------|---------|---------|
+> | `{{ var }}` | Jinja2 | Substitute a scalar value | `param vol_max = {{ vol_max }};` |
+> | `{{ list \| join(', ') }}` | Jinja2 | Expand a Python list into a comma-separated string | `[{{ costs \| join(', ') }}]` → `[1.0, 2.0, 3.0]` |
+> | `{{ var \| default(0.0) }}` | Jinja2 | Substitute with a fallback if the variable is undefined | `{{ ini_econ \| default(0.0) }}` → `0.0` |
+> | `{% for x in xs %} ... {% endfor %}` | Jinja2 | Loop over a list, emitting one block per element | Zone parameter declarations |
+> | `@var@` | TSON | Substitute a value in JSON template blocks | `"emax": @max_irr@` |
+> | `@% if cond %@ ... @% endif %@` | TSON | Conditional inclusion in JSON blocks | Omit `use_value` when not set |
+> | `@% for x in xs %@ ... @% endfor %@` | TSON | Loop in JSON blocks | Emit FlowRight entries |
+>
+> **Jinja2** (`{{ }}`, `{% %}`) is used in `.tampl` (PAMPL) blocks.
+> **TSON** (`@ @`, `@% %@`) is used in `.tson` (JSON) blocks — same
+> semantics as Jinja2 but with `@` delimiters to avoid conflicts with
+> JSON braces.
 
 ## Overview
 
