@@ -411,6 +411,14 @@ private:
                         const LinearInterface& li,
                         IterationIndex iteration = {});
 
+  /// Analyze cut rows to identify which Benders cuts have the worst
+  /// coefficient ratios.  Called by update_max_kappa when
+  /// kappa_warning == diagnose and kappa exceeds the threshold.
+  void diagnose_kappa(SceneIndex scene,
+                      PhaseIndex phase,
+                      const LinearInterface& li,
+                      IterationIndex iteration);
+
   /// Update max kappa from an already-known value (no LP save possible).
   void update_max_kappa(SceneIndex scene,
                         PhaseIndex phase,

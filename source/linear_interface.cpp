@@ -870,6 +870,58 @@ double LinearInterface::get_kappa() const
   return m_backend_->get_kappa();
 }
 
+RowDiagnostics LinearInterface::diagnose_row(const RowIndex row) const
+{
+  const auto ncols = static_cast<int>(get_numcols());
+  const auto ri = static_cast<int>(row);
+
+  RowDiagnostics diag {
+      .row = row,
+  };
+
+  // Row name (if available)
+  if (static_cast<size_t>(row) < m_row_index_to_name_.size()) {
+    diag.name = m_row_index_to_name_[row];
+  }
+
+  // Row bounds (raw LP units)
+  const auto row_lb = std::span(m_backend_->row_lower(), get_numrows());
+  const auto row_ub = std::span(m_backend_->row_upper(), get_numrows());
+  diag.rhs_lb = row_lb[static_cast<size_t>(ri)];
+  diag.rhs_ub = row_ub[static_cast<size_t>(ri)];
+
+  // Scan all columns for non-zero coefficients in this row
+  for (int c = 0; c < ncols; ++c) {
+    const double v = m_backend_->get_coeff(ri, c);
+    if (v == 0.0) {
+      continue;
+    }
+    const double abs_v = std::abs(v);
+    ++diag.num_nonzeros;
+
+    const auto col = ColIndex {c};
+    const auto& col_name =
+        (static_cast<size_t>(col) < m_col_index_to_name_.size())
+        ? m_col_index_to_name_[col]
+        : "";
+
+    if (abs_v < diag.min_abs_coeff) {
+      diag.min_abs_coeff = abs_v;
+      diag.min_col_name = col_name;
+    }
+    if (abs_v > diag.max_abs_coeff) {
+      diag.max_abs_coeff = abs_v;
+      diag.max_col_name = col_name;
+    }
+  }
+
+  if (diag.num_nonzeros > 0 && diag.min_abs_coeff > 0.0) {
+    diag.coeff_ratio = diag.max_abs_coeff / diag.min_abs_coeff;
+  }
+
+  return diag;
+}
+
 bool LinearInterface::is_optimal() const
 {
   return m_backend_->is_proven_optimal();

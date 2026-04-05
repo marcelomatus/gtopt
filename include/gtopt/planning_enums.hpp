@@ -197,12 +197,15 @@ constexpr auto enum_entries(ProbabilityRescaleMode /*tag*/) noexcept
  * - `none`:     No kappa checking or warnings.
  * - `warn`:     Log a warning with scene, phase, and iteration (default).
  * - `save_lp`:  Log a warning AND save the culprit LP file for debugging.
+ * - `diagnose`: Like `save_lp`, but also analyze cut rows to identify
+ *               which Benders cuts have the worst coefficient ratios.
  */
 enum class KappaWarningMode : uint8_t
 {
   none = 0,  ///< No kappa checking
   warn = 1,  ///< Log a warning when kappa exceeds threshold (default)
   save_lp = 2,  ///< Warn and save the LP file
+  diagnose = 3,  ///< Warn, save LP, and analyze cut coefficient ranges
 };
 
 inline constexpr auto kappa_warning_mode_entries =
@@ -210,6 +213,7 @@ inline constexpr auto kappa_warning_mode_entries =
         {.name = "none", .value = KappaWarningMode::none},
         {.name = "warn", .value = KappaWarningMode::warn},
         {.name = "save_lp", .value = KappaWarningMode::save_lp},
+        {.name = "diagnose", .value = KappaWarningMode::diagnose},
     });
 
 constexpr auto enum_entries(KappaWarningMode /*tag*/) noexcept

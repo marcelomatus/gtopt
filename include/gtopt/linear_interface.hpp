@@ -124,6 +124,22 @@ private:
   Op op_ {Op::multiply};
 };
 
+/// Diagnostics for a single LP row (constraint or cut).
+/// Used by kappa_warning=diagnose to identify ill-conditioned rows.
+struct RowDiagnostics
+{
+  RowIndex row {};
+  std::string name {};
+  double rhs_lb {};
+  double rhs_ub {};
+  double min_abs_coeff {std::numeric_limits<double>::max()};
+  double max_abs_coeff {};
+  double coeff_ratio {1.0};
+  int num_nonzeros {};
+  std::string min_col_name {};
+  std::string max_col_name {};
+};
+
 class LinearInterface
 {
 public:
@@ -468,6 +484,18 @@ public:
    * @return Condition number kappa, or -1.0 if not supported by backend
    */
   [[nodiscard]] double get_kappa() const;
+
+  /**
+   * @brief Analyze coefficient range for a single row.
+   *
+   * Iterates over all columns to find non-zero coefficients and reports
+   * min/max absolute values, their ratio, and associated column names.
+   * Used by kappa diagnostics to identify ill-conditioned cut rows.
+   *
+   * @param row  Row index to analyze
+   * @return RowDiagnostics with coefficient statistics
+   */
+  [[nodiscard]] RowDiagnostics diagnose_row(RowIndex row) const;
 
   /**
    * @brief Gets the solver-specific status code

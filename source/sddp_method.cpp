@@ -157,7 +157,9 @@ void SDDPMethod::update_max_kappa(SceneIndex scene,
                kappa,
                threshold);
 
-  if (mode == KappaWarningMode::save_lp && !m_options_.log_directory.empty()) {
+  const bool should_save_lp =
+      (mode == KappaWarningMode::save_lp || mode == KappaWarningMode::diagnose);
+  if (should_save_lp && !m_options_.log_directory.empty()) {
     std::filesystem::create_directories(m_options_.log_directory);
     const auto stem = (std::filesystem::path(m_options_.log_directory)
                        / std::format("kappa_sc{}_ph{}_it{}",
@@ -169,6 +171,108 @@ void SDDPMethod::update_max_kappa(SceneIndex scene,
       spdlog::warn("Saved high-kappa LP to {}.lp", stem);
     }
   }
+
+  if (mode == KappaWarningMode::diagnose) {
+    diagnose_kappa(scene, phase, li, iteration);
+  }
+}
+
+void SDDPMethod::diagnose_kappa(SceneIndex scene,
+                                PhaseIndex phase,
+                                const LinearInterface& li,
+                                IterationIndex iteration)
+{
+  const auto prefix =
+      sddp_log("Kappa", iteration, scene_uid(scene), phase_uid(phase));
+
+  // Collect cut rows for this (scene, phase) from the cut store
+  const auto& scene_cuts = m_cut_store_.scene_cuts();
+  const auto phase_uid_val = phase_uid(phase);
+
+  std::vector<RowDiagnostics> cut_diags;
+
+  // Check per-scene cuts
+  if (static_cast<size_t>(scene) < scene_cuts.size()) {
+    for (const auto& cut : scene_cuts[scene]) {
+      if (cut.phase != phase_uid_val) {
+        continue;
+      }
+      cut_diags.push_back(li.diagnose_row(cut.row));
+    }
+  }
+
+  // Also check combined storage
+  {
+    const std::scoped_lock lock(m_cut_store_.cuts_mutex());
+    for (const auto& cut : m_cut_store_.stored_cuts()) {
+      if (cut.phase != phase_uid_val) {
+        continue;
+      }
+      // Avoid duplicates: skip if this row was already diagnosed
+      const bool already = std::ranges::any_of(
+          cut_diags, [&](const auto& d) { return d.row == cut.row; });
+      if (!already) {
+        cut_diags.push_back(li.diagnose_row(cut.row));
+      }
+    }
+  }
+
+  if (cut_diags.empty()) {
+    spdlog::warn("{}: no cut rows found for diagnosis", prefix);
+    return;
+  }
+
+  // Sort by worst coefficient ratio (descending)
+  std::ranges::sort(cut_diags,
+                    [](const auto& a, const auto& b)
+                    { return a.coeff_ratio > b.coeff_ratio; });
+
+  spdlog::warn("{}: diagnosing {} cut rows...", prefix, cut_diags.size());
+
+  // Report top 5 worst cuts
+  constexpr int max_report = 5;
+  const auto report_count =
+      std::min(max_report, static_cast<int>(cut_diags.size()));
+  for (int i = 0; i < report_count; ++i) {
+    const auto& d = cut_diags[static_cast<size_t>(i)];
+    spdlog::warn(
+        "{}:   #{} {} ratio={:.2e} [{:.2e}, {:.2e}] rhs={:.2e} nnz={}"
+        " min_col={} max_col={}",
+        prefix,
+        i + 1,
+        d.name,
+        d.coeff_ratio,
+        d.min_abs_coeff,
+        d.max_abs_coeff,
+        d.rhs_lb,
+        d.num_nonzeros,
+        d.min_col_name,
+        d.max_col_name);
+  }
+
+  // Summary: overall cut coefficient range
+  double global_min = std::numeric_limits<double>::max();
+  double global_max = 0.0;
+  for (const auto& d : cut_diags) {
+    if (d.num_nonzeros > 0) {
+      global_min = std::min(global_min, d.min_abs_coeff);
+      global_max = std::max(global_max, d.max_abs_coeff);
+    }
+  }
+  if (global_max > 0.0 && global_min < std::numeric_limits<double>::max()) {
+    spdlog::warn("{}:   cut coeff range: [{:.2e}, {:.2e}] ratio={:.2e}",
+                 prefix,
+                 global_min,
+                 global_max,
+                 global_max / global_min);
+  }
+
+  // Report LP matrix stats (from initial build) for comparison
+  spdlog::warn("{}:   LP matrix stats: nnz={} |coeff| in [{:.2e}, {:.2e}]",
+               prefix,
+               li.lp_stats_nnz(),
+               li.lp_stats_min_abs(),
+               li.lp_stats_max_abs());
 }
 
 // ─── Free-function building blocks ──────────────────────────────────────────
