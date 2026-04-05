@@ -382,7 +382,6 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene)
 {
   const auto& sim = planning_lp().simulation();
   const auto& phases = sim.phases();
-  const auto scale_obj = planning_lp().options().scale_objective();
 
   auto& phase_states = m_scene_phase_states_[scene];
 
@@ -393,6 +392,7 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene)
     const auto& src_li = planning_lp().system(scene, phase).linear_interface();
     const auto col_lo = src_li.get_col_low_raw();
     const auto col_hi = src_li.get_col_upp_raw();
+    const auto scale_obj = src_li.scale_objective();
 
     const auto next_phase = phase + PhaseIndex {1};
 
@@ -453,7 +453,7 @@ std::optional<SDDPMethod::ElasticResult> SDDPMethod::elastic_solve(
   // other LP objective coefficients that go through stage_ecost / cost_factor.
   // The per-variable physical-unit scaling (var_scale) is applied inside
   // relax_fixed_state_variable() using each link's var_scale field.
-  const auto scale_obj = planning_lp().options().scale_objective();
+  const auto scale_obj = li.scale_objective();
   const auto scaled_penalty = m_options_.elastic_penalty / scale_obj;
 
   auto result = m_benders_cut_.elastic_filter_solve(li,
@@ -1460,6 +1460,7 @@ auto SDDPMethod::run_backward_pass_synchronized(
             .name = sc.name,
             .lowb = sc.rhs,
             .uppb = LinearProblem::DblMax,
+            .scale = sc.scale,
         };
         for (const auto& [col, coeff] : sc.coefficients) {
           row[ColIndex {col}] = coeff;

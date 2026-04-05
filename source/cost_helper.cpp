@@ -43,7 +43,6 @@ auto compute_block_icost_factors(const CostHelper& helper,
 }
 
 auto compute_block_discount_icost_factors(
-    double scale_obj,
     const std::vector<ScenarioLP>& scenarios,
     const std::vector<StageLP>& stages) -> block_factor_matrix_t
 {
@@ -56,7 +55,7 @@ auto compute_block_discount_icost_factors(
 
   for (auto&& [si, scenario] : active_scenarios) {
     for (auto&& [ti, stage] : active_stages) {
-      const double factor = scale_obj / stage.discount_factor();
+      const double factor = 1.0 / stage.discount_factor();
       factors[si][ti] =
           to_vector(stage.blocks(), [factor](const auto&) { return factor; });
     }
@@ -119,10 +118,8 @@ auto CostHelper::block_discount_icost_factors() const
     -> const block_factor_matrix_t&
 {
   if (!m_block_discount_icost_cache_) {
-    m_block_discount_icost_cache_ =
-        compute_block_discount_icost_factors(m_options_.get().scale_objective(),
-                                             m_scenarios_.get(),
-                                             m_stages_.get());
+    m_block_discount_icost_cache_ = compute_block_discount_icost_factors(
+        m_scenarios_.get(), m_stages_.get());
   }
   return *m_block_discount_icost_cache_;
 }

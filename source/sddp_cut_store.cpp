@@ -50,6 +50,7 @@ void SDDPCutStore::store_cut(SceneIndex scene,
       .scene = scene_uid_val,
       .name = cut.name,
       .rhs = cut.lowb,
+      .scale = cut.scale,
       .row = row,
   };
   stored.coefficients.reserve(cut.cmap.size());
@@ -409,6 +410,7 @@ void SDDPCutStore::apply_cut_sharing_for_iteration(
         .name = sc.name,
         .lowb = sc.rhs,
         .uppb = LinearProblem::DblMax,
+        .scale = sc.scale,
     };
     for (const auto& [col, coeff] : sc.coefficients) {
       row[col] = coeff;

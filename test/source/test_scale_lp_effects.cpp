@@ -255,8 +255,10 @@ TEST_CASE(  // NOLINT
 // ---------------------------------------------------------------
 
 TEST_CASE(  // NOLINT
-    "CostHelper — cost_factor inversely proportional to scale_objective")
+    "CostHelper — cost_factor independent of scale_objective")
 {
+  // scale_objective is now applied in flatten(), not in CostHelper.
+  // cost_factor = probability × discount × duration (no scale_obj).
   for (const auto scale : {1.0, 1'000.0, 10'000'000.0}) {
     PlanningOptions opt;
     opt.scale_objective = scale;
@@ -279,7 +281,8 @@ TEST_CASE(  // NOLINT
     const double cost = 100.0;
     const double ecost =
         helper.block_ecost(scenarios[0], stages[0], block, cost);
-    CHECK(ecost == doctest::Approx(cost / scale));
+    // cost_factor = 1.0 * 1.0 * 1.0 = 1.0, so ecost = cost
+    CHECK(ecost == doctest::Approx(cost));
   }
 }
 
@@ -288,8 +291,10 @@ TEST_CASE(  // NOLINT
 // ---------------------------------------------------------------
 
 TEST_CASE(  // NOLINT
-    "CostHelper — inverse cost factors scale with scale_objective")
+    "CostHelper — inverse cost factors independent of scale_objective")
 {
+  // scale_objective is now applied in LinearInterface, not CostHelper.
+  // Inverse factors = 1 / (prob × discount × duration).
   for (const auto scale : {1.0, 1'000.0, 10'000'000.0}) {
     PlanningOptions opt;
     opt.scale_objective = scale;
@@ -314,12 +319,12 @@ TEST_CASE(  // NOLINT
 
     auto stage_factors = helper.stage_icost_factors();
     REQUIRE(!stage_factors.empty());
-    CHECK(stage_factors[0] == doctest::Approx(scale / (1.0 * 0.9 * 2.0)));
+    CHECK(stage_factors[0] == doctest::Approx(1.0 / (1.0 * 0.9 * 2.0)));
 
     auto ss_factors = helper.scenario_stage_icost_factors();
     REQUIRE(!ss_factors.empty());
     REQUIRE(!ss_factors[0].empty());
-    CHECK(ss_factors[0][0] == doctest::Approx(scale / (0.5 * 0.9 * 2.0)));
+    CHECK(ss_factors[0][0] == doctest::Approx(1.0 / (0.5 * 0.9 * 2.0)));
   }
 }
 

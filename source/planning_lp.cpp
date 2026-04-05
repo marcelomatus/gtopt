@@ -265,7 +265,7 @@ void PlanningLP::write_out()
           .scene_uid = static_cast<Uid>(system.scene().uid()),
           .phase_uid = static_cast<Uid>(system.phase().uid()),
           .status = li.get_status(),
-          .obj_value = li.get_obj_value(),
+          .obj_value = li.get_obj_value_physical(),
           .kappa = li.get_kappa(),
           .max_kappa = sddp.max_kappa,
           .gap = sddp.gap,

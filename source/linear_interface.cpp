@@ -132,6 +132,7 @@ void LinearInterface::open_log_handler(const int log_level)
 LinearInterface LinearInterface::clone() const
 {
   auto cloned = LinearInterface {m_backend_->clone(), m_log_file_};
+  cloned.m_scale_objective_ = m_scale_objective_;
   cloned.m_col_scales_ = m_col_scales_;
   return cloned;
 }
@@ -178,6 +179,9 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
                            flat_lp.objval.data(),
                            flat_lp.rowlb.data(),
                            flat_lp.rowub.data());
+
+  // Preserve global objective scale factor from flatten().
+  m_scale_objective_ = flat_lp.scale_objective;
 
   // Preserve per-column scale factors from LinearProblem.
   m_col_scales_.assign(flat_lp.col_scales.begin(), flat_lp.col_scales.end());
@@ -940,6 +944,11 @@ bool LinearInterface::is_prim_infeasible() const
 double LinearInterface::get_obj_value() const
 {
   return m_backend_->obj_value();
+}
+
+double LinearInterface::get_obj_value_physical() const
+{
+  return m_backend_->obj_value() * m_scale_objective_;
 }
 
 void LinearInterface::set_col_sol(const std::span<const double> sol)

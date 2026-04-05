@@ -103,9 +103,9 @@ namespace
 ///   coeff_csv = LP_coeff * scale_obj / col_scale
 void write_cut_coefficients(std::ostream& ofs,
                             const StoredCut& cut,
-                            const LinearInterface& li,
-                            double scale_obj)
+                            const LinearInterface& li)
 {
+  const auto scale_obj = li.scale_objective();
   const auto& names = li.col_index_to_name();
   for (const auto& [col, coeff] : cut.coefficients) {
     const auto scale = li.get_col_scale(col);
@@ -198,7 +198,11 @@ auto save_cuts_csv(std::span<const StoredCut> cuts,
       });
     }
 
-    const auto scale_obj = planning_lp.options().scale_objective();
+    // Get scale_objective from a representative LinearInterface.
+    const auto& rep_li =
+        planning_lp.system(SceneIndex {0}, PhaseIndex {0}).linear_interface();
+    const auto scale_obj = rep_li.scale_objective();
+
     if (!append_mode) {
       ofs << "# scale_objective=" << scale_obj << "\n";
       ofs << "type,phase,scene,name,rhs,dual,coefficients\n";
@@ -226,7 +230,7 @@ auto save_cuts_csv(std::span<const StoredCut> cuts,
       if (pit != phase_map.end()) {
         const auto& li =
             planning_lp.system(SceneIndex {0}, pit->second).linear_interface();
-        write_cut_coefficients(ofs, cut, li, scale_obj);
+        write_cut_coefficients(ofs, cut, li);
       } else {
         SPDLOG_WARN(
             "save_cuts: unknown phase UID {} for cut '{}'; "
@@ -274,7 +278,11 @@ auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
       });
     }
 
-    const auto scale_obj = planning_lp.options().scale_objective();
+    // Get scale_objective from a representative LinearInterface.
+    const auto& rep_li =
+        planning_lp.system(scene, PhaseIndex {0}).linear_interface();
+    const auto scale_obj = rep_li.scale_objective();
+
     ofs << "# scale_objective=" << scale_obj << "\n";
     ofs << "type,phase,scene,name,rhs,dual,coefficients\n";
 
@@ -296,7 +304,7 @@ auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
       if (pit != phase_map.end()) {
         const auto& li =
             planning_lp.system(scene, pit->second).linear_interface();
-        write_cut_coefficients(ofs, cut, li, scale_obj);
+        write_cut_coefficients(ofs, cut, li);
       } else {
         SPDLOG_WARN(
             "save_scene_cuts: unknown phase UID {} for cut "
@@ -365,7 +373,9 @@ auto load_cuts_csv(PlanningLP& planning_lp,
     CutLoadResult result {};
     const auto& sim = planning_lp.simulation();
     const auto num_scenes = static_cast<Index>(sim.scenes().size());
-    const auto scale_obj = planning_lp.options().scale_objective();
+    const auto& rep_li =
+        planning_lp.system(SceneIndex {0}, PhaseIndex {0}).linear_interface();
+    const auto scale_obj = rep_li.scale_objective();
 
     // Build phase UID -> PhaseIndex lookup
     const auto phase_uid_to_index = build_phase_uid_map(planning_lp);
@@ -919,7 +929,9 @@ auto load_boundary_cuts_csv(
     }
 
     // ── Add cuts to the LP ──────────────────────────────────────
-    const auto scale_obj = planning_lp.options().scale_objective();
+    const auto& bdr_li =
+        planning_lp.system(SceneIndex {0}, last_phase).linear_interface();
+    const auto scale_obj = bdr_li.scale_objective();
 
     // When boundary_cuts_valuation == present_value, apply the
     // effective discount factor of the last phase's last stage to
@@ -1118,7 +1130,9 @@ auto load_named_cuts_csv(
     const auto& sim = planning_lp.simulation();
     const auto num_scenes = static_cast<Index>(sim.scenes().size());
     const auto& sys = planning_lp.planning().system;
-    const auto scale_obj = planning_lp.options().scale_objective();
+    const auto& named_rep_li =
+        planning_lp.system(SceneIndex {0}, PhaseIndex {0}).linear_interface();
+    const auto scale_obj = named_rep_li.scale_objective();
     const auto sa = effective_scale_alpha(planning_lp, options.scale_alpha);
 
     std::unordered_map<std::string, std::pair<std::string_view, Uid>>

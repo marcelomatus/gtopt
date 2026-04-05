@@ -48,7 +48,6 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
 
   const auto& blocks = stage.blocks();
   const auto& options = sc.options();
-  const auto scale_objective = options.scale_objective();
 
   BIndexHolder<ColIndex> fcols;
   BIndexHolder<ColIndex> ffails;
@@ -125,7 +124,7 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
         .name = std::move(flow_col_name),
         .lowb = lowb,
         .uppb = uppb,
-        .cost = -block_use_value / scale_objective,
+        .cost = -block_use_value,
     });
     fcols[buid] = fcol;
 
@@ -134,7 +133,7 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
           sc.lp_col_label(scenario, stage, block, cname, "fail", uid());
       const auto fail_col = lp.add_col({
           .name = std::move(fail_col_name),
-          .cost = block_fail_cost / scale_objective,
+          .cost = block_fail_cost,
       });
       ffails[buid] = fail_col;
 

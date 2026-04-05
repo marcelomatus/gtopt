@@ -63,7 +63,6 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
 
   auto&& blocks = stage.blocks();
   const auto& options = sc.options();
-  const auto scale_objective = options.scale_objective();
 
   // Resolve energy_scale: explicit field > VariableScaleMap >
   // inherit from source reservoir or parent VolumeRight > default.
@@ -281,7 +280,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     auto fail_col_name = sc.lp_col_label(scenario, stage, cname, "fail", uid());
     const auto fail_col = lp.add_col(SparseCol {
         .name = std::move(fail_col_name),
-        .cost = fail_cost * energy_scale / scale_objective,
+        .cost = fail_cost * energy_scale,
         .scale = energy_scale,
     });
 

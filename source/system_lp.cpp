@@ -388,8 +388,14 @@ void create_collections(const auto& system_context,
 
 namespace gtopt
 {
-void SystemLP::create_lp(const LpMatrixOptions& flat_opts)
+void SystemLP::create_lp(const LpMatrixOptions& flat_opts_in)
 {
+  // Inject scale_objective from planning options if not already set,
+  // so that flatten() applies the global objective divisor.
+  auto flat_opts = flat_opts_in;
+  if (flat_opts.scale_objective == 1.0) {
+    flat_opts.scale_objective = system_context().options().scale_objective();
+  }
   m_linear_interface_ = create_linear_interface(
       collections(), system_context(), phase(), scene(), flat_opts);
 }

@@ -52,6 +52,7 @@ struct StoredCut
   SceneUid scene {};  ///< Scene UID that generated this cut (-1 = shared)
   std::string name {};  ///< Cut name
   double rhs {};  ///< Right-hand side (lower bound)
+  double scale {1.0};  ///< Row scale (physical → LP), mirrors SparseRow::scale
   std::optional<double> dual {};  ///< Row dual value (nullopt = unknown)
   RowIndex row {};  ///< LP row index where this cut was added
   /// Coefficient pairs: (column_index, coefficient)

@@ -643,6 +643,18 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
         });
   }
 
+  // ── Global objective scaling ──────────────────────────────────────
+  // Divide all objective coefficients by scale_objective to improve
+  // numerical conditioning.  Applied after equilibration since it is
+  // a uniform divisor that does not affect relative magnitudes.
+  const auto scale_obj = opts.scale_objective;
+  if (scale_obj != 1.0) {
+    const auto inv_scale = 1.0 / scale_obj;
+    for (auto& v : objval) {
+      v *= inv_scale;
+    }
+  }
+
   return {
       .ncols = static_cast<fp_index_t>(ncols),
       .nrows = static_cast<fp_index_t>(nrows),
@@ -657,6 +669,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       .colint = std::move(colint),
       .col_scales = std::move(col_scales),
       .row_scales = std::move(row_scales_vec),
+      .scale_objective = scale_obj,
       .colnm = std::move(colnm),
       .rownm = std::move(rownm),
       .colmp = std::move(colmp),

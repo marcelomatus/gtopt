@@ -482,8 +482,8 @@ TEST_CASE("PlanningLP - Solver test")
   REQUIRE(sol[1] == doctest::Approx(100));  // generation
 
   const auto dual = lp_interface.get_row_dual();
-  REQUIRE(dual[0] * system_lp.options().scale_objective()
-          == doctest::Approx(50));
+  // get_row_dual() returns physical duals (already includes scale_objective).
+  REQUIRE(dual[0] == doctest::Approx(50));
 }
 
 // ── auto_scale_theta tests ────────────────────────────────────────────────

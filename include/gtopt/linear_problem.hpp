@@ -55,6 +55,9 @@ struct FlatLinearProblem
                                    ///< (max |coeff| per row).
                                    ///< dual_physical = dual_LP / row_scale.
                                    ///< Empty when row equilibration is off.
+  double scale_objective {1.0};  ///< Global objective divisor applied during
+                                 ///< flatten().  obj_physical = obj_LP ×
+                                 ///< scale_objective.
 
   name_vec_t colnm;  ///< Variable names
   name_vec_t rownm;  ///< Constraint names

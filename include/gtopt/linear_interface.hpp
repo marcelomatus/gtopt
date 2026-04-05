@@ -53,10 +53,12 @@ public:
                        size_t n,
                        const double* scales,
                        size_t ns,
-                       Op op = Op::multiply) noexcept
+                       Op op = Op::multiply,
+                       double global_factor = 1.0) noexcept
       : data_(data, n)
       , scales_(scales, ns)
       , op_(op)
+      , global_(global_factor)
   {
   }
 
@@ -70,10 +72,11 @@ public:
   {
     const auto i = static_cast<size_t>(idx);
     if (i >= scales_.size()) {
-      return data_[i];
+      return data_[i] * global_;
     }
-    return (op_ == Op::multiply) ? data_[i] * scales_[i]
-                                 : data_[i] / scales_[i];
+    const auto v =
+        (op_ == Op::multiply) ? data_[i] * scales_[i] : data_[i] / scales_[i];
+    return v * global_;
   }
 
   [[nodiscard]] constexpr size_t size() const noexcept { return data_.size(); }
@@ -122,6 +125,7 @@ private:
   std::span<const double> data_ {};
   std::span<const double> scales_ {};
   Op op_ {Op::multiply};
+  double global_ {1.0};  ///< Uniform factor applied to every element
 };
 
 /// Diagnostics for a single LP row (constraint or cut).
@@ -456,6 +460,16 @@ public:
   [[nodiscard]] double get_obj_value() const;
 
   /**
+   * @brief Gets the objective value in physical (unscaled) units.
+   *
+   * Returns `raw_obj × scale_objective`, converting from LP space back
+   * to physical cost units.  Equivalent to the old manual descaling
+   * `get_obj_value() * options.scale_objective()`.
+   * @return Physical objective value
+   */
+  [[nodiscard]] double get_obj_value_physical() const;
+
+  /**
    * @brief Writes the problem to an LP format file
    * @param filename Name of the file to write (without extension)
    * @return Success, or an error if row names are not available
@@ -720,10 +734,11 @@ public:
   }
 
   /**
-   * @brief Gets physical reduced costs (LP / col_scale).
+   * @brief Gets physical reduced costs (LP × scale_objective / col_scale).
    *
    * Returns a zero-copy lazy view: each access computes
-   * `LP_rc / col_scale` on the fly.
+   * `LP_rc × scale_objective / col_scale` on the fly, recovering the
+   * physical reduced cost in $/physical_unit.
    * @return ScaledView over solver reduced-cost memory
    */
   [[nodiscard]] ScaledView get_col_cost() const noexcept
@@ -733,7 +748,8 @@ public:
             n,
             m_col_scales_.data(),
             m_col_scales_.size(),
-            ScaledView::Op::divide};
+            ScaledView::Op::divide,
+            m_scale_objective_};
   }
 
   /**
@@ -826,6 +842,18 @@ public:
     return m_row_scales_;
   }
 
+  /**
+   * @brief Gets the global objective scaling factor.
+   *
+   * obj_physical = obj_LP × scale_objective.
+   * Set during load_flat() from FlatLinearProblem::scale_objective.
+   * @return The objective scale factor (1.0 if not set)
+   */
+  [[nodiscard]] constexpr double scale_objective() const noexcept
+  {
+    return m_scale_objective_;
+  }
+
   /** @brief Lazily compute vertex duals via crossover if the backend
    *  lacks them (barrier without crossover).  No-op when has_duals()
    *  is already true (simplex, or barrier with crossover).
@@ -853,7 +881,9 @@ public:
    * by the per-row scale factor to recover physical units.
    * Row equilibration divides each row by s = max|coeff|, so the LP dual
    * is π_LP = s × π_phys, hence π_phys = π_LP / s.
-   * @return Zero-copy lazy view: `dual_LP / row_scale` per element.
+   * The global scale_objective factor is also applied:
+   *   dual_physical = dual_LP × scale_objective / row_scale.
+   * @return Zero-copy lazy view per element.
    */
   [[nodiscard]] ScaledView get_row_dual() noexcept
   {
@@ -863,7 +893,8 @@ public:
             n,
             m_row_scales_.data(),
             m_row_scales_.size(),
-            ScaledView::Op::divide};
+            ScaledView::Op::divide,
+            m_scale_objective_};
   }
 
   void set_col_sol(std::span<const double> sol);
@@ -1063,6 +1094,7 @@ private:
 
   size_t m_base_numrows_ {};  ///< Row count before any cuts were added
 
+  double m_scale_objective_ {1.0};  ///< Global objective divisor (from flatten)
   StrongIndexVector<ColIndex, double> m_col_scales_;
   StrongIndexVector<RowIndex, double> m_row_scales_;
 

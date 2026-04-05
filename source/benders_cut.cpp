@@ -428,6 +428,7 @@ auto average_benders_cut(const std::vector<SparseRow>& cuts,
       .name = std::string(name),
       .lowb = avg_rhs / n,
       .uppb = LinearProblem::DblMax,
+      .scale = cuts.front().scale,
   };
 
   for (const auto& [col, total_coeff] : avg_coeffs) {
@@ -486,6 +487,7 @@ auto weighted_average_benders_cut(const std::vector<SparseRow>& cuts,
       .name = std::string(name),
       .lowb = avg_rhs,
       .uppb = LinearProblem::DblMax,
+      .scale = cuts.front().scale,
   };
 
   for (const auto& [col, coeff] : avg_coeffs) {
@@ -522,6 +524,7 @@ auto accumulate_benders_cuts(const std::vector<SparseRow>& cuts,
       .name = std::string(name),
       .lowb = sum_rhs,
       .uppb = LinearProblem::DblMax,
+      .scale = cuts.front().scale,
   };
 
   for (const auto& [col, coeff] : sum_coeffs) {

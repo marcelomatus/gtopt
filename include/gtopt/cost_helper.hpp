@@ -66,8 +66,7 @@ public:
       const double discount,
       const double duration = 1.0) const noexcept
   {
-    const auto scale_obj = m_options_.get().scale_objective();
-    return probability * discount * duration / scale_obj;
+    return probability * discount * duration;
   }
 
   [[nodiscard]] constexpr double cost_factor(

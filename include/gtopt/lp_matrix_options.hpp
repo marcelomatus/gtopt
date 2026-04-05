@@ -53,6 +53,9 @@ struct LpMatrixOptions
                             ///< Default is `ieee_halve`.
   LpNamesLevel lp_names_level {LpNamesLevel::minimal};  ///< Computed naming
                                                         ///< level (internal)
+  double scale_objective {1.0};  ///< Global divisor for all objective
+                                 ///< coefficients (numerical conditioning).
+                                 ///< Applied uniformly during flatten().
   std::string solver_name {};  ///< Solver backend name (empty = auto-detect)
 
   /** @brief LP naming level (user-facing JSON/CLI option).

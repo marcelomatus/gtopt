@@ -594,10 +594,8 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
   {
     const auto& lp_if =
         planning_lp.systems().front().front().linear_interface();
-    const auto& plp_opts = planning_lp.options();
-    const double scale = plp_opts.scale_objective();
     const double obj_scaled = lp_if.get_obj_value();
-    const double obj_unscaled = obj_scaled * scale;
+    const double obj_unscaled = lp_if.get_obj_value_physical();
     spdlog::info(std::format("  LP variables    : {}", lp_if.get_numcols()));
     spdlog::info(std::format("  LP constraints  : {}", lp_if.get_numrows()));
     spdlog::info(std::format("  Obj (scaled)    : {:.6g}", obj_scaled));
