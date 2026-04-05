@@ -279,32 +279,38 @@ The Colbun reservoir is divided into three zones with different extraction
 rules.  Unlike Laja (piecewise-linear), Maule uses a simpler step-function
 model:
 
-```
-       VolMax (Colbun)
-  +-------------------------+
-  |                         |    Normal elec bound_rule:
-  |   Normal Zone           |    seg[0]: V>=0,   const=0  (OFF)
-  |                         |    seg[1]: V>=581, const=30 (ON)
-  |   Elec: 30 m3/s daily   |
-  |   Irr:  200 m3/s        |    Normal irr bound_rule:
-  |   Comp: allowed         |    seg[0]: V>=0,   const=0  (OFF)
-  |                         |    seg[1]: V>=581, const=200(ON)
-  +-- 581 hm3 --------------+
-  |                         |    Ordinary elec bound_rule:
-  |   Ordinary Reserve      |    seg[0]: V>=0,   const=0  (OFF)
-  |   (452 hm3)             |    seg[1]: V>=129, const=30 (ON)
-  |                         |    seg[2]: V>=581, const=0  (OFF)
-  |   20% -> ENDESA         |
-  |   80% -> Irrigators     |    Ordinary irr bound_rule:
-  |                         |    seg[0]: V>=0,   const=0  (OFF)
-  |   UserConstraint:       |    seg[1]: V>=129, const=200(ON)
-  |   elec<=20% of total    |    seg[2]: V>=581, const=0  (OFF)
-  +-- 129 hm3 --------------+
-  |                         |
-  |   Extraordinary         |    All rights: const=0 (OFF)
-  |   Reserve (129 hm3)     |    No extraction allowed
-  |   Minimal flows only    |
-  +-- 0 hm3 ----------------+
+| Zone | Volume Range | Extraction Rights | bound\_rule Segments |
+|------|-------------|-------------------|---------------------|
+| **Normal** | 581 — VolMax hm³ | Elec: 30 m³/s daily | seg\[0\]: V≥0 → const=0 (OFF) |
+| | | Irr: 200 m³/s | seg\[1\]: V≥581 → const=30/200 (ON) |
+| | | Comp: allowed | |
+| **Ordinary Reserve** | 129 — 581 hm³ (452 hm³) | 20% → ENDESA | seg\[0\]: V≥0 → const=0 (OFF) |
+| | | 80% → Irrigators | seg\[1\]: V≥129 → const=30/200 (ON) |
+| | | UserConstraint: elec ≤ 20% | seg\[2\]: V≥581 → const=0 (OFF) |
+| **Extraordinary Reserve** | 0 — 129 hm³ | No extraction allowed | All rights: const=0 (OFF) |
+| | | Minimal flows only | |
+
+```mermaid
+graph TD
+    subgraph "Colbun Reservoir Zones"
+        TOP["VolMax hm³"] --- NORMAL
+        NORMAL["🔵 <b>Normal Zone</b><br/>Elec: 30 m³/s · Irr: 200 m³/s · Comp: allowed"]
+        NORMAL --- MID["581 hm³"]
+        MID --- ORDINARY
+        ORDINARY["🟡 <b>Ordinary Reserve</b> (452 hm³)<br/>20% ENDESA · 80% Irrigators"]
+        ORDINARY --- LOW["129 hm³"]
+        LOW --- EXTRA
+        EXTRA["🔴 <b>Extraordinary Reserve</b><br/>No extraction · Minimal flows only"]
+        EXTRA --- BOT["0 hm³"]
+    end
+
+    style NORMAL fill:#4a90d9,color:#fff
+    style ORDINARY fill:#f0ad4e,color:#000
+    style EXTRA fill:#d9534f,color:#fff
+    style TOP fill:none,stroke:none,color:#333
+    style MID fill:none,stroke:none,color:#666,font-weight:bold
+    style LOW fill:none,stroke:none,color:#666,font-weight:bold
+    style BOT fill:none,stroke:none,color:#333
 ```
 
 The 3-segment pattern for ordinary reserve achieves zone exclusivity:
@@ -314,7 +320,7 @@ The 3-segment pattern for ordinary reserve achieves zone exclusivity:
 
 The effective flow upper bound for any FlowRight is:
 
-$$\bar{q}_j = \min\!\bigl(f_{\max}(m),\; \text{bound-rule}(V_{\text{Colbun}})\bigr)$$
+$$\bar{q}_j = \min\bigl(f_{\max}(m),\ \operatorname{bound\text{-}rule}(V_{\text{Colbun}})\bigr)$$
 
 where $f_{\max}(m)$ is the monthly-modulated cap and $V_{\text{Colbun}}$ is the
 current Colbun reservoir volume.
