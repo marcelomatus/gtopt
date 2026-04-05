@@ -80,14 +80,13 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
     if (vs != 1.0) {
       return vs;
     }
-    // 3. Auto-scale mode: round up capacity/1000 to next power of 10.
-    //    cap=6000 → 6 → 10;  cap=6e6 → 6000 → 10000.
+    // 3. Auto-scale mode: round down capacity to previous power of 10.
+    //    cap=72 → 10;  cap=5586 → 1000.
     if (reservoir().energy_scale_mode_enum() == EnergyScaleMode::auto_scale) {
-      const auto raw = stage_capacity / 1000.0;
-      if (raw <= 1.0) {
+      if (stage_capacity <= 1.0) {
         return 1.0;
       }
-      return std::pow(10.0, std::ceil(std::log10(raw)));
+      return std::pow(10.0, std::floor(std::log10(stage_capacity)));
     }
     return Reservoir::default_energy_scale;
   }();
@@ -122,10 +121,9 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
     rcols[buid] = rc;
 
     // The extraction adds flow to the junction balance (in m³/s).
-    // Since rsv_fext_LP = fext_m3s / flow_scale, restore the physical unit
-    // by using flow_scale as the coefficient.
+    // Physical coefficient is 1.0; flatten() multiplies by col_scale.
     auto& brow = lp.row_at(balance_rows.at(buid));
-    brow[rc] = flow_scale;
+    brow[rc] = 1.0;
   }
 
   const auto mpf = reservoir().mean_production_factor.value_or(

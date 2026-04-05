@@ -52,14 +52,12 @@ bool ReservoirDischargeLimitLP::add_to_lp(const SystemContext& sc,
   const auto& flow_cols = waterway.flow_cols_at(scenario, stage);
   const auto eini_col = reservoir.eini_col_at(scenario, stage);
   const auto efin_col = reservoir.efin_col_at(scenario, stage);
-  const double energy_scale = reservoir.energy_scale();
-
   // Select initial segment based on reservoir initial volume
   const auto eini_vol = reservoir.reservoir().eini.value_or(0.0);
   const auto coeffs = select_rdl_coeffs(ddl.segments, eini_vol);
 
-  // Convert slope from physical to LP units
-  const Real lp_slope = coeffs.slope * energy_scale;
+  // Physical slope — flatten() applies col_scale to matrix coefficients.
+  const Real lp_slope = coeffs.slope;
 
   const auto& blocks = stage.blocks();
   const auto stage_dur = stage.duration();
@@ -88,8 +86,7 @@ bool ReservoirDischargeLimitLP::add_to_lp(const SystemContext& sc,
   avg_rows[st_key] = lp.add_row(std::move(avg_row));
 
   // 3. Stage-level volume constraint:
-  //    qeh - slope × energy_scale × 0.5 × eini
-  //        - slope × energy_scale × 0.5 × efin  ≤  intercept
+  //    qeh - slope × 0.5 × eini - slope × 0.5 × efin  ≤  intercept
   auto vol_row =
       SparseRow {
           .name = sc.lp_row_label(scenario, stage, cname, "dvol", uid()),

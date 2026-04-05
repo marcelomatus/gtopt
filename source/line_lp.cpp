@@ -58,16 +58,13 @@ void LineLP::add_kirchhoff_rows(SystemContext& sc,
     return;
   }
 
-  const double scale_theta = sc.options().scale_theta();
   const double X = stage_reactance.value();
   // V defaults to 1.0 (per-unit mode).  When V is in kV, X must be in Ω
   // so that B = V²/X yields consistent susceptance units.
   const double V = voltage.at(stage.uid()).value_or(1);
-  // Scaled susceptance: χ_l = X / (V² × scale_theta).
-  // Since scale_theta is small (e.g. 1e-4), dividing makes chi large,
-  // matching the scaled-up theta variables (theta_LP = theta_phys /
-  // scale_theta).
-  const double x = X / (V * V * scale_theta);
+  // Physical susceptance: χ = X / V².
+  // flatten() applies col_scale (scale_theta) to theta column coefficients.
+  const double x = X / (V * V);
 
   // Off-nominal tap ratio: scales effective susceptance by τ.
   // Kirchhoff: -θ'_a + θ'_b + τ·χ·f_p − τ·χ·f_n = −φ/scale_theta
@@ -86,8 +83,8 @@ void LineLP::add_kirchhoff_rows(SystemContext& sc,
   const double row_norm = (abs_x_tau > 0.0) ? abs_x_tau : 1.0;
   const double inv_norm = 1.0 / row_norm;
 
-  // Normalized RHS = -(phi_rad / scale_theta) / row_norm
-  const double kirchhoff_rhs = -(phi_rad / scale_theta) * inv_norm;
+  // Normalized RHS = -phi_rad / row_norm (physical units)
+  const double kirchhoff_rhs = -phi_rad * inv_norm;
 
   // Normalized coefficients: theta terms = ±1/row_norm, flow terms = ±sign
   const double theta_coeff = inv_norm;

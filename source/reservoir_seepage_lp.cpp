@@ -51,14 +51,6 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
   const auto eini_col = reservoir.eini_col_at(scenario, stage);
   const auto efin_col = reservoir.efin_col_at(scenario, stage);
 
-  // The volume columns are in LP (scaled) units: LP_vol = phys_vol /
-  // energy_scale.  The seepage slope is in physical units [m³/s per hm³].
-  // Multiplying the slope by energy_scale converts it to [m³/s / LP_unit] so
-  // the constraint
-  //   filt_flow = slope_lp * V_avg_lp + constant
-  // is dimensionally correct.
-  const double energy_scale = reservoir.energy_scale();
-
   // Determine effective slope and intercept (RHS).
   // Priority: piecewise segments (volume-dependent) > per-stage schedule >
   // scalar default 0.0.
@@ -72,8 +64,8 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
     effective_rhs = coeffs.intercept;
   }
 
-  // Convert slope from physical to LP units.
-  const Real lp_slope = effective_slope * energy_scale;
+  // Physical slope — flatten() applies col_scale to matrix coefficients.
+  const Real lp_slope = effective_slope;
 
   const auto& blocks = stage.blocks();
 

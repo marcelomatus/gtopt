@@ -60,16 +60,10 @@ struct StorageOptions
 
   /// Flow variable scale factor applied to finp/fout/drain LP variables.
   ///
-  /// When > 1.0, the caller has pre-divided the flow LP variables (finp_cols,
-  /// fout_cols, and the drain variable) by this factor.  StorageLP compensates
-  /// by multiplying the energy-balance row coefficients by flow_scale, so that
-  /// the net contribution remains physically correct:
+  /// flatten() applies col_scale to both flow and energy column coefficients,
+  /// so the physical coefficient in the energy-balance row is simply:
   ///
-  ///   coeff = flow_conversion_rate × duration × flow_scale / energy_scale
-  ///
-  /// With flow_scale == energy_scale (the reservoir case) this simplifies to:
   ///   coeff = flow_conversion_rate × duration
-  /// which is O(1) for typical hydro parameters — no more 1e-5 entries.
   ///
   /// For drain: bounds are divided and LP cost is multiplied by flow_scale so
   /// that the physical objective value is preserved.
@@ -392,14 +386,13 @@ public:
         stage.uid() == sc.simulation().stages().back().uid();
     const auto [prev_stage, prev_phase] = sc.prev_stage(stage);
 
-    // The objective cost is per physical energy unit; since the LP variable
-    // is physical/energy_scale, multiply the coefficient by energy_scale so
-    // that cost = (ecost * energy_scale) * x = ecost * physical_energy.
+    // Physical objective cost per energy unit.  flatten() applies col_scale
+    // so that cost_LP = cost_phys × col_scale / scale_objective.
     const auto stage_ecost = sc.scenario_stage_ecost(  //
                                  scenario,
                                  stage,
                                  ecost.at(stage.uid()).value_or(0.0))
-        / stage.duration() * energy_scale;
+        / stage.duration();
 
     const auto hour_loss =
         annual_loss.at(stage.uid()).value_or(0.0) / hours_per_year;
@@ -531,10 +524,8 @@ public:
       erow[prev_vc] = -(1 - (hour_loss * block.duration() * dc_stage_scale));
       erow[ec] = 1;
 
-      // Flow coefficients: flow_scale×duration×conversion / energy_scale.
-      // When flow_scale == energy_scale (reservoir and battery cases) this
-      // simplifies to flow_conversion_rate × duration — avoiding LP
-      // coefficients that change with energy_scale.
+      // Physical flow coefficients: fcr × duration × dc_stage_scale.
+      // flatten() applies col_scale to both flow and energy columns.
       //
       // fout_cols and finp_cols may each be empty.  VolumeRight with
       // source_flow_right passes empty finp (outflow injected later);
@@ -545,46 +536,42 @@ public:
       if (has_fout) {
         const auto fout_col = fout_cols.at(buid);
         erow[fout_col] = +(flow_conversion_rate / fout_efficiency)
-            * block.duration() * dc_stage_scale * flow_scale / energy_scale;
+            * block.duration() * dc_stage_scale;
 
         if (has_finp) {
           const auto finp_col = finp_cols.at(buid);
           // if the input and output are the same, we only need one entry
           if (fout_col != finp_col) {
             erow[finp_col] = -(flow_conversion_rate * finp_efficiency)
-                * block.duration() * dc_stage_scale * flow_scale / energy_scale;
+                * block.duration() * dc_stage_scale;
           }
         }
       } else if (has_finp) {
         // No fout — finp is a pure inflow (adds to storage volume).
         const auto finp_col = finp_cols.at(buid);
         erow[finp_col] = -(flow_conversion_rate * finp_efficiency)
-            * block.duration() * dc_stage_scale * flow_scale / energy_scale;
+            * block.duration() * dc_stage_scale;
       }
 
       if (drain_cost) {
-        // The drain LP variable is pre-divided by flow_scale (bounds scaled
-        // down); multiply cost by flow_scale to keep objective invariant.
+        // Physical drain cost — flatten() applies col_scale.
         const auto dcol = lp.add_col({
             .name =
                 sc.lp_col_label(scenario, stage, block, cname, "drain", uid()),
             .lowb = 0,
             .uppb = drain_capacity.value_or(LinearProblem::DblMax),
-            .cost = sc.block_ecost(scenario, stage, block, *drain_cost)
-                * flow_scale,
+            .cost = sc.block_ecost(scenario, stage, block, *drain_cost),
             .scale = flow_scale,
         });
 
         dcols[buid] = dcol;
-        erow[dcol] = flow_conversion_rate * block.duration() * dc_stage_scale
-            * flow_scale / energy_scale;
+        erow[dcol] = flow_conversion_rate * block.duration() * dc_stage_scale;
       }
 
       erows[buid] = lp.add_row(std::move(erow));
 
-      // Capacity constraint: capacity_col [physical units] >= ec [scaled units]
-      // requires coefficient -energy_scale so the constraint in physical units
-      // is: capacity >= ec * energy_scale (= physical energy).
+      // Capacity constraint: capacity_col >= ec (both physical).
+      // flatten() applies col_scale to matrix coefficients automatically.
       if (capacity_col) {
         auto crow =
             SparseRow {
@@ -593,7 +580,7 @@ public:
             }
                 .greater_equal(0);
         crow[*capacity_col] = 1;
-        crow[ec] = -energy_scale;
+        crow[ec] = -1.0;
 
         crows[buid] = lp.add_row(std::move(crow));
       }
@@ -610,7 +597,7 @@ public:
       // bat_soc_efin_uid_scen_stage) in the LP file.
       const auto& efin_opt = storage().efin;
       if (is_last_block && efin_opt.has_value()) {
-        const double lp_efin = *efin_opt / energy_scale;
+        const double lp_efin = *efin_opt;
         auto efin_row =
             SparseRow {
                 .name = sc.lp_label(scenario, stage, cname, "efin", uid()),
@@ -624,7 +611,7 @@ public:
     }
 
     // Soft minimum energy constraint (PLP "holgura" / slack):
-    //   efin + slack >= soft_emin / energy_scale
+    //   efin + slack >= soft_emin
     // The slack variable has a penalty cost in the objective, allowing the
     // volume/SoC to drop below soft_emin at a cost.  One constraint per
     // stage, applied to the efin column (prev_vc = last block's energy col).
@@ -632,14 +619,14 @@ public:
     const auto stage_soft_emin_cost =
         soft_emin_cost.at(stage.uid()).value_or(0.0);
     if (stage_soft_emin > 0.0 && stage_soft_emin_cost > 0.0) {
-      const double lp_soft_emin = stage_soft_emin / energy_scale;
-      // Penalty cost per LP unit of slack: cost_physical * energy_scale
-      // (since slack_physical = slack_LP * energy_scale).
+      const double lp_soft_emin = stage_soft_emin;
+      // Penalty cost per LP unit of slack: physical cost.
       // Apply scenario probability and discount via scenario_stage_ecost,
       // then remove the duration factor (state penalty, not flow).
+      // flatten() applies col_scale (energy_scale) to the objective.
       const double slack_cost =
           sc.scenario_stage_ecost(scenario, stage, stage_soft_emin_cost)
-          / stage.duration() * energy_scale;
+          / stage.duration();
 
       const auto semin_col = lp.add_col({
           .name = sc.lp_col_label(scenario, stage, cname, "semin", uid()),
@@ -686,12 +673,12 @@ public:
           lp.add_row(std::move(close_row));
     }
 
-    // Store the combined dual correction factor:
-    //   dual_physical = dual_LP * (dc_stage_scale / energy_scale)
-    // This corrects both the daily-cycle time-scaling and the energy scaling.
+    // Store the dual correction factor for daily-cycle time-scaling.
+    // flatten() applies col_scale to coefficients, so energy_scale is
+    // already accounted for in the LP matrix — no manual correction needed.
     // When the factor is effectively 1.0, no entry is stored; downstream
     // flat() defaults to 1.0 for absent keys (no correction applied).
-    const double dual_scale = dc_stage_scale / energy_scale;
+    const double dual_scale = dc_stage_scale;
     if (std::abs(dual_scale - 1.0) > std::numeric_limits<double>::epsilon()) {
       output_dual_scale[st_key] = dual_scale;
     }
@@ -738,10 +725,10 @@ public:
     out.add_col_sol(cname, "volumen", pid, energy_cols);
     out.add_col_cost(cname, "volumen", pid, energy_cols);
 
-    // Dual output: output_dual_scale = dc_stage_scale / energy_scale.
+    // Dual output: output_dual_scale = dc_stage_scale.
     // Row equilibration is already removed by get_row_dual().
-    // This corrects the daily-cycle time-scaling (dc_stage_scale) and the
-    // energy-balance RHS scaling (1/energy_scale).
+    // This corrects the daily-cycle time-scaling (dc_stage_scale).
+    // flatten() handles energy_scale via col_scale on coefficients.
     out.add_row_dual(cname, "volumen", pid, energy_rows, output_dual_scale);
 
     out.add_row_dual(cname, "capacity", pid, capacity_rows);

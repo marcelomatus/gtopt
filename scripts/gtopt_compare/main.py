@@ -216,11 +216,11 @@ def _read_solution_csv(sol_file: Path) -> dict[str, float | int | str]:
     return result
 
 
-def read_gtopt_cost(output_dir: Path, scale: float = _SCALE_OBJECTIVE) -> float:
+def read_gtopt_cost(output_dir: Path, scale: float = 1.0) -> float:
     """Return the objective value from solution.csv, scaled by *scale*.
 
-    gtopt stores ``obj_value / scale_objective`` in solution.csv; multiplying
-    by *scale* (default 1000) recovers the original cost in $/h.
+    gtopt stores the physical objective value in solution.csv (already
+    unscaled by scale_objective internally).
     """
     sol_file = output_dir / "solution.csv"
     if not sol_file.exists():

@@ -126,8 +126,8 @@ class TestReadGtoptLmps:
 
 class TestReadGtoptCost:
     def test_applies_default_scale(self, tmp_path):
-        # obj_value stored as 6.0 → 6.0 * 1000 = 6000
-        _write_solution_csv(tmp_path, 6.0)
+        # obj_value stored as 6000.0 (physical) → 6000.0 * 1.0 = 6000
+        _write_solution_csv(tmp_path, 6000.0)
         result = read_gtopt_cost(tmp_path)
         assert result == pytest.approx(6000.0)
 
@@ -136,7 +136,7 @@ class TestReadGtoptCost:
         result = read_gtopt_cost(tmp_path, scale=500.0)
         assert result == pytest.approx(2500.0)
 
-    def test_default_scale_is_1000(self):
+    def test_scale_objective_constant(self):
         assert _SCALE_OBJECTIVE == pytest.approx(1000.0)
 
     def test_file_not_found(self, tmp_path):

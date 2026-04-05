@@ -241,29 +241,24 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
 
     for (auto&& block : blocks) {
       const auto buid = block.uid();
-      // extraction LP var = physical / flow_scale, so multiply by
-      // flow_scale to restore physical units in the parent balance.
-      const auto coeff = flow_conversion_rate() * block.duration() * dir
-          * flow_scale / energy_scale;
+      // Physical coefficient: flow → energy conversion factor.
+      // flatten() applies col_scale to both flow and energy columns.
+      const auto coeff = flow_conversion_rate() * block.duration() * dir;
       lp.row_at(vr_erows.at(buid))[extraction_cols.at(buid)] = coeff;
     }
   }
 
   // Consumptive coupling: extraction removes water from physical Reservoir.
-  // Rights are always consumptive — when a reservoir is set, extraction
-  // is subtracted from the reservoir's energy balance (outflow).
-  // Coefficient: +fcr × duration × flow_scale / r_energy_scale
-  // (flow_scale restores physical m³/s from the scaled LP variable).
+  // Physical coefficient: +fcr × duration.
+  // flatten() applies col_scale to both flow and energy columns.
   if (const auto& r_ref = volume_right().reservoir; r_ref.has_value()) {
     const ReservoirLPSId r_sid(*r_ref);
     const auto& r_lp = sc.element(r_sid);
     const auto& r_erows = r_lp.energy_rows_at(scenario, stage);
-    const auto r_energy_scale = r_lp.energy_scale();
 
     for (auto&& block : blocks) {
       const auto buid = block.uid();
-      const auto coeff = +flow_conversion_rate() * block.duration() * flow_scale
-          / r_energy_scale;
+      const auto coeff = +flow_conversion_rate() * block.duration();
       lp.row_at(r_erows.at(buid))[extraction_cols.at(buid)] = coeff;
     }
   }
@@ -274,18 +269,16 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   // and a constraint row.
   const auto stage_demand = demand.at(stage.uid());
   if (stage_demand.has_value() && *stage_demand > 0.0) {
-    const auto inv_energy_scale = 1.0 / energy_scale;
-
-    // Deficit variable (in hm³ / energy_scale)
+    // Deficit variable — physical cost, flatten() applies col_scale.
     auto fail_col_name = sc.lp_col_label(scenario, stage, cname, "fail", uid());
     const auto fail_col = lp.add_col(SparseCol {
         .name = std::move(fail_col_name),
-        .cost = fail_cost * energy_scale,
+        .cost = fail_cost,
         .scale = energy_scale,
     });
 
-    // Demand satisfaction constraint:
-    // sum_b [coeff_b * extraction(b)] + fail >= demand / energy_scale
+    // Demand satisfaction constraint in physical units:
+    // sum_b [fcr × duration × extraction(b)] + fail >= demand
     auto demand_row_name =
         sc.lp_row_label(scenario, stage, cname, "demand", uid());
     SparseRow drow {
@@ -295,16 +288,14 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     for (auto&& block : blocks) {
       const auto buid = block.uid();
       const auto duration = block.duration();
-      // extraction LP var = physical / flow_scale, so multiply by
-      // flow_scale to convert back to physical m³/s for the demand sum.
-      const auto coeff =
-          flow_conversion_rate() * duration * flow_scale * inv_energy_scale;
+      // Physical coefficient: flow → demand conversion.
+      const auto coeff = flow_conversion_rate() * duration;
       drow[extraction_cols.at(buid)] = coeff;
     }
     drow[fail_col] = 1.0;
 
-    [[maybe_unused]] const auto row_idx = lp.add_row(
-        std::move(drow.greater_equal(*stage_demand * inv_energy_scale)));
+    [[maybe_unused]] const auto row_idx =
+        lp.add_row(std::move(drow.greater_equal(*stage_demand)));
   }
 
   return true;

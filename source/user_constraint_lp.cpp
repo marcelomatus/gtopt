@@ -180,7 +180,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
         if (auto resolved = resolve_single_col(
                 sc, scenario, stage, block, *term.element, lp))
         {
-          row[resolved->col] += term.coefficient * resolved->scale;
+          row[resolved->col] += term.coefficient;
           has_vars = true;
           if (is_debug) {
             spdlog::info(

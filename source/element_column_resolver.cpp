@@ -791,7 +791,7 @@ void collect_sum_cols(const SystemContext& sc,
 
     if (auto resolved = resolve_single_col(sc, scenario, stage, block, ref, lp))
     {
-      row[resolved->col] += base_coeff * resolved->scale;
+      row[resolved->col] += base_coeff;
     }
   };
 

@@ -329,6 +329,15 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   const double eff_stats_eps =
       (eps >= 0) ? std::max(eps, opts.stats_eps) : opts.stats_eps;
 
+  // Pre-pass: collect col_scales before Pass 2 so that matrix coefficients
+  // can be scaled by col_scale during the row traversal.
+  // physical_value = LP_value × col_scale, so LP_coeff = phys_coeff ×
+  // col_scale.
+  std::vector<double> col_scales(ncols, 1.0);
+  for (const auto& [i, col] : std::views::enumerate(cols)) {
+    col_scales[i] = col.scale;
+  }
+
   std::vector<double> rowlb(nrows);
   std::vector<double> rowub(nrows);
 
@@ -343,7 +352,8 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
         : row.uppb;
 
     for (const auto& [j, v_raw] : row.cmap) {
-      const auto v = v_raw * inv_rs;
+      const auto cs = col_scales[static_cast<size_t>(j)];
+      const auto v = v_raw * cs * inv_rs;
       if (eps < 0 || std::abs(v) > eps) [[likely]] {
         const auto c = static_cast<size_t>(j);
         const auto pos = static_cast<size_t>(colpos[c]);
@@ -384,7 +394,6 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   std::vector<double> collb(ncols);
   std::vector<double> colub(ncols);
   std::vector<double> objval(ncols);
-  std::vector<double> col_scales(ncols, 1.0);
   std::vector<fp_index_t> colint;
   colint.reserve(colints);
 
@@ -399,8 +408,9 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
                                                                : col.lowb;
     colub[i] = (s != 1.0 && col.uppb > -inf && col.uppb < inf) ? col.uppb / s
                                                                : col.uppb;
-    objval[i] = col.cost;
-    col_scales[i] = col.scale;
+    // Objective cost: physical cost × col_scale.  Since LP variable =
+    // physical / col_scale, this ensures obj = cost_phys × x_phys.
+    objval[i] = col.cost * s;
 
     if (col.is_integer) [[unlikely]] {
       colint.push_back(static_cast<fp_index_t>(i));
