@@ -274,28 +274,42 @@ The reservoir volume is divided into 4 zones (PLP "Colchones") from dead
 volume upward, each with different allocation factors for irrigation,
 electric, and mixed rights.
 
-```
-  VolMax = 5,582 hm3
-  +---------------------------+
-  |  Zone 4  (3,682 hm3)     |  segment[3]: V >= 1900
-  |  Irr +0.25/hm3           |  slope=0.25, const=375
-  |  Elec +0.65/hm3          |
-  +-- 1,900 hm3 -------------+
-  |  Zone 3  (530 hm3)       |  segment[2]: V >= 1370
-  |  Irr +0.40/hm3           |  slope=0.40, const=90
-  |  Elec +0.40/hm3          |
-  +-- 1,370 hm3 -------------+
-  |  Zone 2  (170 hm3)       |  segment[1]: V >= 1200
-  |  Irr +0.40/hm3           |  slope=0.40, const=90
-  |  Elec +0.05/hm3          |
-  +-- 1,200 hm3 -------------+
-  |  Zone 1  (1,200 hm3)     |  segment[0]: V >= 0
-  |  Irr +0.00/hm3 (flat)    |  slope=0.00, const=570
-  |  Elec +0.05/hm3          |  (Irr = 570 regardless of V)
-  |  Mixed +1.00/hm3         |
-  +-- VolMuerto = 0 ---------+
-  Base: Irr=570, Elec=0, Mixed=30
-  Caps: Irr=5000, Elec=1200, Mixed=30
+| Zone | Volume Range | Width | Irr Factor | Elec Factor | Mixed Factor | Segment |
+|------|-------------|-------|------------|-------------|--------------|---------|
+| **Zone 4** | 1,900 — 5,582 hm³ | 3,682 hm³ | +0.25/hm³ | +0.65/hm³ | — | seg\[3\]: V≥1900, slope=0.25, const=375 |
+| **Zone 3** | 1,370 — 1,900 hm³ | 530 hm³ | +0.40/hm³ | +0.40/hm³ | — | seg\[2\]: V≥1370, slope=0.40, const=90 |
+| **Zone 2** | 1,200 — 1,370 hm³ | 170 hm³ | +0.40/hm³ | +0.05/hm³ | — | seg\[1\]: V≥1200, slope=0.40, const=90 |
+| **Zone 1** | 0 — 1,200 hm³ | 1,200 hm³ | +0.00 (flat) | +0.05/hm³ | +1.00/hm³ | seg\[0\]: V≥0, slope=0.00, const=570 |
+
+**Base rights**: Irr=570, Elec=0, Mixed=30 hm³/year —
+**Caps**: Irr=5,000, Elec=1,200, Mixed=30 hm³/year
+
+```mermaid
+graph TD
+    subgraph "Laguna del Laja — Volume Zones"
+        TOP["VolMax = 5,582 hm³"] --- Z4
+        Z4["🔵 <b>Zone 4</b> (3,682 hm³)<br/>Irr +0.25 · Elec +0.65"]
+        Z4 --- B3["1,900 hm³"]
+        B3 --- Z3
+        Z3["🟢 <b>Zone 3</b> (530 hm³)<br/>Irr +0.40 · Elec +0.40"]
+        Z3 --- B2["1,370 hm³"]
+        B2 --- Z2
+        Z2["🟡 <b>Zone 2</b> (170 hm³)<br/>Irr +0.40 · Elec +0.05"]
+        Z2 --- B1["1,200 hm³"]
+        B1 --- Z1
+        Z1["🟠 <b>Zone 1</b> (1,200 hm³)<br/>Irr +0.00 (flat=570) · Elec +0.05 · Mixed +1.00"]
+        Z1 --- BOT["VolMuerto = 0 hm³"]
+    end
+
+    style Z4 fill:#4a90d9,color:#fff
+    style Z3 fill:#5cb85c,color:#fff
+    style Z2 fill:#f0ad4e,color:#000
+    style Z1 fill:#e67e22,color:#fff
+    style TOP fill:none,stroke:none,color:#333
+    style B3 fill:none,stroke:none,color:#666,font-weight:bold
+    style B2 fill:none,stroke:none,color:#666,font-weight:bold
+    style B1 fill:none,stroke:none,color:#666,font-weight:bold
+    style BOT fill:none,stroke:none,color:#333
 ```
 
 The converter (`_zones_to_bound_rule_segments`) transforms the PLP zone
