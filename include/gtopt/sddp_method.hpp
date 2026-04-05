@@ -347,10 +347,12 @@ public:
   /// Get the global max kappa across all (scene, phase) LP solves.
   [[nodiscard]] double global_max_kappa() const noexcept
   {
-    double gmax = 1.0;
+    double gmax = -1.0;
     for (const auto& phase_kappas : m_max_kappa_) {
       for (const auto k : phase_kappas) {
-        gmax = std::max(gmax, k);
+        if (k >= 0.0) {
+          gmax = std::max(gmax, k);
+        }
       }
     }
     return gmax;
@@ -424,7 +426,11 @@ private:
                         PhaseIndex phase,
                         double kappa) noexcept
   {
-    m_max_kappa_[scene][phase] = std::max(m_max_kappa_[scene][phase], kappa);
+    if (kappa >= 0.0) {
+      m_max_kappa_[scene][phase] = std::max(m_max_kappa_[scene][phase], kappa);
+    } else if (m_max_kappa_[scene][phase] < 0.0) {
+      m_max_kappa_[scene][phase] = kappa;
+    }
   }
 
   /// Check whether update_lp should be dispatched for this iteration.

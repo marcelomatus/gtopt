@@ -149,7 +149,7 @@ public:
     double gap_change {1.0};  ///< Final stationary gap-change metric
     double lower_bound {0.0};  ///< Final lower bound
     double upper_bound {0.0};  ///< Final upper bound
-    double max_kappa {1.0};  ///< Global max condition number across all solves
+    double max_kappa {-1.0};  ///< Global max condition number (-1 = unknown)
     int iterations {0};  ///< Number of training iterations completed
     bool converged {false};  ///< True if any convergence criterion was met
     bool stationary_converged {

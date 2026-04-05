@@ -251,7 +251,7 @@ TEST_CASE(  // NOLINT
   CHECK(result.value_or(0) >= 1);
 
   const auto& summary = planning_lp.sddp_summary();
-  CHECK(summary.max_kappa == doctest::Approx(1.0));
+  CHECK(summary.max_kappa == doctest::Approx(-1.0));
 }
 
 // ---------------------------------------------------------------
