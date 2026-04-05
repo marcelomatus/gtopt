@@ -193,7 +193,7 @@ class TestBuildOptions:
             "stationary_window": None,
             "rsv_scale_mode": "auto",
             "rsv_energy_scale": None,
-            "auto_rsv_energy_scale": True,
+            "auto_rsv_energy_scale": False,
             "bat_energy_scale": None,
             "auto_bat_energy_scale": True,
             "variable_scales_file": None,

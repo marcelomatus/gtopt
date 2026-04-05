@@ -54,13 +54,13 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   OptReal alpha_min {};
   /** @brief Upper bound for future cost variable α (default: 1e12) */
   OptReal alpha_max {};
-  /** @brief Scale divisor for future cost variable α (default: 1000).
+  /** @brief Scale divisor for future cost variable α (default: 0 = auto).
    *
    * The LP alpha variable is α_lp = α / scale_alpha, with an objective
    * coefficient of scale_alpha so that the physical contribution is
-   * preserved.  Analogous to PLP's varphi scale — improves numerical
-   * conditioning when α values are orders of magnitude larger than other
-   * LP variables. */
+   * preserved.  When 0 (default), auto-computed as max(var_scale) across
+   * all state variables — keeps α O(1) relative to the largest state
+   * variable in LP units. */
   OptReal scale_alpha {};
 
   // ── Cut file management ────────────────────────────────────────────────────

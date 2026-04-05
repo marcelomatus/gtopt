@@ -639,13 +639,13 @@ class JunctionWriter(BaseWriter):
             }
 
             # Energy scaling mode: controlled by --rsv-scale-mode.
-            #  "plp"  (default): use PLP FEscala-based energy_scale from
+            #  "auto" (default): delegate to C++ auto_scale mode which
+            #          computes energy_scale = pow(10, floor(log10(capacity))).
+            #  "plp":  use PLP FEscala-based energy_scale from
             #          central_parser (= EmbFEsc / 1E6).  Sets explicit
             #          energy_scale on the reservoir so the C++ code uses
             #          it directly.
-            #  "auto": delegate to C++ auto_scale mode which computes
-            #          energy_scale = pow(10, ceil(log10(capacity/1000))).
-            rsv_scale_mode = self.options.get("rsv_scale_mode", "plp")
+            rsv_scale_mode = self.options.get("rsv_scale_mode", "auto")
             if rsv_scale_mode == "plp":
                 plp_energy_scale = central.get("energy_scale")
                 if plp_energy_scale is not None and plp_energy_scale != 1.0:
