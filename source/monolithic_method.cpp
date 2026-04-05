@@ -178,15 +178,17 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
         constexpr double default_kappa_threshold = 1e9;
         const double threshold =
             sim.kappa_threshold.value_or(default_kappa_threshold);
-        double max_kappa = 1.0;
+        double max_kappa = -1.0;
         for (auto&& [si, phase_systems_ref] :
              enumerate<SceneIndex>(planning_lp.systems()))
         {
           for (auto&& [pi, system] : enumerate<PhaseIndex>(phase_systems_ref)) {
             const auto& li = system.linear_interface();
             const double kappa = li.get_kappa();
-            max_kappa = std::max(max_kappa, kappa);
-            if (kappa > threshold) {
+            if (kappa >= 0.0) {
+              max_kappa = std::max(max_kappa, kappa);
+            }
+            if (kappa > 0.0 && kappa > threshold) {
               spdlog::warn(
                   "High kappa {:.2e} (threshold {:.2e}) at scene {} phase {}",
                   kappa,

@@ -419,7 +419,7 @@ public:
 
   /**
    * @brief Gets the condition number of the basis matrix (if available)
-   * @return Condition number kappa, or 1.0 if not available
+   * @return Condition number kappa, or -1.0 if not supported by backend
    */
   [[nodiscard]] double get_kappa() const;
 

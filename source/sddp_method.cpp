@@ -129,11 +129,19 @@ void SDDPMethod::update_max_kappa(SceneIndex scene,
                                   IterationIndex iteration)
 {
   const double kappa = li.get_kappa();
-  m_max_kappa_[scene][phase] = std::max(m_max_kappa_[scene][phase], kappa);
+
+  // Negative kappa means the backend doesn't support the query (e.g.
+  // MindOpt returns -1).  Propagate -1 only when no real value was
+  // recorded yet; otherwise skip so that real values are preserved.
+  if (kappa >= 0.0) {
+    m_max_kappa_[scene][phase] = std::max(m_max_kappa_[scene][phase], kappa);
+  } else if (m_max_kappa_[scene][phase] < 0.0) {
+    m_max_kappa_[scene][phase] = kappa;
+  }
 
   const auto& sim = planning_lp().planning().simulation;
   const auto mode = sim.kappa_warning.value_or(KappaWarningMode::warn);
-  if (mode == KappaWarningMode::none) {
+  if (mode == KappaWarningMode::none || kappa < 0.0) {
     return;
   }
 
@@ -875,7 +883,7 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   m_max_kappa_.resize(num_scenes);
   for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
     m_infeasibility_counter_[scene].resize(num_phases, 0);
-    m_max_kappa_[scene].resize(num_phases, 1.0);
+    m_max_kappa_[scene].resize(num_phases, -1.0);
   }
 
   SPDLOG_INFO("SDDP: adding alpha variables and collecting state links");

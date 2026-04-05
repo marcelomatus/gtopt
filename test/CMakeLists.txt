@@ -43,10 +43,10 @@ CPMAddPackage(
 )
 add_library(doctest::doctest INTERFACE IMPORTED)
 target_include_directories(doctest::doctest INTERFACE "${doctest_SOURCE_DIR}")
-# Force __COUNTER__ for anonymous names: our test .hpp files are included from
-# _all.cpp aggregators, so __LINE__ collisions occur across different headers
-# when two headers have TEST_CASE on the same line number.  Doctest 2.5 switched
-# to __LINE__ for clang >= 22, but __COUNTER__ is required for our layout.
+# Force __COUNTER__ for anonymous names: with unity builds, multiple .cpp files
+# are batched into single TUs, so __LINE__ collisions occur when two files have
+# TEST_CASE on the same line number.  Doctest 2.5 switched to __LINE__ for
+# clang >= 22, but __COUNTER__ is required for unity builds.
 # This also works with doctest 2.4 (which already defaults to __COUNTER__).
 target_compile_definitions(doctest::doctest INTERFACE "DOCTEST_COUNTER=__COUNTER__")
 message(STATUS "Using doctest ${CPM_PACKAGE_doctest_VERSION}")
@@ -71,16 +71,8 @@ target_link_libraries(
 # Exclude main.cpp from unity batching — it defines
 # DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN which emits doctest's implementation
 # and must be compiled as a standalone translation unit.
-#
-# Exclude the heaviest test aggregators (>90s each) so they compile
-# standalone in parallel instead of creating bottleneck batches.
 set_source_files_properties(
   "${CMAKE_CURRENT_SOURCE_DIR}/source/main.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/source/json/test_json_all.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/source/test_simulation_all.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/source/test_planning_all.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/source/test_sddp_all.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/source/test_components_all.cpp"
   PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON
 )
 include(UnityBuild)

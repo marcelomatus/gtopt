@@ -1,6 +1,6 @@
 {
     "options": {
-        "method": "sddp",
+        "solver_type": "monolithic",
         "input_directory": ".",
         "input_format": "parquet",
         "output_directory": "results",
@@ -17,7 +17,7 @@
             "stationary_tol": 0.0001,
             "stationary_window": 4,
             "aperture_directory": "apertures",
-            "boundary_cuts_file": "gtopt_case_2y_6s/boundary_cuts.csv"
+            "boundary_cuts_file": "/home/marce/git/gtopt/cases/gtopt_case_2y_6s/boundary_cuts.csv"
         },
         "variable_scales": [
             {
@@ -169,21 +169,7 @@
             },
             {
                 "class_name": "Battery",
-                "variable": "flow",
-                "uid": 1189,
-                "scale": 0.01,
-                "name": "BAT_ARICA"
-            },
-            {
-                "class_name": "Battery",
                 "variable": "energy",
-                "uid": 1193,
-                "scale": 0.01,
-                "name": "BAT_ALICANTO"
-            },
-            {
-                "class_name": "Battery",
-                "variable": "flow",
                 "uid": 1193,
                 "scale": 0.01,
                 "name": "BAT_ALICANTO"
@@ -197,21 +183,7 @@
             },
             {
                 "class_name": "Battery",
-                "variable": "flow",
-                "uid": 1195,
-                "scale": 0.01,
-                "name": "ANDES_2B_BESS"
-            },
-            {
-                "class_name": "Battery",
                 "variable": "energy",
-                "uid": 1197,
-                "scale": 0.01,
-                "name": "SALVADOR_BESS"
-            },
-            {
-                "class_name": "Battery",
-                "variable": "flow",
                 "uid": 1197,
                 "scale": 0.01,
                 "name": "SALVADOR_BESS"
@@ -225,21 +197,7 @@
             },
             {
                 "class_name": "Battery",
-                "variable": "flow",
-                "uid": 1199,
-                "scale": 0.01,
-                "name": "COYA_BESS"
-            },
-            {
-                "class_name": "Battery",
                 "variable": "energy",
-                "uid": 1201,
-                "scale": 0.01,
-                "name": "URIBE_SOLAR_BESS"
-            },
-            {
-                "class_name": "Battery",
-                "variable": "flow",
                 "uid": 1201,
                 "scale": 0.01,
                 "name": "URIBE_SOLAR_BESS"
@@ -253,21 +211,7 @@
             },
             {
                 "class_name": "Battery",
-                "variable": "flow",
-                "uid": 1203,
-                "scale": 0.01,
-                "name": "ANDES_2B_AMP_BESS"
-            },
-            {
-                "class_name": "Battery",
                 "variable": "energy",
-                "uid": 1205,
-                "scale": 0.01,
-                "name": "SAN_MARCOS_BESS"
-            },
-            {
-                "class_name": "Battery",
-                "variable": "flow",
                 "uid": 1205,
                 "scale": 0.01,
                 "name": "SAN_MARCOS_BESS"
@@ -281,21 +225,7 @@
             },
             {
                 "class_name": "Battery",
-                "variable": "flow",
-                "uid": 1207,
-                "scale": 0.01,
-                "name": "SAN_ANDRES_BESS"
-            },
-            {
-                "class_name": "Battery",
                 "variable": "energy",
-                "uid": 1209,
-                "scale": 0.01,
-                "name": "LA_CABANA_BESS"
-            },
-            {
-                "class_name": "Battery",
-                "variable": "flow",
                 "uid": 1209,
                 "scale": 0.01,
                 "name": "LA_CABANA_BESS"
@@ -309,21 +239,7 @@
             },
             {
                 "class_name": "Battery",
-                "variable": "flow",
-                "uid": 1213,
-                "scale": 0.01,
-                "name": "ANDES_4_BESS"
-            },
-            {
-                "class_name": "Battery",
                 "variable": "energy",
-                "uid": 1215,
-                "scale": 0.01,
-                "name": "ANDES_2A_BESS"
-            },
-            {
-                "class_name": "Battery",
-                "variable": "flow",
                 "uid": 1215,
                 "scale": 0.01,
                 "name": "ANDES_2A_BESS"
@@ -337,21 +253,7 @@
             },
             {
                 "class_name": "Battery",
-                "variable": "flow",
-                "uid": 1217,
-                "scale": 0.01,
-                "name": "DON_HUMBERTO_BESS"
-            },
-            {
-                "class_name": "Battery",
                 "variable": "energy",
-                "uid": 1219,
-                "scale": 0.01,
-                "name": "EL_MANZANO_BESS"
-            },
-            {
-                "class_name": "Battery",
-                "variable": "flow",
                 "uid": 1219,
                 "scale": 0.01,
                 "name": "EL_MANZANO_BESS"
@@ -365,21 +267,7 @@
             },
             {
                 "class_name": "Battery",
-                "variable": "flow",
-                "uid": 1221,
-                "scale": 0.01,
-                "name": "TAMAYA_BESS"
-            },
-            {
-                "class_name": "Battery",
                 "variable": "energy",
-                "uid": 1211,
-                "scale": 0.01,
-                "name": "CAPRICORNIO_BESS"
-            },
-            {
-                "class_name": "Battery",
-                "variable": "flow",
                 "uid": 1211,
                 "scale": 0.01,
                 "name": "CAPRICORNIO_BESS"
@@ -393,21 +281,7 @@
             },
             {
                 "class_name": "Battery",
-                "variable": "flow",
-                "uid": 1223,
-                "scale": 0.01,
-                "name": "NUEVO_QUILLAGUA_BESS"
-            },
-            {
-                "class_name": "Battery",
                 "variable": "energy",
-                "uid": 1187,
-                "scale": 0.01,
-                "name": "ALFALFAL_BESS"
-            },
-            {
-                "class_name": "Battery",
-                "variable": "flow",
                 "uid": 1187,
                 "scale": 0.01,
                 "name": "ALFALFAL_BESS"
@@ -421,21 +295,7 @@
             },
             {
                 "class_name": "Battery",
-                "variable": "flow",
-                "uid": 1191,
-                "scale": 0.01,
-                "name": "DIEGO_ALMAGRO_SUR_BESS"
-            },
-            {
-                "class_name": "Battery",
                 "variable": "energy",
-                "uid": 1225,
-                "scale": 0.01,
-                "name": "PUNTA_SIERRA_BESS"
-            },
-            {
-                "class_name": "Battery",
-                "variable": "flow",
                 "uid": 1225,
                 "scale": 0.01,
                 "name": "PUNTA_SIERRA_BESS"
@@ -449,21 +309,7 @@
             },
             {
                 "class_name": "Battery",
-                "variable": "flow",
-                "uid": 1227,
-                "scale": 0.01,
-                "name": "MARIA_ELENA_BESS"
-            },
-            {
-                "class_name": "Battery",
                 "variable": "energy",
-                "uid": 1229,
-                "scale": 0.01,
-                "name": "DESIERTO_DE_ATACAMA_BESS"
-            },
-            {
-                "class_name": "Battery",
-                "variable": "flow",
                 "uid": 1229,
                 "scale": 0.01,
                 "name": "DESIERTO_DE_ATACAMA_BESS"
@@ -477,13 +323,6 @@
             },
             {
                 "class_name": "Battery",
-                "variable": "flow",
-                "uid": 1231,
-                "scale": 0.01,
-                "name": "GABRIELA_COBRE_BESS"
-            },
-            {
-                "class_name": "Battery",
                 "variable": "energy",
                 "uid": 1233,
                 "scale": 0.01,
@@ -491,21 +330,7 @@
             },
             {
                 "class_name": "Battery",
-                "variable": "flow",
-                "uid": 1233,
-                "scale": 0.01,
-                "name": "SOL_DE_DESIERTO_BESS"
-            },
-            {
-                "class_name": "Battery",
                 "variable": "energy",
-                "uid": 1235,
-                "scale": 0.01,
-                "name": "ANDES_3_BESS"
-            },
-            {
-                "class_name": "Battery",
-                "variable": "flow",
                 "uid": 1235,
                 "scale": 0.01,
                 "name": "ANDES_3_BESS"
@@ -26661,34 +26486,7 @@
                 "spillway_cost": 1.0,
                 "spillway_capacity": 6000.0,
                 "annual_loss": 0.0,
-                "flow_conversion_rate": 0.0036,
-                "seepage": [
-                    {
-                        "uid": 6,
-                        "name": "CIPRESES_seepage_1",
-                        "waterway": "filt_CIPRESES_6_7",
-                        "reservoir": "CIPRESES",
-                        "slope": 0.00016131527000000002,
-                        "constant": 2.189179627,
-                        "segments": [
-                            {
-                                "volume": 0.0,
-                                "slope": 0.00016131527000000002,
-                                "constant": 2.189179627
-                            },
-                            {
-                                "volume": 70000.0,
-                                "slope": 1.9689187999999998e-05,
-                                "constant": 12.10300518
-                            },
-                            {
-                                "volume": 98000.0,
-                                "slope": 7.798707200000001e-05,
-                                "constant": 6.389812555
-                            }
-                        ]
-                    }
-                ]
+                "flow_conversion_rate": 0.0036
             },
             {
                 "uid": 21,
@@ -26826,54 +26624,6 @@
                     10.0,
                     10.0,
                     10.0
-                ],
-                "seepage": [
-                    {
-                        "uid": 28,
-                        "name": "COLBUN_seepage_1",
-                        "waterway": "filt_COLBUN_28_31",
-                        "reservoir": "COLBUN",
-                        "slope": 0.0,
-                        "constant": 0.0,
-                        "segments": [
-                            {
-                                "volume": 0.0,
-                                "slope": 0.0,
-                                "constant": 0.0
-                            },
-                            {
-                                "volume": 660600.0,
-                                "slope": 4.061368e-06,
-                                "constant": -1.868229129
-                            },
-                            {
-                                "volume": 750000.0,
-                                "slope": 1.1517246e-05,
-                                "constant": -7.605085852
-                            },
-                            {
-                                "volume": 979500.0,
-                                "slope": 1.1894884e-05,
-                                "constant": -7.924137075
-                            }
-                        ]
-                    }
-                ],
-                "production_factor": [
-                    {
-                        "uid": 28,
-                        "name": "COLBUN_pfac_1",
-                        "turbine": "COLBUN",
-                        "reservoir": "COLBUN",
-                        "mean_production_factor": 1.53,
-                        "segments": [
-                            {
-                                "volume": 0.0,
-                                "slope": 0.0002294,
-                                "constant": 1.2558
-                            }
-                        ]
-                    }
                 ]
             },
             {
@@ -26890,50 +26640,7 @@
                 "spillway_cost": 1.0,
                 "spillway_capacity": 6000.0,
                 "annual_loss": 0.0,
-                "flow_conversion_rate": 0.0036,
-                "seepage": [
-                    {
-                        "uid": 37,
-                        "name": "ELTORO_seepage_1",
-                        "waterway": "filt_ELTORO_37_38",
-                        "reservoir": "ELTORO",
-                        "slope": 4.3150359e-05,
-                        "constant": 0.0,
-                        "segments": [
-                            {
-                                "volume": 0.0,
-                                "slope": 4.3150359e-05,
-                                "constant": 0.0
-                            },
-                            {
-                                "volume": 400000.0,
-                                "slope": 5.429197000000001e-06,
-                                "constant": 15.08846449
-                            },
-                            {
-                                "volume": 2700000.0,
-                                "slope": 7.149312e-06,
-                                "constant": 10.44415451
-                            }
-                        ]
-                    }
-                ],
-                "production_factor": [
-                    {
-                        "uid": 37,
-                        "name": "ELTORO_pfac_1",
-                        "turbine": "ELTORO",
-                        "reservoir": "ELTORO",
-                        "mean_production_factor": 4.8,
-                        "segments": [
-                            {
-                                "volume": 0.0,
-                                "slope": 9e-05,
-                                "constant": 4.5252
-                            }
-                        ]
-                    }
-                ]
+                "flow_conversion_rate": 0.0036
             },
             {
                 "uid": 63,
@@ -27055,22 +26762,6 @@
                     10.0,
                     10.0,
                     10.0
-                ],
-                "production_factor": [
-                    {
-                        "uid": 63,
-                        "name": "RAPEL_pfac_1",
-                        "turbine": "RAPEL",
-                        "reservoir": "RAPEL",
-                        "mean_production_factor": 0.635,
-                        "segments": [
-                            {
-                                "volume": 0.0,
-                                "slope": 0.0001,
-                                "constant": 0.5734
-                            }
-                        ]
-                    }
                 ]
             },
             {
@@ -27194,22 +26885,6 @@
                     10.0,
                     10.0,
                     0.0
-                ],
-                "production_factor": [
-                    {
-                        "uid": 64,
-                        "name": "CANUTILLAR_pfac_1",
-                        "turbine": "CANUTILLAR",
-                        "reservoir": "CANUTILLAR",
-                        "mean_production_factor": 2.0,
-                        "segments": [
-                            {
-                                "volume": 0.0,
-                                "slope": 0.0002,
-                                "constant": 1.8616
-                            }
-                        ]
-                    }
                 ]
             },
             {
@@ -27226,43 +26901,7 @@
                 "spillway_cost": 1.0,
                 "spillway_capacity": 6000.0,
                 "annual_loss": 0.0,
-                "flow_conversion_rate": 0.0036,
-                "discharge_limit": [
-                    {
-                        "uid": 65,
-                        "name": "RALCO_dlim_1",
-                        "waterway": "RALCO_gen_65_67",
-                        "reservoir": "RALCO",
-                        "segments": [
-                            {
-                                "volume": 0.0,
-                                "slope": 6.9868e-05,
-                                "intercept": 15.787
-                            },
-                            {
-                                "volume": 757000.0,
-                                "slope": 0.00013985,
-                                "intercept": 57.454
-                            }
-                        ]
-                    }
-                ],
-                "production_factor": [
-                    {
-                        "uid": 65,
-                        "name": "RALCO_pfac_1",
-                        "turbine": "RALCO",
-                        "reservoir": "RALCO",
-                        "mean_production_factor": 1.6,
-                        "segments": [
-                            {
-                                "volume": 0.0,
-                                "slope": 0.000385,
-                                "constant": 1.294041
-                            }
-                        ]
-                    }
-                ]
+                "flow_conversion_rate": 0.0036
             },
             {
                 "uid": 67,
@@ -27304,1190 +26943,1344 @@
                 "name": "CIPRESES",
                 "generator": "CIPRESES",
                 "waterway": "CIPRESES_gen_6_9",
-                "production_factor": 2.864
+                "conversion_rate": 2.864
             },
             {
                 "uid": 21,
                 "name": "PEHUENCHE",
                 "generator": "PEHUENCHE",
                 "waterway": "PEHUENCHE_gen_21_25",
-                "production_factor": 1.78
+                "conversion_rate": 1.78
             },
             {
                 "uid": 28,
                 "name": "COLBUN",
                 "generator": "COLBUN",
                 "waterway": "COLBUN_gen_28_33",
-                "production_factor": 1.53
+                "conversion_rate": 1.53
             },
             {
                 "uid": 37,
                 "name": "ELTORO",
                 "generator": "ELTORO",
                 "waterway": "ELTORO_gen_37_39",
-                "production_factor": 4.8
+                "conversion_rate": 4.8
             },
             {
                 "uid": 63,
                 "name": "RAPEL",
                 "generator": "RAPEL",
                 "waterway": "RAPEL_gen_63_10001",
-                "production_factor": 0.64
+                "conversion_rate": 0.64
             },
             {
                 "uid": 64,
                 "name": "CANUTILLAR",
                 "generator": "CANUTILLAR",
                 "waterway": "CANUTILLAR_gen_64_10002",
-                "production_factor": 2.0
+                "conversion_rate": 2.0
             },
             {
                 "uid": 65,
                 "name": "RALCO",
                 "generator": "RALCO",
                 "waterway": "RALCO_gen_65_67",
-                "production_factor": 1.518
+                "conversion_rate": 1.518
             },
             {
                 "uid": 67,
                 "name": "PANGUE",
                 "generator": "PANGUE",
                 "waterway": "PANGUE_gen_67_68",
-                "production_factor": 0.8
+                "conversion_rate": 0.8
             },
             {
                 "uid": 83,
                 "name": "PILMAIQUEN",
                 "generator": "PILMAIQUEN",
                 "waterway": "PILMAIQUEN_gen_83_84",
-                "production_factor": 0.27
+                "conversion_rate": 0.27
             },
             {
                 "uid": 2,
                 "name": "LOS_CONDORES",
                 "generator": "LOS_CONDORES",
                 "waterway": "LOS_CONDORES_gen_2_3",
-                "production_factor": 6.0
+                "conversion_rate": 6.0
             },
             {
                 "uid": 4,
                 "name": "LA_MINA",
                 "generator": "LA_MINA",
                 "waterway": "LA_MINA_gen_4_5",
-                "production_factor": 0.57
+                "conversion_rate": 0.57
             },
             {
                 "uid": 8,
                 "name": "OJOS_DE_AGUA",
                 "generator": "OJOS_DE_AGUA",
                 "waterway": "OJOS_DE_AGUA_gen_8_9",
-                "production_factor": 0.58
+                "conversion_rate": 0.58
             },
             {
                 "uid": 10,
                 "name": "ISLA",
                 "generator": "ISLA",
                 "waterway": "ISLA_gen_10_11",
-                "production_factor": 0.81
+                "conversion_rate": 0.81
             },
             {
                 "uid": 11,
                 "name": "CURILLINQUE",
                 "generator": "CURILLINQUE",
                 "waterway": "CURILLINQUE_gen_11_12",
-                "production_factor": 1.01
+                "conversion_rate": 1.01
             },
             {
                 "uid": 12,
                 "name": "LOMA_ALTA",
                 "generator": "LOMA_ALTA",
                 "waterway": "LOMA_ALTA_gen_12_13",
-                "production_factor": 0.45
+                "conversion_rate": 0.45
             },
             {
                 "uid": 16,
                 "name": "LOS_HIERROS",
                 "generator": "LOS_HIERROS",
                 "waterway": "LOS_HIERROS_gen_16_17",
-                "production_factor": 0.9
+                "conversion_rate": 0.9
             },
             {
                 "uid": 17,
                 "name": "LOS_HIERROS_2",
                 "generator": "LOS_HIERROS_2",
                 "waterway": "LOS_HIERROS_2_gen_17_21",
-                "production_factor": 0.21
+                "conversion_rate": 0.21
             },
             {
                 "uid": 18,
                 "name": "ANCOA",
                 "generator": "ANCOA",
                 "waterway": "ANCOA_gen_18_19",
-                "production_factor": 0.948
+                "conversion_rate": 0.948
             },
             {
                 "uid": 19,
                 "name": "ROBLERIA",
                 "generator": "ROBLERIA",
                 "waterway": "ROBLERIA_gen_19_10003",
-                "production_factor": 1.111
+                "conversion_rate": 1.111
             },
             {
                 "uid": 29,
                 "name": "CHIBURGO",
                 "generator": "CHIBURGO",
                 "waterway": "CHIBURGO_gen_29_30",
-                "production_factor": 0.97
+                "conversion_rate": 0.97
             },
             {
                 "uid": 31,
                 "name": "SAN_CLEMENTE",
                 "generator": "SAN_CLEMENTE",
                 "waterway": "SAN_CLEMENTE_gen_31_32",
-                "production_factor": 0.324
+                "conversion_rate": 0.324
             },
             {
                 "uid": 33,
                 "name": "MACHICURA",
                 "generator": "MACHICURA",
                 "waterway": "MACHICURA_gen_33_34",
-                "production_factor": 0.33
+                "conversion_rate": 0.33
             },
             {
                 "uid": 35,
                 "name": "SAN_IGNACIO",
                 "generator": "SAN_IGNACIO",
                 "waterway": "SAN_IGNACIO_gen_35_36",
-                "production_factor": 0.19
+                "conversion_rate": 0.19
             },
             {
                 "uid": 38,
                 "name": "ABANICO",
                 "generator": "ABANICO",
                 "waterway": "ABANICO_gen_38_39",
-                "production_factor": 1.2
+                "conversion_rate": 1.2
             },
             {
                 "uid": 39,
                 "name": "ANTUCO",
                 "generator": "ANTUCO",
                 "waterway": "ANTUCO_gen_39_40",
-                "production_factor": 1.6
+                "conversion_rate": 1.6
             },
             {
                 "uid": 44,
                 "name": "RUCUE",
                 "generator": "RUCUE",
                 "waterway": "RUCUE_gen_44_45",
-                "production_factor": 1.28
+                "conversion_rate": 1.28
             },
             {
                 "uid": 45,
                 "name": "QUILLECO",
                 "generator": "QUILLECO",
                 "waterway": "QUILLECO_gen_45_46",
-                "production_factor": 0.55
+                "conversion_rate": 0.55
             },
             {
                 "uid": 49,
                 "name": "LAJA_I",
                 "generator": "LAJA_I",
                 "waterway": "LAJA_I_gen_49_10013",
-                "production_factor": 0.137
+                "conversion_rate": 0.137
             },
             {
                 "uid": 51,
                 "name": "EL_DIUTO",
                 "generator": "EL_DIUTO",
                 "waterway": "EL_DIUTO_gen_51_50",
-                "production_factor": 0.163
+                "conversion_rate": 0.163
             },
             {
                 "uid": 53,
                 "name": "HORNITOS_CH",
                 "generator": "HORNITOS_CH",
                 "waterway": "HORNITOS_CH_gen_53_54",
-                "production_factor": 5.0
+                "conversion_rate": 5.0
             },
             {
                 "uid": 54,
                 "name": "JUNCAL",
                 "generator": "JUNCAL",
                 "waterway": "JUNCAL_gen_54_57",
-                "production_factor": 2.2
+                "conversion_rate": 2.2
             },
             {
                 "uid": 56,
                 "name": "BLANCO",
                 "generator": "BLANCO",
                 "waterway": "BLANCO_gen_56_57",
-                "production_factor": 5.76
+                "conversion_rate": 5.76
             },
             {
                 "uid": 59,
                 "name": "LOS_QUILOS",
                 "generator": "LOS_QUILOS",
                 "waterway": "LOS_QUILOS_gen_59_61",
-                "production_factor": 1.9
+                "conversion_rate": 1.9
             },
             {
                 "uid": 61,
                 "name": "CHACABUQUITO",
                 "generator": "CHACABUQUITO",
                 "waterway": "CHACABUQUITO_gen_61_10015",
-                "production_factor": 1.22
+                "conversion_rate": 1.22
             },
             {
                 "uid": 66,
                 "name": "PALMUCHO",
                 "generator": "PALMUCHO",
                 "waterway": "PALMUCHO_gen_66_67",
-                "production_factor": 1.143
+                "conversion_rate": 1.143
             },
             {
                 "uid": 68,
                 "name": "ANGOSTURA",
                 "generator": "ANGOSTURA",
                 "waterway": "ANGOSTURA_gen_68_10016",
-                "production_factor": 0.43
+                "conversion_rate": 0.43
             },
             {
                 "uid": 73,
                 "name": "LA_HIGUERA",
                 "generator": "LA_HIGUERA",
                 "waterway": "LA_HIGUERA_gen_73_10017",
-                "production_factor": 3.12
+                "conversion_rate": 3.12
             },
             {
                 "uid": 78,
                 "name": "LA_CONFLUENCIA",
                 "generator": "LA_CONFLUENCIA",
                 "waterway": "LA_CONFLUENCIA_gen_78_10018",
-                "production_factor": 3.11
+                "conversion_rate": 3.11
             },
             {
                 "uid": 82,
                 "name": "CHACAYES",
                 "generator": "CHACAYES",
                 "waterway": "CHACAYES_gen_82_10019",
-                "production_factor": 1.54
+                "conversion_rate": 1.54
             },
             {
                 "uid": 84,
                 "name": "RUCATAYO",
                 "generator": "RUCATAYO",
                 "waterway": "RUCATAYO_gen_84_85",
-                "production_factor": 0.315
+                "conversion_rate": 0.315
             },
             {
                 "uid": 85,
                 "name": "LOS_LAGOS",
                 "generator": "LOS_LAGOS",
                 "waterway": "LOS_LAGOS_gen_85_10020",
-                "production_factor": 0.32
+                "conversion_rate": 0.32
             },
             {
                 "uid": 86,
                 "name": "LOS_MOLLES",
                 "flow": "LOS_MOLLES",
                 "generator": "LOS_MOLLES",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 87,
                 "name": "SANTA_ELENA",
                 "flow": "SANTA_ELENA",
                 "generator": "SANTA_ELENA",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 88,
                 "name": "VOLCAN",
                 "flow": "VOLCAN",
                 "generator": "VOLCAN",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 89,
                 "name": "QUELTEHUES",
                 "flow": "QUELTEHUES",
                 "generator": "QUELTEHUES",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 90,
                 "name": "FLORIDA_1",
                 "flow": "FLORIDA_1",
                 "generator": "FLORIDA_1",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 91,
                 "name": "FLORIDA_2",
                 "flow": "FLORIDA_2",
                 "generator": "FLORIDA_2",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 92,
                 "name": "FLORIDA_3",
                 "flow": "FLORIDA_3",
                 "generator": "FLORIDA_3",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 93,
                 "name": "SAUCEANDES",
                 "flow": "SAUCEANDES",
                 "generator": "SAUCEANDES",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 94,
                 "name": "PEHUI",
                 "flow": "PEHUI",
                 "generator": "PEHUI",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 95,
                 "name": "CHANLEUFU",
                 "flow": "CHANLEUFU",
                 "generator": "CHANLEUFU",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 96,
                 "name": "TRANQUIL",
                 "flow": "TRANQUIL",
                 "generator": "TRANQUIL",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 97,
                 "name": "LOS_MORROS",
                 "flow": "LOS_MORROS",
                 "generator": "LOS_MORROS",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 98,
                 "name": "MAITENES",
                 "flow": "MAITENES",
                 "generator": "MAITENES",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 99,
                 "name": "PUNTILLA",
                 "flow": "PUNTILLA",
                 "generator": "PUNTILLA",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 100,
                 "name": "LAS_VERTIENTES",
                 "flow": "LAS_VERTIENTES",
                 "generator": "LAS_VERTIENTES",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 101,
                 "name": "EL_LLANO",
                 "flow": "EL_LLANO",
                 "generator": "EL_LLANO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 102,
                 "name": "ALFALFAL",
                 "flow": "ALFALFAL",
                 "generator": "ALFALFAL",
-                "production_factor": 5.94
+                "conversion_rate": 5.94
             },
             {
                 "uid": 103,
                 "name": "SAUZAL",
                 "flow": "SAUZAL",
                 "generator": "SAUZAL",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 104,
                 "name": "SAUZALITO",
                 "flow": "SAUZALITO",
                 "generator": "SAUZALITO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 105,
                 "name": "PEUCHEN",
                 "flow": "PEUCHEN",
                 "generator": "PEUCHEN",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 106,
                 "name": "MAMPIL",
                 "flow": "MAMPIL",
                 "generator": "MAMPIL",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 107,
                 "name": "PULLINQUE",
                 "flow": "PULLINQUE",
                 "generator": "PULLINQUE",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 108,
                 "name": "CAPULLO",
                 "flow": "CAPULLO",
                 "generator": "CAPULLO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 109,
                 "name": "EYZAGUIRRE",
                 "flow": "EYZAGUIRRE",
                 "generator": "EYZAGUIRRE",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 110,
                 "name": "COYA",
                 "flow": "COYA",
                 "generator": "COYA",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 111,
                 "name": "LA_PALOMA",
                 "flow": "LA_PALOMA",
                 "generator": "LA_PALOMA",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 112,
                 "name": "PUCLARO",
                 "flow": "PUCLARO",
                 "generator": "PUCLARO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 113,
                 "name": "LICAN",
                 "flow": "LICAN",
                 "generator": "LICAN",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 114,
                 "name": "EL_PASO",
                 "flow": "EL_PASO",
                 "generator": "EL_PASO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 115,
                 "name": "RIO_TRUENO",
                 "flow": "RIO_TRUENO",
                 "generator": "RIO_TRUENO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 116,
                 "name": "GUAYACAN",
                 "flow": "GUAYACAN",
                 "generator": "GUAYACAN",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 117,
                 "name": "PULELFU",
                 "flow": "PULELFU",
                 "generator": "PULELFU",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 118,
                 "name": "MARIPOSAS",
                 "flow": "MARIPOSAS",
                 "generator": "MARIPOSAS",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 119,
                 "name": "EL_MANZANO",
                 "flow": "EL_MANZANO",
                 "generator": "EL_MANZANO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 120,
                 "name": "HIDRO_BONITO_MC1",
                 "flow": "HIDRO_BONITO_MC1",
                 "generator": "HIDRO_BONITO_MC1",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 121,
                 "name": "HIDRO_BONITO_MC2",
                 "flow": "HIDRO_BONITO_MC2",
                 "generator": "HIDRO_BONITO_MC2",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 122,
                 "name": "RIO_PICOIQUEN",
                 "flow": "RIO_PICOIQUEN",
                 "generator": "RIO_PICOIQUEN",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 123,
                 "name": "ITATA",
                 "flow": "ITATA",
                 "generator": "ITATA",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 124,
                 "name": "RIO_COLORADO",
                 "flow": "RIO_COLORADO",
                 "generator": "RIO_COLORADO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 125,
                 "name": "LIRCAY",
                 "flow": "LIRCAY",
                 "generator": "LIRCAY",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 126,
                 "name": "SAN_ANDRES",
                 "flow": "SAN_ANDRES",
                 "generator": "SAN_ANDRES",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 127,
                 "name": "LA_ARENA",
                 "flow": "LA_ARENA",
                 "generator": "LA_ARENA",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 128,
                 "name": "MUCHI",
                 "flow": "MUCHI",
                 "generator": "MUCHI",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 129,
                 "name": "MALLARAUCO",
                 "flow": "MALLARAUCO",
                 "generator": "MALLARAUCO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 130,
                 "name": "PROVIDENCIA",
                 "flow": "PROVIDENCIA",
                 "generator": "PROVIDENCIA",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 131,
                 "name": "ALLIPEN",
                 "flow": "ALLIPEN",
                 "generator": "ALLIPEN",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 132,
                 "name": "EL_CANELO",
                 "flow": "EL_CANELO",
                 "generator": "EL_CANELO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 133,
                 "name": "LOS_BAJOS",
                 "flow": "LOS_BAJOS",
                 "generator": "LOS_BAJOS",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 134,
                 "name": "AUX_DEL_MAIPO",
                 "flow": "AUX_DEL_MAIPO",
                 "generator": "AUX_DEL_MAIPO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 135,
                 "name": "DONGO",
                 "flow": "DONGO",
                 "generator": "DONGO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 136,
                 "name": "PURISIMA",
                 "flow": "PURISIMA",
                 "generator": "PURISIMA",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 137,
                 "name": "CARENA",
                 "flow": "CARENA",
                 "generator": "CARENA",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 138,
                 "name": "RECA",
                 "flow": "RECA",
                 "generator": "RECA",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 139,
                 "name": "DON_WALTERIO",
                 "flow": "DON_WALTERIO",
                 "generator": "DON_WALTERIO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 140,
                 "name": "RENAICO",
                 "flow": "RENAICO",
                 "generator": "RENAICO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 141,
                 "name": "ALTO_RENAICO",
                 "flow": "ALTO_RENAICO",
                 "generator": "ALTO_RENAICO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 142,
                 "name": "TRAILELFU",
                 "flow": "TRAILELFU",
                 "generator": "TRAILELFU",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 143,
                 "name": "NALCAS",
                 "flow": "NALCAS",
                 "generator": "NALCAS",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 144,
                 "name": "CALLAO",
                 "flow": "CALLAO",
                 "generator": "CALLAO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 145,
                 "name": "ENSENADA",
                 "flow": "ENSENADA",
                 "generator": "ENSENADA",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 146,
                 "name": "RIO_HUASCO",
                 "flow": "RIO_HUASCO",
                 "generator": "RIO_HUASCO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 147,
                 "name": "LLAUQUEREO",
                 "flow": "LLAUQUEREO",
                 "generator": "LLAUQUEREO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 148,
                 "name": "NUBLE",
                 "flow": "NUBLE",
                 "generator": "NUBLE",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 149,
                 "name": "LAS_LAJAS",
                 "flow": "LAS_LAJAS",
                 "generator": "LAS_LAJAS",
-                "production_factor": 4.2
+                "conversion_rate": 4.2
             },
             {
                 "uid": 150,
                 "name": "ALFALFAL_2",
                 "flow": "ALFALFAL_2",
                 "generator": "ALFALFAL_2",
-                "production_factor": 9.8
+                "conversion_rate": 9.8
             },
             {
                 "uid": 151,
                 "name": "LAS_NIEVES",
                 "flow": "LAS_NIEVES",
                 "generator": "LAS_NIEVES",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 152,
                 "name": "LOS_PADRES",
                 "flow": "LOS_PADRES",
                 "generator": "LOS_PADRES",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 153,
                 "name": "CUMBRES",
                 "flow": "CUMBRES",
                 "generator": "CUMBRES",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 154,
                 "name": "CONVENTO_VIEJO",
                 "flow": "CONVENTO_VIEJO",
                 "generator": "CONVENTO_VIEJO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 155,
                 "name": "LA_MONTANA_1",
                 "flow": "LA_MONTANA_1",
                 "generator": "LA_MONTANA_1",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 156,
                 "name": "CUMPEO",
                 "flow": "CUMPEO",
                 "generator": "CUMPEO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 157,
                 "name": "EL_AGRIO",
                 "flow": "EL_AGRIO",
                 "generator": "EL_AGRIO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 158,
                 "name": "EL_GALPON",
                 "flow": "EL_GALPON",
                 "generator": "EL_GALPON",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 159,
                 "name": "MELO",
                 "flow": "MELO",
                 "generator": "MELO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 160,
                 "name": "CALIBORO",
                 "flow": "CALIBORO",
                 "generator": "CALIBORO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 161,
                 "name": "SANTA_ISABEL",
                 "flow": "SANTA_ISABEL",
                 "generator": "SANTA_ISABEL",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 162,
                 "name": "LA_MONTANA_2",
                 "flow": "LA_MONTANA_2",
                 "generator": "LA_MONTANA_2",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 163,
                 "name": "TRUFUL-TRUFUL",
                 "flow": "TRUFUL-TRUFUL",
                 "generator": "TRUFUL-TRUFUL",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 164,
                 "name": "DONGUIL",
                 "flow": "DONGUIL",
                 "generator": "DONGUIL",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 165,
                 "name": "COLLIL",
                 "flow": "COLLIL",
                 "generator": "COLLIL",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 166,
                 "name": "EL_MIRADOR",
                 "flow": "EL_MIRADOR",
                 "generator": "EL_MIRADOR",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 167,
                 "name": "MARIA_ELENA",
                 "flow": "MARIA_ELENA",
                 "generator": "MARIA_ELENA",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 168,
                 "name": "EL_ARRAYAN",
                 "flow": "EL_ARRAYAN",
                 "generator": "EL_ARRAYAN",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 169,
                 "name": "PIUTEL",
                 "flow": "PIUTEL",
                 "generator": "PIUTEL",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 170,
                 "name": "DOS_VALLES",
                 "flow": "DOS_VALLES",
                 "generator": "DOS_VALLES",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 173,
                 "name": "PALACIOS",
                 "flow": "PALACIOS",
                 "generator": "PALACIOS",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 174,
                 "name": "EL_COLORADO",
                 "flow": "EL_COLORADO",
                 "generator": "EL_COLORADO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 175,
                 "name": "MSA_1",
                 "flow": "MSA_1",
                 "generator": "MSA_1",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 176,
                 "name": "MALALCAHUELLO",
                 "flow": "MALALCAHUELLO",
                 "generator": "MALALCAHUELLO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 177,
                 "name": "CARILAFQUEN",
                 "flow": "CARILAFQUEN",
                 "generator": "CARILAFQUEN",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 178,
                 "name": "MOLINERA_VILLARRICA",
                 "flow": "MOLINERA_VILLARRICA",
                 "generator": "MOLINERA_VILLARRICA",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 179,
                 "name": "MAISAN",
                 "flow": "MAISAN",
                 "generator": "MAISAN",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 180,
                 "name": "LOS_CORRALES_1",
                 "flow": "LOS_CORRALES_1",
                 "generator": "LOS_CORRALES_1",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 181,
                 "name": "LOS_CORRALES_2",
                 "flow": "LOS_CORRALES_2",
                 "generator": "LOS_CORRALES_2",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 182,
                 "name": "LOS_PORTONES",
                 "flow": "LOS_PORTONES",
                 "generator": "LOS_PORTONES",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 185,
                 "name": "CHAPIQUINA",
                 "flow": "CHAPIQUINA",
                 "generator": "CHAPIQUINA",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 188,
                 "name": "EL_RINCON",
                 "flow": "EL_RINCON",
                 "generator": "EL_RINCON",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 189,
                 "name": "QUILLAILEO",
                 "flow": "QUILLAILEO",
                 "generator": "QUILLAILEO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 190,
                 "name": "MULCHEN",
                 "flow": "MULCHEN",
                 "generator": "MULCHEN",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 191,
                 "name": "LA_VINA",
                 "flow": "LA_VINA",
                 "generator": "LA_VINA",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 192,
                 "name": "EL_TARTARO",
                 "flow": "EL_TARTARO",
                 "generator": "EL_TARTARO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 193,
                 "name": "LAS_FLORES",
                 "flow": "LAS_FLORES",
                 "generator": "LAS_FLORES",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 194,
                 "name": "PICHILONCO",
                 "flow": "PICHILONCO",
                 "generator": "PICHILONCO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 195,
                 "name": "BOQUIAMARGO",
                 "flow": "BOQUIAMARGO",
                 "generator": "BOQUIAMARGO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 196,
                 "name": "DOSAL",
                 "flow": "DOSAL",
                 "generator": "DOSAL",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 197,
                 "name": "PANGUIPULLI",
                 "flow": "PANGUIPULLI",
                 "generator": "PANGUIPULLI",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 198,
                 "name": "CONTRA",
                 "flow": "CONTRA",
                 "generator": "CONTRA",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 199,
                 "name": "CURILEUFU",
                 "flow": "CURILEUFU",
                 "generator": "CURILEUFU",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 200,
                 "name": "BUREO",
                 "flow": "BUREO",
                 "generator": "BUREO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 201,
                 "name": "MUNILQUE_1",
                 "flow": "MUNILQUE_1",
                 "generator": "MUNILQUE_1",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 202,
                 "name": "MUNILQUE_2",
                 "flow": "MUNILQUE_2",
                 "generator": "MUNILQUE_2",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 203,
                 "name": "BIFURCADA",
                 "flow": "BIFURCADA",
                 "generator": "BIFURCADA",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 204,
                 "name": "EL_BRINCO",
                 "flow": "EL_BRINCO",
                 "generator": "EL_BRINCO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 205,
                 "name": "PALMAR",
                 "flow": "PALMAR",
                 "generator": "PALMAR",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 206,
                 "name": "CORRENTOSO",
                 "flow": "CORRENTOSO",
                 "generator": "CORRENTOSO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 207,
                 "name": "EL_PINAR",
                 "flow": "EL_PINAR",
                 "generator": "EL_PINAR",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 208,
                 "name": "DONA_HILDA",
                 "flow": "DONA_HILDA",
                 "generator": "DONA_HILDA",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 209,
                 "name": "CIPRESILLOS",
                 "flow": "CIPRESILLOS",
                 "generator": "CIPRESILLOS",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 210,
                 "name": "DIGUA",
                 "flow": "DIGUA",
                 "generator": "DIGUA",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 212,
                 "name": "HIDROMOCHO",
                 "flow": "HIDROMOCHO",
                 "generator": "HIDROMOCHO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 213,
                 "name": "LA_CONFIANZA",
                 "flow": "LA_CONFIANZA",
                 "generator": "LA_CONFIANZA",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 214,
                 "name": "AILLIN",
                 "flow": "AILLIN",
                 "generator": "AILLIN",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 215,
                 "name": "EL_ATAJO",
                 "flow": "EL_ATAJO",
                 "generator": "EL_ATAJO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 216,
                 "name": "HIDRO_BONITO_MC3",
                 "flow": "HIDRO_BONITO_MC3",
                 "generator": "HIDRO_BONITO_MC3",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 217,
                 "name": "CORRALES",
                 "flow": "CORRALES",
                 "generator": "CORRALES",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 218,
                 "name": "COMPANIA_2",
                 "flow": "COMPANIA_2",
                 "generator": "COMPANIA_2",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 219,
                 "name": "PUNTA_DEL_VIENTO",
                 "flow": "PUNTA_DEL_VIENTO",
                 "generator": "PUNTA_DEL_VIENTO",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 220,
                 "name": "COSAPILLA",
                 "flow": "COSAPILLA",
                 "generator": "COSAPILLA",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
             },
             {
                 "uid": 222,
                 "name": "PIEDRAS_NEGRAS",
                 "flow": "PIEDRAS_NEGRAS",
                 "generator": "PIEDRAS_NEGRAS",
-                "production_factor": 1.0
+                "conversion_rate": 1.0
+            }
+        ],
+        "reservoir_seepage_array": [
+            {
+                "uid": 1,
+                "name": "filt_CIPRESES_FILT_CIPRESES",
+                "waterway": "filt_CIPRESES_6_7",
+                "reservoir": "CIPRESES",
+                "slope": 0.00016131527000000002,
+                "constant": 2.189179627,
+                "segments": [
+                    {
+                        "volume": 0.0,
+                        "slope": 0.00016131527000000002,
+                        "constant": 2.189179627
+                    },
+                    {
+                        "volume": 70000.0,
+                        "slope": 1.9689187999999998e-05,
+                        "constant": 12.10300518
+                    },
+                    {
+                        "volume": 98000.0,
+                        "slope": 7.798707200000001e-05,
+                        "constant": 6.389812555
+                    }
+                ]
+            },
+            {
+                "uid": 2,
+                "name": "filt_ELTORO_ABANICO",
+                "waterway": "filt_ELTORO_37_38",
+                "reservoir": "ELTORO",
+                "slope": 4.3150359e-05,
+                "constant": 0.0,
+                "segments": [
+                    {
+                        "volume": 0.0,
+                        "slope": 4.3150359e-05,
+                        "constant": 0.0
+                    },
+                    {
+                        "volume": 400000.0,
+                        "slope": 5.429197000000001e-06,
+                        "constant": 15.08846449
+                    },
+                    {
+                        "volume": 2700000.0,
+                        "slope": 7.149312e-06,
+                        "constant": 10.44415451
+                    }
+                ]
+            },
+            {
+                "uid": 3,
+                "name": "filt_COLBUN_SAN_CLEMENTE",
+                "waterway": "filt_COLBUN_28_31",
+                "reservoir": "COLBUN",
+                "slope": 0.0,
+                "constant": 0.0,
+                "segments": [
+                    {
+                        "volume": 0.0,
+                        "slope": 0.0,
+                        "constant": 0.0
+                    },
+                    {
+                        "volume": 660600.0,
+                        "slope": 4.061368e-06,
+                        "constant": -1.868229129
+                    },
+                    {
+                        "volume": 750000.0,
+                        "slope": 1.1517246e-05,
+                        "constant": -7.605085852
+                    },
+                    {
+                        "volume": 979500.0,
+                        "slope": 1.1894884e-05,
+                        "constant": -7.924137075
+                    }
+                ]
+            }
+        ],
+        "reservoir_production_factor_array": [
+            {
+                "uid": 1,
+                "name": "eff_COLBUN",
+                "turbine": "COLBUN",
+                "reservoir": "COLBUN",
+                "mean_production_factor": 1.53,
+                "segments": [
+                    {
+                        "volume": 0.0,
+                        "slope": 0.0002294,
+                        "constant": 1.2558
+                    }
+                ]
+            },
+            {
+                "uid": 2,
+                "name": "eff_ELTORO",
+                "turbine": "ELTORO",
+                "reservoir": "ELTORO",
+                "mean_production_factor": 4.8,
+                "segments": [
+                    {
+                        "volume": 0.0,
+                        "slope": 9e-05,
+                        "constant": 4.5252
+                    }
+                ]
+            },
+            {
+                "uid": 3,
+                "name": "eff_RAPEL",
+                "turbine": "RAPEL",
+                "reservoir": "RAPEL",
+                "mean_production_factor": 0.635,
+                "segments": [
+                    {
+                        "volume": 0.0,
+                        "slope": 0.0001,
+                        "constant": 0.5734
+                    }
+                ]
+            },
+            {
+                "uid": 4,
+                "name": "eff_CANUTILLAR",
+                "turbine": "CANUTILLAR",
+                "reservoir": "CANUTILLAR",
+                "mean_production_factor": 2.0,
+                "segments": [
+                    {
+                        "volume": 0.0,
+                        "slope": 0.0002,
+                        "constant": 1.8616
+                    }
+                ]
+            },
+            {
+                "uid": 5,
+                "name": "eff_RALCO",
+                "turbine": "RALCO",
+                "reservoir": "RALCO",
+                "mean_production_factor": 1.6,
+                "segments": [
+                    {
+                        "volume": 0.0,
+                        "slope": 0.000385,
+                        "constant": 1.294041
+                    }
+                ]
             }
         ],
         "battery_array": [
@@ -29135,40 +28928,113 @@
             {
                 "uid": 1,
                 "first_stage": 0,
-                "count_stage": 1
-            },
-            {
-                "uid": 2,
-                "first_stage": 1,
-                "count_stage": 1
-            },
-            {
-                "uid": 3,
-                "first_stage": 2,
-                "count_stage": 1
-            },
-            {
-                "uid": 4,
-                "first_stage": 3,
-                "count_stage": 1
-            },
-            {
-                "uid": 5,
-                "first_stage": 4,
-                "count_stage": 1
-            },
-            {
-                "uid": 6,
-                "first_stage": 5,
-                "count_stage": 1
+                "count_stage": 6,
+                "apertures": [
+                    1,
+                    1,
+                    1,
+                    1,
+                    1,
+                    1,
+                    2,
+                    2,
+                    2,
+                    2,
+                    2,
+                    2,
+                    3,
+                    3,
+                    3,
+                    3,
+                    3,
+                    3,
+                    4,
+                    4,
+                    4,
+                    4,
+                    4,
+                    4,
+                    5,
+                    5,
+                    5,
+                    5,
+                    5,
+                    5,
+                    6,
+                    6,
+                    6,
+                    6,
+                    6,
+                    6,
+                    7,
+                    7,
+                    7,
+                    7,
+                    7,
+                    7,
+                    8,
+                    8,
+                    8,
+                    8,
+                    8,
+                    8,
+                    9,
+                    9,
+                    9,
+                    9,
+                    9,
+                    9,
+                    10,
+                    10,
+                    10,
+                    10,
+                    10,
+                    10,
+                    11,
+                    11,
+                    11,
+                    11,
+                    11,
+                    11,
+                    12,
+                    12,
+                    12,
+                    12,
+                    12,
+                    12,
+                    13,
+                    13,
+                    13,
+                    13,
+                    13,
+                    13,
+                    14,
+                    14,
+                    14,
+                    14,
+                    14,
+                    14,
+                    15,
+                    15,
+                    15,
+                    15,
+                    15,
+                    15,
+                    16,
+                    16,
+                    16,
+                    16,
+                    16,
+                    16
+                ]
             }
         ],
         "block_hour_map": "BlockHourMap/block_hour_map",
         "scenario_array": [
             {
-                "uid": 51,
+                "uid": 2,
                 "probability_factor": 1.0,
-                "hydrology": 50
+                "hydrology": 1
             }
         ],
         "scene_array": [

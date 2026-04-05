@@ -353,9 +353,10 @@ void MindOptSolverBackend::delete_rows(int num, const int* indices)
   m_prob_cached_ = false;
   m_sol_cached_ = false;
 
-  // MDOdelconstrs expects a mutable int array
-  int rc = MDOdelconstrs(m_model_, num,
-                         const_cast<int*>(indices));  // NOLINT
+  // MDOdelconstrs takes a mutable int* and may modify the array in-place
+  // (e.g. sorting).  Copy to protect the caller's data.
+  std::vector<int> buf(indices, indices + num);  // NOLINT
+  int rc = MDOdelconstrs(m_model_, num, buf.data());
   check_error(rc, "MDOdelconstrs");
 }
 
@@ -712,7 +713,8 @@ int MindOptSolverBackend::get_log_level() const
 double MindOptSolverBackend::get_kappa() const
 {
   // MindOpt does not expose a condition number (kappa) query.
-  return 1.0;
+  // Return -1 to signal "not supported".
+  return -1.0;
 }
 
 // ── logging ──────────────────────────────────────────────────────────────
