@@ -347,7 +347,7 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "SDDPMethod — cut_coeff_mode row_dual converges")
+    "SDDPMethod — cut_coeff_mode row_dual converges (3-phase hydro)")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 

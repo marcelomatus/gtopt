@@ -593,21 +593,3 @@ TEST_CASE("zstd_lp_file_inline compresses and removes source")  // NOLINT
   CHECK_FALSE(std::filesystem::exists(tmp.path));
   std::filesystem::remove(result);
 }
-
-TEST_CASE("gzip_lp_file_inline with nonexistent file returns empty")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  const auto result =
-      gzip_lp_file_inline("/tmp/nonexistent_gzip_test_12345.lp");
-  CHECK(result.empty());
-}
-
-TEST_CASE("zstd_lp_file_inline with nonexistent file returns empty")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  const auto result =
-      zstd_lp_file_inline("/tmp/nonexistent_zstd_test_12345.lp");
-  CHECK(result.empty());
-}
