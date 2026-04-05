@@ -1000,3 +1000,87 @@ def test_grid_tracker_display_integration(tmp_path: Path):
     display.add_log_line("SDDP Forward [i0 s0 p3]: solving")
     assert display._grid_tracker.has_data
     assert display._grid_tracker.get_cell(0, 0, 3) == _GRID_FORWARD
+
+
+# ---------------------------------------------------------------------------
+# SDDPGridTracker.load_from_status tests (remote monitoring)
+# ---------------------------------------------------------------------------
+
+
+def test_grid_load_from_status_basic():
+    """Grid can be populated from status JSON phase_grid data."""
+    tracker = SDDPGridTracker()
+    status = {
+        "phase_grid": {
+            "rows": [
+                {"i": 0, "s": 0, "cells": "FF.FEB"},
+                {"i": 1, "s": 0, "cells": "FFFFFF"},
+            ],
+        },
+    }
+    tracker.load_from_status(status)
+
+    assert tracker.has_data
+    assert tracker.scenes == [0]
+    assert tracker.max_iter == 1
+    assert tracker.max_phase == 5
+    assert tracker.get_cell(0, 0, 0) == _GRID_FORWARD
+    assert tracker.get_cell(0, 0, 1) == _GRID_FORWARD
+    assert tracker.get_cell(0, 0, 2) == _GRID_IDLE  # '.' = idle
+    assert tracker.get_cell(0, 0, 3) == _GRID_FORWARD
+    assert tracker.get_cell(0, 0, 4) == _GRID_ELASTIC
+    assert tracker.get_cell(0, 0, 5) == _GRID_BACKWARD
+    assert tracker.get_cell(0, 1, 0) == _GRID_FORWARD
+
+
+def test_grid_load_from_status_multi_scene():
+    """Multiple scenes from status JSON."""
+    tracker = SDDPGridTracker()
+    status = {
+        "phase_grid": {
+            "rows": [
+                {"i": 0, "s": 0, "cells": "FB"},
+                {"i": 0, "s": 1, "cells": "FA"},
+            ],
+        },
+    }
+    tracker.load_from_status(status)
+
+    assert tracker.scenes == [0, 1]
+    assert tracker.get_cell(0, 0, 0) == _GRID_FORWARD
+    assert tracker.get_cell(0, 0, 1) == _GRID_BACKWARD
+    assert tracker.get_cell(1, 0, 0) == _GRID_FORWARD
+    assert tracker.get_cell(1, 0, 1) == _GRID_APERTURE
+
+
+def test_grid_load_from_status_merges_with_log():
+    """Status JSON data merges with log-parsed data (higher priority wins)."""
+    tracker = SDDPGridTracker()
+    # Log line sets forward
+    tracker.process_line("SDDP Forward [i0 s0 p0]: ok")
+    assert tracker.get_cell(0, 0, 0) == _GRID_FORWARD
+
+    # Status JSON has backward (higher priority) for same cell
+    status = {"phase_grid": {"rows": [{"i": 0, "s": 0, "cells": "B"}]}}
+    tracker.load_from_status(status)
+    assert tracker.get_cell(0, 0, 0) == _GRID_BACKWARD
+
+
+def test_grid_load_from_status_empty():
+    """Empty or missing phase_grid is a no-op."""
+    tracker = SDDPGridTracker()
+    tracker.load_from_status({})
+    assert not tracker.has_data
+    tracker.load_from_status({"phase_grid": {}})
+    assert not tracker.has_data
+    tracker.load_from_status({"phase_grid": {"rows": []}})
+    assert not tracker.has_data
+
+
+def test_grid_load_infeasible_from_status():
+    """Infeasible cells from status JSON."""
+    tracker = SDDPGridTracker()
+    status = {"phase_grid": {"rows": [{"i": 2, "s": 1, "cells": "FXF"}]}}
+    tracker.load_from_status(status)
+    assert tracker.get_cell(1, 2, 1) == _GRID_INFEASIBLE
+    assert tracker.get_cell(1, 2, 0) == _GRID_FORWARD

@@ -116,6 +116,12 @@ void write_sddp_api_status(const std::string& filepath,
   }
   json += "  ],\n";
 
+  // ── Phase grid (per-iteration/scene/phase activity) ──
+  if (snapshot.phase_grid != nullptr && !snapshot.phase_grid->empty()) {
+    json += snapshot.phase_grid->to_json();
+    json += ",\n";
+  }
+
   // ── Real-time workpool monitoring history ──
   monitor.append_history_json(json);
 

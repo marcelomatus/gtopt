@@ -42,6 +42,7 @@ struct SDDPStatusSnapshot
   int scenes_done {};  ///< Scenes completed in current pass
   std::string solver {};  ///< Solver identity ("name/version")
   std::string method {};  ///< Planning method ("sddp", "monolithic", …)
+  const PhaseGridRecorder* phase_grid {};  ///< Non-owning; null if no grid
 };
 
 /// Write SDDP status JSON to a file.

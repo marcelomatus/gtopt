@@ -618,6 +618,10 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene,
   const auto cut_row = src_li.add_row(cut);
   store_cut(scene, prev_phase, cut, CutType::Optimality, cut_row);
   ++cuts_added;
+  m_phase_grid_.record(static_cast<int>(iteration),
+                       static_cast<int>(scene_uid(scene)),
+                       static_cast<int>(phase_uid(phase)),
+                       GridCell::Backward);
 
   SPDLOG_TRACE(
       "{}: cut for phase {} rhs={:.4f}",
@@ -1456,6 +1460,7 @@ void SDDPMethod::maybe_write_api_status(
       .scenes_done = m_scenes_done_.load(),
       .solver = std::move(solver_id),
       .method = "sddp",
+      .phase_grid = &m_phase_grid_,
   };
   write_sddp_api_status(status_file, results, elapsed, snapshot, monitor);
 }

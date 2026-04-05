@@ -219,6 +219,45 @@ class SDDPGridTracker:
     def aperture_count(self) -> int:
         return self._aperture_count
 
+    # Map C++ GridCell chars to Python grid states
+    _CELL_CHAR_MAP: dict[str, int] = {
+        "F": _GRID_FORWARD,
+        "B": _GRID_BACKWARD,
+        "E": _GRID_ELASTIC,
+        "A": _GRID_APERTURE,
+        "X": _GRID_INFEASIBLE,
+    }
+
+    def load_from_status(self, status: dict) -> None:
+        """Merge phase_grid data from the status JSON into the grid.
+
+        The C++ solver writes a ``phase_grid`` section with compact
+        per-row strings: ``{"i": 0, "s": 0, "cells": "FF.FEB..."}``.
+        This allows remote monitoring without parsing log lines.
+        """
+        grid_data = status.get("phase_grid")
+        if not grid_data:
+            return
+        for row in grid_data.get("rows", []):
+            it = row.get("i", 0)
+            sc = row.get("s", 0)
+            cells = row.get("cells", "")
+            if not cells:
+                continue
+            self._scenes.add(sc)
+            self._max_iter = max(self._max_iter, it)
+            self._max_phase = max(self._max_phase, len(cells) - 1)
+            if sc not in self._grid:
+                self._grid[sc] = {}
+            for ph, ch in enumerate(cells):
+                state = self._CELL_CHAR_MAP.get(ch, _GRID_IDLE)
+                if state == _GRID_IDLE:
+                    continue
+                cell_key = (it, ph)
+                current = self._grid[sc].get(cell_key, _GRID_IDLE)
+                if state > current:
+                    self._grid[sc][cell_key] = state
+
 
 # ---------------------------------------------------------------------------
 # Solver phase tracking (plan table)
@@ -1170,7 +1209,7 @@ class SolverDisplay:
         self._thread.start()
 
     def _sync_stats_from_status(self) -> None:
-        """Propagate solver/method from the status JSON into _system_stats."""
+        """Propagate solver/method and phase grid from the status JSON."""
         status = self._status
         if not status:
             return
@@ -1183,6 +1222,9 @@ class SolverDisplay:
                 method = status.get("method", "")
                 if method:
                     self._system_stats["method"] = method
+            # Merge phase grid from status JSON (enables remote monitoring)
+            if "phase_grid" in status:
+                self._grid_tracker.load_from_status(status)
 
     def stop(self) -> None:
         """Signal the render thread to finish and wait for it."""

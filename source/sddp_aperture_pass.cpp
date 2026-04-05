@@ -110,6 +110,10 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
 {
   auto& phase_states = m_scene_phase_states_[scene];
   int cuts_added = 0;
+  m_phase_grid_.record(static_cast<int>(iteration),
+                       static_cast<int>(scene_uid(scene)),
+                       static_cast<int>(phase_uid(phase)),
+                       GridCell::Aperture);
 
   const auto src_phase = phase - PhaseIndex {1};
   auto& src_li = planning_lp().system(scene, src_phase).linear_interface();
