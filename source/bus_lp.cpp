@@ -58,8 +58,8 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
           if (theta) [[unlikely]] {
             tblocks[buid] = lp.add_col(SparseCol {
                 .name = std::move(tname),
-                .lowb = *theta / scale_theta,
-                .uppb = *theta / scale_theta,
+                .lowb = *theta,
+                .uppb = *theta,
                 .scale = scale_theta,
             });
           } else [[likely]] {
@@ -67,8 +67,8 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
                 2 * std::numbers::pi;  // Default bound for theta
             tblocks[buid] = lp.add_col(SparseCol {
                 .name = std::move(tname),
-                .lowb = -theta_bound / scale_theta,
-                .uppb = +theta_bound / scale_theta,
+                .lowb = -theta_bound,
+                .uppb = +theta_bound,
                 .scale = scale_theta,
             });
           }

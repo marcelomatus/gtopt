@@ -35,8 +35,8 @@ void propagate_trial_values(std::span<StateVarLink> links,
 {
   for (auto& link : links) {
     link.trial_value = source_solution[link.source_col];
-    target_li.set_col_low(link.dependent_col, link.trial_value);
-    target_li.set_col_upp(link.dependent_col, link.trial_value);
+    target_li.set_col_low_raw(link.dependent_col, link.trial_value);
+    target_li.set_col_upp_raw(link.dependent_col, link.trial_value);
   }
 }
 
@@ -47,14 +47,14 @@ void propagate_trial_values_row_dual(std::span<StateVarLink> links,
   for (auto& link : links) {
     link.trial_value = source_solution[link.source_col];
 
-    // Keep the column at its physical bounds (not fixed).
-    target_li.set_col_low(link.dependent_col, link.source_low);
-    target_li.set_col_upp(link.dependent_col, link.source_upp);
+    // Keep the column at its raw LP bounds (not fixed).
+    target_li.set_col_low_raw(link.dependent_col, link.source_low);
+    target_li.set_col_upp_raw(link.dependent_col, link.source_upp);
 
     if (link.coupling_row != RowIndex {unknown_index}) {
       // Reuse existing coupling row — just update the RHS.
-      target_li.set_row_low(link.coupling_row, link.trial_value);
-      target_li.set_row_upp(link.coupling_row, link.trial_value);
+      target_li.set_row_low_raw(link.coupling_row, link.trial_value);
+      target_li.set_row_upp_raw(link.coupling_row, link.trial_value);
 
       SPDLOG_TRACE("row_dual propagation: col {} = {:.4f} (updated row {})",
                    link.dependent_col,
@@ -88,10 +88,14 @@ auto build_benders_cut(ColIndex alpha_col,
                        double scale_alpha,
                        double cut_coeff_eps) -> SparseRow
 {
+  // Row scale = scale_alpha: all physical values are stored as-is.
+  // When the row is added to the LP (via add_row), bounds and coefficients
+  // are divided by row.scale, giving a raw alpha coefficient of 1.0.
   auto row = SparseRow {
       .name = std::string(name),
       .lowb = objective_value,
       .uppb = LinearProblem::DblMax,
+      .scale = scale_alpha,
   };
   row[alpha_col] = scale_alpha;
 
@@ -115,10 +119,13 @@ auto build_benders_cut_from_row_duals(ColIndex alpha_col,
                                       double scale_alpha,
                                       double cut_coeff_eps) -> SparseRow
 {
+  // Row scale = scale_alpha: physical values stored as-is, divided by
+  // row.scale when added to the LP (giving raw alpha coefficient = 1.0).
   auto row = SparseRow {
       .name = std::string(name),
       .lowb = objective_value,
       .uppb = LinearProblem::DblMax,
+      .scale = scale_alpha,
   };
   row[alpha_col] = scale_alpha;
 
@@ -211,16 +218,16 @@ RelaxedVarInfo relax_fixed_state_variable(LinearInterface& li,
                                           double penalty)
 {
   const auto dep = link.dependent_col;
-  const auto lo = li.get_col_low()[dep];
-  const auto hi = li.get_col_upp()[dep];
+  const auto lo = li.get_col_low_raw()[dep];
+  const auto hi = li.get_col_upp_raw()[dep];
 
   if (std::abs(lo - hi) >= 1e-10) {
     return {};
   }
 
-  // Relax to the physical bounds captured from the source column
-  li.set_col_low(dep, link.source_low);
-  li.set_col_upp(dep, link.source_upp);
+  // Relax to the raw LP bounds captured from the source column
+  li.set_col_low_raw(dep, link.source_low);
+  li.set_col_upp_raw(dep, link.source_upp);
 
   // Penalised slack variables: up (overshoot) and dn (undershoot)
   //

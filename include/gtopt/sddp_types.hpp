@@ -113,7 +113,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   double elastic_penalty {1e3};  ///< Penalty for elastic slack variables
   double alpha_min {0.0};  ///< Lower bound for future cost variable a ($)
   double alpha_max {1e15};  ///< Upper bound for future cost variable a ($)
-  double scale_alpha {10'000'000};  ///< Scale divisor for a (PLP varphi)
+  double scale_alpha {0};  ///< Scale for α (0 = auto: max state var_scale)
   CutSharingMode cut_sharing {CutSharingMode::none};  ///< Cut sharing mode
 
   /// Elastic filter mode: how to handle backward-pass infeasibility.

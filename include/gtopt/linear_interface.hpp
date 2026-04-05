@@ -352,26 +352,64 @@ public:
     return value <= -m_backend_->infinity();
   }
 
-  void set_rhs(RowIndex row, double rhs);
-  void set_row_low(RowIndex index, double value);
-  void set_row_upp(RowIndex index, double value);
+  // ── Row bound setters (raw: LP/solver units) ──
+
+  void set_rhs_raw(RowIndex row, double rhs);
+  void set_row_low_raw(RowIndex index, double value);
+  void set_row_upp_raw(RowIndex index, double value);
+
+  // ── Row bound setters (physical: descaled) ──
+
+  void set_rhs(RowIndex row, double physical_rhs);
+  void set_row_low(RowIndex index, double physical_value);
+  void set_row_upp(RowIndex index, double physical_value);
+
+  // ── Coefficient accessors (raw: LP/solver units) ──
 
   /**
-   * @brief Gets a coefficient value from the constraint matrix
+   * @brief Gets a raw coefficient from the constraint matrix (LP units).
    * @param row Row index of the coefficient
    * @param column Column index of the coefficient
-   * @return The coefficient value, or 0.0 if the element does not exist
+   * @return The raw coefficient value, or 0.0 if the element does not exist
+   */
+  [[nodiscard]] double get_coeff_raw(RowIndex row, ColIndex column) const;
+
+  /**
+   * @brief Sets (modifies) a raw coefficient in the constraint matrix.
+   *
+   * The value is stored as-is in LP units.
+   * @param row Row index of the coefficient
+   * @param column Column index of the coefficient
+   * @param value Raw coefficient value (LP units)
+   */
+  void set_coeff_raw(RowIndex row, ColIndex column, double value);
+
+  // ── Coefficient accessors (physical: descaled) ──
+
+  /**
+   * @brief Gets a physical coefficient from the constraint matrix.
+   *
+   * Converts from LP to physical units:
+   *   physical_coeff = raw_coeff × col_scale × row_scale
+   *
+   * When no scaling is active, returns the raw value unchanged.
+   * @param row Row index of the coefficient
+   * @param column Column index of the coefficient
+   * @return The physical coefficient value
    */
   [[nodiscard]] double get_coeff(RowIndex row, ColIndex column) const;
 
   /**
-   * @brief Sets (modifies) a coefficient in the constraint matrix
+   * @brief Sets a coefficient in the constraint matrix from physical units.
+   *
+   * Converts from physical to LP units:
+   *   raw_coeff = physical_coeff / col_scale / row_scale
    *
    * @param row Row index of the coefficient
    * @param column Column index of the coefficient
-   * @param value New coefficient value
+   * @param physical_value Physical coefficient value
    */
-  void set_coeff(RowIndex row, ColIndex column, double value);
+  void set_coeff(RowIndex row, ColIndex column, double physical_value);
 
   /**
    * @brief Checks whether the solver supports in-place coefficient updates
@@ -387,9 +425,17 @@ public:
     return std::span(m_backend_->obj_coefficients(), get_numcols());
   }
 
-  void set_col_low(ColIndex index, double value);
-  void set_col_upp(ColIndex index, double value);
-  void set_col(ColIndex index, double value);
+  // ── Column bound setters (raw: LP/solver units) ──
+
+  void set_col_low_raw(ColIndex index, double value);
+  void set_col_upp_raw(ColIndex index, double value);
+  void set_col_raw(ColIndex index, double value);
+
+  // ── Column bound setters (physical: descaled) ──
+
+  void set_col_low(ColIndex index, double physical_value);
+  void set_col_upp(ColIndex index, double physical_value);
+  void set_col(ColIndex index, double physical_value);
 
   [[nodiscard]] double get_obj_value() const;
 
@@ -485,40 +531,124 @@ public:
    */
   void set_time_limit(double time_limit);
 
+  // ── Row bound getters (raw: LP/solver units) ──
+
   /**
-   * @brief Gets the lower bounds for all constraint rows
-   * @return Span view of row lower bounds
+   * @brief Gets raw lower bounds for all constraint rows (LP units).
+   *
+   * When row equilibration is active, these are the equilibrated bounds
+   * (divided by the per-row scale factor).  Use get_row_low() for
+   * physical (unscaled) bounds.
+   * @return Span view of raw row lower bounds
    */
-  [[nodiscard]] auto get_row_low() const
+  [[nodiscard]] auto get_row_low_raw() const
   {
     return std::span(m_backend_->row_lower(), get_numrows());
   }
 
   /**
-   * @brief Gets the upper bounds for all constraint rows
-   * @return Span view of row upper bounds
+   * @brief Gets raw upper bounds for all constraint rows (LP units).
+   * @return Span view of raw row upper bounds
    */
-  [[nodiscard]] auto get_row_upp() const
+  [[nodiscard]] auto get_row_upp_raw() const
   {
     return std::span(m_backend_->row_upper(), get_numrows());
   }
 
+  // ── Row bound getters (physical: descaled) ──
+
   /**
-   * @brief Gets the lower bounds for all variable columns
-   * @return Span view of column lower bounds
+   * @brief Gets physical lower bounds for all constraint rows.
+   *
+   * When row equilibration is active, the raw bounds are multiplied
+   * by the per-row scale factor to recover physical units:
+   * physical_bound = LP_bound × row_scale.
+   * When row scales are empty, returns raw values unchanged.
+   * @return ScaledView over solver row lower bounds
    */
-  [[nodiscard]] auto get_col_low() const
+  [[nodiscard]] ScaledView get_row_low() const noexcept
+  {
+    const auto n = get_numrows();
+    return {m_backend_->row_lower(),
+            n,
+            m_row_scales_.data(),
+            m_row_scales_.size(),
+            ScaledView::Op::multiply};
+  }
+
+  /**
+   * @brief Gets physical upper bounds for all constraint rows.
+   * @return ScaledView over solver row upper bounds
+   */
+  [[nodiscard]] ScaledView get_row_upp() const noexcept
+  {
+    const auto n = get_numrows();
+    return {m_backend_->row_upper(),
+            n,
+            m_row_scales_.data(),
+            m_row_scales_.size(),
+            ScaledView::Op::multiply};
+  }
+
+  // ── Column bound getters (raw: LP/solver units) ──
+
+  /**
+   * @brief Gets raw lower bounds for all variable columns (LP units).
+   *
+   * These are the bounds as stored in the solver backend.  For scaled
+   * variables, LP_bound = physical_bound / col_scale.  Use
+   * get_col_low() for physical (unscaled) bounds.
+   * @return Span view of raw column lower bounds
+   */
+  [[nodiscard]] auto get_col_low_raw() const
   {
     return std::span(m_backend_->col_lower(), get_numcols());
   }
 
   /**
-   * @brief Gets the upper bounds for all variable columns
-   * @return Span view of column upper bounds
+   * @brief Gets raw upper bounds for all variable columns (LP units).
+   * @return Span view of raw column upper bounds
    */
-  [[nodiscard]] auto get_col_upp() const
+  [[nodiscard]] auto get_col_upp_raw() const
   {
     return std::span(m_backend_->col_upper(), get_numcols());
+  }
+
+  // ── Column bound getters (physical: descaled) ──
+
+  /**
+   * @brief Gets physical lower bounds for all variable columns.
+   *
+   * Returns a zero-copy lazy view: each access computes
+   * `LP_bound × col_scale` on the fly.  When col_scales are empty,
+   * returns raw values unchanged.
+   * @return ScaledView over solver column lower bounds
+   */
+  [[nodiscard]] ScaledView get_col_low() const noexcept
+  {
+    const auto n = get_numcols();
+    return {m_backend_->col_lower(),
+            n,
+            m_col_scales_.data(),
+            m_col_scales_.size(),
+            ScaledView::Op::multiply};
+  }
+
+  /**
+   * @brief Gets physical upper bounds for all variable columns.
+   *
+   * Returns a zero-copy lazy view: each access computes
+   * `LP_bound × col_scale` on the fly.
+   * @return ScaledView over solver column upper bounds
+   */
+  [[nodiscard]] ScaledView get_col_upp() const noexcept
+  {
+    const auto n = get_numcols();
+    return {m_backend_->col_upper(),
+            n,
+            m_col_scales_.data(),
+            m_col_scales_.size(),
+            ScaledView::Op::multiply};
   }
 
   /**
@@ -597,6 +727,24 @@ public:
   }
 
   /**
+   * @brief Sets the physical-to-LP scale factor for a single column.
+   *
+   * Use this for columns added dynamically (via add_col) that need a
+   * non-unit scale.  Grows the internal scale vector as needed.
+   *
+   * @param index Column index
+   * @param scale Physical-to-LP scale factor (physical = LP × scale)
+   */
+  void set_col_scale(ColIndex index, double scale) noexcept
+  {
+    const auto sz = static_cast<size_t>(index) + 1;
+    if (sz > m_col_scales_.size()) {
+      m_col_scales_.resize(sz, 1.0);
+    }
+    m_col_scales_[index] = scale;
+  }
+
+  /**
    * @brief Gets all column scale factors.
    * @return Const reference to the column scale vector (empty if not
    * populated)
@@ -621,6 +769,24 @@ public:
       return m_row_scales_[index];
     }
     return 1.0;
+  }
+
+  /**
+   * @brief Sets the row scale factor for a single row.
+   *
+   * Use this for rows added dynamically (via add_row) that need a
+   * non-unit scale.  Grows the internal scale vector as needed.
+   *
+   * @param index Row index
+   * @param scale Row scale factor (physical_rhs = LP_rhs × scale)
+   */
+  void set_row_scale(RowIndex index, double scale) noexcept
+  {
+    const auto sz = static_cast<size_t>(index) + 1;
+    if (sz > m_row_scales_.size()) {
+      m_row_scales_.resize(sz, 1.0);
+    }
+    m_row_scales_[index] = scale;
   }
 
   /**

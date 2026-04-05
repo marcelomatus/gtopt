@@ -295,8 +295,37 @@ RowIndex LinearInterface::add_row(const std::string& name,
 
 RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
 {
-  const auto [columns, elements] = row.to_flat<int>(eps);
+  const auto rs = row.scale;
 
+  if (rs != 1.0) {
+    // Scale row: divide bounds and coefficients by row.scale.
+    // This mirrors how flatten() handles SparseRow::scale for static rows.
+    const auto inv_rs = 1.0 / rs;
+    const auto infy = m_backend_->infinity();
+
+    // Scale coefficients: build a new flat representation directly
+    // from the original row, applying the scale factor.
+    auto [columns, elements] = row.to_flat<int>(eps);
+    for (auto& v : elements) {
+      v *= inv_rs;
+    }
+
+    // Scale bounds (preserve infinity)
+    const double lb =
+        (row.lowb > -infy && row.lowb < infy) ? row.lowb * inv_rs : row.lowb;
+    const double ub =
+        (row.uppb > -infy && row.uppb < infy) ? row.uppb * inv_rs : row.uppb;
+
+    const auto row_idx =
+        add_row(row.name, columns.size(), columns, elements, lb, ub);
+
+    // Register the row scale so physical getters/setters account for it.
+    set_row_scale(row_idx, rs);
+
+    return row_idx;
+  }
+
+  const auto [columns, elements] = row.to_flat<int>(eps);
   return add_row(
       row.name, columns.size(), columns, elements, row.lowb, row.uppb);
 }
@@ -348,8 +377,8 @@ void LinearInterface::reset_from(const LinearInterface& source,
   }
 
   const auto ncols = m_backend_->get_num_cols();
-  const auto src_col_lo = source.get_col_low();
-  const auto src_col_hi = source.get_col_upp();
+  const auto src_col_lo = source.get_col_low_raw();
+  const auto src_col_hi = source.get_col_upp_raw();
   for (const auto [c, lo] :
        std::views::enumerate(src_col_lo | std::views::take(ncols)))
   {
@@ -358,8 +387,8 @@ void LinearInterface::reset_from(const LinearInterface& source,
   }
 
   const auto nrows = m_backend_->get_num_rows();
-  const auto src_row_lo = source.get_row_low();
-  const auto src_row_hi = source.get_row_upp();
+  const auto src_row_lo = source.get_row_low_raw();
+  const auto src_row_hi = source.get_row_upp_raw();
   for (const auto [r, lo] :
        std::views::enumerate(src_row_lo | std::views::take(nrows)))
   {
@@ -375,17 +404,41 @@ void LinearInterface::reset_from(const LinearInterface& source,
 
 // ── Coefficients ──
 
-void LinearInterface::set_coeff(const RowIndex row,
-                                const ColIndex column,
-                                const double value)
+// ── Raw coefficient accessors (LP units) ──
+
+void LinearInterface::set_coeff_raw(const RowIndex row,
+                                    const ColIndex column,
+                                    const double value)
 {
   m_backend_->set_coeff(static_cast<int>(row), static_cast<int>(column), value);
+}
+
+double LinearInterface::get_coeff_raw(const RowIndex row,
+                                      const ColIndex column) const
+{
+  return m_backend_->get_coeff(static_cast<int>(row), static_cast<int>(column));
+}
+
+// ── Physical coefficient accessors ──
+// physical_coeff = raw_coeff × col_scale × row_scale
+// raw_coeff = physical_coeff / col_scale / row_scale
+
+void LinearInterface::set_coeff(const RowIndex row,
+                                const ColIndex column,
+                                const double physical_value)
+{
+  const double cs = get_col_scale(column);
+  const double rs = get_row_scale(row);
+  set_coeff_raw(row, column, physical_value / cs / rs);
 }
 
 double LinearInterface::get_coeff(const RowIndex row,
                                   const ColIndex column) const
 {
-  return m_backend_->get_coeff(static_cast<int>(row), static_cast<int>(column));
+  const double raw = get_coeff_raw(row, column);
+  const double cs = get_col_scale(column);
+  const double rs = get_row_scale(row);
+  return raw * cs * rs;
 }
 
 bool LinearInterface::supports_set_coeff() const noexcept
@@ -400,35 +453,83 @@ void LinearInterface::set_obj_coeff(const ColIndex index, const double value)
   m_backend_->set_obj_coeff(static_cast<int>(index), value);
 }
 
-void LinearInterface::set_col_low(const ColIndex index, const double value)
+// ── Raw column bound setters (LP/solver units) ──
+
+void LinearInterface::set_col_low_raw(const ColIndex index, const double value)
 {
   m_backend_->set_col_lower(static_cast<int>(index), normalize_bound(value));
 }
 
-void LinearInterface::set_col_upp(const ColIndex index, const double value)
+void LinearInterface::set_col_upp_raw(const ColIndex index, const double value)
 {
   m_backend_->set_col_upper(static_cast<int>(index), normalize_bound(value));
 }
 
-void LinearInterface::set_row_low(const RowIndex index, const double value)
+void LinearInterface::set_col_raw(const ColIndex index, const double value)
+{
+  set_col_low_raw(index, value);
+  set_col_upp_raw(index, value);
+}
+
+// ── Physical column bound setters (physical_value / col_scale → LP) ──
+
+void LinearInterface::set_col_low(const ColIndex index,
+                                  const double physical_value)
+{
+  const double scale = get_col_scale(index);
+  set_col_low_raw(index, physical_value / scale);
+}
+
+void LinearInterface::set_col_upp(const ColIndex index,
+                                  const double physical_value)
+{
+  const double scale = get_col_scale(index);
+  set_col_upp_raw(index, physical_value / scale);
+}
+
+void LinearInterface::set_col(const ColIndex index, const double physical_value)
+{
+  set_col_low(index, physical_value);
+  set_col_upp(index, physical_value);
+}
+
+// ── Raw row bound setters (LP/solver units) ──
+
+void LinearInterface::set_row_low_raw(const RowIndex index, const double value)
 {
   m_backend_->set_row_lower(static_cast<int>(index), normalize_bound(value));
 }
 
-void LinearInterface::set_row_upp(const RowIndex index, const double value)
+void LinearInterface::set_row_upp_raw(const RowIndex index, const double value)
 {
   m_backend_->set_row_upper(static_cast<int>(index), normalize_bound(value));
 }
 
-void LinearInterface::set_col(const ColIndex index, const double value)
-{
-  set_col_low(index, value);
-  set_col_upp(index, value);
-}
-
-void LinearInterface::set_rhs(const RowIndex row, const double rhs)
+void LinearInterface::set_rhs_raw(const RowIndex row, const double rhs)
 {
   m_backend_->set_row_bounds(static_cast<int>(row), rhs, rhs);
+}
+
+// ── Physical row bound setters (physical × row_scale → LP) ──
+
+void LinearInterface::set_row_low(const RowIndex index,
+                                  const double physical_value)
+{
+  const double scale = get_row_scale(index);
+  set_row_low_raw(index, physical_value / scale);
+}
+
+void LinearInterface::set_row_upp(const RowIndex index,
+                                  const double physical_value)
+{
+  const double scale = get_row_scale(index);
+  set_row_upp_raw(index, physical_value / scale);
+}
+
+void LinearInterface::set_rhs(const RowIndex row, const double physical_rhs)
+{
+  const double scale = get_row_scale(row);
+  set_rhs_raw(row, physical_rhs / scale);
 }
 
 size_t LinearInterface::get_numrows() const
@@ -454,8 +555,8 @@ void LinearInterface::set_integer(const ColIndex index)
 void LinearInterface::set_binary(const ColIndex index)
 {
   set_integer(index);
-  set_col_low(index, 0);
-  set_col_upp(index, 1);
+  set_col_low_raw(index, 0);
+  set_col_upp_raw(index, 1);
 }
 
 bool LinearInterface::is_continuous(const ColIndex index) const

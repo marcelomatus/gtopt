@@ -68,6 +68,28 @@ auto build_scene_uid_map(const PlanningLP& planning_lp)
 namespace
 {
 
+// ─── Auto-scale alpha helper ────────────────────────────────────────────────
+
+/// Compute the effective scale_alpha: if the option is > 0 use it,
+/// otherwise auto-compute as max(var_scale) across all state variables.
+auto effective_scale_alpha(const PlanningLP& planning_lp,
+                           double option_scale_alpha) -> double
+{
+  if (option_scale_alpha > 0.0) {
+    return option_scale_alpha;
+  }
+  const auto& sim = planning_lp.simulation();
+  double max_vs = 1.0;
+  for (auto&& [si, scene] : enumerate<SceneIndex>(sim.scenes())) {
+    for (auto&& [pi, phase] : enumerate<PhaseIndex>(sim.phases())) {
+      for (const auto& [key, svar] : sim.state_variables(si, pi)) {
+        max_vs = std::max(max_vs, svar.var_scale());
+      }
+    }
+  }
+  return max_vs;
+}
+
 /// Returns true if *col_name* is a final-state-variable name that can
 /// appear in boundary/hot-start cut CSV headers (efin, soc, vfin).
 [[nodiscard]] constexpr auto is_final_state_col(std::string_view col_name)
@@ -879,16 +901,17 @@ auto load_boundary_cuts_csv(
     }
 
     // ── Ensure the last phase has an alpha column ───────────────
+    const auto sa = effective_scale_alpha(planning_lp, options.scale_alpha);
     for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
       auto& state = scene_phase_states[scene][last_phase];
       if (state.alpha_col == ColIndex {unknown_index}) {
         auto& li = planning_lp.system(scene, last_phase).linear_interface();
-        const auto sa = options.scale_alpha;
         state.alpha_col =
             li.add_col(gtopt::as_label("sddp", "alpha", scene, last_phase),
                        options.alpha_min / sa,
                        options.alpha_max / sa);
         li.set_obj_coeff(state.alpha_col, sa);
+        li.set_col_scale(state.alpha_col, sa);
       }
     }
 
@@ -973,8 +996,9 @@ auto load_boundary_cuts_csv(
             .name = label_maker.lp_label("bdr", rc.name, scene, last_phase),
             .lowb = rc.rhs * bc_discount / scale_obj,
             .uppb = LinearProblem::DblMax,
+            .scale = sa,
         };
-        row[state.alpha_col] = options.scale_alpha;
+        row[state.alpha_col] = sa;
 
         auto& li = planning_lp.system(scene, last_phase).linear_interface();
         std::istringstream coeff_ss(rc.coeff_line);
@@ -1092,6 +1116,7 @@ auto load_named_cuts_csv(
     const auto num_scenes = static_cast<Index>(sim.scenes().size());
     const auto& sys = planning_lp.planning().system;
     const auto scale_obj = planning_lp.options().scale_objective();
+    const auto sa = effective_scale_alpha(planning_lp, options.scale_alpha);
 
     std::unordered_map<std::string, std::pair<std::string_view, Uid>>
         name_to_class_uid;
@@ -1224,12 +1249,12 @@ auto load_named_cuts_csv(
         auto& state = scene_phase_states[scene][phase];
         if (state.alpha_col == ColIndex {unknown_index}) {
           auto& li = planning_lp.system(scene, phase).linear_interface();
-          const auto sa = options.scale_alpha;
           state.alpha_col =
               li.add_col(gtopt::as_label("sddp", "alpha", scene, phase),
                          options.alpha_min / sa,
                          options.alpha_max / sa);
           li.set_obj_coeff(state.alpha_col, sa);
+          li.set_col_scale(state.alpha_col, sa);
         }
       }
 
@@ -1279,8 +1304,9 @@ auto load_named_cuts_csv(
             .name = label_maker.lp_label("named_hs", cut_name, scene, phase),
             .lowb = rhs / scale_obj,
             .uppb = LinearProblem::DblMax,
+            .scale = sa,
         };
-        row[state.alpha_col] = options.scale_alpha;
+        row[state.alpha_col] = sa;
 
         auto& li = planning_lp.system(scene, phase).linear_interface();
         std::istringstream coeff_ss(remainder);
@@ -1296,8 +1322,8 @@ auto load_named_cuts_csv(
           const auto coeff = std::stod(ctok);
           if (coeff != 0.0) {
             const auto scale = li.get_col_scale(*col_opt);
-            row[*col_opt] = -coeff * scale
-                / scale_obj;  // NOLINT(bugprone-unchecked-optional-access)
+            row[*col_opt] =
+                -coeff * scale / scale_obj;  // physical cut coefficient
           }
         }
 

@@ -55,8 +55,8 @@ constexpr double DblMax = std::numeric_limits<double>::max();
 struct SparseCol
 {
   std::string name;  ///< Variable name (empty for anonymous variables)
-  double lowb {0.0};  ///< Lower bound (default: 0.0)
-  double uppb {DblMax};  ///< Upper bound (default: +infinity)
+  double lowb {0.0};  ///< Physical lower bound (default: 0.0)
+  double uppb {DblMax};  ///< Physical upper bound (default: +infinity)
   double cost {0.0};  ///< Objective coefficient (default: 0.0)
   bool is_integer {false};  ///< is integer-constrained (default: false)
   double scale {1.0};  ///< Physical-to-LP scale: physical_value = LP_value ×

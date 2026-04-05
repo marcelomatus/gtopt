@@ -266,6 +266,7 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene)
                                  m_options_.alpha_min / sa,
                                  m_options_.alpha_max / sa);
     li.set_obj_coeff(state.alpha_col, sa);
+    li.set_col_scale(state.alpha_col, sa);
   }
 
   // Last phase: no future cost
@@ -286,8 +287,8 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene)
 
     // Read column bounds from the source phase LP
     const auto& src_li = planning_lp().system(scene, phase).linear_interface();
-    const auto col_lo = src_li.get_col_low();
-    const auto col_hi = src_li.get_col_upp();
+    const auto col_lo = src_li.get_col_low_raw();
+    const auto col_hi = src_li.get_col_upp_raw();
 
     const auto next_phase = phase + PhaseIndex {1};
 
@@ -884,6 +885,23 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
     m_infeasibility_counter_[scene].resize(num_phases, 0);
     m_max_kappa_[scene].resize(num_phases, -1.0);
+  }
+
+  // Auto-scale alpha: when scale_alpha == 0, compute as the maximum
+  // state variable var_scale across all phases.  This ensures the
+  // alpha LP variable is O(1) relative to the largest state variable.
+  if (m_options_.scale_alpha <= 0.0) {
+    double max_var_scale = 1.0;
+    for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
+      for (auto&& [phase, _ph] : enumerate<PhaseIndex>(sim.phases())) {
+        for (const auto& [key, svar] : sim.state_variables(scene, phase)) {
+          max_var_scale = std::max(max_var_scale, svar.var_scale());
+        }
+      }
+    }
+    m_options_.scale_alpha = max_var_scale;
+    SPDLOG_INFO("SDDP: auto scale_alpha = {:.2e} (max state var_scale)",
+                m_options_.scale_alpha);
   }
 
   SPDLOG_INFO("SDDP: adding alpha variables and collecting state links");

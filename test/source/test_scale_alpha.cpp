@@ -30,7 +30,7 @@ TEST_CASE("scale_alpha - default-constructed SddpOptions has nullopt")
   CHECK_FALSE(opts.scale_alpha.has_value());
 }
 
-TEST_CASE("scale_alpha - PlanningOptionsLP applies compiled default")
+TEST_CASE("scale_alpha - PlanningOptionsLP returns 0 for auto-scale")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
@@ -39,9 +39,9 @@ TEST_CASE("scale_alpha - PlanningOptionsLP applies compiled default")
       planning_opts,
   };
 
-  CHECK(lp_opts.sddp_scale_alpha()
-        == doctest::Approx(PlanningOptionsLP::default_sddp_scale_alpha));
-  CHECK(lp_opts.sddp_scale_alpha() == doctest::Approx(10'000'000.0));
+  // When not set by user, sddp_scale_alpha() returns 0.0 meaning
+  // auto-scale (computed at runtime as max state-variable var_scale).
+  CHECK(lp_opts.sddp_scale_alpha() == doctest::Approx(0.0));
 }
 
 TEST_CASE("scale_alpha - explicit value overrides default")

@@ -218,13 +218,13 @@ SolverTestResult test_add_col(std::string_view solver)
     TC_CHECK(ctx, lp.is_neg_inf(lp.get_col_low()[x3]));
     TC_CHECK(ctx, lp.is_pos_inf(lp.get_col_upp()[x3]));
 
-    // set_col_low / set_col_upp.
+    // set_col_low_raw / set_col_upp_raw.
     lp.set_col_low(x1, 1.0);
     lp.set_col_upp(x1, 8.0);
     TC_CHECK_APPROX(ctx, lp.get_col_low()[x1], 1.0, 1e-12);
     TC_CHECK_APPROX(ctx, lp.get_col_upp()[x1], 8.0, 1e-12);
 
-    // set_col (fix both bounds to a single value).
+    // set_col_raw (fix both bounds to a single value).
     lp.set_col(x2, 3.0);
     TC_CHECK_APPROX(ctx, lp.get_col_low()[x2], 3.0, 1e-12);
     TC_CHECK_APPROX(ctx, lp.get_col_upp()[x2], 3.0, 1e-12);
@@ -257,11 +257,11 @@ SolverTestResult test_add_row(std::string_view solver)
 
     // Modify row bounds.
     lp.set_row_low(r1, 0.0);
-    lp.set_row_upp(r1, 8.0);
+    lp.set_row_upp_raw(r1, 8.0);
     TC_CHECK_APPROX(ctx, lp.get_row_low()[r1], 0.0, 1e-12);
     TC_CHECK_APPROX(ctx, lp.get_row_upp()[r1], 8.0, 1e-12);
 
-    // set_rhs: sets both bounds to the same value.
+    // set_rhs_raw: sets both bounds to the same value.
     lp.set_rhs(r1, 4.0);
     TC_CHECK_APPROX(ctx, lp.get_row_low()[r1], 4.0, 1e-12);
     TC_CHECK_APPROX(ctx, lp.get_row_upp()[r1], 4.0, 1e-12);

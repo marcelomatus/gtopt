@@ -107,8 +107,6 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     initial_rule_bound = evaluate_bound_rule(*opt_rule, initial_volume);
   }
 
-  const double inv_flow_scale = 1.0 / flow_scale;
-
   BIndexHolder<ColIndex> extraction_cols;
   map_reserve(extraction_cols, blocks.size());
 
@@ -126,7 +124,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
         sc.lp_col_label(scenario, stage, block, cname, "extraction", uid());
     const auto fcol = lp.add_col(SparseCol {
         .name = std::move(col_name),
-        .uppb = uppb * inv_flow_scale,
+        .uppb = uppb,
         .scale = flow_scale,
     });
 
@@ -147,7 +145,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
           sc.lp_col_label(scenario, stage, block, cname, "saving", uid());
       const auto fcol = lp.add_col(SparseCol {
           .name = std::move(col_name),
-          .uppb = uppb * inv_flow_scale,
+          .uppb = uppb,
           .scale = flow_scale,
       });
       saving_cols[buid] = fcol;
@@ -217,8 +215,8 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
         ? initial_rule_bound
         : param_emax(stage.uid()).value_or(0.0);
     auto& eini_col = lp.col_at(eini_col_at(scenario, stage));
-    eini_col.lowb = provision / energy_scale;
-    eini_col.uppb = provision / energy_scale;
+    eini_col.lowb = provision;
+    eini_col.uppb = provision;
   }
 
   // Store columns for external coupling access
@@ -354,8 +352,7 @@ int VolumeRightLP::update_lp(SystemLP& sys,
   const auto& my_extraction_cols = extraction_cols_.at(st_key);
 
   for (const auto& [buid, col] : my_extraction_cols) {
-    const auto col_scale = li.get_col_scale(col);
-    li.set_col_upp(col, new_bound / col_scale);
+    li.set_col_upp(col, new_bound);
     ++total;
   }
 
@@ -365,9 +362,8 @@ int VolumeRightLP::update_lp(SystemLP& sys,
       rm.has_value() && stage.month() == rm)
   {
     const auto eini_col = eini_col_at(scenario, stage);
-    const auto es = li.get_col_scale(eini_col);
-    li.set_col_low(eini_col, new_bound / es);
-    li.set_col_upp(eini_col, new_bound / es);
+    li.set_col_low(eini_col, new_bound);
+    li.set_col_upp(eini_col, new_bound);
     ++total;
   }
 

@@ -418,7 +418,8 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
       for (auto&& dep_var : state_var.dependent_variables()) {
         auto& target_system =
             system(dep_var.scene_index(), dep_var.phase_index());
-        target_system.linear_interface().set_col(dep_var.col(), solution_value);
+        target_system.linear_interface().set_col_raw(dep_var.col(),
+                                                     solution_value);
       }
     }
   }

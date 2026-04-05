@@ -12,6 +12,8 @@
  * - VariableScale struct and VariableScaleMap lookup
  */
 
+#include <numbers>
+
 #include <doctest/doctest.h>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/sparse_col.hpp>
@@ -40,8 +42,8 @@ TEST_CASE("SparseCol scale via designated initializer")  // NOLINT
 
   const SparseCol col {
       .name = "theta_b1",
-      .lowb = -3.14,
-      .uppb = +3.14,
+      .lowb = -std::numbers::pi,
+      .uppb = +std::numbers::pi,
       .scale = 0.001,
   };
   CHECK(col.name == "theta_b1");
@@ -253,22 +255,23 @@ TEST_CASE("Integration: LP column scale drives output rescaling")  // NOLINT
 
   LinearProblem lp("lifecycle_test");
 
-  // Simulate bus theta: LP = physical / scale_theta, scale = scale_theta
-  // Unified convention: physical = LP × scale_theta (same as energy_scale)
+  // Simulate bus theta: physical bounds in radians, scale = scale_theta.
+  // flatten() converts to LP units by dividing by scale.
   constexpr double scale_theta = 0.001;  // 1/1000
   const auto theta = lp.add_col(SparseCol {
       .name = "theta_b1",
-      .lowb = -3.14 / scale_theta,
-      .uppb = +3.14 / scale_theta,
+      .lowb = -std::numbers::pi,
+      .uppb = +std::numbers::pi,
       .scale = scale_theta,
   });
 
-  // Simulate reservoir energy: LP = physical / 100000, scale = 100000
+  // Simulate reservoir energy: physical bounds in hm³, scale = 100000.
+  // flatten() converts to LP units by dividing by scale.
   constexpr double energy_scale = 100000.0;
   const auto vol = lp.add_col(SparseCol {
       .name = "vol_r1",
-      .lowb = 500.0 / energy_scale,
-      .uppb = 2000.0 / energy_scale,
+      .lowb = 500.0,
+      .uppb = 2000.0,
       .scale = energy_scale,
   });
 

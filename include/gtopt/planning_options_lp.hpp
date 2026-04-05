@@ -535,8 +535,6 @@ public:
   static constexpr Real default_sddp_alpha_min = 0.0;
   /** @brief Default upper bound for future cost variable α */
   static constexpr Real default_sddp_alpha_max = 1e12;
-  /** @brief Default scale divisor for future cost variable α (PLP varphi) */
-  static constexpr Real default_sddp_scale_alpha = 10'000'000;
   /** @brief Default cut coefficient epsilon for filtering tiny coefficients */
   static constexpr Real default_sddp_cut_coeff_eps = 1e-12;
   /** @brief Default max coefficient threshold for cut rescaling */
@@ -691,10 +689,11 @@ public:
    * @brief Gets the scale divisor for future cost variable α
    * @return α scale divisor (default: 1000, analogous to PLP varphi scale)
    */
+  /// Returns the user-provided scale_alpha, or 0 for auto-scale
+  /// (computed at runtime as max state-variable var_scale).
   [[nodiscard]] constexpr auto sddp_scale_alpha() const
   {
-    return m_options_.sddp_options.scale_alpha.value_or(
-        default_sddp_scale_alpha);
+    return m_options_.sddp_options.scale_alpha.value_or(0.0);
   }
 
   /**
@@ -1068,14 +1067,16 @@ private:
       });
     }
 
-    // Inject Sddp.alpha — scale_alpha already follows physical = LP × scale
-    if (!has_entry("Sddp", "alpha")) {
-      const auto sa =
-          opts.sddp_options.scale_alpha.value_or(default_sddp_scale_alpha);
+    // Inject Sddp.alpha — only when user provided an explicit scale_alpha.
+    // When scale_alpha is unset (auto-scale), the SDDP method computes
+    // it at runtime from max(var_scale) and sets col_scale directly.
+    if (!has_entry("Sddp", "alpha")
+        && opts.sddp_options.scale_alpha.has_value())
+    {
       opts.variable_scales.push_back(VariableScale {
           .class_name = "Sddp",
           .variable = "alpha",
-          .scale = sa,
+          .scale = *opts.sddp_options.scale_alpha,
       });
     }
 

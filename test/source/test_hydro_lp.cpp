@@ -491,7 +491,8 @@ TEST_CASE(  // NOLINT
   struct ScaleResult
   {
     double objective;
-    double max_col_upper;  // max upper bound among columns with the scale
+    double max_col_upper;  // max physical upper bound
+    double max_col_upper_raw;  // max raw LP upper bound
   };
 
   // Helper: builds and solves a hydro LP using PlanningOptions::variable_scales
@@ -667,35 +668,44 @@ TEST_CASE(  // NOLINT
     const auto& col_scales = li.get_col_scales();
     REQUIRE_FALSE(col_scales.empty());
     const auto col_upp = li.get_col_upp();
+    const auto col_upp_raw = li.get_col_upp_raw();
     const auto ncols = static_cast<std::size_t>(li.get_numcols());
     double max_upp = 0.0;
+    double max_upp_raw = 0.0;
     int n_scaled = 0;
     for (std::size_t i = 0; i < ncols; ++i) {
       const auto ci = ColIndex {static_cast<int>(i)};
       if (col_scales[ci] == doctest::Approx(scale).epsilon(1e-12)) {
         ++n_scaled;
         max_upp = std::max(max_upp, col_upp[ci]);
+        max_upp_raw = std::max(max_upp_raw, col_upp_raw[ci]);
       }
     }
     // Multiple volume columns (eini + per-block + sini) should carry scale
     REQUIRE(n_scaled > 0);
 
-    return {.objective = li.get_obj_value(), .max_col_upper = max_upp};
+    return {.objective = li.get_obj_value(),
+            .max_col_upper = max_upp,
+            .max_col_upper_raw = max_upp_raw};
   };
 
   // Use scales != 1.0 to distinguish volume columns from unscaled columns
-  const auto [obj_10, max_10] = solve_with_variable_scales(10.0);
-  const auto [obj_1000, max_1000] = solve_with_variable_scales(1000.0);
+  const auto [obj_10, max_10, max_10_raw] = solve_with_variable_scales(10.0);
+  const auto [obj_1000, max_1000, max_1000_raw] =
+      solve_with_variable_scales(1000.0);
 
   // Objective invariance: same physical solution regardless of scale
   CHECK(obj_1000 == doctest::Approx(obj_10).epsilon(1e-8));
 
-  // LP coefficient change: emax=2000, so max LP upper bound = 2000/scale.
-  // scale=10 → max_upp=200, scale=1000 → max_upp=2.
-  // If variable_scales were ignored, both would use default scale → same.
-  CHECK(max_10 == doctest::Approx(2000.0 / 10.0).epsilon(1e-10));
-  CHECK(max_1000 == doctest::Approx(2000.0 / 1000.0).epsilon(1e-10));
-  CHECK(max_10 != doctest::Approx(max_1000));  // Proves they differ
+  // Physical bounds are invariant: emax=2000 regardless of scale.
+  CHECK(max_10 == doctest::Approx(2000.0).epsilon(1e-10));
+  CHECK(max_1000 == doctest::Approx(2000.0).epsilon(1e-10));
+
+  // Raw LP bounds differ: emax=2000, so max LP upper bound = 2000/scale.
+  // scale=10 → max_upp_raw=200, scale=1000 → max_upp_raw=2.
+  CHECK(max_10_raw == doctest::Approx(2000.0 / 10.0).epsilon(1e-10));
+  CHECK(max_1000_raw == doctest::Approx(2000.0 / 1000.0).epsilon(1e-10));
+  CHECK(max_10_raw != doctest::Approx(max_1000_raw));  // Proves they differ
 }
 
 /// Verify that setting both volume and flow variable_scales for a Reservoir

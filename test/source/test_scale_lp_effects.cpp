@@ -161,7 +161,8 @@ TEST_CASE(  // NOLINT
     constexpr double expected_obj = 250.0 * 20.0 / scale_obj;
     CHECK(li.get_obj_value() == doctest::Approx(expected_obj).epsilon(1e-4));
 
-    // Theta column bounds should be ±2π / scale_theta
+    // Theta column physical bounds should be ±2π (invariant of scale).
+    // Raw LP bounds should be ±2π / scale_theta.
     const auto& col_map = li.col_name_map();
     constexpr double two_pi = 2.0 * 3.14159265358979323846;
 
@@ -169,6 +170,8 @@ TEST_CASE(  // NOLINT
       if (name.find("theta") != std::string::npos) {
         const auto col_low = li.get_col_low();
         const auto col_upp = li.get_col_upp();
+        const auto col_low_raw = li.get_col_low_raw();
+        const auto col_upp_raw = li.get_col_upp_raw();
         const auto low = col_low[idx];
         const auto upp = col_upp[idx];
 
@@ -177,9 +180,13 @@ TEST_CASE(  // NOLINT
           continue;
         }
 
-        // Free theta columns: bounds = ±2π / scale_theta
-        CHECK(low == doctest::Approx(-two_pi / st).epsilon(1e-3));
-        CHECK(upp == doctest::Approx(+two_pi / st).epsilon(1e-3));
+        // Physical bounds are invariant: ±2π
+        CHECK(low == doctest::Approx(-two_pi).epsilon(1e-3));
+        CHECK(upp == doctest::Approx(+two_pi).epsilon(1e-3));
+
+        // Raw LP bounds scale with theta: ±2π / scale_theta
+        CHECK(col_low_raw[idx] == doctest::Approx(-two_pi / st).epsilon(1e-3));
+        CHECK(col_upp_raw[idx] == doctest::Approx(+two_pi / st).epsilon(1e-3));
         break;
       }
     }
@@ -323,7 +330,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "VariableScale — auto-populated from scale_theta and scale_alpha")
 {
-  SUBCASE("default options inject Bus.theta and Sddp.alpha")
+  SUBCASE("default options inject Bus.theta but not Sddp.alpha")
   {
     const PlanningOptionsLP lp_opts {};
 
@@ -331,9 +338,10 @@ TEST_CASE(  // NOLINT
     const auto vs_theta = lp_opts.variable_scale_map().lookup("Bus", "theta");
     CHECK(vs_theta == doctest::Approx(0.0001));
 
-    // Sddp.alpha: scale_alpha = 1e7
+    // Sddp.alpha: not injected when scale_alpha is unset (auto-scale = 0)
+    // lookup returns default 1.0
     const auto vs_alpha = lp_opts.variable_scale_map().lookup("Sddp", "alpha");
-    CHECK(vs_alpha == doctest::Approx(10'000'000.0));
+    CHECK(vs_alpha == doctest::Approx(1.0));
   }
 
   SUBCASE("explicit scale_theta populates Bus.theta directly")
@@ -388,8 +396,8 @@ TEST_CASE(  // NOLINT
   CHECK(lp_opts.scale_objective() == doctest::Approx(10'000'000.0));
   // PLP 1/ScaleAng = 1/1e4 = 1e-4
   CHECK(lp_opts.scale_theta() == doctest::Approx(0.0001));
-  // PLP ScalePhi = 1e7
-  CHECK(lp_opts.sddp_scale_alpha() == doctest::Approx(10'000'000.0));
+  // PLP ScalePhi: auto-scale when not explicitly set (returns 0.0)
+  CHECK(lp_opts.sddp_scale_alpha() == doctest::Approx(0.0));
 }
 
 }  // namespace

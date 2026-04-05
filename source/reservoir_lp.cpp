@@ -102,8 +102,6 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
         sc.options().variable_scale_map().lookup("Reservoir", "flow", uid());
     return (fs != 1.0) ? fs : 1.0;
   }();
-  const double inv_flow_scale = 1.0 / flow_scale;
-
   BIndexHolder<ColIndex> rcols;
   BIndexHolder<ColIndex> scols;
   map_reserve(rcols, blocks.size());
@@ -112,12 +110,12 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   for (auto&& block : blocks) {
     const auto buid = block.uid();
 
-    // rsv_fext LP variable = physical_flow [m³/s] / flow_scale.
-    // Bounds are scaled accordingly.
+    // rsv_fext: physical flow bounds [m³/s].
+    // flatten() converts to LP units by dividing by flow_scale.
     const auto rc = lp.add_col(SparseCol {
         .name = sc.lp_col_label(scenario, stage, block, cname, "fext", uid()),
-        .lowb = fmin * inv_flow_scale,
-        .uppb = fmax * inv_flow_scale,
+        .lowb = fmin,
+        .uppb = fmax,
         .scale = flow_scale,
     });
 
