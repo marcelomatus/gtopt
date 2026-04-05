@@ -71,16 +71,13 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
   // Compute per-pass solver options: forward/backward options override
   // the base lp_opts when configured in SDDPOptions.
-  // Forward training pass disables barrier crossover (duals not needed).
-  // Backward pass and simulation leave crossover unset (on by default).
-  auto fwd_opts = m_options_.forward_solver_options.value_or(lp_opts);
-  fwd_opts.crossover = false;
-
+  // NOTE: crossover stays enabled (default true) in all SDDP passes.
+  // The backward pass needs forward-pass duals for Benders cut generation,
+  // so the forward barrier solve must produce proper duals via crossover.
+  // Only the elastic filter (clone solve) disables crossover — see
+  // SDDPMethod::elastic_solve().
+  const auto fwd_opts = m_options_.forward_solver_options.value_or(lp_opts);
   const auto bwd_opts = m_options_.backward_solver_options.value_or(lp_opts);
-
-  // Simulation needs duals for output — re-enable crossover.
-  auto sim_opts = fwd_opts;
-  sim_opts.crossover = true;
 
   // Monitoring setup
   const auto solve_start = std::chrono::steady_clock::now();
@@ -412,7 +409,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     };
     m_benders_cut_.reset_infeasible_cut_count();
 
-    auto fwd = run_forward_pass_all_scenes(*sddp_pool, sim_opts, final_iter);
+    auto fwd = run_forward_pass_all_scenes(*sddp_pool, fwd_opts, final_iter);
     if (!fwd.has_value()) {
       monitor.stop();
       return std::unexpected(std::move(fwd.error()));
@@ -619,10 +616,6 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
     return tracker.is_converged(scene);
   };
 
-  // Simulation needs duals for output — reset crossover to default (on).
-  auto sim_opts = fwd_opts;
-  sim_opts.crossover = true;
-
   // ── Per-scene simulation + output writing ──
   // Runs a simulation forward pass for a single scene, then writes output.
   const auto run_scene_simulation =
@@ -632,7 +625,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
     SPDLOG_INFO("{}: simulation pass for scene {}",
                 sddp_log("Sim", sim_iter, scene_uid(scene)),
                 scene_uid(scene));
-    auto result = forward_pass(scene, sim_opts, sim_iter);
+    auto result = forward_pass(scene, fwd_opts, sim_iter);
     if (!result.has_value()) {
       return result;
     }

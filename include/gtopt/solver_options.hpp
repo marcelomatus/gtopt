@@ -85,9 +85,12 @@ struct SolverOptions
    *
    *  Crossover converts the interior-point solution into a basic feasible
    *  solution, producing exact dual values (row prices / reduced costs).
-   *  Set automatically by the SDDP infrastructure:
-   *  - Forward training pass: `false` (duals not needed, faster).
-   *  - Backward pass and simulation: `true` (duals required).
+   *  Currently only disabled for the elastic filter clone solve
+   *  (SDDPMethod::elastic_solve), which never needs duals.
+   *
+   *  All SDDP main passes (forward, backward, simulation) keep crossover
+   *  enabled because the backward pass needs forward-pass duals for
+   *  Benders cut generation.
    *
    *  Only meaningful when algorithm == barrier.  Simplex methods always
    *  produce duals by construction.
