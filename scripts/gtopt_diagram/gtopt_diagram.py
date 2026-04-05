@@ -1022,7 +1022,7 @@ class TopologyBuilder:
         for t in self.sys.get("turbine_array", []):
             name = _elem_name(t)
             cap = self._resolve_field("Turbine", t, "capacity")
-            cr = self._resolve_field("Turbine", t, "conversion_rate")
+            cr = self._resolve_field("Turbine", t, "production_factor")
             tid = self._tid(t)
             lbl = (
                 str(name)

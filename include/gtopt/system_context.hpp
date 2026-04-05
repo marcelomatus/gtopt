@@ -137,6 +137,14 @@ public:
     return fc ? fc : options().reserve_fail_cost();
   }
 
+  template<typename StateCost>
+  [[nodiscard]] constexpr auto state_fail_cost(const StageLP& stage,
+                                               const StateCost& scost) const
+  {
+    const auto sc = scost.optval(stage.uid());
+    return sc ? sc : options().state_fail_cost();
+  }
+
   //
   //  minmax util methods
   //
@@ -270,9 +278,13 @@ public:
 
   // Methods to handle the state_variables
   template<typename Key>
-  constexpr auto add_state_variable(Key&& key, ColIndex col)
+  constexpr auto add_state_variable(Key&& key,
+                                    ColIndex col,
+                                    double scost = 0.0,
+                                    double var_scale = 1.0)
   {
-    return simulation().add_state_variable(std::forward<Key>(key), col);
+    return simulation().add_state_variable(
+        std::forward<Key>(key), col, scost, var_scale);
   }
 
   template<typename Key>

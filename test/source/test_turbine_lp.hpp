@@ -88,7 +88,7 @@ TEST_CASE(  // NOLINT
           .name = "tur_pasada",
           .flow = SingleId {Uid {1}},
           .generator = Uid {1},
-          .conversion_rate = 2.0,
+          .production_factor = 2.0,
       },
   };
 
@@ -142,7 +142,7 @@ TEST_CASE(  // NOLINT
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  // With 30 m3/s flow and conversion_rate=2, max hydro power = 60 MW.
+  // With 30 m3/s flow and production_factor=2, max hydro power = 60 MW.
   // Demand = 50 MW, gcost_hydro=5 < gcost_thermal=80, so hydro serves all.
   // Objective should be positive (serving 50 MW for 3 block-hours).
   CHECK(lp.get_obj_value() > 0.0);
@@ -226,7 +226,7 @@ TEST_CASE(  // NOLINT
           .waterway = Uid {1},
           .generator = Uid {1},
           .drain = true,
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -374,7 +374,7 @@ TEST_CASE(  // NOLINT
           .name = "tur_capped",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 2.0,
+          .production_factor = 2.0,
           .capacity = 50.0,
       },
   };
@@ -429,7 +429,7 @@ TEST_CASE(  // NOLINT
   CHECK(result.value() == 0);
 
   // The capacity constraint limits turbine flow to 50 m3/s.
-  // With conversion_rate=2, max hydro power = 100 MW.
+  // With production_factor=2, max hydro power = 100 MW.
   // Demand is 100 MW, so hydro saturates and no thermal is needed.
   CHECK(lp.get_obj_value() > 0.0);
 }
@@ -529,7 +529,7 @@ TEST_CASE(  // NOLINT
           .waterway = Uid {1},
           .generator = Uid {1},
           .drain = true,
-          .conversion_rate = 2.0,
+          .production_factor = 2.0,
           .capacity = 80.0,
       },
   };
@@ -590,7 +590,7 @@ TEST_CASE(  // NOLINT
 // -----------------------------------------------------------------------
 
 TEST_CASE(  // NOLINT
-    "TurbineLP — flow turbine with custom conversion_rate solves correctly")
+    "TurbineLP — flow turbine with custom production_factor solves correctly")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
@@ -653,7 +653,7 @@ TEST_CASE(  // NOLINT
           .name = "tur_flow_hi",
           .flow = SingleId {Uid {1}},
           .generator = Uid {1},
-          .conversion_rate = 5.0,
+          .production_factor = 5.0,
       },
   };
 

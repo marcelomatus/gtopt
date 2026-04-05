@@ -119,7 +119,7 @@ class Turbine(TypedDict):
     name: str
     generator: str
     waterway: str
-    conversion_rate: float
+    production_factor: float
 
 
 class ProductionFactorSegment(TypedDict):
@@ -514,7 +514,7 @@ class JunctionWriter(BaseWriter):
                     "name": central_name,
                     "generator": central_name,
                     "waterway": gen_waterway["name"],
-                    "conversion_rate": central["efficiency"],
+                    "production_factor": central["efficiency"],
                 }
                 system["turbine_array"].append(turbine)
 

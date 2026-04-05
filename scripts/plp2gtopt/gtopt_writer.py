@@ -150,6 +150,7 @@ class GTOptWriter:
             "use_single_bus": src_model.get("use_single_bus", False),
             "use_kirchhoff": src_model.get("use_kirchhoff", True),
             "demand_fail_cost": src_model.get("demand_fail_cost", 1000),
+            "state_fail_cost": src_model.get("state_fail_cost", 1000),
             "scale_objective": src_model.get("scale_objective", 10_000_000),
             "scale_theta": src_model.get("scale_theta", 0.0001),
         }
@@ -757,7 +758,7 @@ class GTOptWriter:
                     "name": central_name,
                     "flow": central_name,
                     "generator": central_name,
-                    "conversion_rate": central.get("efficiency", 1.0),
+                    "production_factor": central.get("efficiency", 1.0),
                 }
             )
 

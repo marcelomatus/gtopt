@@ -110,7 +110,7 @@ TEST_CASE("Flow discharge scalar loaded into LP bounds")  // NOLINT
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -290,7 +290,7 @@ TEST_CASE("Flow discharge per-block vector loaded into LP bounds")  // NOLINT
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -468,7 +468,7 @@ TEST_CASE(  // NOLINT
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -650,7 +650,7 @@ TEST_CASE(  // NOLINT
             .name = "tur1",
             .waterway = Uid {1},
             .generator = Uid {1},
-            .conversion_rate = 1.0,
+            .production_factor = 1.0,
         },
     };
 
@@ -815,7 +815,7 @@ TEST_CASE(  // NOLINT
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -1068,7 +1068,7 @@ TEST_CASE(  // NOLINT
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -1271,7 +1271,7 @@ TEST_CASE(  // NOLINT
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 

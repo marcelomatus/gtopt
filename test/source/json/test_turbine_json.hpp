@@ -14,7 +14,7 @@ TEST_CASE("Turbine daw json test 1")
     "waterway":10,
     "generator":20,
     "capacity":100.0,
-    "conversion_rate":50.0,
+    "production_factor":50.0,
     "drain":true
   })";
 
@@ -25,8 +25,8 @@ TEST_CASE("Turbine daw json test 1")
   CHECK(turbine.name == "TURBINE_A");
   CHECK(turbine.capacity.has_value());
   CHECK(std::get<double>(turbine.capacity.value_or(-1.0)) == 100.0);
-  CHECK(turbine.conversion_rate.has_value());
-  CHECK(std::get<double>(turbine.conversion_rate.value_or(-1.0)) == 50.0);
+  CHECK(turbine.production_factor.has_value());
+  CHECK(std::get<double>(turbine.production_factor.value_or(-1.0)) == 50.0);
   CHECK(turbine.drain.has_value());
   CHECK(turbine.drain == true);
 }
@@ -46,7 +46,7 @@ TEST_CASE("Turbine daw json test 2")
   CHECK(turbine.uid == 5);
   CHECK(turbine.name == "TURBINE_A");
   CHECK(!turbine.capacity.has_value());
-  CHECK(!turbine.conversion_rate.has_value());
+  CHECK(!turbine.production_factor.has_value());
   CHECK(!turbine.drain.has_value());
 }
 
@@ -62,7 +62,7 @@ TEST_CASE("Turbine array json test")
     "uid":15,
     "name":"TURBINE_B",
     "capacity":200.0,
-    "conversion_rate":75.0,
+    "production_factor":75.0,
     "waterway":30,
     "generator":40,
     "drain":true
@@ -74,7 +74,7 @@ TEST_CASE("Turbine array json test")
   CHECK(turbines[0].uid == 5);
   CHECK(turbines[0].name == "TURBINE_A");
   CHECK(!turbines[0].capacity.has_value());
-  CHECK(!turbines[0].conversion_rate.has_value());
+  CHECK(!turbines[0].production_factor.has_value());
   CHECK(turbines[0].drain.has_value());
   CHECK(turbines[0].drain == false);
 
@@ -82,8 +82,8 @@ TEST_CASE("Turbine array json test")
   CHECK(turbines[1].name == "TURBINE_B");
   CHECK(turbines[1].capacity.has_value());
   CHECK(std::get<double>(turbines[1].capacity.value_or(-1.0)) == 200.0);
-  CHECK(turbines[1].conversion_rate.has_value());
-  CHECK(std::get<double>(turbines[1].conversion_rate.value_or(-1.0)) == 75.0);
+  CHECK(turbines[1].production_factor.has_value());
+  CHECK(std::get<double>(turbines[1].production_factor.value_or(-1.0)) == 75.0);
   CHECK(turbines[1].drain.has_value());
   CHECK(turbines[1].drain == true);
 }
@@ -141,7 +141,7 @@ TEST_CASE("Turbine with empty optional fields")
     "capacity":null,
     "waterway":10,
     "generator":20,
-    "conversion_rate":null,
+    "production_factor":null,
     "drain":null
   })";
 
@@ -151,6 +151,6 @@ TEST_CASE("Turbine with empty optional fields")
   CHECK(turbine.name == "TURBINE_A");
   CHECK(!turbine.active.has_value());
   CHECK(!turbine.capacity.has_value());
-  CHECK(!turbine.conversion_rate.has_value());
+  CHECK(!turbine.production_factor.has_value());
   CHECK(!turbine.drain.has_value());
 }

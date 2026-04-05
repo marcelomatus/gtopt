@@ -110,7 +110,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   int max_iterations {100};  ///< Maximum forward/backward iterations
   int min_iterations {2};  ///< Minimum iterations before convergence
   double convergence_tol {1e-4};  ///< Relative gap tolerance for convergence
-  double elastic_penalty {1e6};  ///< Penalty for elastic slack variables
+  double elastic_penalty {1e3};  ///< Penalty for elastic slack variables
   double alpha_min {0.0};  ///< Lower bound for future cost variable a ($)
   double alpha_max {1e15};  ///< Upper bound for future cost variable a ($)
   double scale_alpha {10'000'000};  ///< Scale divisor for a (PLP varphi)

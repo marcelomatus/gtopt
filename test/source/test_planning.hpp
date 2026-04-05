@@ -974,7 +974,7 @@ static constexpr std::string_view hydro_planning_json = R"({
       {
         "uid": 1, "name": "tur1",
         "waterway": 1, "generator": 1,
-        "conversion_rate": 1.0
+        "production_factor": 1.0
       }
     ]
   }

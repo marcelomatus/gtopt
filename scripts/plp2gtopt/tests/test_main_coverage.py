@@ -178,6 +178,7 @@ class TestBuildOptions:
             "num_apertures": None,
             "aperture_directory": None,
             "demand_fail_cost": 1000.0,
+            "state_fail_cost": 1000.0,
             "scale_objective": 10000000.0,
             "scale_theta": 0.0001,
             "use_single_bus": False,

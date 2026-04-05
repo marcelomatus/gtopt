@@ -15,6 +15,22 @@ Tracked in [GitHub Issues](https://github.com/marcelomatus/gtopt/issues).
 
 - [ ] Replace memory malloc with suggested alternative ([#321](https://github.com/marcelomatus/gtopt/issues/321))
 
+## SDDP Elastic Filter
+
+- [ ] **Per-variable elastic penalty cost for non-reservoir state variables** —
+  Reservoir state variables now support per-element `scost` (via
+  `Reservoir::scost` or `state_fail_cost × mean_production_factor`).
+  Extend the same mechanism to other state variable types (Battery,
+  CapacityObject) so each element class can define its own penalty cost
+  in its physical units.
+
+## Hydro / Test Cases
+
+- [ ] **Reservoir with two turbines** — Add a test case (e.g. Colbún-like)
+  with a single reservoir connected to two turbines, each with its own
+  `ReservoirProductionFactor` curve and potentially different `efficiency`
+  values.
+
 ## Numerical Conditioning
 
 - [ ] **Ruiz scaling (geometric mean iterative scaling)** ([#352](https://github.com/marcelomatus/gtopt/issues/352)) — Implement Ruiz

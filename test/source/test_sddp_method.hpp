@@ -181,7 +181,7 @@ auto make_3phase_hydro_planning() -> Planning
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -766,7 +766,7 @@ auto make_5phase_reservoir_planning() -> Planning
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -950,7 +950,7 @@ auto make_5phase_small_reservoir_planning() -> Planning
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -1250,7 +1250,7 @@ auto make_12phase_yearly_hydro_planning() -> Planning
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -1994,7 +1994,7 @@ inline auto make_2scene_3phase_hydro_planning(double prob1 = 0.7,
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -2196,7 +2196,7 @@ TEST_CASE("update_lp - no-op when no updatable elements")  // NOLINT
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -2291,7 +2291,7 @@ TEST_CASE(
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
   const Array<ReservoirSeepage> reservoir_seepage_array = {
@@ -3229,7 +3229,7 @@ auto make_2phase_linear_planning() -> Planning
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -3711,7 +3711,7 @@ auto make_nphase_simple_hydro_planning(int num_phases) -> Planning
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -4564,7 +4564,7 @@ TEST_CASE(
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
           .main_reservoir = Uid {1},
       },
   };
@@ -4677,7 +4677,7 @@ TEST_CASE(
     CHECK(system_lp.elements<ReservoirDischargeLimitLP>().size() == 1);
 
     // Verify ProductionFactor coefficient was actually updated:
-    // The initial conversion_rate was 1.0 from the Turbine.  After
+    // The initial production_factor was 1.0 from the Turbine.  After
     // update_lp, the coefficient should differ (set from piecewise curve
     // at the solution volume, which is near eini=500).
     auto& eff = system_lp.elements<ReservoirProductionFactorLP>().front();
@@ -4829,7 +4829,7 @@ inline auto make_tight_reservoir_3phase_planning() -> Planning
       .name = "tur1",
       .waterway = Uid {1},
       .generator = Uid {1},
-      .conversion_rate = 1.0,
+      .production_factor = 1.0,
   }};
 
   Simulation simulation = {

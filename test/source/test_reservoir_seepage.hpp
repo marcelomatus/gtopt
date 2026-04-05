@@ -125,7 +125,7 @@ TEST_CASE("ReservoirSeepageLP - basic seepage constraint")
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -232,7 +232,7 @@ TEST_CASE("ReservoirSeepageLP - multi-block seepage")
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 2.0,
+          .production_factor = 2.0,
       },
   };
 
@@ -480,7 +480,7 @@ TEST_CASE("ReservoirSeepageLP - piecewise segments LP constraint")
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -631,7 +631,7 @@ TEST_CASE("ReservoirSeepageLP - per-stage slope/constant schedule")
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -782,7 +782,7 @@ TEST_CASE("ReservoirSeepageLP - seepage_cols_at accessor")
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -938,7 +938,7 @@ TEST_CASE("ReservoirSeepageLP - add_to_output via write_out")
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -1094,7 +1094,7 @@ TEST_CASE("ReservoirSeepageLP - update_lp with piecewise segments")
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -1269,7 +1269,7 @@ TEST_CASE("ReservoirSeepageLP - update_lp with different eini segment")
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -1434,7 +1434,7 @@ TEST_CASE("ReservoirSeepageLP - zero-slope segment edge case")
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -1603,7 +1603,7 @@ TEST_CASE("ReservoirSeepageLP - multi-stage segments with output")
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 

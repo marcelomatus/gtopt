@@ -1367,7 +1367,7 @@ auto make_3phase_2bus_hydro_planning() -> Planning
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -1545,7 +1545,7 @@ auto make_6phase_2bus_hydro_planning() -> Planning
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 

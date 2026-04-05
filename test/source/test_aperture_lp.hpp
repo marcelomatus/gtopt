@@ -272,7 +272,7 @@ TEST_CASE("FlowLP update_aperture updates bounds correctly")  // NOLINT
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -632,7 +632,7 @@ TEST_CASE(
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -924,7 +924,7 @@ TEST_CASE("FlowLP update_aperture with inactive flow")  // NOLINT
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -1062,7 +1062,7 @@ TEST_CASE("FlowLP update_aperture with non-matching scenario key")  // NOLINT
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -1267,7 +1267,7 @@ TEST_CASE("FlowLP aperture bound update affects LP objective value")  // NOLINT
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -1497,7 +1497,7 @@ auto make_2phase_aperture_planning() -> Planning
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -1732,7 +1732,7 @@ TEST_CASE("Aperture clone LP feasibility diagnostics")  // NOLINT
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 

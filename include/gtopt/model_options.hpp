@@ -56,6 +56,11 @@ struct ModelOptions
   /// Default value (benefit) of exercising hydro rights [$/m3].
   /// Per-element `use_value` overrides this global default.
   OptReal hydro_use_value {};
+  /// Penalty cost for state variable violations in SDDP elastic filter
+  /// [$/MWh].  Used as fallback when a reservoir (or other storage element)
+  /// does not define its own `scost`.  Converted to physical units using
+  /// the element's `mean_production_factor`.
+  OptReal state_fail_cost {};
 
   void merge(const ModelOptions& opts)
   {
@@ -71,6 +76,7 @@ struct ModelOptions
     merge_opt(reserve_fail_cost, opts.reserve_fail_cost);
     merge_opt(hydro_fail_cost, opts.hydro_fail_cost);
     merge_opt(hydro_use_value, opts.hydro_use_value);
+    merge_opt(state_fail_cost, opts.state_fail_cost);
   }
 
   /// True if any field is set.
@@ -81,7 +87,8 @@ struct ModelOptions
         || kirchhoff_threshold.has_value() || loss_segments.has_value()
         || scale_objective.has_value() || scale_theta.has_value()
         || demand_fail_cost.has_value() || reserve_fail_cost.has_value()
-        || hydro_fail_cost.has_value() || hydro_use_value.has_value();
+        || hydro_fail_cost.has_value() || hydro_use_value.has_value()
+        || state_fail_cost.has_value();
   }
 };
 

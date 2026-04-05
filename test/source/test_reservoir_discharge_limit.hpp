@@ -206,7 +206,7 @@ TEST_CASE("ReservoirDischargeLimitLP - basic single-block LP constraint")
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -341,7 +341,7 @@ TEST_CASE("ReservoirDischargeLimitLP - multi-block averaging constraint")
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 2.0,
+          .production_factor = 2.0,
       },
   };
 
@@ -485,7 +485,7 @@ TEST_CASE("ReservoirDischargeLimitLP - empty segments is a no-op")
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -631,7 +631,7 @@ TEST_CASE("ReservoirDischargeLimitLP - binding discharge limit")
           .name = "tur1",
           .waterway = Uid {1},
           .generator = Uid {1},
-          .conversion_rate = 1.0,
+          .production_factor = 1.0,
       },
   };
 
@@ -785,7 +785,7 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp with piecewise segments")
       .name = "tur1",
       .waterway = Uid {1},
       .generator = Uid {1},
-      .conversion_rate = 1.0,
+      .production_factor = 1.0,
   }};
 
   const Array<ReservoirDischargeLimit> reservoir_discharge_limit_array = {{
@@ -929,7 +929,7 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp with different eini segment")
       .name = "tur1",
       .waterway = Uid {1},
       .generator = Uid {1},
-      .conversion_rate = 1.0,
+      .production_factor = 1.0,
   }};
 
   const Array<ReservoirDischargeLimit> reservoir_discharge_limit_array = {{
@@ -1065,7 +1065,7 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp is a no-op without segments")
       .name = "tur1",
       .waterway = Uid {1},
       .generator = Uid {1},
-      .conversion_rate = 1.0,
+      .production_factor = 1.0,
   }};
 
   // Only 1 segment → update_lp skips (needs < 2 segments guard)

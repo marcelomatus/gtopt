@@ -156,6 +156,12 @@ public:
     return m_options_.model_options.reserve_fail_cost;
   }
 
+  /// @brief Gets the state failure cost from model_options [$/MWh].
+  [[nodiscard]] constexpr auto state_fail_cost() const
+  {
+    return m_options_.model_options.state_fail_cost;
+  }
+
   /// @brief Gets the line losses mode, with backward-compat fallback.
   ///
   /// Priority: model_options.line_losses_mode (string) →
@@ -524,7 +530,7 @@ public:
   /** @brief Default relative convergence tolerance */
   static constexpr Real default_sddp_convergence_tol = 1e-4;
   /** @brief Default elastic slack penalty */
-  static constexpr Real default_sddp_elastic_penalty = 1e6;
+  static constexpr Real default_sddp_elastic_penalty = 1e3;
   /** @brief Default lower bound for future cost variable α */
   static constexpr Real default_sddp_alpha_min = 0.0;
   /** @brief Default upper bound for future cost variable α */

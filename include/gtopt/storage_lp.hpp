@@ -76,6 +76,11 @@ struct StorageOptions
   ///
   /// Default 1.0 = no flow scaling (battery behaviour is unchanged).
   double flow_scale {1.0};
+
+  /// State cost for elastic penalty [$/physical_unit].  Passed to the
+  /// StateVariable at registration time so the SDDP elastic filter can
+  /// apply per-variable penalty costs.  Default 0.0 = use global penalty.
+  double scost {0.0};
 };
 
 template<typename Object>
@@ -665,7 +670,10 @@ public:
     // boundaries (gtopt-phase = PLP-stage).
     if (effective_usv) {
       sc.add_state_variable(
-          StateVariable::key(scenario, stage, cname, uid(), "efin"), prev_vc);
+          StateVariable::key(scenario, stage, cname, uid(), "efin"),
+          prev_vc,
+          opts.scost,
+          energy_scale);
     } else {
       // No cross-stage/phase state coupling: add efin == eini constraint so
       // that each independent segment (phase or single-stage horizon) is

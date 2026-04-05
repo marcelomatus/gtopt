@@ -89,6 +89,7 @@ public:
 
 private:
   OptTRealSched capacity;
+  OptTRealSched scost;
   STBIndexHolder<ColIndex> extraction_cols;
 };
 

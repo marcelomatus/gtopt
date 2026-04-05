@@ -87,6 +87,12 @@ public:
     return turbine().drain.value_or(false);
   }
 
+  /// @return The turbine efficiency [p.u.] for the given stage (default 1.0)
+  [[nodiscard]] auto stage_efficiency(StageUid tuid) const noexcept -> Real
+  {
+    return efficiency.at(tuid).value_or(1.0);
+  }
+
   [[nodiscard]] bool add_to_lp(const SystemContext& sc,
                                const ScenarioLP& scenario,
                                const StageLP& stage,
@@ -103,7 +109,8 @@ public:
   }
 
 private:
-  OptTRealSched conversion_rate;
+  OptTRealSched production_factor;
+  OptTRealSched efficiency;
   OptTRealSched capacity;
 
   STBIndexHolder<RowIndex> conversion_rows;

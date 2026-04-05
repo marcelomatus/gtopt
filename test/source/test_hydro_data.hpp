@@ -66,7 +66,7 @@ TEST_CASE("Turbine construction and default values")
   CHECK(turbine.generator == SingleId {unknown_uid});
 
   CHECK_FALSE(turbine.drain.has_value());
-  CHECK_FALSE(turbine.conversion_rate.has_value());
+  CHECK_FALSE(turbine.production_factor.has_value());
   CHECK_FALSE(turbine.capacity.has_value());
 }
 
@@ -84,7 +84,7 @@ TEST_CASE("Turbine attribute assignment")
   turbine.generator = Uid {2001};
 
   turbine.drain = true;
-  turbine.conversion_rate = 0.85;
+  turbine.production_factor = 0.85;
   turbine.capacity = 300.0;
 
   CHECK(turbine.uid == 5001);
@@ -97,8 +97,8 @@ TEST_CASE("Turbine attribute assignment")
   REQUIRE(turbine.drain.has_value());
   CHECK(turbine.drain.value() == true);
 
-  REQUIRE(turbine.conversion_rate.has_value());
-  CHECK(*std::get_if<Real>(&turbine.conversion_rate.value()) == 0.85);
+  REQUIRE(turbine.production_factor.has_value());
+  CHECK(*std::get_if<Real>(&turbine.production_factor.value()) == 0.85);
 
   REQUIRE(turbine.capacity.has_value());
   CHECK(*std::get_if<Real>(&turbine.capacity.value()) == 300.0);
@@ -111,11 +111,11 @@ TEST_CASE("Turbine with time-varying conversion rate")
   Turbine turbine;
 
   std::vector<Real> rate_schedule = {0.80, 0.85, 0.90, 0.82};
-  turbine.conversion_rate = rate_schedule;
+  turbine.production_factor = rate_schedule;
 
-  REQUIRE(turbine.conversion_rate.has_value());
+  REQUIRE(turbine.production_factor.has_value());
   auto* vec_ptr =
-      std::get_if<std::vector<Real>>(&turbine.conversion_rate.value());
+      std::get_if<std::vector<Real>>(&turbine.production_factor.value());
   REQUIRE(vec_ptr != nullptr);
   CHECK(vec_ptr->size() == 4);
   CHECK((*vec_ptr)[0] == 0.80);

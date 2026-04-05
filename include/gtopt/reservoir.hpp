@@ -79,6 +79,8 @@ struct Reservoir
   static constexpr Real default_energy_scale = 1.0;  ///< [dimensionless]
   static constexpr Real default_flow_conversion_rate =
       0.0036;  ///< [hm³/(m³/s·h)]
+  static constexpr Real default_mean_production_factor =
+      5.0;  ///< [MWh/hm³] — fallback when no turbine data available
   /// @}
 
   Uid uid {unknown_uid};  ///< Unique identifier
@@ -105,6 +107,16 @@ struct Reservoir
   OptReal efin {};  ///< Minimum required stored volume at end of horizon
                     ///< [hm³].  Sets a >= constraint vol_end >= efin in the
                     ///< last stage of the last phase (not an equality).
+
+  OptReal mean_production_factor {};  ///< Expected turbine production factor
+                                      ///< [MWh/hm³].  Converts the global
+                                      ///< `state_fail_cost` ($/MWh) into
+                                      ///< reservoir-specific units ($/hm³).
+                                      ///< Defaults to 5.0 MWh/hm³.
+  OptTRealFieldSched
+      scost {};  ///< State cost: elastic penalty for SDDP state variable
+                 ///< violations [$/hm³].  If not set, computed as
+                 ///< `state_fail_cost × mean_production_factor`.
 
   OptTRealFieldSched
       soft_emin {};  ///< Soft minimum volume per stage [hm³].

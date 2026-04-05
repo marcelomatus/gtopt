@@ -1514,7 +1514,7 @@ class TestReservoirProductionFactorRoundtrip:
         ws_res.append([1, "res1", 2])
 
         ws_turb = wb.create_sheet("turbine_array")
-        ws_turb.append(["uid", "name", "waterway", "generator", "conversion_rate"])
+        ws_turb.append(["uid", "name", "waterway", "generator", "production_factor"])
         ws_turb.append([1, "t1", 1, 1, 1.5])
 
         ws_re = wb.create_sheet("reservoir_production_factor_array")
@@ -1614,7 +1614,7 @@ class TestReservoirProductionFactorRoundtrip:
             (
                 "turbine_array",
                 [
-                    ["uid", "name", "waterway", "generator", "conversion_rate"],
+                    ["uid", "name", "waterway", "generator", "production_factor"],
                     [1, "t1", 1, 1, 1.2],
                 ],
             ),
