@@ -314,6 +314,7 @@ void SolverRegistry::validate_loaded_solvers()
 
 void SolverRegistry::load_all_plugins()
 {
+  const std::lock_guard lock(m_mutex_);
   if (m_all_loaded_) {
     return;
   }
@@ -325,10 +326,13 @@ void SolverRegistry::load_all_plugins()
   m_all_loaded_ = true;
 }
 
-bool SolverRegistry::ensure_solver_loaded(std::string_view solver_name)
+bool SolverRegistry::ensure_solver_loaded(std::string_view solver_name,
+                                          bool filename_only)
 {
+  const std::lock_guard lock(m_mutex_);
+
   // Already loaded?
-  if (has_solver(solver_name)) {
+  if (has_solver_unlocked(solver_name)) {
     return true;
   }
 
@@ -340,7 +344,7 @@ bool SolverRegistry::ensure_solver_loaded(std::string_view solver_name)
   // First pass: try the best-match filename.
   for (auto it = m_pending_paths_.begin(); it != m_pending_paths_.end(); ++it) {
     if (it->filename() == target) {
-      const auto& path = *it;
+      auto path = std::move(*it);
       m_pending_paths_.erase(it);
       load_plugin(path);
       // Validate only the newly loaded plugin.
@@ -362,13 +366,18 @@ bool SolverRegistry::ensure_solver_loaded(std::string_view solver_name)
           m_plugins_.pop_back();
         }
       }
-      if (has_solver(solver_name)) {
+      if (has_solver_unlocked(solver_name)) {
         return true;
       }
     }
   }
 
   // Second pass: try all remaining pending plugins.
+  // Skip if caller only wants filename-based matching (e.g. default_solver
+  // probing — avoids loading every plugin when a name isn't found).
+  if (filename_only) {
+    return false;
+  }
   while (!m_pending_paths_.empty()) {
     const auto path = m_pending_paths_.back();
     m_pending_paths_.pop_back();
@@ -392,7 +401,7 @@ bool SolverRegistry::ensure_solver_loaded(std::string_view solver_name)
         m_plugins_.pop_back();
       }
     }
-    if (has_solver(solver_name)) {
+    if (has_solver_unlocked(solver_name)) {
       return true;
     }
   }
@@ -403,6 +412,8 @@ bool SolverRegistry::ensure_solver_loaded(std::string_view solver_name)
 std::unique_ptr<SolverBackend> SolverRegistry::create(
     std::string_view solver_name)
 {
+  const std::lock_guard lock(m_mutex_);
+
   // Ensure the requested solver is loaded (lazy).
   ensure_solver_loaded(solver_name);
 
@@ -434,6 +445,7 @@ std::unique_ptr<SolverBackend> SolverRegistry::create(
 
 std::vector<std::string> SolverRegistry::available_solvers() const
 {
+  const std::lock_guard lock(m_mutex_);
   std::vector<std::string> result;
   for (const auto& plugin : m_plugins_) {
     for (const auto& name : plugin.solver_names) {
@@ -445,6 +457,8 @@ std::vector<std::string> SolverRegistry::available_solvers() const
 
 std::string_view SolverRegistry::default_solver()
 {
+  const std::lock_guard lock(m_mutex_);
+
   // GTOPT_SOLVER env var overrides the default priority.
   if (const auto* env =
           std::getenv("GTOPT_SOLVER"))  // NOLINT(concurrency-mt-unsafe)
@@ -456,7 +470,7 @@ std::string_view SolverRegistry::default_solver()
   }
 
   // Priority order: cplex > highs > mindopt > cbc > clp
-  // Try to load each on demand — only the first match is loaded.
+  // First pass: try filename-based matching only (fast, no exhaustive scan).
   static constexpr std::array preferred = {
       "cplex",
       "highs",
@@ -465,7 +479,16 @@ std::string_view SolverRegistry::default_solver()
       "clp",
   };
   for (const auto* name : preferred) {
-    if (ensure_solver_loaded(name)) {
+    if (ensure_solver_loaded(name, /*filename_only=*/true)) {
+      return name;
+    }
+  }
+
+  // Second pass: some solvers live in differently-named plugins
+  // (e.g. "clp" in libgtopt_solver_osi.so).  Load all and pick best.
+  load_all_plugins();
+  for (const auto* name : preferred) {
+    if (has_solver_unlocked(name)) {
       return name;
     }
   }
@@ -482,7 +505,7 @@ std::string_view SolverRegistry::default_solver()
       "  - Run 'gtopt --solvers' to list available LP solvers");
 }
 
-bool SolverRegistry::has_solver(std::string_view name) const
+bool SolverRegistry::has_solver_unlocked(std::string_view name) const
 {
   return std::ranges::any_of(m_plugins_,
                              [name](const PluginHandle& plugin)
@@ -492,6 +515,12 @@ bool SolverRegistry::has_solver(std::string_view name) const
                                    [name](const std::string& s)
                                    { return s == name; });
                              });
+}
+
+bool SolverRegistry::has_solver(std::string_view name) const
+{
+  const std::lock_guard lock(m_mutex_);
+  return has_solver_unlocked(name);
 }
 
 const std::vector<std::string>& SolverRegistry::searched_directories() const

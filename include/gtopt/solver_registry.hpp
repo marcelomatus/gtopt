@@ -19,6 +19,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -116,9 +117,15 @@ private:
   void discover_default_paths();
   void validate_loaded_solvers();
 
+  /// Check solver availability without locking (caller must hold m_mutex_).
+  [[nodiscard]] bool has_solver_unlocked(std::string_view name) const;
+
   /// Try to load the plugin that provides @p solver_name.
   /// Returns true if the solver is available after loading.
-  bool ensure_solver_loaded(std::string_view solver_name);
+  /// When @p filename_only is true, only try the best-match filename
+  /// (libgtopt_solver_{name}.so) without exhaustively loading all plugins.
+  bool ensure_solver_loaded(std::string_view solver_name,
+                            bool filename_only = false);
 
   struct PluginHandle
   {
@@ -135,6 +142,7 @@ private:
   std::vector<std::filesystem::path> m_pending_paths_;
   std::vector<std::string> m_searched_dirs_;
   std::vector<std::string> m_load_errors_;
+  mutable std::recursive_mutex m_mutex_;
   bool m_all_loaded_ {false};
 };
 

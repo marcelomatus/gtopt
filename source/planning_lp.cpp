@@ -18,6 +18,7 @@
 #include <gtopt/planning_method.hpp>
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/solver_options.hpp>
+#include <gtopt/solver_registry.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/work_pool.hpp>
@@ -108,6 +109,14 @@ auto PlanningLP::create_systems(System& system,
   SPDLOG_INFO(
       "  Building LP: {} scene(s) × {} phase(s)", num_scenes, num_phases);
 
+  // Pre-resolve the solver name on the main thread so worker threads
+  // don't race through the plugin registry in parallel.
+  auto resolved_opts = flat_opts;
+  if (resolved_opts.solver_name.empty()) {
+    resolved_opts.solver_name =
+        std::string(SolverRegistry::instance().default_solver());
+  }
+
   PlanningLP::scene_phase_systems_t all_systems(scenes.size());
 
   // Use the work pool to build scenes in parallel.  Each scene's phases
@@ -140,7 +149,7 @@ auto PlanningLP::create_systems(System& system,
                          static_cast<int>(phase.index()),
                          phase.uid());
             phase_systems.emplace_back(
-                system, simulation, phase, scene, flat_opts);
+                system, simulation, phase, scene, resolved_opts);
           }
           all_systems[scene_index] = std::move(phase_systems);
         });

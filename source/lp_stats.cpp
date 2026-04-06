@@ -112,25 +112,28 @@ void log_lp_stats_summary(const std::vector<ScenePhaseLPStats>& entries,
     return;
   }
 
-  // Detailed per-scene/phase table.
+  // Show global summary + worst-case entry only (not all 51 phases).
   auto header = std::format(
-      "  LP coefficient analysis: {} LP(s) — "
-      "global ratio {:.2e} exceeds threshold {:.0e}, showing details:",
+      "  LP coefficient analysis: {} LP(s), "
+      "global |coeff| [{:.3e}, {:.3e}], ratio={:.2e} ({}) — "
+      "exceeds threshold {:.0e}",
       entries.size(),
+      global.stats_min_abs,
+      global.stats_max_abs,
       global.coeff_ratio(),
+      global.quality_label(),
       ratio_threshold);
   if (global.stats_zeroed > 0) {
-    header += std::format(" zeroed={}", global.stats_zeroed);
+    header += std::format(", zeroed={}", global.stats_zeroed);
   }
   spdlog::info(header);
 
-  for (const auto& entry : entries) {
-    log_stats_line(
-        std::format("scene {} phase {}", entry.scene_uid, entry.phase_uid),
-        entry);
-  }
-
-  log_stats_line("GLOBAL", global);
+  // Show only the worst-case scene/phase.
+  const auto& worst =
+      *std::ranges::max_element(entries, {}, &ScenePhaseLPStats::coeff_ratio);
+  log_stats_line(
+      std::format("worst: scene {} phase {}", worst.scene_uid, worst.phase_uid),
+      worst);
 
   // Per-row-type breakdown: aggregate across all scenes/phases.
   // Collect per-type stats from the first entry that has them (all
