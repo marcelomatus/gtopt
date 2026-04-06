@@ -62,3 +62,13 @@ scripts/*.log
 # Case run outputs (logs and results)
 cases/*/logs/
 cases/*/results/
+
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+docs/**/*.out
+*.synctex.gz
+docs/white_paper/*.log
