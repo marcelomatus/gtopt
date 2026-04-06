@@ -12,14 +12,12 @@
             "use_kirchhoff": true,
             "demand_fail_cost": 1000.0,
             "state_fail_cost": 1000.0,
-            "scale_objective": 10000000.0,
-            "scale_theta": 0.0001
+            "scale_objective": 1000.0
         },
         "sddp_options": {
             "convergence_tol": 0.001,
             "stationary_tol": 0.0001,
             "stationary_window": 4,
-            "scale_alpha": 10000000.0,
             "cut_coeff_eps": 1e-08,
             "cut_coeff_max": 1000000.0,
             "aperture_directory": "apertures",

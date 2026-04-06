@@ -147,9 +147,14 @@ class GTOptWriter:
             "use_kirchhoff": src_model.get("use_kirchhoff", True),
             "demand_fail_cost": src_model.get("demand_fail_cost", 1000),
             "state_fail_cost": src_model.get("state_fail_cost", 1000),
-            "scale_objective": src_model.get("scale_objective", 10_000_000),
-            "scale_theta": src_model.get("scale_theta", 0.0001),
         }
+        # Only emit scale_objective if explicitly set (C++ default is 1000).
+        if "scale_objective" in src_model:
+            model_opts["scale_objective"] = src_model["scale_objective"]
+        # Only emit scale_theta if explicitly set (C++ auto_scale_theta
+        # computes the optimal value from median line reactance).
+        if "scale_theta" in src_model:
+            model_opts["scale_theta"] = src_model["scale_theta"]
         if "reserve_fail_cost" in src_model:
             model_opts["reserve_fail_cost"] = src_model["reserve_fail_cost"]
         if "use_line_losses" in src_model:

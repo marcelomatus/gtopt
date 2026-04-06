@@ -58,11 +58,7 @@ public:
   /** @brief Default threshold for Kirchhoff constraints */
   static constexpr Real default_kirchhoff_threshold = 0;
   /** @brief Default objective function scaling factor */
-  static constexpr Real default_scale_objective = 10'000'000;
-  /** @brief Default voltage angle scale factor (1/ScaleAng = 1/1e4).
-   *  Convention: physical = LP × scale_theta, same as energy_scale.
-   *  Theta (small ~0.01 rad) is scaled UP: LP = physical / scale_theta. */
-  static constexpr Real default_scale_theta = 0.0001;
+  static constexpr Real default_scale_objective = 1'000;
 
   // Default values for output settings
   /** @brief Default output directory path */
@@ -227,7 +223,7 @@ public:
   /// @brief Gets the voltage angle scaling factor.
   [[nodiscard]] constexpr auto scale_theta() const
   {
-    return m_options_.model_options.scale_theta.value_or(default_scale_theta);
+    return m_options_.model_options.scale_theta.value_or(1.0);
   }
 
   /**
@@ -1057,9 +1053,8 @@ private:
 
     // Inject Bus.theta — scale_theta already follows physical = LP × scale
     if (!has_entry("Bus", "theta")) {
-      const auto st = fallback_3(opts.scale_theta,
-                                 opts.model_options.scale_theta,
-                                 default_scale_theta);
+      const auto st =
+          fallback_3(opts.scale_theta, opts.model_options.scale_theta, 1.0);
       opts.variable_scales.push_back(VariableScale {
           .class_name = "Bus",
           .variable = "theta",

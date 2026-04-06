@@ -284,8 +284,7 @@ TEST_CASE("PlanningOptionsLP - Default construction")
         == doctest::Approx(PlanningOptionsLP::default_kirchhoff_threshold));
   CHECK(options_lp.scale_objective()
         == doctest::Approx(PlanningOptionsLP::default_scale_objective));
-  CHECK(options_lp.scale_theta()
-        == doctest::Approx(PlanningOptionsLP::default_scale_theta));
+  CHECK(options_lp.scale_theta() == doctest::Approx(1.0));
   CHECK(options_lp.output_directory()
         == PlanningOptionsLP::default_output_directory);
   CHECK(options_lp.output_format_enum()
@@ -322,8 +321,7 @@ TEST_CASE("PlanningOptionsLP - Default construction 2")
         == doctest::Approx(PlanningOptionsLP::default_kirchhoff_threshold));
   CHECK(options_lp.scale_objective()
         == doctest::Approx(PlanningOptionsLP::default_scale_objective));
-  CHECK(options_lp.scale_theta()
-        == doctest::Approx(PlanningOptionsLP::default_scale_theta));
+  CHECK(options_lp.scale_theta() == doctest::Approx(1.0));
   CHECK(options_lp.output_directory()
         == PlanningOptionsLP::default_output_directory);
   CHECK(options_lp.output_format_enum()
@@ -359,8 +357,7 @@ TEST_CASE("PlanningOptionsLP - Default construction 3")
         == doctest::Approx(PlanningOptionsLP::default_kirchhoff_threshold));
   CHECK(options_lp.scale_objective()
         == doctest::Approx(PlanningOptionsLP::default_scale_objective));
-  CHECK(options_lp.scale_theta()
-        == doctest::Approx(PlanningOptionsLP::default_scale_theta));
+  CHECK(options_lp.scale_theta() == doctest::Approx(1.0));
   CHECK(options_lp.output_directory()
         == PlanningOptionsLP::default_output_directory);
   CHECK(options_lp.output_format_enum()
@@ -410,8 +407,7 @@ TEST_CASE("PlanningOptionsLP - Construction with Options")
         == PlanningOptionsLP::default_use_single_bus);
   CHECK(options_lp.kirchhoff_threshold()
         == doctest::Approx(PlanningOptionsLP::default_kirchhoff_threshold));
-  CHECK(options_lp.scale_theta()
-        == doctest::Approx(PlanningOptionsLP::default_scale_theta));
+  CHECK(options_lp.scale_theta() == doctest::Approx(1.0));
   CHECK(options_lp.output_format_enum()
         == PlanningOptionsLP::default_output_format);
   CHECK(options_lp.output_compression_enum()

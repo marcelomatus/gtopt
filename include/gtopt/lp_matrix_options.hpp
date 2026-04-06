@@ -46,7 +46,7 @@ struct LpMatrixOptions
   std::optional<LpEquilibrationMethod>
       equilibration_method {};  ///< Matrix equilibration method.
                                 ///< See LpEquilibrationMethod for options.
-                                ///< Default is `none` (no scaling).
+                                ///< Default is `row_max`.
   std::optional<FastSqrtMethod>
       fast_sqrt_method {};  ///< Approximate sqrt for Ruiz scaling.
                             ///< See FastSqrtMethod for options.

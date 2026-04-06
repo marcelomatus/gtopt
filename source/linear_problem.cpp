@@ -492,7 +492,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   // Column scales are updated in-place inside col_scales.
 
   const auto eq_method =
-      opts.equilibration_method.value_or(LpEquilibrationMethod::none);
+      opts.equilibration_method.value_or(LpEquilibrationMethod::row_max);
 
   std::vector<double> row_scales_vec;
   if (eq_method == LpEquilibrationMethod::row_max) {

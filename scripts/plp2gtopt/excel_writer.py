@@ -376,11 +376,10 @@ def _add_plpinfo_sheet(ws: Any, planning: dict, options: dict, styles: dict) -> 
         ("demand_fail_cost", str(mo.get("demand_fail_cost", 1000)), "", "TABLE"),
         (
             "scale_objective",
-            str(mo.get("scale_objective", 10_000_000)),
+            str(mo.get("scale_objective", 1_000)),
             "",
             "TABLE",
         ),
-        ("scale_theta", str(mo.get("scale_theta", 0.0001)), "", "TABLE"),
     ]
 
     for row_idx, entry in enumerate(sections, start=1):

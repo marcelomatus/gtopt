@@ -58,6 +58,7 @@ file(GLOB sources CONFIGURE_DEPENDS
      "${CMAKE_CURRENT_SOURCE_DIR}/source/[a-zA-Z]*.cpp"
      "${CMAKE_CURRENT_SOURCE_DIR}/source/json/[a-zA-Z]*.cpp"
 )
+list(FILTER sources EXCLUDE REGEX "test_benchmark_")
 
 add_executable(${PROJECT_NAME} ${sources})
 

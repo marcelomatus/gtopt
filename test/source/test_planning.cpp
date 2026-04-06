@@ -669,8 +669,7 @@ TEST_CASE("PlanningLP - auto_scale_theta skips when Kirchhoff disabled")
 
   PlanningLP planning_lp(planning);
 
-  CHECK(planning_lp.options().scale_theta()
-        == doctest::Approx(PlanningOptionsLP::default_scale_theta));
+  CHECK(planning_lp.options().scale_theta() == doctest::Approx(1.0));
 }
 
 TEST_CASE("PlanningLP - auto_scale_theta skips when single_bus enabled")
@@ -722,8 +721,7 @@ TEST_CASE("PlanningLP - auto_scale_theta skips when single_bus enabled")
 
   PlanningLP planning_lp(planning);
 
-  CHECK(planning_lp.options().scale_theta()
-        == doctest::Approx(PlanningOptionsLP::default_scale_theta));
+  CHECK(planning_lp.options().scale_theta() == doctest::Approx(1.0));
 }
 
 TEST_CASE("PlanningLP - auto_scale_theta with even number of lines")
@@ -845,8 +843,7 @@ TEST_CASE("PlanningLP - auto_scale_theta with const Planning")
   // Const Planning → constructor template uses const path, no auto_scale_theta
   const PlanningLP planning_lp(planning);
 
-  CHECK(planning_lp.options().scale_theta()
-        == doctest::Approx(PlanningOptionsLP::default_scale_theta));
+  CHECK(planning_lp.options().scale_theta() == doctest::Approx(1.0));
 }
 
 static constexpr std::string_view planning_json = R"({

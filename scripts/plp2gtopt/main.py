@@ -200,8 +200,7 @@ _SECTION_DEFAULTS: dict[str, str] = {
     "solver_type": "sddp",
     "demand_fail_cost": "1000.0",
     "state_fail_cost": "1000.0",
-    "scale_objective": "10000000.0",
-    "scale_theta": "0.0001",
+    "scale_objective": "1000.0",
     "discount_rate": "0.0",
     "rsv_scale_mode": "auto",
 }
@@ -289,10 +288,11 @@ def build_options(args: argparse.Namespace) -> dict:
         "demand_fail_cost": args.demand_fail_cost,
         "state_fail_cost": args.state_fail_cost,
         "scale_objective": args.scale_objective,
-        "scale_theta": args.scale_theta,
         "use_single_bus": args.use_single_bus,
         "use_kirchhoff": args.use_kirchhoff,
     }
+    if args.scale_theta is not None:
+        model_opts["scale_theta"] = args.scale_theta
     if args.reserve_fail_cost is not None:
         model_opts["reserve_fail_cost"] = args.reserve_fail_cost
     if args.use_line_losses is not None:

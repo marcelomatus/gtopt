@@ -470,21 +470,19 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
         dest="scale_objective",
         type=float,
         metavar="FACTOR",
-        default=float(conf.get("scale_objective", "10000000.0")),
-        help=(
-            "objective function scaling factor. "
-            "Matches PLP's ScaleObj (default: %(default)s)"
-        ),
+        default=float(conf.get("scale_objective", "1000.0")),
+        help=("objective function scaling factor. (default: %(default)s)"),
     )
     parser.add_argument(
         "--scale-theta",
         dest="scale_theta",
         type=float,
         metavar="FACTOR",
-        default=float(conf.get("scale_theta", "0.0001")),
+        default=None,
         help=(
             "voltage-angle scale factor (1/ScaleAng). "
-            "Convention: physical = LP x scale_theta (default: %(default)s)"
+            "Only emitted when explicitly set; C++ auto_scale_theta "
+            "computes from median line reactance by default."
         ),
     )
     parser.add_argument(

@@ -339,9 +339,10 @@ TEST_CASE(  // NOLINT
   {
     const PlanningOptionsLP lp_opts {};
 
-    // Bus.theta: scale_theta = 0.0001 (stored directly, no inversion)
+    // Bus.theta: default scale_theta = 1.0 (neutral; auto_scale_theta
+    // overrides when Kirchhoff is enabled and lines exist).
     const auto vs_theta = lp_opts.variable_scale_map().lookup("Bus", "theta");
-    CHECK(vs_theta == doctest::Approx(0.0001));
+    CHECK(vs_theta == doctest::Approx(1.0));
 
     // Sddp.alpha: not injected when scale_alpha is unset (auto-scale = 0)
     // lookup returns default 1.0
@@ -397,10 +398,10 @@ TEST_CASE(  // NOLINT
   const PlanningOptions empty_opts {};
   const PlanningOptionsLP lp_opts {empty_opts};
 
-  // PLP ScaleObj = 1e7
-  CHECK(lp_opts.scale_objective() == doctest::Approx(10'000'000.0));
-  // PLP 1/ScaleAng = 1/1e4 = 1e-4
-  CHECK(lp_opts.scale_theta() == doctest::Approx(0.0001));
+  // Default scale_objective = 1000
+  CHECK(lp_opts.scale_objective() == doctest::Approx(1'000.0));
+  // Default scale_theta = 1.0 (neutral; auto_scale_theta overrides).
+  CHECK(lp_opts.scale_theta() == doctest::Approx(1.0));
   // PLP ScalePhi: auto-scale when not explicitly set (returns 0.0)
   CHECK(lp_opts.sddp_scale_alpha() == doctest::Approx(0.0));
 }

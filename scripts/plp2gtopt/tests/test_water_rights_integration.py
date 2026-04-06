@@ -297,12 +297,12 @@ class TestGtoptLpBuild:
         with open(json_files[0], "w", encoding="utf-8") as f:
             json.dump(planning, f)
 
-        # Step 2: Run gtopt --lp-build
+        # Step 2: Run gtopt --lp-only (build LP but skip solve)
         gtopt_result = subprocess.run(
             [
                 gtopt_bin,
                 str(json_files[0]),
-                "--lp-build",
+                "--lp-only",
             ],
             capture_output=True,
             text=True,
@@ -319,9 +319,9 @@ class TestGtoptLpBuild:
         }
 
     def test_gtopt_lp_build_succeeds(self, lp_build_result):
-        """gtopt --lp-build exits with code 0."""
+        """gtopt --lp-only exits with code 0."""
         assert lp_build_result["returncode"] == 0, (
-            f"gtopt --lp-build failed (rc={lp_build_result['returncode']}):\n"
+            f"gtopt --lp-only failed (rc={lp_build_result['returncode']}):\n"
             f"stdout: {lp_build_result['stdout']}\n"
             f"stderr: {lp_build_result['stderr']}"
         )
@@ -343,6 +343,6 @@ class TestGtoptLpBuild:
         )
 
     def test_lp_build_message(self, lp_build_result):
-        """gtopt logs the lp_build skip-solve message."""
+        """gtopt logs the lp_only skip-solve message."""
         output = lp_build_result["stdout"] + lp_build_result["stderr"]
-        assert "lp_build" in output.lower(), "No lp_build message found in gtopt output"
+        assert "lp_only" in output.lower(), "No lp_only message found in gtopt output"

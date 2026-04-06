@@ -22,6 +22,14 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
 
+// Tests check raw LP coefficients without row equilibration.
+inline LpMatrixOptions no_eq_opts()
+{
+  LpMatrixOptions o;
+  o.equilibration_method = LpEquilibrationMethod::none;
+  return o;
+}
+
 // ── Helper: find matval entry for a given (row, col) in CSC flat LP ─────────
 
 /// Return the matrix coefficient for (row_idx, col_idx) in the flat LP,
@@ -75,7 +83,7 @@ TEST_CASE(
   row.equal(100.0);
   const auto r = lp.add_row(std::move(row));
 
-  const auto flat = lp.flatten();
+  const auto flat = lp.flatten(no_eq_opts());
 
   // LP coefficient for vol: phys_coeff × col_scale = 1.0 × 1000 = 1000
   CHECK(find_matval(flat, static_cast<int>(r), static_cast<int>(c_scaled))
@@ -132,7 +140,7 @@ TEST_CASE(
   balance.equal(0.0);
   const auto r_e = lp.add_row(std::move(balance));
 
-  const auto flat = lp.flatten();
+  const auto flat = lp.flatten(no_eq_opts());
 
   // Kirchhoff: theta coeff = 1.0 × 0.0001, flow coeff = 50.0 × 1.0
   CHECK(find_matval(flat, static_cast<int>(r_k), static_cast<int>(c_theta))
@@ -167,7 +175,7 @@ TEST_CASE("flatten col_scale — combined with row_scale")  // NOLINT
   row.equal(80.0);
   const auto r = lp.add_row(std::move(row));
 
-  const auto flat = lp.flatten();
+  const auto flat = lp.flatten(no_eq_opts());
 
   // LP coeff = 4.0 × 500.0 / 2.0 = 1000.0
   CHECK(find_matval(flat, static_cast<int>(r), static_cast<int>(c))
@@ -203,7 +211,7 @@ TEST_CASE("flatten col_scale — objective multiplied by col_scale")  // NOLINT
   row.less_equal(50.0);
   [[maybe_unused]] const auto r = lp.add_row(std::move(row));
 
-  const auto flat = lp.flatten();
+  const auto flat = lp.flatten(no_eq_opts());
 
   // LP obj = 10.0 × 500.0 = 5000.0 (no scale_objective by default)
   CHECK(flat.objval[static_cast<int>(c)] == doctest::Approx(5000.0));
@@ -228,7 +236,7 @@ TEST_CASE("flatten col_scale — objective with scale_objective")  // NOLINT
   row.less_equal(50.0);
   [[maybe_unused]] const auto r = lp.add_row(std::move(row));
 
-  LpMatrixOptions opts;
+  auto opts = no_eq_opts();
   opts.scale_objective = 1000.0;
   const auto flat = lp.flatten(opts);
 
@@ -254,7 +262,7 @@ TEST_CASE("flatten col_scale=1 — objective unchanged")  // NOLINT
   row.less_equal(300.0);
   [[maybe_unused]] const auto _ = lp.add_row(std::move(row));
 
-  LpMatrixOptions opts;
+  auto opts = no_eq_opts();
   opts.scale_objective = 1000.0;
   const auto flat = lp.flatten(opts);
 
@@ -284,7 +292,7 @@ TEST_CASE("flatten col_scale — bounds divided by col_scale")  // NOLINT
   row.less_equal(5000.0);
   [[maybe_unused]] const auto _ = lp.add_row(std::move(row));
 
-  const auto flat = lp.flatten();
+  const auto flat = lp.flatten(no_eq_opts());
 
   // LP bounds = physical / scale
   CHECK(flat.collb[static_cast<int>(c)] == doctest::Approx(0.1));  // 100/1000
@@ -310,7 +318,7 @@ TEST_CASE("flatten col_scale — DblMax bounds preserved as infinity")  // NOLIN
   row.less_equal(100.0);
   [[maybe_unused]] const auto _ = lp.add_row(std::move(row));
 
-  const auto flat = lp.flatten();
+  const auto flat = lp.flatten(no_eq_opts());
 
   // Infinity bounds must NOT be divided by col_scale
   CHECK(flat.collb[static_cast<int>(c)] <= -1e300);
@@ -341,7 +349,7 @@ TEST_CASE(
   row.less_equal(100.0);
   [[maybe_unused]] const auto _ = lp.add_row(std::move(row));
 
-  const auto flat = lp.flatten();
+  const auto flat = lp.flatten(no_eq_opts());
 
   // Lower bound = 0.0 / 100000 = 0.0
   CHECK(flat.collb[static_cast<int>(c)] == doctest::Approx(0.0));
@@ -394,7 +402,7 @@ TEST_CASE("flatten col_scale — physical constraint invariant")  // NOLINT
     row.equal(10.0);
     [[maybe_unused]] const auto _ = lp.add_row(std::move(row));
 
-    const auto flat = lp.flatten();
+    const auto flat = lp.flatten(no_eq_opts());
 
     // LP coefficients: phys × scale
     CHECK(find_matval(flat, 0, static_cast<int>(cx))
@@ -498,7 +506,7 @@ TEST_CASE(
   row.less_equal(200.0);
   [[maybe_unused]] const auto _ = lp.add_row(std::move(row));
 
-  const auto flat = lp.flatten();
+  const auto flat = lp.flatten(no_eq_opts());
 
   // Finite bounds divided by scale as normal
   CHECK(flat.collb[static_cast<int>(c)] == doctest::Approx(-5.0));  // -50/10
@@ -533,7 +541,7 @@ TEST_CASE("flatten col_scales vector matches SparseCol.scale")  // NOLINT
   row.less_equal(1.0);
   [[maybe_unused]] const auto _ = lp.add_row(std::move(row));
 
-  const auto flat = lp.flatten();
+  const auto flat = lp.flatten(no_eq_opts());
 
   REQUIRE(flat.col_scales.size() == 3);
   CHECK(flat.col_scales[0] == doctest::Approx(0.001));

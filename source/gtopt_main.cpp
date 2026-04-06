@@ -551,16 +551,14 @@ void log_pre_solve_stats(
                   mo.use_single_bus.value_or(false) ? "true" : "false"));
   spdlog::info(std::format("  scale_objective : {}",
                            mo.scale_objective.value_or(1'000.0)));
-  spdlog::info(
-      std::format("  scale_theta     : {}",
-                  mo.scale_theta.has_value()
-                      ? std::format("{:.6g}", *mo.scale_theta)
-                      : std::format("{:.6g} (auto)",
-                                    PlanningOptionsLP::default_scale_theta)));
+  spdlog::info(std::format("  scale_theta     : {}",
+                           mo.scale_theta.has_value()
+                               ? std::format("{:.6g}", *mo.scale_theta)
+                               : "auto (median reactance)"));
   spdlog::info(std::format(
       "  equilibration   : {}",
       enum_name(plan_opts.lp_matrix_options.equilibration_method.value_or(
-          LpEquilibrationMethod::none))));
+          LpEquilibrationMethod::row_max))));
   spdlog::info(
       std::format("  demand_fail_cost: {}", mo.demand_fail_cost.value_or(0.0)));
   spdlog::info(std::format("  input_directory : {}",
