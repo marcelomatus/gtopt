@@ -352,7 +352,8 @@ void run_solver_benchmark(const FlatLinearProblem& flat_lp,
 
 // ─── Small LP benchmark ────────────────────────────────────────────────────
 
-TEST_CASE("Solver benchmark: small dispatch LP")  // NOLINT
+TEST_CASE("Solver benchmark: small dispatch LP"  // NOLINT
+          * doctest::skip(std::getenv("GTOPT_RUN_BENCHMARKS") == nullptr))
 {
   const auto flat_lp = build_dispatch_lp(/*n_bus=*/20,
                                          /*n_gen_per_bus=*/5,
@@ -362,7 +363,8 @@ TEST_CASE("Solver benchmark: small dispatch LP")  // NOLINT
 
 // ─── Large LP benchmark ────────────────────────────────────────────────────
 
-TEST_CASE("Solver benchmark: large dispatch LP")  // NOLINT
+TEST_CASE("Solver benchmark: large dispatch LP"  // NOLINT
+          * doctest::skip(std::getenv("GTOPT_RUN_BENCHMARKS") == nullptr))
 {
   const auto flat_lp = build_dispatch_lp(/*n_bus=*/200,
                                          /*n_gen_per_bus=*/20,
