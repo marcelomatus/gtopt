@@ -17,7 +17,9 @@
 #include <string>
 
 #include <gtopt/enum_option.hpp>
+#include <gtopt/monolithic_enums.hpp>
 #include <gtopt/planning_method.hpp>
+#include <gtopt/sddp_enums.hpp>
 
 namespace gtopt
 {

@@ -83,16 +83,25 @@ target_enable_unity_build(${PROJECT_NAME})
 target_precompile_headers(${PROJECT_NAME} PRIVATE
   <algorithm>
   <chrono>
+  <cmath>
   <cstdint>
   <expected>
   <filesystem>
   <format>
+  <fstream>
+  <functional>
+  <map>
+  <memory>
+  <numeric>
   <optional>
   <ranges>
+  <set>
   <span>
   <string>
   <string_view>
+  <unordered_map>
   <utility>
+  <variant>
   <vector>
   <spdlog/spdlog.h>
 )

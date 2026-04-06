@@ -13,9 +13,10 @@ Usage::
   include(UnityBuild)
   target_enable_unity_build(<target> [BATCH_SIZE <n>])
 
-When no BATCH_SIZE is given, the batch size is computed automatically from
-the number of CPU cores so that there are enough batches to keep all cores
-busy during parallel builds.
+When no BATCH_SIZE is given, the batch size is computed automatically
+**per source directory** so that each directory produces enough batches
+to keep all cores busy.  Files in different directories are never mixed
+in the same unity batch (via ``UNITY_GROUP``).
 
 Unity builds can be disabled globally by setting
 ``-DGTOPT_UNITY_BUILD=OFF`` on the cmake command line.
@@ -38,25 +39,95 @@ function(target_enable_unity_build target)
     return()
   endif()
 
-  if(NOT ARG_BATCH_SIZE)
-    # Compute batch size: enough batches to keep all cores busy.
-    # Get the number of source files in the target.
-    get_target_property(_sources ${target} SOURCES)
-    list(LENGTH _sources _n_sources)
-    if(_n_sources GREATER 0 AND GTOPT_NPROC GREATER 0)
-      math(EXPR ARG_BATCH_SIZE "${_n_sources} / ${GTOPT_NPROC}")
-    else()
-      set(ARG_BATCH_SIZE 4)
+  get_target_property(_all_sources ${target} SOURCES)
+
+  # Filter to only compilable sources (.cpp/.cxx/.cc) — headers don't
+  # participate in unity batching but skew the file count.
+  set(_sources)
+  foreach(_src IN LISTS _all_sources)
+    get_filename_component(_ext "${_src}" LAST_EXT)
+    if(_ext MATCHES "^\\.(cpp|cxx|cc|c)$")
+      list(APPEND _sources "${_src}")
     endif()
-    # Clamp: at least 2 (otherwise unity is pointless)
-    if(ARG_BATCH_SIZE LESS 2)
-      set(ARG_BATCH_SIZE 2)
-    endif()
+  endforeach()
+  list(LENGTH _sources _n_sources)
+
+  if(ARG_BATCH_SIZE)
+    # Explicit batch size — use directly, no per-directory grouping.
+    set(_batch ${ARG_BATCH_SIZE})
+  else()
+    # ── Per-directory grouping and batch-size computation ──
+    # 1. Discover unique directories among the target's sources.
+    set(_dirs)
+    foreach(_src IN LISTS _sources)
+      get_filename_component(_dir "${_src}" DIRECTORY)
+      # Normalise to a short label so the log is readable.
+      file(RELATIVE_PATH _rel "${CMAKE_CURRENT_SOURCE_DIR}" "${_dir}")
+      if("${_rel}" STREQUAL "")
+        set(_rel ".")
+      endif()
+      list(APPEND _dirs "${_rel}")
+    endforeach()
+    list(REMOVE_DUPLICATES _dirs)
+
+    # 2. For each directory, count files and assign UNITY_GROUP.
+    #    Compute per-directory batch size = ceil(n_files / n_cores),
+    #    clamped to [2, n_files].
+    set(_max_batch 2)
+    foreach(_dir IN LISTS _dirs)
+      # Collect sources in this directory.
+      set(_dir_sources)
+      foreach(_src IN LISTS _sources)
+        get_filename_component(_abs_dir "${_src}" DIRECTORY)
+        file(RELATIVE_PATH _rel "${CMAKE_CURRENT_SOURCE_DIR}" "${_abs_dir}")
+        if("${_rel}" STREQUAL "")
+          set(_rel ".")
+        endif()
+        if("${_rel}" STREQUAL "${_dir}")
+          list(APPEND _dir_sources "${_src}")
+        endif()
+      endforeach()
+
+      list(LENGTH _dir_sources _n_dir)
+      if(_n_dir EQUAL 0)
+        continue()
+      endif()
+
+      # Batch size: enough batches to saturate cores, capped at 8.
+      math(EXPR _batch "(${_n_dir} + ${GTOPT_NPROC} - 1) / ${GTOPT_NPROC}")
+      if(_batch LESS 2)
+        set(_batch 2)
+      endif()
+      if(_batch GREATER 8)
+        set(_batch 8)
+      endif()
+      if(_batch GREATER _n_dir)
+        set(_batch ${_n_dir})
+      endif()
+
+      # Track the maximum batch size across directories — CMake uses a single
+      # UNITY_BUILD_BATCH_SIZE per target, so we use the largest one and rely
+      # on UNITY_GROUP to keep directories separate.
+      if(_batch GREATER _max_batch)
+        set(_max_batch ${_batch})
+      endif()
+
+      # Assign a per-directory unity group so files from different
+      # directories are never mixed in the same unity source.
+      string(REPLACE "/" "_" _group "dir_${_dir}")
+      foreach(_src IN LISTS _dir_sources)
+        set_source_files_properties("${_src}" PROPERTIES UNITY_GROUP "${_group}")
+      endforeach()
+
+      message(STATUS "  unity group '${_dir}': ${_n_dir} files, batch ${_batch}")
+    endforeach()
+
+    set(_batch ${_max_batch})
   endif()
 
   set_target_properties(${target} PROPERTIES
     UNITY_BUILD ON
-    UNITY_BUILD_BATCH_SIZE ${ARG_BATCH_SIZE}
+    UNITY_BUILD_BATCH_SIZE ${_batch}
   )
-  message(STATUS "Unity build enabled for ${target} (batch size ${ARG_BATCH_SIZE}, ${GTOPT_NPROC} cores)")
+  message(STATUS "Unity build enabled for ${target} (batch size ${_batch}, ${GTOPT_NPROC} cores)")
 endfunction()

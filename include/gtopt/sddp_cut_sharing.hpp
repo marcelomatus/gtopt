@@ -20,6 +20,7 @@
 #include <gtopt/enum_option.hpp>
 #include <gtopt/phase.hpp>
 #include <gtopt/scene.hpp>
+#include <gtopt/sddp_enums.hpp>
 #include <gtopt/sparse_row.hpp>
 #include <gtopt/strong_index_vector.hpp>
 

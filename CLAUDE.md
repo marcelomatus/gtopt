@@ -31,12 +31,16 @@ sudo apt-get update && sudo apt-get install -y --no-install-recommends \
   libboost-container-dev libspdlog-dev liblapack-dev libblas-dev \
   zlib1g-dev libzstd-dev zstd lcov
 
-cmake -S all -B build -DCMAKE_BUILD_TYPE=Debug \
+cmake -S all -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 cmake --build build -j$(nproc)
 cd build && ctest --output-on-failure
 ```
+
+> **Ninja recommended**: `-G Ninja` enables file-level dependency tracking,
+> allowing test sources to compile in parallel with library sources. Install
+> via `pip install ninja` or `apt install ninja-build`.
 
 > **Critical**: install `ccache` **before** `cmake configure` — CMake bakes the
 > launcher path at configure time. If ccache was missing, delete build dir and
@@ -64,7 +68,7 @@ binary (`build/standalone/gtopt`), and tests (run via `ctest`).
 ./build/test/gtoptTests -tc="test name pattern"
 
 # Unit + integration tests
-cmake -S all -B build -DGTOPT_BUILD_INTEGRATION_TESTS=ON -DCMAKE_BUILD_TYPE=Debug \
+cmake -S all -B build -G Ninja -DGTOPT_BUILD_INTEGRATION_TESTS=ON -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 cmake --build build -j$(nproc) && cd build && ctest --output-on-failure
