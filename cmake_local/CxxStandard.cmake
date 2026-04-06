@@ -18,10 +18,16 @@ targets in the calling scope):
 * ``CMAKE_CXX_STANDARD``          → ``26``
 * ``CMAKE_CXX_STANDARD_REQUIRED`` → ``ON``
 * ``CMAKE_CXX_EXTENSIONS``        → ``OFF``
+* ``CMAKE_CXX_SCAN_FOR_MODULES``  → ``OFF``
 
 Also sets ``CMAKE_EXPORT_COMPILE_COMMANDS ON`` so that
 ``compile_commands.json`` is always generated (needed by clang-tidy,
 clangd, and IDE integrations).
+
+Module scanning is disabled because gtopt does not use C++20 modules.
+CMake 3.28+ enables scanning by default for C++20/23/26 targets, which
+adds per-file overhead and silently prevents unity builds from working
+with the Ninja generator.
 
 .. note::
    Include this module early in ``CMakeLists.txt``, after the
@@ -35,9 +41,6 @@ set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Disable C++20 module scanning — gtopt does not use modules.  CMake 3.28+
-# enables scanning by default for C++20/23/26, which adds per-file overhead
-# and silently prevents unity builds from working with the Ninja generator.
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

@@ -21,6 +21,20 @@ in the same unity batch (via ``UNITY_GROUP``).
 Unity builds can be disabled globally by setting
 ``-DGTOPT_UNITY_BUILD=OFF`` on the cmake command line.
 
+Priority scheduling
+^^^^^^^^^^^^^^^^^^^
+
+Files marked with ``SKIP_UNITY_BUILD_INCLUSION ON`` compile as standalone
+translation units alongside the batches.  To minimise critical-path build
+time, callers should ``list(PREPEND)`` the slowest standalone files to
+the front of the source list **before** creating the target — Ninja uses
+source-list order as a tiebreaker when multiple edges are ready at the
+same graph depth.
+
+Requires ``CMAKE_CXX_SCAN_FOR_MODULES OFF`` (set by ``CxxStandard.cmake``)
+so that the Ninja generator produces unity batch files instead of
+individual per-file compilations.
+
 #]=======================================================================]
 
 option(GTOPT_UNITY_BUILD "Enable unity (jumbo) builds for faster compilation" ON)
