@@ -145,6 +145,27 @@ TEST_CASE("as_label basic functionality")
     CHECK(lowercase(std::string_view {"Generator"}) == "generator");
   }
 
+  SUBCASE("lowercase view with as_label")
+  {
+    // lowercase(string_view) returns a LowercaseView — no allocation in
+    // lowercase() itself; characters are lowercased when as_label copies them.
+    const std::string_view gen = "Generator";
+    CHECK(as_label(lowercase(gen), 1, 2) == "generator_1_2");
+    CHECK(as_label(lowercase(gen)) == "generator");
+    CHECK(as_label("Prefix", lowercase(gen), 42) == "Prefix_generator_42");
+
+    // String literals also produce a LowercaseView (lazy view into static
+    // storage)
+    CHECK(as_label(lowercase("Battery"), 3) == "battery_3");
+
+    // LowercaseView comparison directly
+    CHECK(lowercase("ABC") == "abc");
+    CHECK(lowercase(std::string_view {"MiXeD"}) == "mixed");
+
+    // LowercaseView explicit conversion to string
+    CHECK(std::string(lowercase("Hello")) == "hello");
+  }
+
   SUBCASE("long label")
   {
     CHECK(as_label("a", "b", "c", "d", "e") == "a_b_c_d_e");
