@@ -57,3 +57,8 @@ reports
 scripts/Testing/
 scripts/results/
 scripts/Highs.log
+scripts/*.log
+
+# Case run outputs (logs and results)
+cases/*/logs/
+cases/*/results/
