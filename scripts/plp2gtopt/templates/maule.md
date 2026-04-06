@@ -15,22 +15,20 @@
 >
 > ### Template Syntax
 >
-> The embedded code blocks use two templating conventions:
+> All embedded code blocks use **Jinja2** templating:
 >
-> | Syntax | Engine | Meaning | Example |
-> |--------|--------|---------|---------|
-> | `{{ var }}` | Jinja2 | Substitute a scalar value | `param vol_max = {{ vol_max }};` |
-> | `{{ list \| join(', ') }}` | Jinja2 | Expand a Python list into a comma-separated string | `[{{ costs \| join(', ') }}]` → `[1.0, 2.0, 3.0]` |
-> | `{{ var \| default(0.0) }}` | Jinja2 | Substitute with a fallback if the variable is undefined | `{{ ini_econ \| default(0.0) }}` → `0.0` |
-> | `{% for x in xs %} ... {% endfor %}` | Jinja2 | Loop over a list, emitting one block per element | Zone parameter declarations |
-> | `@var@` | TSON | Substitute a value in JSON template blocks | `"emax": @max_irr@` |
-> | `@% if cond %@ ... @% endif %@` | TSON | Conditional inclusion in JSON blocks | Omit `use_value` when not set |
-> | `@% for x in xs %@ ... @% endfor %@` | TSON | Loop in JSON blocks | Emit FlowRight entries |
+> | Syntax | Meaning | Example |
+> |--------|---------|---------|
+> | `{{ var }}` | Substitute a scalar value | `param vol_max = {{ vol_max }};` |
+> | `{{ list \| join(', ') }}` | Expand a Python list into a comma-separated string | `[{{ costs \| join(', ') }}]` → `[1.0, 2.0, 3.0]` |
+> | `{{ var \| default(0.0) }}` | Substitute with a fallback if the variable is undefined | `{{ ini_econ \| default(0.0) }}` → `0.0` |
+> | `{% for x in xs %} ... {% endfor %}` | Loop over a list, emitting one block per element | Zone parameter declarations |
+> | `{% if cond %} ... {% endif %}` | Conditional inclusion | Omit `use_value` when not set |
 >
-> **Jinja2** (`{{ }}`, `{% %}`) is used in `.tampl` (PAMPL) blocks.
-> **TSON** (`@ @`, `@% %@`) is used in `.tson` (JSON) blocks — same
-> semantics as Jinja2 but with `@` delimiters to avoid conflicts with
-> JSON braces.
+> Both `.tampl` (PAMPL) and `.tson` (JSON) blocks use the same
+> standard Jinja2 delimiters (`{{ }}`, `{% %}`, `{# #}`).
+> In `.tson` blocks, all printed values are auto-serialized as JSON
+> via the `_json_finalize` callback (strings quoted, numbers bare, etc.).
 
 ## Overview
 
@@ -474,14 +472,14 @@ cannot deliver the full electric entitlement.
   "purpose": "generation",
   "direction": -1,
   "discharge": 0,
-  "fmax": @elec_day_max@,
+  "fmax": {{ elec_day_max }},
   "use_average": true,
-  "fail_cost": @penalizador_1@,
+  "fail_cost": {{ penalizador_1 }},
   "bound_rule": {
-    "reservoir": @res_colbun@,
+    "reservoir": {{ res_colbun }},
     "segments": [
       {"volume": 0, "slope": 0, "constant": 0},
-      {"volume": @v_zone_normal@, "slope": 0, "constant": @elec_day_max@}
+      {"volume": {{ v_zone_normal }}, "slope": 0, "constant": {{ elec_day_max }}}
     ]
   }
 }
@@ -512,19 +510,19 @@ emitted when > 0.
   "purpose": "irrigation",
   "direction": -1,
   "discharge": 0,
-  "fmax": @irr_fmax_schedule@,
+  "fmax": {{ irr_fmax_schedule }},
   "use_average": true,
-  "fail_cost": @costo_riego_ns_maule@,
+  "fail_cost": {{ costo_riego_ns_maule }},
   "bound_rule": {
-    "reservoir": @res_colbun@,
+    "reservoir": {{ res_colbun }},
     "segments": [
       {"volume": 0, "slope": 0, "constant": 0},
-      {"volume": @v_zone_normal@, "slope": 0, "constant": @riego_max@}
+      {"volume": {{ v_zone_normal }}, "slope": 0, "constant": {{ riego_max }}}
     ]
   }
-  @% if valor_riego > 0 %@
-  ,"use_value": @valor_riego@
-  @% endif %@
+  {% if valor_riego > 0 %}
+  ,"use_value": {{ valor_riego }}
+  {% endif %}
 }
 ```
 
@@ -554,14 +552,14 @@ The `fmax` is modulated by `mod_elec_reserva` monthly schedule:
   "purpose": "generation",
   "direction": -1,
   "discharge": 0,
-  "fmax": @elec_ord_fmax@,
+  "fmax": {{ elec_ord_fmax }},
   "use_average": true,
   "bound_rule": {
-    "reservoir": @res_colbun@,
+    "reservoir": {{ res_colbun }},
     "segments": [
       {"volume": 0, "slope": 0, "constant": 0},
-      {"volume": @v_zone_extraord@, "slope": 0, "constant": @elec_day_max@},
-      {"volume": @v_zone_normal@, "slope": 0, "constant": 0}
+      {"volume": {{ v_zone_extraord }}, "slope": 0, "constant": {{ elec_day_max }}},
+      {"volume": {{ v_zone_normal }}, "slope": 0, "constant": 0}
     ]
   }
 }
@@ -579,19 +577,19 @@ bound_rule.  Uses the same seasonal `fmax` schedule as normal irrigation.
   "purpose": "irrigation",
   "direction": -1,
   "discharge": 0,
-  "fmax": @irr_fmax_schedule@,
+  "fmax": {{ irr_fmax_schedule }},
   "use_average": true,
   "bound_rule": {
-    "reservoir": @res_colbun@,
+    "reservoir": {{ res_colbun }},
     "segments": [
       {"volume": 0, "slope": 0, "constant": 0},
-      {"volume": @v_zone_extraord@, "slope": 0, "constant": @riego_max@},
-      {"volume": @v_zone_normal@, "slope": 0, "constant": 0}
+      {"volume": {{ v_zone_extraord }}, "slope": 0, "constant": {{ riego_max }}},
+      {"volume": {{ v_zone_normal }}, "slope": 0, "constant": 0}
     ]
   }
-  @% if valor_riego > 0 %@
-  ,"use_value": @valor_riego@
-  @% endif %@
+  {% if valor_riego > 0 %}
+  ,"use_value": {{ valor_riego }}
+  {% endif %}
 }
 ```
 
@@ -610,7 +608,7 @@ PLP: `IQMCEH` hourly aggregate, volume tracked by `VolCompEND`.
   "purpose": "generation",
   "direction": -1,
   "discharge": 0,
-  "fmax": @elec_day_max@,
+  "fmax": {{ elec_day_max }},
   "use_average": true
 }
 ```
@@ -647,11 +645,11 @@ param caudal_res105[month] = [{{ caudal_res105 | join(', ') }}];
   "name": "maule_resolucion_105",
   "purpose": "environmental",
   "direction": -1,
-  "discharge": @res105_discharge@,
-  "fail_cost": @costo_riego_ns_res105@
-  @% if valor_riego_res105 > 0 %@
-  ,"use_value": @valor_riego_res105@
-  @% endif %@
+  "discharge": {{ res105_discharge }},
+  "fail_cost": {{ costo_riego_ns_res105 }}
+  {% if valor_riego_res105 > 0 %}
+  ,"use_value": {{ valor_riego_res105 }}
+  {% endif %}
 }
 ```
 
@@ -727,9 +725,9 @@ Objective terms (PLP):
   "direction": -1,
   "discharge": 0,
   "use_average": true
-  @% if costo_embalsar > 0 %@
-  ,"use_value": @costo_embalsar@
-  @% endif %@
+  {% if costo_embalsar > 0 %}
+  ,"use_value": {{ costo_embalsar }}
+  {% endif %}
 }
 ```
 
@@ -740,9 +738,9 @@ Objective terms (PLP):
   "direction": -1,
   "discharge": 0,
   "use_average": true
-  @% if costo_no_embalsar > 0 %@
-  ,"use_value": @costo_no_embalsar@
-  @% endif %@
+  {% if costo_no_embalsar > 0 %}
+  ,"use_value": {{ costo_no_embalsar }}
+  {% endif %}
 }
 ```
 
@@ -816,15 +814,15 @@ param costo_canelon = {{ costo_canelon }};
 ```
 
 ```json maule.tson flow_right
-@% if costo_canelon > 0 %@
+{% if costo_canelon > 0 %}
 {
   "name": "maule_bocatoma_canelon",
   "purpose": "irrigation",
   "direction": -1,
   "discharge": 0,
-  "use_value": @costo_canelon@
+  "use_value": {{ costo_canelon }}
 }
-@% endif %@
+{% endif %}
 ```
 
 
@@ -865,9 +863,9 @@ irrigation schedule.
 ```
 
 ```json maule.tson flow_right
-@% for fr in district_flow_rights %@
-@fr@
-@% endfor %@
+{% for fr in district_flow_rights %}
+{{ fr }}
+{% endfor %}
 ```
 
 
@@ -898,9 +896,9 @@ PLP balance (`genpdmaule.f` R9):
 {
   "name": "maule_vol_gasto_elec_mensual",
   "purpose": "generation",
-  "reservoir": @res_colbun@,
-  "eini": @v_gasto_elec_men_ini@,
-  "emax": @gasto_elec_men_max@,
+  "reservoir": {{ res_colbun }},
+  "eini": {{ v_gasto_elec_men_ini }},
+  "emax": {{ gasto_elec_men_max }},
   "use_state_variable": true,
   "reset_month": "january"
 }
@@ -924,9 +922,9 @@ the FlowRight's `qeh` column appearing in both VolumeRight balance rows.
 {
   "name": "maule_vol_gasto_elec_anual",
   "purpose": "generation",
-  "reservoir": @res_colbun@,
-  "eini": @v_gasto_elec_anu_ini@,
-  "emax": @v_der_elect_anu_max@,
+  "reservoir": {{ res_colbun }},
+  "eini": {{ v_gasto_elec_anu_ini }},
+  "emax": {{ v_der_elect_anu_max }},
   "use_state_variable": true,
   "reset_month": "june"
 }
@@ -947,9 +945,9 @@ PLP balance (`genpdmaule.f` R11):
 {
   "name": "maule_vol_gasto_riego_temp",
   "purpose": "irrigation",
-  "reservoir": @res_colbun@,
-  "eini": @v_gasto_riego_ini@,
-  "emax": @v_der_riego_temp_max@,
+  "reservoir": {{ res_colbun }},
+  "eini": {{ v_gasto_riego_ini }},
+  "emax": {{ v_der_riego_temp_max }},
   "use_state_variable": true,
   "reset_month": "june"
 }
@@ -969,9 +967,9 @@ priority in the ordinary reserve zone.
 {
   "name": "maule_vol_compensacion_elec",
   "purpose": "generation",
-  "reservoir": @res_colbun@,
-  "eini": @v_comp_elec_ini@,
-  "emax": @v_comp_elec_max@,
+  "reservoir": {{ res_colbun }},
+  "eini": {{ v_comp_elec_ini }},
+  "emax": {{ v_comp_elec_max }},
   "use_state_variable": true
 }
 ```
@@ -990,9 +988,9 @@ as a VolumeRight.
 {
   "name": "maule_vol_reserva_ord_elec",
   "purpose": "generation",
-  "reservoir": @res_colbun@,
-  "eini": @v_gasto_rext_elec_ini@,
-  "emax": @v_reserva_extraord@,
+  "reservoir": {{ res_colbun }},
+  "eini": {{ v_gasto_rext_elec_ini }},
+  "emax": {{ v_reserva_extraord }},
   "use_state_variable": true
 }
 ```
@@ -1006,9 +1004,9 @@ zone.
 {
   "name": "maule_vol_reserva_ord_riego",
   "purpose": "irrigation",
-  "reservoir": @res_colbun@,
-  "eini": @v_gasto_rext_riego_ini@,
-  "emax": @v_reserva_extraord@,
+  "reservoir": {{ res_colbun }},
+  "eini": {{ v_gasto_rext_riego_ini }},
+  "emax": {{ v_reserva_extraord }},
   "use_state_variable": true
 }
 ```
@@ -1030,9 +1028,9 @@ No `reset_month`: economy carries across years.
 {
   "name": "maule_vol_econ_invernada",
   "purpose": "economy",
-  "reservoir": @central_invernada@,
-  "eini": @v_econ_inver_ini@,
-  "saving_rate": @qmax_invernada@,
+  "reservoir": {{ central_invernada }},
+  "eini": {{ v_econ_inver_ini }},
+  "saving_rate": {{ qmax_invernada }},
   "use_state_variable": true
 }
 ```
@@ -1097,8 +1095,8 @@ making both sides of the equation visible in the LP.
 ```json maule.tson user_constraint
 {
   "name": "invernada_balance",
-  "expression": @expression_invernada@,
-  "description": @description_invernada@
+  "expression": {{ expression_invernada }},
+  "description": {{ description_invernada }}
 }
 ```
 
@@ -1140,16 +1138,16 @@ where districts with `has_slack=True` use $\leq$ and others use $=$.
 ```json maule.tson user_constraint
 {
   "name": "maule_pct_ordinario_elec",
-  "expression": @expression_pct_elec@,
-  "description": @description_pct_elec@
+  "expression": {{ expression_pct_elec }},
+  "description": {{ description_pct_elec }}
 }
 ```
 
 ```json maule.tson user_constraint
 {
   "name": "maule_pct_ordinario_riego",
-  "expression": @expression_pct_riego@,
-  "description": @description_pct_riego@
+  "expression": {{ expression_pct_riego }},
+  "description": {{ description_pct_riego }}
 }
 ```
 
@@ -1177,9 +1175,9 @@ The district constraint expressions are pre-computed in
 `maule_writer._compute_district_entities()`.
 
 ```json maule.tson user_constraint
-@% for uc in district_constraints %@
-@uc@
-@% endfor %@
+{% for uc in district_constraints %}
+{{ uc }}
+{% endfor %}
 ```
 
 ```pampl maule_agreement.tampl

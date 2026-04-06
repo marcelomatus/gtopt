@@ -15,22 +15,20 @@
 >
 > ### Template Syntax
 >
-> The embedded code blocks use two templating conventions:
+> All embedded code blocks use **Jinja2** templating:
 >
-> | Syntax | Engine | Meaning | Example |
-> |--------|--------|---------|---------|
-> | `{{ var }}` | Jinja2 | Substitute a scalar value | `param vol_max = {{ vol_max }};` |
-> | `{{ list \| join(', ') }}` | Jinja2 | Expand a Python list into a comma-separated string | `[{{ costs \| join(', ') }}]` → `[1.0, 2.0, 3.0]` |
-> | `{{ var \| default(0.0) }}` | Jinja2 | Substitute with a fallback if the variable is undefined | `{{ ini_econ \| default(0.0) }}` → `0.0` |
-> | `{% for x in xs %} ... {% endfor %}` | Jinja2 | Loop over a list, emitting one block per element | Zone parameter declarations |
-> | `@var@` | TSON | Substitute a value in JSON template blocks | `"emax": @max_irr@` |
-> | `@% if cond %@ ... @% endif %@` | TSON | Conditional inclusion in JSON blocks | Omit `use_value` when not set |
-> | `@% for x in xs %@ ... @% endfor %@` | TSON | Loop in JSON blocks | Emit district FlowRight entries |
+> | Syntax | Meaning | Example |
+> |--------|---------|---------|
+> | `{{ var }}` | Substitute a scalar value | `param vol_max = {{ vol_max }};` |
+> | `{{ list \| join(', ') }}` | Expand a Python list into a comma-separated string | `[{{ costs \| join(', ') }}]` → `[1.0, 2.0, 3.0]` |
+> | `{{ var \| default(0.0) }}` | Substitute with a fallback if the variable is undefined | `{{ ini_econ \| default(0.0) }}` → `0.0` |
+> | `{% for x in xs %} ... {% endfor %}` | Loop over a list, emitting one block per element | Zone parameter declarations |
+> | `{% if cond %} ... {% endif %}` | Conditional inclusion | Omit `use_value` when not set |
 >
-> **Jinja2** (`{{ }}`, `{% %}`) is used in `.tampl` (PAMPL) blocks.
-> **TSON** (`@ @`, `@% %@`) is used in `.tson` (JSON) blocks — same
-> semantics as Jinja2 but with `@` delimiters to avoid conflicts with
-> JSON braces.
+> Both `.tampl` (PAMPL) and `.tson` (JSON) blocks use the same
+> standard Jinja2 delimiters (`{{ }}`, `{% %}`, `{# #}`).
+> In `.tson` blocks, all printed values are auto-serialized as JSON
+> via the `_json_finalize` callback (strings quoted, numbers bare, etc.).
 
 ## Overview
 
@@ -393,7 +391,7 @@ individual rights categories on the withdrawal side).
   "purpose": "generation",
   "direction": 1,
   "discharge": 0,
-  "fmax": @vol_max@,
+  "fmax": {{ vol_max }},
   "use_average": true
 }
 ```
@@ -449,9 +447,9 @@ param cost_irr_uso = {{ cost_irr_uso }};
 param irr_usage[month] = [{{ monthly_usage_irr | join(', ') }}];
 ```
 
-The TSON block below defines the irrigation FlowRight.  `@var@`
+The JSON block below defines the irrigation FlowRight.  `{{ var }}`
 placeholders are substituted with computed values at rendering time.
-The `@% if use_value_irr is not none %@` conditional includes the
+The `{% if use_value_irr is not none %}` conditional includes the
 `use_value` field only when `cost_irr_uso > 0` — otherwise the field
 is omitted entirely from the generated JSON.
 
@@ -461,12 +459,12 @@ is omitted entirely from the generated JSON.
   "purpose": "irrigation",
   "direction": -1,
   "discharge": 0,
-  "fmax": @fmax_irr@,
+  "fmax": {{ fmax_irr }},
   "use_average": true,
-  "fail_cost": @fail_cost_irr@
-  @% if use_value_irr is not none %@
-  ,"use_value": @use_value_irr@
-  @% endif %@
+  "fail_cost": {{ fail_cost_irr }}
+  {% if use_value_irr is not none %}
+  ,"use_value": {{ use_value_irr }}
+  {% endif %}
 }
 ```
 
@@ -516,12 +514,12 @@ param elec_usage[month] = [{{ monthly_usage_elec | join(', ') }}];
   "purpose": "generation",
   "direction": -1,
   "discharge": 0,
-  "fmax": @fmax_elec@,
+  "fmax": {{ fmax_elec }},
   "use_average": true,
-  "fail_cost": @fail_cost_elec@
-  @% if use_value_elec is not none %@
-  ,"use_value": @use_value_elec@
-  @% endif %@
+  "fail_cost": {{ fail_cost_elec }}
+  {% if use_value_elec is not none %}
+  ,"use_value": {{ use_value_elec }}
+  {% endif %}
 }
 ```
 
@@ -565,11 +563,11 @@ param mixed_usage[month] = [{{ monthly_usage_mixed | join(', ') }}];
   "purpose": "mixed",
   "direction": -1,
   "discharge": 0,
-  "fmax": @fmax_mixed@,
+  "fmax": {{ fmax_mixed }},
   "use_average": true
-  @% if use_value_mixed is not none %@
-  ,"use_value": @use_value_mixed@
-  @% endif %@
+  {% if use_value_mixed is not none %}
+  ,"use_value": {{ use_value_mixed }}
+  {% endif %}
 }
 ```
 
@@ -603,9 +601,9 @@ param antic_usage[month] = [{{ monthly_usage_anticipated | join(', ') }}];
   "purpose": "anticipated",
   "direction": -1,
   "discharge": 0,
-  "fmax": @fmax_antic@,
+  "fmax": {{ fmax_antic }},
   "use_average": true,
-  "fail_cost": @fail_cost_antic@
+  "fail_cost": {{ fail_cost_antic }}
 }
 ```
 
@@ -668,7 +666,7 @@ param seasonal_emergencia[month] = [{{ seasonal_emergencia | join(', ') }}];
 param seasonal_saltos[month] = [{{ seasonal_saltos | join(', ') }}];
 ```
 
-The following TSON block uses `@% for fr in district_flow_rights %@`
+The following JSON block uses `{% for fr in district_flow_rights %}`
 to loop over pre-computed FlowRight JSON objects (one per
 district-category combination).  The `district_flow_rights` list is
 built by `laja_writer._compute_district_flow_rights()`, which combines
@@ -676,9 +674,9 @@ district percentages, base demands, seasonal factors, and cost
 modulation into complete FlowRight entries.
 
 ```json laja.tson flow_right
-@% for fr in district_flow_rights %@
-@fr@
-@% endfor %@
+{% for fr in district_flow_rights %}
+{{ fr }}
+{% endfor %}
 ```
 
 
@@ -725,15 +723,15 @@ PLP equivalent: `FijaLajaMBloA` computes `DerRiego(V)` using
 {
   "name": "laja_vol_der_riego",
   "purpose": "irrigation",
-  "reservoir": @central@,
-  "eini": @ini_irr@,
-  "emax": @max_irr@,
+  "reservoir": {{ central }},
+  "eini": {{ ini_irr }},
+  "emax": {{ max_irr }},
   "use_state_variable": true,
   "reset_month": "april",
   "bound_rule": {
-    "reservoir": @central@,
-    "segments": @irr_segments@,
-    "cap": @max_irr@
+    "reservoir": {{ central }},
+    "segments": {{ irr_segments }},
+    "cap": {{ max_irr }}
   }
 }
 ```
@@ -754,15 +752,15 @@ capped at 1200 hm3/year.
 {
   "name": "laja_vol_der_electrico",
   "purpose": "generation",
-  "reservoir": @central@,
-  "eini": @ini_elec@,
-  "emax": @max_elec@,
+  "reservoir": {{ central }},
+  "eini": {{ ini_elec }},
+  "emax": {{ max_elec }},
   "use_state_variable": true,
   "reset_month": "april",
   "bound_rule": {
-    "reservoir": @central@,
-    "segments": @elec_segments@,
-    "cap": @max_elec@
+    "reservoir": {{ central }},
+    "segments": {{ elec_segments }},
+    "cap": {{ max_elec }}
   }
 }
 ```
@@ -781,15 +779,15 @@ PLP balance (R11):
 {
   "name": "laja_vol_der_mixto",
   "purpose": "mixed",
-  "reservoir": @central@,
-  "eini": @ini_mixed@,
-  "emax": @max_mixed@,
+  "reservoir": {{ central }},
+  "eini": {{ ini_mixed }},
+  "emax": {{ max_mixed }},
   "use_state_variable": true,
   "reset_month": "april",
   "bound_rule": {
-    "reservoir": @central@,
-    "segments": @mixed_segments@,
-    "cap": @max_mixed@
+    "reservoir": {{ central }},
+    "segments": {{ mixed_segments }},
+    "cap": {{ max_mixed }}
   }
 }
 ```
@@ -811,15 +809,15 @@ internally by StorageLP.
 {
   "name": "laja_vol_gasto_anticipado",
   "purpose": "anticipated",
-  "reservoir": @central@,
-  "eini": @ini_anticipated@,
-  "emax": @max_anticipated@,
+  "reservoir": {{ central }},
+  "eini": {{ ini_anticipated }},
+  "emax": {{ max_anticipated }},
   "use_state_variable": true,
   "reset_month": "april",
   "bound_rule": {
-    "reservoir": @central@,
-    "segments": @irr_segments@,
-    "cap": @max_anticipated@
+    "reservoir": {{ central }},
+    "segments": {{ irr_segments }},
+    "cap": {{ max_anticipated }}
   }
 }
 ```
@@ -877,9 +875,9 @@ No `bound_rule`: economy is not volume-dependent.
 {
   "name": "laja_vol_econ_endesa",
   "purpose": "economy",
-  "reservoir": @central@,
-  "eini": @ini_econ_endesa@,
-  "saving_rate": @saving_rate_econ@,
+  "reservoir": {{ central }},
+  "eini": {{ ini_econ_endesa }},
+  "saving_rate": {{ saving_rate_econ }},
   "use_state_variable": true
 }
 ```
@@ -897,9 +895,9 @@ gtopt: modeled as a simple accumulator with no conditional reset.
 {
   "name": "laja_vol_econ_reserva",
   "purpose": "economy",
-  "reservoir": @central@,
-  "eini": @ini_econ_reserve@,
-  "saving_rate": @saving_rate_econ@,
+  "reservoir": {{ central }},
+  "eini": {{ ini_econ_reserve }},
+  "saving_rate": {{ saving_rate_econ }},
   "use_state_variable": true
 }
 ```
@@ -914,9 +912,9 @@ No reset in PLP either — accumulates indefinitely.
 {
   "name": "laja_vol_econ_polcura",
   "purpose": "economy",
-  "reservoir": @central@,
-  "eini": @ini_econ_polcura@,
-  "saving_rate": @saving_rate_econ@,
+  "reservoir": {{ central }},
+  "eini": {{ ini_econ_polcura }},
+  "saving_rate": {{ saving_rate_econ }},
   "use_state_variable": true
 }
 ```
@@ -976,7 +974,7 @@ The expression uses `flow_right().flow` which references the per-block
 extraction flow columns (not the `qeh` hourly averages).  The balance is
 enforced per-block.
 
-The `@expression_partition@` placeholder is replaced at rendering time
+The `{{ expression_partition }}` placeholder is replaced at rendering time
 with the full AMPL-style expression string (e.g.,
 `"flow_right('laja_q_turbinado').flow - flow_right('laja_der_riego').flow - ... = 0"`).
 It is pre-built in Python rather than inlined here because it references
@@ -985,8 +983,8 @@ all four rights FlowRight names dynamically.
 ```json laja.tson user_constraint
 {
   "name": "laja_particion_derechos",
-  "expression": @expression_partition@,
-  "description": @description_partition@
+  "expression": {{ expression_partition }},
+  "description": {{ description_partition }}
 }
 ```
 

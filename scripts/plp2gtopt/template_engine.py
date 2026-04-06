@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 
-"""Template engine for .tson and .tampl files using @param@ m4-style syntax.
+"""Template engine for .tson and .tampl files using Jinja2 syntax.
 
-Uses Jinja2 with custom delimiters inspired by the m4 macro processor:
+Uses standard Jinja2 delimiters:
 
-  @param@       — variable substitution (auto JSON-serialized)
-  @% ... %@     — block statements (for, if, etc.)
-  @# ... #@     — comments
+  {{ param }}       — variable substitution (auto JSON-serialized)
+  {% ... %}         — block statements (for, if, etc.)
+  {# ... #}         — comments
 
 All printed values are automatically serialized as JSON via the finalize
-callback, so @param@ produces valid JSON output:
+callback, so {{ param }} produces valid JSON output:
 
   - Strings   → ``"ELTORO"``  (quoted)
   - Numbers   → ``5582.0``    (bare)
@@ -32,7 +32,7 @@ def _json_finalize(value: Any) -> str:
     """Auto-serialize printed template values as JSON.
 
     Called by Jinja2 on every value that passes through a variable
-    tag (``@param@``).  Converts Python objects to their JSON
+    tag (``{{ param }}``).  Converts Python objects to their JSON
     representation so that the rendered template is valid JSON.
     """
     if isinstance(value, jinja2.Undefined):
@@ -44,7 +44,7 @@ def _json_finalize(value: Any) -> str:
 def create_template_env(
     template_dir: Path | str = _TEMPLATE_DIR,
 ) -> jinja2.Environment:
-    """Create a Jinja2 environment with @param@ m4-style syntax.
+    """Create a Jinja2 environment with standard delimiters and JSON finalize.
 
     Args:
         template_dir: Directory containing template files.
@@ -54,12 +54,6 @@ def create_template_env(
     """
     return jinja2.Environment(
         loader=jinja2.FileSystemLoader(str(template_dir)),
-        variable_start_string="@",
-        variable_end_string="@",
-        block_start_string="@%",
-        block_end_string="%@",
-        comment_start_string="@#",
-        comment_end_string="#@",
         trim_blocks=True,
         lstrip_blocks=True,
         keep_trailing_newline=True,
