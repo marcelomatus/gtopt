@@ -90,6 +90,12 @@ compatible JSON aliases during a transition period.
 | DemandProfile | `demand_profile_array` | `dpr` | `DemandProfile/` | PyPSA: `p_set` series |
 | ReserveZone | `reserve_zone_array` | `rzn` | `ReserveZone/` | Domain-specific ✓ |
 | ReserveProvision | `reserve_provision_array` | `rpr` | `ReserveProvision/` | Domain-specific ✓ |
+| FlowRight | `flow_right_array` | `frt` | `FlowRight/` | Domain-specific ✓ |
+| VolumeRight | `volume_right_array` | `vrt` | `VolumeRight/` | Domain-specific ✓ |
+| ReservoirSeepage | `reservoir_seepage_array` | `fil` | `ReservoirSeepage/` | Inline or standalone |
+| ReservoirDischargeLimit | `reservoir_discharge_limit_array` | `rdl` | — | Constraint element |
+| ReservoirProductionFactor | `reservoir_production_factor_array` | `ref` | — | Coefficient element |
+| UserConstraint | `user_constraint_array` | `uc` | `UserConstraint/` | User-defined LP rows |
 
 ### 2.2 Generator Fields
 
@@ -197,7 +203,10 @@ compatible JSON aliases during a transition period.
 pandapower ("load") and PyPSA ("Load"). The academic literature uses both
 terms: "demand" for the requirement and "load" for the consumption. IEEE
 standards tend to use "load" as the electrical term and "demand" for the
-economic/planning concept.
+economic/planning concept. The primary issue is not the class name itself,
+but the mismatch between the class name ("Demand") and its main field
+(`lmax`, where "l" stands for "load"). See §5.3 for the recommendation
+to rename the field (`lmax` → `max_demand`) rather than the class.
 
 ### 3.2 Field Naming Pattern
 
@@ -217,7 +226,7 @@ economic/planning concept.
 | Installed capacity | `capacity` | `p_nom` | `Existing_Cap_MW` | `Max Capacity` |
 | Expandable? | `expmod > 0` | `p_nom_extendable=True` | `New_Build=1` | `Build=True` |
 | Module size | `expcap` | — (continuous) | `Cap_Size` | `Unit Size` |
-| Max modules | `expmod` | — | `Max_Cap_MW` | `Max Units Built` |
+| Max modules | `expmod` | — | `Max_Units_Built` | `Max Units Built` |
 | Max capacity | `capmax` | `p_nom_max` | `Max_Cap_MW` | `Max Capacity` |
 | Investment cost | `annual_capcost` | `capital_cost` | `Inv_Cost_per_MWyr` | `WACC * Build Cost` |
 | Variable cost | `gcost` | `marginal_cost` | `Var_OM_Cost_per_MWh` | `VO&M Charge` |
@@ -405,9 +414,13 @@ energy. While common in mathematical notation, these are opaque in JSON.
 | **gtopt** | `bus_a` | `bus_b` |
 
 **Recommendation**: **Keep `bus_a` / `bus_b`**. While `from_bus` / `to_bus`
-is more common, the gtopt convention emphasizes that DC power flow is
-bidirectional (flow direction is a result, not an input). The neutral
-naming is actually better for this context.
+is more common across tools, the gtopt convention emphasizes that in DC
+power flow the flow direction is determined by the solver, not by the
+user's endpoint labeling. The neutral naming avoids implying a "from→to"
+direction that does not exist in the input specification. That said, this
+is a matter of preference — `from_bus` / `to_bus` would also be acceptable
+and more familiar to users of pandapower and PowerModels.jl. We recommend
+keeping the current convention but documenting the rationale clearly.
 
 **Severity**: Low — acceptable as-is.
 
@@ -518,11 +531,17 @@ compatible aliases:
 | `demand_fail_cost` | `lost_load_cost` | VOLL standard term |
 | `reserve_fail_cost` | `reserve_shortfall_cost` | More descriptive |
 | `hydro_fail_cost` | `hydro_shortfall_cost` | More descriptive |
-| `use_kirchhoff` | `use_dc_opf` | More standard terminology |
+| `use_kirchhoff` | `use_kirchhoff` | **Keep** — more precise than `use_dc_opf` (see §5 note) |
 | `use_single_bus` | `use_copper_plate` | Common alternative name |
 | `scale_objective` | `objective_scale_factor` | More descriptive |
 | `scale_theta` | `angle_scale_factor` | More descriptive |
 | `use_uid_fname` | `use_uid_filenames` | More descriptive |
+
+> **Note on `use_kirchhoff`**: An earlier draft proposed renaming to
+> `use_dc_opf`, but `use_kirchhoff` is actually more precise — it
+> refers specifically to enforcing Kirchhoff's Voltage Law (angle
+> variables and flow = Δθ/x constraints), not the broader concept of
+> DC optimal power flow. We recommend keeping this name.
 
 ### 6.2 What NOT to Change
 
@@ -753,8 +772,8 @@ the old names for backward compatibility.
 8. **Priority field renames** (Options):
    - `demand_fail_cost` → also accept `lost_load_cost`
    - `reserve_fail_cost` → also accept `reserve_shortfall_cost`
-   - `use_kirchhoff` → also accept `use_dc_opf`
    - `use_single_bus` → also accept `use_copper_plate`
+   - Note: keep `use_kirchhoff` as-is (more precise than `use_dc_opf`)
 
 9. **Files to modify**:
    - `include/gtopt/json_generator.hpp` and related `json_*.hpp` files
@@ -865,14 +884,17 @@ after naming convention improvements.
 1. **pandapower**: Thurner, L. et al. (2018). "pandapower — An Open-Source
    Python Tool for Convenient Modeling, Analysis, and Optimization of
    Electric Power Systems." IEEE Trans. Power Systems, 33(6), 6510-6521.
+   DOI: [10.1109/TPWRS.2018.2829021](https://doi.org/10.1109/TPWRS.2018.2829021).
    https://pandapower.readthedocs.io/
 
 2. **PyPSA**: Brown, T. et al. (2018). "PyPSA: Python for Power System
    Analysis." Journal of Open Research Software, 6(4).
+   DOI: [10.5334/jors.188](https://doi.org/10.5334/jors.188).
    https://pypsa.org/
 
 3. **PowerModels.jl**: Coffrin, C. et al. (2018). "PowerModels.jl: An
    Open-Source Framework for Exploring Power Flow Formulations." PSCC 2018.
+   DOI: [10.23919/PSCC.2018.8442948](https://doi.org/10.23919/PSCC.2018.8442948).
    https://github.com/lanl-ansi/PowerModels.jl
 
 4. **GenX**: Jenkins, J.D., Sepulveda, N.A. (2017). "Enhanced Decision
@@ -888,13 +910,17 @@ after naming convention improvements.
 7. **Romero, R. & Monticelli, A.** (1994). "A hierarchical decomposition
    approach for transmission network expansion planning." IEEE Trans.
    Power Systems, 9(1), 373-380.
+   DOI: [10.1109/59.317600](https://doi.org/10.1109/59.317600).
 
 8. **Lumbreras, S. & Ramos, A.** (2016). "The new challenges to
    transmission expansion planning. Survey of recent practice and
    literature review." Electric Power Systems Research, 134, 19-29.
+   DOI: [10.1016/j.epsr.2015.10.013](https://doi.org/10.1016/j.epsr.2015.10.013).
 
 9. **Stott, B., Jardim, J. & Alsaç, O.** (2009). "DC Power Flow
    Revisited." IEEE Trans. Power Systems, 24(3), 1290-1300.
+   DOI: [10.1109/TPWRS.2009.2021235](https://doi.org/10.1109/TPWRS.2009.2021235).
 
 10. **Anderson, P.M. & Fouad, A.A.** (2002). "Power Systems Control
     and Stability." 2nd ed., Wiley-IEEE Press.
+    ISBN: 978-0-471-23862-1.
