@@ -64,12 +64,12 @@ TEST_CASE("as_label with rvalue string exercises owned path")  // NOLINT
 
   // Construct a temporary string that will be passed as rvalue
   auto result = as_label(std::string("Rvalue"), "const_ref");
-  CHECK(result == "rvalue_const_ref");
+  CHECK(result == "Rvalue_const_ref");
 
   // Also test as_label_into with rvalue
   std::string buf;
   as_label_into(buf, std::string("Moved"), 42);
-  CHECK(buf == "moved_42");
+  CHECK(buf == "Moved_42");
 }
 
 // ── Item 5: inactive bus early return in add_to_lp (line_lp.cpp:152) ──

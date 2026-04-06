@@ -15,7 +15,9 @@
  * - Accepts any number of arguments of different types
  * - Converts each argument to string representation
  * - Joins them with a configurable separator
- * - Returns a concatenated std::string
+ * - Returns a concatenated std::string (case is preserved)
+ *
+ * Use `lowercase(str)` when an explicit lower-case result is required.
  *
  * Supported argument types:
  * - std::string and string views
@@ -28,6 +30,7 @@
  * @code{.cpp}
  * auto label1 = as_label("prefix", 42, "suffix"); // "prefix_42_suffix"
  * auto label2 = as_label<'-'>("a", "b", "c");    // "a-b-c"
+ * auto label3 = lowercase(as_label("Class", 42)); // "class_42"
  * @endcode
  */
 
@@ -337,10 +340,9 @@ template<char sep = '_', typename... Args>
       continue;
     }
     if (needs_sep) {
-      result.push_back(detail::to_lower_char(sep));
+      result.push_back(sep);
     }
-    std::ranges::transform(
-        view, std::back_inserter(result), detail::to_lower_char);
+    result.append(view);
     needs_sep = true;
   }
 
@@ -402,12 +404,45 @@ void as_label_into(std::string& result, Args&&... args) noexcept(
       continue;
     }
     if (needs_sep) {
-      result.push_back(detail::to_lower_char(sep));
+      result.push_back(sep);
     }
-    std::ranges::transform(
-        view, std::back_inserter(result), detail::to_lower_char);
+    result.append(view);
     needs_sep = true;
   }
+}
+
+/**
+ * @brief Returns a lowercase copy of the given string
+ *
+ * Convenience helper for callers that need an explicitly lowercased label
+ * (e.g. class names used as LP variable prefixes).  `as_label()` itself
+ * preserves the original case; call `lowercase()` on the result when a
+ * lower-case form is required.
+ *
+ * @param s The string to convert (an rvalue `std::string` is transformed
+ *          in-place and returned; any string-like argument is copied first)
+ * @return std::string A new string with every ASCII letter lowercased
+ *
+ * Example:
+ * @code{.cpp}
+ * auto lbl = lowercase(as_label("Generator", 42)); // "generator_42"
+ * auto lbl2 = lowercase("Battery");                // "battery"
+ * @endcode
+ */
+[[nodiscard]] inline std::string lowercase(std::string s) noexcept(
+    noexcept(std::ranges::transform(s, s.begin(), detail::to_lower_char)))
+{
+  std::ranges::transform(s, s.begin(), detail::to_lower_char);
+  return s;
+}
+
+template<detail::string_like T>
+  requires(!std::same_as<std::remove_cvref_t<T>, std::string>)
+[[nodiscard]] inline std::string lowercase(T&& sv)
+{
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
+  return lowercase(std::string(std::string_view(std::forward<T>(sv))));
+  // NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
 }
 
 }  // namespace gtopt
