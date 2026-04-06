@@ -742,8 +742,8 @@ TEST_CASE(  // NOLINT
 // Verifies that resolve_single_col populates ResolvedCol::scale from
 // lp.get_col_scale() for ALL element types — not just the originally
 // scaled ones (battery, reservoir, bus).  The test creates a system
-// where reservoir volume is scaled (energy_scale=1000) and verifies
-// that a user constraint on reservoir.volume correctly applies the
+// where reservoir volume is scaled (via variable_scales, scale=1000) and
+// verifies that a user constraint on reservoir.volume correctly applies the
 // scale factor to the LP coefficient.  A second constraint on
 // generator.generation (scale=1.0) ensures unscaled columns work too.
 
@@ -756,7 +756,10 @@ static constexpr std::string_view resolver_scale_aware_json = R"json({
     "output_compression": "uncompressed",
     "use_single_bus": true,
     "demand_fail_cost": 1000,
-    "scale_objective": 1
+    "scale_objective": 1,
+    "variable_scales": [
+      {"class_name": "Reservoir", "variable": "energy", "uid": 1, "scale": 1000}
+    ]
   },
   "simulation": {
     "block_array": [{"uid": 1, "duration": 1}, {"uid": 2, "duration": 1}],
@@ -783,8 +786,7 @@ static constexpr std::string_view resolver_scale_aware_json = R"json({
     ],
     "reservoir_array": [
       {"uid": 1, "name": "rsv1", "junction": "j_up",
-       "capacity": 6000, "emin": 0, "emax": 6000, "eini": 3000,
-       "energy_scale": 1000}
+       "capacity": 6000, "emin": 0, "emax": 6000, "eini": 3000}
     ],
     "turbine_array": [
       {"uid": 1, "name": "tur1", "waterway": "ww1", "generator": "g1"}
@@ -807,11 +809,11 @@ TEST_CASE(  // NOLINT
     "element_column_resolver - scale-aware: scaled reservoir + unscaled "
     "generator")
 {
-  // reservoir rsv1 has energy_scale=1000, so the LP variable for volume is
-  // physical_volume / 1000.  The user constraint "volume <= 5000" should
-  // produce an LP row with coefficient = 1000 (the col_scale) and
-  // RHS = 5000 (in physical units).  The constraint is correctly
-  // dimensioned because coeff × LP_var = 1000 × (phys/1000) = phys.
+  // reservoir rsv1 has energy scale=1000 via variable_scales, so the LP
+  // variable for volume is physical_volume / 1000.  The user constraint
+  // "volume <= 5000" should produce an LP row with coefficient = 1000
+  // (the col_scale) and RHS = 5000 (in physical units).  The constraint is
+  // correctly dimensioned because coeff × LP_var = 1000 × (phys/1000) = phys.
   //
   // generator g1 has default scale=1.0, so the user constraint
   // "generation <= 250" has coefficient = 1.0.

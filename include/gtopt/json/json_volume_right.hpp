@@ -44,8 +44,6 @@ struct VolumeRightConstructor
       OptReal priority,
       OptTBRealFieldSched saving_rate,
       OptReal flow_conversion_rate,
-      OptReal energy_scale,
-      OptName energy_scale_mode,
       OptBool use_state_variable,
       OptTRealFieldSched annual_loss,
       OptName reset_month_str,
@@ -72,8 +70,6 @@ struct VolumeRightConstructor
     vr.priority = priority;
     vr.saving_rate = std::move(saving_rate);
     vr.flow_conversion_rate = flow_conversion_rate;
-    vr.energy_scale = energy_scale;
-    vr.energy_scale_mode = std::move(energy_scale_mode);
     vr.use_state_variable = use_state_variable;
     vr.annual_loss = std::move(annual_loss);
     if (reset_month_str) {
@@ -114,8 +110,6 @@ struct json_data_contract<VolumeRight>
                         OptTBRealFieldSched,
                         jvtl_TBRealFieldSched>,
       json_number_null<"flow_conversion_rate", OptReal>,
-      json_number_null<"energy_scale", OptReal>,
-      json_string_null<"energy_scale_mode", OptName>,
       json_bool_null<"use_state_variable", OptBool>,
       json_variant_null<"annual_loss",
                         OptTRealFieldSched,
@@ -145,8 +139,6 @@ struct json_data_contract<VolumeRight>
                            vr.priority,
                            vr.saving_rate,
                            vr.flow_conversion_rate,
-                           vr.energy_scale,
-                           vr.energy_scale_mode,
                            vr.use_state_variable,
                            vr.annual_loss,
                            detail::enum_to_opt_name(vr.reset_month),

@@ -109,7 +109,6 @@ TEST_CASE("VolumeRight construction and default values")
   CHECK_FALSE(vr.fmax.has_value());
   CHECK_FALSE(vr.fail_cost.has_value());
   CHECK_FALSE(vr.priority.has_value());
-  CHECK_FALSE(vr.energy_scale.has_value());
   CHECK_FALSE(vr.use_state_variable.has_value());
 
   // Default flow_conversion_rate
@@ -154,7 +153,6 @@ TEST_CASE("VolumeRight default constants")
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   CHECK(VolumeRight::default_flow_conversion_rate == doctest::Approx(0.0036));
-  CHECK(VolumeRight::default_energy_scale == doctest::Approx(1.0));
 }
 
 TEST_CASE("VolumeRight use_state_variable defaults and explicit set")

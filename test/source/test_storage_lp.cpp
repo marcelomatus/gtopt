@@ -13,6 +13,7 @@
 #include <gtopt/simulation.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/variable_scale.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -25,7 +26,8 @@ using namespace gtopt;  // NOLINT(google-build-using-namespace)
 /// Returns the SystemLP so callers can inspect LP structure.
 auto make_battery_system(const Array<Battery>& battery_array,
                          const Simulation& simulation,
-                         double demand_fail_cost = 1000.0)
+                         double demand_fail_cost = 1000.0,
+                         Array<VariableScale> variable_scales = {})
     -> std::pair<SystemLP, PlanningOptionsLP>
 {
   const Array<Bus> bus_array = {
@@ -64,6 +66,7 @@ auto make_battery_system(const Array<Battery>& battery_array,
 
   PlanningOptions opts;
   opts.demand_fail_cost = demand_fail_cost;
+  opts.variable_scales = std::move(variable_scales);
 
   auto options = PlanningOptionsLP {opts};
   SimulationLP sim_lp(simulation, options);
@@ -294,12 +297,19 @@ TEST_CASE(  // NOLINT
           .emax = 500.0,
           .eini = 250.0,
           .capacity = 500.0,
-          .energy_scale = 50.0,
       },
   };
 
+  // Set energy scale via variable_scales (not per-element field)
+  Array<VariableScale> vs = {
+      {
+          .class_name = "Battery",
+          .variable = "energy",
+          .scale = 50.0,
+      },
+  };
   auto [sys_lp, options] =
-      make_battery_system(battery_array, make_simple_simulation());
+      make_battery_system(battery_array, make_simple_simulation(), 1000.0, vs);
   const auto& bat_lp = sys_lp.elements<BatteryLP>().front();
 
   CHECK(bat_lp.energy_scale() == doctest::Approx(50.0));

@@ -302,15 +302,15 @@ TEST_CASE("SystemLP with multi-stage hydro system")
 }
 
 /// Verify that the LP solution and output are invariant to the choice of
-/// energy_scale.  Identical reservoir systems with different energy_scale
-/// values must produce the same objective value.
+/// energy scale via variable_scales.  Identical reservoir systems with
+/// different variable scale values must produce the same objective value.
 TEST_CASE(  // NOLINT
     "Reservoir energy_scale invariance – same solution for different scales")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  // Helper lambda: builds and solves a hydro LP with the given energy_scale,
-  // returns the objective value.
+  // Helper lambda: builds and solves a hydro LP with the given energy scale
+  // via variable_scales option, returns the objective value.
   auto solve_with_scale = [](double scale) -> double
   {
     const Array<Bus> bus_array = {
@@ -378,7 +378,6 @@ TEST_CASE(  // NOLINT
             .emin = 100.0,
             .emax = 2000.0,
             .eini = 1000.0,
-            .energy_scale = scale,
         },
     };
 
@@ -456,7 +455,16 @@ TEST_CASE(  // NOLINT
         .turbine_array = turbine_array,
     };
 
-    const PlanningOptionsLP options;
+    PlanningOptions opts;
+    // Set energy scale via variable_scales option (not per-element field)
+    opts.variable_scales = {
+        {
+            .class_name = "Reservoir",
+            .variable = "energy",
+            .scale = scale,
+        },
+    };
+    const PlanningOptionsLP options {opts};
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(system, simulation_lp);
 

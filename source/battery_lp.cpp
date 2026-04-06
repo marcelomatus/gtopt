@@ -65,23 +65,12 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   // Get blocks for this stage
   const auto& blocks = stage.blocks();
 
-  // Resolve energy_scale: per-element field > VariableScaleMap > default.
-  const auto es = [&]
-  {
-    if (battery().energy_scale.has_value()) {
-      return *battery().energy_scale;
-    }
-    const auto vs =
-        sc.options().variable_scale_map().lookup("Battery", "energy", uid());
-    return (vs != 1.0) ? vs : Battery::default_energy_scale;
-  }();
+  // Resolve energy_scale from VariableScaleMap (default 1.0 if not set).
+  const auto es =
+      sc.options().variable_scale_map().lookup("Battery", "energy", uid());
   // Resolve flow_scale: VariableScaleMap > default (1.0).
-  const auto fs = [&]
-  {
-    const auto vs =
-        sc.options().variable_scale_map().lookup("Battery", "flow", uid());
-    return (vs != 1.0) ? vs : 1.0;
-  }();
+  const auto fs =
+      sc.options().variable_scale_map().lookup("Battery", "flow", uid());
 
   // Create finp/fout variables for each time block.
   // Scale is set to flow_scale so that the user-constraint resolver and

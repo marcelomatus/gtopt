@@ -31,7 +31,6 @@
  */
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
-#include <gtopt/reservoir_enums.hpp>
 #include <gtopt/reservoir_lp.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
@@ -64,13 +63,10 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   auto&& blocks = stage.blocks();
   const auto& options = sc.options();
 
-  // Resolve energy_scale: explicit field > VariableScaleMap >
-  // inherit from source reservoir or parent VolumeRight > default.
+  // Resolve energy_scale from VariableScaleMap. When not set explicitly,
+  // inherit from source reservoir or parent VolumeRight.
   const double energy_scale = [&]
   {
-    if (volume_right().energy_scale.has_value()) {
-      return *volume_right().energy_scale;
-    }
     const auto vs =
         options.variable_scale_map().lookup("VolumeRight", "energy", uid());
     if (vs != 1.0) {
@@ -85,16 +81,12 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
       const VolumeRightLPSId vr_sid(*rr_ref);
       return sc.element(vr_sid).energy_scale();
     }
-    return VolumeRight::default_energy_scale;
+    return 1.0;
   }();
 
   // Resolve flow_scale: VariableScaleMap > default (1.0).
-  const double flow_scale = [&]
-  {
-    const auto fs =
-        options.variable_scale_map().lookup("VolumeRight", "flow", uid());
-    return (fs != 1.0) ? fs : 1.0;
-  }();
+  const double flow_scale =
+      options.variable_scale_map().lookup("VolumeRight", "flow", uid());
 
   // Evaluate initial bound rule if present
   const auto& opt_rule = volume_right().bound_rule;

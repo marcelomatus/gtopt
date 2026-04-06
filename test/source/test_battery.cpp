@@ -441,7 +441,7 @@ TEST_CASE(  // NOLINT
       },
   };
 
-  // Battery with explicit energy_scale = 10.0 (large scale for testing)
+  // Battery with energy scale set via variable_scales option (scale = 10.0)
   const Array<Battery> battery_array = {
       {
           .uid = Uid {1},
@@ -453,7 +453,6 @@ TEST_CASE(  // NOLINT
           .emax = 100.0,
           .eini = 50.0,
           .capacity = 100.0,
-          .energy_scale = 10.0,
       },
   };
 
@@ -491,6 +490,14 @@ TEST_CASE(  // NOLINT
 
   PlanningOptions opts;
   opts.demand_fail_cost = 1000.0;
+  // Set energy scale via variable_scales (not per-element field)
+  opts.variable_scales = {
+      {
+          .class_name = "Battery",
+          .variable = "energy",
+          .scale = 10.0,
+      },
+  };
   const PlanningOptionsLP options {opts};
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
@@ -569,7 +576,6 @@ TEST_CASE(  // NOLINT
             .emax = 200.0,
             .eini = 50.0,
             .capacity = 200.0,
-            .energy_scale = scale,
         },
     };
 
@@ -611,6 +617,14 @@ TEST_CASE(  // NOLINT
 
     PlanningOptions opts;
     opts.demand_fail_cost = 1000.0;
+    // Set energy scale via variable_scales (not per-element field)
+    opts.variable_scales = {
+        {
+            .class_name = "Battery",
+            .variable = "energy",
+            .scale = scale,
+        },
+    };
     const PlanningOptionsLP options {opts};
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(system, simulation_lp);

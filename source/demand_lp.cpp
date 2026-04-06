@@ -100,6 +100,11 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   map_reserve(fcols, blocks.size());
   map_reserve(brows, blocks.size());
 
+  // Look up variable scale for demand load/fail via VariableScaleMap.
+  const auto load_scale =
+      sc.options().variable_scale_map().lookup("Demand", "load", uid());
+  const auto fail_scale =
+      sc.options().variable_scale_map().lookup("Demand", "fail", uid());
   for (const auto& block : blocks) {
     const auto buid = block.uid();
     const auto bus_balance_row = bus_balance_rows.at(buid);
@@ -111,6 +116,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
         .name = sc.lp_col_label(scenario, stage, block, cname, "load", uid()),
         .lowb = load_lowb,
         .uppb = load_uppb,
+        .scale = load_scale,
     });
 
     if (stage_fcost) {
@@ -118,6 +124,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
       const auto fcol = lp.add_col({
           .name = name,
           .cost = sc.block_ecost(scenario, stage, block, *stage_fcost),
+          .scale = fail_scale,
       });
       fcols[buid] = fcol;
 

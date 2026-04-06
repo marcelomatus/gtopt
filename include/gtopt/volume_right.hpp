@@ -75,7 +75,6 @@ struct VolumeRight
   /// @{
   static constexpr Real default_flow_conversion_rate =
       0.0036;  ///< [hm³/(m³/s·h)]
-  static constexpr Real default_energy_scale = 1.0;  ///< [dimensionless]
   /// @}
 
   Uid uid {unknown_uid};  ///< Unique identifier
@@ -152,9 +151,6 @@ struct VolumeRight
   OptReal flow_conversion_rate {
       default_flow_conversion_rate,
   };  ///< Converts m³/s × hours into hm³ [hm³/(m³/s·h)]
-
-  OptReal energy_scale {};  ///< LP scaling factor [dimensionless]
-  OptName energy_scale_mode {};  ///< `"manual"` or `"auto"`
 
   /// Whether to propagate accumulated volume state across phases via
   /// StateVariables (SDDP-style coupling — Tilmant's "dummy reservoir").

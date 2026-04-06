@@ -19,6 +19,16 @@
  * - The default `flow_conversion_rate = 0.0036` converts m³/s × h → hm³:
  *   `volume = 0.0036 × flow_m3s × duration_h`
  *
+ * ### Scaling
+ * LP variable scaling for reservoir energy/volume variables is controlled via
+ * `PlanningOptions::variable_scales`.  No per-element `energy_scale` field is
+ * exposed — use the `variable_scales` option array instead:
+ * ```json
+ * "variable_scales": [
+ *   {"class_name": "Reservoir", "variable": "energy", "uid": 1, "scale": 1000}
+ * ]
+ * ```
+ *
  * ### JSON Example
  * ```json
  * {
@@ -45,7 +55,6 @@
 #include <gtopt/field_sched.hpp>
 #include <gtopt/object.hpp>
 #include <gtopt/reservoir_discharge_limit.hpp>
-#include <gtopt/reservoir_enums.hpp>
 #include <gtopt/reservoir_production_factor.hpp>
 #include <gtopt/reservoir_seepage.hpp>
 
@@ -76,7 +85,6 @@ struct Reservoir
   static constexpr Real default_spillway_capacity = 6'000.0;  ///< [m³/s]
   static constexpr Real default_fmin = -10'000.0;  ///< [m³/s]
   static constexpr Real default_fmax = +10'000.0;  ///< [m³/s]
-  static constexpr Real default_energy_scale = 1.0;  ///< [dimensionless]
   static constexpr Real default_flow_conversion_rate =
       0.0036;  ///< [hm³/(m³/s·h)]
   static constexpr Real default_mean_production_factor =
@@ -137,24 +145,6 @@ struct Reservoir
   OptReal fmax {
       default_fmax};  ///< Maximum net flow into the reservoir junction [m³/s]
 
-  OptReal energy_scale {};  ///< Energy scale factor: LP variable =
-                            ///< physical_energy / energy_scale [dimensionless].
-                            ///< When set, overrides auto-scaling regardless of
-                            ///< energy_scale_mode.
-  OptName energy_scale_mode {};  ///< How to determine energy_scale: `"manual"`
-                                 ///< (use explicit field, default 1.0) or
-                                 ///< `"auto"` (compute max(1, emax/1000) like
-                                 ///< PLP).  Default: `"auto"`.
-
-  /// Parse energy_scale_mode string to enum (auto_scale if unset).
-  [[nodiscard]] EnergyScaleMode energy_scale_mode_enum() const noexcept
-  {
-    if (energy_scale_mode.has_value()) {
-      return enum_from_name<EnergyScaleMode>(*energy_scale_mode)
-          .value_or(EnergyScaleMode::auto_scale);
-    }
-    return EnergyScaleMode::auto_scale;
-  }
   OptReal flow_conversion_rate {
       default_flow_conversion_rate};  ///< Converts m³/s × hours into hm³
                                       ///< [hm³/(m³/s·h)]

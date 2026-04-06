@@ -94,6 +94,9 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   map_reserve(crows, blocks.size());
 
   const auto guid = uid();
+  // Look up variable scale for generator output via VariableScaleMap.
+  const auto gen_scale =
+      sc.options().variable_scale_map().lookup("Generator", "generation", guid);
   for (auto&& block : blocks) {
     const auto buid = block.uid();
     const auto balance_row = balance_rows.at(buid);
@@ -117,6 +120,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
         .lowb = block_pmin,
         .uppb = block_pmax,
         .cost = sc.block_ecost(scenario, stage, block, stage_gcost),
+        .scale = gen_scale,
     });
     gcols[buid] = gcol;
 

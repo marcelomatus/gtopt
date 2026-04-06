@@ -10,8 +10,6 @@
  * constraints and relationships with other system components.
  */
 
-#include <cmath>
-
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/reservoir_lp.hpp>
@@ -67,40 +65,14 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   const auto fmin = reservoir().fmin.value_or(-LinearProblem::DblMax);
   const auto fmax = reservoir().fmax.value_or(+LinearProblem::DblMax);
 
-  // Resolve energy_scale: explicit field > auto-scale > VariableScaleMap.
-  const double energy_scale = [&]
-  {
-    // 1. Explicit per-element field always wins.
-    if (reservoir().energy_scale.has_value()) {
-      return *reservoir().energy_scale;
-    }
-    // 2. VariableScaleMap override (from PlanningOptions::variable_scales).
-    const auto vs =
-        sc.options().variable_scale_map().lookup("Reservoir", "energy", uid());
-    if (vs != 1.0) {
-      return vs;
-    }
-    // 3. Auto-scale mode: round down capacity to previous power of 10.
-    //    cap=72 → 10;  cap=5586 → 1000.
-    if (reservoir().energy_scale_mode_enum() == EnergyScaleMode::auto_scale) {
-      if (stage_capacity <= 1.0) {
-        return 1.0;
-      }
-      return std::pow(10.0, std::floor(std::log10(stage_capacity)));
-    }
-    return Reservoir::default_energy_scale;
-  }();
+  // Resolve energy_scale from VariableScaleMap (default 1.0 if not set).
+  const double energy_scale =
+      sc.options().variable_scale_map().lookup("Reservoir", "energy", uid());
 
   // Resolve flow_scale independently from energy_scale.
   // Default 1.0: extraction flow fext stays in physical m³/s.
-  // Setting flow_scale = energy_scale keeps energy-balance
-  // coefficients O(1) but couples two different physical quantities.
-  const double flow_scale = [&]
-  {
-    const auto fs =
-        sc.options().variable_scale_map().lookup("Reservoir", "flow", uid());
-    return (fs != 1.0) ? fs : 1.0;
-  }();
+  const double flow_scale =
+      sc.options().variable_scale_map().lookup("Reservoir", "flow", uid());
   BIndexHolder<ColIndex> rcols;
   BIndexHolder<ColIndex> scols;
   map_reserve(rcols, blocks.size());
