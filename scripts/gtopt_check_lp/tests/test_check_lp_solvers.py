@@ -595,7 +595,10 @@ class TestNeosNetworkDiagnostics:
 
     def test_diagnose_large_file_warning(self, tmp_path):
         """When the LP file is very large, the diagnostic warns about size."""
-        from gtopt_check_lp._neos import _NEOS_LP_SIZE_WARN, _diagnose_network_error  # noqa: PLC0415
+        from gtopt_check_lp._neos import (  # noqa: PLC0415
+            _NEOS_LP_SIZE_WARN,
+            _diagnose_network_error,
+        )
 
         lp = tmp_path / "big.lp"
         # Create a file larger than the threshold.

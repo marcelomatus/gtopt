@@ -12,6 +12,7 @@ list(APPEND CMAKE_MODULE_PATH
 include(BuildTypeDefault)
 include(CxxStandard)
 include(Ccache)
+include(FastLinker)
 
 # ---- Options ----
 option(ENABLE_TEST_COVERAGE "Enable test coverage instrumentation" OFF)

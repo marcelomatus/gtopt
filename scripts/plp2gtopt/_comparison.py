@@ -894,7 +894,6 @@ def _log_comparison(
         table.add_row("", "", "", "", "")
         _row("Scaling Options", section=True)
         model_opts = gtopt_options.get("model_options", {})
-        sddp_opts = gtopt_options.get("sddp_options", {})
 
         def _scale_row(
             label: str, plp_default: str, gtopt_val: Any, note: str = ""

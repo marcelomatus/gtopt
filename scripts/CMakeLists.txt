@@ -472,16 +472,17 @@ add_pytest_integration_test(
 #   WORKING_DIRECTORY "${SCRIPTS_DIR}"
 # )
 
-add_test(
-  NAME scripts-ruff
-  COMMAND ${PYTHON_EXECUTABLE} -m ruff check ${_SCRIPT_SOURCES}
-  WORKING_DIRECTORY "${SCRIPTS_DIR}"
-)
-
-set_tests_properties(
-  scripts-ruff
-  PROPERTIES FIXTURES_REQUIRED scripts-deps
-)
+# ruff check is run by the CI lint job and locally via `ruff check .`
+# add_test(
+#   NAME scripts-ruff
+#   COMMAND ${PYTHON_EXECUTABLE} -m ruff check ${_SCRIPT_SOURCES}
+#   WORKING_DIRECTORY "${SCRIPTS_DIR}"
+# )
+#
+# set_tests_properties(
+#   scripts-ruff
+#   PROPERTIES FIXTURES_REQUIRED scripts-deps
+# )
 
 # ---- Optional static-analysis CTest tests ----
 

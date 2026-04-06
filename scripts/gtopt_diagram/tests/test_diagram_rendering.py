@@ -12,6 +12,8 @@ Covers:
 - Profile compact mode
 """
 
+import pytest
+
 from gtopt_diagram import gtopt_diagram as gd
 
 # ---------------------------------------------------------------------------
@@ -24,8 +26,6 @@ try:
     _HAS_GRAPHVIZ = True
 except ImportError:
     _HAS_GRAPHVIZ = False
-
-import pytest
 
 _skip_no_graphviz = pytest.mark.skipif(
     not _HAS_GRAPHVIZ,
