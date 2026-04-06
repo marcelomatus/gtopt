@@ -818,8 +818,9 @@ def _prepare_case(xlsx: pathlib.Path, case_dir: pathlib.Path) -> pathlib.Path:
 
 
 # Reference objective values (gtopt on the original JSON, scale_objective=1000)
-_IEEE57B_OBJ_REF = 25016.0  # $/h  (25.016 × 1000)
-_BAT4B24_OBJ_REF = 44862.0  # $/h  (44.862 × 1000)
+# obj_value in solution.csv is the physical (unscaled) cost.
+_IEEE57B_OBJ_REF = 25016000.0  # $/h  (physical cost)
+_BAT4B24_OBJ_REF = 44862000.0  # $/h  (physical cost)
 
 
 @pytest.mark.integration

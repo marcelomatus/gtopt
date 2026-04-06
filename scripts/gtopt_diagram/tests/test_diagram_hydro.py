@@ -12,11 +12,6 @@ Covers:
 - VolumeRight and FlowRight water rights
 """
 
-import json
-from pathlib import Path
-
-import pytest
-
 from gtopt_diagram import gtopt_diagram as gd
 
 # ---------------------------------------------------------------------------
