@@ -99,10 +99,11 @@ testpaths = [
     "run_gtopt/tests",
     "ts2gtopt/tests",
 ]
-addopts = "-v --import-mode=importlib -n 0"
+addopts = "-v --import-mode=importlib -n auto"
 pythonpath = ["."]
 markers = [
     "integration: end-to-end tests that use sample PLP case files",
+    "slow: tests that take >60s (pandapower full-network conversion, etc.)",
 ]
 
 [tool.coverage.run]

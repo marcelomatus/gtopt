@@ -899,6 +899,7 @@ class TestDCOPFSolve:
 # ── plp_case_2y end-to-end integration test ──────────────────────────────────
 
 
+@pytest.mark.slow
 @pytest.mark.integration
 @pytest.mark.skipif(not _PLP_CASE_2Y.exists(), reason="plp_case_2y case not present")
 class TestPlpCase2YGtopt2PP:

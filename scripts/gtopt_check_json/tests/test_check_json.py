@@ -545,7 +545,7 @@ class TestCLI:
     def test_check_valid(self, tmp_path: Path, capsys: Any) -> None:
         p = tmp_path / "test.json"
         p.write_text(json.dumps(_VALID_CASE), encoding="utf-8")
-        rc = main(["--no-color", str(p)])
+        rc = main(["--no-color", "--no-ai", str(p)])
         assert rc == 0
         captured = capsys.readouterr()
         combined = captured.out + captured.err
@@ -556,7 +556,7 @@ class TestCLI:
         case["system"]["generator_array"].append({"uid": 1, "name": "g1_dup", "bus": 1})
         p = tmp_path / "test.json"
         p.write_text(json.dumps(case), encoding="utf-8")
-        rc = main(["--no-color", str(p)])
+        rc = main(["--no-color", "--no-ai", str(p)])
         assert rc == 1
 
     def test_no_files_error(self) -> None:
