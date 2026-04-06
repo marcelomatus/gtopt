@@ -158,10 +158,14 @@ private:
   int m_log_level_ {0};
 
   /// Owned FILE* for set_log_filename; closed in clear_log_filename.
-  using log_file_ptr_t = std::unique_ptr<
-      FILE,
-      decltype([](FILE* f)
-               { (void)std::fclose(f); })>;  // NOLINT(cppcoreguidelines-owning-memory)
+  struct FileCloser
+  {
+    void operator()(FILE* f) const noexcept
+    {
+      (void)std::fclose(f);  // NOLINT(cppcoreguidelines-owning-memory)
+    }
+  };
+  using log_file_ptr_t = std::unique_ptr<FILE, FileCloser>;
   log_file_ptr_t m_log_file_ptr_;
 };
 
