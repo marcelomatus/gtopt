@@ -7,20 +7,18 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from gtopt_config import (
+    add_color_argument,
+    add_log_level_argument,
+    configure_logging,
+    get_version,
+)
+
 from .convert import _SUPPORTED_FORMATS, convert, load_network
 
 logger = logging.getLogger(__name__)
 
-try:
-    from importlib.metadata import PackageNotFoundError
-    from importlib.metadata import version as _pkg_version
-
-    try:
-        __version__ = _pkg_version("gtopt-scripts")
-    except PackageNotFoundError:
-        __version__ = "dev"
-except ImportError:
-    __version__ = "dev"
+__version__ = get_version()
 
 # Supported pandapower standard test networks (CLI name → pandapower function name)
 _NETWORKS: dict[str, str] = {
@@ -210,24 +208,16 @@ def make_parser() -> argparse.ArgumentParser:
         action="version",
         version=f"%(prog)s {__version__}",
     )
+    add_log_level_argument(parser)
+    add_color_argument(parser)
     return parser
 
 
 def main() -> None:
     """Parse arguments and run the conversion."""
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-
-    # Use clean formatter for non-DEBUG levels
-    try:
-        from gtopt_check_json._terminal import CleanFormatter  # noqa: PLC0415
-
-        for handler in logging.getLogger().handlers:
-            handler.setFormatter(CleanFormatter())
-    except ImportError:
-        pass
-
     parser = make_parser()
     args = parser.parse_args()
+    configure_logging(args)
 
     if args.list_networks:
         _list_networks_and_exit()

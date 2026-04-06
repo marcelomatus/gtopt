@@ -33,21 +33,14 @@ Requirements
 
 import argparse
 import json
-import logging
 import sys
 import time
 from pathlib import Path
 from typing import Any
 
-try:
-    from importlib.metadata import version as _pkg_version, PackageNotFoundError
+from gtopt_config import add_common_arguments, configure_logging, get_version
 
-    try:
-        __version__ = _pkg_version("gtopt-scripts")
-    except PackageNotFoundError:
-        __version__ = "dev"
-except ImportError:
-    __version__ = "dev"
+__version__ = get_version()
 
 
 # ---------------------------------------------------------------------------
@@ -356,20 +349,6 @@ def main(argv: list[str] | None = None) -> None:
         help="Print status to stdout instead of opening a GUI window",
     )
     parser.add_argument(
-        "--no-color",
-        action="store_true",
-        default=False,
-        help="Disable coloured output.",
-    )
-    parser.add_argument(
-        "-l",
-        "--log-level",
-        default="WARNING",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        metavar="LEVEL",
-        help="Logging verbosity (default: %(default)s).",
-    )
-    parser.add_argument(
         "--get",
         metavar="OPTION",
         help=(
@@ -384,18 +363,10 @@ def main(argv: list[str] | None = None) -> None:
         metavar="DIR",
         help="Case directory containing the planning JSON (for --get).",
     )
-    parser.add_argument(
-        "-V",
-        "--version",
-        action="version",
-        version=f"%(prog)s {__version__}",
-    )
+    add_common_arguments(parser, default_log_level="WARNING")
     args = parser.parse_args(argv)
 
-    logging.basicConfig(
-        level=getattr(logging, args.log_level),
-        format="%(levelname)s: %(message)s",
-    )
+    configure_logging(args)
 
     # --get: query a single option value and exit
     if args.get:

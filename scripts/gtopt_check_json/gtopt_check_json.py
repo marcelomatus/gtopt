@@ -22,15 +22,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-try:
-    from importlib.metadata import version as _pkg_version, PackageNotFoundError
+from gtopt_config import get_version
 
-    try:
-        __version__ = _pkg_version("gtopt-scripts")
-    except PackageNotFoundError:
-        __version__ = "dev"
-except ImportError:
-    __version__ = "dev"
+__version__ = get_version()
 
 from gtopt_check_json import _colors as col
 from gtopt_check_json._checks import (

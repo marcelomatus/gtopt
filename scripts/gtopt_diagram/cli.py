@@ -15,6 +15,11 @@ import sys
 import textwrap
 from pathlib import Path
 
+from gtopt_config import (
+    add_color_argument,
+    add_log_level_argument,
+    add_version_argument,
+)
 from gtopt_diagram._graph_model import FilterOptions
 from gtopt_diagram._planning_diagram import (
     _build_planning_html,
@@ -307,29 +312,9 @@ Examples:
         metavar="UID",
         help="Block UID for resolving file-referenced values (default: 1)",
     )
-    parser.add_argument(
-        "-l",
-        "--log-level",
-        default="INFO",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        metavar="LEVEL",
-        help=(
-            "logging verbosity: DEBUG, INFO, WARNING, ERROR, CRITICAL "
-            "(default: %(default)s)"
-        ),
-    )
-    parser.add_argument(
-        "-V",
-        "--version",
-        action="version",
-        version="%(prog)s (gtopt-scripts)",
-    )
-    parser.add_argument(
-        "--no-color",
-        action="store_true",
-        default=False,
-        help="Disable coloured output.",
-    )
+    add_version_argument(parser)
+    add_log_level_argument(parser)
+    add_color_argument(parser)
     args = parser.parse_args(argv)
 
     logging.basicConfig(

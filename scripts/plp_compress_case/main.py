@@ -42,18 +42,11 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from gtopt_config import get_version
+
 from ._config import default_config_path, load_config
 
-try:
-    from importlib.metadata import PackageNotFoundError
-    from importlib.metadata import version as _pkg_version
-
-    try:
-        __version__ = _pkg_version("gtopt-scripts")
-    except PackageNotFoundError:
-        __version__ = "dev"
-except ImportError:
-    __version__ = "dev"
+__version__ = get_version()
 
 log = logging.getLogger(__name__)
 
@@ -145,10 +138,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Print the active configuration and exit.",
     )
     parser.add_argument(
-        "--color",
-        default=None,
-        choices=["auto", "always", "never"],
-        help="Terminal colour output (default: auto).",
+        "--no-color",
+        action="store_true",
+        default=False,
+        help="disable coloured output",
     )
     parser.add_argument(
         "-l",
@@ -488,11 +481,11 @@ def decompress_case(directory: Path) -> int:
             part_targets = [(p, tmpdir / f"_part_{p.name}") for p in parts]
             workers = min(len(parts), os.cpu_count() or 4)
             with ThreadPoolExecutor(max_workers=workers) as pool:
-                futs = {
+                part_futs = {
                     pool.submit(_decompress_file, src, dst): dst
                     for src, dst in part_targets
                 }
-                for fut in as_completed(futs):
+                for fut in as_completed(part_futs):
                     fut.result()
 
             # Concatenate decompressed parts in order

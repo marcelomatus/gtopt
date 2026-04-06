@@ -36,6 +36,7 @@ from gtopt_check_json._terminal import (
     init as _init_terminal,
     print_section,
 )
+from gtopt_config import configure_logging, get_version
 
 from ._binary import find_gtopt_binary
 from ._solver_tests import (
@@ -45,16 +46,7 @@ from ._solver_tests import (
     run_solver_tests,
 )
 
-try:
-    from importlib.metadata import PackageNotFoundError
-    from importlib.metadata import version as _pkg_version
-
-    try:
-        __version__ = _pkg_version("gtopt-scripts")
-    except PackageNotFoundError:
-        __version__ = "dev"
-except ImportError:
-    __version__ = "dev"
+__version__ = get_version()
 
 log = logging.getLogger(__name__)
 
@@ -146,6 +138,13 @@ def _make_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Verbose output (show test details).",
+    )
+    parser.add_argument(
+        "--log-level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        default="WARNING",
+        help="logging verbosity (default: WARNING)",
+        metavar="LEVEL",
     )
     parser.add_argument(
         "-V",
@@ -284,9 +283,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = _make_parser()
     args = parser.parse_args(argv)
 
-    # Logging
-    level = logging.DEBUG if args.verbose else logging.WARNING
-    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
+    # Logging: --verbose overrides default log-level to DEBUG
+    if args.verbose and args.log_level == "WARNING":
+        args.log_level = "DEBUG"
+    configure_logging(args)
 
     # Terminal
     _init_terminal(force_color=False if args.no_color else None)

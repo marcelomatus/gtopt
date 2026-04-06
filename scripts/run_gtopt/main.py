@@ -9,6 +9,8 @@ import signal
 import sys
 from pathlib import Path
 
+from gtopt_config import get_version
+
 from ._binary import find_gtopt_binary, find_plp2gtopt
 from ._checks import (
     available_checks,
@@ -20,16 +22,7 @@ from ._environment import detect_compression_codec, detect_cpu_count
 from ._runner import report_solution, run_gtopt, run_plp2gtopt
 from ._sanitize import sanitize_json
 
-try:
-    from importlib.metadata import PackageNotFoundError
-    from importlib.metadata import version as _pkg_version
-
-    try:
-        __version__ = _pkg_version("gtopt-scripts")
-    except PackageNotFoundError:
-        __version__ = "dev"
-except ImportError:
-    __version__ = "dev"
+__version__ = get_version()
 
 log = logging.getLogger(__name__)
 

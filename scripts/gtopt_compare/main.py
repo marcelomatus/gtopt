@@ -62,15 +62,14 @@ import textwrap
 from collections.abc import Callable
 from pathlib import Path
 
-try:
-    from importlib.metadata import version as _pkg_version, PackageNotFoundError
+from gtopt_config import (
+    add_color_argument,
+    add_log_level_argument,
+    add_version_argument,
+    get_version,
+)
 
-    try:
-        __version__ = _pkg_version("gtopt-scripts")
-    except PackageNotFoundError:
-        __version__ = "dev"
-except ImportError:
-    __version__ = "dev"
+__version__ = get_version()
 
 logger = logging.getLogger(__name__)
 
@@ -1468,29 +1467,9 @@ examples:
         metavar="$/MWh",
         help="Bus LMP tolerance in $/MWh (default: 0.1).",
     )
-    parser.add_argument(
-        "-l",
-        "--log-level",
-        default="INFO",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        metavar="LEVEL",
-        help=(
-            "logging verbosity: DEBUG, INFO, WARNING, ERROR, CRITICAL "
-            "(default: %(default)s)"
-        ),
-    )
-    parser.add_argument(
-        "--no-color",
-        action="store_true",
-        default=False,
-        help="Disable coloured output.",
-    )
-    parser.add_argument(
-        "-V",
-        "--version",
-        action="version",
-        version=f"%(prog)s {__version__}",
-    )
+    add_version_argument(parser)
+    add_log_level_argument(parser)
+    add_color_argument(parser)
     args = parser.parse_args()
 
     logging.basicConfig(

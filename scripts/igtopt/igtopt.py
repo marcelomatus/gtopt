@@ -27,17 +27,11 @@ from igtopt.template_builder import (
     SIMULATION_OPTION_KEYS,
 )
 
+from gtopt_config import get_version
+
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-try:
-    from importlib.metadata import version as _pkg_version, PackageNotFoundError
-
-    try:
-        __version__ = _pkg_version("gtopt-scripts")
-    except PackageNotFoundError:
-        __version__ = "dev"
-except ImportError:
-    __version__ = "dev"
+__version__ = get_version()
 
 
 @functools.lru_cache(maxsize=8)

@@ -7,7 +7,7 @@ import signal
 import sys
 from pathlib import Path
 
-from gtopt_config import DEFAULT_CONFIG_PATH, load_config, save_section
+from gtopt_config import DEFAULT_CONFIG_PATH, get_version, load_config, save_section
 
 from .plp2gtopt import (
     convert_plp_case,
@@ -16,15 +16,7 @@ from .plp2gtopt import (
 )
 from .info_display import display_plp_info
 
-try:
-    from importlib.metadata import version as _pkg_version, PackageNotFoundError
-
-    try:
-        __version__ = _pkg_version("gtopt-scripts")
-    except PackageNotFoundError:
-        __version__ = "dev"
-except ImportError:
-    __version__ = "dev"
+__version__ = get_version()
 
 _DESCRIPTION = """\
 Convert a PLP (PLPMAX/PLPOPT) case directory to gtopt JSON format.
@@ -186,7 +178,7 @@ def make_parser() -> argparse.ArgumentParser:
     add_model_arguments(parser, conf)
     add_reservoir_battery_arguments(parser, conf)
     add_tech_arguments(parser, conf)
-    add_general_arguments(parser, conf, version=__version__)
+    add_general_arguments(parser, conf)
 
     return parser
 

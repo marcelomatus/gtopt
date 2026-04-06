@@ -16,6 +16,12 @@ When stdout is not a TTY (piped, redirected, or running in background),
 the display is disabled and solver output flows to stdout/log files
 unchanged.
 
+Display modes (switch with Tab or 1/2/3):
+
+  1  Dashboard — stats, progress, iteration history, log
+  2  Grid — SDDP phase activity grid (forward/backward/elastic/aperture)
+  3  Convergence — per-scene cost heatmap + bound sparklines
+
 Interactive commands (single-key, no Enter required):
 
   s  Graceful stop — saves cuts, finishes current iteration
@@ -53,6 +59,30 @@ _MAX_HISTORY_ROWS = 8  # iteration rows shown in the table
 _REFRESH_PER_SECOND = 4  # Rich Live refresh rate
 _SPARKLINE_WIDTH = 24
 _PROGRESS_BAR_WIDTH = 40
+
+# Display modes — cycle with Tab, jump with 1/2/3
+_MODE_DASHBOARD = 0  # full dashboard (stats, progress, history, log)
+_MODE_GRID = 1  # SDDP phase activity grid
+_MODE_CONVERGENCE = 2  # per-scene convergence heatmap + sparklines
+_MODE_COUNT = 3
+_MODE_NAMES = {
+    _MODE_DASHBOARD: "dashboard",
+    _MODE_GRID: "grid",
+    _MODE_CONVERGENCE: "convergence",
+}
+
+# Convergence heatmap color ramp (green → yellow → red, 8 levels)
+_HEAT_BLOCKS = "▁▂▃▄▅▆▇█"
+_HEAT_STYLES = [
+    "bold green",
+    "green",
+    "dark_green",
+    "yellow",
+    "dark_orange",
+    "orange_red1",
+    "red",
+    "bold red",
+]
 
 # Pass names from the C++ SolverStatusSnapshot::current_pass enum
 _PASS_NAMES = {0: "idle", 1: "forward", 2: "backward"}
@@ -926,28 +956,43 @@ def _build_log(lines: list[str]) -> Panel:
     )
 
 
-def _build_command_bar(stop_sent: bool) -> Panel:
+def _build_command_bar(stop_sent: bool, mode: int = _MODE_DASHBOARD) -> Panel:
     """Render the interactive command bar at the bottom of the display."""
     from rich.panel import Panel  # noqa: PLC0415
     from rich.text import Text  # noqa: PLC0415
 
     text = Text()
+
+    # Mode selector: [1] dashboard  [2] grid  [3] convergence  [Tab] cycle
     text.append("  ")
+    for m, label in _MODE_NAMES.items():
+        key = str(m + 1)
+        if m == mode:
+            text.append(f"[{key}]", style="bold green")
+            text.append(f" {label}", style="bold green")
+        else:
+            text.append(f"[{key}]", style="dim cyan")
+            text.append(f" {label}", style="dim")
+        text.append("  ")
+    text.append("[Tab]", style="dim cyan")
+    text.append(" cycle", style="dim")
+
+    # Separator
+    text.append("    │    ", style="dim")
+
+    # Action keys
     text.append("[s]", style="bold cyan")
     if stop_sent:
         text.append(" stop sent", style="dim")
     else:
         text.append(" stop", style="")
-    text.append("    ")
-    text.append("[g]", style="bold cyan")
-    text.append(" grid", style="")
-    text.append("    ")
+    text.append("  ")
     text.append("[i]", style="bold cyan")
     text.append(" stats", style="")
-    text.append("    ")
+    text.append("  ")
     text.append("[h]", style="bold cyan")
     text.append(" help", style="")
-    text.append("    ")
+    text.append("  ")
     text.append("[q]", style="bold cyan")
     text.append(" quit", style="")
 
@@ -995,8 +1040,11 @@ def _build_help_overlay() -> Panel:
     table.add_column("Description")
 
     commands = [
+        ("1", "Dashboard mode — stats, history table, log output"),
+        ("2", "Grid mode — SDDP phase activity grid"),
+        ("3", "Convergence mode — per-scene cost heatmap + sparklines"),
+        ("Tab", "Cycle through display modes"),
         ("s", "Graceful stop — finish current iteration, save cuts, exit"),
-        ("g", "Toggle SDDP phase grid (forward/backward/elastic/aperture)"),
         ("i", "Toggle system stats overlay (buses, generators, etc.)"),
         ("h", "Toggle this help overlay"),
         ("q", "Quit — terminate the solver immediately"),
@@ -1187,6 +1235,145 @@ def _build_sddp_grid(tracker: SDDPGridTracker) -> Panel:
 
 
 # ---------------------------------------------------------------------------
+# Convergence heatmap / sparkline panel
+# ---------------------------------------------------------------------------
+
+
+def _heat_style(value: float, lo: float, hi: float) -> tuple[str, str]:
+    """Map *value* in [lo, hi] to a (block_char, Rich style) pair."""
+    rng = hi - lo if hi > lo else 1.0
+    idx = min(7, int((value - lo) / rng * 8))
+    return _HEAT_BLOCKS[idx], _HEAT_STYLES[idx]
+
+
+def _build_convergence(data: dict) -> Panel:
+    """Render the per-scene convergence heatmap and bound sparklines.
+
+    Layout:
+      1. Aggregate LB / UB sparkline convergence curves
+      2. Per-scene cost heatmap (rows=iterations, cols=scenes)
+      3. Per-scene UB sparklines
+    """
+    from rich.panel import Panel  # noqa: PLC0415
+    from rich.text import Text  # noqa: PLC0415
+
+    text = Text()
+    history = data.get("history", [])
+
+    if not history:
+        text.append("  Waiting for iteration data...", style="dim")
+        return Panel(
+            text,
+            title="[bold]Convergence[/bold]",
+            border_style="dim cyan",
+            padding=(0, 1),
+        )
+
+    # -- 1. Aggregate bound sparklines --
+    lbs = [r.get("lower_bound", 0.0) for r in history]
+    ubs = [r.get("upper_bound", 0.0) for r in history]
+    gaps = [r.get("gap", 0.0) for r in history]
+
+    text.append("  LB ", style="bold cyan")
+    text.append(_sparkline(lbs, width=40), style="cyan")
+    text.append(f"  {_format_number(lbs[-1])}", style="cyan")
+    text.append("\n")
+    text.append("  UB ", style="bold magenta")
+    text.append(_sparkline(ubs, width=40), style="magenta")
+    text.append(f"  {_format_number(ubs[-1])}", style="magenta")
+    text.append("\n")
+    text.append("  Gap", style="bold")
+    text.append(" ")
+    text.append(_sparkline(gaps, width=40), style="yellow")
+    gap_val = gaps[-1]
+    gap_style = (
+        "bold green"
+        if gap_val < 0.01
+        else "bold yellow"
+        if gap_val < 0.1
+        else "bold red"
+    )
+    text.append(f"  {gap_val:.6f}", style=gap_style)
+    text.append("\n\n")
+
+    # -- 2. Per-scene cost heatmap --
+    # Collect scene_upper_bounds from history
+    n_scenes = 0
+    scene_ub_matrix: list[list[float]] = []  # [iter_idx][scene_idx]
+    for rec in history:
+        sub = rec.get("scene_upper_bounds", [])
+        if sub:
+            n_scenes = max(n_scenes, len(sub))
+            scene_ub_matrix.append(sub)
+
+    if scene_ub_matrix and n_scenes > 0:
+        # Find global min/max for color mapping
+        all_vals = [v for row in scene_ub_matrix for v in row]
+        lo, hi = min(all_vals), max(all_vals)
+
+        text.append("  Scene Costs", style="bold")
+        text.append("  (rows=iterations, cols=scenes)\n", style="dim")
+
+        # Scene header
+        text.append("       ")
+        for sc in range(n_scenes):
+            if n_scenes <= 20 or sc % 5 == 0:
+                label = f"s{sc}"
+                text.append(f"{label:<3}", style="dim")
+            else:
+                text.append("   ", style="dim")
+        text.append("\n")
+
+        # Show last _MAX_HISTORY_ROWS iterations
+        display_rows = scene_ub_matrix[-_MAX_HISTORY_ROWS:]
+        first_iter = len(scene_ub_matrix) - len(display_rows)
+        for row_idx, row in enumerate(display_rows):
+            it = first_iter + row_idx
+            text.append(f"  {it:>3} ", style="dim")
+            for val in row:
+                char, style = _heat_style(val, lo, hi)
+                text.append(f" {char} ", style=style)
+            text.append("\n")
+
+        # Color bar legend
+        text.append("\n       ")
+        text.append("low", style="bold green")
+        text.append(" ")
+        for i in range(8):
+            text.append(_HEAT_BLOCKS[i], style=_HEAT_STYLES[i])
+        text.append(" ")
+        text.append("high", style="bold red")
+        text.append(
+            f"   range: [{_format_number(lo)} .. {_format_number(hi)}]", style="dim"
+        )
+        text.append("\n")
+
+        # -- 3. Per-scene UB sparklines --
+        if n_scenes <= 20 and len(scene_ub_matrix) >= 2:
+            text.append("\n")
+            text.append("  Per-Scene Trends\n", style="bold")
+            for sc in range(n_scenes):
+                scene_vals = [row[sc] for row in scene_ub_matrix if sc < len(row)]
+                text.append(f"  s{sc:<3}", style="dim")
+                text.append(_sparkline(scene_vals, width=30))
+                text.append(f"  {_format_number(scene_vals[-1])}", style="dim")
+                text.append("\n")
+    else:
+        text.append("  Per-scene data not yet available\n", style="dim")
+        text.append(
+            "  (scene_upper_bounds will appear after first SDDP iteration)\n",
+            style="dim",
+        )
+
+    return Panel(
+        text,
+        title="[bold]Convergence[/bold]",
+        border_style="dim cyan",
+        padding=(0, 1),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Main display class
 # ---------------------------------------------------------------------------
 
@@ -1228,7 +1415,7 @@ class SolverDisplay:
         # Interactive command state
         self._show_help = False
         self._show_stats = False
-        self._show_grid = False
+        self._display_mode = _MODE_DASHBOARD
         self._stop_sent = False
         self._system_stats: dict[str, Any] = {}
         self.quit_requested = threading.Event()
@@ -1357,8 +1544,14 @@ class SolverDisplay:
                 for k, v in file_stats.items():
                     if k not in self._system_stats or not self._system_stats[k]:
                         self._system_stats[k] = v
-        elif key in ("g", "G"):
-            self._show_grid = not self._show_grid
+        elif key in ("\t",):  # Tab — cycle display mode
+            self._display_mode = (self._display_mode + 1) % _MODE_COUNT
+        elif key == "1":
+            self._display_mode = _MODE_DASHBOARD
+        elif key == "2":
+            self._display_mode = _MODE_GRID
+        elif key == "3":
+            self._display_mode = _MODE_CONVERGENCE
         elif key in ("h", "H", "?"):
             self._show_help = not self._show_help
             self._show_stats = False
@@ -1395,6 +1588,7 @@ class SolverDisplay:
 
         data = self._status
         elapsed = time.monotonic() - self._start_time
+        mode = self._display_mode
 
         with self._lock:
             log_lines = list(self._log_lines)
@@ -1419,35 +1613,47 @@ class SolverDisplay:
         has_sddp = bool(data.get("max_iterations"))
         has_monolithic = data.get("total_scenes") is not None
 
-        if has_sddp:
-            panels.append(_build_progress(data))
-            panels.append(_build_stats(data))
-            async_panel = _build_async_panel(data)
-            if async_panel is not None:
-                panels.append(async_panel)
-            if data.get("history"):
-                panels.append(_build_history(data))
-            rt = data.get("realtime", {})
-            if rt.get("cpu_loads") or rt.get("active_workers"):
-                panels.append(_build_system(data))
-        elif has_monolithic:
-            panels.append(_build_progress(data))
-            rt = data.get("realtime", {})
-            if rt.get("cpu_loads") or rt.get("active_workers"):
-                panels.append(_build_system(data))
+        if mode == _MODE_DASHBOARD:
+            # Full dashboard: stats, progress, history, system, log
+            if has_sddp:
+                panels.append(_build_progress(data))
+                panels.append(_build_stats(data))
+                async_panel = _build_async_panel(data)
+                if async_panel is not None:
+                    panels.append(async_panel)
+                if data.get("history"):
+                    panels.append(_build_history(data))
+                rt = data.get("realtime", {})
+                if rt.get("cpu_loads") or rt.get("active_workers"):
+                    panels.append(_build_system(data))
+            elif has_monolithic:
+                panels.append(_build_progress(data))
+                rt = data.get("realtime", {})
+                if rt.get("cpu_loads") or rt.get("active_workers"):
+                    panels.append(_build_system(data))
+            panels.append(_build_log(log_lines))
 
-        # SDDP phase grid (auto-show for SDDP, toggle with 'g')
-        if self._show_grid and self._grid_tracker.has_data:
-            panels.append(_build_sddp_grid(self._grid_tracker))
+        elif mode == _MODE_GRID:
+            # SDDP phase activity grid
+            if has_sddp:
+                panels.append(_build_progress(data))
+            if self._grid_tracker.has_data:
+                panels.append(_build_sddp_grid(self._grid_tracker))
+            panels.append(_build_log(log_lines))
 
-        # Overlays
+        elif mode == _MODE_CONVERGENCE:
+            # Per-scene convergence heatmap + sparklines
+            if has_sddp:
+                panels.append(_build_progress(data))
+            panels.append(_build_convergence(data))
+
+        # Overlays (available in all modes)
         if self._show_help:
             panels.append(_build_help_overlay())
         elif self._show_stats:
             panels.append(_build_stats_overlay(self._system_stats))
 
-        panels.append(_build_log(log_lines))
-        panels.append(_build_command_bar(self._stop_sent))
+        panels.append(_build_command_bar(self._stop_sent, mode))
         return Group(*panels)
 
     def _run_loop(self) -> None:

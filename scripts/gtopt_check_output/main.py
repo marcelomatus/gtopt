@@ -9,21 +9,14 @@ import logging
 import sys
 from pathlib import Path
 
+from gtopt_config import get_version
+
 from ._checks import Finding, run_all_checks
 from ._reader import load_planning
 
 log = logging.getLogger(__name__)
 
-try:
-    from importlib.metadata import PackageNotFoundError
-    from importlib.metadata import version as _pkg_version
-
-    try:
-        __version__ = _pkg_version("gtopt-scripts")
-    except PackageNotFoundError:
-        __version__ = "dev"
-except ImportError:
-    __version__ = "dev"
+__version__ = get_version()
 
 _DESCRIPTION = """\
 Validate and analyze gtopt solver output.

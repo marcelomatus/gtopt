@@ -23,11 +23,13 @@ This guide provides detailed instructions for building gtopt from source, includ
 | GCC | 14+ | C++26 compiler (CI fallback) | `gcc-14 g++-14` |
 | Clang | 21+ | C++26 compiler (CI primary) | see install script below |
 | CMake | 3.31+ | Build system | `cmake` (or [cmake.org](https://cmake.org/download/)) |
+| Ninja | 1.10+ | Fast build system (recommended) | `ninja-build` |
 | Boost | 1.70+ | Container library | `libboost-container-dev` |
 | Apache Arrow | 10.0+ | Parquet I/O | `libarrow-dev libparquet-dev` or conda |
 | COIN-OR CBC/CLP | 2.10+ | LP/MIP solver | `coinor-libcbc-dev` |
 | HiGHS | 1.5+ | LP/MIP solver (optional) | build from source (see below) |
 | spdlog | 1.12+ | Logging | `libspdlog-dev` |
+| lld | 14+ | Fast linker (auto-detected) | `lld` |
 | tectonic | 0.15+ | White paper PDF (optional) | `curl -fsSL https://drop-sh.fullyjustified.net \| sh` |
 
 **LP Solver Backends**: gtopt loads LP solver backends as dynamic plugins at
@@ -81,6 +83,7 @@ Verify:
 
 ```bash
 clang++ --version   # clang version 21.x.x
+```
 
 #### CMake 3.31+
 
@@ -305,6 +308,48 @@ cmake -S all -B build -DGTOPT_BUILD_WHITE_PAPER=ON
 cmake --build build --target white_paper
 ```
 
+## Build Performance
+
+gtopt uses three complementary techniques for fast builds:
+
+### Ninja build system (recommended)
+
+Ninja provides **file-level** dependency tracking, meaning test sources
+compile in parallel with library sources (unlike Make, which waits for
+the full library to finish before starting tests). Install and use:
+
+```bash
+sudo apt-get install -y ninja-build
+cmake -S all -B build -G Ninja ...   # add -G Ninja to any cmake configure
+cmake --build build -j$(nproc)
+```
+
+### Unity builds
+
+CMake unity builds batch multiple `.cpp` files into single translation
+units, reducing redundant header parsing. This is enabled automatically
+by `cmake_local/UnityBuild.cmake` with per-directory grouping and
+adaptive batch sizes (clamped to 2–8 files per batch).
+
+### lld linker
+
+The LLVM linker `lld` is 2–3× faster than the default `ld`. When
+installed, it is auto-detected by `cmake_local/FastLinker.cmake` and
+used for all link steps:
+
+```bash
+sudo apt-get install -y lld
+```
+
+### Precompiled headers (PCH)
+
+Both the library and test builds use precompiled headers for common
+standard library headers (`<algorithm>`, `<string>`, `<vector>`, etc.),
+reducing compile times by ~30%.
+
+> **Tip**: For the best development experience, combine all four:
+> Ninja + Unity + lld + PCH + ccache.
+
 ## Building Everything (Unified)
 
 The `all/` sub-project is the single entry point that configures and installs
@@ -313,8 +358,8 @@ web service, and GUI service.  It is the recommended starting point for a
 complete installation.
 
 ```bash
-# Configure all components
-cmake -S all -B build-all \
+# Configure all components (use -G Ninja for fastest builds)
+cmake -S all -B build-all -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_C_COMPILER=clang \
   -DCMAKE_CXX_COMPILER=clang++ \
@@ -352,7 +397,7 @@ network connection).  Disable individual components by passing `-D<OPTION>=OFF`:
 Example – build only the solver binary and Python scripts:
 
 ```bash
-cmake -S all -B build-all \
+cmake -S all -B build-all -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DGTOPT_BUILD_WEBSERVICE=OFF \
   -DGTOPT_BUILD_GUISERVICE=OFF \
@@ -373,8 +418,9 @@ Once all dependencies are installed:
 git clone https://github.com/marcelomatus/gtopt.git
 cd gtopt
 
-# Configure the build
-CC=gcc-14 CXX=g++-14 cmake -S standalone -B build -DCMAKE_BUILD_TYPE=Release
+# Configure the build (add -G Ninja for faster builds)
+CC=gcc-14 CXX=g++-14 cmake -S standalone -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release
 
 # Build (using all available CPU cores)
 cmake --build build -j$(nproc)
@@ -526,13 +572,13 @@ Build and run the unit test suite (the **primary development target** is the
 
 ```bash
 # Configure — Arrow via APT (no CMAKE_PREFIX_PATH needed):
-cmake -S test -B build \
+cmake -S test -B build -G Ninja \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=gcc-14 \
   -DCMAKE_CXX_COMPILER=g++-14
 
 # — or — Arrow via conda (pass conda base as prefix):
-cmake -S test -B build \
+cmake -S test -B build -G Ninja \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=gcc-14 \
   -DCMAKE_CXX_COMPILER=g++-14 \
@@ -543,7 +589,7 @@ cmake --build build -j$(nproc)
 
 # Run all tests
 cd build && ctest --output-on-failure
-# Expected: 100% tests passed, 0 tests failed out of 584+
+# Expected: 100% tests passed, 0 tests failed out of 2000+
 ```
 
 Run tests with verbose output:

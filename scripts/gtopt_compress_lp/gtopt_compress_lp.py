@@ -57,6 +57,8 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from gtopt_config import get_version
+
 from . import _colors as col
 from ._config import (
     default_config_path,
@@ -66,15 +68,7 @@ from ._config import (
     run_interactive_setup,
 )
 
-try:
-    from importlib.metadata import version as _pkg_version, PackageNotFoundError
-
-    try:
-        __version__ = _pkg_version("gtopt-scripts")
-    except PackageNotFoundError:
-        __version__ = "dev"
-except ImportError:
-    __version__ = "dev"
+__version__ = get_version()
 
 # ---------------------------------------------------------------------------
 # Output extension mapping per compressor
@@ -304,10 +298,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Path to the config file (default: ~/.gtopt.conf).",
     )
     parser.add_argument(
+        "--no-color",
+        action="store_true",
+        default=False,
+        help="Disable coloured output.",
+    )
+    parser.add_argument(
         "--color",
         default=None,
         choices=["auto", "always", "never"],
-        help="Terminal colour output (default: auto).",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--show-config",
@@ -324,6 +324,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Logging verbosity (default: %(default)s).",
     )
     parser.add_argument(
+        "-V",
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
@@ -341,10 +342,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     # ── Colour setup ───────────────────────────────────────────────────────
-    color_flag = args.color
-    if color_flag is None:
-        color_flag = "auto"
-    use_color = color_flag == "always" or (color_flag == "auto" and sys.stdout.isatty())
+    # --no-color takes precedence; legacy --color is kept for backward compat.
+    if args.no_color or args.color == "never":
+        use_color = False
+    elif args.color == "always":
+        use_color = True
+    else:
+        use_color = sys.stdout.isatty()
     col.USE_COLOR = use_color
 
     def _c(code: str, text: str) -> str:

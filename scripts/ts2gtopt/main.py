@@ -14,6 +14,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from gtopt_config import get_version
+
 from ts2gtopt.ts2gtopt import (
     PRESETS,
     _sequential_hour_range,
@@ -27,16 +29,7 @@ from ts2gtopt.ts2gtopt import (
     project_timeseries,
 )
 
-try:
-    from importlib.metadata import PackageNotFoundError
-    from importlib.metadata import version as _pkg_version
-
-    try:
-        __version__ = _pkg_version("gtopt-scripts")
-    except PackageNotFoundError:
-        __version__ = "dev"
-except ImportError:
-    __version__ = "dev"
+__version__ = get_version()
 
 _LOG_LEVEL_CHOICES = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 

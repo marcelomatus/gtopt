@@ -5,19 +5,12 @@ from __future__ import annotations
 
 import argparse
 
+from gtopt_config import get_version
+
 from ._ai import _AI_DEFAULT_PROVIDER, _AI_PROVIDERS
 from ._neos import _NEOS_DEFAULT_URL
 
-try:
-    from importlib.metadata import PackageNotFoundError
-    from importlib.metadata import version as _pkg_version
-
-    try:
-        __version__ = _pkg_version("gtopt-scripts")
-    except PackageNotFoundError:
-        __version__ = "dev"
-except ImportError:
-    __version__ = "dev"
+__version__ = get_version()
 
 
 def _build_parser() -> argparse.ArgumentParser:

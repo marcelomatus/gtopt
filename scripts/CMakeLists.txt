@@ -386,6 +386,21 @@ foreach(_case IN ITEMS
     min_bess
     min_battery
     min_ess
+)
+  add_pytest_integration_test(
+    scripts-plp2gtopt-${_case}
+    FILE     "${_plp2gtopt_test_file}"
+    KEYWORD  "${_case}"
+    FIXTURE_REQUIRED scripts-deps
+  )
+endforeach()
+
+# Hydro integration tests live in a separate file after the test split.
+set(_plp2gtopt_hydro_test_file
+  "${SCRIPTS_DIR}/plp2gtopt/tests/test_integration_hydro.py"
+)
+
+foreach(_case IN ITEMS
     min_hydro
     min_mance
     min_manli
@@ -393,7 +408,7 @@ foreach(_case IN ITEMS
 )
   add_pytest_integration_test(
     scripts-plp2gtopt-${_case}
-    FILE     "${_plp2gtopt_test_file}"
+    FILE     "${_plp2gtopt_hydro_test_file}"
     KEYWORD  "${_case}"
     FIXTURE_REQUIRED scripts-deps
   )

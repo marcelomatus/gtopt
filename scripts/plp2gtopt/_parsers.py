@@ -13,6 +13,12 @@ import argparse
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from gtopt_config import (
+    add_color_argument,
+    add_log_level_argument,
+    add_version_argument,
+)
+
 if TYPE_CHECKING:
     pass
 
@@ -741,11 +747,9 @@ def add_tech_arguments(parser: argparse.ArgumentParser, _conf: dict[str, str]) -
 # 8. General / miscellaneous arguments
 # ---------------------------------------------------------------------------
 
-_LOG_LEVEL_CHOICES = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-
 
 def add_general_arguments(
-    parser: argparse.ArgumentParser, conf: dict[str, str], *, version: str
+    parser: argparse.ArgumentParser, conf: dict[str, str]
 ) -> None:
     """Register name, discount-rate, management-factor, logging, misc flags."""
     parser.add_argument(
@@ -784,17 +788,7 @@ def add_general_arguments(
         default=0.0,
         help="demand management factor (default: %(default)s)",
     )
-    parser.add_argument(
-        "-l",
-        "--log-level",
-        default="INFO",
-        choices=_LOG_LEVEL_CHOICES,
-        metavar="LEVEL",
-        help=(
-            "logging verbosity: DEBUG, INFO, WARNING, ERROR, CRITICAL "
-            "(default: %(default)s)"
-        ),
-    )
+    add_log_level_argument(parser)
     parser.add_argument(
         "--log",
         dest="log_file",
@@ -853,21 +847,11 @@ def add_general_arguments(
             "(default: enabled)"
         ),
     )
-    parser.add_argument(
-        "--no-color",
-        action="store_true",
-        default=False,
-        help="Disable coloured output.",
-    )
+    add_color_argument(parser)
     parser.add_argument(
         "--init-config",
         action="store_true",
         default=False,
         help="initialize [plp2gtopt] section in ~/.gtopt.conf with defaults",
     )
-    parser.add_argument(
-        "-V",
-        "--version",
-        action="version",
-        version=f"%(prog)s {version}",
-    )
+    add_version_argument(parser)
