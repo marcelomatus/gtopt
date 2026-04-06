@@ -109,6 +109,14 @@ file(GLOB_RECURSE sources CONFIGURE_DEPENDS
      "${CMAKE_CURRENT_SOURCE_DIR}/source/[a-zA-Z]*.cpp"
 )
 
+# Move gtopt_main.cpp to the front of the source list so that Ninja
+# schedules its compilation before the unity batches.  It is the slowest
+# file (~209s) and compiles standalone (SKIP_UNITY_BUILD_INCLUSION ON),
+# so starting it first minimises the critical-path build time.
+set(_priority_src "${CMAKE_CURRENT_SOURCE_DIR}/source/gtopt_main.cpp")
+list(REMOVE_ITEM sources "${_priority_src}")
+list(PREPEND sources "${_priority_src}")
+
 # ---- Create library ----
 
 add_library(${PROJECT_NAME} ${headers} ${sources})

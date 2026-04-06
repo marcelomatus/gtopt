@@ -61,6 +61,14 @@ file(GLOB sources CONFIGURE_DEPENDS
 )
 list(FILTER sources EXCLUDE REGEX "test_benchmark_")
 
+# Move main.cpp to the front of the source list so that Ninja schedules
+# its compilation before the unity batches.  It defines
+# DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN (standalone TU) and benefits from
+# starting first to reduce critical-path build time.
+set(_priority_src "${CMAKE_CURRENT_SOURCE_DIR}/source/main.cpp")
+list(REMOVE_ITEM sources "${_priority_src}")
+list(PREPEND sources "${_priority_src}")
+
 add_executable(${PROJECT_NAME} ${sources})
 
 target_link_libraries(

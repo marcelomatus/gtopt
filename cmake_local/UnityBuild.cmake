@@ -129,5 +129,28 @@ function(target_enable_unity_build target)
     UNITY_BUILD ON
     UNITY_BUILD_BATCH_SIZE ${_batch}
   )
+
+  # ── Log SKIP_UNITY priority sources ──
+  # Files with SKIP_UNITY_BUILD_INCLUSION compile as standalone TUs.
+  # Combined with list(PREPEND) in the calling CMakeLists.txt, they appear
+  # first in the source list — Ninja uses this as a tiebreaker when multiple
+  # edges are ready at the same depth.
+  get_target_property(_all_srcs ${target} SOURCES)
+  set(_skip_srcs)
+  foreach(_src IN LISTS _all_srcs)
+    get_filename_component(_ext "${_src}" LAST_EXT)
+    if(NOT _ext MATCHES "^\\.(cpp|cxx|cc|c)$")
+      continue()
+    endif()
+    get_source_file_property(_skip "${_src}" SKIP_UNITY_BUILD_INCLUSION)
+    if(_skip)
+      list(APPEND _skip_srcs "${_src}")
+    endif()
+  endforeach()
+  if(_skip_srcs)
+    list(LENGTH _skip_srcs _n_skip)
+    message(STATUS "  priority sources (${_n_skip}, SKIP_UNITY): ${_skip_srcs}")
+  endif()
+
   message(STATUS "Unity build enabled for ${target} (batch size ${_batch}, ${GTOPT_NPROC} cores)")
 endfunction()

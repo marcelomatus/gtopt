@@ -35,6 +35,11 @@ set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Disable C++20 module scanning — gtopt does not use modules.  CMake 3.28+
+# enables scanning by default for C++20/23/26, which adds per-file overhead
+# and silently prevents unity builds from working with the Ninja generator.
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 cmake_policy(SET CMP0167 NEW)
