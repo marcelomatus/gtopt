@@ -507,4 +507,3 @@ def test_min_ess_lmax_parquet(tmp_path):
     # Thermal demand column (bus uid = 1)
     assert "uid:1" in df.columns
     assert float(df[df["block"] == 1]["uid:1"].iloc[0]) == pytest.approx(80.0)
-

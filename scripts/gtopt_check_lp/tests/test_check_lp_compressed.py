@@ -5,8 +5,6 @@ import gzip
 import pathlib
 from pathlib import Path
 
-import pytest
-
 from gtopt_check_lp._compress import (
     as_plain_lp,
     as_sanitized_lp,
