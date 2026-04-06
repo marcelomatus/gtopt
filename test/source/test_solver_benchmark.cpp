@@ -298,7 +298,8 @@ void print_benchmark_table(const std::vector<BenchmarkResult>& results)
 void run_solver_benchmark(const FlatLinearProblem& flat_lp,
                           const std::string& label)
 {
-  const auto& reg = SolverRegistry::instance();
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
   const auto available = reg.available_solvers();
 
   if (available.empty()) {

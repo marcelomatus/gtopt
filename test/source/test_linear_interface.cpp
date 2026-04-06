@@ -506,7 +506,8 @@ TEST_CASE("LinearInterface - get_kappa with explicit solver")
   // HiGHS uses Highs::getKappa(exact=true) which computes the actual
   // condition number. CLP/CBC uses largestDualError() as a proxy
   // (conditionNumber() is unavailable in multi-factorization builds).
-  const auto& reg = SolverRegistry::instance();
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
   for (const auto& solver : reg.available_solvers()) {
     CAPTURE(solver);
     try {
@@ -666,7 +667,7 @@ TEST_CASE("LinearInterface - FlatLinearProblem constructor")
   auto flat_lp = lp.flatten(flat_opts);
 
   // Construct directly from FlatLinearProblem
-  const auto& reg = SolverRegistry::instance();
+  auto& reg = SolverRegistry::instance();
   LinearInterface interface(reg.default_solver(), flat_lp);
 
   CHECK(interface.get_numcols() == 2);

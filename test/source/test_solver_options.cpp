@@ -188,7 +188,7 @@ TEST_CASE("SolverOptions - Usage with LinearInterface")
   flat_lp.rownm = {"r1"};  // Row names
 
   // Create LinearInterface with the default available solver
-  const auto& reg = SolverRegistry::instance();
+  auto& reg = SolverRegistry::instance();
   LinearInterface lp(reg.default_solver(), flat_lp);
 
   // Create solver options with custom values
@@ -545,7 +545,7 @@ TEST_CASE("SolverOptions - Algorithm selection with dual simplex")  // NOLINT
   flat_lp.colnm = {"x"};
   flat_lp.rownm = {"r1"};
 
-  const auto& reg = SolverRegistry::instance();
+  auto& reg = SolverRegistry::instance();
   LinearInterface lp(reg.default_solver(), flat_lp);
 
   const SolverOptions solver_options {
@@ -581,7 +581,7 @@ TEST_CASE("SolverOptions - Algorithm selection with primal simplex")  // NOLINT
   flat_lp.colnm = {"x"};
   flat_lp.rownm = {"r1"};
 
-  const auto& reg = SolverRegistry::instance();
+  auto& reg = SolverRegistry::instance();
   LinearInterface lp(reg.default_solver(), flat_lp);
 
   const SolverOptions solver_options {
@@ -695,7 +695,8 @@ TEST_CASE("SolverOptions - barrier with threads on all solvers")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  const auto& reg = SolverRegistry::instance();
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
   const auto solvers = reg.available_solvers();
   REQUIRE(!solvers.empty());
 
@@ -734,7 +735,8 @@ TEST_CASE(
 
   // Test the SDDP workflow: initial solve with barrier, then resolve with
   // dual simplex (reuse_basis).  Validates the CPLEX resolve() fix.
-  const auto& reg = SolverRegistry::instance();
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
   const auto solvers = reg.available_solvers();
   REQUIRE(!solvers.empty());
 
@@ -774,7 +776,8 @@ TEST_CASE("SolverOptions - log_mode detailed writes log file")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  const auto& reg = SolverRegistry::instance();
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
   const auto solvers = reg.available_solvers();
   REQUIRE(!solvers.empty());
 
@@ -872,7 +875,8 @@ TEST_CASE("SolverOptions - query methods reflect applied options")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  const auto& reg = SolverRegistry::instance();
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
   const auto solvers = reg.available_solvers();
   REQUIRE(!solvers.empty());
 

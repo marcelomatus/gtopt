@@ -1102,7 +1102,8 @@ SolverTestReport run_solver_tests(std::string_view solver_name, bool verbose)
 
 int check_all_solvers(bool verbose)
 {
-  const auto& registry = SolverRegistry::instance();
+  auto& registry = SolverRegistry::instance();
+  registry.load_all_plugins();
   const auto available = registry.available_solvers();
 
   if (available.empty()) {

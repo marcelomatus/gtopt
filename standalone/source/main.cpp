@@ -58,7 +58,8 @@ int main(int argc, char** argv)
     }
 
     if (vm.contains("solvers")) {
-      const auto& registry = gtopt::SolverRegistry::instance();
+      auto& registry = gtopt::SolverRegistry::instance();
+      registry.load_all_plugins();
       const auto solvers = registry.available_solvers();
       if (solvers.empty()) {
         std::cout << "No LP solver plugins found.\n\n";
@@ -98,7 +99,8 @@ int main(int argc, char** argv)
         return gtopt::check_all_solvers(is_verbose);
       }
       // Run tests against the specified solver only.
-      const auto& registry = gtopt::SolverRegistry::instance();
+      auto& registry = gtopt::SolverRegistry::instance();
+      registry.load_all_plugins();
       if (!registry.has_solver(solver_arg)) {
         const auto avail = registry.available_solvers();
         std::cerr << "ERROR: solver '" << solver_arg << "' not available.\n";
@@ -126,29 +128,10 @@ int main(int argc, char** argv)
       return report.passed() ? 0 : 1;
     }
 
-    // Validate --solver early so the user gets a clear error
-    if (vm.contains("solver")) {
-      const auto& registry = gtopt::SolverRegistry::instance();
-      const auto solver = vm["solver"].as<std::string>();
-      if (!registry.has_solver(solver)) {
-        const auto avail = registry.available_solvers();
-        std::cerr << "ERROR: LP solver '" << solver << "' not available.\n";
-        if (avail.empty()) {
-          std::cerr << "No LP solver plugins found.\n"
-                    << "Hints:\n"
-                    << "  - Set GTOPT_PLUGIN_DIR to the plugin directory\n"
-                    << "  - Ensure libgtopt_solver_osi.so and/or "
-                       "libgtopt_solver_highs.so are installed\n";
-        } else {
-          std::cerr << "Available LP solvers:";
-          for (const auto& s : avail) {
-            std::cerr << " " << s;
-          }
-          std::cerr << '\n';
-        }
-        return 1;
-      }
-    }
+    // --solver validation is handled lazily: SolverRegistry::create()
+    // will attempt to load only the requested plugin on demand.  If the
+    // solver is unavailable, create() throws a clear error listing all
+    // available solvers (after loading all pending plugins).
 
     std::vector<std::string> system_files;
     if (vm.contains("system-file")) {

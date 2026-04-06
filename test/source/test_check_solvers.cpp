@@ -30,7 +30,7 @@ using namespace gtopt;  // NOLINT(google-build-using-namespace)
 /// Return the default solver name, or "" if no solver is available.
 [[nodiscard]] std::string default_solver_or_skip()
 {
-  const auto& reg = SolverRegistry::instance();
+  auto& reg = SolverRegistry::instance();
   const auto avail = reg.available_solvers();
   if (avail.empty()) {
     return {};

@@ -58,7 +58,8 @@ std::string join_strings(const std::vector<std::string>& strs,
 SolverRegistry::SolverRegistry()
 {
   discover_default_paths();
-  validate_loaded_solvers();
+  // Plugins are NOT loaded here — loading is deferred until a solver
+  // is actually requested (lazy loading).
 }
 
 // Intentionally do NOT dlclose() plugin handles.
@@ -124,9 +125,17 @@ void SolverRegistry::discover_plugins(const std::filesystem::path& dir)
     const auto& path = entry.path();
     const auto filename = path.filename().string();
 
-    // Match libgtopt_solver_*.so
+    // Match libgtopt_solver_*.so — record path for lazy loading
     if (filename.starts_with("libgtopt_solver_") && filename.ends_with(".so")) {
-      load_plugin(path);
+      // Avoid recording duplicates (same canonical path)
+      const auto canon = std::filesystem::weakly_canonical(path, ec);
+      const auto& to_store = ec ? path : canon;
+      if (std::ranges::none_of(m_pending_paths_,
+                               [&to_store](const auto& p)
+                               { return p == to_store; }))
+      {
+        m_pending_paths_.push_back(to_store);
+      }
     }
   }
 }
@@ -303,9 +312,100 @@ void SolverRegistry::validate_loaded_solvers()
                 [](const PluginHandle& p) { return p.solver_names.empty(); });
 }
 
-std::unique_ptr<SolverBackend> SolverRegistry::create(
-    std::string_view solver_name) const
+void SolverRegistry::load_all_plugins()
 {
+  if (m_all_loaded_) {
+    return;
+  }
+  for (const auto& path : m_pending_paths_) {
+    load_plugin(path);
+  }
+  m_pending_paths_.clear();
+  validate_loaded_solvers();
+  m_all_loaded_ = true;
+}
+
+bool SolverRegistry::ensure_solver_loaded(std::string_view solver_name)
+{
+  // Already loaded?
+  if (has_solver(solver_name)) {
+    return true;
+  }
+
+  // Try loading pending plugins one by one until we find the solver.
+  // We infer the solver name from the plugin filename to try the most
+  // likely candidate first (e.g., "highs" → libgtopt_solver_highs.so).
+  const auto target = std::format("libgtopt_solver_{}.so", solver_name);
+
+  // First pass: try the best-match filename.
+  for (auto it = m_pending_paths_.begin(); it != m_pending_paths_.end(); ++it) {
+    if (it->filename() == target) {
+      const auto& path = *it;
+      m_pending_paths_.erase(it);
+      load_plugin(path);
+      // Validate only the newly loaded plugin.
+      if (!m_plugins_.empty()) {
+        auto& last = m_plugins_.back();
+        std::erase_if(last.solver_names,
+                      [this, &last](const std::string& name)
+                      {
+                        if (!validate_solver_subprocess(last, name)) {
+                          m_load_errors_.push_back(std::format(
+                              "Solver '{}' removed: failed subprocess "
+                              "validation",
+                              name));
+                          return true;
+                        }
+                        return false;
+                      });
+        if (last.solver_names.empty()) {
+          m_plugins_.pop_back();
+        }
+      }
+      if (has_solver(solver_name)) {
+        return true;
+      }
+    }
+  }
+
+  // Second pass: try all remaining pending plugins.
+  while (!m_pending_paths_.empty()) {
+    const auto path = m_pending_paths_.back();
+    m_pending_paths_.pop_back();
+    load_plugin(path);
+    // Validate the newly loaded plugin.
+    if (!m_plugins_.empty()) {
+      auto& last = m_plugins_.back();
+      std::erase_if(last.solver_names,
+                    [this, &last](const std::string& name)
+                    {
+                      if (!validate_solver_subprocess(last, name)) {
+                        m_load_errors_.push_back(std::format(
+                            "Solver '{}' removed: failed subprocess "
+                            "validation",
+                            name));
+                        return true;
+                      }
+                      return false;
+                    });
+      if (last.solver_names.empty()) {
+        m_plugins_.pop_back();
+      }
+    }
+    if (has_solver(solver_name)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+std::unique_ptr<SolverBackend> SolverRegistry::create(
+    std::string_view solver_name)
+{
+  // Ensure the requested solver is loaded (lazy).
+  ensure_solver_loaded(solver_name);
+
   for (const auto& plugin : m_plugins_) {
     for (const auto& name : plugin.solver_names) {
       if (name == solver_name) {
@@ -321,7 +421,9 @@ std::unique_ptr<SolverBackend> SolverRegistry::create(
     }
   }
 
-  // Build helpful error message
+  // Build helpful error message — load everything first to give a
+  // complete list of available solvers.
+  load_all_plugins();
   const auto available = available_solvers();
   throw std::runtime_error(
       std::format("Solver '{}' not available. Available solvers: {}",
@@ -341,19 +443,20 @@ std::vector<std::string> SolverRegistry::available_solvers() const
   return result;
 }
 
-std::string_view SolverRegistry::default_solver() const
+std::string_view SolverRegistry::default_solver()
 {
   // GTOPT_SOLVER env var overrides the default priority.
   if (const auto* env =
           std::getenv("GTOPT_SOLVER"))  // NOLINT(concurrency-mt-unsafe)
   {
-    if (has_solver(env)) {
+    if (ensure_solver_loaded(env)) {
       return env;
     }
     SPDLOG_WARN("GTOPT_SOLVER='{}' not available, falling back to auto", env);
   }
 
   // Priority order: cplex > highs > mindopt > cbc > clp
+  // Try to load each on demand — only the first match is loaded.
   static constexpr std::array preferred = {
       "cplex",
       "highs",
@@ -362,7 +465,7 @@ std::string_view SolverRegistry::default_solver() const
       "clp",
   };
   for (const auto* name : preferred) {
-    if (has_solver(name)) {
+    if (ensure_solver_loaded(name)) {
       return name;
     }
   }
@@ -376,7 +479,7 @@ std::string_view SolverRegistry::default_solver() const
       "installed\n"
       "  - Install COIN-OR (coinor-libcbc-dev) for CLP/CBC support\n"
       "  - Install HiGHS for HiGHS support\n"
-      "  - Run 'gtopt --lp-solvers' to list available LP solvers");
+      "  - Run 'gtopt --solvers' to list available LP solvers");
 }
 
 bool SolverRegistry::has_solver(std::string_view name) const

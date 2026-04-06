@@ -1052,7 +1052,8 @@ TEST_CASE(  // NOLINT
 {
   using namespace gtopt;
 
-  const auto& reg = SolverRegistry::instance();
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
   const auto solvers = reg.available_solvers();
   REQUIRE(!solvers.empty());
 

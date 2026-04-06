@@ -18,29 +18,46 @@ not leak to downstream consumers of the target.
 
 function(target_gtopt_pch target)
   target_precompile_headers(${target} PRIVATE
-    <algorithm>
-    <chrono>
-    <cmath>
-    <cstdint>
-    <expected>
-    <filesystem>
-    <format>
-    <fstream>
-    <functional>
+    # --- containers & data structures ---
+    <array>
     <map>
-    <memory>
-    <numeric>
-    <optional>
-    <ranges>
     <set>
     <span>
     <string>
     <string_view>
-    <thread>
+    <tuple>
     <unordered_map>
-    <utility>
     <variant>
     <vector>
+    # --- algorithms & numerics ---
+    <algorithm>
+    <charconv>
+    <cmath>
+    <cstdint>
+    <limits>
+    <numeric>
+    <ranges>
+    # --- utilities ---
+    <expected>
+    <functional>
+    <memory>
+    <optional>
+    <type_traits>
+    <utility>
+    # --- I/O & filesystem ---
+    <filesystem>
+    <format>
+    <fstream>
+    <sstream>
+    # --- concurrency ---
+    <atomic>
+    <chrono>
+    <future>
+    <mutex>
+    <thread>
+    # --- error handling ---
+    <stdexcept>
+    # --- third-party ---
     <spdlog/spdlog.h>
   )
 endfunction()
