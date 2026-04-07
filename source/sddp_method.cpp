@@ -521,8 +521,7 @@ bool SDDPMethod::should_dispatch_update_lp(IterationIndex iteration) const
     }
     // Default: apply global skip count using relative iteration
     const auto skip = planning_lp().options().sddp_update_lp_skip();
-    const auto rel =
-        static_cast<int>(iteration) - static_cast<int>(m_iteration_offset_);
+    const auto rel = iteration - m_iteration_offset_;
     if (skip > 0 && rel > 0 && (rel % (skip + 1)) != 0) {
       return false;
     }
@@ -741,10 +740,7 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene,
   const auto cut_row = src_li.add_row(cut);
   store_cut(scene, prev_phase, cut, CutType::Optimality, cut_row);
   ++cuts_added;
-  m_phase_grid_.record(static_cast<int>(iteration),
-                       static_cast<int>(scene_uid(scene)),
-                       static_cast<int>(phase_uid(phase)),
-                       GridCell::Backward);
+  m_phase_grid_.record(iteration, scene_uid(scene), phase, GridCell::Backward);
 
   SPDLOG_TRACE(
       "{}: cut for phase {} rhs={:.4f}",

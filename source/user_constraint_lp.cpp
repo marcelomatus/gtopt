@@ -29,12 +29,14 @@ namespace
 
 // ── Domain check ─────────────────────────────────────────────────────────────
 
-[[nodiscard]] bool in_range(const IndexRange& range, int uid)
+template<typename T>
+  requires(strong::is_strong_type<T>::value)
+[[nodiscard]] bool in_range(const IndexRange& range, T value)
 {
   if (range.is_all) {
     return true;
   }
-  return std::ranges::contains(range.values, uid);
+  return std::ranges::contains(range.values, value_of(value));
 }
 
 // ── Build UserParamMap ───────────────────────────────────────────────────────
@@ -141,10 +143,10 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
   const auto& domain = expr.domain;
 
   // Check domain filters for this (scenario, stage)
-  if (!in_range(domain.scenarios, static_cast<int>(scenario.uid()))) {
+  if (!in_range(domain.scenarios, scenario.uid())) {
     return true;
   }
-  if (!in_range(domain.stages, static_cast<int>(stage.uid()))) {
+  if (!in_range(domain.stages, stage.uid())) {
     return true;
   }
 
@@ -160,7 +162,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
   map_reserve(block_rows, stage.blocks().size());
 
   for (const auto& block : stage.blocks()) {
-    if (!in_range(domain.blocks, static_cast<int>(block.uid()))) {
+    if (!in_range(domain.blocks, block.uid())) {
       continue;
     }
 
@@ -184,7 +186,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
                 "  user_constraint '{}' block {}: "
                 "col {} coeff={} scale={}",
                 uc.name,
-                static_cast<int>(block.uid()),
+                block.uid(),
                 static_cast<int>(resolved->col),
                 term.coefficient,
                 resolved->scale);
@@ -199,7 +201,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
                 "  user_constraint '{}' block {}: "
                 "data param value={} coeff={}",
                 uc.name,
-                static_cast<int>(block.uid()),
+                block.uid(),
                 *pval,
                 term.coefficient);
           }
@@ -221,7 +223,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
                 "  user_constraint '{}' block {}: "
                 "sum resolved {} columns",
                 uc.name,
-                static_cast<int>(block.uid()),
+                block.uid(),
                 row.size() - before);
           }
         }
@@ -234,7 +236,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
                 "  user_constraint '{}' block {}: "
                 "param '{}' = {} coeff={}",
                 uc.name,
-                static_cast<int>(block.uid()),
+                block.uid(),
                 *term.param_name,
                 *pval,
                 term.coefficient);
@@ -258,7 +260,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
           std::format("user_constraint '{}': no LP columns resolved "
                       "for block {} — skipping",
                       uc.name,
-                      static_cast<int>(block.uid())));
+                      block.uid()));
       continue;
     }
 
@@ -284,7 +286,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
           "{} terms, param_shift={})",
           uc.name,
           row_name,
-          static_cast<int>(row_idx),
+          row_idx,
           row_nterms,
           param_shift);
     }
@@ -297,8 +299,8 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
       spdlog::info("user_constraint '{}': {} rows for s{}_t{}",
                    uc.name,
                    n_rows,
-                   static_cast<int>(scenario.uid()),
-                   static_cast<int>(stage.uid()));
+                   scenario.uid(),
+                   stage.uid());
     }
   }
 

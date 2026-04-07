@@ -193,7 +193,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       if (m_options_.max_cuts_per_phase > 0
           && m_options_.cut_prune_interval > 0)
       {
-        const auto iter_offset = static_cast<int>(iter - m_iteration_offset_);
+        const auto iter_offset = iter - m_iteration_offset_;
         if (iter_offset > 0 && iter_offset % m_options_.cut_prune_interval == 0)
         {
           prune_inactive_cuts();
@@ -857,9 +857,8 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       // Build scene_feasible and weights for convergence computation
       std::vector<uint8_t> scene_feasible(static_cast<std::size_t>(num_scenes),
                                           0U);
-      for (auto si = 0; si < num_scenes; ++si) {
-        scene_feasible[static_cast<std::size_t>(si)] =
-            bounds[static_cast<std::size_t>(si)].feasible ? 1U : 0U;
+      for (const auto& [si, b] : std::views::enumerate(bounds)) {
+        scene_feasible[si] = b.feasible ? 1U : 0U;
       }
 
       const auto& scenes = planning_lp().simulation().scenes();
@@ -875,12 +874,11 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       ir.scene_lower_bounds.resize(static_cast<std::size_t>(num_scenes));
       double weighted_upper = 0.0;
       double weighted_lower = 0.0;
-      for (auto si = 0; si < num_scenes; ++si) {
-        const auto si_sz = static_cast<std::size_t>(si);
-        ir.scene_upper_bounds[si_sz] = bounds[si_sz].upper_bound;
-        ir.scene_lower_bounds[si_sz] = bounds[si_sz].lower_bound;
-        weighted_upper += weights[si_sz] * bounds[si_sz].upper_bound;
-        weighted_lower += weights[si_sz] * bounds[si_sz].lower_bound;
+      for (const auto& [si, b] : std::views::enumerate(bounds)) {
+        ir.scene_upper_bounds[si] = b.upper_bound;
+        ir.scene_lower_bounds[si] = b.lower_bound;
+        weighted_upper += weights[si] * b.upper_bound;
+        weighted_lower += weights[si] * b.lower_bound;
       }
       ir.upper_bound = weighted_upper;
       ir.lower_bound = weighted_lower;
@@ -916,7 +914,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       }
 
       // Update live-query atomics
-      m_current_iteration_.store(static_cast<int>(next_converge_iter));
+      m_current_iteration_.store(next_converge_iter);
       m_current_gap_.store(ir.gap);
       m_current_lb_.store(ir.lower_bound);
       m_current_ub_.store(ir.upper_bound);
@@ -1001,9 +999,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
             .scene_iterations = tracker.scene_iterations(),
             .scene_states = std::move(scene_state_labels),
             .converged_scenes = tracker.num_converged(),
-            .spread = (min_ci >= m_iteration_offset_)
-                ? static_cast<int>(max_ci - min_ci)
-                : 0,
+            .spread = (min_ci >= m_iteration_offset_) ? (max_ci - min_ci) : 0,
             .max_async_spread = max_spread,
             .pool_tasks_pending = static_cast<int>(pool_stats.tasks_pending),
             .pool_tasks_active = static_cast<int>(pool_stats.tasks_active),

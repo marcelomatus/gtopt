@@ -102,8 +102,8 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
           (std::filesystem::path(lp_debug_directory) / "gtopt_lp").string();
       for (const auto& phase_systems : planning_lp.systems()) {
         for (const auto& system : phase_systems) {
-          const auto su = static_cast<int>(system.scene().uid());
-          const auto pu = static_cast<int>(system.phase().uid());
+          const auto su = system.scene().uid();
+          const auto pu = system.phase().uid();
           if (!in_lp_debug_range(su,
                                  pu,
                                  lp_debug_scene_min,

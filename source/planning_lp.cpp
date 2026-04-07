@@ -129,8 +129,7 @@ auto PlanningLP::create_systems(System& system,
   std::vector<std::future<void>> futures;
   futures.reserve(scenes.size());
 
-  for (auto&& [scene_num, scene] : std::views::enumerate(scenes)) {
-    const auto scene_index = SceneIndex {static_cast<Index>(scene_num)};
+  for (auto&& [scene_index, scene] : enumerate<SceneIndex>(scenes)) {
     auto result = pool->submit(
         [&, scene_index]
         {
@@ -146,7 +145,7 @@ auto PlanningLP::create_systems(System& system,
             SPDLOG_TRACE("    Building LP scene {}/{} phase {} (uid {})",
                          sn,
                          num_scenes,
-                         static_cast<int>(phase.index()),
+                         phase.index(),
                          phase.uid());
             phase_systems.emplace_back(
                 system, simulation, phase, scene, resolved_opts);
@@ -211,8 +210,8 @@ void PlanningLP::write_out()
   futures.reserve(static_cast<std::size_t>(num_scenes)
                   * static_cast<std::size_t>(std::max(num_phases, 0)));
 
-  for (auto&& [scene_num, phase_systems] : std::views::enumerate(m_systems_)) {
-    for (auto&& [phase_num, system] : std::views::enumerate(phase_systems)) {
+  for (auto&& [scene_num, phase_systems] : enumerate<SceneIndex>(m_systems_)) {
+    for (auto&& [phase_num, system] : enumerate<PhaseIndex>(phase_systems)) {
       SPDLOG_DEBUG("  Submitting write_out scene {}/{} phase {}/{}",
                    scene_num + 1,
                    num_scenes,

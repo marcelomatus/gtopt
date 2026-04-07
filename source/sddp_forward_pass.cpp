@@ -139,10 +139,8 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
     // submit gzip compression as a fire-and-forget async task.
     // Selective filters (scene/phase range) skip non-matching LPs.
     if (m_options_.lp_debug) {
-      const auto su = static_cast<int>(scene_uid(scene));
-      const auto pu = static_cast<int>(phase_uid(phase));
-      const bool in_range = in_lp_debug_range(su,
-                                              pu,
+      const bool in_range = in_lp_debug_range(scene_uid(scene),
+                                              phase_uid(phase),
                                               m_options_.lp_debug_scene_min,
                                               m_options_.lp_debug_scene_max,
                                               m_options_.lp_debug_phase_min,
@@ -244,10 +242,8 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
       auto elastic_result = elastic_solve(scene, phase, opts);
       if (elastic_result.has_value()) {
         auto& solved_li = elastic_result->clone;
-        m_phase_grid_.record(static_cast<int>(iteration),
-                             static_cast<int>(scene_uid(scene)),
-                             static_cast<int>(phase_uid(phase)),
-                             GridCell::Elastic);
+        m_phase_grid_.record(
+            iteration, scene_uid(scene), phase, GridCell::Elastic);
         // Track max kappa from elastic solve
         update_max_kappa(scene, phase, solved_li, iteration);
         // Increment infeasibility counter for this (scene, phase)
@@ -328,10 +324,8 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
     } else {
       // Phase solved normally – reset infeasibility counter
       m_infeasibility_counter_[scene][phase] = 0;
-      m_phase_grid_.record(static_cast<int>(iteration),
-                           static_cast<int>(scene_uid(scene)),
-                           static_cast<int>(phase_uid(phase)),
-                           GridCell::Forward);
+      m_phase_grid_.record(
+          iteration, scene_uid(scene), phase, GridCell::Forward);
       // Track max kappa from forward solve
       update_max_kappa(scene, phase, li, iteration);
 

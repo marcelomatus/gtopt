@@ -856,13 +856,13 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
 {
   std::vector<ScenePhaseLPStats> lp_entries;
   for (auto&& [si, phase_systems] :
-       std::views::enumerate(planning_lp.systems()))
+       enumerate<SceneIndex>(planning_lp.systems()))
   {
-    for (auto&& [pi, system_lp] : std::views::enumerate(phase_systems)) {
+    for (auto&& [pi, system_lp] : enumerate<PhaseIndex>(phase_systems)) {
       const auto& li = system_lp.linear_interface();
       lp_entries.push_back({
-          .scene_uid = static_cast<int>(system_lp.scene().uid()),
-          .phase_uid = static_cast<int>(system_lp.phase().uid()),
+          .scene_uid = system_lp.scene().uid(),
+          .phase_uid = system_lp.phase().uid(),
           .num_vars = static_cast<int>(li.get_numcols()),
           .num_constraints = static_cast<int>(li.get_numrows()),
           .stats_nnz = li.lp_stats_nnz(),

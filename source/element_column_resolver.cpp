@@ -10,6 +10,7 @@
 #include <format>
 #include <ranges>
 
+#include <gtopt/as_label.hpp>
 #include <gtopt/battery_lp.hpp>
 #include <gtopt/bus_lp.hpp>
 #include <gtopt/constraint_expr.hpp>
@@ -806,7 +807,7 @@ void collect_sum_cols(const SystemContext& sc,
         {
           continue;
         }
-        add_one(std::to_string(static_cast<int>(gen.uid())));
+        add_one(as_label(gen.uid()));
       }
     } else if (sum_ref.element_type == "demand") {
       for (const auto& dem : sc.elements<DemandLP>()) {
@@ -815,7 +816,7 @@ void collect_sum_cols(const SystemContext& sc,
         {
           continue;
         }
-        add_one(std::to_string(static_cast<int>(dem.uid())));
+        add_one(as_label(dem.uid()));
       }
     } else if (sum_ref.element_type == "line") {
       for (const auto& ln : sc.elements<LineLP>()) {
@@ -824,7 +825,7 @@ void collect_sum_cols(const SystemContext& sc,
         {
           continue;
         }
-        add_one(std::to_string(static_cast<int>(ln.uid())));
+        add_one(as_label(ln.uid()));
       }
     } else if (sum_ref.element_type == "battery") {
       for (const auto& bat : sc.elements<BatteryLP>()) {
@@ -833,7 +834,7 @@ void collect_sum_cols(const SystemContext& sc,
         {
           continue;
         }
-        add_one(std::to_string(static_cast<int>(bat.uid())));
+        add_one(as_label(bat.uid()));
       }
     } else if (sum_ref.element_type == "reservoir") {
       // NOLINT(bugprone-branch-clone): reservoir/waterway/turbine/converter
@@ -846,7 +847,7 @@ void collect_sum_cols(const SystemContext& sc,
             sum_ref.element_type));
       }
       for (const auto& res : sc.elements<ReservoirLP>()) {
-        add_one(std::to_string(static_cast<int>(res.uid())));
+        add_one(as_label(res.uid()));
       }
     } else if (sum_ref.element_type
                == "waterway") {  // NOLINT(bugprone-branch-clone)
@@ -858,7 +859,7 @@ void collect_sum_cols(const SystemContext& sc,
             sum_ref.element_type));
       }
       for (const auto& ww : sc.elements<WaterwayLP>()) {
-        add_one(std::to_string(static_cast<int>(ww.uid())));
+        add_one(as_label(ww.uid()));
       }
     } else if (sum_ref.element_type
                == "turbine") {  // NOLINT(bugprone-branch-clone)
@@ -870,7 +871,7 @@ void collect_sum_cols(const SystemContext& sc,
             sum_ref.element_type));
       }
       for (const auto& t : sc.elements<TurbineLP>()) {
-        add_one(std::to_string(static_cast<int>(t.uid())));
+        add_one(as_label(t.uid()));
       }
     } else if (sum_ref.element_type
                == "converter") {  // NOLINT(bugprone-branch-clone)
@@ -882,7 +883,7 @@ void collect_sum_cols(const SystemContext& sc,
             sum_ref.element_type));
       }
       for (const auto& c : sc.elements<ConverterLP>()) {
-        add_one(std::to_string(static_cast<int>(c.uid())));
+        add_one(as_label(c.uid()));
       }
     } else if (sum_ref.element_type
                == "junction") {  // NOLINT(bugprone-branch-clone)
@@ -894,7 +895,7 @@ void collect_sum_cols(const SystemContext& sc,
             sum_ref.element_type));
       }
       for (const auto& jun : sc.elements<JunctionLP>()) {
-        add_one(std::to_string(static_cast<int>(jun.uid())));
+        add_one(as_label(jun.uid()));
       }
     } else if (sum_ref.element_type
                == "flow") {  // NOLINT(bugprone-branch-clone)
@@ -906,7 +907,7 @@ void collect_sum_cols(const SystemContext& sc,
             sum_ref.element_type));
       }
       for (const auto& flw : sc.elements<FlowLP>()) {
-        add_one(std::to_string(static_cast<int>(flw.uid())));
+        add_one(as_label(flw.uid()));
       }
     } else if (sum_ref.element_type
                == "flow_right") {  // NOLINT(bugprone-branch-clone)
@@ -918,7 +919,7 @@ void collect_sum_cols(const SystemContext& sc,
             sum_ref.element_type));
       }
       for (const auto& frt : sc.elements<FlowRightLP>()) {
-        add_one(std::to_string(static_cast<int>(frt.uid())));
+        add_one(as_label(frt.uid()));
       }
     } else if (sum_ref.element_type
                == "volume_right") {  // NOLINT(bugprone-branch-clone)
@@ -930,7 +931,7 @@ void collect_sum_cols(const SystemContext& sc,
             sum_ref.element_type));
       }
       for (const auto& vrt : sc.elements<VolumeRightLP>()) {
-        add_one(std::to_string(static_cast<int>(vrt.uid())));
+        add_one(as_label(vrt.uid()));
       }
     } else if (sum_ref.element_type
                == "seepage") {  // NOLINT(bugprone-branch-clone)
@@ -942,7 +943,7 @@ void collect_sum_cols(const SystemContext& sc,
             sum_ref.element_type));
       }
       for (const auto& fil : sc.elements<ReservoirSeepageLP>()) {
-        add_one(std::to_string(static_cast<int>(fil.uid())));
+        add_one(as_label(fil.uid()));
       }
     } else if (sum_ref.element_type
                == "reserve_provision") {  // NOLINT(bugprone-branch-clone)
@@ -954,7 +955,7 @@ void collect_sum_cols(const SystemContext& sc,
             sum_ref.element_type));
       }
       for (const auto& rp : sc.elements<ReserveProvisionLP>()) {
-        add_one(std::to_string(static_cast<int>(rp.uid())));
+        add_one(as_label(rp.uid()));
       }
     } else if (sum_ref.element_type
                == "reserve_zone") {  // NOLINT(bugprone-branch-clone)
@@ -966,7 +967,7 @@ void collect_sum_cols(const SystemContext& sc,
             sum_ref.element_type));
       }
       for (const auto& rz : sc.elements<ReserveZoneLP>()) {
-        add_one(std::to_string(static_cast<int>(rz.uid())));
+        add_one(as_label(rz.uid()));
       }
     } else if (sum_ref.element_type
                == "bus") {  // NOLINT(bugprone-branch-clone)
@@ -978,7 +979,7 @@ void collect_sum_cols(const SystemContext& sc,
             sum_ref.element_type));
       }
       for (const auto& bus : sc.elements<BusLP>()) {
-        add_one(std::to_string(static_cast<int>(bus.uid())));
+        add_one(as_label(bus.uid()));
       }
     }
   } else {

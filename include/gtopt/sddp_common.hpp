@@ -20,6 +20,8 @@
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/iteration.hpp>
+#include <gtopt/phase.hpp>
+#include <gtopt/scene.hpp>
 
 namespace gtopt
 {
@@ -104,20 +106,23 @@ class PhaseGridRecorder
 {
 public:
   /// Record a phase activity.  Higher-priority states overwrite lower ones.
-  void record(int iteration, int scene, int phase, GridCell state)
+  void record(IterationIndex iteration,
+              SceneUid scene_uid,
+              PhaseIndex phase_index,
+              GridCell state)
   {
     const auto key = Key {
         .iteration = iteration,
-        .scene = scene,
+        .scene_uid = scene_uid,
     };
+    const auto phase_col = static_cast<std::size_t>(phase_index);
     const std::scoped_lock lock(m_mutex_);
     auto& row = m_rows_[key];
-    const auto uph = static_cast<std::size_t>(phase);
-    if (std::cmp_greater_equal(phase, row.size())) {
-      row.resize(uph + 1, '.');
+    if (phase_col >= row.size()) {
+      row.resize(phase_col + 1, '.');
     }
     const char ch = static_cast<char>(state);
-    auto& cell = row[uph];
+    auto& cell = row[phase_col];
     cell = std::max(cell, ch);
   }
 
@@ -139,7 +144,7 @@ public:
       first = false;
       json += std::format(R"(      {{"i": {}, "s": {}, "cells": "{}"}})",
                           key.iteration,
-                          key.scene,
+                          key.scene_uid,
                           row);
     }
     json += "\n    ]\n";
@@ -157,8 +162,8 @@ public:
 private:
   struct Key
   {
-    int iteration {};
-    int scene {};
+    IterationIndex iteration {};
+    SceneUid scene_uid {};
     auto operator<=>(const Key&) const = default;
   };
 

@@ -14,6 +14,7 @@
 #include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/solver_registry.hpp>
+#include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -209,13 +210,14 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   }
 
   // Build name maps
-  auto build_name_map =
-      [](const auto& names_vec, name_index_map_t& name_map, auto& index_to_name)
+  auto build_name_map = []<typename IndexType>(const auto& names_vec,
+                                               name_index_map_t& name_map,
+                                               auto& index_to_name)
   {
     index_to_name.assign(names_vec.begin(), names_vec.end());
     name_map.reserve(names_vec.size());
 
-    for (const auto [i, name] : std::views::enumerate(names_vec)) {
+    for (const auto [i, name] : enumerate<IndexType>(names_vec)) {
       if (!name.empty()) {
         name_map.emplace(name, static_cast<int>(i));
       }
@@ -223,11 +225,13 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   };
 
   if (m_lp_names_level_ >= 0 && !flat_lp.colnm.empty()) {
-    build_name_map(flat_lp.colnm, m_col_names_, m_col_index_to_name_);
+    build_name_map.template operator()<ColIndex>(
+        flat_lp.colnm, m_col_names_, m_col_index_to_name_);
   }
 
   if (m_lp_names_level_ >= 1 && !flat_lp.rownm.empty()) {
-    build_name_map(flat_lp.rownm, m_row_names_, m_row_index_to_name_);
+    build_name_map.template operator()<RowIndex>(
+        flat_lp.rownm, m_row_names_, m_row_index_to_name_);
   }
 }
 
@@ -432,7 +436,7 @@ void LinearInterface::rebuild_row_name_maps()
   if (m_lp_names_level_ >= 2) {
     m_row_names_.clear();
     m_row_names_.reserve(m_row_index_to_name_.size());
-    for (const auto [i, name] : std::views::enumerate(m_row_index_to_name_)) {
+    for (const auto [i, name] : enumerate<RowIndex>(m_row_index_to_name_)) {
       if (!name.empty()) {
         m_row_names_.emplace(name, static_cast<int32_t>(i));
       }
@@ -458,7 +462,7 @@ void LinearInterface::reset_from(const LinearInterface& source,
   const auto src_col_lo = source.get_col_low_raw();
   const auto src_col_hi = source.get_col_upp_raw();
   for (const auto [c, lo] :
-       std::views::enumerate(src_col_lo | std::views::take(ncols)))
+       enumerate<ColIndex>(src_col_lo | std::views::take(ncols)))
   {
     m_backend_->set_col_lower(static_cast<int>(c), lo);
     m_backend_->set_col_upper(static_cast<int>(c), src_col_hi[c]);
@@ -468,7 +472,7 @@ void LinearInterface::reset_from(const LinearInterface& source,
   const auto src_row_lo = source.get_row_low_raw();
   const auto src_row_hi = source.get_row_upp_raw();
   for (const auto [r, lo] :
-       std::views::enumerate(src_row_lo | std::views::take(nrows)))
+       enumerate<RowIndex>(src_row_lo | std::views::take(nrows)))
   {
     m_backend_->set_row_lower(static_cast<int>(r), lo);
     m_backend_->set_row_upper(static_cast<int>(r), src_row_hi[r]);
@@ -655,7 +659,7 @@ void LinearInterface::push_names_to_solver() const
 
   std::vector<std::string> col_names(ncols);
   for (const auto [i, name] :
-       std::views::enumerate(m_col_index_to_name_ | std::views::take(ncols)))
+       enumerate<ColIndex>(m_col_index_to_name_ | std::views::take(ncols)))
   {
     col_names[i] = name;
   }
@@ -664,7 +668,7 @@ void LinearInterface::push_names_to_solver() const
   std::vector<std::string> row_names(nrows);
   if (m_lp_names_level_ >= 1) {
     for (const auto [i, name] :
-         std::views::enumerate(m_row_index_to_name_ | std::views::take(nrows)))
+         enumerate<RowIndex>(m_row_index_to_name_ | std::views::take(nrows)))
     {
       row_names[i] = name;
     }
