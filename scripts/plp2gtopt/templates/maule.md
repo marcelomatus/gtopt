@@ -327,7 +327,7 @@ The 3-segment pattern for ordinary reserve achieves zone exclusivity:
 
 The effective flow upper bound for any FlowRight is:
 
-$$\bar{q}_j = \min\bigl(f_{\max}(m),\ \operatorname{bound\text{-}rule}(V_{\text{Colbun}})\bigr)$$
+$$\bar{q}_j = \min\bigl(f_{\max}(m),\ \text{bound-rule}(V_{\text{Colbun}})\bigr)$$
 
 where $f_{\max}(m)$ is the monthly-modulated cap and $V_{\text{Colbun}}$ is the
 current Colbun reservoir volume.
