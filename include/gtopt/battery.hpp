@@ -128,7 +128,6 @@ struct Battery
 {
   /// @name Default physical constants
   /// @{
-  static constexpr Real default_energy_scale = 1.0;  ///< [dimensionless]
   /// @}
 
   Uid uid {unknown_uid};  ///< Unique identifier
@@ -208,12 +207,6 @@ struct Battery
   /// decoupled stage/phase behaviour (use_state_variable forced false).
   /// Default for batteries is true (enabled); can be disabled explicitly.
   OptBool daily_cycle {};
-
-  /// Energy scale factor: the LP energy variable is divided by this value so
-  /// that the LP works in scaled units (physical_energy / energy_scale).
-  /// Default is 1.0 (no scaling).  Output values are rescaled back to
-  /// physical units so results are invariant to the choice of energy_scale.
-  OptReal energy_scale {};
 };
 
 }  // namespace gtopt

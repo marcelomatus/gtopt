@@ -31,7 +31,6 @@
  */
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
-#include <gtopt/reservoir_enums.hpp>
 #include <gtopt/reservoir_lp.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
@@ -63,32 +62,26 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
 
   auto&& blocks = stage.blocks();
 
-  // Resolve energy_scale: explicit field > inherit from source
-  // reservoir or parent VolumeRight > default.
-  // When explicitly determined, class_name is left empty so add_col
-  // does not override with VariableScaleMap.
-  bool has_explicit_energy_scale = false;
+  // Resolve energy_scale from VariableScaleMap. When not set explicitly,
+  // inherit from source reservoir or parent VolumeRight.
   const double energy_scale = [&]
   {
-    if (volume_right().energy_scale.has_value()) {
-      has_explicit_energy_scale = true;
-      return *volume_right().energy_scale;
+    const auto vs = sc.options().variable_scale_map().lookup(
+        "VolumeRight", "energy", uid());
+    if (vs != 1.0) {
+      return vs;
     }
     if (const auto& r_ref = volume_right().reservoir; r_ref.has_value()) {
       const ReservoirLPSId r_sid(*r_ref);
-      has_explicit_energy_scale = true;
       return sc.element<ReservoirLP>(r_sid).energy_scale();
     }
     if (const auto& rr_ref = volume_right().right_reservoir; rr_ref.has_value())
     {
       const VolumeRightLPSId vr_sid(*rr_ref);
-      has_explicit_energy_scale = true;
       return sc.element(vr_sid).energy_scale();
     }
-    return VolumeRight::default_energy_scale;
+    return 1.0;
   }();
-  const auto energy_class_name =
-      has_explicit_energy_scale ? std::string_view {} : ClassName.full_name();
 
   // Evaluate initial bound rule if present
   const auto& opt_rule = volume_right().bound_rule;
@@ -169,7 +162,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
       .use_state_variable = volume_right().use_state_variable.value_or(true),
       .daily_cycle = false,
       .skip_state_link = is_reset_stage && is_cross_phase,
-      .class_name = energy_class_name,
+      .class_name = ClassName.full_name(),
       .variable_uid = uid(),
       .energy_scale = energy_scale,
       .flow_scale = flow_scale,

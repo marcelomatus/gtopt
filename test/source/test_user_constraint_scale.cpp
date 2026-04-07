@@ -191,9 +191,9 @@ TEST_CASE(  // NOLINT
 
 // clang-format off
 
-/// Hydro system with energy_scale and user constraint on reservoir volume.
+/// Hydro system with variable_scales and user constraint on reservoir volume.
 /// The constraint `reservoir("rsv1").volume <= 800` should be correctly
-/// applied in physical units regardless of energy_scale.
+/// applied in physical units regardless of variable scale.
 auto make_reservoir_uc_json(double energy_scale_val) -> std::string
 {
   return std::format(
@@ -206,7 +206,9 @@ auto make_reservoir_uc_json(double energy_scale_val) -> std::string
     "use_single_bus": true,
     "demand_fail_cost": 1000,
     "scale_objective": 1000,
-    "energy_scale": {}
+    "variable_scales": [
+      {{"class_name": "Reservoir", "variable": "energy", "uid": 1, "scale": {}}}
+    ]
   }},
   "simulation": {{
     "block_array": [{{"uid": 1, "duration": 1}}, {{"uid": 2, "duration": 2}}],
@@ -260,8 +262,8 @@ auto make_reservoir_uc_json(double energy_scale_val) -> std::string
 TEST_CASE(  // NOLINT
     "User constraint on reservoir volume — invariant under energy_scale")
 {
-  // Solve with different energy_scale values; both should solve successfully
-  // and produce the same physical objective.
+  // Solve with different energy_scale values via variable_scales; both should
+  // solve successfully and produce the same physical objective.
   double obj_1 = 0;
   double obj_1000 = 0;
 
@@ -382,7 +384,9 @@ auto make_battery_uc_json(double energy_scale_val) -> std::string
     "use_single_bus": true,
     "demand_fail_cost": 1000,
     "scale_objective": 1000,
-    "energy_scale": {}
+    "variable_scales": [
+      {{"class_name": "Battery", "variable": "energy", "uid": 1, "scale": {}}}
+    ]
   }},
   "simulation": {{
     "block_array": [{{"uid": 1, "duration": 1}}, {{"uid": 2, "duration": 1}}],
@@ -465,7 +469,7 @@ TEST_CASE(  // NOLINT
 
 /// System where sum(generator(all).generation) is constrained alongside
 /// a reservoir volume constraint — mixing power (unscaled) and energy
-/// (scaled by energy_scale) variables.
+/// (scaled by variable_scales) variables.
 auto make_mixed_scale_uc_json(double energy_scale_val) -> std::string
 {
   return std::format(
@@ -478,7 +482,9 @@ auto make_mixed_scale_uc_json(double energy_scale_val) -> std::string
     "use_single_bus": true,
     "demand_fail_cost": 1000,
     "scale_objective": 1000,
-    "energy_scale": {}
+    "variable_scales": [
+      {{"class_name": "Reservoir", "variable": "energy", "uid": 1, "scale": {}}}
+    ]
   }},
   "simulation": {{
     "block_array": [{{"uid": 1, "duration": 1}}, {{"uid": 2, "duration": 2}}],
@@ -739,7 +745,9 @@ static constexpr std::string_view multi_scale_uc_json = R"json({
     "demand_fail_cost": 1000,
     "scale_objective": 10000,
     "scale_theta": 0.0001,
-    "energy_scale": 1000,
+    "variable_scales": [
+      {"class_name": "Battery", "variable": "energy", "uid": 1, "scale": 1000}
+    ],
     "use_kirchhoff": true
   },
   "simulation": {

@@ -76,10 +76,9 @@ examples:
   # Apply a 10% annual discount rate
   plp2gtopt -i input/ -d 0.10
 
-  # Reservoir energy scaling: default uses PLP FEscala per reservoir.
-  # Use C++ auto-scale instead:
-  plp2gtopt -i input/ --rsv-scale-mode auto
-
+  # Reservoir energy scaling: by default, FEscala-based variable_scales are
+  # automatically emitted. Override specific reservoirs:
+  plp2gtopt -i input/ --rsv-energy-scale 'RAPEL:500,COLBUN:15000'
   # Override specific reservoirs with --rsv-energy-scale:
   plp2gtopt -i input/ --rsv-energy-scale 'RAPEL:500,COLBUN:15000'
 

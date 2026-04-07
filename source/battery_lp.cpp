@@ -65,13 +65,10 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   // Get blocks for this stage
   const auto& blocks = stage.blocks();
 
-  // Resolve energy_scale: per-element field wins (immune to map);
-  // otherwise default and VariableScaleMap auto-resolves via add_col.
-  const bool has_explicit_es = battery().energy_scale.has_value();
+  // Resolve energy_scale from VariableScaleMap (default 1.0 if not set).
+  // add_col auto-resolves scale from metadata when class_name is set.
   const auto es =
-      battery().energy_scale.value_or(Battery::default_energy_scale);
-  const auto energy_class_name =
-      has_explicit_es ? std::string_view {} : ClassName.full_name();
+      sc.options().variable_scale_map().lookup("Battery", "energy", uid());
 
   // Create finp/fout variables for each time block.
   // Flow scale is resolved by add_col from VariableScaleMap metadata.
@@ -100,7 +97,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   const StorageOptions opts {
       .use_state_variable = battery().use_state_variable.value_or(false),
       .daily_cycle = battery().daily_cycle.value_or(true),
-      .class_name = energy_class_name,
+      .class_name = ClassName.full_name(),
       .variable_uid = uid(),
       .energy_scale = es,
       .flow_scale = fs,

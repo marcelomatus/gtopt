@@ -10,8 +10,6 @@
  * constraints and relationships with other system components.
  */
 
-#include <cmath>
-
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/reservoir_lp.hpp>
@@ -67,36 +65,10 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   const auto fmin = reservoir().fmin.value_or(-LinearProblem::DblMax);
   const auto fmax = reservoir().fmax.value_or(+LinearProblem::DblMax);
 
-  // Resolve energy_scale with priority:
-  //   1. Explicit per-element field (immune to VariableScaleMap)
-  //   2. VariableScaleMap entry (resolved by add_col when class_name is set)
-  //   3. Auto-scale from capacity
-  //   4. Default (1.0)
-  //
-  // When the per-element field is set, energy_class_name is left empty so
-  // that add_col does NOT consult the VariableScaleMap.  Otherwise,
-  // class_name metadata is set and add_col overrides auto_scale if the map
-  // has an entry (returns != 1.0); if the map returns 1.0, auto_scale wins.
-  const bool has_explicit_energy_scale = reservoir().energy_scale.has_value();
-  const double energy_scale = [&]
-  {
-    if (has_explicit_energy_scale) {
-      return *reservoir().energy_scale;
-    }
-    // Auto-scale mode: round down capacity to previous power of 10.
-    // cap=72 → 10;  cap=5586 → 1000.
-    // This is the fallback — VariableScaleMap entries override it in add_col.
-    if (reservoir().energy_scale_mode_enum() == EnergyScaleMode::auto_scale) {
-      if (stage_capacity <= 1.0) {
-        return 1.0;
-      }
-      return std::pow(10.0, std::floor(std::log10(stage_capacity)));
-    }
-    return Reservoir::default_energy_scale;
-  }();
-  // Only opt into VariableScaleMap resolution when no per-element field.
-  const auto energy_class_name =
-      has_explicit_energy_scale ? std::string_view {} : ClassName.full_name();
+  // Resolve energy_scale from VariableScaleMap (default 1.0 if not set).
+  const double energy_scale =
+      sc.options().variable_scale_map().lookup("Reservoir", "energy", uid());
+
   BIndexHolder<ColIndex> rcols;
   BIndexHolder<ColIndex> scols;
   map_reserve(rcols, blocks.size());
@@ -137,7 +109,7 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   const StorageOptions opts {
       .use_state_variable = reservoir().use_state_variable.value_or(true),
       .daily_cycle = reservoir().daily_cycle.value_or(false),
-      .class_name = energy_class_name,
+      .class_name = ClassName.full_name(),
       .variable_uid = uid(),
       .energy_scale = energy_scale,
       .flow_scale = flow_scale,

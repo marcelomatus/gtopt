@@ -1175,8 +1175,10 @@ class GTOptWriter:
         if not options:
             return
 
+        # Auto-scale is the default since per-element energy_scale fields have
+        # been removed from the C++ structs. Use variable_scales exclusively.
         has_rsv = "rsv_energy_scale" in options or options.get(
-            "auto_rsv_energy_scale", False
+            "auto_rsv_energy_scale", True
         )
         has_bat = "bat_energy_scale" in options or options.get(
             "auto_bat_energy_scale", False

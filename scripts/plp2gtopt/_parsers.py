@@ -558,7 +558,7 @@ def add_reservoir_battery_arguments(
         "--auto-rsv-energy-scale",
         dest="auto_rsv_energy_scale",
         action=argparse.BooleanOptionalAction,
-        default=False,
+        default=True,
         help=(
             "Emit reservoir energy_scale as variable_scales entries from the "
             "PLP FEscala field: energy_scale = 10^(FEscala - 6). "
@@ -566,9 +566,10 @@ def add_reservoir_battery_arguments(
             "available; otherwise falls back to plpcnfce.dat Escala / 1e6. "
             "Explicit --rsv-energy-scale entries override auto-calculated "
             "values. "
-            "By default OFF: the C++ auto_scale mode computes energy_scale "
-            "from reservoir capacity directly. "
-            "Use --auto-rsv-energy-scale to enable PLP FEscala scales. "
+            "Auto-scale is ON by default since per-element energy_scale fields "
+            "have been removed from the C++ structs; variable_scales is now the "
+            "sole scaling mechanism. "
+            "Use --no-auto-rsv-energy-scale to disable PLP FEscala scales. "
             "(default: %(default)s)"
         ),
     )

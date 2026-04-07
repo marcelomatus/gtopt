@@ -95,16 +95,11 @@ class Reservoir(_ReservoirRequired, total=False):
     state (energy level) is not linked across blocks, which models small /
     independent hydro reservoirs (PLP ``Hid_Indep='T'``).
 
-    ``energy_scale`` is an explicit scaling factor for the reservoir energy
-    variables in the LP formulation (derived from the PLP FEscala field).
-
-    ``energy_scale_mode`` selects how the C++ code computes the scale factor:
-    ``"auto"`` delegates to the built-in heuristic.
+    Energy scaling is now handled exclusively via the ``variable_scales``
+    option in the planning options section (not per-element fields).
     """
 
     use_state_variable: bool
-    energy_scale: float
-    energy_scale_mode: str
     soft_emin: list[float]
     soft_emin_cost: list[float]
     seepage: List[Dict[str, Any]]
@@ -638,23 +633,12 @@ class JunctionWriter(BaseWriter):
                 "flow_conversion_rate": 3.6 / 1000.0,
             }
 
-            # Energy scaling mode: controlled by --rsv-scale-mode.
-            #  "auto" (default): delegate to C++ auto_scale mode which
-            #          computes energy_scale = pow(10, floor(log10(capacity))).
-            #  "plp":  use PLP FEscala-based energy_scale from
-            #          central_parser (= EmbFEsc / 1E6).  Sets explicit
-            #          energy_scale on the reservoir so the C++ code uses
-            #          it directly.
+            # Energy scaling mode: energy scale for LP variables is now handled
+            # exclusively via the ``variable_scales`` option in the planning
+            # options section (written by GTOptWriter.process_variable_scales).
+            # Do NOT emit energy_scale or energy_scale_mode on the reservoir.
             rsv_scale_mode = self.options.get("rsv_scale_mode", "auto")
-            if rsv_scale_mode == "plp":
-                plp_energy_scale = central.get("energy_scale")
-                if plp_energy_scale is not None and plp_energy_scale != 1.0:
-                    reservoir["energy_scale"] = plp_energy_scale
-                else:
-                    # No FEscala data — fall back to auto.
-                    reservoir["energy_scale_mode"] = "auto"
-            else:
-                reservoir["energy_scale_mode"] = "auto"
+            _ = rsv_scale_mode  # retained for potential future use
 
             # Small / independent reservoirs (PLP Hid_Indep='T') do not
             # carry state across blocks — disable the state variable.
