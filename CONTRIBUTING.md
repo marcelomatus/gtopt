@@ -154,7 +154,7 @@ runs clang-format on staged C/C++ files and re-stages them automatically.
 - When modifying LP assembly code (`*_lp.cpp`), run the
   [LP Fingerprint](docs/lp-fingerprint.md) comparison against golden references
   to verify no variables or constraints were accidentally added, removed, or
-  renamed: `gtopt_lp_fingerprint compare --actual actual.json --expected golden.json`
+  renamed: `gtopt_check_fingerprint compare --actual actual.json --expected golden.json`
 
 See `.github/copilot-instructions.md` for the complete test template and rules.
 

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
-"""Entry point for ``python -m gtopt_lp_fingerprint``."""
+"""Entry point for ``python -m gtopt_check_fingerprint``."""
 
 import sys
 

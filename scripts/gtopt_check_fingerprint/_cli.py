@@ -113,7 +113,7 @@ def _print_stats(actual: LpFingerprint, expected: LpFingerprint) -> None:
 def main(argv: list[str] | None = None) -> int:
     """Entry point for the CLI."""
     parser = argparse.ArgumentParser(
-        prog="gtopt_lp_fingerprint",
+        prog="gtopt_check_fingerprint",
         description="LP structural fingerprint tool for gtopt",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)

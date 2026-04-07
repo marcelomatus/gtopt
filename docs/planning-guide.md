@@ -1916,7 +1916,7 @@ This writes `lp_fingerprint_scene_{S}_phase_{P}.json` to the output directory.
 ### Comparing against a baseline
 
 ```bash
-python -m gtopt_lp_fingerprint compare \
+python -m gtopt_check_fingerprint compare \
   --actual output/lp_fingerprint_scene_0_phase_0.json \
   --expected golden/lp_fingerprint_scene_0_phase_0.json
 ```
@@ -1931,7 +1931,7 @@ The Python tool can also compute a fingerprint directly from a solver-generated
 LP file, verifying that what gtopt assembles is exactly what the solver sees:
 
 ```bash
-python -m gtopt_lp_fingerprint verify \
+python -m gtopt_check_fingerprint verify \
   --lp-file logs/lp_scene_0_phase_0.lp \
   --golden golden/lp_fingerprint_scene_0_phase_0.json
 ```

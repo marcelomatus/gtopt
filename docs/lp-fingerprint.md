@@ -43,7 +43,7 @@ output/lp_fingerprint_scene_0_phase_0.json
 ### Compare against a golden reference
 
 ```bash
-python -m gtopt_lp_fingerprint compare \
+python -m gtopt_check_fingerprint compare \
   --actual output/lp_fingerprint_scene_0_phase_0.json \
   --expected golden/lp_fingerprint_scene_0_phase_0.json
 ```
@@ -268,13 +268,13 @@ computes the same fingerprint by reverse-parsing column and row names.
 
 ```bash
 # Compute fingerprint from an LP file
-python -m gtopt_lp_fingerprint compute problem.lp -o fingerprint.json
+python -m gtopt_check_fingerprint compute problem.lp -o fingerprint.json
 
 # Verify LP file against a golden fingerprint
-python -m gtopt_lp_fingerprint verify --lp-file problem.lp --golden golden.json
+python -m gtopt_check_fingerprint verify --lp-file problem.lp --golden golden.json
 
 # Compare two fingerprint JSON files
-python -m gtopt_lp_fingerprint compare --actual actual.json --expected golden.json
+python -m gtopt_check_fingerprint compare --actual actual.json --expected golden.json
 ```
 
 This verifies that what gtopt models is exactly what the LP solver sees.
@@ -307,7 +307,7 @@ flowchart LR
 3. In CI, run the same case and compare fingerprints:
 
 ```bash
-python -m gtopt_lp_fingerprint compare \
+python -m gtopt_check_fingerprint compare \
   --actual output/lp_fingerprint_scene_0_phase_0.json \
   --expected golden/lp_fingerprint_scene_0_phase_0.json
 ```

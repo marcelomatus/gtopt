@@ -150,7 +150,7 @@ validating, and post-processing data for use with gtopt:
 | `gtopt_check_lp` | Diagnose infeasible LP files (static + solver + AI) |
 | `gtopt_check_output` | Analyze solver output completeness and correctness |
 | `gtopt_compress_lp` | Compress LP debug files |
-| `gtopt_lp_fingerprint` | Compute, verify, and compare LP structural fingerprints |
+| `gtopt_check_fingerprint` | Compute, verify, and compare LP structural fingerprints |
 
 ### Install
 

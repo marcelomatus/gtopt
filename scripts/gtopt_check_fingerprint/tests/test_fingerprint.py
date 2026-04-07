@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 
-from gtopt_lp_fingerprint._fingerprint import (
+from gtopt_check_fingerprint._fingerprint import (
     compare_fingerprints,
     compute_from_names,
     load_fingerprint_json,

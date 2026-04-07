@@ -28,7 +28,7 @@ preparing, converting, visualizing, and post-processing data for use with gtopt.
   - [gtopt_check_output](#gtopt_check_output) — analyze solver output
   - [gtopt_check_solvers](#gtopt_check_solvers) — discover and validate LP solver plugins
   - [gtopt_compress_lp](#gtopt_compress_lp) — compress LP debug files
-  - [gtopt_lp_fingerprint](#gtopt_lp_fingerprint) — LP structural fingerprint verification · [full docs](lp-fingerprint.md)
+  - [gtopt_check_fingerprint](#gtopt_check_fingerprint) — LP structural fingerprint verification · [full docs](lp-fingerprint.md)
 - **Utilities**
   - [gtopt_config](#gtopt_config) — unified configuration for all tools
   - [gtopt_field_extractor](#gtopt_field_extractor)
@@ -50,7 +50,7 @@ This registers all 17 command-line tools on your `PATH`:
 `cvs2parquet`, `ts2gtopt`, `gtopt_compare`, `run_gtopt`,
 `gtopt_monitor`, `gtopt_check_json`, `gtopt_check_lp`,
 `gtopt_check_output`, `gtopt_check_solvers`, `gtopt_compress_lp`,
-`gtopt_lp_fingerprint`, and `gtopt_field_extractor`.  An editable install is useful during
+`gtopt_check_fingerprint`, and `gtopt_field_extractor`.  An editable install is useful during
 development:
 
 ```bash
@@ -85,7 +85,7 @@ Each command-line tool lives in its own Python package directory under
 | `gtopt_check_output/` | `gtopt_check_output` | Solver output analyzer |
 | `gtopt_check_solvers/` | `gtopt_check_solvers` | LP solver plugin discovery & validation |
 | `gtopt_compress_lp/` | `gtopt_compress_lp` | LP debug file compressor |
-| `gtopt_lp_fingerprint/` | `gtopt_lp_fingerprint` | LP structural fingerprint verification & comparison |
+| `gtopt_check_fingerprint/` | `gtopt_check_fingerprint` | LP structural fingerprint verification & comparison |
 | `gtopt_config/` | *(library)* | Unified configuration management |
 | `gtopt_monitor/` | `gtopt_monitor` | Live solver monitoring dashboard |
 | `ts2gtopt/` | `ts2gtopt` | Time-series → gtopt block schedule converter |
@@ -1320,7 +1320,7 @@ gtopt_compress_lp --init-config
 
 ---
 
-## gtopt_lp_fingerprint
+## gtopt_check_fingerprint
 
 Computes, verifies, and compares **LP structural fingerprints** — a
 SHA-256 hash of the sorted set of `(class, variable, context_type)` triples
@@ -1331,13 +1331,13 @@ of element counts.  See [LP Fingerprint](lp-fingerprint.md) for full details.
 
 ```bash
 # Compute fingerprint from an LP file
-gtopt_lp_fingerprint compute problem.lp -o fingerprint.json
+gtopt_check_fingerprint compute problem.lp -o fingerprint.json
 
 # Verify an LP file against a golden fingerprint
-gtopt_lp_fingerprint verify --lp-file problem.lp --golden golden.json
+gtopt_check_fingerprint verify --lp-file problem.lp --golden golden.json
 
 # Compare two fingerprint JSON files (structural only, ignores stats)
-gtopt_lp_fingerprint compare --actual actual.json --expected golden.json
+gtopt_check_fingerprint compare --actual actual.json --expected golden.json
 ```
 
 ### Subcommands
