@@ -17,7 +17,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gtopt-scripts"
 version = "1.0.0"
-description = "gtopt conversion, diagram and utility scripts (gtopt_compare, cvs2parquet, gtopt_diagram, gtopt_check_lp, gtopt_check_json, gtopt2pp, igtopt, plp2gtopt, pp2gtopt, ts2gtopt)"
+description = "gtopt conversion, diagram and utility scripts (gtopt_compare, cvs2parquet, gtopt_diagram, gtopt_check_lp, gtopt_check_json, gtopt_lp_fingerprint, gtopt2pp, igtopt, plp2gtopt, pp2gtopt, ts2gtopt)"
 requires-python = ">=3.8"
 dependencies = [
     "cairosvg>=2.7",
@@ -53,6 +53,7 @@ run_gtopt             = "run_gtopt.main:main"
 gtopt_check_output    = "gtopt_check_output.main:main"
 gtopt_check_solvers   = "gtopt_check_solvers.gtopt_check_solvers:main"
 gtopt_check_pampl     = "gtopt_check_pampl.gtopt_check_pampl:main"
+gtopt_lp_fingerprint  = "gtopt_lp_fingerprint._cli:main"
 plp_compress_case     = "plp_compress_case.main:main"
 
 
@@ -70,7 +71,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["gtopt_compare*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "gtopt_check_output*", "gtopt_check_pampl*", "gtopt_compress_lp*", "gtopt_check_json*", "gtopt_check_solvers*", "gtopt_config*", "igtopt*", "plp2gtopt*", "plp_compress_case*", "pp2gtopt*", "gtopt2pp*", "run_gtopt*", "gtopt_monitor*", "ts2gtopt*"]
+include = ["gtopt_compare*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "gtopt_check_output*", "gtopt_check_pampl*", "gtopt_compress_lp*", "gtopt_check_json*", "gtopt_check_solvers*", "gtopt_config*", "gtopt_lp_fingerprint*", "igtopt*", "plp2gtopt*", "plp_compress_case*", "pp2gtopt*", "gtopt2pp*", "run_gtopt*", "gtopt_monitor*", "ts2gtopt*"]
 
 
 # ---------------------------------------------------------------------------
@@ -86,6 +87,7 @@ testpaths = [
     "gtopt_field_extractor/tests",
     "gtopt_check_lp/tests",
     "gtopt_compress_lp/tests",
+    "gtopt_lp_fingerprint/tests",
     "gtopt_check_json/tests",
     "gtopt_check_pampl/tests",
     "gtopt_check_solvers/tests",
@@ -124,7 +126,7 @@ exclude_lines = [
 profile = "black"
 line_length = 88
 skip_gitignore = true
-known_first_party = ["cvs2parquet", "gtopt_compare", "gtopt_diagram", "gtopt_field_extractor", "gtopt2pp", "gtopt_check_json", "gtopt_check_lp", "gtopt_check_output", "gtopt_check_pampl", "gtopt_check_solvers", "gtopt_compress_lp", "gtopt_config", "igtopt", "plp2gtopt", "plp_compress_case", "pp2gtopt", "run_gtopt", "gtopt_monitor", "ts2gtopt"]
+known_first_party = ["cvs2parquet", "gtopt_compare", "gtopt_diagram", "gtopt_field_extractor", "gtopt2pp", "gtopt_check_json", "gtopt_check_lp", "gtopt_check_output", "gtopt_check_pampl", "gtopt_check_solvers", "gtopt_compress_lp", "gtopt_config", "gtopt_lp_fingerprint", "igtopt", "plp2gtopt", "plp_compress_case", "pp2gtopt", "run_gtopt", "gtopt_monitor", "ts2gtopt"]
 
 [tool.ruff]
 line-length = 88

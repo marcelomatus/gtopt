@@ -1157,6 +1157,11 @@ gtopt/
 - **Diagnostics on failure**: `gtopt_main` logs the full `SolverOptions` used
   (algorithm, threads, tolerances) when the solver does not find an optimal
   solution, and includes filename + position for JSON parse errors.
+- **LP Fingerprint**: structural integrity verification for LP formulations.
+  Captures a sorted, deduplicated set of `(class, variable, context_type)`
+  triples and their SHA-256 hash.  Enable with `--set options.lp_fingerprint=true`.
+  See `docs/lp-fingerprint.md` for details and `scripts/gtopt_lp_fingerprint/`
+  for the external verification tool.
 
 ---
 

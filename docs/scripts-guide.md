@@ -28,6 +28,7 @@ preparing, converting, visualizing, and post-processing data for use with gtopt.
   - [gtopt_check_output](#gtopt_check_output) — analyze solver output
   - [gtopt_check_solvers](#gtopt_check_solvers) — discover and validate LP solver plugins
   - [gtopt_compress_lp](#gtopt_compress_lp) — compress LP debug files
+  - [gtopt_lp_fingerprint](#gtopt_lp_fingerprint) — LP structural fingerprint verification · [full docs](lp-fingerprint.md)
 - **Utilities**
   - [gtopt_config](#gtopt_config) — unified configuration for all tools
   - [gtopt_field_extractor](#gtopt_field_extractor)
@@ -44,12 +45,12 @@ Install all tools with a single `pip` command from the repository root:
 pip install ./scripts
 ```
 
-This registers all 16 command-line tools on your `PATH`:
+This registers all 17 command-line tools on your `PATH`:
 `gtopt_diagram`, `plp2gtopt`, `pp2gtopt`, `gtopt2pp`, `igtopt`,
 `cvs2parquet`, `ts2gtopt`, `gtopt_compare`, `run_gtopt`,
 `gtopt_monitor`, `gtopt_check_json`, `gtopt_check_lp`,
-`gtopt_check_output`, `gtopt_check_solvers`, `gtopt_compress_lp`, and
-`gtopt_field_extractor`.  An editable install is useful during
+`gtopt_check_output`, `gtopt_check_solvers`, `gtopt_compress_lp`,
+`gtopt_lp_fingerprint`, and `gtopt_field_extractor`.  An editable install is useful during
 development:
 
 ```bash
@@ -84,6 +85,7 @@ Each command-line tool lives in its own Python package directory under
 | `gtopt_check_output/` | `gtopt_check_output` | Solver output analyzer |
 | `gtopt_check_solvers/` | `gtopt_check_solvers` | LP solver plugin discovery & validation |
 | `gtopt_compress_lp/` | `gtopt_compress_lp` | LP debug file compressor |
+| `gtopt_lp_fingerprint/` | `gtopt_lp_fingerprint` | LP structural fingerprint verification & comparison |
 | `gtopt_config/` | *(library)* | Unified configuration management |
 | `gtopt_monitor/` | `gtopt_monitor` | Live solver monitoring dashboard |
 | `ts2gtopt/` | `ts2gtopt` | Time-series → gtopt block schedule converter |
@@ -1315,6 +1317,61 @@ gtopt_compress_lp --init-config
 | `--config PATH` | `~/.gtopt_compress_lp.conf` | Config file path |
 | `--color {auto,always,never}` | `auto` | Terminal color output |
 | `--version` | — | Show version and exit |
+
+---
+
+## gtopt_lp_fingerprint
+
+Computes, verifies, and compares **LP structural fingerprints** — a
+SHA-256 hash of the sorted set of `(class, variable, context_type)` triples
+that captures which types of LP variables and constraints exist, independent
+of element counts.  See [LP Fingerprint](lp-fingerprint.md) for full details.
+
+### Basic usage
+
+```bash
+# Compute fingerprint from an LP file
+gtopt_lp_fingerprint compute problem.lp -o fingerprint.json
+
+# Verify an LP file against a golden fingerprint
+gtopt_lp_fingerprint verify --lp-file problem.lp --golden golden.json
+
+# Compare two fingerprint JSON files (structural only, ignores stats)
+gtopt_lp_fingerprint compare --actual actual.json --expected golden.json
+```
+
+### Subcommands
+
+| Subcommand | Purpose |
+|------------|---------|
+| `compute` | Parse an LP file and write a fingerprint JSON |
+| `verify` | Parse an LP file and compare against a golden JSON |
+| `compare` | Compare two fingerprint JSON files |
+
+### Compute options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `LP_FILE` (positional) | — | LP file to parse (`.lp` format) |
+| `-o`, `--output` | stdout | Output fingerprint JSON path |
+
+### Verify options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--lp-file` | — | LP file to parse |
+| `--golden` | — | Golden fingerprint JSON to compare against |
+
+### Compare options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--actual` | — | Actual fingerprint JSON |
+| `--expected` | — | Expected (golden) fingerprint JSON |
+
+Exit code 0 = match, 1 = structural mismatch.  The `stats` section
+(element counts) is always ignored — only structural template and hash
+are compared.
 
 ---
 
