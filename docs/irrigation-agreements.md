@@ -600,8 +600,8 @@ gtopt uses structured names with entity-type prefix and UID suffix:
 | `vrt_extraction_` | VolumeRight extraction rate | `vrt_extraction_2005_51_1_1` |
 | `vrt_sini_` | VolumeRight initial state | `vrt_sini_2005_51_1` |
 | `vrt_saving_` | VolumeRight economy deposit | `vrt_saving_2009_51_1_1` |
-| `rsv_vol_` | Reservoir end volume | `rsv_vol_37_51_1_1` |
-| `rsv_fext_` | Reservoir total extraction | `rsv_fext_37_51_1_1` |
+| `rsv_volumen_` | Reservoir end volume | `rsv_volumen_37_51_1_1` |
+| `rsv_extraction_` | Reservoir total extraction | `rsv_extraction_37_51_1_1` |
 
 PAMPL constraints use their defined name with suffixes:
 `laja_particion_derechos_s51_t1_b1`
@@ -626,13 +626,13 @@ conditioning without changing the mathematical formulation:
 | COLBUN (28) | 1000 | 1.0 | Medium reservoir (~1500 hm³) |
 | EL TORO (37) | 10000 | 10.0 | Large reservoir (~5586 hm³) |
 
-The `rsv_fext` and `rsv_drain` variables use the reservoir's
+The `rsv_extraction` and `rsv_drain` variables use the reservoir's
 `flow_scale`, while `vrt_extraction` variables use native m³/s
 (`flow_scale=1`). This creates apparent coefficient ratios in the
 reservoir balance:
 
 ```
-rsv_fext coefficient = dur_hr × 3.6e-3 × flow_scale / energy_scale
+rsv_extraction coefficient = dur_hr × 3.6e-3 × flow_scale / energy_scale
 vrt_extraction coeff = dur_hr × 3.6e-3 × 1.0      / energy_scale
 ratio = 1 / flow_scale
 ```
@@ -827,10 +827,10 @@ All flow terms: `25.2 = 7 × 3.6` (uniform).
 
 **gtopt:**
 ```
-rsv_vol_6: +2.52e-05 rsv_fext_6 + 2.52e-05 rsv_drain_6
+rsv_vol_6: +2.52e-05 rsv_extraction_6 + 2.52e-05 rsv_drain_6
            + 0.000252 vrt_extraction_1012 - rsv_sini_6 + rsv_vol_6 = 0
 ```
-- `rsv_fext` coeff: `7 × 3.6e-3 × 0.1 / 100 = 2.52e-05` ✓
+- `rsv_extraction` coeff: `7 × 3.6e-3 × 0.1 / 100 = 2.52e-05` ✓
 - `vrt_extraction` coeff: `7 × 3.6e-3 × 1.0 / 100 = 2.52e-04`
   (10× fext — because `1/flow_scale = 1/0.1 = 10`) ✓
 
@@ -843,7 +843,7 @@ c241: 25.2 qg37_1 + 25.2 qv37_1 - 25.2 qaf37_1 + 25.2 qe37_1 = 1400.544
 
 **gtopt:**
 ```
-rsv_vol_37: +2.52e-05 rsv_fext_37 + 2.52e-05 rsv_drain_37
+rsv_vol_37: +2.52e-05 rsv_extraction_37 + 2.52e-05 rsv_drain_37
             + 2.52e-06 vrt_extraction_2005 (laja_vol_irr)
             + 2.52e-06 vrt_extraction_2006 (laja_vol_elec)
             + 2.52e-06 vrt_extraction_2007 (laja_vol_mixed)
@@ -853,7 +853,7 @@ rsv_vol_37: +2.52e-05 rsv_fext_37 + 2.52e-05 rsv_drain_37
             + 2.52e-06 vrt_extraction_2011 (laja_vol_econ_polcura)
             - rsv_sini_37 + rsv_vol_37 = 0
 ```
-- `rsv_fext` coeff: `7 × 3.6e-3 × 10 / 10000 = 2.52e-05` ✓
+- `rsv_extraction` coeff: `7 × 3.6e-3 × 10 / 10000 = 2.52e-05` ✓
 - `vrt_extraction` coeff: `7 × 3.6e-3 × 1.0 / 10000 = 2.52e-06`
   (0.1× fext — because `1/flow_scale = 1/10 = 0.1`) ✓
 
@@ -869,7 +869,7 @@ PLP uses 2 aggregate extraction vars: `qx28@1` (0–24 m³/s),
 
 **gtopt:**
 ```
-rsv_vol_28: +2.52e-05 rsv_fext_28 + 2.52e-05 rsv_drain_28
+rsv_vol_28: +2.52e-05 rsv_extraction_28 + 2.52e-05 rsv_drain_28
             + 2.52e-05 vrt_extraction_1006 (maule_vol_elec_mensual)
             + 2.52e-05 vrt_extraction_1007 (maule_vol_elec_anual)
             + 2.52e-05 vrt_extraction_1008 (maule_vol_riego_temp)

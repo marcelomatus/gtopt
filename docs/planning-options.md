@@ -299,11 +299,10 @@ and 1e-8 tolerance (from global), while the backward pass uses algorithm 3
 
 Variable scaling factors are resolved in this order (highest priority first):
 
-1. Per-element fields (e.g., `Battery::energy_scale`, `Reservoir::energy_scale`)
-2. Global options (`scale_theta` for bus voltage angles)
-3. `variable_scales` entries matching by `(class_name, variable, uid)`
-4. `variable_scales` entries matching by `(class_name, variable, uid=-1)` (wildcard)
-5. Default scale = 1.0
+1. Global options (`scale_theta` for bus voltage angles)
+2. `variable_scales` entries matching by `(class_name, variable, uid)`
+3. `variable_scales` entries matching by `(class_name, variable, uid=-1)` (wildcard)
+4. Default scale = 1.0
 
 ### JSON Example
 

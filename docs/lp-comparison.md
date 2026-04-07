@@ -51,19 +51,19 @@ generated LP files (April 2026), stage 1 (March), iteration 0.
 
 | Entity | PLP pattern | gtopt pattern (--lp-names-level 2) |
 |--------|-------------|-------------------------------------|
-| Thermal gen | `gN_j` | `gen_gen_{uid}_{s}_{t}_{b}` |
-| Hydro turbine | `qgN_j` | `gen_gen_{uid}_{s}_{t}_{b}` + `tur_conv` |
+| Thermal gen | `gN_j` | `gen_generation_{uid}_{s}_{t}_{b}` |
+| Hydro turbine | `qgN_j` | `gen_generation_{uid}_{s}_{t}_{b}` + `tur_conversion` |
 | Spillage | `qvN_j` | `rsv_drain_{uid}_{s}_{t}_{b}` |
 | Demand | RHS in bus balance | `dem_load_{uid}` / `dem_fail_{uid}` |
-| Line flow | `lNfpK_j` / `lNfnK_j` | `lin_fp_{uid}` / `lin_fn_{uid}` / `lin_seg` |
+| Line flow | `lNfpK_j` / `lNfnK_j` | `lin_flowp_{uid}` / `lin_flown_{uid}` / `lin_seg` |
 | Bus angle | `thN_j` | `bus_theta_{uid}_{s}_{t}_{b}` |
-| Reservoir vol | `vfN` / `veN` | `rsv_vol_{uid}` / `rsv_eini_{uid}` |
-| Battery SOC | `socN_j` / `tenN` | `bat_vol_{uid}` / `bat_eini_{uid}` |
+| Reservoir vol | `vfN` / `veN` | `rsv_volumen_{uid}` / `rsv_eini_{uid}` |
+| Battery SOC | `socN_j` / `tenN` | `bat_volumen_{uid}` / `bat_eini_{uid}` |
 | Inflow | `qafN_j` | `flw_flow_{uid}_{s}_{t}_{b}` |
-| Filtration | `qfN` | `wwy_flow_{uid}` (via `fil_filt` constraint) |
-| Seepage | `qeN_j` | Embedded in `rsv_fext` |
+| Filtration | `qfN` | `wwy_flow_{uid}` (via `fil_seepage` constraint) |
+| Seepage | `qeN_j` | Embedded in `rsv_extraction` |
 | Future cost | `varphiN` | `sddp_alpha` |
-| Constraint rows | `cN` (generic) | Named: `bus_bal_`, `rsv_vol_`, `tur_conv_`, etc. |
+| Constraint rows | `cN` (generic) | Named: `bus_balance_`, `rsv_volumen_`, `tur_conversion_`, etc. |
 
 ---
 
@@ -72,7 +72,7 @@ generated LP files (April 2026), stage 1 (March), iteration 0.
 | Metric | PLP | gtopt |
 |--------|-----|-------|
 | Thermal/solar generators | 537 unique IDs | 537 (same IDs) |
-| Hydro generators | 214 (`qg` prefix) | Modeled as `gen_gen` + `tur_conv` |
+| Hydro generators | 214 (`qg` prefix) | Modeled as `gen_generation` + `tur_conversion` |
 | Battery-related gens | 25 charge + 25 discharge | Modeled as `bat_finp`/`bat_fout` |
 
 ### Objective Costs
@@ -83,7 +83,7 @@ generated LP files (April 2026), stage 1 (March), iteration 0.
 Example:
 ```
 PLP:    g1236_1  cost = 438.116  (block 1, gen 1236)
-gtopt:  gen_gen_1236  cost = 4.38116e-05
+gtopt:  gen_generation_1236  cost = 4.38116e-05
 Ratio:  438.116 / 4.38116e-05 = 10,000,000  ✓
 ```
 
@@ -101,13 +101,13 @@ Ratio:  438.116 / 4.38116e-05 = 10,000,000  ✓
 ### Structural Differences
 
 PLP models hydro generators with `qg` (turbine flow in m³/s) and
-derives power via fixed efficiency.  gtopt uses `gen_gen` (power in MW)
-with explicit `tur_conv` (turbine conversion) constraints linking power
+derives power via fixed efficiency.  gtopt uses `gen_generation` (power in MW)
+with explicit `tur_conversion` (turbine conversion) constraints linking power
 to waterway flow:
 
 ```
 PLP:    qg37_1 × efficiency → power (implicit)
-gtopt:  tur_conv: gen_gen_1810 = tur_eff × wwy_flow_37  (explicit)
+gtopt:  tur_conversion: gen_generation_1810 = tur_eff × wwy_flow_37  (explicit)
 ```
 
 ---
@@ -162,10 +162,10 @@ Both use 3-segment piecewise linear loss approximation:
 
 - **PLP**: Losses embedded as coefficients in bus balance (e.g.,
   `-1.00343 × fp1` at sending bus, `+0.99657 × fp1` at receiving bus)
-- **gtopt**: Losses as separate `lin_ls` variable split 50/50 between
+- **gtopt**: Losses as separate `lin_lossp` variable split 50/50 between
   sending and receiving buses
 
-Loss coefficients match numerically (PLP loss coeff = gtopt `lin_lsl`
+Loss coefficients match numerically (PLP loss coeff = gtopt `lin_loss_link`
 coeff / 2).
 
 ---
@@ -209,7 +209,7 @@ gtopt:  fp - fn - 0.306290*bus_theta_2 + 0.306290*bus_theta_65 = 0
 | Metric | PLP | gtopt |
 |--------|-----|-------|
 | Count | 25 | 25 |
-| SOC variables | `socN_j` (25×10 blocks) | `bat_vol` (25×10 blocks) |
+| SOC variables | `socN_j` (25×10 blocks) | `bat_volumen` (25×10 blocks) |
 | Charge/discharge | Paired generators (even=charge, odd=discharge) | `bat_finp`/`bat_fout` |
 | Energy initial | `tenN` (25 per stage) | `bat_eini` (25 per stage) |
 | Round-trip efficiency | 0.81 (0.9²) | 0.81 (0.9²) |
@@ -219,8 +219,8 @@ gtopt:  fp - fn - 0.306290*bus_theta_2 + 0.306290*bus_theta_65 = 0
 Structural difference: PLP uses paired generators on the host bus
 (charge gen has `[-pmax, 0]` bounds, discharge gen has `[0, pmax]`
 bounds) plus `soc`/`ten` energy state variables.  gtopt uses dedicated
-`bat_finp`/`bat_fout` with converter constraints (`con_gconv`,
-`con_dconv`) and `bat_vol`/`bat_eini`/`bat_eclose` for energy tracking.
+`bat_finp`/`bat_fout` with converter constraints (`con_generation`,
+`con_demand`) and `bat_volumen`/`bat_eini`/`bat_eclose` for energy tracking.
 
 ---
 
@@ -234,7 +234,7 @@ bounds) plus `soc`/`ten` energy state variables.  gtopt uses dedicated
 
 ### Reservoir Mapping
 
-| PLP # | Name | gtopt UID | FEscala | energy_scale | flow_scale |
+| PLP # | Name | gtopt UID | FEscala | energy scale¹ | flow scale¹ |
 |-------|------|-----------|---------|-------------|------------|
 | 1 | LMAULE | 1 | 9 | 1000 | 1 |
 | 2 | CIPRESES | 6 | 8 | 100 | 0.1 |
@@ -277,8 +277,8 @@ Where `604.8 = 168h × 3.6`, and `ve = Σ(dur_j × 3.6 × qe_j)`.
 
 **gtopt** (per-block, 10 chained constraints):
 ```
-rsv_vol_37_b1: +2.52e-05*rsv_fext + rsv_vol - rsv_eini + 2.52e-05*rsv_drain = 0
-rsv_vol_37_b2: +2.52e-05*rsv_fext + rsv_vol - rsv_vol_prev + ... = 0
+rsv_volumen_37_b1: +2.52e-05*rsv_extraction + rsv_volumen - rsv_eini + 2.52e-05*rsv_drain = 0
+rsv_volumen_37_b2: +2.52e-05*rsv_extraction + rsv_volumen - rsv_volumen_prev + ... = 0
 ...
 ```
 
@@ -295,9 +295,12 @@ without changing the mathematics:
 | COLBUN | 2.52e-05 | 2.52e-05 | 7 × 3.6e-3 × 1.0 / 1000 |
 | ELTORO | 2.52e-05 | 2.52e-05 | 7 × 3.6e-3 × 10.0 / 10000 |
 
-All flow coefficients normalize to the same value — the `flow_scale /
-energy_scale` ratio is tuned so that LP matrix entries remain
+All flow coefficients normalize to the same value — the flow scale /
+energy scale ratio is tuned so that LP matrix entries remain
 well-conditioned.
+
+> ¹ Energy and flow scales are configured via `options.variable_scales`
+> entries (per-element `energy_scale` / `flow_scale` fields were removed).
 
 See [Irrigation Agreements — Coefficient Scaling](irrigation-agreements.md#90b-coefficient-scaling)
 for the detailed derivation including `vrt_extraction` coefficient
@@ -330,7 +333,7 @@ Filtration waterways are also modeled as `wwy_flow` (UIDs 134–136).
 
 Turbine conversion in gtopt links generator power to waterway flow:
 ```
-tur_conv: gen_gen_1810 = tur_eff × wwy_flow_37
+tur_conversion: gen_generation_1810 = tur_eff × wwy_flow_37
 ```
 
 ---
@@ -363,7 +366,7 @@ in both the junction balance and the `ve` definition:
 ve = Σ(dur_j × 3.6 × qe_j)
 ```
 
-**gtopt**: Seepage is embedded in `rsv_fext` (net extraction flow)
+**gtopt**: Seepage is embedded in `rsv_extraction` (net extraction flow)
 through the junction balance.  No separate seepage variable.
 
 All 10 reservoirs have seepage terms in PLP, with coefficients matching
@@ -479,7 +482,7 @@ including:
 | Category | PLP | gtopt | Match |
 |----------|-----|-------|-------|
 | Thermal/solar generators | 537 | 537 | **Exact** |
-| Hydro generators | 214 | 214 (gen_gen + tur_conv) | **Equivalent** |
+| Hydro generators | 214 | 214 (gen_generation + tur_conversion) | **Equivalent** |
 | Batteries | 25 | 25 | **Exact** |
 | Demands | 137 | 163 (+26 battery buses) | **Match** |
 | Active lines | 311 | 311 | **Exact** |
@@ -511,15 +514,15 @@ including:
 
 | Aspect | PLP | gtopt | Reason |
 |--------|-----|-------|--------|
-| Battery modeling | Gen pairs (charge/discharge) | `bat_finp`/`bat_fout`/`bat_vol` | Cleaner separation |
+| Battery modeling | Gen pairs (charge/discharge) | `bat_finp`/`bat_fout`/`bat_volumen` | Cleaner separation |
 | Demand curtailment | Not in LP | `dem_fail` with penalty | Feasibility guarantee |
-| Line losses | Embedded in bus balance coeffs | Separate `lin_ls` variable | Transparency |
+| Line losses | Embedded in bus balance coeffs | Separate `lin_lossp` variable | Transparency |
 | Volume balance | Stage-level (1 constraint) | Per-block (10 constraints) | Finer granularity |
 | RALCO discharge limit | Variable bounds | Explicit LP constraint | Tighter enforcement |
 | Future cost | Per-scenario `varphi` (16) | Single `sddp_alpha` | Aggregated |
 | Irrigation in LP | Hidden in Fortran code | 35 FlowRights + 14 VolumeRights + 265 constraints | Full transparency |
-| Hydro generators | `qg` flow + implicit efficiency | `gen_gen` power + `tur_conv` | Explicit conversion |
-| Seepage | Explicit `qe` variables | Embedded in `rsv_fext` | Simpler LP |
+| Hydro generators | `qg` flow + implicit efficiency | `gen_generation` power + `tur_conversion` | Explicit conversion |
+| Seepage | Explicit `qe` variables | Embedded in `rsv_extraction` | Simpler LP |
 | Bus count | 236 | 261 (+25 battery internal) | DCMod=1 batteries |
 
 ### Verdict

@@ -21,8 +21,8 @@ external time-series data.
 7. [Example 5 – Simple hydro cascade (2-bus, 2 stages)](#7-example-5--simple-hydro-cascade-2-bus-2-stages)
 8. [Numerical Scaling for Large Systems](#8-numerical-scaling-for-large-systems)
    - [`scale_objective` and `scale_theta`](#81-scale_objective-and-scale_theta)
-   - [`energy_scale` for Large Reservoirs](#82-energy_scale-for-large-reservoirs)
-   - [Battery `energy_scale`](#83-battery-energy_scale)
+   - [`variable_scales` for Large Reservoirs](#82-variable_scales-for-large-reservoirs)
+   - [Battery energy scaling](#83-battery-energy-scaling)
 9. [Working with time-series schedules](#9-working-with-time-series-schedules)
    - [Inline schedules in JSON](#91-inline-schedules-in-json)
    - [External CSV files](#92-external-csv-files)
@@ -784,27 +784,29 @@ voltage-angle variables.
 
 These defaults are adequate for most power systems.
 
-### 8.2 `energy_scale` for Large Reservoirs
+### 8.2 `variable_scales` for Large Reservoirs
 
-For large hydroelectric reservoirs, the default `energy_scale = 1.0` creates
+For large hydroelectric reservoirs, the default scale `1.0` creates
 LP variable bounds in the tens of millions (dam³), which produces a coefficient
 ratio far exceeding $10^8$ when combined with generator costs in the range 0.01–1.
 
-**Set `energy_scale ≈ emax / 1000`** to keep LP volume variables in the
-$[0, 1000]$ range (matching the PLP `ScaleVol` convention):
+**Set the energy scale ≈ emax / 1000** via `variable_scales` to keep LP volume
+variables in the $[0, 1000]$ range (matching the PLP `ScaleVol` convention):
 
 ```json
 {
-  "reservoir_array": [
-    {"uid": 1, "name": "Laja",   "emax": 6000000,  "energy_scale": 6000},
-    {"uid": 2, "name": "Colbun", "emax": 1500000,  "energy_scale": 1500},
-    {"uid": 3, "name": "Rapel",  "emax":  200000,  "energy_scale":  200}
-  ]
+  "options": {
+    "variable_scales": [
+      {"class_name": "Reservoir", "variable": "energy", "uid": 1, "scale": 6000.0},
+      {"class_name": "Reservoir", "variable": "energy", "uid": 2, "scale": 1500.0},
+      {"class_name": "Reservoir", "variable": "energy", "uid": 3, "scale":  200.0}
+    ]
+  }
 }
 ```
 
-Or use a uniform `variable_scales` entry to apply a default to all reservoirs
-(and then override individually for very small or very large ones):
+Or use a uniform entry to apply a default to all reservoirs (with `uid = -1`)
+and then override individually for very small or very large ones:
 
 ```json
 {
@@ -824,14 +826,19 @@ that scaling should be reviewed.
 gtopt my_case.json --stats 2>&1 | grep -i "coeff.*ratio\|coefficient.*ratio"
 ```
 
-### 8.3 Battery `energy_scale`
+### 8.3 Battery energy scaling
 
 For batteries, the same principle applies.  A battery with
-`emax = 10000 MWh` should use `energy_scale = 10`:
+`emax = 10000 MWh` should use an energy scale of 10:
 
 ```json
-{"uid": 1, "name": "BESS1", "emax": 10000, "energy_scale": 10}
-```
+{
+  "options": {
+    "variable_scales": [
+      {"class_name": "Battery", "variable": "energy", "uid": 1, "scale": 10.0}
+    ]
+  }
+}
 
 ---
 

@@ -1024,8 +1024,8 @@ invariant to the choice of scale**.
 
 | Component | Field | Symbol | Default | Effect |
 |-----------|-------|--------|---------|--------|
-| Battery | `energy_scale` | $\sigma_E$ | 1.0 | SoC variable: $E_{\text{phys}} = E_{\text{LP}} \times \sigma_E$ |
-| Reservoir | `energy_scale` | $\sigma_V$ | 1.0 | Volume variable: $V_{\text{phys}} = V_{\text{LP}} \times \sigma_V$ |
+| Battery | `variable_scales` (energy) | $\sigma_E$ | 1.0 | SoC variable: $E_{\text{phys}} = E_{\text{LP}} \times \sigma_E$ |
+| Reservoir | `variable_scales` (energy) | $\sigma_V$ | 1.0 | Volume variable: $V_{\text{phys}} = V_{\text{LP}} \times \sigma_V$ |
 | Bus | `scale_theta` | $\sigma_\theta$ | 1000 | Angle variable: $\theta_{\text{phys}} = \theta_{\text{LP}} / \sigma_\theta$ |
 
 When a scale factor $\sigma_x$ is applied to a storage variable, the LP
@@ -1061,31 +1061,33 @@ Resolution priority:
 2. Per-class default (matching class + variable, no UID)
 3. Fallback: 1.0 (no scaling)
 
-Per-element fields (`Battery.energy_scale`, `Reservoir.energy_scale`) and
-global options (`scale_theta`) take precedence over entries in
+Global options (`scale_theta`) take precedence over entries in
 `variable_scales`.
 
 > **⚠️ Important: Reservoir scaling for large hydro systems.**
-> The default `energy_scale = 1.0` for reservoirs is adequate for small
+> The default scale `1.0` for reservoirs is adequate for small
 > systems, but will cause severe LP numerical ill-conditioning for
 > large-scale hydrothermal systems. A reservoir with maximum volume
 > $V_{\max} = 6 \times 10^6$ dam³ (Lake Laja scale) combined with a
 > generator cost coefficient of $\sim 0.1$ $/MWh produces an LP coefficient
 > ratio exceeding $10^8$ — well outside the safe range of $10^5$–$10^7$.
 >
-> **Best practice:** Set `energy_scale = max(1, emax / 1000)` so that LP
-> volume variables are normalised to the $[0, 1000]$ range:
+> **Best practice:** Set the energy scale to `max(1, emax / 1000)` via
+> `variable_scales` so that LP volume variables are normalised to the
+> $[0, 1000]$ range:
 >
 > ```json
 > {
->   "reservoir_array": [
->     {"uid": 1, "name": "Laja", "emax": 6000000, "energy_scale": 6000},
->     {"uid": 2, "name": "Colbun", "emax": 1500000, "energy_scale": 1500}
->   ]
+>   "options": {
+>     "variable_scales": [
+>       {"class_name": "Reservoir", "variable": "energy", "uid": 1, "scale": 6000.0},
+>       {"class_name": "Reservoir", "variable": "energy", "uid": 2, "scale": 1500.0}
+>     ]
+>   }
 > }
 > ```
 >
-> Alternatively, use `variable_scales` for a uniform global default:
+> Or use a uniform default with `uid = -1` for all reservoirs:
 >
 > ```json
 > {
@@ -1099,7 +1101,7 @@ global options (`scale_theta`) take precedence over entries in
 >
 > This matches the PLP `ScaleVol` convention (`ScaleVol = max(1, Vmax/1000)`).
 > Run with `--stats` and check the LP coefficient ratio in the log output;
-> a ratio above $10^7$ is a warning sign that `energy_scale` should be tuned.
+> a ratio above $10^7$ is a warning sign that scaling should be tuned.
 
 ### 6.4 Key Options Affecting the Formulation
 
@@ -1768,7 +1770,7 @@ mathematical symbols used in this formulation.
 | `battery_array[].input_efficiency` | $\eta_e^{\text{in}}$ | Charge efficiency |
 | `battery_array[].output_efficiency` | $\eta_e^{\text{out}}$ | Discharge efficiency |
 | `battery_array[].annual_loss` | $\mu_e$ | Annual self-discharge |
-| `battery_array[].energy_scale` | $\sigma_E$ | Energy variable scale factor (Section 6.3) |
+| `variable_scales` (Battery, energy) | $\sigma_E$ | Energy variable scale factor (Section 6.3) |
 
 ### Converter
 
@@ -1802,7 +1804,7 @@ mathematical symbols used in this formulation.
 | `waterway_array[].lossfactor` | $\lambda_w$ | Transport loss |
 | `reservoir_array[].vmin` | $\underline{V}_r$ | Min volume (hm³) |
 | `reservoir_array[].vmax` | $\overline{V}_r$ | Max volume (hm³) |
-| `reservoir_array[].energy_scale` | $\sigma_V$ | Volume variable scale factor (Section 6.3) |
+| `variable_scales` (Reservoir, energy) | $\sigma_V$ | Volume variable scale factor (Section 6.3) |
 | `turbine_array[].conversion_rate` | $\kappa_u$ | Water-to-power factor |
 | `turbine_array[].main_reservoir` | — | Reservoir for efficiency lookup |
 | `reservoir_efficiency_array[].mean_efficiency` | $\bar{\kappa}_u$ | Fallback efficiency |

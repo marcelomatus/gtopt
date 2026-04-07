@@ -175,9 +175,8 @@ Resolution priority when the solver looks up a scale:
 2. Per-class entry matching `(class_name, variable)` with `uid = -1`
 3. Fallback: `1.0` (no scaling)
 
-> **Note:** Per-element fields (`Battery::energy_scale`,
-> `Reservoir::energy_scale`) and global options (`scale_theta`) take
-> precedence over entries in `variable_scales`.
+> **Note:** Global options (`scale_theta`) take precedence over entries
+> in `variable_scales`.
 
 | Field        | Type    | Default | Description |
 |--------------|---------|---------|-------------|
@@ -923,7 +922,6 @@ A water reservoir connected to a junction.  Volume units: **hm³** (1 hm³ = 10�
 | `efin`                 | number              | hm³        | No       | Target final stored volume |
 | `fmin`                 | number              | m³/s        | No       | Minimum net inflow |
 | `fmax`                 | number              | m³/s        | No       | Maximum net inflow |
-| `energy_scale`         | number              | —           | No       | Multiplicative scaling factor for volume |
 | `flow_conversion_rate` | number              | hm³/(m³/s·h)| No     | Converts m³/s × hours to hm³ (default: 0.0036) |
 
 ### 3.10 Turbine
