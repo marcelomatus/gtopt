@@ -27,7 +27,6 @@ void share_cuts_for_phase(
     const StrongIndexVector<SceneIndex, std::vector<SparseRow>>& scene_cuts,
     CutSharingMode mode,
     PlanningLP& planning,
-    std::string_view label_prefix,
     LpContext context)
 {
   const auto num_scenes =
@@ -60,7 +59,7 @@ void share_cuts_for_phase(
       return;
     }
 
-    auto accumulated = accumulate_benders_cuts(all_cuts, label_prefix);
+    auto accumulated = accumulate_benders_cuts(all_cuts);
     apply_context(accumulated);
 
     for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
@@ -88,14 +87,14 @@ void share_cuts_for_phase(
       if (cuts.empty()) {
         continue;
       }
-      scene_avg_cuts.push_back(average_benders_cut(cuts, label_prefix));
+      scene_avg_cuts.push_back(average_benders_cut(cuts));
     }
 
     if (scene_avg_cuts.empty()) {
       return;
     }
 
-    auto accumulated = accumulate_benders_cuts(scene_avg_cuts, label_prefix);
+    auto accumulated = accumulate_benders_cuts(scene_avg_cuts);
     apply_context(accumulated);
 
     for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {

@@ -274,8 +274,7 @@ ColIndex LinearInterface::add_free_col(const std::string& name)
 
 ColIndex LinearInterface::add_col(const SparseCol& col)
 {
-  // Resolve name: use metadata-based lazy generation when available,
-  // fall back to explicit .name field.
+  // Resolve name: generate from metadata when available.
   const auto name = [&]() -> std::string
   {
     if (!col.class_name.empty()
@@ -287,7 +286,7 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
             if constexpr (std::is_same_v<std::remove_cvref_t<decltype(ctx)>,
                                          std::monostate>)
             {
-              return col.name;
+              return {};
             } else {
               return generate_lp_label(
                   col.class_name, col.variable_name, col.variable_uid, ctx);
@@ -295,7 +294,7 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
           },
           col.context);
     }
-    return col.name;
+    return {};
   }();
 
   const auto [lowb, uppb] = normalize_bounds(col.lowb, col.uppb);
@@ -352,8 +351,7 @@ RowIndex LinearInterface::add_row(const std::string& name,
 
 RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
 {
-  // Resolve name: use metadata-based lazy generation when available,
-  // fall back to explicit .name field.
+  // Resolve name: generate from metadata when available.
   const auto name = [&]() -> std::string
   {
     if (!row.class_name.empty()
@@ -365,7 +363,7 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
             if constexpr (std::is_same_v<std::remove_cvref_t<decltype(ctx)>,
                                          std::monostate>)
             {
-              return row.name;
+              return {};
             } else {
               return generate_lp_label(
                   row.class_name, row.constraint_name, row.variable_uid, ctx);
@@ -373,7 +371,7 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
           },
           row.context);
     }
-    return row.name;
+    return {};
   }();
 
   const auto rs = row.scale;

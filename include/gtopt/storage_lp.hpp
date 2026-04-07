@@ -438,7 +438,6 @@ public:
       // Global initial condition – first stage of the first phase only.
       // eini bounds are in LP (scaled) units.
       eicol = lp.add_col({
-          .name = {},
           .lowb = storage().eini.value_or(stage_emin),
           .uppb = storage().eini.value_or(stage_emax),
           .scale = energy_scale,
@@ -458,7 +457,6 @@ public:
       // in the first phase; sini columns are the SDDP inter-phase coupling
       // variables propagated by the forward pass.
       eicol = lp.add_col({
-          .name = {},
           .lowb = stage_emin,
           .uppb = stage_emax,
           .scale = energy_scale,
@@ -516,7 +514,6 @@ public:
 
       auto erow =
           SparseRow {
-              .name = {},
               .class_name = cname,
               .constraint_name = "vol",
               .variable_uid = opts.variable_uid,
@@ -532,7 +529,6 @@ public:
       // - Global final condition (efin) is a named >= row added below for the
       //   last block (is_last_block) of the last stage.
       const auto ec = lp.add_col({
-          .name = {},
           .lowb = stage_emin,
           .uppb = stage_emax,
           .cost = stage_ecost,
@@ -581,7 +577,6 @@ public:
       if (drain_cost) {
         // Physical drain cost — flatten() applies col_scale.
         const auto dcol = lp.add_col({
-            .name = {},
             .lowb = 0,
             .uppb = drain_capacity.value_or(LinearProblem::DblMax),
             .cost = sc.block_ecost(scenario, stage, block, *drain_cost),
@@ -604,7 +599,6 @@ public:
       if (capacity_col) {
         auto crow =
             SparseRow {
-                .name = {},
                 .class_name = cname,
                 .constraint_name = "cap",
                 .variable_uid = opts.variable_uid,
@@ -633,7 +627,6 @@ public:
         const double lp_efin = *efin_opt;
         auto efin_row =
             SparseRow {
-                .name = {},
                 .class_name = cname,
                 .constraint_name = "efin",
                 .variable_uid = opts.variable_uid,
@@ -666,7 +659,6 @@ public:
           / stage.duration();
 
       const auto semin_col = lp.add_col({
-          .name = {},
           .lowb = 0,
           .uppb = LinearProblem::DblMax,
           .cost = slack_cost,
@@ -679,7 +671,6 @@ public:
 
       auto semin_row =
           SparseRow {
-              .name = {},
               .class_name = cname,
               .constraint_name = "semin_ge",
               .variable_uid = opts.variable_uid,
@@ -709,7 +700,6 @@ public:
       // "closed" – i.e., the storage ends at the same energy level it started.
       auto close_row =
           SparseRow {
-              .name = {},
               .class_name = cname,
               .constraint_name = "eclose",
               .variable_uid = opts.variable_uid,

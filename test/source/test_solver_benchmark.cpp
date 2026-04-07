@@ -59,7 +59,6 @@ auto build_dispatch_lp(int n_bus = 20, int n_gen_per_bus = 5, int n_blocks = 4)
       for (int blk = 0; blk < n_blocks; ++blk) {
         auto name = std::format("gen_b{}_g{}_t{}", b, g, blk);
         auto ci = lp.add_col({
-            .name = std::move(name),
             .lowb = 0.0,
             .uppb = cap,
             .cost = cost,
@@ -90,7 +89,6 @@ auto build_dispatch_lp(int n_bus = 20, int n_gen_per_bus = 5, int n_blocks = 4)
     for (int blk = 0; blk < n_blocks; ++blk) {
       auto name = std::format("flow_{}_{}_{}", i, j, blk);
       auto ci = lp.add_col({
-          .name = std::move(name),
           .lowb = -line_cap,
           .uppb = line_cap,
           .cost = 0.5,
@@ -117,7 +115,6 @@ auto build_dispatch_lp(int n_bus = 20, int n_gen_per_bus = 5, int n_blocks = 4)
     for (int blk = 0; blk < n_blocks; ++blk) {
       auto name = std::format("dfail_b{}_t{}", b, blk);
       auto ci = lp.add_col({
-          .name = std::move(name),
           .lowb = 0.0,
           .uppb = 1e6,
           .cost = 1000.0,
@@ -132,7 +129,6 @@ auto build_dispatch_lp(int n_bus = 20, int n_gen_per_bus = 5, int n_blocks = 4)
 
   // ── Alpha (future cost variable, typical in SDDP) ──
   auto alpha_col = lp.add_col({
-      .name = "alpha",
       .lowb = 0.0,
       .uppb = 1e12,
       .cost = 1.0,
@@ -144,7 +140,6 @@ auto build_dispatch_lp(int n_bus = 20, int n_gen_per_bus = 5, int n_blocks = 4)
       const double demand = 150.0 + 30.0 * b + 10.0 * blk;
       auto rname = std::format("demand_b{}_t{}", b, blk);
       auto ri = lp.add_row({
-          .name = std::move(rname),
           .lowb = demand,
           .uppb = SparseRow::DblMax,
       });
@@ -184,7 +179,6 @@ auto build_dispatch_lp(int n_bus = 20, int n_gen_per_bus = 5, int n_blocks = 4)
       for (int blk = 1; blk < n_blocks; ++blk) {
         auto rname = std::format("ramp_b{}_g{}_t{}", b, g, blk);
         auto ri = lp.add_row({
-            .name = std::move(rname),
             .lowb = -ramp,
             .uppb = ramp,
         });
@@ -209,7 +203,6 @@ auto build_dispatch_lp(int n_bus = 20, int n_gen_per_bus = 5, int n_blocks = 4)
     auto rname = std::format("cut_{}", k);
     const double rhs = 5000.0 + 500.0 * k;
     auto ri = lp.add_row({
-        .name = std::move(rname),
         .lowb = rhs,
         .uppb = SparseRow::DblMax,
     });

@@ -49,7 +49,6 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
           const auto& theta = reference_theta();
           if (theta) [[unlikely]] {
             tblocks[buid] = lp.add_col(SparseCol {
-                .name = {},
                 .lowb = *theta,
                 .uppb = *theta,
                 .class_name = ClassName.full_name(),
@@ -61,7 +60,6 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
             constexpr double theta_bound =
                 2 * std::numbers::pi;  // Default bound for theta
             tblocks[buid] = lp.add_col(SparseCol {
-                .name = {},
                 .lowb = -theta_bound,
                 .uppb = +theta_bound,
                 .class_name = ClassName.full_name(),
@@ -96,7 +94,6 @@ bool BusLP::add_to_lp(const SystemContext& /*sc*/,
                         [&](const BlockLP& block)
                         {
                           brows[block.uid()] = lp.add_row({
-                              .name = {},
                               .class_name = ClassName.full_name(),
                               .constraint_name = "bal",
                               .variable_uid = uid(),

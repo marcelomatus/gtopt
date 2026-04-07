@@ -368,7 +368,6 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene)
 
     const auto sa = m_options_.scale_alpha;
     state.alpha_col = li.add_col(SparseCol {
-        .name = {},
         .lowb = m_options_.alpha_min / sa,
         .uppb = m_options_.alpha_max / sa,
         .cost = sa,
@@ -724,14 +723,12 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene,
                                          src_state.outgoing_links,
                                          target_state.forward_row_dual,
                                          target_state.forward_full_obj,
-                                         {},
                                          sa,
                                          ceps)
       : build_benders_cut(src_state.alpha_col,
                           src_state.outgoing_links,
                           target_state.forward_col_cost,
                           target_state.forward_full_obj,
-                          {},
                           sa,
                           ceps);
   cut.class_name = "Sddp";
@@ -833,7 +830,7 @@ void SDDPMethod::share_cuts_for_phase(
     [[maybe_unused]] IterationIndex iteration)
 {
   gtopt::share_cuts_for_phase(
-      phase, scene_cuts, m_options_.cut_sharing, planning_lp(), {}, {});
+      phase, scene_cuts, m_options_.cut_sharing, planning_lp(), {});
 }
 
 // ── Cut pruning ─────────────────────────────────────────────────────────────
@@ -1462,7 +1459,6 @@ auto SDDPMethod::run_backward_pass_synchronized(
           continue;
         }
         auto row = SparseRow {
-            .name = sc.name,
             .lowb = sc.rhs,
             .uppb = LinearProblem::DblMax,
             .scale = sc.scale,

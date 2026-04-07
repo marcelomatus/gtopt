@@ -42,6 +42,7 @@
 #include <gtopt/basic_types.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_context.hpp>
 #include <gtopt/phase.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/sparse_row.hpp>
@@ -137,16 +138,16 @@ void propagate_trial_values_row_dual(std::span<StateVarLink> links,
 /// @param links           State-variable linkage descriptors.
 /// @param reduced_costs   Reduced costs of dependent columns from the LP solve.
 /// @param objective_value Optimal objective value of the sub-problem.
-/// @param name            Name tag for the resulting cut row.
 /// @param scale_alpha     Scale divisor for α (PLP varphi scale; default 1.0).
 /// @param cut_coeff_eps   Threshold below which state-var coefficients are
 ///                        dropped (default 0.0 = keep all).
 /// Returns the cut as a SparseRow ready to add to the source phase.
+/// Callers set structured metadata (.class_name, .constraint_name, .context)
+/// on the returned row.
 [[nodiscard]] auto build_benders_cut(ColIndex alpha_col,
                                      std::span<const StateVarLink> links,
                                      std::span<const double> reduced_costs,
                                      double objective_value,
-                                     std::string_view name,
                                      double scale_alpha = 1.0,
                                      double cut_coeff_eps = 0.0) -> SparseRow;
 
@@ -162,7 +163,6 @@ void propagate_trial_values_row_dual(std::span<StateVarLink> links,
 /// @param links           State-variable linkage descriptors.
 /// @param row_duals       Row duals from the LP solve (indexed by RowIndex).
 /// @param objective_value Optimal objective value of the sub-problem.
-/// @param name            Name tag for the resulting cut row.
 /// @param scale_alpha     Scale divisor for α (PLP varphi scale; default 1.0).
 /// @param cut_coeff_eps   Threshold below which state-var coefficients are
 ///                        dropped (default 0.0 = keep all).
@@ -173,7 +173,6 @@ void propagate_trial_values_row_dual(std::span<StateVarLink> links,
     std::span<const StateVarLink> links,
     std::span<const double> row_duals,
     double objective_value,
-    std::string_view name,
     double scale_alpha = 1.0,
     double cut_coeff_eps = 0.0) -> SparseRow;
 
@@ -265,7 +264,6 @@ struct FeasibilityCutResult
 /// @param links       Outgoing state-variable links from the source phase
 /// @param penalty     Elastic penalty coefficient
 /// @param opts        Solver options
-/// @param name        Name for the resulting cut row
 /// @return A feasibility cut (SparseRow) and the ElasticSolveResult,
 ///         or nullopt if the elastic solve fails.
 [[nodiscard]] auto build_feasibility_cut(const LinearInterface& li,
@@ -273,7 +271,6 @@ struct FeasibilityCutResult
                                          std::span<const StateVarLink> links,
                                          double penalty,
                                          const SolverOptions& opts,
-                                         std::string_view name,
                                          double scale_alpha = 1.0)
     -> std::optional<FeasibilityCutResult>;
 
@@ -287,20 +284,20 @@ struct FeasibilityCutResult
 ///
 /// @param elastic  The solved elastic clone and per-link slack info
 /// @param links    Outgoing state-variable links (same order as elastic)
-/// @param name_prefix  Prefix for generated cut names
+/// @param context  LP context for the generated cut rows
 /// @param slack_tol  Minimum slack magnitude to consider "active"
 /// @return Vector of bound-constraint cuts (may be empty)
 [[nodiscard]] auto build_multi_cuts(const ElasticSolveResult& elastic,
                                     std::span<const StateVarLink> links,
-                                    std::string_view name_prefix,
+                                    const LpContext& context = {},
                                     double slack_tol = 1e-6)
     -> std::vector<SparseRow>;
 
 // ─── Cut averaging ──────────────────────────────────────────────────────────
 
 /// Compute an average cut from a collection of cuts (for Expected sharing)
-[[nodiscard]] auto average_benders_cut(const std::vector<SparseRow>& cuts,
-                                       std::string_view name) -> SparseRow;
+[[nodiscard]] auto average_benders_cut(const std::vector<SparseRow>& cuts)
+    -> SparseRow;
 
 /// Compute a probability-weighted average cut from a collection of cuts.
 ///
@@ -310,11 +307,9 @@ struct FeasibilityCutResult
 ///
 /// @param cuts    Collection of Benders optimality cuts (SparseRow)
 /// @param weights Per-cut probability weights (must be same size as cuts)
-/// @param name    Name for the resulting averaged cut row
 [[nodiscard]] auto weighted_average_benders_cut(
-    const std::vector<SparseRow>& cuts,
-    const std::vector<double>& weights,
-    std::string_view name) -> SparseRow;
+    const std::vector<SparseRow>& cuts, const std::vector<double>& weights)
+    -> SparseRow;
 
 /// Accumulate (sum) all cuts into a single combined cut.
 ///
@@ -329,9 +324,8 @@ struct FeasibilityCutResult
 ///   uppb = DblMax (unchanged)
 ///
 /// @param cuts  Collection of Benders optimality cuts (SparseRow)
-/// @param name  Name for the resulting accumulated cut row
-[[nodiscard]] auto accumulate_benders_cuts(const std::vector<SparseRow>& cuts,
-                                           std::string_view name) -> SparseRow;
+[[nodiscard]] auto accumulate_benders_cuts(const std::vector<SparseRow>& cuts)
+    -> SparseRow;
 
 // ─── BendersCut class ────────────────────────────────────────────────────────
 
@@ -435,7 +429,6 @@ public:
                                            std::span<const StateVarLink> links,
                                            double penalty,
                                            const SolverOptions& opts,
-                                           std::string_view name,
                                            double scale_alpha = 1.0)
       -> std::optional<FeasibilityCutResult>;
 

@@ -167,22 +167,22 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
     const bool use_row_duals = coeff_mode == CutCoeffMode::row_dual
         && !target_state.forward_row_dual.empty();
     auto fallback_cut = use_row_duals
-        ? build_benders_cut_from_row_duals(
-              src_state.alpha_col,
-              src_state.outgoing_links,
-              target_state.forward_row_dual,
-              target_state.forward_full_obj,
-              sddp_label("sddp", "fcut", scene, phase, iteration, cut_offset),
-              sa,
-              ceps)
-        : build_benders_cut(
-              src_state.alpha_col,
-              src_state.outgoing_links,
-              target_state.forward_col_cost,
-              target_state.forward_full_obj,
-              sddp_label("sddp", "fcut", scene, phase, iteration, cut_offset),
-              sa,
-              ceps);
+        ? build_benders_cut_from_row_duals(src_state.alpha_col,
+                                           src_state.outgoing_links,
+                                           target_state.forward_row_dual,
+                                           target_state.forward_full_obj,
+                                           sa,
+                                           ceps)
+        : build_benders_cut(src_state.alpha_col,
+                            src_state.outgoing_links,
+                            target_state.forward_col_cost,
+                            target_state.forward_full_obj,
+                            sa,
+                            ceps);
+    fallback_cut.class_name = "Sddp";
+    fallback_cut.constraint_name = "fcut";
+    fallback_cut.context = make_iteration_context(
+        scene_uid(scene), phase_uid(phase), iteration, cut_offset);
     rescale_benders_cut(fallback_cut, src_state.alpha_col, cmax);
     filter_cut_coefficients(fallback_cut, src_state.alpha_col, ceps);
 
@@ -472,22 +472,22 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene,
       const bool use_row_duals2 = coeff_mode2 == CutCoeffMode::row_dual
           && !target_state.forward_row_dual.empty();
       auto fallback_cut = use_row_duals2
-          ? build_benders_cut_from_row_duals(
-                src_state.alpha_col,
-                src_state.outgoing_links,
-                target_state.forward_row_dual,
-                target_state.forward_full_obj,
-                sddp_label("sddp", "fcut", scene, phase, iteration, total_cuts),
-                sa,
-                ceps)
-          : build_benders_cut(
-                src_state.alpha_col,
-                src_state.outgoing_links,
-                target_state.forward_col_cost,
-                target_state.forward_full_obj,
-                sddp_label("sddp", "fcut", scene, phase, iteration, total_cuts),
-                sa,
-                ceps);
+          ? build_benders_cut_from_row_duals(src_state.alpha_col,
+                                             src_state.outgoing_links,
+                                             target_state.forward_row_dual,
+                                             target_state.forward_full_obj,
+                                             sa,
+                                             ceps)
+          : build_benders_cut(src_state.alpha_col,
+                              src_state.outgoing_links,
+                              target_state.forward_col_cost,
+                              target_state.forward_full_obj,
+                              sa,
+                              ceps);
+      fallback_cut.class_name = "Sddp";
+      fallback_cut.constraint_name = "fcut";
+      fallback_cut.context = make_iteration_context(
+          scene_uid(scene), phase_uid(phase), iteration, total_cuts);
       rescale_benders_cut(fallback_cut, src_state.alpha_col, cmax2);
       filter_cut_coefficients(fallback_cut, src_state.alpha_col, ceps);
 

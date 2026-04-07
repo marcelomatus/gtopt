@@ -71,7 +71,6 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
     const auto emin_col = stage_ecost
         ? lp.add_col({
-              .name = {},
               .uppb = *stage_emin,
               .cost = -sc.stage_ecost(stage, *stage_ecost / stage.duration()),
               .class_name = ClassName.full_name(),
@@ -80,7 +79,6 @@ bool DemandLP::add_to_lp(SystemContext& sc,
               .context = make_stage_context(scenario.uid(), stage.uid()),
           })
         : lp.add_col({
-              .name = {},
               .lowb = *stage_emin,
               .uppb = *stage_emin,
               .class_name = ClassName.full_name(),
@@ -93,7 +91,6 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
     auto row =
         SparseRow {
-            .name = {},
             .class_name = ClassName.full_name(),
             .constraint_name = "emin",
             .variable_uid = uid(),
@@ -124,7 +121,6 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     const auto load_lowb = !stage_fcost ? block_lmax : 0;
     const auto load_uppb = !stage_fcost ? block_lmax : LinearProblem::DblMax;
     const auto lcol = lp.add_col({
-        .name = {},
         .lowb = load_lowb,
         .uppb = load_uppb,
         .class_name = ClassName.full_name(),
@@ -135,7 +131,6 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
     if (stage_fcost) {
       const auto fcol = lp.add_col({
-          .name = {},
           .cost = sc.block_ecost(scenario, stage, block, *stage_fcost),
           .class_name = ClassName.full_name(),
           .variable_name = "fail",
@@ -147,7 +142,6 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
       auto frow =
           SparseRow {
-              .name = {},
               .class_name = ClassName.full_name(),
               .constraint_name = "fail",
               .variable_uid = uid(),
@@ -171,7 +165,6 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     if (capacity_col) {
       auto crow =
           SparseRow {
-              .name = {},
               .class_name = ClassName.full_name(),
               .constraint_name = "cap",
               .variable_uid = uid(),
@@ -191,7 +184,6 @@ bool DemandLP::add_to_lp(SystemContext& sc,
       const auto bdur = block.duration();
 
       const auto mcol = lp.add_col({
-          .name = {},
           .uppb = *stage_emin / bdur,
           .class_name = ClassName.full_name(),
           .variable_name = "lman",

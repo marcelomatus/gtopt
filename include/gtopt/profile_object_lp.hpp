@@ -101,7 +101,6 @@ public:
       const auto block_ctx =
           make_block_context(scenario.uid(), stage.uid(), block.uid());
       const auto scol = lp.add_col(SparseCol {
-          .name = {},
           .cost = block_scost,
           .class_name = full_class_name,
           .variable_name = profile_name,
@@ -112,7 +111,6 @@ public:
 
       const auto ecol = element_cols.at(buid);
       auto srow = SparseRow {
-          .name = {},
           .class_name = full_class_name,
           .constraint_name = profile_name,
           .variable_uid = uid(),

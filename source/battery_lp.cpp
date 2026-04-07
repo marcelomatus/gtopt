@@ -84,14 +84,12 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   for (auto&& block : blocks) {
     const auto buid = block.uid();
     finps[buid] = lp.add_col(SparseCol {
-        .name = {},
         .class_name = ClassName.full_name(),
         .variable_name = "flow",
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
     fouts[buid] = lp.add_col(SparseCol {
-        .name = {},
         .class_name = ClassName.full_name(),
         .variable_name = "flow",
         .variable_uid = uid(),

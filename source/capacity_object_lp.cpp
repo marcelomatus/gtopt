@@ -62,7 +62,9 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
             prev_svar)
         {
           auto col = lp.add_col({
-              .name = state_col_label_p(sc, stage, col_name, "ini"),
+              .class_name = m_class_name_,
+              .variable_name = col_name,
+              .variable_uid = uid(),
               .context = stg_ctx,
           });
           prev_svar->get().add_dependent_variable(scenario, stage, col);
@@ -82,35 +84,46 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   }
 
   const auto stg_ctx = make_stage_context(scenario.uid(), stage.uid());
-  auto capainst_name = state_col_label_p(sc, stage, "capainst");
   const auto capainst_col = lp.add_col({
-      .name = capainst_name,
       .lowb = stage_capacity,
       .uppb = stage_capmax,
       .cost = 0.0,
+      .class_name = m_class_name_,
+      .variable_name = "capainst",
+      .variable_uid = uid(),
       .context = stg_ctx,
   });
   sc.add_state_variable(sv_key_p(scenario, stage, "capainst"), capainst_col);
 
-  SparseRow capainst_row {.name = std::move(capainst_name)};
+  SparseRow capainst_row;
+  capainst_row.class_name = m_class_name_;
+  capainst_row.constraint_name = "capainst";
+  capainst_row.variable_uid = uid();
+  capainst_row.context = stg_ctx;
   capainst_row[capainst_col] = -1;
 
-  auto capacost_name = state_col_label_p(sc, stage, "capacost");
   const auto capacost_col = lp.add_col({
-      .name = capacost_name,
       .cost = sc.stage_ecost(stage, 1.0),
+      .class_name = m_class_name_,
+      .variable_name = "capacost",
+      .variable_uid = uid(),
       .context = stg_ctx,
   });
   sc.add_state_variable(sv_key_p(scenario, stage, "capacost"), capacost_col);
 
-  SparseRow capacost_row {.name = std::move(capacost_name)};
+  SparseRow capacost_row;
+  capacost_row.class_name = m_class_name_;
+  capacost_row.constraint_name = "capacost";
+  capacost_row.variable_uid = uid();
+  capacost_row.context = stg_ctx;
   capacost_row[capacost_col] = +1;
 
   if (stage_maxexpcap > 0) {
     const auto expmod_col = expmod_cols[stage.uid()] = lp.add_col({
-        // expmod variable
-        .name = state_col_label_p(sc, stage, "expmod"),
         .uppb = stage_expmod,
+        .class_name = m_class_name_,
+        .variable_name = "expmod",
+        .variable_uid = uid(),
         .context = stg_ctx,
     });
 

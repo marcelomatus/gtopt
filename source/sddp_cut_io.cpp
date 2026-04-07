@@ -510,7 +510,6 @@ auto load_cuts_csv(PlanningLP& planning_lp,
       // space.  Row scale = scale_alpha so the cut is consistent with
       // optimality/feasibility cuts built by build_benders_cut().
       auto row = SparseRow {
-          .name = {},
           .lowb = rhs / scale_obj,
           .uppb = LinearProblem::DblMax,
           .scale = sa,
@@ -924,7 +923,6 @@ auto load_boundary_cuts_csv(
       if (state.alpha_col == ColIndex {unknown_index}) {
         auto& li = planning_lp.system(scene, last_phase).linear_interface();
         state.alpha_col = li.add_col(SparseCol {
-            .name = {},
             .lowb = options.alpha_min / sa,
             .uppb = options.alpha_max / sa,
             .cost = sa,
@@ -1017,7 +1015,6 @@ auto load_boundary_cuts_csv(
         const auto& state = scene_phase_states[scene][last_phase];
 
         auto row = SparseRow {
-            .name = {},
             .lowb = rc.rhs * bc_discount / scale_obj,
             .uppb = LinearProblem::DblMax,
             .scale = sa,
@@ -1280,7 +1277,6 @@ auto load_named_cuts_csv(
         if (state.alpha_col == ColIndex {unknown_index}) {
           auto& li = planning_lp.system(scene, phase).linear_interface();
           state.alpha_col = li.add_col(SparseCol {
-              .name = {},
               .lowb = options.alpha_min / sa,
               .uppb = options.alpha_max / sa,
               .cost = sa,
@@ -1336,7 +1332,6 @@ auto load_named_cuts_csv(
         const auto& state = scene_phase_states[scene][phase];
 
         auto row = SparseRow {
-            .name = {},
             .lowb = rhs / scale_obj,
             .uppb = LinearProblem::DblMax,
             .scale = sa,

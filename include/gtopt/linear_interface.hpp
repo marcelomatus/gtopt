@@ -246,7 +246,7 @@ public:
    * @brief Adds a new column from a SparseCol with metadata-based naming.
    *
    * Generates the column name lazily from structured metadata when
-   * class_name and context are present; falls back to the .name field.
+   * class_name and context are present; returns empty otherwise.
    * Applies bounds, objective coefficient, and scale.
    *
    * @param col The sparse column specification
@@ -1052,7 +1052,6 @@ public:
   }
   /// @}
 
-private:
   RowIndex add_row(const std::string& name,
                    size_t numberElements,
                    const std::span<const int>& columns,
@@ -1060,6 +1059,7 @@ private:
                    double rowlb,
                    double rowub);
 
+private:
   void rebuild_row_name_maps();
   void push_names_to_solver() const;
 

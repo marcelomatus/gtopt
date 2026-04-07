@@ -46,7 +46,6 @@ std::expected<void, Error> add_requirement(const std::string_view cname,
         make_block_context(scenario.uid(), stage.uid(), block.uid());
     const auto rcol = stage_rcost
         ? lp.add_col({
-              .name = {},
               .lowb = 0.0,
               .uppb = block_rreq.value(),
               .cost =
@@ -57,7 +56,6 @@ std::expected<void, Error> add_requirement(const std::string_view cname,
               .context = block_context,
           })
         : lp.add_col({
-              .name = {},
               .lowb = block_rreq.value(),
               .uppb = block_rreq.value(),
               .cost = 0.0,
@@ -69,7 +67,6 @@ std::expected<void, Error> add_requirement(const std::string_view cname,
     rr_cols[buid] = rcol;
 
     SparseRow rr_row {
-        .name = {},
         .class_name = cname,
         .constraint_name = rname,
         .variable_uid = uid,

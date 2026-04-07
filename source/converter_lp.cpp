@@ -71,7 +71,6 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
     {
       auto grow =
           SparseRow {
-              .name = {},
               .class_name = ClassName.full_name(),
               .constraint_name = "gconv",
               .variable_uid = uid(),
@@ -90,7 +89,6 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
       const auto icol = finp_cols.at(buid);
       auto drow =
           SparseRow {
-              .name = {},
               .class_name = ClassName.full_name(),
               .constraint_name = "dconv",
               .variable_uid = uid(),
@@ -106,7 +104,6 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
     if (capacity_col) {
       auto crow =
           SparseRow {
-              .name = {},
               .class_name = ClassName.full_name(),
               .constraint_name = "cap",
               .variable_uid = uid(),

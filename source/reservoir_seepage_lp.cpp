@@ -78,7 +78,6 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
 
     auto frow =
         SparseRow {
-            .name = {},
             .class_name = ClassName.full_name(),
             .constraint_name = "filt",
             .variable_uid = uid(),

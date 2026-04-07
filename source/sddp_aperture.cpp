@@ -310,14 +310,12 @@ auto solve_apertures_for_phase(
                                                  src_state.outgoing_links,
                                                  clone.get_row_dual_raw(),
                                                  clone.get_obj_value(),
-                                                 {},
                                                  scale_alpha,
                                                  cut_coeff_eps)
               : build_benders_cut(src_state.alpha_col,
                                   src_state.outgoing_links,
                                   clone.get_col_cost_raw(),
                                   clone.get_obj_value(),
-                                  {},
                                   scale_alpha,
                                   cut_coeff_eps);
           cut.class_name = "Sddp";
@@ -412,7 +410,7 @@ auto solve_apertures_for_phase(
   }
 
   // Compute the probability-weighted expected cut
-  auto ecut = weighted_average_benders_cut(aperture_cuts, aperture_weights, {});
+  auto ecut = weighted_average_benders_cut(aperture_cuts, aperture_weights);
   ecut.class_name = "Sddp";
   ecut.constraint_name = "ecut";
   ecut.context =

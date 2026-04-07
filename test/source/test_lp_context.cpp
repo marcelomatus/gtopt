@@ -161,7 +161,6 @@ TEST_CASE("SparseCol context field")
     const auto ctx =
         make_block_context(ScenarioUid {0}, StageUid {1}, BlockUid {2});
     const SparseCol col {
-        .name = "test",
         .class_name = "Bus",
         .variable_name = "theta",
         .variable_uid = Uid {5},
@@ -177,7 +176,6 @@ TEST_CASE("SparseCol context field")
   SUBCASE("stage context via designated initializer")
   {
     const SparseCol col {
-        .name = "test",
         .context = make_stage_context(ScenarioUid {3}, StageUid {4}),
     };
     CHECK(std::holds_alternative<StageContext>(col.context));
@@ -198,7 +196,6 @@ TEST_CASE("SparseRow context field")
         make_block_context(ScenarioUid {0}, StageUid {0}, BlockUid {1});
     auto row =
         SparseRow {
-            .name = "test_row",
             .context = ctx,
         }
             .equal(0);
@@ -213,7 +210,6 @@ TEST_CASE("SparseRow context field")
         make_block_context(ScenarioUid {0}, StageUid {1}, BlockUid {2});
     auto row =
         SparseRow {
-            .name = {},
             .class_name = "Bus",
             .constraint_name = "bal",
             .variable_uid = Uid {3},

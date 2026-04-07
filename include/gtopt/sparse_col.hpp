@@ -13,7 +13,6 @@
 #pragma once
 
 #include <limits>
-#include <string>
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/lp_context.hpp>
@@ -55,7 +54,6 @@ constexpr double DblMax = std::numeric_limits<double>::max();
  */
 struct SparseCol
 {
-  std::string name;  ///< Variable name (empty for anonymous variables)
   double lowb {0.0};  ///< Physical lower bound (default: 0.0)
   double uppb {DblMax};  ///< Physical upper bound (default: +infinity)
   double cost {0.0};  ///< Objective coefficient (default: 0.0)

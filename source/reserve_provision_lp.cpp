@@ -73,7 +73,6 @@ std::expected<void, Error> add_provision(
     }
 
     const auto prov_col = lp.add_col({
-        .name = {},
         .uppb = block_rmax.value(),
         .cost = sc.block_ecost(scenario, stage, block, stage_cost),
         .class_name = cname,
@@ -87,7 +86,6 @@ std::expected<void, Error> add_provision(
     if (use_capacity) {
       auto crow =
           SparseRow {
-              .name = {},
               .class_name = cname,
               .constraint_name = "cap",
               .variable_uid = uid,
@@ -218,7 +216,6 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
     {
       auto rrow =
           SparseRow {
-              .name = {},
               .class_name = cname,
               .constraint_name = "uprov",
               .variable_uid = uid(),
@@ -239,7 +236,6 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
     {
       auto rrow =
           SparseRow {
-              .name = {},
               .class_name = cname,
               .constraint_name = "dprov",
               .variable_uid = uid(),

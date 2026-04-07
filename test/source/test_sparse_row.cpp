@@ -10,7 +10,6 @@ TEST_SUITE("SparseRow")
   TEST_CASE("SparseRow - Default Construction")
   {
     const SparseRow row;
-    CHECK(row.name.empty());
     CHECK(row.lowb == 0.0);
     CHECK(row.uppb == 0.0);
     CHECK(row.size() == 0);

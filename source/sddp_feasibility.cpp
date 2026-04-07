@@ -11,6 +11,7 @@
  */
 
 #include <gtopt/benders_cut.hpp>
+#include <gtopt/lp_context.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/system_lp.hpp>
@@ -82,14 +83,14 @@ auto SDDPMethod::feasibility_backpropagate(SceneIndex scene,
                                 prev_state.outgoing_links,
                                 elastic_result->clone.get_col_cost_raw(),
                                 elastic_result->clone.get_obj_value(),
-                                sddp_label("sddp",
-                                           "fcut",
-                                           scene,
-                                           back_phase,
-                                           iteration,
-                                           total_cuts + cuts_added),
                                 m_options_.scale_alpha,
                                 m_options_.cut_coeff_eps);
+          feas_cut.class_name = "Sddp";
+          feas_cut.constraint_name = "fcut";
+          feas_cut.context = make_iteration_context(scene_uid(scene),
+                                                    phase_uid(back_phase),
+                                                    iteration,
+                                                    total_cuts + cuts_added);
           rescale_benders_cut(
               feas_cut, prev_state.alpha_col, m_options_.cut_coeff_max);
           filter_cut_coefficients(
@@ -114,15 +115,13 @@ auto SDDPMethod::feasibility_backpropagate(SceneIndex scene,
                       > m_options_.multi_cut_threshold);
 
           if (use_multi_cut) {
-            auto mc_cuts =
-                build_multi_cuts(*elastic_result,
-                                 prev_state.outgoing_links,
-                                 sddp_label("sddp",
-                                            "mcut",
-                                            scene,
-                                            back_phase,
-                                            iteration,
-                                            total_cuts + cuts_added));
+            auto mc_cuts = build_multi_cuts(
+                *elastic_result,
+                prev_state.outgoing_links,
+                make_iteration_context(scene_uid(scene),
+                                       phase_uid(back_phase),
+                                       iteration,
+                                       total_cuts + cuts_added));
 
             for (auto& mc : mc_cuts) {
               const auto cut_row = prev_li.add_row(mc);

@@ -95,7 +95,6 @@ void LineLP::add_kirchhoff_rows(SystemContext& sc,
     const auto buid = block.uid();
     auto trow =
         SparseRow {
-            .name = {},
             .class_name = ClassName.full_name(),
             .constraint_name = "theta",
             .variable_uid = uid(),

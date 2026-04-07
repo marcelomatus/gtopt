@@ -81,7 +81,6 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
       const auto dcol = discharge_cols.at(buid);
 
       auto rrow = SparseRow {
-          .name = {},
           .class_name = ClassName.full_name(),
           .constraint_name = "fconv",
           .variable_uid = uid(),
@@ -105,7 +104,6 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
       const auto gcol = gen_cols.at(buid);
 
       auto rrow = SparseRow {
-          .name = {},
           .class_name = ClassName.full_name(),
           .constraint_name = "conv",
           .variable_uid = uid(),
@@ -121,7 +119,6 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
       if (stage_capacity) {
         auto crow =
             SparseRow {
-                .name = {},
                 .class_name = ClassName.full_name(),
                 .constraint_name = "fcap",
                 .variable_uid = uid(),

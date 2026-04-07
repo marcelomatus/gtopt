@@ -119,7 +119,6 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     const auto block_ctx =
         make_block_context(scenario.uid(), stage.uid(), block.uid());
     const auto fcol = lp.add_col({
-        .name = {},
         .lowb = lowb,
         .uppb = uppb,
         .cost = -block_use_value,
@@ -132,7 +131,6 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
 
     if (block_fail_cost > 0.0) {
       const auto fail_col = lp.add_col({
-          .name = {},
           .cost = block_fail_cost,
           .class_name = ClassName.full_name(),
           .variable_name = "fail",
@@ -147,7 +145,6 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
       if (has_deficit) {
         auto demand_row =
             SparseRow {
-                .name = {},
                 .class_name = ClassName.full_name(),
                 .constraint_name = "demand",
                 .variable_uid = uid(),
@@ -182,7 +179,6 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     const auto stage_dur = stage.duration();
 
     const auto qeh_col = lp.add_col(SparseCol {
-        .name = {},
         .class_name = ClassName.full_name(),
         .variable_name = "qeh",
         .variable_uid = uid(),
@@ -192,7 +188,6 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
 
     auto avg_row =
         SparseRow {
-            .name = {},
             .class_name = ClassName.full_name(),
             .constraint_name = "qavg",
             .variable_uid = uid(),

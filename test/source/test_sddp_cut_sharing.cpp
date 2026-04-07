@@ -29,7 +29,7 @@ TEST_CASE("share_cuts_for_phase none mode is a no-op")  // NOLINT
   scene_cuts.resize(num_scenes);
 
   // Add a dummy cut for scene 0
-  SparseRow cut("dummy_cut");
+  SparseRow cut;
   cut.lowb = 10.0;
   cut.uppb = LinearProblem::DblMax;
   cut[ColIndex {
@@ -41,8 +41,7 @@ TEST_CASE("share_cuts_for_phase none mode is a no-op")  // NOLINT
                                .linear_interface()
                                .get_numrows();
 
-  share_cuts_for_phase(
-      PhaseIndex {0}, scene_cuts, CutSharingMode::none, plp, "test");
+  share_cuts_for_phase(PhaseIndex {0}, scene_cuts, CutSharingMode::none, plp);
 
   // none mode should not add any rows
   const auto rows_after = plp.system(SceneIndex {0}, PhaseIndex {0})
@@ -70,7 +69,7 @@ TEST_CASE("share_cuts_for_phase single scene returns early")  // NOLINT
   StrongIndexVector<SceneIndex, std::vector<SparseRow>> scene_cuts;
   scene_cuts.resize(num_scenes);
 
-  SparseRow cut("cut1");
+  SparseRow cut;
   cut.lowb = 5.0;
   cut.uppb = LinearProblem::DblMax;
   cut[ColIndex {
@@ -84,7 +83,7 @@ TEST_CASE("share_cuts_for_phase single scene returns early")  // NOLINT
 
   // Even with accumulate mode, single scene should not add cuts
   share_cuts_for_phase(
-      PhaseIndex {0}, scene_cuts, CutSharingMode::accumulate, plp, "test");
+      PhaseIndex {0}, scene_cuts, CutSharingMode::accumulate, plp);
 
   const auto rows_after = plp.system(SceneIndex {0}, PhaseIndex {0})
                               .linear_interface()
@@ -113,8 +112,7 @@ TEST_CASE("share_cuts_for_phase with empty cuts is a no-op")  // NOLINT
                                .linear_interface()
                                .get_numrows();
 
-  share_cuts_for_phase(
-      PhaseIndex {0}, scene_cuts, CutSharingMode::max, plp, "test");
+  share_cuts_for_phase(PhaseIndex {0}, scene_cuts, CutSharingMode::max, plp);
 
   const auto rows_after = plp.system(SceneIndex {0}, PhaseIndex {0})
                               .linear_interface()
@@ -140,7 +138,7 @@ TEST_CASE(  // NOLINT
   StrongIndexVector<SceneIndex, std::vector<SparseRow>> scene_cuts;
   scene_cuts.resize(num_scenes);
 
-  SparseRow cut_s0("cut_s0");
+  SparseRow cut_s0;
   cut_s0.lowb = 10.0;
   cut_s0.uppb = LinearProblem::DblMax;
   cut_s0[ColIndex {
@@ -148,7 +146,7 @@ TEST_CASE(  // NOLINT
   }] = 1.0;
   scene_cuts[SceneIndex {0}].push_back(cut_s0);
 
-  SparseRow cut_s1("cut_s1");
+  SparseRow cut_s1;
   cut_s1.lowb = 20.0;
   cut_s1.uppb = LinearProblem::DblMax;
   cut_s1[ColIndex {
@@ -160,11 +158,8 @@ TEST_CASE(  // NOLINT
                                .linear_interface()
                                .get_numrows();
 
-  share_cuts_for_phase(PhaseIndex {0},
-                       scene_cuts,
-                       CutSharingMode::accumulate,
-                       plp,
-                       "test_accum");
+  share_cuts_for_phase(
+      PhaseIndex {0}, scene_cuts, CutSharingMode::accumulate, plp);
 
   // accumulate: one accumulated cut added to each scene
   const auto rows_s0 = plp.system(SceneIndex {0}, PhaseIndex {0})
@@ -196,7 +191,7 @@ TEST_CASE(  // NOLINT
   StrongIndexVector<SceneIndex, std::vector<SparseRow>> scene_cuts;
   scene_cuts.resize(num_scenes);
 
-  SparseRow cut_s0("cut_s0");
+  SparseRow cut_s0;
   cut_s0.lowb = 15.0;
   cut_s0.uppb = LinearProblem::DblMax;
   cut_s0[ColIndex {
@@ -204,7 +199,7 @@ TEST_CASE(  // NOLINT
   }] = 3.0;
   scene_cuts[SceneIndex {0}].push_back(cut_s0);
 
-  SparseRow cut_s1("cut_s1");
+  SparseRow cut_s1;
   cut_s1.lowb = 25.0;
   cut_s1.uppb = LinearProblem::DblMax;
   cut_s1[ColIndex {
@@ -217,7 +212,7 @@ TEST_CASE(  // NOLINT
                                .get_numrows();
 
   share_cuts_for_phase(
-      PhaseIndex {0}, scene_cuts, CutSharingMode::expected, plp, "test_exp");
+      PhaseIndex {0}, scene_cuts, CutSharingMode::expected, plp);
 
   // expected: one accumulated cut (sum of scene averages) added to each scene
   const auto rows_s0 = plp.system(SceneIndex {0}, PhaseIndex {0})
@@ -250,7 +245,7 @@ TEST_CASE(  // NOLINT
   scene_cuts.resize(num_scenes);
 
   // 2 cuts in scene 0, 1 cut in scene 1 = 3 total
-  SparseRow cut_a("cut_a");
+  SparseRow cut_a;
   cut_a.lowb = 5.0;
   cut_a.uppb = LinearProblem::DblMax;
   cut_a[ColIndex {
@@ -258,7 +253,7 @@ TEST_CASE(  // NOLINT
   }] = 1.0;
   scene_cuts[SceneIndex {0}].push_back(cut_a);
 
-  SparseRow cut_b("cut_b");
+  SparseRow cut_b;
   cut_b.lowb = 7.0;
   cut_b.uppb = LinearProblem::DblMax;
   cut_b[ColIndex {
@@ -266,7 +261,7 @@ TEST_CASE(  // NOLINT
   }] = 1.5;
   scene_cuts[SceneIndex {0}].push_back(cut_b);
 
-  SparseRow cut_c("cut_c");
+  SparseRow cut_c;
   cut_c.lowb = 12.0;
   cut_c.uppb = LinearProblem::DblMax;
   cut_c[ColIndex {
@@ -278,8 +273,7 @@ TEST_CASE(  // NOLINT
                                .linear_interface()
                                .get_numrows();
 
-  share_cuts_for_phase(
-      PhaseIndex {0}, scene_cuts, CutSharingMode::max, plp, "test_max");
+  share_cuts_for_phase(PhaseIndex {0}, scene_cuts, CutSharingMode::max, plp);
 
   // max: all 3 cuts added to each scene
   const auto rows_s0 = plp.system(SceneIndex {0}, PhaseIndex {0})
@@ -311,7 +305,7 @@ TEST_CASE(  // NOLINT
   scene_cuts.resize(num_scenes);
 
   // Only scene 0 has a cut; scene 1 is empty
-  SparseRow cut("cut_only_s0");
+  SparseRow cut;
   cut.lowb = 8.0;
   cut.uppb = LinearProblem::DblMax;
   cut[ColIndex {
@@ -323,11 +317,8 @@ TEST_CASE(  // NOLINT
                                .linear_interface()
                                .get_numrows();
 
-  share_cuts_for_phase(PhaseIndex {0},
-                       scene_cuts,
-                       CutSharingMode::accumulate,
-                       plp,
-                       "test_partial");
+  share_cuts_for_phase(
+      PhaseIndex {0}, scene_cuts, CutSharingMode::accumulate, plp);
 
   // The single cut is still accumulated and shared to both scenes
   const auto rows_s0 = plp.system(SceneIndex {0}, PhaseIndex {0})
@@ -359,7 +350,7 @@ TEST_CASE(  // NOLINT
                                .get_numrows();
 
   share_cuts_for_phase(
-      PhaseIndex {0}, scene_cuts, CutSharingMode::expected, plp, "test_empty");
+      PhaseIndex {0}, scene_cuts, CutSharingMode::expected, plp);
 
   // No cuts to average → no rows added
   const auto rows_after = plp.system(SceneIndex {0}, PhaseIndex {0})

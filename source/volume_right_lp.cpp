@@ -117,7 +117,6 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     }
 
     const auto fcol = lp.add_col(SparseCol {
-        .name = {},
         .uppb = uppb,
         .class_name = ClassName.full_name(),
         .variable_name = "flow",
@@ -140,7 +139,6 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
       const auto uppb =
           saving_rate.at(stage.uid(), buid).value_or(LinearProblem::DblMax);
       const auto fcol = lp.add_col(SparseCol {
-          .name = {},
           .uppb = uppb,
           .class_name = ClassName.full_name(),
           .variable_name = "flow",
@@ -275,7 +273,6 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     // Deficit variable — physical cost, flatten() applies col_scale.
     const auto stage_ctx = make_stage_context(scenario.uid(), stage.uid());
     const auto fail_col = lp.add_col(SparseCol {
-        .name = {},
         .cost = fail_cost,
         .scale = energy_scale,
         .class_name = ClassName.full_name(),
@@ -287,7 +284,6 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     // Demand satisfaction constraint in physical units:
     // sum_b [fcr × duration × extraction(b)] + fail >= demand
     SparseRow drow {
-        .name = {},
         .class_name = ClassName.full_name(),
         .constraint_name = "demand",
         .variable_uid = uid(),

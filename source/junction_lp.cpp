@@ -45,7 +45,6 @@ bool JunctionLP::add_to_lp(const SystemContext& /*sc*/,
 
     // Create balance row for this block
     auto brow = SparseRow {
-        .name = {},
         .class_name = ClassName.full_name(),
         .constraint_name = "bal",
         .variable_uid = uid(),
@@ -55,7 +54,6 @@ bool JunctionLP::add_to_lp(const SystemContext& /*sc*/,
     // Add drain column if needed
     if (add_drain_col) {
       const auto dcol = lp.add_col({
-          .name = {},
           .class_name = ClassName.full_name(),
           .variable_name = "drain",
           .variable_uid = uid(),

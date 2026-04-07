@@ -112,19 +112,16 @@ struct TestContext
 {
   LinearProblem lp("2x2");
   const auto x1 = lp.add_col(SparseCol {
-      .name = "x1",
       .lowb = 0.0,
       .uppb = LinearProblem::DblMax,
       .cost = c1,
   });
   const auto x2 = lp.add_col(SparseCol {
-      .name = "x2",
       .lowb = 0.0,
       .uppb = LinearProblem::DblMax,
       .cost = c2,
   });
   const auto r1 = lp.add_row(SparseRow {
-      .name = "r1",
       .lowb = lb_row,
       .uppb = ub_row,
   });
@@ -201,15 +198,13 @@ SolverTestResult test_add_col(std::string_view solver)
     LinearInterface lp(solver);
 
     const auto x1 = lp.add_col(SparseCol {
-        .name = "x1",
         .uppb = 10.0,
     });
     const auto x2 = lp.add_col(SparseCol {
-        .name = "x2",
         .lowb = -5.0,
         .uppb = 5.0,
     });
-    const auto x3 = lp.add_col(SparseCol {.name = "x3"}.free());
+    const auto x3 = lp.add_col(SparseCol {}.free());
 
     TC_CHECK(ctx, lp.get_numcols() == 3);
 
@@ -251,11 +246,10 @@ SolverTestResult test_add_row(std::string_view solver)
   try {
     LinearInterface lp(solver);
     lp.add_col(SparseCol {
-        .name = "x",
         .uppb = 10.0,
     });
 
-    SparseRow row("r1");
+    SparseRow row;
     row[ColIndex {0}] = 2.0;
     row.lowb = 1.0;
     row.uppb = 5.0;
@@ -291,12 +285,10 @@ SolverTestResult test_obj_coeff(std::string_view solver)
   try {
     LinearInterface lp(solver);
     const auto x1 = lp.add_col(SparseCol {
-        .name = "x1",
         .uppb = 10.0,
         .cost = 3.0,
     });
     const auto x2 = lp.add_col(SparseCol {
-        .name = "x2",
         .uppb = 10.0,
         .cost = 7.0,
     });
@@ -321,15 +313,13 @@ SolverTestResult test_get_set_coeff(std::string_view solver)
   try {
     LinearInterface lp(solver);
     const auto x1 = lp.add_col(SparseCol {
-        .name = "x1",
         .uppb = 10.0,
     });
     const auto x2 = lp.add_col(SparseCol {
-        .name = "x2",
         .uppb = 10.0,
     });
 
-    SparseRow row("r1");
+    SparseRow row;
     row[x1] = 1.0;
     row[x2] = 2.0;
     row.lowb = 0.0;
@@ -359,11 +349,9 @@ SolverTestResult test_variable_types(std::string_view solver)
   try {
     LinearInterface lp(solver);
     const auto x1 = lp.add_col(SparseCol {
-        .name = "x1",
         .uppb = 10.0,
     });
     const auto x2 = lp.add_col(SparseCol {
-        .name = "x2",
         .uppb = 10.0,
     });
 
@@ -404,15 +392,13 @@ SolverTestResult test_name_maps(std::string_view solver)
     TC_CHECK(ctx, lp.lp_names_level() == 1);
 
     const auto x1 = lp.add_col(SparseCol {
-        .name = "x1",
         .uppb = 10.0,
     });
     const auto x2 = lp.add_col(SparseCol {
-        .name = "x2",
         .uppb = 5.0,
     });
 
-    SparseRow row("my_row");
+    SparseRow row;
     row[x1] = 1.0;
     row.lowb = 0.0;
     row.uppb = 10.0;
@@ -544,12 +530,11 @@ SolverTestResult test_primal_infeasible(std::string_view solver)
     //   min x,  s.t. x >= 10, x <= 5, x >= 0   → infeasible
     LinearInterface lp(solver);
     const auto x = lp.add_col(SparseCol {
-        .name = "x",
         .uppb = 5.0,
         .cost = 1.0,
     });
 
-    SparseRow row("r1");
+    SparseRow row;
     row[x] = 1.0;
     row.lowb = 10.0;
     row.uppb = LinearProblem::DblMax;
@@ -697,7 +682,7 @@ SolverTestResult test_base_numrows_reset(std::string_view solver)
     TC_CHECK(ctx, lp.base_numrows() == 1);
 
     // Add a cut row.
-    SparseRow cut("cut1");
+    SparseRow cut;
     cut[ColIndex {0}] = 1.0;
     cut.lowb = 0.0;
     cut.uppb = 100.0;
@@ -781,19 +766,16 @@ SolverTestResult test_maximisation(std::string_view solver)
     // Implemented as minimisation of -(3x1+2x2).
     LinearProblem lp_model("max_test");
     const auto x1 = lp_model.add_col(SparseCol {
-        .name = "x1",
         .lowb = 0.0,
         .uppb = 4.0,
         .cost = -3.0,
     });
     const auto x2 = lp_model.add_col(SparseCol {
-        .name = "x2",
         .lowb = 0.0,
         .uppb = 5.0,
         .cost = -2.0,
     });
     const auto r1 = lp_model.add_row(SparseRow {
-        .name = "sum",
         .lowb = -LinearProblem::DblMax,
         .uppb = 7.0,
     });
@@ -830,7 +812,6 @@ SolverTestResult test_warm_col_sol_accessors(std::string_view solver)
   try {
     LinearInterface lp(solver);
     lp.add_col(SparseCol {
-        .name = "x",
         .uppb = 10.0,
     });
 
@@ -856,19 +837,16 @@ SolverTestResult test_col_scales(std::string_view solver)
     // Build a FlatLinearProblem with explicit col_scales.
     LinearProblem lp_model("scale_test");
     const auto x1 = lp_model.add_col(SparseCol {
-        .name = "x1",
         .lowb = 0.0,
         .uppb = 10.0,
         .cost = 1.0,
     });
     const auto x2 = lp_model.add_col(SparseCol {
-        .name = "x2",
         .lowb = 0.0,
         .uppb = 10.0,
         .cost = 2.0,
     });
     const auto r1 = lp_model.add_row(SparseRow {
-        .name = "r1",
         .lowb = 0.0,
         .uppb = 20.0,
     });
@@ -914,13 +892,12 @@ SolverTestResult test_barrier_threads(std::string_view solver)
     //        x1, x2, x3, x4 >= 0
     // Optimal obj = 17 (x1=5, x2=0, x3=4, x4=0).
     LinearProblem lp("barrier_threads");
-    const auto x1 = lp.add_col(SparseCol {.name = "x1", .cost = 1.0});
-    const auto x2 = lp.add_col(SparseCol {.name = "x2", .cost = 2.0});
-    const auto x3 = lp.add_col(SparseCol {.name = "x3", .cost = 3.0});
-    const auto x4 = lp.add_col(SparseCol {.name = "x4", .cost = 4.0});
+    const auto x1 = lp.add_col(SparseCol {.cost = 1.0});
+    const auto x2 = lp.add_col(SparseCol {.cost = 2.0});
+    const auto x3 = lp.add_col(SparseCol {.cost = 3.0});
+    const auto x4 = lp.add_col(SparseCol {.cost = 4.0});
 
     const auto r1 = lp.add_row(SparseRow {
-        .name = "r1",
         .lowb = 5.0,
         .uppb = LinearProblem::DblMax,
     });
@@ -928,7 +905,6 @@ SolverTestResult test_barrier_threads(std::string_view solver)
     lp.set_coeff(r1, x2, 1.0);
 
     const auto r2 = lp.add_row(SparseRow {
-        .name = "r2",
         .lowb = 3.0,
         .uppb = LinearProblem::DblMax,
     });
@@ -936,7 +912,6 @@ SolverTestResult test_barrier_threads(std::string_view solver)
     lp.set_coeff(r2, x3, 1.0);
 
     const auto r3 = lp.add_row(SparseRow {
-        .name = "r3",
         .lowb = 4.0,
         .uppb = LinearProblem::DblMax,
     });
@@ -985,13 +960,12 @@ SolverTestResult test_barrier_resolve(std::string_view solver)
   try {
     // Same 4-variable LP as test_barrier_threads
     LinearProblem lp("barrier_resolve");
-    const auto x1 = lp.add_col(SparseCol {.name = "x1", .cost = 1.0});
-    const auto x2 = lp.add_col(SparseCol {.name = "x2", .cost = 2.0});
-    const auto x3 = lp.add_col(SparseCol {.name = "x3", .cost = 3.0});
-    const auto x4 = lp.add_col(SparseCol {.name = "x4", .cost = 4.0});
+    const auto x1 = lp.add_col(SparseCol {.cost = 1.0});
+    const auto x2 = lp.add_col(SparseCol {.cost = 2.0});
+    const auto x3 = lp.add_col(SparseCol {.cost = 3.0});
+    const auto x4 = lp.add_col(SparseCol {.cost = 4.0});
 
     const auto r1 = lp.add_row(SparseRow {
-        .name = "r1",
         .lowb = 5.0,
         .uppb = LinearProblem::DblMax,
     });
@@ -999,7 +973,6 @@ SolverTestResult test_barrier_resolve(std::string_view solver)
     lp.set_coeff(r1, x2, 1.0);
 
     const auto r2 = lp.add_row(SparseRow {
-        .name = "r2",
         .lowb = 3.0,
         .uppb = LinearProblem::DblMax,
     });
@@ -1007,7 +980,6 @@ SolverTestResult test_barrier_resolve(std::string_view solver)
     lp.set_coeff(r2, x3, 1.0);
 
     const auto r3 = lp.add_row(SparseRow {
-        .name = "r3",
         .lowb = 4.0,
         .uppb = LinearProblem::DblMax,
     });

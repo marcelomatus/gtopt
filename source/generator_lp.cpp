@@ -111,7 +111,6 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
 
     // Create generation variable for this time block
     const auto gcol = lp.add_col({
-        .name = {},
         .lowb = block_pmin,
         .uppb = block_pmax,
         .cost = sc.block_ecost(scenario, stage, block, stage_gcost),
@@ -132,7 +131,6 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     if (capacity_col) {
       auto crow =
           SparseRow {
-              .name = {},
               .class_name = ClassName.full_name(),
               .constraint_name = "cap",
               .variable_uid = guid,

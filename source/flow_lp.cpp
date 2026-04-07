@@ -60,7 +60,6 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
         discharge.at(scenario.uid(), stage.uid(), block.uid());
 
     const auto fcol = lp.add_col({
-        .name = {},
         .lowb = block_discharge,
         .uppb = block_discharge,
         .class_name = ClassName.full_name(),

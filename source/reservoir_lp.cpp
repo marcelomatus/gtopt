@@ -112,7 +112,6 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
     // rsv_fext: physical flow bounds [m³/s].
     // add_col auto-resolves flow_scale from VariableScaleMap metadata.
     const auto rc = lp.add_col(SparseCol {
-        .name = {},
         .lowb = fmin,
         .uppb = fmax,
         .class_name = ClassName.full_name(),

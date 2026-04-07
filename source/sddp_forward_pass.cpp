@@ -11,6 +11,7 @@
  */
 
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <format>
 #include <span>
@@ -352,6 +353,25 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
           ? li.get_col_sol_raw()[state.alpha_col] * sa
           : 0.0;
       state.forward_objective = obj - alpha_val;
+
+      // Guard against solver returning "optimal" with NaN values
+      // (can happen when inherited cuts cause ill-conditioning).
+      if (std::isnan(state.forward_objective)) {
+        SPDLOG_WARN(
+            "{}: solve returned optimal but forward_objective is NaN "
+            "(obj={}, alpha={})",
+            sddp_log("Forward", iteration, scene_uid(scene), phase_uid(phase)),
+            obj,
+            alpha_val);
+        return std::unexpected(Error {
+            .code = ErrorCode::SolverError,
+            .message = std::format(
+                "{}: optimal status but NaN in solution",
+                sddp_log(
+                    "Forward", iteration, scene_uid(scene), phase_uid(phase))),
+        });
+      }
+
       total_opex += state.forward_objective;
 
       SPDLOG_TRACE(
@@ -361,6 +381,20 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
           alpha_val,
           state.forward_objective);
     }
+  }
+
+  // Guard against NaN in total forward-pass cost.  Can happen when
+  // inherited cuts cause solver ill-conditioning (barrier failure with
+  // subsequent dual fallback producing NaN values).
+  if (std::isnan(total_opex)) {
+    SPDLOG_WARN("{}: total_opex is NaN — solver ill-conditioning",
+                sddp_log("Forward", iteration, scene_uid(scene)));
+    return std::unexpected(Error {
+        .code = ErrorCode::SolverError,
+        .message =
+            std::format("{}: forward pass total cost is NaN",
+                        sddp_log("Forward", iteration, scene_uid(scene))),
+    });
   }
 
   SPDLOG_INFO("{}: done, total_opex={:.4f} [thread {}]",

@@ -41,12 +41,10 @@ TEST_CASE("SparseCol scale via designated initializer")  // NOLINT
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   const SparseCol col {
-      .name = "theta_b1",
       .lowb = -std::numbers::pi,
       .uppb = +std::numbers::pi,
       .scale = 0.001,
   };
-  CHECK(col.name == "theta_b1");
   CHECK(col.scale == doctest::Approx(0.001));
 }
 
@@ -55,7 +53,6 @@ TEST_CASE("SparseCol scale with energy_scale")  // NOLINT
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   const SparseCol col {
-      .name = "vol_r1",
       .lowb = 0.0,
       .uppb = 100.0,
       .cost = 0.5,
@@ -73,16 +70,12 @@ TEST_CASE("LinearProblem get_col_scale returns stored scale")  // NOLINT
   LinearProblem lp("scale_test");
 
   const auto c1 = lp.add_col(SparseCol {
-      .name = "theta",
       .scale = 0.001,
   });
   const auto c2 = lp.add_col(SparseCol {
-      .name = "volume",
       .scale = 1000.0,
   });
-  const auto c3 = lp.add_col(SparseCol {
-      .name = "generation",
-  });
+  const auto c3 = lp.add_col(SparseCol {});
 
   CHECK(lp.get_col_scale(c1) == doctest::Approx(0.001));
   CHECK(lp.get_col_scale(c2) == doctest::Approx(1000.0));
@@ -259,7 +252,6 @@ TEST_CASE("Integration: LP column scale drives output rescaling")  // NOLINT
   // flatten() converts to LP units by dividing by scale.
   constexpr double scale_theta = 0.001;  // 1/1000
   const auto theta = lp.add_col(SparseCol {
-      .name = "theta_b1",
       .lowb = -std::numbers::pi,
       .uppb = +std::numbers::pi,
       .scale = scale_theta,
@@ -269,7 +261,6 @@ TEST_CASE("Integration: LP column scale drives output rescaling")  // NOLINT
   // flatten() converts to LP units by dividing by scale.
   constexpr double energy_scale = 100000.0;
   const auto vol = lp.add_col(SparseCol {
-      .name = "vol_r1",
       .lowb = 500.0,
       .uppb = 2000.0,
       .scale = energy_scale,
@@ -334,7 +325,6 @@ TEST_CASE("LinearProblem add_col auto-resolves scale from metadata")  // NOLINT
   SUBCASE("class_name metadata triggers lookup")
   {
     const auto c = lp.add_col(SparseCol {
-        .name = "theta_b1",
         .class_name = "Bus",
         .variable_name = "theta",
         .variable_uid = Uid {1},
@@ -345,7 +335,6 @@ TEST_CASE("LinearProblem add_col auto-resolves scale from metadata")  // NOLINT
   SUBCASE("per-element UID match wins over per-class")
   {
     const auto c = lp.add_col(SparseCol {
-        .name = "rsv_energy_7",
         .class_name = "Reservoir",
         .variable_name = "energy",
         .variable_uid = Uid {7},
@@ -356,7 +345,6 @@ TEST_CASE("LinearProblem add_col auto-resolves scale from metadata")  // NOLINT
   SUBCASE("per-class match for non-matching UID")
   {
     const auto c = lp.add_col(SparseCol {
-        .name = "rsv_energy_99",
         .class_name = "Reservoir",
         .variable_name = "energy",
         .variable_uid = Uid {99},
@@ -367,7 +355,6 @@ TEST_CASE("LinearProblem add_col auto-resolves scale from metadata")  // NOLINT
   SUBCASE("map entry overrides pre-set scale when class_name is set")
   {
     const auto c = lp.add_col(SparseCol {
-        .name = "rsv_energy_override",
         .scale = 42.0,
         .class_name = "Reservoir",
         .variable_name = "energy",
@@ -381,7 +368,6 @@ TEST_CASE("LinearProblem add_col auto-resolves scale from metadata")  // NOLINT
   SUBCASE("explicit scale without class_name is immune to map")
   {
     const auto c = lp.add_col(SparseCol {
-        .name = "rsv_energy_explicit",
         .scale = 42.0,
     });
     // No class_name → no lookup, explicit scale preserved
@@ -390,9 +376,7 @@ TEST_CASE("LinearProblem add_col auto-resolves scale from metadata")  // NOLINT
 
   SUBCASE("empty class_name skips lookup")
   {
-    const auto c = lp.add_col(SparseCol {
-        .name = "gen_output",
-    });
+    const auto c = lp.add_col(SparseCol {});
     CHECK(lp.get_col_scale(c) == doctest::Approx(1.0));
   }
 
@@ -400,7 +384,6 @@ TEST_CASE("LinearProblem add_col auto-resolves scale from metadata")  // NOLINT
   {
     LinearProblem lp2("no_map");
     const auto c = lp2.add_col(SparseCol {
-        .name = "theta_no_map",
         .class_name = "Bus",
         .variable_name = "theta",
         .variable_uid = Uid {1},
@@ -530,7 +513,6 @@ TEST_CASE("add_col map entry overrides auto_scale pre-set value")  // NOLINT
   {
     // Simulates reservoir auto_scale setting scale=1000, but map has 10.0
     const auto c = lp.add_col(SparseCol {
-        .name = "rsv_eini",
         .scale = 1000.0,
         .class_name = "Reservoir",
         .variable_name = "energy",
@@ -543,7 +525,6 @@ TEST_CASE("add_col map entry overrides auto_scale pre-set value")  // NOLINT
   {
     // Different uid — no map entry, pre-set scale preserved
     const auto c = lp.add_col(SparseCol {
-        .name = "rsv_eini_99",
         .scale = 1000.0,
         .class_name = "Reservoir",
         .variable_name = "energy",
@@ -556,7 +537,6 @@ TEST_CASE("add_col map entry overrides auto_scale pre-set value")  // NOLINT
   {
     // Simulates explicit reservoir().energy_scale — no class_name set
     const auto c = lp.add_col(SparseCol {
-        .name = "rsv_explicit",
         .scale = 42.0,
     });
     CHECK(lp.get_col_scale(c) == doctest::Approx(42.0));

@@ -185,7 +185,6 @@ auto add_capacity_row(LinearProblem& lp,
 {
   auto row =
       SparseRow {
-          .name = {},
           .class_name = "Line",
           .constraint_name = label,
           .variable_uid = uid,
@@ -223,7 +222,6 @@ void add_segments(LinearProblem& lp,
         seg_width * resistance * static_cast<double>((2 * k) - 1) / V2;
 
     const auto seg_col = lp.add_col({
-        .name = {},
         .lowb = 0,
         .uppb = seg_width,
         .class_name = "Line",
@@ -283,7 +281,6 @@ BlockResult add_none(const ScenarioLP& scenario,
                      Uid uid)
 {
   const auto fpc = lp.add_col({
-      .name = {},
       .lowb = -block_tmax_ba,
       .uppb = block_tmax_ab,
       .cost = block_tcost,
@@ -325,7 +322,6 @@ BlockResult add_linear(const LossConfig& config,
   // A→B direction: bus_a sends, bus_b receives.
   if (block_tmax_ab > 0.0) {
     const auto fpc = lp.add_col({
-        .name = {},
         .lowb = 0.0,
         .uppb = block_tmax_ab,
         .cost = block_tcost,
@@ -347,7 +343,6 @@ BlockResult add_linear(const LossConfig& config,
   // B→A direction: bus_b sends, bus_a receives.
   if (block_tmax_ba > 0.0) {
     const auto fnc = lp.add_col({
-        .name = {},
         .lowb = 0.0,
         .uppb = block_tmax_ba,
         .cost = block_tcost,
@@ -407,7 +402,6 @@ BlockResult add_piecewise(const LossConfig& config,
     const auto block_ctx =
         make_block_context(scenario.uid(), stage.uid(), block.uid());
     const auto fpc = lp.add_col({
-        .name = {},
         .lowb = 0,
         .uppb = block_tmax_ab,
         .cost = block_tcost,
@@ -425,7 +419,6 @@ BlockResult add_piecewise(const LossConfig& config,
     const auto block_ctx =
         make_block_context(scenario.uid(), stage.uid(), block.uid());
     const auto fnc = lp.add_col({
-        .name = {},
         .lowb = 0,
         .uppb = block_tmax_ba,
         .cost = block_tcost,
@@ -441,7 +434,6 @@ BlockResult add_piecewise(const LossConfig& config,
 
   // Loss variable: tracks total power dissipated.
   const auto loss_col = lp.add_col({
-      .name = {},
       .lowb = 0,
       .uppb = LinearProblem::DblMax,
       .class_name = "Line",
@@ -456,7 +448,6 @@ BlockResult add_piecewise(const LossConfig& config,
   // Linking: fp + fn − Σ seg_k = 0
   auto linkrow =
       SparseRow {
-          .name = {},
           .class_name = "Line",
           .constraint_name = "lnk",
           .variable_uid = uid,
@@ -475,7 +466,6 @@ BlockResult add_piecewise(const LossConfig& config,
   // Loss tracking: loss − Σ loss_k · seg_k = 0
   auto lossrow =
       SparseRow {
-          .name = {},
           .class_name = "Line",
           .constraint_name = "lsl",
           .variable_uid = uid,
@@ -564,7 +554,6 @@ DirResult add_direction(const LossConfig& config,
   const auto block_ctx =
       make_block_context(scenario.uid(), stage.uid(), block.uid());
   const auto flow_col = lp.add_col({
-      .name = {},
       .lowb = 0,
       .uppb = block_tmax,
       .cost = block_tcost,
@@ -575,7 +564,6 @@ DirResult add_direction(const LossConfig& config,
   });
 
   const auto loss_col = lp.add_col({
-      .name = {},
       .lowb = 0,
       .uppb = LinearProblem::DblMax,
       .class_name = "Line",
@@ -593,7 +581,6 @@ DirResult add_direction(const LossConfig& config,
   // Linking: f_total − Σ f_seg_k = 0
   auto linkrow =
       SparseRow {
-          .name = {},
           .class_name = "Line",
           .constraint_name = labels.link,
           .variable_uid = uid,
@@ -607,7 +594,6 @@ DirResult add_direction(const LossConfig& config,
   // Loss tracking: loss − Σ loss_k · f_seg_k = 0
   auto lossrow =
       SparseRow {
-          .name = {},
           .class_name = "Line",
           .constraint_name = labels.loss_link,
           .variable_uid = uid,

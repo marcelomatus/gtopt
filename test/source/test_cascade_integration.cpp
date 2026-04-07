@@ -812,6 +812,59 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
+    "Cascade forget preserves auto scale_alpha (no NaN)")
+{
+  // Regression: the forget code path used to overwrite all SDDPOptions,
+  // resetting auto-computed scale_alpha to 0.  Verify that both phases
+  // (with and without inherited cuts) produce finite, non-NaN bounds.
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 30;
+  sddp_opts.convergence_tol = 0.01;
+  // Do NOT set scale_alpha — let auto-computation happen
+
+  CascadeOptions cascade_opts;
+  cascade_opts.level_array = {
+      CascadeLevel {
+          .name = OptName {"train"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {10},
+                  .convergence_tol = OptReal {0.01},
+              },
+      },
+      CascadeLevel {
+          .name = OptName {"forget"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {15},
+                  .convergence_tol = OptReal {0.01},
+              },
+          .transition =
+              CascadeTransition {
+                  .inherit_optimality_cuts = OptInt {2},
+              },
+      },
+  };
+
+  CascadePlanningMethod solver(std::move(sddp_opts), std::move(cascade_opts));
+  const SolverOptions lp_opts;
+  auto result = solver.solve(planning_lp, lp_opts);
+
+  REQUIRE(result.has_value());
+  REQUIRE(solver.level_stats().size() == 2);
+
+  const auto& stats1 = solver.level_stats()[1];
+  CHECK_FALSE(std::isnan(stats1.upper_bound));
+  CHECK_FALSE(std::isnan(stats1.lower_bound));
+  CHECK(stats1.converged);
+}
+
+TEST_CASE(  // NOLINT
     "Cascade 3-level progressive refinement (3-phase)")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
