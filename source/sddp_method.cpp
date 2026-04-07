@@ -24,6 +24,7 @@
 #include <utility>
 #include <vector>
 
+#include <gtopt/lp_context.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_aperture.hpp>
@@ -366,11 +367,15 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene)
     auto& li = planning_lp().system(scene, pi).linear_interface();
 
     const auto sa = m_options_.scale_alpha;
-    state.alpha_col = li.add_col(sddp_label("sddp", "alpha", scene, pi),
-                                 m_options_.alpha_min / sa,
-                                 m_options_.alpha_max / sa);
-    li.set_obj_coeff(state.alpha_col, sa);
-    li.set_col_scale(state.alpha_col, sa);
+    state.alpha_col = li.add_col(SparseCol {
+        .lowb = m_options_.alpha_min / sa,
+        .uppb = m_options_.alpha_max / sa,
+        .cost = sa,
+        .scale = sa,
+        .class_name = "Sddp",
+        .variable_name = "alpha",
+        .context = make_scene_phase_context(scene_uid(scene), _phase.uid()),
+    });
   }
 
   // Last phase: no future cost
@@ -714,22 +719,22 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene,
   const bool use_row_duals = coeff_mode == CutCoeffMode::row_dual
       && !target_state.forward_row_dual.empty();
   auto cut = use_row_duals
-      ? build_benders_cut_from_row_duals(
-            src_state.alpha_col,
-            src_state.outgoing_links,
-            target_state.forward_row_dual,
-            target_state.forward_full_obj,
-            sddp_label("sddp", "scut", scene, phase, iteration, cut_offset),
-            sa,
-            ceps)
-      : build_benders_cut(
-            src_state.alpha_col,
-            src_state.outgoing_links,
-            target_state.forward_col_cost,
-            target_state.forward_full_obj,
-            sddp_label("sddp", "scut", scene, phase, iteration, cut_offset),
-            sa,
-            ceps);
+      ? build_benders_cut_from_row_duals(src_state.alpha_col,
+                                         src_state.outgoing_links,
+                                         target_state.forward_row_dual,
+                                         target_state.forward_full_obj,
+                                         sa,
+                                         ceps)
+      : build_benders_cut(src_state.alpha_col,
+                          src_state.outgoing_links,
+                          target_state.forward_col_cost,
+                          target_state.forward_full_obj,
+                          sa,
+                          ceps);
+  cut.class_name = "Sddp";
+  cut.constraint_name = "scut";
+  cut.context = make_iteration_context(
+      scene_uid(scene), phase_uid(phase), iteration, cut_offset);
   rescale_benders_cut(cut, src_state.alpha_col, cmax);
   filter_cut_coefficients(cut, src_state.alpha_col, ceps);
 
@@ -822,13 +827,10 @@ auto SDDPMethod::backward_pass(SceneIndex scene,
 void SDDPMethod::share_cuts_for_phase(
     PhaseIndex phase,
     const StrongIndexVector<SceneIndex, std::vector<SparseRow>>& scene_cuts,
-    IterationIndex iteration)
+    [[maybe_unused]] IterationIndex iteration)
 {
-  gtopt::share_cuts_for_phase(phase,
-                              scene_cuts,
-                              m_options_.cut_sharing,
-                              planning_lp(),
-                              sddp_label("sddp", "share", phase, iteration));
+  gtopt::share_cuts_for_phase(
+      phase, scene_cuts, m_options_.cut_sharing, planning_lp(), {});
 }
 
 // ── Cut pruning ─────────────────────────────────────────────────────────────
@@ -1457,7 +1459,6 @@ auto SDDPMethod::run_backward_pass_synchronized(
           continue;
         }
         auto row = SparseRow {
-            .name = sc.name,
             .lowb = sc.rhs,
             .uppb = LinearProblem::DblMax,
             .scale = sc.scale,

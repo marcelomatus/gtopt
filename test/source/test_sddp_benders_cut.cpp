@@ -47,9 +47,8 @@ TEST_CASE("build_benders_cut produces valid cut row")  // NOLINT
   const std::vector<double> rc = {0.0, 0.0, -10.0};
   const double obj = 5000.0;
 
-  auto row = build_benders_cut(alpha, links, rc, obj, "test_cut");
+  auto row = build_benders_cut(alpha, links, rc, obj);
 
-  CHECK(row.name == "test_cut");
   // α coefficient = 1.0
   CHECK(row.get_coeff(alpha) == doctest::Approx(1.0));
   // source coefficient = -rc = -(-10) = 10
@@ -104,27 +103,24 @@ TEST_CASE("average_benders_cut computes correct average")  // NOLINT
   const auto src = ColIndex {1};
 
   SparseRow cut1;
-  cut1.name = "cut1";
+  // name field removed from SparseRow
   cut1[alpha] = 1.0;
   cut1[src] = 10.0;
   cut1.lowb = 100.0;
   cut1.uppb = LinearProblem::DblMax;
 
   SparseRow cut2;
-  cut2.name = "cut2";
+  // name field removed from SparseRow
   cut2[alpha] = 1.0;
   cut2[src] = 20.0;
   cut2.lowb = 200.0;
   cut2.uppb = LinearProblem::DblMax;
 
-  auto avg = average_benders_cut(
-      {
-          cut1,
-          cut2,
-      },
-      "avg");
+  auto avg = average_benders_cut({
+      cut1,
+      cut2,
+  });
 
-  CHECK(avg.name == "avg");
   CHECK(avg.get_coeff(alpha) == doctest::Approx(1.0));
   CHECK(avg.get_coeff(src) == doctest::Approx(15.0));
   CHECK(avg.lowb == doctest::Approx(150.0));
@@ -161,8 +157,8 @@ TEST_CASE("relax_fixed_state_variable returns slack column indices")  // NOLINT
 
 TEST_CASE("weighted_average_benders_cut - empty input")  // NOLINT
 {
-  const auto result = weighted_average_benders_cut({}, {}, "empty");
-  CHECK(result.name.empty());
+  const auto result = weighted_average_benders_cut({}, {});
+  CHECK(result.cmap.empty());
 }
 
 TEST_CASE("weighted_average_benders_cut - single cut")  // NOLINT
@@ -171,14 +167,13 @@ TEST_CASE("weighted_average_benders_cut - single cut")  // NOLINT
   const auto src = ColIndex {1};
 
   SparseRow cut1;
-  cut1.name = "cut1";
+  // name field removed from SparseRow
   cut1[alpha] = 1.0;
   cut1[src] = 10.0;
   cut1.lowb = 100.0;
   cut1.uppb = LinearProblem::DblMax;
 
-  const auto result = weighted_average_benders_cut({cut1}, {0.7}, "single");
-  CHECK(result.name == "single");
+  const auto result = weighted_average_benders_cut({cut1}, {0.7});
   // single cut → returned as-is (weight normalised to 1)
   CHECK(result.get_coeff(alpha) == doctest::Approx(1.0));
   CHECK(result.get_coeff(src) == doctest::Approx(10.0));
@@ -204,9 +199,8 @@ TEST_CASE(
   cut2.uppb = LinearProblem::DblMax;
 
   // Equal weights → same as unweighted average
-  const auto wavg =
-      weighted_average_benders_cut({cut1, cut2}, {0.5, 0.5}, "wavg");
-  const auto avg = average_benders_cut({cut1, cut2}, "avg");
+  const auto wavg = weighted_average_benders_cut({cut1, cut2}, {0.5, 0.5});
+  const auto avg = average_benders_cut({cut1, cut2});
 
   CHECK(wavg.get_coeff(alpha) == doctest::Approx(avg.get_coeff(alpha)));
   CHECK(wavg.get_coeff(src) == doctest::Approx(avg.get_coeff(src)));
@@ -232,10 +226,8 @@ TEST_CASE(
   cut2.uppb = LinearProblem::DblMax;
 
   // 75% weight on cut1, 25% weight on cut2
-  const auto result =
-      weighted_average_benders_cut({cut1, cut2}, {0.75, 0.25}, "w_avg");
+  const auto result = weighted_average_benders_cut({cut1, cut2}, {0.75, 0.25});
 
-  CHECK(result.name == "w_avg");
   CHECK(result.get_coeff(alpha) == doctest::Approx(1.0));
   // expected: 0.75 * 10 + 0.25 * 30 = 7.5 + 7.5 = 15.0
   CHECK(result.get_coeff(src) == doctest::Approx(15.0));
@@ -258,8 +250,7 @@ TEST_CASE("weighted_average_benders_cut - unnormalised weights")  // NOLINT
   cut2.uppb = LinearProblem::DblMax;
 
   // weights {3, 1} → normalised: {0.75, 0.25}
-  const auto result =
-      weighted_average_benders_cut({cut1, cut2}, {3.0, 1.0}, "unnorm");
+  const auto result = weighted_average_benders_cut({cut1, cut2}, {3.0, 1.0});
 
   // expected src: 0.75 * 4 + 0.25 * 8 = 3 + 2 = 5
   CHECK(result.get_coeff(src) == doctest::Approx(5.0));
@@ -283,8 +274,7 @@ TEST_CASE(
   cut2.uppb = LinearProblem::DblMax;
 
   // Zero weight on cut2 → only cut1 contributes
-  const auto result =
-      weighted_average_benders_cut({cut1, cut2}, {1.0, 0.0}, "zero_w");
+  const auto result = weighted_average_benders_cut({cut1, cut2}, {1.0, 0.0});
 
   CHECK(result.get_coeff(src) == doctest::Approx(10.0));
   CHECK(result.lowb == doctest::Approx(100.0));
@@ -301,8 +291,8 @@ TEST_CASE(
   cut1.uppb = LinearProblem::DblMax;
 
   // All zero weights → empty result
-  const auto result = weighted_average_benders_cut({cut1}, {0.0}, "all_zero");
-  CHECK(result.name.empty());
+  const auto result = weighted_average_benders_cut({cut1}, {0.0});
+  CHECK(result.cmap.empty());
   CHECK(result.cmap.empty());
   CHECK(result.lowb == doctest::Approx(0.0));
 }
@@ -337,7 +327,6 @@ TEST_CASE(  // NOLINT
 
   // demand: x0 + x1 + dep >= 100
   auto demand = SparseRow {
-      .name = "demand",
       .lowb = 100.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -363,9 +352,7 @@ TEST_CASE(  // NOLINT
   };
 
   auto cut = build_benders_cut(
-      alpha_col, links, li.get_col_cost_raw(), li.get_obj_value(), "opt_cut");
-
-  CHECK(cut.name == "opt_cut");
+      alpha_col, links, li.get_col_cost_raw(), li.get_obj_value());
   CHECK(cut.get_coeff(alpha_col) == doctest::Approx(1.0));
   CHECK(cut.lowb > -1e20);
   CHECK(cut.uppb > 1e20);
@@ -382,7 +369,6 @@ TEST_CASE(  // NOLINT
   const auto dep = li.add_col("dep", 50.0, 50.0);
 
   auto demand = SparseRow {
-      .name = "demand",
       .lowb = 100.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -427,7 +413,6 @@ TEST_CASE(  // NOLINT
   const auto dep = li.add_col("dep", 0.0, 100.0);  // NOT fixed
 
   auto demand = SparseRow {
-      .name = "demand",
       .lowb = 50.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -458,7 +443,6 @@ TEST_CASE(  // NOLINT
   const auto dep = li.add_col("dep", 50.0, 50.0);
 
   auto demand = SparseRow {
-      .name = "demand",
       .lowb = 100.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -482,10 +466,9 @@ TEST_CASE(  // NOLINT
   };
 
   auto result = build_feasibility_cut(
-      li, alpha_col, links, 1e6, SolverOptions {}, "feas_cut");  // NOLINT
+      li, alpha_col, links, 1e6, SolverOptions {});  // NOLINT
   REQUIRE(result.has_value());
   if (result) {
-    CHECK(result->cut.name == "feas_cut");
     CHECK(result->cut.get_coeff(alpha_col) == doctest::Approx(1.0));
     CHECK(result->cut.lowb > -1e20);
     CHECK(result->elastic.clone.is_optimal());
@@ -503,7 +486,6 @@ TEST_CASE(  // NOLINT
   const auto dep = li.add_col("dep", 0.0, 100.0);  // NOT fixed
 
   auto demand = SparseRow {
-      .name = "demand",
       .lowb = 50.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -522,7 +504,7 @@ TEST_CASE(  // NOLINT
   };
 
   auto result = build_feasibility_cut(
-      li, ColIndex {10}, links, 1e6, SolverOptions {}, "none");  // NOLINT
+      li, ColIndex {10}, links, 1e6, SolverOptions {});  // NOLINT
   CHECK_FALSE(result.has_value());
 }
 
@@ -536,7 +518,6 @@ TEST_CASE(  // NOLINT
   const auto dep = li.add_col("dep", 50.0, 50.0);
 
   auto demand = SparseRow {
-      .name = "demand",
       .lowb = 200.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -565,7 +546,7 @@ TEST_CASE(  // NOLINT
   if (elastic) {
     CHECK(elastic->clone.is_optimal());
 
-    auto multi = build_multi_cuts(*elastic, links, "mc");
+    auto multi = build_multi_cuts(*elastic, links);
     CHECK_FALSE(multi.empty());
 
     // sdn active (dep went from 50 to ~120) → lower-bound cut
@@ -591,7 +572,6 @@ TEST_CASE(  // NOLINT
   const auto dep = li.add_col("dep", 50.0, 50.0);
 
   auto demand = SparseRow {
-      .name = "demand",
       .lowb = 100.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -615,7 +595,7 @@ TEST_CASE(  // NOLINT
   auto elastic = elastic_filter_solve(li, links, 1e6, {});
   REQUIRE(elastic.has_value());
   if (elastic) {
-    auto multi = build_multi_cuts(*elastic, links, "mc");
+    auto multi = build_multi_cuts(*elastic, links);
     CHECK(multi.empty());
   }
 }
@@ -638,7 +618,6 @@ TEST_CASE(  // NOLINT
   phase0.set_obj_coeff(alpha_col, 1.0);
 
   auto constr0 = SparseRow {
-      .name = "min_gen",
       .lowb = 20.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -652,7 +631,6 @@ TEST_CASE(  // NOLINT
   const auto dep = phase1.add_col("dep", 20.0, 20.0);
 
   auto constr1 = SparseRow {
-      .name = "demand",
       .lowb = 80.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -686,11 +664,8 @@ TEST_CASE(  // NOLINT
   CHECK(phase1.get_obj_value() == doctest::Approx(3000.0));  // 60*50
 
   // Backward: build optimality cut and add to phase 0
-  auto cut = build_benders_cut(alpha_col,
-                               links,
-                               phase1.get_col_cost_raw(),
-                               phase1.get_obj_value(),
-                               "iter1_cut");
+  auto cut = build_benders_cut(
+      alpha_col, links, phase1.get_col_cost_raw(), phase1.get_obj_value());
   phase0.add_row(cut);
 
   // Re-solve phase 0 with cut
@@ -724,7 +699,6 @@ TEST_CASE(
   const auto dep = li.add_col("dep", 50.0, 50.0);
 
   auto demand = SparseRow {
-      .name = "demand",
       .lowb = 100.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -778,7 +752,6 @@ TEST_CASE("BendersCut - elastic_filter_solve with work pool")  // NOLINT
   const auto dep = li.add_col("dep", 50.0, 50.0);
 
   auto demand = SparseRow {
-      .name = "demand",
       .lowb = 100.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -816,8 +789,7 @@ TEST_CASE("BendersCut - elastic_filter_solve with work pool")  // NOLINT
   const auto x1 = li2.add_col("x1", 0.0, 100.0);
   li2.set_obj_coeff(x1, 5.0);
   const auto dep2 = li2.add_col("dep2", 0.0, 100.0);  // NOT fixed
-  auto d2 =
-      SparseRow {.name = "d", .lowb = 50.0, .uppb = LinearProblem::DblMax};
+  auto d2 = SparseRow {.lowb = 50.0, .uppb = LinearProblem::DblMax};
   d2[x1] = 1.0;
   d2[dep2] = 1.0;
   li2.add_row(d2);
@@ -847,7 +819,6 @@ TEST_CASE("BendersCut - build_feasibility_cut increments counter")  // NOLINT
   const auto dep = li.add_col("dep", 50.0, 50.0);
 
   auto demand = SparseRow {
-      .name = "demand",
       .lowb = 100.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -874,10 +845,9 @@ TEST_CASE("BendersCut - build_feasibility_cut increments counter")  // NOLINT
   CHECK(bc.infeasible_cut_count() == 0);
 
   auto result = bc.build_feasibility_cut(
-      li, alpha_col, links, 1e6, SolverOptions {}, "feas");  // NOLINT
+      li, alpha_col, links, 1e6, SolverOptions {});  // NOLINT
   REQUIRE(result.has_value());
   if (result) {
-    CHECK(result->cut.name == "feas");
     CHECK(result->cut.get_coeff(alpha_col) == doctest::Approx(1.0));
     CHECK(result->elastic.clone.is_optimal());
   }

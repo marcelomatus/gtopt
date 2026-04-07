@@ -419,25 +419,77 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
 
   // Name vectors
   using fp_name_vec_t = FlatLinearProblem::name_vec_t;
-  auto build_name_vector = [](auto& source, bool move_names) -> fp_name_vec_t
+
+  // Build column names: generate from structured metadata + context when
+  // available; leave empty otherwise.
+  // Generated labels use class_name (full_name, e.g. "Reservoir") which
+  // as_label lowercases to "reservoir_eini_1_0_1".
+  auto build_col_names = [](auto& source, bool /*move_names*/) -> fp_name_vec_t
   {
     fp_name_vec_t names;
     names.reserve(source.size());
 
-    for (auto& item : source) {
-      names.emplace_back(move_names ? std::move(item.name) : item.name);
+    for (const auto& col : source) {
+      if (!col.class_name.empty()
+          && !std::holds_alternative<std::monostate>(col.context))
+      {
+        names.emplace_back(std::visit(
+            [&](const auto& ctx) -> std::string
+            {
+              if constexpr (std::is_same_v<std::remove_cvref_t<decltype(ctx)>,
+                                           std::monostate>)
+              {
+                return {};
+              } else {
+                return generate_lp_label(
+                    col.class_name, col.variable_name, col.variable_uid, ctx);
+              }
+            },
+            col.context));
+      } else {
+        names.emplace_back();
+      }
+    }
+    return names;
+  };
+
+  // Build row names: generate from metadata when available.
+  auto build_row_names = [](auto& source, bool /*move_names*/) -> fp_name_vec_t
+  {
+    fp_name_vec_t names;
+    names.reserve(source.size());
+    for (const auto& row : source) {
+      if (!row.class_name.empty()
+          && !std::holds_alternative<std::monostate>(row.context))
+      {
+        names.emplace_back(std::visit(
+            [&](const auto& ctx) -> std::string
+            {
+              if constexpr (std::is_same_v<std::remove_cvref_t<decltype(ctx)>,
+                                           std::monostate>)
+              {
+                return {};
+              } else {
+                return generate_lp_label(
+                    row.class_name, row.constraint_name, row.variable_uid, ctx);
+              }
+            },
+            row.context));
+      } else {
+        names.emplace_back();
+      }
     }
     return names;
   };
 
   fp_name_vec_t colnm;
   if (opts.col_with_names || opts.col_with_name_map) [[unlikely]] {
-    colnm = build_name_vector(cols, opts.move_names);
+    colnm = build_col_names(cols, opts.move_names);
   }
 
   fp_name_vec_t rownm;
   if (opts.row_with_names || opts.row_with_name_map) [[unlikely]] {
-    rownm = build_name_vector(rows, opts.move_names);
+    rownm = build_row_names(rows, opts.move_names);
   }
 
   // Index name maps
@@ -695,6 +747,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       .stats_max_col_name = std::move(stats_max_col_name),
       .stats_min_col_name = std::move(stats_min_col_name),
       .row_type_stats = std::move(row_type_stats_vec),
+      .variable_scale_map = std::move(m_vsm_),
   };
 }
 

@@ -102,9 +102,9 @@ TEST_CASE("as_label basic functionality")
   SUBCASE("custom separator")
   {
     CHECK(as_label<'-'>("a", "b", "c") == "a-b-c");
-    CHECK(as_label<' '>("Hello", "world") == "hello world");
+    CHECK(as_label<' '>("Hello", "world") == "Hello world");
     CHECK(as_label<','>(1, 2, 3) == "1,2,3");
-    CHECK(as_label<'X'>("A", "B") == "axb");
+    CHECK(as_label<'X'>("A", "B") == "AXB");
   }
 
   SUBCASE("mixed types")
@@ -113,7 +113,7 @@ TEST_CASE("as_label basic functionality")
     const std::string_view sv = "view";
     CHECK(as_label(s, sv, 42) == "str_view_42");
     CHECK(as_label("prefix", 3.14, "suffix") == "prefix_3.14_suffix");
-    CHECK(as_label("prefiX", 3.14, "Suffix") == "prefix_3.14_suffix");
+    CHECK(as_label("prefiX", 3.14, "Suffix") == "prefiX_3.14_Suffix");
   }
 
   SUBCASE("edge cases")
@@ -130,11 +130,40 @@ TEST_CASE("as_label basic functionality")
     CHECK(as_label(0.0) == "0");
   }
 
-  SUBCASE("case conversion")
+  SUBCASE("case preserved")
   {
-    CHECK(as_label("ABC") == "abc");
-    CHECK(as_label("Hello World") == "hello world");
-    CHECK(as_label("MiXeD") == "mixed");
+    CHECK(as_label("ABC") == "ABC");
+    CHECK(as_label("Hello World") == "Hello World");
+    CHECK(as_label("MiXeD") == "MiXeD");
+  }
+
+  SUBCASE("lowercase helper")
+  {
+    CHECK(lowercase("ABC") == "abc");
+    CHECK(lowercase(as_label("Hello", "World")) == "hello_world");
+    CHECK(lowercase(as_label("MiXeD")) == "mixed");
+    CHECK(lowercase(std::string_view {"Generator"}) == "generator");
+  }
+
+  SUBCASE("lowercase view with as_label")
+  {
+    // lowercase(string_view) returns a LowercaseView — no allocation in
+    // lowercase() itself; characters are lowercased when as_label copies them.
+    const std::string_view gen = "Generator";
+    CHECK(as_label(lowercase(gen), 1, 2) == "generator_1_2");
+    CHECK(as_label(lowercase(gen)) == "generator");
+    CHECK(as_label("Prefix", lowercase(gen), 42) == "Prefix_generator_42");
+
+    // String literals also produce a LowercaseView (lazy view into static
+    // storage)
+    CHECK(as_label(lowercase("Battery"), 3) == "battery_3");
+
+    // LowercaseView comparison directly
+    CHECK(lowercase("ABC") == "abc");
+    CHECK(lowercase(std::string_view {"MiXeD"}) == "mixed");
+
+    // LowercaseView explicit conversion to string
+    CHECK(std::string(lowercase("Hello")) == "hello");
   }
 
   SUBCASE("long label")

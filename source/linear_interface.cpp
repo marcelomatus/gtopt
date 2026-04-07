@@ -134,6 +134,7 @@ LinearInterface LinearInterface::clone() const
   auto cloned = LinearInterface {m_backend_->clone(), m_log_file_};
   cloned.m_scale_objective_ = m_scale_objective_;
   cloned.m_col_scales_ = m_col_scales_;
+  cloned.m_variable_scale_map_ = m_variable_scale_map_;
   return cloned;
 }
 
@@ -188,6 +189,9 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
 
   // Preserve per-row equilibration scale factors (empty when disabled).
   m_row_scales_.assign(flat_lp.row_scales.begin(), flat_lp.row_scales.end());
+
+  // Preserve VariableScaleMap for dynamic column auto-scaling.
+  m_variable_scale_map_ = flat_lp.variable_scale_map;
 
   // Preserve coefficient statistics computed during flatten().
   m_stats_nnz_ = flat_lp.stats_nnz;
@@ -268,6 +272,54 @@ ColIndex LinearInterface::add_free_col(const std::string& name)
   return add_col(name, -m_backend_->infinity(), m_backend_->infinity());
 }
 
+ColIndex LinearInterface::add_col(const SparseCol& col)
+{
+  // Resolve name: generate from metadata when available.
+  const auto name = [&]() -> std::string
+  {
+    if (!col.class_name.empty()
+        && !std::holds_alternative<std::monostate>(col.context))
+    {
+      return std::visit(
+          [&](const auto& ctx) -> std::string
+          {
+            if constexpr (std::is_same_v<std::remove_cvref_t<decltype(ctx)>,
+                                         std::monostate>)
+            {
+              return {};
+            } else {
+              return generate_lp_label(
+                  col.class_name, col.variable_name, col.variable_uid, ctx);
+            }
+          },
+          col.context);
+    }
+    return {};
+  }();
+
+  const auto [lowb, uppb] = normalize_bounds(col.lowb, col.uppb);
+
+  const auto index = m_backend_->get_num_cols();
+  check_name_unique(m_col_names_, name, index, "column", m_lp_names_level_, 0);
+
+  m_backend_->add_col(lowb, uppb, col.cost);
+
+  const auto col_idx = ColIndex {index};
+  if (m_lp_names_level_ >= 0 && !name.empty()) {
+    if (m_col_index_to_name_.size() <= static_cast<size_t>(index)) {
+      m_col_index_to_name_.resize(static_cast<size_t>(index) + 1);
+    }
+    m_col_index_to_name_[col_idx] = name;
+  }
+
+  // Register scale if non-unity.
+  if (col.scale != 1.0) {
+    set_col_scale(col_idx, col.scale);
+  }
+
+  return col_idx;
+}
+
 // ── Row operations ──
 
 RowIndex LinearInterface::add_row(const std::string& name,
@@ -299,6 +351,29 @@ RowIndex LinearInterface::add_row(const std::string& name,
 
 RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
 {
+  // Resolve name: generate from metadata when available.
+  const auto name = [&]() -> std::string
+  {
+    if (!row.class_name.empty()
+        && !std::holds_alternative<std::monostate>(row.context))
+    {
+      return std::visit(
+          [&](const auto& ctx) -> std::string
+          {
+            if constexpr (std::is_same_v<std::remove_cvref_t<decltype(ctx)>,
+                                         std::monostate>)
+            {
+              return {};
+            } else {
+              return generate_lp_label(
+                  row.class_name, row.constraint_name, row.variable_uid, ctx);
+            }
+          },
+          row.context);
+    }
+    return {};
+  }();
+
   const auto rs = row.scale;
 
   if (rs != 1.0) {
@@ -321,7 +396,7 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
         (row.uppb > -infy && row.uppb < infy) ? row.uppb * inv_rs : row.uppb;
 
     const auto row_idx =
-        add_row(row.name, columns.size(), columns, elements, lb, ub);
+        add_row(name, columns.size(), columns, elements, lb, ub);
 
     // Register the row scale so physical getters/setters account for it.
     set_row_scale(row_idx, rs);
@@ -330,8 +405,7 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
   }
 
   const auto [columns, elements] = row.to_flat<int>(eps);
-  return add_row(
-      row.name, columns.size(), columns, elements, row.lowb, row.uppb);
+  return add_row(name, columns.size(), columns, elements, row.lowb, row.uppb);
 }
 
 void LinearInterface::delete_rows(const std::span<const int> indices)

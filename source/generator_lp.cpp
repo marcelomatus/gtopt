@@ -64,8 +64,6 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
-
   if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) [[unlikely]] {
     return false;
   }
@@ -94,9 +92,6 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   map_reserve(crows, blocks.size());
 
   const auto guid = uid();
-  // Look up variable scale for generator output via VariableScaleMap.
-  const auto gen_scale =
-      sc.options().variable_scale_map().lookup("Generator", "generation", guid);
   for (auto&& block : blocks) {
     const auto buid = block.uid();
     const auto balance_row = balance_rows.at(buid);
@@ -116,11 +111,13 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
 
     // Create generation variable for this time block
     const auto gcol = lp.add_col({
-        .name = sc.lp_col_label(scenario, stage, block, cname, "gen", guid),
         .lowb = block_pmin,
         .uppb = block_pmax,
         .cost = sc.block_ecost(scenario, stage, block, stage_gcost),
-        .scale = gen_scale,
+        .class_name = ClassName.full_name(),
+        .variable_name = "gen",
+        .variable_uid = guid,
+        .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
     gcols[buid] = gcol;
 
@@ -134,8 +131,11 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     if (capacity_col) {
       auto crow =
           SparseRow {
-              .name =
-                  sc.lp_row_label(scenario, stage, block, cname, "cap", guid),
+              .class_name = ClassName.full_name(),
+              .constraint_name = "cap",
+              .variable_uid = guid,
+              .context =
+                  make_block_context(scenario.uid(), stage.uid(), block.uid()),
           }
               .greater_equal(0);
       crow[*capacity_col] = 1;

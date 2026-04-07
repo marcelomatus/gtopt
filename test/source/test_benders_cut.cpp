@@ -56,9 +56,8 @@ TEST_CASE("build_benders_cut basic optimality cut")  // NOLINT
   rc[11] = -1.0;
 
   const double obj_value = 100.0;
-  auto cut = build_benders_cut(alpha, links, rc, obj_value, "test_cut");
+  auto cut = build_benders_cut(alpha, links, rc, obj_value);
 
-  CHECK(cut.name == "test_cut");
   // α coefficient = 1.0
   CHECK(cut.cmap.at(alpha) == doctest::Approx(1.0));
   // source_col[0] coefficient = -rc[10] = -2.0
@@ -86,7 +85,7 @@ TEST_CASE("build_benders_cut with empty links")  // NOLINT
   const std::vector<StateVarLink> empty_links;
   const std::vector<double> rc;
 
-  auto cut = build_benders_cut(alpha, empty_links, rc, 42.0, "empty");
+  auto cut = build_benders_cut(alpha, empty_links, rc, 42.0);
   CHECK(cut.lowb == doctest::Approx(42.0));
   CHECK(cut.cmap.at(alpha) == doctest::Approx(1.0));
   CHECK(cut.cmap.size() == 1);
@@ -101,8 +100,8 @@ TEST_CASE("average_benders_cut with empty vector")  // NOLINT
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   const std::vector<SparseRow> empty;
-  auto avg = average_benders_cut(empty, "avg_empty");
-  CHECK(avg.name.empty());
+  auto avg = average_benders_cut(empty);
+  CHECK(avg.cmap.empty());
 }
 
 TEST_CASE("average_benders_cut with single cut")  // NOLINT
@@ -110,7 +109,6 @@ TEST_CASE("average_benders_cut with single cut")  // NOLINT
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   auto cut = SparseRow {
-      .name = "original",
       .lowb = 10.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -124,9 +122,8 @@ TEST_CASE("average_benders_cut with single cut")  // NOLINT
   const std::vector<SparseRow> cuts = {
       cut,
   };
-  auto avg = average_benders_cut(cuts, "single_avg");
+  auto avg = average_benders_cut(cuts);
 
-  CHECK(avg.name == "single_avg");
   CHECK(avg.lowb == doctest::Approx(10.0));
   CHECK(avg.cmap.at(ColIndex {
             0,
@@ -143,7 +140,6 @@ TEST_CASE("average_benders_cut with multiple cuts")  // NOLINT
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   auto cut1 = SparseRow {
-      .name = "c1",
       .lowb = 10.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -155,7 +151,6 @@ TEST_CASE("average_benders_cut with multiple cuts")  // NOLINT
   }] = 2.0;
 
   auto cut2 = SparseRow {
-      .name = "c2",
       .lowb = 20.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -170,9 +165,8 @@ TEST_CASE("average_benders_cut with multiple cuts")  // NOLINT
       cut1,
       cut2,
   };
-  auto avg = average_benders_cut(cuts, "avg2");
+  auto avg = average_benders_cut(cuts);
 
-  CHECK(avg.name == "avg2");
   // lowb = (10+20)/2 = 15
   CHECK(avg.lowb == doctest::Approx(15.0));
   // col0 = (4+6)/2 = 5
@@ -197,8 +191,8 @@ TEST_CASE("weighted_average_benders_cut empty")  // NOLINT
 
   const std::vector<SparseRow> empty;
   const std::vector<double> weights;
-  auto wavg = weighted_average_benders_cut(empty, weights, "wempty");
-  CHECK(wavg.name.empty());
+  auto wavg = weighted_average_benders_cut(empty, weights);
+  CHECK(wavg.cmap.empty());
 }
 
 TEST_CASE("weighted_average_benders_cut size mismatch")  // NOLINT
@@ -206,7 +200,6 @@ TEST_CASE("weighted_average_benders_cut size mismatch")  // NOLINT
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   auto c1 = SparseRow {
-      .name = "c1",
       .lowb = 10.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -222,8 +215,8 @@ TEST_CASE("weighted_average_benders_cut size mismatch")  // NOLINT
       0.5,
   };  // mismatched sizes
 
-  auto wavg = weighted_average_benders_cut(cuts, weights, "mismatch");
-  CHECK(wavg.name.empty());  // returns empty cut on mismatch
+  auto wavg = weighted_average_benders_cut(cuts, weights);
+  CHECK(wavg.cmap.empty());  // returns empty cut on mismatch
 }
 
 TEST_CASE("weighted_average_benders_cut zero total weight")  // NOLINT
@@ -231,7 +224,6 @@ TEST_CASE("weighted_average_benders_cut zero total weight")  // NOLINT
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   auto c1 = SparseRow {
-      .name = "c1",
       .lowb = 10.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -246,8 +238,8 @@ TEST_CASE("weighted_average_benders_cut zero total weight")  // NOLINT
       0.0,
   };
 
-  auto wavg = weighted_average_benders_cut(cuts, weights, "zero_w");
-  CHECK(wavg.name.empty());
+  auto wavg = weighted_average_benders_cut(cuts, weights);
+  CHECK(wavg.cmap.empty());
 }
 
 TEST_CASE("weighted_average_benders_cut single cut")  // NOLINT
@@ -255,7 +247,6 @@ TEST_CASE("weighted_average_benders_cut single cut")  // NOLINT
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   auto c1 = SparseRow {
-      .name = "c1",
       .lowb = 10.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -270,8 +261,7 @@ TEST_CASE("weighted_average_benders_cut single cut")  // NOLINT
       1.0,
   };
 
-  auto wavg = weighted_average_benders_cut(cuts, weights, "wsingle");
-  CHECK(wavg.name == "wsingle");
+  auto wavg = weighted_average_benders_cut(cuts, weights);
   CHECK(wavg.lowb == doctest::Approx(10.0));
   CHECK(wavg.cmap.at(ColIndex {
             0,
@@ -284,7 +274,6 @@ TEST_CASE("weighted_average_benders_cut multiple cuts")  // NOLINT
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   auto c1 = SparseRow {
-      .name = "c1",
       .lowb = 10.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -293,7 +282,6 @@ TEST_CASE("weighted_average_benders_cut multiple cuts")  // NOLINT
   }] = 4.0;
 
   auto c2 = SparseRow {
-      .name = "c2",
       .lowb = 30.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -311,8 +299,7 @@ TEST_CASE("weighted_average_benders_cut multiple cuts")  // NOLINT
       0.75,
   };
 
-  auto wavg = weighted_average_benders_cut(cuts, weights, "wmulti");
-  CHECK(wavg.name == "wmulti");
+  auto wavg = weighted_average_benders_cut(cuts, weights);
   // lowb = 0.25*10 + 0.75*30 = 2.5 + 22.5 = 25.0
   CHECK(wavg.lowb == doctest::Approx(25.0));
   // col0 = 0.25*4 + 0.75*8 = 1 + 6 = 7.0
@@ -331,8 +318,8 @@ TEST_CASE("accumulate_benders_cuts empty")  // NOLINT
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   const std::vector<SparseRow> empty;
-  auto acc = accumulate_benders_cuts(empty, "acc_empty");
-  CHECK(acc.name.empty());
+  auto acc = accumulate_benders_cuts(empty);
+  CHECK(acc.cmap.empty());
 }
 
 TEST_CASE("accumulate_benders_cuts single cut")  // NOLINT
@@ -340,7 +327,6 @@ TEST_CASE("accumulate_benders_cuts single cut")  // NOLINT
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   auto c1 = SparseRow {
-      .name = "c1",
       .lowb = 10.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -351,8 +337,7 @@ TEST_CASE("accumulate_benders_cuts single cut")  // NOLINT
   const std::vector<SparseRow> cuts = {
       c1,
   };
-  auto acc = accumulate_benders_cuts(cuts, "acc_single");
-  CHECK(acc.name == "acc_single");
+  auto acc = accumulate_benders_cuts(cuts);
   CHECK(acc.lowb == doctest::Approx(10.0));
   CHECK(acc.cmap.at(ColIndex {
             0,
@@ -365,7 +350,6 @@ TEST_CASE("accumulate_benders_cuts multiple cuts sums")  // NOLINT
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   auto c1 = SparseRow {
-      .name = "c1",
       .lowb = 10.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -377,7 +361,6 @@ TEST_CASE("accumulate_benders_cuts multiple cuts sums")  // NOLINT
   }] = 2.0;
 
   auto c2 = SparseRow {
-      .name = "c2",
       .lowb = 20.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -392,9 +375,8 @@ TEST_CASE("accumulate_benders_cuts multiple cuts sums")  // NOLINT
       c1,
       c2,
   };
-  auto acc = accumulate_benders_cuts(cuts, "acc_multi");
+  auto acc = accumulate_benders_cuts(cuts);
 
-  CHECK(acc.name == "acc_multi");
   // lowb = 10 + 20 = 30
   CHECK(acc.lowb == doctest::Approx(30.0));
   // col0 = 4 + 6 = 10
@@ -606,7 +588,7 @@ TEST_CASE("build_multi_cuts with no relaxed links returns empty")  // NOLINT
       },
   };
 
-  auto cuts = build_multi_cuts(elastic, links, "mc");
+  auto cuts = build_multi_cuts(elastic, links);
   CHECK(cuts.empty());
 }
 
@@ -633,7 +615,7 @@ TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
   cloned_li.set_obj_coeff(sdn1, 1000.0);
 
   // Add trivial constraints to make LP valid
-  SparseRow r0("e0");
+  SparseRow r0;
   r0[dep0] = 1.0;
   r0[sup0] = -1.0;
   r0[sdn0] = 1.0;
@@ -641,7 +623,7 @@ TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
   r0.uppb = 30.0;
   cloned_li.add_row(r0);
 
-  SparseRow r1("e1");
+  SparseRow r1;
   r1[dep1] = 1.0;
   r1[sup1] = -1.0;
   r1[sdn1] = 1.0;
@@ -699,14 +681,15 @@ TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
       },
   };
 
-  auto cuts = build_multi_cuts(elastic, links, "mc");
+  auto cuts = build_multi_cuts(elastic, links);
 
   // sup0=5 > 0 → upper-bound cut on source_col[0] <= dep_val=25
   // sdn1=10 > 0 → lower-bound cut on source_col[1] >= dep_val=60
   CHECK(cuts.size() == 2);
 
   // First cut: ub_cut for link 0 (sup0 active)
-  CHECK(cuts[0].name == "mc_ub_0");
+  CHECK(cuts[0].class_name == "Sddp");
+  CHECK(cuts[0].constraint_name == "mcut_ub");
   CHECK(cuts[0].uppb == doctest::Approx(25.0));
   CHECK(cuts[0].cmap.at(ColIndex {
             100,
@@ -714,7 +697,8 @@ TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
         == doctest::Approx(1.0));
 
   // Second cut: lb_cut for link 1 (sdn1 active)
-  CHECK(cuts[1].name == "mc_lb_1");
+  CHECK(cuts[1].class_name == "Sddp");
+  CHECK(cuts[1].constraint_name == "mcut_lb");
   CHECK(cuts[1].lowb == doctest::Approx(60.0));
   CHECK(cuts[1].cmap.at(ColIndex {
             101,
@@ -734,7 +718,7 @@ TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
   li.set_obj_coeff(x1, 1.0);
   li.set_obj_coeff(alpha, 0.0);
 
-  SparseRow row("lb");
+  SparseRow row;
   row[x1] = 1.0;
   row.lowb = 5.0;
   row.uppb = LinearProblem::DblMax;
@@ -908,10 +892,8 @@ TEST_CASE("build_benders_cut_from_row_duals basic cut")  // NOLINT
   row_duals[4] = -1.0;  // π2
 
   const double obj_value = 100.0;
-  auto cut = build_benders_cut_from_row_duals(
-      alpha, links, row_duals, obj_value, "row_dual_cut");
-
-  CHECK(cut.name == "row_dual_cut");
+  auto cut =
+      build_benders_cut_from_row_duals(alpha, links, row_duals, obj_value);
   // α coefficient = 1.0
   CHECK(cut.cmap.at(alpha) == doctest::Approx(1.0));
   // source_col[0] coefficient = -π1 = -2.0
@@ -979,9 +961,9 @@ TEST_CASE(
   std::vector<double> row_duals(3, 0.0);
   row_duals[2] = 3.5;  // same value as rc[5]
 
-  auto cut_rc = build_benders_cut(alpha, rc_links, rc, 200.0, "rc");
+  auto cut_rc = build_benders_cut(alpha, rc_links, rc, 200.0);
   auto cut_rd =
-      build_benders_cut_from_row_duals(alpha, rd_links, row_duals, 200.0, "rd");
+      build_benders_cut_from_row_duals(alpha, rd_links, row_duals, 200.0);
 
   CHECK(cut_rc.lowb == doctest::Approx(cut_rd.lowb));
   CHECK(cut_rc.cmap.at(alpha) == doctest::Approx(cut_rd.cmap.at(alpha)));
@@ -1037,7 +1019,7 @@ TEST_CASE("build_benders_cut filters tiny coefficients via cut_coeff_eps")
 
   SUBCASE("eps=0 keeps all coefficients")
   {
-    auto cut = build_benders_cut(alpha, links, rc, obj_value, "no_filter");
+    auto cut = build_benders_cut(alpha, links, rc, obj_value);
     // Both coefficients present
     CHECK(cut.cmap.contains(ColIndex {
         1,
@@ -1055,8 +1037,7 @@ TEST_CASE("build_benders_cut filters tiny coefficients via cut_coeff_eps")
 
   SUBCASE("eps=1e-12 filters tiny coefficient")
   {
-    auto cut =
-        build_benders_cut(alpha, links, rc, obj_value, "filtered", 1.0, 1e-12);
+    auto cut = build_benders_cut(alpha, links, rc, obj_value, 1.0, 1e-12);
     // Only the significant coefficient survives
     CHECK(cut.cmap.contains(ColIndex {
         1,
@@ -1070,8 +1051,7 @@ TEST_CASE("build_benders_cut filters tiny coefficients via cut_coeff_eps")
 
   SUBCASE("eps larger than all coefficients removes all link terms")
   {
-    auto cut =
-        build_benders_cut(alpha, links, rc, obj_value, "all_gone", 1.0, 100.0);
+    auto cut = build_benders_cut(alpha, links, rc, obj_value, 1.0, 100.0);
     // Only alpha column remains
     CHECK(cut.cmap.size() == 1);
     CHECK(cut.cmap.contains(alpha));
@@ -1091,7 +1071,6 @@ TEST_CASE("rescale_benders_cut scales down large coefficients")
       0,
   };
   auto row = SparseRow {
-      .name = "big_cut",
       .lowb = 1e9,
       .uppb = LinearProblem::DblMax,
   };
@@ -1129,7 +1108,6 @@ TEST_CASE("rescale_benders_cut does nothing when below threshold")
       0,
   };
   auto row = SparseRow {
-      .name = "small_cut",
       .lowb = 100.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -1154,7 +1132,6 @@ TEST_CASE("rescale_benders_cut disabled when threshold is zero")
       0,
   };
   auto row = SparseRow {
-      .name = "no_rescale",
       .lowb = 1e20,
       .uppb = LinearProblem::DblMax,
   };
@@ -1179,7 +1156,6 @@ TEST_CASE("filter_cut_coefficients removes small coefficients")
       0,
   };
   auto row = SparseRow {
-      .name = "filter_test",
       .lowb = 100.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -1216,7 +1192,6 @@ TEST_CASE("filter_cut_coefficients preserves alpha even if tiny")
       0,
   };
   auto row = SparseRow {
-      .name = "alpha_tiny",
       .lowb = 0.0,
       .uppb = LinearProblem::DblMax,
   };
@@ -1234,7 +1209,6 @@ TEST_CASE("rescale then filter produces clean cut")
       0,
   };
   auto row = SparseRow {
-      .name = "combo_test",
       .lowb = 1e10,
       .uppb = LinearProblem::DblMax,
   };
@@ -1321,8 +1295,8 @@ TEST_CASE(
 
   SUBCASE("eps=0 keeps all")
   {
-    auto cut = build_benders_cut_from_row_duals(
-        alpha, links, row_duals, obj_value, "no_filter");
+    auto cut =
+        build_benders_cut_from_row_duals(alpha, links, row_duals, obj_value);
     CHECK(cut.cmap.contains(ColIndex {
         2,
     }));
@@ -1331,7 +1305,7 @@ TEST_CASE(
   SUBCASE("eps=1e-12 filters tiny row dual")
   {
     auto cut = build_benders_cut_from_row_duals(
-        alpha, links, row_duals, obj_value, "filtered", 1.0, 1e-12);
+        alpha, links, row_duals, obj_value, 1.0, 1e-12);
     CHECK(cut.cmap.contains(ColIndex {
         1,
     }));
@@ -1384,9 +1358,7 @@ TEST_CASE(  // NOLINT
   li.set_obj_coeff(alpha, 1.0);
 
   // Constraint: efin >= 0.5 (physical 500 hm³)
-  auto row = SparseRow {
-      .name = "efin_lb",
-  };
+  auto row = SparseRow {};
   row[efin] = 1.0;
   row.lowb = 0.5;
   row.uppb = LinearProblem::DblMax;
@@ -1463,8 +1435,7 @@ TEST_CASE(  // NOLINT
       auto cut = build_benders_cut(alpha,
                                    links,
                                    elastic->clone.get_col_cost_raw(),
-                                   elastic->clone.get_obj_value(),
-                                   "test_cut");
+                                   elastic->clone.get_obj_value());
 
       // Cut coefficient on source_col should be the reduced cost
       // of the dependent column — proportional to the penalty, not huge

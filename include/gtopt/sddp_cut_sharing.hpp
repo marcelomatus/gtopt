@@ -18,6 +18,7 @@
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/enum_option.hpp>
+#include <gtopt/lp_context.hpp>
 #include <gtopt/phase.hpp>
 #include <gtopt/scene.hpp>
 #include <gtopt/sddp_enums.hpp>
@@ -35,12 +36,12 @@ class PlanningLP;
 /// @param scene_cuts   Per-scene optimality cuts for this phase
 /// @param mode         Cut sharing mode (none/accumulate/expected/max)
 /// @param planning     PlanningLP reference (for LP access)
-/// @param label_prefix Label prefix for generated cuts (empty = no labels)
+/// @param context      LP context for metadata-based naming (default: none)
 void share_cuts_for_phase(
     PhaseIndex phase,
     const StrongIndexVector<SceneIndex, std::vector<SparseRow>>& scene_cuts,
     CutSharingMode mode,
     PlanningLP& planning,
-    std::string_view label_prefix = {});
+    LpContext context = {});
 
 }  // namespace gtopt

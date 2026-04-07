@@ -34,16 +34,8 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
                            std::span<const BlockLP> blocks) const
     -> const BIndexHolder<ColIndex>&
 {
-  static constexpr std::string_view cname = ClassName.short_name();
-
   BIndexHolder<ColIndex> tblocks;
   map_reserve(tblocks, blocks.size());
-
-  // Look up theta scale from VariableScale framework.
-  // Convention: physical = LP × scale_theta (same as energy_scale).
-  // LP = physical / scale_theta.  Per-bus overrides via UID entries.
-  const auto scale_theta =
-      sc.options().variable_scale_map().lookup("Bus", "theta", uid());
 
   if (stage.is_active() && needs_kirchhoff(sc)) [[likely]] {
     std::ranges::for_each(
@@ -51,25 +43,29 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
         [&](const BlockLP& block)
         {
           const auto buid = block.uid();
-          auto tname =
-              sc.lp_col_label(scenario, stage, block, cname, "theta", uid());
+          const auto ctx =
+              make_block_context(scenario.uid(), stage.uid(), block.uid());
 
           const auto& theta = reference_theta();
           if (theta) [[unlikely]] {
             tblocks[buid] = lp.add_col(SparseCol {
-                .name = std::move(tname),
                 .lowb = *theta,
                 .uppb = *theta,
-                .scale = scale_theta,
+                .class_name = ClassName.full_name(),
+                .variable_name = "theta",
+                .variable_uid = uid(),
+                .context = ctx,
             });
           } else [[likely]] {
             constexpr double theta_bound =
                 2 * std::numbers::pi;  // Default bound for theta
             tblocks[buid] = lp.add_col(SparseCol {
-                .name = std::move(tname),
                 .lowb = -theta_bound,
                 .uppb = +theta_bound,
-                .scale = scale_theta,
+                .class_name = ClassName.full_name(),
+                .variable_name = "theta",
+                .variable_uid = uid(),
+                .context = ctx,
             });
           }
         });
@@ -80,13 +76,11 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
   return theta_cols[st_key] = std::move(tblocks);
 }
 
-bool BusLP::add_to_lp(const SystemContext& sc,
+bool BusLP::add_to_lp(const SystemContext& /*sc*/,
                       const ScenarioLP& scenario,
                       const StageLP& stage,
                       LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
-
   if (!is_active(stage)) {
     return true;
   }
@@ -100,8 +94,11 @@ bool BusLP::add_to_lp(const SystemContext& sc,
                         [&](const BlockLP& block)
                         {
                           brows[block.uid()] = lp.add_row({
-                              .name = sc.lp_row_label(
-                                  scenario, stage, block, cname, "bal", uid()),
+                              .class_name = ClassName.full_name(),
+                              .constraint_name = "bal",
+                              .variable_uid = uid(),
+                              .context = make_block_context(
+                                  scenario.uid(), stage.uid(), block.uid()),
                           });
                         });
 

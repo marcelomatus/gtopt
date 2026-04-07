@@ -37,11 +37,14 @@
 
 #pragma once
 
+#include <functional>
 #include <ranges>
 #include <span>
+#include <string>
 #include <string_view>
+#include <unordered_map>
 
-#include <gtopt/fmap.hpp>
+#include <gtopt/basic_types.hpp>
 
 namespace gtopt
 {
@@ -71,6 +74,10 @@ struct VariableScale
  *   1. Entry matching (class_name, variable, uid)   — per-element
  *   2. Entry matching (class_name, variable, -1)    — per-class
  *   3. Fallback: 1.0
+ *
+ * Optimized for millions of lookups with very few insertions.
+ * Uses `std::unordered_map` with transparent hashing to avoid
+ * temporary string allocations on every lookup.
  */
 class VariableScaleMap
 {
@@ -88,33 +95,39 @@ public:
                              { return vs.uid == unknown_uid; });
 
     for (const auto& vs : element_entries) {
-      m_element_scales_[Key {
-          .class_name = vs.class_name,
-          .variable = vs.variable,
-          .uid = vs.uid,
-      }] = vs.scale;
+      m_element_scales_.emplace(
+          ElementKey {
+              .class_name = vs.class_name,
+              .variable = vs.variable,
+              .uid = vs.uid,
+          },
+          vs.scale);
     }
     for (const auto& vs : class_entries) {
-      m_class_scales_[ClassKey {
-          .class_name = vs.class_name,
-          .variable = vs.variable,
-      }] = vs.scale;
+      m_class_scales_.emplace(
+          ClassKey {
+              .class_name = vs.class_name,
+              .variable = vs.variable,
+          },
+          vs.scale);
     }
   }
 
   /// Look up the scale for a (class, variable, uid) triple.
   /// Returns the most specific match, or 1.0 if none found.
+  /// No temporary string allocations — uses transparent hash lookup.
   [[nodiscard]] double lookup(std::string_view class_name,
                               std::string_view variable,
                               Uid uid = unknown_uid) const noexcept
   {
     // 1. Per-element match
     if (uid != unknown_uid) {
-      if (const auto it = m_element_scales_.find(Key {
-              .class_name = Name {class_name},
-              .variable = Name {variable},
-              .uid = uid,
-          });
+      const ElementKeyView kv {
+          .class_name = class_name,
+          .variable = variable,
+          .uid = uid,
+      };
+      if (const auto it = m_element_scales_.find(kv);
           it != m_element_scales_.end())
       {
         return it->second;
@@ -122,12 +135,11 @@ public:
     }
 
     // 2. Per-class match
-    if (const auto it = m_class_scales_.find(ClassKey {
-            .class_name = Name {class_name},
-            .variable = Name {variable},
-        });
-        it != m_class_scales_.end())
-    {
+    const ClassKeyView kv {
+        .class_name = class_name,
+        .variable = variable,
+    };
+    if (const auto it = m_class_scales_.find(kv); it != m_class_scales_.end()) {
       return it->second;
     }
 
@@ -141,27 +153,142 @@ public:
   }
 
 private:
-  /// Key for per-element scale: (class_name, variable, uid)
-  struct Key
+  // ── Hash helper: combine hashes ─────────────────────────────────────
+  static constexpr size_t hash_combine(size_t h1, size_t h2) noexcept
   {
-    Name class_name;
-    Name variable;
+    // boost::hash_combine formula
+    return h1 ^ (h2 + size_t {0x9e3779b9} + (h1 << 6U) + (h1 >> 2U));
+  }
+
+  // ── Per-element key: (class_name, variable, uid) ────────────────────
+
+  /// Owning key stored in the map (holds std::string).
+  struct ElementKey
+  {
+    std::string class_name;
+    std::string variable;
     Uid uid;
 
-    auto operator<=>(const Key&) const = default;
+    bool operator==(const ElementKey&) const = default;
   };
 
-  /// Key for per-class scale: (class_name, variable)
+  /// Non-owning view key used for lookup (holds string_view).
+  struct ElementKeyView
+  {
+    std::string_view class_name;
+    std::string_view variable;
+    Uid uid;
+  };
+
+  struct ElementHash
+  {
+    using is_transparent = void;
+
+    [[nodiscard]] size_t operator()(const ElementKey& k) const noexcept
+    {
+      auto h = std::hash<std::string_view> {}(k.class_name);
+      h = hash_combine(h, std::hash<std::string_view> {}(k.variable));
+      h = hash_combine(h, std::hash<Uid> {}(k.uid));
+      return h;
+    }
+
+    [[nodiscard]] size_t operator()(const ElementKeyView& k) const noexcept
+    {
+      auto h = std::hash<std::string_view> {}(k.class_name);
+      h = hash_combine(h, std::hash<std::string_view> {}(k.variable));
+      h = hash_combine(h, std::hash<Uid> {}(k.uid));
+      return h;
+    }
+  };
+
+  struct ElementEqual
+  {
+    using is_transparent = void;
+
+    [[nodiscard]] bool operator()(const ElementKey& a,
+                                  const ElementKey& b) const noexcept
+    {
+      return a == b;
+    }
+
+    [[nodiscard]] bool operator()(const ElementKeyView& a,
+                                  const ElementKey& b) const noexcept
+    {
+      return a.class_name == b.class_name && a.variable == b.variable
+          && a.uid == b.uid;
+    }
+
+    [[nodiscard]] bool operator()(const ElementKey& a,
+                                  const ElementKeyView& b) const noexcept
+    {
+      return a.class_name == b.class_name && a.variable == b.variable
+          && a.uid == b.uid;
+    }
+  };
+
+  // ── Per-class key: (class_name, variable) ───────────────────────────
+
+  /// Owning key stored in the map.
   struct ClassKey
   {
-    Name class_name;
-    Name variable;
+    std::string class_name;
+    std::string variable;
 
-    auto operator<=>(const ClassKey&) const = default;
+    bool operator==(const ClassKey&) const = default;
   };
 
-  flat_map<Key, double> m_element_scales_;
-  flat_map<ClassKey, double> m_class_scales_;
+  /// Non-owning view key used for lookup.
+  struct ClassKeyView
+  {
+    std::string_view class_name;
+    std::string_view variable;
+  };
+
+  struct ClassHash
+  {
+    using is_transparent = void;
+
+    [[nodiscard]] size_t operator()(const ClassKey& k) const noexcept
+    {
+      auto h = std::hash<std::string_view> {}(k.class_name);
+      h = hash_combine(h, std::hash<std::string_view> {}(k.variable));
+      return h;
+    }
+
+    [[nodiscard]] size_t operator()(const ClassKeyView& k) const noexcept
+    {
+      auto h = std::hash<std::string_view> {}(k.class_name);
+      h = hash_combine(h, std::hash<std::string_view> {}(k.variable));
+      return h;
+    }
+  };
+
+  struct ClassEqual
+  {
+    using is_transparent = void;
+
+    [[nodiscard]] bool operator()(const ClassKey& a,
+                                  const ClassKey& b) const noexcept
+    {
+      return a == b;
+    }
+
+    [[nodiscard]] bool operator()(const ClassKeyView& a,
+                                  const ClassKey& b) const noexcept
+    {
+      return a.class_name == b.class_name && a.variable == b.variable;
+    }
+
+    [[nodiscard]] bool operator()(const ClassKey& a,
+                                  const ClassKeyView& b) const noexcept
+    {
+      return a.class_name == b.class_name && a.variable == b.variable;
+    }
+  };
+
+  std::unordered_map<ElementKey, double, ElementHash, ElementEqual>
+      m_element_scales_;
+  std::unordered_map<ClassKey, double, ClassHash, ClassEqual> m_class_scales_;
 };
 
 }  // namespace gtopt

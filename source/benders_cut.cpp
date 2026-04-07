@@ -11,7 +11,6 @@
  */
 
 #include <cmath>
-#include <format>
 #include <span>
 
 #include <gtopt/benders_cut.hpp>
@@ -63,7 +62,6 @@ void propagate_trial_values_row_dual(std::span<StateVarLink> links,
     } else {
       // First call: add explicit coupling constraint x_dep = trial_value.
       auto coupling = SparseRow {
-          .name = {},
           .lowb = link.trial_value,
           .uppb = link.trial_value,
       };
@@ -84,7 +82,6 @@ auto build_benders_cut(ColIndex alpha_col,
                        std::span<const StateVarLink> links,
                        std::span<const double> reduced_costs,
                        double objective_value,
-                       std::string_view name,
                        double scale_alpha,
                        double cut_coeff_eps) -> SparseRow
 {
@@ -92,7 +89,6 @@ auto build_benders_cut(ColIndex alpha_col,
   // When the row is added to the LP (via add_row), bounds and coefficients
   // are divided by row.scale, giving a raw alpha coefficient of 1.0.
   auto row = SparseRow {
-      .name = std::string(name),
       .lowb = objective_value,
       .uppb = LinearProblem::DblMax,
       .scale = scale_alpha,
@@ -115,14 +111,12 @@ auto build_benders_cut_from_row_duals(ColIndex alpha_col,
                                       std::span<const StateVarLink> links,
                                       std::span<const double> row_duals,
                                       double objective_value,
-                                      std::string_view name,
                                       double scale_alpha,
                                       double cut_coeff_eps) -> SparseRow
 {
   // Row scale = scale_alpha: physical values stored as-is, divided by
   // row.scale when added to the LP (giving raw alpha coefficient = 1.0).
   auto row = SparseRow {
-      .name = std::string(name),
       .lowb = objective_value,
       .uppb = LinearProblem::DblMax,
       .scale = scale_alpha,
@@ -193,7 +187,8 @@ bool rescale_benders_cut(SparseRow& row,
   spdlog::warn(
       "rescale_benders_cut: cut '{}' max|coeff|={:.2e} exceeds "
       "threshold {:.2e}, rescaling by {:.2e}",
-      row.name,
+      generate_lp_label(
+          row.class_name, row.constraint_name, row.variable_uid, row.context),
       max_coeff,
       cut_coeff_max,
       scale_factor);
@@ -241,15 +236,18 @@ RelaxedVarInfo relax_fixed_state_variable(LinearInterface& li,
   // so the cost per LP unit is base_penalty × var_scale.
   const auto base_penalty = (link.scost > 0.0) ? link.scost : penalty;
   const auto scaled_penalty = base_penalty * link.var_scale;
-  const auto sup = li.add_col({}, 0.0, li.infinity());
-  li.set_obj_coeff(sup, scaled_penalty);
+  const auto sup = li.add_col(SparseCol {
+      .uppb = DblMax,
+      .cost = scaled_penalty,
+  });
 
-  const auto sdn = li.add_col({}, 0.0, li.infinity());
-  li.set_obj_coeff(sdn, scaled_penalty);
+  const auto sdn = li.add_col(SparseCol {
+      .uppb = DblMax,
+      .cost = scaled_penalty,
+  });
 
   // dep + sup − sdn = trial_value
   auto elastic = SparseRow {
-      .name = {},
       .lowb = link.trial_value,
       .uppb = link.trial_value,
   };
@@ -323,7 +321,6 @@ auto build_feasibility_cut(const LinearInterface& li,
                            std::span<const StateVarLink> links,
                            double penalty,
                            const SolverOptions& opts,
-                           std::string_view name,
                            double scale_alpha)
     -> std::optional<FeasibilityCutResult>
 {
@@ -336,7 +333,6 @@ auto build_feasibility_cut(const LinearInterface& li,
                                links,
                                elastic->clone.get_col_cost_raw(),
                                elastic->clone.get_obj_value(),
-                               name,
                                scale_alpha);
 
   return FeasibilityCutResult {
@@ -347,7 +343,7 @@ auto build_feasibility_cut(const LinearInterface& li,
 
 auto build_multi_cuts(const ElasticSolveResult& elastic,
                       std::span<const StateVarLink> links,
-                      std::string_view name_prefix,
+                      const LpContext& context,
                       double slack_tol) -> std::vector<SparseRow>
 {
   std::vector<SparseRow> cuts;
@@ -370,9 +366,12 @@ auto build_multi_cuts(const ElasticSolveResult& elastic,
       const double sup_val = dep_sol[info.sup_col];
       if (sup_val > slack_tol) {
         auto ub_cut = SparseRow {
-            .name = std::format("{}_ub_{}", name_prefix, cut_counter++),
             .lowb = -LinearProblem::DblMax,
             .uppb = dep_val,
+            .class_name = "Sddp",
+            .constraint_name = "mcut_ub",
+            .variable_uid = Uid {cut_counter++},
+            .context = context,
         };
         ub_cut[link.source_col] = 1.0;
         cuts.push_back(std::move(ub_cut));
@@ -384,9 +383,12 @@ auto build_multi_cuts(const ElasticSolveResult& elastic,
       const double sdn_val = dep_sol[info.sdn_col];
       if (sdn_val > slack_tol) {
         auto lb_cut = SparseRow {
-            .name = std::format("{}_lb_{}", name_prefix, cut_counter++),
             .lowb = dep_val,
             .uppb = LinearProblem::DblMax,
+            .class_name = "Sddp",
+            .constraint_name = "mcut_lb",
+            .variable_uid = Uid {cut_counter++},
+            .context = context,
         };
         lb_cut[link.source_col] = 1.0;
         cuts.push_back(std::move(lb_cut));
@@ -399,16 +401,13 @@ auto build_multi_cuts(const ElasticSolveResult& elastic,
 
 // ─── Cut averaging ──────────────────────────────────────────────────────────
 
-auto average_benders_cut(const std::vector<SparseRow>& cuts,
-                         std::string_view name) -> SparseRow
+auto average_benders_cut(const std::vector<SparseRow>& cuts) -> SparseRow
 {
   if (cuts.empty()) {
     return {};
   }
   if (cuts.size() == 1) {
-    auto result = cuts.front();
-    result.name = std::string(name);
-    return result;
+    return cuts.front();
   }
 
   const auto n = static_cast<double>(cuts.size());
@@ -425,7 +424,6 @@ auto average_benders_cut(const std::vector<SparseRow>& cuts,
   }
 
   auto result = SparseRow {
-      .name = std::string(name),
       .lowb = avg_rhs / n,
       .uppb = LinearProblem::DblMax,
       .scale = cuts.front().scale,
@@ -439,8 +437,8 @@ auto average_benders_cut(const std::vector<SparseRow>& cuts,
 }
 
 auto weighted_average_benders_cut(const std::vector<SparseRow>& cuts,
-                                  const std::vector<double>& weights,
-                                  std::string_view name) -> SparseRow
+                                  const std::vector<double>& weights)
+    -> SparseRow
 {
   if (cuts.empty()) {
     return {};
@@ -466,9 +464,7 @@ auto weighted_average_benders_cut(const std::vector<SparseRow>& cuts,
 
   // Single-cut shortcut (avoid unnecessary work)
   if (cuts.size() == 1) {
-    auto result = cuts.front();
-    result.name = std::string(name);
-    return result;
+    return cuts.front();
   }
 
   flat_map<ColIndex, double> avg_coeffs;
@@ -484,7 +480,6 @@ auto weighted_average_benders_cut(const std::vector<SparseRow>& cuts,
   }
 
   auto result = SparseRow {
-      .name = std::string(name),
       .lowb = avg_rhs,
       .uppb = LinearProblem::DblMax,
       .scale = cuts.front().scale,
@@ -497,16 +492,13 @@ auto weighted_average_benders_cut(const std::vector<SparseRow>& cuts,
   return result;
 }
 
-auto accumulate_benders_cuts(const std::vector<SparseRow>& cuts,
-                             std::string_view name) -> SparseRow
+auto accumulate_benders_cuts(const std::vector<SparseRow>& cuts) -> SparseRow
 {
   if (cuts.empty()) {
     return {};
   }
   if (cuts.size() == 1) {
-    auto result = cuts.front();
-    result.name = std::string(name);
-    return result;
+    return cuts.front();
   }
 
   // Accumulate (sum) all cuts: no division by count or weight normalisation
@@ -521,7 +513,6 @@ auto accumulate_benders_cuts(const std::vector<SparseRow>& cuts,
   }
 
   auto result = SparseRow {
-      .name = std::string(name),
       .lowb = sum_rhs,
       .uppb = LinearProblem::DblMax,
       .scale = cuts.front().scale,
@@ -620,7 +611,6 @@ auto BendersCut::build_feasibility_cut(const LinearInterface& li,
                                        std::span<const StateVarLink> links,
                                        double penalty,
                                        const SolverOptions& opts,
-                                       std::string_view name,
                                        double scale_alpha)
     -> std::optional<FeasibilityCutResult>
 {
@@ -633,7 +623,6 @@ auto BendersCut::build_feasibility_cut(const LinearInterface& li,
                                links,
                                elastic->clone.get_col_cost_raw(),
                                elastic->clone.get_obj_value(),
-                               name,
                                scale_alpha);
 
   return FeasibilityCutResult {

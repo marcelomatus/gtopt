@@ -746,16 +746,6 @@ private:
   /// LP debug writer — active when lp_debug is enabled and log_directory is
   /// set.  Initialised at the start of solve() and drained at the end.
   LpDebugWriter m_lp_debug_writer_ {};
-
-  // ── Monitoring API (SolverMonitor owns the background thread) ──
-
-  /// Generate an LP name only when names_level >= only_cols.
-  /// @param args  Arguments forwarded to LabelMaker::lp_label.
-  template<typename... Args>
-  [[nodiscard]] auto sddp_label(Args&&... args) const -> std::string
-  {
-    return m_label_maker_.lp_label(std::forward<Args>(args)...);
-  }
 };
 
 // ─── SDDPPlanningMethod ─────────────────────────────────────────────────────

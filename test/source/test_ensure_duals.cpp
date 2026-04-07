@@ -28,12 +28,16 @@ TEST_CASE("LinearInterface - ensure_duals no-op for simplex solve")  // NOLINT
   // Simplex solve: ensure_duals() should be a no-op (algorithm != barrier).
   // Duals should be available directly from the solve.
   LinearInterface li;
-  const auto x1 = li.add_col("x1", 0.0, 10.0);
-  const auto x2 = li.add_col("x2", 0.0, 10.0);
-  li.set_obj_coeff(x1, 2.0);
-  li.set_obj_coeff(x2, 1.0);
+  const auto x1 = li.add_col(SparseCol {
+      .uppb = 10.0,
+      .cost = 2.0,
+  });
+  const auto x2 = li.add_col(SparseCol {
+      .uppb = 10.0,
+      .cost = 1.0,
+  });
 
-  SparseRow row("sum");
+  SparseRow row;
   row[x1] = 1.0;
   row[x2] = 1.0;
   row.lowb = 5.0;
@@ -58,12 +62,16 @@ TEST_CASE(
   // Solve, add a row, resolve, then get duals — duals should reflect
   // the new constraint set.
   LinearInterface li;
-  const auto x1 = li.add_col("x1", 0.0, 10.0);
-  const auto x2 = li.add_col("x2", 0.0, 10.0);
-  li.set_obj_coeff(x1, 2.0);
-  li.set_obj_coeff(x2, 1.0);
+  const auto x1 = li.add_col(SparseCol {
+      .uppb = 10.0,
+      .cost = 2.0,
+  });
+  const auto x2 = li.add_col(SparseCol {
+      .uppb = 10.0,
+      .cost = 1.0,
+  });
 
-  SparseRow row1("c1");
+  SparseRow row1;
   row1[x1] = 1.0;
   row1[x2] = 1.0;
   row1.lowb = 5.0;
@@ -77,7 +85,7 @@ TEST_CASE(
   CHECK(li.get_numrows() == 1);
 
   // Add a new binding constraint: x1 <= 3
-  SparseRow row2("c2");
+  SparseRow row2;
   row2[x1] = 1.0;
   row2.uppb = 3.0;
   li.add_row(row2);
@@ -101,11 +109,13 @@ TEST_CASE("LinearInterface - get_row_dual on infeasible problem")  // NOLINT
   // After an infeasible solve, get_row_dual_raw() should still be safe
   // to call (returns whatever the solver has — likely zeros).
   LinearInterface li;
-  const auto x1 = li.add_col("x1", 0.0, 5.0);
-  li.set_obj_coeff(x1, 1.0);
+  const auto x1 = li.add_col(SparseCol {
+      .uppb = 5.0,
+      .cost = 1.0,
+  });
 
   // Infeasible: x1 >= 10 but x1 <= 5
-  SparseRow row("lb");
+  SparseRow row;
   row[x1] = 1.0;
   row.lowb = 10.0;
   row.uppb = LinearProblem::DblMax;
@@ -127,12 +137,16 @@ TEST_CASE(
   // Barrier with crossover=true should already have duals — ensure_duals()
   // should be a no-op.
   LinearInterface li;
-  const auto x1 = li.add_col("x1", 0.0, 10.0);
-  const auto x2 = li.add_col("x2", 0.0, 10.0);
-  li.set_obj_coeff(x1, 2.0);
-  li.set_obj_coeff(x2, 1.0);
+  const auto x1 = li.add_col(SparseCol {
+      .uppb = 10.0,
+      .cost = 2.0,
+  });
+  const auto x2 = li.add_col(SparseCol {
+      .uppb = 10.0,
+      .cost = 1.0,
+  });
 
-  SparseRow row("sum");
+  SparseRow row;
   row[x1] = 1.0;
   row[x2] = 1.0;
   row.lowb = 5.0;
@@ -159,12 +173,16 @@ TEST_CASE(
   // trigger ensure_duals() which re-solves with crossover=true.
   // The primal solution should remain the same; duals should be valid.
   LinearInterface li;
-  const auto x1 = li.add_col("x1", 0.0, 10.0);
-  const auto x2 = li.add_col("x2", 0.0, 10.0);
-  li.set_obj_coeff(x1, 2.0);
-  li.set_obj_coeff(x2, 1.0);
+  const auto x1 = li.add_col(SparseCol {
+      .uppb = 10.0,
+      .cost = 2.0,
+  });
+  const auto x2 = li.add_col(SparseCol {
+      .uppb = 10.0,
+      .cost = 1.0,
+  });
 
-  SparseRow row("sum");
+  SparseRow row;
   row[x1] = 1.0;
   row[x2] = 1.0;
   row.lowb = 5.0;
@@ -205,12 +223,16 @@ TEST_CASE(
   // Solve with barrier+crossover, resolve with barrier w/o crossover,
   // then request duals (triggers lazy crossover on the resolve's solution).
   LinearInterface li;
-  const auto x1 = li.add_col("x1", 0.0, 10.0);
-  const auto x2 = li.add_col("x2", 0.0, 10.0);
-  li.set_obj_coeff(x1, 2.0);
-  li.set_obj_coeff(x2, 1.0);
+  const auto x1 = li.add_col(SparseCol {
+      .uppb = 10.0,
+      .cost = 2.0,
+  });
+  const auto x2 = li.add_col(SparseCol {
+      .uppb = 10.0,
+      .cost = 1.0,
+  });
 
-  SparseRow row("sum");
+  SparseRow row;
   row[x1] = 1.0;
   row[x2] = 1.0;
   row.lowb = 5.0;

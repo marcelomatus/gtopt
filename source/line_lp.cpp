@@ -38,8 +38,6 @@ void LineLP::add_kirchhoff_rows(SystemContext& sc,
                                 const BIndexHolder<ColIndex>& fpcols,
                                 const BIndexHolder<ColIndex>& fncols)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
-
   const auto& stage_reactance = sc.stage_reactance(stage, reactance);
   // Skip Kirchhoff for lines without reactance (DC/HVDC lines).
   // A zero-reactance line would create a degenerate constraint
@@ -97,8 +95,11 @@ void LineLP::add_kirchhoff_rows(SystemContext& sc,
     const auto buid = block.uid();
     auto trow =
         SparseRow {
-            .name =
-                sc.lp_row_label(scenario, stage, block, cname, "theta", uid()),
+            .class_name = ClassName.full_name(),
+            .constraint_name = "theta",
+            .variable_uid = uid(),
+            .context =
+                make_block_context(scenario.uid(), stage.uid(), block.uid()),
         }
             .equal(kirchhoff_rhs);
 
@@ -129,8 +130,6 @@ bool LineLP::add_to_lp(SystemContext& sc,
                        const StageLP& stage,
                        LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
-
   if (is_loop()) {
     return true;
   }
@@ -208,7 +207,6 @@ bool LineLP::add_to_lp(SystemContext& sc,
         sc.block_ecost(scenario, stage, block, stage_tcost);
 
     auto result = line_losses::add_block(loss_config,
-                                         sc,
                                          scenario,
                                          stage,
                                          block,
@@ -219,8 +217,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
                                          block_tmax_ba,
                                          block_tcost,
                                          capacity_col,
-                                         uid(),
-                                         cname);
+                                         uid());
 
     if (result.fp_col) {
       fpcols[buid] = *result.fp_col;

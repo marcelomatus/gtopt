@@ -66,35 +66,39 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   const auto& blocks = stage.blocks();
 
   // Resolve energy_scale from VariableScaleMap (default 1.0 if not set).
+  // add_col auto-resolves scale from metadata when class_name is set.
   const auto es =
       sc.options().variable_scale_map().lookup("Battery", "energy", uid());
-  // Resolve flow_scale: VariableScaleMap > default (1.0).
-  const auto fs =
-      sc.options().variable_scale_map().lookup("Battery", "flow", uid());
 
   // Create finp/fout variables for each time block.
-  // Scale is set to flow_scale so that the user-constraint resolver and
-  // output infrastructure can automatically convert between LP and physical
-  // units via SparseCol::scale (physical_value = LP_value × flow_scale).
+  // Flow scale is resolved by add_col from VariableScaleMap metadata.
   BIndexHolder<ColIndex> finps;
   BIndexHolder<ColIndex> fouts;
   map_reserve(finps, blocks.size());
   map_reserve(fouts, blocks.size());
 
+  double fs = 1.0;
   for (auto&& block : blocks) {
     const auto buid = block.uid();
     finps[buid] = lp.add_col(SparseCol {
-        .name = sc.lp_col_label(scenario, stage, block, cname, "finp", uid()),
-        .scale = fs,
+        .class_name = ClassName.full_name(),
+        .variable_name = "flow",
+        .variable_uid = uid(),
+        .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
     fouts[buid] = lp.add_col(SparseCol {
-        .name = sc.lp_col_label(scenario, stage, block, cname, "fout", uid()),
-        .scale = fs,
+        .class_name = ClassName.full_name(),
+        .variable_name = "flow",
+        .variable_uid = uid(),
+        .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
+    fs = lp.get_col_scale(finps[buid]);
   }
   const StorageOptions opts {
       .use_state_variable = battery().use_state_variable.value_or(false),
       .daily_cycle = battery().daily_cycle.value_or(true),
+      .class_name = ClassName.full_name(),
+      .variable_uid = uid(),
       .energy_scale = es,
       .flow_scale = fs,
   };

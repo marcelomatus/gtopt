@@ -61,14 +61,13 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   }
 
   auto&& blocks = stage.blocks();
-  const auto& options = sc.options();
 
   // Resolve energy_scale from VariableScaleMap. When not set explicitly,
   // inherit from source reservoir or parent VolumeRight.
   const double energy_scale = [&]
   {
-    const auto vs =
-        options.variable_scale_map().lookup("VolumeRight", "energy", uid());
+    const auto vs = sc.options().variable_scale_map().lookup(
+        "VolumeRight", "energy", uid());
     if (vs != 1.0) {
       return vs;
     }
@@ -84,10 +83,6 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     return 1.0;
   }();
 
-  // Resolve flow_scale: VariableScaleMap > default (1.0).
-  const double flow_scale =
-      options.variable_scale_map().lookup("VolumeRight", "flow", uid());
-
   // Evaluate initial bound rule if present
   const auto& opt_rule = volume_right().bound_rule;
   auto initial_rule_bound = std::numeric_limits<Real>::max();
@@ -101,6 +96,9 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   BIndexHolder<ColIndex> extraction_cols;
   map_reserve(extraction_cols, blocks.size());
 
+  // flow_scale is resolved by add_col from VariableScaleMap metadata.
+  double flow_scale = 1.0;
+
   for (auto&& block : blocks) {
     const auto buid = block.uid();
 
@@ -111,15 +109,16 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
       uppb = std::min(uppb, initial_rule_bound);
     }
 
-    auto col_name =
-        sc.lp_col_label(scenario, stage, block, cname, "extraction", uid());
     const auto fcol = lp.add_col(SparseCol {
-        .name = std::move(col_name),
         .uppb = uppb,
-        .scale = flow_scale,
+        .class_name = ClassName.full_name(),
+        .variable_name = "flow",
+        .variable_uid = uid(),
+        .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
 
     extraction_cols[buid] = fcol;
+    flow_scale = lp.get_col_scale(fcol);
   }
 
   // Create saving (inflow) columns for economy VolumeRights.
@@ -132,12 +131,13 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
       const auto buid = block.uid();
       const auto uppb =
           saving_rate.at(stage.uid(), buid).value_or(LinearProblem::DblMax);
-      auto col_name =
-          sc.lp_col_label(scenario, stage, block, cname, "saving", uid());
       const auto fcol = lp.add_col(SparseCol {
-          .name = std::move(col_name),
           .uppb = uppb,
-          .scale = flow_scale,
+          .class_name = ClassName.full_name(),
+          .variable_name = "flow",
+          .variable_uid = uid(),
+          .context =
+              make_block_context(scenario.uid(), stage.uid(), block.uid()),
       });
       saving_cols[buid] = fcol;
     }
@@ -162,6 +162,8 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
       .use_state_variable = volume_right().use_state_variable.value_or(true),
       .daily_cycle = false,
       .skip_state_link = is_reset_stage && is_cross_phase,
+      .class_name = ClassName.full_name(),
+      .variable_uid = uid(),
       .energy_scale = energy_scale,
       .flow_scale = flow_scale,
   };
@@ -262,19 +264,23 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   const auto stage_demand = demand.at(stage.uid());
   if (stage_demand.has_value() && *stage_demand > 0.0) {
     // Deficit variable — physical cost, flatten() applies col_scale.
-    auto fail_col_name = sc.lp_col_label(scenario, stage, cname, "fail", uid());
+    const auto stage_ctx = make_stage_context(scenario.uid(), stage.uid());
     const auto fail_col = lp.add_col(SparseCol {
-        .name = std::move(fail_col_name),
         .cost = fail_cost,
         .scale = energy_scale,
+        .class_name = ClassName.full_name(),
+        .variable_name = "fail",
+        .variable_uid = uid(),
+        .context = stage_ctx,
     });
 
     // Demand satisfaction constraint in physical units:
     // sum_b [fcr × duration × extraction(b)] + fail >= demand
-    auto demand_row_name =
-        sc.lp_row_label(scenario, stage, cname, "demand", uid());
     SparseRow drow {
-        .name = std::move(demand_row_name),
+        .class_name = ClassName.full_name(),
+        .constraint_name = "demand",
+        .variable_uid = uid(),
+        .context = stage_ctx,
     };
 
     for (auto&& block : blocks) {

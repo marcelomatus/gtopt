@@ -175,11 +175,9 @@ void apply_loss_allocation(SparseRow& sending,
 
 /// Add a capacity constraint: capacity_col − flow_col ≥ 0.
 auto add_capacity_row(LinearProblem& lp,
-                      const SystemContext& sc,
                       const ScenarioLP& scenario,
                       const StageLP& stage,
                       const BlockLP& block,
-                      std::string_view cname,
                       std::string_view label,
                       Uid uid,
                       ColIndex capacity_col,
@@ -187,7 +185,11 @@ auto add_capacity_row(LinearProblem& lp,
 {
   auto row =
       SparseRow {
-          .name = sc.lp_row_label(scenario, stage, block, cname, label, uid),
+          .class_name = "Line",
+          .constraint_name = label,
+          .variable_uid = uid,
+          .context =
+              make_block_context(scenario.uid(), stage.uid(), block.uid()),
       }
           .greater_equal(0);
   row[capacity_col] = 1;
@@ -203,11 +205,9 @@ auto add_capacity_row(LinearProblem& lp,
 ///
 /// This approximates P_loss = R · f² / V² via a piecewise affine function.
 void add_segments(LinearProblem& lp,
-                  const SystemContext& sc,
                   const ScenarioLP& scenario,
                   const StageLP& stage,
                   const BlockLP& block,
-                  std::string_view cname,
                   std::string_view seg_label,
                   Uid uid,
                   double seg_width,
@@ -222,10 +222,13 @@ void add_segments(LinearProblem& lp,
         seg_width * resistance * static_cast<double>((2 * k) - 1) / V2;
 
     const auto seg_col = lp.add_col({
-        .name = sc.lp_col_label(scenario, stage, block, cname, seg_label, uid)
-            + std::to_string(k),
         .lowb = 0,
         .uppb = seg_width,
+        .class_name = "Line",
+        .variable_name = seg_label,
+        .variable_uid = uid,
+        .context =
+            make_block_context(scenario.uid(), stage.uid(), block.uid(), k),
     });
 
     linkrow[seg_col] = -1.0;
@@ -266,8 +269,7 @@ inline constexpr DirLabels negative_labels {
 
 /// No losses: single bidirectional flow variable.
 /// Flow balance: P_send = P_recv (no dissipation).
-BlockResult add_none(const SystemContext& sc,
-                     const ScenarioLP& scenario,
+BlockResult add_none(const ScenarioLP& scenario,
                      const StageLP& stage,
                      const BlockLP& block,
                      LinearProblem& lp,
@@ -276,14 +278,16 @@ BlockResult add_none(const SystemContext& sc,
                      double block_tmax_ab,
                      double block_tmax_ba,
                      double block_tcost,
-                     Uid uid,
-                     std::string_view cname)
+                     Uid uid)
 {
   const auto fpc = lp.add_col({
-      .name = sc.lp_col_label(scenario, stage, block, cname, "fp", uid),
       .lowb = -block_tmax_ba,
       .uppb = block_tmax_ab,
       .cost = block_tcost,
+      .class_name = "Line",
+      .variable_name = "fp",
+      .variable_uid = uid,
+      .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
   });
   brow_a[fpc] = -1.0;
   brow_b[fpc] = +1.0;
@@ -301,7 +305,6 @@ BlockResult add_none(const SystemContext& sc,
 /// Linear loss factor: P_loss = λ · |f|.
 /// Ref: Wood & Wollenberg [2], Ch. 13.
 BlockResult add_linear(const LossConfig& config,
-                       const SystemContext& sc,
                        const ScenarioLP& scenario,
                        const StageLP& stage,
                        const BlockLP& block,
@@ -312,60 +315,49 @@ BlockResult add_linear(const LossConfig& config,
                        double block_tmax_ba,
                        double block_tcost,
                        std::optional<ColIndex> capacity_col,
-                       Uid uid,
-                       std::string_view cname)
+                       Uid uid)
 {
   BlockResult result;
 
   // A→B direction: bus_a sends, bus_b receives.
   if (block_tmax_ab > 0.0) {
     const auto fpc = lp.add_col({
-        .name = sc.lp_col_label(scenario, stage, block, cname, "fp", uid),
         .lowb = 0.0,
         .uppb = block_tmax_ab,
         .cost = block_tcost,
+        .class_name = "Line",
+        .variable_name = "fp",
+        .variable_uid = uid,
+        .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
     result.fp_col = fpc;
     apply_linear_allocation(
         brow_a, brow_b, fpc, config.lossfactor, config.allocation);
 
     if (capacity_col) {
-      result.capp_row = add_capacity_row(lp,
-                                         sc,
-                                         scenario,
-                                         stage,
-                                         block,
-                                         cname,
-                                         "capp",
-                                         uid,
-                                         *capacity_col,
-                                         fpc);
+      result.capp_row = add_capacity_row(
+          lp, scenario, stage, block, "capp", uid, *capacity_col, fpc);
     }
   }
 
   // B→A direction: bus_b sends, bus_a receives.
   if (block_tmax_ba > 0.0) {
     const auto fnc = lp.add_col({
-        .name = sc.lp_col_label(scenario, stage, block, cname, "fn", uid),
         .lowb = 0.0,
         .uppb = block_tmax_ba,
         .cost = block_tcost,
+        .class_name = "Line",
+        .variable_name = "fn",
+        .variable_uid = uid,
+        .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
     result.fn_col = fnc;
     apply_linear_allocation(
         brow_b, brow_a, fnc, config.lossfactor, config.allocation);
 
     if (capacity_col) {
-      result.capn_row = add_capacity_row(lp,
-                                         sc,
-                                         scenario,
-                                         stage,
-                                         block,
-                                         cname,
-                                         "capn",
-                                         uid,
-                                         *capacity_col,
-                                         fnc);
+      result.capn_row = add_capacity_row(
+          lp, scenario, stage, block, "capn", uid, *capacity_col, fnc);
     }
   }
 
@@ -383,7 +375,6 @@ BlockResult add_linear(const LossConfig& config,
 ///
 /// Ref: Macedo et al. [1], single-direction formulation.
 BlockResult add_piecewise(const LossConfig& config,
-                          const SystemContext& sc,
                           const ScenarioLP& scenario,
                           const StageLP& stage,
                           const BlockLP& block,
@@ -394,8 +385,7 @@ BlockResult add_piecewise(const LossConfig& config,
                           double block_tmax_ba,
                           double block_tcost,
                           std::optional<ColIndex> capacity_col,
-                          Uid uid,
-                          std::string_view cname)
+                          Uid uid)
 {
   BlockResult result;
   const double fmax = std::max(block_tmax_ab, block_tmax_ba);
@@ -409,11 +399,16 @@ BlockResult add_piecewise(const LossConfig& config,
 
   // Directional flow variables (for bus balance + Kirchhoff).
   if (block_tmax_ab > 0.0) {
+    const auto block_ctx =
+        make_block_context(scenario.uid(), stage.uid(), block.uid());
     const auto fpc = lp.add_col({
-        .name = sc.lp_col_label(scenario, stage, block, cname, "fp", uid),
         .lowb = 0,
         .uppb = block_tmax_ab,
         .cost = block_tcost,
+        .class_name = "Line",
+        .variable_name = "fp",
+        .variable_uid = uid,
+        .context = block_ctx,
     });
     result.fp_col = fpc;
     brow_a[fpc] = -1.0;
@@ -421,11 +416,16 @@ BlockResult add_piecewise(const LossConfig& config,
   }
 
   if (block_tmax_ba > 0.0) {
+    const auto block_ctx =
+        make_block_context(scenario.uid(), stage.uid(), block.uid());
     const auto fnc = lp.add_col({
-        .name = sc.lp_col_label(scenario, stage, block, cname, "fn", uid),
         .lowb = 0,
         .uppb = block_tmax_ba,
         .cost = block_tcost,
+        .class_name = "Line",
+        .variable_name = "fn",
+        .variable_uid = uid,
+        .context = block_ctx,
     });
     result.fn_col = fnc;
     brow_b[fnc] = -1.0;
@@ -434,9 +434,12 @@ BlockResult add_piecewise(const LossConfig& config,
 
   // Loss variable: tracks total power dissipated.
   const auto loss_col = lp.add_col({
-      .name = sc.lp_col_label(scenario, stage, block, cname, "ls", uid),
       .lowb = 0,
       .uppb = LinearProblem::DblMax,
+      .class_name = "Line",
+      .variable_name = "ls",
+      .variable_uid = uid,
+      .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
   });
   result.lossp_col = loss_col;
 
@@ -445,7 +448,11 @@ BlockResult add_piecewise(const LossConfig& config,
   // Linking: fp + fn − Σ seg_k = 0
   auto linkrow =
       SparseRow {
-          .name = sc.lp_row_label(scenario, stage, block, cname, "lnk", uid),
+          .class_name = "Line",
+          .constraint_name = "lnk",
+          .variable_uid = uid,
+          .context =
+              make_block_context(scenario.uid(), stage.uid(), block.uid()),
       }
           .equal(0);
   linkrow.reserve(reserve_sz);
@@ -459,18 +466,20 @@ BlockResult add_piecewise(const LossConfig& config,
   // Loss tracking: loss − Σ loss_k · seg_k = 0
   auto lossrow =
       SparseRow {
-          .name = sc.lp_row_label(scenario, stage, block, cname, "lsl", uid),
+          .class_name = "Line",
+          .constraint_name = "lsl",
+          .variable_uid = uid,
+          .context =
+              make_block_context(scenario.uid(), stage.uid(), block.uid()),
       }
           .equal(0);
   lossrow.reserve(reserve_sz);
   lossrow[loss_col] = +1.0;
 
   add_segments(lp,
-               sc,
                scenario,
                stage,
                block,
-               cname,
                "seg",
                uid,
                seg_width,
@@ -487,11 +496,9 @@ BlockResult add_piecewise(const LossConfig& config,
   if (capacity_col) {
     if (result.fp_col) {
       result.capp_row = add_capacity_row(lp,
-                                         sc,
                                          scenario,
                                          stage,
                                          block,
-                                         cname,
                                          "capp",
                                          uid,
                                          *capacity_col,
@@ -499,11 +506,9 @@ BlockResult add_piecewise(const LossConfig& config,
     }
     if (result.fn_col) {
       result.capn_row = add_capacity_row(lp,
-                                         sc,
                                          scenario,
                                          stage,
                                          block,
-                                         cname,
                                          "capn",
                                          uid,
                                          *capacity_col,
@@ -526,7 +531,6 @@ struct DirResult
 };
 
 DirResult add_direction(const LossConfig& config,
-                        const SystemContext& sc,
                         const ScenarioLP& scenario,
                         const StageLP& stage,
                         const BlockLP& block,
@@ -537,7 +541,6 @@ DirResult add_direction(const LossConfig& config,
                         double block_tcost,
                         std::optional<ColIndex> capacity_col,
                         Uid uid,
-                        std::string_view cname,
                         const DirLabels& labels)
 {
   if (block_tmax <= 0.0) {
@@ -548,17 +551,25 @@ DirResult add_direction(const LossConfig& config,
   const auto reserve_sz = static_cast<size_t>(nseg) + 1;
   const double seg_width = block_tmax / nseg;
 
+  const auto block_ctx =
+      make_block_context(scenario.uid(), stage.uid(), block.uid());
   const auto flow_col = lp.add_col({
-      .name = sc.lp_col_label(scenario, stage, block, cname, labels.flow, uid),
       .lowb = 0,
       .uppb = block_tmax,
       .cost = block_tcost,
+      .class_name = "Line",
+      .variable_name = labels.flow,
+      .variable_uid = uid,
+      .context = block_ctx,
   });
 
   const auto loss_col = lp.add_col({
-      .name = sc.lp_col_label(scenario, stage, block, cname, labels.loss, uid),
       .lowb = 0,
       .uppb = LinearProblem::DblMax,
+      .class_name = "Line",
+      .variable_name = labels.loss,
+      .variable_uid = uid,
+      .context = block_ctx,
   });
 
   // Bus balance: flow and loss allocation.
@@ -570,8 +581,11 @@ DirResult add_direction(const LossConfig& config,
   // Linking: f_total − Σ f_seg_k = 0
   auto linkrow =
       SparseRow {
-          .name =
-              sc.lp_row_label(scenario, stage, block, cname, labels.link, uid),
+          .class_name = "Line",
+          .constraint_name = labels.link,
+          .variable_uid = uid,
+          .context =
+              make_block_context(scenario.uid(), stage.uid(), block.uid()),
       }
           .equal(0);
   linkrow.reserve(reserve_sz);
@@ -580,19 +594,20 @@ DirResult add_direction(const LossConfig& config,
   // Loss tracking: loss − Σ loss_k · f_seg_k = 0
   auto lossrow =
       SparseRow {
-          .name = sc.lp_row_label(
-              scenario, stage, block, cname, labels.loss_link, uid),
+          .class_name = "Line",
+          .constraint_name = labels.loss_link,
+          .variable_uid = uid,
+          .context =
+              make_block_context(scenario.uid(), stage.uid(), block.uid()),
       }
           .equal(0);
   lossrow.reserve(reserve_sz);
   lossrow[loss_col] = +1.0;
 
   add_segments(lp,
-               sc,
                scenario,
                stage,
                block,
-               cname,
                labels.seg,
                uid,
                seg_width,
@@ -607,16 +622,8 @@ DirResult add_direction(const LossConfig& config,
 
   std::optional<RowIndex> cap_row;
   if (capacity_col) {
-    cap_row = add_capacity_row(lp,
-                               sc,
-                               scenario,
-                               stage,
-                               block,
-                               cname,
-                               labels.cap,
-                               uid,
-                               *capacity_col,
-                               flow_col);
+    cap_row = add_capacity_row(
+        lp, scenario, stage, block, labels.cap, uid, *capacity_col, flow_col);
   }
 
   return {
@@ -630,7 +637,6 @@ DirResult add_direction(const LossConfig& config,
 /// Total: 4 rows + 2(K+2) columns per block.
 /// Ref: FERC [3].
 BlockResult add_bidirectional(const LossConfig& config,
-                              const SystemContext& sc,
                               const ScenarioLP& scenario,
                               const StageLP& stage,
                               const BlockLP& block,
@@ -641,11 +647,9 @@ BlockResult add_bidirectional(const LossConfig& config,
                               double block_tmax_ba,
                               double block_tcost,
                               std::optional<ColIndex> capacity_col,
-                              Uid uid,
-                              std::string_view cname)
+                              Uid uid)
 {
   auto [fp, lsp, capp] = add_direction(config,
-                                       sc,
                                        scenario,
                                        stage,
                                        block,
@@ -656,11 +660,9 @@ BlockResult add_bidirectional(const LossConfig& config,
                                        block_tcost,
                                        capacity_col,
                                        uid,
-                                       cname,
                                        positive_labels);
 
   auto [fn, lsn, capn] = add_direction(config,
-                                       sc,
                                        scenario,
                                        stage,
                                        block,
@@ -671,7 +673,6 @@ BlockResult add_bidirectional(const LossConfig& config,
                                        block_tcost,
                                        capacity_col,
                                        uid,
-                                       cname,
                                        negative_labels);
 
   return {
@@ -689,7 +690,6 @@ BlockResult add_bidirectional(const LossConfig& config,
 // ─── Dispatcher ─────────────────────────────────────────────────────
 
 BlockResult add_block(const LossConfig& config,
-                      const SystemContext& sc,
                       const ScenarioLP& scenario,
                       const StageLP& stage,
                       const BlockLP& block,
@@ -700,13 +700,11 @@ BlockResult add_block(const LossConfig& config,
                       double block_tmax_ba,
                       double block_tcost,
                       std::optional<ColIndex> capacity_col,
-                      Uid uid,
-                      std::string_view cname)
+                      Uid uid)
 {
   switch (config.mode) {
     case LineLossesMode::none:
-      return add_none(sc,
-                      scenario,
+      return add_none(scenario,
                       stage,
                       block,
                       lp,
@@ -715,12 +713,10 @@ BlockResult add_block(const LossConfig& config,
                       block_tmax_ab,
                       block_tmax_ba,
                       block_tcost,
-                      uid,
-                      cname);
+                      uid);
 
     case LineLossesMode::linear:
       return add_linear(config,
-                        sc,
                         scenario,
                         stage,
                         block,
@@ -731,12 +727,10 @@ BlockResult add_block(const LossConfig& config,
                         block_tmax_ba,
                         block_tcost,
                         capacity_col,
-                        uid,
-                        cname);
+                        uid);
 
     case LineLossesMode::piecewise:
       return add_piecewise(config,
-                           sc,
                            scenario,
                            stage,
                            block,
@@ -747,12 +741,10 @@ BlockResult add_block(const LossConfig& config,
                            block_tmax_ba,
                            block_tcost,
                            capacity_col,
-                           uid,
-                           cname);
+                           uid);
 
     case LineLossesMode::bidirectional:
       return add_bidirectional(config,
-                               sc,
                                scenario,
                                stage,
                                block,
@@ -763,12 +755,10 @@ BlockResult add_block(const LossConfig& config,
                                block_tmax_ba,
                                block_tcost,
                                capacity_col,
-                               uid,
-                               cname);
+                               uid);
 
     default:
-      return add_none(sc,
-                      scenario,
+      return add_none(scenario,
                       stage,
                       block,
                       lp,
@@ -777,8 +767,7 @@ BlockResult add_block(const LossConfig& config,
                       block_tmax_ab,
                       block_tmax_ba,
                       block_tcost,
-                      uid,
-                      cname);
+                      uid);
   }
 }
 

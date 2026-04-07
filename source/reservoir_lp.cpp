@@ -69,28 +69,31 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   const double energy_scale =
       sc.options().variable_scale_map().lookup("Reservoir", "energy", uid());
 
-  // Resolve flow_scale independently from energy_scale.
-  // Default 1.0: extraction flow fext stays in physical m³/s.
-  const double flow_scale =
-      sc.options().variable_scale_map().lookup("Reservoir", "flow", uid());
   BIndexHolder<ColIndex> rcols;
   BIndexHolder<ColIndex> scols;
   map_reserve(rcols, blocks.size());
   map_reserve(scols, blocks.size());
 
+  // flow_scale is resolved by add_col from the VariableScaleMap metadata.
+  // We read back the resolved value from the first column for StorageOptions.
+  double flow_scale = 1.0;
+
   for (auto&& block : blocks) {
     const auto buid = block.uid();
 
     // rsv_fext: physical flow bounds [m³/s].
-    // flatten() converts to LP units by dividing by flow_scale.
+    // add_col auto-resolves flow_scale from VariableScaleMap metadata.
     const auto rc = lp.add_col(SparseCol {
-        .name = sc.lp_col_label(scenario, stage, block, cname, "fext", uid()),
         .lowb = fmin,
         .uppb = fmax,
-        .scale = flow_scale,
+        .class_name = ClassName.full_name(),
+        .variable_name = "flow",
+        .variable_uid = uid(),
+        .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
 
     rcols[buid] = rc;
+    flow_scale = lp.get_col_scale(rc);
 
     // The extraction adds flow to the junction balance (in m³/s).
     // Physical coefficient is 1.0; flatten() multiplies by col_scale.
@@ -106,6 +109,8 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   const StorageOptions opts {
       .use_state_variable = reservoir().use_state_variable.value_or(true),
       .daily_cycle = reservoir().daily_cycle.value_or(false),
+      .class_name = ClassName.full_name(),
+      .variable_uid = uid(),
       .energy_scale = energy_scale,
       .flow_scale = flow_scale,
       .scost = rsv_scost,

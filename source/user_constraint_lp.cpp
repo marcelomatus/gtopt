@@ -6,13 +6,12 @@
  * @copyright BSD-3-Clause
  */
 
-#include <format>
-
 #include <gtopt/constraint_expr.hpp>
 #include <gtopt/constraint_parser.hpp>
 #include <gtopt/element_column_resolver.hpp>
 #include <gtopt/input_context.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_context.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/planning_enums.hpp>
 #include <gtopt/system_context.hpp>
@@ -166,11 +165,9 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
     }
 
     SparseRow row;
-    row.name = std::format("{}_s{}_t{}_b{}",
-                           uc.name,
-                           static_cast<int>(scenario.uid()),
-                           static_cast<int>(stage.uid()),
-                           static_cast<int>(block.uid()));
+    row.class_name = uc.name;
+    row.constraint_name = "uc";
+    row.context = make_block_context(scenario.uid(), stage.uid(), block.uid());
 
     bool has_vars = false;
     double param_shift = 0.0;
@@ -276,7 +273,8 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
       *adjusted_expr.upper_bound -= param_shift;
     }
     apply_constraint_bounds(row, adjusted_expr);
-    const auto row_name = row.name;
+    const auto row_name = generate_lp_label(
+        row.class_name, row.constraint_name, row.variable_uid, row.context);
     const auto row_nterms = row.size();
     const auto row_idx = lp.add_row(std::move(row));
     block_rows[block.uid()] = row_idx;

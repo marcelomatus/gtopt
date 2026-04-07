@@ -8,6 +8,21 @@ list(APPEND CMAKE_MODULE_PATH
      "${CMAKE_CURRENT_LIST_DIR}/../cmake"
 )
 
+# ---- Ninja job pools (limit parallelism to avoid OOM) ----
+include(ProcessorCount)
+ProcessorCount(NPROC)
+if(NPROC EQUAL 0)
+  set(NPROC 4)
+endif()
+math(EXPR LINK_JOBS "(${NPROC} + 1) / 2")
+
+set_property(GLOBAL PROPERTY JOB_POOLS
+  compile=${NPROC}
+  link=${LINK_JOBS}
+)
+set(CMAKE_JOB_POOL_COMPILE compile)
+set(CMAKE_JOB_POOL_LINK    link)
+
 # ---- Build defaults ----
 include(BuildTypeDefault)
 include(CxxStandard)

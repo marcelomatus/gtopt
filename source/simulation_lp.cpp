@@ -87,7 +87,6 @@ auto create_phase_array(const Simulation& simulation,
   static const Array<Phase> default_phases {
       Phase {
           .uid = 0,
-          .name = {},
           .active = {},
           .first_stage = 0,
           .count_stage = std::dynamic_extent,

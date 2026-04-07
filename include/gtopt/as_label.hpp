@@ -15,19 +15,30 @@
  * - Accepts any number of arguments of different types
  * - Converts each argument to string representation
  * - Joins them with a configurable separator
- * - Returns a concatenated std::string
+ * - Returns a concatenated std::string (case is preserved)
+ *
+ * Use `lowercase(str)` to produce a lazy zero-copy view that applies
+ * per-character lowercasing.  Pass the result directly to `as_label()`
+ * to write lowercased text into the output without an intermediate allocation:
+ *
+ * @code{.cpp}
+ * std::string_view cn = "Generator";
+ * auto a = as_label(lowercase(cn), 1, 2); // "generator_1_2"
+ * @endcode
  *
  * Supported argument types:
  * - std::string and string views
  * - Built-in numeric types (converted via std::format)
  * - Any type convertible to string_view
  * - Any type formattable via std::format
+ * - Any char range (e.g. LowercaseView from lowercase())
  *
  * Example usage:
  *
  * @code{.cpp}
  * auto label1 = as_label("prefix", 42, "suffix"); // "prefix_42_suffix"
  * auto label2 = as_label<'-'>("a", "b", "c");    // "a-b-c"
+ * auto label3 = as_label(lowercase("Class"), 42); // "class_42"
  * @endcode
  */
 
@@ -40,6 +51,7 @@
 #include <format>
 #include <iterator>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -70,6 +82,14 @@ template<typename T>
 concept integral_convertible = std::integral<T>
     || (std::is_convertible_v<T, std::int64_t> && !std::is_floating_point_v<T>
         && !string_like<T> && !std::is_same_v<std::remove_cvref_t<T>, bool>);
+
+// Concept for input ranges of `char` that are NOT string-like.
+// Matches lazy views such as LowercaseView that yield characters on access
+// without creating a contiguous buffer.
+template<typename T>
+concept char_range = std::ranges::input_range<std::remove_cvref_t<T>>
+    && std::same_as<std::ranges::range_value_t<std::remove_cvref_t<T>>, char>
+    && !string_like<std::remove_cvref_t<T>>;
 
 // Maximum chars needed for a 64-bit signed integer: "-9223372036854775808"
 inline constexpr std::size_t int_buf_size = 21;
@@ -233,11 +253,26 @@ public:
   // Fallback for non-string, non-integral types (floating point, custom
   // formatters) — allocates via std::format.
   template<typename T>
-    requires(!string_like<T> && !integral_convertible<T>)
+    requires(!string_like<T> && !integral_convertible<T> && !char_range<T>)
   explicit string_holder(const T& value)
       : owned_(std::format("{}", value))
       , tag_(Tag::owned)
   {
+  }
+
+  // For char ranges (e.g. LowercaseView) — materialises the lazy view into
+  // `owned_` so the rest of the as_label machinery can read it as a
+  // string_view.  The view itself is not stored; its characters are copied
+  // into the local buffer once, eliminating any subsequent re-traversal.
+  template<typename T>
+    requires char_range<T>
+  explicit string_holder(T&& range)
+  {
+    if constexpr (std::ranges::sized_range<std::remove_cvref_t<T>>) {
+      owned_.reserve(std::ranges::size(range));
+    }
+    std::ranges::copy(std::forward<T>(range), std::back_inserter(owned_));
+    tag_ = Tag::owned;
   }
 
   [[nodiscard]] constexpr std::string_view view() const noexcept
@@ -273,6 +308,170 @@ struct label_size
 };
 
 }  // namespace detail
+
+/**
+ * @brief Lazy, zero-copy view that lowercases each character on access.
+ *
+ * Wraps a `std::string_view` and applies `detail::to_lower_char` to every
+ * character via a random-access iterator — no heap allocation occurs until the
+ * caller copies the characters somewhere (e.g. inside `as_label()`).
+ *
+ * Because `LowercaseView` satisfies the `detail::char_range` concept it can
+ * be passed directly as an argument to `as_label()` and `as_label_into()`:
+ *
+ * @code{.cpp}
+ * std::string_view cn = "Generator";
+ * auto a = as_label(lowercase(cn), 1, 2); // "generator_1_2"
+ * @endcode
+ *
+ * @note The view does NOT own the underlying string data.  It must not
+ *       outlive the object pointed to by the wrapped `string_view`.
+ */
+class LowercaseView
+{
+public:
+  // ── Iterator ──────────────────────────────────────────────────────────────
+  class iterator
+  {
+  public:
+    using value_type = char;
+    using difference_type = std::ptrdiff_t;
+    using reference = char;
+    using iterator_category = std::random_access_iterator_tag;
+    using iterator_concept = std::random_access_iterator_tag;
+
+    constexpr iterator() noexcept = default;
+    explicit constexpr iterator(const char* p) noexcept
+        : ptr_(p)
+    {
+    }
+
+    [[nodiscard]] constexpr char operator*() const noexcept
+    {
+      return detail::to_lower_char(*ptr_);
+    }
+
+    [[nodiscard]] constexpr char operator[](difference_type n) const noexcept
+    {
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      return detail::to_lower_char(ptr_[n]);
+    }
+
+    constexpr iterator& operator++() noexcept
+    {
+      ++ptr_;  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      return *this;
+    }
+    constexpr iterator operator++(int) noexcept
+    {
+      auto t = *this;
+      ++ptr_;  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      return t;
+    }
+    constexpr iterator& operator--() noexcept
+    {
+      --ptr_;  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      return *this;
+    }
+    constexpr iterator operator--(int) noexcept
+    {
+      auto t = *this;
+      --ptr_;  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      return t;
+    }
+
+    constexpr iterator& operator+=(difference_type n) noexcept
+    {
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      ptr_ += n;
+      return *this;
+    }
+    constexpr iterator& operator-=(difference_type n) noexcept
+    {
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      ptr_ -= n;
+      return *this;
+    }
+
+    [[nodiscard]] friend constexpr iterator operator+(
+        iterator it, difference_type n) noexcept
+    {
+      it += n;
+      return it;
+    }
+    [[nodiscard]] friend constexpr iterator operator+(difference_type n,
+                                                      iterator it) noexcept
+    {
+      it += n;
+      return it;
+    }
+    [[nodiscard]] friend constexpr iterator operator-(
+        iterator it, difference_type n) noexcept
+    {
+      it -= n;
+      return it;
+    }
+    [[nodiscard]] friend constexpr difference_type operator-(
+        const iterator& a, const iterator& b) noexcept
+    {
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      return a.ptr_ - b.ptr_;
+    }
+
+    [[nodiscard]] constexpr bool operator==(const iterator&) const noexcept =
+        default;
+    [[nodiscard]] constexpr auto operator<=>(const iterator&) const noexcept =
+        default;
+
+  private:
+    const char* ptr_ {nullptr};
+  };
+
+  // ── LowercaseView interface ───────────────────────────────────────────────
+  using value_type = char;
+  using size_type = std::size_t;
+
+  constexpr LowercaseView() noexcept = default;
+  explicit constexpr LowercaseView(std::string_view sv) noexcept
+      : sv_(sv)
+  {
+  }
+
+  [[nodiscard]] constexpr iterator begin() const noexcept
+  {
+    // NOLINTNEXTLINE(bugprone-suspicious-stringview-data-usage)
+    return iterator(sv_.data());
+  }
+  [[nodiscard]] constexpr iterator end() const noexcept
+  {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    return iterator(sv_.data() + sv_.size());
+  }
+
+  [[nodiscard]] constexpr size_type size() const noexcept { return sv_.size(); }
+  [[nodiscard]] constexpr bool empty() const noexcept { return sv_.empty(); }
+
+  /// Compare element-by-element (after lowercasing) with @p sv.
+  [[nodiscard]] bool operator==(std::string_view sv) const noexcept
+  {
+    return std::ranges::equal(*this, sv);
+  }
+
+  /// Materialise the view into a std::string.
+  [[nodiscard]] explicit operator std::string() const
+  {
+    std::string s;
+    s.reserve(sv_.size());
+    std::ranges::copy(*this, std::back_inserter(s));
+    return s;
+  }
+
+private:
+  std::string_view sv_;
+};
+
+static_assert(detail::char_range<LowercaseView>,
+              "LowercaseView must satisfy char_range");
 
 /**
  * @brief Creates an empty label string
@@ -337,10 +536,9 @@ template<char sep = '_', typename... Args>
       continue;
     }
     if (needs_sep) {
-      result.push_back(detail::to_lower_char(sep));
+      result.push_back(sep);
     }
-    std::ranges::transform(
-        view, std::back_inserter(result), detail::to_lower_char);
+    result.append(view);
     needs_sep = true;
   }
 
@@ -402,12 +600,59 @@ void as_label_into(std::string& result, Args&&... args) noexcept(
       continue;
     }
     if (needs_sep) {
-      result.push_back(detail::to_lower_char(sep));
+      result.push_back(sep);
     }
-    std::ranges::transform(
-        view, std::back_inserter(result), detail::to_lower_char);
+    result.append(view);
     needs_sep = true;
   }
+}
+
+/**
+ * @brief Returns a lowercase copy of the given string (rvalue overload).
+ *
+ * The rvalue string is transformed in-place (zero extra allocation) and
+ * returned.  Callers that need a lazy, zero-copy view should pass a
+ * `std::string_view` or any non-owning string type to get a `LowercaseView`.
+ *
+ * @param s An rvalue `std::string`; transformed in-place.
+ * @return std::string The same string with every ASCII letter lowercased.
+ *
+ * Example:
+ * @code{.cpp}
+ * auto lbl = lowercase(as_label("Generator", 42)); // "generator_42"
+ * @endcode
+ */
+[[nodiscard]] inline std::string lowercase(std::string s) noexcept(
+    noexcept(std::ranges::transform(s, s.begin(), detail::to_lower_char)))
+{
+  std::ranges::transform(s, s.begin(), detail::to_lower_char);
+  return s;
+}
+
+/**
+ * @brief Returns a lazy, zero-copy lowercase view over a string-like value.
+ *
+ * Unlike the `std::string` overload, this overload does **not** allocate: it
+ * wraps the input as a `LowercaseView` that applies `to_lower_char` on each
+ * character access.  The view can be passed directly to `as_label()`:
+ *
+ * @code{.cpp}
+ * std::string_view cn = "Generator";
+ * auto a = as_label(lowercase(cn), 1, 2); // "generator_1_2"
+ * @endcode
+ *
+ * @param sv Any string-like value (string literal, `std::string_view`,
+ *           `LPClassName`, etc.) that is **not** a `std::string` rvalue.
+ * @return LowercaseView A lazy view; valid as long as the underlying data
+ *         lives (same lifetime rules as `std::string_view`).
+ */
+template<detail::string_like T>
+  requires(!std::same_as<std::remove_cvref_t<T>, std::string>)
+[[nodiscard]] constexpr LowercaseView lowercase(T&& sv) noexcept
+{
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
+  return LowercaseView(std::string_view(std::forward<T>(sv)));
+  // NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
 }
 
 }  // namespace gtopt

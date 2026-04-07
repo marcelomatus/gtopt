@@ -16,6 +16,7 @@
 #include <set>
 #include <vector>
 
+#include <gtopt/lp_context.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_cut_sharing.hpp>
@@ -44,11 +45,14 @@ void SDDPCutStore::store_cut(SceneIndex scene,
                              SceneUid scene_uid_val,
                              PhaseUid phase_uid_val)
 {
+  auto cut_name = generate_lp_label(
+      cut.class_name, cut.constraint_name, cut.variable_uid, cut.context);
+
   StoredCut stored {
       .type = type,
       .phase = phase_uid_val,
       .scene = scene_uid_val,
-      .name = cut.name,
+      .name = std::move(cut_name),
       .rhs = cut.lowb,
       .scale = cut.scale,
       .row = row,
@@ -390,10 +394,10 @@ std::vector<StoredCut> SDDPCutStore::build_combined_cuts(
 
 void SDDPCutStore::apply_cut_sharing_for_iteration(
     std::size_t cuts_before,
-    IterationIndex iteration,
+    [[maybe_unused]] IterationIndex iteration,
     const SDDPOptions& options,
     PlanningLP& planning_lp,
-    const LabelMaker& label_maker)
+    [[maybe_unused]] const LabelMaker& label_maker)
 {
   const auto num_scenes =
       static_cast<Index>(planning_lp.simulation().scenes().size());
@@ -407,7 +411,6 @@ void SDDPCutStore::apply_cut_sharing_for_iteration(
   auto to_sparse_row = [](const StoredCut& sc) -> SparseRow
   {
     auto row = SparseRow {
-        .name = sc.name,
         .lowb = sc.rhs,
         .uppb = LinearProblem::DblMax,
         .scale = sc.scale,
@@ -460,11 +463,7 @@ void SDDPCutStore::apply_cut_sharing_for_iteration(
     }
 
     gtopt::share_cuts_for_phase(
-        pi,
-        per_scene_cuts,
-        options.cut_sharing,
-        planning_lp,
-        label_maker.lp_label("sddp", "share", pi, iteration));
+        pi, per_scene_cuts, options.cut_sharing, planning_lp, {});
   }
 }
 

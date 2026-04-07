@@ -33,8 +33,6 @@ bool DemandLP::add_to_lp(SystemContext& sc,
                          const StageLP& stage,
                          LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
-
   if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) {
     return false;
   }
@@ -71,19 +69,34 @@ bool DemandLP::add_to_lp(SystemContext& sc,
       return std::nullopt;
     }
 
-    auto name = lp_col_label(sc, scenario, stage, "emin");
-
     const auto emin_col = stage_ecost
         ? lp.add_col({
-              .name = name,
               .uppb = *stage_emin,
               .cost = -sc.stage_ecost(stage, *stage_ecost / stage.duration()),
+              .class_name = ClassName.full_name(),
+              .variable_name = "emin",
+              .variable_uid = uid(),
+              .context = make_stage_context(scenario.uid(), stage.uid()),
           })
-        : lp.add_col({.name = name, .lowb = *stage_emin, .uppb = *stage_emin});
+        : lp.add_col({
+              .lowb = *stage_emin,
+              .uppb = *stage_emin,
+              .class_name = ClassName.full_name(),
+              .variable_name = "emin",
+              .variable_uid = uid(),
+              .context = make_stage_context(scenario.uid(), stage.uid()),
+          });
 
     emin_cols[st_key] = emin_col;
 
-    auto row = SparseRow {.name = std::move(name)}.equal(0);
+    auto row =
+        SparseRow {
+            .class_name = ClassName.full_name(),
+            .constraint_name = "emin",
+            .variable_uid = uid(),
+            .context = make_stage_context(scenario.uid(), stage.uid()),
+        }
+            .equal(0);
     row[emin_col] = -1.0;
 
     return row;
@@ -100,11 +113,6 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   map_reserve(fcols, blocks.size());
   map_reserve(brows, blocks.size());
 
-  // Look up variable scale for demand load/fail via VariableScaleMap.
-  const auto load_scale =
-      sc.options().variable_scale_map().lookup("Demand", "load", uid());
-  const auto fail_scale =
-      sc.options().variable_scale_map().lookup("Demand", "fail", uid());
   for (const auto& block : blocks) {
     const auto buid = block.uid();
     const auto bus_balance_row = bus_balance_rows.at(buid);
@@ -113,22 +121,34 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     const auto load_lowb = !stage_fcost ? block_lmax : 0;
     const auto load_uppb = !stage_fcost ? block_lmax : LinearProblem::DblMax;
     const auto lcol = lp.add_col({
-        .name = sc.lp_col_label(scenario, stage, block, cname, "load", uid()),
         .lowb = load_lowb,
         .uppb = load_uppb,
-        .scale = load_scale,
+        .class_name = ClassName.full_name(),
+        .variable_name = "load",
+        .variable_uid = uid(),
+        .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
 
     if (stage_fcost) {
-      auto name = sc.lp_col_label(scenario, stage, block, cname, "fail", uid());
       const auto fcol = lp.add_col({
-          .name = name,
           .cost = sc.block_ecost(scenario, stage, block, *stage_fcost),
-          .scale = fail_scale,
+          .class_name = ClassName.full_name(),
+          .variable_name = "fail",
+          .variable_uid = uid(),
+          .context =
+              make_block_context(scenario.uid(), stage.uid(), block.uid()),
       });
       fcols[buid] = fcol;
 
-      auto frow = SparseRow {.name = std::move(name)}.equal(block_lmax);
+      auto frow =
+          SparseRow {
+              .class_name = ClassName.full_name(),
+              .constraint_name = "fail",
+              .variable_uid = uid(),
+              .context =
+                  make_block_context(scenario.uid(), stage.uid(), block.uid()),
+          }
+              .equal(block_lmax);
 
       frow[lcol] = 1;
       frow[fcol] = 1;
@@ -145,8 +165,11 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     if (capacity_col) {
       auto crow =
           SparseRow {
-              .name =
-                  sc.lp_row_label(scenario, stage, block, cname, "cap", uid()),
+              .class_name = ClassName.full_name(),
+              .constraint_name = "cap",
+              .variable_uid = uid(),
+              .context =
+                  make_block_context(scenario.uid(), stage.uid(), block.uid()),
           }
               .greater_equal(0.0);
 
@@ -161,8 +184,12 @@ bool DemandLP::add_to_lp(SystemContext& sc,
       const auto bdur = block.duration();
 
       const auto mcol = lp.add_col({
-          .name = sc.lp_col_label(scenario, stage, block, cname, "lman", uid()),
           .uppb = *stage_emin / bdur,
+          .class_name = ClassName.full_name(),
+          .variable_name = "lman",
+          .variable_uid = uid(),
+          .context =
+              make_block_context(scenario.uid(), stage.uid(), block.uid()),
       });
 
       mcols[buid] = mcol;

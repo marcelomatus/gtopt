@@ -18,6 +18,7 @@
 #include <utility>
 
 #include <gtopt/collection.hpp>
+#include <gtopt/lp_context.hpp>
 #include <gtopt/phase_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/sddp_aperture.hpp>
@@ -107,8 +108,8 @@ auto build_synthetic_apertures(std::span<const ScenarioLP> all_scenarios,
 // ─── solve_apertures_for_phase ──────────────────────────────────────────────
 
 auto solve_apertures_for_phase(
-    SceneIndex scene,
-    PhaseIndex phase,
+    [[maybe_unused]] SceneIndex scene,
+    [[maybe_unused]] PhaseIndex phase,
     const PhaseStateInfo& src_state,
     const ScenarioLP& base_scenario,
     std::span<const ScenarioLP> all_scenarios,
@@ -118,7 +119,7 @@ auto solve_apertures_for_phase(
     SystemLP& sys,
     const PhaseLP& phase_lp,
     const SolverOptions& opts,
-    const LabelMaker& label_maker,
+    [[maybe_unused]] const LabelMaker& label_maker,
     [[maybe_unused]] const std::string& log_directory,
     SceneUid scene_uid,
     PhaseUid phase_uid,
@@ -135,7 +136,6 @@ auto solve_apertures_for_phase(
     double cut_coeff_eps,
     double cut_coeff_max) -> std::optional<SparseRow>
 {
-  const auto pi = Index {phase};
   const auto& phase_li = sys.linear_interface();
 
   // Apply aperture timeout to solver options if configured
@@ -305,23 +305,23 @@ auto solve_apertures_for_phase(
           }
 
           // Build Benders cut from the clone's solution
-          const auto cut_name = label_maker.lp_label(
-              "sddp", "aper_cut", scene, pi, ap_uid, total_cuts);
           auto cut = (cut_coeff_mode == CutCoeffMode::row_dual)
               ? build_benders_cut_from_row_duals(src_state.alpha_col,
                                                  src_state.outgoing_links,
                                                  clone.get_row_dual_raw(),
                                                  clone.get_obj_value(),
-                                                 cut_name,
                                                  scale_alpha,
                                                  cut_coeff_eps)
               : build_benders_cut(src_state.alpha_col,
                                   src_state.outgoing_links,
                                   clone.get_col_cost_raw(),
                                   clone.get_obj_value(),
-                                  cut_name,
                                   scale_alpha,
                                   cut_coeff_eps);
+          cut.class_name = "Sddp";
+          cut.constraint_name = "aper_cut";
+          cut.context =
+              make_aperture_context(scene_uid, phase_uid, ap_uid, total_cuts);
           rescale_benders_cut(cut, src_state.alpha_col, cut_coeff_max);
           filter_cut_coefficients(cut, src_state.alpha_col, cut_coeff_eps);
 
@@ -410,10 +410,12 @@ auto solve_apertures_for_phase(
   }
 
   // Compute the probability-weighted expected cut
-  const auto expected_name =
-      label_maker.lp_label("sddp", "ecut", scene, pi, iteration, total_cuts);
-  return weighted_average_benders_cut(
-      aperture_cuts, aperture_weights, expected_name);
+  auto ecut = weighted_average_benders_cut(aperture_cuts, aperture_weights);
+  ecut.class_name = "Sddp";
+  ecut.constraint_name = "ecut";
+  ecut.context =
+      make_iteration_context(scene_uid, phase_uid, iteration, total_cuts);
+  return ecut;
 }
 
 }  // namespace gtopt

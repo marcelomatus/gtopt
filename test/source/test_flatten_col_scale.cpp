@@ -61,7 +61,6 @@ TEST_CASE(
 
   // Column with scale=1000 (e.g. reservoir energy)
   const auto c_scaled = lp.add_col(SparseCol {
-      .name = "vol",
       .lowb = 0.0,
       .uppb = 2000.0,
       .scale = 1000.0,
@@ -69,15 +68,12 @@ TEST_CASE(
 
   // Column with scale=1.0 (e.g. generator output)
   const auto c_plain = lp.add_col(SparseCol {
-      .name = "gen",
       .lowb = 0.0,
       .uppb = 300.0,
   });
 
   // Row: 1.0 × vol + 5.0 × gen = 100 (physical coefficients)
-  auto row = SparseRow {
-      .name = "balance",
-  };
+  auto row = SparseRow {};
   row[c_scaled] = 1.0;  // physical: 1 unit of energy
   row[c_plain] = 5.0;  // physical: 5 units of generation
   row.equal(100.0);
@@ -105,36 +101,29 @@ TEST_CASE(
 
   // Simulate mixed-scale problem: theta (0.0001), energy (100000), flow (1.0)
   const auto c_theta = lp.add_col(SparseCol {
-      .name = "theta",
       .lowb = -std::numbers::pi,
       .uppb = +std::numbers::pi,
       .scale = 0.0001,
   });
   const auto c_energy = lp.add_col(SparseCol {
-      .name = "energy",
       .lowb = 0.0,
       .uppb = 5000.0,
       .scale = 100000.0,
   });
   const auto c_flow = lp.add_col(SparseCol {
-      .name = "flow",
       .lowb = 0.0,
       .uppb = 500.0,
   });
 
   // Kirchhoff-like row: 1.0 × theta + 0.0 × energy + 50.0 × flow = 0
-  auto kirchhoff = SparseRow {
-      .name = "kirchhoff",
-  };
+  auto kirchhoff = SparseRow {};
   kirchhoff[c_theta] = 1.0;
   kirchhoff[c_flow] = 50.0;
   kirchhoff.equal(0.0);
   const auto r_k = lp.add_row(std::move(kirchhoff));
 
   // Energy balance: 1.0 × energy - 3.6 × flow = 0
-  auto balance = SparseRow {
-      .name = "ebal",
-  };
+  auto balance = SparseRow {};
   balance[c_energy] = 1.0;
   balance[c_flow] = -3.6;
   balance.equal(0.0);
@@ -160,16 +149,13 @@ TEST_CASE("flatten col_scale — combined with row_scale")  // NOLINT
   LinearProblem lp("col_row_scale_test");
 
   const auto c = lp.add_col(SparseCol {
-      .name = "x",
       .lowb = 0.0,
       .uppb = 100.0,
       .scale = 500.0,
   });
 
   // Row with row_scale = 2.0: LP_coeff = phys_coeff × col_scale / row_scale
-  auto row = SparseRow {
-      .name = "r",
-  };
+  auto row = SparseRow {};
   row[c] = 4.0;
   row.scale = 2.0;
   row.equal(80.0);
@@ -196,7 +182,6 @@ TEST_CASE("flatten col_scale — objective multiplied by col_scale")  // NOLINT
 
   // Column with physical cost=10.0 and scale=500.0
   const auto c = lp.add_col(SparseCol {
-      .name = "x",
       .lowb = 0.0,
       .uppb = 100.0,
       .cost = 10.0,
@@ -204,9 +189,7 @@ TEST_CASE("flatten col_scale — objective multiplied by col_scale")  // NOLINT
   });
 
   // Dummy row to keep the LP non-trivial
-  auto row = SparseRow {
-      .name = "r",
-  };
+  auto row = SparseRow {};
   row[c] = 1.0;
   row.less_equal(50.0);
   [[maybe_unused]] const auto r = lp.add_row(std::move(row));
@@ -222,16 +205,13 @@ TEST_CASE("flatten col_scale — objective with scale_objective")  // NOLINT
   LinearProblem lp("col_scale_obj_sobj_test");
 
   const auto c = lp.add_col(SparseCol {
-      .name = "x",
       .lowb = 0.0,
       .uppb = 100.0,
       .cost = 10.0,
       .scale = 500.0,
   });
 
-  auto row = SparseRow {
-      .name = "r",
-  };
+  auto row = SparseRow {};
   row[c] = 1.0;
   row.less_equal(50.0);
   [[maybe_unused]] const auto r = lp.add_row(std::move(row));
@@ -249,15 +229,12 @@ TEST_CASE("flatten col_scale=1 — objective unchanged")  // NOLINT
   LinearProblem lp("col_scale_1_obj_test");
 
   const auto c = lp.add_col(SparseCol {
-      .name = "gen",
       .lowb = 0.0,
       .uppb = 300.0,
       .cost = 20.0,
   });
 
-  auto row = SparseRow {
-      .name = "r",
-  };
+  auto row = SparseRow {};
   row[c] = 1.0;
   row.less_equal(300.0);
   [[maybe_unused]] const auto _ = lp.add_row(std::move(row));
@@ -279,15 +256,12 @@ TEST_CASE("flatten col_scale — bounds divided by col_scale")  // NOLINT
   LinearProblem lp("col_scale_bounds_test");
 
   const auto c = lp.add_col(SparseCol {
-      .name = "vol",
       .lowb = 100.0,
       .uppb = 5000.0,
       .scale = 1000.0,
   });
 
-  auto row = SparseRow {
-      .name = "r",
-  };
+  auto row = SparseRow {};
   row[c] = 1.0;
   row.less_equal(5000.0);
   [[maybe_unused]] const auto _ = lp.add_row(std::move(row));
@@ -305,15 +279,12 @@ TEST_CASE("flatten col_scale — DblMax bounds preserved as infinity")  // NOLIN
 
   // With default m_infinity_ = DblMax, DblMax stays as-is
   const auto c = lp.add_col(SparseCol {
-      .name = "free_var",
       .lowb = -DblMax,
       .uppb = DblMax,
       .scale = 1000.0,
   });
 
-  auto row = SparseRow {
-      .name = "r",
-  };
+  auto row = SparseRow {};
   row[c] = 1.0;
   row.less_equal(100.0);
   [[maybe_unused]] const auto _ = lp.add_row(std::move(row));
@@ -336,15 +307,12 @@ TEST_CASE(
 
   // DblMax gets normalized to solver_inf in add_col
   const auto c = lp.add_col(SparseCol {
-      .name = "unbounded",
       .lowb = 0.0,
       .uppb = DblMax,
       .scale = 100000.0,
   });
 
-  auto row = SparseRow {
-      .name = "r",
-  };
+  auto row = SparseRow {};
   row[c] = 1.0;
   row.less_equal(100.0);
   [[maybe_unused]] const auto _ = lp.add_row(std::move(row));
@@ -380,23 +348,19 @@ TEST_CASE("flatten col_scale — physical constraint invariant")  // NOLINT
     LinearProblem lp("invariance_test");
 
     const auto cx = lp.add_col(SparseCol {
-        .name = "x",
         .lowb = 0.0,
         .uppb = 10.0,
         .cost = 1.0,
         .scale = sx,
     });
     const auto cy = lp.add_col(SparseCol {
-        .name = "y",
         .lowb = 0.0,
         .uppb = 10.0,
         .cost = 2.0,
         .scale = sy,
     });
 
-    auto row = SparseRow {
-        .name = "c",
-    };
+    auto row = SparseRow {};
     row[cx] = 2.0;
     row[cy] = 3.0;
     row.equal(10.0);
@@ -450,7 +414,6 @@ TEST_CASE("LinearProblem set_infinity normalizes DblMax bounds")  // NOLINT
 
   // add_col with DblMax bounds → normalized to solver_inf
   const auto c = lp.add_col(SparseCol {
-      .name = "x",
       .lowb = -DblMax,
       .uppb = DblMax,
   });
@@ -467,14 +430,10 @@ TEST_CASE("LinearProblem set_infinity normalizes row DblMax bounds")  // NOLINT
   constexpr double solver_inf = 1e20;
   lp.set_infinity(solver_inf);
 
-  const auto c = lp.add_col(SparseCol {
-      .name = "x",
-  });
+  const auto c = lp.add_col(SparseCol {});
 
   // Row with only upper bound (>= constraint uses -DblMax for lowb)
-  auto row = SparseRow {
-      .name = "r",
-  };
+  auto row = SparseRow {};
   row[c] = 1.0;
   row.less_equal(100.0);  // lowb = -DblMax, uppb = 100
   const auto r = lp.add_row(std::move(row));
@@ -493,15 +452,12 @@ TEST_CASE(
   lp.set_infinity(solver_inf);
 
   const auto c = lp.add_col(SparseCol {
-      .name = "x",
       .lowb = -50.0,
       .uppb = 200.0,
       .scale = 10.0,
   });
 
-  auto row = SparseRow {
-      .name = "r",
-  };
+  auto row = SparseRow {};
   row[c] = 1.0;
   row.less_equal(200.0);
   [[maybe_unused]] const auto _ = lp.add_row(std::move(row));
@@ -522,21 +478,15 @@ TEST_CASE("flatten col_scales vector matches SparseCol.scale")  // NOLINT
   LinearProblem lp("col_scales_vec_test");
 
   [[maybe_unused]] const auto ca = lp.add_col(SparseCol {
-      .name = "a",
       .scale = 0.001,
   });
-  [[maybe_unused]] const auto cb = lp.add_col(SparseCol {
-      .name = "b",
-  });  // default 1.0
+  [[maybe_unused]] const auto cb = lp.add_col(SparseCol {});  // default 1.0
   [[maybe_unused]] const auto cc = lp.add_col(SparseCol {
-      .name = "c",
       .scale = 100000.0,
   });
 
   // Need at least one row for flatten
-  auto row = SparseRow {
-      .name = "r",
-  };
+  auto row = SparseRow {};
   row[ColIndex {0}] = 1.0;
   row.less_equal(1.0);
   [[maybe_unused]] const auto _ = lp.add_row(std::move(row));

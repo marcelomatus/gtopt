@@ -23,6 +23,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include <gtopt/lp_context.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/system_lp.hpp>
@@ -338,7 +339,7 @@ auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
 auto load_cuts_csv(PlanningLP& planning_lp,
                    const std::string& filepath,
                    double scale_alpha,
-                   const LabelMaker& label_maker)
+                   [[maybe_unused]] const LabelMaker& label_maker)
     -> std::expected<CutLoadResult, Error>
 {
   const auto sa = scale_alpha;  // row scale for loaded cuts
@@ -509,10 +510,11 @@ auto load_cuts_csv(PlanningLP& planning_lp,
       // space.  Row scale = scale_alpha so the cut is consistent with
       // optimality/feasibility cuts built by build_benders_cut().
       auto row = SparseRow {
-          .name = label_maker.lp_label("loaded", cut_name),
           .lowb = rhs / scale_obj,
           .uppb = LinearProblem::DblMax,
           .scale = sa,
+          .class_name = "Loaded",
+          .constraint_name = "cut",
       };
 
       // Resolve the phase UID to a PhaseIndex
@@ -620,8 +622,8 @@ auto load_cuts_csv(PlanningLP& planning_lp,
       for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
         auto& li = planning_lp.system(scene, phase).linear_interface();
         auto scene_row = row;
-        // Include scene index in name to avoid duplicates across scenes
-        scene_row.name = label_maker.lp_label("loaded", cut_name, scene, phase);
+        scene_row.context = ScenePhaseContext {sim.scenes()[scene].uid(),
+                                               sim.phases()[phase].uid()};
         for (const auto& [col, coeff] : resolved_coeffs) {
           const auto scale = li.get_col_scale(col);
           scene_row[col] = coeff * scale / scale_obj;
@@ -643,10 +645,11 @@ auto load_cuts_csv(PlanningLP& planning_lp,
   }
 }
 
-auto load_scene_cuts_from_directory(PlanningLP& planning_lp,
-                                    const std::string& directory,
-                                    double scale_alpha,
-                                    const LabelMaker& label_maker)
+auto load_scene_cuts_from_directory(
+    PlanningLP& planning_lp,
+    const std::string& directory,
+    double scale_alpha,
+    [[maybe_unused]] const LabelMaker& label_maker)
     -> std::expected<CutLoadResult, Error>
 {
   CutLoadResult total {};
@@ -700,7 +703,7 @@ auto load_boundary_cuts_csv(
     PlanningLP& planning_lp,
     const std::string& filepath,
     const SDDPOptions& options,
-    const LabelMaker& label_maker,
+    [[maybe_unused]] const LabelMaker& label_maker,
     StrongIndexVector<SceneIndex,
                       StrongIndexVector<PhaseIndex, PhaseStateInfo>>&
         scene_phase_states) -> std::expected<CutLoadResult, Error>
@@ -919,12 +922,16 @@ auto load_boundary_cuts_csv(
       auto& state = scene_phase_states[scene][last_phase];
       if (state.alpha_col == ColIndex {unknown_index}) {
         auto& li = planning_lp.system(scene, last_phase).linear_interface();
-        state.alpha_col =
-            li.add_col(gtopt::as_label("sddp", "alpha", scene, last_phase),
-                       options.alpha_min / sa,
-                       options.alpha_max / sa);
-        li.set_obj_coeff(state.alpha_col, sa);
-        li.set_col_scale(state.alpha_col, sa);
+        state.alpha_col = li.add_col(SparseCol {
+            .lowb = options.alpha_min / sa,
+            .uppb = options.alpha_max / sa,
+            .cost = sa,
+            .scale = sa,
+            .class_name = "Sddp",
+            .variable_name = "alpha",
+            .context = ScenePhaseContext {sim.scenes()[scene].uid(),
+                                          sim.phases()[last_phase].uid()},
+        });
       }
     }
 
@@ -1008,10 +1015,13 @@ auto load_boundary_cuts_csv(
         const auto& state = scene_phase_states[scene][last_phase];
 
         auto row = SparseRow {
-            .name = label_maker.lp_label("bdr", rc.name, scene, last_phase),
             .lowb = rc.rhs * bc_discount / scale_obj,
             .uppb = LinearProblem::DblMax,
             .scale = sa,
+            .class_name = "Bdr",
+            .constraint_name = "cut",
+            .context = ScenePhaseContext {sim.scenes()[scene].uid(),
+                                          sim.phases()[last_phase].uid()},
         };
         row[state.alpha_col] = sa;
 
@@ -1072,7 +1082,7 @@ auto load_named_cuts_csv(
     PlanningLP& planning_lp,
     const std::string& filepath,
     const SDDPOptions& options,
-    const LabelMaker& label_maker,
+    [[maybe_unused]] const LabelMaker& label_maker,
     StrongIndexVector<SceneIndex,
                       StrongIndexVector<PhaseIndex, PhaseStateInfo>>&
         scene_phase_states) -> std::expected<CutLoadResult, Error>
@@ -1266,12 +1276,16 @@ auto load_named_cuts_csv(
         auto& state = scene_phase_states[scene][phase];
         if (state.alpha_col == ColIndex {unknown_index}) {
           auto& li = planning_lp.system(scene, phase).linear_interface();
-          state.alpha_col =
-              li.add_col(gtopt::as_label("sddp", "alpha", scene, phase),
-                         options.alpha_min / sa,
-                         options.alpha_max / sa);
-          li.set_obj_coeff(state.alpha_col, sa);
-          li.set_col_scale(state.alpha_col, sa);
+          state.alpha_col = li.add_col(SparseCol {
+              .lowb = options.alpha_min / sa,
+              .uppb = options.alpha_max / sa,
+              .cost = sa,
+              .scale = sa,
+              .class_name = "Sddp",
+              .variable_name = "alpha",
+              .context = ScenePhaseContext {sim.scenes()[scene].uid(),
+                                            sim.phases()[phase].uid()},
+          });
         }
       }
 
@@ -1318,10 +1332,13 @@ auto load_named_cuts_csv(
         const auto& state = scene_phase_states[scene][phase];
 
         auto row = SparseRow {
-            .name = label_maker.lp_label("named_hs", cut_name, scene, phase),
             .lowb = rhs / scale_obj,
             .uppb = LinearProblem::DblMax,
             .scale = sa,
+            .class_name = "NamedHs",
+            .constraint_name = "cut",
+            .context = ScenePhaseContext {sim.scenes()[scene].uid(),
+                                          sim.phases()[phase].uid()},
         };
         row[state.alpha_col] = sa;
 

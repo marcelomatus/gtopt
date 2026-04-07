@@ -46,7 +46,7 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
     return false;
   }
 
-  return add_profile_to_lp(ClassName.short_name(),
+  return add_profile_to_lp(ClassName.full_name(),
                            sc,
                            scenario,
                            stage,

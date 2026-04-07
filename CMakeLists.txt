@@ -8,6 +8,23 @@ project(
   LANGUAGES CXX
 )
 
+# ---- Ninja job pools (limit parallelism to avoid OOM) ----
+# cmake -j still controls the *default* pool; these pools cap the maximums.
+include(ProcessorCount)
+ProcessorCount(NPROC)
+if(NPROC EQUAL 0)
+  set(NPROC 4)
+endif()
+# Link jobs are memory-heavy; allow fewer concurrent links than compiles.
+math(EXPR LINK_JOBS "(${NPROC} + 1) / 2")  # ≈ nproc/2, at least 1
+
+set_property(GLOBAL PROPERTY JOB_POOLS
+  compile=${NPROC}
+  link=${LINK_JOBS}
+)
+set(CMAKE_JOB_POOL_COMPILE compile)
+set(CMAKE_JOB_POOL_LINK    link)
+
 # ---- C++ standard, export compile commands, and cmake policy ----
 # Uses cmake_local/CxxStandard.cmake to centralise standard settings.
 list(APPEND CMAKE_MODULE_PATH

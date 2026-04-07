@@ -189,16 +189,23 @@ void CascadePlanningMethod::add_elastic_targets(
     const double atol = std::max(rtol * std::abs(t.target_value), min_atol);
 
     // Add slack columns for elastic penalty
-    const auto sup_name = std::format("tgt_sup_{}", t.var_name);
-    const auto sdn_name = std::format("tgt_sdn_{}", t.var_name);
-    const auto sup_col = li.add_col(sup_name, 0.0, li.infinity());
-    const auto sdn_col = li.add_col(sdn_name, 0.0, li.infinity());
-    li.set_obj_coeff(sup_col, penalty);
-    li.set_obj_coeff(sdn_col, penalty);
+    const auto sup_col = li.add_col(SparseCol {
+        .uppb = DblMax,
+        .cost = penalty,
+        .class_name = "Cascade",
+        .variable_name = "tgt_sup",
+    });
+    const auto sdn_col = li.add_col(SparseCol {
+        .uppb = DblMax,
+        .cost = penalty,
+        .class_name = "Cascade",
+        .variable_name = "tgt_sdn",
+    });
 
     // Add constraint: x - s⁺ + s⁻ ∈ [target - atol, target + atol]
     SparseRow row;
-    row.name = std::format("cascade_target_{}", t.var_name);
+    row.class_name = "Cascade";
+    row.constraint_name = "target";
     row.lowb = t.target_value - atol;
     row.uppb = t.target_value + atol;
     row[resolved_col] = 1.0;
@@ -485,11 +492,13 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       }
     }
 
-    // If forget_threshold > 0, cap phase-1 to that many iterations
+    // If forget_threshold > 0, cap phase-1 to that many iterations.
+    // Only update max_iterations — do NOT reassign the full options,
+    // as that would overwrite auto-computed fields (e.g. scale_alpha
+    // auto-set during initialize_solver()).
     if (forget_threshold > 0) {
-      level_opts.max_iterations =
+      current_solver->mutable_options().max_iterations =
           std::min(level_opts.max_iterations, forget_threshold);
-      current_solver->mutable_options() = level_opts;
     }
 
     const auto t_level = std::chrono::steady_clock::now();
@@ -523,11 +532,14 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       m_all_results_.insert(
           m_all_results_.end(), result->begin(), result->end());
 
-      // Update solver options with remaining budget for phase-2
+      // Update solver options with remaining budget for phase-2.
+      // Preserve auto-computed fields (scale_alpha, etc.) by updating
+      // only the fields that need to change, not the full struct.
       auto phase2_opts =
           build_level_sddp_opts(level.sddp_options, remaining_budget);
-      phase2_opts.save_per_iteration = level_opts.save_per_iteration;
-      current_solver->mutable_options() = phase2_opts;
+      auto& solver_opts = current_solver->mutable_options();
+      solver_opts.max_iterations = phase2_opts.max_iterations;
+      solver_opts.save_per_iteration = level_opts.save_per_iteration;
       current_solver->clear_stop();
 
       SPDLOG_INFO(

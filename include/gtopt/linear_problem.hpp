@@ -21,6 +21,7 @@
 #include <gtopt/lp_matrix_options.hpp>
 #include <gtopt/sparse_row.hpp>
 #include <gtopt/strong_index_vector.hpp>
+#include <gtopt/variable_scale.hpp>
 
 namespace gtopt
 {
@@ -107,6 +108,11 @@ struct FlatLinearProblem
     return stats_max_abs / stats_min_abs;
   }
   /// @}
+
+  /// VariableScaleMap copied from LinearProblem during flatten().
+  /// LinearInterface picks this up in load_flat() so dynamically
+  /// added columns can be auto-scaled.
+  VariableScaleMap variable_scale_map {};
 };
 
 /**
@@ -159,6 +165,15 @@ public:
     return m_infinity_;
   }
 
+  /// Set the VariableScaleMap used for automatic scale resolution in add_col.
+  void set_variable_scale_map(VariableScaleMap map) { m_vsm_ = std::move(map); }
+
+  /// Get the VariableScaleMap (empty if not set).
+  [[nodiscard]] const VariableScaleMap& variable_scale_map() const noexcept
+  {
+    return m_vsm_;
+  }
+
   /**
    * Pre-reserves capacity for columns, rows, and coefficients.
    * Call before the build loop to avoid repeated reallocations.
@@ -189,6 +204,19 @@ public:
     // Normalize DblMax bounds to the configured infinity.
     normalize_bound(col.lowb);
     normalize_bound(col.uppb);
+
+    // Auto-resolve scale from VariableScaleMap when the caller provided
+    // class_name metadata.  The map entry overrides any pre-computed scale
+    // (including auto_scale) — only per-element fields that avoid setting
+    // class_name metadata are immune.  When the map has no entry for this
+    // (class, variable, uid), the pre-set scale (or default 1.0) is kept.
+    if (!col.class_name.empty() && !m_vsm_.empty()) {
+      const auto resolved =
+          m_vsm_.lookup(col.class_name, col.variable_name, col.variable_uid);
+      if (resolved != 1.0) {
+        col.scale = resolved;
+      }
+    }
 
     cols.emplace_back(std::forward<SparseCol>(col));
     return index;
@@ -340,6 +368,7 @@ private:
   size_t ncoeffs {};  ///< Total number of coefficients
   size_t colints {};  ///< Number of integer variables
   double m_infinity_ {DblMax};  ///< Target infinity for bound normalization
+  VariableScaleMap m_vsm_ {};  ///< Auto-scale map (owned copy)
 };
 
 }  // namespace gtopt

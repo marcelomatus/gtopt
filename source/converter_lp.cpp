@@ -30,8 +30,6 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
-
   if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) [[unlikely]] {
     return false;
   }
@@ -67,12 +65,16 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
   for (const auto& block : blocks) {
     const auto buid = block.uid();
 
+    const auto block_context =
+        make_block_context(scenario.uid(), stage.uid(), block.uid());
     const auto gcol = gen_cols.at(buid);
     {
       auto grow =
           SparseRow {
-              .name = sc.lp_row_label(
-                  scenario, stage, block, cname, "gconv", uid()),
+              .class_name = ClassName.full_name(),
+              .constraint_name = "gconv",
+              .variable_uid = uid(),
+              .context = block_context,
           }
               .equal(0);
       const auto ocol = fout_cols.at(buid);
@@ -87,8 +89,10 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
       const auto icol = finp_cols.at(buid);
       auto drow =
           SparseRow {
-              .name = sc.lp_row_label(
-                  scenario, stage, block, cname, "dconv", uid()),
+              .class_name = ClassName.full_name(),
+              .constraint_name = "dconv",
+              .variable_uid = uid(),
+              .context = block_context,
           }
               .equal(0);
       drow[icol] = -stage_conversion_rate;
@@ -100,8 +104,10 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
     if (capacity_col) {
       auto crow =
           SparseRow {
-              .name =
-                  sc.lp_row_label(scenario, stage, block, cname, "cap", uid()),
+              .class_name = ClassName.full_name(),
+              .constraint_name = "cap",
+              .variable_uid = uid(),
+              .context = block_context,
           }
               .greater_equal(0);
 

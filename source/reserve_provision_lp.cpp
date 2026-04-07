@@ -72,25 +72,36 @@ std::expected<void, Error> add_provision(
       }
     }
 
-    auto name = sc.lp_col_label(scenario, stage, block, cname, pname, uid);
     const auto prov_col = lp.add_col({
-        .name = name,
         .uppb = block_rmax.value(),
         .cost = sc.block_ecost(scenario, stage, block, stage_cost),
+        .class_name = cname,
+        .variable_name = pname,
+        .variable_uid = uid,
+        .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
 
     prov_cols[buid] = prov_col;
 
     if (use_capacity) {
       auto crow =
-          SparseRow {.name = sc.lp_row_label("cap", name)}.greater_equal(0);
+          SparseRow {
+              .class_name = cname,
+              .constraint_name = "cap",
+              .variable_uid = uid,
+              .context =
+                  make_block_context(scenario.uid(), stage.uid(), block.uid()),
+          }
+              .greater_equal(0);
       crow[capacity_col.value()] = stage_capacity_factor.value();
       crow[prov_col] = -1;
       cap_rows[buid] = lp.add_row(std::move(crow));
     }
 
-    prov_rows[buid] =
-        lp.add_row(provision_row(std::move(name), gcol, prov_col));
+    prov_rows[buid] = lp.add_row(provision_row(
+        gcol,
+        prov_col,
+        make_block_context(scenario.uid(), stage.uid(), block.uid())));
 
     //
     // add the reserve provision to the requirement balance
@@ -201,10 +212,16 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
     const auto [opt_capacity, capacity_col] =
         generator_lp.capacity_and_col(stage, lp);
 
-    auto uprov_row = [&](std::string row_name, auto gcol, auto rcol)
+    auto uprov_row = [&](auto gcol, auto rcol, auto context)
     {
-      auto rrow = SparseRow {.name = std::move(row_name)}.less_equal(
-          lp.get_col_uppb(gcol));
+      auto rrow =
+          SparseRow {
+              .class_name = cname,
+              .constraint_name = "uprov",
+              .variable_uid = uid(),
+              .context = std::move(context),
+          }
+              .less_equal(lp.get_col_uppb(gcol));
       rrow[gcol] = 1;
       rrow[rcol] = 1;
 
@@ -215,10 +232,16 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
       return rrow;
     };
 
-    auto dprov_row = [&](std::string row_name, auto gcol, auto rcol)
+    auto dprov_row = [&](auto gcol, auto rcol, auto context)
     {
-      auto rrow = SparseRow {.name = std::move(row_name)}.greater_equal(
-          lp.get_col_lowb(gcol));
+      auto rrow =
+          SparseRow {
+              .class_name = cname,
+              .constraint_name = "dprov",
+              .variable_uid = uid(),
+              .context = std::move(context),
+          }
+              .greater_equal(lp.get_col_lowb(gcol));
       rrow[gcol] = 1;
       rrow[rcol] = -1;
       return rrow;

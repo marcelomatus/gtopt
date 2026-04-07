@@ -672,23 +672,23 @@ TEST_CASE("line_losses LP structure - none mode")
   SUBCASE("single bidirectional flow variable, no loss variables")
   {
     // "none" creates 1 flow col (fp) with lowb = -tmax_ba, uppb = tmax_ab
-    CHECK(count_cols_containing(li, "lin_fp_") == 1);
-    CHECK(count_cols_containing(li, "lin_fn_") == 0);
-    CHECK(count_cols_containing(li, "lin_ls_") == 0);
+    CHECK(count_cols_containing(li, "line_fp_") == 1);
+    CHECK(count_cols_containing(li, "line_fn_") == 0);
+    CHECK(count_cols_containing(li, "line_ls_") == 0);
   }
 
   SUBCASE("flow variable bounds are [-tmax_ba, +tmax_ab]")
   {
-    const auto fp = find_col(li, "lin_fp_");
+    const auto fp = find_col(li, "line_fp_");
     CHECK(li.get_col_low()[value_of(fp)] == doctest::Approx(-200.0));
     CHECK(li.get_col_upp()[value_of(fp)] == doctest::Approx(200.0));
   }
 
   SUBCASE("no loss linking or capacity rows for line")
   {
-    CHECK(count_rows_containing(li, "lin_lnk") == 0);
-    CHECK(count_rows_containing(li, "lin_lsl") == 0);
-    CHECK(count_rows_containing(li, "lin_cap") == 0);
+    CHECK(count_rows_containing(li, "line_lnk") == 0);
+    CHECK(count_rows_containing(li, "line_lsl") == 0);
+    CHECK(count_rows_containing(li, "line_cap") == 0);
   }
 }
 
@@ -706,16 +706,16 @@ TEST_CASE("line_losses LP structure - linear mode")
 
   SUBCASE("two directional flow variables, no loss variables")
   {
-    CHECK(count_cols_containing(li, "lin_fp_") == 1);
-    CHECK(count_cols_containing(li, "lin_fn_") == 1);
-    CHECK(count_cols_containing(li, "lin_ls_") == 0);
-    CHECK(count_cols_containing(li, "lin_seg") == 0);
+    CHECK(count_cols_containing(li, "line_fp_") == 1);
+    CHECK(count_cols_containing(li, "line_fn_") == 1);
+    CHECK(count_cols_containing(li, "line_ls_") == 0);
+    CHECK(count_cols_containing(li, "line_seg") == 0);
   }
 
   SUBCASE("flow variables have [0, tmax] bounds")
   {
-    const auto fp = find_col(li, "lin_fp_");
-    const auto fn = find_col(li, "lin_fn_");
+    const auto fp = find_col(li, "line_fp_");
+    const auto fn = find_col(li, "line_fn_");
     CHECK(li.get_col_low()[value_of(fp)] == doctest::Approx(0.0));
     CHECK(li.get_col_upp()[value_of(fp)] == doctest::Approx(200.0));
     CHECK(li.get_col_low()[value_of(fn)] == doctest::Approx(0.0));
@@ -727,8 +727,8 @@ TEST_CASE("line_losses LP structure - linear mode")
     // Default allocation = receiver:
     //   bus_a (sender):    fp coeff = -1.0,  fn coeff = +(1-λ)
     //   bus_b (receiver):  fp coeff = +(1-λ), fn coeff = -1.0
-    const auto fp = find_col(li, "lin_fp_");
-    const auto fn = find_col(li, "lin_fn_");
+    const auto fp = find_col(li, "line_fp_");
+    const auto fn = find_col(li, "line_fn_");
     const auto bal_a = find_row(li, "bus_bal_1");
     const auto bal_b = find_row(li, "bus_bal_2");
 
@@ -743,8 +743,8 @@ TEST_CASE("line_losses LP structure - linear mode")
 
   SUBCASE("no linking or loss-tracking rows")
   {
-    CHECK(count_rows_containing(li, "lin_lnk") == 0);
-    CHECK(count_rows_containing(li, "lin_lsl") == 0);
+    CHECK(count_rows_containing(li, "line_lnk") == 0);
+    CHECK(count_rows_containing(li, "line_lsl") == 0);
   }
 }
 
@@ -758,10 +758,10 @@ TEST_CASE("line_losses LP structure - piecewise mode")
 
   SUBCASE("creates fp, fn, loss, and K=3 segment variables")
   {
-    CHECK(count_cols_containing(li, "lin_fp_") == 1);
-    CHECK(count_cols_containing(li, "lin_fn_") == 1);
-    CHECK(count_cols_containing(li, "lin_ls_") == 1);
-    CHECK(count_cols_containing(li, "lin_seg") == 3);
+    CHECK(count_cols_containing(li, "line_fp_") == 1);
+    CHECK(count_cols_containing(li, "line_fn_") == 1);
+    CHECK(count_cols_containing(li, "line_ls_") == 1);
+    CHECK(count_cols_containing(li, "line_seg") == 3);
   }
 
   SUBCASE("segment variables have [0, fmax/K] bounds")
@@ -769,7 +769,7 @@ TEST_CASE("line_losses LP structure - piecewise mode")
     // fmax = max(tmax_ab, tmax_ba) = 200, K=3 → width ≈ 66.667
     const double expected_width = 200.0 / 3.0;
     for (const auto& [name, idx] : li.col_name_map()) {
-      if (name.contains("lin_seg")) {
+      if (name.contains("line_seg")) {
         CHECK(li.get_col_low()[idx] == doctest::Approx(0.0));
         CHECK(li.get_col_upp()[idx] == doctest::Approx(expected_width));
       }
@@ -778,9 +778,9 @@ TEST_CASE("line_losses LP structure - piecewise mode")
 
   SUBCASE("linking row: fp + fn - seg1 - seg2 - seg3 = 0")
   {
-    const auto lnk = find_row(li, "lin_lnk_");
-    const auto fp = find_col(li, "lin_fp_");
-    const auto fn = find_col(li, "lin_fn_");
+    const auto lnk = find_row(li, "line_lnk_");
+    const auto fp = find_col(li, "line_fp_");
+    const auto fn = find_col(li, "line_fn_");
 
     // Equality constraint: lowb == uppb == 0
     CHECK(li.get_row_low()[value_of(lnk)] == doctest::Approx(0.0));
@@ -792,7 +792,7 @@ TEST_CASE("line_losses LP structure - piecewise mode")
     // Each segment has coefficient -1.0 in the linking row
     int seg_count = 0;
     for (const auto& [name, idx] : li.col_name_map()) {
-      if (name.contains("lin_seg")) {
+      if (name.contains("line_seg")) {
         CHECK(li.get_coeff(lnk, ColIndex {idx}) == doctest::Approx(-1.0));
         ++seg_count;
       }
@@ -808,8 +808,8 @@ TEST_CASE("line_losses LP structure - piecewise mode")
     const double R = 0.01;
     const double V2 = 10000.0;
 
-    const auto lsl = find_row(li, "lin_lsl_");
-    const auto loss_col = find_col(li, "lin_ls_");
+    const auto lsl = find_row(li, "line_lsl_");
+    const auto loss_col = find_col(li, "line_ls_");
 
     // Loss variable has coeff +1.0 in loss-tracking row
     CHECK(li.get_coeff(lsl, loss_col) == doctest::Approx(1.0));
@@ -817,7 +817,7 @@ TEST_CASE("line_losses LP structure - piecewise mode")
     // Collect segment coefficients sorted by name
     std::vector<std::pair<std::string, double>> seg_coeffs;
     for (const auto& [name, idx] : li.col_name_map()) {
-      if (name.contains("lin_seg")) {
+      if (name.contains("line_seg")) {
         seg_coeffs.emplace_back(name, li.get_coeff(lsl, ColIndex {idx}));
       }
     }
@@ -833,11 +833,11 @@ TEST_CASE("line_losses LP structure - piecewise mode")
 
   SUBCASE("two rows total for line (linking + loss-tracking)")
   {
-    CHECK(count_rows_containing(li, "lin_lnk_") == 1);
-    CHECK(count_rows_containing(li, "lin_lsl_") == 1);
+    CHECK(count_rows_containing(li, "line_lnk_") == 1);
+    CHECK(count_rows_containing(li, "line_lsl_") == 1);
     // No per-direction linking rows
-    CHECK(count_rows_containing(li, "lin_lnkp") == 0);
-    CHECK(count_rows_containing(li, "lin_lnkn") == 0);
+    CHECK(count_rows_containing(li, "line_lnkp") == 0);
+    CHECK(count_rows_containing(li, "line_lnkn") == 0);
   }
 }
 
@@ -851,26 +851,26 @@ TEST_CASE("line_losses LP structure - bidirectional mode")
 
   SUBCASE("creates per-direction flow, loss, and segment variables")
   {
-    CHECK(count_cols_containing(li, "lin_fp_") == 1);
-    CHECK(count_cols_containing(li, "lin_fn_") == 1);
-    CHECK(count_cols_containing(li, "lin_lsp_") == 1);
-    CHECK(count_cols_containing(li, "lin_lsn_") == 1);
-    CHECK(count_cols_containing(li, "lin_fps_") == 3);
-    CHECK(count_cols_containing(li, "lin_fns_") == 3);
+    CHECK(count_cols_containing(li, "line_fp_") == 1);
+    CHECK(count_cols_containing(li, "line_fn_") == 1);
+    CHECK(count_cols_containing(li, "line_lsp_") == 1);
+    CHECK(count_cols_containing(li, "line_lsn_") == 1);
+    CHECK(count_cols_containing(li, "line_fps_") == 3);
+    CHECK(count_cols_containing(li, "line_fns_") == 3);
   }
 
   SUBCASE("per-direction linking and loss-tracking rows (4 total)")
   {
-    CHECK(count_rows_containing(li, "lin_lnkp_") == 1);
-    CHECK(count_rows_containing(li, "lin_lnkn_") == 1);
-    CHECK(count_rows_containing(li, "lin_lslp_") == 1);
-    CHECK(count_rows_containing(li, "lin_lsln_") == 1);
+    CHECK(count_rows_containing(li, "line_lnkp_") == 1);
+    CHECK(count_rows_containing(li, "line_lnkn_") == 1);
+    CHECK(count_rows_containing(li, "line_lslp_") == 1);
+    CHECK(count_rows_containing(li, "line_lsln_") == 1);
   }
 
   SUBCASE("positive-direction linking row: fp - seg1 - seg2 - seg3 = 0")
   {
-    const auto lnkp = find_row(li, "lin_lnkp_");
-    const auto fp = find_col(li, "lin_fp_");
+    const auto lnkp = find_row(li, "line_lnkp_");
+    const auto fp = find_col(li, "line_fp_");
 
     CHECK(li.get_row_low()[value_of(lnkp)] == doctest::Approx(0.0));
     CHECK(li.get_row_upp()[value_of(lnkp)] == doctest::Approx(0.0));
@@ -879,7 +879,7 @@ TEST_CASE("line_losses LP structure - bidirectional mode")
 
     int seg_count = 0;
     for (const auto& [name, idx] : li.col_name_map()) {
-      if (name.contains("lin_fps_")) {
+      if (name.contains("line_fps_")) {
         CHECK(li.get_coeff(lnkp, ColIndex {idx}) == doctest::Approx(-1.0));
         ++seg_count;
       }
@@ -893,14 +893,14 @@ TEST_CASE("line_losses LP structure - bidirectional mode")
     const double R = 0.01;
     const double V2 = 10000.0;
 
-    const auto lsln = find_row(li, "lin_lsln_");
-    const auto lsn = find_col(li, "lin_lsn_");
+    const auto lsln = find_row(li, "line_lsln_");
+    const auto lsn = find_col(li, "line_lsn_");
 
     CHECK(li.get_coeff(lsln, lsn) == doctest::Approx(1.0));
 
     std::vector<std::pair<std::string, double>> seg_coeffs;
     for (const auto& [name, idx] : li.col_name_map()) {
-      if (name.contains("lin_fns_")) {
+      if (name.contains("line_fns_")) {
         seg_coeffs.emplace_back(name, li.get_coeff(lsln, ColIndex {idx}));
       }
     }
@@ -919,10 +919,10 @@ TEST_CASE("line_losses LP structure - bidirectional mode")
     LPFixture fix_pw("piecewise", /*loss_segments=*/3);
     auto& li_pw = fix_pw.lp();
 
-    const int bidir_line_rows = count_rows_containing(li, "lin_lnk")
-        + count_rows_containing(li, "lin_lsl");
-    const int pw_line_rows = count_rows_containing(li_pw, "lin_lnk")
-        + count_rows_containing(li_pw, "lin_lsl");
+    const int bidir_line_rows = count_rows_containing(li, "line_lnk")
+        + count_rows_containing(li, "line_lsl");
+    const int pw_line_rows = count_rows_containing(li_pw, "line_lnk")
+        + count_rows_containing(li_pw, "line_lsl");
 
     CHECK(bidir_line_rows == 4);
     CHECK(pw_line_rows == 2);
@@ -942,7 +942,7 @@ TEST_CASE("line_losses LP structure - linear auto-compute lossfactor from R/V")
                 /*lossfactor=*/0.0);
   auto& li = fix.lp();
 
-  const auto fp = find_col(li, "lin_fp_");
+  const auto fp = find_col(li, "line_fp_");
   const auto bal_b = find_row(li, "bus_bal_2");
 
   // Receiver mode: bus_b gets +(1-λ) = +0.9998
@@ -963,10 +963,10 @@ TEST_CASE("line_losses LP structure - dynamic mode matches piecewise")
   CHECK(li_dyn.get_numrows() == li_pw.get_numrows());
 
   // Same variable structure
-  CHECK(count_cols_containing(li_dyn, "lin_seg")
-        == count_cols_containing(li_pw, "lin_seg"));
-  CHECK(count_rows_containing(li_dyn, "lin_lnk")
-        == count_rows_containing(li_pw, "lin_lnk"));
+  CHECK(count_cols_containing(li_dyn, "line_seg")
+        == count_cols_containing(li_pw, "line_seg"));
+  CHECK(count_rows_containing(li_dyn, "line_lnk")
+        == count_rows_containing(li_pw, "line_lnk"));
 }
 
 // ─── IEEE 9-bus losses mode comparison ──────────────────────────────

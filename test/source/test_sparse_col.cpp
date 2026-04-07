@@ -10,7 +10,6 @@ TEST_SUITE("SparseCol")
   TEST_CASE("Default Construction")
   {
     const SparseCol col;
-    CHECK(col.name.empty());
     CHECK(col.lowb == 0.0);
     CHECK(col.uppb == LinearProblem::DblMax);
     CHECK(col.cost == 0.0);
@@ -55,13 +54,6 @@ TEST_SUITE("SparseCol")
     static_assert(test_val == 10.0);
   }
 
-  TEST_CASE("Name Setting")
-  {
-    SparseCol col;
-    col.name = "test_var";
-    CHECK(col.name == "test_var");
-  }
-
   TEST_CASE("Cost Setting")
   {
     SparseCol col;
@@ -72,11 +64,9 @@ TEST_SUITE("SparseCol")
   TEST_CASE("Combined Operations")
   {
     SparseCol col;
-    col.name = "x1";
     col.cost = 3.0;
     col.equal(5.0).integer();
 
-    CHECK(col.name == "x1");
     CHECK(col.cost == 3.0);
     CHECK(col.lowb == 5.0);
     CHECK(col.uppb == 5.0);
@@ -140,12 +130,10 @@ TEST_SUITE("SparseCol")
   TEST_CASE("Copy Semantics")
   {
     SparseCol col1;
-    col1.name = "original";
     col1.cost = 7.0;
     col1.equal(3.0).integer();
 
     const SparseCol col2 = col1;
-    CHECK(col2.name == "original");
     CHECK(col2.cost == 7.0);
     CHECK(col2.lowb == 3.0);
     CHECK(col2.uppb == 3.0);

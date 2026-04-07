@@ -511,7 +511,7 @@ Format violations are warnings only, not CI failures.
 | Includes | Grouped and sorted: (1) `<std>` headers, (2) external `<pkg/header.hpp>`, (3) project `<gtopt/...>`. See `.clang-format` `IncludeCategories`. |
 | Pointers | Left-aligned: `T*` not `T *` |
 | Braces | `BreakBeforeBraces: Custom` – opening brace on new line for functions, classes, namespaces; same line for control flow unless multi-line body |
-| Initializer lists | Designated initializers (`SparseCol{.name="x", .cost=1}`) preferred |
+| Initializer lists | Designated initializers (`SparseCol{.cost=1}`) preferred |
 | Trailing commas | Always add a trailing comma to the **last element** of every brace-initializer list (member initializers, aggregate initializers, `std::initializer_list` arguments). Prevents `readability-trailing-comma` and makes diffs cleaner: `Array<Phase> phase_array {Phase {},};` |
 | Concepts | Use `requires` constraints for template type safety |
 | Error handling | Return values and `std::optional` over exceptions |

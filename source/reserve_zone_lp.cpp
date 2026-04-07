@@ -42,24 +42,36 @@ std::expected<void, Error> add_requirement(const std::string_view cname,
       continue;
     }
 
-    auto name = sc.lp_col_label(scenario, stage, block, cname, rname, uid);
+    const auto block_context =
+        make_block_context(scenario.uid(), stage.uid(), block.uid());
     const auto rcol = stage_rcost
         ? lp.add_col({
-              .name = name,
               .lowb = 0.0,
               .uppb = block_rreq.value(),
               .cost =
                   -sc.block_ecost(scenario, stage, block, stage_rcost.value()),
+              .class_name = cname,
+              .variable_name = rname,
+              .variable_uid = uid,
+              .context = block_context,
           })
         : lp.add_col({
-              .name = name,
               .lowb = block_rreq.value(),
               .uppb = block_rreq.value(),
               .cost = 0.0,
+              .class_name = cname,
+              .variable_name = rname,
+              .variable_uid = uid,
+              .context = block_context,
           });
     rr_cols[buid] = rcol;
 
-    SparseRow rr_row {.name = std::move(name)};
+    SparseRow rr_row {
+        .class_name = cname,
+        .constraint_name = rname,
+        .variable_uid = uid,
+        .context = block_context,
+    };
     rr_row[rcol] = -1;
     rr_rows[buid] = lp.add_row(std::move(rr_row.greater_equal(0)));
   }
@@ -107,7 +119,7 @@ bool ReserveZoneLP::add_to_lp(const SystemContext& sc,
                               const StageLP& stage,
                               LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
+  static constexpr std::string_view cname = ClassName.full_name();
 
   if (!is_active(stage)) {
     return true;

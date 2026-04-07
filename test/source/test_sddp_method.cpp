@@ -1075,6 +1075,46 @@ TEST_CASE("SDDPMethod - forget_first_cuts removes inherited cuts")  // NOLINT
   }
 }
 
+// ─── mutable_options preserves auto-computed fields ─────────────────────────
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod — mutable_options preserves auto scale_alpha")
+{
+  // Regression: cascade_method.cpp used to overwrite the entire SDDPOptions
+  // via mutable_options() = level_opts, resetting auto-computed scale_alpha
+  // to 0.  This caused alpha_val = sol * 0 = 0 in the forward pass,
+  // removing future-cost credit and producing NaN.
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions opts;
+  opts.max_iterations = 5;
+  opts.convergence_tol = 0.01;
+  // scale_alpha=0 triggers auto-computation during initialize_solver()
+  opts.scale_alpha = 0.0;
+
+  SDDPMethod sddp(plp, opts);
+  auto init = sddp.ensure_initialized();
+  REQUIRE(init.has_value());
+
+  // Auto-computed scale_alpha should be > 0
+  const auto auto_sa = sddp.mutable_options().scale_alpha;
+  CHECK(auto_sa > 0.0);
+
+  // Update only max_iterations (correct pattern)
+  sddp.mutable_options().max_iterations = 3;
+
+  // scale_alpha must survive the field-level update
+  CHECK(sddp.mutable_options().scale_alpha == auto_sa);
+
+  // Solve should converge (not produce NaN)
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+  CHECK_FALSE(std::isnan(results->back().upper_bound));
+  CHECK(results->back().upper_bound > 0.0);
+}
+
 // ─── Convergence criteria unit tests ────────────────────────────────────────
 
 TEST_CASE(  // NOLINT
