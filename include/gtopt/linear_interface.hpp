@@ -243,6 +243,18 @@ public:
   ColIndex add_free_col(const std::string& name);
 
   /**
+   * @brief Adds a new column from a SparseCol with metadata-based naming.
+   *
+   * Generates the column name lazily from structured metadata when
+   * class_name and context are present; falls back to the .name field.
+   * Applies bounds, objective coefficient, and scale.
+   *
+   * @param col The sparse column specification
+   * @return The index of the newly added column
+   */
+  ColIndex add_col(const SparseCol& col);
+
+  /**
    * @brief Adds a new constraint row to the problem
    * @param row The sparse row representation of the constraint
    * @param eps Epsilon value for coefficient filtering (values below this are
@@ -358,6 +370,13 @@ public:
       return -inf;
     }
     return value;
+  }
+
+  /// Normalize a (lower, upper) bound pair in one call.
+  [[nodiscard]] std::pair<double, double> normalize_bounds(
+      double lowb, double uppb) const noexcept
+  {
+    return {normalize_bound(lowb), normalize_bound(uppb)};
   }
 
   /// True if @p value represents positive infinity for the active solver.
@@ -854,6 +873,12 @@ public:
     return m_scale_objective_;
   }
 
+  /// VariableScaleMap moved from FlatLinearProblem during load_flat().
+  [[nodiscard]] const VariableScaleMap& variable_scale_map() const noexcept
+  {
+    return m_variable_scale_map_;
+  }
+
   /** @brief Lazily compute vertex duals via crossover if the backend
    *  lacks them (barrier without crossover).  No-op when has_duals()
    *  is already true (simplex, or barrier with crossover).
@@ -1097,6 +1122,7 @@ private:
   double m_scale_objective_ {1.0};  ///< Global objective divisor (from flatten)
   StrongIndexVector<ColIndex, double> m_col_scales_;
   StrongIndexVector<RowIndex, double> m_row_scales_;
+  VariableScaleMap m_variable_scale_map_ {};  ///< Moved from flatten
 
   /// Warm column solution loaded from a previous run's state file.
   /// Used by StorageLP::physical_eini/efin as fallback when

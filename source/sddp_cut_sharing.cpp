@@ -27,7 +27,8 @@ void share_cuts_for_phase(
     const StrongIndexVector<SceneIndex, std::vector<SparseRow>>& scene_cuts,
     CutSharingMode mode,
     PlanningLP& planning,
-    std::string_view label_prefix)
+    std::string_view label_prefix,
+    LpContext context)
 {
   const auto num_scenes =
       static_cast<Index>(planning.simulation().scenes().size());
@@ -35,6 +36,16 @@ void share_cuts_for_phase(
   if (num_scenes <= 1 || mode == CutSharingMode::none) {
     return;
   }
+
+  // Apply metadata context to a row (when context is set).
+  const auto apply_context = [&](SparseRow& row)
+  {
+    if (!std::holds_alternative<std::monostate>(context)) {
+      row.class_name = "Sddp";
+      row.constraint_name = "share";
+      row.context = context;
+    }
+  };
 
   if (mode == CutSharingMode::accumulate) {
     // Accumulate mode: sum all scene cuts into one accumulated cut.
@@ -49,7 +60,8 @@ void share_cuts_for_phase(
       return;
     }
 
-    const auto accumulated = accumulate_benders_cuts(all_cuts, label_prefix);
+    auto accumulated = accumulate_benders_cuts(all_cuts, label_prefix);
+    apply_context(accumulated);
 
     for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
       auto& li = planning.system(scene, phase).linear_interface();
@@ -83,8 +95,8 @@ void share_cuts_for_phase(
       return;
     }
 
-    const auto accumulated =
-        accumulate_benders_cuts(scene_avg_cuts, label_prefix);
+    auto accumulated = accumulate_benders_cuts(scene_avg_cuts, label_prefix);
+    apply_context(accumulated);
 
     for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
       auto& li = planning.system(scene, phase).linear_interface();

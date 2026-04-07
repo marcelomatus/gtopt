@@ -189,12 +189,16 @@ void CascadePlanningMethod::add_elastic_targets(
     const double atol = std::max(rtol * std::abs(t.target_value), min_atol);
 
     // Add slack columns for elastic penalty
-    const auto sup_name = std::format("tgt_sup_{}", t.var_name);
-    const auto sdn_name = std::format("tgt_sdn_{}", t.var_name);
-    const auto sup_col = li.add_col(sup_name, 0.0, li.infinity());
-    const auto sdn_col = li.add_col(sdn_name, 0.0, li.infinity());
-    li.set_obj_coeff(sup_col, penalty);
-    li.set_obj_coeff(sdn_col, penalty);
+    const auto sup_col = li.add_col(SparseCol {
+        .name = std::format("tgt_sup_{}", t.var_name),
+        .uppb = DblMax,
+        .cost = penalty,
+    });
+    const auto sdn_col = li.add_col(SparseCol {
+        .name = std::format("tgt_sdn_{}", t.var_name),
+        .uppb = DblMax,
+        .cost = penalty,
+    });
 
     // Add constraint: x - s⁺ + s⁻ ∈ [target - atol, target + atol]
     SparseRow row;

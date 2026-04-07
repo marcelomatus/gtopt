@@ -16,6 +16,7 @@
 #include <string>
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/lp_context.hpp>
 
 namespace gtopt
 {
@@ -61,6 +62,16 @@ struct SparseCol
   bool is_integer {false};  ///< is integer-constrained (default: false)
   double scale {1.0};  ///< Physical-to-LP scale: physical_value = LP_value ×
                        ///< scale (default: 1.0 = no scaling)
+
+  /// Optional metadata for automatic VariableScaleMap resolution.
+  /// When @c class_name is non-empty and @c scale is still 1.0,
+  /// LinearProblem::add_col() looks up the scale from its VariableScaleMap.
+  /// If @c class_name is empty (default), no lookup is performed.
+  std::string_view class_name {};  ///< Element class (e.g. "Bus", "Reservoir")
+  std::string_view
+      variable_name {};  ///< Variable name (e.g. "theta", "energy")
+  Uid variable_uid {unknown_uid};  ///< Element UID for per-element lookup
+  LpContext context {};  ///< LP hierarchy context (scenario, stage, block, ...)
 
   /**
    * Sets variable to a fixed value (equality constraint)

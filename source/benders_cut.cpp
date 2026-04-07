@@ -241,11 +241,17 @@ RelaxedVarInfo relax_fixed_state_variable(LinearInterface& li,
   // so the cost per LP unit is base_penalty × var_scale.
   const auto base_penalty = (link.scost > 0.0) ? link.scost : penalty;
   const auto scaled_penalty = base_penalty * link.var_scale;
-  const auto sup = li.add_col({}, 0.0, li.infinity());
-  li.set_obj_coeff(sup, scaled_penalty);
+  const auto sup = li.add_col(SparseCol {
+      .name = {},
+      .uppb = DblMax,
+      .cost = scaled_penalty,
+  });
 
-  const auto sdn = li.add_col({}, 0.0, li.infinity());
-  li.set_obj_coeff(sdn, scaled_penalty);
+  const auto sdn = li.add_col(SparseCol {
+      .name = {},
+      .uppb = DblMax,
+      .cost = scaled_penalty,
+  });
 
   // dep + sup − sdn = trial_value
   auto elastic = SparseRow {

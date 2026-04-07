@@ -70,7 +70,7 @@ public:
    * @param stage_capacity Stage capacity value
    * @return true if successful
    */
-  bool add_profile_to_lp(std::string_view cname,
+  bool add_profile_to_lp(std::string_view full_class_name,
                          const SystemContext& sc,
                          const ScenarioLP& scenario,
                          const StageLP& stage,
@@ -98,13 +98,26 @@ public:
       const auto block_scost =
           sc.block_ecost(scenario, stage, block, stage_scost);
 
-      auto name =
-          sc.lp_col_label(scenario, stage, block, cname, profile_name, uid());
-      const auto scol = lp.add_col({.name = name, .cost = block_scost});
+      const auto block_ctx =
+          make_block_context(scenario.uid(), stage.uid(), block.uid());
+      const auto scol = lp.add_col(SparseCol {
+          .name = {},
+          .cost = block_scost,
+          .class_name = full_class_name,
+          .variable_name = profile_name,
+          .variable_uid = uid(),
+          .context = block_ctx,
+      });
       scols[buid] = scol;
 
       const auto ecol = element_cols.at(buid);
-      auto srow = SparseRow {.name = std::move(name)};
+      auto srow = SparseRow {
+          .name = {},
+          .class_name = full_class_name,
+          .constraint_name = profile_name,
+          .variable_uid = uid(),
+          .context = block_ctx,
+      };
       srow[scol] = 1;
       srow[ecol] = 1;
 

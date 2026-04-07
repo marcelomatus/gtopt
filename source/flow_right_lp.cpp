@@ -40,8 +40,6 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
-
   if (!is_active(stage)) {
     return true;
   }
@@ -118,22 +116,28 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
       }
     }
 
-    auto flow_col_name =
-        sc.lp_col_label(scenario, stage, block, cname, "flow", uid());
+    const auto block_ctx =
+        make_block_context(scenario.uid(), stage.uid(), block.uid());
     const auto fcol = lp.add_col({
-        .name = std::move(flow_col_name),
+        .name = {},
         .lowb = lowb,
         .uppb = uppb,
         .cost = -block_use_value,
+        .class_name = ClassName.full_name(),
+        .variable_name = "flow",
+        .variable_uid = uid(),
+        .context = block_ctx,
     });
     fcols[buid] = fcol;
 
     if (block_fail_cost > 0.0) {
-      auto fail_col_name =
-          sc.lp_col_label(scenario, stage, block, cname, "fail", uid());
       const auto fail_col = lp.add_col({
-          .name = std::move(fail_col_name),
+          .name = {},
           .cost = block_fail_cost,
+          .class_name = ClassName.full_name(),
+          .variable_name = "fail",
+          .variable_uid = uid(),
+          .context = block_ctx,
       });
       ffails[buid] = fail_col;
 
@@ -143,8 +147,12 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
       if (has_deficit) {
         auto demand_row =
             SparseRow {
-                .name = sc.lp_row_label(
-                    scenario, stage, block, cname, "demand", uid()),
+                .name = {},
+                .class_name = ClassName.full_name(),
+                .constraint_name = "demand",
+                .variable_uid = uid(),
+                .context = make_block_context(
+                    scenario.uid(), stage.uid(), block.uid()),
             }
                 .greater_equal(block_discharge);
         demand_row[fcol] = 1.0;
@@ -174,13 +182,21 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     const auto stage_dur = stage.duration();
 
     const auto qeh_col = lp.add_col(SparseCol {
-        .name = sc.lp_col_label(scenario, stage, cname, "qeh", uid()),
+        .name = {},
+        .class_name = ClassName.full_name(),
+        .variable_name = "qeh",
+        .variable_uid = uid(),
+        .context = make_stage_context(scenario.uid(), stage.uid()),
     });
     qeh_cols[st_key] = qeh_col;
 
     auto avg_row =
         SparseRow {
-            .name = sc.lp_row_label(scenario, stage, cname, "qavg", uid()),
+            .name = {},
+            .class_name = ClassName.full_name(),
+            .constraint_name = "qavg",
+            .variable_uid = uid(),
+            .context = make_stage_context(scenario.uid(), stage.uid()),
         }
             .equal(0.0);
 

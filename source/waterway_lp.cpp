@@ -31,8 +31,6 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
                            const StageLP& stage,
                            LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
-
   if (!is_active(stage)) {
     return true;
   }
@@ -73,10 +71,13 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
     //  adding flow variable
 
     const auto fc = lp.add_col({
-        // flow variable
-        .name = sc.lp_col_label(scenario, stage, block, cname, "flow", uid()),
+        .name = {},
         .lowb = block_fmin,
         .uppb = block_fmax,
+        .class_name = ClassName.full_name(),
+        .variable_name = "flow",
+        .variable_uid = uid(),
+        .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
 
     fcols[buid] = fc;

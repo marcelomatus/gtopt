@@ -62,39 +62,33 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   }
 
   auto&& blocks = stage.blocks();
-  const auto& options = sc.options();
 
-  // Resolve energy_scale: explicit field > VariableScaleMap >
-  // inherit from source reservoir or parent VolumeRight > default.
+  // Resolve energy_scale: explicit field > inherit from source
+  // reservoir or parent VolumeRight > default.
+  // When explicitly determined, class_name is left empty so add_col
+  // does not override with VariableScaleMap.
+  bool has_explicit_energy_scale = false;
   const double energy_scale = [&]
   {
     if (volume_right().energy_scale.has_value()) {
+      has_explicit_energy_scale = true;
       return *volume_right().energy_scale;
-    }
-    const auto vs =
-        options.variable_scale_map().lookup("VolumeRight", "energy", uid());
-    if (vs != 1.0) {
-      return vs;
     }
     if (const auto& r_ref = volume_right().reservoir; r_ref.has_value()) {
       const ReservoirLPSId r_sid(*r_ref);
+      has_explicit_energy_scale = true;
       return sc.element<ReservoirLP>(r_sid).energy_scale();
     }
     if (const auto& rr_ref = volume_right().right_reservoir; rr_ref.has_value())
     {
       const VolumeRightLPSId vr_sid(*rr_ref);
+      has_explicit_energy_scale = true;
       return sc.element(vr_sid).energy_scale();
     }
     return VolumeRight::default_energy_scale;
   }();
-
-  // Resolve flow_scale: VariableScaleMap > default (1.0).
-  const double flow_scale = [&]
-  {
-    const auto fs =
-        options.variable_scale_map().lookup("VolumeRight", "flow", uid());
-    return (fs != 1.0) ? fs : 1.0;
-  }();
+  const auto energy_class_name =
+      has_explicit_energy_scale ? std::string_view {} : ClassName.full_name();
 
   // Evaluate initial bound rule if present
   const auto& opt_rule = volume_right().bound_rule;
@@ -109,6 +103,9 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   BIndexHolder<ColIndex> extraction_cols;
   map_reserve(extraction_cols, blocks.size());
 
+  // flow_scale is resolved by add_col from VariableScaleMap metadata.
+  double flow_scale = 1.0;
+
   for (auto&& block : blocks) {
     const auto buid = block.uid();
 
@@ -119,15 +116,17 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
       uppb = std::min(uppb, initial_rule_bound);
     }
 
-    auto col_name =
-        sc.lp_col_label(scenario, stage, block, cname, "extraction", uid());
     const auto fcol = lp.add_col(SparseCol {
-        .name = std::move(col_name),
+        .name = {},
         .uppb = uppb,
-        .scale = flow_scale,
+        .class_name = ClassName.full_name(),
+        .variable_name = "flow",
+        .variable_uid = uid(),
+        .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
 
     extraction_cols[buid] = fcol;
+    flow_scale = lp.get_col_scale(fcol);
   }
 
   // Create saving (inflow) columns for economy VolumeRights.
@@ -140,12 +139,14 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
       const auto buid = block.uid();
       const auto uppb =
           saving_rate.at(stage.uid(), buid).value_or(LinearProblem::DblMax);
-      auto col_name =
-          sc.lp_col_label(scenario, stage, block, cname, "saving", uid());
       const auto fcol = lp.add_col(SparseCol {
-          .name = std::move(col_name),
+          .name = {},
           .uppb = uppb,
-          .scale = flow_scale,
+          .class_name = ClassName.full_name(),
+          .variable_name = "flow",
+          .variable_uid = uid(),
+          .context =
+              make_block_context(scenario.uid(), stage.uid(), block.uid()),
       });
       saving_cols[buid] = fcol;
     }
@@ -170,6 +171,8 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
       .use_state_variable = volume_right().use_state_variable.value_or(true),
       .daily_cycle = false,
       .skip_state_link = is_reset_stage && is_cross_phase,
+      .class_name = energy_class_name,
+      .variable_uid = uid(),
       .energy_scale = energy_scale,
       .flow_scale = flow_scale,
   };
@@ -270,19 +273,25 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   const auto stage_demand = demand.at(stage.uid());
   if (stage_demand.has_value() && *stage_demand > 0.0) {
     // Deficit variable — physical cost, flatten() applies col_scale.
-    auto fail_col_name = sc.lp_col_label(scenario, stage, cname, "fail", uid());
+    const auto stage_ctx = make_stage_context(scenario.uid(), stage.uid());
     const auto fail_col = lp.add_col(SparseCol {
-        .name = std::move(fail_col_name),
+        .name = {},
         .cost = fail_cost,
         .scale = energy_scale,
+        .class_name = ClassName.full_name(),
+        .variable_name = "fail",
+        .variable_uid = uid(),
+        .context = stage_ctx,
     });
 
     // Demand satisfaction constraint in physical units:
     // sum_b [fcr × duration × extraction(b)] + fail >= demand
-    auto demand_row_name =
-        sc.lp_row_label(scenario, stage, cname, "demand", uid());
     SparseRow drow {
-        .name = std::move(demand_row_name),
+        .name = {},
+        .class_name = ClassName.full_name(),
+        .constraint_name = "demand",
+        .variable_uid = uid(),
+        .context = stage_ctx,
     };
 
     for (auto&& block : blocks) {

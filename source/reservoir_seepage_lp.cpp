@@ -38,8 +38,6 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
                                    const StageLP& stage,
                                    LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
-
   if (!is_active(stage)) {
     return true;
   }
@@ -80,8 +78,12 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
 
     auto frow =
         SparseRow {
-            .name =
-                sc.lp_row_label(scenario, stage, block, cname, "filt", uid()),
+            .name = {},
+            .class_name = ClassName.full_name(),
+            .constraint_name = "filt",
+            .variable_uid = uid(),
+            .context =
+                make_block_context(scenario.uid(), stage.uid(), block.uid()),
         }
             .equal(effective_rhs);
 

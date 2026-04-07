@@ -35,8 +35,6 @@ bool ReservoirDischargeLimitLP::add_to_lp(const SystemContext& sc,
                                           const StageLP& stage,
                                           LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
-
   if (!is_active(stage)) {
     return true;
   }
@@ -64,16 +62,26 @@ bool ReservoirDischargeLimitLP::add_to_lp(const SystemContext& sc,
 
   const auto st_key = std::pair {scenario.uid(), stage.uid()};
 
+  const auto stage_context = make_stage_context(scenario.uid(), stage.uid());
+
   // 1. Create qeh variable (free, stage-average hourly discharge)
   const auto qeh_col = lp.add_col(SparseCol {
-      .name = sc.lp_col_label(scenario, stage, cname, "qeh", uid()),
+      .name = {},
+      .class_name = ClassName.full_name(),
+      .variable_name = "qeh",
+      .variable_uid = uid(),
+      .context = stage_context,
   });
   qeh_cols[st_key] = qeh_col;
 
   // 2. Single averaging constraint: qeh - Σ_b (dur_b / dur_stage) × flow_b = 0
   auto avg_row =
       SparseRow {
-          .name = sc.lp_row_label(scenario, stage, cname, "qavg", uid()),
+          .name = {},
+          .class_name = ClassName.full_name(),
+          .constraint_name = "qavg",
+          .variable_uid = uid(),
+          .context = stage_context,
       }
           .equal(0.0);
 
@@ -89,7 +97,11 @@ bool ReservoirDischargeLimitLP::add_to_lp(const SystemContext& sc,
   //    qeh - slope × 0.5 × eini - slope × 0.5 × efin  ≤  intercept
   auto vol_row =
       SparseRow {
-          .name = sc.lp_row_label(scenario, stage, cname, "dvol", uid()),
+          .name = {},
+          .class_name = ClassName.full_name(),
+          .constraint_name = "dvol",
+          .variable_uid = uid(),
+          .context = stage_context,
       }
           .less_equal(coeffs.intercept);
 

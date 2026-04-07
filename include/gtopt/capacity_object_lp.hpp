@@ -178,28 +178,6 @@ private:
         stage, self.m_short_name_, std::forward<Args>(args)..., self.uid());
   }
 
-  template<typename Self, typename SystemContext, typename... Args>
-  [[nodiscard]] constexpr auto lp_col_label_p(this const Self& self,
-                                              SystemContext& sc,
-                                              const StageLP& stage,
-                                              Args&&... args)
-  {
-    return sc.lp_col_label(
-        stage, self.m_short_name_, std::forward<Args>(args)..., self.uid());
-  }
-
-  template<typename Self, typename SystemContext, typename... Args>
-  [[nodiscard]] constexpr auto lp_label_p(this const Self& self,
-                                          SystemContext& sc,
-                                          const StageLP& stage,
-                                          Args&&... args)
-  {
-    return sc.lp_label(
-        stage, self.m_short_name_, std::forward<Args>(args)..., self.uid());
-  }
-
-public:
-private:
   std::string_view m_class_name_ = "CapacityObject";
   std::string_view m_short_name_ = "cob";
 

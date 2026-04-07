@@ -57,6 +57,11 @@ struct SparseRow
   double uppb {0};  ///< Physical upper bound (default: 0)
   cmap_t cmap {};  ///< Sparse coefficient map (physical values)
   double scale {1.0};  ///< Row scale: LP = physical / scale (default: 1.0)
+  std::string_view class_name {};  ///< Class name (e.g. "Bus", "Reservoir")
+  std::string_view
+      constraint_name {};  ///< Constraint type (e.g. "bal", "cap", "kvl")
+  Uid variable_uid {unknown_uid};  ///< Element UID
+  LpContext context {};  ///< LP hierarchy context (scenario, stage, block, ...)
 
   /**
    * Sets both lower and upper bounds for the constraint

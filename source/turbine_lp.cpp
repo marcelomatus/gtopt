@@ -44,8 +44,6 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
                           const StageLP& stage,
                           LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
-
   if (!is_active(stage)) {
     return true;
   }
@@ -83,8 +81,12 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
       const auto dcol = discharge_cols.at(buid);
 
       auto rrow = SparseRow {
-          .name =
-              sc.lp_row_label(scenario, stage, block, cname, "fconv", uid()),
+          .name = {},
+          .class_name = ClassName.full_name(),
+          .constraint_name = "fconv",
+          .variable_uid = uid(),
+          .context =
+              make_block_context(scenario.uid(), stage.uid(), block.uid()),
       };
       rrow[gcol] = 1;
       rrow[dcol] = -stage_conversion_rate;
@@ -103,7 +105,12 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
       const auto gcol = gen_cols.at(buid);
 
       auto rrow = SparseRow {
-          .name = sc.lp_row_label(scenario, stage, block, cname, "conv", uid()),
+          .name = {},
+          .class_name = ClassName.full_name(),
+          .constraint_name = "conv",
+          .variable_uid = uid(),
+          .context =
+              make_block_context(scenario.uid(), stage.uid(), block.uid()),
       };
       rrow[fcol] = -stage_conversion_rate;
       rrow[gcol] = 1;
@@ -114,8 +121,12 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
       if (stage_capacity) {
         auto crow =
             SparseRow {
-                .name = sc.lp_row_label(
-                    scenario, stage, block, cname, "fcap", uid()),
+                .name = {},
+                .class_name = ClassName.full_name(),
+                .constraint_name = "fcap",
+                .variable_uid = uid(),
+                .context = make_block_context(
+                    scenario.uid(), stage.uid(), block.uid()),
             }
                 .less_equal(*stage_capacity);
         crow[fcol] = 1;

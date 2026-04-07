@@ -304,4 +304,263 @@ TEST_CASE("Integration: LP column scale drives output rescaling")  // NOLINT
   CHECK(obj_phys == doctest::Approx(obj_lp));
 }
 
+// ── LinearProblem auto-scale via VariableScaleMap ──────────────────────────
+
+TEST_CASE("LinearProblem add_col auto-resolves scale from metadata")  // NOLINT
+{
+  const std::vector<VariableScale> scales {
+      {
+          .class_name = "Bus",
+          .variable = "theta",
+          .scale = 0.0002,
+      },
+      {
+          .class_name = "Reservoir",
+          .variable = "energy",
+          .scale = 1000.0,
+      },
+      {
+          .class_name = "Reservoir",
+          .variable = "energy",
+          .uid = Uid {7},
+          .scale = 500.0,
+      },
+  };
+  const VariableScaleMap map(scales);
+
+  LinearProblem lp("auto_scale_test");
+  lp.set_variable_scale_map(map);
+
+  SUBCASE("class_name metadata triggers lookup")
+  {
+    const auto c = lp.add_col(SparseCol {
+        .name = "theta_b1",
+        .class_name = "Bus",
+        .variable_name = "theta",
+        .variable_uid = Uid {1},
+    });
+    CHECK(lp.get_col_scale(c) == doctest::Approx(0.0002));
+  }
+
+  SUBCASE("per-element UID match wins over per-class")
+  {
+    const auto c = lp.add_col(SparseCol {
+        .name = "rsv_energy_7",
+        .class_name = "Reservoir",
+        .variable_name = "energy",
+        .variable_uid = Uid {7},
+    });
+    CHECK(lp.get_col_scale(c) == doctest::Approx(500.0));
+  }
+
+  SUBCASE("per-class match for non-matching UID")
+  {
+    const auto c = lp.add_col(SparseCol {
+        .name = "rsv_energy_99",
+        .class_name = "Reservoir",
+        .variable_name = "energy",
+        .variable_uid = Uid {99},
+    });
+    CHECK(lp.get_col_scale(c) == doctest::Approx(1000.0));
+  }
+
+  SUBCASE("map entry overrides pre-set scale when class_name is set")
+  {
+    const auto c = lp.add_col(SparseCol {
+        .name = "rsv_energy_override",
+        .scale = 42.0,
+        .class_name = "Reservoir",
+        .variable_name = "energy",
+        .variable_uid = Uid {1},
+    });
+    // Map entry (1000.0 per-class) wins over pre-set scale (42.0)
+    // because class_name metadata opts into map resolution.
+    CHECK(lp.get_col_scale(c) == doctest::Approx(1000.0));
+  }
+
+  SUBCASE("explicit scale without class_name is immune to map")
+  {
+    const auto c = lp.add_col(SparseCol {
+        .name = "rsv_energy_explicit",
+        .scale = 42.0,
+    });
+    // No class_name → no lookup, explicit scale preserved
+    CHECK(lp.get_col_scale(c) == doctest::Approx(42.0));
+  }
+
+  SUBCASE("empty class_name skips lookup")
+  {
+    const auto c = lp.add_col(SparseCol {
+        .name = "gen_output",
+    });
+    CHECK(lp.get_col_scale(c) == doctest::Approx(1.0));
+  }
+
+  SUBCASE("no map set returns default scale")
+  {
+    LinearProblem lp2("no_map");
+    const auto c = lp2.add_col(SparseCol {
+        .name = "theta_no_map",
+        .class_name = "Bus",
+        .variable_name = "theta",
+        .variable_uid = Uid {1},
+    });
+    CHECK(lp2.get_col_scale(c) == doctest::Approx(1.0));
+  }
+}
+
+// ── VariableScaleMap hash-based structure tests ─────────────────────────────
+
+TEST_CASE(
+    "VariableScaleMap transparent hash lookup avoids allocations")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const std::vector<VariableScale> scales {
+      {
+          .class_name = "Reservoir",
+          .variable = "energy",
+          .scale = 1000.0,
+      },
+      {
+          .class_name = "Reservoir",
+          .variable = "energy",
+          .uid = Uid {5},
+          .scale = 500.0,
+      },
+      {
+          .class_name = "Bus",
+          .variable = "theta",
+          .scale = 0.001,
+      },
+      {
+          .class_name = "Battery",
+          .variable = "flow",
+          .uid = Uid {3},
+          .scale = 2.0,
+      },
+  };
+  const VariableScaleMap map(scales);
+
+  SUBCASE("per-class lookup with string_view")
+  {
+    // These string_views do NOT own the data — no allocation
+    const std::string_view cls = "Reservoir";
+    const std::string_view var = "energy";
+    CHECK(map.lookup(cls, var) == doctest::Approx(1000.0));
+  }
+
+  SUBCASE("per-element lookup with string_view")
+  {
+    CHECK(map.lookup("Reservoir", "energy", Uid {5}) == doctest::Approx(500.0));
+  }
+
+  SUBCASE("per-element miss falls back to per-class")
+  {
+    CHECK(map.lookup("Reservoir", "energy", Uid {99})
+          == doctest::Approx(1000.0));
+  }
+
+  SUBCASE("complete miss returns 1.0")
+  {
+    CHECK(map.lookup("Generator", "output") == doctest::Approx(1.0));
+    CHECK(map.lookup("Reservoir", "flow") == doctest::Approx(1.0));
+  }
+
+  SUBCASE("element-only entry (no per-class fallback)")
+  {
+    // Battery/flow has only a per-element entry for uid=3
+    CHECK(map.lookup("Battery", "flow", Uid {3}) == doctest::Approx(2.0));
+    CHECK(map.lookup("Battery", "flow", Uid {7}) == doctest::Approx(1.0));
+    CHECK(map.lookup("Battery", "flow") == doctest::Approx(1.0));
+  }
+
+  SUBCASE("empty map returns 1.0 for everything")
+  {
+    const VariableScaleMap empty_map;
+    CHECK(empty_map.empty());
+    CHECK(empty_map.lookup("Bus", "theta") == doctest::Approx(1.0));
+    CHECK(empty_map.lookup("Bus", "theta", Uid {1}) == doctest::Approx(1.0));
+  }
+}
+
+TEST_CASE("VariableScaleMap duplicate entries use last value")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Two entries for the same key — unordered_map::emplace keeps the first
+  const std::vector<VariableScale> scales {
+      {
+          .class_name = "Bus",
+          .variable = "theta",
+          .scale = 0.001,
+      },
+      {
+          .class_name = "Bus",
+          .variable = "theta",
+          .scale = 0.002,
+      },
+  };
+  const VariableScaleMap map(scales);
+
+  // emplace keeps the first insertion
+  CHECK(map.lookup("Bus", "theta") == doctest::Approx(0.001));
+}
+
+// ── add_col: map overrides pre-set scale ────────────────────────────────────
+
+TEST_CASE("add_col map entry overrides auto_scale pre-set value")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const std::vector<VariableScale> scales {
+      {
+          .class_name = "Reservoir",
+          .variable = "energy",
+          .uid = Uid {1},
+          .scale = 10.0,
+      },
+  };
+  const VariableScaleMap map(scales);
+
+  LinearProblem lp("override_test");
+  lp.set_variable_scale_map(map);
+
+  SUBCASE("map entry overrides auto_scale pre-set")
+  {
+    // Simulates reservoir auto_scale setting scale=1000, but map has 10.0
+    const auto c = lp.add_col(SparseCol {
+        .name = "rsv_eini",
+        .scale = 1000.0,
+        .class_name = "Reservoir",
+        .variable_name = "energy",
+        .variable_uid = Uid {1},
+    });
+    CHECK(lp.get_col_scale(c) == doctest::Approx(10.0));
+  }
+
+  SUBCASE("no map entry keeps pre-set scale")
+  {
+    // Different uid — no map entry, pre-set scale preserved
+    const auto c = lp.add_col(SparseCol {
+        .name = "rsv_eini_99",
+        .scale = 1000.0,
+        .class_name = "Reservoir",
+        .variable_name = "energy",
+        .variable_uid = Uid {99},
+    });
+    CHECK(lp.get_col_scale(c) == doctest::Approx(1000.0));
+  }
+
+  SUBCASE("per-element field without class_name is immune")
+  {
+    // Simulates explicit reservoir().energy_scale — no class_name set
+    const auto c = lp.add_col(SparseCol {
+        .name = "rsv_explicit",
+        .scale = 42.0,
+    });
+    CHECK(lp.get_col_scale(c) == doctest::Approx(42.0));
+  }
+}
+
 }  // namespace

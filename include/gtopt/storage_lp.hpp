@@ -52,6 +52,14 @@ struct StorageOptions
   /// element's initial state is independently determined (reset/reprovision).
   bool skip_state_link {false};
 
+  /// Full class name for VariableScaleMap metadata (e.g. "Reservoir",
+  /// "Battery").  When non-empty, StorageBase sets class_name/variable_name
+  /// on energy columns so LinearProblem::add_col can auto-resolve scales.
+  std::string_view class_name {};
+
+  /// Element UID for per-element VariableScaleMap lookup.
+  Uid variable_uid {unknown_uid};
+
   /// Energy (volume) scale factor: the LP energy variable is divided by this
   /// value so that the LP works in scaled units (physical_energy /
   /// energy_scale). Default 1.0 = no scaling. For reservoirs the default is
@@ -430,10 +438,14 @@ public:
       // Global initial condition – first stage of the first phase only.
       // eini bounds are in LP (scaled) units.
       eicol = lp.add_col({
-          .name = sc.state_col_label(scenario, stage, cname, "eini", uid()),
+          .name = {},
           .lowb = storage().eini.value_or(stage_emin),
           .uppb = storage().eini.value_or(stage_emax),
           .scale = energy_scale,
+          .class_name = opts.class_name,
+          .variable_name = "energy",
+          .variable_uid = opts.variable_uid,
+          .context = make_stage_context(scenario.uid(), stage.uid()),
       });
     } else if (prev_phase == nullptr) {
       // Same phase – the previous stage's efin column serves as eini here
@@ -446,10 +458,14 @@ public:
       // in the first phase; sini columns are the SDDP inter-phase coupling
       // variables propagated by the forward pass.
       eicol = lp.add_col({
-          .name = sc.state_col_label(scenario, stage, cname, "sini", uid()),
+          .name = {},
           .lowb = stage_emin,
           .uppb = stage_emax,
           .scale = energy_scale,
+          .class_name = opts.class_name,
+          .variable_name = "energy",
+          .variable_uid = opts.variable_uid,
+          .context = make_stage_context(scenario.uid(), stage.uid()),
       });
       if (effective_usv && !opts.skip_state_link) {
         // Link as DependentVariable of the previous phase's efin StateVariable
@@ -500,8 +516,12 @@ public:
 
       auto erow =
           SparseRow {
-              .name = sc.state_col_label(
-                  scenario, stage, block, cname, "vol", uid()),
+              .name = {},
+              .class_name = cname,
+              .constraint_name = "vol",
+              .variable_uid = opts.variable_uid,
+              .context =
+                  make_block_context(scenario.uid(), stage.uid(), block.uid()),
           }
               .equal(0);
 
@@ -512,11 +532,16 @@ public:
       // - Global final condition (efin) is a named >= row added below for the
       //   last block (is_last_block) of the last stage.
       const auto ec = lp.add_col({
-          .name = erow.name,
+          .name = {},
           .lowb = stage_emin,
           .uppb = stage_emax,
           .cost = stage_ecost,
           .scale = energy_scale,
+          .class_name = opts.class_name,
+          .variable_name = "energy",
+          .variable_uid = opts.variable_uid,
+          .context =
+              make_block_context(scenario.uid(), stage.uid(), block.uid()),
       });
 
       ecols[buid] = ec;
@@ -556,12 +581,16 @@ public:
       if (drain_cost) {
         // Physical drain cost — flatten() applies col_scale.
         const auto dcol = lp.add_col({
-            .name =
-                sc.lp_col_label(scenario, stage, block, cname, "drain", uid()),
+            .name = {},
             .lowb = 0,
             .uppb = drain_capacity.value_or(LinearProblem::DblMax),
             .cost = sc.block_ecost(scenario, stage, block, *drain_cost),
             .scale = flow_scale,
+            .class_name = opts.class_name,
+            .variable_name = "flow",
+            .variable_uid = opts.variable_uid,
+            .context =
+                make_block_context(scenario.uid(), stage.uid(), block.uid()),
         });
 
         dcols[buid] = dcol;
@@ -575,8 +604,12 @@ public:
       if (capacity_col) {
         auto crow =
             SparseRow {
-                .name =
-                    sc.lp_label(scenario, stage, block, cname, "cap", uid()),
+                .name = {},
+                .class_name = cname,
+                .constraint_name = "cap",
+                .variable_uid = opts.variable_uid,
+                .context = make_block_context(
+                    scenario.uid(), stage.uid(), block.uid()),
             }
                 .greater_equal(0);
         crow[*capacity_col] = 1;
@@ -600,7 +633,11 @@ public:
         const double lp_efin = *efin_opt;
         auto efin_row =
             SparseRow {
-                .name = sc.lp_label(scenario, stage, cname, "efin", uid()),
+                .name = {},
+                .class_name = cname,
+                .constraint_name = "efin",
+                .variable_uid = opts.variable_uid,
+                .context = make_stage_context(scenario.uid(), stage.uid()),
             }
                 .greater_equal(lp_efin);
         efin_row[ec] = 1.0;
@@ -629,16 +666,24 @@ public:
           / stage.duration();
 
       const auto semin_col = lp.add_col({
-          .name = sc.lp_col_label(scenario, stage, cname, "semin", uid()),
+          .name = {},
           .lowb = 0,
           .uppb = LinearProblem::DblMax,
           .cost = slack_cost,
           .scale = energy_scale,
+          .class_name = opts.class_name,
+          .variable_name = "energy",
+          .variable_uid = opts.variable_uid,
+          .context = make_stage_context(scenario.uid(), stage.uid()),
       });
 
       auto semin_row =
           SparseRow {
-              .name = sc.lp_label(scenario, stage, cname, "semin_ge", uid()),
+              .name = {},
+              .class_name = cname,
+              .constraint_name = "semin_ge",
+              .variable_uid = opts.variable_uid,
+              .context = make_stage_context(scenario.uid(), stage.uid()),
           }
               .greater_equal(lp_soft_emin);
       semin_row[prev_vc] = 1.0;
@@ -664,7 +709,11 @@ public:
       // "closed" – i.e., the storage ends at the same energy level it started.
       auto close_row =
           SparseRow {
-              .name = sc.lp_label(scenario, stage, cname, "eclose", uid()),
+              .name = {},
+              .class_name = cname,
+              .constraint_name = "eclose",
+              .variable_uid = opts.variable_uid,
+              .context = make_stage_context(scenario.uid(), stage.uid()),
           }
               .equal(0);
       close_row[prev_vc] = 1;

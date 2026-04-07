@@ -53,6 +53,7 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
     }
   } else {
     if (prev_stage != nullptr) {
+      const auto stg_ctx = make_stage_context(scenario.uid(), stage.uid());
       auto process_prev_state =
           [&](const std::string_view col_name) -> std::optional<ColIndex>
       {
@@ -60,8 +61,10 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
                 sv_key_p(scenario, *prev_stage, col_name));
             prev_svar)
         {
-          auto col = lp.add_col(
-              {.name = state_col_label_p(sc, stage, col_name, "ini")});
+          auto col = lp.add_col({
+              .name = state_col_label_p(sc, stage, col_name, "ini"),
+              .context = stg_ctx,
+          });
           prev_svar->get().add_dependent_variable(scenario, stage, col);
           return col;
         }
@@ -78,12 +81,14 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
     return true;
   }
 
+  const auto stg_ctx = make_stage_context(scenario.uid(), stage.uid());
   auto capainst_name = state_col_label_p(sc, stage, "capainst");
   const auto capainst_col = lp.add_col({
       .name = capainst_name,
       .lowb = stage_capacity,
       .uppb = stage_capmax,
       .cost = 0.0,
+      .context = stg_ctx,
   });
   sc.add_state_variable(sv_key_p(scenario, stage, "capainst"), capainst_col);
 
@@ -91,8 +96,11 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   capainst_row[capainst_col] = -1;
 
   auto capacost_name = state_col_label_p(sc, stage, "capacost");
-  const auto capacost_col =
-      lp.add_col({.name = capacost_name, .cost = sc.stage_ecost(stage, 1.0)});
+  const auto capacost_col = lp.add_col({
+      .name = capacost_name,
+      .cost = sc.stage_ecost(stage, 1.0),
+      .context = stg_ctx,
+  });
   sc.add_state_variable(sv_key_p(scenario, stage, "capacost"), capacost_col);
 
   SparseRow capacost_row {.name = std::move(capacost_name)};
@@ -103,6 +111,7 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
         // expmod variable
         .name = state_col_label_p(sc, stage, "expmod"),
         .uppb = stage_expmod,
+        .context = stg_ctx,
     });
 
     capainst_row[expmod_col] = +stage_expcap;

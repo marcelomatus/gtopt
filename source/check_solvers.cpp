@@ -200,9 +200,16 @@ SolverTestResult test_add_col(std::string_view solver)
   try {
     LinearInterface lp(solver);
 
-    const auto x1 = lp.add_col("x1", 0.0, 10.0);
-    const auto x2 = lp.add_col("x2", -5.0, 5.0);
-    const auto x3 = lp.add_free_col("x3");
+    const auto x1 = lp.add_col(SparseCol {
+        .name = "x1",
+        .uppb = 10.0,
+    });
+    const auto x2 = lp.add_col(SparseCol {
+        .name = "x2",
+        .lowb = -5.0,
+        .uppb = 5.0,
+    });
+    const auto x3 = lp.add_col(SparseCol {.name = "x3"}.free());
 
     TC_CHECK(ctx, lp.get_numcols() == 3);
 
@@ -243,7 +250,10 @@ SolverTestResult test_add_row(std::string_view solver)
   TestContext ctx;
   try {
     LinearInterface lp(solver);
-    lp.add_col("x", 0.0, 10.0);
+    lp.add_col(SparseCol {
+        .name = "x",
+        .uppb = 10.0,
+    });
 
     SparseRow row("r1");
     row[ColIndex {0}] = 2.0;
@@ -280,11 +290,16 @@ SolverTestResult test_obj_coeff(std::string_view solver)
   TestContext ctx;
   try {
     LinearInterface lp(solver);
-    const auto x1 = lp.add_col("x1", 0.0, 10.0);
-    const auto x2 = lp.add_col("x2", 0.0, 10.0);
-
-    lp.set_obj_coeff(x1, 3.0);
-    lp.set_obj_coeff(x2, 7.0);
+    const auto x1 = lp.add_col(SparseCol {
+        .name = "x1",
+        .uppb = 10.0,
+        .cost = 3.0,
+    });
+    const auto x2 = lp.add_col(SparseCol {
+        .name = "x2",
+        .uppb = 10.0,
+        .cost = 7.0,
+    });
 
     const auto obj = lp.get_obj_coeff();
     TC_CHECK(ctx, obj.size() == 2);
@@ -305,8 +320,14 @@ SolverTestResult test_get_set_coeff(std::string_view solver)
   TestContext ctx;
   try {
     LinearInterface lp(solver);
-    const auto x1 = lp.add_col("x1", 0.0, 10.0);
-    const auto x2 = lp.add_col("x2", 0.0, 10.0);
+    const auto x1 = lp.add_col(SparseCol {
+        .name = "x1",
+        .uppb = 10.0,
+    });
+    const auto x2 = lp.add_col(SparseCol {
+        .name = "x2",
+        .uppb = 10.0,
+    });
 
     SparseRow row("r1");
     row[x1] = 1.0;
@@ -337,8 +358,14 @@ SolverTestResult test_variable_types(std::string_view solver)
   TestContext ctx;
   try {
     LinearInterface lp(solver);
-    const auto x1 = lp.add_col("x1", 0.0, 10.0);
-    const auto x2 = lp.add_col("x2", 0.0, 10.0);
+    const auto x1 = lp.add_col(SparseCol {
+        .name = "x1",
+        .uppb = 10.0,
+    });
+    const auto x2 = lp.add_col(SparseCol {
+        .name = "x2",
+        .uppb = 10.0,
+    });
 
     // Default: continuous.
     TC_CHECK(ctx, lp.is_continuous(x1));
@@ -376,8 +403,14 @@ SolverTestResult test_name_maps(std::string_view solver)
 
     TC_CHECK(ctx, lp.lp_names_level() == 1);
 
-    const auto x1 = lp.add_col("x1", 0.0, 10.0);
-    const auto x2 = lp.add_col("x2", 0.0, 5.0);
+    const auto x1 = lp.add_col(SparseCol {
+        .name = "x1",
+        .uppb = 10.0,
+    });
+    const auto x2 = lp.add_col(SparseCol {
+        .name = "x2",
+        .uppb = 5.0,
+    });
 
     SparseRow row("my_row");
     row[x1] = 1.0;
@@ -510,8 +543,11 @@ SolverTestResult test_primal_infeasible(std::string_view solver)
   try {
     //   min x,  s.t. x >= 10, x <= 5, x >= 0   → infeasible
     LinearInterface lp(solver);
-    const auto x = lp.add_col("x", 0.0, 5.0);
-    lp.set_obj_coeff(x, 1.0);
+    const auto x = lp.add_col(SparseCol {
+        .name = "x",
+        .uppb = 5.0,
+        .cost = 1.0,
+    });
 
     SparseRow row("r1");
     row[x] = 1.0;
@@ -793,7 +829,10 @@ SolverTestResult test_warm_col_sol_accessors(std::string_view solver)
   TestContext ctx;
   try {
     LinearInterface lp(solver);
-    lp.add_col("x", 0.0, 10.0);
+    lp.add_col(SparseCol {
+        .name = "x",
+        .uppb = 10.0,
+    });
 
     lp.set_warm_col_sol(StrongIndexVector<ColIndex, double> {5.0});
     TC_CHECK(ctx, lp.warm_col_sol().size() == 1);

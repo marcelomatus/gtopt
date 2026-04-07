@@ -17,13 +17,11 @@
 namespace gtopt
 {
 
-bool JunctionLP::add_to_lp(const SystemContext& sc,
+bool JunctionLP::add_to_lp(const SystemContext& /*sc*/,
                            const ScenarioLP& scenario,
                            const StageLP& stage,
                            LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
-
   // Skip inactive junctions for this stage
   if (!is_active(stage)) {
     return true;
@@ -47,14 +45,22 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
 
     // Create balance row for this block
     auto brow = SparseRow {
-        .name = sc.lp_row_label(scenario, stage, block, cname, "bal", uid()),
+        .name = {},
+        .class_name = ClassName.full_name(),
+        .constraint_name = "bal",
+        .variable_uid = uid(),
+        .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     };
 
     // Add drain column if needed
     if (add_drain_col) {
       const auto dcol = lp.add_col({
-          .name =
-              sc.lp_col_label(scenario, stage, block, cname, "drain", uid()),
+          .name = {},
+          .class_name = ClassName.full_name(),
+          .variable_name = "drain",
+          .variable_uid = uid(),
+          .context =
+              make_block_context(scenario.uid(), stage.uid(), block.uid()),
       });
       dcols[buid] = dcol;
       brow[dcol] = -1.0;  // Drain coefficient

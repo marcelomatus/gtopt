@@ -149,7 +149,6 @@ struct BlockResult
  * @return LP indices for the created variables and constraints.
  */
 [[nodiscard]] BlockResult add_block(const LossConfig& config,
-                                    const SystemContext& sc,
                                     const ScenarioLP& scenario,
                                     const StageLP& stage,
                                     const BlockLP& block,
@@ -160,8 +159,7 @@ struct BlockResult
                                     double block_tmax_ba,
                                     double block_tcost,
                                     std::optional<ColIndex> capacity_col,
-                                    Uid uid,
-                                    std::string_view cname);
+                                    Uid uid);
 
 }  // namespace line_losses
 }  // namespace gtopt

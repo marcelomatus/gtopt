@@ -67,21 +67,25 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   const auto fmin = reservoir().fmin.value_or(-LinearProblem::DblMax);
   const auto fmax = reservoir().fmax.value_or(+LinearProblem::DblMax);
 
-  // Resolve energy_scale: explicit field > auto-scale > VariableScaleMap.
+  // Resolve energy_scale with priority:
+  //   1. Explicit per-element field (immune to VariableScaleMap)
+  //   2. VariableScaleMap entry (resolved by add_col when class_name is set)
+  //   3. Auto-scale from capacity
+  //   4. Default (1.0)
+  //
+  // When the per-element field is set, energy_class_name is left empty so
+  // that add_col does NOT consult the VariableScaleMap.  Otherwise,
+  // class_name metadata is set and add_col overrides auto_scale if the map
+  // has an entry (returns != 1.0); if the map returns 1.0, auto_scale wins.
+  const bool has_explicit_energy_scale = reservoir().energy_scale.has_value();
   const double energy_scale = [&]
   {
-    // 1. Explicit per-element field always wins.
-    if (reservoir().energy_scale.has_value()) {
+    if (has_explicit_energy_scale) {
       return *reservoir().energy_scale;
     }
-    // 2. VariableScaleMap override (from PlanningOptions::variable_scales).
-    const auto vs =
-        sc.options().variable_scale_map().lookup("Reservoir", "energy", uid());
-    if (vs != 1.0) {
-      return vs;
-    }
-    // 3. Auto-scale mode: round down capacity to previous power of 10.
-    //    cap=72 → 10;  cap=5586 → 1000.
+    // Auto-scale mode: round down capacity to previous power of 10.
+    // cap=72 → 10;  cap=5586 → 1000.
+    // This is the fallback — VariableScaleMap entries override it in add_col.
     if (reservoir().energy_scale_mode_enum() == EnergyScaleMode::auto_scale) {
       if (stage_capacity <= 1.0) {
         return 1.0;
@@ -90,35 +94,35 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
     }
     return Reservoir::default_energy_scale;
   }();
-
-  // Resolve flow_scale independently from energy_scale.
-  // Default 1.0: extraction flow fext stays in physical m³/s.
-  // Setting flow_scale = energy_scale keeps energy-balance
-  // coefficients O(1) but couples two different physical quantities.
-  const double flow_scale = [&]
-  {
-    const auto fs =
-        sc.options().variable_scale_map().lookup("Reservoir", "flow", uid());
-    return (fs != 1.0) ? fs : 1.0;
-  }();
+  // Only opt into VariableScaleMap resolution when no per-element field.
+  const auto energy_class_name =
+      has_explicit_energy_scale ? std::string_view {} : ClassName.full_name();
   BIndexHolder<ColIndex> rcols;
   BIndexHolder<ColIndex> scols;
   map_reserve(rcols, blocks.size());
   map_reserve(scols, blocks.size());
 
+  // flow_scale is resolved by add_col from the VariableScaleMap metadata.
+  // We read back the resolved value from the first column for StorageOptions.
+  double flow_scale = 1.0;
+
   for (auto&& block : blocks) {
     const auto buid = block.uid();
 
     // rsv_fext: physical flow bounds [m³/s].
-    // flatten() converts to LP units by dividing by flow_scale.
+    // add_col auto-resolves flow_scale from VariableScaleMap metadata.
     const auto rc = lp.add_col(SparseCol {
-        .name = sc.lp_col_label(scenario, stage, block, cname, "fext", uid()),
+        .name = {},
         .lowb = fmin,
         .uppb = fmax,
-        .scale = flow_scale,
+        .class_name = ClassName.full_name(),
+        .variable_name = "flow",
+        .variable_uid = uid(),
+        .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
 
     rcols[buid] = rc;
+    flow_scale = lp.get_col_scale(rc);
 
     // The extraction adds flow to the junction balance (in m³/s).
     // Physical coefficient is 1.0; flatten() multiplies by col_scale.
@@ -134,6 +138,8 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   const StorageOptions opts {
       .use_state_variable = reservoir().use_state_variable.value_or(true),
       .daily_cycle = reservoir().daily_cycle.value_or(false),
+      .class_name = energy_class_name,
+      .variable_uid = uid(),
       .energy_scale = energy_scale,
       .flow_scale = flow_scale,
       .scost = rsv_scost,

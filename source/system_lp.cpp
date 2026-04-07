@@ -269,6 +269,9 @@ constexpr auto create_linear_interface(auto& collections,
   // normalize DblMax bounds before flattening, avoiding solver warnings.
   lp.set_infinity(li.infinity());
 
+  // Set the VariableScaleMap so add_col() auto-resolves scales from metadata.
+  lp.set_variable_scale_map(system_context.options().variable_scale_map());
+
   // Pre-reserve capacity to avoid repeated reallocations during build.
   // Each element typically adds ~2 cols and ~2 rows per block per scenario.
   {
