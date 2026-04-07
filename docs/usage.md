@@ -214,6 +214,7 @@ Solver and I/O settings:
 | `scale_objective` | float | Objective function scaling factor |
 | `log_directory` | string | Directory for log and error LP files (default: `"logs"`) |
 | `lp_debug` | bool | Save LP debug files to `log_directory` before solving (see below) |
+| `lp_fingerprint` | bool | Write LP structural fingerprint JSON to output directory (see [LP Fingerprint](lp-fingerprint.md)) |
 
 #### `lp_debug` — LP debug file output
 

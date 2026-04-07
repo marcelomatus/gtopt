@@ -27,6 +27,7 @@
 #include <gtopt/junction_lp.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/lp_fingerprint.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/phase_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
@@ -337,6 +338,12 @@ public:
    */
   void write_out();
 
+  /// Access the LP fingerprint computed during create_lp().
+  [[nodiscard]] constexpr const LpFingerprint& fingerprint() const noexcept
+  {
+    return m_fingerprint_;
+  }
+
   [[nodiscard]] constexpr const auto& phase() const noexcept
   {
     return m_phase_;
@@ -370,6 +377,7 @@ private:
   PhaseLP m_phase_;
   SceneLP m_scene_;
   LinearInterface m_linear_interface_;
+  LpFingerprint m_fingerprint_;
   std::optional<ObjectSingleId<BusLP>> m_single_bus_id_ {};
 
   /// Transient pointer to the previous phase's LinearInterface, set by

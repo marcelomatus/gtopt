@@ -13,11 +13,13 @@
  * extracting results.
  */
 
+#include <filesystem>
 #include <format>
 #include <unordered_map>
 
 #include <gtopt/bus_island.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/lp_fingerprint.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <spdlog/spdlog.h>
@@ -308,10 +310,14 @@ constexpr auto create_linear_interface(auto& collections,
     }
   }
 
+  // Compute LP fingerprint before flattening (structured metadata is still
+  // available in the raw cols/rows vectors).
+  auto fingerprint = compute_lp_fingerprint(lp.get_cols(), lp.get_rows());
+
   // Convert and store the flattened LP representation
   auto flat_lp = lp.flatten(flat_opts);
   li.load_flat(flat_lp);
-  return li;
+  return std::pair {std::move(li), std::move(fingerprint)};
 }
 
 void create_collections(const auto& system_context,
@@ -399,8 +405,10 @@ void SystemLP::create_lp(const LpMatrixOptions& flat_opts_in)
   if (flat_opts.scale_objective == 1.0) {
     flat_opts.scale_objective = system_context().options().scale_objective();
   }
-  m_linear_interface_ = create_linear_interface(
+  auto [li, fp] = create_linear_interface(
       collections(), system_context(), phase(), scene(), flat_opts);
+  m_linear_interface_ = std::move(li);
+  m_fingerprint_ = std::move(fp);
 }
 
 SystemLP::SystemLP(const System& system,
@@ -444,6 +452,16 @@ void SystemLP::write_out()
   }
 
   oc.write();
+
+  // Write LP fingerprint if requested
+  if (options().lp_fingerprint()) {
+    const auto fname = as_label(
+        "lp_fingerprint", "scene", scene().uid(), "phase", phase().uid());
+    const auto filepath = (std::filesystem::path(options().output_directory())
+                           / (fname + ".json"))
+                              .string();
+    write_lp_fingerprint(fingerprint(), filepath, scene().uid(), phase().uid());
+  }
 }
 
 auto SystemLP::write_lp(const std::string& filename) const

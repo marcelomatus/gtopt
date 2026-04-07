@@ -391,6 +391,20 @@ public:
   }
 
   /**
+   * @brief Gets the lp_fingerprint flag, using default if not set.
+   *
+   * When true, write LP fingerprint JSON to the output directory after
+   * LP assembly.  The fingerprint captures the structural template
+   * (which types of variables/constraints exist) for regression detection.
+   *
+   * @return Whether to write LP fingerprint files
+   */
+  [[nodiscard]] constexpr auto lp_fingerprint() const
+  {
+    return m_options_.lp_fingerprint.value_or(false);
+  }
+
+  /**
    * @brief Gets the LP coefficient ratio threshold for conditioning
    * diagnostics.
    * @return The threshold above which per-scene/phase LP stats are shown

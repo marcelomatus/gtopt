@@ -344,6 +344,18 @@ public:
     return rows[row][col];
   }
 
+  /// Read-only access to the raw column vector (for fingerprinting).
+  [[nodiscard]] constexpr const cols_t& get_cols() const noexcept
+  {
+    return cols;
+  }
+
+  /// Read-only access to the raw row vector (for fingerprinting).
+  [[nodiscard]] constexpr const rows_t& get_rows() const noexcept
+  {
+    return rows;
+  }
+
   /**
    * Builds the flat (column-major) LP representation
    * @param opts LP build options

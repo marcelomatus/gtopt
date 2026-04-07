@@ -48,6 +48,7 @@ external time-series data.
     - [Example: 2-level cascade (uninodal warm-start)](#142-example-2-level-cascade-uninodal-warm-start)
     - [Example: 3-level progressive refinement](#143-example-3-level-progressive-refinement)
     - [Monitoring cascade progress](#144-monitoring-cascade-progress)
+15. [LP Fingerprint — Formulation Audit](#15-lp-fingerprint--formulation-audit)
 
 ---
 
@@ -1890,3 +1891,49 @@ after the solve completes.
   solver, boundary cuts, and sequential mode
 - `scripts/gtopt_field_extractor.py` — Auto-generate field-reference tables
   from C++ headers
+- **[LP Fingerprint](lp-fingerprint.md)** — LP formulation audit and
+  structural integrity verification
+
+---
+
+## 15. LP Fingerprint — Formulation Audit
+
+The **LP Fingerprint** captures which types of variables and constraints exist
+in the LP formulation, producing a structural hash that is independent of
+element counts.  Use it to detect regressions in the LP formulation across
+code changes.
+
+### Enabling the fingerprint
+
+```json
+{ "options": { "lp_fingerprint": true } }
+```
+
+Or via CLI: `--set options.lp_fingerprint=true`
+
+This writes `lp_fingerprint_scene_{S}_phase_{P}.json` to the output directory.
+
+### Comparing against a baseline
+
+```bash
+python -m gtopt_lp_fingerprint compare \
+  --actual output/lp_fingerprint_scene_0_phase_0.json \
+  --expected golden/lp_fingerprint_scene_0_phase_0.json
+```
+
+The comparison ignores element counts (stats section) and only checks the
+structural template — which (class, variable, context_type) triples are
+present.
+
+### External verification from LP files
+
+The Python tool can also compute a fingerprint directly from a solver-generated
+LP file, verifying that what gtopt assembles is exactly what the solver sees:
+
+```bash
+python -m gtopt_lp_fingerprint verify \
+  --lp-file logs/lp_scene_0_phase_0.lp \
+  --golden golden/lp_fingerprint_scene_0_phase_0.json
+```
+
+For full details, see the [LP Fingerprint Guide](lp-fingerprint.md)

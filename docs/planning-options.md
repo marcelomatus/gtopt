@@ -94,6 +94,7 @@ All fields are `std::optional` -- absent fields inherit built-in defaults
 | `lp_debug` | bool | `false` | Save LP debug files before solving |
 | `lp_compression` | string | -- | Compression codec for LP files |
 | `lp_build` | bool | `false` | Build LP matrices without solving |
+| `lp_fingerprint` | bool | `false` | Write [LP fingerprint](lp-fingerprint.md) JSON for formulation audit |
 
 ### Grouped Sub-objects
 

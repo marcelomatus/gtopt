@@ -158,6 +158,12 @@ struct PlanningOptions
    * Combine with `lp_debug=true` to save every scene/phase LP file. */
   OptBool lp_only {};
 
+  /** @brief When true, write LP fingerprint JSON to the output directory.
+   * The fingerprint captures the structural template of the LP formulation
+   * (which types of variables and constraints exist) for regression detection.
+   * Output file: `lp_fingerprint_scene_{S}_phase_{P}.json`. */
+  OptBool lp_fingerprint {};
+
   /** @brief Minimum scene UID for selective LP debug saving (inclusive).
    *  When set together with lp_debug=true, only scenes with
    *  uid >= lp_debug_scene_min are saved.  Default: save all. */
@@ -320,6 +326,7 @@ struct PlanningOptions
     merge_opt(lp_debug, opts.lp_debug);
     merge_opt(lp_compression, opts.lp_compression);
     merge_opt(lp_only, opts.lp_only);
+    merge_opt(lp_fingerprint, opts.lp_fingerprint);
     merge_opt(lp_debug_scene_min, opts.lp_debug_scene_min);
     merge_opt(lp_debug_scene_max, opts.lp_debug_scene_max);
     merge_opt(lp_debug_phase_min, opts.lp_debug_phase_min);

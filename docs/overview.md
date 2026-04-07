@@ -395,5 +395,6 @@ Located in `.github/workflows/`:
 | SDDP decomposition | [SDDP Method](methods/sddp.md) |
 | Cascade multi-level method | [Cascade Method](methods/cascade.md) |
 | Write user-defined constraints | [User Constraints](user-constraints.md) |
+| Verify LP formulation integrity | [LP Fingerprint](lp-fingerprint.md) |
 | Contribute code | [CONTRIBUTING.md](../CONTRIBUTING.md) |
 | API documentation (Doxygen) | [GitHub Pages](https://marcelomatus.github.io/gtopt/) |
