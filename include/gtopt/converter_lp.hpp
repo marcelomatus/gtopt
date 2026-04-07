@@ -25,6 +25,9 @@ class ConverterLP : public CapacityObjectLP<Converter>
 {
 public:
   static constexpr LPClassName ClassName {"Converter", "con"};
+  static constexpr std::string_view GenerationName {"generation"};
+  static constexpr std::string_view DemandName {"demand"};
+  static constexpr std::string_view CapacityName {"capacity"};
 
   using CapacityBase = CapacityObjectLP<Converter>;
 

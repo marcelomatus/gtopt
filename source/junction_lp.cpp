@@ -46,7 +46,7 @@ bool JunctionLP::add_to_lp(const SystemContext& /*sc*/,
     // Create balance row for this block
     auto brow = SparseRow {
         .class_name = ClassName.full_name(),
-        .constraint_name = "bal",
+        .constraint_name = BalanceName,
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     };
@@ -55,7 +55,7 @@ bool JunctionLP::add_to_lp(const SystemContext& /*sc*/,
     if (add_drain_col) {
       const auto dcol = lp.add_col({
           .class_name = ClassName.full_name(),
-          .variable_name = "drain",
+          .variable_name = DrainName,
           .variable_uid = uid(),
           .context =
               make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -81,9 +81,9 @@ bool JunctionLP::add_to_output(OutputContext& out) const
   const auto pid = id();
 
   // Add all solution components to output context
-  out.add_col_sol(cname, "drain", pid, drain_cols);
-  out.add_col_cost(cname, "drain", pid, drain_cols);
-  out.add_row_dual(cname, "balance", pid, balance_rows);
+  out.add_col_sol(cname, DrainName, pid, drain_cols);
+  out.add_col_cost(cname, DrainName, pid, drain_cols);
+  out.add_row_dual(cname, BalanceName, pid, balance_rows);
 
   return true;
 }

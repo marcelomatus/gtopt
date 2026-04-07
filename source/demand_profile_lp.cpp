@@ -51,7 +51,7 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
                            scenario,
                            stage,
                            lp,
-                           "usv",
+                           UnservedName,
                            load_cols,
                            capacity_col,
                            stage_capacity);
@@ -59,7 +59,7 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
 
 bool DemandProfileLP::add_to_output(OutputContext& out) const
 {
-  return add_profile_to_output(ClassName.full_name(), out, "unserved");
+  return add_profile_to_output(ClassName.full_name(), out, UnservedName);
 }
 
 bool DemandProfileLP::update_aperture(

@@ -30,6 +30,8 @@ class BusLP : public ObjectLP<Bus>
 {
 public:
   static constexpr LPClassName ClassName {"Bus", "bus"};
+  static constexpr std::string_view BalanceName {"balance"};
+  static constexpr std::string_view ThetaName {"theta"};
 
   /// Constructs a BusLP from a Bus and input context
   /// @param pbus The bus to wrap

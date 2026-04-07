@@ -23,6 +23,10 @@ class ReserveProvisionLP : public ObjectLP<ReserveProvision>
 {
 public:
   static constexpr LPClassName ClassName {"ReserveProvision", "rpr"};
+  static constexpr std::string_view UprovisionName {"uprovision"};
+  static constexpr std::string_view DprovisionName {"dprovision"};
+  static constexpr std::string_view UcapacityName {"ucapacity"};
+  static constexpr std::string_view DcapacityName {"dcapacity"};
 
   using Base = ObjectLP<ReserveProvision>;
 

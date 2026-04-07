@@ -72,7 +72,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
       auto grow =
           SparseRow {
               .class_name = ClassName.full_name(),
-              .constraint_name = "gconv",
+              .constraint_name = GenerationName,
               .variable_uid = uid(),
               .context = block_context,
           }
@@ -90,7 +90,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
       auto drow =
           SparseRow {
               .class_name = ClassName.full_name(),
-              .constraint_name = "dconv",
+              .constraint_name = DemandName,
               .variable_uid = uid(),
               .context = block_context,
           }
@@ -105,7 +105,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
       auto crow =
           SparseRow {
               .class_name = ClassName.full_name(),
-              .constraint_name = "cap",
+              .constraint_name = CapacityName,
               .variable_uid = uid(),
               .context = block_context,
           }
@@ -132,9 +132,9 @@ bool ConverterLP::add_to_output(OutputContext& out) const
 {
   static constexpr std::string_view cname = ClassName.full_name();
 
-  out.add_row_dual(cname, "generation", id(), generation_rows);
-  out.add_row_dual(cname, "demand", id(), demand_rows);
-  out.add_row_dual(cname, "capacity", id(), capacity_rows);
+  out.add_row_dual(cname, GenerationName, id(), generation_rows);
+  out.add_row_dual(cname, DemandName, id(), demand_rows);
+  out.add_row_dual(cname, CapacityName, id(), capacity_rows);
 
   return CapacityBase::add_to_output(out);
 }

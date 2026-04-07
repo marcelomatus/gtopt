@@ -266,21 +266,21 @@ bool LineLP::add_to_output(OutputContext& out) const
 
   const auto pid = id();
 
-  out.add_col_sol(cname, "flowp", pid, flowp_cols);
-  out.add_col_cost(cname, "flowp", pid, flowp_cols);
+  out.add_col_sol(cname, FlowpName, pid, flowp_cols);
+  out.add_col_cost(cname, FlowpName, pid, flowp_cols);
 
-  out.add_col_sol(cname, "flown", pid, flown_cols);
-  out.add_col_cost(cname, "flown", pid, flown_cols);
+  out.add_col_sol(cname, FlownName, pid, flown_cols);
+  out.add_col_cost(cname, FlownName, pid, flown_cols);
 
-  out.add_col_sol(cname, "lossp", pid, lossp_cols);
-  out.add_col_sol(cname, "lossn", pid, lossn_cols);
+  out.add_col_sol(cname, LosspName, pid, lossp_cols);
+  out.add_col_sol(cname, LossnName, pid, lossn_cols);
 
-  out.add_row_dual(cname, "capacityp", pid, capacityp_rows);
-  out.add_row_dual(cname, "capacityn", pid, capacityn_rows);
+  out.add_row_dual(cname, CapacitypName, pid, capacityp_rows);
+  out.add_row_dual(cname, CapacitynName, pid, capacityn_rows);
 
   // Kirchhoff duals must be multiplied by row_norm to undo the
   // normalization applied in add_kirchhoff_rows().
-  out.add_row_dual(cname, "theta", pid, theta_rows, theta_row_scale);
+  out.add_row_dual(cname, ThetaName, pid, theta_rows, theta_row_scale);
 
   return CapacityBase::add_to_output(out);
 }

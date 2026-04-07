@@ -115,7 +115,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
         .uppb = block_pmax,
         .cost = sc.block_ecost(scenario, stage, block, stage_gcost),
         .class_name = ClassName.full_name(),
-        .variable_name = "gen",
+        .variable_name = GenerationName,
         .variable_uid = guid,
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
@@ -132,7 +132,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
       auto crow =
           SparseRow {
               .class_name = ClassName.full_name(),
-              .constraint_name = "cap",
+              .constraint_name = CapacityName,
               .variable_uid = guid,
               .context =
                   make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -172,9 +172,9 @@ bool GeneratorLP::add_to_output(OutputContext& out) const
   static constexpr std::string_view cname = ClassName.full_name();
 
   const auto pid = id();
-  out.add_col_sol(cname, "generation", pid, generation_cols);
-  out.add_col_cost(cname, "generation", pid, generation_cols);
-  out.add_row_dual(cname, "capacity", pid, capacity_rows);
+  out.add_col_sol(cname, GenerationName, pid, generation_cols);
+  out.add_col_cost(cname, GenerationName, pid, generation_cols);
+  out.add_row_dual(cname, CapacityName, pid, capacity_rows);
 
   return CapacityBase::add_to_output(out);
 }

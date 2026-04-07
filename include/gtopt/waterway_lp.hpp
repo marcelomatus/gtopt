@@ -21,6 +21,7 @@ class WaterwayLP : public ObjectLP<Waterway>
 {
 public:
   static constexpr LPClassName ClassName {"Waterway", "wwy"};
+  static constexpr std::string_view FlowName {"flow"};
 
   explicit WaterwayLP(const Waterway& pwaterway, const InputContext& ic);
 

@@ -515,7 +515,7 @@ public:
       auto erow =
           SparseRow {
               .class_name = cname,
-              .constraint_name = "vol",
+              .constraint_name = "volumen",
               .variable_uid = opts.variable_uid,
               .context =
                   make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -582,7 +582,7 @@ public:
             .cost = sc.block_ecost(scenario, stage, block, *drain_cost),
             .scale = flow_scale,
             .class_name = opts.class_name,
-            .variable_name = "flow",
+            .variable_name = "drain",
             .variable_uid = opts.variable_uid,
             .context =
                 make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -600,7 +600,7 @@ public:
         auto crow =
             SparseRow {
                 .class_name = cname,
-                .constraint_name = "cap",
+                .constraint_name = "capacity",
                 .variable_uid = opts.variable_uid,
                 .context = make_block_context(
                     scenario.uid(), stage.uid(), block.uid()),

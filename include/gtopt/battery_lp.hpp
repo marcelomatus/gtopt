@@ -34,6 +34,8 @@ class BatteryLP : public StorageLP<CapacityObjectLP<Battery>>
 {
 public:
   static constexpr LPClassName ClassName {"Battery", "bat"};
+  static constexpr std::string_view FinpName {"finp"};
+  static constexpr std::string_view FoutName {"fout"};
 
   using CapacityBase = CapacityObjectLP<Battery>;
   using StorageBase = StorageLP<CapacityObjectLP<Battery>>;

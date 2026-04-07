@@ -42,6 +42,8 @@ class TurbineLP : public ObjectLP<Turbine>
 {
 public:
   static constexpr LPClassName ClassName {"Turbine", "tur"};
+  static constexpr std::string_view ConversionName {"conversion"};
+  static constexpr std::string_view CapacityName {"capacity"};
 
   /**
    * @brief Construct a TurbineLP from a Turbine and input context

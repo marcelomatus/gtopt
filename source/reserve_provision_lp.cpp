@@ -29,6 +29,7 @@ std::expected<void, Error> add_provision(
     const Uid uid,
     ReserveProvisionLP::Provision& rp,
     const std::string_view pname,
+    const std::string_view cap_name,
     const STBIndexHolder<RowIndex>& requirement_rows,
     auto provision_row)
 {
@@ -87,7 +88,7 @@ std::expected<void, Error> add_provision(
       auto crow =
           SparseRow {
               .class_name = cname,
-              .constraint_name = "cap",
+              .constraint_name = cap_name,
               .variable_uid = uid,
               .context =
                   make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -217,7 +218,7 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
       auto rrow =
           SparseRow {
               .class_name = cname,
-              .constraint_name = "uprov",
+              .constraint_name = ReserveProvisionLP::UprovisionName,
               .variable_uid = uid(),
               .context = std::move(context),
           }
@@ -237,7 +238,7 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
       auto rrow =
           SparseRow {
               .class_name = cname,
-              .constraint_name = "dprov",
+              .constraint_name = ReserveProvisionLP::DprovisionName,
               .variable_uid = uid(),
               .context = std::move(context),
           }
@@ -265,7 +266,8 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
                                    generation_cols,
                                    uid(),
                                    up,
-                                   "uprov",
+                                   UprovisionName,
+                                   UcapacityName,
                                    reserve_zone.urequirement_rows(),
                                    uprov_row);
           !res)
@@ -285,7 +287,8 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
                                    generation_cols,
                                    uid(),
                                    dp,
-                                   "dprov",
+                                   DprovisionName,
+                                   DcapacityName,
                                    reserve_zone.drequirement_rows(),
                                    dprov_row);
           !res)
@@ -311,15 +314,15 @@ bool ReserveProvisionLP::add_to_output(OutputContext& out) const
   static constexpr std::string_view cname = ClassName.full_name();
   const auto pid = id();
 
-  out.add_col_sol(cname, "uprovision", pid, up.provision_cols);
-  out.add_col_cost(cname, "uprovision", pid, up.provision_cols);
-  out.add_row_dual(cname, "uprovision", pid, up.provision_rows);
-  out.add_row_dual(cname, "ucapacity", pid, up.capacity_rows);
+  out.add_col_sol(cname, UprovisionName, pid, up.provision_cols);
+  out.add_col_cost(cname, UprovisionName, pid, up.provision_cols);
+  out.add_row_dual(cname, UprovisionName, pid, up.provision_rows);
+  out.add_row_dual(cname, UcapacityName, pid, up.capacity_rows);
 
-  out.add_col_sol(cname, "dprovision", pid, dp.provision_cols);
-  out.add_col_cost(cname, "dprovision", pid, dp.provision_cols);
-  out.add_row_dual(cname, "dprovision", pid, dp.provision_rows);
-  out.add_row_dual(cname, "dcapacity", pid, dp.capacity_rows);
+  out.add_col_sol(cname, DprovisionName, pid, dp.provision_cols);
+  out.add_col_cost(cname, DprovisionName, pid, dp.provision_cols);
+  out.add_row_dual(cname, DprovisionName, pid, dp.provision_rows);
+  out.add_row_dual(cname, DcapacityName, pid, dp.capacity_rows);
 
   return true;
 }

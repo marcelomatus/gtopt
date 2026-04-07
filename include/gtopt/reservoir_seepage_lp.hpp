@@ -50,6 +50,7 @@ class ReservoirSeepageLP : public ObjectLP<ReservoirSeepage>
 {
 public:
   static constexpr LPClassName ClassName {"ReservoirSeepage", "fil"};
+  static constexpr std::string_view SeepageName {"seepage"};
 
   /// Constructs a ReservoirSeepageLP from a ReservoirSeepage and input context.
   /// Initialises per-stage slope/constant schedules from the seepage

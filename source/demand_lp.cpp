@@ -74,7 +74,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
               .uppb = *stage_emin,
               .cost = -sc.stage_ecost(stage, *stage_ecost / stage.duration()),
               .class_name = ClassName.full_name(),
-              .variable_name = "emin",
+              .variable_name = EminName,
               .variable_uid = uid(),
               .context = make_stage_context(scenario.uid(), stage.uid()),
           })
@@ -82,7 +82,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
               .lowb = *stage_emin,
               .uppb = *stage_emin,
               .class_name = ClassName.full_name(),
-              .variable_name = "emin",
+              .variable_name = EminName,
               .variable_uid = uid(),
               .context = make_stage_context(scenario.uid(), stage.uid()),
           });
@@ -92,7 +92,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     auto row =
         SparseRow {
             .class_name = ClassName.full_name(),
-            .constraint_name = "emin",
+            .constraint_name = EminName,
             .variable_uid = uid(),
             .context = make_stage_context(scenario.uid(), stage.uid()),
         }
@@ -124,7 +124,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
         .lowb = load_lowb,
         .uppb = load_uppb,
         .class_name = ClassName.full_name(),
-        .variable_name = "load",
+        .variable_name = LoadName,
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
@@ -133,7 +133,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
       const auto fcol = lp.add_col({
           .cost = sc.block_ecost(scenario, stage, block, *stage_fcost),
           .class_name = ClassName.full_name(),
-          .variable_name = "fail",
+          .variable_name = FailName,
           .variable_uid = uid(),
           .context =
               make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -143,7 +143,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
       auto frow =
           SparseRow {
               .class_name = ClassName.full_name(),
-              .constraint_name = "fail",
+              .constraint_name = BalanceName,
               .variable_uid = uid(),
               .context =
                   make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -166,7 +166,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
       auto crow =
           SparseRow {
               .class_name = ClassName.full_name(),
-              .constraint_name = "cap",
+              .constraint_name = CapacityName,
               .variable_uid = uid(),
               .context =
                   make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -186,7 +186,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
       const auto mcol = lp.add_col({
           .uppb = *stage_emin / bdur,
           .class_name = ClassName.full_name(),
-          .variable_name = "lman",
+          .variable_name = LmanName,
           .variable_uid = uid(),
           .context =
               make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -224,20 +224,20 @@ bool DemandLP::add_to_output(OutputContext& out) const
   static constexpr std::string_view cname = ClassName.full_name();
   const auto pid = id();
 
-  out.add_col_sol(cname, "load", pid, load_cols);
-  out.add_col_cost(cname, "load", pid, load_cols);
-  out.add_row_dual(cname, "capacity", pid, capacity_rows);
+  out.add_col_sol(cname, LoadName, pid, load_cols);
+  out.add_col_cost(cname, LoadName, pid, load_cols);
+  out.add_row_dual(cname, CapacityName, pid, capacity_rows);
 
-  out.add_col_sol(cname, "emin", pid, emin_cols);
-  out.add_col_cost(cname, "emin", pid, emin_cols);
-  out.add_row_dual(cname, "emin", pid, emin_rows);
+  out.add_col_sol(cname, EminName, pid, emin_cols);
+  out.add_col_cost(cname, EminName, pid, emin_cols);
+  out.add_row_dual(cname, EminName, pid, emin_rows);
 
-  out.add_col_sol(cname, "lman", pid, lman_cols);
-  out.add_col_cost(cname, "lman", pid, lman_cols);
+  out.add_col_sol(cname, LmanName, pid, lman_cols);
+  out.add_col_cost(cname, LmanName, pid, lman_cols);
 
-  out.add_col_sol(cname, "fail", pid, fail_cols);
-  out.add_col_cost(cname, "fail", pid, fail_cols);
-  out.add_row_dual(cname, "balance", pid, balance_rows);
+  out.add_col_sol(cname, FailName, pid, fail_cols);
+  out.add_col_cost(cname, FailName, pid, fail_cols);
+  out.add_row_dual(cname, BalanceName, pid, balance_rows);
 
   return CapacityBase::add_to_output(out);
 }

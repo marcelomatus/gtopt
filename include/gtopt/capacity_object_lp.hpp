@@ -41,6 +41,10 @@ namespace gtopt
  */
 struct CapacityObjectBase
 {
+  static constexpr std::string_view CapainstName {"capainst"};
+  static constexpr std::string_view CapacostName {"capacost"};
+  static constexpr std::string_view ExpmodName {"expmod"};
+
   [[nodiscard]] constexpr const Id& id() const noexcept { return m_id_; }
 
   template<typename OF>

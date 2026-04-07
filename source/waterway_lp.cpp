@@ -74,7 +74,7 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
         .lowb = block_fmin,
         .uppb = block_fmax,
         .class_name = ClassName.full_name(),
-        .variable_name = "flow",
+        .variable_name = FlowName,
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
@@ -98,8 +98,8 @@ bool WaterwayLP::add_to_output(OutputContext& out) const
   static constexpr std::string_view cname = ClassName.full_name();
   const auto pid = id();
 
-  out.add_col_sol(cname, "flow", pid, flow_cols);
-  out.add_col_cost(cname, "flow", pid, flow_cols);
+  out.add_col_sol(cname, FlowName, pid, flow_cols);
+  out.add_col_cost(cname, FlowName, pid, flow_cols);
 
   return true;
 }

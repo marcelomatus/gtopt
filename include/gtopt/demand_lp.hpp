@@ -12,6 +12,12 @@ class DemandLP : public CapacityObjectLP<Demand>
 {
 public:
   static constexpr LPClassName ClassName {"Demand", "dem"};
+  static constexpr std::string_view LoadName {"load"};
+  static constexpr std::string_view FailName {"fail"};
+  static constexpr std::string_view BalanceName {"balance"};
+  static constexpr std::string_view CapacityName {"capacity"};
+  static constexpr std::string_view EminName {"emin"};
+  static constexpr std::string_view LmanName {"lman"};
 
   using CapacityBase = CapacityObjectLP<Demand>;
 

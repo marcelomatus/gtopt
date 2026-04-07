@@ -95,7 +95,7 @@ bool BusLP::add_to_lp(const SystemContext& /*sc*/,
                         {
                           brows[block.uid()] = lp.add_row({
                               .class_name = ClassName.full_name(),
-                              .constraint_name = "bal",
+                              .constraint_name = BalanceName,
                               .variable_uid = uid(),
                               .context = make_block_context(
                                   scenario.uid(), stage.uid(), block.uid()),
@@ -113,11 +113,11 @@ bool BusLP::add_to_output(OutputContext& out) const
   static constexpr std::string_view cname = ClassName.full_name();
   const auto pid = id();
 
-  out.add_row_dual(cname, "balance", pid, balance_rows);
+  out.add_row_dual(cname, BalanceName, pid, balance_rows);
 
   // Physical = LP × scale_theta, auto-descaled by LinearInterface.
-  out.add_col_sol(cname, "theta", pid, theta_cols);
-  out.add_col_cost(cname, "theta", pid, theta_cols);
+  out.add_col_sol(cname, ThetaName, pid, theta_cols);
+  out.add_col_cost(cname, ThetaName, pid, theta_cols);
 
   return true;
 }

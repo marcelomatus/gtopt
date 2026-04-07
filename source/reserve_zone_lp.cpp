@@ -128,7 +128,7 @@ bool ReserveZoneLP::add_to_lp(const SystemContext& sc,
   const auto& blocks = stage.blocks();
 
   if (auto res = add_requirement(
-          cname, sc, scenario, stage, lp, blocks, uid(), ur, "ureq");
+          cname, sc, scenario, stage, lp, blocks, uid(), ur, UrequirementName);
       !res)
   {
     SPDLOG_WARN("add_requirement (ureq) failed for uid={}: {}",
@@ -137,7 +137,7 @@ bool ReserveZoneLP::add_to_lp(const SystemContext& sc,
     return false;
   }
   if (auto res = add_requirement(
-          cname, sc, scenario, stage, lp, blocks, uid(), dr, "dreq");
+          cname, sc, scenario, stage, lp, blocks, uid(), dr, DrequirementName);
       !res)
   {
     SPDLOG_WARN("add_requirement (dreq) failed for uid={}: {}",
@@ -153,13 +153,13 @@ bool ReserveZoneLP::add_to_output(OutputContext& out) const
   static constexpr std::string_view cname = ClassName.full_name();
   const auto pid = id();
 
-  out.add_col_sol(cname, "urequirement", pid, ur.requirement_cols);
-  out.add_col_cost(cname, "urequirement", pid, ur.requirement_cols);
-  out.add_row_dual(cname, "urequirement", pid, ur.requirement_rows);
+  out.add_col_sol(cname, UrequirementName, pid, ur.requirement_cols);
+  out.add_col_cost(cname, UrequirementName, pid, ur.requirement_cols);
+  out.add_row_dual(cname, UrequirementName, pid, ur.requirement_rows);
 
-  out.add_col_sol(cname, "drequirement", pid, dr.requirement_cols);
-  out.add_col_cost(cname, "drequirement", pid, dr.requirement_cols);
-  out.add_row_dual(cname, "drequirement", pid, dr.requirement_rows);
+  out.add_col_sol(cname, DrequirementName, pid, dr.requirement_cols);
+  out.add_col_cost(cname, DrequirementName, pid, dr.requirement_cols);
+  out.add_row_dual(cname, DrequirementName, pid, dr.requirement_rows);
 
   return true;
 }

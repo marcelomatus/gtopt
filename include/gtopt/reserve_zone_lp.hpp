@@ -24,6 +24,8 @@ class ReserveZoneLP : public ObjectLP<ReserveZone>
 {
 public:
   static constexpr LPClassName ClassName {"ReserveZone", "rzn"};
+  static constexpr std::string_view UrequirementName {"urequirement"};
+  static constexpr std::string_view DrequirementName {"drequirement"};
 
   using Base = ObjectLP<ReserveZone>;
 

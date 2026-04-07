@@ -34,6 +34,7 @@ class GeneratorProfileLP : public ProfileObjectLP<GeneratorProfile, GeneratorLP>
 public:
   /// Class name constant used for labeling LP elements
   static constexpr LPClassName ClassName {"GeneratorProfile", "gpr"};
+  static constexpr std::string_view SpilloverName {"spillover"};
 
   explicit GeneratorProfileLP(const GeneratorProfile& pgenerator_profile,
                               InputContext& ic);

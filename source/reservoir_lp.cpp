@@ -115,7 +115,7 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
         .lowb = fmin,
         .uppb = fmax,
         .class_name = ClassName.full_name(),
-        .variable_name = "flow",
+        .variable_name = ExtractionName,
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
@@ -188,8 +188,8 @@ bool ReservoirLP::add_to_output(OutputContext& out) const
 
   // Extraction columns have .scale = flow_scale; auto-descaled by
   // LinearInterface's get_col_sol() / get_col_cost().
-  out.add_col_sol(cname, "extraction", id(), extraction_cols);
-  out.add_col_cost(cname, "extraction", id(), extraction_cols);
+  out.add_col_sol(cname, ExtractionName, id(), extraction_cols);
+  out.add_col_cost(cname, ExtractionName, id(), extraction_cols);
 
   return StorageBase::add_to_output(out, ClassName.full_name());
 }

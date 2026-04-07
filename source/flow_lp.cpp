@@ -63,7 +63,7 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
         .lowb = block_discharge,
         .uppb = block_discharge,
         .class_name = ClassName.full_name(),
-        .variable_name = "flow",
+        .variable_name = FlowName,
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
@@ -88,8 +88,8 @@ bool FlowLP::add_to_output(OutputContext& out) const
 {
   static constexpr std::string_view cname = ClassName.full_name();
 
-  out.add_col_sol(cname, "flow", id(), flow_cols);
-  out.add_col_cost(cname, "flow", id(), flow_cols);
+  out.add_col_sol(cname, FlowName, id(), flow_cols);
+  out.add_col_cost(cname, FlowName, id(), flow_cols);
 
   return true;
 }

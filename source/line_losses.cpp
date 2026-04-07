@@ -248,21 +248,21 @@ struct DirLabels
 };
 
 inline constexpr DirLabels positive_labels {
-    .flow = "fp",
-    .seg = "fps",
-    .loss = "lsp",
-    .link = "lnkp",
-    .loss_link = "lslp",
-    .cap = "capp",
+    .flow = "flowp",
+    .seg = "flowp_seg",
+    .loss = "lossp",
+    .link = "flowp_link",
+    .loss_link = "lossp_link",
+    .cap = "capacityp",
 };
 
 inline constexpr DirLabels negative_labels {
-    .flow = "fn",
-    .seg = "fns",
-    .loss = "lsn",
-    .link = "lnkn",
-    .loss_link = "lsln",
-    .cap = "capn",
+    .flow = "flown",
+    .seg = "flown_seg",
+    .loss = "lossn",
+    .link = "flown_link",
+    .loss_link = "lossn_link",
+    .cap = "capacityn",
 };
 
 // ─── Per-mode implementations ───────────────────────────────────────
@@ -285,7 +285,7 @@ BlockResult add_none(const ScenarioLP& scenario,
       .uppb = block_tmax_ab,
       .cost = block_tcost,
       .class_name = "Line",
-      .variable_name = "fp",
+      .variable_name = "flowp",
       .variable_uid = uid,
       .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
   });
@@ -326,7 +326,7 @@ BlockResult add_linear(const LossConfig& config,
         .uppb = block_tmax_ab,
         .cost = block_tcost,
         .class_name = "Line",
-        .variable_name = "fp",
+        .variable_name = "flowp",
         .variable_uid = uid,
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
@@ -336,7 +336,7 @@ BlockResult add_linear(const LossConfig& config,
 
     if (capacity_col) {
       result.capp_row = add_capacity_row(
-          lp, scenario, stage, block, "capp", uid, *capacity_col, fpc);
+          lp, scenario, stage, block, "capacityp", uid, *capacity_col, fpc);
     }
   }
 
@@ -347,7 +347,7 @@ BlockResult add_linear(const LossConfig& config,
         .uppb = block_tmax_ba,
         .cost = block_tcost,
         .class_name = "Line",
-        .variable_name = "fn",
+        .variable_name = "flown",
         .variable_uid = uid,
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
@@ -357,7 +357,7 @@ BlockResult add_linear(const LossConfig& config,
 
     if (capacity_col) {
       result.capn_row = add_capacity_row(
-          lp, scenario, stage, block, "capn", uid, *capacity_col, fnc);
+          lp, scenario, stage, block, "capacityn", uid, *capacity_col, fnc);
     }
   }
 
@@ -406,7 +406,7 @@ BlockResult add_piecewise(const LossConfig& config,
         .uppb = block_tmax_ab,
         .cost = block_tcost,
         .class_name = "Line",
-        .variable_name = "fp",
+        .variable_name = "flowp",
         .variable_uid = uid,
         .context = block_ctx,
     });
@@ -423,7 +423,7 @@ BlockResult add_piecewise(const LossConfig& config,
         .uppb = block_tmax_ba,
         .cost = block_tcost,
         .class_name = "Line",
-        .variable_name = "fn",
+        .variable_name = "flown",
         .variable_uid = uid,
         .context = block_ctx,
     });
@@ -437,7 +437,7 @@ BlockResult add_piecewise(const LossConfig& config,
       .lowb = 0,
       .uppb = LinearProblem::DblMax,
       .class_name = "Line",
-      .variable_name = "ls",
+      .variable_name = "lossp",
       .variable_uid = uid,
       .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
   });
@@ -449,7 +449,7 @@ BlockResult add_piecewise(const LossConfig& config,
   auto linkrow =
       SparseRow {
           .class_name = "Line",
-          .constraint_name = "lnk",
+          .constraint_name = "flow_link",
           .variable_uid = uid,
           .context =
               make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -467,7 +467,7 @@ BlockResult add_piecewise(const LossConfig& config,
   auto lossrow =
       SparseRow {
           .class_name = "Line",
-          .constraint_name = "lsl",
+          .constraint_name = "loss_link",
           .variable_uid = uid,
           .context =
               make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -499,7 +499,7 @@ BlockResult add_piecewise(const LossConfig& config,
                                          scenario,
                                          stage,
                                          block,
-                                         "capp",
+                                         "capacityp",
                                          uid,
                                          *capacity_col,
                                          *result.fp_col);
@@ -509,7 +509,7 @@ BlockResult add_piecewise(const LossConfig& config,
                                          scenario,
                                          stage,
                                          block,
-                                         "capn",
+                                         "capacityn",
                                          uid,
                                          *capacity_col,
                                          *result.fn_col);

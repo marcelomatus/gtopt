@@ -79,7 +79,7 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
     auto frow =
         SparseRow {
             .class_name = ClassName.full_name(),
-            .constraint_name = "filt",
+            .constraint_name = SeepageName,
             .variable_uid = uid(),
             .context =
                 make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -115,9 +115,9 @@ bool ReservoirSeepageLP::add_to_output(OutputContext& out) const
   static constexpr std::string_view cname = ClassName.full_name();
   const auto pid = id();
 
-  out.add_col_sol(cname, "seepage", pid, seepage_cols);
-  out.add_col_cost(cname, "seepage", pid, seepage_cols);
-  out.add_row_dual(cname, "seepage", pid, seepage_rows);
+  out.add_col_sol(cname, SeepageName, pid, seepage_cols);
+  out.add_col_cost(cname, SeepageName, pid, seepage_cols);
+  out.add_row_dual(cname, SeepageName, pid, seepage_rows);
 
   return true;
 }

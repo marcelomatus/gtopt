@@ -85,13 +85,13 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
     const auto buid = block.uid();
     finps[buid] = lp.add_col(SparseCol {
         .class_name = ClassName.full_name(),
-        .variable_name = "flow",
+        .variable_name = FinpName,
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
     fouts[buid] = lp.add_col(SparseCol {
         .class_name = ClassName.full_name(),
-        .variable_name = "flow",
+        .variable_name = FoutName,
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
@@ -149,12 +149,12 @@ bool BatteryLP::add_to_output(OutputContext& out) const
   static constexpr std::string_view cname = ClassName.full_name();
 
   // Add finp variable solutions and costs to output
-  out.add_col_sol(cname, "finp", id(), finp_cols);
-  out.add_col_cost(cname, "finp", id(), finp_cols);
+  out.add_col_sol(cname, FinpName, id(), finp_cols);
+  out.add_col_cost(cname, FinpName, id(), finp_cols);
 
   // Add fout variable solutions and costs to output
-  out.add_col_sol(cname, "fout", id(), fout_cols);
-  out.add_col_cost(cname, "fout", id(), fout_cols);
+  out.add_col_sol(cname, FoutName, id(), fout_cols);
+  out.add_col_cost(cname, FoutName, id(), fout_cols);
 
   // Process storage and capacity outputs
   return StorageBase::add_to_output(out, cname)

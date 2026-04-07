@@ -168,7 +168,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
 
     SparseRow row;
     row.class_name = uc.name;
-    row.constraint_name = "uc";
+    row.constraint_name = ConstraintName;
     row.context = make_block_context(scenario.uid(), stage.uid(), block.uid());
 
     bool has_vars = false;
@@ -318,12 +318,12 @@ bool UserConstraintLP::add_to_output(OutputContext& out) const
   if (m_scale_type_ == ConstraintScaleType::Raw) {
     // Raw / unitless constraints: scale by discount factor only
     // (scale_obj / discount[t]), no probability and no block duration.
-    out.add_row_dual_raw(ClassName.full_name(), "constraint", pid, m_rows_);
+    out.add_row_dual_raw(ClassName.full_name(), ConstraintName, pid, m_rows_);
   } else {
     // Power and Energy constraints: standard block_cost_factors scaling
     // (scale_obj / (prob × discount × Δt)).
     // "power"  → dual in $/MW;  "energy" → dual in $/MWh.
-    out.add_row_dual(ClassName.full_name(), "constraint", pid, m_rows_);
+    out.add_row_dual(ClassName.full_name(), ConstraintName, pid, m_rows_);
   }
 
   return true;

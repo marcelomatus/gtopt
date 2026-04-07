@@ -56,7 +56,7 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
                            scenario,
                            stage,
                            lp,
-                           "spo",
+                           SpilloverName,
                            generation_cols,
                            capacity_col,
                            stage_capacity);
@@ -64,7 +64,7 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
 
 bool GeneratorProfileLP::add_to_output(OutputContext& out) const
 {
-  return add_profile_to_output(ClassName.full_name(), out, "spillover");
+  return add_profile_to_output(ClassName.full_name(), out, SpilloverName);
 }
 
 bool GeneratorProfileLP::update_aperture(

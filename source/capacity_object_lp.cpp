@@ -74,8 +74,8 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
       };
 
       prev_stage_capacity = stage_capacity;
-      prev_capainst_col = process_prev_state("capainst");
-      prev_capacost_col = process_prev_state("capacost");
+      prev_capainst_col = process_prev_state(CapainstName);
+      prev_capacost_col = process_prev_state(CapacostName);
     }
   }
 
@@ -89,15 +89,15 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
       .uppb = stage_capmax,
       .cost = 0.0,
       .class_name = m_class_name_,
-      .variable_name = "capainst",
+      .variable_name = CapainstName,
       .variable_uid = uid(),
       .context = stg_ctx,
   });
-  sc.add_state_variable(sv_key_p(scenario, stage, "capainst"), capainst_col);
+  sc.add_state_variable(sv_key_p(scenario, stage, CapainstName), capainst_col);
 
   SparseRow capainst_row;
   capainst_row.class_name = m_class_name_;
-  capainst_row.constraint_name = "capainst";
+  capainst_row.constraint_name = CapainstName;
   capainst_row.variable_uid = uid();
   capainst_row.context = stg_ctx;
   capainst_row[capainst_col] = -1;
@@ -105,15 +105,15 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   const auto capacost_col = lp.add_col({
       .cost = sc.stage_ecost(stage, 1.0),
       .class_name = m_class_name_,
-      .variable_name = "capacost",
+      .variable_name = CapacostName,
       .variable_uid = uid(),
       .context = stg_ctx,
   });
-  sc.add_state_variable(sv_key_p(scenario, stage, "capacost"), capacost_col);
+  sc.add_state_variable(sv_key_p(scenario, stage, CapacostName), capacost_col);
 
   SparseRow capacost_row;
   capacost_row.class_name = m_class_name_;
-  capacost_row.constraint_name = "capacost";
+  capacost_row.constraint_name = CapacostName;
   capacost_row.variable_uid = uid();
   capacost_row.context = stg_ctx;
   capacost_row[capacost_col] = +1;
@@ -122,7 +122,7 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
     const auto expmod_col = expmod_cols[stage.uid()] = lp.add_col({
         .uppb = stage_expmod,
         .class_name = m_class_name_,
-        .variable_name = "expmod",
+        .variable_name = ExpmodName,
         .variable_uid = uid(),
         .context = stg_ctx,
     });
@@ -152,16 +152,16 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
 
 bool CapacityObjectBase::add_to_output(OutputContext& out) const
 {
-  out.add_col_sol(m_class_name_, "capainst", id(), capainst_cols);
-  out.add_col_sol(m_class_name_, "capacost", id(), capacost_cols);
-  out.add_col_sol(m_class_name_, "expmod", id(), expmod_cols);
+  out.add_col_sol(m_class_name_, CapainstName, id(), capainst_cols);
+  out.add_col_sol(m_class_name_, CapacostName, id(), capacost_cols);
+  out.add_col_sol(m_class_name_, ExpmodName, id(), expmod_cols);
 
-  out.add_col_cost(m_class_name_, "capainst", id(), capainst_cols);
-  out.add_col_cost(m_class_name_, "capacost", id(), capacost_cols);
-  out.add_col_cost(m_class_name_, "expmod", id(), expmod_cols);
+  out.add_col_cost(m_class_name_, CapainstName, id(), capainst_cols);
+  out.add_col_cost(m_class_name_, CapacostName, id(), capacost_cols);
+  out.add_col_cost(m_class_name_, ExpmodName, id(), expmod_cols);
 
-  out.add_row_dual(m_class_name_, "capainst", id(), capainst_rows);
-  out.add_row_dual(m_class_name_, "capacost", id(), capacost_rows);
+  out.add_row_dual(m_class_name_, CapainstName, id(), capainst_rows);
+  out.add_row_dual(m_class_name_, CapacostName, id(), capacost_rows);
 
   return true;
 }
