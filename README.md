@@ -27,6 +27,7 @@ This project includes comprehensive documentation for different use cases:
 - **[SDDP Method](docs/methods/sddp.md)** - SDDP solver: theory, options, monitoring API, elastic filter modes, and JSON configuration
 - **[Cascade Method](docs/methods/cascade.md)** - Cascade solver: multi-level hybrid SDDP with warm-start
 - **[Monolithic Method](docs/methods/monolithic.md)** - Default monolithic solver, boundary cuts, and sequential mode
+- **[LP Fingerprint](docs/lp-fingerprint.md)** - LP structural fingerprint: formulation integrity verification, regression detection, and CI golden-reference comparison
 - **[Changelog](CHANGELOG.md)** - Release history and notable changes
 - **[Contributing Guide](CONTRIBUTING.md)** - Contribution guidelines, code style, and testing
 - **[webservice/INSTALL.md](webservice/INSTALL.md)** - Web service installation, deployment, and API reference
@@ -149,6 +150,7 @@ validating, and post-processing data for use with gtopt:
 | `gtopt_check_lp` | Diagnose infeasible LP files (static + solver + AI) |
 | `gtopt_check_output` | Analyze solver output completeness and correctness |
 | `gtopt_compress_lp` | Compress LP debug files |
+| `gtopt_lp_fingerprint` | Compute, verify, and compare LP structural fingerprints |
 
 ### Install
 
