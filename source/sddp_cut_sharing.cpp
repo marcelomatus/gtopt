@@ -23,7 +23,7 @@ namespace gtopt
 {
 
 void share_cuts_for_phase(
-    PhaseIndex phase,
+    PhaseIndex phase_index,
     const StrongIndexVector<SceneIndex, std::vector<SparseRow>>& scene_cuts,
     CutSharingMode mode,
     PlanningLP& planning,
@@ -62,15 +62,15 @@ void share_cuts_for_phase(
     auto accumulated = accumulate_benders_cuts(all_cuts);
     apply_context(accumulated);
 
-    for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-      auto& li = planning.system(scene, phase).linear_interface();
+    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      auto& li = planning.system(scene_index, phase_index).linear_interface();
       li.add_row(accumulated);
     }
 
     SPDLOG_TRACE(
         "SDDP sharing: added accumulated cut to phase {} "
         "({} scene cuts summed)",
-        phase,
+        phase_index,
         all_cuts.size());
 
   } else if (mode == CutSharingMode::expected) {
@@ -82,8 +82,8 @@ void share_cuts_for_phase(
     std::vector<SparseRow> scene_avg_cuts;
     scene_avg_cuts.reserve(static_cast<std::size_t>(num_scenes));
 
-    for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-      const auto& cuts = scene_cuts[scene];
+    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      const auto& cuts = scene_cuts[scene_index];
       if (cuts.empty()) {
         continue;
       }
@@ -97,15 +97,15 @@ void share_cuts_for_phase(
     auto accumulated = accumulate_benders_cuts(scene_avg_cuts);
     apply_context(accumulated);
 
-    for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-      auto& li = planning.system(scene, phase).linear_interface();
+    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      auto& li = planning.system(scene_index, phase_index).linear_interface();
       li.add_row(accumulated);
     }
 
     SPDLOG_TRACE(
         "SDDP sharing: added expected cut to phase {} "
         "({} scenes with cuts, summed from scene averages)",
-        phase,
+        phase_index,
         scene_avg_cuts.size());
 
   } else if (mode == CutSharingMode::max) {
@@ -119,8 +119,8 @@ void share_cuts_for_phase(
       return;
     }
 
-    for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-      auto& li = planning.system(scene, phase).linear_interface();
+    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      auto& li = planning.system(scene_index, phase_index).linear_interface();
       for (const auto& cut : all_cuts) {
         li.add_row(cut);
       }
@@ -128,7 +128,7 @@ void share_cuts_for_phase(
 
     SPDLOG_TRACE("SDDP sharing: added {} cuts to phase {} for all {} scenes",
                  all_cuts.size(),
-                 phase,
+                 phase_index,
                  num_scenes);
   }
 }

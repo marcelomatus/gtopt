@@ -207,10 +207,11 @@ bool rescale_benders_cut(SparseRow& row,
 
 // ─── Elastic filter ─────────────────────────────────────────────────────────
 
-RelaxedVarInfo relax_fixed_state_variable(LinearInterface& li,
-                                          const StateVarLink& link,
-                                          [[maybe_unused]] PhaseIndex phase,
-                                          double penalty)
+RelaxedVarInfo relax_fixed_state_variable(
+    LinearInterface& li,
+    const StateVarLink& link,
+    [[maybe_unused]] PhaseIndex phase_index,
+    double penalty)
 {
   const auto dep = link.dependent_col;
   const auto lo = li.get_col_low_raw()[dep];
@@ -260,7 +261,7 @@ RelaxedVarInfo relax_fixed_state_variable(LinearInterface& li,
   SPDLOG_TRACE(
       "SDDP elastic: phase {} col {} relaxed to [{:.2f}, {:.2f}] "
       "(source bounds from phase {})",
-      phase,
+      phase_index,
       dep,
       link.source_low,
       link.source_upp,

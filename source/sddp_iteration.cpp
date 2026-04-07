@@ -162,9 +162,10 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
           static_cast<Index>(planning_lp().simulation().scenes().size());
       m_cut_store_.scene_cuts_before().resize(
           static_cast<std::size_t>(num_scenes_bwd));
-      for (const auto scene : iota_range<SceneIndex>(0, num_scenes_bwd)) {
-        m_cut_store_.scene_cuts_before()[static_cast<std::size_t>(scene)] =
-            m_cut_store_.scene_cuts()[scene].size();
+      for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes_bwd)) {
+        m_cut_store_
+            .scene_cuts_before()[static_cast<std::size_t>(scene_index)] =
+            m_cut_store_.scene_cuts()[scene_index].size();
       }
       auto bwd = run_backward_pass_all_scenes(
           fwd->scene_feasible, *sddp_pool, bwd_opts, iter);
@@ -594,49 +595,51 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
 
   // ── Per-scene convergence helper ──
   // A scene is individually converged when its own gap < tol for enough iters.
-  const auto check_scene_convergence =
-      [&](SceneIndex scene, IterationIndex iter, double ub, double lb) -> bool
+  const auto check_scene_convergence = [&](SceneIndex scene_index,
+                                           IterationIndex iter,
+                                           double ub,
+                                           double lb) -> bool
   {
-    if (!tracker.is_converged(scene)) {
+    if (!tracker.is_converged(scene_index)) {
       const double scene_gap = compute_convergence_gap(ub, lb);
       const bool past_min =
           (iter >= m_iteration_offset_
                + IterationIndex {m_options_.min_iterations - 1});
       if (scene_gap < m_options_.convergence_tol && past_min) {
-        tracker.mark_converged(scene, iter);
+        tracker.mark_converged(scene_index, iter);
         SPDLOG_INFO("{}: scene {} converged at iter {} (gap={:.6f})",
-                    sddp_log("Async", iter, scene_uid(scene)),
-                    scene_uid(scene),
+                    sddp_log("Async", iter, scene_uid(scene_index)),
+                    scene_uid(scene_index),
                     iter,
                     scene_gap);
         return true;
       }
     }
-    return tracker.is_converged(scene);
+    return tracker.is_converged(scene_index);
   };
 
   // ── Per-scene simulation + output writing ──
   // Runs a simulation forward pass for a single scene, then writes output.
   const auto run_scene_simulation =
-      [&](SceneIndex scene,
+      [&](SceneIndex scene_index,
           IterationIndex sim_iter) -> std::expected<double, Error>
   {
     SPDLOG_INFO("{}: simulation pass for scene {}",
-                sddp_log("Sim", sim_iter, scene_uid(scene)),
-                scene_uid(scene));
-    auto result = forward_pass(scene, fwd_opts, sim_iter);
+                sddp_log("Sim", sim_iter, scene_uid(scene_index)),
+                scene_uid(scene_index));
+    auto result = forward_pass(scene_index, fwd_opts, sim_iter);
     if (!result.has_value()) {
       return result;
     }
 
     // Write output for this scene's phases
-    for (const auto phase : iota_range<PhaseIndex>(0, num_phases)) {
-      planning_lp().system(scene, phase).write_out();
+    for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
+      planning_lp().system(scene_index, phase_index).write_out();
     }
 
     SPDLOG_INFO("{}: scene {} outputs written",
-                sddp_log("Sim", sim_iter, scene_uid(scene)),
-                scene_uid(scene));
+                sddp_log("Sim", sim_iter, scene_uid(scene_index)),
+                scene_uid(scene_index));
     return result;
   };
 

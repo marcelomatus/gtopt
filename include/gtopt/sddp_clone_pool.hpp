@@ -56,26 +56,26 @@ public:
   /// calls, resets column bounds from the source LP and deletes rows
   /// beyond base_nrows.
   ///
-  /// @param scene      Scene index
-  /// @param phase      Phase index
-  /// @param planning   PlanningLP reference (for source LP access)
-  /// @param base_nrows Number of structural rows (cuts above this are reset)
+  /// @param scene_index Scene index
+  /// @param phase_index Phase index
+  /// @param planning    PlanningLP reference (for source LP access)
+  /// @param base_nrows  Number of structural rows (cuts above this are reset)
   /// @return Reference to the cached clone
-  [[nodiscard]] LinearInterface& get_or_create(SceneIndex scene,
-                                               PhaseIndex phase,
+  [[nodiscard]] LinearInterface& get_or_create(SceneIndex scene_index,
+                                               PhaseIndex phase_index,
                                                PlanningLP& planning,
                                                std::size_t base_nrows);
 
   /// Get a pooled clone pointer, or nullptr if pool is not allocated.
-  [[nodiscard]] LinearInterface* get_ptr(SceneIndex scene,
-                                         PhaseIndex phase,
+  [[nodiscard]] LinearInterface* get_ptr(SceneIndex scene_index,
+                                         PhaseIndex phase_index,
                                          PlanningLP& planning,
                                          std::size_t base_nrows)
   {
     if (m_pool_.empty()) {
       return nullptr;
     }
-    return &get_or_create(scene, phase, planning, base_nrows);
+    return &get_or_create(scene_index, phase_index, planning, base_nrows);
   }
 
 private:

@@ -214,7 +214,7 @@ bool rescale_benders_cut(SparseRow& row,
 [[nodiscard]] RelaxedVarInfo relax_fixed_state_variable(
     LinearInterface& li,
     const StateVarLink& link,
-    PhaseIndex phase,
+    PhaseIndex phase_index,
     double penalty);
 
 /// Result of the elastic-filter clone–solve step.

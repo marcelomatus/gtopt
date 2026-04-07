@@ -108,8 +108,8 @@ auto build_synthetic_apertures(std::span<const ScenarioLP> all_scenarios,
 // ─── solve_apertures_for_phase ──────────────────────────────────────────────
 
 auto solve_apertures_for_phase(
-    [[maybe_unused]] SceneIndex scene,
-    [[maybe_unused]] PhaseIndex phase,
+    [[maybe_unused]] SceneIndex scene_index,
+    [[maybe_unused]] PhaseIndex phase_index,
     const PhaseStateInfo& src_state,
     const ScenarioLP& base_scenario,
     std::span<const ScenarioLP> all_scenarios,
@@ -121,8 +121,8 @@ auto solve_apertures_for_phase(
     const SolverOptions& opts,
     [[maybe_unused]] const LabelMaker& label_maker,
     [[maybe_unused]] const std::string& log_directory,
-    SceneUid scene_uid,
-    PhaseUid phase_uid,
+    SceneUid scene_uid_val,
+    PhaseUid phase_uid_val,
     const ApertureSubmitFunc& submit_fn,
     double aperture_timeout,
     [[maybe_unused]] bool save_aperture_lp,
@@ -130,7 +130,7 @@ auto solve_apertures_for_phase(
     std::span<const double> forward_col_sol,
     std::span<const double> forward_row_dual,
     LinearInterface* pooled_clone,
-    IterationIndex iteration,
+    IterationIndex iteration_index,
     CutCoeffMode cut_coeff_mode,
     double scale_alpha,
     double cut_coeff_eps,
@@ -161,10 +161,11 @@ auto solve_apertures_for_phase(
   const auto phase_start = std::chrono::steady_clock::now();
   const auto caller_tid = std::this_thread::get_id();
 
-  SPDLOG_INFO("{}: starting {} aperture(s) [thread {}]",
-              sddp_log("Aperture", iteration, scene_uid, phase_uid),
-              effective_apertures.size(),
-              std::hash<std::thread::id> {}(caller_tid) % 10000);
+  SPDLOG_INFO(
+      "{}: starting {} aperture(s) [thread {}]",
+      sddp_log("Aperture", iteration_index, scene_uid_val, phase_uid_val),
+      effective_apertures.size(),
+      std::hash<std::thread::id> {}(caller_tid) % 10000);
 
   std::vector<std::future<ApertureCutResult>> futures;
   futures.reserve(effective_apertures.size());
@@ -178,7 +179,11 @@ auto solve_apertures_for_phase(
       SPDLOG_WARN(
           "{}: non-positive probability_factor {:.6f}, "
           "using 1.0 as fallback",
-          sddp_log("Aperture", iteration, scene_uid, phase_uid, ap_uid),
+          sddp_log("Aperture",
+                   iteration_index,
+                   scene_uid_val,
+                   phase_uid_val,
+                   ap_uid),
           pf);
     }
     const double effective_pf = pf > 0.0 ? pf : 1.0;
@@ -194,7 +199,11 @@ auto solve_apertures_for_phase(
       spdlog::info(
           "{}: source_scenario {} not found and no aperture cache, "
           "skipping",
-          sddp_log("Aperture", iteration, scene_uid, phase_uid, ap_uid),
+          sddp_log("Aperture",
+                   iteration_index,
+                   scene_uid_val,
+                   phase_uid_val,
+                   ap_uid),
           aperture.source_scenario);
       ++n_skipped;
       continue;
@@ -262,7 +271,11 @@ auto solve_apertures_for_phase(
             SPDLOG_DEBUG(
                 "{}: source matches base scenario, "
                 "skipping bound update",
-                sddp_log("Aperture", iteration, scene_uid, phase_uid, ap_uid));
+                sddp_log("Aperture",
+                         iteration_index,
+                         scene_uid_val,
+                         phase_uid_val,
+                         ap_uid));
           }
 
           // Apply warm-start hint
@@ -277,8 +290,8 @@ auto solve_apertures_for_phase(
             clone.set_log_file((std::filesystem::path(log_directory)
                                 / std::format("{}_sc{}_ph{}_ap{}",
                                               clone.solver_name(),
-                                              scene_uid,
-                                              phase_uid,
+                                              scene_uid_val,
+                                              phase_uid_val,
                                               ap_uid))
                                    .string());
           }
@@ -291,11 +304,14 @@ auto solve_apertures_for_phase(
             const auto ap_s = std::chrono::duration<double>(
                                   std::chrono::steady_clock::now() - ap_start)
                                   .count();
-            spdlog::info(
-                "{}: infeasible ({:.3f}s) [thread {}]",
-                sddp_log("Aperture", iteration, scene_uid, phase_uid, ap_uid),
-                ap_s,
-                std::hash<std::thread::id> {}(task_tid) % 10000);
+            spdlog::info("{}: infeasible ({:.3f}s) [thread {}]",
+                         sddp_log("Aperture",
+                                  iteration_index,
+                                  scene_uid_val,
+                                  phase_uid_val,
+                                  ap_uid),
+                         ap_s,
+                         std::hash<std::thread::id> {}(task_tid) % 10000);
             return ApertureCutResult {
                 .ap_uid = ap_uid,
                 .weight = weight,
@@ -320,19 +336,22 @@ auto solve_apertures_for_phase(
                                   cut_coeff_eps);
           cut.class_name = "Sddp";
           cut.constraint_name = "aper_cut";
-          cut.context =
-              make_aperture_context(scene_uid, phase_uid, ap_uid, total_cuts);
+          cut.context = make_aperture_context(
+              scene_uid_val, phase_uid_val, ap_uid, total_cuts);
           rescale_benders_cut(cut, src_state.alpha_col, cut_coeff_max);
           filter_cut_coefficients(cut, src_state.alpha_col, cut_coeff_eps);
 
           const auto ap_s = std::chrono::duration<double>(
                                 std::chrono::steady_clock::now() - ap_start)
                                 .count();
-          spdlog::info(
-              "{}: solved ({:.3f}s) [thread {}]",
-              sddp_log("Aperture", iteration, scene_uid, phase_uid, ap_uid),
-              ap_s,
-              std::hash<std::thread::id> {}(task_tid) % 10000);
+          spdlog::info("{}: solved ({:.3f}s) [thread {}]",
+                       sddp_log("Aperture",
+                                iteration_index,
+                                scene_uid_val,
+                                phase_uid_val,
+                                ap_uid),
+                       ap_s,
+                       std::hash<std::thread::id> {}(task_tid) % 10000);
 
           return ApertureCutResult {
               .ap_uid = ap_uid,
@@ -360,16 +379,21 @@ auto solve_apertures_for_phase(
       {
         spdlog::warn(
             "{}: timed out ({:.1f}s, status {}), treating as infeasible",
-            sddp_log(
-                "Aperture", iteration, scene_uid, phase_uid, result.ap_uid),
+            sddp_log("Aperture",
+                     iteration_index,
+                     scene_uid_val,
+                     phase_uid_val,
+                     result.ap_uid),
             aperture_timeout,
             result.status);
       } else {
-        spdlog::info(
-            "{}: infeasible (status {}), skipping",
-            sddp_log(
-                "Aperture", iteration, scene_uid, phase_uid, result.ap_uid),
-            result.status);
+        spdlog::info("{}: infeasible (status {}), skipping",
+                     sddp_log("Aperture",
+                              iteration_index,
+                              scene_uid_val,
+                              phase_uid_val,
+                              result.ap_uid),
+                     result.status);
       }
       continue;
     }
@@ -390,7 +414,7 @@ auto solve_apertures_for_phase(
   spdlog::info(
       "{}: {}/{} feasible, {} infeasible, {} skipped ({:.3f}s) "
       "[thread {}]",
-      sddp_log("Aperture", iteration, scene_uid, phase_uid),
+      sddp_log("Aperture", iteration_index, scene_uid_val, phase_uid_val),
       n_feasible,
       n_total,
       n_infeasible,
@@ -413,8 +437,8 @@ auto solve_apertures_for_phase(
   auto ecut = weighted_average_benders_cut(aperture_cuts, aperture_weights);
   ecut.class_name = "Sddp";
   ecut.constraint_name = "ecut";
-  ecut.context =
-      make_iteration_context(scene_uid, phase_uid, iteration, total_cuts);
+  ecut.context = make_iteration_context(
+      scene_uid_val, phase_uid_val, iteration_index, total_cuts);
   return ecut;
 }
 

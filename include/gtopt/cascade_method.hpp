@@ -39,8 +39,8 @@ namespace gtopt
 struct NamedStateTarget
 {
   std::string var_name {};  ///< Column name in source LP
-  SceneIndex scene {};
-  PhaseIndex phase {};
+  SceneIndex scene_index {};
+  PhaseIndex phase_index {};
   double target_value {};  ///< Value from previous level's forward pass
 };
 

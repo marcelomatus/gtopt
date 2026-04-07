@@ -33,7 +33,8 @@ namespace gtopt
 
 auto save_state_csv(const PlanningLP& planning_lp,
                     const std::string& filepath,
-                    IterationIndex iteration) -> std::expected<void, Error>
+                    IterationIndex iteration_index)
+    -> std::expected<void, Error>
 {
   try {
     const auto parent = std::filesystem::path(filepath).parent_path();
@@ -50,7 +51,7 @@ auto save_state_csv(const PlanningLP& planning_lp,
       });
     }
 
-    ofs << "# iteration=" << iteration << "\n";
+    ofs << "# iteration=" << iteration_index << "\n";
     ofs << "name,phase,scene,value,rcost\n";
 
     const auto& sim = planning_lp.simulation();
@@ -120,8 +121,8 @@ auto load_state_csv(PlanningLP& planning_lp, const std::string& filepath)
     // column count.
     struct WarmEntry
     {
-      SceneIndex scene;
-      PhaseIndex phase;
+      SceneIndex scene_index;
+      PhaseIndex phase_index;
       std::vector<double> col_sol;
       bool has_data {false};
     };
@@ -133,8 +134,8 @@ auto load_state_csv(PlanningLP& planning_lp, const std::string& filepath)
         const auto ncols =
             planning_lp.system(si, pi).linear_interface().get_numcols();
         entries.push_back(WarmEntry {
-            .scene = si,
-            .phase = pi,
+            .scene_index = si,
+            .phase_index = pi,
             .col_sol = std::vector<double>(ncols, 0.0),
         });
       }
@@ -143,7 +144,7 @@ auto load_state_csv(PlanningLP& planning_lp, const std::string& filepath)
     auto find_entry = [&](SceneIndex si, PhaseIndex pi) -> WarmEntry*
     {
       for (auto& e : entries) {
-        if (e.scene == si && e.phase == pi) {
+        if (e.scene_index == si && e.phase_index == pi) {
           return &e;
         }
       }
@@ -207,7 +208,8 @@ auto load_state_csv(PlanningLP& planning_lp, const std::string& filepath)
 
       // Resolve column name to index
       const auto& li =
-          planning_lp.system(entry->scene, entry->phase).linear_interface();
+          planning_lp.system(entry->scene_index, entry->phase_index)
+              .linear_interface();
       const auto& col_map = li.col_name_map();
       auto cit = col_map.find(name);
       if (cit == col_map.end()) {
@@ -231,7 +233,7 @@ auto load_state_csv(PlanningLP& planning_lp, const std::string& filepath)
       if (e.has_data) {
         StrongIndexVector<ColIndex, double> warm(e.col_sol.begin(),
                                                  e.col_sol.end());
-        planning_lp.system(e.scene, e.phase)
+        planning_lp.system(e.scene_index, e.phase_index)
             .linear_interface()
             .set_warm_col_sol(std::move(warm));
       }

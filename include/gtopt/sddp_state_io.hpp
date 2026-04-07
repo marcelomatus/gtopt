@@ -37,7 +37,7 @@ class PlanningLP;
 /// @param iteration    Current iteration index (written as comment)
 [[nodiscard]] auto save_state_csv(const PlanningLP& planning_lp,
                                   const std::string& filepath,
-                                  IterationIndex iteration)
+                                  IterationIndex iteration_index)
     -> std::expected<void, Error>;
 
 /// Load state variable column solutions from a CSV file.

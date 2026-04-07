@@ -148,8 +148,8 @@ auto CascadePlanningMethod::collect_named_targets(const SDDPMethod& solver,
 
         targets.push_back({
             .var_name = names[col],
-            .scene = scene,
-            .phase = phase,
+            .scene_index = scene,
+            .phase_index = phase,
             .target_value = val,
         });
       }
@@ -176,7 +176,8 @@ void CascadePlanningMethod::add_elastic_targets(
   int skipped = 0;
 
   for (const auto& t : targets) {
-    auto& li = planning_lp.system(t.scene, t.phase).linear_interface();
+    auto& li =
+        planning_lp.system(t.scene_index, t.phase_index).linear_interface();
     const auto& col_map = li.col_name_map();
 
     auto it = col_map.find(t.var_name);

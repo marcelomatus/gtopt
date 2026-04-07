@@ -60,13 +60,13 @@ public:
 
   /// Record that @p scene completed iteration @p iter with the given
   /// bounds.  Maintains a ring buffer of depth max_spread + 1 per scene.
-  void report_complete(SceneIndex scene,
+  void report_complete(SceneIndex scene_index,
                        IterationIndex iter,
                        double ub,
                        double lb,
                        bool feasible)
   {
-    m_history_[scene].push_back(SceneBounds {
+    m_history_[scene_index].push_back(SceneBounds {
         .upper_bound = ub,
         .lower_bound = lb,
         .feasible = feasible,
@@ -74,10 +74,10 @@ public:
     });
     // Keep ring buffer bounded
     const auto max_depth = static_cast<std::size_t>(m_max_spread_) + 2;
-    while (m_history_[scene].size() > max_depth) {
-      m_history_[scene].pop_front();
+    while (m_history_[scene_index].size() > max_depth) {
+      m_history_[scene_index].pop_front();
     }
-    m_scene_completed_iter_[scene] = iter;
+    m_scene_completed_iter_[scene_index] = iter;
     m_completion_counts_[iter]++;
   }
 
@@ -136,16 +136,16 @@ public:
   }
 
   /// Mark a scene as individually converged at the given iteration.
-  void mark_converged(SceneIndex scene, IterationIndex iter)
+  void mark_converged(SceneIndex scene_index, IterationIndex iter)
   {
-    m_scene_converged_[scene] = true;
-    m_scene_converged_iter_[scene] = iter;
+    m_scene_converged_[scene_index] = true;
+    m_scene_converged_iter_[scene_index] = iter;
   }
 
   /// True if a specific scene has individually converged.
-  [[nodiscard]] bool is_converged(SceneIndex scene) const
+  [[nodiscard]] bool is_converged(SceneIndex scene_index) const
   {
-    return m_scene_converged_[scene];
+    return m_scene_converged_[scene_index];
   }
 
   /// True when ALL scenes have individually converged.
@@ -161,10 +161,10 @@ public:
   }
 
   /// Iteration at which a scene converged (-1 if not yet converged).
-  [[nodiscard]] auto converged_iteration(SceneIndex scene) const
+  [[nodiscard]] auto converged_iteration(SceneIndex scene_index) const
       -> IterationIndex
   {
-    return m_scene_converged_iter_[scene];
+    return m_scene_converged_iter_[scene_index];
   }
 
   [[nodiscard]] auto num_scenes() const -> Index

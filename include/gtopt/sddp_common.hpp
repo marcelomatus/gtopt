@@ -106,13 +106,13 @@ class PhaseGridRecorder
 {
 public:
   /// Record a phase activity.  Higher-priority states overwrite lower ones.
-  void record(IterationIndex iteration,
+  void record(IterationIndex iteration_index,
               SceneUid scene_uid,
               PhaseIndex phase_index,
               GridCell state)
   {
     const auto key = Key {
-        .iteration = iteration,
+        .iteration = iteration_index,
         .scene_uid = scene_uid,
     };
     const auto phase_col = static_cast<std::size_t>(phase_index);

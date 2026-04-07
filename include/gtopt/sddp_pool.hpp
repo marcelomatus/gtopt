@@ -94,18 +94,18 @@ enum class SDDPTaskKind : int
 ///
 /// @param iteration   SDDP iteration index
 /// @param direction   Forward or backward pass
-/// @param phase       Phase index within the iteration
+/// @param phase_index Phase index within the iteration
 /// @param kind        LP solve or non-LP task
-[[nodiscard]] constexpr auto make_sddp_task_key(IterationIndex iteration,
+[[nodiscard]] constexpr auto make_sddp_task_key(IterationIndex iteration_index,
                                                 SDDPPassDirection direction,
-                                                PhaseIndex phase,
+                                                PhaseIndex phase_index,
                                                 SDDPTaskKind kind) noexcept
     -> SDDPTaskKey
 {
   return SDDPTaskKey {
-      static_cast<int>(iteration),
+      static_cast<int>(iteration_index),
       static_cast<int>(direction),
-      static_cast<int>(phase),
+      static_cast<int>(phase_index),
       static_cast<int>(kind),
   };
 }

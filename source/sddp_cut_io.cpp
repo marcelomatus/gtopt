@@ -217,7 +217,7 @@ auto save_cuts_csv(std::span<const StoredCut> cuts,
       const char type_char = (cut.type == CutType::Feasibility) ? 'f' : 'o';
 
       // RHS in physical objective units
-      ofs << type_char << "," << cut.phase << "," << cut.scene << ","
+      ofs << type_char << "," << cut.phase_uid << "," << cut.scene_uid << ","
           << cut.name << "," << (cut.rhs * scale_obj) << ",";
       if (cut.dual.has_value()) {
         ofs << *cut.dual;
@@ -227,7 +227,7 @@ auto save_cuts_csv(std::span<const StoredCut> cuts,
       // Use scene 0 as representative (scales are identical
       // across scenes because the LP structure is built
       // identically per phase).
-      auto pit = phase_map.find(cut.phase);
+      auto pit = phase_map.find(cut.phase_uid);
       if (pit != phase_map.end()) {
         const auto& li =
             planning_lp.system(SceneIndex {0}, pit->second).linear_interface();
@@ -236,7 +236,7 @@ auto save_cuts_csv(std::span<const StoredCut> cuts,
         SPDLOG_WARN(
             "save_cuts: unknown phase UID {} for cut '{}'; "
             "writing without variable scaling",
-            cut.phase,
+            cut.phase_uid,
             cut.name);
         write_cut_coefficients_unscaled(ofs, cut, scale_obj);
       }
@@ -256,7 +256,7 @@ auto save_cuts_csv(std::span<const StoredCut> cuts,
 }
 
 auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
-                         SceneIndex scene,
+                         SceneIndex scene_index,
                          int scene_uid_val,
                          const PlanningLP& planning_lp,
                          const std::string& directory)
@@ -281,7 +281,7 @@ auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
 
     // Get scale_objective from a representative LinearInterface.
     const auto& rep_li =
-        planning_lp.system(scene, PhaseIndex {0}).linear_interface();
+        planning_lp.system(scene_index, PhaseIndex {0}).linear_interface();
     const auto scale_obj = rep_li.scale_objective();
 
     ofs << "# scale_objective=" << scale_obj << "\n";
@@ -295,22 +295,22 @@ auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
       const char type_char = (cut.type == CutType::Feasibility) ? 'f' : 'o';
 
       // RHS in physical objective units
-      ofs << type_char << "," << cut.phase << "," << cut.scene << ","
+      ofs << type_char << "," << cut.phase_uid << "," << cut.scene_uid << ","
           << cut.name << "," << (cut.rhs * scale_obj) << ",";
       if (cut.dual.has_value()) {
         ofs << *cut.dual;
       }
 
-      auto pit = phase_map.find(cut.phase);
+      auto pit = phase_map.find(cut.phase_uid);
       if (pit != phase_map.end()) {
         const auto& li =
-            planning_lp.system(scene, pit->second).linear_interface();
+            planning_lp.system(scene_index, pit->second).linear_interface();
         write_cut_coefficients(ofs, cut, li);
       } else {
         SPDLOG_WARN(
             "save_scene_cuts: unknown phase UID {} for cut "
             "'{}'; writing without variable scaling",
-            cut.phase,
+            cut.phase_uid,
             cut.name);
         write_cut_coefficients_unscaled(ofs, cut, scale_obj);
       }
@@ -528,12 +528,12 @@ auto load_cuts_csv(PlanningLP& planning_lp,
             cut_name);
         continue;
       }
-      const auto phase = pit->second;
+      const auto phase_index = pit->second;
 
       // Use scene 0 as representative for column name resolution
       // (LP structure is identical across scenes).
       auto& li_ref =
-          planning_lp.system(SceneIndex {0}, phase).linear_interface();
+          planning_lp.system(SceneIndex {0}, phase_index).linear_interface();
 
       // Collect coefficients from CSV.  Two formats are supported:
       //   name=coeff   (name-based, preferred — resolve by column name)
@@ -619,11 +619,12 @@ auto load_cuts_csv(PlanningLP& planning_lp,
       // Coefficients in the CSV are in fully physical space;
       // convert to LP space:
       //   LP_coeff = phys_coeff * col_scale / scale_objective
-      for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-        auto& li = planning_lp.system(scene, phase).linear_interface();
+      for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+        auto& li =
+            planning_lp.system(scene_index, phase_index).linear_interface();
         auto scene_row = row;
-        scene_row.context = ScenePhaseContext {sim.scenes()[scene].uid(),
-                                               sim.phases()[phase].uid()};
+        scene_row.context = ScenePhaseContext {sim.scenes()[scene_index].uid(),
+                                               sim.phases()[phase_index].uid()};
         for (const auto& [col, coeff] : resolved_coeffs) {
           const auto scale = li.get_col_scale(col);
           scene_row[col] = coeff * scale / scale_obj;
@@ -843,7 +844,7 @@ auto load_boundary_cuts_csv(
     {
       std::string name;
       IterationIndex iteration {};
-      SceneUid scene {};
+      SceneUid scene_uid {};
       double rhs;
       std::string coeff_line;
     };
@@ -885,7 +886,7 @@ auto load_boundary_cuts_csv(
       raw_cuts.push_back(RawBoundaryCut {
           .name = std::move(cut_name),
           .iteration = iteration,
-          .scene = scene_val,
+          .scene_uid = scene_val,
           .rhs = rhs,
           .coeff_line = std::move(remainder),
       });
@@ -918,10 +919,11 @@ auto load_boundary_cuts_csv(
 
     // ── Ensure the last phase has an alpha column ───────────────
     const auto sa = effective_scale_alpha(planning_lp, options.scale_alpha);
-    for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-      auto& state = scene_phase_states[scene][last_phase];
+    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      auto& state = scene_phase_states[scene_index][last_phase];
       if (state.alpha_col == ColIndex {unknown_index}) {
-        auto& li = planning_lp.system(scene, last_phase).linear_interface();
+        auto& li =
+            planning_lp.system(scene_index, last_phase).linear_interface();
         state.alpha_col = li.add_col(SparseCol {
             .lowb = options.alpha_min / sa,
             .uppb = options.alpha_max / sa,
@@ -929,7 +931,7 @@ auto load_boundary_cuts_csv(
             .scale = sa,
             .class_name = "Sddp",
             .variable_name = "alpha",
-            .context = ScenePhaseContext {sim.scenes()[scene].uid(),
+            .context = ScenePhaseContext {sim.scenes()[scene_index].uid(),
                                           sim.phases()[last_phase].uid()},
         });
       }
@@ -998,21 +1000,21 @@ auto load_boundary_cuts_csv(
       SceneIndex scene_start {0};
       SceneIndex scene_end {num_scenes};
       if (separated) {
-        auto it = scene_uid_to_index.find(rc.scene);
+        auto it = scene_uid_to_index.find(rc.scene_uid);
         if (it == scene_uid_to_index.end()) {
           SPDLOG_TRACE(
               "Boundary cut '{}' scene UID {} not found in "
               "scene_array -- skipping",
               rc.name,
-              rc.scene);
+              rc.scene_uid);
           continue;
         }
         scene_start = it->second;
         scene_end = it->second + SceneIndex {1};
       }
 
-      for (const auto scene : iota_range(scene_start, scene_end)) {
-        const auto& state = scene_phase_states[scene][last_phase];
+      for (const auto scene_index : iota_range(scene_start, scene_end)) {
+        const auto& state = scene_phase_states[scene_index][last_phase];
 
         auto row = SparseRow {
             .lowb = rc.rhs * bc_discount / scale_obj,
@@ -1020,12 +1022,13 @@ auto load_boundary_cuts_csv(
             .scale = sa,
             .class_name = "Bdr",
             .constraint_name = "cut",
-            .context = ScenePhaseContext {sim.scenes()[scene].uid(),
+            .context = ScenePhaseContext {sim.scenes()[scene_index].uid(),
                                           sim.phases()[last_phase].uid()},
         };
         row[state.alpha_col] = sa;
 
-        auto& li = planning_lp.system(scene, last_phase).linear_interface();
+        auto& li =
+            planning_lp.system(scene_index, last_phase).linear_interface();
         std::istringstream coeff_ss(rc.coeff_line);
         std::string token;
         for (int ci = 0; std::cmp_less(ci, header_col_map.size()); ++ci) {
@@ -1164,17 +1167,17 @@ auto load_named_cuts_csv(
     std::unordered_map<PhaseIndex, std::vector<std::optional<ColIndex>>>
         phase_col_maps;
 
-    auto get_col_map =
-        [&](PhaseIndex phase) -> const std::vector<std::optional<ColIndex>>&
+    auto get_col_map = [&](PhaseIndex phase_index)
+        -> const std::vector<std::optional<ColIndex>>&
     {
-      auto it = phase_col_maps.find(phase);
+      auto it = phase_col_maps.find(phase_index);
       if (it != phase_col_maps.end()) {
         return it->second;
       }
 
       // Build mapping for this phase by scanning state
       // variables
-      const auto& svar_map = sim.state_variables(SceneIndex {0}, phase);
+      const auto& svar_map = sim.state_variables(SceneIndex {0}, phase_index);
 
       std::vector<std::optional<ColIndex>> col_map;
       col_map.reserve(num_state_cols);
@@ -1218,7 +1221,8 @@ auto load_named_cuts_csv(
         col_map.push_back(found_col);
       }
 
-      auto [ins_it, _] = phase_col_maps.emplace(phase, std::move(col_map));
+      auto [ins_it, _] =
+          phase_col_maps.emplace(phase_index, std::move(col_map));
       return ins_it->second;
     };
 
@@ -1268,14 +1272,15 @@ auto load_named_cuts_csv(
             cut_name);
         continue;
       }
-      const auto phase = pit->second;
+      const auto phase_index = pit->second;
 
       // Ensure alpha variable exists for this phase in all
       // scenes
-      for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-        auto& state = scene_phase_states[scene][phase];
+      for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+        auto& state = scene_phase_states[scene_index][phase_index];
         if (state.alpha_col == ColIndex {unknown_index}) {
-          auto& li = planning_lp.system(scene, phase).linear_interface();
+          auto& li =
+              planning_lp.system(scene_index, phase_index).linear_interface();
           state.alpha_col = li.add_col(SparseCol {
               .lowb = options.alpha_min / sa,
               .uppb = options.alpha_max / sa,
@@ -1283,14 +1288,14 @@ auto load_named_cuts_csv(
               .scale = sa,
               .class_name = "Sddp",
               .variable_name = "alpha",
-              .context = ScenePhaseContext {sim.scenes()[scene].uid(),
-                                            sim.phases()[phase].uid()},
+              .context = ScenePhaseContext {sim.scenes()[scene_index].uid(),
+                                            sim.phases()[phase_index].uid()},
           });
         }
       }
 
       // Get the column map for this phase
-      const auto& col_map = get_col_map(phase);
+      const auto& col_map = get_col_map(phase_index);
 
       // Parse coefficient values and build the cut row
       std::string remainder;
@@ -1308,14 +1313,14 @@ auto load_named_cuts_csv(
           if (!col_map[ci].has_value() && !tok.empty() && std::stod(tok) != 0.0)
           {
             has_missing = true;
-            if (!warned_missing_named.contains({phase, ci})) {
-              warned_missing_named.emplace(phase, ci);
+            if (!warned_missing_named.contains({phase_index, ci})) {
+              warned_missing_named.emplace(phase_index, ci);
               SPDLOG_WARN(
                   "Named cuts: state variable '{}' not "
                   "found in phase {}; non-zero "
                   "coefficient {} (mode={})",
                   headers[kFixedCols + ci],
-                  phase,
+                  phase_index,
                   tok,
                   enum_name(options.missing_cut_var_mode));
             }
@@ -1328,8 +1333,8 @@ auto load_named_cuts_csv(
         continue;
       }
 
-      for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-        const auto& state = scene_phase_states[scene][phase];
+      for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+        const auto& state = scene_phase_states[scene_index][phase_index];
 
         auto row = SparseRow {
             .lowb = rhs / scale_obj,
@@ -1337,12 +1342,13 @@ auto load_named_cuts_csv(
             .scale = sa,
             .class_name = "NamedHs",
             .constraint_name = "cut",
-            .context = ScenePhaseContext {sim.scenes()[scene].uid(),
-                                          sim.phases()[phase].uid()},
+            .context = ScenePhaseContext {sim.scenes()[scene_index].uid(),
+                                          sim.phases()[phase_index].uid()},
         };
         row[state.alpha_col] = sa;
 
-        auto& li = planning_lp.system(scene, phase).linear_interface();
+        auto& li =
+            planning_lp.system(scene_index, phase_index).linear_interface();
         std::istringstream coeff_ss(remainder);
         std::string ctok;
         for (int ci = 0; std::cmp_less(ci, col_map.size()); ++ci) {

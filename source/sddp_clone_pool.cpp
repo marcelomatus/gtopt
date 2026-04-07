@@ -19,24 +19,26 @@
 namespace gtopt
 {
 
-LinearInterface& SDDPClonePool::get_or_create(SceneIndex scene,
-                                              PhaseIndex phase,
+LinearInterface& SDDPClonePool::get_or_create(SceneIndex scene_index,
+                                              PhaseIndex phase_index,
                                               PlanningLP& planning,
                                               std::size_t base_nrows)
 {
-  const auto idx = (static_cast<std::size_t>(scene)
+  const auto idx = (static_cast<std::size_t>(scene_index)
                     * static_cast<std::size_t>(m_num_phases_))
-      + static_cast<std::size_t>(phase);
+      + static_cast<std::size_t>(phase_index);
 
   auto& slot = m_pool_[idx];
   if (!slot.has_value()) {
     // First use: create the clone from the original LP
-    slot = planning.system(scene, phase).linear_interface().clone();
-    SPDLOG_TRACE(
-        "SDDP clone pool: created clone for scene {} phase {}", scene, phase);
+    slot = planning.system(scene_index, phase_index).linear_interface().clone();
+    SPDLOG_TRACE("SDDP clone pool: created clone for scene {} phase {}",
+                 scene_index,
+                 phase_index);
   } else {
     // Reuse: reset bounds and delete cut rows
-    const auto& src_li = planning.system(scene, phase).linear_interface();
+    const auto& src_li =
+        planning.system(scene_index, phase_index).linear_interface();
     slot->reset_from(src_li, base_nrows);
   }
   return *slot;

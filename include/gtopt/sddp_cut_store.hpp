@@ -48,8 +48,8 @@ struct CutLoadResult
 struct StoredCut
 {
   CutType type {CutType::Optimality};
-  PhaseUid phase {};  ///< Phase UID this cut was added to
-  SceneUid scene {};  ///< Scene UID that generated this cut (-1 = shared)
+  PhaseUid phase_uid {};  ///< Phase UID this cut was added to
+  SceneUid scene_uid {};  ///< Scene UID that generated this cut (-1 = shared)
   std::string name {};  ///< Cut name
   double rhs {};  ///< Right-hand side (lower bound)
   double scale {1.0};  ///< Row scale (physical → LP), mirrors SparseRow::scale
@@ -127,8 +127,8 @@ public:
   // ── Core operations ──────────────────────────────────────────────────
 
   /// Store a cut for sharing and persistence (thread-safe).
-  void store_cut(SceneIndex scene,
-                 PhaseIndex src_phase,
+  void store_cut(SceneIndex scene_index,
+                 PhaseIndex src_phase_index,
                  const SparseRow& cut,
                  CutType type,
                  RowIndex row,
@@ -163,7 +163,7 @@ public:
 
   /// Apply cut-sharing across scenes for all phases in this iteration.
   void apply_cut_sharing_for_iteration(std::size_t cuts_before,
-                                       IterationIndex iteration,
+                                       IterationIndex iteration_index,
                                        const SDDPOptions& options,
                                        PlanningLP& planning_lp,
                                        const LabelMaker& label_maker);

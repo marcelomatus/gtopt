@@ -50,13 +50,13 @@ void assign_padded(std::vector<double>& dst,
 }
 }  // namespace
 
-auto SDDPMethod::forward_pass(SceneIndex scene,
+auto SDDPMethod::forward_pass(SceneIndex scene_index,
                               const SolverOptions& opts,
-                              IterationIndex iteration)
+                              IterationIndex iteration_index)
     -> std::expected<double, Error>
 {
   const auto& phases = planning_lp().simulation().phases();
-  auto& phase_states = m_scene_phase_states_[scene];
+  auto& phase_states = m_scene_phase_states_[scene_index];
   double total_opex = 0.0;
 
   // Apply solve_timeout to the solver options if configured
@@ -69,40 +69,42 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
   // solver pivots from that basis instead of re-solving from scratch with
   // barrier.  With hot start (offset > 0), reuse_basis is enabled from the
   // first iteration since the LP already has a basis.
-  if (iteration > m_iteration_offset_ && m_options_.warm_start) {
+  if (iteration_index > m_iteration_offset_ && m_options_.warm_start) {
     effective_opts.reuse_basis = true;
   }
 
   [[maybe_unused]] const auto fwd_tid = std::this_thread::get_id();
   SPDLOG_INFO("{}: starting ({} phases) [thread {}]",
-              sddp_log("Forward", iteration, scene_uid(scene)),
+              sddp_log("Forward", iteration_index, scene_uid(scene_index)),
               phases.size(),
               std::hash<std::thread::id> {}(fwd_tid) % 10000);
 
   // Check once whether update_lp should run for this iteration
   // (respects explicit skip/force flags and global skip count).
-  const bool do_update = should_dispatch_update_lp(iteration);
+  const bool do_update = should_dispatch_update_lp(iteration_index);
 
-  for (auto&& [phase, _ph] : enumerate<PhaseIndex>(phases)) {
+  for (auto&& [phase_index, _ph] : enumerate<PhaseIndex>(phases)) {
     if (should_stop()) {
       return std::unexpected(Error {
           .code = ErrorCode::SolverError,
-          .message = std::format(
-              "{}: cancelled",
-              sddp_log(
-                  "Forward", iteration, scene_uid(scene), phase_uid(phase))),
+          .message = std::format("{}: cancelled",
+                                 sddp_log("Forward",
+                                          iteration_index,
+                                          scene_uid(scene_index),
+                                          phase_uid(phase_index))),
       });
     }
 
-    auto& li = planning_lp().system(scene, phase).linear_interface();
-    auto& state = phase_states[phase];
+    auto& li =
+        planning_lp().system(scene_index, phase_index).linear_interface();
+    auto& state = phase_states[phase_index];
 
     // Propagate state variables from previous phase
-    if (phase != PhaseIndex {0}) {
-      const auto prev = phase - PhaseIndex {1};
+    if (phase_index != PhaseIndex {0}) {
+      const auto prev = phase_index - PhaseIndex {1};
       auto& prev_st = phase_states[prev];
       const auto& prev_sol = planning_lp()
-                                 .system(scene, prev)
+                                 .system(scene_index, prev)
                                  .linear_interface()
                                  .get_col_sol_raw();
 
@@ -113,12 +115,14 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
         propagate_trial_values(prev_st.outgoing_links, prev_sol, li);
       }
 
-      SPDLOG_TRACE(
-          "{}: propagated {} state vars from phase {} ({})",
-          sddp_log("Forward", iteration, scene_uid(scene), phase_uid(phase)),
-          prev_st.outgoing_links.size(),
-          phase_uid(prev),
-          enum_name(coeff_mode));
+      SPDLOG_TRACE("{}: propagated {} state vars from phase {} ({})",
+                   sddp_log("Forward",
+                            iteration_index,
+                            scene_uid(scene_index),
+                            phase_uid(phase_index)),
+                   prev_st.outgoing_links.size(),
+                   phase_uid(prev),
+                   enum_name(coeff_mode));
     }
 
     // Update volume-dependent LP coefficients (discharge limits, turbine
@@ -126,12 +130,14 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
     // that physical_eini reflects the actual forward-pass reservoir volume
     // rather than default_volume.
     if (do_update) {
-      const auto updated = update_lp_for_phase(scene, phase);
+      const auto updated = update_lp_for_phase(scene_index, phase_index);
       if (updated > 0) {
-        SPDLOG_TRACE(
-            "{}: updated {} LP elements",
-            sddp_log("Forward", iteration, scene_uid(scene), phase_uid(phase)),
-            updated);
+        SPDLOG_TRACE("{}: updated {} LP elements",
+                     sddp_log("Forward",
+                              iteration_index,
+                              scene_uid(scene_index),
+                              phase_uid(phase_index)),
+                     updated);
       }
     }
 
@@ -139,8 +145,8 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
     // submit gzip compression as a fire-and-forget async task.
     // Selective filters (scene/phase range) skip non-matching LPs.
     if (m_options_.lp_debug) {
-      const bool in_range = in_lp_debug_range(scene_uid(scene),
-                                              phase_uid(phase),
+      const bool in_range = in_lp_debug_range(scene_uid(scene_index),
+                                              phase_uid(phase_index),
                                               m_options_.lp_debug_scene_min,
                                               m_options_.lp_debug_scene_max,
                                               m_options_.lp_debug_phase_min,
@@ -148,9 +154,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
       if (in_range) {
         const auto dbg_stem = (std::filesystem::path(m_options_.log_directory)
                                / std::format(sddp_file::debug_lp_fmt,
-                                             iteration,
-                                             scene_uid(scene),
-                                             phase_uid(phase)))
+                                             iteration_index,
+                                             scene_uid(scene_index),
+                                             phase_uid(phase_index)))
                                   .string();
         m_lp_debug_writer_.write(li, dbg_stem);
       }
@@ -173,8 +179,8 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
       li.set_log_file((std::filesystem::path(m_options_.log_directory)
                        / std::format("{}_sc{}_ph{}",
                                      li.solver_name(),
-                                     scene_uid(scene),
-                                     phase_uid(phase)))
+                                     scene_uid(scene_index),
+                                     phase_uid(phase_index)))
                           .string());
     }
 
@@ -192,62 +198,71 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
           const auto timeout_stem =
               (std::filesystem::path(m_options_.log_directory)
                / std::format("timeout_scene_{}_phase_{}_iter_{}",
-                             scene_uid(scene),
-                             phase_uid(phase),
-                             iteration))
+                             scene_uid(scene_index),
+                             phase_uid(phase_index),
+                             iteration_index))
                   .string();
           if (auto lp_result = li.write_lp(timeout_stem)) {
             spdlog::critical(
                 "{}: solve timeout ({:.1f}s) (status {}), LP saved to {}.lp",
-                sddp_log(
-                    "Forward", iteration, scene_uid(scene), phase_uid(phase)),
+                sddp_log("Forward",
+                         iteration_index,
+                         scene_uid(scene_index),
+                         phase_uid(phase_index)),
                 m_options_.solve_timeout,
                 status,
                 timeout_stem);
           } else {
-            spdlog::critical(
-                "{}: solve timeout ({:.1f}s) (status {}). {}",
-                sddp_log(
-                    "Forward", iteration, scene_uid(scene), phase_uid(phase)),
-                m_options_.solve_timeout,
-                status,
-                lp_result.error().message);
+            spdlog::critical("{}: solve timeout ({:.1f}s) (status {}). {}",
+                             sddp_log("Forward",
+                                      iteration_index,
+                                      scene_uid(scene_index),
+                                      phase_uid(phase_index)),
+                             m_options_.solve_timeout,
+                             status,
+                             lp_result.error().message);
           }
         } else {
-          spdlog::critical(
-              "{}: solve timeout ({:.1f}s) (status {})",
-              sddp_log(
-                  "Forward", iteration, scene_uid(scene), phase_uid(phase)),
-              m_options_.solve_timeout,
-              status);
+          spdlog::critical("{}: solve timeout ({:.1f}s) (status {})",
+                           sddp_log("Forward",
+                                    iteration_index,
+                                    scene_uid(scene_index),
+                                    phase_uid(phase_index)),
+                           m_options_.solve_timeout,
+                           status);
         }
         return std::unexpected(Error {
             .code = ErrorCode::SolverError,
-            .message = std::format(
-                "{}: solve timeout ({:.1f}s) (status {})",
-                sddp_log(
-                    "Forward", iteration, scene_uid(scene), phase_uid(phase)),
-                m_options_.solve_timeout,
-                status),
+            .message = std::format("{}: solve timeout ({:.1f}s) (status {})",
+                                   sddp_log("Forward",
+                                            iteration_index,
+                                            scene_uid(scene_index),
+                                            phase_uid(phase_index)),
+                                   m_options_.solve_timeout,
+                                   status),
             .status = status,
         });
       }
 
-      SPDLOG_WARN(
-          "{}: non-optimal (status {}), trying elastic solve",
-          sddp_log("Forward", iteration, scene_uid(scene), phase_uid(phase)),
-          li.get_status());
+      SPDLOG_WARN("{}: non-optimal (status {}), trying elastic solve",
+                  sddp_log("Forward",
+                           iteration_index,
+                           scene_uid(scene_index),
+                           phase_uid(phase_index)),
+                  li.get_status());
       // Clone the LP, apply elastic filter, and solve the clone.
       // The original LP remains unmodified (PLP clone pattern).
-      auto elastic_result = elastic_solve(scene, phase, opts);
+      auto elastic_result = elastic_solve(scene_index, phase_index, opts);
       if (elastic_result.has_value()) {
         auto& solved_li = elastic_result->clone;
-        m_phase_grid_.record(
-            iteration, scene_uid(scene), phase, GridCell::Elastic);
+        m_phase_grid_.record(iteration_index,
+                             scene_uid(scene_index),
+                             phase_index,
+                             GridCell::Elastic);
         // Track max kappa from elastic solve
-        update_max_kappa(scene, phase, solved_li, iteration);
+        update_max_kappa(scene_index, phase_index, solved_li, iteration_index);
         // Increment infeasibility counter for this (scene, phase)
-        ++m_infeasibility_counter_[scene][phase];
+        ++m_infeasibility_counter_[scene_index][phase_index];
 
         // Cache solution data for the backward pass
         const auto obj = solved_li.get_obj_value();
@@ -278,35 +293,39 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
         SPDLOG_INFO(
             "{}: elastic ok, obj={:.4f} alpha={:.4f} opex={:.4f} "
             "[infeas_count={}]",
-            sddp_log("Forward", iteration, scene_uid(scene), phase_uid(phase)),
+            sddp_log("Forward",
+                     iteration_index,
+                     scene_uid(scene_index),
+                     phase_uid(phase_index)),
             obj,
             alpha_val,
             state.forward_objective,
-            m_infeasibility_counter_[scene][phase]);
+            m_infeasibility_counter_[scene_index][phase_index]);
       } else {
         // Save the infeasible LP and run diagnostics only when:
         //  - it's the first phase (the scene will be declared infeasible), or
         //  - trace/debug logging is enabled (developer debugging).
         // During normal SDDP iteration, skip writing/diagnosing error LPs
         // to avoid I/O overhead.
-        const bool is_first_phase = (phase == PhaseIndex {0});
+        const bool is_first_phase = (phase_index == PhaseIndex {0});
         const bool is_trace_debug =
             (spdlog::get_level() <= spdlog::level::debug);
         if (!m_options_.log_directory.empty()
             && (is_first_phase || is_trace_debug))
         {
           std::filesystem::create_directories(m_options_.log_directory);
-          const auto err_file =
-              (std::filesystem::path(m_options_.log_directory)
-               / std::format(
-                   sddp_file::error_lp_fmt, scene_uid(scene), phase_uid(phase)))
-                  .string();
+          const auto err_file = (std::filesystem::path(m_options_.log_directory)
+                                 / std::format(sddp_file::error_lp_fmt,
+                                               scene_uid(scene_index),
+                                               phase_uid(phase_index)))
+                                    .string();
           if (auto lp_result = li.write_lp(err_file)) {
-            spdlog::warn(
-                "{}: saved infeasible LP to {}.lp",
-                sddp_log(
-                    "Forward", iteration, scene_uid(scene), phase_uid(phase)),
-                err_file);
+            spdlog::warn("{}: saved infeasible LP to {}.lp",
+                         sddp_log("Forward",
+                                  iteration_index,
+                                  scene_uid(scene_index),
+                                  phase_uid(phase_index)),
+                         err_file);
           } else {
             spdlog::warn("{}", lp_result.error().message);
           }
@@ -314,20 +333,23 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
         }
         return std::unexpected(Error {
             .code = ErrorCode::SolverError,
-            .message = std::format(
-                "{}: failed (status {})",
-                sddp_log(
-                    "Forward", iteration, scene_uid(scene), phase_uid(phase)),
-                li.get_status()),
+            .message = std::format("{}: failed (status {})",
+                                   sddp_log("Forward",
+                                            iteration_index,
+                                            scene_uid(scene_index),
+                                            phase_uid(phase_index)),
+                                   li.get_status()),
         });
       }
     } else {
       // Phase solved normally – reset infeasibility counter
-      m_infeasibility_counter_[scene][phase] = 0;
-      m_phase_grid_.record(
-          iteration, scene_uid(scene), phase, GridCell::Forward);
+      m_infeasibility_counter_[scene_index][phase_index] = 0;
+      m_phase_grid_.record(iteration_index,
+                           scene_uid(scene_index),
+                           phase_index,
+                           GridCell::Forward);
       // Track max kappa from forward solve
-      update_max_kappa(scene, phase, li, iteration);
+      update_max_kappa(scene_index, phase_index, li, iteration_index);
 
       // Cache solution data for the backward pass
       const auto obj = li.get_obj_value();
@@ -354,26 +376,32 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
         SPDLOG_WARN(
             "{}: solve returned optimal but forward_objective is NaN "
             "(obj={}, alpha={})",
-            sddp_log("Forward", iteration, scene_uid(scene), phase_uid(phase)),
+            sddp_log("Forward",
+                     iteration_index,
+                     scene_uid(scene_index),
+                     phase_uid(phase_index)),
             obj,
             alpha_val);
         return std::unexpected(Error {
             .code = ErrorCode::SolverError,
-            .message = std::format(
-                "{}: optimal status but NaN in solution",
-                sddp_log(
-                    "Forward", iteration, scene_uid(scene), phase_uid(phase))),
+            .message = std::format("{}: optimal status but NaN in solution",
+                                   sddp_log("Forward",
+                                            iteration_index,
+                                            scene_uid(scene_index),
+                                            phase_uid(phase_index))),
         });
       }
 
       total_opex += state.forward_objective;
 
-      SPDLOG_TRACE(
-          "{}: obj={:.4f} alpha={:.4f} opex={:.4f}",
-          sddp_log("Forward", iteration, scene_uid(scene), phase_uid(phase)),
-          obj,
-          alpha_val,
-          state.forward_objective);
+      SPDLOG_TRACE("{}: obj={:.4f} alpha={:.4f} opex={:.4f}",
+                   sddp_log("Forward",
+                            iteration_index,
+                            scene_uid(scene_index),
+                            phase_uid(phase_index)),
+                   obj,
+                   alpha_val,
+                   state.forward_objective);
     }
   }
 
@@ -382,17 +410,17 @@ auto SDDPMethod::forward_pass(SceneIndex scene,
   // subsequent dual fallback producing NaN values).
   if (std::isnan(total_opex)) {
     SPDLOG_WARN("{}: total_opex is NaN — solver ill-conditioning",
-                sddp_log("Forward", iteration, scene_uid(scene)));
+                sddp_log("Forward", iteration_index, scene_uid(scene_index)));
     return std::unexpected(Error {
         .code = ErrorCode::SolverError,
-        .message =
-            std::format("{}: forward pass total cost is NaN",
-                        sddp_log("Forward", iteration, scene_uid(scene))),
+        .message = std::format(
+            "{}: forward pass total cost is NaN",
+            sddp_log("Forward", iteration_index, scene_uid(scene_index))),
     });
   }
 
   SPDLOG_INFO("{}: done, total_opex={:.4f} [thread {}]",
-              sddp_log("Forward", iteration, scene_uid(scene)),
+              sddp_log("Forward", iteration_index, scene_uid(scene_index)),
               total_opex,
               std::hash<std::thread::id> {}(fwd_tid) % 10000);
   return total_opex;

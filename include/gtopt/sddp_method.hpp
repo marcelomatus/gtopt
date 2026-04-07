@@ -220,9 +220,10 @@ public:
   // ── Data accessors (valid after at least one iteration) ──
 
   /// Per-phase state for a given scene
-  [[nodiscard]] constexpr auto& phase_states(SceneIndex scene) const noexcept
+  [[nodiscard]] constexpr auto& phase_states(
+      SceneIndex scene_index) const noexcept
   {
-    return m_scene_phase_states_[scene];
+    return m_scene_phase_states_[scene_index];
   }
 
   /// Legacy accessor for scene 0 (backward compatibility)
@@ -282,7 +283,7 @@ public:
   /// Save cuts for a single scene to a per-scene file.
   /// Uses scene-specific storage, avoiding lock contention when called
   /// in parallel for different scenes.
-  [[nodiscard]] auto save_scene_cuts(SceneIndex scene,
+  [[nodiscard]] auto save_scene_cuts(SceneIndex scene_index,
                                      const std::string& directory) const
       -> std::expected<void, Error>;
 
@@ -367,17 +368,17 @@ private:
   /// ElasticSolveResult from benders_cut.hpp.
   using ElasticResult = ElasticSolveResult;
 
-  void initialize_alpha_variables(SceneIndex scene);
-  void collect_state_variable_links(SceneIndex scene);
+  void initialize_alpha_variables(SceneIndex scene_index);
+  void collect_state_variable_links(SceneIndex scene_index);
 
-  [[nodiscard]] auto forward_pass(SceneIndex scene,
+  [[nodiscard]] auto forward_pass(SceneIndex scene_index,
                                   const SolverOptions& opts,
-                                  IterationIndex iteration)
+                                  IterationIndex iteration_index)
       -> std::expected<double, Error>;
 
-  [[nodiscard]] auto backward_pass(SceneIndex scene,
+  [[nodiscard]] auto backward_pass(SceneIndex scene_index,
                                    const SolverOptions& opts,
-                                   IterationIndex iteration = {})
+                                   IterationIndex iteration_index = {})
       -> std::expected<int, Error>;
 
   /**
@@ -400,67 +401,72 @@ private:
    *
    * Uses the work pool for parallel aperture solves when available.
    */
-  [[nodiscard]] auto backward_pass_with_apertures(SceneIndex scene,
-                                                  const SolverOptions& opts,
-                                                  IterationIndex iteration = {})
-      -> std::expected<int, Error>;
+  [[nodiscard]] auto backward_pass_with_apertures(
+      SceneIndex scene_index,
+      const SolverOptions& opts,
+      IterationIndex iteration_index = {}) -> std::expected<int, Error>;
 
   /// Update the per-(scene, phase) max kappa value after an LP solve.
   /// Also checks kappa against the threshold and emits a warning or
   /// saves the LP file depending on the kappa_warning mode.
-  void update_max_kappa(SceneIndex scene,
-                        PhaseIndex phase,
+  void update_max_kappa(SceneIndex scene_index,
+                        PhaseIndex phase_index,
                         const LinearInterface& li,
-                        IterationIndex iteration = {});
+                        IterationIndex iteration_index = {});
 
   /// Analyze cut rows to identify which Benders cuts have the worst
   /// coefficient ratios.  Called by update_max_kappa when
   /// kappa_warning == diagnose and kappa exceeds the threshold.
-  void diagnose_kappa(SceneIndex scene,
-                      PhaseIndex phase,
+  void diagnose_kappa(SceneIndex scene_index,
+                      PhaseIndex phase_index,
                       const LinearInterface& li,
-                      IterationIndex iteration);
+                      IterationIndex iteration_index);
 
   /// Update max kappa from an already-known value (no LP save possible).
-  void update_max_kappa(SceneIndex scene,
-                        PhaseIndex phase,
+  void update_max_kappa(SceneIndex scene_index,
+                        PhaseIndex phase_index,
                         double kappa) noexcept
   {
     if (kappa >= 0.0) {
-      m_max_kappa_[scene][phase] = std::max(m_max_kappa_[scene][phase], kappa);
-    } else if (m_max_kappa_[scene][phase] < 0.0) {
-      m_max_kappa_[scene][phase] = kappa;
+      m_max_kappa_[scene_index][phase_index] =
+          std::max(m_max_kappa_[scene_index][phase_index], kappa);
+    } else if (m_max_kappa_[scene_index][phase_index] < 0.0) {
+      m_max_kappa_[scene_index][phase_index] = kappa;
     }
   }
 
   /// Check whether update_lp should be dispatched for this iteration.
   /// Returns false when the iteration is explicitly disabled or skipped
   /// by the global skip count.
-  [[nodiscard]] bool should_dispatch_update_lp(IterationIndex iteration) const;
+  [[nodiscard]] bool should_dispatch_update_lp(
+      IterationIndex iteration_index) const;
 
   /// Run update_lp for a single phase, setting prev_phase_sys for
   /// cross-phase physical_eini lookup.  Returns the number of updated
   /// LP elements.
-  int update_lp_for_phase(SceneIndex scene, PhaseIndex phase);
+  int update_lp_for_phase(SceneIndex scene_index, PhaseIndex phase_index);
 
   /// Conditionally dispatch update_lp for all phases in a scene.
   /// Checks the preallocated iteration vector for explicit skip/force
   /// flags and the global skip count before calling SystemLP::update_lp()
   /// on each phase.
-  void dispatch_update_lp(SceneIndex scene, IterationIndex iteration);
+  void dispatch_update_lp(SceneIndex scene_index,
+                          IterationIndex iteration_index);
 
   /// Clone the LP, apply elastic filter on the clone, and solve it.
   /// Returns an ElasticResult (with solution data and per-link slack info)
   /// if feasible, nullopt otherwise.
   /// The original LP is never modified (PLP clone pattern).
   [[nodiscard]] std::optional<ElasticResult> elastic_solve(
-      SceneIndex scene, PhaseIndex phase, const SolverOptions& opts);
+      SceneIndex scene_index,
+      PhaseIndex phase_index,
+      const SolverOptions& opts);
 
   // ── Refactored helper methods ──
 
   /// Store a cut for sharing and persistence (thread-safe).
   /// Writes to both per-scene storage and shared storage.
-  void store_cut(SceneIndex scene,
+  void store_cut(SceneIndex scene_index,
                  PhaseIndex src_phase,
                  const SparseRow& cut,
                  CutType type = CutType::Optimality,
@@ -485,11 +491,11 @@ private:
   /// Iterative feasibility backpropagation: propagate from start_phase
   /// backward to phase 0 using elastic filter and cuts.
   /// Returns the number of additional cuts added.
-  [[nodiscard]] auto feasibility_backpropagate(SceneIndex scene,
+  [[nodiscard]] auto feasibility_backpropagate(SceneIndex scene_index,
                                                PhaseIndex start_phase,
                                                int total_cuts,
                                                const SolverOptions& opts,
-                                               IterationIndex iteration)
+                                               IterationIndex iteration_index)
       -> std::expected<int, Error>;
 
   /// Create a submit function that submits complete aperture tasks to
@@ -501,8 +507,8 @@ private:
   ///
   /// @param phase      Phase index (for pool priority ordering)
   /// @param iteration  SDDP iteration index (for pool priority ordering)
-  [[nodiscard]] auto make_aperture_submit_fn(PhaseIndex phase,
-                                             IterationIndex iteration)
+  [[nodiscard]] auto make_aperture_submit_fn(PhaseIndex phase_index,
+                                             IterationIndex iteration_index)
       -> ApertureSubmitFunc;
 
   /// Prune inactive cuts from all (scene, phase) LPs.
@@ -518,16 +524,17 @@ private:
   [[nodiscard]] std::vector<StoredCut> build_combined_cuts() const;
 
   /// Get a pooled clone pointer for aperture solves (nullptr if pool disabled).
-  LinearInterface* get_pooled_clone_ptr(SceneIndex scene, PhaseIndex phase)
+  LinearInterface* get_pooled_clone_ptr(SceneIndex scene_index,
+                                        PhaseIndex phase_index)
   {
     if (!m_options_.use_clone_pool || !m_clone_pool_.is_allocated()) {
       return nullptr;
     }
     return m_clone_pool_.get_ptr(
-        scene,
-        phase,
+        scene_index,
+        phase_index,
         planning_lp(),
-        m_scene_phase_states_[scene][phase].base_nrows);
+        m_scene_phase_states_[scene_index][phase_index].base_nrows);
   }
 
   /// Check whether the sentinel file exists (user-requested stop)
@@ -542,9 +549,9 @@ private:
 
   /// Apply cut sharing across scenes for a given phase
   void share_cuts_for_phase(
-      PhaseIndex phase,
+      PhaseIndex phase_index,
       const StrongIndexVector<SceneIndex, std::vector<SparseRow>>& scene_cuts,
-      IterationIndex iteration);
+      IterationIndex iteration_index);
 
   /// Validate that the simulation has ≥2 phases and ≥1 scene.
   [[nodiscard]] auto validate_inputs() const -> std::optional<Error>;
@@ -578,33 +585,33 @@ private:
   /// Builds the optimality cut, stores it, adds it to the LP, re-solves,
   /// and handles feasibility backpropagation.
   /// @return Number of optimality cuts added during this step.
-  [[nodiscard]] auto backward_pass_single_phase(SceneIndex scene,
-                                                PhaseIndex phase,
+  [[nodiscard]] auto backward_pass_single_phase(SceneIndex scene_index,
+                                                PhaseIndex phase_index,
                                                 int cut_offset,
                                                 const SolverOptions& opts,
-                                                IterationIndex iteration)
+                                                IterationIndex iteration_index)
       -> std::expected<int, Error>;
 
   /// Process a single backward-pass phase step (pi → pi-1) with apertures.
   /// @return Number of optimality cuts added during this step.
   [[nodiscard]] auto backward_pass_with_apertures_single_phase(
-      SceneIndex scene,
-      PhaseIndex phase,
+      SceneIndex scene_index,
+      PhaseIndex phase_index,
       int cut_offset,
       const SolverOptions& opts,
-      IterationIndex iteration) -> std::expected<int, Error>;
+      IterationIndex iteration_index) -> std::expected<int, Error>;
 
   /// Implementation helper for aperture per-phase backward step.
   /// Used by backward_pass_with_apertures_single_phase.
   [[nodiscard]] auto backward_pass_aperture_phase_impl(
-      SceneIndex scene,
-      PhaseIndex phase,
+      SceneIndex scene_index,
+      PhaseIndex phase_index,
       int cut_offset,
       const ScenarioLP& base_scenario,
       std::span<const ScenarioLP> all_scenarios,
       std::span<const Aperture> aperture_defs,
       const SolverOptions& opts,
-      IterationIndex iteration) -> std::expected<int, Error>;
+      IterationIndex iteration_index) -> std::expected<int, Error>;
 
   /// Phase-synchronized backward pass: processes phases one at a time,
   /// sharing optimality cuts between scenes after each phase completes.
@@ -634,7 +641,7 @@ private:
   ///                     iteration's backward pass.
   /// @param iteration    Current SDDP iteration index.
   void apply_cut_sharing_for_iteration(std::size_t cuts_before,
-                                       IterationIndex iteration);
+                                       IterationIndex iteration_index);
 
   /// Compute gap, update convergence flag, update live-query atomics, log.
   void finalize_iteration_result(SDDPIterationResult& ir, IterationIndex iter);

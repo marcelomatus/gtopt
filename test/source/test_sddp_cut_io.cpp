@@ -195,8 +195,8 @@ TEST_CASE(
   // Create a StoredCut with a phase UID that does not exist
   std::vector<StoredCut> cuts = {
       StoredCut {
-          .phase = PhaseUid {999},
-          .scene = SceneUid {1},
+          .phase_uid = PhaseUid {999},
+          .scene_uid = SceneUid {1},
           .name = "bad_phase_cut",
           .rhs = 42.0,
           .coefficients =

@@ -149,8 +149,8 @@ TEST_CASE(  // NOLINT
   const auto& sim = planning_lp.simulation();
   struct RefValue
   {
-    SceneIndex scene;
-    PhaseIndex phase;
+    SceneIndex scene_index;
+    PhaseIndex phase_index;
     std::string name;
     double value;
   };
@@ -175,8 +175,8 @@ TEST_CASE(  // NOLINT
         // Only track non-zero values for comparison
         if (std::abs(phys_val) > 1e-12) {
           ref_values.push_back(RefValue {
-              .scene = si,
-              .phase = pi,
+              .scene_index = si,
+              .phase_index = pi,
               .name = names[ci],
               .value = phys_val,
           });
@@ -197,8 +197,8 @@ TEST_CASE(  // NOLINT
   // fresh LP should have the same value (in LP units)
   int matched = 0;
   for (const auto& ref : ref_values) {
-    const auto& li =
-        planning_lp2.system(ref.scene, ref.phase).linear_interface();
+    const auto& li = planning_lp2.system(ref.scene_index, ref.phase_index)
+                         .linear_interface();
     const auto& warm = li.warm_col_sol();
     if (warm.empty()) {
       continue;

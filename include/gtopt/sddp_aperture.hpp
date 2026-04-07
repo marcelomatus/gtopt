@@ -140,8 +140,8 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
 ///
 /// Returns std::nullopt if all apertures are infeasible or skipped.
 ///
-/// @param scene            Scene index (for logging/labelling)
-/// @param phase            Target phase being solved
+/// @param scene_index      Scene index (for logging/labelling)
+/// @param phase_index      Target phase being solved
 /// @param src_state        Phase state of the source (previous) phase
 /// @param base_scenario    The scene's base scenario (for flow bound update)
 /// @param all_scenarios    All simulation scenarios (for aperture lookup)
@@ -153,8 +153,8 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
 /// @param opts             Solver options
 /// @param label_maker      Label maker for LP row names
 /// @param log_directory    Directory for debug LP files (empty = no save)
-/// @param scene_uid        Scene UID (for logging)
-/// @param phase_uid        Phase UID (for logging)
+/// @param scene_uid_val    Scene UID (for logging)
+/// @param phase_uid_val    Phase UID (for logging)
 /// @param submit_fn        Callback to submit an aperture task to the work pool
 /// @param aperture_timeout Timeout in seconds for each aperture LP solve;
 ///                         0 = no timeout.  When exceeded, the aperture is
@@ -172,8 +172,8 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
 /// @param cut_coeff_eps    Epsilon below which cut coefficients are zeroed
 /// @param cut_coeff_max    Maximum absolute cut coefficient (0 = no limit)
 [[nodiscard]] auto solve_apertures_for_phase(
-    SceneIndex scene,
-    PhaseIndex phase,
+    SceneIndex scene_index,
+    PhaseIndex phase_index,
     const PhaseStateInfo& src_state,
     const ScenarioLP& base_scenario,
     std::span<const ScenarioLP> all_scenarios,
@@ -185,8 +185,8 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
     const SolverOptions& opts,
     const LabelMaker& label_maker,
     const std::string& log_directory,
-    SceneUid scene_uid,
-    PhaseUid phase_uid,
+    SceneUid scene_uid_val,
+    PhaseUid phase_uid_val,
     const ApertureSubmitFunc& submit_fn,
     double aperture_timeout = 0.0,
     bool save_aperture_lp = false,
@@ -194,7 +194,7 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
     std::span<const double> forward_col_sol = {},
     std::span<const double> forward_row_dual = {},
     LinearInterface* pooled_clone = nullptr,
-    IterationIndex iteration = {},
+    IterationIndex iteration_index = {},
     CutCoeffMode cut_coeff_mode = CutCoeffMode::reduced_cost,
     double scale_alpha = 1.0,
     double cut_coeff_eps = 0.0,

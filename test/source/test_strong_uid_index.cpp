@@ -8,7 +8,7 @@
  * a scene with uid=10 might be stored at index=0.  Confusing them leads to
  * out-of-bounds access or silent data corruption.
  *
- * The SDDP solver had latent bugs where StoredCut.scene (a SceneUid) was
+ * The SDDP solver had latent bugs where StoredCut.scene_uid (a SceneUid) was
  * used directly as a SceneIndex for array access.  Strong types exposed the
  * error at compile time once the fields were changed from plain int.
  */
@@ -76,9 +76,9 @@ TEST_CASE("SceneUid and SceneIndex are distinct strong types")  // NOLINT
     CHECK_FALSE(scene_uid_map.contains(SceneUid {2}));
   }
 
-  SUBCASE("StoredCut.scene is a SceneUid, not an index")
+  SUBCASE("StoredCut.scene_uid is a SceneUid, not an index")
   {
-    static_assert(std::is_same_v<decltype(StoredCut::scene), SceneUid>);
+    static_assert(std::is_same_v<decltype(StoredCut::scene_uid), SceneUid>);
     CHECK(true);
   }
 }
@@ -125,9 +125,9 @@ TEST_CASE("PhaseUid and PhaseIndex are distinct strong types")  // NOLINT
     CHECK_FALSE(phase_uid_map.contains(PhaseUid {1}));
   }
 
-  SUBCASE("StoredCut.phase is a PhaseUid, not an index")
+  SUBCASE("StoredCut.phase_uid is a PhaseUid, not an index")
   {
-    static_assert(std::is_same_v<decltype(StoredCut::phase), PhaseUid>);
+    static_assert(std::is_same_v<decltype(StoredCut::phase_uid), PhaseUid>);
     CHECK(true);
   }
 }
@@ -196,8 +196,8 @@ TEST_CASE("StoredCut preserves strong-typed scene and phase UIDs")  // NOLINT
 
   const StoredCut cut {
       .type = CutType::Optimality,
-      .phase = PhaseUid {42},
-      .scene = SceneUid {7},
+      .phase_uid = PhaseUid {42},
+      .scene_uid = SceneUid {7},
       .name = "test_cut",
       .rhs = -1.5,
       .coefficients =
@@ -207,13 +207,13 @@ TEST_CASE("StoredCut preserves strong-typed scene and phase UIDs")  // NOLINT
           },
   };
 
-  CHECK(cut.phase == PhaseUid {42});
-  CHECK(cut.scene == SceneUid {7});
+  CHECK(cut.phase_uid == PhaseUid {42});
+  CHECK(cut.scene_uid == SceneUid {7});
   CHECK(cut.type == CutType::Optimality);
   CHECK(cut.rhs == doctest::Approx(-1.5));
   CHECK(cut.coefficients.size() == 2);
 
   // Verify the stored UID values are not accidentally indices
-  CHECK(static_cast<gtopt::uid_t>(cut.phase) == 42);
-  CHECK(static_cast<gtopt::uid_t>(cut.scene) == 7);
+  CHECK(static_cast<gtopt::uid_t>(cut.phase_uid) == 42);
+  CHECK(static_cast<gtopt::uid_t>(cut.scene_uid) == 7);
 }

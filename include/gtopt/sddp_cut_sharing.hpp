@@ -32,13 +32,13 @@ class PlanningLP;
 
 /// Share optimality cuts across scenes for a single phase.
 ///
-/// @param phase        Phase index where cuts will be added
+/// @param phase_index  Phase index where cuts will be added
 /// @param scene_cuts   Per-scene optimality cuts for this phase
 /// @param mode         Cut sharing mode (none/accumulate/expected/max)
 /// @param planning     PlanningLP reference (for LP access)
 /// @param context      LP context for metadata-based naming (default: none)
 void share_cuts_for_phase(
-    PhaseIndex phase,
+    PhaseIndex phase_index,
     const StrongIndexVector<SceneIndex, std::vector<SparseRow>>& scene_cuts,
     CutSharingMode mode,
     PlanningLP& planning,

@@ -121,30 +121,30 @@ using LpContext = std::variant<std::monostate,
 }
 
 /// Build an SDDP scene/phase context.
-[[nodiscard]] constexpr auto make_scene_phase_context(SceneUid scene,
-                                                      PhaseUid phase)
+[[nodiscard]] constexpr auto make_scene_phase_context(SceneUid scene_uid,
+                                                      PhaseUid phase_uid)
     -> ScenePhaseContext
 {
-  return ScenePhaseContext {scene, phase};
+  return ScenePhaseContext {scene_uid, phase_uid};
 }
 
 /// Build an SDDP scene/phase context with iteration and extra index.
-[[nodiscard]] constexpr auto make_iteration_context(SceneUid scene,
-                                                    PhaseUid phase,
-                                                    IterationIndex iteration,
-                                                    int extra)
-    -> IterationContext
+[[nodiscard]] constexpr auto make_iteration_context(
+    SceneUid scene_uid,
+    PhaseUid phase_uid,
+    IterationIndex iteration_index,
+    int extra) -> IterationContext
 {
-  return IterationContext {scene, phase, iteration, extra};
+  return IterationContext {scene_uid, phase_uid, iteration_index, extra};
 }
 
 /// Build an SDDP aperture cut context.
-[[nodiscard]] constexpr auto make_aperture_context(SceneUid scene,
-                                                   PhaseUid phase,
+[[nodiscard]] constexpr auto make_aperture_context(SceneUid scene_uid,
+                                                   PhaseUid phase_uid,
                                                    ApertureUid aperture,
                                                    int extra) -> ApertureContext
 {
-  return ApertureContext {scene, phase, aperture, extra};
+  return ApertureContext {scene_uid, phase_uid, aperture, extra};
 }
 
 // -- Tuple hashing -----------------------------------------------------------
