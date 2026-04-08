@@ -1184,6 +1184,117 @@ struct Commitment
 };
 ```
 
+### 9.1.1 Integration with Existing Reserve Model
+
+gtopt already has a complete reserve model via `ReserveZone` and
+`ReserveProvision` elements. The existing LP constraints are:
+
+**Current headroom constraints** (in `ReserveProvisionLP`):
+
+```
+generation + uprovision <= capacity           (up-reserve headroom)
+generation - dprovision >= min_generation     (down-reserve headroom)
+```
+
+**Current requirement balance** (in `ReserveZoneLP`):
+
+```
+sum(provision_factor * uprovision) >= urreq   (zone requirement)
+```
+
+These constraints have **no commitment variable interaction** — they assume
+the generator is always online. With UC enabled, three changes are needed:
+
+#### Change 1: Commitment-dependent headroom
+
+A generator can only provide spinning reserve when committed ($u_{g,t}=1$).
+The headroom constraints must become:
+
+$$p_{g,t} + r^{up}_{g,t} \leq P^{max}_g \cdot u_{g,t}
+\quad \text{(up-reserve headroom)}$$
+
+$$p_{g,t} - r^{dn}_{g,t} \geq P^{min}_g \cdot u_{g,t}
+\quad \text{(down-reserve headroom)}$$
+
+When $u_{g,t} = 0$: generation is zero (from C2) and reserve must also be
+zero — the unit cannot provide reserves when offline.
+
+**Implementation**: `CommitmentLP::add_to_lp` modifies the existing
+`ReserveProvisionLP` rows (which already reference `generation_cols`) by
+adding $-P^{max}_g \cdot u_{g,t}$ to the up-reserve headroom row's RHS
+(replacing the fixed capacity bound) and similarly for down-reserve. This
+follows the same pattern as how `ReserveProvisionLP` already adds
+coefficients to `ReserveZoneLP` requirement rows.
+
+Specifically, for each block $b$ where both commitment and reserve
+provision exist:
+
+```cpp
+// In CommitmentLP::add_to_lp, after creating u columns:
+// Modify existing uprovision row:
+//   generation + uprovision <= capacity
+// becomes:
+//   generation + uprovision - Pmax * u <= 0
+// by removing the fixed RHS and adding -Pmax * u coefficient
+lp.add_coefficient(uprovision_row[b], u_col[b], -pmax);
+lp.set_row_uppb(uprovision_row[b], 0.0);
+
+// Similarly for dprovision row:
+//   generation - dprovision >= pmin (fixed)
+// becomes:
+//   generation - dprovision - Pmin * u >= 0
+lp.add_coefficient(dprovision_row[b], u_col[b], -pmin);
+lp.set_row_lowb(dprovision_row[b], 0.0);
+```
+
+This approach **modifies existing rows in-place** rather than creating
+redundant constraints, keeping the LP compact.
+
+#### Change 2: Ramp-rate-limited reserve (Phase 2)
+
+Reserve provision should also be limited by ramp rate capability and
+the reserve deployment time $T^{deploy}$ (e.g., 10 seconds for spinning,
+10 minutes for non-spinning):
+
+$$r^{up}_{g,t} \leq RU_g \cdot T^{deploy} \cdot u_{g,t}$$
+
+This can be implemented as an additional upper bound on the provision
+variable when commitment is active, or by tightening `urmax`.
+
+#### Change 3: Reserve during startup/shutdown profiles (Phase 2)
+
+During startup profiles, the generator follows a prescribed trajectory and
+**cannot provide reserves** — the reserve provision upper bound must be
+zero during these periods:
+
+$$r^{up}_{g,t} = 0 \quad \text{if } t \in [t^{start}, t^{start}+T^{profile}]$$
+
+#### Compatibility notes
+
+- **No changes to ReserveZone or ReserveProvision structs** — the existing
+  data model is fully compatible. Only the LP assembly is modified.
+- **No changes when UC is disabled** — without `commitment_array`, the
+  reserve model works exactly as today.
+- **Reserve cost still in objective** — `urcost`/`drcost` on provisions
+  continue to work; the commitment cost is additive.
+- **Reserve failure cost still works** — `reserve_fail_cost` creates
+  shortage slack variables; these remain unaffected by UC.
+- **Provision factor still works** — the `provision_factor` scaling on the
+  requirement balance row is orthogonal to commitment.
+- **Capacity factor still works** — `ur_capacity_factor` creates capacity
+  rows that limit reserve to a fraction of installed capacity; these are
+  independent of commitment (capacity is a long-term variable).
+
+#### Summary of reserve-UC interactions
+
+| Existing constraint | With UC | Changed by |
+|---|---|---|
+| `gen + uprov <= capacity` | `gen + uprov <= Pmax * u` | CommitmentLP |
+| `gen - dprov >= pmin` | `gen - dprov >= Pmin * u` | CommitmentLP |
+| `sum(pf * uprov) >= urreq` | unchanged | — |
+| `cap * cf >= uprov` | unchanged | — |
+| reserve shortage slack | unchanged | — |
+
 ### 9.2 Frequency Security Element
 
 ```cpp
@@ -1469,13 +1580,17 @@ Annual emissions are capped at 50 MtCO2 (stage 1), declining to 40 MtCO2.
 - [ ] `System::emission_cap` field (tCO2/year, stage-schedule)
 - [ ] Emission cost adder in generator objective coefficients
 - [ ] Emission cap constraint (one per stage, when defined)
+- [ ] Modify existing `ReserveProvisionLP` headroom rows to be
+  commitment-dependent (gen + uprov ≤ Pmax·u, gen − dprov ≥ Pmin·u)
 - [ ] Output: `status_sol`, `startup_sol`, `shutdown_sol`
 - [ ] Unit test: 3-generator UC dispatch
 - [ ] Unit test: emission cost shifts dispatch from coal to gas
 - [ ] Unit test: emission cap binding → endogenous carbon price
+- [ ] Unit test: reserve provision zero when generator uncommitted
 
 **Constraints per generator per stage** (N blocks):
 3N variables (u, v, w) + 4N rows (C1, C2×2, C3) = **3N vars, 4N rows**
+(existing reserve headroom rows modified in-place, no new rows added)
 
 ### Phase 2: Ramp Constraints and Startup Profiles
 
@@ -1485,7 +1600,10 @@ startup trajectories.
 **Deliverables:**
 - [ ] Ramp up/down (C4, C5) — tight form with startup/shutdown ramp
 - [ ] Startup profile constraints (prescribed trajectory)
+- [ ] Reserve provision = 0 during startup profile periods
+- [ ] Ramp-rate-limited reserve: $r^{up} \leq RU \cdot T^{deploy} \cdot u$
 - [ ] Unit test: ramp-constrained dispatch
+- [ ] Unit test: no reserve during startup trajectory
 
 **Additional**: 2(N−1) ramp rows + startup profile rows
 
