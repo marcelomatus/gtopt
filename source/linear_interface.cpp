@@ -98,8 +98,7 @@ void LinearInterface::release_backend() noexcept
     if (m_backend_ && is_optimal()) {
       const auto cs = get_col_sol_raw();
       const auto rd = get_row_dual_raw();
-      m_snapshot_.cached_col_sol.assign(cs.begin(), cs.end());
-      m_snapshot_.cached_row_dual.assign(rd.begin(), rd.end());
+      m_snapshot_.set_cached_solution(cs, rd);
     }
     // Level 2: compress the snapshot
     enable_compression();
