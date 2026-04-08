@@ -140,7 +140,8 @@ struct SddpOptionsConstructor
     opts.use_clone_pool = use_clone_pool;
     opts.simulation_mode = simulation_mode;
     if (low_memory_str) {
-      opts.low_memory = gtopt::enum_from_name<LowMemoryMode>(*low_memory_str);
+      opts.low_memory_mode =
+          gtopt::enum_from_name<LowMemoryMode>(*low_memory_str);
     }
     if (memory_codec_str) {
       opts.memory_codec = gtopt::enum_from_name<MemoryCodec>(*memory_codec_str);
@@ -215,7 +216,7 @@ struct json_data_contract<SddpOptions>
       json_number_null<"max_stored_cuts", OptInt>,
       json_bool_null<"use_clone_pool", OptBool>,
       json_bool_null<"simulation_mode", OptBool>,
-      json_string_null<"low_memory", OptName>,
+      json_string_null<"low_memory_mode", OptName>,
       json_string_null<"memory_codec", OptName>,
       json_string_null<"cut_coeff_mode", OptName>,
       json_number_null<"cut_coeff_eps", OptReal>,
@@ -269,7 +270,7 @@ struct json_data_contract<SddpOptions>
         opt.max_stored_cuts,
         opt.use_clone_pool,
         opt.simulation_mode,
-        detail::enum_to_opt_name(opt.low_memory),
+        detail::enum_to_opt_name(opt.low_memory_mode),
         detail::enum_to_opt_name(opt.memory_codec),
         detail::enum_to_opt_name(opt.cut_coeff_mode),
         opt.cut_coeff_eps,

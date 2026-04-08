@@ -1594,7 +1594,7 @@ TEST_CASE("SDDPMethod — low_memory level 1 converges")  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 10;
   sddp_opts.convergence_tol = 1e-3;
-  sddp_opts.low_memory = LowMemoryMode::snapshot;
+  sddp_opts.low_memory_mode = LowMemoryMode::snapshot;
   sddp_opts.enable_api = false;
 
   SDDPMethod sddp(planning_lp, sddp_opts);
@@ -1614,7 +1614,7 @@ TEST_CASE("SDDPMethod — low_memory level 2 (compressed) converges")  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 10;
   sddp_opts.convergence_tol = 1e-3;
-  sddp_opts.low_memory = LowMemoryMode::compress;
+  sddp_opts.low_memory_mode = LowMemoryMode::compress;
   sddp_opts.memory_codec = MemoryCodec::zstd;
   sddp_opts.enable_api = false;
 
@@ -1658,7 +1658,7 @@ TEST_CASE(  // NOLINT
     SDDPOptions sddp_opts;
     sddp_opts.max_iterations = 10;
     sddp_opts.convergence_tol = 1e-3;
-    sddp_opts.low_memory = LowMemoryMode::snapshot;
+    sddp_opts.low_memory_mode = LowMemoryMode::snapshot;
     sddp_opts.enable_api = false;
 
     SDDPMethod sddp(planning_lp, sddp_opts);
@@ -1683,7 +1683,7 @@ TEST_CASE(  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 20;
   sddp_opts.convergence_tol = 1e-3;
-  sddp_opts.low_memory = LowMemoryMode::snapshot;
+  sddp_opts.low_memory_mode = LowMemoryMode::snapshot;
   sddp_opts.enable_api = false;
 
   SDDPMethod sddp(planning_lp, sddp_opts);
@@ -1702,7 +1702,7 @@ TEST_CASE(  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 10;
   sddp_opts.convergence_tol = 1e-3;
-  sddp_opts.low_memory = LowMemoryMode::snapshot;
+  sddp_opts.low_memory_mode = LowMemoryMode::snapshot;
   sddp_opts.max_cuts_per_phase = 5;
   sddp_opts.cut_prune_interval = 2;
   sddp_opts.enable_api = false;

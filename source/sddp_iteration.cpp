@@ -374,7 +374,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       // ── Low-memory: release solver backends ──
       // Free solver memory after each iteration.  Backends are
       // reconstructed on demand in the next forward/backward pass.
-      if (m_options_.low_memory != LowMemoryMode::off) {
+      if (m_options_.low_memory_mode != LowMemoryMode::off) {
         const auto ns =
             static_cast<Index>(planning_lp().simulation().scenes().size());
         const auto np =
@@ -821,7 +821,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
               scene, sp.current_iter, sp.upper_bound, sp.lower_bound);
 
           // Low-memory: release clones and backends for this scene
-          if (m_options_.low_memory != LowMemoryMode::off) {
+          if (m_options_.low_memory_mode != LowMemoryMode::off) {
             for (const auto pi : iota_range<PhaseIndex>(0, num_phases)) {
               planning_lp().system(scene, pi).release_backend();
             }

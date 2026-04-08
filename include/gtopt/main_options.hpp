@@ -464,9 +464,9 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     planning.options.sddp_options.recovery_mode = RecoveryMode::none;
   }
 
-  if (opts.low_memory) {
-    planning.options.sddp_options.low_memory =
-        enum_from_name<LowMemoryMode>(*opts.low_memory);
+  if (opts.low_memory_mode) {
+    planning.options.sddp_options.low_memory_mode =
+        enum_from_name<LowMemoryMode>(*opts.low_memory_mode);
   }
 
   // CLI solver shortcuts → solver_options
@@ -593,7 +593,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .sddp_cut_coeff_mode = get_opt<std::string>(vm, "sddp-cut-coeff-mode"),
       .sddp_num_apertures = get_opt<int>(vm, "sddp-num-apertures"),
       .recover = get_opt<bool>(vm, "recover"),
-      .low_memory = get_opt<std::string>(vm, "low-memory"),
+      .low_memory_mode = get_opt<std::string>(vm, "low-memory"),
       .solver = get_opt<std::string>(vm, "solver"),
       .algorithm = [&]() -> std::optional<int>
       {
@@ -732,7 +732,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   opts.sddp_elastic_mode = get_str("sddp-elastic-mode");
   opts.sddp_cut_coeff_mode = get_str("sddp-cut-coeff-mode");
   opts.sddp_num_apertures = get_int("sddp-num-apertures");
-  opts.low_memory = get_str("low-memory");
+  opts.low_memory_mode = get_str("low-memory");
 
   // Solver
   opts.solver = get_str("solver");
@@ -879,7 +879,7 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.sddp_elastic_mode, defaults.sddp_elastic_mode);
   merge(opts.sddp_cut_coeff_mode, defaults.sddp_cut_coeff_mode);
   merge(opts.sddp_num_apertures, defaults.sddp_num_apertures);
-  merge(opts.low_memory, defaults.low_memory);
+  merge(opts.low_memory_mode, defaults.low_memory_mode);
   merge(opts.solver, defaults.solver);
   merge(opts.algorithm, defaults.algorithm);
   merge(opts.threads, defaults.threads);

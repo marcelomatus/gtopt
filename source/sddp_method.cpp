@@ -1038,16 +1038,16 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   }
 
   // ── Low-memory mode: configure all SystemLPs ──────────────────────────────
-  if (m_options_.low_memory != LowMemoryMode::off) {
+  if (m_options_.low_memory_mode != LowMemoryMode::off) {
     const auto codec = select_codec(m_options_.memory_codec);
     SPDLOG_INFO("SDDP: low_memory mode {} (codec: {})",
-                enum_name(m_options_.low_memory),
+                enum_name(m_options_.low_memory_mode),
                 codec_name(codec));
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
       for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
         planning_lp()
             .system(scene_index, phase_index)
-            .set_low_memory(m_options_.low_memory, codec);
+            .set_low_memory(m_options_.low_memory_mode, codec);
       }
     }
     // Clone pool is not used with low_memory — each aperture task creates
@@ -1206,7 +1206,7 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   // ── Low-memory: snapshot LP state after all initialization ──────────────
   // Must happen after hot-start/boundary/named cuts are loaded so that
   // the snapshot captures those rows for correct reconstruction.
-  if (m_options_.low_memory != LowMemoryMode::off) {
+  if (m_options_.low_memory_mode != LowMemoryMode::off) {
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
       for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
         planning_lp()

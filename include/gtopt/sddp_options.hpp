@@ -225,7 +225,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// Trades CPU time (reconstruction + optional decompression) for
   /// significant memory savings on large problems.
   /// Disables clone pool when not off.
-  std::optional<LowMemoryMode> low_memory {};
+  std::optional<LowMemoryMode> low_memory_mode {};
 
   /// In-memory compression codec for low_memory level 2.
   /// Selects the algorithm used to compress the saved FlatLinearProblem.
@@ -432,7 +432,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(max_stored_cuts, opts.max_stored_cuts);
     merge_opt(use_clone_pool, opts.use_clone_pool);
     merge_opt(simulation_mode, opts.simulation_mode);
-    merge_opt(low_memory, opts.low_memory);
+    merge_opt(low_memory_mode, opts.low_memory_mode);
     merge_opt(memory_codec, opts.memory_codec);
     merge_opt(cut_coeff_mode, opts.cut_coeff_mode);
     merge_opt(cut_coeff_eps, opts.cut_coeff_eps);
