@@ -782,6 +782,36 @@ TEST_CASE("Commitment JSON round-trip with ramp fields")
   CHECK(c2.ramp_down.value_or(-1.0) == doctest::Approx(40.0));
 }
 
+TEST_CASE("Commitment JSON round-trip with heat rate segments")
+{
+  std::string_view json_str = R"({
+    "uid": 3,
+    "name": "coal_uc",
+    "generator": 7,
+    "initial_status": 1,
+    "relax": true,
+    "pmax_segments": [50.0, 80.0, 100.0],
+    "heat_rate_segments": [8.0, 10.0, 14.0],
+    "fuel_cost": 5.0
+  })";
+
+  const auto c = daw::json::from_json<Commitment>(json_str);
+  CHECK(c.uid == 3);
+  REQUIRE(c.pmax_segments.size() == 3);
+  CHECK(c.pmax_segments[0] == doctest::Approx(50.0));
+  CHECK(c.pmax_segments[2] == doctest::Approx(100.0));
+  REQUIRE(c.heat_rate_segments.size() == 3);
+  CHECK(c.heat_rate_segments[0] == doctest::Approx(8.0));
+  CHECK(c.heat_rate_segments[2] == doctest::Approx(14.0));
+  REQUIRE(c.fuel_cost.has_value());
+
+  // Round-trip
+  const auto json_out = daw::json::to_json(c);
+  const auto c2 = daw::json::from_json<Commitment>(json_out);
+  CHECK(c2.pmax_segments.size() == 3);
+  CHECK(c2.heat_rate_segments.size() == 3);
+}
+
 TEST_CASE("Stage chronological field JSON")
 {
   std::string_view json_str = R"({

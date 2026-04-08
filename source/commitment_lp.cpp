@@ -325,12 +325,24 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     }
 
     // ── Piecewise heat rate curve ──
-    // Replace the single gcost with K segment variables:
-    //   p = Pmin·u + δ_1 + ... + δ_K
-    //   cost(δ_k) = fuel_cost × heat_rate_k × block_ecost
+    // Literature formulation (Morales-España, Carrión & Arroyo):
+    //   p = Pmin·u + δ_1 + ... + δ_K              (linking)
+    //   0 ≤ δ_k ≤ w_k · u                         (segment bounds)
+    //   cost(δ_k) = fuel_cost × heat_rate_k        (per-segment cost)
+    //
+    // The segment bounds δ_k ≤ w_k·u ensure zero output when uncommitted.
+    // Filling order is natural: increasing heat rates → increasing costs.
     if (has_segments && stage_fuel_cost > 0.0) {
-      // Zero out the original generation cost — segments carry cost now
+      // Zero out the original generation cost — segments carry cost now.
+      // Any emission cost that was added above is also zeroed; emission
+      // cost is re-added to each segment variable below.
       gcol_ref.cost = 0.0;
+
+      // Emission cost per MWh to add to each segment (if applicable)
+      const double seg_emission_adder =
+          (stage_emission_cost > 0.0 && stage_emission_factor > 0.0)
+          ? stage_emission_cost * stage_emission_factor
+          : 0.0;
 
       // Build linking row: p - Pmin·u - Σ δ_k = 0
       auto link_row =
@@ -351,11 +363,20 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
           prev_breakpoint = pmax_segs[k];
           continue;
         }
-        const auto seg_cost = CostHelper::block_ecost(
-            scenario, stage, block, stage_fuel_cost * hr_segs[k]);
+
+        // Segment cost = (fuel_cost × heat_rate + emission_cost ×
+        // emission_factor)
+        const auto seg_marginal =
+            (stage_fuel_cost * hr_segs[k]) + seg_emission_adder;
+        const auto seg_cost =
+            CostHelper::block_ecost(scenario, stage, block, seg_marginal);
 
         const auto seg_ctx =
             make_block_context(scenario.uid(), stage.uid(), block.uid());
+
+        // Create segment variable δ_k with bounds [0, w_k]
+        // The commitment-dependent bound δ_k ≤ w_k·u is enforced by
+        // a separate constraint row below.
         auto seg_col = lp.add_col({
             .lowb = 0.0,
             .uppb = seg_width,
@@ -365,6 +386,21 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
             .variable_uid = cuid,
             .context = seg_ctx,
         });
+
+        // Segment bound row: δ_k - w_k·u ≤ 0  →  δ_k ≤ w_k·u
+        {
+          auto seg_bound_row =
+              SparseRow {
+                  .class_name = cname,
+                  .constraint_name = SegmentName,
+                  .variable_uid = cuid,
+                  .context = seg_ctx,
+              }
+                  .less_equal(0.0);
+          seg_bound_row[seg_col] = 1.0;
+          seg_bound_row[ucol] = -seg_width;
+          std::ignore = lp.add_row(std::move(seg_bound_row));
+        }
 
         link_row[seg_col] = -1.0;
         segment_cols_[k][st_key][buid] = seg_col;
