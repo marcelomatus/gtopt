@@ -94,6 +94,18 @@ public:
   using Object::object;
   using Object::uid;
 
+  // LP variable/constraint name constants — shared between add_to_lp and
+  // add_to_output so that column names are guaranteed unique and consistent.
+  static constexpr std::string_view EiniName {"eini"};
+  static constexpr std::string_view SiniName {"sini"};
+  static constexpr std::string_view EnergyName {"energy"};
+  static constexpr std::string_view SoftEminName {"soft_emin"};
+  static constexpr std::string_view DrainName {"drain"};
+  static constexpr std::string_view VolumenName {"volumen"};
+  static constexpr std::string_view EfinName {"efin"};
+  static constexpr std::string_view CapacityName {"capacity"};
+  static constexpr std::string_view SeminGeName {"semin_ge"};
+
   [[nodiscard]] constexpr auto&& storage(this auto&& self) noexcept
   {
     // Forward the object() call with same value category as self
@@ -442,7 +454,7 @@ public:
           .uppb = storage().eini.value_or(stage_emax),
           .scale = energy_scale,
           .class_name = opts.class_name,
-          .variable_name = "energy",
+          .variable_name = EiniName,
           .variable_uid = opts.variable_uid,
           .context = make_stage_context(scenario.uid(), stage.uid()),
       });
@@ -461,7 +473,7 @@ public:
           .uppb = stage_emax,
           .scale = energy_scale,
           .class_name = opts.class_name,
-          .variable_name = "energy",
+          .variable_name = SiniName,
           .variable_uid = opts.variable_uid,
           .context = make_stage_context(scenario.uid(), stage.uid()),
       });
@@ -470,7 +482,7 @@ public:
         // so that PlanningLP::resolve_scene_phases() and the SDDP forward pass
         // can propagate the trial value.
         const auto efin_key =
-            StateVariable::key(scenario, *prev_stage, cname, uid(), "efin");
+            StateVariable::key(scenario, *prev_stage, cname, uid(), EfinName);
         if (auto prev_efin = sc.get_state_variable(efin_key); prev_efin) {
           prev_efin->get().add_dependent_variable(scenario, stage, eicol);
         } else {
@@ -515,7 +527,7 @@ public:
       auto erow =
           SparseRow {
               .class_name = cname,
-              .constraint_name = "volumen",
+              .constraint_name = VolumenName,
               .variable_uid = opts.variable_uid,
               .context =
                   make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -534,7 +546,7 @@ public:
           .cost = stage_ecost,
           .scale = energy_scale,
           .class_name = opts.class_name,
-          .variable_name = "energy",
+          .variable_name = EnergyName,
           .variable_uid = opts.variable_uid,
           .context =
               make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -582,7 +594,7 @@ public:
             .cost = sc.block_ecost(scenario, stage, block, *drain_cost),
             .scale = flow_scale,
             .class_name = opts.class_name,
-            .variable_name = "drain",
+            .variable_name = DrainName,
             .variable_uid = opts.variable_uid,
             .context =
                 make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -600,7 +612,7 @@ public:
         auto crow =
             SparseRow {
                 .class_name = cname,
-                .constraint_name = "capacity",
+                .constraint_name = CapacityName,
                 .variable_uid = opts.variable_uid,
                 .context = make_block_context(
                     scenario.uid(), stage.uid(), block.uid()),
@@ -628,7 +640,7 @@ public:
         auto efin_row =
             SparseRow {
                 .class_name = cname,
-                .constraint_name = "efin",
+                .constraint_name = EfinName,
                 .variable_uid = opts.variable_uid,
                 .context = make_stage_context(scenario.uid(), stage.uid()),
             }
@@ -664,7 +676,7 @@ public:
           .cost = slack_cost,
           .scale = energy_scale,
           .class_name = opts.class_name,
-          .variable_name = "energy",
+          .variable_name = SoftEminName,
           .variable_uid = opts.variable_uid,
           .context = make_stage_context(scenario.uid(), stage.uid()),
       });
@@ -672,7 +684,7 @@ public:
       auto semin_row =
           SparseRow {
               .class_name = cname,
-              .constraint_name = "semin_ge",
+              .constraint_name = SeminGeName,
               .variable_uid = opts.variable_uid,
               .context = make_stage_context(scenario.uid(), stage.uid()),
           }
@@ -690,7 +702,7 @@ public:
     // boundaries (gtopt-phase = PLP-stage).
     if (effective_usv) {
       sc.add_state_variable(
-          StateVariable::key(scenario, stage, cname, uid(), "efin"),
+          StateVariable::key(scenario, stage, cname, uid(), EfinName),
           prev_vc,
           opts.scost,
           energy_scale);
@@ -755,30 +767,30 @@ public:
     // Primal and reduced-cost outputs: the LinearInterface now returns
     // physical values from get_col_sol() (LP × col_scale) and
     // get_col_cost() (LP / col_scale), so no manual rescaling needed.
-    out.add_col_sol(cname, "eini", pid, eini_cols);
-    out.add_col_cost(cname, "eini", pid, eini_cols);
-    out.add_col_sol(cname, "sini", pid, sini_cols);
-    out.add_col_cost(cname, "sini", pid, sini_cols);
-    out.add_col_sol(cname, "efin", pid, efin_cols);
-    out.add_col_cost(cname, "efin", pid, efin_cols);
-    out.add_col_sol(cname, "volumen", pid, energy_cols);
-    out.add_col_cost(cname, "volumen", pid, energy_cols);
+    out.add_col_sol(cname, EiniName, pid, eini_cols);
+    out.add_col_cost(cname, EiniName, pid, eini_cols);
+    out.add_col_sol(cname, SiniName, pid, sini_cols);
+    out.add_col_cost(cname, SiniName, pid, sini_cols);
+    out.add_col_sol(cname, EfinName, pid, efin_cols);
+    out.add_col_cost(cname, EfinName, pid, efin_cols);
+    out.add_col_sol(cname, VolumenName, pid, energy_cols);
+    out.add_col_cost(cname, VolumenName, pid, energy_cols);
 
     // Dual output: output_dual_scale = dc_stage_scale.
     // Row equilibration is already removed by get_row_dual().
     // This corrects the daily-cycle time-scaling (dc_stage_scale).
     // flatten() handles energy_scale via col_scale on coefficients.
-    out.add_row_dual(cname, "volumen", pid, energy_rows, output_dual_scale);
+    out.add_row_dual(cname, VolumenName, pid, energy_rows, output_dual_scale);
 
-    out.add_row_dual(cname, "capacity", pid, capacity_rows);
-    out.add_row_dual(cname, "efin", pid, efin_rows);
+    out.add_row_dual(cname, CapacityName, pid, capacity_rows);
+    out.add_row_dual(cname, EfinName, pid, efin_rows);
 
-    out.add_col_sol(cname, "soft_emin", pid, soft_emin_slack_cols);
-    out.add_col_cost(cname, "soft_emin", pid, soft_emin_slack_cols);
-    out.add_row_dual(cname, "soft_emin", pid, soft_emin_rows);
+    out.add_col_sol(cname, SoftEminName, pid, soft_emin_slack_cols);
+    out.add_col_cost(cname, SoftEminName, pid, soft_emin_slack_cols);
+    out.add_row_dual(cname, SoftEminName, pid, soft_emin_rows);
 
-    out.add_col_sol(cname, "drain", pid, drain_cols);
-    out.add_col_cost(cname, "drain", pid, drain_cols);
+    out.add_col_sol(cname, DrainName, pid, drain_cols);
+    out.add_col_cost(cname, DrainName, pid, drain_cols);
 
     return true;
   }

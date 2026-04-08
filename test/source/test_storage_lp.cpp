@@ -8,6 +8,7 @@
 #include <gtopt/battery_lp.hpp>
 #include <gtopt/demand.hpp>
 #include <gtopt/generator.hpp>
+#include <gtopt/lp_matrix_enums.hpp>
 #include <gtopt/planning_options.hpp>
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/simulation.hpp>
@@ -669,4 +670,82 @@ TEST_CASE(  // NOLINT
 
   // The objective should be positive (generator cost + ecost on energy)
   CHECK(li.get_obj_value() > 0.0);
+}
+
+// ─── Regression: soft_emin column name must not collide with eini ──────────
+
+TEST_CASE(  // NOLINT
+    "StorageLP soft_emin column has unique name (not colliding with eini)")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Battery with soft_emin active — triggers both the eini column
+  // (variable_name "eini") and the soft_emin slack column
+  // (variable_name "soft_emin"), both with stage context.
+  // Before the fix, both used variable_name "energy", causing a
+  // duplicate column name in the FlatLinearProblem name map.
+  const Array<Battery> battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat_semin",
+          .bus = Uid {1},
+          .input_efficiency = 0.95,
+          .output_efficiency = 0.95,
+          .emin = 0.0,
+          .emax = 100.0,
+          .eini = 50.0,
+          .soft_emin = 20.0,
+          .soft_emin_cost = 500.0,
+          .capacity = 100.0,
+      },
+  };
+
+  // Build with col+row name maps enabled (level 2) so that
+  // LinearProblem::flatten() throws on any duplicate column name.
+  // Before the fix, both eini and soft_emin slack used variable_name
+  // "energy" with stage context, producing identical names.
+  PlanningOptions popts;
+  popts.demand_fail_cost = 1000.0;
+  popts.lp_matrix_options.names_level = LpNamesLevel::cols_and_rows;
+
+  auto options = PlanningOptionsLP {popts};
+  SimulationLP sim_lp(make_simple_simulation(), options);
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  const Array<Generator> gen_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 200.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .lmax = 100.0,
+      },
+  };
+
+  const System system {
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = gen_array,
+      .battery_array = battery_array,
+  };
+
+  // This will throw if duplicate column names exist (regression guard)
+  SystemLP sys_lp(system, sim_lp);
+  auto& li = sys_lp.linear_interface();
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
 }
