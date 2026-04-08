@@ -13,6 +13,7 @@
 #pragma once
 
 #include <functional>
+#include <optional>
 
 #include <gtopt/battery_lp.hpp>
 #include <gtopt/bus_lp.hpp>
@@ -303,7 +304,7 @@ public:
     return system().name;
   }
 
-  void create_lp(const LpMatrixOptions& flat_opts = {});
+  void create_lp(const LpMatrixOptions& flat_opts_in = {});
 
   /**
    * @brief Update LP elements for all (scenario, stage) pairs in this system.
@@ -397,6 +398,47 @@ public:
   [[nodiscard]] constexpr const SystemLP* prev_phase_sys() const noexcept
   {
     return m_prev_phase_sys_;
+  }
+
+  // ── Low-memory mode API (thin forwarding to LinearInterface) ──────────
+
+  void set_low_memory(LowMemoryMode mode,
+                      MemoryCodec codec = MemoryCodec::zstd) noexcept
+  {
+    m_linear_interface_.set_low_memory(mode, codec);
+  }
+
+  void release_backend() noexcept { m_linear_interface_.release_backend(); }
+
+  void reconstruct_backend(std::span<const double> col_sol = {},
+                           std::span<const double> row_dual = {})
+  {
+    m_linear_interface_.reconstruct_backend(col_sol, row_dual);
+  }
+
+  void record_dynamic_col(SparseCol col)
+  {
+    m_linear_interface_.record_dynamic_col(std::move(col));
+  }
+
+  void record_cut_row(SparseRow row)
+  {
+    m_linear_interface_.record_cut_row(std::move(row));
+  }
+
+  void record_cut_deletion(std::span<const int> deleted_indices)
+  {
+    m_linear_interface_.record_cut_deletion(deleted_indices);
+  }
+
+  [[nodiscard]] bool is_backend_released() const noexcept
+  {
+    return m_linear_interface_.is_backend_released();
+  }
+
+  [[nodiscard]] LowMemoryMode low_memory_mode() const noexcept
+  {
+    return m_linear_interface_.low_memory_mode();
   }
 };
 

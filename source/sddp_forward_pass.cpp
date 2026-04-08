@@ -95,9 +95,22 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       });
     }
 
-    auto& li =
-        planning_lp().system(scene_index, phase_index).linear_interface();
+    auto& system = planning_lp().system(scene_index, phase_index);
     auto& state = phase_states[phase_index];
+
+    // Reconstruct LP backend if released by low_memory mode.
+    // dispatch_update_lp() runs after this point, so coefficient updates
+    // are replayed naturally.
+    if (system.is_backend_released()) {
+      SPDLOG_DEBUG("{}: reconstructing backend for low_memory",
+                   sddp_log("Forward",
+                            iteration_index,
+                            scene_uid(scene_index),
+                            phase_uid(phase_index)));
+      system.reconstruct_backend(state.forward_col_sol, state.forward_row_dual);
+    }
+
+    auto& li = system.linear_interface();
 
     // Propagate state variables from previous phase
     if (phase_index != PhaseIndex {0}) {

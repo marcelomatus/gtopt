@@ -283,4 +283,80 @@ constexpr auto enum_entries(StateVariableLookupMode /*tag*/) noexcept
   return std::span {state_variable_lookup_mode_entries};
 }
 
+// ─── LowMemoryMode ──────────────────────────────────────────────────────
+
+/**
+ * @brief Low-memory mode for SDDP solver.
+ *
+ * Controls whether and how the solver releases backend memory between solves.
+ *
+ * - `off`:      Disabled — keep solver backend loaded (default).
+ * - `snapshot`: Release solver backend after each solve, reconstruct on demand
+ *               from saved FlatLinearProblem + dynamic columns + accumulated
+ *               cuts.
+ * - `compress`: Same as `snapshot`, but compress the saved FlatLinearProblem
+ *               for additional memory savings (~2-4x compression ratio).
+ */
+enum class LowMemoryMode : uint8_t
+{
+  off = 0,  ///< Disabled — keep solver backend loaded (default)
+  snapshot = 1,  ///< Release solver, keep flat LP for reconstruction
+  compress = 2,  ///< Release solver, compress flat LP
+};
+
+inline constexpr auto low_memory_mode_entries =
+    std::to_array<EnumEntry<LowMemoryMode>>({
+        {.name = "off", .value = LowMemoryMode::off},
+        {.name = "snapshot", .value = LowMemoryMode::snapshot},
+        {.name = "compress", .value = LowMemoryMode::compress},
+    });
+
+constexpr auto enum_entries(LowMemoryMode /*tag*/) noexcept
+{
+  return std::span {low_memory_mode_entries};
+}
+
+// ─── MemoryCodec ─────────────────────────────────────────────────────────
+
+/**
+ * @brief In-memory compression codec for low_memory mode level 2.
+ *
+ * Controls which algorithm is used to compress the saved FlatLinearProblem
+ * when low_memory >= 2.  `none` disables compression (equivalent to level 1).
+ *
+ * When set to `auto_select` (default), the fastest available codec is chosen
+ * at runtime using the priority order: lz4 > snappy > zstd > gzip.
+ *
+ * - `auto_select`: Pick best available (default for level 2)
+ * - `none`:   No compression (default for level 0/1)
+ * - `lz4`:    LZ4 — fastest decompression (requires liblz4)
+ * - `snappy`: Snappy — fast, moderate ratio (requires libsnappy)
+ * - `zstd`:   Zstandard — good balance of speed and ratio (always available)
+ * - `gzip`:   zlib/gzip — slower, good ratio (always available via ZLIB)
+ */
+enum class MemoryCodec : uint8_t
+{
+  auto_select = 0,  ///< Pick best available: lz4 > snappy > zstd > gzip
+  none = 1,  ///< No compression
+  lz4 = 2,  ///< LZ4 (requires liblz4)
+  snappy = 3,  ///< Snappy (requires libsnappy)
+  zstd = 4,  ///< Zstandard (always available)
+  gzip = 5,  ///< zlib/gzip (always available)
+};
+
+inline constexpr auto memory_codec_entries =
+    std::to_array<EnumEntry<MemoryCodec>>({
+        {.name = "auto", .value = MemoryCodec::auto_select},
+        {.name = "none", .value = MemoryCodec::none},
+        {.name = "lz4", .value = MemoryCodec::lz4},
+        {.name = "snappy", .value = MemoryCodec::snappy},
+        {.name = "zstd", .value = MemoryCodec::zstd},
+        {.name = "gzip", .value = MemoryCodec::gzip},
+    });
+
+constexpr auto enum_entries(MemoryCodec /*tag*/) noexcept
+{
+  return std::span {memory_codec_entries};
+}
+
 }  // namespace gtopt

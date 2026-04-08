@@ -13,6 +13,7 @@
 
 #include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/memory_compress.hpp>
 #include <gtopt/solver_registry.hpp>
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
@@ -55,6 +56,8 @@ inline bool check_name_unique(LinearInterface::name_index_map_t& name_map,
 LinearInterface::LinearInterface(std::unique_ptr<SolverBackend> backend,
                                  std::string plog_file)
     : m_backend_(std::move(backend))
+    , m_solver_name_(m_backend_ ? std::string(m_backend_->solver_name())
+                                : std::string {})
     , m_log_file_(std::move(plog_file))
 {
 }
@@ -75,6 +78,182 @@ LinearInterface::LinearInterface(std::string_view solver_name,
     : LinearInterface(solver_name, plog_file)
 {
   load_flat(flat_lp);
+}
+
+// ── Backend lifecycle ──
+
+void LinearInterface::release_backend() noexcept
+{
+  if (m_low_memory_mode_ == LowMemoryMode::off) {
+    m_backend_.reset();
+    return;
+  }
+
+  if (m_backend_released_) {
+    return;
+  }
+
+  // Cache the current solution for warm-start on reconstruction
+  try {
+    if (m_backend_ && is_optimal()) {
+      const auto cs = get_col_sol_raw();
+      const auto rd = get_row_dual_raw();
+      m_snapshot_.cached_col_sol.assign(cs.begin(), cs.end());
+      m_snapshot_.cached_row_dual.assign(rd.begin(), rd.end());
+    }
+    // Level 2: compress the snapshot
+    enable_compression();
+  } catch (...) {
+    // Best-effort: proceed with release even if caching/compression fails
+  }
+
+  m_backend_.reset();
+  m_backend_released_ = true;
+}
+
+// ── Low-memory mode ──
+
+void LinearInterface::set_low_memory(LowMemoryMode mode,
+                                     MemoryCodec codec) noexcept
+{
+  m_low_memory_mode_ = mode;
+  m_memory_codec_ = codec;
+
+  if (mode == LowMemoryMode::off) {
+    m_snapshot_ = {};
+  }
+}
+
+void LinearInterface::save_snapshot(FlatLinearProblem flat_lp)
+{
+  m_snapshot_.flat_lp = std::move(flat_lp);
+}
+
+void LinearInterface::capture_hot_start_cuts()
+{
+  if (m_low_memory_mode_ == LowMemoryMode::off) {
+    return;
+  }
+
+  const auto base = static_cast<int>(m_base_numrows_);
+  const auto current = static_cast<int>(get_numrows());
+  const auto ncols = static_cast<int>(get_numcols());
+
+  m_active_cuts_.clear();
+
+  if (current > base) {
+    const auto row_lo = get_row_low_raw();
+    const auto row_hi = get_row_upp_raw();
+
+    for (int r = base; r < current; ++r) {
+      SparseRow row;
+      row.lowb = row_lo[r];
+      row.uppb = row_hi[r];
+      for (int c = 0; c < ncols; ++c) {
+        const auto val = get_coeff_raw(RowIndex {r}, ColIndex {c});
+        if (val != 0.0) {
+          row[ColIndex {c}] = val;
+        }
+      }
+      m_active_cuts_.push_back(std::move(row));
+    }
+    SPDLOG_DEBUG("low_memory: captured {} hot-start cut rows", current - base);
+  }
+
+  m_backend_released_ = false;
+}
+
+void LinearInterface::reconstruct_backend(std::span<const double> col_sol,
+                                          std::span<const double> row_dual)
+{
+  if (!m_backend_released_ || !m_snapshot_.has_data()) {
+    return;
+  }
+
+  // Level 2: decompress the snapshot
+  disable_compression();
+
+  // 1. Reload the base structural LP
+  load_flat(m_snapshot_.flat_lp);
+
+  // 2. Replay dynamic columns (typically just alpha — very few)
+  for (const auto& col : m_dynamic_cols_) {
+    add_col(col);
+  }
+
+  // 3. Mark structural boundary
+  save_base_numrows();
+
+  // 4. Bulk-add active cuts (single efficient call)
+  if (!m_active_cuts_.empty()) {
+    add_rows(m_active_cuts_);
+  }
+
+  // 5. Load previous solution/duals for warm-start.
+  //    Use explicit arguments if provided, otherwise fall back to cached.
+  const auto& ws_col = col_sol.empty() ? m_snapshot_.cached_col_sol : col_sol;
+  const auto& ws_dual =
+      row_dual.empty() ? m_snapshot_.cached_row_dual : row_dual;
+  if (!ws_col.empty() || !ws_dual.empty()) {
+    set_warm_start_solution(ws_col, ws_dual);
+  }
+
+  m_backend_released_ = false;
+}
+
+void LinearInterface::record_dynamic_col(SparseCol col)
+{
+  if (m_low_memory_mode_ != LowMemoryMode::off) {
+    m_dynamic_cols_.push_back(std::move(col));
+  }
+}
+
+void LinearInterface::record_cut_row(SparseRow row)
+{
+  if (m_low_memory_mode_ != LowMemoryMode::off) {
+    m_active_cuts_.push_back(std::move(row));
+  }
+}
+
+void LinearInterface::record_cut_deletion(std::span<const int> deleted_indices)
+{
+  if (m_low_memory_mode_ == LowMemoryMode::off || m_active_cuts_.empty()) {
+    return;
+  }
+
+  const auto base = static_cast<int>(m_base_numrows_);
+
+  std::vector<size_t> offsets;
+  offsets.reserve(deleted_indices.size());
+  for (const auto idx : deleted_indices) {
+    const auto off = static_cast<size_t>(idx - base);
+    if (off < m_active_cuts_.size()) {
+      offsets.push_back(off);
+    }
+  }
+  std::ranges::sort(offsets, std::greater {});
+
+  for (const auto off : offsets) {
+    m_active_cuts_.erase(m_active_cuts_.begin() + static_cast<ptrdiff_t>(off));
+  }
+}
+
+// ── Compression control ──
+
+void LinearInterface::disable_compression()
+{
+  if (m_low_memory_mode_ != LowMemoryMode::compress) {
+    return;
+  }
+  m_snapshot_.decompress();
+}
+
+void LinearInterface::enable_compression()
+{
+  if (m_low_memory_mode_ != LowMemoryMode::compress) {
+    return;
+  }
+  m_snapshot_.compress(m_memory_codec_);
 }
 
 // ── Problem name ──
@@ -130,12 +309,18 @@ void LinearInterface::open_log_handler(const int log_level)
 
 // ── Clone & warm start ──
 
-LinearInterface LinearInterface::clone() const
+LinearInterface LinearInterface::clone(std::span<const double> col_sol,
+                                       std::span<const double> row_dual) const
 {
   auto cloned = LinearInterface {m_backend_->clone(), m_log_file_};
   cloned.m_scale_objective_ = m_scale_objective_;
   cloned.m_col_scales_ = m_col_scales_;
   cloned.m_variable_scale_map_ = m_variable_scale_map_;
+
+  if (!col_sol.empty() || !row_dual.empty()) {
+    cloned.set_warm_start_solution(col_sol, row_dual);
+  }
+
   return cloned;
 }
 
@@ -169,6 +354,11 @@ void LinearInterface::set_warm_start_solution(
 
 void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
 {
+  // Recreate backend if it was released (low-memory mode reconstruction).
+  if (!m_backend_) {
+    m_backend_ = SolverRegistry::instance().create(m_solver_name_);
+  }
+
   m_backend_->set_prob_name(flat_lp.name);
 
   m_backend_->load_problem(flat_lp.ncols,
@@ -278,9 +468,12 @@ ColIndex LinearInterface::add_free_col(const std::string& name)
 
 ColIndex LinearInterface::add_col(const SparseCol& col)
 {
-  // Resolve name: generate from metadata when available.
+  // Resolve name: explicit name takes priority, then metadata-based generation.
   const auto name = [&]() -> std::string
   {
+    if (!col.name.empty()) {
+      return std::string(col.name);
+    }
     if (!col.class_name.empty()
         && !std::holds_alternative<std::monostate>(col.context))
     {
@@ -322,6 +515,13 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
   }
 
   return col_idx;
+}
+
+void LinearInterface::add_cols(std::span<const SparseCol> cols)
+{
+  for (const auto& col : cols) {
+    add_col(col);
+  }
 }
 
 // ── Row operations ──
@@ -410,6 +610,126 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
 
   const auto [columns, elements] = row.to_flat<int>(eps);
   return add_row(name, columns.size(), columns, elements, row.lowb, row.uppb);
+}
+
+void LinearInterface::add_rows(const std::span<const SparseRow> rows,
+                               const double eps)
+{
+  if (rows.empty()) {
+    return;
+  }
+
+  const auto num_rows = static_cast<int>(rows.size());
+  const auto first_row_index = m_backend_->get_num_rows();
+
+  // First pass: count total non-zeros to preallocate CSR arrays.
+  size_t total_nnz = 0;
+  for (const auto& row : rows) {
+    for (const auto& [col, val] : row.cmap) {
+      if (std::abs(val) > eps) {
+        ++total_nnz;
+      }
+    }
+  }
+
+  // Allocate CSR arrays
+  std::vector<int> rowbeg(static_cast<size_t>(num_rows) + 1);
+  std::vector<int> rowind;
+  std::vector<double> rowval;
+  std::vector<double> rowlb(static_cast<size_t>(num_rows));
+  std::vector<double> rowub(static_cast<size_t>(num_rows));
+  rowind.reserve(total_nnz);
+  rowval.reserve(total_nnz);
+
+  const auto infy = m_backend_->infinity();
+
+  // Second pass: fill CSR arrays with scaled coefficients and bounds.
+  for (const auto [r, row] : std::views::enumerate(rows)) {
+    rowbeg[static_cast<size_t>(r)] = static_cast<int>(rowind.size());
+
+    const auto rs = row.scale;
+    const auto inv_rs = (rs != 1.0) ? 1.0 / rs : 1.0;
+
+    for (const auto& [col, val] : row.cmap) {
+      const auto scaled = val * inv_rs;
+      if (std::abs(scaled) > eps) {
+        rowind.push_back(static_cast<int>(col));
+        rowval.push_back(scaled);
+      }
+    }
+
+    // Scale and normalize bounds
+    auto lb = row.lowb;
+    auto ub = row.uppb;
+    if (rs != 1.0) {
+      if (lb > -infy && lb < infy) {
+        lb *= inv_rs;
+      }
+      if (ub > -infy && ub < infy) {
+        ub *= inv_rs;
+      }
+    }
+    rowlb[static_cast<size_t>(r)] = normalize_bound(lb);
+    rowub[static_cast<size_t>(r)] = normalize_bound(ub);
+  }
+  rowbeg[static_cast<size_t>(num_rows)] = static_cast<int>(rowind.size());
+
+  // Dispatch bulk add to solver backend
+  m_backend_->add_rows(num_rows,
+                       rowbeg.data(),
+                       rowind.data(),
+                       rowval.data(),
+                       rowlb.data(),
+                       rowub.data());
+
+  // Update row scales and name maps for all new rows
+  for (const auto [r, row] : std::views::enumerate(rows)) {
+    const auto row_idx = RowIndex {first_row_index + static_cast<int>(r)};
+
+    if (row.scale != 1.0) {
+      set_row_scale(row_idx, row.scale);
+    }
+
+    if (m_lp_names_level_ >= 1) {
+      const auto name = [&]() -> std::string
+      {
+        if (!row.class_name.empty()
+            && !std::holds_alternative<std::monostate>(row.context))
+        {
+          return std::visit(
+              [&](const auto& ctx) -> std::string
+              {
+                if constexpr (std::is_same_v<std::remove_cvref_t<decltype(ctx)>,
+                                             std::monostate>)
+                {
+                  return {};
+                } else {
+                  return generate_lp_label(row.class_name,
+                                           row.constraint_name,
+                                           row.variable_uid,
+                                           ctx);
+                }
+              },
+              row.context);
+        }
+        return {};
+      }();
+
+      check_name_unique(m_row_names_,
+                        name,
+                        static_cast<int>(row_idx),
+                        "row",
+                        m_lp_names_level_,
+                        1);
+
+      if (!name.empty()) {
+        if (m_row_index_to_name_.size() <= static_cast<size_t>(row_idx)) {
+          m_row_index_to_name_.resize(static_cast<size_t>(row_idx) + 1);
+        }
+        m_row_index_to_name_[row_idx] = name;
+      }
+    }
+  }
 }
 
 void LinearInterface::delete_rows(const std::span<const int> indices)

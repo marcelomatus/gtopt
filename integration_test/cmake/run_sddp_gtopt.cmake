@@ -30,6 +30,14 @@ if(NOT DEFINED ALLOWED_EXIT_CODES)
   set(ALLOWED_EXIT_CODES "0")
 endif()
 
+# Build extra --set arguments from EXTRA_SET list
+set(_extra_set_args "")
+if(DEFINED EXTRA_SET AND NOT "${EXTRA_SET}" STREQUAL "")
+  foreach(_kv IN LISTS EXTRA_SET)
+    list(APPEND _extra_set_args "--set" "${_kv}")
+  endforeach()
+endif()
+
 # Create a clean output directory
 if(EXISTS "${OUTPUT_DIR}")
   file(REMOVE_RECURSE "${OUTPUT_DIR}")
@@ -47,6 +55,7 @@ execute_process(
     "${INPUT_FILE}"
     --set output_directory=${OUTPUT_DIR}
     --set sddp_options.max_iterations=${SDDP_MAX_ITERATIONS}
+    ${_extra_set_args}
   WORKING_DIRECTORY "${WORKING_DIR}"
   RESULT_VARIABLE exit_code
   OUTPUT_VARIABLE stdout

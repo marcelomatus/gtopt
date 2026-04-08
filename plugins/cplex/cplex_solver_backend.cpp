@@ -392,6 +392,53 @@ void CplexSolverBackend::add_row(int num_elements,
   }
 }
 
+void CplexSolverBackend::add_rows(int num_rows,
+                                  const int* rowbeg,
+                                  const int* rowind,
+                                  const double* rowval,
+                                  const double* rowlb,
+                                  const double* rowub)
+{
+  m_prob_cached_ = false;
+  m_sol_cached_ = false;
+
+  // Convert lb/ub bounds to CPLEX sense/rhs/range vectors
+  std::vector<char> senses(static_cast<size_t>(num_rows));
+  std::vector<double> rhs_vec(static_cast<size_t>(num_rows));
+  std::vector<double> range_vec(static_cast<size_t>(num_rows));
+
+  for (int r = 0; r < num_rows; ++r) {
+    bounds_to_cplex(
+        rowlb[r], rowub[r], CPX_INFBOUND, senses[r], rhs_vec[r], range_vec[r]);
+  }
+
+  int status = CPXaddrows(m_env_,
+                          m_lp_,
+                          0,
+                          num_rows,
+                          rowbeg[num_rows],
+                          rhs_vec.data(),
+                          senses.data(),
+                          rowbeg,
+                          rowind,
+                          rowval,
+                          nullptr,
+                          nullptr);
+  if (status != 0) {
+    throw std::runtime_error(
+        std::format("CPLEX: CPXaddrows failed with status {}", status));
+  }
+
+  // Set range values for ranged rows
+  const int first_new_row = CPXgetnumrows(m_env_, m_lp_) - num_rows;
+  for (int r = 0; r < num_rows; ++r) {
+    if (senses[r] == 'R' && std::abs(range_vec[r]) > 1e-20) {
+      const int row_idx = first_new_row + r;
+      CPXchgrngval(m_env_, m_lp_, 1, &row_idx, &range_vec[r]);
+    }
+  }
+}
+
 void CplexSolverBackend::set_row_lower(int index, double value)
 {
   m_prob_cached_ = false;

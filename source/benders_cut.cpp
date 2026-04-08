@@ -282,8 +282,8 @@ auto elastic_filter_solve(const LinearInterface& li,
                           std::span<const double> forward_row_dual)
     -> std::optional<ElasticSolveResult>
 {
-  // Clone the LP – modifications to the clone don't touch the original.
-  auto cloned = li.clone();
+  // Clone the LP with warm-start – modifications don't touch the original.
+  auto cloned = li.clone(forward_col_sol, forward_row_dual);
 
   ElasticSolveResult result;
   result.link_infos.reserve(links.size());
@@ -546,8 +546,8 @@ auto BendersCut::elastic_filter_solve(const LinearInterface& li,
     return result;
   }
 
-  // Clone the LP – modifications to the clone don't touch the original.
-  auto cloned = li.clone();
+  // Clone the LP with warm-start – modifications don't touch the original.
+  auto cloned = li.clone(forward_col_sol, forward_row_dual);
 
   ElasticSolveResult result;
   result.link_infos.reserve(links.size());

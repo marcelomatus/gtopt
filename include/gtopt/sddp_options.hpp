@@ -221,6 +221,18 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// No cuts are saved.  Default: false.
   OptBool simulation_mode {};
 
+  /// Low memory mode: off (default), snapshot, or compress.
+  /// Trades CPU time (reconstruction + optional decompression) for
+  /// significant memory savings on large problems.
+  /// Disables clone pool when not off.
+  std::optional<LowMemoryMode> low_memory {};
+
+  /// In-memory compression codec for low_memory level 2.
+  /// Selects the algorithm used to compress the saved FlatLinearProblem.
+  /// Default: auto (picks best available: lz4 > snappy > zstd > gzip).
+  /// Accepted values: "auto", "none", "lz4", "snappy", "zstd", "gzip".
+  std::optional<MemoryCodec> memory_codec {};
+
   /** @brief How Benders cut coefficients are extracted from solved subproblems.
    *
    * - `reduced_cost` (default): uses reduced costs of fixed dependent columns.
@@ -420,6 +432,8 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(max_stored_cuts, opts.max_stored_cuts);
     merge_opt(use_clone_pool, opts.use_clone_pool);
     merge_opt(simulation_mode, opts.simulation_mode);
+    merge_opt(low_memory, opts.low_memory);
+    merge_opt(memory_codec, opts.memory_codec);
     merge_opt(cut_coeff_mode, opts.cut_coeff_mode);
     merge_opt(cut_coeff_eps, opts.cut_coeff_eps);
     merge_opt(cut_coeff_max, opts.cut_coeff_max);

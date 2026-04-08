@@ -117,6 +117,24 @@ find_package(Boost REQUIRED COMPONENTS container)
 find_package(ZLIB REQUIRED)
 find_package(zstd REQUIRED)
 
+# Optional in-memory compression codecs for low_memory mode
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+  pkg_check_modules(LZ4 IMPORTED_TARGET liblz4)
+  pkg_check_modules(SNAPPY IMPORTED_TARGET snappy)
+else()
+  find_library(LZ4_LIBRARY NAMES lz4)
+  find_path(LZ4_INCLUDE_DIR NAMES lz4.h)
+  if(LZ4_LIBRARY AND LZ4_INCLUDE_DIR)
+    set(LZ4_FOUND TRUE)
+  endif()
+  find_library(SNAPPY_LIBRARY NAMES snappy)
+  find_path(SNAPPY_INCLUDE_DIR NAMES snappy.h)
+  if(SNAPPY_LIBRARY AND SNAPPY_INCLUDE_DIR)
+    set(SNAPPY_FOUND TRUE)
+  endif()
+endif()
+
 # ---- Add source files ----
 
 file(GLOB_RECURSE headers CONFIGURE_DEPENDS
@@ -169,6 +187,29 @@ target_link_libraries(
          ${CMAKE_DL_LIBS}
          m
 )
+
+# Optional compression codec libraries for low_memory mode
+if(TARGET PkgConfig::LZ4)
+  target_link_libraries(${PROJECT_NAME} PUBLIC PkgConfig::LZ4)
+  target_compile_definitions(${PROJECT_NAME} PUBLIC GTOPT_HAS_LZ4=1)
+  message(STATUS "LZ4 found — low_memory codec lz4 enabled")
+elseif(LZ4_FOUND)
+  target_link_libraries(${PROJECT_NAME} PUBLIC ${LZ4_LIBRARY})
+  target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC ${LZ4_INCLUDE_DIR})
+  target_compile_definitions(${PROJECT_NAME} PUBLIC GTOPT_HAS_LZ4=1)
+  message(STATUS "LZ4 found — low_memory codec lz4 enabled")
+endif()
+
+if(TARGET PkgConfig::SNAPPY)
+  target_link_libraries(${PROJECT_NAME} PUBLIC PkgConfig::SNAPPY)
+  target_compile_definitions(${PROJECT_NAME} PUBLIC GTOPT_HAS_SNAPPY=1)
+  message(STATUS "Snappy found — low_memory codec snappy enabled")
+elseif(SNAPPY_FOUND)
+  target_link_libraries(${PROJECT_NAME} PUBLIC ${SNAPPY_LIBRARY})
+  target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC ${SNAPPY_INCLUDE_DIR})
+  target_compile_definitions(${PROJECT_NAME} PUBLIC GTOPT_HAS_SNAPPY=1)
+  message(STATUS "Snappy found — low_memory codec snappy enabled")
+endif()
 
 # ---- Mixed-compiler C++ standard library linkage ----
 # When the CXX compiler is Clang and the C compiler is a different toolchain

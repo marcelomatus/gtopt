@@ -65,6 +65,7 @@ struct SparseCol
   /// When @c class_name is non-empty and @c scale is still 1.0,
   /// LinearProblem::add_col() looks up the scale from its VariableScaleMap.
   /// If @c class_name is empty (default), no lookup is performed.
+  std::string_view name {};  ///< Explicit name (overrides generated name)
   std::string_view class_name {};  ///< Element class (e.g. "Bus", "Reservoir")
   std::string_view
       variable_name {};  ///< Variable name (e.g. "theta", "energy")

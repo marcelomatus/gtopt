@@ -885,6 +885,19 @@ public:
     return m_options_.sddp_options.use_clone_pool.value_or(true);
   }
 
+  /// Low memory mode: off, snapshot, or compress.
+  [[nodiscard]] constexpr auto sddp_low_memory() const
+  {
+    return m_options_.sddp_options.low_memory.value_or(LowMemoryMode::off);
+  }
+
+  /// In-memory compression codec for low_memory level 2.
+  [[nodiscard]] constexpr auto sddp_memory_codec() const
+  {
+    return m_options_.sddp_options.memory_codec.value_or(
+        MemoryCodec::auto_select);
+  }
+
   /** @brief Whether SDDP resolves use warm-start (default: true). */
   [[nodiscard]] constexpr auto sddp_warm_start() const
   {

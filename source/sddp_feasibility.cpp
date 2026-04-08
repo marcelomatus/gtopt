@@ -53,8 +53,14 @@ auto SDDPMethod::feasibility_backpropagate(SceneIndex scene_index,
       if (back_phase > PhaseIndex {0}) {
         // Build a feasibility-like cut for the previous phase
         const auto prev_bp = back_phase - PhaseIndex {1};
-        auto& prev_li =
-            planning_lp().system(scene_index, prev_bp).linear_interface();
+        auto& prev_sys = planning_lp().system(scene_index, prev_bp);
+        // Reconstruct if released by low_memory mode
+        if (prev_sys.is_backend_released()) {
+          const auto& prev_st = phase_states[prev_bp];
+          prev_sys.reconstruct_backend(prev_st.forward_col_sol,
+                                       prev_st.forward_row_dual);
+        }
+        auto& prev_li = prev_sys.linear_interface();
         const auto& prev_state = phase_states[prev_bp];
 
         if (m_options_.elastic_filter_mode == ElasticFilterMode::backpropagate)

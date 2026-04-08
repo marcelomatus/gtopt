@@ -31,7 +31,7 @@ namespace gtopt
  * SolverRegistry checks the plugin's reported ABI version at load time
  * and rejects incompatible plugins with a clear error instead of crashing.
  */
-inline constexpr int k_solver_abi_version = 2;
+inline constexpr int k_solver_abi_version = 3;
 
 /**
  * @brief Abstract interface for LP/MIP solver backends.
@@ -100,6 +100,22 @@ public:
                        const double* elements,
                        double rowlb,
                        double rowub) = 0;
+
+  /// Bulk row addition in CSR (Compressed Sparse Row) format.
+  ///
+  /// @param num_rows  Number of rows to add
+  /// @param rowbeg    Row-start offsets into rowind/rowval (size num_rows+1)
+  /// @param rowind    Column indices for non-zeros
+  /// @param rowval    Non-zero coefficient values
+  /// @param rowlb     Row lower bounds (size num_rows)
+  /// @param rowub     Row upper bounds (size num_rows)
+  virtual void add_rows(int num_rows,
+                        const int* rowbeg,
+                        const int* rowind,
+                        const double* rowval,
+                        const double* rowlb,
+                        const double* rowub) = 0;
+
   virtual void set_row_lower(int index, double value) = 0;
   virtual void set_row_upper(int index, double value) = 0;
   virtual void set_row_bounds(int index, double lb, double ub) = 0;

@@ -116,8 +116,16 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       iteration_index, scene_uid(scene_index), phase_index, GridCell::Aperture);
 
   const auto src_phase = phase_index - PhaseIndex {1};
-  auto& src_li =
-      planning_lp().system(scene_index, src_phase).linear_interface();
+  auto& src_sys = planning_lp().system(scene_index, src_phase);
+
+  // Reconstruct if released by low_memory mode
+  if (src_sys.is_backend_released()) {
+    const auto& src_st = phase_states[src_phase];
+    src_sys.reconstruct_backend(src_st.forward_col_sol,
+                                src_st.forward_row_dual);
+  }
+
+  auto& src_li = src_sys.linear_interface();
   const auto& src_state = phase_states[src_phase];
   const auto& plp = planning_lp().simulation().phases()[phase_index];
 
@@ -128,6 +136,17 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
   // Forward-pass solution for the target phase — used as warm-start hint
   const auto& target_state = phase_states[phase_index];
 
+  // Reconstruct target system if released by low_memory mode
+  auto& target_sys = planning_lp().system(scene_index, phase_index);
+  if (target_sys.is_backend_released()) {
+    target_sys.reconstruct_backend(target_state.forward_col_sol,
+                                   target_state.forward_row_dual);
+  }
+
+  // Keep the flat LP decompressed while aperture tasks create clones.
+  // The guard re-compresses on scope exit (level 2 only).
+  const DecompressionGuard dcomp_guard(target_sys.linear_interface());
+
   auto expected_cut = solve_apertures_for_phase(
       scene_index,
       phase_index,
@@ -137,7 +156,7 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       aperture_defs,
       plp.apertures(),
       cut_offset,
-      planning_lp().system(scene_index, phase_index),
+      target_sys,
       plp,
       aperture_solve_opts,
       m_label_maker_,
@@ -150,7 +169,7 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       m_aperture_cache_,
       target_state.forward_col_sol,
       target_state.forward_row_dual,
-      nullptr,  // no pooled clone — each task clones
+      nullptr,  // each task creates its own clone, released on completion
       iteration_index,
       m_options_.cut_coeff_mode,
       m_options_.scale_alpha,
@@ -439,8 +458,16 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
     }
 
     const auto src_phase = phase_index - PhaseIndex {1};
-    auto& src_li =
-        planning_lp().system(scene_index, src_phase).linear_interface();
+    auto& src_sys = planning_lp().system(scene_index, src_phase);
+
+    // Reconstruct if released by low_memory mode
+    if (src_sys.is_backend_released()) {
+      const auto& src_st = phase_states[src_phase];
+      src_sys.reconstruct_backend(src_st.forward_col_sol,
+                                  src_st.forward_row_dual);
+    }
+
+    auto& src_li = src_sys.linear_interface();
     const auto& src_state = phase_states[src_phase];
     const auto& plp = phases[phase_index];
 
@@ -451,6 +478,16 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
     // Forward-pass solution for the target phase — warm-start hint
     const auto& target_state = phase_states[phase_index];
 
+    // Reconstruct target system if released by low_memory mode
+    auto& target_sys = planning_lp().system(scene_index, phase_index);
+    if (target_sys.is_backend_released()) {
+      target_sys.reconstruct_backend(target_state.forward_col_sol,
+                                     target_state.forward_row_dual);
+    }
+
+    // Keep the flat LP decompressed while aperture tasks create clones.
+    const DecompressionGuard dcomp_guard(target_sys.linear_interface());
+
     auto expected_cut = solve_apertures_for_phase(
         scene_index,
         phase_index,
@@ -460,7 +497,7 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         effective_defs,
         plp.apertures(),
         total_cuts,
-        planning_lp().system(scene_index, phase_index),
+        target_sys,
         plp,
         ws_opts,
         m_label_maker_,
@@ -473,7 +510,7 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         m_aperture_cache_,
         target_state.forward_col_sol,
         target_state.forward_row_dual,
-        nullptr,  // no pooled clone — each task clones
+        nullptr,  // each task creates its own clone, released on completion
         iteration_index,
         m_options_.cut_coeff_mode,
         m_options_.scale_alpha,

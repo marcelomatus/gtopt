@@ -44,4 +44,32 @@ LinearInterface& SDDPClonePool::get_or_create(SceneIndex scene_index,
   return *slot;
 }
 
+void SDDPClonePool::batch_create(PlanningLP& planning, Index num_scenes)
+{
+  for (Index s = 0; s < num_scenes; ++s) {
+    const auto si = SceneIndex {s};
+    for (Index p = 0; p < m_num_phases_; ++p) {
+      const auto pi = PhaseIndex {p};
+      const auto idx = (static_cast<std::size_t>(s)
+                        * static_cast<std::size_t>(m_num_phases_))
+          + static_cast<std::size_t>(p);
+
+      auto& slot = m_pool_[idx];
+      auto& li = planning.system(si, pi).linear_interface();
+      if (li.has_backend()) {
+        slot = li.clone();
+      }
+    }
+  }
+  SPDLOG_DEBUG("SDDP clone pool: batch-created {} clones",
+               num_scenes * m_num_phases_);
+}
+
+void SDDPClonePool::release_all() noexcept
+{
+  for (auto& slot : m_pool_) {
+    slot.reset();
+  }
+}
+
 }  // namespace gtopt

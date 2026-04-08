@@ -69,6 +69,12 @@ public:
                const double* elements,
                double rowlb,
                double rowub) override;
+  void add_rows(int num_rows,
+                const int* rowbeg,
+                const int* rowind,
+                const double* rowval,
+                const double* rowlb,
+                const double* rowub) override;
   void set_row_lower(int index, double value) override;
   void set_row_upper(int index, double value) override;
   void set_row_bounds(int index, double lb, double ub) override;

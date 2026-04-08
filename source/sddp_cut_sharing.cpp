@@ -63,8 +63,9 @@ void share_cuts_for_phase(
     apply_context(accumulated);
 
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-      auto& li = planning.system(scene_index, phase_index).linear_interface();
-      li.add_row(accumulated);
+      auto& sys = planning.system(scene_index, phase_index);
+      sys.linear_interface().add_row(accumulated);
+      sys.record_cut_row(accumulated);
     }
 
     SPDLOG_TRACE(
@@ -98,8 +99,9 @@ void share_cuts_for_phase(
     apply_context(accumulated);
 
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-      auto& li = planning.system(scene_index, phase_index).linear_interface();
-      li.add_row(accumulated);
+      auto& sys = planning.system(scene_index, phase_index);
+      sys.linear_interface().add_row(accumulated);
+      sys.record_cut_row(accumulated);
     }
 
     SPDLOG_TRACE(
@@ -120,9 +122,11 @@ void share_cuts_for_phase(
     }
 
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-      auto& li = planning.system(scene_index, phase_index).linear_interface();
+      auto& sys = planning.system(scene_index, phase_index);
+      auto& li = sys.linear_interface();
       for (const auto& cut : all_cuts) {
         li.add_row(cut);
+        sys.record_cut_row(cut);
       }
     }
 

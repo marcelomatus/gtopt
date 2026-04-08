@@ -13,6 +13,7 @@
  * extracting results.
  */
 
+#include <algorithm>
 #include <filesystem>
 #include <format>
 #include <unordered_map>
@@ -317,7 +318,7 @@ constexpr auto create_linear_interface(auto& collections,
   // Convert and store the flattened LP representation
   auto flat_lp = lp.flatten(flat_opts);
   li.load_flat(flat_lp);
-  return std::pair {std::move(li), std::move(fingerprint)};
+  return std::tuple {std::move(li), std::move(fingerprint), std::move(flat_lp)};
 }
 
 void create_collections(const auto& system_context,
@@ -405,10 +406,14 @@ void SystemLP::create_lp(const LpMatrixOptions& flat_opts_in)
   if (flat_opts.scale_objective == 1.0) {
     flat_opts.scale_objective = system_context().options().scale_objective();
   }
-  auto [li, fp] = create_linear_interface(
+  auto [li, fp, flat_lp] = create_linear_interface(
       collections(), system_context(), phase(), scene(), flat_opts);
   m_linear_interface_ = std::move(li);
   m_fingerprint_ = std::move(fp);
+
+  // Save the flat LP into LinearInterface for low-memory reconstruction.
+  // LinearInterface decides whether to keep it based on the configured level.
+  m_linear_interface_.save_snapshot(std::move(flat_lp));
 }
 
 SystemLP::SystemLP(const System& system,

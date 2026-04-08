@@ -326,6 +326,31 @@ void MindOptSolverBackend::add_row(int num_elements,
   check_error(rc, "MDOaddrangeconstr");
 }
 
+void MindOptSolverBackend::add_rows(int num_rows,
+                                    const int* rowbeg,
+                                    const int* rowind,
+                                    const double* rowval,
+                                    const double* rowlb,
+                                    const double* rowub)
+{
+  m_prob_cached_ = false;
+  m_sol_cached_ = false;
+
+  // MindOpt does not expose a CSR bulk addRows, dispatch per row.
+  for (int r = 0; r < num_rows; ++r) {
+    const int start = rowbeg[r];
+    const int count = rowbeg[r + 1] - start;
+    int rc = MDOaddrangeconstr(m_model_,
+                               count,
+                               const_cast<int*>(rowind + start),  // NOLINT
+                               const_cast<double*>(rowval + start),  // NOLINT
+                               rowlb[r],
+                               rowub[r],
+                               nullptr);
+    check_error(rc, "MDOaddrangeconstr");
+  }
+}
+
 void MindOptSolverBackend::set_row_lower(int index, double value)
 {
   m_prob_cached_ = false;
