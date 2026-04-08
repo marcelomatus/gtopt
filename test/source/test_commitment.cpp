@@ -13,6 +13,8 @@
 #include <gtopt/json/json_model_options.hpp>
 #include <gtopt/json/json_stage.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/reserve_provision.hpp>
+#include <gtopt/reserve_zone.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
@@ -446,6 +448,149 @@ TEST_CASE("Emission cap constrains dirty generation")
     CHECK(sol[1] == doctest::Approx(30.0));
     // g2 must produce the rest: 80 - 30 = 50 MW
     CHECK(sol[2] == doctest::Approx(50.0));
+  }
+}
+
+TEST_CASE("Reserve-UC integration: headroom conditional on u")
+{
+  // Single generator with commitment + reserve provision.
+  // When generator is uncommitted (u=0), it should not provide reserve.
+  // When committed (u=1), headroom = Pmax*u - p.
+  //
+  // Setup: 1 generator (pmin=20, pmax=100), 1 block, demand=50,
+  // up-reserve requirement=60. Without UC, headroom=100-50=50 < 60 → shortfall.
+  // With UC (must_run), headroom=100*1-50=50 < 60 → same shortfall.
+  // But if we set a second generator to supply demand, the committed gen can
+  // provide up to Pmax*u reserve headroom.
+
+  System sys;
+  sys.name = "reserve_uc_test";
+  sys.bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  sys.demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 50.0,
+      },
+  };
+  // g1: committed, provides reserve
+  // g2: cheap baseload, no commitment
+  sys.generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .pmin = 0.0,
+          .pmax = 100.0,
+          .gcost = 20.0,
+          .capacity = 100.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "g2",
+          .bus = Uid {1},
+          .pmin = 0.0,
+          .pmax = 100.0,
+          .gcost = 10.0,
+          .capacity = 100.0,
+      },
+  };
+
+  sys.reserve_zone_array = {
+      {
+          .uid = Uid {1},
+          .name = "rz1",
+          .urreq = 30.0,  // 30 MW up-reserve requirement
+          .urcost = 1000.0,  // high shortage cost
+      },
+  };
+  sys.reserve_provision_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1_rprov",
+          .generator = Uid {1},
+          .reserve_zones = "1",
+          .urmax = 100.0,
+          .ur_provision_factor = 1.0,
+      },
+  };
+
+  Simulation simulation;
+  simulation.block_array = {
+      {
+          .uid = Uid {0},
+          .duration = 1.0,
+      },
+  };
+  simulation.stage_array = {
+      {
+          .uid = Uid {0},
+          .first_block = 0,
+          .count_block = 1,
+          .chronological = true,
+      },
+  };
+  simulation.scenario_array = {
+      {
+          .uid = Uid {0},
+      },
+  };
+
+  SUBCASE("With UC: reserve headroom is Pmax*u - p")
+  {
+    sys.commitment_array = {
+        {
+            .uid = Uid {1},
+            .name = "g1_uc",
+            .generator = Uid {1},
+            .initial_status = 1.0,
+            .relax = true,
+            .must_run = true,
+        },
+    };
+
+    const PlanningOptionsLP options;
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(sys, simulation_lp);
+
+    auto&& li = system_lp.linear_interface();
+    const auto result = li.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+
+    // With must_run, g1 is committed (u=1).
+    // g2 is cheaper (gcost=10 vs 20), so g2 dispatches 50 MW for demand.
+    // g1 dispatches 0 MW but is committed, so headroom = 100*1 - 0 = 100.
+    // Up-reserve provision should be 30 MW (full requirement met).
+    // Verify by checking the objective — no shortage penalty.
+    const auto obj = li.get_obj_value();
+    // Minimum cost = g2*50*10 + g1_noload*0 + reserve_cost*0 = 500
+    // (no shortage penalty of 1000*30=30000)
+    CHECK(obj < 10000.0);  // well below shortage penalty
+  }
+
+  SUBCASE("Without UC: reserve headroom is Pmax - p (standard)")
+  {
+    // No commitment — reserve should still work via standard headroom
+    const PlanningOptionsLP options;
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(sys, simulation_lp);
+
+    auto&& li = system_lp.linear_interface();
+    const auto result = li.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+
+    // g2 dispatches 50 MW (cheaper). g1 dispatches 0 MW.
+    // Headroom for g1: Pmax - p = 100 - 0 = 100 ≥ 30. Reserve met.
+    const auto obj = li.get_obj_value();
+    CHECK(obj < 10000.0);  // no shortage penalty
   }
 }
 

@@ -87,6 +87,40 @@ public:
     return it->second;
   }
 
+  /// Look up the up-provision row for (scenario, stage, block).
+  [[nodiscard]] std::optional<RowIndex> lookup_up_provision_row(
+      const ScenarioLP& scenario,
+      const StageLP& stage,
+      BlockUid buid) const noexcept
+  {
+    const auto mit = up.provision_rows.find({scenario.uid(), stage.uid()});
+    if (mit == up.provision_rows.end()) {
+      return std::nullopt;
+    }
+    const auto it = mit->second.find(buid);
+    if (it == mit->second.end()) {
+      return std::nullopt;
+    }
+    return it->second;
+  }
+
+  /// Look up the down-provision row for (scenario, stage, block).
+  [[nodiscard]] std::optional<RowIndex> lookup_dn_provision_row(
+      const ScenarioLP& scenario,
+      const StageLP& stage,
+      BlockUid buid) const noexcept
+  {
+    const auto mit = dp.provision_rows.find({scenario.uid(), stage.uid()});
+    if (mit == dp.provision_rows.end()) {
+      return std::nullopt;
+    }
+    const auto it = mit->second.find(buid);
+    if (it == mit->second.end()) {
+      return std::nullopt;
+    }
+    return it->second;
+  }
+
   struct Provision
   {
     Provision(const InputContext& ic,

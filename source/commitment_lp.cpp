@@ -13,7 +13,9 @@
 #include <gtopt/commitment_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
+#include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/system_context.hpp>
+#include <gtopt/system_lp.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -245,6 +247,46 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
 
     prev_ucol = ucol;
     first_block = false;
+  }
+
+  // ── Reserve-UC integration ──
+  // Modify existing reserve provision headroom rows to be conditional on u.
+  // Up-provision:   g + r_up ≤ Pmax      →  g + r_up - Pmax·u ≤ 0
+  // Down-provision: g - r_dn ≥ Pmin      →  g - r_dn - Pmin·u ≥ 0
+  if (!ucols.empty()) {
+    for (const auto& rprov : sc.elements<ReserveProvisionLP>()) {
+      if (rprov.generator_sid() != generator_sid()) {
+        continue;
+      }
+      for (const auto& block : blocks) {
+        const auto buid = block.uid();
+        const auto ucol_it = ucols.find(buid);
+        if (ucol_it == ucols.end()) {
+          continue;
+        }
+        const auto ucol = ucol_it->second;
+
+        // Modify up-provision row: add -Pmax on u, change RHS to 0
+        if (const auto urow =
+                rprov.lookup_up_provision_row(scenario, stage, buid))
+        {
+          auto& row = lp.row_at(*urow);
+          const auto pmax = row.uppb;  // original Pmax was stored as uppb
+          lp.set_coeff(*urow, ucol, -pmax);
+          row.uppb = 0.0;
+        }
+
+        // Modify down-provision row: add -Pmin on u, change RHS to 0
+        if (const auto drow =
+                rprov.lookup_dn_provision_row(scenario, stage, buid))
+        {
+          auto& row = lp.row_at(*drow);
+          const auto pmin = row.lowb;  // original Pmin was stored as lowb
+          lp.set_coeff(*drow, ucol, -pmin);
+          row.lowb = 0.0;
+        }
+      }
+    }
   }
 
   // Store index holders
