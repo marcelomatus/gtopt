@@ -615,7 +615,9 @@ def convert_plp_case(options: dict[str, Any]) -> None:
             show_simulation_summary(writer.planning)
 
         if not excel_output and options.get("zip_output", False):
-            zip_path = output_file.with_suffix(".zip")
+            # Place the zip next to (not inside) the output directory to
+            # avoid rglob picking it up during creation.
+            zip_path = output_dir.parent / f"{output_dir.name}.zip"
             create_zip_output(output_file, output_dir, zip_path)
 
         # Post-conversion validation
