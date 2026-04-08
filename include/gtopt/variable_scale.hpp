@@ -21,8 +21,8 @@
  *   2. Per-class default   (matching class + variable, no UID)
  *   3. Fallback default    (1.0 = no scaling)
  *
- * Per-element fields (`Battery::energy_scale`, `Reservoir::energy_scale`) take
- * precedence over entries in `variable_scales`.
+ * All LP variable scaling is configured exclusively via `variable_scales`;
+ * there are no per-element `energy_scale` fields.
  *
  * Global options (`scale_theta`, `scale_alpha`) are auto-injected into the
  * `variable_scales` array by `PlanningOptionsLP`.  All scales follow the
