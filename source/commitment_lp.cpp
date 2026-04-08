@@ -26,6 +26,7 @@ CommitmentLP::CommitmentLP(const Commitment& commitment, const InputContext& ic)
     , generator_index_(ic.element_index(generator_sid()))
     , startup_cost_(ic, ClassName, id(), std::move(object().startup_cost))
     , shutdown_cost_(ic, ClassName, id(), std::move(object().shutdown_cost))
+    , fuel_cost_(ic, ClassName, id(), std::move(object().fuel_cost))
 {
 }
 
@@ -72,6 +73,19 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   const auto opt_ramp_down = commitment().ramp_down;
   const auto opt_startup_ramp = commitment().startup_ramp;
   const auto opt_shutdown_ramp = commitment().shutdown_ramp;
+
+  // Resolve piecewise heat rate curve
+  const auto& pmax_segs = commitment().pmax_segments;
+  const auto& hr_segs = commitment().heat_rate_segments;
+  const auto has_segments = !pmax_segs.empty() && !hr_segs.empty()
+      && pmax_segs.size() == hr_segs.size();
+  const auto stage_fuel_cost =
+      has_segments ? fuel_cost_.optval(stage.uid()).value_or(0.0) : 0.0;
+
+  // Pre-size per-segment column holders
+  if (has_segments && segment_cols_.empty()) {
+    segment_cols_.resize(pmax_segs.size());
+  }
 
   // Resolve emission parameters from system options
   const auto& emission_cost_field = sc.options().emission_cost();
@@ -310,6 +324,56 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       gcol_ref.cost += emission_adder;
     }
 
+    // ── Piecewise heat rate curve ──
+    // Replace the single gcost with K segment variables:
+    //   p = Pmin·u + δ_1 + ... + δ_K
+    //   cost(δ_k) = fuel_cost × heat_rate_k × block_ecost
+    if (has_segments && stage_fuel_cost > 0.0) {
+      // Zero out the original generation cost — segments carry cost now
+      gcol_ref.cost = 0.0;
+
+      // Build linking row: p - Pmin·u - Σ δ_k = 0
+      auto link_row =
+          SparseRow {
+              .class_name = cname,
+              .constraint_name = SegmentName,
+              .variable_uid = cuid,
+              .context = ctx,
+          }
+              .equal(0.0);
+      link_row[gcol] = 1.0;
+      link_row[ucol] = -gen_pmin;
+
+      double prev_breakpoint = gen_pmin;
+      for (size_t k = 0; k < pmax_segs.size(); ++k) {
+        const auto seg_width = pmax_segs[k] - prev_breakpoint;
+        if (seg_width <= 0.0) {
+          prev_breakpoint = pmax_segs[k];
+          continue;
+        }
+        const auto seg_cost = CostHelper::block_ecost(
+            scenario, stage, block, stage_fuel_cost * hr_segs[k]);
+
+        const auto seg_ctx =
+            make_block_context(scenario.uid(), stage.uid(), block.uid());
+        auto seg_col = lp.add_col({
+            .lowb = 0.0,
+            .uppb = seg_width,
+            .cost = seg_cost,
+            .class_name = cname,
+            .variable_name = SegmentName,
+            .variable_uid = cuid,
+            .context = seg_ctx,
+        });
+
+        link_row[seg_col] = -1.0;
+        segment_cols_[k][st_key][buid] = seg_col;
+        prev_breakpoint = pmax_segs[k];
+      }
+
+      segment_link_rows_[st_key][buid] = lp.add_row(std::move(link_row));
+    }
+
     prev_ucol = ucol;
     prev_gcol = gcol;
     first_block = false;
@@ -405,6 +469,12 @@ bool CommitmentLP::add_to_output(OutputContext& out) const
   out.add_row_dual(cname, ExclusionName, pid, exclusion_rows_);
   out.add_row_dual(cname, RampUpName, pid, ramp_up_rows_);
   out.add_row_dual(cname, RampDownName, pid, ramp_down_rows_);
+
+  for (const auto& scols : segment_cols_) {
+    out.add_col_sol(cname, SegmentName, pid, scols);
+    out.add_col_cost(cname, SegmentName, pid, scols);
+  }
+  out.add_row_dual(cname, SegmentName, pid, segment_link_rows_);
 
   return true;
 }

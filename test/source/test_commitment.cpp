@@ -128,6 +128,9 @@ TEST_CASE("Commitment struct defaults")
   CHECK_FALSE(c.initial_hours.has_value());
   CHECK_FALSE(c.relax.has_value());
   CHECK_FALSE(c.must_run.has_value());
+  CHECK(c.pmax_segments.empty());
+  CHECK(c.heat_rate_segments.empty());
+  CHECK_FALSE(c.fuel_cost.has_value());
 }
 
 TEST_CASE("Commitment JSON round-trip")
@@ -640,6 +643,115 @@ TEST_CASE("CommitmentLP ramp constraints limit dispatch change")
   const auto result = li.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
+}
+
+TEST_CASE("Piecewise heat rate curve shifts dispatch cost")
+{
+  // One generator with 2-segment heat rate curve:
+  //   Segment 1: [0, 50] MW at heat_rate=8 GJ/MWh
+  //   Segment 2: [50, 100] MW at heat_rate=12 GJ/MWh
+  //   fuel_cost = 5 $/GJ
+  //   Effective: seg1 cost = 40 $/MWh, seg2 cost = 60 $/MWh
+  // Second generator: flat gcost=50 $/MWh, pmax=100
+  // Demand = 80 MW, single block.
+  // Optimal: g1 dispatches 50 (seg1 at 40) + 0 (seg2 at 60),
+  //          g2 dispatches 30 (at 50 < 60).
+
+  System sys;
+  sys.name = "heat_rate_test";
+  sys.bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  sys.demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 80.0,
+      },
+  };
+  sys.generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .pmin = 0.0,
+          .pmax = 100.0,
+          .gcost = 0.0,  // overridden by heat rate segments
+          .capacity = 100.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "g2",
+          .bus = Uid {1},
+          .pmin = 0.0,
+          .pmax = 100.0,
+          .gcost = 50.0,
+          .capacity = 100.0,
+      },
+  };
+
+  sys.commitment_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1_uc",
+          .generator = Uid {1},
+          .initial_status = 1.0,
+          .relax = true,
+          .must_run = true,
+          .pmax_segments =
+              {
+                  50.0,
+                  100.0,
+              },
+          .heat_rate_segments =
+              {
+                  8.0,
+                  12.0,
+              },
+          .fuel_cost = 5.0,
+      },
+  };
+
+  Simulation simulation;
+  simulation.block_array = {
+      {
+          .uid = Uid {0},
+          .duration = 1.0,
+      },
+  };
+  simulation.stage_array = {
+      {
+          .uid = Uid {0},
+          .first_block = 0,
+          .count_block = 1,
+          .chronological = true,
+      },
+  };
+  simulation.scenario_array = {
+      {
+          .uid = Uid {0},
+      },
+  };
+
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(sys, simulation_lp);
+
+  auto&& li = system_lp.linear_interface();
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // g1 should dispatch 50 MW (all from seg1 at 40 $/MWh),
+  // g2 dispatches 30 MW at 50 $/MWh (cheaper than g1 seg2 at 60)
+  const auto sol = li.get_col_sol();
+  // g1 generation col is index 1, g2 is index 2
+  CHECK(sol[1] == doctest::Approx(50.0));
+  CHECK(sol[2] == doctest::Approx(30.0));
 }
 
 TEST_CASE("Commitment JSON round-trip with ramp fields")

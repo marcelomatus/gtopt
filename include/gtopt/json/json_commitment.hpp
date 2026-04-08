@@ -19,28 +19,33 @@ using gtopt::Commitment;
 template<>
 struct json_data_contract<Commitment>
 {
-  using type =
-      json_member_list<json_number<"uid", Uid>,
-                       json_string<"name", Name>,
-                       json_variant_null<"active", OptActive, jvtl_Active>,
-                       json_variant<"generator", SingleId>,
-                       json_variant_null<"startup_cost",
-                                         OptTRealFieldSched,
-                                         jvtl_TRealFieldSched>,
-                       json_variant_null<"shutdown_cost",
-                                         OptTRealFieldSched,
-                                         jvtl_TRealFieldSched>,
-                       json_number_null<"noload_cost", OptReal>,
-                       json_number_null<"min_up_time", OptReal>,
-                       json_number_null<"min_down_time", OptReal>,
-                       json_number_null<"ramp_up", OptReal>,
-                       json_number_null<"ramp_down", OptReal>,
-                       json_number_null<"startup_ramp", OptReal>,
-                       json_number_null<"shutdown_ramp", OptReal>,
-                       json_number_null<"initial_status", OptReal>,
-                       json_number_null<"initial_hours", OptReal>,
-                       json_bool_null<"relax", OptBool>,
-                       json_bool_null<"must_run", OptBool>>;
+  using type = json_member_list<
+      json_number<"uid", Uid>,
+      json_string<"name", Name>,
+      json_variant_null<"active", OptActive, jvtl_Active>,
+      json_variant<"generator", SingleId>,
+      json_variant_null<"startup_cost",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
+      json_variant_null<"shutdown_cost",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
+      json_number_null<"noload_cost", OptReal>,
+      json_number_null<"min_up_time", OptReal>,
+      json_number_null<"min_down_time", OptReal>,
+      json_number_null<"ramp_up", OptReal>,
+      json_number_null<"ramp_down", OptReal>,
+      json_number_null<"startup_ramp", OptReal>,
+      json_number_null<"shutdown_ramp", OptReal>,
+      json_number_null<"initial_status", OptReal>,
+      json_number_null<"initial_hours", OptReal>,
+      json_bool_null<"relax", OptBool>,
+      json_bool_null<"must_run", OptBool>,
+      json_array_null<"pmax_segments", Array<Real>, json_number_no_name<Real>>,
+      json_array_null<"heat_rate_segments",
+                      Array<Real>,
+                      json_number_no_name<Real>>,
+      json_variant_null<"fuel_cost", OptTRealFieldSched, jvtl_TRealFieldSched>>;
 
   constexpr static auto to_json_data(Commitment const& obj)
   {
@@ -60,7 +65,10 @@ struct json_data_contract<Commitment>
                                  obj.initial_status,
                                  obj.initial_hours,
                                  obj.relax,
-                                 obj.must_run);
+                                 obj.must_run,
+                                 obj.pmax_segments,
+                                 obj.heat_rate_segments,
+                                 obj.fuel_cost);
   }
 };
 

@@ -80,6 +80,19 @@ struct Commitment
 
   OptBool relax {};  ///< LP relaxation: u/v/w continuous in [0,1]
   OptBool must_run {};  ///< Force committed: u = 1 always
+
+  /// @name Piecewise heat rate curve
+  /// When both arrays are present, the generation range [Pmin, Pmax] is
+  /// decomposed into K segments with individual heat rates.
+  /// `pmax_segments` = [P̄₁, ..., P̄ₖ] cumulative power breakpoints [MW].
+  /// `heat_rate_segments` = [h₁, ..., hₖ] heat rate per segment [GJ/MWh].
+  /// Segment k covers [P̄_{k-1}, P̄ₖ] where P̄₀ = Pmin.
+  /// The effective generation cost per segment is `fuel_cost × h_k`.
+  /// @{
+  Array<Real> pmax_segments {};
+  Array<Real> heat_rate_segments {};
+  OptTRealFieldSched fuel_cost {};  ///< Fuel cost [$/GJ], stage-schedulable
+  /// @}
 };
 
 }  // namespace gtopt

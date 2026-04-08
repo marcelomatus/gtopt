@@ -37,6 +37,7 @@ public:
   static constexpr std::string_view ExclusionName {"exclusion"};
   static constexpr std::string_view RampUpName {"ramp_up"};
   static constexpr std::string_view RampDownName {"ramp_down"};
+  static constexpr std::string_view SegmentName {"segment"};
 
   using Base = ObjectLP<Commitment>;
 
@@ -63,6 +64,7 @@ private:
   ElementIndex<GeneratorLP> generator_index_;
   OptTRealSched startup_cost_;
   OptTRealSched shutdown_cost_;
+  OptTRealSched fuel_cost_;
 
   STBIndexHolder<ColIndex> status_cols_;
   STBIndexHolder<ColIndex> startup_cols_;
@@ -73,6 +75,12 @@ private:
   STBIndexHolder<RowIndex> exclusion_rows_;
   STBIndexHolder<RowIndex> ramp_up_rows_;
   STBIndexHolder<RowIndex> ramp_down_rows_;
+
+  /// Per-segment generation columns (outer key = segment index as int)
+  /// Each entry maps (scenario, stage) → block → ColIndex
+  std::vector<STBIndexHolder<ColIndex>> segment_cols_;
+  /// Linking rows: p - Pmin·u - Σ δ_k = 0
+  STBIndexHolder<RowIndex> segment_link_rows_;
 };
 
 }  // namespace gtopt
