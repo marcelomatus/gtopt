@@ -35,6 +35,8 @@ public:
   static constexpr std::string_view GenLowerName {"gen_lower"};
   static constexpr std::string_view LogicName {"logic"};
   static constexpr std::string_view ExclusionName {"exclusion"};
+  static constexpr std::string_view RampUpName {"ramp_up"};
+  static constexpr std::string_view RampDownName {"ramp_down"};
 
   using Base = ObjectLP<Commitment>;
 
@@ -69,6 +71,8 @@ private:
   STBIndexHolder<RowIndex> gen_upper_rows_;
   STBIndexHolder<RowIndex> gen_lower_rows_;
   STBIndexHolder<RowIndex> exclusion_rows_;
+  STBIndexHolder<RowIndex> ramp_up_rows_;
+  STBIndexHolder<RowIndex> ramp_down_rows_;
 };
 
 }  // namespace gtopt

@@ -70,6 +70,11 @@ struct Commitment
   OptReal min_up_time {};  ///< Minimum up time [hours]
   OptReal min_down_time {};  ///< Minimum down time [hours]
 
+  OptReal ramp_up {};  ///< Ramp-up limit [MW/hr] while online
+  OptReal ramp_down {};  ///< Ramp-down limit [MW/hr] while online
+  OptReal startup_ramp {};  ///< Max output in startup block [MW]
+  OptReal shutdown_ramp {};  ///< Max output in shutdown block [MW]
+
   OptReal initial_status {};  ///< Initial on/off (1.0 = online, 0.0 = offline)
   OptReal initial_hours {};  ///< Hours in current state at t=0
 

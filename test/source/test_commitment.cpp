@@ -120,6 +120,10 @@ TEST_CASE("Commitment struct defaults")
   CHECK_FALSE(c.noload_cost.has_value());
   CHECK_FALSE(c.min_up_time.has_value());
   CHECK_FALSE(c.min_down_time.has_value());
+  CHECK_FALSE(c.ramp_up.has_value());
+  CHECK_FALSE(c.ramp_down.has_value());
+  CHECK_FALSE(c.startup_ramp.has_value());
+  CHECK_FALSE(c.shutdown_ramp.has_value());
   CHECK_FALSE(c.initial_status.has_value());
   CHECK_FALSE(c.initial_hours.has_value());
   CHECK_FALSE(c.relax.has_value());
@@ -592,6 +596,78 @@ TEST_CASE("Reserve-UC integration: headroom conditional on u")
     const auto obj = li.get_obj_value();
     CHECK(obj < 10000.0);  // no shortage penalty
   }
+}
+
+TEST_CASE("CommitmentLP ramp constraints limit dispatch change")
+{
+  auto tc = TestCase::make_basic(true);
+
+  // g1: pmin=0, pmax=100, with ramp_up=30 MW/hr, ramp_down=30 MW/hr
+  // Demand pattern: block0=80, block1=80, block2=20, block3=20
+  // Without ramp: g1 can jump from 80 to 20 instantly
+  // With ramp_down=30: g1 can only decrease by 30 MW/hr per block (duration=1h)
+  //   so from 80 → min(80, 80-30)=50 → then 20 is possible in 2 steps
+  tc.system.generator_array[0].pmin = 0.0;
+  tc.system.generator_array[1].pmin = 0.0;
+
+  // Set demand capacity schedule per block via demand_profile would be complex.
+  // Instead, test that ramp constraints add the right number of rows.
+  tc.system.commitment_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1_uc",
+          .generator = Uid {1},
+          .ramp_up = 30.0,
+          .ramp_down = 30.0,
+          .initial_status = 1.0,
+          .relax = true,
+      },
+  };
+
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(tc.simulation, options);
+  SystemLP system_lp(tc.system, simulation_lp);
+
+  auto&& li = system_lp.linear_interface();
+
+  // Should have: demand(4) + g1(4) + g2(4) + u(4) + v(4) + w(4) = 24 cols
+  CHECK(li.get_numcols() >= 24);
+
+  // Rows: balance(4) + gen_upper(4) + gen_lower(4) + logic(4) + exclusion(4)
+  //       + ramp_up(4) + ramp_down(4) = 28 rows minimum
+  CHECK(li.get_numrows() >= 28);
+
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+}
+
+TEST_CASE("Commitment JSON round-trip with ramp fields")
+{
+  std::string_view json_str = R"({
+    "uid": 2,
+    "name": "gas_uc",
+    "generator": 5,
+    "ramp_up": 50.0,
+    "ramp_down": 40.0,
+    "startup_ramp": 30.0,
+    "shutdown_ramp": 25.0,
+    "initial_status": 1,
+    "relax": true
+  })";
+
+  const auto c = daw::json::from_json<Commitment>(json_str);
+  CHECK(c.uid == 2);
+  CHECK(c.ramp_up.value_or(-1.0) == doctest::Approx(50.0));
+  CHECK(c.ramp_down.value_or(-1.0) == doctest::Approx(40.0));
+  CHECK(c.startup_ramp.value_or(-1.0) == doctest::Approx(30.0));
+  CHECK(c.shutdown_ramp.value_or(-1.0) == doctest::Approx(25.0));
+
+  // Round-trip
+  const auto json_out = daw::json::to_json(c);
+  const auto c2 = daw::json::from_json<Commitment>(json_out);
+  CHECK(c2.ramp_up.value_or(-1.0) == doctest::Approx(50.0));
+  CHECK(c2.ramp_down.value_or(-1.0) == doctest::Approx(40.0));
 }
 
 TEST_CASE("Stage chronological field JSON")

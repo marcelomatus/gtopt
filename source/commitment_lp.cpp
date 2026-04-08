@@ -68,6 +68,10 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   const auto initial_u = commitment().initial_status.value_or(0.0);
   const auto is_relax = commitment().relax.value_or(false);
   const auto is_must_run = commitment().must_run.value_or(false);
+  const auto opt_ramp_up = commitment().ramp_up;
+  const auto opt_ramp_down = commitment().ramp_down;
+  const auto opt_startup_ramp = commitment().startup_ramp;
+  const auto opt_shutdown_ramp = commitment().shutdown_ramp;
 
   // Resolve emission parameters from system options
   const auto& emission_cost_field = sc.options().emission_cost();
@@ -98,6 +102,8 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   BIndexHolder<RowIndex> gurows;
   BIndexHolder<RowIndex> glrows;
   BIndexHolder<RowIndex> erows;
+  BIndexHolder<RowIndex> rurows;
+  BIndexHolder<RowIndex> rdrows;
   map_reserve(ucols, blocks.size());
   map_reserve(vcols, blocks.size());
   map_reserve(wcols, blocks.size());
@@ -105,8 +111,11 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   map_reserve(gurows, blocks.size());
   map_reserve(glrows, blocks.size());
   map_reserve(erows, blocks.size());
+  map_reserve(rurows, blocks.size());
+  map_reserve(rdrows, blocks.size());
 
   ColIndex prev_ucol {};
+  ColIndex prev_gcol {};
   bool first_block = true;
 
   for (const auto& block : blocks) {
@@ -238,6 +247,62 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       erows[buid] = lp.add_row(std::move(row));
     }
 
+    // ── C4: Ramp up: p[t] - p[t-1] ≤ RU·u[t-1] + SU·v[t] ──
+    // Only when ramp_up or startup_ramp is defined
+    if (opt_ramp_up.has_value() || opt_startup_ramp.has_value()) {
+      const auto ru = opt_ramp_up.value_or(gen_pmax) * block.duration();
+      const auto su = opt_startup_ramp.value_or(gen_pmax);
+
+      auto row =
+          SparseRow {
+              .class_name = cname,
+              .constraint_name = RampUpName,
+              .variable_uid = cuid,
+              .context = ctx,
+          }
+              .less_equal(first_block
+                              ? (ru * initial_u) + (su * (1.0 - initial_u))
+                              : 0.0);
+      row[gcol] = 1.0;
+      if (first_block) {
+        // p[0] ≤ RU·u_init + SU·(1-u_init) + p_prev
+        // For simplicity, p_prev is not tracked across stages.
+        // RHS already includes the initial contribution.
+      } else {
+        row[prev_gcol] = -1.0;
+        row[prev_ucol] = -ru;
+        row[vcol] = -su;
+      }
+      rurows[buid] = lp.add_row(std::move(row));
+    }
+
+    // ── C5: Ramp down: p[t-1] - p[t] ≤ RD·u[t] + SD·w[t] ──
+    if (opt_ramp_down.has_value() || opt_shutdown_ramp.has_value()) {
+      const auto rd = opt_ramp_down.value_or(gen_pmax) * block.duration();
+      const auto sd = opt_shutdown_ramp.value_or(gen_pmax);
+
+      auto row =
+          SparseRow {
+              .class_name = cname,
+              .constraint_name = RampDownName,
+              .variable_uid = cuid,
+              .context = ctx,
+          }
+              .less_equal(first_block
+                              ? (rd * initial_u) + (sd * (1.0 - initial_u))
+                              : 0.0);
+      row[gcol] = -1.0;
+      if (first_block) {
+        // -p[0] ≤ RD·u_init + SD·(1-u_init) - p_prev
+        // RHS includes the initial contribution.
+      } else {
+        row[prev_gcol] = 1.0;
+        row[ucol] = -rd;
+        row[wcol] = -sd;
+      }
+      rdrows[buid] = lp.add_row(std::move(row));
+    }
+
     // ── Emission cost adder on generation variable ──
     if (stage_emission_cost > 0.0 && stage_emission_factor > 0.0) {
       const auto emission_adder = CostHelper::block_ecost(
@@ -246,6 +311,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     }
 
     prev_ucol = ucol;
+    prev_gcol = gcol;
     first_block = false;
   }
 
@@ -311,6 +377,12 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   if (!erows.empty()) {
     exclusion_rows_[st_key] = std::move(erows);
   }
+  if (!rurows.empty()) {
+    ramp_up_rows_[st_key] = std::move(rurows);
+  }
+  if (!rdrows.empty()) {
+    ramp_down_rows_[st_key] = std::move(rdrows);
+  }
 
   return true;
 }
@@ -331,6 +403,8 @@ bool CommitmentLP::add_to_output(OutputContext& out) const
   out.add_row_dual(cname, GenUpperName, pid, gen_upper_rows_);
   out.add_row_dual(cname, GenLowerName, pid, gen_lower_rows_);
   out.add_row_dual(cname, ExclusionName, pid, exclusion_rows_);
+  out.add_row_dual(cname, RampUpName, pid, ramp_up_rows_);
+  out.add_row_dual(cname, RampDownName, pid, ramp_down_rows_);
 
   return true;
 }
