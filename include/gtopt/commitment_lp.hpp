@@ -38,6 +38,8 @@ public:
   static constexpr std::string_view RampUpName {"ramp_up"};
   static constexpr std::string_view RampDownName {"ramp_down"};
   static constexpr std::string_view SegmentName {"segment"};
+  static constexpr std::string_view MinUpTimeName {"min_up_time"};
+  static constexpr std::string_view MinDownTimeName {"min_down_time"};
 
   using Base = ObjectLP<Commitment>;
 
@@ -81,6 +83,8 @@ private:
   std::vector<STBIndexHolder<ColIndex>> segment_cols_;
   /// Linking rows: p - Pmin·u - Σ δ_k = 0
   STBIndexHolder<RowIndex> segment_link_rows_;
+  STBIndexHolder<RowIndex> min_up_time_rows_;
+  STBIndexHolder<RowIndex> min_down_time_rows_;
 };
 
 }  // namespace gtopt

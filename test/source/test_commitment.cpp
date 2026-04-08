@@ -812,6 +812,185 @@ TEST_CASE("Commitment JSON round-trip with heat rate segments")
   CHECK(c2.heat_rate_segments.size() == 3);
 }
 
+TEST_CASE("CommitmentLP min up/down time constraints")
+{
+  // 6 blocks of 1h each, with min_up_time=3h and min_down_time=2h.
+  // Verify that the correct number of constraint rows are added
+  // and the LP solves correctly.
+  System sys;
+  sys.name = "min_updown_test";
+  sys.bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  sys.demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 80.0,
+      },
+  };
+  sys.generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .pmin = 20.0,
+          .pmax = 100.0,
+          .gcost = 10.0,
+          .capacity = 100.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "g2",
+          .bus = Uid {1},
+          .pmin = 0.0,
+          .pmax = 100.0,
+          .gcost = 30.0,
+          .capacity = 100.0,
+      },
+  };
+
+  Simulation simulation;
+  simulation.block_array = {
+      {
+          .uid = Uid {0},
+          .duration = 1.0,
+      },
+      {
+          .uid = Uid {1},
+          .duration = 1.0,
+      },
+      {
+          .uid = Uid {2},
+          .duration = 1.0,
+      },
+      {
+          .uid = Uid {3},
+          .duration = 1.0,
+      },
+      {
+          .uid = Uid {4},
+          .duration = 1.0,
+      },
+      {
+          .uid = Uid {5},
+          .duration = 1.0,
+      },
+  };
+  simulation.stage_array = {
+      {
+          .uid = Uid {0},
+          .first_block = 0,
+          .count_block = 6,
+          .chronological = true,
+      },
+  };
+  simulation.scenario_array = {
+      {
+          .uid = Uid {0},
+      },
+  };
+
+  SUBCASE("Min up/down time adds constraint rows")
+  {
+    sys.commitment_array = {
+        {
+            .uid = Uid {1},
+            .name = "g1_uc",
+            .generator = Uid {1},
+            .min_up_time = 3.0,
+            .min_down_time = 2.0,
+            .initial_status = 1.0,
+            .relax = true,
+        },
+    };
+
+    const PlanningOptionsLP options;
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(sys, simulation_lp);
+
+    auto&& li = system_lp.linear_interface();
+
+    // Baseline rows without min up/down:
+    //   balance(6) + gen_upper(6) + gen_lower(6) + logic(6) + exclusion(6) = 30
+    // Min up time (3h, 1h blocks): blocks 0-4 each get a row = 5 rows
+    //   (block 5 has ut_blocks=1, trivially satisfied → skipped)
+    // Min down time (2h, 1h blocks): blocks 0-4 each get a row = 5 rows
+    //   (block 5 has dt_blocks=1, trivially satisfied → skipped)
+    // Total rows ≥ 30 + 5 + 5 = 40
+    CHECK(li.get_numrows() >= 40);
+
+    const auto result = li.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+  }
+
+  SUBCASE("Without min up/down time: fewer rows")
+  {
+    sys.commitment_array = {
+        {
+            .uid = Uid {1},
+            .name = "g1_uc",
+            .generator = Uid {1},
+            .initial_status = 1.0,
+            .relax = true,
+        },
+    };
+
+    const PlanningOptionsLP options;
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(sys, simulation_lp);
+
+    auto&& li = system_lp.linear_interface();
+
+    // Without min up/down: balance(6) + gen_upper(6) + gen_lower(6) +
+    // logic(6) + exclusion(6) = 30 rows
+    CHECK(li.get_numrows() == 30);
+
+    const auto result = li.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+  }
+
+  SUBCASE("Min up time enforces minimum online duration")
+  {
+    // g1: committed, initial_status=0 (offline), min_up_time=3h
+    // g2: cheap, pmin=0, capacity covers demand
+    // With relaxation, if g1 starts (v[t]=1), it must have u=1 for 3 blocks.
+    sys.generator_array[1].gcost = 5.0;  // g2 cheaper
+    sys.commitment_array = {
+        {
+            .uid = Uid {1},
+            .name = "g1_uc",
+            .generator = Uid {1},
+            .min_up_time = 3.0,
+            .initial_status = 0.0,
+            .relax = true,
+        },
+    };
+
+    const PlanningOptionsLP options;
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(sys, simulation_lp);
+
+    auto&& li = system_lp.linear_interface();
+    const auto result = li.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+
+    // g2 is cheaper, so g1 should remain off (v[t]=0 for all t).
+    // This means min_up_time constraints are satisfied trivially.
+    // The objective is scaled by scale_objective (default 1000).
+    // Expected: g2 dispatching 80 MW × 6 blocks × 5 $/MWh = 2400
+    const auto obj = li.get_obj_value();
+    CHECK(obj == doctest::Approx(2400.0 / 1000.0));
+  }
+}
+
 TEST_CASE("Stage chronological field JSON")
 {
   std::string_view json_str = R"({

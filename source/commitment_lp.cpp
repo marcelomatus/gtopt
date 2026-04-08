@@ -455,6 +455,107 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     }
   }
 
+  // ── C6: Min up time ──
+  // Σ_{τ=t}^{min(t+UT-1,T)} u[τ] ≥ UT_blocks · v[t]
+  // For each block t where v[t] exists, sum u[τ] over the next UT blocks.
+  const auto min_up_hours = commitment().min_up_time.value_or(0.0);
+  if (min_up_hours > 0.0 && !ucols.empty() && !vcols.empty()) {
+    BIndexHolder<RowIndex> mut_rows;
+    // Convert hours to block count using block durations
+    const auto nblocks = blocks.size();
+    for (size_t t = 0; t < nblocks; ++t) {
+      const auto buid_t = blocks[t].uid();
+      const auto vcol_it = vcols.find(buid_t);
+      if (vcol_it == vcols.end()) {
+        continue;
+      }
+
+      // Count how many blocks from t onward cover min_up_hours
+      double accum_hours = 0.0;
+      size_t ut_blocks = 0;
+      for (size_t tau = t; tau < nblocks && accum_hours < min_up_hours; ++tau) {
+        accum_hours += blocks[tau].duration();
+        ++ut_blocks;
+      }
+      if (ut_blocks <= 1) {
+        continue;  // trivially satisfied
+      }
+
+      auto row =
+          SparseRow {
+              .class_name = cname,
+              .constraint_name = MinUpTimeName,
+              .variable_uid = cuid,
+              .context =
+                  make_block_context(scenario.uid(), stage.uid(), buid_t),
+          }
+              .greater_equal(0.0);
+      // Σ u[τ] - UT_blocks · v[t] ≥ 0
+      for (size_t tau = t; tau < t + ut_blocks && tau < nblocks; ++tau) {
+        const auto ucol_it = ucols.find(blocks[tau].uid());
+        if (ucol_it != ucols.end()) {
+          row[ucol_it->second] = 1.0;
+        }
+      }
+      row[vcol_it->second] = -static_cast<double>(ut_blocks);
+      mut_rows[buid_t] = lp.add_row(std::move(row));
+    }
+    if (!mut_rows.empty()) {
+      min_up_time_rows_[st_key] = std::move(mut_rows);
+    }
+  }
+
+  // ── C7: Min down time ──
+  // Σ_{τ=t}^{min(t+DT-1,T)} (1 - u[τ]) ≥ DT_blocks · w[t]
+  // Rearranged: -Σ u[τ] ≥ DT_blocks · w[t] - (span)
+  //          →  Σ u[τ] + DT_blocks · w[t] ≤ span
+  const auto min_down_hours = commitment().min_down_time.value_or(0.0);
+  if (min_down_hours > 0.0 && !ucols.empty() && !wcols.empty()) {
+    BIndexHolder<RowIndex> mdt_rows;
+    const auto nblocks = blocks.size();
+    for (size_t t = 0; t < nblocks; ++t) {
+      const auto buid_t = blocks[t].uid();
+      const auto wcol_it = wcols.find(buid_t);
+      if (wcol_it == wcols.end()) {
+        continue;
+      }
+
+      double accum_hours = 0.0;
+      size_t dt_blocks = 0;
+      for (size_t tau = t; tau < nblocks && accum_hours < min_down_hours; ++tau)
+      {
+        accum_hours += blocks[tau].duration();
+        ++dt_blocks;
+      }
+      if (dt_blocks <= 1) {
+        continue;
+      }
+
+      const auto span = std::min(t + dt_blocks, nblocks) - t;
+      auto row =
+          SparseRow {
+              .class_name = cname,
+              .constraint_name = MinDownTimeName,
+              .variable_uid = cuid,
+              .context =
+                  make_block_context(scenario.uid(), stage.uid(), buid_t),
+          }
+              .less_equal(static_cast<double>(span));
+      // Σ u[τ] + DT_blocks · w[t] ≤ span
+      for (size_t tau = t; tau < t + dt_blocks && tau < nblocks; ++tau) {
+        const auto ucol_it = ucols.find(blocks[tau].uid());
+        if (ucol_it != ucols.end()) {
+          row[ucol_it->second] = 1.0;
+        }
+      }
+      row[wcol_it->second] = static_cast<double>(dt_blocks);
+      mdt_rows[buid_t] = lp.add_row(std::move(row));
+    }
+    if (!mdt_rows.empty()) {
+      min_down_time_rows_[st_key] = std::move(mdt_rows);
+    }
+  }
+
   // Store index holders
   if (!ucols.empty()) {
     status_cols_[st_key] = std::move(ucols);
@@ -511,6 +612,8 @@ bool CommitmentLP::add_to_output(OutputContext& out) const
     out.add_col_cost(cname, SegmentName, pid, scols);
   }
   out.add_row_dual(cname, SegmentName, pid, segment_link_rows_);
+  out.add_row_dual(cname, MinUpTimeName, pid, min_up_time_rows_);
+  out.add_row_dual(cname, MinDownTimeName, pid, min_down_time_rows_);
 
   return true;
 }
