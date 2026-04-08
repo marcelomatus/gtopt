@@ -6,12 +6,18 @@
  * @copyright BSD-3-Clause
  */
 
+#ifndef SPDLOG_ACTIVE_LEVEL
+#  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#endif
+
+#include <chrono>
 #include <cstring>
 #include <stdexcept>
 #include <string>
 
 #include <gtopt/low_memory_snapshot.hpp>
 #include <gtopt/memory_compress.hpp>
+#include <spdlog/spdlog.h>
 
 // zstd and zlib are always available (REQUIRED in CMakeLists.txt)
 #include <zlib.h>
@@ -409,35 +415,149 @@ void decompress_flat_lp(FlatLinearProblem& flp, const CompressedBuffer& buf)
   restore(flp.row_scales, nrows);
 }
 
+// ── Clear flat LP numeric vectors ─────────────────────────────────────────
+
+void clear_flat_lp_vectors(FlatLinearProblem& flp)
+{
+  flp.matbeg = {};
+  flp.matind = {};
+  flp.colint = {};
+  flp.matval = {};
+  flp.collb = {};
+  flp.colub = {};
+  flp.objval = {};
+  flp.rowlb = {};
+  flp.rowub = {};
+  flp.col_scales = {};
+  flp.row_scales = {};
+}
+
+// ── Solution compression ──────────────────────────────────────────────────
+
+CompressedBuffer compress_solution(std::span<const double> col_sol,
+                                   std::span<const double> row_dual,
+                                   MemoryCodec codec)
+{
+  const auto effective = select_codec(codec);
+  if (effective == MemoryCodec::none) {
+    return {};
+  }
+
+  const auto col_size = col_sol.size();
+  const auto total =
+      sizeof(size_t) + ((col_size + row_dual.size()) * sizeof(double));
+  std::vector<char> buf(total);
+  auto* dst = buf.data();
+
+  std::memcpy(dst, &col_size, sizeof(size_t));
+  dst += sizeof(
+      size_t);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  std::memcpy(dst, col_sol.data(), col_size * sizeof(double));
+  dst +=
+      col_size
+      * sizeof(
+          double);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  std::memcpy(dst, row_dual.data(), row_dual.size() * sizeof(double));
+
+  return compress_buffer(buf, effective);
+}
+
+void decompress_solution(std::vector<double>& col_sol,
+                         std::vector<double>& row_dual,
+                         const CompressedBuffer& buf)
+{
+  if (buf.empty()) {
+    return;
+  }
+
+  auto raw = buf.decompress_data();
+  const auto* src = raw.data();
+
+  size_t col_size = 0;
+  std::memcpy(&col_size, src, sizeof(size_t));
+  src += sizeof(
+      size_t);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  const auto n_doubles = (buf.original_size - sizeof(size_t)) / sizeof(double);
+  const auto dual_size = n_doubles - col_size;
+
+  col_sol.resize(col_size);
+  std::memcpy(col_sol.data(), src, col_size * sizeof(double));
+  src +=
+      col_size
+      * sizeof(
+          double);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+
+  row_dual.resize(dual_size);
+  std::memcpy(row_dual.data(), src, dual_size * sizeof(double));
+}
+
 // ── LowMemorySnapshot ─────────────────────────────────────────────────────
+
+void LowMemorySnapshot::set_cached_solution(std::span<const double> col_sol,
+                                            std::span<const double> row_dual)
+{
+  cached_col_sol.assign(col_sol.begin(), col_sol.end());
+  cached_row_dual.assign(row_dual.begin(), row_dual.end());
+  dirty_sol_ = true;
+}
 
 void LowMemorySnapshot::compress(MemoryCodec codec)
 {
-  // Compress flat LP
-  if (!flat_lp.matbeg.empty()) {
+  using clock = std::chrono::steady_clock;
+
+  // Flat LP: compress only on first call (immutable after save_snapshot)
+  if (compressed_lp.empty() && !flat_lp.matbeg.empty()) {
+    const auto t0 = clock::now();
     compressed_lp = compress_flat_lp(flat_lp, codec);
+    // compress_flat_lp already clears the numeric vectors
+    const auto dt_ms =
+        std::chrono::duration<double, std::milli>(clock::now() - t0).count();
+    const auto orig = compressed_lp.original_size;
+    const auto comp = compressed_lp.data.size();
+    const auto ratio = orig > 0 ? static_cast<double>(comp) / orig : 0.0;
+    const auto saved_mb = static_cast<double>(orig - comp) / (1024.0 * 1024.0);
+    SPDLOG_INFO(
+        "low_memory: LP compressed with {} in {:.1f} ms — "
+        "{:.2f} MB → {:.2f} MB (ratio {:.2f}, saved {:.2f} MB)",
+        codec_name(compressed_lp.codec),
+        dt_ms,
+        orig / (1024.0 * 1024.0),
+        comp / (1024.0 * 1024.0),
+        ratio,
+        saved_mb);
+  } else if (!compressed_lp.empty()) {
+    // Already have compressed form — just free expanded vectors
+    clear_flat_lp_vectors(flat_lp);
   }
 
-  // Compress cached solution
-  if (!cached_col_sol.empty() || !cached_row_dual.empty()) {
-    const auto col_size = cached_col_sol.size();
-    const auto total =
-        sizeof(size_t) + ((col_size + cached_row_dual.size()) * sizeof(double));
-    std::vector<char> buf(total);
-    auto* dst = buf.data();
-
-    std::memcpy(dst, &col_size, sizeof(size_t));
-    dst += sizeof(
-        size_t);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-    std::memcpy(dst, cached_col_sol.data(), col_size * sizeof(double));
-    dst +=
-        col_size
-        * sizeof(
-            double);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-    std::memcpy(
-        dst, cached_row_dual.data(), cached_row_dual.size() * sizeof(double));
-
-    compressed_sol = compress_buffer(buf, select_codec(codec));
+  // Solution: re-compress only when dirty
+  if (dirty_sol_ && (!cached_col_sol.empty() || !cached_row_dual.empty())) {
+    const auto t0 = clock::now();
+    compressed_sol = compress_solution(cached_col_sol, cached_row_dual, codec);
+    cached_col_sol = {};
+    cached_row_dual = {};
+    dirty_sol_ = false;
+    if (!logged_sol_) {
+      const auto dt_ms =
+          std::chrono::duration<double, std::milli>(clock::now() - t0).count();
+      const auto orig = compressed_sol.original_size;
+      const auto comp = compressed_sol.data.size();
+      const auto ratio = orig > 0 ? static_cast<double>(comp) / orig : 0.0;
+      const auto saved_mb =
+          static_cast<double>(orig - comp) / (1024.0 * 1024.0);
+      SPDLOG_INFO(
+          "low_memory: solution compressed with {} in {:.1f} ms — "
+          "{:.2f} MB → {:.2f} MB (ratio {:.2f}, saved {:.2f} MB)",
+          codec_name(compressed_sol.codec),
+          dt_ms,
+          orig / (1024.0 * 1024.0),
+          comp / (1024.0 * 1024.0),
+          ratio,
+          saved_mb);
+      logged_sol_ = true;
+    }
+  } else if (!compressed_sol.empty()) {
+    // Already have compressed form — just free expanded vectors
     cached_col_sol = {};
     cached_row_dual = {};
   }
@@ -445,36 +565,16 @@ void LowMemorySnapshot::compress(MemoryCodec codec)
 
 void LowMemorySnapshot::decompress()
 {
-  // Decompress flat LP
-  if (!compressed_lp.empty()) {
+  // Expand flat LP vectors (keep compressed buffer as persistent cache)
+  if (flat_lp.matbeg.empty() && !compressed_lp.empty()) {
     decompress_flat_lp(flat_lp, compressed_lp);
-    compressed_lp = {};
+    // Keep compressed_lp intact
   }
 
-  // Decompress cached solution
-  if (!compressed_sol.empty()) {
-    auto buf = compressed_sol.decompress_data();
-    const auto* src = buf.data();
-
-    size_t col_size = 0;
-    std::memcpy(&col_size, src, sizeof(size_t));
-    src += sizeof(
-        size_t);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-    const auto n_doubles =
-        (compressed_sol.original_size - sizeof(size_t)) / sizeof(double);
-    const auto dual_size = n_doubles - col_size;
-
-    cached_col_sol.resize(col_size);
-    std::memcpy(cached_col_sol.data(), src, col_size * sizeof(double));
-    src +=
-        col_size
-        * sizeof(
-            double);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-
-    cached_row_dual.resize(dual_size);
-    std::memcpy(cached_row_dual.data(), src, dual_size * sizeof(double));
-
-    compressed_sol = {};
+  // Expand solution vectors (keep compressed buffer as persistent cache)
+  if (cached_col_sol.empty() && !compressed_sol.empty()) {
+    decompress_solution(cached_col_sol, cached_row_dual, compressed_sol);
+    // Keep compressed_sol intact
   }
 }
 

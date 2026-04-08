@@ -11,7 +11,7 @@
 #   e2e_<case_name>_sddp_validate - validate solver_status.json and solution.csv
 
 function(add_sddp_case case_name system_json)
-  cmake_parse_arguments(ARG "" "MAX_ITERATIONS;TIMEOUT" "ALLOWED_EXIT_CODES;LABELS;EXTRA_SET" ${ARGN})
+  cmake_parse_arguments(ARG "" "MAX_ITERATIONS;TIMEOUT;CASE_DIR" "ALLOWED_EXIT_CODES;LABELS;EXTRA_SET" ${ARGN})
 
   if(NOT DEFINED ARG_MAX_ITERATIONS)
     set(ARG_MAX_ITERATIONS 1)
@@ -25,7 +25,11 @@ function(add_sddp_case case_name system_json)
     set(ARG_ALLOWED_EXIT_CODES "0")
   endif()
 
-  set(case_dir "${CASES_DIR}/${case_name}")
+  if(ARG_CASE_DIR)
+    set(case_dir "${CASES_DIR}/${ARG_CASE_DIR}")
+  else()
+    set(case_dir "${CASES_DIR}/${case_name}")
+  endif()
   set(input_file "${case_dir}/${system_json}")
   set(test_output "${CMAKE_CURRENT_BINARY_DIR}/test_output/${case_name}_sddp")
 
