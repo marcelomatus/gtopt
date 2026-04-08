@@ -107,7 +107,8 @@ def test_convert_plp_case_zip_output(tmp_path):
     opts["zip_output"] = True
     convert_plp_case(opts)
 
-    zip_path = opts["output_file"].with_suffix(".zip")
+    # ZIP is placed next to (not inside) the output directory
+    zip_path = opts["output_dir"].parent / f"{opts['output_dir'].name}.zip"
     assert zip_path.exists(), "ZIP archive not created"
 
     with zipfile.ZipFile(zip_path) as zf:
@@ -133,7 +134,7 @@ def test_convert_plp_case_zip_preserves_subdirs(tmp_path):
     opts["zip_output"] = True
     convert_plp_case(opts)
 
-    zip_path = opts["output_file"].with_suffix(".zip")
+    zip_path = opts["output_dir"].parent / f"{opts['output_dir'].name}.zip"
     input_dir_name = opts["output_dir"].name
 
     with zipfile.ZipFile(zip_path) as zf:
@@ -141,6 +142,28 @@ def test_convert_plp_case_zip_preserves_subdirs(tmp_path):
 
     # Demand/lmax.parquet must be under the input_dir prefix
     assert f"{input_dir_name}/Demand/lmax.parquet" in names
+
+
+def test_convert_plp_case_zip_not_inside_output_dir(tmp_path):
+    """ZIP archive must not be created inside the output directory.
+
+    Regression test: placing the zip inside output_dir caused rglob("*")
+    to pick it up during creation, leading to an infinite loop.
+    """
+    opts = _make_opts(_PLPMin1Bus, tmp_path)
+    opts["zip_output"] = True
+    convert_plp_case(opts)
+
+    output_dir = opts["output_dir"]
+    # No .zip file should exist inside the output directory
+    zips_inside = list(output_dir.rglob("*.zip"))
+    assert zips_inside == [], (
+        f"ZIP file(s) found inside output directory: {zips_inside}"
+    )
+
+    # The zip should exist next to the output directory
+    zip_path = output_dir.parent / f"{output_dir.name}.zip"
+    assert zip_path.exists(), "ZIP archive not found next to output directory"
 
 
 def test_create_zip_output_unit(tmp_path):
@@ -543,7 +566,8 @@ def test_main_zip_creates_archive(tmp_path):
         main()
 
     assert out_file.exists()
-    zip_path = out_file.with_suffix(".zip")
+    # ZIP is placed next to (not inside) the output directory
+    zip_path = out_dir.parent / f"{out_dir.name}.zip"
     assert zip_path.exists(), "ZIP archive not created by main() -z"
 
     with zipfile.ZipFile(zip_path) as zf:
