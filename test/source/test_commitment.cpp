@@ -131,6 +131,12 @@ TEST_CASE("Commitment struct defaults")
   CHECK(c.pmax_segments.empty());
   CHECK(c.heat_rate_segments.empty());
   CHECK_FALSE(c.fuel_cost.has_value());
+  CHECK_FALSE(c.fuel_emission_factor.has_value());
+  CHECK_FALSE(c.hot_start_cost.has_value());
+  CHECK_FALSE(c.warm_start_cost.has_value());
+  CHECK_FALSE(c.cold_start_cost.has_value());
+  CHECK_FALSE(c.hot_start_time.has_value());
+  CHECK_FALSE(c.cold_start_time.has_value());
 }
 
 TEST_CASE("Commitment JSON round-trip")
@@ -989,6 +995,364 @@ TEST_CASE("CommitmentLP min up/down time constraints")
     const auto obj = li.get_obj_value();
     CHECK(obj == doctest::Approx(2400.0 / 1000.0));
   }
+}
+
+TEST_CASE("Hot/warm/cold startup cost tiers")
+{
+  // 6 blocks of 1h, g1 with startup tiers, g2 cheap baseload.
+  // g1 starts offline, must start up at some point.
+  // Verify tier variables are created and LP solves.
+  System sys;
+  sys.name = "startup_tier_test";
+  sys.bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  sys.demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 80.0,
+      },
+  };
+  sys.generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .pmin = 20.0,
+          .pmax = 100.0,
+          .gcost = 10.0,
+          .capacity = 100.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "g2",
+          .bus = Uid {1},
+          .pmin = 0.0,
+          .pmax = 100.0,
+          .gcost = 30.0,
+          .capacity = 100.0,
+      },
+  };
+
+  Simulation simulation;
+  simulation.block_array = {
+      {
+          .uid = Uid {0},
+          .duration = 1.0,
+      },
+      {
+          .uid = Uid {1},
+          .duration = 1.0,
+      },
+      {
+          .uid = Uid {2},
+          .duration = 1.0,
+      },
+      {
+          .uid = Uid {3},
+          .duration = 1.0,
+      },
+      {
+          .uid = Uid {4},
+          .duration = 1.0,
+      },
+      {
+          .uid = Uid {5},
+          .duration = 1.0,
+      },
+  };
+  simulation.stage_array = {
+      {
+          .uid = Uid {0},
+          .first_block = 0,
+          .count_block = 6,
+          .chronological = true,
+      },
+  };
+  simulation.scenario_array = {
+      {
+          .uid = Uid {0},
+      },
+  };
+
+  SUBCASE("Startup tiers add correct rows and columns")
+  {
+    sys.commitment_array = {
+        {
+            .uid = Uid {1},
+            .name = "g1_uc",
+            .generator = Uid {1},
+            .initial_status = 0.0,
+            .initial_hours = 2.0,  // offline for 2h → warm start zone
+            .relax = true,
+            .hot_start_cost = 100.0,
+            .warm_start_cost = 300.0,
+            .cold_start_cost = 500.0,
+            .hot_start_time = 1.0,  // hot if offline < 1h
+            .cold_start_time = 4.0,  // cold if offline ≥ 4h
+        },
+    };
+
+    const PlanningOptionsLP options;
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(sys, simulation_lp);
+
+    auto&& li = system_lp.linear_interface();
+
+    // Baseline cols: demand(6) + g1(6) + g2(6) + u(6) + v(6) + w(6) = 36
+    // Startup tier cols: hot(6) + warm(6) + cold(6) = 18
+    // Total ≥ 54
+    CHECK(li.get_numcols() >= 54);
+
+    // Baseline rows: balance(6) + gen_upper(6) + gen_lower(6) + logic(6) +
+    //   exclusion(6) = 30
+    // Startup tier rows: type_select(6) + hot_window(6) + warm_window(6) = 18
+    // Total ≥ 48
+    CHECK(li.get_numrows() >= 48);
+
+    const auto result = li.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+  }
+
+  SUBCASE("Cold start is most expensive tier")
+  {
+    // g1 offline for 10h (> cold_start_time=4h) → cold start
+    // g1 is cheap (gcost=10) but cold start costs 500.
+    // g2 is expensive (gcost=30) but no startup cost.
+    // For 6 blocks of 80 MW:
+    //   g1: 10*80*6 + 500 = 5300 (cold start) + noload if any
+    //   g2: 30*80*6 = 14400
+    // g1 still cheaper even with cold start → g1 starts up.
+    sys.commitment_array = {
+        {
+            .uid = Uid {1},
+            .name = "g1_uc",
+            .generator = Uid {1},
+            .initial_status = 0.0,
+            .initial_hours = 10.0,  // long offline → cold start
+            .relax = true,
+            .hot_start_cost = 100.0,
+            .warm_start_cost = 300.0,
+            .cold_start_cost = 500.0,
+            .hot_start_time = 1.0,
+            .cold_start_time = 4.0,
+        },
+    };
+
+    const PlanningOptionsLP options;
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(sys, simulation_lp);
+
+    auto&& li = system_lp.linear_interface();
+    const auto result = li.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+
+    // g1 should start (cheaper overall). Verify objective includes
+    // cold start cost (500) + dispatch cost.
+    const auto obj = li.get_obj_value();
+    // scaled obj ≥ (10*80*6 + 500) / 1000 = 5.3
+    CHECK(obj >= 5.0);
+  }
+}
+
+TEST_CASE("Fuel emission factor with piecewise segments")
+{
+  // g1 with 2-segment heat rate + fuel_emission_factor + emission_cost.
+  // Emission per segment = fuel_emission_factor × heat_rate_k.
+  // g2 flat cost, no emissions.
+  // Verify emission cost shifts dispatch.
+  System sys;
+  sys.name = "fuel_ef_test";
+  sys.bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  sys.demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 80.0,
+      },
+  };
+  sys.generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .pmin = 0.0,
+          .pmax = 100.0,
+          .gcost = 0.0,
+          .capacity = 100.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "g2",
+          .bus = Uid {1},
+          .pmin = 0.0,
+          .pmax = 100.0,
+          .gcost = 55.0,
+          .capacity = 100.0,
+      },
+  };
+
+  // g1: 2 segments, fuel_cost=5 $/GJ, fuel_emission_factor=0.05 tCO2/GJ
+  //   seg1: [0,50] MW, heat_rate=8 GJ/MWh → fuel cost=40, emission=0.4 tCO2/MWh
+  //   seg2: [50,100] MW, heat_rate=12 GJ/MWh → fuel cost=60, emission=0.6
+  //   tCO2/MWh
+  // emission_cost = 50 $/tCO2
+  //   seg1 total: 40 + 50*0.05*8 = 40 + 20 = 60 $/MWh
+  //   seg2 total: 60 + 50*0.05*12 = 60 + 30 = 90 $/MWh
+  // g2: 55 $/MWh (cheaper than both g1 segments with emission cost!)
+  sys.commitment_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1_uc",
+          .generator = Uid {1},
+          .initial_status = 1.0,
+          .relax = true,
+          .must_run = true,
+          .pmax_segments =
+              {
+                  50.0,
+                  100.0,
+              },
+          .heat_rate_segments =
+              {
+                  8.0,
+                  12.0,
+              },
+          .fuel_cost = 5.0,
+          .fuel_emission_factor = 0.05,
+      },
+  };
+
+  Simulation simulation;
+  simulation.block_array = {
+      {
+          .uid = Uid {0},
+          .duration = 1.0,
+      },
+  };
+  simulation.stage_array = {
+      {
+          .uid = Uid {0},
+          .first_block = 0,
+          .count_block = 1,
+          .chronological = true,
+      },
+  };
+  simulation.scenario_array = {
+      {
+          .uid = Uid {0},
+      },
+  };
+
+  SUBCASE("Without emission cost: g1 is cheaper")
+  {
+    // seg1=40, seg2=60, g2=55 → g1 dispatches 80 (50+30 from seg2), g2=0
+    // Wait: seg2 at 60 > g2 at 55 → g1 dispatches 50 (seg1), g2 dispatches 30
+    const PlanningOptionsLP options;
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(sys, simulation_lp);
+
+    auto&& li = system_lp.linear_interface();
+    const auto result = li.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+
+    const auto sol = li.get_col_sol();
+    // g1=50 (seg1 at 40 < 55), g2=30 (55 < seg2 at 60)
+    CHECK(sol[1] == doctest::Approx(50.0));
+    CHECK(sol[2] == doctest::Approx(30.0));
+  }
+
+  SUBCASE("With emission cost: g1 even more expensive")
+  {
+    // With emission_cost=50: seg1=60, seg2=90, g2=55
+    // g2 is cheapest at 55 → g2 dispatches 80, g1 dispatches 0
+    // But g1 is must_run, so u=1 and pmin=0 → g1 can dispatch 0.
+    PlanningOptions po;
+    po.model_options.emission_cost = 50.0;
+    const PlanningOptionsLP options(po);
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(sys, simulation_lp);
+
+    auto&& li = system_lp.linear_interface();
+    const auto result = li.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+
+    const auto sol = li.get_col_sol();
+    // g2 dispatches all 80 MW (55 < 60 < 90)
+    CHECK(sol[2] == doctest::Approx(80.0));
+    // g1 dispatches 0 (pmin=0, must_run but segments too expensive)
+    CHECK(sol[1] == doctest::Approx(0.0));
+  }
+}
+
+TEST_CASE("Commitment JSON round-trip with startup tiers")
+{
+  std::string_view json_str = R"({
+    "uid": 4,
+    "name": "coal_uc",
+    "generator": 10,
+    "initial_status": 0,
+    "initial_hours": 5,
+    "hot_start_cost": 100,
+    "warm_start_cost": 300,
+    "cold_start_cost": 500,
+    "hot_start_time": 2,
+    "cold_start_time": 8
+  })";
+
+  const auto c = daw::json::from_json<Commitment>(json_str);
+  CHECK(c.uid == 4);
+  CHECK(c.hot_start_cost.value_or(-1.0) == doctest::Approx(100.0));
+  CHECK(c.warm_start_cost.value_or(-1.0) == doctest::Approx(300.0));
+  CHECK(c.cold_start_cost.value_or(-1.0) == doctest::Approx(500.0));
+  CHECK(c.hot_start_time.value_or(-1.0) == doctest::Approx(2.0));
+  CHECK(c.cold_start_time.value_or(-1.0) == doctest::Approx(8.0));
+
+  const auto json_out = daw::json::to_json(c);
+  const auto c2 = daw::json::from_json<Commitment>(json_out);
+  CHECK(c2.hot_start_cost.value_or(-1.0) == doctest::Approx(100.0));
+  CHECK(c2.cold_start_time.value_or(-1.0) == doctest::Approx(8.0));
+}
+
+TEST_CASE("Commitment JSON round-trip with fuel_emission_factor")
+{
+  std::string_view json_str = R"({
+    "uid": 5,
+    "name": "gas_uc",
+    "generator": 3,
+    "initial_status": 1,
+    "pmax_segments": [50.0, 100.0],
+    "heat_rate_segments": [7.0, 10.0],
+    "fuel_cost": 4.0,
+    "fuel_emission_factor": 0.056
+  })";
+
+  const auto c = daw::json::from_json<Commitment>(json_str);
+  CHECK(c.uid == 5);
+  REQUIRE(c.fuel_emission_factor.has_value());
+  CHECK(std::get<Real>(c.fuel_emission_factor.value())
+        == doctest::Approx(0.056));
+
+  const auto json_out = daw::json::to_json(c);
+  const auto c2 = daw::json::from_json<Commitment>(json_out);
+  REQUIRE(c2.fuel_emission_factor.has_value());
+  CHECK(std::get<Real>(c2.fuel_emission_factor.value())
+        == doctest::Approx(0.056));
 }
 
 TEST_CASE("Stage chronological field JSON")

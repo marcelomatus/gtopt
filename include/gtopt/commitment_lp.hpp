@@ -40,6 +40,10 @@ public:
   static constexpr std::string_view SegmentName {"segment"};
   static constexpr std::string_view MinUpTimeName {"min_up_time"};
   static constexpr std::string_view MinDownTimeName {"min_down_time"};
+  static constexpr std::string_view HotStartName {"hot_start"};
+  static constexpr std::string_view WarmStartName {"warm_start"};
+  static constexpr std::string_view ColdStartName {"cold_start"};
+  static constexpr std::string_view StartupTypeName {"startup_type"};
 
   using Base = ObjectLP<Commitment>;
 
@@ -67,6 +71,7 @@ private:
   OptTRealSched startup_cost_;
   OptTRealSched shutdown_cost_;
   OptTRealSched fuel_cost_;
+  OptTRealSched fuel_emission_factor_;
 
   STBIndexHolder<ColIndex> status_cols_;
   STBIndexHolder<ColIndex> startup_cols_;
@@ -85,6 +90,14 @@ private:
   STBIndexHolder<RowIndex> segment_link_rows_;
   STBIndexHolder<RowIndex> min_up_time_rows_;
   STBIndexHolder<RowIndex> min_down_time_rows_;
+
+  /// Hot/warm/cold startup type variables and constraints
+  STBIndexHolder<ColIndex> hot_start_cols_;
+  STBIndexHolder<ColIndex> warm_start_cols_;
+  STBIndexHolder<ColIndex> cold_start_cols_;
+  STBIndexHolder<RowIndex> startup_type_rows_;
+  STBIndexHolder<RowIndex> hot_start_rows_;
+  STBIndexHolder<RowIndex> warm_start_rows_;
 };
 
 }  // namespace gtopt

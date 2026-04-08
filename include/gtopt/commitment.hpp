@@ -88,10 +88,24 @@ struct Commitment
   /// `heat_rate_segments` = [h₁, ..., hₖ] heat rate per segment [GJ/MWh].
   /// Segment k covers [P̄_{k-1}, P̄ₖ] where P̄₀ = Pmin.
   /// The effective generation cost per segment is `fuel_cost × h_k`.
+  /// The effective emission per segment is `fuel_emission_factor × h_k`.
   /// @{
   Array<Real> pmax_segments {};
   Array<Real> heat_rate_segments {};
   OptTRealFieldSched fuel_cost {};  ///< Fuel cost [$/GJ], stage-schedulable
+  OptTRealFieldSched fuel_emission_factor {};  ///< Emission factor [tCO2/GJ]
+  /// @}
+
+  /// @name Startup cost tiers (hot/warm/cold)
+  /// When all five fields are present, the single startup_cost is replaced
+  /// by three tier-dependent costs based on offline duration.
+  /// hot_start_time < cold_start_time; offline < hot → hot cost, etc.
+  /// @{
+  OptReal hot_start_cost {};  ///< Startup cost when recently offline [$/start]
+  OptReal warm_start_cost {};  ///< Startup cost at medium offline [$/start]
+  OptReal cold_start_cost {};  ///< Startup cost when long offline [$/start]
+  OptReal hot_start_time {};  ///< Max offline hours for hot start [h]
+  OptReal cold_start_time {};  ///< Min offline hours for cold start [h]
   /// @}
 };
 

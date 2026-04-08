@@ -27,6 +27,8 @@ CommitmentLP::CommitmentLP(const Commitment& commitment, const InputContext& ic)
     , startup_cost_(ic, ClassName, id(), std::move(object().startup_cost))
     , shutdown_cost_(ic, ClassName, id(), std::move(object().shutdown_cost))
     , fuel_cost_(ic, ClassName, id(), std::move(object().fuel_cost))
+    , fuel_emission_factor_(
+          ic, ClassName, id(), std::move(object().fuel_emission_factor))
 {
 }
 
@@ -87,14 +89,21 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     segment_cols_.resize(pmax_segs.size());
   }
 
+  // Resolve fuel_emission_factor [tCO2/GJ] from commitment (like fuel_cost)
+  const auto stage_fuel_ef =
+      fuel_emission_factor_.optval(stage.uid()).value_or(0.0);
+
   // Resolve emission parameters from system options
   const auto& emission_cost_field = sc.options().emission_cost();
+  // Generator's emission_factor [tCO2/MWh] is used for non-segment cases.
+  // When segments are present and fuel_emission_factor is set,
+  // emission per segment = fuel_emission_factor × heat_rate_k [tCO2/MWh].
   const auto stage_emission_factor =
       generator_lp.param_emission_factor(stage.uid()).value_or(0.0);
 
   // Evaluate emission_cost as scalar or stage-indexed array
   double stage_emission_cost = 0.0;
-  if (emission_cost_field.has_value() && stage_emission_factor > 0.0) {
+  if (emission_cost_field.has_value()) {
     const auto& ec = *emission_cost_field;
     if (std::holds_alternative<Real>(ec)) {
       stage_emission_cost = std::get<Real>(ec);
@@ -106,6 +115,16 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       }
     }
   }
+
+  // Resolve startup cost tiers
+  const auto opt_hot_cost = commitment().hot_start_cost;
+  const auto opt_warm_cost = commitment().warm_start_cost;
+  const auto opt_cold_cost = commitment().cold_start_cost;
+  const auto opt_hot_time = commitment().hot_start_time;
+  const auto opt_cold_time = commitment().cold_start_time;
+  const bool has_startup_tiers = opt_hot_cost.has_value()
+      && opt_warm_cost.has_value() && opt_cold_cost.has_value()
+      && opt_hot_time.has_value() && opt_cold_time.has_value();
 
   const auto st_key = std::pair {scenario.uid(), stage.uid()};
 
@@ -161,8 +180,11 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     ucols[buid] = ucol;
 
     // ── Create v (startup) variable ──
-    const auto v_cost =
-        CostHelper::block_ecost(scenario, stage, block, stage_startup_cost);
+    // When startup tiers are active, v[t] cost is zero — cost is carried
+    // by the hot/warm/cold tier variables instead.
+    const auto v_cost = has_startup_tiers
+        ? 0.0
+        : CostHelper::block_ecost(scenario, stage, block, stage_startup_cost);
     auto vcol = lp.add_col({
         .lowb = 0.0,
         .uppb = 1.0,
@@ -318,7 +340,12 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     }
 
     // ── Emission cost adder on generation variable ──
-    if (stage_emission_cost > 0.0 && stage_emission_factor > 0.0) {
+    // For non-segment generators: use generator's emission_factor [tCO2/MWh]
+    // For segment generators: emission is handled per-segment below using
+    //   fuel_emission_factor [tCO2/GJ] × heat_rate_k [GJ/MWh]
+    if (stage_emission_cost > 0.0 && stage_emission_factor > 0.0
+        && !has_segments)
+    {
       const auto emission_adder = CostHelper::block_ecost(
           scenario, stage, block, stage_emission_cost * stage_emission_factor);
       gcol_ref.cost += emission_adder;
@@ -338,11 +365,21 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       // cost is re-added to each segment variable below.
       gcol_ref.cost = 0.0;
 
-      // Emission cost per MWh to add to each segment (if applicable)
-      const double seg_emission_adder =
-          (stage_emission_cost > 0.0 && stage_emission_factor > 0.0)
-          ? stage_emission_cost * stage_emission_factor
-          : 0.0;
+      // Emission cost per MWh for segments: prefer fuel_emission_factor × h_k,
+      // fall back to generator emission_factor if fuel_emission_factor not set.
+      // seg_emission_base is the per-MWh factor BEFORE multiplying by h_k.
+      // When fuel_emission_factor is available: emission/MWh = ef × h_k,
+      // so seg_emission_base = emission_cost × fuel_emission_factor (multiply
+      // by h_k per segment below).
+      // When only generator emission_factor: emission/MWh is constant,
+      // so seg_emission_base = emission_cost × emission_factor (no h_k factor).
+      const bool use_fuel_ef = stage_fuel_ef > 0.0 && stage_emission_cost > 0.0;
+      double seg_emission_base = 0.0;
+      if (use_fuel_ef) {
+        seg_emission_base = stage_emission_cost * stage_fuel_ef;
+      } else if (stage_emission_cost > 0.0 && stage_emission_factor > 0.0) {
+        seg_emission_base = stage_emission_cost * stage_emission_factor;
+      }
 
       // Build linking row: p - Pmin·u - Σ δ_k = 0
       auto link_row =
@@ -364,10 +401,12 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
           continue;
         }
 
-        // Segment cost = (fuel_cost × heat_rate + emission_cost ×
-        // emission_factor)
-        const auto seg_marginal =
-            (stage_fuel_cost * hr_segs[k]) + seg_emission_adder;
+        // Segment cost = fuel_cost × h_k + emission_adder
+        // When fuel_emission_factor is set: emission_adder = ec × ef × h_k
+        // Otherwise: emission_adder = ec × gen_emission_factor (constant)
+        const auto seg_emission =
+            use_fuel_ef ? seg_emission_base * hr_segs[k] : seg_emission_base;
+        const auto seg_marginal = (stage_fuel_cost * hr_segs[k]) + seg_emission;
         const auto seg_cost =
             CostHelper::block_ecost(scenario, stage, block, seg_marginal);
 
@@ -556,6 +595,197 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     }
   }
 
+  // ── C8/C9/C10: Hot/warm/cold startup cost tiers ──
+  // When all tier parameters are defined, create per-block tier variables
+  // y_hot, y_warm, y_cold with constraints:
+  //   C8: v[t] = y_hot[t] + y_warm[t] + y_cold[t]  (type selection)
+  //   C9: y_hot[t] ≤ Σ w[τ] for τ in hot window    (recent shutdown)
+  //   C10: y_warm[t] ≤ Σ w[τ] for τ in warm window  (medium offline)
+  //   cold start is the residual via C8.
+  if (has_startup_tiers && !vcols.empty() && !wcols.empty()) {
+    const auto hot_cost = *opt_hot_cost;
+    const auto warm_cost = *opt_warm_cost;
+    const auto cold_cost = *opt_cold_cost;
+    const auto hot_time = *opt_hot_time;
+    const auto cold_time = *opt_cold_time;
+    const auto initial_hours_offline =
+        (initial_u < 0.5) ? commitment().initial_hours.value_or(1e6) : 0.0;
+
+    BIndexHolder<ColIndex> hcols;
+    BIndexHolder<ColIndex> wmcols;
+    BIndexHolder<ColIndex> ccols;
+    BIndexHolder<RowIndex> st_rows;
+    BIndexHolder<RowIndex> hr_rows;
+    BIndexHolder<RowIndex> wr_rows;
+
+    const auto nblocks = blocks.size();
+    for (size_t t = 0; t < nblocks; ++t) {
+      const auto buid_t = blocks[t].uid();
+      const auto vcol_it = vcols.find(buid_t);
+      if (vcol_it == vcols.end()) {
+        continue;
+      }
+
+      const auto bctx = make_block_context(scenario.uid(), stage.uid(), buid_t);
+
+      // Create tier variables with their respective costs
+      const auto h_cost =
+          CostHelper::block_ecost(scenario, stage, blocks[t], hot_cost);
+      auto hcol = lp.add_col({
+          .lowb = 0.0,
+          .uppb = 1.0,
+          .cost = h_cost,
+          .is_integer = !is_relax,
+          .class_name = cname,
+          .variable_name = HotStartName,
+          .variable_uid = cuid,
+          .context = bctx,
+      });
+      hcols[buid_t] = hcol;
+
+      const auto wm_cost =
+          CostHelper::block_ecost(scenario, stage, blocks[t], warm_cost);
+      auto wmcol = lp.add_col({
+          .lowb = 0.0,
+          .uppb = 1.0,
+          .cost = wm_cost,
+          .is_integer = !is_relax,
+          .class_name = cname,
+          .variable_name = WarmStartName,
+          .variable_uid = cuid,
+          .context = bctx,
+      });
+      wmcols[buid_t] = wmcol;
+
+      const auto c_cost =
+          CostHelper::block_ecost(scenario, stage, blocks[t], cold_cost);
+      auto ccol = lp.add_col({
+          .lowb = 0.0,
+          .uppb = 1.0,
+          .cost = c_cost,
+          .is_integer = !is_relax,
+          .class_name = cname,
+          .variable_name = ColdStartName,
+          .variable_uid = cuid,
+          .context = bctx,
+      });
+      ccols[buid_t] = ccol;
+
+      // C8: v[t] - y_hot[t] - y_warm[t] - y_cold[t] = 0
+      {
+        auto row =
+            SparseRow {
+                .class_name = cname,
+                .constraint_name = StartupTypeName,
+                .variable_uid = cuid,
+                .context = bctx,
+            }
+                .equal(0.0);
+        row[vcol_it->second] = 1.0;
+        row[hcol] = -1.0;
+        row[wmcol] = -1.0;
+        row[ccol] = -1.0;
+        st_rows[buid_t] = lp.add_row(std::move(row));
+      }
+
+      // Convert hot/cold time thresholds to block indices by accumulating
+      // block durations backwards from block t.
+      // hot window: blocks in [t - hot_blocks, t-1] where offline < hot_time
+      // warm window: blocks in [t - cold_blocks, t - hot_blocks - 1]
+
+      // Count blocks back from t that cover hot_time hours
+      double accum = 0.0;
+      size_t hot_blocks = 0;
+      for (size_t b = t; b > 0 && accum < hot_time; --b) {
+        accum += blocks[b - 1].duration();
+        ++hot_blocks;
+      }
+
+      accum = 0.0;
+      size_t cold_blocks = 0;
+      for (size_t b = t; b > 0 && accum < cold_time; --b) {
+        accum += blocks[b - 1].duration();
+        ++cold_blocks;
+      }
+
+      // C9: y_hot[t] ≤ Σ w[τ] for τ in [t-hot_blocks, t-1]
+      //     + initial contribution if t is near start and unit was offline
+      //     for less than hot_time hours
+      {
+        auto row =
+            SparseRow {
+                .class_name = cname,
+                .constraint_name = HotStartName,
+                .variable_uid = cuid,
+                .context = bctx,
+            }
+                .less_equal(0.0);
+        row[hcol] = 1.0;
+        for (size_t b = (t > hot_blocks ? t - hot_blocks : 0); b < t; ++b) {
+          const auto wcol_it = wcols.find(blocks[b].uid());
+          if (wcol_it != wcols.end()) {
+            row[wcol_it->second] = -1.0;
+          }
+        }
+        // Initial condition: if unit was offline at start and offline hours
+        // are within hot threshold, add implicit shutdown before horizon
+        if (t < hot_blocks && initial_hours_offline < hot_time) {
+          row.uppb = 1.0;  // RHS includes initial implicit w
+        }
+        hr_rows[buid_t] = lp.add_row(std::move(row));
+      }
+
+      // C10: y_warm[t] ≤ Σ w[τ] for τ in [t-cold_blocks, t-hot_blocks-1]
+      {
+        auto row =
+            SparseRow {
+                .class_name = cname,
+                .constraint_name = WarmStartName,
+                .variable_uid = cuid,
+                .context = bctx,
+            }
+                .less_equal(0.0);
+        row[wmcol] = 1.0;
+        const auto warm_start =
+            t > cold_blocks ? t - cold_blocks : static_cast<size_t>(0);
+        const auto warm_end =
+            t > hot_blocks ? t - hot_blocks : static_cast<size_t>(0);
+        for (size_t b = warm_start; b < warm_end; ++b) {
+          const auto wcol_it = wcols.find(blocks[b].uid());
+          if (wcol_it != wcols.end()) {
+            row[wcol_it->second] = -1.0;
+          }
+        }
+        // Initial condition: offline hours in warm range
+        if (t < cold_blocks && initial_hours_offline >= hot_time
+            && initial_hours_offline < cold_time)
+        {
+          row.uppb = 1.0;
+        }
+        wr_rows[buid_t] = lp.add_row(std::move(row));
+      }
+    }
+
+    if (!hcols.empty()) {
+      hot_start_cols_[st_key] = std::move(hcols);
+    }
+    if (!wmcols.empty()) {
+      warm_start_cols_[st_key] = std::move(wmcols);
+    }
+    if (!ccols.empty()) {
+      cold_start_cols_[st_key] = std::move(ccols);
+    }
+    if (!st_rows.empty()) {
+      startup_type_rows_[st_key] = std::move(st_rows);
+    }
+    if (!hr_rows.empty()) {
+      hot_start_rows_[st_key] = std::move(hr_rows);
+    }
+    if (!wr_rows.empty()) {
+      warm_start_rows_[st_key] = std::move(wr_rows);
+    }
+  }
+
   // Store index holders
   if (!ucols.empty()) {
     status_cols_[st_key] = std::move(ucols);
@@ -614,6 +844,16 @@ bool CommitmentLP::add_to_output(OutputContext& out) const
   out.add_row_dual(cname, SegmentName, pid, segment_link_rows_);
   out.add_row_dual(cname, MinUpTimeName, pid, min_up_time_rows_);
   out.add_row_dual(cname, MinDownTimeName, pid, min_down_time_rows_);
+
+  out.add_col_sol(cname, HotStartName, pid, hot_start_cols_);
+  out.add_col_cost(cname, HotStartName, pid, hot_start_cols_);
+  out.add_col_sol(cname, WarmStartName, pid, warm_start_cols_);
+  out.add_col_cost(cname, WarmStartName, pid, warm_start_cols_);
+  out.add_col_sol(cname, ColdStartName, pid, cold_start_cols_);
+  out.add_col_cost(cname, ColdStartName, pid, cold_start_cols_);
+  out.add_row_dual(cname, StartupTypeName, pid, startup_type_rows_);
+  out.add_row_dual(cname, HotStartName, pid, hot_start_rows_);
+  out.add_row_dual(cname, WarmStartName, pid, warm_start_rows_);
 
   return true;
 }

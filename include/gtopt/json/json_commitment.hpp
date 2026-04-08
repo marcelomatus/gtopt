@@ -45,7 +45,15 @@ struct json_data_contract<Commitment>
       json_array_null<"heat_rate_segments",
                       Array<Real>,
                       json_number_no_name<Real>>,
-      json_variant_null<"fuel_cost", OptTRealFieldSched, jvtl_TRealFieldSched>>;
+      json_variant_null<"fuel_cost", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_variant_null<"fuel_emission_factor",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
+      json_number_null<"hot_start_cost", OptReal>,
+      json_number_null<"warm_start_cost", OptReal>,
+      json_number_null<"cold_start_cost", OptReal>,
+      json_number_null<"hot_start_time", OptReal>,
+      json_number_null<"cold_start_time", OptReal>>;
 
   constexpr static auto to_json_data(Commitment const& obj)
   {
@@ -68,7 +76,13 @@ struct json_data_contract<Commitment>
                                  obj.must_run,
                                  obj.pmax_segments,
                                  obj.heat_rate_segments,
-                                 obj.fuel_cost);
+                                 obj.fuel_cost,
+                                 obj.fuel_emission_factor,
+                                 obj.hot_start_cost,
+                                 obj.warm_start_cost,
+                                 obj.cold_start_cost,
+                                 obj.hot_start_time,
+                                 obj.cold_start_time);
   }
 };
 
