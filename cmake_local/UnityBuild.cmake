@@ -37,7 +37,7 @@ individual per-file compilations.
 
 #]=======================================================================]
 
-option(GTOPT_UNITY_BUILD "Enable unity (jumbo) builds for faster compilation" ON)
+option(GTOPT_UNITY_BUILD "Enable unity (jumbo) builds for faster compilation" OFF)
 
 # Detect available CPU cores once
 include(ProcessorCount)
