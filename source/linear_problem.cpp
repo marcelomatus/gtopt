@@ -15,7 +15,9 @@
 #include <bit>
 #include <cmath>
 #include <cstdint>
+#include <format>
 #include <ranges>
+#include <stdexcept>
 #include <unordered_map>
 
 #include <gtopt/linear_problem.hpp>
@@ -507,8 +509,13 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       if (auto [it, inserted] = map.try_emplace(name, i); !inserted)
           [[unlikely]]
       {
-        SPDLOG_WARN(
-            "linear problem using repeated {} name {}", entity_type, name);
+        throw std::runtime_error(
+            std::format("linear problem using repeated {} name '{}' "
+                        "(first at index {}, duplicate at index {})",
+                        entity_type,
+                        name,
+                        it->second,
+                        i));
       }
     }
     return map;
