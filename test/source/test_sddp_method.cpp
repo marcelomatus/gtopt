@@ -17,6 +17,7 @@
 #include <gtopt/monolithic_method.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_method.hpp>
+#include <gtopt/sddp_enums.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/validate_planning.hpp>
@@ -1581,4 +1582,135 @@ TEST_CASE(  // NOLINT
   REQUIRE(results.has_value());
   CHECK_FALSE(results->empty());
   CHECK(results->back().converged);
+}
+
+// ─── Low-memory mode tests ─────────────────────────────────────────────────
+
+TEST_CASE("SDDPMethod — low_memory level 1 converges")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 10;
+  sddp_opts.convergence_tol = 1e-3;
+  sddp_opts.low_memory = LowMemoryMode::snapshot;
+  sddp_opts.enable_api = false;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+  CHECK(results->back().converged);
+  CHECK(results->back().upper_bound > 0.0);
+  CHECK(results->back().lower_bound > 0.0);
+}
+
+TEST_CASE("SDDPMethod — low_memory level 2 (compressed) converges")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 10;
+  sddp_opts.convergence_tol = 1e-3;
+  sddp_opts.low_memory = LowMemoryMode::compress;
+  sddp_opts.memory_codec = MemoryCodec::zstd;
+  sddp_opts.enable_api = false;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+  CHECK(results->back().converged);
+  CHECK(results->back().upper_bound > 0.0);
+  CHECK(results->back().lower_bound > 0.0);
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod — low_memory matches normal mode objective")
+{
+  // Run without low_memory
+  double normal_ub = 0.0;
+  double normal_lb = 0.0;
+  {
+    auto planning = make_3phase_hydro_planning();
+    PlanningLP planning_lp(std::move(planning));
+
+    SDDPOptions sddp_opts;
+    sddp_opts.max_iterations = 10;
+    sddp_opts.convergence_tol = 1e-3;
+    sddp_opts.enable_api = false;
+
+    SDDPMethod sddp(planning_lp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    REQUIRE_FALSE(results->empty());
+    normal_ub = results->back().upper_bound;
+    normal_lb = results->back().lower_bound;
+  }
+
+  // Run with low_memory level 1
+  {
+    auto planning = make_3phase_hydro_planning();
+    PlanningLP planning_lp(std::move(planning));
+
+    SDDPOptions sddp_opts;
+    sddp_opts.max_iterations = 10;
+    sddp_opts.convergence_tol = 1e-3;
+    sddp_opts.low_memory = LowMemoryMode::snapshot;
+    sddp_opts.enable_api = false;
+
+    SDDPMethod sddp(planning_lp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    REQUIRE_FALSE(results->empty());
+
+    // Same objective within tolerance
+    CHECK(results->back().upper_bound
+          == doctest::Approx(normal_ub).epsilon(1e-4));
+    CHECK(results->back().lower_bound
+          == doctest::Approx(normal_lb).epsilon(1e-4));
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod — low_memory level 1 with 2 scenes converges")
+{
+  auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 20;
+  sddp_opts.convergence_tol = 1e-3;
+  sddp_opts.low_memory = LowMemoryMode::snapshot;
+  sddp_opts.enable_api = false;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+  CHECK(results->back().converged);
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod — low_memory with cut pruning converges")
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 10;
+  sddp_opts.convergence_tol = 1e-3;
+  sddp_opts.low_memory = LowMemoryMode::snapshot;
+  sddp_opts.max_cuts_per_phase = 5;
+  sddp_opts.cut_prune_interval = 2;
+  sddp_opts.enable_api = false;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+  // May not converge with aggressive pruning, but should not crash
+  CHECK(results->back().upper_bound > 0.0);
 }

@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <deque>
+#include <utility>
 #include <vector>
 
 #include <gtopt/basic_types.hpp>
@@ -86,7 +87,7 @@ public:
   {
     auto it = m_completion_counts_.find(iter);
     return it != m_completion_counts_.end()
-        && it->second >= static_cast<int>(m_scene_completed_iter_.size());
+        && std::cmp_greater_equal(it->second, m_scene_completed_iter_.size());
   }
 
   /// Get per-scene bounds for iteration @p iter.

@@ -144,6 +144,10 @@ struct MainOptions
    */
   std::optional<bool> recover {};
 
+  /** @brief SDDP low-memory mode: off, snapshot, or compress.
+   * Trades CPU time for significant memory savings. */
+  std::optional<std::string> low_memory {};
+
   // ---- solver selection ----
   /** @brief LP solver backend name ("clp", "cbc", "cplex", "highs").
    * When empty, auto-detects from available plugins. */

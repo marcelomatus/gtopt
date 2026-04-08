@@ -24,6 +24,7 @@
 #include <gtopt/error.hpp>
 #include <gtopt/fmap.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/low_memory_snapshot.hpp>
 #include <gtopt/solver_backend.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/strong_index_vector.hpp>
@@ -193,9 +194,13 @@ public:
    * the original — use this for tentative solves such as the SDDP elastic
    * filter, where the original LP must remain unmodified.
    *
+   * @param col_sol  Optional primal solution for warm-start (empty = skip)
+   * @param row_dual Optional dual solution for warm-start (empty = skip)
    * @return A new LinearInterface wrapping the cloned solver.
    */
-  [[nodiscard]] LinearInterface clone() const;
+  [[nodiscard]] LinearInterface clone(
+      std::span<const double> col_sol = {},
+      std::span<const double> row_dual = {}) const;
 
   /**
    * @brief Apply a saved solution as warm-start hint for the next resolve.
@@ -213,34 +218,86 @@ public:
                                std::span<const double> row_dual);
 
   /**
+   * @brief Release the solver backend, freeing its memory.
+   *
+   * All LinearInterface metadata (scales, name maps, variable_scale_map,
+   * base_numrows, stats) is preserved.  When low_memory_level >= 2, the
+   * saved flat LP numeric vectors are compressed before release.
+   * The backend can be recreated by a subsequent call to
+   * reconstruct_backend() or load_flat().
+   */
+  void release_backend() noexcept;
+
+  /**
+   * @brief Check whether the solver backend is loaded.
+   * @return true if load_flat() has been called and release_backend() has not
+   */
+  [[nodiscard]] bool has_backend() const noexcept
+  {
+    return m_backend_ != nullptr;
+  }
+
+  // ── Low-memory mode API ─────────────────────────────────────────────────
+
+  /// Configure low-memory mode (off, snapshot, compress).
+  void set_low_memory(LowMemoryMode mode,
+                      MemoryCodec codec = MemoryCodec::zstd) noexcept;
+
+  /// Save a flat LP snapshot for future reconstruction.
+  /// Call from create_lp() — the LinearInterface decides whether to keep
+  /// based on the configured level.
+  void save_snapshot(FlatLinearProblem flat_lp);
+
+  /// Capture hot-start cuts (rows above base_numrows) into active_cuts.
+  /// Call after all initialization (alpha vars, hot-start cuts) is done.
+  void capture_hot_start_cuts();
+
+  /// Reconstruct backend from saved flat LP + dynamic cols + active cuts.
+  /// @param col_sol  Previous primal solution for warm-start (empty = cold)
+  /// @param row_dual Previous dual solution for warm-start (empty = cold)
+  void reconstruct_backend(std::span<const double> col_sol = {},
+                           std::span<const double> row_dual = {});
+
+  /// True if the solver backend has been released (low-memory mode).
+  [[nodiscard]] bool is_backend_released() const noexcept
+  {
+    return m_backend_released_;
+  }
+
+  /// Current low-memory mode.
+  [[nodiscard]] constexpr LowMemoryMode low_memory_mode() const noexcept
+  {
+    return m_low_memory_mode_;
+  }
+
+  /// Record a dynamically-added column (e.g. alpha variable).
+  void record_dynamic_col(SparseCol col);
+
+  /// Record a Benders cut row addition.
+  void record_cut_row(SparseRow row);
+
+  /// Record cut row deletions (pruning/forgetting).
+  void record_cut_deletion(std::span<const int> deleted_indices);
+
+  /// Decompress the saved flat LP (level 2) and keep it uncompressed
+  /// until enable_compression() is called.  No-op if level < 2 or
+  /// already decompressed.
+  void disable_compression();
+
+  /// Re-compress the saved flat LP (level 2).  Reverses a prior
+  /// disable_compression().  No-op if level < 2 or already compressed.
+  void enable_compression();
+
+  /**
    * @brief Loads a flattened linear problem into the solver
+   *
+   * If the backend was previously released, it is automatically recreated
+   * from the saved solver name before loading.
+   *
    * @param flat_lp The flattened problem representation
    * @throws std::runtime_error if the problem cannot be loaded
    */
   void load_flat(const FlatLinearProblem& flat_lp);
-
-  /**
-   * @brief Adds a new column (variable) to the problem
-   * @param name The name of the column
-   * @return The index of the newly added column
-   */
-  ColIndex add_col(const std::string& name);
-
-  /**
-   * @brief Adds a new column (variable) with bounds to the problem
-   * @param name The name of the column
-   * @param collb Lower bound for the column
-   * @param colub Upper bound for the column
-   * @return The index of the newly added column
-   */
-  ColIndex add_col(const std::string& name, double collb, double colub);
-
-  /**
-   * @brief Adds a new unbounded column (free variable) to the problem
-   * @param name The name of the column
-   * @return The index of the newly added column
-   */
-  ColIndex add_free_col(const std::string& name);
 
   /**
    * @brief Adds a new column from a SparseCol with metadata-based naming.
@@ -254,6 +311,9 @@ public:
    */
   ColIndex add_col(const SparseCol& col);
 
+  /// Bulk-add columns (calls add_col for each).
+  void add_cols(std::span<const SparseCol> cols);
+
   /**
    * @brief Adds a new constraint row to the problem
    * @param row The sparse row representation of the constraint
@@ -262,6 +322,18 @@ public:
    * @return The index of the newly added row
    */
   RowIndex add_row(const SparseRow& row, double eps = 0.0);
+
+  /**
+   * @brief Bulk-add constraint rows (much faster than repeated add_row calls).
+   *
+   * Converts SparseRows to CSR format, applies scaling and bound
+   * normalization, dispatches a single add_rows() call to the solver backend,
+   * and updates row scales and name maps.
+   *
+   * @param rows The sparse row representations of the constraints
+   * @param eps  Epsilon value for coefficient filtering
+   */
+  void add_rows(std::span<const SparseRow> rows, double eps = 0.0);
 
   /**
    * @brief Deletes rows by index from the constraint matrix.
@@ -910,7 +982,7 @@ public:
    *   dual_physical = dual_LP × scale_objective / row_scale.
    * @return Zero-copy lazy view per element.
    */
-  [[nodiscard]] ScaledView get_row_dual() noexcept
+  [[nodiscard]] ScaledView get_row_dual()
   {
     ensure_duals();
     const auto n = get_numrows();
@@ -1052,14 +1124,20 @@ public:
   }
   /// @}
 
+private:
+  /// @name Legacy column/row helpers (used internally and by tests)
+  /// @{
+  ColIndex add_col(const std::string& name);
+  ColIndex add_col(const std::string& name, double collb, double colub);
+  ColIndex add_free_col(const std::string& name);
   RowIndex add_row(const std::string& name,
                    size_t numberElements,
                    const std::span<const int>& columns,
                    const std::span<const double>& elements,
                    double rowlb,
                    double rowub);
+  /// @}
 
-private:
   void rebuild_row_name_maps();
   void push_names_to_solver() const;
 
@@ -1106,6 +1184,7 @@ private:
   void close_log_handler();
 
   std::unique_ptr<SolverBackend> m_backend_;
+  std::string m_solver_name_ {};  ///< Solver name for backend reconstruction
   SolverOptions m_last_solver_options_ {};  ///< Options from last solve
   std::string m_log_file_ {};
   int m_lp_names_level_ {};  ///< LP name uniqueness-check level (0–2)
@@ -1146,6 +1225,56 @@ private:
   };
   using log_file_ptr_t = std::unique_ptr<FILE, FILEcloser>;
   log_file_ptr_t m_log_file_ptr_;
+
+  // ── Low-memory state ──────────────────────────────────────────────────
+
+  LowMemoryMode m_low_memory_mode_ {LowMemoryMode::off};
+  MemoryCodec m_memory_codec_ {MemoryCodec::zstd};
+
+  /// Snapshot: flat LP + cached solution, with compress/decompress support.
+  LowMemorySnapshot m_snapshot_ {};
+
+  /// Columns added after initial load_flat() (typically just alpha).
+  std::vector<SparseCol> m_dynamic_cols_ {};
+
+  /// Net active Benders cuts (additions minus deletions).
+  std::vector<SparseRow> m_active_cuts_ {};
+
+  /// Whether the backend is currently released.
+  bool m_backend_released_ {false};
+};
+
+/// RAII guard that decompresses a LinearInterface's flat LP on construction
+/// and re-compresses it on destruction.  Use this to keep the flat LP
+/// uncompressed while creating multiple clones from the live backend.
+///
+/// Example:
+/// @code
+///   {
+///     DecompressionGuard guard(li);
+///     // All clones created here avoid per-clone decompress overhead
+///     auto c1 = li.clone(col_sol, row_dual);
+///     auto c2 = li.clone(col_sol, row_dual);
+///   }  // flat LP re-compressed here
+/// @endcode
+class DecompressionGuard
+{
+public:
+  explicit DecompressionGuard(LinearInterface& li) noexcept
+      : m_li_(li)
+  {
+    m_li_.disable_compression();
+  }
+
+  ~DecompressionGuard() noexcept { m_li_.enable_compression(); }
+
+  DecompressionGuard(const DecompressionGuard&) = delete;
+  DecompressionGuard& operator=(const DecompressionGuard&) = delete;
+  DecompressionGuard(DecompressionGuard&&) = delete;
+  DecompressionGuard& operator=(DecompressionGuard&&) = delete;
+
+private:
+  LinearInterface& m_li_;
 };
 
 }  // namespace gtopt

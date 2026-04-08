@@ -78,6 +78,27 @@ public:
     return &get_or_create(scene_index, phase_index, planning, base_nrows);
   }
 
+  /// Batch-create clones for all (scene, phase) slots from live backends.
+  /// Used in low_memory mode to create all clones while the flat LP is
+  /// decompressed, avoiding repeated decompress/reconstruct cycles.
+  void batch_create(PlanningLP& planning, Index num_scenes);
+
+  /// Release all clones (free solver memory).
+  void release_all() noexcept;
+
+  /// Number of scenes (derived from pool size and num_phases).
+  [[nodiscard]] Index num_scenes() const noexcept
+  {
+    if (m_num_phases_ <= 0) {
+      return 0;
+    }
+    return static_cast<Index>(m_pool_.size())
+        / static_cast<Index>(m_num_phases_);
+  }
+
+  /// Number of phases.
+  [[nodiscard]] Index num_phases() const noexcept { return m_num_phases_; }
+
 private:
   std::vector<std::optional<LinearInterface>> m_pool_ {};
   Index m_num_phases_ {0};

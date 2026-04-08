@@ -26,6 +26,7 @@
 
 #include <gtopt/lp_context.hpp>
 #include <gtopt/lp_debug_writer.hpp>
+#include <gtopt/memory_compress.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_aperture.hpp>
 #include <gtopt/sddp_clone_pool.hpp>
@@ -371,7 +372,7 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene_index)
     auto& li = planning_lp().system(scene_index, pi).linear_interface();
 
     const auto sa = m_options_.scale_alpha;
-    state.alpha_col = li.add_col(SparseCol {
+    const auto alpha_sparse = SparseCol {
         .lowb = m_options_.alpha_min / sa,
         .uppb = m_options_.alpha_max / sa,
         .cost = sa,
@@ -380,7 +381,11 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene_index)
         .variable_name = "alpha",
         .context =
             make_scene_phase_context(scene_uid(scene_index), _phase.uid()),
-    });
+    };
+    state.alpha_col = li.add_col(alpha_sparse);
+
+    // Track dynamic column for low_memory reconstruction
+    planning_lp().system(scene_index, pi).record_dynamic_col(alpha_sparse);
   }
 
   // Last phase: no future cost
@@ -648,6 +653,9 @@ void SDDPMethod::store_cut(SceneIndex scene_index,
                            CutType type,
                            RowIndex row)
 {
+  // Track cut for low_memory reconstruction
+  planning_lp().system(scene_index, src_phase).record_cut_row(cut);
+
   m_cut_store_.store_cut(scene_index,
                          src_phase,
                          cut,
@@ -721,8 +729,16 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
   int cuts_added = 0;
 
   const auto prev_phase = phase_index - PhaseIndex {1};
-  auto& src_li =
-      planning_lp().system(scene_index, prev_phase).linear_interface();
+  auto& src_sys = planning_lp().system(scene_index, prev_phase);
+
+  // Reconstruct if released by low_memory mode
+  if (src_sys.is_backend_released()) {
+    const auto& src_state_pre = phase_states[prev_phase];
+    src_sys.reconstruct_backend(src_state_pre.forward_col_sol,
+                                src_state_pre.forward_row_dual);
+  }
+
+  auto& src_li = src_sys.linear_interface();
   const auto& src_state = phase_states[prev_phase];
 
   // Use cached forward-pass solution for cut generation.
@@ -1021,6 +1037,25 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
     m_max_kappa_[scene_index].resize(num_phases, -1.0);
   }
 
+  // ── Low-memory mode: configure all SystemLPs ──────────────────────────────
+  if (m_options_.low_memory != LowMemoryMode::off) {
+    const auto codec = select_codec(m_options_.memory_codec);
+    SPDLOG_INFO("SDDP: low_memory mode {} (codec: {})",
+                enum_name(m_options_.low_memory),
+                codec_name(codec));
+    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
+        planning_lp()
+            .system(scene_index, phase_index)
+            .set_low_memory(m_options_.low_memory, codec);
+      }
+    }
+    // Clone pool is not used with low_memory — each aperture task creates
+    // its own clone from the reconstructed backend and releases it on
+    // completion (owned_clone path, no pooled sharing).
+    m_options_.use_clone_pool = false;
+  }
+
   // Auto-scale alpha: when scale_alpha == 0, compute as the maximum
   // state variable var_scale across all phases.  This ensures the
   // alpha LP variable is O(1) relative to the largest state variable.
@@ -1164,6 +1199,20 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
       } else {
         SPDLOG_WARN("SDDP: could not load state variables: {}",
                     result.error().message);
+      }
+    }
+  }
+
+  // ── Low-memory: snapshot LP state after all initialization ──────────────
+  // Must happen after hot-start/boundary/named cuts are loaded so that
+  // the snapshot captures those rows for correct reconstruction.
+  if (m_options_.low_memory != LowMemoryMode::off) {
+    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
+        planning_lp()
+            .system(scene_index, phase_index)
+            .linear_interface()
+            .capture_hot_start_cuts();
       }
     }
   }

@@ -9,6 +9,7 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/benders_cut.hpp>
+#include <gtopt/sparse_col.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -406,11 +407,27 @@ TEST_CASE("propagate_trial_values sets bounds")  // NOLINT
 
   LinearInterface li;
   // source columns
-  const auto s1 = li.add_col("s1", 0.0, 100.0);
-  const auto s2 = li.add_col("s2", 0.0, 100.0);
+  const auto s1 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "s1",
+  });
+  const auto s2 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "s2",
+  });
   // dependent columns
-  const auto d1 = li.add_col("d1", 0.0, 100.0);
-  const auto d2 = li.add_col("d2", 0.0, 100.0);
+  const auto d1 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "d1",
+  });
+  const auto d2 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "d2",
+  });
 
   std::vector<StateVarLink> links = {
       {
@@ -451,7 +468,11 @@ TEST_CASE("relax_fixed_state_variable relaxes a fixed column")  // NOLINT
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   LinearInterface li;
-  const auto dep = li.add_col("dep", 0.0, 100.0);
+  const auto dep = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "dep",
+  });
 
   // Fix the column (simulate propagate_trial_values)
   li.set_col_low(dep, 42.0);
@@ -507,7 +528,11 @@ TEST_CASE("relax_fixed_state_variable skips unfixed column")  // NOLINT
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   LinearInterface li;
-  const auto dep = li.add_col("dep", 0.0, 100.0);
+  const auto dep = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "dep",
+  });
 
   const StateVarLink link {
       .source_col =
@@ -599,12 +624,36 @@ TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
   // Build a small LP that will serve as the "cloned" elastic LP.
   // We need columns for: dep0, dep1, sup0, sdn0, sup1, sdn1
   LinearInterface cloned_li;
-  const auto dep0 = cloned_li.add_col("dep0", 0.0, 100.0);
-  const auto dep1 = cloned_li.add_col("dep1", 0.0, 100.0);
-  const auto sup0 = cloned_li.add_col("sup0", 0.0, 100.0);
-  const auto sdn0 = cloned_li.add_col("sdn0", 0.0, 100.0);
-  const auto sup1 = cloned_li.add_col("sup1", 0.0, 100.0);
-  const auto sdn1 = cloned_li.add_col("sdn1", 0.0, 100.0);
+  const auto dep0 = cloned_li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "dep0",
+  });
+  const auto dep1 = cloned_li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "dep1",
+  });
+  const auto sup0 = cloned_li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "sup0",
+  });
+  const auto sdn0 = cloned_li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "sdn0",
+  });
+  const auto sup1 = cloned_li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "sup1",
+  });
+  const auto sdn1 = cloned_li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "sdn1",
+  });
 
   // Set objective to minimise slack penalties
   cloned_li.set_obj_coeff(dep0, 0.0);
@@ -713,8 +762,16 @@ TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
   // Build a simple LP with one state variable link:
   // min x1 + 1000*alpha  s.t.  x1 >= 5, alpha >= 0
   LinearInterface li;
-  const auto x1 = li.add_col("x1", 0.0, 100.0);
-  const auto alpha = li.add_col("alpha", 0.0, LinearProblem::DblMax);
+  const auto x1 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "x1",
+  });
+  const auto alpha = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = LinearProblem::DblMax,
+      .name = "alpha",
+  });
   li.set_obj_coeff(x1, 1.0);
   li.set_obj_coeff(alpha, 0.0);
 
@@ -772,11 +829,27 @@ TEST_CASE("propagate_trial_values_row_dual adds coupling rows")  // NOLINT
 
   LinearInterface li;
   // source columns
-  const auto s1 = li.add_col("s1", 0.0, 100.0);
-  const auto s2 = li.add_col("s2", 0.0, 100.0);
+  const auto s1 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "s1",
+  });
+  const auto s2 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "s2",
+  });
   // dependent columns
-  const auto d1 = li.add_col("d1", 0.0, 100.0);
-  const auto d2 = li.add_col("d2", 0.0, 100.0);
+  const auto d1 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "d1",
+  });
+  const auto d2 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "d2",
+  });
 
   std::vector<StateVarLink> links = {
       {
@@ -1350,8 +1423,16 @@ TEST_CASE(  // NOLINT
   // In LP units (divided by energy_scale):
   //   efin_lp = physical / energy_scale = 500 / 1000 = 0.5
   LinearInterface li;
-  const auto efin = li.add_col("efin", 0.0, 1.0);  // [0, 1000 hm³] in LP
-  const auto alpha = li.add_col("alpha", 0.0, LinearProblem::DblMax);
+  const auto efin = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 1.0,
+      .name = "efin",
+  });  // [0, 1000 hm³] in LP
+  const auto alpha = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = LinearProblem::DblMax,
+      .name = "alpha",
+  });
 
   // Objective: small coefficient on efin (normal LP scale)
   li.set_obj_coeff(efin, 0.01);

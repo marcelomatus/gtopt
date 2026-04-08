@@ -371,6 +371,21 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         save_cuts_for_iteration(iter, fwd->scene_feasible);
       }
 
+      // ── Low-memory: release solver backends ──
+      // Free solver memory after each iteration.  Backends are
+      // reconstructed on demand in the next forward/backward pass.
+      if (m_options_.low_memory != LowMemoryMode::off) {
+        const auto ns =
+            static_cast<Index>(planning_lp().simulation().scenes().size());
+        const auto np =
+            static_cast<Index>(planning_lp().simulation().phases().size());
+        for (const auto si : iota_range<SceneIndex>(0, ns)) {
+          for (const auto pi : iota_range<PhaseIndex>(0, np)) {
+            planning_lp().system(si, pi).release_backend();
+          }
+        }
+      }
+
       // ── Iteration callback ──
       if (m_iteration_callback_ && m_iteration_callback_(ir)) {
         SPDLOG_INFO("{}: callback requested stop", sddp_log("Iter", iter));
@@ -804,6 +819,13 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           // Per-scene convergence check
           sp.scene_converged = check_scene_convergence(
               scene, sp.current_iter, sp.upper_bound, sp.lower_bound);
+
+          // Low-memory: release clones and backends for this scene
+          if (m_options_.low_memory != LowMemoryMode::off) {
+            for (const auto pi : iota_range<PhaseIndex>(0, num_phases)) {
+              planning_lp().system(scene, pi).release_backend();
+            }
+          }
 
           sp.current_iter = sp.current_iter + IterationIndex {1};
           sp.state = SceneState::idle;

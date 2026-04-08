@@ -18,6 +18,7 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_method.hpp>
 #include <gtopt/sddp_method.hpp>
+#include <gtopt/sparse_col.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/validate_planning.hpp>
 
@@ -63,7 +64,11 @@ TEST_CASE("relax_fixed_state_variable respects source bounds")  // NOLINT
   LinearInterface li;
 
   // Create a column and fix it at 80.0
-  const auto col = li.add_col("dep", 80.0, 80.0);
+  const auto col = li.add_col(SparseCol {
+      .lowb = 80.0,
+      .uppb = 80.0,
+      .name = "dep",
+  });
 
   const StateVarLink link {
       .dependent_col = col,
@@ -85,7 +90,11 @@ TEST_CASE("relax_fixed_state_variable respects source bounds")  // NOLINT
 TEST_CASE("relax_fixed_state_variable skips non-fixed columns")  // NOLINT
 {
   LinearInterface li;
-  const auto col = li.add_col("dep", 0.0, 100.0);
+  const auto col = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "dep",
+  });
 
   const StateVarLink link {
       .dependent_col = col,
@@ -131,7 +140,11 @@ TEST_CASE("relax_fixed_state_variable returns slack column indices")  // NOLINT
   LinearInterface li;
 
   // Create a column and fix it at 50.0
-  const auto col = li.add_col("dep", 50.0, 50.0);
+  const auto col = li.add_col(SparseCol {
+      .lowb = 50.0,
+      .uppb = 50.0,
+      .name = "dep",
+  });
 
   const StateVarLink link {
       .dependent_col = col,
@@ -313,17 +326,33 @@ TEST_CASE(  // NOLINT
   //        dep fixed at 50
 
   LinearInterface li;
-  const auto x0 = li.add_col("x0", 0.0, 80.0);
-  const auto x1 = li.add_col("x1", 0.0, 80.0);
+  const auto x0 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 80.0,
+      .name = "x0",
+  });
+  const auto x1 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 80.0,
+      .name = "x1",
+  });
   li.set_obj_coeff(x0, 10.0);
   li.set_obj_coeff(x1, 20.0);
 
   // Alpha (future cost)
-  const auto alpha_col = li.add_col("alpha", 0.0, 1e12);
+  const auto alpha_col = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 1e12,
+      .name = "alpha",
+  });
   li.set_obj_coeff(alpha_col, 1.0);
 
   // Dependent (state variable from previous phase)
-  const auto dep = li.add_col("dep", 50.0, 50.0);
+  const auto dep = li.add_col(SparseCol {
+      .lowb = 50.0,
+      .uppb = 50.0,
+      .name = "dep",
+  });
 
   // demand: x0 + x1 + dep >= 100
   auto demand = SparseRow {
@@ -364,9 +393,17 @@ TEST_CASE(  // NOLINT
     "elastic_filter_solve - relaxes fixed column and solves clone")
 {
   LinearInterface li;
-  const auto x0 = li.add_col("x0", 0.0, 200.0);
+  const auto x0 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 200.0,
+      .name = "x0",
+  });
   li.set_obj_coeff(x0, 10.0);
-  const auto dep = li.add_col("dep", 50.0, 50.0);
+  const auto dep = li.add_col(SparseCol {
+      .lowb = 50.0,
+      .uppb = 50.0,
+      .name = "dep",
+  });
 
   auto demand = SparseRow {
       .lowb = 100.0,
@@ -408,9 +445,17 @@ TEST_CASE(  // NOLINT
     "elastic_filter_solve - returns nullopt for non-fixed column")
 {
   LinearInterface li;
-  const auto x0 = li.add_col("x0", 0.0, 100.0);
+  const auto x0 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "x0",
+  });
   li.set_obj_coeff(x0, 10.0);
-  const auto dep = li.add_col("dep", 0.0, 100.0);  // NOT fixed
+  const auto dep = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "dep",
+  });  // NOT fixed
 
   auto demand = SparseRow {
       .lowb = 50.0,
@@ -438,9 +483,17 @@ TEST_CASE(  // NOLINT
     "build_feasibility_cut - produces valid cut from elastic solve")
 {
   LinearInterface li;
-  const auto x0 = li.add_col("x0", 0.0, 200.0);
+  const auto x0 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 200.0,
+      .name = "x0",
+  });
   li.set_obj_coeff(x0, 10.0);
-  const auto dep = li.add_col("dep", 50.0, 50.0);
+  const auto dep = li.add_col(SparseCol {
+      .lowb = 50.0,
+      .uppb = 50.0,
+      .name = "dep",
+  });
 
   auto demand = SparseRow {
       .lowb = 100.0,
@@ -481,9 +534,17 @@ TEST_CASE(  // NOLINT
     "build_feasibility_cut - returns nullopt for non-fixed column")
 {
   LinearInterface li;
-  const auto x0 = li.add_col("x0", 0.0, 100.0);
+  const auto x0 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "x0",
+  });
   li.set_obj_coeff(x0, 10.0);
-  const auto dep = li.add_col("dep", 0.0, 100.0);  // NOT fixed
+  const auto dep = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "dep",
+  });  // NOT fixed
 
   auto demand = SparseRow {
       .lowb = 50.0,
@@ -513,9 +574,17 @@ TEST_CASE(  // NOLINT
 {
   // LP infeasible when dep fixed at 50: x0+dep>=200, x0<=80
   LinearInterface li;
-  const auto x0 = li.add_col("x0", 0.0, 80.0);
+  const auto x0 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 80.0,
+      .name = "x0",
+  });
   li.set_obj_coeff(x0, 10.0);
-  const auto dep = li.add_col("dep", 50.0, 50.0);
+  const auto dep = li.add_col(SparseCol {
+      .lowb = 50.0,
+      .uppb = 50.0,
+      .name = "dep",
+  });
 
   auto demand = SparseRow {
       .lowb = 200.0,
@@ -567,9 +636,17 @@ TEST_CASE(  // NOLINT
 {
   // Feasible LP with dep fixed
   LinearInterface li;
-  const auto x0 = li.add_col("x0", 0.0, 200.0);
+  const auto x0 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 200.0,
+      .name = "x0",
+  });
   li.set_obj_coeff(x0, 10.0);
-  const auto dep = li.add_col("dep", 50.0, 50.0);
+  const auto dep = li.add_col(SparseCol {
+      .lowb = 50.0,
+      .uppb = 50.0,
+      .name = "dep",
+  });
 
   auto demand = SparseRow {
       .lowb = 100.0,
@@ -612,9 +689,17 @@ TEST_CASE(  // NOLINT
 
   // Phase 0
   LinearInterface phase0;
-  const auto x0 = phase0.add_col("x0", 0.0, 100.0);
+  const auto x0 = phase0.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "x0",
+  });
   phase0.set_obj_coeff(x0, 10.0);
-  const auto alpha_col = phase0.add_col("alpha", 0.0, 1e12);
+  const auto alpha_col = phase0.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 1e12,
+      .name = "alpha",
+  });
   phase0.set_obj_coeff(alpha_col, 1.0);
 
   auto constr0 = SparseRow {
@@ -626,9 +711,17 @@ TEST_CASE(  // NOLINT
 
   // Phase 1
   LinearInterface phase1;
-  const auto x1 = phase1.add_col("x1", 0.0, 100.0);
+  const auto x1 = phase1.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "x1",
+  });
   phase1.set_obj_coeff(x1, 50.0);
-  const auto dep = phase1.add_col("dep", 20.0, 20.0);
+  const auto dep = phase1.add_col(SparseCol {
+      .lowb = 20.0,
+      .uppb = 20.0,
+      .name = "dep",
+  });
 
   auto constr1 = SparseRow {
       .lowb = 80.0,
@@ -694,9 +787,17 @@ TEST_CASE(
   // Build a simple LP where dep is fixed at 50 and x0 <= 80; demand >= 100.
   // With dep=50 the LP is feasible; the elastic filter should relax dep.
   LinearInterface li;
-  const auto x0 = li.add_col("x0", 0.0, 200.0);
+  const auto x0 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 200.0,
+      .name = "x0",
+  });
   li.set_obj_coeff(x0, 10.0);
-  const auto dep = li.add_col("dep", 50.0, 50.0);
+  const auto dep = li.add_col(SparseCol {
+      .lowb = 50.0,
+      .uppb = 50.0,
+      .name = "dep",
+  });
 
   auto demand = SparseRow {
       .lowb = 100.0,
@@ -747,9 +848,17 @@ TEST_CASE("BendersCut - elastic_filter_solve with work pool")  // NOLINT
 {
   // Same LP as above but with a live work pool.
   LinearInterface li;
-  const auto x0 = li.add_col("x0", 0.0, 200.0);
+  const auto x0 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 200.0,
+      .name = "x0",
+  });
   li.set_obj_coeff(x0, 10.0);
-  const auto dep = li.add_col("dep", 50.0, 50.0);
+  const auto dep = li.add_col(SparseCol {
+      .lowb = 50.0,
+      .uppb = 50.0,
+      .name = "dep",
+  });
 
   auto demand = SparseRow {
       .lowb = 100.0,
@@ -786,9 +895,17 @@ TEST_CASE("BendersCut - elastic_filter_solve with work pool")  // NOLINT
 
   // nullopt when no fixed columns
   LinearInterface li2;
-  const auto x1 = li2.add_col("x1", 0.0, 100.0);
+  const auto x1 = li2.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "x1",
+  });
   li2.set_obj_coeff(x1, 5.0);
-  const auto dep2 = li2.add_col("dep2", 0.0, 100.0);  // NOT fixed
+  const auto dep2 = li2.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .name = "dep2",
+  });  // NOT fixed
   auto d2 = SparseRow {.lowb = 50.0, .uppb = LinearProblem::DblMax};
   d2[x1] = 1.0;
   d2[dep2] = 1.0;
@@ -814,9 +931,17 @@ TEST_CASE("BendersCut - elastic_filter_solve with work pool")  // NOLINT
 TEST_CASE("BendersCut - build_feasibility_cut increments counter")  // NOLINT
 {
   LinearInterface li;
-  const auto x0 = li.add_col("x0", 0.0, 200.0);
+  const auto x0 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 200.0,
+      .name = "x0",
+  });
   li.set_obj_coeff(x0, 10.0);
-  const auto dep = li.add_col("dep", 50.0, 50.0);
+  const auto dep = li.add_col(SparseCol {
+      .lowb = 50.0,
+      .uppb = 50.0,
+      .name = "dep",
+  });
 
   auto demand = SparseRow {
       .lowb = 100.0,

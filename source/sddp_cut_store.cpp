@@ -127,9 +127,11 @@ void SDDPCutStore::forget_first_cuts(int count, PlanningLP& planning_lp)
   std::map<ScenePhaseKey, int> deleted_count;
   int total_deleted = 0;
   for (auto& [key, rows] : rows_to_delete) {
-    auto& li = planning_lp.system(key.first, key.second).linear_interface();
+    auto& sys = planning_lp.system(key.first, key.second);
+    auto& li = sys.linear_interface();
     std::ranges::sort(rows);
     li.delete_rows(rows);
+    sys.record_cut_deletion(rows);
     deleted_count[key] = static_cast<int>(rows.size());
     total_deleted += static_cast<int>(rows.size());
   }
@@ -215,8 +217,8 @@ void SDDPCutStore::prune_inactive_cuts(
        enumerate<SceneIndex>(scene_phase_states))
   {
     for (auto&& [phase_index, psi] : enumerate<PhaseIndex>(scene_states)) {
-      auto& li =
-          planning_lp.system(scene_index, phase_index).linear_interface();
+      auto& sys = planning_lp.system(scene_index, phase_index);
+      auto& li = sys.linear_interface();
 
       const auto total_rows = static_cast<Index>(li.get_numrows());
       const auto base = static_cast<Index>(psi.base_nrows);
@@ -267,6 +269,7 @@ void SDDPCutStore::prune_inactive_cuts(
           max_cuts);
 
       li.delete_rows(rows_to_delete);
+      sys.record_cut_deletion(rows_to_delete);
       total_pruned += static_cast<int>(rows_to_delete.size());
       all_deleted[{scene_index, phase_index}] = std::move(rows_to_delete);
     }

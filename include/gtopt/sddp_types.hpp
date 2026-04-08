@@ -316,6 +316,16 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// internal matrix.  Default: true.
   bool use_clone_pool {true};
 
+  /// Low memory mode: off (default), snapshot, or compress.
+  /// Trades CPU time (reconstruction + optional decompression) for
+  /// significant memory savings on large problems.
+  /// Disables clone pool when not off.
+  LowMemoryMode low_memory {LowMemoryMode::off};
+
+  /// In-memory compression codec for low_memory compress mode.
+  /// Default: auto_select (picks best available: lz4 > snappy > zstd > gzip).
+  MemoryCodec memory_codec {MemoryCodec::auto_select};
+
   /// CSV file with boundary (future-cost) cuts for the last phase.
   ///
   /// These cuts approximate the expected future cost beyond the planning

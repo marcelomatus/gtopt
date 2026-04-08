@@ -3,14 +3,15 @@
 # Usage:
 #   add_sddp_case(<case_name> <system_json>
 #     [MAX_ITERATIONS <n>] [TIMEOUT <seconds>]
-#     [ALLOWED_EXIT_CODES <list>] [LABELS <list>])
+#     [ALLOWED_EXIT_CODES <list>] [LABELS <list>]
+#     [EXTRA_SET <list>])
 #
 # Registers two CTest tests:
 #   e2e_<case_name>_sddp_solve    - run gtopt in SDDP mode
 #   e2e_<case_name>_sddp_validate - validate solver_status.json and solution.csv
 
 function(add_sddp_case case_name system_json)
-  cmake_parse_arguments(ARG "" "MAX_ITERATIONS;TIMEOUT" "ALLOWED_EXIT_CODES;LABELS" ${ARGN})
+  cmake_parse_arguments(ARG "" "MAX_ITERATIONS;TIMEOUT" "ALLOWED_EXIT_CODES;LABELS;EXTRA_SET" ${ARGN})
 
   if(NOT DEFINED ARG_MAX_ITERATIONS)
     set(ARG_MAX_ITERATIONS 1)
@@ -41,6 +42,7 @@ function(add_sddp_case case_name system_json)
       -DWORKING_DIR=${case_dir}
       -DSDDP_MAX_ITERATIONS=${ARG_MAX_ITERATIONS}
       -DALLOWED_EXIT_CODES=${_escaped_exit_codes}
+      -DEXTRA_SET=${ARG_EXTRA_SET}
       -P ${CMAKE_SCRIPTS_DIR}/run_sddp_gtopt.cmake
     WORKING_DIRECTORY "${case_dir}"
   )

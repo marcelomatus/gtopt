@@ -176,6 +176,22 @@ void OsiSolverBackend::add_row(int num_elements,
   m_solver_->addRow(num_elements, columns, elements, rowlb, rowub);
 }
 
+void OsiSolverBackend::add_rows(int num_rows,
+                                const int* rowbeg,
+                                const int* rowind,
+                                const double* rowval,
+                                const double* rowlb,
+                                const double* rowub)
+{
+  // OSI does not have a CSR bulk addRows, so dispatch per row.
+  for (int r = 0; r < num_rows; ++r) {
+    const int start = rowbeg[r];
+    const int count = rowbeg[r + 1] - start;
+    m_solver_->addRow(
+        count, rowind + start, rowval + start, rowlb[r], rowub[r]);
+  }
+}
+
 void OsiSolverBackend::set_row_lower(int index, double value)
 {
   m_solver_->setRowLower(index, value);

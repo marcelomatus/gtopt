@@ -61,34 +61,34 @@ public:
   {
   }
 
-  [[nodiscard]] constexpr double cost_factor(
+  [[nodiscard]] static constexpr double cost_factor(
       const double probability,
       const double discount,
-      const double duration = 1.0) const noexcept
+      const double duration = 1.0) noexcept
   {
     return probability * discount * duration;
   }
 
-  [[nodiscard]] constexpr double cost_factor(
-      const ScenarioLP& scenario, const StageLP& stage) const noexcept
+  [[nodiscard]] static constexpr double cost_factor(
+      const ScenarioLP& scenario, const StageLP& stage) noexcept
   {
     return cost_factor(scenario.probability_factor(),
                        stage.discount_factor(),
                        stage.duration());
   }
 
-  [[nodiscard]] constexpr double cost_factor(
+  [[nodiscard]] static constexpr double cost_factor(
       const ScenarioLP& scenario,
       const StageLP& stage,
-      const BlockLP& block) const noexcept
+      const BlockLP& block) noexcept
   {
     return cost_factor(scenario.probability_factor(),
                        stage.discount_factor(),
                        block.duration());
   }
 
-  [[nodiscard]] constexpr double cost_factor(
-      const StageLP& stage, double probability = 1.0) const noexcept
+  [[nodiscard]] static constexpr double cost_factor(
+      const StageLP& stage, double probability = 1.0) noexcept
   {
     return cost_factor(probability, stage.discount_factor(), stage.duration());
   }
@@ -107,10 +107,10 @@ public:
    *
    * @return Total energy cost coefficient for LP formulation
    */
-  [[nodiscard]] constexpr double block_ecost(const ScenarioLP& scenario,
-                                             const StageLP& stage,
-                                             const BlockLP& block,
-                                             const double cost) const noexcept
+  [[nodiscard]] static constexpr double block_ecost(const ScenarioLP& scenario,
+                                                    const StageLP& stage,
+                                                    const BlockLP& block,
+                                                    const double cost) noexcept
   {
     return cost * cost_factor(scenario, stage, block);
   }
@@ -129,10 +129,10 @@ public:
    *
    * @return Total energy cost coefficient for LP formulation
    */
-  [[nodiscard]] constexpr double scenario_stage_ecost(
+  [[nodiscard]] static constexpr double scenario_stage_ecost(
       const ScenarioLP& scenario,
       const StageLP& stage,
-      const double cost) const noexcept
+      const double cost) noexcept
   {
     return cost * cost_factor(scenario, stage);
   }
@@ -151,10 +151,8 @@ public:
    * @return Total energy cost coefficient for LP formulation
    */
 
-  [[nodiscard]] constexpr double stage_ecost(
-      const StageLP& stage,
-      double cost,
-      double probability = 1.0) const noexcept
+  [[nodiscard]] static constexpr double stage_ecost(
+      const StageLP& stage, double cost, double probability = 1.0) noexcept
   {
     return cost * cost_factor(stage, probability);
   }

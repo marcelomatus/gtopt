@@ -59,26 +59,25 @@ public:
   constexpr StrongIndexVector(StrongIndexVector&& other) noexcept = default;
   constexpr ~StrongIndexVector() = default;
 
-  [[nodiscard]] constexpr auto operator[](Index pos) noexcept ->
-      typename std::vector<T>::reference
+  [[nodiscard]] constexpr auto operator[](Index pos) noexcept
+      -> std::vector<T>::reference
   {
     return std::vector<T>::operator[](pos.value_of());
   }
 
-  [[nodiscard]] constexpr auto operator[](Index pos) const noexcept ->
-      typename std::vector<T>::const_reference
+  [[nodiscard]] constexpr auto operator[](Index pos) const noexcept
+      -> std::vector<T>::const_reference
   {
     return std::vector<T>::operator[](pos.value_of());
   }
 
-  [[nodiscard]] constexpr auto at(Index pos) ->
-      typename std::vector<T>::reference
+  [[nodiscard]] constexpr auto at(Index pos) -> std::vector<T>::reference
   {
     return std::vector<T>::at(pos.value_of());
   }
 
-  [[nodiscard]] constexpr auto at(Index pos) const ->
-      typename std::vector<T>::const_reference
+  [[nodiscard]] constexpr auto at(Index pos) const
+      -> std::vector<T>::const_reference
   {
     return std::vector<T>::at(pos.value_of());
   }

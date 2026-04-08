@@ -191,6 +191,18 @@ void HighsSolverBackend::add_row(int num_elements,
   m_highs_->addRow(rowlb, rowub, num_elements, columns, elements);
 }
 
+void HighsSolverBackend::add_rows(int num_rows,
+                                  const int* rowbeg,
+                                  const int* rowind,
+                                  const double* rowval,
+                                  const double* rowlb,
+                                  const double* rowub)
+{
+  m_solution_valid_ = false;
+  const int nnz = rowbeg[num_rows];
+  m_highs_->addRows(num_rows, rowlb, rowub, nnz, rowbeg, rowind, rowval);
+}
+
 void HighsSolverBackend::set_row_lower(int index, double value)
 {
   const auto& lp = m_highs_->getLp();
