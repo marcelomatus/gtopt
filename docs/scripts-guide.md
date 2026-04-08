@@ -29,6 +29,8 @@ preparing, converting, visualizing, and post-processing data for use with gtopt.
   - [gtopt_check_solvers](#gtopt_check_solvers) — discover and validate LP solver plugins
   - [gtopt_compress_lp](#gtopt_compress_lp) — compress LP debug files
   - [gtopt_check_fingerprint](#gtopt_check_fingerprint) — LP structural fingerprint verification · [full docs](lp-fingerprint.md)
+  - [gtopt_check_pampl](#gtopt_check_pampl) — validate PAMPL expression syntax and LP resolution
+  - [plp_compress_case](#plp_compress_case) — compress PLP case files
 - **Utilities**
   - [gtopt_config](#gtopt_config) — unified configuration for all tools
   - [gtopt_field_extractor](#gtopt_field_extractor)
@@ -45,12 +47,13 @@ Install all tools with a single `pip` command from the repository root:
 pip install ./scripts
 ```
 
-This registers all 17 command-line tools on your `PATH`:
+This registers all 20 command-line tools on your `PATH`:
 `gtopt_diagram`, `plp2gtopt`, `pp2gtopt`, `gtopt2pp`, `igtopt`,
 `cvs2parquet`, `ts2gtopt`, `gtopt_compare`, `run_gtopt`,
 `gtopt_monitor`, `gtopt_check_json`, `gtopt_check_lp`,
 `gtopt_check_output`, `gtopt_check_solvers`, `gtopt_compress_lp`,
-`gtopt_check_fingerprint`, and `gtopt_field_extractor`.  An editable install is useful during
+`gtopt_check_fingerprint`, `gtopt_field_extractor`, `gtopt_check_pampl`,
+and `plp_compress_case`.  An editable install is useful during
 development:
 
 ```bash
@@ -86,6 +89,8 @@ Each command-line tool lives in its own Python package directory under
 | `gtopt_check_solvers/` | `gtopt_check_solvers` | LP solver plugin discovery & validation |
 | `gtopt_compress_lp/` | `gtopt_compress_lp` | LP debug file compressor |
 | `gtopt_check_fingerprint/` | `gtopt_check_fingerprint` | LP structural fingerprint verification & comparison |
+| `gtopt_check_pampl/` | `gtopt_check_pampl` | PAMPL expression syntax and LP resolution validator |
+| `plp_compress_case/` | `plp_compress_case` | PLP case file compressor |
 | `gtopt_config/` | *(library)* | Unified configuration management |
 | `gtopt_monitor/` | `gtopt_monitor` | Live solver monitoring dashboard |
 | `ts2gtopt/` | `ts2gtopt` | Time-series → gtopt block schedule converter |
@@ -255,8 +260,8 @@ Two additional **optional** PLP files extend the hydro model:
 | PLP file | gtopt array | Description |
 |----------|-------------|-------------|
 | `plpcnfce.dat` | `junction_array`, `waterway_array`, `turbine_array`, `reservoir_array`, `flow_array` | Main hydro topology (required when hydro centrals exist) |
-| `plpcenre.dat` | `reservoir_efficiency_array` | Volume-dependent turbine efficiency (PLP *rendimiento*): piecewise-linear conversion rate as a function of reservoir storage |
-| `plpcenfi.dat` | `filtration_array` | Waterway-to-reservoir seepage (PLP *filtración*): linear model `flow = slope × volume + constant` |
+| `plpcenre.dat` | `reservoir_production_factor_array` | Volume-dependent turbine production factor (PLP *rendimiento*): piecewise-linear conversion rate as a function of reservoir storage |
+| `plpcenfi.dat` | `reservoir_seepage_array` | Waterway-to-reservoir seepage (PLP *filtración*): linear model `flow = slope × volume + constant` |
 
 Both `plpcenre.dat` and `plpcenfi.dat` are **optional** — if absent, the
 corresponding arrays are simply not written.  When present and non-empty they
@@ -270,7 +275,7 @@ N
 # For each entry:
 'CENTRAL_NAME'     ← turbine (central) name
 'EMBALSE_NAME'     ← reservoir name
-mean_efficiency    ← fallback efficiency [MW·s/m³]
+mean_production_factor    ← fallback production factor [MW·s/m³]
 num_segments       ← number of piecewise-linear segments
 idx  volume  slope  constant  scale  ← one line per segment
 ```
@@ -700,9 +705,9 @@ starts with `.` (e.g. `.notes`) are silently skipped.
 | `waterway_array` | Water channels between junctions (`uid`, `name`, `junction_a`, `junction_b`, `fmax`) |
 | `flow_array` | External inflows/outflows at junctions (`uid`, `name`, `junction`, `discharge`, `direction`) |
 | `reservoir_array` | Storage lakes/dams (`uid`, `name`, `junction`, `emin`, `emax`, `ecost`) |
-| `filtration_array` | Water seepage from waterways into reservoirs (`uid`, `name`, `waterway`, `reservoir`, `slope`, `constant`, `segments` — `segments` is a JSON array of `{"volume", "slope", "constant"}` for piecewise-linear seepage) |
+| `reservoir_seepage_array` | Water seepage from waterways into reservoirs (`uid`, `name`, `waterway`, `reservoir`, `slope`, `constant`, `segments` — `segments` is a JSON array of `{"volume", "slope", "constant"}` for piecewise-linear seepage) |
 | `turbine_array` | Hydro turbines (`uid`, `name`, `waterway`, `generator`, `conversion_rate`) |
-| `reservoir_efficiency_array` | Volume-dependent turbine productivity curves (`uid`, `name`, `turbine`, `reservoir`, `mean_efficiency`) |
+| `reservoir_production_factor_array` | Volume-dependent turbine productivity curves (`uid`, `name`, `turbine`, `reservoir`, `mean_production_factor`) |
 | `user_constraint_array` | User-defined custom LP constraints added to the problem |
 
 #### Time-series sheets (`@` convention)
@@ -1539,3 +1544,44 @@ solution files.
 
 For full API reference and deployment instructions, see
 [webservice/INSTALL.md](webservice/INSTALL.md).
+
+## gtopt_check_pampl
+
+Validates PAMPL (gtopt constraint expression language) syntax and verifies
+that all LP column references resolve correctly for a given JSON planning file.
+
+```bash
+# Check all user constraints in a planning file
+gtopt_check_pampl cases/mycase/mycase.json
+
+# Verbose output showing each constraint and its resolution
+gtopt_check_pampl cases/mycase/mycase.json --verbose
+
+# Check only a specific constraint file
+gtopt_check_pampl --constraint-file constraints.json cases/mycase/mycase.json
+```
+
+### Common use cases
+
+- Verify new user constraints before running the solver
+- Diagnose resolution errors (unknown elements, bad expression syntax)
+- Confirm LP column names in constraint expressions match the actual LP
+
+## plp_compress_case
+
+Compresses a PLP case directory for archival or transport, using xz compression
+on the data files.
+
+```bash
+# Compress a PLP case directory
+plp_compress_case /path/to/plp/case
+
+# Decompress
+plp_compress_case --decompress /path/to/plp/case.tar.xz
+
+# List contents
+plp_compress_case --list /path/to/plp/case.tar.xz
+```
+
+A Bash variant `plp_compress_case.sh` is also available in the `scripts/`
+directory for environments without Python.

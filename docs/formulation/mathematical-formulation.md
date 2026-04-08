@@ -152,8 +152,8 @@ scenarios, stages, and blocks.
 | $\rho_v$ | `conversion_rate` | Converter power conversion rate | — |
 | $\overline{Q}_w$ | `fmax` | Waterway max flow | m³/s |
 | $\underline{Q}_w$ | `fmin` | Waterway min flow | m³/s |
-| $\overline{V}_r$ | `vmax` | Reservoir max volume | hm³ |
-| $\underline{V}_r$ | `vmin` | Reservoir min volume | hm³ |
+| $\overline{V}_r$ | `emax` | Reservoir max volume | hm³ |
+| $\underline{V}_r$ | `emin` | Reservoir min volume | hm³ |
 | $\kappa_u$ | `conversion_rate` (turbine) | Turbine water-to-power factor | MW/(m³/s) |
 | $\overline{R}_{z,t,b}^{\text{up}}$ | `urreq` | Up-reserve requirement | MW |
 | $\overline{R}_{z,t,b}^{\text{dn}}$ | `drreq` | Down-reserve requirement | MW |
@@ -848,7 +848,7 @@ where for each segment $i$:
 | $c_i$  | `constant`| Efficiency intercept at breakpoint $v_i$ |
 
 The result is clamped to zero: $\kappa_u(v) \ge 0$.  The fallback
-`mean_efficiency` $\bar{\kappa}_u$ is used when the solver cannot modify
+`mean_production_factor` $\bar{\kappa}_u$ is used when the solver cannot modify
 LP matrix coefficients in-place.
 
 **SDDP integration**: during the forward pass, the solver evaluates
@@ -1802,20 +1802,20 @@ mathematical symbols used in this formulation.
 | `waterway_array[].fmin` | $\underline{Q}_w$ | Min water flow (m³/s) |
 | `waterway_array[].fmax` | $\overline{Q}_w$ | Max water flow (m³/s) |
 | `waterway_array[].lossfactor` | $\lambda_w$ | Transport loss |
-| `reservoir_array[].vmin` | $\underline{V}_r$ | Min volume (hm³) |
-| `reservoir_array[].vmax` | $\overline{V}_r$ | Max volume (hm³) |
+| `reservoir_array[].emin` | $\underline{V}_r$ | Min volume (hm³) |
+| `reservoir_array[].emax` | $\overline{V}_r$ | Max volume (hm³) |
 | `variable_scales` (Reservoir, energy) | $\sigma_V$ | Volume variable scale factor (Section 6.3) |
 | `turbine_array[].conversion_rate` | $\kappa_u$ | Water-to-power factor |
 | `turbine_array[].main_reservoir` | — | Reservoir for efficiency lookup |
-| `reservoir_efficiency_array[].mean_efficiency` | $\bar{\kappa}_u$ | Fallback efficiency |
-| `reservoir_efficiency_array[].segments[].volume` | $v_i$ | Volume breakpoint (dam³) |
-| `reservoir_efficiency_array[].segments[].slope` | $m_i$ | Marginal efficiency per dam³ |
-| `reservoir_efficiency_array[].segments[].constant` | $c_i$ | Efficiency intercept |
-| `filtration_array[].constant` | $a_i$ | Default seepage constant |
-| `filtration_array[].slope` | $b_i$ | Default seepage slope |
-| `filtration_array[].segments[].volume` | $V_k$ | Volume breakpoint (dam³) |
-| `filtration_array[].segments[].slope` | $b_k$ | Seepage slope at breakpoint |
-| `filtration_array[].segments[].constant` | $c_k$ | Seepage rate at breakpoint |
+| `reservoir_production_factor_array[].mean_production_factor` | $\bar{\kappa}_u$ | Fallback production factor |
+| `reservoir_production_factor_array[].segments[].volume` | $v_i$ | Volume breakpoint (hm³) |
+| `reservoir_production_factor_array[].segments[].slope` | $m_i$ | Marginal production factor per hm³ |
+| `reservoir_production_factor_array[].segments[].constant` | $c_i$ | Production factor intercept |
+| `reservoir_seepage_array[].constant` | $a_i$ | Default seepage constant |
+| `reservoir_seepage_array[].slope` | $b_i$ | Default seepage slope |
+| `reservoir_seepage_array[].segments[].volume` | $V_k$ | Volume breakpoint (hm³) |
+| `reservoir_seepage_array[].segments[].slope` | $b_k$ | Seepage slope at breakpoint |
+| `reservoir_seepage_array[].segments[].constant` | $c_k$ | Seepage rate at breakpoint |
 
 ---
 

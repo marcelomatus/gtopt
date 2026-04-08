@@ -827,8 +827,8 @@ All flow terms: `25.2 = 7 × 3.6` (uniform).
 
 **gtopt:**
 ```
-rsv_vol_6: +2.52e-05 rsv_extraction_6 + 2.52e-05 rsv_drain_6
-           + 0.000252 vrt_extraction_1012 - rsv_sini_6 + rsv_vol_6 = 0
+rsv_volumen_6: +2.52e-05 rsv_extraction_6 + 2.52e-05 rsv_drain_6
+               + 0.000252 vrt_extraction_1012 - rsv_sini_6 + rsv_volumen_6 = 0
 ```
 - `rsv_extraction` coeff: `7 × 3.6e-3 × 0.1 / 100 = 2.52e-05` ✓
 - `vrt_extraction` coeff: `7 × 3.6e-3 × 1.0 / 100 = 2.52e-04`
@@ -843,15 +843,15 @@ c241: 25.2 qg37_1 + 25.2 qv37_1 - 25.2 qaf37_1 + 25.2 qe37_1 = 1400.544
 
 **gtopt:**
 ```
-rsv_vol_37: +2.52e-05 rsv_extraction_37 + 2.52e-05 rsv_drain_37
-            + 2.52e-06 vrt_extraction_2005 (laja_vol_irr)
-            + 2.52e-06 vrt_extraction_2006 (laja_vol_elec)
-            + 2.52e-06 vrt_extraction_2007 (laja_vol_mixed)
-            + 2.52e-06 vrt_extraction_2008 (laja_vol_anticipated)
-            + 2.52e-06 vrt_extraction_2009 (laja_vol_econ_endesa)
-            + 2.52e-06 vrt_extraction_2010 (laja_vol_econ_reserve)
-            + 2.52e-06 vrt_extraction_2011 (laja_vol_econ_polcura)
-            - rsv_sini_37 + rsv_vol_37 = 0
+rsv_volumen_37: +2.52e-05 rsv_extraction_37 + 2.52e-05 rsv_drain_37
+                + 2.52e-06 vrt_extraction_2005 (laja_vol_irr)
+                + 2.52e-06 vrt_extraction_2006 (laja_vol_elec)
+                + 2.52e-06 vrt_extraction_2007 (laja_vol_mixed)
+                + 2.52e-06 vrt_extraction_2008 (laja_vol_anticipated)
+                + 2.52e-06 vrt_extraction_2009 (laja_vol_econ_endesa)
+                + 2.52e-06 vrt_extraction_2010 (laja_vol_econ_reserve)
+                + 2.52e-06 vrt_extraction_2011 (laja_vol_econ_polcura)
+                - rsv_sini_37 + rsv_volumen_37 = 0
 ```
 - `rsv_extraction` coeff: `7 × 3.6e-3 × 10 / 10000 = 2.52e-05` ✓
 - `vrt_extraction` coeff: `7 × 3.6e-3 × 1.0 / 10000 = 2.52e-06`
@@ -869,14 +869,14 @@ PLP uses 2 aggregate extraction vars: `qx28@1` (0–24 m³/s),
 
 **gtopt:**
 ```
-rsv_vol_28: +2.52e-05 rsv_extraction_28 + 2.52e-05 rsv_drain_28
-            + 2.52e-05 vrt_extraction_1006 (maule_vol_elec_mensual)
-            + 2.52e-05 vrt_extraction_1007 (maule_vol_elec_anual)
-            + 2.52e-05 vrt_extraction_1008 (maule_vol_riego_temp)
-            + 2.52e-05 vrt_extraction_1009 (maule_vol_compensacion)
-            + 2.52e-05 vrt_extraction_1010 (maule_vol_rext_elec)
-            + 2.52e-05 vrt_extraction_1011 (maule_vol_rext_riego)
-            - rsv_sini_28 + rsv_vol_28 = 0
+rsv_volumen_28: +2.52e-05 rsv_extraction_28 + 2.52e-05 rsv_drain_28
+                + 2.52e-05 vrt_extraction_1006 (maule_vol_elec_mensual)
+                + 2.52e-05 vrt_extraction_1007 (maule_vol_elec_anual)
+                + 2.52e-05 vrt_extraction_1008 (maule_vol_riego_temp)
+                + 2.52e-05 vrt_extraction_1009 (maule_vol_compensacion)
+                + 2.52e-05 vrt_extraction_1010 (maule_vol_rext_elec)
+                + 2.52e-05 vrt_extraction_1011 (maule_vol_rext_riego)
+                - rsv_sini_28 + rsv_volumen_28 = 0
 ```
 - All coefficients: `7 × 3.6e-3 × 1.0 / 1000 = 2.52e-05` (uniform) ✓
 - PLP's 2 aggregate vars → gtopt's 6 granular vars (finer tracking)

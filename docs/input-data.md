@@ -78,7 +78,7 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 | `output_directory`   | string  | `"output"`   | Root directory for output result files |
 | `output_format`      | string  | `"parquet"`  | Output format: `"parquet"` or `"csv"` |
 | `output_compression` | string  | `"zstd"`     | Compression codec: `"uncompressed"`, `"gzip"`, `"zstd"`, `"lz4"`, `"bzip2"`, `"xz"` |
-| `lp_build_options.names_level` | string/int | `"minimal"` (0) | LP naming level: `"minimal"` (0) = state-variable cols only, `"only_cols"` (1) = all column + row names (required for LP file output), `"cols_and_rows"` (2) = same as 1 + warn on duplicates |
+| `lp_matrix_options.names_level` | string/int | `"minimal"` (0) | LP naming level: `"minimal"` (0) = state-variable cols only, `"only_cols"` (1) = all column + row names (required for LP file output), `"cols_and_rows"` (2) = same as 1 + warn on duplicates |
 | `use_uid_fname`      | boolean | `true`       | Use element UIDs instead of names in output filenames |
 
 #### Solver selection
@@ -94,8 +94,13 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 | `log_directory`             | string  | `"logs"` | Directory for log, trace, and error LP files |
 | `lp_debug`                  | boolean | `false`  | Save LP debug files to `log_directory` before solving. Monolithic: one file per `(scene, phase)` named `gtopt_lp_<scene>_<phase>.lp`. SDDP: one file per `(iteration, scene, phase)` named `gtopt_iter_<iter>_<scene>_<phase>.lp` |
 | `lp_compression`            | string  | `""`     | Compression codec for LP debug files: `""` (inherit from output), `"none"` (no compression), or a codec name (`"zstd"`, `"gzip"`, `"lz4"`, `"bzip2"`, `"xz"`) |
-| `lp_build`             | boolean | `false`  | Build all LP matrices but skip solving entirely. Combine with `lp_debug: true` to export every scene/phase LP |
+| `lp_build`                  | boolean | `false`  | Build all LP matrices but skip solving entirely. Combine with `lp_debug: true` to export every scene/phase LP |
 | `lp_coeff_ratio_threshold`  | number  | `1e7`    | When the global max/min coefficient ratio exceeds this value, per-scene/phase breakdown is printed |
+| `lp_debug_scene_min`        | integer | —        | Minimum scene UID (inclusive) for LP debug file saving |
+| `lp_debug_scene_max`        | integer | —        | Maximum scene UID (inclusive) for LP debug file saving |
+| `lp_debug_phase_min`        | integer | —        | Minimum phase UID (inclusive) for LP debug file saving |
+| `lp_debug_phase_max`        | integer | —        | Maximum phase UID (inclusive) for LP debug file saving |
+| `lp_fingerprint`            | boolean | `false`  | Compute LP structural fingerprint after solving. Output: `lp_fingerprint_scene_{S}_phase_{P}.json` per scene/phase. See [LP Fingerprint](lp-fingerprint.md) |
 
 #### Deprecated LP solver fields
 
@@ -853,6 +858,11 @@ be defined manually (see §3.6 Converter).
 | `capmax`            | number\|array\|string| MWh         | No       | Absolute maximum energy capacity |
 | `annual_capcost`    | number\|array\|string| $/MWh-year  | No       | Annualized investment cost |
 | `annual_derating`   | number\|array\|string| p.u./year   | No       | Annual capacity derating factor |
+| `type`              | string              | —            | No       | Optional battery type tag (metadata, e.g. `"lithium"`, `"flow"`) |
+| `soft_emin`         | number\|array\|string| MWh         | No       | Soft minimum energy per stage (penalized slack below `emin`) |
+| `soft_emin_cost`    | number\|array\|string| $/MWh       | No       | Penalty cost per unit of `soft_emin` slack violation |
+| `use_state_variable`| boolean             | —            | No       | Enable stage/phase coupling of the battery state variable |
+| `daily_cycle`       | boolean             | —            | No       | Enforce daily cycling (initial SoC equals final SoC each day) |
 
 ### 3.6 Converter
 
@@ -923,6 +933,11 @@ A water reservoir connected to a junction.  Volume units: **hm³** (1 hm³ = 10�
 | `fmin`                 | number              | m³/s        | No       | Minimum net inflow |
 | `fmax`                 | number              | m³/s        | No       | Maximum net inflow |
 | `flow_conversion_rate` | number              | hm³/(m³/s·h)| No     | Converts m³/s × hours to hm³ (default: 0.0036) |
+| `scost`                | number\|array\|string| $/hm³     | No       | Short-run water shortage cost |
+| `soft_emin`            | number\|array\|string| hm³       | No       | Soft minimum volume per stage (penalized slack below `emin`) |
+| `soft_emin_cost`       | number\|array\|string| $/hm³     | No       | Penalty cost per unit of `soft_emin` slack violation |
+| `use_state_variable`   | boolean             | —           | No       | Enable stage/phase coupling of the reservoir state variable |
+| `daily_cycle`          | boolean             | —           | No       | Enforce daily cycling (initial volume equals final volume each day) |
 
 ### 3.10 Turbine
 
@@ -1041,9 +1056,8 @@ element is used unchanged.
 | `active`                     | boolean | —              | No       | Whether the element is active |
 | `turbine`                    | integer\|string | —      | Yes      | Associated turbine UID or name |
 | `reservoir`                  | integer\|string | —      | Yes      | Associated reservoir UID or name |
-| `mean_efficiency`            | number  | MW·s/m³        | No       | Fallback efficiency (default: 1.0) |
+| `mean_production_factor`     | number  | MW·s/m³        | No       | Fallback production factor (default: 1.0) |
 | `segments`                   | array   | —              | No       | Piecewise-linear concave segments |
-| `sddp_efficiency_update_skip`| integer | —              | No       | SDDP iterations to skip between updates |
 
 Each segment in the `segments` array has the following fields:
 
@@ -1073,7 +1087,7 @@ negative).
       "name": "eff_colbun",
       "turbine": "COLBUN",
       "reservoir": "COLBUN",
-      "mean_efficiency": 1.53,
+      "mean_production_factor": 1.53,
       "segments": [
         { "volume": 0.0, "slope": 0.0002294, "constant": 1.2558 },
         { "volume": 500.0, "slope": 0.0001, "constant": 1.53 }
@@ -1093,7 +1107,7 @@ excessive drawdown).
 The constraint per stage is:
 
 ```text
-qeh ≤ slope × V_avg + constant
+qeh ≤ slope × V_avg + intercept
 ```
 
 where `qeh` is the stage-average hourly discharge [m³/s], `V_avg` is the
@@ -1109,16 +1123,17 @@ Generalizes the PLP "Ralco" constraint (`plpralco.dat`).
 | `uid`       | integer | —       | Yes      | Unique identifier |
 | `name`      | string  | —       | Yes      | Discharge limit element name |
 | `active`    | boolean | —       | No       | Whether the element is active |
+| `waterway`  | integer\|string | — | Yes   | Source waterway UID or name |
 | `reservoir` | integer\|string | — | Yes   | Associated reservoir UID or name |
 | `segments`  | array   | —       | No       | Piecewise-linear segments |
 
 Each segment has:
 
-| Field      | Type   | Units        | Description |
-|------------|--------|-------------|-------------|
-| `volume`   | number | hm³         | Volume breakpoint |
-| `slope`    | number | m³/s / hm³  | Discharge limit slope |
-| `constant` | number | m³/s        | Discharge limit intercept |
+| Field       | Type   | Units        | Description |
+|-------------|--------|-------------|-------------|
+| `volume`    | number | hm³         | Volume breakpoint |
+| `slope`     | number | m³/s / hm³  | Discharge limit slope |
+| `intercept` | number | m³/s        | Discharge limit intercept |
 
 ### 3.15 Generator Profile
 
@@ -1197,10 +1212,62 @@ reference and examples.
 
 **System-level fields:**
 
-| Field                    | Type            | Description |
-|--------------------------|-----------------|-------------|
-| `user_constraint_array`  | array           | Inline array of UserConstraint objects |
-| `user_constraint_file`   | string          | Path to external JSON file with constraint array |
+| Field                     | Type            | Description |
+|---------------------------|-----------------|-------------|
+| `user_constraint_array`   | array           | Inline array of UserConstraint objects |
+| `user_constraint_file`    | string          | Path to external JSON file with constraint array |
+| `user_constraint_files`   | array of string | Paths to multiple external JSON files with constraint arrays |
+
+### 3.20 Flow Right
+
+Water-right constraints on waterway flow (m³/s).  See
+**[Irrigation Agreements](irrigation-agreements.md)** for the full reference.
+
+**JSON array name:** `flow_right_array`
+
+| Field        | Type            | Units | Required | Description |
+|--------------|-----------------|-------|----------|-------------|
+| `uid`        | integer         | —     | Yes      | Unique identifier |
+| `name`       | string          | —     | Yes      | Flow right name |
+| `active`     | boolean         | —     | No       | Activation flag (default: true) |
+| `waterway`   | integer\|string | —     | Yes      | Target waterway UID or name |
+| `fmin`       | number\|array\|string | m³/s | No | Minimum required flow (floor right) |
+| `fmax`       | number\|array\|string | m³/s | No | Maximum allowed flow (ceiling right) |
+| `fcost`      | number\|array\|string | $/m³/s | No | Penalty cost per unit of right violation |
+
+See [irrigation-agreements.md](irrigation-agreements.md) for details and examples.
+
+### 3.21 Volume Right
+
+Water-right constraints on reservoir volume (hm³).  See
+**[Irrigation Agreements](irrigation-agreements.md)** for the full reference.
+
+**JSON array name:** `volume_right_array`
+
+| Field        | Type            | Units | Required | Description |
+|--------------|-----------------|-------|----------|-------------|
+| `uid`        | integer         | —     | Yes      | Unique identifier |
+| `name`       | string          | —     | Yes      | Volume right name |
+| `active`     | boolean         | —     | No       | Activation flag (default: true) |
+| `reservoir`  | integer\|string | —     | Yes      | Target reservoir UID or name |
+| `emin`       | number\|array\|string | hm³ | No | Minimum required volume (floor right) |
+| `emax`       | number\|array\|string | hm³ | No | Maximum allowed volume (ceiling right) |
+| `ecost`      | number\|array\|string | $/hm³ | No | Penalty cost per unit of right violation |
+| `saving_rate`| number\|array\|string | — | No | Water-saving attribution rate |
+
+See [irrigation-agreements.md](irrigation-agreements.md) for details and examples.
+
+### 3.22 User Parameter
+
+Named scalar parameters usable in user constraint expressions.
+
+**JSON array name:** `user_param_array`
+
+| Field   | Type    | Units | Required | Description |
+|---------|---------|-------|----------|-------------|
+| `uid`   | integer | —     | Yes      | Unique identifier |
+| `name`  | string  | —     | Yes      | Parameter name (used in constraint expressions) |
+| `value` | number\|array\|string | — | Yes | Parameter value (per block/stage/scenario schedule) |
 
 ---
 

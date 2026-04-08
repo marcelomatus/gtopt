@@ -471,7 +471,7 @@ cmake --build build -j$(nproc)
 > ruff format scripts/ guiservice/
 >
 > # Step 2 — ruff check (REQUIRED before every Python commit)
-> cd scripts && ruff check gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt
+> cd scripts && ruff check cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt
 >
 > # Step 3 — pylint (REQUIRED; exit code MUST be 0 — no messages of any category)
 > # IMPORTANT: pylint reports a score of 10.00/10 even when convention/refactor/
@@ -480,10 +480,10 @@ cmake --build build -j$(nproc)
 > # Pylint exit codes are bitwise OR of: 1=fatal, 2=error, 4=warning,
 > # 8=refactor, 16=convention, 32=usage-error.
 > # Even a single "C" (convention) message produces exit code 16 — a CI failure.
-> cd scripts && pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt
+> cd scripts && pylint --jobs=0 cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt
 >
 > # Step 4 — mypy (REQUIRED; no errors allowed)
-> cd scripts && mypy gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt --ignore-missing-imports
+> cd scripts && mypy cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt --ignore-missing-imports
 > ```
 >
 > **Both steps are mandatory in agent sessions.** Fix all clang-tidy warnings
@@ -764,9 +764,9 @@ The project uses Python for `guiservice/` (Flask), `scripts/`, and tests.
 > # Step 2 — lint, type-check (scripts/)
 > # pylint MUST exit 0 — any C/R/W message (even with 10.00/10 score) = CI failure
 > cd scripts
-> ruff check  gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt
-> pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt
-> mypy gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt \
+> ruff check  cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt
+> pylint --jobs=0 cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt
+> mypy cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt \
 >   --ignore-missing-imports
 >
 > # Step 3 — lint, type-check (guiservice/, run from repo root)
@@ -788,18 +788,18 @@ pip install -r scripts/requirements-dev.txt   # dev+test deps
 
 # Format scripts/ (in-place)
 cd scripts
-ruff format gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt
+ruff format cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt
 
 # Lint scripts/ with ruff
-ruff check gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt
+ruff check cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt
 
 # Lint scripts/ with pylint — exit code MUST be 0 (no messages of any category).
 # NOTE: pylint prints "10.00/10" even when convention/refactor messages exist.
 # The exit code is the authoritative pass/fail signal (0=clean, non-zero=fail).
-pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt
+pylint --jobs=0 cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt
 
 # Type-check scripts/
-mypy gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt \
+mypy cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt \
   --ignore-missing-imports
 
 # Run all script tests (from scripts/ directory)

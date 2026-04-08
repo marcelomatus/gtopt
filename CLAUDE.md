@@ -108,9 +108,9 @@ ruff format scripts/ guiservice/
 
 # Lint + type-check (from scripts/ directory)
 cd scripts
-ruff check cvs2parquet gtopt_check_output gtopt_compare gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt run_gtopt gtopt_monitor ts2gtopt
-pylint --jobs=0 cvs2parquet gtopt_check_output gtopt_compare gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt run_gtopt gtopt_monitor ts2gtopt
-mypy cvs2parquet gtopt_check_output gtopt_compare gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt run_gtopt gtopt_monitor ts2gtopt --ignore-missing-imports
+ruff check cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt
+pylint --jobs=0 cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt
+mypy cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt --ignore-missing-imports
 ```
 
 > **CRITICAL — pylint exit code**: pylint prints `10.00/10` even with warnings.
