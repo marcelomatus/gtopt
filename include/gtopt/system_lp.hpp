@@ -18,6 +18,7 @@
 #include <gtopt/battery_lp.hpp>
 #include <gtopt/bus_lp.hpp>
 #include <gtopt/collection.hpp>
+#include <gtopt/commitment_lp.hpp>
 #include <gtopt/converter_lp.hpp>
 #include <gtopt/demand_lp.hpp>
 #include <gtopt/demand_profile_lp.hpp>
@@ -84,6 +85,7 @@ static_assert(AddToLP<BatteryLP>);
 static_assert(AddToLP<ConverterLP>);
 static_assert(AddToLP<ReserveZoneLP>);
 static_assert(AddToLP<ReserveProvisionLP>);
+static_assert(AddToLP<CommitmentLP>);
 
 static_assert(AddToLP<JunctionLP>);
 static_assert(AddToLP<WaterwayLP>);
@@ -181,6 +183,7 @@ public:
                                    Collection<ConverterLP>,
                                    Collection<ReserveZoneLP>,
                                    Collection<ReserveProvisionLP>,
+                                   Collection<CommitmentLP>,
                                    Collection<JunctionLP>,
                                    Collection<WaterwayLP>,
                                    Collection<FlowLP>,

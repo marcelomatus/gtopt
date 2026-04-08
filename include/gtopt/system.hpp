@@ -25,6 +25,7 @@
 
 #include <gtopt/battery.hpp>
 #include <gtopt/bus.hpp>
+#include <gtopt/commitment.hpp>
 #include <gtopt/converter.hpp>
 #include <gtopt/demand.hpp>
 #include <gtopt/demand_profile.hpp>
@@ -84,6 +85,10 @@ struct System
       reserve_zone_array {};  ///< Spinning-reserve requirement zones
   Array<ReserveProvision>
       reserve_provision_array {};  ///< Generator → reserve zone links
+
+  // ── Unit commitment ────────────────────────────────────────────────────
+  Array<Commitment>
+      commitment_array {};  ///< Generator unit commitment parameters
 
   // ── Hydro cascade ───────────────────────────────────────────────────────
   Array<Junction> junction_array {};  ///< Hydraulic nodes

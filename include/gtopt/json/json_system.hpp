@@ -14,6 +14,7 @@
 
 #include <gtopt/json/json_battery.hpp>
 #include <gtopt/json/json_bus.hpp>
+#include <gtopt/json/json_commitment.hpp>
 #include <gtopt/json/json_converter.hpp>
 #include <gtopt/json/json_demand.hpp>
 #include <gtopt/json/json_demand_profile.hpp>
@@ -63,6 +64,7 @@ struct json_data_contract<System>
       json_array_null<"reserve_provision_array",
                       Array<ReserveProvision>,
                       ReserveProvision>,
+      json_array_null<"commitment_array", Array<Commitment>, Commitment>,
       json_array_null<"junction_array", Array<Junction>, Junction>,
       json_array_null<"waterway_array", Array<Waterway>, Waterway>,
       json_array_null<"flow_array", Array<Flow>, Flow>,
@@ -100,6 +102,7 @@ struct json_data_contract<System>
                                  system.converter_array,
                                  system.reserve_zone_array,
                                  system.reserve_provision_array,
+                                 system.commitment_array,
                                  system.junction_array,
                                  system.waterway_array,
                                  system.flow_array,

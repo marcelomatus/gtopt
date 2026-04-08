@@ -140,6 +140,12 @@ public:
   /// @return Calendar month for this stage (if set)
   [[nodiscard]] constexpr auto month() const noexcept { return stage().month; }
 
+  /// @return Whether this stage has chronologically ordered blocks
+  [[nodiscard]] constexpr bool is_chronological() const noexcept
+  {
+    return stage().chronological.value_or(false);
+  }
+
   /// @return Span of blocks in this stage
   [[nodiscard]] constexpr const auto& blocks() const noexcept
   {

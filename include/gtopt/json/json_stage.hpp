@@ -29,7 +29,8 @@ struct StageConstructor
                                  Size first_block,
                                  Size count_block,
                                  OptReal discount_factor,
-                                 OptName month_str) const
+                                 OptName month_str,
+                                 OptBool chronological) const
   {
     Stage s;
     s.uid = uid;
@@ -41,6 +42,7 @@ struct StageConstructor
     if (month_str) {
       s.month = gtopt::enum_from_name<MonthType>(*month_str);
     }
+    s.chronological = chronological;
     return s;
   }
 };
@@ -56,7 +58,8 @@ struct json_data_contract<Stage>
                                 json_number<"first_block", Size>,
                                 json_number<"count_block", Size>,
                                 json_number_null<"discount_factor", OptReal>,
-                                json_string_null<"month", OptName>>;
+                                json_string_null<"month", OptName>,
+                                json_bool_null<"chronological", OptBool>>;
 
   static auto to_json_data(Stage const& stage)
   {
@@ -66,7 +69,8 @@ struct json_data_contract<Stage>
                            stage.first_block,
                            stage.count_block,
                            stage.discount_factor,
-                           detail::enum_to_opt_name(stage.month));
+                           detail::enum_to_opt_name(stage.month),
+                           stage.chronological);
   }
 };
 }  // namespace daw::json

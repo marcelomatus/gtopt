@@ -68,6 +68,9 @@ struct json_data_contract<Generator>
                         jvtl_TRealFieldSched>,
       json_variant_null<"annual_derating",
                         OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
+      json_variant_null<"emission_factor",
+                        OptTRealFieldSched,
                         jvtl_TRealFieldSched>>;
 
   constexpr static auto to_json_data(Generator const& generator)
@@ -86,7 +89,8 @@ struct json_data_contract<Generator>
                                  generator.expmod,
                                  generator.capmax,
                                  generator.annual_capcost,
-                                 generator.annual_derating);
+                                 generator.annual_derating,
+                                 generator.emission_factor);
   }
 };
 

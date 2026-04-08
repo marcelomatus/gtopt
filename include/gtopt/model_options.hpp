@@ -62,6 +62,17 @@ struct ModelOptions
   /// the element's `mean_production_factor`.
   OptReal state_fail_cost {};
 
+  /// System-wide CO2 emission cost [$/tCO2].
+  /// When set, generators with a non-zero `emission_factor` incur an
+  /// additional objective cost of emission_cost × emission_factor per MWh.
+  OptTRealFieldSched emission_cost {};
+
+  /// System-wide CO2 emission cap [tCO2/year] per stage.
+  /// When set, a constraint is added per stage:
+  ///   sum_g sum_b (emission_factor_g × p_{g,b} × duration_b) ≤ cap_s
+  /// The dual of this constraint is the endogenous carbon price.
+  OptTRealFieldSched emission_cap {};
+
   void merge(const ModelOptions& opts)
   {
     merge_opt(use_single_bus, opts.use_single_bus);
@@ -77,6 +88,8 @@ struct ModelOptions
     merge_opt(hydro_fail_cost, opts.hydro_fail_cost);
     merge_opt(hydro_use_value, opts.hydro_use_value);
     merge_opt(state_fail_cost, opts.state_fail_cost);
+    merge_opt(emission_cost, opts.emission_cost);
+    merge_opt(emission_cap, opts.emission_cap);
   }
 
   /// True if any field is set.
@@ -88,7 +101,8 @@ struct ModelOptions
         || scale_objective.has_value() || scale_theta.has_value()
         || demand_fail_cost.has_value() || reserve_fail_cost.has_value()
         || hydro_fail_cost.has_value() || hydro_use_value.has_value()
-        || state_fail_cost.has_value();
+        || state_fail_cost.has_value() || emission_cost.has_value()
+        || emission_cap.has_value();
   }
 };
 

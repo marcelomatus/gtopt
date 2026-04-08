@@ -61,6 +61,11 @@ struct Stage
   /// Used for seasonal parameter lookups (e.g., irrigation schedules).
   std::optional<MonthType> month {};
 
+  /// Whether blocks in this stage are chronologically ordered.
+  /// When true, unit commitment constraints (startup/shutdown transitions)
+  /// are enforced.  When false or absent, commitment is silently skipped.
+  OptBool chronological {};
+
   static constexpr std::string_view class_name = "stage";
 
   [[nodiscard]] constexpr auto is_active() const noexcept

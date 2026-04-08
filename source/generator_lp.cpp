@@ -37,6 +37,7 @@ GeneratorLP::GeneratorLP(const Generator& generator, const InputContext& ic)
     , pmax(ic, ClassName, id(), std::move(object().pmax))
     , lossfactor(ic, ClassName, id(), std::move(object().lossfactor))
     , gcost(ic, ClassName, id(), std::move(object().gcost))
+    , emission_factor(ic, ClassName, id(), std::move(object().emission_factor))
 {
   SPDLOG_DEBUG(
       fmt::format("GeneratorLP created for generator with uid {}", uid()));

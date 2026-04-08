@@ -33,7 +33,13 @@ struct json_data_contract<ModelOptions>
                        json_number_null<"reserve_fail_cost", OptReal>,
                        json_number_null<"hydro_fail_cost", OptReal>,
                        json_number_null<"hydro_use_value", OptReal>,
-                       json_number_null<"state_fail_cost", OptReal>>;
+                       json_number_null<"state_fail_cost", OptReal>,
+                       json_variant_null<"emission_cost",
+                                         OptTRealFieldSched,
+                                         jvtl_TRealFieldSched>,
+                       json_variant_null<"emission_cap",
+                                         OptTRealFieldSched,
+                                         jvtl_TRealFieldSched>>;
 
   constexpr static auto to_json_data(ModelOptions const& opt)
   {
@@ -49,7 +55,9 @@ struct json_data_contract<ModelOptions>
                                  opt.reserve_fail_cost,
                                  opt.hydro_fail_cost,
                                  opt.hydro_use_value,
-                                 opt.state_fail_cost);
+                                 opt.state_fail_cost,
+                                 opt.emission_cost,
+                                 opt.emission_cap);
   }
 };
 

@@ -101,6 +101,8 @@ struct Generator
   OptTRealFieldSched
       annual_derating {};  ///< Annual capacity derating factor [p.u./year]
 
+  OptTRealFieldSched emission_factor {};  ///< CO2 emission rate [tCO2/MWh]
+
   /**
    * @brief Sets generator attributes from a GeneratorAttrs object
    * @param self  The generator object to update (deduced; supports

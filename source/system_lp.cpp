@@ -254,6 +254,87 @@ void fix_stage_islands(const auto& collections,
   }
 }
 
+/// @brief Resolve a stage-indexed OptTRealFieldSched to a scalar value.
+///
+/// Handles the three cases: scalar → return directly, vector → index by stage
+/// UID, FileSched → unsupported (returns 0).
+double resolve_stage_field(const OptTRealFieldSched& field, StageUid stage_uid)
+{
+  if (!field.has_value()) {
+    return 0.0;
+  }
+  const auto& val = *field;
+  if (std::holds_alternative<Real>(val)) {
+    return std::get<Real>(val);
+  }
+  if (std::holds_alternative<std::vector<Real>>(val)) {
+    const auto& vec = std::get<std::vector<Real>>(val);
+    const auto sidx = static_cast<size_t>(stage_uid);
+    if (sidx < vec.size()) {
+      return vec[sidx];
+    }
+  }
+  return 0.0;
+}
+
+/// @brief Add emission cap constraint for a (scenario, stage) pair.
+///
+/// If the system options define an emission_cap for this stage, adds a single
+/// constraint row:
+///   sum_g sum_b (emission_factor_g × duration_b × p_{g,b}) <= emission_cap_s
+///
+/// This aggregates across all generators that have a non-zero emission factor.
+void add_emission_cap(const auto& collections,
+                      SystemContext& system_context,
+                      const ScenarioLP& scenario,
+                      const StageLP& stage,
+                      LinearProblem& lp)
+{
+  const auto stage_cap =
+      resolve_stage_field(system_context.options().emission_cap(), stage.uid());
+  if (stage_cap <= 0.0) {
+    return;
+  }
+
+  const auto& generators =
+      std::get<Collection<GeneratorLP>>(collections).elements();
+
+  auto row =
+      SparseRow {
+          .class_name = "System",
+          .constraint_name = "emission_cap",
+          .context = make_stage_context(scenario.uid(), stage.uid()),
+      }
+          .less_equal(stage_cap);
+
+  bool has_terms = false;
+
+  for (const auto& gen : generators) {
+    if (!gen.is_active(stage)) {
+      continue;
+    }
+    const auto ef = gen.param_emission_factor(stage.uid()).value_or(0.0);
+    if (ef <= 0.0) {
+      continue;
+    }
+
+    const auto& gen_cols = gen.generation_cols_at(scenario, stage);
+    for (const auto& block : stage.blocks()) {
+      const auto it = gen_cols.find(block.uid());
+      if (it == gen_cols.end()) {
+        continue;
+      }
+      const auto coeff = ef * block.duration();
+      row[it->second] = coeff;
+      has_terms = true;
+    }
+  }
+
+  if (has_terms) {
+    std::ignore = lp.add_row(std::move(row));
+  }
+}
+
 constexpr auto create_linear_interface(auto& collections,
                                        SystemContext& system_context,
                                        const PhaseLP& phase,
@@ -308,6 +389,9 @@ constexpr auto create_linear_interface(auto& collections,
       if (check_islands) {
         fix_stage_islands(collections, scenario, stage, lp);
       }
+
+      // Add system-wide emission cap constraint if configured
+      add_emission_cap(collections, system_context, scenario, stage, lp);
     }
   }
 
@@ -353,6 +437,8 @@ void create_collections(const auto& system_context,
       make_collection<ReserveZoneLP>(ic, sys.reserve_zone_array);
   std::get<Collection<ReserveProvisionLP>>(colls) =
       make_collection<ReserveProvisionLP>(ic, sys.reserve_provision_array);
+  std::get<Collection<CommitmentLP>>(colls) =
+      make_collection<CommitmentLP>(ic, sys.commitment_array);
 
   std::get<Collection<JunctionLP>>(colls) =
       make_collection<JunctionLP>(ic, sys.junction_array);

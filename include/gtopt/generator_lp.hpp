@@ -78,6 +78,10 @@ public:
   {
     return lossfactor.at(s);
   }
+  [[nodiscard]] auto param_emission_factor(StageUid s) const
+  {
+    return emission_factor.at(s);
+  }
   /// @}
 
 private:
@@ -85,6 +89,7 @@ private:
   OptTBRealSched pmax;
   OptTRealSched lossfactor;
   OptTRealSched gcost;
+  OptTRealSched emission_factor;
 
   STBIndexHolder<ColIndex> generation_cols;
   STBIndexHolder<RowIndex> capacity_rows;
