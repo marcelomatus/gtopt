@@ -320,7 +320,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// Trades CPU time (reconstruction + optional decompression) for
   /// significant memory savings on large problems.
   /// Disables clone pool when not off.
-  LowMemoryMode low_memory {LowMemoryMode::off};
+  LowMemoryMode low_memory_mode {LowMemoryMode::off};
 
   /// In-memory compression codec for low_memory compress mode.
   /// Default: auto_select (picks best available: lz4 > snappy > zstd > gzip).

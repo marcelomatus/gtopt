@@ -146,7 +146,7 @@ struct MainOptions
 
   /** @brief SDDP low-memory mode: off, snapshot, or compress.
    * Trades CPU time for significant memory savings. */
-  std::optional<std::string> low_memory {};
+  std::optional<std::string> low_memory_mode {};
 
   // ---- solver selection ----
   /** @brief LP solver backend name ("clp", "cbc", "cplex", "highs").

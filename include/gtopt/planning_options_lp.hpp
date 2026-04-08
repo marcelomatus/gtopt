@@ -888,7 +888,7 @@ public:
   /// Low memory mode: off, snapshot, or compress.
   [[nodiscard]] constexpr auto sddp_low_memory() const
   {
-    return m_options_.sddp_options.low_memory.value_or(LowMemoryMode::off);
+    return m_options_.sddp_options.low_memory_mode.value_or(LowMemoryMode::off);
   }
 
   /// In-memory compression codec for low_memory level 2.
