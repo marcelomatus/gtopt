@@ -77,6 +77,7 @@ namespace gtopt
       std::lround(cpu_factor * std::thread::hardware_concurrency()));
   pool_config.max_cpu_threshold = static_cast<int>(
       100.0 - (50.0 / static_cast<double>(pool_config.max_threads)));
+  pool_config.enable_periodic_stats = false;
 
   auto pool = std::make_unique<AdaptiveWorkPool>(pool_config);
   pool->start();

@@ -52,13 +52,19 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
   // Set up work pools for parallel scene processing:
   //  - sddp_pool: SDDPWorkPool with tuple key for main LP solve ordering
-  //  - aux_pool:  AdaptiveWorkPool (int64_t key) for BendersCut and
-  //               LpDebugWriter (gzip compression)
+  //  - aux_pool:  AdaptiveWorkPool (int64_t key) for BendersCut aperture
+  //               solves and LpDebugWriter (gzip compression).
+  //               Only created when apertures or lp_debug are active to
+  //               avoid idle threads.
   const auto pool_start = std::chrono::steady_clock::now();
   auto sddp_pool = make_sddp_work_pool();
-  auto aux_pool = make_solver_work_pool();
+  const bool need_aux_pool =
+      (!m_options_.apertures || !m_options_.apertures->empty())
+      || !m_options_.log_directory.empty();
+  auto aux_pool = need_aux_pool ? make_solver_work_pool()
+                                : std::unique_ptr<AdaptiveWorkPool> {};
   m_pool_ = sddp_pool.get();
-  m_aux_pool_ = aux_pool.get();
+  m_aux_pool_ = aux_pool.get();  // nullptr when not needed
   m_benders_cut_.set_pool(m_aux_pool_);
   m_lp_debug_writer_ = LpDebugWriter(
       m_options_.log_directory, m_options_.lp_debug_compression, m_aux_pool_);

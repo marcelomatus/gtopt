@@ -66,6 +66,7 @@ struct WorkPoolConfig
   double max_process_rss_mb;  ///< Block dispatch if process RSS > this (0=off)
   std::chrono::milliseconds scheduler_interval;
   std::string name;
+  bool enable_periodic_stats {true};  ///< Log periodic CPU/MEM stats
 
   explicit WorkPoolConfig(
       int max_threads_ = static_cast<int>(std::thread::hardware_concurrency()),
@@ -75,7 +76,8 @@ struct WorkPoolConfig
       double max_process_rss_mb_ = 0.0,
       std::chrono::milliseconds scheduler_interval_ =
           std::chrono::milliseconds(2),
-      std::string name_ = "WorkPool") noexcept
+      std::string name_ = "WorkPool",
+      bool enable_periodic_stats_ = true) noexcept
       : max_threads(max_threads_)
       , max_cpu_threshold(max_cpu_threshold_)
       , min_free_memory_mb(min_free_memory_mb_)
@@ -83,6 +85,7 @@ struct WorkPoolConfig
       , max_process_rss_mb(max_process_rss_mb_)
       , scheduler_interval(scheduler_interval_)
       , name(std::move(name_))
+      , enable_periodic_stats(enable_periodic_stats_)
   {
   }
 };
@@ -283,6 +286,7 @@ private:
   double max_process_rss_mb_;
   std::chrono::milliseconds scheduler_interval_;
   std::string name_;
+  bool enable_periodic_stats_;
 
   std::atomic<size_t> tasks_completed_ {0};
   std::atomic<size_t> tasks_submitted_ {0};
@@ -310,6 +314,7 @@ public:
       , max_process_rss_mb_(config.max_process_rss_mb)
       , scheduler_interval_(config.scheduler_interval)
       , name_(std::move(config.name))
+      , enable_periodic_stats_(config.enable_periodic_stats)
   {
     spdlog::info(
         "  {} initialized: {} max threads, {:.0f}% CPU threshold, "
@@ -358,7 +363,7 @@ public:
 
               // Periodic stats logging
               const auto now = std::chrono::steady_clock::now();
-              if (now - last_log >= log_interval) {
+              if (enable_periodic_stats_ && now - last_log >= log_interval) {
                 log_periodic_stats();
                 last_log = now;
               }
