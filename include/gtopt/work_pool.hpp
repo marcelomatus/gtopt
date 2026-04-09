@@ -74,7 +74,7 @@ struct WorkPoolConfig
       double max_memory_percent_ = 95.0,
       double max_process_rss_mb_ = 0.0,
       std::chrono::milliseconds scheduler_interval_ =
-          std::chrono::milliseconds(20),
+          std::chrono::milliseconds(2),
       std::string name_ = "WorkPool") noexcept
       : max_threads(max_threads_)
       , max_cpu_threshold(max_cpu_threshold_)
@@ -350,7 +350,9 @@ public:
 
             while (!stoken.stop_requested() && running_) {
               cleanup_completed_tasks();
-              if (should_schedule_new_task()) {
+
+              // Dispatch as many ready tasks as possible in one pass
+              while (should_schedule_new_task()) {
                 schedule_next_task();
               }
 
@@ -361,13 +363,17 @@ public:
                 last_log = now;
               }
 
-              // Wait on cv_ so that shutdown() and submit() can wake us
-              // immediately instead of blocking up to scheduler_interval_.
+              // Wait on cv_ — wakes immediately on submit(), task
+              // completion, or shutdown instead of sleeping the full
+              // interval.
               std::unique_lock lock(queue_mutex_);
-              cv_.wait_for(
-                  lock,
-                  scheduler_interval_,
-                  [&] { return stoken.stop_requested() || !running_.load(); });
+              cv_.wait_for(lock,
+                           scheduler_interval_,
+                           [&]
+                           {
+                             return stoken.stop_requested() || !running_.load()
+                                 || !task_queue_.empty();
+                           });
             }
           },
       };
@@ -435,6 +441,13 @@ public:
 
       auto future = task->get_future();
 
+      // Fast path: if the queue is empty and we have thread capacity,
+      // launch directly without enqueuing — avoids scheduler round-trip.
+      if (try_launch_direct(task, req)) {
+        tasks_submitted_.fetch_add(1, std::memory_order_relaxed);
+        return future;
+      }
+
       {
         const std::scoped_lock<std::mutex> lock(queue_mutex_);
         try {
@@ -475,6 +488,44 @@ public:
   auto submit_lambda(Func&& func, Requirements req = {})
   {
     return submit(std::forward<Func>(func), std::move(req));
+  }
+
+  /// Submit multiple callables under a single lock acquisition.
+  /// Returns a vector of futures, one per callable.
+  template<typename Func>
+  [[nodiscard]] auto submit_batch(
+      std::vector<std::pair<Func, Requirements>>& tasks)
+      -> std::vector<std::expected<std::future<std::invoke_result_t<Func>>,
+                                   std::error_code>>
+  {
+    using ReturnType = std::invoke_result_t<Func>;
+    using ResultVec =
+        std::vector<std::expected<std::future<ReturnType>, std::error_code>>;
+
+    ResultVec results;
+    results.reserve(tasks.size());
+
+    {
+      const std::scoped_lock<std::mutex> lock(queue_mutex_);
+      for (auto& [func, req] : tasks) {
+        try {
+          auto ptask = std::make_shared<std::packaged_task<ReturnType()>>(
+              std::move(func));
+          results.push_back(ptask->get_future());
+          task_queue_.emplace_back([ptask]() { (*ptask)(); }, req);
+          std::ranges::push_heap(task_queue_, std::less<> {});
+          tasks_submitted_.fetch_add(1, std::memory_order_relaxed);
+          tasks_pending_.fetch_add(1, std::memory_order_relaxed);
+        } catch (const std::exception& e) {
+          SPDLOG_ERROR("Failed to enqueue batch task: {}", e.what());
+          results.push_back(std::unexpected(
+              std::make_error_code(std::errc::operation_not_permitted)));
+        }
+      }
+    }
+
+    cv_.notify_one();
+    return results;
   }
 
   struct Statistics
@@ -556,6 +607,70 @@ public:
   void log_statistics() const { spdlog::info(format_statistics()); }
 
 private:
+  /// Fast-path: launch a task directly from submit() when the queue is
+  /// empty and thread capacity is available.  Returns true on success.
+  template<typename ReturnType>
+  bool try_launch_direct(
+      const std::shared_ptr<std::packaged_task<ReturnType()>>& task,
+      const Requirements& req)
+  {
+    const auto threads_needed = req.estimated_threads;
+    const auto current_threads =
+        active_threads_.load(std::memory_order_relaxed);
+
+    // Only use fast path when queue is empty and threads available
+    if (current_threads + threads_needed > max_threads_) {
+      return false;
+    }
+
+    // Try to claim the queue lock; if contended, fall back to enqueue
+    std::unique_lock queue_lock(queue_mutex_, std::try_to_lock);
+    if (!queue_lock.owns_lock() || !task_queue_.empty()) {
+      return false;
+    }
+    queue_lock.unlock();
+
+    active_threads_.fetch_add(threads_needed, std::memory_order_relaxed);
+
+    auto stats = std::make_shared<TaskResourceStats>();
+    stats->cpu_load_before = cpu_monitor_.get_load();
+    stats->rss_mb_before = memory_monitor_.get_process_rss_mb();
+
+    try {
+      auto future = std::async(
+          std::launch::async,
+          [task, stats, this]() mutable noexcept
+          {
+            try {
+              (*task)();
+            } catch (const std::exception& e) {
+              SPDLOG_ERROR("Task execution failed: {}", e.what());
+            } catch (...) {
+              SPDLOG_ERROR("Task execution failed with unknown exception");
+            }
+            stats->cpu_load_after = cpu_monitor_.get_load();
+            stats->rss_mb_after = memory_monitor_.get_process_rss_mb();
+            cv_.notify_one();
+          });
+
+      {
+        const std::scoped_lock active_lock(active_mutex_);
+        active_tasks_.push_back(ActiveTask {
+            .future = std::move(future),
+            .estimated_threads = threads_needed,
+            .start_time = std::chrono::steady_clock::now(),
+            .resource_stats = std::move(stats),
+        });
+      }
+      tasks_active_.fetch_add(1, std::memory_order_relaxed);
+      return true;
+
+    } catch (...) {
+      active_threads_.fetch_sub(threads_needed, std::memory_order_relaxed);
+      return false;
+    }
+  }
+
   void cleanup_completed_tasks()
   {
     const std::scoped_lock<std::mutex> lock(active_mutex_);
@@ -588,9 +703,16 @@ private:
 
   bool should_schedule_new_task() const
   {
-    std::unique_lock queue_lock(queue_mutex_, std::defer_lock);
-    std::unique_lock active_lock(active_mutex_, std::defer_lock);
-    std::lock(queue_lock, active_lock);
+    // Lock-free fast-reject: check atomics before acquiring any mutex.
+    if (tasks_pending_.load(std::memory_order_relaxed) == 0) {
+      return false;
+    }
+    if (active_threads_.load(std::memory_order_relaxed) >= max_threads_) {
+      return false;
+    }
+
+    // Need the queue lock to inspect the top task's requirements
+    const std::unique_lock queue_lock(queue_mutex_);
 
     if (task_queue_.empty()) {
       return false;
@@ -607,21 +729,27 @@ private:
     const auto is_critical =
         next_task.requirements().priority == TaskPriority::Critical;
 
-    // CPU check
-    const auto cpu_load = cpu_monitor_.get_load();
-    auto cpu_threshold = max_cpu_threshold_;
-    switch (next_task.requirements().priority) {
-      case TaskPriority::Critical:
-        cpu_threshold = 95.0;
-        break;
-      case TaskPriority::High:
-        cpu_threshold = max_cpu_threshold_ + 5.0;
-        break;
-      default:
-        break;
-    }
-    if (cpu_load >= cpu_threshold) {
-      return false;
+    // CPU check — only apply when threads are near saturation.
+    // Thread count is the primary concurrency limiter; CPU load is a
+    // secondary guard that only matters when cores are already busy.
+    if (current_threads + threads_needed
+        >= static_cast<int>(max_threads_ * 0.8))
+    {
+      const auto cpu_load = cpu_monitor_.get_load();
+      auto cpu_threshold = max_cpu_threshold_;
+      switch (next_task.requirements().priority) {
+        case TaskPriority::Critical:
+          cpu_threshold = 95.0;
+          break;
+        case TaskPriority::High:
+          cpu_threshold = max_cpu_threshold_ + 5.0;
+          break;
+        default:
+          break;
+      }
+      if (cpu_load >= cpu_threshold) {
+        return false;
+      }
     }
 
     // Memory checks (Critical tasks get relaxed thresholds)
@@ -701,6 +829,9 @@ private:
             // Sample after execution
             stats->cpu_load_after = cpu_monitor_.get_load();
             stats->rss_mb_after = memory_monitor_.get_process_rss_mb();
+
+            // Wake scheduler so it can immediately dispatch pending work
+            cv_.notify_one();
           });
 
       active_tasks_.push_back(ActiveTask {
