@@ -75,7 +75,7 @@ struct WorkPoolConfig
       double max_memory_percent_ = 95.0,
       double max_process_rss_mb_ = 0.0,
       std::chrono::milliseconds scheduler_interval_ =
-          std::chrono::milliseconds(2),
+          std::chrono::milliseconds(50),
       std::string name_ = "WorkPool",
       bool enable_periodic_stats_ = true) noexcept
       : max_threads(max_threads_)
