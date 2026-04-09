@@ -186,12 +186,44 @@ TEST_CASE("WorkPool basic functionality")
 
   SUBCASE("Task priority ordering")
   {
+    // Use a single-threaded pool so tasks actually queue up and
+    // priority ordering is observable (with many threads all tasks
+    // get fast-dispatched concurrently, bypassing the priority queue).
+    AdaptiveWorkPool prio_pool(WorkPoolConfig {
+        1,  // max_threads
+        95.0,  // max_cpu_threshold
+        4096.0,  // min_free_memory_mb
+        95.0,  // max_memory_percent
+        0.0,  // max_process_rss_mb
+        std::chrono::milliseconds(50),  // scheduler_interval
+        "PrioPool",  // name
+        false,  // enable_periodic_stats
+    });
+    prio_pool.start();
+
     std::vector<int> execution_order;
     std::mutex order_mutex;
     std::atomic<int> counter {0};
 
-    // Submit tasks with different priorities
-    auto high_task = pool.submit(
+    // Block the single thread so subsequent submits queue up
+    std::promise<void> gate;
+    auto gate_future = gate.get_future().share();
+
+    auto blocker = prio_pool.submit(
+        [&gate_future] { gate_future.wait(); },
+        {.priority = TaskPriority::High, .name = "blocker_task"});
+
+    // Submit tasks with different priorities — they will queue
+    auto low_task = prio_pool.submit(
+        [&]
+        {
+          const std::scoped_lock<std::mutex> lock(order_mutex);
+          execution_order.push_back(3);
+          counter++;
+        },
+        {.priority = TaskPriority::Low, .name = "low_priority_task"});
+
+    auto high_task = prio_pool.submit(
         [&]
         {
           const std::scoped_lock<std::mutex> lock(order_mutex);
@@ -200,7 +232,7 @@ TEST_CASE("WorkPool basic functionality")
         },
         {.priority = TaskPriority::High, .name = "high_priority_task"});
 
-    auto medium_task = pool.submit(
+    auto medium_task = prio_pool.submit(
         [&]
         {
           const std::scoped_lock<std::mutex> lock(order_mutex);
@@ -210,16 +242,10 @@ TEST_CASE("WorkPool basic functionality")
         {.priority = TaskPriority::Medium, .name = "medium_priority_task"});
     REQUIRE(medium_task.has_value());
 
-    auto low_task = pool.submit(
-        [&]
-        {
-          const std::scoped_lock<std::mutex> lock(order_mutex);
-          execution_order.push_back(3);
-          counter++;
-        },
-        {.priority = TaskPriority::Low, .name = "low_priority_task"});
+    // Release the blocker — queued tasks now dispatch in priority order
+    gate.set_value();
 
-    // Wait for all tasks to complete
+    blocker.value().wait();
     high_task.value().wait();
     medium_task.value().wait();
     low_task.value().wait();

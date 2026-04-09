@@ -17,7 +17,8 @@ namespace gtopt
 namespace
 {
 
-/// Parse a value in kB from a /proc file line like "MemTotal:  12345 kB".
+/// Parse a numeric value in kB from a /proc line like "MemTotal:  12345 kB".
+/// Skips the label, then any whitespace, then parses the first integer.
 /// Returns 0.0 on parse failure.
 double parse_proc_kb_line(std::string_view line) noexcept
 {
@@ -28,12 +29,17 @@ double parse_proc_kb_line(std::string_view line) noexcept
   }
   auto data = line.substr(colon + 1);
 
-  // Skip whitespace
-  const auto first_digit = data.find_first_not_of(' ');
-  if (first_digit == std::string_view::npos) {
+  // Skip any leading whitespace — /proc/meminfo uses spaces,
+  // /proc/self/status uses tabs, other /proc files may mix both.
+  while (!data.empty()
+         && (data.front() == ' ' || data.front() == '\t' || data.front() == '\n'
+             || data.front() == '\r'))
+  {
+    data.remove_prefix(1);
+  }
+  if (data.empty()) {
     return 0.0;
   }
-  data = data.substr(first_digit);
 
   uint64_t val = 0;
   // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
