@@ -33,12 +33,12 @@ struct LpMatrixOptionsConstructor
     opts.lp_coeff_ratio_threshold = lp_coeff_ratio_threshold;
     if (equilibration_method_name) {
       opts.equilibration_method =
-          gtopt::enum_from_name<gtopt::LpEquilibrationMethod>(
-              *equilibration_method_name);
+          gtopt::require_enum<gtopt::LpEquilibrationMethod>(
+              "equilibration_method", *equilibration_method_name);
     }
     if (fast_sqrt_method_name) {
-      opts.fast_sqrt_method =
-          gtopt::enum_from_name<gtopt::FastSqrtMethod>(*fast_sqrt_method_name);
+      opts.fast_sqrt_method = gtopt::require_enum<gtopt::FastSqrtMethod>(
+          "fast_sqrt_method", *fast_sqrt_method_name);
     }
     opts.compute_stats = compute_stats;
     return opts;

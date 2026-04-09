@@ -228,6 +228,9 @@ void SDDPCutStore::prune_inactive_cuts(
       }
 
       const auto duals = li.get_row_dual_raw();
+      if (duals.empty()) {
+        continue;  // solution vectors released (low-memory mode)
+      }
 
       struct CutInfo
       {
@@ -237,6 +240,9 @@ void SDDPCutStore::prune_inactive_cuts(
       std::vector<CutInfo> cut_infos;
       cut_infos.reserve(total_rows - base);
       for (auto r = base; r < total_rows; ++r) {
+        if (static_cast<std::size_t>(r) >= duals.size()) {
+          break;
+        }
         cut_infos.push_back(CutInfo {
             .row = r,
             .abs_dual = std::abs(duals[r]),

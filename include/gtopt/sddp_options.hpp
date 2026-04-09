@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <gtopt/planning_enums.hpp>
 #include <gtopt/sddp_enums.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/utils.hpp>
@@ -233,7 +234,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// Selects the algorithm used to compress the saved FlatLinearProblem.
   /// Default: auto (picks best available: lz4 > snappy > zstd > gzip).
   /// Accepted values: "auto", "none", "lz4", "snappy", "zstd", "gzip".
-  std::optional<MemoryCodec> memory_codec {};
+  std::optional<CompressionCodec> memory_codec {};
 
   /** @brief How Benders cut coefficients are extracted from solved subproblems.
    *

@@ -25,6 +25,7 @@
 #include <gtopt/fmap.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/low_memory_snapshot.hpp>
+#include <gtopt/sddp_enums.hpp>
 #include <gtopt/solver_backend.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/strong_index_vector.hpp>
@@ -240,8 +241,14 @@ public:
   // ── Low-memory mode API ─────────────────────────────────────────────────
 
   /// Configure low-memory mode (off, snapshot, compress).
+  /// @param cache_warm_start  When true (default), release_backend() caches
+  ///   the full primal/dual solution so that ensure_backend() can warm-start
+  ///   the reconstructed LP.  When false, the solution vectors are discarded
+  ///   on release to save memory — callers must supply their own warm-start
+  ///   data via reconstruct_backend(col_sol, row_dual).
   void set_low_memory(LowMemoryMode mode,
-                      MemoryCodec codec = MemoryCodec::zstd) noexcept;
+                      CompressionCodec codec = CompressionCodec::lz4,
+                      bool cache_warm_start = false) noexcept;
 
   /// Save a flat LP snapshot for future reconstruction.
   /// Call from create_lp() — the LinearInterface decides whether to keep
@@ -1274,7 +1281,8 @@ private:
   // ── Low-memory state ──────────────────────────────────────────────────
 
   LowMemoryMode m_low_memory_mode_ {LowMemoryMode::off};
-  MemoryCodec m_memory_codec_ {MemoryCodec::zstd};
+  CompressionCodec m_memory_codec_ {CompressionCodec::lz4};
+  bool m_cache_warm_start_ {true};
 
   /// Snapshot: flat LP + cached solution, with compress/decompress support.
   LowMemorySnapshot m_snapshot_ {};

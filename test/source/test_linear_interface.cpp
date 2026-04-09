@@ -13,6 +13,8 @@
 #include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/low_memory_snapshot.hpp>
+#include <gtopt/memory_compress.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_registry.hpp>
 
@@ -2003,7 +2005,7 @@ TEST_CASE("LinearInterface — low_memory save_snapshot round-trip")  // NOLINT
 
   SUBCASE("level 2: compress/decompress round-trip preserves LP")
   {
-    li.set_low_memory(LowMemoryMode::compress, MemoryCodec::zstd);
+    li.set_low_memory(LowMemoryMode::compress, CompressionCodec::zstd);
     li.save_snapshot(FlatLinearProblem {flat});
 
     li.release_backend();
@@ -2021,7 +2023,7 @@ TEST_CASE("LinearInterface — low_memory save_snapshot round-trip")  // NOLINT
 
   SUBCASE("multiple release/reconstruct cycles produce same result")
   {
-    li.set_low_memory(LowMemoryMode::compress, MemoryCodec::zstd);
+    li.set_low_memory(LowMemoryMode::compress, CompressionCodec::zstd);
     li.save_snapshot(FlatLinearProblem {flat});
 
     for (int i = 0; i < 3; ++i) {
@@ -2277,7 +2279,7 @@ TEST_CASE("LinearInterface — low_memory level 2 multiple cycles")  // NOLINT
   REQUIRE(res.has_value());
   [[maybe_unused]] const double orig_obj = li.get_obj_value();
 
-  li.set_low_memory(LowMemoryMode::compress, MemoryCodec::zstd);
+  li.set_low_memory(LowMemoryMode::compress, CompressionCodec::zstd);
   li.save_snapshot(FlatLinearProblem {flat});
   li.save_base_numrows();
 
@@ -2367,5 +2369,460 @@ TEST_CASE("LinearInterface — clone with warm-start parameters")  // NOLINT
     auto r = cloned.resolve();
     REQUIRE(r.has_value());
     CHECK(cloned.get_obj_value() == doctest::Approx(li.get_obj_value()));
+  }
+}
+
+// ── release_backend memory cleanup tests ─────────────────────────────────
+
+TEST_CASE(
+    "LinearInterface — release_backend destroys solver backend")  // NOLINT
+{
+  auto [li, flat, x1, x2] = make_simple_lp();
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+  REQUIRE(li.is_optimal());
+
+  li.set_low_memory(LowMemoryMode::snapshot);
+  li.save_snapshot(FlatLinearProblem {flat});
+
+  SUBCASE("backend pointer is null after release")
+  {
+    CHECK(li.has_backend());
+    li.release_backend();
+    CHECK_FALSE(li.has_backend());
+    CHECK(li.is_backend_released());
+  }
+
+  SUBCASE("double release is a safe no-op")
+  {
+    li.release_backend();
+    CHECK_FALSE(li.has_backend());
+
+    // Second release should not crash
+    li.release_backend();
+    CHECK_FALSE(li.has_backend());
+    CHECK(li.is_backend_released());
+  }
+
+  SUBCASE(
+      "release with cache_warm_start caches solution for transparent "
+      "read access")
+  {
+    // Override default to enable caching
+    li.set_low_memory(LowMemoryMode::snapshot,
+                      CompressionCodec::lz4,
+                      /*cache_warm_start=*/true);
+    li.save_snapshot(FlatLinearProblem {flat});
+
+    const auto obj_before = li.get_obj_value();
+    const auto sol_before = std::vector<double>(li.get_col_sol_raw().begin(),
+                                                li.get_col_sol_raw().end());
+    const auto dual_before = std::vector<double>(li.get_row_dual_raw().begin(),
+                                                 li.get_row_dual_raw().end());
+
+    li.release_backend();
+    CHECK_FALSE(li.has_backend());
+
+    // Cached values must match pre-release values
+    CHECK(li.get_obj_value() == doctest::Approx(obj_before));
+
+    const auto sol_after = li.get_col_sol_raw();
+    REQUIRE(sol_after.size() == sol_before.size());
+    for (size_t i = 0; i < sol_before.size(); ++i) {
+      CHECK(sol_after[i] == doctest::Approx(sol_before[i]));
+    }
+
+    const auto dual_after = li.get_row_dual_raw();
+    REQUIRE(dual_after.size() == dual_before.size());
+    for (size_t i = 0; i < dual_before.size(); ++i) {
+      CHECK(dual_after[i] == doctest::Approx(dual_before[i]));
+    }
+  }
+
+  SUBCASE("release with low_memory off is a no-op — backend stays alive")
+  {
+    li.set_low_memory(LowMemoryMode::off);
+    li.release_backend();
+    CHECK(li.has_backend());
+    CHECK_FALSE(li.is_backend_released());
+  }
+}
+
+TEST_CASE(
+    "LinearInterface — clone release destroys clone backend "
+    "independently")  // NOLINT
+{
+  auto [li, flat, x1, x2] = make_simple_lp();
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+  const double orig_obj = li.get_obj_value();
+
+  SUBCASE("clone backend is independent — destroying clone preserves parent")
+  {
+    {
+      auto cloned = li.clone();
+      auto r = cloned.resolve();
+      REQUIRE(r.has_value());
+      CHECK(cloned.has_backend());
+      // clone goes out of scope here — its backend is destroyed
+    }
+
+    // Parent backend is still alive and functional
+    CHECK(li.has_backend());
+    auto r2 = li.resolve();
+    REQUIRE(r2.has_value());
+    CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
+  }
+
+  SUBCASE("multiple clones can be created and destroyed")
+  {
+    for (int i = 0; i < 5; ++i) {
+      auto cloned = li.clone();
+      auto r = cloned.resolve();
+      REQUIRE(r.has_value());
+      CHECK(cloned.get_obj_value() == doctest::Approx(orig_obj));
+      // clone destroyed each iteration
+    }
+
+    // Parent still works
+    CHECK(li.has_backend());
+    auto r = li.resolve();
+    REQUIRE(r.has_value());
+    CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
+  }
+
+  SUBCASE("clone from reconstructed backend works correctly")
+  {
+    li.set_low_memory(LowMemoryMode::compress, CompressionCodec::lz4);
+    li.save_snapshot(FlatLinearProblem {flat});
+
+    // Release and reconstruct
+    li.release_backend();
+    CHECK_FALSE(li.has_backend());
+
+    li.reconstruct_backend();
+    CHECK(li.has_backend());
+
+    // Clone from reconstructed backend
+    auto cloned = li.clone();
+    auto r = cloned.resolve();
+    REQUIRE(r.has_value());
+    CHECK(cloned.get_obj_value() == doctest::Approx(orig_obj));
+
+    // Destroy clone, release parent again
+    cloned = LinearInterface {};
+    li.release_backend();
+    CHECK_FALSE(li.has_backend());
+
+    // Reconstruct again and verify
+    li.reconstruct_backend();
+    auto r2 = li.resolve();
+    REQUIRE(r2.has_value());
+    CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
+  }
+}
+
+TEST_CASE(
+    "LinearInterface — release/reconstruct cycle with cuts "
+    "preserves memory pattern")  // NOLINT
+{
+  auto [li, flat, x1, x2] = make_simple_lp();
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+
+  li.set_low_memory(LowMemoryMode::compress, CompressionCodec::lz4);
+  li.save_snapshot(FlatLinearProblem {flat});
+  li.save_base_numrows();
+  const auto base = li.base_numrows();
+
+  // Add a Benders cut: x1 <= 4
+  SparseRow cut;
+  cut[x1] = 1.0;
+  cut.lowb = -LinearProblem::DblMax;
+  cut.uppb = 4.0;
+  li.add_row(cut);
+  li.record_cut_row(cut);
+
+  auto r1 = li.resolve();
+  REQUIRE(r1.has_value());
+  const double obj_with_cut = li.get_obj_value();
+
+  // Simulate SDDP pattern: release → reconstruct → add more cuts → release
+  for (int cycle = 0; cycle < 3; ++cycle) {
+    li.release_backend();
+    CHECK_FALSE(li.has_backend());
+    CHECK(li.is_backend_released());
+
+    li.reconstruct_backend();
+    CHECK(li.has_backend());
+    CHECK_FALSE(li.is_backend_released());
+
+    // Cut should be replayed
+    CHECK(li.get_numrows() == base + 1);
+
+    auto r = li.resolve();
+    REQUIRE(r.has_value());
+    CHECK(li.get_obj_value() == doctest::Approx(obj_with_cut));
+  }
+}
+
+TEST_CASE(
+    "LinearInterface — cache_warm_start=false discards solution "
+    "vectors on release")  // NOLINT
+{
+  auto [li, flat, x1, x2] = make_simple_lp();
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+  REQUIRE(li.is_optimal());
+  const double orig_obj = li.get_obj_value();
+
+  SUBCASE("released state has empty cached vectors")
+  {
+    li.set_low_memory(LowMemoryMode::snapshot,
+                      CompressionCodec::zstd,
+                      /*cache_warm_start=*/false);
+    li.save_snapshot(FlatLinearProblem {flat});
+
+    li.release_backend();
+    CHECK(li.is_backend_released());
+
+    // Cached scalars are still available
+    CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
+
+    // All solution vectors are empty (memory freed).
+    // SDDP caches its own copies before calling release_backend().
+    CHECK(li.get_col_sol_raw().empty());
+    CHECK(li.get_row_dual_raw().empty());
+    CHECK(li.get_col_cost_raw().empty());
+  }
+
+  SUBCASE("reconstruct with explicit warm-start works without cache")
+  {
+    // Capture warm-start data before enabling no-cache mode
+    std::vector<double> col_sol(li.get_col_sol_raw().begin(),
+                                li.get_col_sol_raw().end());
+    std::vector<double> row_dual(li.get_row_dual_raw().begin(),
+                                 li.get_row_dual_raw().end());
+
+    li.set_low_memory(LowMemoryMode::compress,
+                      CompressionCodec::lz4,
+                      /*cache_warm_start=*/false);
+    li.save_snapshot(FlatLinearProblem {flat});
+
+    li.release_backend();
+    CHECK(li.is_backend_released());
+
+    // Reconstruct with explicitly provided warm-start
+    li.reconstruct_backend(col_sol, row_dual);
+    CHECK(li.has_backend());
+
+    auto r = li.resolve();
+    REQUIRE(r.has_value());
+    CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
+  }
+
+  SUBCASE("reconstruct without warm-start still produces correct result")
+  {
+    li.set_low_memory(LowMemoryMode::snapshot,
+                      CompressionCodec::zstd,
+                      /*cache_warm_start=*/false);
+    li.save_snapshot(FlatLinearProblem {flat});
+
+    li.release_backend();
+    li.reconstruct_backend();  // cold start
+
+    auto r = li.resolve();
+    REQUIRE(r.has_value());
+    CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
+  }
+
+  SUBCASE("multiple cycles with no cache still work")
+  {
+    li.set_low_memory(LowMemoryMode::compress,
+                      CompressionCodec::lz4,
+                      /*cache_warm_start=*/false);
+    li.save_snapshot(FlatLinearProblem {flat});
+
+    for (int i = 0; i < 3; ++i) {
+      li.release_backend();
+      CHECK(li.get_col_sol_raw().empty());
+      CHECK(li.get_col_cost_raw().empty());
+
+      li.reconstruct_backend();
+      auto r = li.resolve();
+      REQUIRE(r.has_value());
+      CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
+    }
+  }
+}
+
+TEST_CASE(
+    "LowMemorySnapshot — compress/decompress size "
+    "behavior across cycles")  // NOLINT
+{
+  auto [li, flat, x1, x2] = make_simple_lp();
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+
+  // ── Helper: total heap bytes held by numeric vectors ──
+  auto flat_vectors_size = [](const FlatLinearProblem& f) -> size_t
+  {
+    auto bytes_of = [](const auto& v)
+    {
+      return v.size() * sizeof(typename std::decay_t<decltype(v)>::value_type);
+    };
+    return bytes_of(f.matbeg) + bytes_of(f.matind) + bytes_of(f.colint)
+        + bytes_of(f.matval) + bytes_of(f.collb) + bytes_of(f.colub)
+        + bytes_of(f.objval) + bytes_of(f.rowlb) + bytes_of(f.rowub)
+        + bytes_of(f.col_scales) + bytes_of(f.row_scales);
+  };
+
+  auto flat_vectors_nonempty = [](const FlatLinearProblem& f) -> bool
+  { return !f.matbeg.empty() || !f.collb.empty() || !f.matval.empty(); };
+
+  SUBCASE("compress creates compressed buffer and clears flat vectors")
+  {
+    LowMemorySnapshot snap;
+    snap.flat_lp = FlatLinearProblem {flat};
+
+    CHECK(flat_vectors_nonempty(snap.flat_lp));
+    CHECK_FALSE(snap.is_compressed());
+
+    const auto orig_size = flat_vectors_size(snap.flat_lp);
+    CHECK(orig_size > 0);
+
+    // First compress: creates compressed buffer, clears vectors
+    snap.compress(CompressionCodec::lz4);
+    CHECK(snap.is_compressed());
+    CHECK_FALSE(flat_vectors_nonempty(snap.flat_lp));
+    CHECK(flat_vectors_size(snap.flat_lp) == 0);
+    CHECK_FALSE(snap.compressed_lp.empty());
+
+    const auto compressed_size = snap.compressed_lp.data.size();
+    CHECK(compressed_size > 0);
+    CHECK(compressed_size <= orig_size);
+  }
+
+  SUBCASE("decompress restores vectors, keeps compressed buffer")
+  {
+    LowMemorySnapshot snap;
+    snap.flat_lp = FlatLinearProblem {flat};
+
+    snap.compress(CompressionCodec::lz4);
+    const auto compressed_size = snap.compressed_lp.data.size();
+
+    // Decompress: restores flat vectors, keeps compressed buffer
+    snap.decompress();
+    CHECK(flat_vectors_nonempty(snap.flat_lp));
+    CHECK(flat_vectors_size(snap.flat_lp) > 0);
+
+    // Compressed buffer is still present (persistent cache)
+    CHECK(snap.is_compressed());
+    CHECK(snap.compressed_lp.data.size() == compressed_size);
+  }
+
+  SUBCASE("multiple compress/decompress cycles maintain invariants")
+  {
+    LowMemorySnapshot snap;
+    snap.flat_lp = FlatLinearProblem {flat};
+
+    const auto orig_size = flat_vectors_size(snap.flat_lp);
+
+    // First compress: creates the persistent compressed buffer
+    snap.compress(CompressionCodec::lz4);
+    const auto compressed_size = snap.compressed_lp.data.size();
+    CHECK(compressed_size > 0);
+    CHECK(flat_vectors_size(snap.flat_lp) == 0);
+
+    for (int cycle = 0; cycle < 5; ++cycle) {
+      // Decompress: vectors restored, compressed buffer retained
+      snap.decompress();
+      CHECK(flat_vectors_nonempty(snap.flat_lp));
+      const auto decompressed_size = flat_vectors_size(snap.flat_lp);
+      CHECK(decompressed_size >= orig_size);
+      CHECK(snap.compressed_lp.data.size() == compressed_size);
+
+      // Re-compress: vectors cleared, compressed buffer unchanged
+      snap.compress(CompressionCodec::lz4);
+      CHECK_FALSE(flat_vectors_nonempty(snap.flat_lp));
+      CHECK(flat_vectors_size(snap.flat_lp) == 0);
+      CHECK(snap.compressed_lp.data.size() == compressed_size);
+    }
+  }
+
+  SUBCASE("clear_flat_lp_vectors frees decompressed data")
+  {
+    LowMemorySnapshot snap;
+    snap.flat_lp = FlatLinearProblem {flat};
+
+    snap.compress(CompressionCodec::lz4);
+    snap.decompress();
+    CHECK(flat_vectors_nonempty(snap.flat_lp));
+
+    // Manual clear — same as what release_backend does on subsequent calls
+    clear_flat_lp_vectors(snap.flat_lp);
+    CHECK_FALSE(flat_vectors_nonempty(snap.flat_lp));
+    CHECK(flat_vectors_size(snap.flat_lp) == 0);
+
+    // Compressed buffer still intact — can decompress again
+    CHECK(snap.is_compressed());
+    snap.decompress();
+    CHECK(flat_vectors_nonempty(snap.flat_lp));
+  }
+
+  SUBCASE("decompress is idempotent when vectors already present")
+  {
+    LowMemorySnapshot snap;
+    snap.flat_lp = FlatLinearProblem {flat};
+
+    snap.compress(CompressionCodec::lz4);
+    snap.decompress();
+    const auto size_after_first = flat_vectors_size(snap.flat_lp);
+
+    // Second decompress should be no-op (vectors already present)
+    snap.decompress();
+    CHECK(flat_vectors_size(snap.flat_lp) == size_after_first);
+  }
+
+  SUBCASE("compress is idempotent — compressed buffer never changes")
+  {
+    LowMemorySnapshot snap;
+    snap.flat_lp = FlatLinearProblem {flat};
+
+    snap.compress(CompressionCodec::lz4);
+    const auto buf1 = snap.compressed_lp.data;
+
+    snap.decompress();
+    snap.compress(CompressionCodec::lz4);
+    // Buffer content should be identical (never re-compressed)
+    CHECK(snap.compressed_lp.data == buf1);
+  }
+
+  SUBCASE("zstd codec also works correctly")
+  {
+    LowMemorySnapshot snap;
+    snap.flat_lp = FlatLinearProblem {flat};
+
+    snap.compress(CompressionCodec::zstd);
+    CHECK(snap.is_compressed());
+    CHECK_FALSE(flat_vectors_nonempty(snap.flat_lp));
+
+    snap.decompress();
+    CHECK(flat_vectors_nonempty(snap.flat_lp));
+
+    // Verify data survives round-trip
+    CHECK(snap.flat_lp.ncols == flat.ncols);
+    CHECK(snap.flat_lp.nrows == flat.nrows);
+    CHECK(snap.flat_lp.matbeg.size() == flat.matbeg.size());
+    CHECK(snap.flat_lp.matval.size() == flat.matval.size());
+
+    for (size_t i = 0; i < flat.matval.size(); ++i) {
+      CHECK(snap.flat_lp.matval[i] == doctest::Approx(flat.matval[i]));
+    }
   }
 }

@@ -317,9 +317,6 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         });
       }
     } else {
-      // Release solver backend — no-op when low_memory is off.
-      system.release_backend();
-
       // Phase solved normally – reset infeasibility counter
       m_infeasibility_counter_[scene_index][phase_index] = 0;
       m_phase_grid_.record(iteration_index,
@@ -329,7 +326,8 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       // Track max kappa from forward solve
       update_max_kappa(scene_index, phase_index, li, iteration_index);
 
-      // Cache solution data for the backward pass
+      // Cache solution data for the backward pass — must happen before
+      // release_backend() which may discard cached solution vectors.
       const auto obj = li.get_obj_value();
       state.forward_full_obj = obj;
 
@@ -347,6 +345,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           ? li.get_col_sol_raw()[state.alpha_col] * sa
           : 0.0;
       state.forward_objective = obj - alpha_val;
+
+      // Release solver backend — no-op when low_memory is off.
+      system.release_backend();
 
       // Guard against solver returning "optimal" with NaN values
       // (can happen when inherited cuts cause ill-conditioning).

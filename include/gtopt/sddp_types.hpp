@@ -340,7 +340,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
 
   /// In-memory compression codec for low_memory compress mode.
   /// Default: auto_select (picks best available: lz4 > snappy > zstd > gzip).
-  MemoryCodec memory_codec {MemoryCodec::auto_select};
+  CompressionCodec memory_codec {CompressionCodec::auto_select};
 
   /// CSV file with boundary (future-cost) cuts for the last phase.
   ///

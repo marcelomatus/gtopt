@@ -37,8 +37,11 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <format>
 #include <optional>
 #include <span>
+#include <stdexcept>
+#include <string>
 #include <string_view>
 
 namespace gtopt
@@ -149,6 +152,41 @@ template<NamedEnum E>
 [[nodiscard]] constexpr auto enum_name(E value) noexcept -> std::string_view
 {
   return enum_name(enum_entries(value), value);
+}
+
+/**
+ * @brief Look up a NamedEnum value by name; throw on invalid input.
+ *
+ * Builds a user-friendly error message listing all valid names when the
+ * lookup fails.  Intended for CLI / config-file option parsing where an
+ * invalid value should be a hard error.
+ *
+ * @tparam E  A type satisfying the NamedEnum concept.
+ * @param option_name  Human-readable option name (for the error message).
+ * @param value        The string supplied by the user.
+ * @return The matching enumerator.
+ * @throws std::invalid_argument if @p value does not match any entry.
+ */
+template<NamedEnum E>
+[[nodiscard]] auto require_enum(std::string_view option_name,
+                                std::string_view value) -> E
+{
+  if (auto opt = enum_from_name<E>(value)) {
+    return *opt;
+  }
+  const auto entries = enum_entries(E {});
+  std::string valid;
+  for (const auto& e : entries) {
+    if (!valid.empty()) {
+      valid += ", ";
+    }
+    valid += e.name;
+  }
+  throw std::invalid_argument(
+      std::format("invalid value '{}' for option '{}' (expected: {})",
+                  value,
+                  option_name,
+                  valid));
 }
 
 }  // namespace gtopt

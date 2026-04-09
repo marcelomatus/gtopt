@@ -919,7 +919,7 @@ public:
   [[nodiscard]] constexpr auto sddp_memory_codec() const
   {
     return m_options_.sddp_options.memory_codec.value_or(
-        MemoryCodec::auto_select);
+        CompressionCodec::auto_select);
   }
 
   /** @brief Whether SDDP resolves use warm-start (default: true). */

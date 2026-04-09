@@ -56,17 +56,17 @@ struct SimulationConstructor
     sim.boundary_cuts_file = std::move(boundary_cuts_file);
     if (boundary_cuts_valuation_str) {
       sim.boundary_cuts_valuation =
-          gtopt::enum_from_name<gtopt::BoundaryCutsValuation>(
-              *boundary_cuts_valuation_str);
+          gtopt::require_enum<gtopt::BoundaryCutsValuation>(
+              "boundary_cuts_valuation", *boundary_cuts_valuation_str);
     }
     if (probability_rescale_str) {
       sim.probability_rescale =
-          gtopt::enum_from_name<gtopt::ProbabilityRescaleMode>(
-              *probability_rescale_str);
+          gtopt::require_enum<gtopt::ProbabilityRescaleMode>(
+              "probability_rescale", *probability_rescale_str);
     }
     if (kappa_warning_str) {
-      sim.kappa_warning =
-          gtopt::enum_from_name<gtopt::KappaWarningMode>(*kappa_warning_str);
+      sim.kappa_warning = gtopt::require_enum<gtopt::KappaWarningMode>(
+          "kappa_warning", *kappa_warning_str);
     }
     sim.kappa_threshold = kappa_threshold;
     return sim;

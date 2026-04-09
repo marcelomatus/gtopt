@@ -70,24 +70,30 @@ constexpr auto enum_entries(DataFormat /*tag*/) noexcept
 // --- CompressionCodec -------------------------------------------------------
 
 /**
- * @brief Compression codec for output files (Parquet / CSV).
+ * @brief Compression codec for file I/O and in-memory compression.
+ *
+ * Used for both output files (Parquet/CSV) and in-memory LP snapshots
+ * (low_memory compress mode).  For in-memory use, `auto_select` picks
+ * the fastest available codec at runtime (lz4 > snappy > zstd > gzip).
  */
 enum class CompressionCodec : uint8_t
 {
   uncompressed = 0,  ///< No compression
   gzip = 1,  ///< gzip compression
-  zstd = 2,  ///< Zstandard compression (default)
-  lz4 = 3,  ///< LZ4 compression
-  bzip2 = 4,  ///< bzip2 compression
-  xz = 5,  ///< xz/LZMA compression
-  snappy = 6,  ///< Snappy compression (Arrow/Parquet)
-  brotli = 7,  ///< Brotli compression (Arrow/Parquet)
-  lzo = 8,  ///< LZO compression (Arrow/Parquet)
+  zstd = 2,  ///< Zstandard compression (default for file I/O)
+  lz4 = 3,  ///< LZ4 compression (default for in-memory)
+  bzip2 = 4,  ///< bzip2 compression (file I/O only)
+  xz = 5,  ///< xz/LZMA compression (file I/O only)
+  snappy = 6,  ///< Snappy compression
+  brotli = 7,  ///< Brotli compression (Arrow/Parquet only)
+  lzo = 8,  ///< LZO compression (Arrow/Parquet only)
+  auto_select = 9,  ///< Pick fastest available (in-memory only)
 };
 
 inline constexpr auto compression_codec_entries =
     std::to_array<EnumEntry<CompressionCodec>>({
         {.name = "uncompressed", .value = CompressionCodec::uncompressed},
+        {.name = "none", .value = CompressionCodec::uncompressed},
         {.name = "gzip", .value = CompressionCodec::gzip},
         {.name = "zstd", .value = CompressionCodec::zstd},
         {.name = "lz4", .value = CompressionCodec::lz4},
@@ -96,6 +102,7 @@ inline constexpr auto compression_codec_entries =
         {.name = "snappy", .value = CompressionCodec::snappy},
         {.name = "brotli", .value = CompressionCodec::brotli},
         {.name = "lzo", .value = CompressionCodec::lzo},
+        {.name = "auto", .value = CompressionCodec::auto_select},
     });
 
 constexpr auto enum_entries(CompressionCodec /*tag*/) noexcept

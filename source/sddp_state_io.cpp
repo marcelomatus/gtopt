@@ -66,6 +66,9 @@ auto save_state_csv(const PlanningLP& planning_lp,
         }
 
         const auto col_sol = li.get_col_sol();
+        if (col_sol.empty()) {
+          continue;  // solution vectors released (low-memory mode)
+        }
         const auto col_rc = li.get_col_cost();
         const auto& names = li.col_index_to_name();
         const auto ncols = li.get_numcols();

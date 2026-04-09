@@ -98,6 +98,10 @@ void LinearInterface::cache_and_release()
   const auto ncols = get_numcols();
   const auto nrows = get_numrows();
 
+  // Always cache solution for transparent read access after resolve().
+  // The cache_warm_start flag only controls whether release_backend()
+  // retains these vectors — cache_and_release() needs them for callers
+  // that read solution data after resolve() returns.
   m_cached_col_sol_.assign(m_backend_->col_solution(),
                            m_backend_->col_solution() + ncols);
   m_cached_col_cost_.assign(m_backend_->reduced_cost(),
@@ -142,19 +146,41 @@ void LinearInterface::release_backend() noexcept
   }
 
   if (m_backend_released_) {
+    // Backend already released (e.g. by cache_and_release after resolve).
+    // Discard cached solution vectors if warm-start caching is off.
+    // SDDP forward pass caches its own copies of solution/reduced-cost
+    // into state vectors before calling release_backend(), so these
+    // LinearInterface caches are no longer needed.
+    if (!m_cache_warm_start_) {
+      m_cached_col_sol_.clear();
+      m_cached_col_sol_.shrink_to_fit();
+      m_cached_col_cost_.clear();
+      m_cached_col_cost_.shrink_to_fit();
+      m_cached_row_dual_.clear();
+      m_cached_row_dual_.shrink_to_fit();
+    }
     return;
   }
 
   // Cache the current solution for transparent read access
   try {
     if (m_backend_ && is_optimal()) {
-      const auto cs = get_col_sol_raw();
-      const auto rd = get_row_dual_raw();
-      m_cached_col_sol_.assign(cs.begin(), cs.end());
-      m_cached_row_dual_.assign(rd.begin(), rd.end());
       const auto ncols = get_numcols();
-      m_cached_col_cost_.assign(m_backend_->reduced_cost(),
-                                m_backend_->reduced_cost() + ncols);
+      if (m_cache_warm_start_) {
+        const auto cs = get_col_sol_raw();
+        const auto rd = get_row_dual_raw();
+        m_cached_col_sol_.assign(cs.begin(), cs.end());
+        m_cached_row_dual_.assign(rd.begin(), rd.end());
+        m_cached_col_cost_.assign(m_backend_->reduced_cost(),
+                                  m_backend_->reduced_cost() + ncols);
+      } else {
+        m_cached_col_sol_.clear();
+        m_cached_col_sol_.shrink_to_fit();
+        m_cached_col_cost_.clear();
+        m_cached_col_cost_.shrink_to_fit();
+        m_cached_row_dual_.clear();
+        m_cached_row_dual_.shrink_to_fit();
+      }
       m_cached_obj_value_ = m_backend_->obj_value();
       m_cached_kappa_ = m_backend_->get_kappa();
       m_cached_numrows_ = get_numrows();
@@ -179,10 +205,12 @@ void LinearInterface::release_backend() noexcept
 // ── Low-memory mode ──
 
 void LinearInterface::set_low_memory(LowMemoryMode mode,
-                                     MemoryCodec codec) noexcept
+                                     CompressionCodec codec,
+                                     bool cache_warm_start) noexcept
 {
   m_low_memory_mode_ = mode;
   m_memory_codec_ = codec;
+  m_cache_warm_start_ = cache_warm_start;
 
   if (mode == LowMemoryMode::off) {
     m_snapshot_ = {};

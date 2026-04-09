@@ -1615,7 +1615,7 @@ TEST_CASE("SDDPMethod — low_memory level 2 (compressed) converges")  // NOLINT
   sddp_opts.max_iterations = 10;
   sddp_opts.convergence_tol = 1e-3;
   sddp_opts.low_memory_mode = LowMemoryMode::compress;
-  sddp_opts.memory_codec = MemoryCodec::zstd;
+  sddp_opts.memory_codec = CompressionCodec::zstd;
   sddp_opts.enable_api = false;
 
   SDDPMethod sddp(planning_lp, sddp_opts);

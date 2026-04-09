@@ -547,7 +547,7 @@ TEST_CASE(  // NOLINT
     const auto names_before = li.col_name_map().size();
 
     // Enable compression — snapshot was already saved during LP build
-    sys.set_low_memory(LowMemoryMode::compress, MemoryCodec::lz4);
+    sys.set_low_memory(LowMemoryMode::compress, CompressionCodec::lz4);
 
     // Cycle: release → reconstruct × 3
     for (int cycle = 0; cycle < 3; ++cycle) {
@@ -579,7 +579,7 @@ TEST_CASE(  // NOLINT
     CHECK_FALSE(id_before.empty());
 
     plp.systems().front()[PhaseIndex {0}].set_low_memory(
-        LowMemoryMode::compress, MemoryCodec::lz4);
+        LowMemoryMode::compress, CompressionCodec::lz4);
     plp.systems().front()[PhaseIndex {0}].release_backend();
 
     // solver_id must not crash even with backend released
@@ -646,7 +646,7 @@ TEST_CASE(  // NOLINT
   REQUIRE(res.has_value());
 
   // Enable compress mode, release, reconstruct
-  sys.set_low_memory(LowMemoryMode::compress, MemoryCodec::lz4);
+  sys.set_low_memory(LowMemoryMode::compress, CompressionCodec::lz4);
   sys.release_backend();
   sys.reconstruct_backend();
 
@@ -708,7 +708,7 @@ TEST_CASE(  // NOLINT
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
 
-  li.set_low_memory(LowMemoryMode::compress, MemoryCodec::lz4);
+  li.set_low_memory(LowMemoryMode::compress, CompressionCodec::lz4);
   li.save_snapshot(FlatLinearProblem {flat});
 
   // Release/reconstruct cycle
@@ -804,7 +804,7 @@ TEST_CASE(  // NOLINT
   {
     for (int pi = 0; pi < 3; ++pi) {
       auto& sys = plp.systems().front()[PhaseIndex {pi}];
-      sys.set_low_memory(LowMemoryMode::compress, MemoryCodec::lz4);
+      sys.set_low_memory(LowMemoryMode::compress, CompressionCodec::lz4);
 
       // Two full cycles
       for (int cycle = 0; cycle < 2; ++cycle) {
@@ -830,7 +830,7 @@ TEST_CASE(  // NOLINT
   {
     for (int pi = 0; pi < 3; ++pi) {
       auto& sys = plp.systems().front()[PhaseIndex {pi}];
-      sys.set_low_memory(LowMemoryMode::compress, MemoryCodec::zstd);
+      sys.set_low_memory(LowMemoryMode::compress, CompressionCodec::zstd);
 
       sys.release_backend();
       sys.reconstruct_backend();
@@ -858,7 +858,7 @@ TEST_CASE(  // NOLINT
     CHECK(li.solver_id() == id);
 
     // compress mode
-    sys.set_low_memory(LowMemoryMode::compress, MemoryCodec::lz4);
+    sys.set_low_memory(LowMemoryMode::compress, CompressionCodec::lz4);
     sys.release_backend();
     CHECK(li.solver_id() == id);
     sys.reconstruct_backend();

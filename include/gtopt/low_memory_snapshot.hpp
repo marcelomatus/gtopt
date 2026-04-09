@@ -50,7 +50,7 @@ struct LowMemorySnapshot
 
   /// Compress the flat LP (first call only) and free expanded vectors.
   /// Subsequent calls just free the expanded vectors.
-  void compress(MemoryCodec codec);
+  void compress(CompressionCodec codec);
 
   /// Decompress the flat LP vectors from the compressed buffer.
   /// Keeps the compressed buffer intact (persistent cache).

@@ -77,7 +77,8 @@ struct PlanningOptionsConstructor
     PlanningOptions opts;
     opts.input_directory = std::move(input_directory);
     if (input_format_str) {
-      opts.input_format = gtopt::enum_from_name<DataFormat>(*input_format_str);
+      opts.input_format =
+          gtopt::require_enum<DataFormat>("input_format", *input_format_str);
     }
 
     // Migrate deprecated flat model fields → model_options.
@@ -136,11 +137,11 @@ struct PlanningOptionsConstructor
     opts.output_directory = std::move(output_directory);
     if (output_format_str) {
       opts.output_format =
-          gtopt::enum_from_name<DataFormat>(*output_format_str);
+          gtopt::require_enum<DataFormat>("output_format", *output_format_str);
     }
     if (output_compression_str) {
-      opts.output_compression =
-          gtopt::enum_from_name<CompressionCodec>(*output_compression_str);
+      opts.output_compression = gtopt::require_enum<CompressionCodec>(
+          "output_compression", *output_compression_str);
     }
     // Backward compat: deprecated "use_lp_names" maps to
     // lp_matrix_options.names_level when the new field is not set.
@@ -155,13 +156,13 @@ struct PlanningOptionsConstructor
     }
     opts.use_uid_fname = use_uid_fname;
     if (method_str) {
-      opts.method = gtopt::enum_from_name<MethodType>(*method_str);
+      opts.method = gtopt::require_enum<MethodType>("method", *method_str);
     }
     opts.log_directory = std::move(log_directory);
     opts.lp_debug = lp_debug;
     if (lp_compression_str) {
-      opts.lp_compression =
-          gtopt::enum_from_name<CompressionCodec>(*lp_compression_str);
+      opts.lp_compression = gtopt::require_enum<CompressionCodec>(
+          "lp_compression", *lp_compression_str);
     }
     opts.lp_only = lp_only;
     opts.lp_fingerprint = lp_fingerprint;
@@ -177,8 +178,8 @@ struct PlanningOptionsConstructor
     opts.lp_matrix_options = std::move(lp_matrix_options);
     opts.variable_scales = std::move(variable_scales);
     if (constraint_mode_str) {
-      opts.constraint_mode =
-          gtopt::enum_from_name<ConstraintMode>(*constraint_mode_str);
+      opts.constraint_mode = gtopt::require_enum<ConstraintMode>(
+          "constraint_mode", *constraint_mode_str);
     }
     return opts;
   }

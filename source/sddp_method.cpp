@@ -1047,7 +1047,9 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
       for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
         planning_lp()
             .system(scene_index, phase_index)
-            .set_low_memory(m_options_.low_memory_mode, codec);
+            .set_low_memory(m_options_.low_memory_mode,
+                            codec,
+                            /*cache_warm_start=*/false);
       }
     }
     // Clone pool is not used with low_memory — each aperture task creates

@@ -264,17 +264,17 @@ inline void apply_cli_options(
 
   if (output_format) {
     planning.options.output_format =
-        enum_from_name<DataFormat>(output_format.value());
+        require_enum<DataFormat>("output-format", output_format.value());
   }
 
   if (output_compression) {
-    planning.options.output_compression =
-        enum_from_name<CompressionCodec>(output_compression.value());
+    planning.options.output_compression = require_enum<CompressionCodec>(
+        "output-compression", output_compression.value());
   }
 
   if (input_format) {
     planning.options.input_format =
-        enum_from_name<DataFormat>(input_format.value());
+        require_enum<DataFormat>("input-format", input_format.value());
   }
 
   if (cut_directory) {
@@ -299,12 +299,13 @@ inline void apply_cli_options(
 
   if (sddp_elastic_mode) {
     planning.options.sddp_options.elastic_mode =
-        enum_from_name<ElasticFilterMode>(sddp_elastic_mode.value());
+        require_enum<ElasticFilterMode>("sddp-elastic-mode",
+                                        sddp_elastic_mode.value());
   }
 
   if (sddp_cut_coeff_mode) {
-    planning.options.sddp_options.cut_coeff_mode =
-        enum_from_name<CutCoeffMode>(sddp_cut_coeff_mode.value());
+    planning.options.sddp_options.cut_coeff_mode = require_enum<CutCoeffMode>(
+        "sddp-cut-coeff-mode", sddp_cut_coeff_mode.value());
   }
 
   if (sddp_num_apertures) {
@@ -321,8 +322,8 @@ inline void apply_cli_options(
   }
 
   if (lp_compression) {
-    planning.options.lp_compression =
-        enum_from_name<CompressionCodec>(lp_compression.value());
+    planning.options.lp_compression = require_enum<CompressionCodec>(
+        "lp-compression", lp_compression.value());
   }
 
   if (lp_coeff_ratio_threshold) {
@@ -466,7 +467,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 
   if (opts.low_memory_mode) {
     planning.options.sddp_options.low_memory_mode =
-        enum_from_name<LowMemoryMode>(*opts.low_memory_mode);
+        require_enum<LowMemoryMode>("low-memory", *opts.low_memory_mode);
   }
 
   // CLI solver shortcuts → solver_options
@@ -819,7 +820,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     }
     sopts.time_limit = sv_dbl("time-limit");
     if (const auto raw = sv_str("scaling")) {
-      sopts.scaling = enum_from_name<SolverScaling>(*raw);
+      sopts.scaling = require_enum<SolverScaling>("scaling", *raw);
     }
     if (const auto v = sv_int("max-fallbacks")) {
       sopts.max_fallbacks = *v;

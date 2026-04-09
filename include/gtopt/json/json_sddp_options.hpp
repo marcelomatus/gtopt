@@ -17,13 +17,13 @@
 namespace daw::json
 {
 using gtopt::BoundaryCutsMode;
+using gtopt::CompressionCodec;
 using gtopt::ConvergenceMode;
 using gtopt::CutCoeffMode;
 using gtopt::CutSharingMode;
 using gtopt::ElasticFilterMode;
 using gtopt::HotStartMode;
 using gtopt::LowMemoryMode;
-using gtopt::MemoryCodec;
 using gtopt::MissingCutVarMode;
 using gtopt::RecoveryMode;
 using gtopt::SddpOptions;
@@ -87,8 +87,8 @@ struct SddpOptionsConstructor
   {
     SddpOptions opts;
     if (cut_sharing_mode_str) {
-      opts.cut_sharing_mode =
-          gtopt::enum_from_name<CutSharingMode>(*cut_sharing_mode_str);
+      opts.cut_sharing_mode = gtopt::require_enum<CutSharingMode>(
+          "cut_sharing_mode", *cut_sharing_mode_str);
     }
     opts.cut_directory = std::move(cut_directory);
     opts.api_enabled = api_enabled;
@@ -101,19 +101,19 @@ struct SddpOptionsConstructor
     opts.alpha_max = alpha_max;
     opts.scale_alpha = scale_alpha;
     if (cut_recovery_mode_str) {
-      opts.cut_recovery_mode =
-          gtopt::enum_from_name<HotStartMode>(*cut_recovery_mode_str);
+      opts.cut_recovery_mode = gtopt::require_enum<HotStartMode>(
+          "cut_recovery_mode", *cut_recovery_mode_str);
     }
     if (recovery_mode_str) {
-      opts.recovery_mode =
-          gtopt::enum_from_name<RecoveryMode>(*recovery_mode_str);
+      opts.recovery_mode = gtopt::require_enum<RecoveryMode>(
+          "recovery_mode", *recovery_mode_str);
     }
     opts.save_per_iteration = save_per_iteration;
     opts.cuts_input_file = std::move(cuts_input_file);
     opts.sentinel_file = std::move(sentinel_file);
     if (elastic_mode_str) {
-      opts.elastic_mode =
-          gtopt::enum_from_name<ElasticFilterMode>(*elastic_mode_str);
+      opts.elastic_mode = gtopt::require_enum<ElasticFilterMode>(
+          "elastic_mode", *elastic_mode_str);
     }
     opts.multi_cut_threshold = multi_cut_threshold;
     opts.apertures = std::move(apertures);
@@ -123,13 +123,13 @@ struct SddpOptionsConstructor
     opts.warm_start = warm_start;
     opts.boundary_cuts_file = std::move(boundary_cuts_file);
     if (boundary_cuts_mode_str) {
-      opts.boundary_cuts_mode =
-          gtopt::enum_from_name<BoundaryCutsMode>(*boundary_cuts_mode_str);
+      opts.boundary_cuts_mode = gtopt::require_enum<BoundaryCutsMode>(
+          "boundary_cuts_mode", *boundary_cuts_mode_str);
     }
     opts.boundary_max_iterations = boundary_max_iterations;
     if (missing_cut_var_mode_str) {
-      opts.missing_cut_var_mode =
-          gtopt::enum_from_name<MissingCutVarMode>(*missing_cut_var_mode_str);
+      opts.missing_cut_var_mode = gtopt::require_enum<MissingCutVarMode>(
+          "missing_cut_var_mode", *missing_cut_var_mode_str);
     }
     opts.named_cuts_file = std::move(named_cuts_file);
     opts.max_cuts_per_phase = max_cuts_per_phase;
@@ -140,26 +140,27 @@ struct SddpOptionsConstructor
     opts.use_clone_pool = use_clone_pool;
     opts.simulation_mode = simulation_mode;
     if (low_memory_str) {
-      opts.low_memory_mode =
-          gtopt::enum_from_name<LowMemoryMode>(*low_memory_str);
+      opts.low_memory_mode = gtopt::require_enum<LowMemoryMode>(
+          "low_memory_mode", *low_memory_str);
     }
     if (memory_codec_str) {
-      opts.memory_codec = gtopt::enum_from_name<MemoryCodec>(*memory_codec_str);
+      opts.memory_codec = gtopt::require_enum<CompressionCodec>(
+          "memory_codec", *memory_codec_str);
     }
     if (cut_coeff_mode_str) {
-      opts.cut_coeff_mode =
-          gtopt::enum_from_name<CutCoeffMode>(*cut_coeff_mode_str);
+      opts.cut_coeff_mode = gtopt::require_enum<CutCoeffMode>(
+          "cut_coeff_mode", *cut_coeff_mode_str);
     }
     opts.cut_coeff_eps = cut_coeff_eps;
     opts.cut_coeff_max = cut_coeff_max;
     if (convergence_mode_str) {
-      opts.convergence_mode =
-          gtopt::enum_from_name<ConvergenceMode>(*convergence_mode_str);
+      opts.convergence_mode = gtopt::require_enum<ConvergenceMode>(
+          "convergence_mode", *convergence_mode_str);
     }
     if (state_variable_lookup_mode_str) {
       opts.state_variable_lookup_mode =
-          gtopt::enum_from_name<StateVariableLookupMode>(
-              *state_variable_lookup_mode_str);
+          gtopt::require_enum<StateVariableLookupMode>(
+              "state_variable_lookup_mode", *state_variable_lookup_mode_str);
     }
     opts.stationary_tol = stationary_tol;
     opts.stationary_window = stationary_window;

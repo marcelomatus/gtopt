@@ -406,9 +406,10 @@ public:
   // ── Low-memory mode API (thin forwarding to LinearInterface) ──────────
 
   void set_low_memory(LowMemoryMode mode,
-                      MemoryCodec codec = MemoryCodec::zstd) noexcept
+                      CompressionCodec codec = CompressionCodec::lz4,
+                      bool cache_warm_start = false) noexcept
   {
-    m_linear_interface_.set_low_memory(mode, codec);
+    m_linear_interface_.set_low_memory(mode, codec, cache_warm_start);
   }
 
   void release_backend() noexcept { m_linear_interface_.release_backend(); }

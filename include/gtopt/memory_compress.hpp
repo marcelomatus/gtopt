@@ -18,20 +18,21 @@
 #include <string_view>
 #include <vector>
 
-#include <gtopt/sddp_enums.hpp>
+#include <gtopt/planning_enums.hpp>
 
 namespace gtopt
 {
 
 /// Check whether a given codec is available at runtime.
-[[nodiscard]] bool is_codec_available(MemoryCodec codec) noexcept;
+[[nodiscard]] bool is_codec_available(CompressionCodec codec) noexcept;
 
 /// Return the name of the codec as a string.
-[[nodiscard]] std::string_view codec_name(MemoryCodec codec) noexcept;
+[[nodiscard]] std::string_view codec_name(CompressionCodec codec) noexcept;
 
 /// Select the best available codec, preferring the requested one.
 /// Falls back to zstd (always available), then none.
-[[nodiscard]] MemoryCodec select_codec(MemoryCodec preferred) noexcept;
+[[nodiscard]] CompressionCodec select_codec(
+    CompressionCodec preferred) noexcept;
 
 /// Compress a byte buffer using the specified codec.
 /// @param data  Input data to compress.
@@ -39,7 +40,7 @@ namespace gtopt
 /// @return Compressed bytes.
 /// @throws std::runtime_error if codec is unavailable or compression fails.
 [[nodiscard]] std::vector<char> compress(std::span<const char> data,
-                                         MemoryCodec codec);
+                                         CompressionCodec codec);
 
 /// Decompress a buffer previously compressed with the same codec.
 /// @param compressed  Compressed data.
@@ -49,14 +50,14 @@ namespace gtopt
 /// @throws std::runtime_error if decompression fails.
 [[nodiscard]] std::vector<char> decompress(std::span<const char> compressed,
                                            size_t original_size,
-                                           MemoryCodec codec);
+                                           CompressionCodec codec);
 
 /// Compressed buffer with metadata for round-trip compression.
 struct CompressedBuffer
 {
   std::vector<char> data {};
   size_t original_size {0};
-  MemoryCodec codec {MemoryCodec::none};
+  CompressionCodec codec {CompressionCodec::uncompressed};
 
   [[nodiscard]] bool empty() const noexcept { return data.empty(); }
 
@@ -69,7 +70,7 @@ struct CompressedBuffer
 
 /// Compress a byte span into a CompressedBuffer.
 [[nodiscard]] inline CompressedBuffer compress_buffer(
-    std::span<const char> data, MemoryCodec codec)
+    std::span<const char> data, CompressionCodec codec)
 {
   return CompressedBuffer {
       .data = compress(data, codec),
@@ -86,7 +87,7 @@ struct FlatLinearProblem;
 /// like ncols/nrows, names, stats, etc.).
 /// No-op and returns an empty buffer when @p codec resolves to `none`.
 [[nodiscard]] CompressedBuffer compress_flat_lp(FlatLinearProblem& flp,
-                                                MemoryCodec codec);
+                                                CompressionCodec codec);
 
 /// Decompress a buffer previously created by compress_flat_lp() and
 /// restore the numeric vectors of @p flp.  No-op when @p buf is empty.
