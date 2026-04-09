@@ -137,8 +137,10 @@ void LinearInterface::cache_and_release()
         * sizeof(double);
     SPDLOG_INFO(
         "low_memory: released backend for {} — "
-        "flat LP {:.2f} MB, cached solution {:.2f} MB",
+        "{} cols, {} rows, flat LP {:.2f} MB, cached solution {:.2f} MB",
         get_prob_name(),
+        m_cached_numcols_,
+        m_cached_numrows_,
         static_cast<double>(orig_bytes) / (1024.0 * 1024.0),
         static_cast<double>(sol_bytes) / (1024.0 * 1024.0));
   }
