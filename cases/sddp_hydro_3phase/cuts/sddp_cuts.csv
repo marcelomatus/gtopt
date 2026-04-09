@@ -1,8 +1,0 @@
-# scale_objective=1
-type,phase,scene,name,rhs,dual,coefficients
-o,2,0,sddp_scut_-1_0_3_0_0,109200,,reservoir_energy_1_1_2_48=45,sddp_alpha_-1_0_2=1
-o,1,0,sddp_scut_-1_0_2_0_1,109200,,reservoir_energy_1_1_1_24=45,sddp_alpha_-1_0_1=1
-o,2,0,sddp_scut_-1_0_3_1_0,109200,,reservoir_energy_1_1_2_48=45,sddp_alpha_-1_0_2=1
-o,1,0,sddp_scut_-1_0_2_1_1,218400,,reservoir_energy_1_1_1_24=45,sddp_alpha_-1_0_1=1
-o,2,0,sddp_scut_-1_0_3_2_0,109200,,reservoir_energy_1_1_2_48=45,sddp_alpha_-1_0_2=1
-o,1,0,sddp_scut_-1_0_2_2_1,218400,,reservoir_energy_1_1_1_24=45,sddp_alpha_-1_0_1=1
