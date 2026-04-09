@@ -256,6 +256,10 @@ void LinearInterface::reconstruct_backend(std::span<const double> col_sol,
   if (!ws_col.empty() || !ws_dual.empty()) {
     set_warm_start_solution(ws_col, ws_dual);
   }
+
+  // 6. Re-compress: the flat LP is now in the backend, no need to keep
+  //    the decompressed snapshot alongside it.
+  enable_compression();
 }
 
 void LinearInterface::record_dynamic_col(SparseCol col)
