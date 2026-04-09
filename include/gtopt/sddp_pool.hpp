@@ -142,7 +142,7 @@ public:
  * @return A started SDDPWorkPool (heap-allocated, non-movable).
  */
 [[nodiscard]] inline std::unique_ptr<SDDPWorkPool> make_sddp_work_pool(
-    double cpu_factor = 2.0)
+    double cpu_factor = 3.0)
 {
   WorkPoolConfig pool_config {};
   pool_config.name = "SDDPWorkPool";
