@@ -24,17 +24,40 @@ _gtopt()
         --solver)
             COMPREPLY=( $(compgen -W "clp cbc cplex highs" -- "$cur") )
             return ;;
-        --lp-names-level|-n)
-            COMPREPLY=( $(compgen -W "0 1 2 minimal only_cols cols_and_rows" -- "$cur") )
-            return ;;
-        --system-file|-s|--lp-file|-l|--json-file|-j|--trace-log|-T)
-            _filedir
-            return ;;
         --check-solvers)
             COMPREPLY=( $(compgen -W "clp cbc cplex highs" -- "$cur") )
             return ;;
-        --sddp-num-apertures)
-            COMPREPLY=( $(compgen -W "0 -1" -- "$cur") )
+        --lp-names-level|-n)
+            COMPREPLY=( $(compgen -W "0 1 2 minimal only_cols cols_and_rows" -- "$cur") )
+            return ;;
+        --low-memory)
+            COMPREPLY=( $(compgen -W "off snapshot compress" -- "$cur") )
+            return ;;
+        --output-format|-f|--input-format|-F)
+            COMPREPLY=( $(compgen -W "parquet csv" -- "$cur") )
+            return ;;
+        --output-compression|-C|--lp-compression)
+            COMPREPLY=( $(compgen -W "zstd gzip lz4 snappy uncompressed none brotli bzip2 xz lzo auto" -- "$cur") )
+            return ;;
+        --sddp-elastic-mode)
+            COMPREPLY=( $(compgen -W "none forward backward both" -- "$cur") )
+            return ;;
+        --sddp-cut-coeff-mode)
+            COMPREPLY=( $(compgen -W "reduced_cost row_dual" -- "$cur") )
+            return ;;
+        --algorithm|-a)
+            COMPREPLY=( $(compgen -W "default primal dual barrier" -- "$cur") )
+            return ;;
+        --system-file|-s|--lp-file|-l|--json-file|-j|--trace-log|-T|\
+        --cut-directory|--log-directory)
+            _filedir
+            return ;;
+        --input-directory|-D|--output-directory|-d)
+            _filedir -d
+            return ;;
+        --sddp-num-apertures|--matrix-eps|-e|--threads|-t|\
+        --sddp-max-iterations|--sddp-min-iterations|\
+        --sddp-convergence-tol|--sddp-elastic-penalty|--lp-coeff-ratio)
             return ;;
         --set)
             return ;;
@@ -44,11 +67,19 @@ _gtopt()
         local opts="--help -h --version -V --solvers --check-solvers
             --solver --verbose -v --quiet -q
             --system-file -s --set
+            --input-directory -D --input-format -F
+            --output-directory -d --output-format -f --output-compression -C
             --lp-file -l --lp-names-level -n --matrix-eps -e
-            --lp-only -c
+            --lp-only -c --lp-debug --lp-compression --lp-coeff-ratio
             --json-file -j --fast-parsing -p --check-json -J
             --stats -S --trace-log -T
-            --sddp-num-apertures --recover"
+            --algorithm -a --threads -t
+            --use-single-bus -b --use-kirchhoff -k
+            --sddp-num-apertures --sddp-max-iterations --sddp-min-iterations
+            --sddp-convergence-tol --sddp-elastic-penalty
+            --sddp-elastic-mode --sddp-cut-coeff-mode
+            --cut-directory --log-directory
+            --low-memory --recover"
         COMPREPLY=( $(compgen -W "$opts" -- "$cur") )
     else
         _filedir
