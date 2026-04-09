@@ -1282,6 +1282,9 @@ private:
   /// Whether the backend is currently released.
   bool m_backend_released_ {false};
 
+  /// Whether the first release has been logged.
+  bool m_logged_first_release_ {false};
+
   // ── Cached post-solve state (valid when backend is released) ────────
 
   /// Cached primal solution from last successful solve.

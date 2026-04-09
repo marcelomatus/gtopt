@@ -109,12 +109,41 @@ void LinearInterface::cache_and_release()
   m_cached_numcols_ = ncols;
   m_cached_is_optimal_ = true;
 
-  // First call: compress the flat LP (one-time, creates persistent buffer).
+  // Compress mode: first call compresses the flat LP (one-time).
   // Subsequent calls: just free the decompressed vectors.
-  if (!m_snapshot_.is_compressed()) {
-    enable_compression();
-  } else {
-    clear_flat_lp_vectors(m_snapshot_.flat_lp);
+  // Snapshot mode: flat LP stays in memory (no compression).
+  if (m_low_memory_mode_ == LowMemoryMode::compress) {
+    if (!m_snapshot_.is_compressed()) {
+      m_snapshot_.compress(m_memory_codec_);
+    } else {
+      clear_flat_lp_vectors(m_snapshot_.flat_lp);
+    }
+  }
+
+  // Log on first release only: flat LP size and cached solution size.
+  if (!m_logged_first_release_) {
+    m_logged_first_release_ = true;
+    const auto& flp = m_snapshot_.flat_lp;
+    const auto flat_bytes = m_snapshot_.is_compressed()
+        ? m_snapshot_.compressed_lp.data.size()
+        : (flp.matbeg.size() * sizeof(int32_t)
+           + flp.matind.size() * sizeof(int32_t)
+           + flp.matval.size() * sizeof(double)
+           + flp.collb.size() * sizeof(double)
+           + flp.colub.size() * sizeof(double)
+           + flp.objval.size() * sizeof(double)
+           + flp.rowlb.size() * sizeof(double)
+           + flp.rowub.size() * sizeof(double));
+    const auto sol_bytes = (m_cached_col_sol_.size() + m_cached_row_dual_.size()
+                            + m_cached_col_cost_.size())
+        * sizeof(double);
+    SPDLOG_INFO(
+        "low_memory: releasing backend for {} — "
+        "flat LP {:.2f} MB{}, cached solution {:.2f} MB",
+        get_prob_name(),
+        static_cast<double>(flat_bytes) / (1024.0 * 1024.0),
+        m_snapshot_.is_compressed() ? " (compressed)" : "",
+        static_cast<double>(sol_bytes) / (1024.0 * 1024.0));
   }
 
   m_backend_.reset();
