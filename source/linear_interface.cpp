@@ -120,29 +120,26 @@ void LinearInterface::cache_and_release()
     }
   }
 
-  // Log on first release only: flat LP size and cached solution size.
+  // Log on first release only: original flat LP size and cached solution size.
   if (!m_logged_first_release_) {
     m_logged_first_release_ = true;
     const auto& flp = m_snapshot_.flat_lp;
-    const auto flat_bytes = m_snapshot_.is_compressed()
-        ? m_snapshot_.compressed_lp.data.size()
-        : (flp.matbeg.size() * sizeof(int32_t)
-           + flp.matind.size() * sizeof(int32_t)
-           + flp.matval.size() * sizeof(double)
-           + flp.collb.size() * sizeof(double)
-           + flp.colub.size() * sizeof(double)
-           + flp.objval.size() * sizeof(double)
-           + flp.rowlb.size() * sizeof(double)
-           + flp.rowub.size() * sizeof(double));
+    const auto orig_bytes = m_snapshot_.is_compressed()
+        ? m_snapshot_.compressed_lp.original_size
+        : ((flp.matbeg.size() + flp.matind.size() + flp.colint.size())
+               * sizeof(int32_t)
+           + (flp.matval.size() + flp.collb.size() + flp.colub.size()
+              + flp.objval.size() + flp.rowlb.size() + flp.rowub.size()
+              + flp.col_scales.size() + flp.row_scales.size())
+               * sizeof(double));
     const auto sol_bytes = (m_cached_col_sol_.size() + m_cached_row_dual_.size()
                             + m_cached_col_cost_.size())
         * sizeof(double);
     SPDLOG_INFO(
-        "low_memory: releasing backend for {} — "
-        "flat LP {:.2f} MB{}, cached solution {:.2f} MB",
+        "low_memory: released backend for {} — "
+        "flat LP {:.2f} MB, cached solution {:.2f} MB",
         get_prob_name(),
-        static_cast<double>(flat_bytes) / (1024.0 * 1024.0),
-        m_snapshot_.is_compressed() ? " (compressed)" : "",
+        static_cast<double>(orig_bytes) / (1024.0 * 1024.0),
         static_cast<double>(sol_bytes) / (1024.0 * 1024.0));
   }
 
