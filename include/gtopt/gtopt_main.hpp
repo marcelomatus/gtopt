@@ -183,6 +183,11 @@ struct MainOptions
    * Example: ``--set sddp_options.forward_solver_options.threads=8``
    */
   std::vector<std::string> set_options {};
+
+  /** @brief True when input/output/log/cut directories were auto-resolved
+   * from a directory argument (not explicitly set by the user).
+   * Suppresses deprecation warnings in apply_cli_options. */
+  bool dirs_auto_resolved {false};
 };
 
 /**

@@ -384,20 +384,24 @@ inline void warn_deprecated_cli(const std::optional<std::string>& opt,
  */
 inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 {
-  // Emit deprecation warnings for options replaceable by --set
+  // Emit deprecation warnings for options replaceable by --set.
+  // Skip directory warnings when auto-resolved from a directory argument
+  // (these are internal, not user-provided CLI flags).
   warn_deprecated_cli(opts.use_single_bus, "use-single-bus", "use_single_bus");
   warn_deprecated_cli(opts.use_kirchhoff, "use-kirchhoff", "use_kirchhoff");
-  warn_deprecated_cli(
-      opts.input_directory, "input-directory", "input_directory");
+  if (!opts.dirs_auto_resolved) {
+    warn_deprecated_cli(
+        opts.input_directory, "input-directory", "input_directory");
+    warn_deprecated_cli(
+        opts.output_directory, "output-directory", "output_directory");
+    warn_deprecated_cli(
+        opts.cut_directory, "cut-directory", "sddp_options.cut_directory");
+    warn_deprecated_cli(opts.log_directory, "log-directory", "log_directory");
+  }
   warn_deprecated_cli(opts.input_format, "input-format", "input_format");
-  warn_deprecated_cli(
-      opts.output_directory, "output-directory", "output_directory");
   warn_deprecated_cli(opts.output_format, "output-format", "output_format");
   warn_deprecated_cli(
       opts.output_compression, "output-compression", "output_compression");
-  warn_deprecated_cli(
-      opts.cut_directory, "cut-directory", "sddp_options.cut_directory");
-  warn_deprecated_cli(opts.log_directory, "log-directory", "log_directory");
   warn_deprecated_cli(opts.sddp_max_iterations,
                       "sddp-max-iterations",
                       "sddp_options.max_iterations");

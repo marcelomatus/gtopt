@@ -85,6 +85,11 @@ TEST_CASE("resolve_planning_args — directory argument")  // NOLINT
     REQUIRE(resolved.cut_directory.has_value());
     CHECK(resolved.cut_directory.value_or("") == (case_dir / "cuts").string());
   }
+
+  SUBCASE("dirs_auto_resolved is true")
+  {
+    CHECK(resolved.dirs_auto_resolved);
+  }
 }
 
 TEST_CASE("resolve_planning_args — directory missing json")  // NOLINT
