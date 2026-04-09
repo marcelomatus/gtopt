@@ -8,6 +8,7 @@
  */
 
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -90,6 +91,81 @@ void PlanningLP::auto_scale_theta(Planning& planning)
   spdlog::info("  Auto scale_theta = {:.6g} (median of {} line reactances)",
                median_x,
                n);
+}
+
+// ── Adaptive reservoir energy scaling ────────────────────────────────────
+
+void PlanningLP::auto_scale_reservoirs(Planning& planning)
+{
+  auto& opts = planning.options;
+  auto& sys = planning.system;
+
+  // Build a set of UIDs already covered by explicit variable_scales entries.
+  auto has_entry = [&](Uid uid) -> bool
+  {
+    return std::ranges::any_of(opts.variable_scales,
+                               [uid](const VariableScale& vs)
+                               {
+                                 return vs.class_name == "Reservoir"
+                                     && vs.variable == "energy"
+                                     && vs.uid == uid;
+                               });
+  };
+
+  // Helper: extract a representative scalar from a FieldSched optional.
+  auto scalar_of = [](const OptTRealFieldSched& fs) -> std::optional<double>
+  {
+    if (!fs.has_value()) {
+      return std::nullopt;
+    }
+    if (std::holds_alternative<double>(*fs)) {
+      return std::get<double>(*fs);
+    }
+    if (std::holds_alternative<std::vector<Real>>(*fs)) {
+      const auto& vec = std::get<std::vector<Real>>(*fs);
+      if (!vec.empty()) {
+        return *std::ranges::max_element(vec);
+      }
+    }
+    return std::nullopt;  // FileSched — can't resolve statically
+  };
+
+  size_t count = 0;
+  for (const auto& rsv : sys.reservoir_array) {
+    if (has_entry(rsv.uid)) {
+      continue;
+    }
+    const auto emax = scalar_of(rsv.emax);
+    if (!emax.has_value() || *emax <= 1000.0) {
+      continue;
+    }
+    // 10^ceil(log10(emax / 1000)) — round up to next power of 10.
+    const double raw = *emax / 1000.0;
+    const double energy_scale = std::pow(10.0, std::ceil(std::log10(raw)));
+    const double flow_scale = energy_scale / 1000.0;
+
+    opts.variable_scales.push_back(VariableScale {
+        .class_name = "Reservoir",
+        .variable = "energy",
+        .uid = rsv.uid,
+        .scale = energy_scale,
+        .name = rsv.name,
+    });
+    opts.variable_scales.push_back(VariableScale {
+        .class_name = "Reservoir",
+        .variable = "flow",
+        .uid = rsv.uid,
+        .scale = flow_scale,
+        .name = rsv.name,
+    });
+    ++count;
+  }
+
+  if (count > 0) {
+    spdlog::info(
+        "  Auto scale_reservoir: computed energy/flow scales for {} reservoirs",
+        count);
+  }
 }
 
 auto PlanningLP::create_systems(System& system,

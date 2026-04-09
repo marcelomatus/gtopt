@@ -52,6 +52,11 @@ private:
   /// that PlanningOptionsLP picks up the computed value.
   static void auto_scale_theta(Planning& planning);
 
+  /// Compute adaptive energy/flow scales for reservoirs from emax.
+  /// Injects VariableScale entries into `planning.options.variable_scales`
+  /// for reservoirs that don't already have explicit entries.
+  static void auto_scale_reservoirs(Planning& planning);
+
   /// Ensure multi-phase problems have at least minimal column names
   /// for state variable transfer (SDDP/cascade cut I/O).
   [[nodiscard]] static auto enforce_names_for_method(
@@ -91,6 +96,7 @@ public:
               if constexpr (!std::is_const_v<
                                 std::remove_reference_t<PlanningT>>) {
                 auto_scale_theta(planning);
+                auto_scale_reservoirs(planning);
               }
               return std::forward<PlanningT>(planning);
             }())

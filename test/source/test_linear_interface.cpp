@@ -2325,13 +2325,9 @@ TEST_CASE("LinearInterface — set_low_memory(0) discards flat LP")  // NOLINT
   // Disable low_memory — flat LP should be discarded
   li.set_low_memory(LowMemoryMode::off);
 
-  // release_backend without low_memory just resets the backend
+  // release_backend is a no-op when low_memory is off — backend stays alive
   li.release_backend();
-  CHECK_FALSE(li.has_backend());
-
-  // reconstruct_backend is a no-op (no saved flat LP)
-  li.reconstruct_backend();
-  CHECK_FALSE(li.has_backend());
+  CHECK(li.has_backend());
 }
 
 TEST_CASE("LinearInterface — clone with warm-start parameters")  // NOLINT

@@ -637,8 +637,8 @@ class JunctionWriter(BaseWriter):
             # exclusively via the ``variable_scales`` option in the planning
             # options section (written by GTOptWriter.process_variable_scales).
             # Do NOT emit energy_scale or energy_scale_mode on the reservoir.
-            rsv_scale_mode = self.options.get("rsv_scale_mode", "auto")
-            _ = rsv_scale_mode  # retained for potential future use
+            reservoir_scale_mode = self.options.get("reservoir_scale_mode", "auto")
+            _ = reservoir_scale_mode  # retained for potential future use
 
             # Small / independent reservoirs (PLP Hid_Indep='T') do not
             # carry state across blocks — disable the state variable.

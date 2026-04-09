@@ -126,8 +126,6 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
   }
 
   auto& src_li = src_sys.linear_interface();
-  src_li.set_log_context(sddp_log(
-      "LowMem", iteration_index, scene_uid(scene_index), phase_uid(src_phase)));
   const auto& src_state = phase_states[src_phase];
   const auto& plp = planning_lp().simulation().phases()[phase_index];
 
@@ -470,10 +468,6 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
     }
 
     auto& src_li = src_sys.linear_interface();
-    src_li.set_log_context(sddp_log("LowMem",
-                                    iteration_index,
-                                    scene_uid(scene_index),
-                                    phase_uid(src_phase)));
     const auto& src_state = phase_states[src_phase];
     const auto& plp = phases[phase_index];
 

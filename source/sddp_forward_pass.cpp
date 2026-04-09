@@ -111,10 +111,6 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
     }
 
     auto& li = system.linear_interface();
-    li.set_log_context(sddp_log("LowMem",
-                                iteration_index,
-                                scene_uid(scene_index),
-                                phase_uid(phase_index)));
 
     // Propagate state variables from previous phase.
     // Use the cached solution (not the live backend) so that the previous
@@ -203,50 +199,20 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
     // Solve directly — already running in a pool thread.
     auto result = li.resolve(effective_opts);
 
-    if (!result.has_value() || !li.is_optimal()) {
-      // Check for solve timeout: status 1 (abandoned) or 3 (other)
-      // when a time limit was set indicates a timeout
-      const auto status = li.get_status();
-      if (m_options_.solve_timeout > 0.0 && (status == 1 || status == 3)) {
-        // Write the timed-out LP for debugging
-        if (!m_options_.log_directory.empty()) {
-          std::filesystem::create_directories(m_options_.log_directory);
-          const auto timeout_stem =
-              (std::filesystem::path(m_options_.log_directory)
-               / std::format("timeout_scene_{}_phase_{}_iter_{}",
-                             scene_uid(scene_index),
-                             phase_uid(phase_index),
-                             iteration_index))
-                  .string();
-          if (auto lp_result = li.write_lp(timeout_stem)) {
-            spdlog::critical(
-                "{}: solve timeout ({:.1f}s) (status {}), LP saved to {}.lp",
-                sddp_log("Forward",
-                         iteration_index,
-                         scene_uid(scene_index),
-                         phase_uid(phase_index)),
-                m_options_.solve_timeout,
-                status,
-                timeout_stem);
-          } else {
-            spdlog::critical("{}: solve timeout ({:.1f}s) (status {}). {}",
-                             sddp_log("Forward",
-                                      iteration_index,
-                                      scene_uid(scene_index),
-                                      phase_uid(phase_index)),
-                             m_options_.solve_timeout,
-                             status,
-                             lp_result.error().message);
-          }
-        } else {
-          spdlog::critical("{}: solve timeout ({:.1f}s) (status {})",
-                           sddp_log("Forward",
-                                    iteration_index,
-                                    scene_uid(scene_index),
-                                    phase_uid(phase_index)),
-                           m_options_.solve_timeout,
-                           status);
-        }
+    // Capture status before any release — release loses specific codes.
+    const auto solve_status = li.get_status();
+
+    if (!result.has_value() || solve_status != 0) {
+      if (m_options_.solve_timeout > 0.0
+          && (solve_status == 1 || solve_status == 3))
+      {
+        spdlog::critical("{}: solve timeout ({:.1f}s) (status {})",
+                         sddp_log("Forward",
+                                  iteration_index,
+                                  scene_uid(scene_index),
+                                  phase_uid(phase_index)),
+                         m_options_.solve_timeout,
+                         solve_status);
         return std::unexpected(Error {
             .code = ErrorCode::SolverError,
             .message = std::format("{}: solve timeout ({:.1f}s) (status {})",
@@ -255,8 +221,8 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                                             scene_uid(scene_index),
                                             phase_uid(phase_index)),
                                    m_options_.solve_timeout,
-                                   status),
-            .status = status,
+                                   solve_status),
+            .status = solve_status,
         });
       }
 
@@ -265,10 +231,14 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                            iteration_index,
                            scene_uid(scene_index),
                            phase_uid(phase_index)),
-                  li.get_status());
+                  solve_status);
       // Clone the LP, apply elastic filter, and solve the clone.
       // The original LP remains unmodified (PLP clone pattern).
       auto elastic_result = elastic_solve(scene_index, phase_index, opts);
+
+      // Release solver backend — no-op when low_memory is off.
+      system.release_backend();
+
       if (elastic_result.has_value()) {
         auto& solved_li = elastic_result->clone;
         m_phase_grid_.record(iteration_index,
@@ -329,23 +299,12 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         if (!m_options_.log_directory.empty()
             && (is_first_phase || is_trace_debug))
         {
-          std::filesystem::create_directories(m_options_.log_directory);
-          const auto err_file = (std::filesystem::path(m_options_.log_directory)
-                                 / std::format(sddp_file::error_lp_fmt,
-                                               scene_uid(scene_index),
-                                               phase_uid(phase_index)))
-                                    .string();
-          if (auto lp_result = li.write_lp(err_file)) {
-            spdlog::warn("{}: saved infeasible LP to {}.lp",
-                         sddp_log("Forward",
-                                  iteration_index,
-                                  scene_uid(scene_index),
-                                  phase_uid(phase_index)),
-                         err_file);
-          } else {
-            spdlog::warn("{}", lp_result.error().message);
-          }
-          // LP diagnostic analysis is performed by run_gtopt after exit.
+          spdlog::warn("{}: infeasible LP (status {})",
+                       sddp_log("Forward",
+                                iteration_index,
+                                scene_uid(scene_index),
+                                phase_uid(phase_index)),
+                       solve_status);
         }
         return std::unexpected(Error {
             .code = ErrorCode::SolverError,
@@ -354,10 +313,13 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                                             iteration_index,
                                             scene_uid(scene_index),
                                             phase_uid(phase_index)),
-                                   li.get_status()),
+                                   solve_status),
         });
       }
     } else {
+      // Release solver backend — no-op when low_memory is off.
+      system.release_backend();
+
       // Phase solved normally – reset infeasibility counter
       m_infeasibility_counter_[scene_index][phase_index] = 0;
       m_phase_grid_.record(iteration_index,

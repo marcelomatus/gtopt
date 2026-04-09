@@ -527,10 +527,10 @@ def add_reservoir_battery_arguments(
 ) -> None:
     """Register reservoir-scale, battery-scale, variable-scales, soft-emin."""
     parser.add_argument(
-        "--rsv-scale-mode",
-        dest="rsv_scale_mode",
+        "--reservoir-scale-mode",
+        dest="reservoir_scale_mode",
         choices=["plp", "auto"],
-        default=conf.get("rsv_scale_mode", "auto"),
+        default=conf.get("reservoir_scale_mode", "auto"),
         help=(
             "How to determine the reservoir energy_scale factor. "
             "'auto' (default): delegate to C++ auto_scale mode which computes "
@@ -541,64 +541,53 @@ def add_reservoir_battery_arguments(
         ),
     )
     parser.add_argument(
-        "--rsv-energy-scale",
-        dest="rsv_energy_scale",
+        "--reservoir-energy-scale",
+        dest="reservoir_energy_scale",
         metavar="SPEC",
         default=None,
         help=(
             "Override reservoir energy scale for specific reservoirs as "
             "comma-separated name:value pairs. "
-            "Example: --rsv-energy-scale 'RAPEL:500,COLBUN:15000'. "
+            "Example: --reservoir-energy-scale 'RAPEL:500,COLBUN:15000'. "
             "These explicit values override auto-calculated scales. "
             "Emitted as variable_scales entries in the options section. "
-            "(default: not set — auto-scaling is used unless disabled)"
+            "(default: not set — gtopt auto-scales from emax)"
         ),
     )
     parser.add_argument(
-        "--auto-rsv-energy-scale",
-        dest="auto_rsv_energy_scale",
+        "--auto-reservoir-energy-scale",
+        dest="auto_reservoir_energy_scale",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help=(
-            "Emit reservoir energy_scale as variable_scales entries from the "
-            "PLP FEscala field: energy_scale = 10^(FEscala - 6). "
-            "FEscala is read from plpplem1.dat (CSV format, field 9) when "
-            "available; otherwise falls back to plpcnfce.dat Escala / 1e6. "
-            "Explicit --rsv-energy-scale entries override auto-calculated "
-            "values. "
-            "Auto-scale is ON by default since per-element energy_scale fields "
-            "have been removed from the C++ structs; variable_scales is now the "
-            "sole scaling mechanism. "
-            "Use --no-auto-rsv-energy-scale to disable PLP FEscala scales. "
+            "Emit reservoir energy_scale as variable_scales entries computed "
+            "from PLP FEscala / Escala fields. "
+            "OFF by default — gtopt auto-scales reservoirs from emax. "
             "(default: %(default)s)"
         ),
     )
     parser.add_argument(
-        "--bat-energy-scale",
-        dest="bat_energy_scale",
+        "--battery-energy-scale",
+        dest="battery_energy_scale",
         metavar="SPEC",
         default=None,
         help=(
             "Override battery energy scale for specific batteries as "
             "comma-separated name:value pairs. "
-            "Example: --bat-energy-scale 'BESS1:0.01,BESS2:100'. "
+            "Example: --battery-energy-scale 'BESS1:0.01,BESS2:100'. "
             "These explicit values override auto-calculated scales. "
             "Emitted as variable_scales entries in the options section. "
-            "(default: not set — auto-scaling is used unless disabled)"
+            "(default: not set — gtopt auto-scales from emax)"
         ),
     )
     parser.add_argument(
-        "--auto-bat-energy-scale",
-        dest="auto_bat_energy_scale",
+        "--auto-battery-energy-scale",
+        dest="auto_battery_energy_scale",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help=(
-            "Set energy_scale=0.01 for all PLP batteries. This scales the LP "
-            "energy variable for better solver numerics. "
-            "Explicit --bat-energy-scale entries override this default. "
-            "Scales are emitted as variable_scales entries in the options "
-            "section. "
-            "Use --no-auto-bat-energy-scale to disable. "
+            "Emit battery energy_scale=0.01 as variable_scales entries. "
+            "OFF by default — gtopt auto-scales from emax. "
             "(default: %(default)s)"
         ),
     )
@@ -627,7 +616,7 @@ def add_reservoir_battery_arguments(
             "into the variable_scales option. Each object must have: "
             "class_name, variable, uid, scale. "
             "File entries have LOWEST priority: auto-calculated and "
-            "--rsv-energy-scale/--bat-energy-scale values override them. "
+            "--reservoir-energy-scale/--battery-energy-scale values override them. "
             "(default: not set)"
         ),
     )

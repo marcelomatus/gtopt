@@ -191,11 +191,11 @@ class TestBuildOptions:
             "hot_start_cuts": False,
             "stationary_tol": None,
             "stationary_window": None,
-            "rsv_scale_mode": "auto",
-            "rsv_energy_scale": None,
-            "auto_rsv_energy_scale": False,
-            "bat_energy_scale": None,
-            "auto_bat_energy_scale": True,
+            "reservoir_scale_mode": "auto",
+            "reservoir_energy_scale": None,
+            "auto_reservoir_energy_scale": False,
+            "battery_energy_scale": None,
+            "auto_battery_energy_scale": False,
             "variable_scales_file": None,
             "soft_emin_cost": None,
             "embed_reservoir_constraints": False,
@@ -253,15 +253,15 @@ class TestBuildOptions:
         assert opts["model_options"]["reserve_fail_cost"] == 500.0
         assert opts["model_options"]["use_line_losses"] is True
 
-    def test_rsv_energy_scale_parsing(self):
-        args = self._make_args(rsv_energy_scale="RAPEL:500,COLBUN:15000")
+    def test_reservoir_energy_scale_parsing(self):
+        args = self._make_args(reservoir_energy_scale="RAPEL:500,COLBUN:15000")
         opts = build_options(args)
-        assert opts["rsv_energy_scale"] == {"RAPEL": 500.0, "COLBUN": 15000.0}
+        assert opts["reservoir_energy_scale"] == {"RAPEL": 500.0, "COLBUN": 15000.0}
 
-    def test_bat_energy_scale_parsing(self):
-        args = self._make_args(bat_energy_scale="BESS1:100")
+    def test_battery_energy_scale_parsing(self):
+        args = self._make_args(battery_energy_scale="BESS1:100")
         opts = build_options(args)
-        assert opts["bat_energy_scale"] == {"BESS1": 100.0}
+        assert opts["battery_energy_scale"] == {"BESS1": 100.0}
 
     def test_tech_overrides(self):
         with patch("plp2gtopt.tech_detect.load_overrides", return_value={"A": "solar"}):
@@ -485,4 +485,4 @@ def test_section_defaults_keys():
     """_SECTION_DEFAULTS contains expected configuration keys."""
     assert "compression" in _SECTION_DEFAULTS
     assert "solver_type" in _SECTION_DEFAULTS
-    assert "rsv_scale_mode" in _SECTION_DEFAULTS
+    assert "reservoir_scale_mode" in _SECTION_DEFAULTS

@@ -27,9 +27,8 @@ namespace gtopt
  *   up to the next power of 10, so LP variables stay in a well-conditioned
  *   range regardless of physical reservoir size.
  *   Formula: `energy_scale = 10^ceil(log10(emax / 1000))` when emax > 1000,
- *   else 1.0.  Matches PLP practice where ScaleVol values (Escala/1e6,
- *   10^(FEscala-6)) are powers of 10.
- *   An explicit `energy_scale` field on the element overrides auto.
+ *   else 1.0.
+ *   An explicit `variable_scales` entry for the element overrides auto.
  */
 enum class EnergyScaleMode : uint8_t
 {

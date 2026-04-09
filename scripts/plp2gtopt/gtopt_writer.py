@@ -976,10 +976,10 @@ class GTOptWriter:
         centrals = self.parser.parsed_data.get("central_parser", None)
 
         # Proceed if any storage source is available
-        has_bat = centrals and any(
+        has_battery = centrals and any(
             c.get("type") == "bateria" for c in centrals.centrals
         )
-        if battery_parser is None and ess_parser is None and not has_bat:
+        if battery_parser is None and ess_parser is None and not has_battery:
             return
 
         stages = self.parser.parsed_data.get("stage_parser", None)
@@ -1165,27 +1165,26 @@ class GTOptWriter:
         in ``PlanningOptions`` rather than per-element fields.
 
         Scale priority (highest to lowest):
-        1. Explicit ``--rsv-energy-scale`` / ``--energy-scale`` name:value.
-        2. ``--auto-rsv-energy-scale`` / ``--auto-energy-scale`` (ON default).
+        1. Explicit ``--reservoir-energy-scale`` / ``--battery-energy-scale``.
+        2. ``--auto-reservoir-energy-scale`` / ``--auto-battery-energy-scale``.
         3. ``--variable-scales-file`` entries (lowest priority).
 
-        Auto-scaling is enabled by default.  Use ``--no-auto-rsv-energy-scale``
-        and/or ``--no-auto-energy-scale`` to disable.
+        OFF by default — gtopt auto-scales reservoirs and batteries from emax.
         """
         if not options:
             return
 
         # Auto-scale is the default since per-element energy_scale fields have
         # been removed from the C++ structs. Use variable_scales exclusively.
-        has_rsv = "rsv_energy_scale" in options or options.get(
-            "auto_rsv_energy_scale", True
+        has_reservoir = "reservoir_energy_scale" in options or options.get(
+            "auto_reservoir_energy_scale", False
         )
-        has_bat = "bat_energy_scale" in options or options.get(
-            "auto_bat_energy_scale", False
+        has_battery = "battery_energy_scale" in options or options.get(
+            "auto_battery_energy_scale", False
         )
         has_file = "variable_scales_file" in options
 
-        if not has_rsv and not has_bat and not has_file:
+        if not has_reservoir and not has_battery and not has_file:
             return
 
         # --- Load file-based scales first (lowest priority) ---
@@ -1207,9 +1206,9 @@ class GTOptWriter:
         scales: list[dict] = []
 
         # --- Reservoir energy scales ---
-        if has_rsv:
-            explicit_rsv: dict = options.get("rsv_energy_scale", {})
-            auto_rsv = options.get("auto_rsv_energy_scale", False)
+        if has_reservoir:
+            explicit_reservoir: dict = options.get("reservoir_energy_scale", {})
+            auto_reservoir = options.get("auto_reservoir_energy_scale", False)
 
             # Collect FEscala data from planos parser (plpplem1.dat)
             planos = self.parser.parsed_data.get("planos_parser")
@@ -1233,11 +1232,11 @@ class GTOptWriter:
                 uid = rsv["uid"]
                 scale = None
 
-                # Priority 1: explicit --rsv-energy-scale
-                if name in explicit_rsv:
-                    scale = explicit_rsv[name]
+                # Priority 1: explicit --reservoir-energy-scale
+                if name in explicit_reservoir:
+                    scale = explicit_reservoir[name]
                 # Priority 2: auto-rsv-energy-scale
-                elif auto_rsv:
+                elif auto_reservoir:
                     # Try FEscala from plpplem1.dat first
                     fescala = fescala_map.get(name)
                     if fescala is not None:
@@ -1271,9 +1270,9 @@ class GTOptWriter:
                     computed_keys.add(("Reservoir", "flow", uid))
 
         # --- Battery energy scales ---
-        if has_bat:
-            explicit_energy: dict = options.get("bat_energy_scale", {})
-            auto_energy = options.get("auto_bat_energy_scale", False)
+        if has_battery:
+            explicit_energy: dict = options.get("battery_energy_scale", {})
+            auto_energy = options.get("auto_battery_energy_scale", False)
 
             batteries = self.planning["system"].get("battery_array", [])
             for bat in batteries:

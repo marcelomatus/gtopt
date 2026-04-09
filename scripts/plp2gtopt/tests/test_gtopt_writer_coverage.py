@@ -138,7 +138,7 @@ class TestProcessVariableScales:
         writer.process_variable_scales({})
         assert "variable_scales" not in writer.planning["options"]
 
-    def test_auto_rsv_energy_scale(self, tmp_path):
+    def test_auto_reservoir_energy_scale(self, tmp_path):
         """Auto reservoir energy scaling uses FEscala from planos parser."""
         parser = MagicMock()
         mock_planos = MagicMock()
@@ -159,15 +159,15 @@ class TestProcessVariableScales:
             },
             "simulation": {},
         }
-        writer.process_variable_scales({"auto_rsv_energy_scale": True})
+        writer.process_variable_scales({"auto_reservoir_energy_scale": True})
 
         scales = writer.planning["options"]["variable_scales"]
         rsv_energy = [s for s in scales if s["variable"] == "energy" and s["uid"] == 1]
         assert len(rsv_energy) == 1
         assert rsv_energy[0]["scale"] == pytest.approx(0.001)
 
-    def test_explicit_rsv_energy_scale(self):
-        """Explicit --rsv-energy-scale overrides auto."""
+    def test_explicit_reservoir_energy_scale(self):
+        """Explicit --reservoir-energy-scale overrides auto."""
         parser = MagicMock()
         parser.parsed_data = {
             "planos_parser": None,
@@ -184,15 +184,15 @@ class TestProcessVariableScales:
         }
         writer.process_variable_scales(
             {
-                "rsv_energy_scale": {"RSV1": 42.0},
-                "auto_rsv_energy_scale": True,
+                "reservoir_energy_scale": {"RSV1": 42.0},
+                "auto_reservoir_energy_scale": True,
             }
         )
         scales = writer.planning["options"]["variable_scales"]
         rsv_energy = [s for s in scales if s["variable"] == "energy" and s["uid"] == 1]
         assert rsv_energy[0]["scale"] == pytest.approx(42.0)
 
-    def test_auto_bat_energy_scale(self):
+    def test_auto_battery_energy_scale(self):
         """Auto battery energy scaling sets 0.01."""
         parser = MagicMock()
         parser.parsed_data = {
@@ -208,7 +208,7 @@ class TestProcessVariableScales:
             },
             "simulation": {},
         }
-        writer.process_variable_scales({"auto_bat_energy_scale": True})
+        writer.process_variable_scales({"auto_battery_energy_scale": True})
         scales = writer.planning["options"]["variable_scales"]
         bat_energy = [s for s in scales if s["variable"] == "energy" and s["uid"] == 10]
         assert len(bat_energy) == 1
@@ -217,8 +217,8 @@ class TestProcessVariableScales:
         bat_flow = [s for s in scales if s["variable"] == "flow" and s["uid"] == 10]
         assert len(bat_flow) == 1
 
-    def test_explicit_bat_energy_scale(self):
-        """Explicit --bat-energy-scale overrides auto."""
+    def test_explicit_battery_energy_scale(self):
+        """Explicit --battery-energy-scale overrides auto."""
         parser = MagicMock()
         parser.parsed_data = {
             "planos_parser": None,
@@ -235,8 +235,8 @@ class TestProcessVariableScales:
         }
         writer.process_variable_scales(
             {
-                "bat_energy_scale": {"BAT1": 0.5},
-                "auto_bat_energy_scale": True,
+                "battery_energy_scale": {"BAT1": 0.5},
+                "auto_battery_energy_scale": True,
             }
         )
         scales = writer.planning["options"]["variable_scales"]
@@ -311,7 +311,7 @@ class TestProcessVariableScales:
         }
         writer.process_variable_scales(
             {
-                "auto_rsv_energy_scale": True,
+                "auto_reservoir_energy_scale": True,
                 "variable_scales_file": str(file_path),
             }
         )
@@ -341,7 +341,7 @@ class TestProcessVariableScales:
             },
             "simulation": {},
         }
-        writer.process_variable_scales({"auto_rsv_energy_scale": True})
+        writer.process_variable_scales({"auto_reservoir_energy_scale": True})
         # scale=1.0 is filtered out
         assert "variable_scales" not in writer.planning["options"]
 

@@ -539,7 +539,7 @@ class TestProcessVariableScales:
     """Tests for GTOptWriter.process_variable_scales."""
 
     def test_reservoir_auto_scale(self, tmp_path):
-        """auto_rsv_energy_scale adds reservoir energy+flow scale entries."""
+        """auto_reservoir_energy_scale adds reservoir energy+flow scale entries."""
         parser = PLPParser({"input_dir": _PLPMin1Bus})
         parser.parse_all()
         writer = GTOptWriter(parser)
@@ -555,7 +555,7 @@ class TestProcessVariableScales:
         cp.centrals = [{"name": "rsv1", "type": "embalse", "energy_scale": 0.001}]
         writer.parser.parsed_data["central_parser"] = cp
 
-        writer.process_variable_scales({**opts, "auto_rsv_energy_scale": True})
+        writer.process_variable_scales({**opts, "auto_reservoir_energy_scale": True})
         scales = writer.planning["options"].get("variable_scales", [])
         rsv_scales = [s for s in scales if s["class_name"] == "Reservoir"]
         assert len(rsv_scales) == 2  # energy + flow
@@ -563,7 +563,7 @@ class TestProcessVariableScales:
         assert rsv_scales[1]["variable"] == "flow"
 
     def test_battery_auto_scale(self, tmp_path):
-        """auto_bat_energy_scale adds battery scale entries."""
+        """auto_battery_energy_scale adds battery scale entries."""
         parser = PLPParser({"input_dir": _PLPMin1Bus})
         parser.parse_all()
         writer = GTOptWriter(parser)
@@ -573,7 +573,7 @@ class TestProcessVariableScales:
         writer.planning["system"]["battery_array"] = [{"uid": 1, "name": "bat1"}]
         writer.planning["options"] = {}
 
-        writer.process_variable_scales({**opts, "auto_bat_energy_scale": True})
+        writer.process_variable_scales({**opts, "auto_battery_energy_scale": True})
         scales = writer.planning["options"].get("variable_scales", [])
         bat_scales = [s for s in scales if s["class_name"] == "Battery"]
         assert len(bat_scales) == 2

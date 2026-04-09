@@ -76,17 +76,12 @@ examples:
   # Apply a 10% annual discount rate
   plp2gtopt -i input/ -d 0.10
 
-  # Reservoir energy scaling: by default, FEscala-based variable_scales are
-  # automatically emitted. Override specific reservoirs:
-  plp2gtopt -i input/ --rsv-energy-scale 'RAPEL:500,COLBUN:15000'
-  # Override specific reservoirs with --rsv-energy-scale:
-  plp2gtopt -i input/ --rsv-energy-scale 'RAPEL:500,COLBUN:15000'
+  # Reservoir/battery energy scaling: gtopt auto-scales from emax by default.
+  # Override specific reservoirs:
+  plp2gtopt -i input/ --reservoir-energy-scale 'RAPEL:500,COLBUN:15000'
 
   # Override specific battery energy scales:
-  plp2gtopt -i input/ --bat-energy-scale 'BESS1:100'
-
-  # Disable auto-scaling for variable_scales output:
-  plp2gtopt -i input/ --no-auto-rsv-energy-scale --no-auto-bat-energy-scale
+  plp2gtopt -i input/ --battery-energy-scale 'BESS1:100'
 
   # Load additional variable scales from a JSON file (lowest priority):
   plp2gtopt -i input/ --variable-scales-file scales.json
@@ -193,7 +188,7 @@ _SECTION_DEFAULTS: dict[str, str] = {
     "state_fail_cost": "1000.0",
     "scale_objective": "1000.0",
     "discount_rate": "0.0",
-    "rsv_scale_mode": "auto",
+    "reservoir_scale_mode": "auto",
 }
 
 
@@ -304,13 +299,17 @@ def build_options(args: argparse.Namespace) -> dict:
         opts["stationary_tol"] = args.stationary_tol
     if args.stationary_window is not None:
         opts["stationary_window"] = args.stationary_window
-    opts["rsv_scale_mode"] = args.rsv_scale_mode
-    if args.rsv_energy_scale is not None:
-        opts["rsv_energy_scale"] = _parse_name_value_pairs(args.rsv_energy_scale)
-    opts["auto_rsv_energy_scale"] = args.auto_rsv_energy_scale
-    if args.bat_energy_scale is not None:
-        opts["bat_energy_scale"] = _parse_name_value_pairs(args.bat_energy_scale)
-    opts["auto_bat_energy_scale"] = args.auto_bat_energy_scale
+    opts["reservoir_scale_mode"] = args.reservoir_scale_mode
+    if args.reservoir_energy_scale is not None:
+        opts["reservoir_energy_scale"] = _parse_name_value_pairs(
+            args.reservoir_energy_scale
+        )
+    opts["auto_reservoir_energy_scale"] = args.auto_reservoir_energy_scale
+    if args.battery_energy_scale is not None:
+        opts["battery_energy_scale"] = _parse_name_value_pairs(
+            args.battery_energy_scale
+        )
+    opts["auto_battery_energy_scale"] = args.auto_battery_energy_scale
     if args.variable_scales_file is not None:
         opts["variable_scales_file"] = args.variable_scales_file
     opts["soft_emin_cost"] = args.soft_emin_cost
