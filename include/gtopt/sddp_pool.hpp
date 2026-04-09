@@ -137,11 +137,12 @@ public:
  * `std::less<SDDPTaskKey>` comparator (smaller tuple → higher priority).
  *
  * @param cpu_factor  Over-commit factor applied to hardware_concurrency.
- *                    Default 1.25.
+ *                    Default 2.0 — aperture tasks block on clone mutex,
+ *                    so extra threads keep CPUs busy while others wait.
  * @return A started SDDPWorkPool (heap-allocated, non-movable).
  */
 [[nodiscard]] inline std::unique_ptr<SDDPWorkPool> make_sddp_work_pool(
-    double cpu_factor = 1.25)
+    double cpu_factor = 2.0)
 {
   WorkPoolConfig pool_config {};
   pool_config.name = "SDDPWorkPool";
