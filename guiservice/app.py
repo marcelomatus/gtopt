@@ -662,6 +662,12 @@ def _build_zip(case_data):
     input_dir = case_data.get("options", {}).get("input_directory", case_name)
     input_format = case_data.get("options", {}).get("input_format", "csv")
 
+    # Ensure the JSON has input_directory matching the data file prefix
+    # so that gtopt can find the data files after zip extraction.
+    if "options" not in case_json:
+        case_json["options"] = {}
+    case_json["options"]["input_directory"] = input_dir
+
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         # Main JSON config

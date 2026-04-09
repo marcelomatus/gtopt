@@ -277,3 +277,32 @@ TEST_CASE("resolve_planning_args — no files, no auto-detect")  // NOLINT
   CHECK_FALSE(result.has_value());
   CHECK(result.error().find("no planning files given") != std::string::npos);
 }
+
+TEST_CASE(
+    "resolve_planning_args — file in CWD has no directory "
+    "overrides")  // NOLINT
+{
+  // When the planning file is specified without a directory prefix
+  // (just "case.json"), no directory overrides should be set because
+  // relative paths in the JSON already resolve against CWD correctly.
+  const TmpDir tmp("test_resolve_cwd_file");
+  const auto case_dir = tmp.path / "my_case";
+  std::filesystem::create_directories(case_dir);
+  touch_json(case_dir / "my_case.json");
+
+  const auto original_cwd = std::filesystem::current_path();
+  std::filesystem::current_path(case_dir);
+
+  const MainOptions opts {
+      .planning_files = {"my_case.json"},
+  };
+
+  auto result = resolve_planning_args(opts);
+  std::filesystem::current_path(original_cwd);
+
+  REQUIRE(result.has_value());
+  REQUIRE(result->planning_files.size() == 1);
+  CHECK(result->planning_files[0] == "my_case.json");
+  CHECK_FALSE(result->input_directory.has_value());
+  CHECK_FALSE(result->output_directory.has_value());
+}

@@ -72,3 +72,4 @@ cases/*/results/
 docs/**/*.out
 *.synctex.gz
 docs/white_paper/*.log
+cases/sddp_hydro_3phase/cuts/
