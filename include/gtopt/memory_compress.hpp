@@ -96,16 +96,4 @@ void decompress_flat_lp(FlatLinearProblem& flp, const CompressedBuffer& buf);
 /// preserving metadata (ncols, nrows, nnz, names, stats, etc.).
 void clear_flat_lp_vectors(FlatLinearProblem& flp);
 
-/// Compress primal (col_sol) and dual (row_dual) solution vectors.
-/// The buffer layout is: [col_size:size_t][col_sol data][row_dual data].
-[[nodiscard]] CompressedBuffer compress_solution(
-    std::span<const double> col_sol,
-    std::span<const double> row_dual,
-    MemoryCodec codec);
-
-/// Decompress a buffer previously created by compress_solution().
-void decompress_solution(std::vector<double>& col_sol,
-                         std::vector<double>& row_dual,
-                         const CompressedBuffer& buf);
-
 }  // namespace gtopt

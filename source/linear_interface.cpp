@@ -254,12 +254,8 @@ void LinearInterface::reconstruct_backend(std::span<const double> col_sol,
   }
 
   // 5. Load previous solution/duals for warm-start.
-  //    Use explicit arguments if provided, otherwise fall back to cached.
-  const auto& ws_col = col_sol.empty() ? m_snapshot_.cached_col_sol : col_sol;
-  const auto& ws_dual =
-      row_dual.empty() ? m_snapshot_.cached_row_dual : row_dual;
-  if (!ws_col.empty() || !ws_dual.empty()) {
-    set_warm_start_solution(ws_col, ws_dual);
+  if (!col_sol.empty() || !row_dual.empty()) {
+    set_warm_start_solution(col_sol, row_dual);
   }
 
   // 6. Free decompressed flat LP vectors — the data is now in the backend.
