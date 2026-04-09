@@ -1449,8 +1449,10 @@ class SolverDisplay:
     def start(self) -> None:
         """Launch the dashboard render thread."""
         self._start_time = time.monotonic()
-        # Initialize system stats (populated from log output and CLI flags)
-        self._system_stats = {}
+        # Initialize system stats from planning JSON so the method is
+        # displayed correctly from the very first frame.
+        json_path = _find_planning_json(self._case_dir)
+        self._system_stats = _load_system_stats(json_path)
         if self._solver_hint:
             self._system_stats["solver"] = self._solver_hint
         self._thread = threading.Thread(

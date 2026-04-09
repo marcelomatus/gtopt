@@ -69,7 +69,8 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   const auto stage_shutdown_cost =
       shutdown_cost_.optval(stage.uid()).value_or(0.0);
   const auto initial_u = commitment().initial_status.value_or(0.0);
-  const auto is_relax = commitment().relax.value_or(false);
+  const auto is_relax = commitment().relax.value_or(false)
+      || sc.options().is_phase_relaxed(stage.phase_index());
   const auto is_must_run = commitment().must_run.value_or(false);
   const auto opt_ramp_up = commitment().ramp_up;
   const auto opt_ramp_down = commitment().ramp_down;
@@ -128,45 +129,86 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
 
   const auto st_key = std::pair {scenario.uid(), stage.uid()};
 
-  BIndexHolder<ColIndex> ucols;
+  // ── Compute commitment periods ──
+  // When commitment_period is set, binary variables (u/v/w) are created at
+  // a coarser resolution.  Each period groups consecutive blocks whose
+  // cumulative duration fits within commitment_period hours.
+  // Default: one period per block (commitment_period not set).
+  const auto opt_period = commitment().commitment_period;
+  const auto period_hours = opt_period.value_or(0.0);  // 0 = per-block
+
+  // Period grouping: each entry is the index of the first block in a period.
+  // period_starts[k] = index into blocks[] where period k begins.
+  // A final sentinel equal to blocks.size() marks the end.
+  std::vector<size_t> period_starts;
+  period_starts.push_back(0);
+  if (period_hours > 0.0) {
+    double accum = 0.0;
+    for (size_t i = 0; i < blocks.size(); ++i) {
+      accum += blocks[i].duration();
+      if (accum >= period_hours - 1e-9 && i + 1 < blocks.size()) {
+        period_starts.push_back(i + 1);
+        accum = 0.0;
+      }
+    }
+  } else {
+    // One period per block
+    for (size_t i = 1; i < blocks.size(); ++i) {
+      period_starts.push_back(i);
+    }
+  }
+  const auto nperiods = period_starts.size();
+
+  // Map every block index → its period index
+  std::vector<size_t> block_period(blocks.size());
+  for (size_t p = 0; p < nperiods; ++p) {
+    const auto start = period_starts[p];
+    const auto end = (p + 1 < nperiods) ? period_starts[p + 1] : blocks.size();
+    for (size_t i = start; i < end; ++i) {
+      block_period[i] = p;
+    }
+  }
+
+  // ── Phase A: Create u/v/w per commitment period, C1 and C3 ──
+  BIndexHolder<ColIndex> ucols;  // period representative buid → u col
   BIndexHolder<ColIndex> vcols;
   BIndexHolder<ColIndex> wcols;
   BIndexHolder<RowIndex> lrows;
-  BIndexHolder<RowIndex> gurows;
-  BIndexHolder<RowIndex> glrows;
   BIndexHolder<RowIndex> erows;
-  BIndexHolder<RowIndex> rurows;
-  BIndexHolder<RowIndex> rdrows;
-  map_reserve(ucols, blocks.size());
-  map_reserve(vcols, blocks.size());
-  map_reserve(wcols, blocks.size());
-  map_reserve(lrows, blocks.size());
-  map_reserve(gurows, blocks.size());
-  map_reserve(glrows, blocks.size());
-  map_reserve(erows, blocks.size());
-  map_reserve(rurows, blocks.size());
-  map_reserve(rdrows, blocks.size());
+  map_reserve(ucols, nperiods);
+  map_reserve(vcols, nperiods);
+  map_reserve(wcols, nperiods);
+  map_reserve(lrows, nperiods);
+  map_reserve(erows, nperiods);
+
+  // block_ucol maps EVERY block uid → its period's u column
+  BIndexHolder<ColIndex> block_ucol;
+  map_reserve(block_ucol, blocks.size());
 
   ColIndex prev_ucol {};
-  ColIndex prev_gcol {};
-  bool first_block = true;
+  bool first_period = true;
 
-  for (const auto& block : blocks) {
-    const auto buid = block.uid();
-    const auto ctx =
-        make_block_context(scenario.uid(), stage.uid(), block.uid());
+  for (size_t p = 0; p < nperiods; ++p) {
+    const auto pstart = period_starts[p];
+    const auto pend = (p + 1 < nperiods) ? period_starts[p + 1] : blocks.size();
 
-    const auto gcol_it = generation_cols.find(buid);
-    if (gcol_it == generation_cols.end()) {
-      continue;
+    // Period representative block (first block in the period)
+    const auto& rep_block = blocks[pstart];
+    const auto rep_buid = rep_block.uid();
+    const auto ctx = make_block_context(scenario.uid(), stage.uid(), rep_buid);
+
+    // Accumulate period duration for noload cost
+    double period_duration = 0.0;
+    for (size_t i = pstart; i < pend; ++i) {
+      period_duration += blocks[i].duration();
     }
-    const auto gcol = gcol_it->second;
-
-    const auto gen_pmax = lp.get_col_uppb(gcol);
-    const auto gen_pmin = lp.get_col_lowb(gcol);
 
     // ── Create u (status) variable ──
-    const auto u_cost = CostHelper::block_ecost(scenario, stage, block, noload);
+    // Noload cost is proportional to the period duration, not block duration.
+    // Use the representative block for probability/discount factors.
+    const auto u_cost =
+        CostHelper::block_ecost(scenario, stage, rep_block, noload)
+        * (period_duration / rep_block.duration());
     auto ucol = lp.add_col({
         .lowb = is_must_run ? 1.0 : 0.0,
         .uppb = 1.0,
@@ -177,14 +219,18 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
         .variable_uid = cuid,
         .context = ctx,
     });
-    ucols[buid] = ucol;
+    ucols[rep_buid] = ucol;
+
+    // Map all blocks in this period to the same u column
+    for (size_t i = pstart; i < pend; ++i) {
+      block_ucol[blocks[i].uid()] = ucol;
+    }
 
     // ── Create v (startup) variable ──
-    // When startup tiers are active, v[t] cost is zero — cost is carried
-    // by the hot/warm/cold tier variables instead.
     const auto v_cost = has_startup_tiers
         ? 0.0
-        : CostHelper::block_ecost(scenario, stage, block, stage_startup_cost);
+        : CostHelper::block_ecost(
+              scenario, stage, rep_block, stage_startup_cost);
     auto vcol = lp.add_col({
         .lowb = 0.0,
         .uppb = 1.0,
@@ -195,11 +241,11 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
         .variable_uid = cuid,
         .context = ctx,
     });
-    vcols[buid] = vcol;
+    vcols[rep_buid] = vcol;
 
     // ── Create w (shutdown) variable ──
-    const auto w_cost =
-        CostHelper::block_ecost(scenario, stage, block, stage_shutdown_cost);
+    const auto w_cost = CostHelper::block_ecost(
+        scenario, stage, rep_block, stage_shutdown_cost);
     auto wcol = lp.add_col({
         .lowb = 0.0,
         .uppb = 1.0,
@@ -210,11 +256,85 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
         .variable_uid = cuid,
         .context = ctx,
     });
-    wcols[buid] = wcol;
+    wcols[rep_buid] = wcol;
+
+    // ── C1: Logic transition (per period) ──
+    // u[p] - u[p-1] - v[p] + w[p] = 0
+    // For first period: u[0] - v[0] + w[0] = initial_status
+    {
+      auto row =
+          SparseRow {
+              .class_name = cname,
+              .constraint_name = LogicName,
+              .variable_uid = cuid,
+              .context = ctx,
+          }
+              .equal(first_period ? initial_u : 0.0);
+      row[ucol] = 1.0;
+      if (!first_period) {
+        row[prev_ucol] = -1.0;
+      }
+      row[vcol] = -1.0;
+      row[wcol] = 1.0;
+      lrows[rep_buid] = lp.add_row(std::move(row));
+    }
+
+    // ── C3: Exclusion (per period): v[p] + w[p] <= 1 ──
+    {
+      auto row =
+          SparseRow {
+              .class_name = cname,
+              .constraint_name = ExclusionName,
+              .variable_uid = cuid,
+              .context = ctx,
+          }
+              .less_equal(1.0);
+      row[vcol] = 1.0;
+      row[wcol] = 1.0;
+      erows[rep_buid] = lp.add_row(std::move(row));
+    }
+
+    prev_ucol = ucol;
+    first_period = false;
+  }
+
+  // ── Phase B: Per-block constraints (C2, ramp, emission, segments) ──
+  // Each block references its period's u column via block_ucol.
+  BIndexHolder<RowIndex> gurows;
+  BIndexHolder<RowIndex> glrows;
+  BIndexHolder<RowIndex> rurows;
+  BIndexHolder<RowIndex> rdrows;
+  map_reserve(gurows, blocks.size());
+  map_reserve(glrows, blocks.size());
+  map_reserve(rurows, blocks.size());
+  map_reserve(rdrows, blocks.size());
+
+  ColIndex prev_gcol {};
+  ColIndex prev_block_ucol {};
+  bool first_block = true;
+
+  for (size_t bidx = 0; bidx < blocks.size(); ++bidx) {
+    const auto& block = blocks[bidx];
+    const auto buid = block.uid();
+    const auto ctx = make_block_context(scenario.uid(), stage.uid(), buid);
+
+    const auto gcol_it = generation_cols.find(buid);
+    if (gcol_it == generation_cols.end()) {
+      continue;
+    }
+    const auto gcol = gcol_it->second;
+    const auto ucol = block_ucol.at(buid);
+
+    // Look up period's v/w for ramp constraints
+    const auto pidx = block_period[bidx];
+    const auto rep_buid = blocks[period_starts[pidx]].uid();
+    const auto vcol = vcols.at(rep_buid);
+    const auto wcol = wcols.at(rep_buid);
+
+    const auto gen_pmax = lp.get_col_uppb(gcol);
+    const auto gen_pmin = lp.get_col_lowb(gcol);
 
     // ── C2: Generation upper bound: p - Pmax*u <= 0 ──
-    // Widen the generation variable to [0, Pmax] since pmin is now
-    // enforced conditionally via Pmin*u.
     auto& gcol_ref = lp.col_at(gcol);
     gcol_ref.lowb = 0.0;
 
@@ -247,44 +367,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       glrows[buid] = lp.add_row(std::move(row));
     }
 
-    // ── C1: Logic transition ──
-    // u[t] - u[t-1] - v[t] + w[t] = 0
-    // For first block: u[0] - v[0] + w[0] = initial_status
-    {
-      auto row =
-          SparseRow {
-              .class_name = cname,
-              .constraint_name = LogicName,
-              .variable_uid = cuid,
-              .context = ctx,
-          }
-              .equal(first_block ? initial_u : 0.0);
-      row[ucol] = 1.0;
-      if (!first_block) {
-        row[prev_ucol] = -1.0;
-      }
-      row[vcol] = -1.0;
-      row[wcol] = 1.0;
-      lrows[buid] = lp.add_row(std::move(row));
-    }
-
-    // ── C3: Exclusion: v[t] + w[t] <= 1 ──
-    {
-      auto row =
-          SparseRow {
-              .class_name = cname,
-              .constraint_name = ExclusionName,
-              .variable_uid = cuid,
-              .context = ctx,
-          }
-              .less_equal(1.0);
-      row[vcol] = 1.0;
-      row[wcol] = 1.0;
-      erows[buid] = lp.add_row(std::move(row));
-    }
-
     // ── C4: Ramp up: p[t] - p[t-1] ≤ RU·u[t-1] + SU·v[t] ──
-    // Only when ramp_up or startup_ramp is defined
     if (opt_ramp_up.has_value() || opt_startup_ramp.has_value()) {
       const auto ru = opt_ramp_up.value_or(gen_pmax) * block.duration();
       const auto su = opt_startup_ramp.value_or(gen_pmax);
@@ -303,10 +386,9 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       if (first_block) {
         // p[0] ≤ RU·u_init + SU·(1-u_init) + p_prev
         // For simplicity, p_prev is not tracked across stages.
-        // RHS already includes the initial contribution.
       } else {
         row[prev_gcol] = -1.0;
-        row[prev_ucol] = -ru;
+        row[prev_block_ucol] = -ru;
         row[vcol] = -su;
       }
       rurows[buid] = lp.add_row(std::move(row));
@@ -329,7 +411,6 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
                               : 0.0);
       row[gcol] = -1.0;
       if (first_block) {
-        // -p[0] ≤ RD·u_init + SD·(1-u_init) - p_prev
         // RHS includes the initial contribution.
       } else {
         row[prev_gcol] = 1.0;
@@ -340,9 +421,6 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     }
 
     // ── Emission cost adder on generation variable ──
-    // For non-segment generators: use generator's emission_factor [tCO2/MWh]
-    // For segment generators: emission is handled per-segment below using
-    //   fuel_emission_factor [tCO2/GJ] × heat_rate_k [GJ/MWh]
     if (stage_emission_cost > 0.0 && stage_emission_factor > 0.0
         && !has_segments)
     {
@@ -352,27 +430,9 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     }
 
     // ── Piecewise heat rate curve ──
-    // Literature formulation (Morales-España, Carrión & Arroyo):
-    //   p = Pmin·u + δ_1 + ... + δ_K              (linking)
-    //   0 ≤ δ_k ≤ w_k · u                         (segment bounds)
-    //   cost(δ_k) = fuel_cost × heat_rate_k        (per-segment cost)
-    //
-    // The segment bounds δ_k ≤ w_k·u ensure zero output when uncommitted.
-    // Filling order is natural: increasing heat rates → increasing costs.
     if (has_segments && stage_fuel_cost > 0.0) {
-      // Zero out the original generation cost — segments carry cost now.
-      // Any emission cost that was added above is also zeroed; emission
-      // cost is re-added to each segment variable below.
       gcol_ref.cost = 0.0;
 
-      // Emission cost per MWh for segments: prefer fuel_emission_factor × h_k,
-      // fall back to generator emission_factor if fuel_emission_factor not set.
-      // seg_emission_base is the per-MWh factor BEFORE multiplying by h_k.
-      // When fuel_emission_factor is available: emission/MWh = ef × h_k,
-      // so seg_emission_base = emission_cost × fuel_emission_factor (multiply
-      // by h_k per segment below).
-      // When only generator emission_factor: emission/MWh is constant,
-      // so seg_emission_base = emission_cost × emission_factor (no h_k factor).
       const bool use_fuel_ef = stage_fuel_ef > 0.0 && stage_emission_cost > 0.0;
       double seg_emission_base = 0.0;
       if (use_fuel_ef) {
@@ -401,9 +461,6 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
           continue;
         }
 
-        // Segment cost = fuel_cost × h_k + emission_adder
-        // When fuel_emission_factor is set: emission_adder = ec × ef × h_k
-        // Otherwise: emission_adder = ec × gen_emission_factor (constant)
         const auto seg_emission =
             use_fuel_ef ? seg_emission_base * hr_segs[k] : seg_emission_base;
         const auto seg_marginal = (stage_fuel_cost * hr_segs[k]) + seg_emission;
@@ -411,11 +468,8 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
             CostHelper::block_ecost(scenario, stage, block, seg_marginal);
 
         const auto seg_ctx =
-            make_block_context(scenario.uid(), stage.uid(), block.uid());
+            make_block_context(scenario.uid(), stage.uid(), buid);
 
-        // Create segment variable δ_k with bounds [0, w_k]
-        // The commitment-dependent bound δ_k ≤ w_k·u is enforced by
-        // a separate constraint row below.
         auto seg_col = lp.add_col({
             .lowb = 0.0,
             .uppb = seg_width,
@@ -426,7 +480,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
             .context = seg_ctx,
         });
 
-        // Segment bound row: δ_k - w_k·u ≤ 0  →  δ_k ≤ w_k·u
+        // Segment bound: δ_k ≤ w_k·u
         {
           auto seg_bound_row =
               SparseRow {
@@ -449,7 +503,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       segment_link_rows_[st_key][buid] = lp.add_row(std::move(link_row));
     }
 
-    prev_ucol = ucol;
+    prev_block_ucol = ucol;
     prev_gcol = gcol;
     first_block = false;
   }
@@ -458,15 +512,15 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   // Modify existing reserve provision headroom rows to be conditional on u.
   // Up-provision:   g + r_up ≤ Pmax      →  g + r_up - Pmax·u ≤ 0
   // Down-provision: g - r_dn ≥ Pmin      →  g - r_dn - Pmin·u ≥ 0
-  if (!ucols.empty()) {
+  if (!block_ucol.empty()) {
     for (const auto& rprov : sc.elements<ReserveProvisionLP>()) {
       if (rprov.generator_sid() != generator_sid()) {
         continue;
       }
       for (const auto& block : blocks) {
         const auto buid = block.uid();
-        const auto ucol_it = ucols.find(buid);
-        if (ucol_it == ucols.end()) {
+        const auto ucol_it = block_ucol.find(buid);
+        if (ucol_it == block_ucol.end()) {
           continue;
         }
         const auto ucol = ucol_it->second;
@@ -494,29 +548,41 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     }
   }
 
-  // ── C6: Min up time ──
-  // Σ_{τ=t}^{min(t+UT-1,T)} u[τ] ≥ UT_blocks · v[t]
-  // For each block t where v[t] exists, sum u[τ] over the next UT blocks.
+  // ── C6: Min up time (at period level) ──
+  // Σ_{q=p}^{min(p+UT_periods-1,P)} u[q] ≥ UT_periods · v[p]
+  // Accumulates period durations to find how many periods cover min_up_hours.
   const auto min_up_hours = commitment().min_up_time.value_or(0.0);
   if (min_up_hours > 0.0 && !ucols.empty() && !vcols.empty()) {
     BIndexHolder<RowIndex> mut_rows;
-    // Convert hours to block count using block durations
-    const auto nblocks = blocks.size();
-    for (size_t t = 0; t < nblocks; ++t) {
-      const auto buid_t = blocks[t].uid();
-      const auto vcol_it = vcols.find(buid_t);
+
+    // Compute period durations
+    std::vector<double> period_dur(nperiods);
+    for (size_t p = 0; p < nperiods; ++p) {
+      const auto pstart = period_starts[p];
+      const auto pend =
+          (p + 1 < nperiods) ? period_starts[p + 1] : blocks.size();
+      double dur = 0.0;
+      for (size_t i = pstart; i < pend; ++i) {
+        dur += blocks[i].duration();
+      }
+      period_dur[p] = dur;
+    }
+
+    for (size_t p = 0; p < nperiods; ++p) {
+      const auto rep_buid = blocks[period_starts[p]].uid();
+      const auto vcol_it = vcols.find(rep_buid);
       if (vcol_it == vcols.end()) {
         continue;
       }
 
-      // Count how many blocks from t onward cover min_up_hours
+      // Count how many periods from p onward cover min_up_hours
       double accum_hours = 0.0;
-      size_t ut_blocks = 0;
-      for (size_t tau = t; tau < nblocks && accum_hours < min_up_hours; ++tau) {
-        accum_hours += blocks[tau].duration();
-        ++ut_blocks;
+      size_t ut_periods = 0;
+      for (size_t q = p; q < nperiods && accum_hours < min_up_hours; ++q) {
+        accum_hours += period_dur[q];
+        ++ut_periods;
       }
-      if (ut_blocks <= 1) {
+      if (ut_periods <= 1) {
         continue;  // trivially satisfied
       }
 
@@ -526,81 +592,93 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
               .constraint_name = MinUpTimeName,
               .variable_uid = cuid,
               .context =
-                  make_block_context(scenario.uid(), stage.uid(), buid_t),
+                  make_block_context(scenario.uid(), stage.uid(), rep_buid),
           }
               .greater_equal(0.0);
-      // Σ u[τ] - UT_blocks · v[t] ≥ 0
-      for (size_t tau = t; tau < t + ut_blocks && tau < nblocks; ++tau) {
-        const auto ucol_it = ucols.find(blocks[tau].uid());
+      // Σ u[q] - UT_periods · v[p] ≥ 0
+      for (size_t q = p; q < p + ut_periods && q < nperiods; ++q) {
+        const auto q_buid = blocks[period_starts[q]].uid();
+        const auto ucol_it = ucols.find(q_buid);
         if (ucol_it != ucols.end()) {
           row[ucol_it->second] = 1.0;
         }
       }
-      row[vcol_it->second] = -static_cast<double>(ut_blocks);
-      mut_rows[buid_t] = lp.add_row(std::move(row));
+      row[vcol_it->second] = -static_cast<double>(ut_periods);
+      mut_rows[rep_buid] = lp.add_row(std::move(row));
     }
     if (!mut_rows.empty()) {
       min_up_time_rows_[st_key] = std::move(mut_rows);
     }
   }
 
-  // ── C7: Min down time ──
-  // Σ_{τ=t}^{min(t+DT-1,T)} (1 - u[τ]) ≥ DT_blocks · w[t]
-  // Rearranged: -Σ u[τ] ≥ DT_blocks · w[t] - (span)
-  //          →  Σ u[τ] + DT_blocks · w[t] ≤ span
+  // ── C7: Min down time (at period level) ──
+  // Σ_{q=p}^{min(p+DT_periods-1,P)} (1 - u[q]) ≥ DT_periods · w[p]
+  // Rearranged: Σ u[q] + DT_periods · w[p] ≤ span
   const auto min_down_hours = commitment().min_down_time.value_or(0.0);
   if (min_down_hours > 0.0 && !ucols.empty() && !wcols.empty()) {
     BIndexHolder<RowIndex> mdt_rows;
-    const auto nblocks = blocks.size();
-    for (size_t t = 0; t < nblocks; ++t) {
-      const auto buid_t = blocks[t].uid();
-      const auto wcol_it = wcols.find(buid_t);
+
+    // Reuse or recompute period_dur if not already computed
+    std::vector<double> pd(nperiods);
+    for (size_t p = 0; p < nperiods; ++p) {
+      const auto ps = period_starts[p];
+      const auto pe = (p + 1 < nperiods) ? period_starts[p + 1] : blocks.size();
+      double dur = 0.0;
+      for (size_t i = ps; i < pe; ++i) {
+        dur += blocks[i].duration();
+      }
+      pd[p] = dur;
+    }
+
+    for (size_t p = 0; p < nperiods; ++p) {
+      const auto rep_buid = blocks[period_starts[p]].uid();
+      const auto wcol_it = wcols.find(rep_buid);
       if (wcol_it == wcols.end()) {
         continue;
       }
 
       double accum_hours = 0.0;
-      size_t dt_blocks = 0;
-      for (size_t tau = t; tau < nblocks && accum_hours < min_down_hours; ++tau)
-      {
-        accum_hours += blocks[tau].duration();
-        ++dt_blocks;
+      size_t dt_periods = 0;
+      for (size_t q = p; q < nperiods && accum_hours < min_down_hours; ++q) {
+        accum_hours += pd[q];
+        ++dt_periods;
       }
-      if (dt_blocks <= 1) {
+      if (dt_periods <= 1) {
         continue;
       }
 
-      const auto span = std::min(t + dt_blocks, nblocks) - t;
+      const auto span = std::min(p + dt_periods, nperiods) - p;
       auto row =
           SparseRow {
               .class_name = cname,
               .constraint_name = MinDownTimeName,
               .variable_uid = cuid,
               .context =
-                  make_block_context(scenario.uid(), stage.uid(), buid_t),
+                  make_block_context(scenario.uid(), stage.uid(), rep_buid),
           }
               .less_equal(static_cast<double>(span));
-      // Σ u[τ] + DT_blocks · w[t] ≤ span
-      for (size_t tau = t; tau < t + dt_blocks && tau < nblocks; ++tau) {
-        const auto ucol_it = ucols.find(blocks[tau].uid());
+      // Σ u[q] + DT_periods · w[p] ≤ span
+      for (size_t q = p; q < p + dt_periods && q < nperiods; ++q) {
+        const auto q_buid = blocks[period_starts[q]].uid();
+        const auto ucol_it = ucols.find(q_buid);
         if (ucol_it != ucols.end()) {
           row[ucol_it->second] = 1.0;
         }
       }
-      row[wcol_it->second] = static_cast<double>(dt_blocks);
-      mdt_rows[buid_t] = lp.add_row(std::move(row));
+      row[wcol_it->second] = static_cast<double>(dt_periods);
+      mdt_rows[rep_buid] = lp.add_row(std::move(row));
     }
     if (!mdt_rows.empty()) {
       min_down_time_rows_[st_key] = std::move(mdt_rows);
     }
   }
 
-  // ── C8/C9/C10: Hot/warm/cold startup cost tiers ──
-  // When all tier parameters are defined, create per-block tier variables
+  // ── C8/C9/C10: Hot/warm/cold startup cost tiers (per period) ──
+  // When all tier parameters are defined, create per-period tier variables
   // y_hot, y_warm, y_cold with constraints:
-  //   C8: v[t] = y_hot[t] + y_warm[t] + y_cold[t]  (type selection)
-  //   C9: y_hot[t] ≤ Σ w[τ] for τ in hot window    (recent shutdown)
-  //   C10: y_warm[t] ≤ Σ w[τ] for τ in warm window  (medium offline)
+  //   C8: v[p] = y_hot[p] + y_warm[p] + y_cold[p]  (type selection)
+  //   C9: y_hot[p] ≤ Σ w[q] for q in hot window    (recent shutdown)
+  //   C10: y_warm[p] ≤ Σ w[q] for q in warm window  (medium offline)
   //   cold start is the residual via C8.
   if (has_startup_tiers && !vcols.empty() && !wcols.empty()) {
     const auto hot_cost = *opt_hot_cost;
@@ -608,8 +686,31 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     const auto cold_cost = *opt_cold_cost;
     const auto hot_time = *opt_hot_time;
     const auto cold_time = *opt_cold_time;
+
+    // Validate: cold_time must be >= hot_time (cold = longer offline)
+    if (cold_time < hot_time) {
+      spdlog::warn(
+          "Commitment {}: cold_start_time ({}) < hot_start_time ({}), "
+          "skipping startup tiers",
+          commitment().name,
+          cold_time,
+          hot_time);
+      return true;
+    }
     const auto initial_hours_offline =
         (initial_u < 0.5) ? commitment().initial_hours.value_or(1e6) : 0.0;
+
+    // Compute period durations for window counting
+    std::vector<double> pdur(nperiods);
+    for (size_t p = 0; p < nperiods; ++p) {
+      const auto ps = period_starts[p];
+      const auto pe = (p + 1 < nperiods) ? period_starts[p + 1] : blocks.size();
+      double dur = 0.0;
+      for (size_t i = ps; i < pe; ++i) {
+        dur += blocks[i].duration();
+      }
+      pdur[p] = dur;
+    }
 
     BIndexHolder<ColIndex> hcols;
     BIndexHolder<ColIndex> wmcols;
@@ -618,19 +719,20 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     BIndexHolder<RowIndex> hr_rows;
     BIndexHolder<RowIndex> wr_rows;
 
-    const auto nblocks = blocks.size();
-    for (size_t t = 0; t < nblocks; ++t) {
-      const auto buid_t = blocks[t].uid();
-      const auto vcol_it = vcols.find(buid_t);
+    for (size_t p = 0; p < nperiods; ++p) {
+      const auto rep_buid = blocks[period_starts[p]].uid();
+      const auto vcol_it = vcols.find(rep_buid);
       if (vcol_it == vcols.end()) {
         continue;
       }
 
-      const auto bctx = make_block_context(scenario.uid(), stage.uid(), buid_t);
+      const auto bctx =
+          make_block_context(scenario.uid(), stage.uid(), rep_buid);
+      const auto& rep_block = blocks[period_starts[p]];
 
       // Create tier variables with their respective costs
       const auto h_cost =
-          CostHelper::block_ecost(scenario, stage, blocks[t], hot_cost);
+          CostHelper::block_ecost(scenario, stage, rep_block, hot_cost);
       auto hcol = lp.add_col({
           .lowb = 0.0,
           .uppb = 1.0,
@@ -641,10 +743,10 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
           .variable_uid = cuid,
           .context = bctx,
       });
-      hcols[buid_t] = hcol;
+      hcols[rep_buid] = hcol;
 
       const auto wm_cost =
-          CostHelper::block_ecost(scenario, stage, blocks[t], warm_cost);
+          CostHelper::block_ecost(scenario, stage, rep_block, warm_cost);
       auto wmcol = lp.add_col({
           .lowb = 0.0,
           .uppb = 1.0,
@@ -655,10 +757,10 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
           .variable_uid = cuid,
           .context = bctx,
       });
-      wmcols[buid_t] = wmcol;
+      wmcols[rep_buid] = wmcol;
 
       const auto c_cost =
-          CostHelper::block_ecost(scenario, stage, blocks[t], cold_cost);
+          CostHelper::block_ecost(scenario, stage, rep_block, cold_cost);
       auto ccol = lp.add_col({
           .lowb = 0.0,
           .uppb = 1.0,
@@ -669,9 +771,9 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
           .variable_uid = cuid,
           .context = bctx,
       });
-      ccols[buid_t] = ccol;
+      ccols[rep_buid] = ccol;
 
-      // C8: v[t] - y_hot[t] - y_warm[t] - y_cold[t] = 0
+      // C8: v[p] - y_hot[p] - y_warm[p] - y_cold[p] = 0
       {
         auto row =
             SparseRow {
@@ -685,32 +787,25 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
         row[hcol] = -1.0;
         row[wmcol] = -1.0;
         row[ccol] = -1.0;
-        st_rows[buid_t] = lp.add_row(std::move(row));
+        st_rows[rep_buid] = lp.add_row(std::move(row));
       }
 
-      // Convert hot/cold time thresholds to block indices by accumulating
-      // block durations backwards from block t.
-      // hot window: blocks in [t - hot_blocks, t-1] where offline < hot_time
-      // warm window: blocks in [t - cold_blocks, t - hot_blocks - 1]
-
-      // Count blocks back from t that cover hot_time hours
+      // Count periods back from p that cover hot_time / cold_time hours
       double accum = 0.0;
-      size_t hot_blocks = 0;
-      for (size_t b = t; b > 0 && accum < hot_time; --b) {
-        accum += blocks[b - 1].duration();
-        ++hot_blocks;
+      size_t hot_periods = 0;
+      for (size_t q = p; q > 0 && accum < hot_time; --q) {
+        accum += pdur[q - 1];
+        ++hot_periods;
       }
 
       accum = 0.0;
-      size_t cold_blocks = 0;
-      for (size_t b = t; b > 0 && accum < cold_time; --b) {
-        accum += blocks[b - 1].duration();
-        ++cold_blocks;
+      size_t cold_periods = 0;
+      for (size_t q = p; q > 0 && accum < cold_time; --q) {
+        accum += pdur[q - 1];
+        ++cold_periods;
       }
 
-      // C9: y_hot[t] ≤ Σ w[τ] for τ in [t-hot_blocks, t-1]
-      //     + initial contribution if t is near start and unit was offline
-      //     for less than hot_time hours
+      // C9: y_hot[p] ≤ Σ w[q] for q in [p-hot_periods, p-1]
       {
         auto row =
             SparseRow {
@@ -721,21 +816,20 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
             }
                 .less_equal(0.0);
         row[hcol] = 1.0;
-        for (size_t b = (t > hot_blocks ? t - hot_blocks : 0); b < t; ++b) {
-          const auto wcol_it = wcols.find(blocks[b].uid());
+        for (size_t q = (p > hot_periods ? p - hot_periods : 0); q < p; ++q) {
+          const auto q_buid = blocks[period_starts[q]].uid();
+          const auto wcol_it = wcols.find(q_buid);
           if (wcol_it != wcols.end()) {
             row[wcol_it->second] = -1.0;
           }
         }
-        // Initial condition: if unit was offline at start and offline hours
-        // are within hot threshold, add implicit shutdown before horizon
-        if (t < hot_blocks && initial_hours_offline < hot_time) {
-          row.uppb = 1.0;  // RHS includes initial implicit w
+        if (p < hot_periods && initial_hours_offline < hot_time) {
+          row.uppb = 1.0;
         }
-        hr_rows[buid_t] = lp.add_row(std::move(row));
+        hr_rows[rep_buid] = lp.add_row(std::move(row));
       }
 
-      // C10: y_warm[t] ≤ Σ w[τ] for τ in [t-cold_blocks, t-hot_blocks-1]
+      // C10: y_warm[p] ≤ Σ w[q] for q in [p-cold_periods, p-hot_periods-1]
       {
         auto row =
             SparseRow {
@@ -747,22 +841,22 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
                 .less_equal(0.0);
         row[wmcol] = 1.0;
         const auto warm_start =
-            t > cold_blocks ? t - cold_blocks : static_cast<size_t>(0);
+            p > cold_periods ? p - cold_periods : static_cast<size_t>(0);
         const auto warm_end =
-            t > hot_blocks ? t - hot_blocks : static_cast<size_t>(0);
-        for (size_t b = warm_start; b < warm_end; ++b) {
-          const auto wcol_it = wcols.find(blocks[b].uid());
+            p > hot_periods ? p - hot_periods : static_cast<size_t>(0);
+        for (size_t q = warm_start; q < warm_end; ++q) {
+          const auto q_buid = blocks[period_starts[q]].uid();
+          const auto wcol_it = wcols.find(q_buid);
           if (wcol_it != wcols.end()) {
             row[wcol_it->second] = -1.0;
           }
         }
-        // Initial condition: offline hours in warm range
-        if (t < cold_blocks && initial_hours_offline >= hot_time
+        if (p < cold_periods && initial_hours_offline >= hot_time
             && initial_hours_offline < cold_time)
         {
           row.uppb = 1.0;
         }
-        wr_rows[buid_t] = lp.add_row(std::move(row));
+        wr_rows[rep_buid] = lp.add_row(std::move(row));
       }
     }
 

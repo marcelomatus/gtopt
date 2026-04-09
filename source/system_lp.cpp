@@ -284,6 +284,14 @@ double resolve_stage_field(const OptTRealFieldSched& field, StageUid stage_uid)
 ///   sum_g sum_b (emission_factor_g × duration_b × p_{g,b}) <= emission_cap_s
 ///
 /// This aggregates across all generators that have a non-zero emission factor.
+///
+/// @note For generators with piecewise heat rate segments and per-segment
+/// fuel_emission_factor, this uses the flat generator emission_factor on the
+/// total generation variable p.  A more accurate formulation would use
+/// per-segment emission coefficients (fuel_emission_factor × heat_rate_k)
+/// on each segment variable δ_k, but that requires cross-collection access
+/// to CommitmentLP segment columns.  TODO: refine when segment-level emission
+/// accounting is needed for emission-cap-binding scenarios.
 void add_emission_cap(const auto& collections,
                       SystemContext& system_context,
                       const ScenarioLP& scenario,

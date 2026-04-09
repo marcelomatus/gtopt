@@ -39,7 +39,8 @@ struct json_data_contract<ModelOptions>
                                          jvtl_TRealFieldSched>,
                        json_variant_null<"emission_cap",
                                          OptTRealFieldSched,
-                                         jvtl_TRealFieldSched>>;
+                                         jvtl_TRealFieldSched>,
+                       json_string_null<"relaxed_phases", OptName>>;
 
   constexpr static auto to_json_data(ModelOptions const& opt)
   {
@@ -57,7 +58,8 @@ struct json_data_contract<ModelOptions>
                                  opt.hydro_use_value,
                                  opt.state_fail_cost,
                                  opt.emission_cost,
-                                 opt.emission_cap);
+                                 opt.emission_cap,
+                                 opt.relaxed_phases);
   }
 };
 

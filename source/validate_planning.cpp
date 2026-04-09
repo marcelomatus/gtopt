@@ -285,6 +285,9 @@ void check_scenario_probabilities(ValidationResult& result, Planning& planning)
   }
 
   // Per-scene: check that scenario probabilities within each scene sum to 1.0.
+  // Skip scenes with a single scenario — they are trivially normalised and
+  // their probability_factor represents the global weight used for
+  // cross-scene aggregation (e.g. SDDP with one scenario per scene).
   for (const auto& scene : scenes) {
     const auto first = scene.first_scenario;
     const auto count = (scene.count_scenario == std::dynamic_extent)
@@ -299,6 +302,11 @@ void check_scenario_probabilities(ValidationResult& result, Planning& planning)
           first,
           count,
           scenarios.size()));
+      continue;
+    }
+
+    // Single-scenario scenes need no intra-scene normalisation.
+    if (count <= 1) {
       continue;
     }
 

@@ -19,6 +19,7 @@
 
 #include <gtopt/enum_option.hpp>
 #include <gtopt/line_enums.hpp>
+#include <gtopt/phase_range_set.hpp>
 #include <gtopt/planning_options.hpp>
 #include <gtopt/variable_scale.hpp>
 
@@ -168,6 +169,17 @@ public:
   [[nodiscard]] constexpr const auto& emission_cap() const
   {
     return m_options_.model_options.emission_cap;
+  }
+
+  /// @brief Whether a given phase should use relaxed (continuous) UC binaries.
+  /// Parses the `relaxed_phases` string from model_options using PhaseRangeSet.
+  [[nodiscard]] bool is_phase_relaxed(int phase_index) const
+  {
+    const auto& rp = m_options_.model_options.relaxed_phases;
+    if (!rp.has_value()) {
+      return false;
+    }
+    return PhaseRangeSet(*rp).contains(phase_index);
   }
 
   /// @brief Gets the line losses mode, with backward-compat fallback.

@@ -81,6 +81,13 @@ struct Commitment
   OptBool relax {};  ///< LP relaxation: u/v/w continuous in [0,1]
   OptBool must_run {};  ///< Force committed: u = 1 always
 
+  /// Binary variable period [hours].  When set, u/v/w variables are created
+  /// at a coarser time resolution than the generation blocks.  For example,
+  /// `commitment_period = 2.0` with 15-minute blocks yields one binary
+  /// variable per 2-hour window (8 blocks), while generation variables
+  /// remain at 15-minute resolution.  Default (nullopt) = one per block.
+  OptReal commitment_period {};
+
   /// @name Piecewise heat rate curve
   /// When both arrays are present, the generation range [Pmin, Pmax] is
   /// decomposed into K segments with individual heat rates.

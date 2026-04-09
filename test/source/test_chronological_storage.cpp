@@ -621,3 +621,219 @@ TEST_CASE(  // NOLINT
       rsv_lp.physical_efin(li, scenarios[0], stages[0], 500.0);
   CHECK(phys_efin < doctest::Approx(500.0));
 }
+
+// ─── Converter + Battery on chronological stage ────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "Converter+battery chronological charge-discharge")
+{
+  // A converter links a battery to a discharge generator (injects power
+  // to the bus) and a charge demand (absorbs power from the bus). A
+  // separate cheap generator supplies both the load and the charge
+  // demand. On a 4-hour chronological stage, verify the system is
+  // feasible and the objective reflects cheap generation.
+  System sys;
+  sys.name = "conv_bat_chrono";
+  sys.bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  // gen_supply: cheap generator that serves load + charges battery
+  // gen_discharge: converter's discharge generator (battery → bus)
+  sys.generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "gen_supply",
+          .bus = Uid {1},
+          .pmin = 0.0,
+          .pmax = 200.0,
+          .gcost = 5.0,
+          .capacity = 200.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "gen_discharge",
+          .bus = Uid {1},
+          .pmin = 0.0,
+          .pmax = 100.0,
+          .gcost = 0.0,
+          .capacity = 100.0,
+      },
+  };
+  // load: actual system demand
+  // d_charge: converter's charge demand (bus → battery)
+  sys.demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "load",
+          .bus = Uid {1},
+          .capacity = 60.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "d_charge",
+          .bus = Uid {1},
+          .capacity = 100.0,
+      },
+  };
+  sys.battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat1",
+          .input_efficiency = 0.9,
+          .output_efficiency = 0.9,
+          .emin = 0.0,
+          .emax = 100.0,
+          .eini = 50.0,
+          .capacity = 100.0,
+          .use_state_variable = false,
+          .daily_cycle = false,
+      },
+  };
+  sys.converter_array = {
+      {
+          .uid = Uid {1},
+          .name = "conv1",
+          .battery = Uid {1},
+          .generator = Uid {2},
+          .demand = Uid {2},
+          .capacity = 200.0,
+      },
+  };
+
+  const auto simulation = make_chrono_simulation();
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(sys, simulation_lp);
+
+  auto&& li = system_lp.linear_interface();
+
+  // Verify LP has battery + converter variables and constraints
+  CHECK(li.get_numcols() > 10);
+  CHECK(li.get_numrows() > 4);
+
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Generator at $5/MWh dispatches for demand; battery provides
+  // flexibility. Pure gen cost: 5 × 60 × 4 / 1000 = 1.2
+  const auto obj = li.get_obj_value();
+  CHECK(obj > 0.0);
+  CHECK(obj < 2.0);
+}
+
+// ─── Reservoir + Turbine + Generator on chronological stage ────────────────
+
+TEST_CASE(  // NOLINT
+    "Reservoir+turbine+generator chronological hydro dispatch")
+{
+  // Full hydro chain: reservoir → waterway → drain junction, with
+  // turbine linked to hydro generator. On a chronological stage,
+  // verify hydro dispatches, volume decreases, and system is feasible.
+  System sys;
+  sys.name = "rsv_tur_gen_chrono";
+  sys.bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  sys.generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .pmin = 0.0,
+          .pmax = 100.0,
+          .gcost = 1.0,
+          .capacity = 100.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "thermal",
+          .bus = Uid {1},
+          .pmin = 0.0,
+          .pmax = 100.0,
+          .gcost = 50.0,
+          .capacity = 100.0,
+      },
+  };
+  sys.demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 40.0,
+      },
+  };
+  sys.junction_array = {
+      {
+          .uid = Uid {1},
+          .name = "j_up",
+      },
+      {
+          .uid = Uid {2},
+          .name = "j_down",
+          .drain = true,
+      },
+  };
+  sys.waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 200.0,
+      },
+  };
+  sys.reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 1000.0,
+          .emin = 0.0,
+          .emax = 1000.0,
+          .eini = 500.0,
+          .use_state_variable = true,
+          .daily_cycle = false,
+      },
+  };
+  sys.turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 5.0,
+      },
+  };
+
+  const auto simulation = make_chrono_simulation();
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(sys, simulation_lp);
+
+  auto&& li = system_lp.linear_interface();
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Hydro is cheap ($1/MWh) so it dispatches: 1.0 × 40 × 4 / 1000 = 0.16
+  // Thermal at $50 should stay off.
+  const auto obj = li.get_obj_value();
+  CHECK(obj < 0.5);
+
+  // Reservoir volume should decrease (hydro dispatched)
+  const auto& rsv_lp = system_lp.elements<ReservoirLP>().front();
+  const auto& scenarios = system_lp.scene().scenarios();
+  const auto& stages = system_lp.phase().stages();
+  const auto phys_efin =
+      rsv_lp.physical_efin(li, scenarios[0], stages[0], 500.0);
+  CHECK(phys_efin < doctest::Approx(500.0));
+  CHECK(phys_efin > 0.0);
+}
