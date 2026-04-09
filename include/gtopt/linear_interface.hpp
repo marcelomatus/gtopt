@@ -270,6 +270,12 @@ public:
     return m_low_memory_mode_;
   }
 
+  /// Set a context tag for low-memory log messages (e.g. "[i0 s11 p26]").
+  void set_log_context(std::string ctx) noexcept
+  {
+    m_log_context_ = std::move(ctx);
+  }
+
   /// Record a dynamically-added column (e.g. alpha variable).
   void record_dynamic_col(SparseCol col);
 
@@ -1290,6 +1296,9 @@ private:
 
   /// Whether the first release has been logged.
   bool m_logged_first_release_ {false};
+
+  /// Optional context tag for log messages (e.g. "[i0 s11 p26]").
+  std::string m_log_context_ {};
 
   // ── Cached post-solve state (valid when backend is released) ────────
 

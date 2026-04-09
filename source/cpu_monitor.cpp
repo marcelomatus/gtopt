@@ -107,6 +107,9 @@ void CPUMonitor::start()
     return;  // Already running
   }
 
+  // Prime the delta baseline so the first real sample isn't since-boot.
+  get_system_cpu_usage();
+
   try {
     monitor_thread_ = std::jthread(
         [this](const std::stop_token& stoken)

@@ -111,6 +111,10 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
     }
 
     auto& li = system.linear_interface();
+    li.set_log_context(sddp_log("LowMem",
+                                iteration_index,
+                                scene_uid(scene_index),
+                                phase_uid(phase_index)));
 
     // Propagate state variables from previous phase.
     // Use the cached solution (not the live backend) so that the previous

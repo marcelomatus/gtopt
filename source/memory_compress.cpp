@@ -440,31 +440,13 @@ void clear_flat_lp_vectors(FlatLinearProblem& flp)
 
 void LowMemorySnapshot::compress(MemoryCodec codec)
 {
-  using clock = std::chrono::steady_clock;
-
   // Flat LP: compress only on first call (immutable after save_snapshot).
   // Solution vectors are NOT compressed here — they are cached directly
   // on LinearInterface (m_cached_col_sol_ etc.) and never need snapshot
   // compression/decompression.
   if (compressed_lp.empty() && !flat_lp.matbeg.empty()) {
-    const auto t0 = clock::now();
     compressed_lp = compress_flat_lp(flat_lp, codec);
     // compress_flat_lp already clears the numeric vectors
-    const auto dt_ms =
-        std::chrono::duration<double, std::milli>(clock::now() - t0).count();
-    const auto orig = compressed_lp.original_size;
-    const auto comp = compressed_lp.data.size();
-    const auto ratio = orig > 0 ? static_cast<double>(comp) / orig : 0.0;
-    const auto saved_mb = static_cast<double>(orig - comp) / (1024.0 * 1024.0);
-    SPDLOG_INFO(
-        "low_memory: LP compressed with {} in {:.1f} ms — "
-        "{:.2f} MB → {:.2f} MB (ratio {:.2f}, saved {:.2f} MB)",
-        codec_name(compressed_lp.codec),
-        dt_ms,
-        orig / (1024.0 * 1024.0),
-        comp / (1024.0 * 1024.0),
-        ratio,
-        saved_mb);
   } else if (!compressed_lp.empty()) {
     // Already have compressed form — just free expanded vectors
     clear_flat_lp_vectors(flat_lp);
