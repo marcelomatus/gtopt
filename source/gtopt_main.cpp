@@ -215,6 +215,41 @@ void setup_trace_log(const MainOptions& opts)
       return *cfg;
     }
 
+    // ── Resolve relative input_directory against JSON file location ──
+    //
+    // When the first planning file resides in a subdirectory (e.g.
+    // "subdir/case.json" or "/abs/path/case.json"), relative paths in
+    // the JSON—such as input_directory="." or input_directory="data"—
+    // must be resolved relative to the JSON file's parent, not CWD.
+    // This handles the webservice scenario where a zip is extracted to
+    // an input directory and the JSON is in a nested subdirectory.
+    //
+    // Only applied when the CLI did not explicitly set these directories
+    // (opts.*_directory is nullopt), so user CLI overrides are respected.
+    if (!opts.planning_files.empty()) {
+      namespace fs = std::filesystem;
+      const auto json_dir = fs::path(opts.planning_files.front()).parent_path();
+      if (!json_dir.empty() && json_dir != ".") {
+        auto resolve_if_relative =
+            [&](std::optional<std::string>& dir_opt,
+                const std::optional<std::string>& cli_opt,
+                const char* default_val)
+        {
+          if (!cli_opt.has_value()) {
+            const auto effective = dir_opt.value_or(default_val);
+            if (fs::path(effective).is_relative()) {
+              dir_opt = (json_dir / effective).string();
+            }
+          }
+        };
+        resolve_if_relative(
+            my_planning.options.input_directory, opts.input_directory, "input");
+        resolve_if_relative(my_planning.options.output_directory,
+                            opts.output_directory,
+                            "output");
+      }
+    }
+
     // Write JSON output if requested
     if (opts.json_file) {
       auto wr = write_json_output(my_planning, opts.json_file.value());

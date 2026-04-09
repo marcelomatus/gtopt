@@ -1276,3 +1276,68 @@ TEST_CASE(  // NOLINT
 
   std::filesystem::remove_all(log_dir);
 }
+
+TEST_CASE(
+    "gtopt_main - file in subdirectory resolves "
+    "input_directory")  // NOLINT
+{
+  // Simulate the webservice scenario: a JSON file with input_directory="."
+  // resides in a subdirectory relative to CWD.  Data files (referenced by
+  // the JSON) are in the same subdirectory.  gtopt_main must resolve the
+  // relative input_directory against the JSON file's parent so that the
+  // data files are found correctly.
+  namespace fs = std::filesystem;
+  const auto base_dir = fs::temp_directory_path() / "gtopt_main_subdir_test";
+  const auto sub_dir = base_dir / "case_sub";
+  fs::create_directories(sub_dir);
+
+  // Write a minimal JSON with input_directory="." in the subdirectory
+  constexpr auto json_with_dot_input = R"({
+    "options": {
+      "demand_fail_cost": 1000,
+      "input_directory": ".",
+      "output_compression": "uncompressed"
+    },
+    "simulation": {
+      "block_array": [{"uid": 1, "duration": 1}],
+      "stage_array":  [{"uid": 1, "first_block": 0, "count_block": 1}],
+      "scenario_array": [{"uid": 1}]
+    },
+    "system": {
+      "name": "subdir_test",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}
+      ]
+    }
+  })";
+
+  const auto json_path = sub_dir / "case_sub.json";
+  {
+    std::ofstream ofs(json_path);
+    ofs << json_with_dot_input;
+  }
+
+  const auto out_dir = base_dir / "output";
+  const auto original_cwd = fs::current_path();
+  fs::current_path(base_dir);
+
+  // Use relative path "case_sub/case_sub" (stem, no extension) to the JSON
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {"case_sub/case_sub"},
+      .output_directory = out_dir.string(),
+      .use_single_bus = true,
+  });
+
+  fs::current_path(original_cwd);
+
+  // Should succeed: input_directory="." is resolved to "case_sub"
+  // (the JSON file's parent directory), not CWD.
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+
+  fs::remove_all(base_dir);
+}

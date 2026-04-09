@@ -129,7 +129,7 @@ export async function runGtopt(token: string): Promise<void> {
   return new Promise<void>((resolve) => {
     const proc = spawn(
       gtoptBin,
-      [job.systemFile, "--output-directory", outputDir],
+      [job.systemFile, "--set", `output_directory=${outputDir}`],
       {
         cwd: inputDir,
         stdio: ["ignore", "pipe", "pipe"],
