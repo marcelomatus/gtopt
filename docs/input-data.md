@@ -582,6 +582,7 @@ A stage groups consecutive blocks into a planning/investment period.
 | `count_block`    | integer | —     | Yes      | Number of consecutive blocks in this stage |
 | `discount_factor`| number  | p.u.  | No       | Present-value cost multiplier for this stage |
 | `active`         | boolean | —     | No       | Whether the stage is active |
+| `chronological`  | boolean | —     | No       | Whether blocks are sequential time periods (enables unit commitment). Default: `false`. See [Unit Commitment](unit-commitment.md) |
 
 ### 2.3 Scenario
 
@@ -719,6 +720,7 @@ A generation unit connected to a bus.
 | `capmax`           | number\|array\|string| MW          | No       | Absolute maximum capacity |
 | `annual_capcost`   | number\|array\|string| $/MW-year   | No       | Annualized investment cost |
 | `annual_derating`  | number\|array\|string| p.u./year   | No       | Annual capacity derating factor |
+| `emission_factor`  | number\|array\|string| tCO₂/MWh   | No       | CO₂ emission rate. Used with `model_options.emission_cost` and `emission_cap`. See [Unit Commitment — Emission](unit-commitment.md#6-emission-cost-and-cap) |
 
 > **Note:** Fields that accept `number|array|string` can be a numeric constant,
 > an inline array (indexed by `[stage][block]`), or a filename referencing an
@@ -1269,6 +1271,65 @@ Named scalar parameters usable in user constraint expressions.
 | `name`  | string  | —     | Yes      | Parameter name (used in constraint expressions) |
 | `value` | number\|array\|string | — | Yes | Parameter value (per block/stage/scenario schedule) |
 
+### 3.23 Commitment
+
+Unit commitment parameters for a generator.  Each entry links to exactly one
+generator and enables binary on/off scheduling with startup/shutdown costs,
+ramp constraints, and minimum up/down times.  Requires the associated stage
+to have `chronological: true`.
+
+> **Full documentation**: See [Unit Commitment Guide](unit-commitment.md)
+> for the mathematical formulation, worked examples, and advanced features.
+
+**JSON array name:** `commitment_array`
+
+| Field | Type | Units | Required | Description |
+|-------|------|-------|----------|-------------|
+| `uid` | integer | — | Yes | Unique identifier |
+| `name` | string | — | No | Human-readable name |
+| `active` | boolean | — | No | Whether this commitment is active (default: `true`) |
+| `generator` | integer\|string | — | **Yes** | Foreign key to Generator (uid or name) |
+| `startup_cost` | number\|array\|string | $/start | No | Cost per startup event |
+| `shutdown_cost` | number\|array\|string | $/stop | No | Cost per shutdown event |
+| `noload_cost` | number | $/hr | No | Fixed hourly cost when committed |
+| `min_up_time` | number | hours | No | Minimum online duration after startup |
+| `min_down_time` | number | hours | No | Minimum offline duration after shutdown |
+| `ramp_up` | number | MW/hr | No | Normal ramp-up rate |
+| `ramp_down` | number | MW/hr | No | Normal ramp-down rate |
+| `startup_ramp` | number | MW | No | Max output in startup block (default: Pmax) |
+| `shutdown_ramp` | number | MW | No | Max output in shutdown block (default: Pmax) |
+| `initial_status` | number | — | No | Initial state: 1.0 = online, 0.0 = offline |
+| `initial_hours` | number | hours | No | Hours in current state at t=0 |
+| `relax` | boolean | — | No | LP relaxation: u,v,w ∈ [0,1] instead of {0,1} |
+| `must_run` | boolean | — | No | Force u = 1 at all times |
+| `commitment_period` | number | hours | No | Coarser binary variable resolution |
+| `pmax_segments` | array\<number\> | MW | No | Cumulative power breakpoints for piecewise heat rate |
+| `heat_rate_segments` | array\<number\> | GJ/MWh | No | Heat rate per segment |
+| `fuel_cost` | number\|array\|string | $/GJ | No | Fuel cost |
+| `fuel_emission_factor` | number\|array\|string | tCO₂/GJ | No | Fuel CO₂ emission intensity |
+| `hot_start_cost` | number | $/start | No | Startup cost for hot start |
+| `warm_start_cost` | number | $/start | No | Startup cost for warm start |
+| `cold_start_cost` | number | $/start | No | Startup cost for cold start |
+| `hot_start_time` | number | hours | No | Max offline hours for hot start |
+| `cold_start_time` | number | hours | No | Min offline hours for cold start |
+
+> **Startup tiers** require all five fields (`hot_start_cost`, `warm_start_cost`,
+> `cold_start_cost`, `hot_start_time`, `cold_start_time`) to be present.
+> If `cold_start_time < hot_start_time` (physically invalid), tiers are
+> skipped with a warning and the flat `startup_cost` is used instead.
+
+### 3.24 Model Options
+
+System-wide modeling options that control emission pricing and LP relaxation.
+
+**JSON path:** `options.model_options`
+
+| Field | Type | Units | Required | Description |
+|-------|------|-------|----------|-------------|
+| `emission_cost` | number\|array\|string | $/tCO₂ | No | System-wide carbon price. Generators with `emission_factor` incur an additional objective cost. See [Emission Cost](unit-commitment.md#6-emission-cost-and-cap) |
+| `emission_cap` | number\|array\|string | tCO₂ | No | Annual CO₂ cap per stage. Creates a constraint limiting total emissions from all generators with `emission_factor` |
+| `relaxed_phases` | string | — | No | Phase range expression for LP relaxation of UC binaries: `"all"`, `"none"`, `"1,3:5"`, etc. Default: `"none"`. See [Relaxation Control](unit-commitment.md#9-relaxation-control) |
+
 ---
 
 ## 4. External Data Files
@@ -1395,6 +1456,8 @@ See `cases/c0/system_c0.json` for a minimal working example with:
 
 ## See also
 
+- **[Unit Commitment Guide](unit-commitment.md)** — Dedicated guide for
+  the three-bin UC formulation, emission framework, and worked examples
 - **[Mathematical Formulation](formulation/mathematical-formulation.md)**
   — Full LP/MIP optimization formulation with academic references
 - **[Planning Guide](planning-guide.md)** — Step-by-step planning guide

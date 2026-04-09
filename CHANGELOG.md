@@ -8,6 +8,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Unit commitment (three-bin formulation)**: full implementation of the
+  Morales-España tight-and-compact UC model with status ($u$), startup ($v$),
+  and shutdown ($w$) binary variables per committed generator.
+  - Core constraints: logical transition (C1), generation bounds (C2),
+    exclusion (C3).
+  - Ramp constraints (C4–C5): tight state-dependent ramp-up/down limits
+    with separate startup/shutdown ramp parameters.
+  - Minimum up/down time (C6–C7): aggregated formulation at period level
+    with correct handling of non-uniform block durations.
+  - Hot/warm/cold startup cost tiers (C8–C10): time-dependent startup costs
+    based on offline duration with validation and graceful fallback.
+  - Piecewise linear heat rate curves: multi-segment fuel cost modeling with
+    per-segment emission accounting and segment-bound constraints.
+  - Commitment periods: optional coarser binary variable resolution to reduce
+    integer variable count.
+  - LP relaxation control: per-element (`relax` flag) and per-phase
+    (`model_options.relaxed_phases`) with `PhaseRangeSet` expression parser
+    supporting `"all"`, `"none"`, ranges, and comma-separated indices.
+  - Reserve-UC integration: reserve headroom constraints become conditional
+    on commitment status ($P_\max \cdot u$ instead of fixed $P_\max$).
+  - Must-run mode: forces $u = 1$ for baseload or contractually committed units.
+  - Chronological gating: UC only applies on stages with `chronological: true`;
+    non-chronological stages dispatch normally (backward compatible).
+  - New `Commitment` struct (`commitment.hpp`) with JSON serialization.
+  - New `CommitmentLP` class (`commitment_lp.{hpp,cpp}`) with full output.
+  - Comprehensive test suite: 40+ test cases in `test_commitment.cpp` (2600+
+    lines) covering all constraint types, edge cases, and regression tests.
+  - Documentation: `docs/unit-commitment.md` — dedicated guide with formulation,
+    JSON reference, worked examples, and academic references.
+- **Emission cost and cap framework**:
+  - `generator.emission_factor` (tCO₂/MWh): per-generator CO₂ intensity.
+  - `model_options.emission_cost` ($/tCO₂): system-wide carbon price, adds
+    cost adder to dispatch and per-segment fuel costs.
+  - `model_options.emission_cap` (tCO₂/year): per-stage CO₂ cap with
+    endogenous carbon pricing via constraint dual variable.
+- **Stage chronological flag**: `stage.chronological` boolean field enables
+  block-sequential UC constraints on specific stages while leaving
+  non-chronological stages for expansion planning.
 - **SDDP cut types**: optimality and feasibility cuts are now distinguished
   in the SDDP solver, with named cut coefficients for better diagnostics.
 - **Variable scaling**: `VariableScaleMap` support and decoupled `flow_scale`
