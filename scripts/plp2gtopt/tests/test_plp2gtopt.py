@@ -157,7 +157,7 @@ def test_convert_plp_case_zip_not_inside_output_dir(tmp_path):
     output_dir = opts["output_dir"]
     # No .zip file should exist inside the output directory
     zips_inside = list(output_dir.rglob("*.zip"))
-    assert zips_inside == [], (
+    assert not zips_inside, (
         f"ZIP file(s) found inside output directory: {zips_inside}"
     )
 
