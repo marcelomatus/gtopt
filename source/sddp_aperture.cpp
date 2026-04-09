@@ -161,7 +161,7 @@ auto solve_apertures_for_phase(
   const auto phase_start = std::chrono::steady_clock::now();
   const auto caller_tid = std::this_thread::get_id();
 
-  SPDLOG_INFO(
+  SPDLOG_TRACE(
       "{}: starting {} aperture(s) [thread {}]",
       sddp_log("Aperture", iteration_index, scene_uid_val, phase_uid_val),
       effective_apertures.size(),
@@ -327,14 +327,14 @@ auto solve_apertures_for_phase(
             const auto ap_s = std::chrono::duration<double>(
                                   std::chrono::steady_clock::now() - ap_start)
                                   .count();
-            spdlog::info("{}: infeasible ({:.3f}s) [thread {}]",
-                         sddp_log("Aperture",
-                                  iteration_index,
-                                  scene_uid_val,
-                                  phase_uid_val,
-                                  ap_uid),
-                         ap_s,
-                         std::hash<std::thread::id> {}(task_tid) % 10000);
+            spdlog::trace("{}: infeasible ({:.3f}s) [thread {}]",
+                          sddp_log("Aperture",
+                                   iteration_index,
+                                   scene_uid_val,
+                                   phase_uid_val,
+                                   ap_uid),
+                          ap_s,
+                          std::hash<std::thread::id> {}(task_tid) % 10000);
             return ApertureCutResult {
                 .ap_uid = ap_uid,
                 .weight = weight,
@@ -370,14 +370,14 @@ auto solve_apertures_for_phase(
           const auto ap_s = std::chrono::duration<double>(
                                 std::chrono::steady_clock::now() - ap_start)
                                 .count();
-          spdlog::info("{}: solved ({:.3f}s) [thread {}]",
-                       sddp_log("Aperture",
-                                iteration_index,
-                                scene_uid_val,
-                                phase_uid_val,
-                                ap_uid),
-                       ap_s,
-                       std::hash<std::thread::id> {}(task_tid) % 10000);
+          spdlog::trace("{}: solved ({:.3f}s) [thread {}]",
+                        sddp_log("Aperture",
+                                 iteration_index,
+                                 scene_uid_val,
+                                 phase_uid_val,
+                                 ap_uid),
+                        ap_s,
+                        std::hash<std::thread::id> {}(task_tid) % 10000);
 
           return ApertureCutResult {
               .ap_uid = ap_uid,
@@ -413,13 +413,13 @@ auto solve_apertures_for_phase(
             aperture_timeout,
             result.status);
       } else {
-        spdlog::info("{}: infeasible (status {}), skipping",
-                     sddp_log("Aperture",
-                              iteration_index,
-                              scene_uid_val,
-                              phase_uid_val,
-                              result.ap_uid),
-                     result.status);
+        spdlog::trace("{}: infeasible (status {}), skipping",
+                      sddp_log("Aperture",
+                               iteration_index,
+                               scene_uid_val,
+                               phase_uid_val,
+                               result.ap_uid),
+                      result.status);
       }
       continue;
     }
