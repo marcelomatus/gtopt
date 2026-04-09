@@ -6,7 +6,6 @@
         "output_directory": "results",
         "output_format": "parquet",
         "output_compression": "zstd",
-        "use_lp_names": 1,
         "model_options": {
             "use_single_bus": false,
             "use_kirchhoff": true,

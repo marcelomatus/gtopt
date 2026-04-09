@@ -337,7 +337,6 @@ def convert(
     data: dict[str, Any] = {
         "options": {
             "annual_discount_rate": 0.0,
-            "use_lp_names": 1,
             "output_format": "csv",
             "output_compression": "uncompressed",
             "use_single_bus": False,

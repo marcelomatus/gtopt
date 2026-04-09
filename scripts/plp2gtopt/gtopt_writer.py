@@ -167,7 +167,6 @@ class GTOptWriter:
             "output_directory": "results",
             "output_format": output_format,
             "output_compression": compression,
-            "use_lp_names": 1,
             "model_options": model_opts,
             "sddp_options": sddp_opts,
         }
