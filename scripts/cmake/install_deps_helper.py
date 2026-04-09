@@ -16,7 +16,13 @@ import sys
 
 
 def _packages_available() -> bool:
-    """Return True if all key script packages are importable."""
+    """Return True if all key script packages are importable.
+
+    Keep this list in sync with the packages declared in
+    ``scripts/pyproject.toml`` ``[project]`` and
+    ``[project.optional-dependencies]``, and with the corresponding
+    import check in ``scripts/cmake/scripts_install_deps.cmake``.
+    """
     try:
         # Keep this list in sync with pyproject.toml [project] and
         # [project.optional-dependencies].
