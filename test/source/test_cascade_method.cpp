@@ -81,13 +81,128 @@ TEST_CASE("CascadeOptions empty level_array by default")  // NOLINT
   CHECK(!opts.sddp_options.convergence_tol.has_value());
 }
 
-TEST_CASE("NamedStateTarget default initialization")  // NOLINT
+TEST_CASE("StateTarget default initialization")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  const NamedStateTarget t;
-  CHECK(t.var_name.empty());
+  const StateTarget t;
+  CHECK(t.class_name.empty());
+  CHECK(t.col_name.empty());
+  CHECK(t.uid == Uid {unknown_uid});
   CHECK(t.target_value == 0.0);
+  CHECK(t.var_scale == 1.0);
+  CHECK(std::holds_alternative<std::monostate>(t.context));
+}
+
+TEST_CASE("StateTarget with structured fields")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const auto ctx = make_stage_context(ScenarioUid {0}, StageUid {3});
+  const StateTarget t {
+      .class_name = "Reservoir",
+      .col_name = "efin",
+      .uid = Uid {42},
+      .context = ctx,
+      .scene_index = SceneIndex {0},
+      .phase_index = PhaseIndex {1},
+      .target_value = 100.5,
+      .var_scale = 1000.0,
+  };
+
+  CHECK(t.class_name == "Reservoir");
+  CHECK(t.col_name == "efin");
+  CHECK(t.uid == Uid {42});
+  CHECK(t.target_value == doctest::Approx(100.5));
+  CHECK(t.var_scale == doctest::Approx(1000.0));
+  CHECK(t.scene_index == SceneIndex {0});
+  CHECK(t.phase_index == PhaseIndex {1});
+  CHECK(std::holds_alternative<StageContext>(t.context));
+  const auto& stg = std::get<StageContext>(t.context);
+  CHECK(std::get<0>(stg) == ScenarioUid {0});
+  CHECK(std::get<1>(stg) == StageUid {3});
+}
+
+TEST_CASE(  // NOLINT
+    "StateTarget matching by identity — different contexts still match")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Two targets for the same physical variable but from different
+  // cascade levels (different stage UIDs in context).
+  const StateTarget source {
+      .class_name = "Reservoir",
+      .col_name = "efin",
+      .uid = Uid {5},
+      .context = make_stage_context(ScenarioUid {0}, StageUid {2}),
+      .target_value = 50.0,
+  };
+
+  // Simulate matching logic from add_elastic_targets:
+  // match by (class_name, col_name, uid), ignore context differences.
+  struct MockSVar
+  {
+    std::string_view class_name;
+    std::string_view col_name;
+    Uid uid;
+    ColIndex col;
+  };
+
+  // Next level has the same reservoir but at a different stage
+  const std::vector<MockSVar> next_level_vars = {
+      {"Generator", "pgen", Uid {1}, ColIndex {0}},
+      {"Reservoir", "efin", Uid {5}, ColIndex {7}},
+      {"Battery", "efin", Uid {3}, ColIndex {12}},
+  };
+
+  ColIndex matched {unknown_index};
+  for (const auto& sv : next_level_vars) {
+    if (sv.class_name == source.class_name && sv.col_name == source.col_name
+        && sv.uid == source.uid)
+    {
+      matched = sv.col;
+      break;
+    }
+  }
+
+  CHECK(matched == ColIndex {7});
+}
+
+TEST_CASE(  // NOLINT
+    "StateTarget matching — no match when uid differs")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const StateTarget source {
+      .class_name = "Reservoir",
+      .col_name = "efin",
+      .uid = Uid {99},
+      .target_value = 50.0,
+  };
+
+  struct MockSVar
+  {
+    std::string_view class_name;
+    std::string_view col_name;
+    Uid uid;
+  };
+
+  const std::vector<MockSVar> next_level_vars = {
+      {"Reservoir", "efin", Uid {1}},
+      {"Reservoir", "efin", Uid {5}},
+  };
+
+  bool found = false;
+  for (const auto& sv : next_level_vars) {
+    if (sv.class_name == source.class_name && sv.col_name == source.col_name
+        && sv.uid == source.uid)
+    {
+      found = true;
+      break;
+    }
+  }
+
+  CHECK_FALSE(found);
 }
 
 TEST_CASE("MethodType::cascade enum")  // NOLINT

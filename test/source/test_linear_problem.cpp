@@ -519,15 +519,11 @@ TEST_CASE("Linear problem flatten column and row names")
     CHECK(flat.rowmp.empty());
   }
 
-  SUBCASE("default LpMatrixOptions (level 0: col names only, no name map)")
+  SUBCASE("default LpMatrixOptions (level none: no names)")
   {
     const auto flat = lp.flatten();
 
-    REQUIRE(flat.colnm.size() == 3);
-    CHECK(flat.colnm[0].empty());
-    CHECK(flat.colnm[1].empty());
-    CHECK(flat.colnm[2].empty());
-
+    CHECK(flat.colnm.empty());
     CHECK(flat.rownm.empty());
     CHECK(flat.colmp.empty());
     CHECK(flat.rowmp.empty());

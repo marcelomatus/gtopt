@@ -37,7 +37,8 @@ struct LpMatrixOptions
                              ///< values with |v| > max(eps, stats_eps) update
                              ///< stats_min_abs. Defaults to 1e-10 for
                              ///< consistency with external LP analysis tools.
-  bool col_with_names {true};  ///< Include column names (state vars at level 0)
+  bool col_with_names {
+      false};  ///< Include column names (state vars at level 0)
   bool row_with_names {false};  ///< Include row names (level >= 1)
   bool col_with_name_map {false};  ///< Include column name mapping (level >= 1)
   bool row_with_name_map {false};  ///< Include row name mapping
@@ -51,8 +52,8 @@ struct LpMatrixOptions
       fast_sqrt_method {};  ///< Approximate sqrt for Ruiz scaling.
                             ///< See FastSqrtMethod for options.
                             ///< Default is `ieee_halve`.
-  LpNamesLevel lp_names_level {LpNamesLevel::minimal};  ///< Computed naming
-                                                        ///< level (internal)
+  LpNamesLevel lp_names_level {LpNamesLevel::none};  ///< Computed naming
+                                                     ///< level (internal)
   double scale_objective {1.0};  ///< Global divisor for all objective
                                  ///< coefficients (numerical conditioning).
                                  ///< Applied uniformly during flatten().

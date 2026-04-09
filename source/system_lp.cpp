@@ -186,7 +186,7 @@ void fix_stage_islands(const auto& collections,
   // Use Collection::element_index(SingleId) to resolve bus references
   // (handles both Uid and Name variants).
   DisjointSetUnion dsu(n_buses);
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
 
   for (const auto& line : lines) {
     if (!line.is_active(stage) || line.is_loop()) {

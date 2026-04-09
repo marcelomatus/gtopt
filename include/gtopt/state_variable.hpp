@@ -27,6 +27,7 @@
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_context.hpp>
 #include <gtopt/phase.hpp>
 #include <gtopt/scenario.hpp>
 #include <gtopt/scene.hpp>
@@ -146,11 +147,13 @@ public:
 
   constexpr explicit StateVariable(LPKey lp_key,
                                    ColIndex col,
-                                   double scost = 0.0,
-                                   double var_scale = 1.0) noexcept
+                                   double scost,
+                                   double var_scale,
+                                   LpContext context)
       : LPVariable(lp_key, col)
       , m_scost_(scost)
       , m_var_scale_(var_scale)
+      , m_context_(std::move(context))
   {
   }
 
@@ -162,6 +165,12 @@ public:
   [[nodiscard]] constexpr auto var_scale() const noexcept
   {
     return m_var_scale_;
+  }
+
+  /// LP hierarchy context (scenario, stage, block, ...).
+  [[nodiscard]] constexpr const auto& context() const noexcept
+  {
+    return m_context_;
   }
 
   using DependentVariable = LPVariable;
@@ -195,6 +204,7 @@ public:
 private:
   double m_scost_ {0.0};
   double m_var_scale_ {1.0};
+  LpContext m_context_ {};
   std::vector<DependentVariable> m_dependent_variables_;
 };
 

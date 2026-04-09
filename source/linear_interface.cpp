@@ -58,6 +58,8 @@ LinearInterface::LinearInterface(std::unique_ptr<SolverBackend> backend,
     : m_backend_(std::move(backend))
     , m_solver_name_(m_backend_ ? std::string(m_backend_->solver_name())
                                 : std::string {})
+    , m_solver_version_(m_backend_ ? m_backend_->solver_version()
+                                   : std::string {})
     , m_log_file_(std::move(plog_file))
 {
 }
@@ -492,11 +494,13 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
     m_backend_->set_integer(i);
   }
 
-  // Build name maps
+  // Build name maps — clear first so reconstruction doesn't accumulate
+  // duplicates from a previous load_flat() call.
   auto build_name_map = []<typename IndexType>(const auto& names_vec,
                                                name_index_map_t& name_map,
                                                auto& index_to_name)
   {
+    name_map.clear();
     index_to_name.assign(names_vec.begin(), names_vec.end());
     name_map.reserve(names_vec.size());
 

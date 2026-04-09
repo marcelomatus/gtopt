@@ -159,7 +159,7 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     }
   }
 
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   flow_cols[st_key] = std::move(fcols);
   if (!ffails.empty()) {
     fail_cols[st_key] = std::move(ffails);
@@ -261,7 +261,7 @@ int FlowRightLP::update_lp(SystemLP& sys,
   const auto& rsv = sys.element<ReservoirLP>(rsv_sid);
   const auto default_volume = rsv.reservoir().eini.value_or(0.0);
 
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   auto& state = m_bound_states_.at(st_key);
 
   const auto vini =

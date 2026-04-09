@@ -147,7 +147,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   }
 
   // Store generation and capacity rows for output
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   if (!gcols.empty()) {
     generation_cols[st_key] = std::move(gcols);
   }

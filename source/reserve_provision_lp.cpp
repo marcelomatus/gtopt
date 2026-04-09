@@ -42,7 +42,7 @@ std::expected<void, Error> add_provision(
   const auto stage_capacity_factor = rp.capacity_factor.optval(stage.uid());
   const auto use_capacity = capacity_col && stage_capacity_factor;
 
-  const auto st_k = std::pair {scenario.uid(), stage.uid()};
+  const auto st_k = std::tuple {scenario.uid(), stage.uid()};
   const auto req_rows_it = requirement_rows.find(st_k);
   if (req_rows_it == requirement_rows.end() || req_rows_it->second.empty()) {
     return {};

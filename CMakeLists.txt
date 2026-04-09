@@ -117,16 +117,20 @@ find_package(Boost REQUIRED COMPONENTS container)
 find_package(ZLIB REQUIRED)
 find_package(zstd REQUIRED)
 
-# Optional in-memory compression codecs for low_memory mode
+# In-memory compression codecs for low_memory mode
+# LZ4 is required (preferred codec for in-memory LP snapshots).
+# Snappy is optional.
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
-  pkg_check_modules(LZ4 IMPORTED_TARGET liblz4)
+  pkg_check_modules(LZ4 REQUIRED IMPORTED_TARGET liblz4)
   pkg_check_modules(SNAPPY IMPORTED_TARGET snappy)
 else()
   find_library(LZ4_LIBRARY NAMES lz4)
   find_path(LZ4_INCLUDE_DIR NAMES lz4.h)
   if(LZ4_LIBRARY AND LZ4_INCLUDE_DIR)
     set(LZ4_FOUND TRUE)
+  else()
+    message(FATAL_ERROR "LZ4 not found. Install liblz4-dev (required for in-memory compression).")
   endif()
   find_library(SNAPPY_LIBRARY NAMES snappy)
   find_path(SNAPPY_INCLUDE_DIR NAMES snappy.h)
@@ -188,27 +192,28 @@ target_link_libraries(
          m
 )
 
-# Optional compression codec libraries for low_memory mode
+# Required compression codec for low_memory mode (in-memory LP snapshots)
 if(TARGET PkgConfig::LZ4)
   target_link_libraries(${PROJECT_NAME} PUBLIC PkgConfig::LZ4)
   target_compile_definitions(${PROJECT_NAME} PUBLIC GTOPT_HAS_LZ4=1)
-  message(STATUS "LZ4 found — low_memory codec lz4 enabled")
+  message(STATUS "LZ4 found — in-memory codec lz4 enabled")
 elseif(LZ4_FOUND)
   target_link_libraries(${PROJECT_NAME} PUBLIC ${LZ4_LIBRARY})
   target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC ${LZ4_INCLUDE_DIR})
   target_compile_definitions(${PROJECT_NAME} PUBLIC GTOPT_HAS_LZ4=1)
-  message(STATUS "LZ4 found — low_memory codec lz4 enabled")
+  message(STATUS "LZ4 found — in-memory codec lz4 enabled")
 endif()
 
+# Optional compression codec for low_memory mode
 if(TARGET PkgConfig::SNAPPY)
   target_link_libraries(${PROJECT_NAME} PUBLIC PkgConfig::SNAPPY)
   target_compile_definitions(${PROJECT_NAME} PUBLIC GTOPT_HAS_SNAPPY=1)
-  message(STATUS "Snappy found — low_memory codec snappy enabled")
+  message(STATUS "Snappy found — in-memory codec snappy enabled")
 elseif(SNAPPY_FOUND)
   target_link_libraries(${PROJECT_NAME} PUBLIC ${SNAPPY_LIBRARY})
   target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC ${SNAPPY_INCLUDE_DIR})
   target_compile_definitions(${PROJECT_NAME} PUBLIC GTOPT_HAS_SNAPPY=1)
-  message(STATUS "Snappy found — low_memory codec snappy enabled")
+  message(STATUS "Snappy found — in-memory codec snappy enabled")
 endif()
 
 # ---- Mixed-compiler C++ standard library linkage ----

@@ -129,7 +129,7 @@ public:
     }
 
     // Store indices for this scenario and stage
-    const auto st_key = std::pair {scenario.uid(), stage.uid()};
+    const auto st_key = std::tuple {scenario.uid(), stage.uid()};
     spillover_cols[st_key] = std::move(scols);
     spillover_rows[st_key] = std::move(srows);
     capacity_info[st_key] = CapacityInfo {
@@ -191,7 +191,7 @@ public:
       return true;
     }
 
-    const auto st_key = std::pair {base_scenario.uid(), stage.uid()};
+    const auto st_key = std::tuple {base_scenario.uid(), stage.uid()};
     const auto row_it = spillover_rows.find(st_key);
     if (row_it == spillover_rows.end()) {
       return true;  // no rows registered for this (scenario, stage)

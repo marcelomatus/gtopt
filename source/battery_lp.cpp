@@ -124,7 +124,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   }
 
   // Store finp variable indices for later use
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   finp_cols[st_key] = std::move(finps);
   fout_cols[st_key] = std::move(fouts);
 

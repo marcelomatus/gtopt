@@ -136,7 +136,7 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
     return false;
   }
 
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   conversion_rows[st_key] = std::move(rrows);
   capacity_rows[st_key] = std::move(crows);
 

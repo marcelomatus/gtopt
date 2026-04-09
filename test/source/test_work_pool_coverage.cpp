@@ -25,6 +25,9 @@ TEST_CASE("WorkPool double start is a no-op")  // NOLINT
   AdaptiveWorkPool pool(WorkPoolConfig {
       4,
       90.0,
+      4096.0,
+      95.0,
+      0.0,
       10ms,
       "DoubleStartPool",
   });
@@ -52,6 +55,9 @@ TEST_CASE("WorkPool double shutdown is safe")  // NOLINT
   AdaptiveWorkPool pool(WorkPoolConfig {
       2,
       90.0,
+      4096.0,
+      95.0,
+      0.0,
       10ms,
       "DoubleShutdownPool",
   });
@@ -77,6 +83,9 @@ TEST_CASE("WorkPool submit_lambda works")  // NOLINT
   AdaptiveWorkPool pool(WorkPoolConfig {
       4,
       90.0,
+      4096.0,
+      95.0,
+      0.0,
       10ms,
       "LambdaPool",
   });
@@ -109,6 +118,9 @@ TEST_CASE("WorkPool format_statistics returns valid string")  // NOLINT
   AdaptiveWorkPool pool(WorkPoolConfig {
       2,
       90.0,
+      4096.0,
+      95.0,
+      0.0,
       10ms,
       "StatsPool",
   });
@@ -140,6 +152,9 @@ TEST_CASE("WorkPool log_statistics does not throw")  // NOLINT
   const AdaptiveWorkPool pool(WorkPoolConfig {
       2,
       90.0,
+      4096.0,
+      95.0,
+      0.0,
       std::chrono::milliseconds {10},
       "LogStatsPool",
   });
@@ -157,6 +172,9 @@ TEST_CASE("WorkPool statistics track submission and completion")  // NOLINT
   AdaptiveWorkPool pool(WorkPoolConfig {
       4,
       95.0,
+      4096.0,
+      95.0,
+      0.0,
       10ms,
       "TrackStatsPool",
   });
@@ -197,6 +215,9 @@ TEST_CASE("WorkPool Critical priority tasks execute")  // NOLINT
   AdaptiveWorkPool pool(WorkPoolConfig {
       4,
       50.0,  // low threshold to exercise priority-based threshold override
+      4096.0,
+      95.0,
+      0.0,
       10ms,
       "CriticalPool",
   });
@@ -352,6 +373,9 @@ TEST_CASE("BasicWorkPool with string key type")  // NOLINT
   StringPool pool(WorkPoolConfig {
       2,
       95.0,
+      4096.0,
+      95.0,
+      0.0,
       10ms,
       "StringKeyPool",
   });
@@ -419,6 +443,9 @@ TEST_CASE("WorkPool task exception propagation via future")  // NOLINT
   AdaptiveWorkPool pool(WorkPoolConfig {
       2,
       95.0,
+      4096.0,
+      95.0,
+      0.0,
       10ms,
       "ExceptionPool",
   });
@@ -444,6 +471,9 @@ TEST_CASE("WorkPool void tasks complete successfully")  // NOLINT
   AdaptiveWorkPool pool(WorkPoolConfig {
       2,
       95.0,
+      4096.0,
+      95.0,
+      0.0,
       10ms,
       "VoidPool",
   });

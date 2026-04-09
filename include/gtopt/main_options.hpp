@@ -526,7 +526,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     std::optional<LpEquilibrationMethod> equilibration_method = {})
 {
   const auto eps = matrix_eps.value_or(0);
-  const auto lvl = lp_names_level.value_or(LpNamesLevel::minimal);
+  const auto lvl = lp_names_level.value_or(LpNamesLevel::none);
 
   LpMatrixOptions lp_matrix_opts;
   lp_matrix_opts.eps = eps;

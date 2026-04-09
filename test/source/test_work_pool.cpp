@@ -399,6 +399,9 @@ TEST_CASE("WorkPool stress testing")
     const WorkPoolConfig cfg {
         4,  // max_threads
         80.0,  // max_cpu_threshold
+        4096.0,  // min_free_memory_mb
+        95.0,  // max_memory_percent
+        0.0,  // max_process_rss_mb
         std::chrono::milliseconds(10),  // scheduler_interval
         "TestPool",  // name
     };

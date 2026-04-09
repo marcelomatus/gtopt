@@ -48,6 +48,7 @@
 #include <vector>
 
 #include <gtopt/cpu_monitor.hpp>
+#include <gtopt/memory_monitor.hpp>
 #include <spdlog/spdlog.h>
 
 #ifdef __linux__
@@ -60,17 +61,26 @@ struct WorkPoolConfig
 {
   int max_threads;
   double max_cpu_threshold;
+  double min_free_memory_mb;  ///< Block dispatch if system free < this (MB)
+  double max_memory_percent;  ///< Block dispatch if system usage > this (%)
+  double max_process_rss_mb;  ///< Block dispatch if process RSS > this (0=off)
   std::chrono::milliseconds scheduler_interval;
   std::string name;
 
   explicit WorkPoolConfig(
       int max_threads_ = static_cast<int>(std::thread::hardware_concurrency()),
       double max_cpu_threshold_ = 95.0,
+      double min_free_memory_mb_ = 4096.0,
+      double max_memory_percent_ = 95.0,
+      double max_process_rss_mb_ = 0.0,
       std::chrono::milliseconds scheduler_interval_ =
           std::chrono::milliseconds(20),
       std::string name_ = "WorkPool") noexcept
       : max_threads(max_threads_)
       , max_cpu_threshold(max_cpu_threshold_)
+      , min_free_memory_mb(min_free_memory_mb_)
+      , max_memory_percent(max_memory_percent_)
+      , max_process_rss_mb(max_process_rss_mb_)
       , scheduler_interval(scheduler_interval_)
       , name(std::move(name_))
   {
@@ -202,11 +212,22 @@ public:
   }
 };
 
+/// Per-task resource usage sampled before/after execution.
+struct TaskResourceStats
+{
+  double cpu_load_before {};  ///< System CPU % at task start
+  double cpu_load_after {};  ///< System CPU % at task end
+  double rss_mb_before {};  ///< Process RSS (MB) at task start
+  double rss_mb_after {};  ///< Process RSS (MB) at task end
+  double duration_s {};  ///< Wall-clock seconds
+};
+
 struct ActiveTask
 {
   std::future<void> future;
   int estimated_threads = 1;
   std::chrono::steady_clock::time_point start_time;
+  std::shared_ptr<TaskResourceStats> resource_stats {};
 
   [[nodiscard]] bool is_ready() const noexcept
   {
@@ -250,12 +271,16 @@ private:
   std::counting_semaphore<> available_threads_ {0};
 
   gtopt::CPUMonitor cpu_monitor_;
+  gtopt::MemoryMonitor memory_monitor_;
   std::atomic<int> active_threads_ {0};
   std::atomic<bool> running_ {false};
   std::jthread scheduler_thread_;
 
   int max_threads_;
   double max_cpu_threshold_;
+  double min_free_memory_mb_;
+  double max_memory_percent_;
+  double max_process_rss_mb_;
   std::chrono::milliseconds scheduler_interval_;
   std::string name_;
 
@@ -263,6 +288,12 @@ private:
   std::atomic<size_t> tasks_submitted_ {0};
   std::atomic<size_t> tasks_pending_ {0};
   std::atomic<size_t> tasks_active_ {0};
+
+  // Per-task resource accumulation (protected by active_mutex_)
+  size_t lp_tasks_dispatched_ {0};
+  double total_task_cpu_pct_ {0.0};
+  double total_task_rss_delta_mb_ {0.0};
+  std::chrono::steady_clock::time_point pool_start_time_ {};
 
 public:
   BasicWorkPool(BasicWorkPool&&) = delete;
@@ -274,13 +305,23 @@ public:
       : available_threads_(config.max_threads)
       , max_threads_(config.max_threads)
       , max_cpu_threshold_(config.max_cpu_threshold)
+      , min_free_memory_mb_(config.min_free_memory_mb)
+      , max_memory_percent_(config.max_memory_percent)
+      , max_process_rss_mb_(config.max_process_rss_mb)
       , scheduler_interval_(config.scheduler_interval)
       , name_(std::move(config.name))
   {
-    spdlog::info("  {} initialized: {} max threads, {}% CPU threshold",
-                 name_,
-                 max_threads_,
-                 max_cpu_threshold_);
+    spdlog::info(
+        "  {} initialized: {} max threads, {:.0f}% CPU threshold, "
+        "{:.0f} MB min free mem, {:.0f}% max mem{}",
+        name_,
+        max_threads_,
+        max_cpu_threshold_,
+        min_free_memory_mb_,
+        max_memory_percent_,
+        max_process_rss_mb_ > 0
+            ? std::format(", {:.0f} MB max RSS", max_process_rss_mb_)
+            : "");
   }
 
   ~BasicWorkPool() { shutdown(); }
@@ -291,20 +332,35 @@ public:
       return;
     }
 
+    pool_start_time_ = std::chrono::steady_clock::now();
+
     try {
       cpu_monitor_.set_interval(3 * scheduler_interval_);
       cpu_monitor_.start();
+      memory_monitor_.set_interval(3 * scheduler_interval_);
+      memory_monitor_.start();
       scheduler_thread_ = std::jthread {
           [this](const std::stop_token& stoken)
           {
 #ifdef __linux__
             pthread_setname_np(pthread_self(), "WorkPoolScheduler");
 #endif
+            auto last_log = std::chrono::steady_clock::now();
+            constexpr auto log_interval = std::chrono::seconds(30);
+
             while (!stoken.stop_requested() && running_) {
               cleanup_completed_tasks();
               if (should_schedule_new_task()) {
                 schedule_next_task();
               }
+
+              // Periodic stats logging
+              const auto now = std::chrono::steady_clock::now();
+              if (now - last_log >= log_interval) {
+                log_periodic_stats();
+                last_log = now;
+              }
+
               // Wait on cv_ so that shutdown() and submit() can wake us
               // immediately instead of blocking up to scheduler_interval_.
               std::unique_lock lock(queue_mutex_);
@@ -348,7 +404,10 @@ public:
     }
 
     cpu_monitor_.stop();
-    spdlog::info("  WorkPool shutdown complete");
+    memory_monitor_.stop();
+
+    // Log final summary
+    log_final_stats();
   }
 
   template<typename Func, typename... Args>
@@ -426,10 +485,27 @@ public:
     size_t tasks_active;
     int active_threads;
     double current_cpu_load;
+    double current_memory_percent;  ///< System memory usage %
+    double available_memory_mb;  ///< System available memory MB
+    double process_rss_mb;  ///< Process RSS in MB
+    size_t lp_tasks_dispatched;  ///< Total LP tasks dispatched
+    double avg_task_cpu_pct;  ///< Average CPU % per LP task
+    double avg_task_rss_delta_mb;  ///< Average RSS delta per LP task
   };
 
   Statistics get_statistics() const noexcept
   {
+    double avg_cpu = 0.0;
+    double avg_mem = 0.0;
+    size_t dispatched = 0;
+    {
+      const std::scoped_lock lock(active_mutex_);
+      dispatched = lp_tasks_dispatched_;
+      if (dispatched > 0) {
+        avg_cpu = total_task_cpu_pct_ / static_cast<double>(dispatched);
+        avg_mem = total_task_rss_delta_mb_ / static_cast<double>(dispatched);
+      }
+    }
     return Statistics {
         .tasks_submitted = tasks_submitted_.load(),
         .tasks_completed = tasks_completed_.load(),
@@ -437,6 +513,12 @@ public:
         .tasks_active = tasks_active_.load(),
         .active_threads = active_threads_.load(),
         .current_cpu_load = cpu_monitor_.get_load(),
+        .current_memory_percent = memory_monitor_.get_memory_percent(),
+        .available_memory_mb = memory_monitor_.get_available_mb(),
+        .process_rss_mb = memory_monitor_.get_process_rss_mb(),
+        .lp_tasks_dispatched = dispatched,
+        .avg_task_cpu_pct = avg_cpu,
+        .avg_task_rss_delta_mb = avg_mem,
     };
   }
 
@@ -449,14 +531,23 @@ public:
           "  Tasks: {:>6} submitted, {:>6} completed, {:>6} pending, {:>6} "
           "  active\n"
           "  Threads: {:>6} active / {:>6} max\n"
-          "  CPU Load: {:>6.1f}%\n",
+          "  CPU Load: {:>6.1f}%\n"
+          "  Memory: {:.1f}% used, {:.0f} MB free, RSS {:.0f} MB\n"
+          "  LP tasks: {} dispatched, avg CPU {:.1f}%, avg mem delta "
+          "{:.1f} MB\n",
           stats.tasks_submitted,
           stats.tasks_completed,
           stats.tasks_pending,
           stats.tasks_active,
           stats.active_threads,
           max_threads_,
-          stats.current_cpu_load);
+          stats.current_cpu_load,
+          stats.current_memory_percent,
+          stats.available_memory_mb,
+          stats.process_rss_mb,
+          stats.lp_tasks_dispatched,
+          stats.avg_task_cpu_pct,
+          stats.avg_task_rss_delta_mb);
     } catch (...) {
       return "WorkPool statistics unavailable";
     }
@@ -468,20 +559,30 @@ private:
   void cleanup_completed_tasks()
   {
     const std::scoped_lock<std::mutex> lock(active_mutex_);
-    auto new_end = std::ranges::remove_if(active_tasks_,
-                                          [this](const auto& task)
-                                          {
-                                            if (task.is_ready()) {
-                                              active_threads_ -=
-                                                  task.estimated_threads;
-                                              tasks_completed_++;
-                                              tasks_active_.fetch_sub(
-                                                  1, std::memory_order_relaxed);
-                                              return true;
-                                            }
-                                            return false;
-                                          })
-                       .begin();
+    auto new_end =
+        std::ranges::remove_if(
+            active_tasks_,
+            [this](const auto& task)
+            {
+              if (task.is_ready()) {
+                active_threads_ -= task.estimated_threads;
+                tasks_completed_++;
+                tasks_active_.fetch_sub(1, std::memory_order_relaxed);
+
+                // Accumulate per-task resource stats
+                if (task.resource_stats) {
+                  const auto& rs = *task.resource_stats;
+                  ++lp_tasks_dispatched_;
+                  total_task_cpu_pct_ +=
+                      (rs.cpu_load_before + rs.cpu_load_after) / 2.0;
+                  const auto delta = rs.rss_mb_after - rs.rss_mb_before;
+                  total_task_rss_delta_mb_ += delta;
+                }
+                return true;
+              }
+              return false;
+            })
+            .begin();
     active_tasks_.erase(new_end, active_tasks_.end());
   }
 
@@ -496,7 +597,6 @@ private:
     }
 
     const auto& next_task = task_queue_.front();
-    const auto cpu_load = cpu_monitor_.get_load();
     const auto threads_needed = next_task.requirements().estimated_threads;
     const auto current_threads = active_threads_.load();
 
@@ -504,19 +604,62 @@ private:
       return false;
     }
 
-    auto threshold = max_cpu_threshold_;
+    const auto is_critical =
+        next_task.requirements().priority == TaskPriority::Critical;
+
+    // CPU check
+    const auto cpu_load = cpu_monitor_.get_load();
+    auto cpu_threshold = max_cpu_threshold_;
     switch (next_task.requirements().priority) {
       case TaskPriority::Critical:
-        threshold = 95.0;
+        cpu_threshold = 95.0;
         break;
       case TaskPriority::High:
-        threshold = max_cpu_threshold_ + 5.0;
+        cpu_threshold = max_cpu_threshold_ + 5.0;
         break;
       default:
         break;
     }
+    if (cpu_load >= cpu_threshold) {
+      return false;
+    }
 
-    return cpu_load < threshold;
+    // Memory checks (Critical tasks get relaxed thresholds)
+    const auto mem_pct = memory_monitor_.get_memory_percent();
+    const auto mem_threshold = is_critical ? 98.0 : max_memory_percent_;
+    if (mem_pct >= mem_threshold) {
+      SPDLOG_DEBUG("{}: blocked by memory usage {:.1f}% >= {:.1f}%",
+                   name_,
+                   mem_pct,
+                   mem_threshold);
+      return false;
+    }
+
+    const auto free_mb = memory_monitor_.get_available_mb();
+    const auto free_threshold =
+        is_critical ? min_free_memory_mb_ * 0.5 : min_free_memory_mb_;
+    if (free_mb < free_threshold && free_mb > 0.0) {
+      SPDLOG_DEBUG("{}: blocked by low free memory {:.0f} MB < {:.0f} MB",
+                   name_,
+                   free_mb,
+                   free_threshold);
+      return false;
+    }
+
+    if (max_process_rss_mb_ > 0.0) {
+      const auto rss = memory_monitor_.get_process_rss_mb();
+      const auto rss_threshold =
+          is_critical ? max_process_rss_mb_ * 1.1 : max_process_rss_mb_;
+      if (rss >= rss_threshold) {
+        SPDLOG_DEBUG("{}: blocked by process RSS {:.0f} MB >= {:.0f} MB",
+                     name_,
+                     rss,
+                     rss_threshold);
+        return false;
+      }
+    }
+
+    return true;
   }
 
   void schedule_next_task()
@@ -538,10 +681,15 @@ private:
     const auto threads_needed = task.requirements().estimated_threads;
     active_threads_.fetch_add(threads_needed, std::memory_order_relaxed);
 
+    // Sample resource state before execution
+    auto stats = std::make_shared<TaskResourceStats>();
+    stats->cpu_load_before = cpu_monitor_.get_load();
+    stats->rss_mb_before = memory_monitor_.get_process_rss_mb();
+
     try {
       auto future = std::async(
           std::launch::async,
-          [ntask = std::move(task)]() mutable noexcept
+          [ntask = std::move(task), stats, this]() mutable noexcept
           {
             try {
               ntask.execute();
@@ -550,18 +698,65 @@ private:
             } catch (...) {
               SPDLOG_ERROR("Task execution failed with unknown exception");
             }
+            // Sample after execution
+            stats->cpu_load_after = cpu_monitor_.get_load();
+            stats->rss_mb_after = memory_monitor_.get_process_rss_mb();
           });
 
       active_tasks_.push_back(ActiveTask {
           .future = std::move(future),
           .estimated_threads = threads_needed,
           .start_time = std::chrono::steady_clock::now(),
+          .resource_stats = std::move(stats),
       });
       tasks_active_.fetch_add(1, std::memory_order_relaxed);
 
     } catch (...) {
       active_threads_.fetch_sub(threads_needed, std::memory_order_relaxed);
       throw;
+    }
+  }
+
+  void log_periodic_stats() const
+  {
+    try {
+      const auto stats = get_statistics();
+      spdlog::info(
+          "[{}] CPU: {:.1f}%  MEM: {:.0f} MB free ({:.1f}%)  "
+          "RSS: {:.0f} MB  Active: {}/{}  Pending: {}  Done: {}",
+          name_,
+          stats.current_cpu_load,
+          stats.available_memory_mb,
+          stats.current_memory_percent,
+          stats.process_rss_mb,
+          stats.active_threads,
+          max_threads_,
+          stats.tasks_pending,
+          stats.tasks_completed);
+    } catch (const std::exception& e) {
+      SPDLOG_WARN("log_periodic_stats failed: {}", e.what());
+    }
+  }
+
+  void log_final_stats() const
+  {
+    try {
+      const auto stats = get_statistics();
+      const auto elapsed =
+          std::chrono::duration<double>(std::chrono::steady_clock::now()
+                                        - pool_start_time_)
+              .count();
+      spdlog::info(
+          "[{}] Final: {} tasks dispatched, {} completed, "
+          "avg CPU {:.1f}%, avg mem delta {:.1f} MB, wall {:.1f}s",
+          name_,
+          stats.lp_tasks_dispatched,
+          stats.tasks_completed,
+          stats.avg_task_cpu_pct,
+          stats.avg_task_rss_delta_mb,
+          elapsed);
+    } catch (const std::exception& e) {
+      SPDLOG_WARN("log_final_stats failed: {}", e.what());
     }
   }
 };

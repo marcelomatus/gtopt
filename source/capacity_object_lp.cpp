@@ -93,7 +93,8 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
       .variable_uid = uid(),
       .context = stg_ctx,
   });
-  sc.add_state_variable(sv_key_p(scenario, stage, CapainstName), capainst_col);
+  sc.add_state_variable(
+      sv_key_p(scenario, stage, CapainstName), capainst_col, 0.0, 1.0, stg_ctx);
 
   SparseRow capainst_row;
   capainst_row.class_name = m_class_name_;
@@ -109,7 +110,8 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
       .variable_uid = uid(),
       .context = stg_ctx,
   });
-  sc.add_state_variable(sv_key_p(scenario, stage, CapacostName), capacost_col);
+  sc.add_state_variable(
+      sv_key_p(scenario, stage, CapacostName), capacost_col, 0.0, 1.0, stg_ctx);
 
   SparseRow capacost_row;
   capacost_row.class_name = m_class_name_;

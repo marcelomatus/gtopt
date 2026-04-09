@@ -280,11 +280,12 @@ public:
   template<typename Key>
   constexpr auto add_state_variable(Key&& key,
                                     ColIndex col,
-                                    double scost = 0.0,
-                                    double var_scale = 1.0)
+                                    double scost,
+                                    double var_scale,
+                                    LpContext context)
   {
     return simulation().add_state_variable(
-        std::forward<Key>(key), col, scost, var_scale);
+        std::forward<Key>(key), col, scost, var_scale, std::move(context));
   }
 
   template<typename Key>

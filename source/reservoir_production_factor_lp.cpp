@@ -75,7 +75,7 @@ bool ReservoirProductionFactorLP::add_to_lp(const SystemContext& sc,
     }
   }
 
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   m_coeff_indices_[st_key] = std::move(bmap);
 
   return true;

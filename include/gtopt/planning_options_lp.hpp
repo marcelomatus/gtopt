@@ -70,7 +70,7 @@ public:
   static constexpr CompressionCodec default_output_compression =
       CompressionCodec::zstd;
   /** @brief Default LP naming level (minimal = state-var col names only) */
-  static constexpr LpNamesLevel default_names_level = LpNamesLevel::minimal;
+  static constexpr LpNamesLevel default_names_level = LpNamesLevel::none;
   /** @brief Default setting for using UIDs in filenames */
   static constexpr Bool default_use_uid_fname = true;
   /** @brief Default annual discount rate for multi-year planning */

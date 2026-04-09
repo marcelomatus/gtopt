@@ -138,7 +138,7 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   }
 
   // storing the indices for this scenario and stage
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   extraction_cols[st_key] = std::move(rcols);
   return true;
 }

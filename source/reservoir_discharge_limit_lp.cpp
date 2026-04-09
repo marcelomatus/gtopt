@@ -60,7 +60,7 @@ bool ReservoirDischargeLimitLP::add_to_lp(const SystemContext& sc,
   const auto& blocks = stage.blocks();
   const auto stage_dur = stage.duration();
 
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
 
   const auto stage_context = make_stage_context(scenario.uid(), stage.uid());
 
@@ -142,7 +142,7 @@ int ReservoirDischargeLimitLP::update_lp(SystemLP& sys,
   const auto& rsv = sys.element<ReservoirLP>(reservoir_sid());
   const auto default_volume = rsv.reservoir().eini.value_or(0.0);
 
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   auto& state = m_states_.at(st_key);
 
   const auto vini =

@@ -213,7 +213,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   }
 
   // Store columns for external coupling access
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   extraction_cols_[st_key] = extraction_cols;
   if (!saving_cols.empty()) {
     saving_cols_[st_key] = saving_cols;
@@ -322,7 +322,7 @@ int VolumeRightLP::update_lp(SystemLP& sys,
   const auto& rsv = sys.element<ReservoirLP>(rsv_sid);
   const auto default_volume = rsv.reservoir().eini.value_or(0.0);
 
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   auto& state = m_bound_states_.at(st_key);
 
   const auto vini =

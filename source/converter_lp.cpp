@@ -120,7 +120,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
   }
 
   // storing the indices for this scenario and stage
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   capacity_rows[st_key] = std::move(crows);
   generation_rows[st_key] = std::move(grows);
   demand_rows[st_key] = std::move(drows);

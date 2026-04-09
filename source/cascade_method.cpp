@@ -110,13 +110,13 @@ auto CascadePlanningMethod::clone_planning_with_overrides(
   return copy;
 }
 
-// ─── Collect named state variable targets ───────────────────────────────────
+// ─── Collect state variable targets ─────────────────────────────────────────
 
-auto CascadePlanningMethod::collect_named_targets(const SDDPMethod& solver,
+auto CascadePlanningMethod::collect_state_targets(const SDDPMethod& solver,
                                                   const PlanningLP& planning_lp)
-    -> std::vector<NamedStateTarget>
+    -> std::vector<StateTarget>
 {
-  std::vector<NamedStateTarget> targets;
+  std::vector<StateTarget> targets;
 
   for (auto&& [scene, _sc] :
        enumerate<SceneIndex>(planning_lp.simulation().scenes()))
@@ -126,38 +126,43 @@ auto CascadePlanningMethod::collect_named_targets(const SDDPMethod& solver,
          enumerate<PhaseIndex>(planning_lp.simulation().phases()))
     {
       const auto& state = scene_states[phase];
-      const auto& names = planning_lp.system(scene, phase)
-                              .linear_interface()
-                              .col_index_to_name();
+      const auto& sv_map =
+          planning_lp.simulation().state_variables(scene, phase);
 
-      for (const auto& link : state.outgoing_links) {
-        const auto col = link.source_col;
+      // Build a col → StateVariable::Key+value reverse lookup from the
+      // state variable map.  Each outgoing link carries a source_col;
+      // we match it to the registered state variable.
+      for (const auto& [key, svar] : sv_map) {
+        const auto col = svar.col();
         const auto col_sz = static_cast<size_t>(col);
-        if (col_sz >= names.size() || names[col].empty()) {
-          SPDLOG_DEBUG(
-              "Cascade: skipping unnamed state col {} "
-              "(scene={}, phase={})",
-              col,
-              scene,
-              phase);
+
+        // Only collect variables that are outgoing links (state transfer)
+        const bool is_outgoing = std::ranges::any_of(
+            state.outgoing_links,
+            [col](const auto& link) { return link.source_col == col; });
+        if (!is_outgoing) {
           continue;
         }
+
         const double val = (col_sz < state.forward_col_sol.size())
             ? state.forward_col_sol[col_sz]
             : 0.0;
 
         targets.push_back({
-            .var_name = names[col],
+            .class_name = std::string(key.class_name),
+            .col_name = std::string(key.col_name),
+            .uid = key.uid,
+            .context = svar.context(),
             .scene_index = scene,
             .phase_index = phase,
             .target_value = val,
+            .var_scale = svar.var_scale(),
         });
       }
     }
   }
 
-  SPDLOG_INFO("Cascade: collected {} named state variable targets",
-              targets.size());
+  SPDLOG_INFO("Cascade: collected {} state variable targets", targets.size());
   return targets;
 }
 
@@ -165,7 +170,7 @@ auto CascadePlanningMethod::collect_named_targets(const SDDPMethod& solver,
 
 void CascadePlanningMethod::add_elastic_targets(
     PlanningLP& planning_lp,
-    const std::vector<NamedStateTarget>& targets,
+    const std::vector<StateTarget>& targets,
     const CascadeTransition& transition)
 {
   const double rtol = transition.target_rtol.value_or(0.05);
@@ -176,18 +181,39 @@ void CascadePlanningMethod::add_elastic_targets(
   int skipped = 0;
 
   for (const auto& t : targets) {
-    auto& li =
-        planning_lp.system(t.scene_index, t.phase_index).linear_interface();
-    const auto& col_map = li.col_name_map();
+    // Look up by structured key (class_name, col_name, uid) in the
+    // target level's state variable map — no LP name strings needed.
+    const auto& sv_map =
+        planning_lp.simulation().state_variables(t.scene_index, t.phase_index);
 
-    auto it = col_map.find(t.var_name);
-    if (it == col_map.end()) {
+    // Find the matching state variable by (class_name, col_name, uid).
+    // The key may differ in scenario_uid/stage_uid between levels, so
+    // match only the stable identity fields.
+    ColIndex resolved_col {unknown_index};
+    for (const auto& [key, svar] : sv_map) {
+      if (key.class_name == t.class_name && key.col_name == t.col_name
+          && key.uid == t.uid)
+      {
+        resolved_col = svar.col();
+        break;
+      }
+    }
+
+    if (resolved_col == ColIndex {unknown_index}) {
       ++skipped;
+      SPDLOG_DEBUG(
+          "Cascade: target not found in next level "
+          "(class={}, var={}, uid={})",
+          t.class_name,
+          t.col_name,
+          static_cast<int>(t.uid));
       continue;
     }
 
-    const auto resolved_col = ColIndex {it->second};
     const double atol = std::max(rtol * std::abs(t.target_value), min_atol);
+
+    auto& li =
+        planning_lp.system(t.scene_index, t.phase_index).linear_interface();
 
     // Add slack columns for elastic penalty
     const auto sup_col = li.add_col(SparseCol {
@@ -265,7 +291,7 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
   PlanningLP* current_lp = nullptr;
   const PlanningLP* prev_lp = nullptr;
   std::unique_ptr<SDDPMethod> current_solver;
-  std::vector<NamedStateTarget> prev_targets;
+  std::vector<StateTarget> prev_targets;
   std::vector<StoredCut> prev_cuts;
   ModelOptions prev_effective_model = m_cascade_opts_.model_options;
 
@@ -299,8 +325,7 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     {
       auto modified_planning = clone_planning_with_overrides(
           planning_lp.planning(), effective_model);
-      // Default LpMatrixOptions (level 0) provides col names for state variable
-      // transfer — no explicit override needed.
+      // State variable transfer uses structured keys — no LP names needed.
       auto new_lp = std::make_unique<PlanningLP>(std::move(modified_planning));
       current_lp = new_lp.get();
       m_owned_lps_.push_back(std::move(new_lp));
@@ -621,7 +646,7 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
 
     // ── 5. Extract state for next level ──
     if (level_idx + 1 < m_cascade_opts_.level_array.size()) {
-      prev_targets = collect_named_targets(*current_solver, *current_lp);
+      prev_targets = collect_state_targets(*current_solver, *current_lp);
 
       // Save state variable solutions to a temp file for inter-level
       // transfer.  The next level loads these via name-based resolution,

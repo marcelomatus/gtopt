@@ -94,7 +94,7 @@ public:
                                const std::vector<BlockLP>& blocks) const
       -> const BIndexHolder<ColIndex>&
   {
-    const auto key = std::pair {scenario.uid(), stage.uid()};
+    const auto key = std::tuple {scenario.uid(), stage.uid()};
     if (const auto it = theta_cols.find(key); it != theta_cols.end()) {
       return it->second;
     }
@@ -109,7 +109,7 @@ public:
                                            const StageLP& stage,
                                            BlockUid buid) const noexcept
   {
-    const auto key = std::pair {scenario.uid(), stage.uid()};
+    const auto key = std::tuple {scenario.uid(), stage.uid()};
     if (const auto mit = theta_cols.find(key); mit != theta_cols.end()) {
       if (const auto it = mit->second.find(buid); it != mit->second.end()) {
         return it->second;

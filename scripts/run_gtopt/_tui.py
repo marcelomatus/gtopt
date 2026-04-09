@@ -899,27 +899,67 @@ def _build_system(data: dict) -> Panel:
     rt = data.get("realtime", {})
     cpus = rt.get("cpu_loads", [])
     workers = rt.get("active_workers", [])
+    mem_pcts = rt.get("memory_percent", [])
+    rss_vals = rt.get("process_rss_mb", [])
 
     cpu_val = cpus[-1] if cpus else 0.0
     worker_val = workers[-1] if workers else 0
-    filled = int(cpu_val * 30 / 100)
-    cpu_bar = f"[green]{'█' * filled}[/green][dim]{'░' * (30 - filled)}[/dim]"
+    mem_val = mem_pcts[-1] if mem_pcts else 0.0
+    rss_val = rss_vals[-1] if rss_vals else 0.0
+
+    bar_width = 30
+    cpu_filled = int(cpu_val * bar_width / 100)
+    cpu_bar = (
+        f"[green]{'█' * cpu_filled}[/green][dim]{'░' * (bar_width - cpu_filled)}[/dim]"
+    )
+    mem_filled = int(mem_val * bar_width / 100)
+    mem_bar = (
+        f"[blue]{'█' * mem_filled}[/blue][dim]{'░' * (bar_width - mem_filled)}[/dim]"
+    )
 
     grid = Table.grid(padding=(0, 2))
     grid.add_column(min_width=6)
     grid.add_column(min_width=40)
-    grid.add_column(min_width=14)
+    grid.add_column(min_width=20)
     grid.add_row(
         Text("CPU", style="bold"),
         Text.from_markup(f"{cpu_bar} {cpu_val:.0f}%"),
         Text(f"Workers: {worker_val}", style="cyan"),
     )
+    grid.add_row(
+        Text("MEM", style="bold"),
+        Text.from_markup(f"{mem_bar} {mem_val:.0f}%"),
+        Text(f"RSS: {rss_val:.0f} MB", style="blue"),
+    )
 
     cpu_spark = _sparkline(cpus) if cpus else ""
+    mem_spark = _sparkline(mem_pcts) if mem_pcts else ""
     if cpu_spark:
         grid.add_row(
             Text("Load", style="dim"),
             Text(cpu_spark, style="green"),
+            "",
+        )
+    if mem_spark:
+        grid.add_row(
+            Text("Mem", style="dim"),
+            Text(mem_spark, style="blue"),
+            "",
+        )
+
+    # LP task stats summary (from top-level JSON, not realtime)
+    lp_stats = data.get("lp_task_stats")
+    if lp_stats:
+        dispatched = lp_stats.get("dispatched", 0)
+        avg_cpu = lp_stats.get("avg_cpu_pct", 0.0)
+        avg_mem = lp_stats.get("avg_rss_delta_mb", 0.0)
+        grid.add_row(
+            Text("LP", style="dim"),
+            Text(
+                f"{dispatched} tasks  avg CPU {avg_cpu:.0f}%  "
+                f"avg mem Δ{avg_mem:.0f} MB",
+                style="dim",
+            ),
             "",
         )
 

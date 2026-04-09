@@ -93,7 +93,7 @@ sudo apt-get install -y --no-install-recommends \
   coinor-libcbc-dev \
   libboost-container-dev libspdlog-dev \
   liblapack-dev libblas-dev \
-  lcov zlib1g-dev libzstd-dev zstd ca-certificates lsb-release wget
+  lcov zlib1g-dev libzstd-dev zstd liblz4-dev ca-certificates lsb-release wget
 
 # 2. Arrow / Parquet — via conda-forge (sandbox/agent environments only).
 #    Locally, use APT: sudo apt-get install -y libarrow-dev libparquet-dev
@@ -1237,6 +1237,11 @@ Scenario (probability)
 | `output_directory` | `"output"` (default) | Root directory for solution output files |
 | `output_format` | `"parquet"` (default) | Output file format (`"parquet"` or `"csv"`) |
 | `output_compression` | `"zstd"` (default) | Parquet/CSV compression codec (`"zstd"`, `"gzip"`, `"lzo"`, `"uncompressed"`) |
+| `memory_codec` | `"lz4"` (default) | In-memory compression for LP snapshots in low-memory/SDDP mode (`"lz4"`, `"zstd"`, `"snappy"`, `"none"`) |
+
+> **Codec policy**: use **zstd** for file I/O (best ratio) and **lz4** for
+> in-memory compression (fastest round-trip). Both `libzstd-dev` and
+> `liblz4-dev` are required build dependencies.
 
 ### Simulation-Level Fields
 

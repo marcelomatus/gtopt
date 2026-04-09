@@ -34,15 +34,17 @@ namespace gtopt
  * - `only_cols`:    All column names + name-to-index maps.
  * - `cols_and_rows`: Column + row names + maps.  Warns on duplicate names.
  */
-enum class LpNamesLevel : uint8_t
+enum class LpNamesLevel : int8_t
 {
-  minimal = 0,  ///< State-variable column names only (default)
+  none = -1,  ///< No names generated (lowest memory, default)
+  minimal = 0,  ///< State-variable column names only
   only_cols = 1,  ///< All column names + name maps
   cols_and_rows = 2,  ///< Column + row names + maps + warn on duplicates
 };
 
 inline constexpr auto lp_names_level_entries =
     std::to_array<EnumEntry<LpNamesLevel>>({
+        {.name = "none", .value = LpNamesLevel::none},
         {.name = "minimal", .value = LpNamesLevel::minimal},
         {.name = "only_cols", .value = LpNamesLevel::only_cols},
         {.name = "cols_and_rows", .value = LpNamesLevel::cols_and_rows},

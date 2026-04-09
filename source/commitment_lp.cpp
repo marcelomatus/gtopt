@@ -127,7 +127,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       && opt_warm_cost.has_value() && opt_cold_cost.has_value()
       && opt_hot_time.has_value() && opt_cold_time.has_value();
 
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
 
   // ── Compute commitment periods ──
   // When commitment_period is set, binary variables (u/v/w) are created at

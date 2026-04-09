@@ -78,7 +78,7 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
   }
 
   // storing the indices for this scenario and stage
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   flow_cols[st_key] = std::move(fcols);
 
   return true;
@@ -104,7 +104,7 @@ bool FlowLP::update_aperture(
     return true;
   }
 
-  const auto st_key = std::pair {base_scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {base_scenario.uid(), stage.uid()};
   const auto it = flow_cols.find(st_key);
   if (it == flow_cols.end()) {
     return true;  // no columns registered for this (scenario, stage)

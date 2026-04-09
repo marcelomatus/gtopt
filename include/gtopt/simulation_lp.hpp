@@ -166,15 +166,19 @@ public:
   [[nodiscard]]
   constexpr auto add_state_variable(Key&& key,
                                     ColIndex col,
-                                    double scost = 0.0,
-                                    double var_scale = 1.0)
-      -> const StateVariable&
+                                    double scost,
+                                    double var_scale,
+                                    LpContext context) -> const StateVariable&
   {
     auto&& map =
         m_global_variable_map_[key.lp_key.scene_index][key.lp_key.phase_index];
 
-    const auto [it, inserted] = map.try_emplace(
-        std::forward<Key>(key), key.lp_key, col, scost, var_scale);
+    const auto [it, inserted] = map.try_emplace(std::forward<Key>(key),
+                                                key.lp_key,
+                                                col,
+                                                scost,
+                                                var_scale,
+                                                std::move(context));
 
     if (!inserted) {
       const auto msg =

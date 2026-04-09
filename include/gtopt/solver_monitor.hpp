@@ -31,7 +31,6 @@
 
 #pragma once
 
-#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -89,12 +88,15 @@ namespace gtopt
 
 // ─── MonitorPoint ────────────────────────────────────────────────────────────
 
-/// A single real-time sample point (CPU load, active workers, timestamp).
+/// A single real-time sample point (CPU load, memory, active workers,
+/// timestamp).
 struct MonitorPoint
 {
   double timestamp {};  ///< Seconds since monitoring started
   double cpu_load {};  ///< CPU load percentage [0–100]
   int active_workers {};  ///< Number of active worker threads
+  double memory_percent {};  ///< System memory usage percentage [0–100]
+  double process_rss_mb {};  ///< Process RSS in MB
 };
 
 // ─── SolverMonitor ───────────────────────────────────────────────────────────
@@ -173,6 +175,8 @@ public:
                   .timestamp = elapsed,
                   .cpu_load = stats.current_cpu_load,
                   .active_workers = stats.active_threads,
+                  .memory_percent = stats.current_memory_percent,
+                  .process_rss_mb = stats.process_rss_mb,
               });
             }
             std::this_thread::sleep_for(m_update_interval_);
@@ -222,6 +226,24 @@ public:
         json += ", ";
       }
       json += std::format("{}", m_history_[i].active_workers);
+    }
+    json += "],\n";
+
+    json += "    \"memory_percent\": [";
+    for (std::size_t i = 0; i < m_history_.size(); ++i) {
+      if (i > 0) {
+        json += ", ";
+      }
+      json += std::format("{:.1f}", m_history_[i].memory_percent);
+    }
+    json += "],\n";
+
+    json += "    \"process_rss_mb\": [";
+    for (std::size_t i = 0; i < m_history_.size(); ++i) {
+      if (i > 0) {
+        json += ", ";
+      }
+      json += std::format("{:.0f}", m_history_[i].process_rss_mb);
     }
     json += "]\n";
     json += "  }\n";

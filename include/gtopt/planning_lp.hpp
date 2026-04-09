@@ -52,6 +52,29 @@ private:
   /// that PlanningOptionsLP picks up the computed value.
   static void auto_scale_theta(Planning& planning);
 
+  /// Ensure multi-phase problems have at least minimal column names
+  /// for state variable transfer (SDDP/cascade cut I/O).
+  [[nodiscard]] static auto enforce_names_for_method(
+      const LpMatrixOptions& opts,
+      const PlanningOptionsLP& plp_opts,
+      const Planning& planning) -> LpMatrixOptions
+  {
+    const auto method = plp_opts.method_type_enum();
+    // SDDP cut I/O uses LP column names for CSV serialization.
+    // Cascade state transfer uses structured keys (no LP names needed),
+    // but cascade levels internally run SDDP which may serialize cuts.
+    const bool needs_state_names = method == MethodType::sddp
+        || method == MethodType::cascade
+        || planning.simulation.phase_array.size() > 1;
+    if (needs_state_names && opts.lp_names_level < LpNamesLevel::minimal) {
+      auto fixed = opts;
+      fixed.lp_names_level = LpNamesLevel::minimal;
+      fixed.col_with_names = true;
+      return fixed;
+    }
+    return opts;
+  }
+
 public:
   /**
    * @brief Constructs a PlanningLP instance from planning data
@@ -74,7 +97,10 @@ public:
       , m_options_(m_planning_.options)
       , m_simulation_(m_planning_.simulation, m_options_)
       , m_systems_(create_systems(
-            m_planning_.system, m_simulation_, m_options_, flat_opts))
+            m_planning_.system,
+            m_simulation_,
+            m_options_,
+            enforce_names_for_method(flat_opts, m_options_, m_planning_)))
   {
   }
 

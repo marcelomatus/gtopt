@@ -95,7 +95,7 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
   }
 
   // storing the indices for this scenario and stage
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   seepage_rows[st_key] = std::move(frows);
   seepage_cols[st_key] = std::move(fcols);
 
@@ -134,7 +134,7 @@ int ReservoirSeepageLP::update_lp(SystemLP& sys,
   const auto& rsv = sys.element<ReservoirLP>(reservoir_sid());
   const auto default_volume = rsv.reservoir().eini.value_or(0.0);
 
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   auto& state = m_states_.at(st_key);
 
   const auto vini =

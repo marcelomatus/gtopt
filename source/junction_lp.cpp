@@ -68,7 +68,7 @@ bool JunctionLP::add_to_lp(const SystemContext& /*sc*/,
   }
 
   // Store indices for this scenario and stage
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   drain_cols[st_key] = std::move(dcols);
   balance_rows[st_key] = std::move(brows);
 

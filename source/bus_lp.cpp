@@ -72,7 +72,7 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
   }
 
   // Store the theta columns for this scenario and stage
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   return theta_cols[st_key] = std::move(tblocks);
 }
 
@@ -102,7 +102,7 @@ bool BusLP::add_to_lp(const SystemContext& /*sc*/,
                           });
                         });
 
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   balance_rows[st_key] = std::move(brows);
 
   return true;

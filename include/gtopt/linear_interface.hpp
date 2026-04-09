@@ -391,12 +391,17 @@ public:
   }
 
   /// Solver library version string (e.g. "1.17.3").
+  /// Safe to call even when the backend has been released.
   [[nodiscard]] std::string solver_version() const
   {
-    return m_backend_->solver_version();
+    if (m_backend_) {
+      return m_backend_->solver_version();
+    }
+    return m_solver_version_;
   }
 
   /// Solver identifier: "name/version" (e.g. "highs/1.13.1").
+  /// Safe to call even when the backend has been released.
   [[nodiscard]] std::string solver_id() const
   {
     return std::format("{}/{}", solver_name(), solver_version());
@@ -1217,6 +1222,7 @@ private:
 
   std::unique_ptr<SolverBackend> m_backend_;
   std::string m_solver_name_ {};  ///< Solver name for backend reconstruction
+  std::string m_solver_version_ {};  ///< Cached version for released backends
   SolverOptions m_last_solver_options_ {};  ///< Options from last solve
   std::string m_log_file_ {};
   int m_lp_names_level_ {};  ///< LP name uniqueness-check level (0–2)

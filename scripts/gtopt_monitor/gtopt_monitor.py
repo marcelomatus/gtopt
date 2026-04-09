@@ -135,7 +135,9 @@ def run_gui(status_file: Path, poll_interval: float) -> None:
     plt.ion()  # Interactive (non-blocking) mode
 
     # ── Figure 1: Real-time charts ──────────────────────────────────────────
-    fig1, (ax_cpu, ax_workers) = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
+    fig1, (ax_cpu, ax_workers, ax_mem, ax_rss) = plt.subplots(
+        4, 1, figsize=(10, 10), sharex=True
+    )
     fig1.suptitle("SDDP Monitor — Real-time Workpool", fontsize=13)
 
     (line_cpu,) = ax_cpu.plot(
@@ -151,9 +153,25 @@ def run_gui(status_file: Path, poll_interval: float) -> None:
         [], [], color="tab:blue", linewidth=1.5, label="Active workers"
     )
     ax_workers.set_ylabel("Active workers")
-    ax_workers.set_xlabel("Wall-clock time (s)")
     ax_workers.grid(True, linestyle="--", alpha=0.5)
     ax_workers.legend(loc="upper left")
+
+    (line_mem,) = ax_mem.plot(
+        [], [], color="tab:purple", linewidth=1.5, label="Memory usage (%)"
+    )
+    ax_mem.set_ylabel("Memory (%)")
+    ax_mem.set_ylim(0, 105)
+    ax_mem.yaxis.set_major_formatter(mticker.FormatStrFormatter("%g%%"))
+    ax_mem.grid(True, linestyle="--", alpha=0.5)
+    ax_mem.legend(loc="upper left")
+
+    (line_rss,) = ax_rss.plot(
+        [], [], color="tab:orange", linewidth=1.5, label="Process RSS (MB)"
+    )
+    ax_rss.set_ylabel("RSS (MB)")
+    ax_rss.set_xlabel("Wall-clock time (s)")
+    ax_rss.grid(True, linestyle="--", alpha=0.5)
+    ax_rss.legend(loc="upper left")
 
     fig1.tight_layout()
 
@@ -203,19 +221,28 @@ def run_gui(status_file: Path, poll_interval: float) -> None:
             ts = rt.get("timestamps", [])
             cpus = rt.get("cpu_loads", [])
             workers = rt.get("active_workers", [])
+            mem_pcts = rt.get("memory_percent", [])
+            rss_mbs = rt.get("process_rss_mb", [])
 
             if ts:
                 line_cpu.set_data(ts, cpus)
                 line_workers.set_data(ts, workers)
+                if mem_pcts:
+                    line_mem.set_data(ts[: len(mem_pcts)], mem_pcts)
+                if rss_mbs:
+                    line_rss.set_data(ts[: len(rss_mbs)], rss_mbs)
 
                 ax_cpu.relim()
                 ax_cpu.autoscale_view(scaley=False)
                 ax_workers.relim()
                 ax_workers.autoscale_view(scaley=True)
                 ax_workers.set_ylim(bottom=0)
-                ax_workers.xaxis.set_major_formatter(
-                    mticker.FormatStrFormatter("%.0fs")
-                )
+                ax_mem.relim()
+                ax_mem.autoscale_view(scaley=False)
+                ax_rss.relim()
+                ax_rss.autoscale_view(scaley=True)
+                ax_rss.set_ylim(bottom=0)
+                ax_rss.xaxis.set_major_formatter(mticker.FormatStrFormatter("%.0fs"))
                 fig1.canvas.draw_idle()
 
             # ── Update iteration charts ───────────────────────────────────

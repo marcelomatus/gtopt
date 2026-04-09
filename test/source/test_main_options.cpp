@@ -435,11 +435,11 @@ TEST_CASE("make_lp_matrix_options - defaults when both nullopt")
   auto opts = make_lp_matrix_options(std::nullopt, std::nullopt);
 
   CHECK(opts.eps == doctest::Approx(0.0));
-  CHECK(opts.col_with_names == true);
+  CHECK(opts.col_with_names == false);
   CHECK(opts.row_with_names == false);
   CHECK(opts.col_with_name_map == false);
   CHECK(opts.row_with_name_map == false);
-  CHECK(opts.lp_names_level == LpNamesLevel::minimal);
+  CHECK(opts.lp_names_level == LpNamesLevel::none);
 }
 
 TEST_CASE(

@@ -63,7 +63,7 @@ TEST_CASE("LpMatrixOptions JSON - Missing fields keep defaults")
   CHECK_FALSE(opts.lp_coeff_ratio_threshold.has_value());
   // Non-JSON fields keep their struct defaults
   CHECK(opts.eps == doctest::Approx(0.0));
-  CHECK(opts.col_with_names == true);
+  CHECK(opts.col_with_names == false);
   CHECK(opts.row_with_names == false);
   CHECK_FALSE(opts.compute_stats.has_value());
 }

@@ -54,7 +54,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   const auto& bus_balance_rows = bus_lp.balance_rows_at(scenario, stage);
   const auto& blocks = stage.blocks();
 
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   // adding the minimum energy constraint
   const auto stage_emin = emin.optval(stage.uid());
   auto stage_ecost = ecost.optval(stage.uid());

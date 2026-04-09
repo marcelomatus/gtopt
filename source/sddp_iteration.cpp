@@ -1029,6 +1029,12 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
             .pool_tasks_pending = static_cast<int>(pool_stats.tasks_pending),
             .pool_tasks_active = static_cast<int>(pool_stats.tasks_active),
             .pool_cpu_load = pool_stats.current_cpu_load,
+            .pool_memory_percent = pool_stats.current_memory_percent,
+            .pool_process_rss_mb = pool_stats.process_rss_mb,
+            .pool_available_memory_mb = pool_stats.available_memory_mb,
+            .lp_tasks_dispatched = pool_stats.lp_tasks_dispatched,
+            .avg_lp_task_cpu_pct = pool_stats.avg_task_cpu_pct,
+            .avg_lp_task_rss_delta_mb = pool_stats.avg_task_rss_delta_mb,
         };
         write_solver_status(status_file, results, elapsed, snapshot, monitor);
       }

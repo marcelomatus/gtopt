@@ -62,6 +62,21 @@ struct SolverStatusSnapshot
   int pool_tasks_active {};
   /// Current CPU load at snapshot time.
   double pool_cpu_load {};
+
+  // ── Memory and LP task stats ──
+
+  /// System memory usage % at snapshot time.
+  double pool_memory_percent {};
+  /// Process RSS in MB at snapshot time.
+  double pool_process_rss_mb {};
+  /// System available memory in MB at snapshot time.
+  double pool_available_memory_mb {};
+  /// Total LP tasks dispatched so far.
+  size_t lp_tasks_dispatched {};
+  /// Average CPU % per LP task.
+  double avg_lp_task_cpu_pct {};
+  /// Average RSS delta (MB) per LP task.
+  double avg_lp_task_rss_delta_mb {};
 };
 
 /// Write solver status JSON to a file.

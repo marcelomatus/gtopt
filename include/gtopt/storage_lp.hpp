@@ -149,7 +149,7 @@ public:
   [[nodiscard]] ColIndex eini_col_at(const ScenarioLP& scenario,
                                      const StageLP& stage) const
   {
-    const auto key = std::pair {scenario.uid(), stage.uid()};
+    const auto key = std::tuple {scenario.uid(), stage.uid()};
     if (const auto it = eini_cols.find(key); it != eini_cols.end()) {
       return it->second;
     }
@@ -197,7 +197,7 @@ public:
   [[nodiscard]] std::optional<ColIndex> soft_emin_col_at(
       const ScenarioLP& scenario, const StageLP& stage) const
   {
-    const auto key = std::pair {scenario.uid(), stage.uid()};
+    const auto key = std::tuple {scenario.uid(), stage.uid()};
     if (const auto it = soft_emin_slack_cols.find(key);
         it != soft_emin_slack_cols.end())
     {
@@ -416,6 +416,7 @@ public:
 
     const auto hour_loss =
         annual_loss.at(stage.uid()).value_or(0.0) / hours_per_year;
+    const auto stg_ctx = make_stage_context(scenario.uid(), stage.uid());
 
     // Physical bounds — stored directly in SparseCol; flatten() converts
     // to LP units by dividing by col.scale.
@@ -456,7 +457,7 @@ public:
           .class_name = opts.class_name,
           .variable_name = EiniName,
           .variable_uid = opts.variable_uid,
-          .context = make_stage_context(scenario.uid(), stage.uid()),
+          .context = stg_ctx,
       });
     } else if (prev_phase == nullptr) {
       // Same phase – the previous stage's efin column serves as eini here
@@ -475,7 +476,7 @@ public:
           .class_name = opts.class_name,
           .variable_name = SiniName,
           .variable_uid = opts.variable_uid,
-          .context = make_stage_context(scenario.uid(), stage.uid()),
+          .context = stg_ctx,
       });
       if (effective_usv && !opts.skip_state_link) {
         // Link as DependentVariable of the previous phase's efin StateVariable
@@ -514,7 +515,8 @@ public:
     map_reserve(crows, blocks.size());
     map_reserve(dcols, blocks.size());
 
-    const auto st_key = std::pair {scenario.uid(), stage.uid()};
+    // stg_ctx (StageContext = tuple<ScenarioUid, StageUid>) serves as both
+    // the LP hierarchy context and the index holder key.
 
     auto prev_vc = eicol;
     for (const auto& block : blocks) {
@@ -642,11 +644,11 @@ public:
                 .class_name = cname,
                 .constraint_name = EfinName,
                 .variable_uid = opts.variable_uid,
-                .context = make_stage_context(scenario.uid(), stage.uid()),
+                .context = stg_ctx,
             }
                 .greater_equal(lp_efin);
         efin_row[ec] = 1.0;
-        efin_rows[st_key] = lp.add_row(std::move(efin_row));
+        efin_rows[stg_ctx] = lp.add_row(std::move(efin_row));
       }
 
       prev_vc = ec;
@@ -678,7 +680,7 @@ public:
           .class_name = opts.class_name,
           .variable_name = SoftEminName,
           .variable_uid = opts.variable_uid,
-          .context = make_stage_context(scenario.uid(), stage.uid()),
+          .context = stg_ctx,
       });
 
       auto semin_row =
@@ -686,14 +688,14 @@ public:
               .class_name = cname,
               .constraint_name = SeminGeName,
               .variable_uid = opts.variable_uid,
-              .context = make_stage_context(scenario.uid(), stage.uid()),
+              .context = stg_ctx,
           }
               .greater_equal(lp_soft_emin);
       semin_row[prev_vc] = 1.0;
       semin_row[semin_col] = 1.0;
 
-      soft_emin_rows[st_key] = lp.add_row(std::move(semin_row));
-      soft_emin_slack_cols[st_key] = semin_col;
+      soft_emin_rows[stg_ctx] = lp.add_row(std::move(semin_row));
+      soft_emin_slack_cols[stg_ctx] = semin_col;
     }
 
     // Register efin (the last block's energy column) as a StateVariable so
@@ -705,7 +707,8 @@ public:
           StateVariable::key(scenario, stage, cname, uid(), EfinName),
           prev_vc,
           opts.scost,
-          energy_scale);
+          energy_scale,
+          stg_ctx);
     } else {
       // No cross-stage/phase state coupling: add efin == eini constraint so
       // that each independent segment (phase or single-stage horizon) is
@@ -715,7 +718,7 @@ public:
               .class_name = cname,
               .constraint_name = "eclose",
               .variable_uid = opts.variable_uid,
-              .context = make_stage_context(scenario.uid(), stage.uid()),
+              .context = stg_ctx,
           }
               .equal(0);
       close_row[prev_vc] = 1;
@@ -731,7 +734,7 @@ public:
     // flat() defaults to 1.0 for absent keys (no correction applied).
     const double dual_scale = dc_stage_scale;
     if (std::abs(dual_scale - 1.0) > std::numeric_limits<double>::epsilon()) {
-      output_dual_scale[st_key] = dual_scale;
+      output_dual_scale[stg_ctx] = dual_scale;
     }
 
     // storing the indices for this scenario and stage
@@ -739,21 +742,21 @@ public:
       // Cross-phase SDDP state variable (sini): stored only in sini_cols.
       // eini_col_at() falls back to sini_cols when the key is absent from
       // eini_cols, so no duplicate entry is needed in eini_cols.
-      sini_cols[st_key] = eicol;
+      sini_cols[stg_ctx] = eicol;
     } else {
       // Global initial condition (first stage) or same-phase reuse:
       // stored in eini_cols for direct access via eini_col_at().
-      eini_cols[st_key] = eicol;
+      eini_cols[stg_ctx] = eicol;
     }
-    efin_cols[st_key] = prev_vc;
-    energy_rows[st_key] = std::move(erows);
-    energy_cols[st_key] = std::move(ecols);
+    efin_cols[stg_ctx] = prev_vc;
+    energy_rows[stg_ctx] = std::move(erows);
+    energy_cols[stg_ctx] = std::move(ecols);
     if (drain_cost) {
-      drain_cols[st_key] = std::move(dcols);
+      drain_cols[stg_ctx] = std::move(dcols);
     }
 
     if (!crows.empty()) {
-      capacity_rows[st_key] = std::move(crows);
+      capacity_rows[stg_ctx] = std::move(crows);
     }
 
     return true;

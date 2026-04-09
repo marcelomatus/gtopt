@@ -430,6 +430,10 @@ void clear_flat_lp_vectors(FlatLinearProblem& flp)
   flp.rowub = {};
   flp.col_scales = {};
   flp.row_scales = {};
+  // NOTE: name vectors (colnm, rownm, colmp, rowmp) are NOT cleared here
+  // because they are not part of the compressed buffer and cannot be
+  // restored during decompression.  They must survive across
+  // release/reconstruct cycles so that load_flat() can rebuild name maps.
 }
 
 // ── LowMemorySnapshot ─────────────────────────────────────────────────────

@@ -109,6 +109,24 @@ void write_solver_status(const std::string& filepath,
     json += "  },\n";
   }
 
+  // ── Memory and LP task stats ──
+  json += std::format("  \"pool_memory_percent\": {:.1f},\n",
+                      snapshot.pool_memory_percent);
+  json += std::format("  \"pool_process_rss_mb\": {:.0f},\n",
+                      snapshot.pool_process_rss_mb);
+  json += std::format("  \"pool_available_memory_mb\": {:.0f},\n",
+                      snapshot.pool_available_memory_mb);
+  if (snapshot.lp_tasks_dispatched > 0) {
+    json += "  \"lp_task_stats\": {\n";
+    json +=
+        std::format("    \"dispatched\": {},\n", snapshot.lp_tasks_dispatched);
+    json += std::format("    \"avg_cpu_pct\": {:.1f},\n",
+                        snapshot.avg_lp_task_cpu_pct);
+    json += std::format("    \"avg_rss_delta_mb\": {:.1f}\n",
+                        snapshot.avg_lp_task_rss_delta_mb);
+    json += "  },\n";
+  }
+
   // ── Iteration history ──
   json += "  \"history\": [\n";
   for (std::size_t i = 0; i < results.size(); ++i) {

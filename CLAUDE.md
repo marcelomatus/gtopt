@@ -29,7 +29,7 @@ conda for Arrow/Parquet, and saves `tools/compile_commands.json` for clang-tidy.
 sudo apt-get update && sudo apt-get install -y --no-install-recommends \
   ccache coinor-libcbc-dev libarrow-dev libparquet-dev \
   libboost-container-dev libspdlog-dev liblapack-dev libblas-dev \
-  zlib1g-dev libzstd-dev zstd lcov
+  zlib1g-dev libzstd-dev zstd liblz4-dev lcov
 
 cmake -S all -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
@@ -226,6 +226,13 @@ Minimize total discounted cost (OPEX + CAPEX) over scenarios, stages, blocks.
 - **OPEX**: dispatch cost, demand curtailment penalty, line transfer cost
 - **CAPEX**: annualized investment for expansion modules
 - **Time**: `Scenario` → `Stage` → `Block` (duration in hours)
+
+### Compression codecs
+
+- **File I/O** (Parquet output): **zstd** (default `output_compression`)
+- **In-memory** (LP snapshots in `low_memory` / SDDP): **lz4** (fast
+  compress/decompress, preferred for transient data)
+- `liblz4-dev` is a required build dependency; `libzstd-dev` likewise
 
 ### Key options
 

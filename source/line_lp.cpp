@@ -117,7 +117,7 @@ void LineLP::add_kirchhoff_rows(SystemContext& sc,
     trows[buid] = lp.add_row(std::move(trow));
   }
 
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   theta_rows[st_key] = std::move(trows);
   // Store normalization factor for dual unscaling in add_to_output.
   theta_row_scale[st_key] = row_norm;
@@ -244,7 +244,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
       sc, scenario, stage, lp, bus_a_lp, bus_b_lp, fpcols, fncols);
 
   // Store all indices for this (scenario, stage)
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   capacityp_rows[st_key] = std::move(cprows);
   capacityn_rows[st_key] = std::move(cnrows);
   flowp_cols[st_key] = std::move(fpcols);

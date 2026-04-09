@@ -41,7 +41,7 @@ TEST_CASE("StateVariable core functionality")
       .scene_index = SceneIndex {1},
       .phase_index = PhaseIndex {2},
   };
-  StateVariable var {lp_key, ColIndex {3}};
+  StateVariable var {lp_key, ColIndex {3}, 0.0, 1.0, LpContext {}};
 
   SUBCASE("Basic properties")
   {
@@ -75,7 +75,10 @@ TEST_CASE("StateVariable dependent variable templates")
 {
   StateVariable var {
       {.scene_index = SceneIndex {1}, .phase_index = PhaseIndex {2}},
-      ColIndex {3}};
+      ColIndex {3},
+      0.0,
+      1.0,
+      LpContext {}};
 
   SUBCASE("Template add_dependent_variable")
   {
@@ -96,4 +99,63 @@ TEST_CASE("StateVariable dependent variable templates")
     CHECK(dep.phase_index() == PhaseIndex {5});
     CHECK(dep.col() == 6);
   }
+}
+
+TEST_CASE("StateVariable carries LpContext")
+{
+  using namespace gtopt;
+
+  const auto ctx = make_stage_context(ScenarioUid {0}, StageUid {3});
+  const StateVariable var {
+      {.scene_index = SceneIndex {0}, .phase_index = PhaseIndex {1}},
+      ColIndex {5},
+      10.0,
+      100.0,
+      ctx,
+  };
+
+  CHECK(var.col() == 5);
+  CHECK(var.scost() == doctest::Approx(10.0));
+  CHECK(var.var_scale() == doctest::Approx(100.0));
+
+  REQUIRE(std::holds_alternative<StageContext>(var.context()));
+  const auto& stg = std::get<StageContext>(var.context());
+  CHECK(std::get<0>(stg) == ScenarioUid {0});
+  CHECK(std::get<1>(stg) == StageUid {3});
+}
+
+TEST_CASE("StateVariable with BlockContext")
+{
+  using namespace gtopt;
+
+  const auto ctx =
+      make_block_context(ScenarioUid {1}, StageUid {2}, BlockUid {4});
+  const StateVariable var {
+      {.scene_index = SceneIndex {0}, .phase_index = PhaseIndex {0}},
+      ColIndex {8},
+      0.0,
+      1.0,
+      ctx,
+  };
+
+  REQUIRE(std::holds_alternative<BlockContext>(var.context()));
+  const auto& blk = std::get<BlockContext>(var.context());
+  CHECK(std::get<0>(blk) == ScenarioUid {1});
+  CHECK(std::get<1>(blk) == StageUid {2});
+  CHECK(std::get<2>(blk) == BlockUid {4});
+}
+
+TEST_CASE("StateVariable default context is monostate")
+{
+  using namespace gtopt;
+
+  const StateVariable var {
+      {.scene_index = SceneIndex {0}, .phase_index = PhaseIndex {0}},
+      ColIndex {0},
+      0.0,
+      1.0,
+      LpContext {},
+  };
+
+  CHECK(std::holds_alternative<std::monostate>(var.context()));
 }

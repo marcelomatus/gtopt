@@ -21,7 +21,7 @@ runs:
         sudo apt-get install -y --no-install-recommends \
           ccache lld coinor-libcbc-dev libboost-container-dev libspdlog-dev \
           liblapack-dev libblas-dev liblapack3 libblas3 lcov \
-          zlib1g-dev libzstd-dev zstd ca-certificates lsb-release wget \
+          zlib1g-dev libzstd-dev zstd liblz4-dev ca-certificates lsb-release wget \
           ${{ inputs.extra-packages }}
 
     - name: ensure LAPACK runtime is present
