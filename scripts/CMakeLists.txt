@@ -322,15 +322,20 @@ include(${SCRIPTS_DIR}/cmake/add_pytest_integration_test.cmake)
 # This mirrors the DEPENDS scripts-install that the custom targets use,
 # so that 'cmake --build <dir> --target test' works out of the box without
 # requiring a prior manual 'pip install'.
+#
+# The helper script returns exit code 77 when dependencies cannot be
+# installed.  Combined with SKIP_RETURN_CODE 77, CTest marks the fixture
+# as *skipped* instead of *failed*, and all dependent tests are also
+# skipped (CMP0175 NEW, cmake ≥ 3.31) rather than counted as failures.
 add_test(
   NAME scripts-install-deps
-  COMMAND ${CMAKE_COMMAND}
-    -DSCRIPTS_DIR:PATH=${SCRIPTS_DIR}
-    -DPYTHON_EXECUTABLE:FILEPATH=${PYTHON_EXECUTABLE}
-    -P ${SCRIPTS_DIR}/cmake/scripts_install_deps.cmake
+  COMMAND ${PYTHON_EXECUTABLE}
+    ${SCRIPTS_DIR}/cmake/install_deps_helper.py
+    --scripts-dir ${SCRIPTS_DIR}
 )
 set_tests_properties(scripts-install-deps PROPERTIES
   FIXTURES_SETUP scripts-deps
+  SKIP_RETURN_CODE 77
 )
 
 # ---- Unit tests (one CTest entry per package) ----
