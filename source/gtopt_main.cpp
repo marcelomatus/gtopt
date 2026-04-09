@@ -231,14 +231,14 @@ void setup_trace_log(const MainOptions& opts)
       const auto json_dir = fs::path(opts.planning_files.front()).parent_path();
       if (!json_dir.empty() && json_dir != ".") {
         auto resolve_if_relative =
-            [&](std::optional<std::string>& dir_opt,
+            [&](std::optional<std::string>& json_dir_opt,
                 const std::optional<std::string>& cli_opt,
                 const char* default_val)
         {
           if (!cli_opt.has_value()) {
-            const auto effective = dir_opt.value_or(default_val);
+            const auto effective = json_dir_opt.value_or(default_val);
             if (fs::path(effective).is_relative()) {
-              dir_opt = (json_dir / effective).string();
+              json_dir_opt = (json_dir / effective).string();
             }
           }
         };
