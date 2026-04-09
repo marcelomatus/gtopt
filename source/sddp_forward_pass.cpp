@@ -112,14 +112,13 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
 
     auto& li = system.linear_interface();
 
-    // Propagate state variables from previous phase
+    // Propagate state variables from previous phase.
+    // Use the cached solution (not the live backend) so that the previous
+    // phase's solver backend can be released for low-memory mode.
     if (phase_index != PhaseIndex {0}) {
       const auto prev = phase_index - PhaseIndex {1};
       auto& prev_st = phase_states[prev];
-      const auto& prev_sol = planning_lp()
-                                 .system(scene_index, prev)
-                                 .linear_interface()
-                                 .get_col_sol_raw();
+      const std::span<const double> prev_sol = prev_st.forward_col_sol;
 
       const auto coeff_mode = m_options_.cut_coeff_mode;
       if (coeff_mode == CutCoeffMode::row_dual) {

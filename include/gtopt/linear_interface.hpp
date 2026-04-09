@@ -387,7 +387,7 @@ public:
   /// Solver backend name (e.g. "clp", "cplex", "highs").
   [[nodiscard]] std::string_view solver_name() const noexcept
   {
-    return m_backend_->solver_name();
+    return m_solver_name_;
   }
 
   /// Solver library version string (e.g. "1.17.3").
@@ -792,9 +792,12 @@ public:
    * that operates in scaled coordinates.
    * @return Span view of raw LP solution values
    */
-  [[nodiscard]] auto get_col_sol_raw() const
+  [[nodiscard]] auto get_col_sol_raw() const -> std::span<const double>
   {
-    return std::span(m_backend_->col_solution(), get_numcols());
+    if (m_backend_released_) {
+      return m_cached_col_sol_;
+    }
+    return {m_backend_->col_solution(), get_numcols()};
   }
 
   /**
@@ -807,6 +810,13 @@ public:
    */
   [[nodiscard]] ScaledView get_col_sol() const noexcept
   {
+    if (m_backend_released_) {
+      return {m_cached_col_sol_.data(),
+              m_cached_col_sol_.size(),
+              m_col_scales_.data(),
+              m_col_scales_.size(),
+              ScaledView::Op::multiply};
+    }
     const auto n = get_numcols();
     return {m_backend_->col_solution(),
             n,
@@ -819,9 +829,12 @@ public:
    * @brief Gets raw LP reduced costs (no descaling).
    * @return Span view of raw LP reduced costs
    */
-  [[nodiscard]] auto get_col_cost_raw() const
+  [[nodiscard]] auto get_col_cost_raw() const -> std::span<const double>
   {
-    return std::span(m_backend_->reduced_cost(), get_numcols());
+    if (m_backend_released_) {
+      return m_cached_col_cost_;
+    }
+    return {m_backend_->reduced_cost(), get_numcols()};
   }
 
   /**
@@ -834,6 +847,14 @@ public:
    */
   [[nodiscard]] ScaledView get_col_cost() const noexcept
   {
+    if (m_backend_released_) {
+      return {m_cached_col_cost_.data(),
+              m_cached_col_cost_.size(),
+              m_col_scales_.data(),
+              m_col_scales_.size(),
+              ScaledView::Op::divide,
+              m_scale_objective_};
+    }
     const auto n = get_numcols();
     return {m_backend_->reduced_cost(),
             n,
@@ -965,10 +986,13 @@ public:
    * computation where row equilibration is accounted for separately).
    * @return Span view of raw solver dual values
    */
-  [[nodiscard]] auto get_row_dual_raw()
+  [[nodiscard]] auto get_row_dual_raw() -> std::span<const double>
   {
+    if (m_backend_released_) {
+      return m_cached_row_dual_;
+    }
     ensure_duals();
-    return std::span(m_backend_->row_price(), get_numrows());
+    return {m_backend_->row_price(), get_numrows()};
   }
 
   /**
@@ -984,6 +1008,14 @@ public:
    */
   [[nodiscard]] ScaledView get_row_dual()
   {
+    if (m_backend_released_) {
+      return {m_cached_row_dual_.data(),
+              m_cached_row_dual_.size(),
+              m_row_scales_.data(),
+              m_row_scales_.size(),
+              ScaledView::Op::divide,
+              m_scale_objective_};
+    }
     ensure_duals();
     const auto n = get_numrows();
     return {m_backend_->row_price(),
@@ -1226,6 +1258,13 @@ private:
   using log_file_ptr_t = std::unique_ptr<FILE, FILEcloser>;
   log_file_ptr_t m_log_file_ptr_;
 
+  /// Ensure the backend is live; reconstruct from snapshot if released.
+  /// Call before any mutation or solve.
+  void ensure_backend();
+
+  /// Cache post-solve state and auto-release backend if low_memory is on.
+  void cache_and_release();
+
   // ── Low-memory state ──────────────────────────────────────────────────
 
   LowMemoryMode m_low_memory_mode_ {LowMemoryMode::off};
@@ -1242,6 +1281,25 @@ private:
 
   /// Whether the backend is currently released.
   bool m_backend_released_ {false};
+
+  // ── Cached post-solve state (valid when backend is released) ────────
+
+  /// Cached primal solution from last successful solve.
+  std::vector<double> m_cached_col_sol_ {};
+  /// Cached dual values from last successful solve.
+  std::vector<double> m_cached_row_dual_ {};
+  /// Cached reduced costs from last successful solve.
+  std::vector<double> m_cached_col_cost_ {};
+  /// Cached objective value from last successful solve.
+  double m_cached_obj_value_ {};
+  /// Cached kappa (condition number) from last successful solve.
+  double m_cached_kappa_ {-1.0};
+  /// Cached number of rows at time of release.
+  size_t m_cached_numrows_ {};
+  /// Cached number of columns at time of release.
+  size_t m_cached_numcols_ {};
+  /// Whether the cached state represents an optimal solution.
+  bool m_cached_is_optimal_ {false};
 };
 
 /// RAII guard that decompresses a LinearInterface's flat LP on construction

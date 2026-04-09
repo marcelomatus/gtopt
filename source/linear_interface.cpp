@@ -82,6 +82,51 @@ LinearInterface::LinearInterface(std::string_view solver_name,
 
 // ── Backend lifecycle ──
 
+void LinearInterface::cache_and_release()
+{
+  if (m_low_memory_mode_ == LowMemoryMode::off || m_backend_released_) {
+    return;
+  }
+
+  if (!m_backend_ || !is_optimal()) {
+    return;
+  }
+
+  // Cache post-solve state for transparent access without backend
+  const auto ncols = get_numcols();
+  const auto nrows = get_numrows();
+
+  m_cached_col_sol_.assign(m_backend_->col_solution(),
+                           m_backend_->col_solution() + ncols);
+  m_cached_col_cost_.assign(m_backend_->reduced_cost(),
+                            m_backend_->reduced_cost() + ncols);
+  ensure_duals();
+  m_cached_row_dual_.assign(m_backend_->row_price(),
+                            m_backend_->row_price() + nrows);
+  m_cached_obj_value_ = m_backend_->obj_value();
+  m_cached_kappa_ = m_backend_->get_kappa();
+  m_cached_numrows_ = nrows;
+  m_cached_numcols_ = ncols;
+  m_cached_is_optimal_ = true;
+
+  // Also update snapshot warm-start cache
+  m_snapshot_.set_cached_solution(m_cached_col_sol_, m_cached_row_dual_);
+
+  // Compress and release
+  enable_compression();
+  m_backend_.reset();
+  m_backend_released_ = true;
+}
+
+void LinearInterface::ensure_backend()
+{
+  if (!m_backend_released_) {
+    return;
+  }
+  // Reconstruct using cached solution for warm-start
+  reconstruct_backend(m_cached_col_sol_, m_cached_row_dual_);
+}
+
 void LinearInterface::release_backend() noexcept
 {
   if (m_low_memory_mode_ == LowMemoryMode::off) {
@@ -99,6 +144,18 @@ void LinearInterface::release_backend() noexcept
       const auto cs = get_col_sol_raw();
       const auto rd = get_row_dual_raw();
       m_snapshot_.set_cached_solution(cs, rd);
+
+      // Also populate the transparent cache
+      m_cached_col_sol_.assign(cs.begin(), cs.end());
+      m_cached_row_dual_.assign(rd.begin(), rd.end());
+      const auto ncols = get_numcols();
+      m_cached_col_cost_.assign(m_backend_->reduced_cost(),
+                                m_backend_->reduced_cost() + ncols);
+      m_cached_obj_value_ = m_backend_->obj_value();
+      m_cached_kappa_ = m_backend_->get_kappa();
+      m_cached_numrows_ = get_numrows();
+      m_cached_numcols_ = ncols;
+      m_cached_is_optimal_ = true;
     }
     // Level 2: compress the snapshot
     enable_compression();
@@ -172,6 +229,9 @@ void LinearInterface::reconstruct_backend(std::span<const double> col_sol,
   // Level 2: decompress the snapshot
   disable_compression();
 
+  // Mark as not released early to avoid recursion in add_col/add_rows
+  m_backend_released_ = false;
+
   // 1. Reload the base structural LP
   load_flat(m_snapshot_.flat_lp);
 
@@ -196,8 +256,6 @@ void LinearInterface::reconstruct_backend(std::span<const double> col_sol,
   if (!ws_col.empty() || !ws_dual.empty()) {
     set_warm_start_solution(ws_col, ws_dual);
   }
-
-  m_backend_released_ = false;
 }
 
 void LinearInterface::record_dynamic_col(SparseCol col)
@@ -467,6 +525,7 @@ ColIndex LinearInterface::add_free_col(const std::string& name)
 
 ColIndex LinearInterface::add_col(const SparseCol& col)
 {
+  ensure_backend();
   // Resolve name: explicit name takes priority, then metadata-based generation.
   const auto name = [&]() -> std::string
   {
@@ -554,6 +613,7 @@ RowIndex LinearInterface::add_row(const std::string& name,
 
 RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
 {
+  ensure_backend();
   // Resolve name: generate from metadata when available.
   const auto name = [&]() -> std::string
   {
@@ -614,6 +674,7 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
 void LinearInterface::add_rows(const std::span<const SparseRow> rows,
                                const double eps)
 {
+  ensure_backend();
   if (rows.empty()) {
     return;
   }
@@ -733,6 +794,7 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
 
 void LinearInterface::delete_rows(const std::span<const int> indices)
 {
+  ensure_backend();
   if (indices.empty()) {
     return;
   }
@@ -811,6 +873,7 @@ void LinearInterface::set_coeff_raw(const RowIndex row,
                                     const ColIndex column,
                                     const double value)
 {
+  ensure_backend();
   m_backend_->set_coeff(static_cast<int>(row), static_cast<int>(column), value);
 }
 
@@ -851,6 +914,7 @@ bool LinearInterface::supports_set_coeff() const noexcept
 
 void LinearInterface::set_obj_coeff(const ColIndex index, const double value)
 {
+  ensure_backend();
   m_backend_->set_obj_coeff(static_cast<int>(index), value);
 }
 
@@ -858,11 +922,13 @@ void LinearInterface::set_obj_coeff(const ColIndex index, const double value)
 
 void LinearInterface::set_col_low_raw(const ColIndex index, const double value)
 {
+  ensure_backend();
   m_backend_->set_col_lower(static_cast<int>(index), normalize_bound(value));
 }
 
 void LinearInterface::set_col_upp_raw(const ColIndex index, const double value)
 {
+  ensure_backend();
   m_backend_->set_col_upper(static_cast<int>(index), normalize_bound(value));
 }
 
@@ -898,11 +964,13 @@ void LinearInterface::set_col(const ColIndex index, const double physical_value)
 
 void LinearInterface::set_row_low_raw(const RowIndex index, const double value)
 {
+  ensure_backend();
   m_backend_->set_row_lower(static_cast<int>(index), normalize_bound(value));
 }
 
 void LinearInterface::set_row_upp_raw(const RowIndex index, const double value)
 {
+  ensure_backend();
   m_backend_->set_row_upper(static_cast<int>(index), normalize_bound(value));
 }
 
@@ -935,21 +1003,29 @@ void LinearInterface::set_rhs(const RowIndex row, const double physical_rhs)
 
 size_t LinearInterface::get_numrows() const
 {
+  if (m_backend_released_) {
+    return m_cached_numrows_;
+  }
   return static_cast<size_t>(m_backend_->get_num_rows());
 }
 
 size_t LinearInterface::get_numcols() const
 {
+  if (m_backend_released_) {
+    return m_cached_numcols_;
+  }
   return static_cast<size_t>(m_backend_->get_num_cols());
 }
 
 void LinearInterface::set_continuous(const ColIndex index)
 {
+  ensure_backend();
   m_backend_->set_continuous(static_cast<int>(index));
 }
 
 void LinearInterface::set_integer(const ColIndex index)
 {
+  ensure_backend();
   m_backend_->set_integer(static_cast<int>(index));
 }
 
@@ -1122,7 +1198,9 @@ std::expected<int, Error> LinearInterface::initial_solve(
       });
     }
 
-    return get_status();
+    const auto status = get_status();
+    cache_and_release();
+    return status;
 
   } catch (const std::exception& e) {
     return std::unexpected(Error {
@@ -1136,6 +1214,7 @@ std::expected<int, Error> LinearInterface::initial_solve(
 std::expected<int, Error> LinearInterface::resolve(
     const SolverOptions& solver_options)
 {
+  ensure_backend();
   try {
     // Start from backend-optimal defaults, overlay user settings on top.
     auto effective = m_backend_->optimal_options();
@@ -1209,7 +1288,9 @@ std::expected<int, Error> LinearInterface::resolve(
       });
     }
 
-    return get_status();
+    const auto status = get_status();
+    cache_and_release();
+    return status;
 
   } catch (const std::exception& e) {
     return std::unexpected(Error {
@@ -1248,6 +1329,9 @@ void LinearInterface::ensure_duals()
 
 int LinearInterface::get_status() const
 {
+  if (m_backend_released_) {
+    return m_cached_is_optimal_ ? 0 : -1;
+  }
   try {
     if (m_backend_->is_proven_optimal()) {
       return 0;
@@ -1268,6 +1352,9 @@ int LinearInterface::get_status() const
 
 double LinearInterface::get_kappa() const
 {
+  if (m_backend_released_) {
+    return m_cached_kappa_;
+  }
   return m_backend_->get_kappa();
 }
 
@@ -1325,27 +1412,39 @@ RowDiagnostics LinearInterface::diagnose_row(const RowIndex row) const
 
 bool LinearInterface::is_optimal() const
 {
+  if (m_backend_released_) {
+    return m_cached_is_optimal_;
+  }
   return m_backend_->is_proven_optimal();
 }
 
 bool LinearInterface::is_dual_infeasible() const
 {
+  if (m_backend_released_) {
+    return false;
+  }
   return m_backend_->is_proven_dual_infeasible();
 }
 
 bool LinearInterface::is_prim_infeasible() const
 {
+  if (m_backend_released_) {
+    return false;
+  }
   return m_backend_->is_proven_primal_infeasible();
 }
 
 double LinearInterface::get_obj_value() const
 {
+  if (m_backend_released_) {
+    return m_cached_obj_value_;
+  }
   return m_backend_->obj_value();
 }
 
 double LinearInterface::get_obj_value_physical() const
 {
-  return m_backend_->obj_value() * m_scale_objective_;
+  return get_obj_value() * m_scale_objective_;
 }
 
 void LinearInterface::set_col_sol(const std::span<const double> sol)
