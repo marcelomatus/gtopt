@@ -127,6 +127,8 @@ using StrongIndexType = strong::type<Index,
 /// it satisfies std::weakly_incrementable and can be used with
 /// IotaRange and other range adaptors.
 template<typename Tag>
+// NOLINTNEXTLINE(cert-dcl58-cpp) - valid std template specialization for
+// user-defined type
 struct std::incrementable_traits<gtopt::StrongIndexType<Tag>>
 {
   using difference_type = gtopt::Index;

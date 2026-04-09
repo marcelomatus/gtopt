@@ -243,18 +243,47 @@ bool SolverRegistry::validate_solver_subprocess(const PluginHandle& plugin,
   }
 
   if (pid == 0) {
-    // Child process: create a backend and call minimal virtual methods.
-    // Any crash here terminates only the child, not the parent.
+    // Child process: create a backend and exercise it end-to-end.
+    // Any crash here (SIGSEGV, SIGABRT, etc.) terminates only the child.
+    // This catches both vtable ABI mismatches AND solvers that crash during
+    // actual LP solving (e.g. COIN-OR compiled with GCC in a Clang binary).
     // NOLINTNEXTLINE(concurrency-mt-unsafe) - single-threaded child
     auto* backend = plugin.create_fn(solver_name.c_str());
     if (backend == nullptr) {
       ::_exit(1);  // NOLINT(concurrency-mt-unsafe)
     }
-    // Exercise the vtable with low-cost accessors.
-    const auto name = backend->solver_name();
+    // Step 1: exercise basic vtable accessors.
+    const auto bname = backend->solver_name();
     const auto inf = backend->infinity();
-    (void)name;
-    (void)inf;
+    (void)bname;
+
+    // Step 2: solve a minimal LP to confirm the solver works end-to-end.
+    // LP: min x  s.t.  x >= 1,  0 <= x <= 10
+    // This catches solvers that can be created but SEGFAULT during solving.
+    const int nc = 1;
+    const int nr = 1;
+    const std::array<int, 2> matbeg {0, 1};
+    const std::array<int, 1> matind {0};
+    const std::array<double, 1> matval {1.0};
+    const std::array<double, 1> collb {0.0};
+    const std::array<double, 1> colub {10.0};
+    const std::array<double, 1> objv {1.0};
+    const std::array<double, 1> rowlb {1.0};
+    const std::array<double, 1> rowub {inf};
+    backend->load_problem(nc,
+                          nr,
+                          matbeg.data(),
+                          matind.data(),
+                          matval.data(),
+                          collb.data(),
+                          colub.data(),
+                          objv.data(),
+                          rowlb.data(),
+                          rowub.data());
+    backend->initial_solve();
+    if (!backend->is_proven_optimal()) {
+      ::_exit(2);  // NOLINT(concurrency-mt-unsafe)
+    }
     delete backend;  // NOLINT(cppcoreguidelines-owning-memory)
     ::_exit(0);  // NOLINT(concurrency-mt-unsafe)
   }
@@ -314,7 +343,7 @@ void SolverRegistry::validate_loaded_solvers()
 
 void SolverRegistry::load_all_plugins()
 {
-  const std::lock_guard lock(m_mutex_);
+  const std::scoped_lock lock(m_mutex_);
   if (m_all_loaded_) {
     return;
   }
@@ -329,7 +358,7 @@ void SolverRegistry::load_all_plugins()
 bool SolverRegistry::ensure_solver_loaded(std::string_view solver_name,
                                           bool filename_only)
 {
-  const std::lock_guard lock(m_mutex_);
+  const std::scoped_lock lock(m_mutex_);
 
   // Already loaded?
   if (has_solver_unlocked(solver_name)) {
@@ -412,7 +441,7 @@ bool SolverRegistry::ensure_solver_loaded(std::string_view solver_name,
 std::unique_ptr<SolverBackend> SolverRegistry::create(
     std::string_view solver_name)
 {
-  const std::lock_guard lock(m_mutex_);
+  const std::scoped_lock lock(m_mutex_);
 
   // Ensure the requested solver is loaded (lazy).
   ensure_solver_loaded(solver_name);
@@ -445,7 +474,7 @@ std::unique_ptr<SolverBackend> SolverRegistry::create(
 
 std::vector<std::string> SolverRegistry::available_solvers() const
 {
-  const std::lock_guard lock(m_mutex_);
+  const std::scoped_lock lock(m_mutex_);
   std::vector<std::string> result;
   for (const auto& plugin : m_plugins_) {
     for (const auto& name : plugin.solver_names) {
@@ -457,7 +486,7 @@ std::vector<std::string> SolverRegistry::available_solvers() const
 
 std::string_view SolverRegistry::default_solver()
 {
-  const std::lock_guard lock(m_mutex_);
+  const std::scoped_lock lock(m_mutex_);
 
   // GTOPT_SOLVER env var overrides the default priority.
   if (const auto* env =
@@ -519,7 +548,7 @@ bool SolverRegistry::has_solver_unlocked(std::string_view name) const
 
 bool SolverRegistry::has_solver(std::string_view name) const
 {
-  const std::lock_guard lock(m_mutex_);
+  const std::scoped_lock lock(m_mutex_);
   return has_solver_unlocked(name);
 }
 
