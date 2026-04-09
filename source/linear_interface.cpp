@@ -109,11 +109,14 @@ void LinearInterface::cache_and_release()
   m_cached_numcols_ = ncols;
   m_cached_is_optimal_ = true;
 
-  // Also update snapshot warm-start cache
-  m_snapshot_.set_cached_solution(m_cached_col_sol_, m_cached_row_dual_);
+  // First call: compress the flat LP (one-time, creates persistent buffer).
+  // Subsequent calls: just free the decompressed vectors.
+  if (!m_snapshot_.is_compressed()) {
+    enable_compression();
+  } else {
+    clear_flat_lp_vectors(m_snapshot_.flat_lp);
+  }
 
-  // Compress and release
-  enable_compression();
   m_backend_.reset();
   m_backend_released_ = true;
 }
@@ -138,14 +141,11 @@ void LinearInterface::release_backend() noexcept
     return;
   }
 
-  // Cache the current solution for warm-start on reconstruction
+  // Cache the current solution for transparent read access
   try {
     if (m_backend_ && is_optimal()) {
       const auto cs = get_col_sol_raw();
       const auto rd = get_row_dual_raw();
-      m_snapshot_.set_cached_solution(cs, rd);
-
-      // Also populate the transparent cache
       m_cached_col_sol_.assign(cs.begin(), cs.end());
       m_cached_row_dual_.assign(rd.begin(), rd.end());
       const auto ncols = get_numcols();
@@ -157,10 +157,15 @@ void LinearInterface::release_backend() noexcept
       m_cached_numcols_ = ncols;
       m_cached_is_optimal_ = true;
     }
-    // Level 2: compress the snapshot
-    enable_compression();
+    // First call: compress the flat LP (one-time, creates persistent buffer).
+    // Subsequent calls: just free the decompressed vectors.
+    if (!m_snapshot_.is_compressed()) {
+      enable_compression();
+    } else {
+      clear_flat_lp_vectors(m_snapshot_.flat_lp);
+    }
   } catch (...) {
-    // Best-effort: proceed with release even if caching/compression fails
+    // Best-effort: proceed with release even if caching fails
   }
 
   m_backend_.reset();
@@ -257,9 +262,12 @@ void LinearInterface::reconstruct_backend(std::span<const double> col_sol,
     set_warm_start_solution(ws_col, ws_dual);
   }
 
-  // 6. Re-compress: the flat LP is now in the backend, no need to keep
-  //    the decompressed snapshot alongside it.
-  enable_compression();
+  // 6. Free decompressed flat LP vectors — the data is now in the backend.
+  //    The compressed buffer stays valid as persistent cache for next
+  //    reconstruction.  No re-compression needed.
+  if (m_snapshot_.is_compressed()) {
+    clear_flat_lp_vectors(m_snapshot_.flat_lp);
+  }
 }
 
 void LinearInterface::record_dynamic_col(SparseCol col)
