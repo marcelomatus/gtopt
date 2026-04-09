@@ -169,7 +169,6 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       m_aperture_cache_,
       target_state.forward_col_sol,
       target_state.forward_row_dual,
-      nullptr,  // each task creates its own clone, released on completion
       iteration_index,
       m_options_.cut_coeff_mode,
       m_options_.scale_alpha,
@@ -510,7 +509,6 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         m_aperture_cache_,
         target_state.forward_col_sol,
         target_state.forward_row_dual,
-        nullptr,  // each task creates its own clone, released on completion
         iteration_index,
         m_options_.cut_coeff_mode,
         m_options_.scale_alpha,

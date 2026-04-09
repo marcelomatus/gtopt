@@ -13,6 +13,7 @@
 #include <chrono>
 #include <filesystem>
 #include <format>
+#include <mutex>
 #include <ranges>
 #include <thread>
 #include <utility>
@@ -129,7 +130,6 @@ auto solve_apertures_for_phase(
     const ApertureDataCache& aperture_cache,
     std::span<const double> forward_col_sol,
     std::span<const double> forward_row_dual,
-    LinearInterface* pooled_clone,
     IterationIndex iteration_index,
     CutCoeffMode cut_coeff_mode,
     double scale_alpha,
@@ -167,23 +167,18 @@ auto solve_apertures_for_phase(
       effective_apertures.size(),
       std::hash<std::thread::id> {}(caller_tid) % 10000);
 
-  // ── Batch-create all aperture clones on the caller thread ────────────
+  // ── Per-task cloning from a shared source LP ─────────────────────────
   //
-  // Creating clones from the live backend is cheaper than each pool task
-  // cloning independently (no contention on the backend mutex).
-  // When a pooled clone is provided it is used directly (no batch).
-  std::vector<LinearInterface> batch_clones;
-  if (pooled_clone == nullptr) {
-    batch_clones.reserve(effective_apertures.size());
-    for (size_t i = 0; i < effective_apertures.size(); ++i) {
-      batch_clones.push_back(phase_li.clone(forward_col_sol, forward_row_dual));
-    }
-  }
+  // Each aperture task creates its own clone inside the task, avoiding
+  // the need to batch-create all clones upfront (which holds N clones
+  // in memory simultaneously).  A mutex serializes clone() calls since
+  // solver backends are not thread-safe for concurrent reads.
+  // This works identically in normal and low-memory modes.
+  auto clone_mutex = std::make_shared<std::mutex>();
 
   std::vector<std::future<ApertureCutResult>> futures;
   futures.reserve(effective_apertures.size());
   int n_skipped = 0;
-  size_t clone_idx = 0;
 
   for (const auto& [ap_ref, ap_count] : effective_apertures) {
     const auto& aperture = ap_ref.get();
@@ -223,25 +218,22 @@ auto solve_apertures_for_phase(
       continue;
     }
 
-    // Move the pre-created clone for this task (or use pooled).
-    // Wrapped in shared_ptr because std::function requires copyability.
-    auto task_clone = (pooled_clone != nullptr)
-        ? std::shared_ptr<LinearInterface> {}
-        : std::make_shared<LinearInterface>(
-              std::move(batch_clones[clone_idx++]));
-
-    // Submit the entire aperture task (update + solve + cut)
+    // Submit the entire aperture task (clone → update → solve → cut).
+    // The clone is created inside the task from the shared source LP,
+    // so only active_threads clones exist simultaneously (not all N).
     futures.push_back(submit_fn(
-        [&,
-         ap_uid,
-         weight,
-         scen_it,
-         owned_clone = std::move(task_clone)]() mutable -> ApertureCutResult
+        [&, ap_uid, weight, scen_it, clone_mutex]() mutable -> ApertureCutResult
         {
           const auto ap_start = std::chrono::steady_clock::now();
           const auto task_tid = std::this_thread::get_id();
 
-          auto& clone = pooled_clone ? *pooled_clone : *owned_clone;
+          // Create clone from source LP (serialized — backends not
+          // thread-safe for concurrent reads)
+          LinearInterface clone = [&]
+          {
+            const std::lock_guard lock(*clone_mutex);
+            return phase_li.clone(forward_col_sol, forward_row_dual);
+          }();
 
           // Update scenario-dependent bounds via a unified visitor.
           // Build a value-provider that reads from the scenario LP
@@ -323,7 +315,6 @@ auto solve_apertures_for_phase(
 
           if (!feasible) {
             const auto status = clone.get_status();
-            owned_clone.reset();  // release clone immediately
             const auto ap_s = std::chrono::duration<double>(
                                   std::chrono::steady_clock::now() - ap_start)
                                   .count();
@@ -357,9 +348,6 @@ auto solve_apertures_for_phase(
                                   clone.get_obj_value(),
                                   scale_alpha,
                                   cut_coeff_eps);
-          // Release the clone immediately — no longer needed
-          owned_clone.reset();
-
           cut.class_name = "Sddp";
           cut.constraint_name = "aper_cut";
           cut.context = make_aperture_context(

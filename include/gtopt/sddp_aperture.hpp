@@ -165,7 +165,6 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
 ///                         aperture clones).  Applied after update_aperture.
 /// @param forward_row_dual Forward-pass dual solution (warm-start hint for
 ///                         aperture clones).  Applied after update_aperture.
-/// @param pooled_clone     Optional pre-allocated LP clone from a work pool
 /// @param iteration        Current SDDP iteration index
 /// @param cut_coeff_mode   Mode for computing cut coefficients
 /// @param scale_alpha      Scaling factor applied to the cut alpha (RHS)
@@ -193,7 +192,6 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
     const ApertureDataCache& aperture_cache = {},
     std::span<const double> forward_col_sol = {},
     std::span<const double> forward_row_dual = {},
-    LinearInterface* pooled_clone = nullptr,
     IterationIndex iteration_index = {},
     CutCoeffMode cut_coeff_mode = CutCoeffMode::reduced_cost,
     double scale_alpha = 1.0,
