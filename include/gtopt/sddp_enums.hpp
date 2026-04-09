@@ -359,4 +359,34 @@ constexpr auto enum_entries(MemoryCodec /*tag*/) noexcept
   return std::span {memory_codec_entries};
 }
 
+// ─── CutIOFormat ────────────────────────────────────────────────────────────
+
+/**
+ * @brief File format for SDDP cut and state variable I/O.
+ *
+ * Controls how Benders cuts and state columns are serialized for
+ * hot-start, cut transfer, and cascade state persistence.
+ *
+ * - `csv`:  CSV with structured keys (class:var:uid=coeff).  Backward
+ *           compatible with legacy name-based CSV on the load side.
+ * - `json`: Compact JSON via daw::json.  Faster parsing, fully structured,
+ *           no LP column name dependency.
+ */
+enum class CutIOFormat : uint8_t
+{
+  csv = 0,  ///< CSV with structured keys (default)
+  json = 1,  ///< Compact JSON via daw::json
+};
+
+inline constexpr auto cut_io_format_entries =
+    std::to_array<EnumEntry<CutIOFormat>>({
+        {.name = "csv", .value = CutIOFormat::csv},
+        {.name = "json", .value = CutIOFormat::json},
+    });
+
+constexpr auto enum_entries(CutIOFormat /*tag*/) noexcept
+{
+  return std::span {cut_io_format_entries};
+}
+
 }  // namespace gtopt

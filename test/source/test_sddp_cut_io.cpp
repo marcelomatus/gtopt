@@ -472,8 +472,8 @@ TEST_CASE("save_scene_cuts_csv creates per-scene file")  // NOLINT
       (std::filesystem::temp_directory_path() / "gtopt_test_scene_cuts")
           .string();
 
-  auto save_result =
-      save_scene_cuts_csv(stored, SceneIndex {0}, 1, planning_lp, tmp_dir);
+  auto save_result = save_scene_cuts_csv(
+      stored, SceneIndex {0}, SceneUid {1}, planning_lp, tmp_dir);
   REQUIRE(save_result.has_value());
 
   // Verify scene_1.csv was created
@@ -506,7 +506,7 @@ TEST_CASE(
   std::vector<StoredCut> empty_cuts;
   auto save_result = save_scene_cuts_csv(std::span<const StoredCut>(empty_cuts),
                                          SceneIndex {0},
-                                         1,
+                                         SceneUid {1},
                                          planning_lp,
                                          tmp_dir);
   REQUIRE(save_result.has_value());
@@ -546,8 +546,8 @@ TEST_CASE(
           .string();
 
   // Save scene cuts
-  auto save_result =
-      save_scene_cuts_csv(stored, SceneIndex {0}, 1, planning_lp, tmp_dir);
+  auto save_result = save_scene_cuts_csv(
+      stored, SceneIndex {0}, SceneUid {1}, planning_lp, tmp_dir);
   REQUIRE(save_result.has_value());
 
   // Also create an error file that should be skipped
@@ -1622,4 +1622,323 @@ TEST_CASE(
   CHECK(result->count == 2);
 
   std::filesystem::remove(tmp_file);
+}
+
+// ─── JSON cut I/O tests ────────────────────────────────────────────────────
+
+TEST_CASE("save_cuts_json writes a valid JSON file")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  const auto tmp_dir = std::filesystem::temp_directory_path();
+  const auto cuts_file = (tmp_dir / "gtopt_test_cut_io_save.json").string();
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 3;
+  sddp_opts.convergence_tol = 1e-6;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+
+  const auto& stored = sddp.stored_cuts();
+  REQUIRE_FALSE(stored.empty());
+
+  auto save_result = save_cuts_json(stored, planning_lp, cuts_file);
+  REQUIRE(save_result.has_value());
+  CHECK(std::filesystem::exists(cuts_file));
+
+  // Verify file contains expected JSON structure
+  std::ifstream ifs(cuts_file);
+  std::string content(std::istreambuf_iterator<char>(ifs),
+                      std::istreambuf_iterator<char> {});
+  CHECK(content.contains("\"version\""));
+  CHECK(content.contains("\"scale_objective\""));
+  CHECK(content.contains("\"cuts\""));
+  CHECK(content.contains("\"coefficients\""));
+
+  std::filesystem::remove(cuts_file);
+}
+
+TEST_CASE("save_cuts_json / load_cuts_json round-trip")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  const auto tmp_dir = std::filesystem::temp_directory_path();
+  const auto cuts_file =
+      (tmp_dir / "gtopt_test_cut_io_roundtrip.json").string();
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 3;
+  sddp_opts.convergence_tol = 1e-6;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+
+  const auto& stored = sddp.stored_cuts();
+  REQUIRE_FALSE(stored.empty());
+
+  auto save_result = save_cuts_json(stored, planning_lp, cuts_file);
+  REQUIRE(save_result.has_value());
+
+  auto planning2 = make_3phase_hydro_planning();
+  PlanningLP planning_lp2(std::move(planning2));
+
+  const auto scale_alpha = effective_scale_alpha(planning_lp2, 0.0);
+  auto load_result =
+      load_cuts_json(planning_lp2, cuts_file, scale_alpha, nullptr);
+  REQUIRE(load_result.has_value());
+  CHECK(load_result->count > 0);
+  CHECK(load_result->count == static_cast<int>(stored.size()));
+
+  std::filesystem::remove(cuts_file);
+}
+
+TEST_CASE("load_cuts_json returns error for nonexistent file")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  auto result = load_cuts_json(planning_lp, "/tmp/nonexistent.json", 1.0);
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error().code == ErrorCode::FileIOError);
+}
+
+TEST_CASE("save_cuts / load_cuts format dispatch with CSV")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  const auto tmp_dir = std::filesystem::temp_directory_path();
+  const auto base_file = (tmp_dir / "gtopt_test_dispatch_csv.csv").string();
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 3;
+  sddp_opts.convergence_tol = 1e-6;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+
+  const auto& stored = sddp.stored_cuts();
+  REQUIRE_FALSE(stored.empty());
+
+  auto save_result =
+      save_cuts(stored, planning_lp, base_file, CutIOFormat::csv);
+  REQUIRE(save_result.has_value());
+
+  auto planning2 = make_3phase_hydro_planning();
+  PlanningLP planning_lp2(std::move(planning2));
+
+  const auto scale_alpha = effective_scale_alpha(planning_lp2, 0.0);
+  const LabelMaker label_maker(planning_lp2.options());
+  auto load_result = load_cuts(
+      planning_lp2, base_file, scale_alpha, CutIOFormat::csv, label_maker);
+  REQUIRE(load_result.has_value());
+  CHECK(load_result->count == static_cast<int>(stored.size()));
+
+  std::filesystem::remove(base_file);
+}
+
+TEST_CASE("save_cuts / load_cuts format dispatch with JSON")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  const auto tmp_dir = std::filesystem::temp_directory_path();
+  const auto base_file = (tmp_dir / "gtopt_test_dispatch_json.json").string();
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 3;
+  sddp_opts.convergence_tol = 1e-6;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+
+  const auto& stored = sddp.stored_cuts();
+  REQUIRE_FALSE(stored.empty());
+
+  auto save_result =
+      save_cuts(stored, planning_lp, base_file, CutIOFormat::json);
+  REQUIRE(save_result.has_value());
+
+  auto planning2 = make_3phase_hydro_planning();
+  PlanningLP planning_lp2(std::move(planning2));
+
+  const auto scale_alpha = effective_scale_alpha(planning_lp2, 0.0);
+  const LabelMaker label_maker(planning_lp2.options());
+  auto load_result = load_cuts(
+      planning_lp2, base_file, scale_alpha, CutIOFormat::json, label_maker);
+  REQUIRE(load_result.has_value());
+  CHECK(load_result->count == static_cast<int>(stored.size()));
+
+  std::filesystem::remove(base_file);
+}
+
+TEST_CASE("load_cuts falls back from JSON to CSV")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  const auto tmp_dir = std::filesystem::temp_directory_path();
+  const auto csv_file = (tmp_dir / "gtopt_test_fallback.csv").string();
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 3;
+  sddp_opts.convergence_tol = 1e-6;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+
+  const auto& stored = sddp.stored_cuts();
+  REQUIRE_FALSE(stored.empty());
+
+  auto save_result = save_cuts(stored, planning_lp, csv_file, CutIOFormat::csv);
+  REQUIRE(save_result.has_value());
+
+  // Request JSON — should fall back to CSV
+  auto planning2 = make_3phase_hydro_planning();
+  PlanningLP planning_lp2(std::move(planning2));
+
+  const auto scale_alpha = effective_scale_alpha(planning_lp2, 0.0);
+  const LabelMaker label_maker(planning_lp2.options());
+  auto load_result = load_cuts(
+      planning_lp2, csv_file, scale_alpha, CutIOFormat::json, label_maker);
+  REQUIRE(load_result.has_value());
+  CHECK(load_result->count == static_cast<int>(stored.size()));
+
+  std::filesystem::remove(csv_file);
+}
+
+TEST_CASE("load_cuts falls back from CSV to JSON")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  const auto tmp_dir = std::filesystem::temp_directory_path();
+  const auto json_file = (tmp_dir / "gtopt_test_fallback2.json").string();
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 3;
+  sddp_opts.convergence_tol = 1e-6;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+
+  const auto& stored = sddp.stored_cuts();
+  REQUIRE_FALSE(stored.empty());
+
+  auto save_result =
+      save_cuts(stored, planning_lp, json_file, CutIOFormat::json);
+  REQUIRE(save_result.has_value());
+
+  // Request CSV — should fall back to JSON
+  auto planning2 = make_3phase_hydro_planning();
+  PlanningLP planning_lp2(std::move(planning2));
+
+  const auto scale_alpha = effective_scale_alpha(planning_lp2, 0.0);
+  const LabelMaker label_maker(planning_lp2.options());
+  auto load_result = load_cuts(
+      planning_lp2, json_file, scale_alpha, CutIOFormat::csv, label_maker);
+  REQUIRE(load_result.has_value());
+  CHECK(load_result->count == static_cast<int>(stored.size()));
+
+  std::filesystem::remove(json_file);
+}
+
+// ─── Benchmark: CSV vs JSON with ~1000 cuts ────────────────────────────────
+
+TEST_CASE("benchmark CSV vs JSON save/load with many cuts")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 200;
+  sddp_opts.convergence_tol = 1e-12;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+
+  const auto& stored = sddp.stored_cuts();
+  std::vector<StoredCut> many_cuts;
+  while (many_cuts.size() < 1000) {
+    many_cuts.insert(many_cuts.end(), stored.begin(), stored.end());
+  }
+  REQUIRE(many_cuts.size() >= 1000);
+
+  const auto tmp_dir = std::filesystem::temp_directory_path();
+  const auto csv_file = (tmp_dir / "gtopt_bench_cuts.csv").string();
+  const auto json_file = (tmp_dir / "gtopt_bench_cuts.json").string();
+
+  const auto csv_save_t0 = std::chrono::steady_clock::now();
+  auto csv_save = save_cuts_csv(many_cuts, planning_lp, csv_file);
+  const auto csv_save_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now() - csv_save_t0)
+          .count();
+  REQUIRE(csv_save.has_value());
+
+  const auto json_save_t0 = std::chrono::steady_clock::now();
+  auto json_save = save_cuts_json(many_cuts, planning_lp, json_file);
+  const auto json_save_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now() - json_save_t0)
+          .count();
+  REQUIRE(json_save.has_value());
+
+  auto planning_csv = make_3phase_hydro_planning();
+  PlanningLP plp_csv(std::move(planning_csv));
+  const auto scale_alpha = effective_scale_alpha(plp_csv, 0.0);
+  const LabelMaker label_maker(plp_csv.options());
+
+  const auto csv_load_t0 = std::chrono::steady_clock::now();
+  auto csv_load = load_cuts_csv(plp_csv, csv_file, scale_alpha, label_maker);
+  const auto csv_load_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now() - csv_load_t0)
+          .count();
+  REQUIRE(csv_load.has_value());
+
+  auto planning_json = make_3phase_hydro_planning();
+  PlanningLP plp_json(std::move(planning_json));
+
+  const auto json_load_t0 = std::chrono::steady_clock::now();
+  auto json_load = load_cuts_json(plp_json, json_file, scale_alpha);
+  const auto json_load_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now() - json_load_t0)
+          .count();
+  REQUIRE(json_load.has_value());
+
+  CHECK(csv_load->count == json_load->count);
+
+  const auto csv_size = std::filesystem::file_size(csv_file);
+  const auto json_size = std::filesystem::file_size(json_file);
+
+  MESSAGE("Cuts: ", many_cuts.size());
+  MESSAGE("CSV  save: ",
+          csv_save_ms,
+          " ms, load: ",
+          csv_load_ms,
+          " ms, size: ",
+          csv_size,
+          " bytes");
+  MESSAGE("JSON save: ",
+          json_save_ms,
+          " ms, load: ",
+          json_load_ms,
+          " ms, size: ",
+          json_size,
+          " bytes");
+
+  std::filesystem::remove(csv_file);
+  std::filesystem::remove(json_file);
 }

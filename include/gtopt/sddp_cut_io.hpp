@@ -82,12 +82,12 @@ class PlanningLP;
 ///
 /// @param cuts             The scene's stored cuts
 /// @param scene_index      Scene index (for column name lookup)
-/// @param scene_uid_val    Scene UID value (for file naming)
+/// @param scene_uid        Scene UID (for file naming)
 /// @param planning_lp      The PlanningLP (for scale and column names)
 /// @param directory        Output directory (file: scene_<UID>.csv)
 [[nodiscard]] auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
                                        SceneIndex scene_index,
-                                       int scene_uid_val,
+                                       SceneUid scene_uid,
                                        const PlanningLP& planning_lp,
                                        const std::string& directory)
     -> std::expected<void, Error>;
@@ -100,15 +100,27 @@ class PlanningLP;
 /// since loaded cuts serve as warm-start approximations for the entire
 /// problem (analogous to PLP's cut sharing across scenarios).
 ///
-/// @param planning_lp   The PlanningLP to add cuts to
-/// @param filepath      Input CSV file path
-/// @param label_maker   Label maker for LP row names
+/// Supports three coefficient formats:
+///   - `class:var:uid=coeff`  (structured key — preferred, no LP names)
+///   - `name=coeff`           (legacy name-based — resolve by column name)
+///   - `index:coeff`          (legacy index-based — validate column index)
+///
+/// @param planning_lp        The PlanningLP to add cuts to
+/// @param filepath           Input CSV file path
+/// @param scale_alpha        Scale for alpha variable
+/// @param label_maker        Label maker for LP row names
+/// @param scene_phase_states Optional per-(scene,phase) state for alpha
+///                           resolution.  When null, @alpha coefficients
+///                           are resolved by LP name fallback.
 /// @return CutLoadResult with count and max iteration, or an error
-[[nodiscard]] auto load_cuts_csv(PlanningLP& planning_lp,
-                                 const std::string& filepath,
-                                 double scale_alpha,
-                                 const LabelMaker& label_maker)
-    -> std::expected<CutLoadResult, Error>;
+[[nodiscard]] auto load_cuts_csv(
+    PlanningLP& planning_lp,
+    const std::string& filepath,
+    double scale_alpha,
+    const LabelMaker& label_maker,
+    const StrongIndexVector<SceneIndex,
+                            StrongIndexVector<PhaseIndex, PhaseStateInfo>>*
+        scene_phase_states = nullptr) -> std::expected<CutLoadResult, Error>;
 
 /// Load all per-scene cut files from a directory.
 ///
@@ -171,6 +183,68 @@ class PlanningLP;
     StrongIndexVector<SceneIndex,
                       StrongIndexVector<PhaseIndex, PhaseStateInfo>>&
         scene_phase_states) -> std::expected<CutLoadResult, Error>;
+
+// ─── JSON save/load functions ───────────────────────────────────────────────
+
+/// Save accumulated cuts to a JSON file using compact daw::json.
+///
+/// Coefficients use structured keys (class:var:uid or @alpha).
+/// Fully portable — no LP column names required.
+///
+/// @param cuts         All stored cuts to save
+/// @param planning_lp  The PlanningLP (for scale and state variable map)
+/// @param filepath     Output JSON file path
+[[nodiscard]] auto save_cuts_json(std::span<const StoredCut> cuts,
+                                  const PlanningLP& planning_lp,
+                                  const std::string& filepath)
+    -> std::expected<void, Error>;
+
+/// Save cuts for a single scene to a per-scene JSON file.
+[[nodiscard]] auto save_scene_cuts_json(std::span<const StoredCut> cuts,
+                                        SceneIndex scene_index,
+                                        SceneUid scene_uid,
+                                        const PlanningLP& planning_lp,
+                                        const std::string& directory)
+    -> std::expected<void, Error>;
+
+/// Load cuts from a JSON file and add to all scenes' phase LPs.
+///
+/// @param planning_lp        The PlanningLP to add cuts to
+/// @param filepath           Input JSON file path
+/// @param scale_alpha        Scale for alpha variable
+/// @param scene_phase_states Optional per-(scene,phase) state for alpha
+/// @return CutLoadResult with count and max iteration, or an error
+[[nodiscard]] auto load_cuts_json(
+    PlanningLP& planning_lp,
+    const std::string& filepath,
+    double scale_alpha,
+    const StrongIndexVector<SceneIndex,
+                            StrongIndexVector<PhaseIndex, PhaseStateInfo>>*
+        scene_phase_states = nullptr) -> std::expected<CutLoadResult, Error>;
+
+// ─── Format-dispatching functions ───────────────────────────────────────────
+
+/// Save cuts using the specified format (csv or json).
+[[nodiscard]] auto save_cuts(std::span<const StoredCut> cuts,
+                             const PlanningLP& planning_lp,
+                             const std::string& filepath,
+                             CutIOFormat format,
+                             bool append_mode = false)
+    -> std::expected<void, Error>;
+
+/// Load cuts trying the preferred format first, falling back to the other.
+///
+/// If the preferred-format file does not exist, the other format is tried.
+/// This allows seamless migration between CSV and JSON cut files.
+[[nodiscard]] auto load_cuts(
+    PlanningLP& planning_lp,
+    const std::string& filepath,
+    double scale_alpha,
+    CutIOFormat format,
+    const LabelMaker& label_maker,
+    const StrongIndexVector<SceneIndex,
+                            StrongIndexVector<PhaseIndex, PhaseStateInfo>>*
+        scene_phase_states = nullptr) -> std::expected<CutLoadResult, Error>;
 
 }  // namespace gtopt
 

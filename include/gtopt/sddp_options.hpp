@@ -74,7 +74,9 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    *  - cuts:  recover only Benders cuts.
    *  - full:  recover cuts + state variable solutions (default). */
   std::optional<RecoveryMode> recovery_mode {};
-  /** @brief Save cuts to CSV after each iteration (default: true).
+  /** @brief Cut/state I/O format: csv (default) or json */
+  std::optional<CutIOFormat> cut_io_format {};
+  /** @brief Save cuts after each iteration (default: true).
    *  When false, cuts are only saved at the end of the solve or on stop. */
   OptBool save_per_iteration {};
   /** @brief File path for loading initial cuts (hot-start; empty = cold start)
@@ -411,6 +413,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(scale_alpha, opts.scale_alpha);
     merge_opt(cut_recovery_mode, opts.cut_recovery_mode);
     merge_opt(recovery_mode, opts.recovery_mode);
+    merge_opt(cut_io_format, opts.cut_io_format);
     merge_opt(save_per_iteration, opts.save_per_iteration);
     merge_opt(cuts_input_file, std::move(opts.cuts_input_file));
     merge_opt(sentinel_file, std::move(opts.sentinel_file));

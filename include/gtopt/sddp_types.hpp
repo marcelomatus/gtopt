@@ -63,12 +63,18 @@ class SceneLP;
 /// File naming patterns for per-scene cut files
 namespace sddp_file
 {
-/// Combined cut file name
+/// Combined cut file name (CSV format)
 constexpr auto combined_cuts = "sddp_cuts.csv";
 /// Versioned cut file pattern: format with iteration number
 constexpr auto versioned_cuts_fmt = "sddp_cuts_{}.csv";
 /// Per-scene cut file pattern: format with scene UID
 constexpr auto scene_cuts_fmt = "scene_{}.csv";
+/// Combined cut file name (JSON format)
+constexpr auto combined_cuts_json = "sddp_cuts.json";
+/// Versioned cut file pattern (JSON): format with iteration number
+constexpr auto versioned_cuts_json_fmt = "sddp_cuts_{}.json";
+/// Per-scene cut file pattern (JSON): format with scene UID
+constexpr auto scene_cuts_json_fmt = "scene_{}.json";
 /// Error-prefixed cut file pattern for infeasible scenes (scene UID)
 constexpr auto error_scene_cuts_fmt = "error_scene_{}.csv";
 /// Error LP file pattern for infeasible scene/phase (scene UID, phase UID)
@@ -79,10 +85,14 @@ constexpr auto debug_lp_fmt = "gtopt_iter_{}_scene_{}_phase_{}";
 /// SDDP solver stops gracefully after the current iteration and saves
 /// cuts.  Created externally (e.g. by the webservice stop endpoint).
 constexpr auto stop_sentinel = "sddp_stop";
-/// State variable column solution (latest)
+/// State variable column solution — CSV format (latest)
 constexpr auto state_cols = "sddp_state.csv";
-/// Versioned state column solution: format with iteration number
+/// Versioned state column solution (CSV): format with iteration number
 constexpr auto versioned_state_fmt = "sddp_state_{}.csv";
+/// State variable column solution — JSON format (latest)
+constexpr auto state_cols_json = "sddp_state.json";
+/// Versioned state column solution (JSON): format with iteration number
+constexpr auto versioned_state_json_fmt = "sddp_state_{}.json";
 /// Monitoring API stop-request file name: if this file exists, the solver
 /// stops gracefully after the current iteration (same behaviour as the
 /// sentinel file).  Written by the webservice soft-stop endpoint as part
@@ -151,7 +161,13 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// Default: 10.
   int multi_cut_threshold {10};
 
-  /// Save cuts to CSV after each training iteration (default: true).
+  /// File format for cut and state variable I/O (csv or json).
+  /// CSV uses structured keys (class:var:uid=coeff) and is backward
+  /// compatible with legacy name-based CSV files on the load side.
+  /// JSON uses compact daw::json serialization with fully structured data.
+  CutIOFormat cut_io_format {CutIOFormat::csv};
+
+  /// Save cuts after each training iteration (default: true).
   /// When false, cuts are only saved at the end of the solve or on stop.
   bool save_per_iteration {true};
 

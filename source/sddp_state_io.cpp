@@ -178,14 +178,14 @@ auto load_state_csv(PlanningLP& planning_lp, const std::string& filepath)
         continue;
       }
 
-      int phase_uid = 0;
-      int scene_uid = 0;
+      uid_t pu = 0;
+      uid_t su = 0;
       double value = 0.0;
       // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
       auto [p1, e1] = std::from_chars(
-          phase_str.data(), phase_str.data() + phase_str.size(), phase_uid);
+          phase_str.data(), phase_str.data() + phase_str.size(), pu);
       auto [p2, e2] = std::from_chars(
-          scene_str.data(), scene_str.data() + scene_str.size(), scene_uid);
+          scene_str.data(), scene_str.data() + scene_str.size(), su);
       auto [p3, e3] = std::from_chars(
           value_str.data(), value_str.data() + value_str.size(), value);
       // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
@@ -194,9 +194,12 @@ auto load_state_csv(PlanningLP& planning_lp, const std::string& filepath)
         continue;
       }
 
+      const PhaseUid phase_uid {pu};
+      const SceneUid scene_uid {su};
+
       // Resolve phase and scene indices
-      auto pit = phase_map.find(PhaseUid {phase_uid});
-      auto sit = scene_map.find(SceneUid {scene_uid});
+      auto pit = phase_map.find(phase_uid);
+      auto sit = scene_map.find(scene_uid);
       if (pit == phase_map.end() || sit == scene_map.end()) {
         continue;
       }

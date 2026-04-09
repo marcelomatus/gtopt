@@ -23,6 +23,8 @@
 #include <unordered_map>
 #include <utility>
 
+#include <daw/json/daw_json_link.h>
+#include <gtopt/json/json_sddp_cut_io.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_cut_io.hpp>
@@ -97,27 +99,57 @@ namespace
   return col_name == "efin" || col_name == "soc" || col_name == "vfin";
 }
 
+// ─── Structured key helpers ─────────────────────────────────────────────────
+
+/// Compact reverse map from ColIndex to state variable identity.
+struct ColKeyInfo
+{
+  std::string_view class_name;
+  std::string_view col_name;
+  Uid uid {unknown_uid};
+};
+
+using ColKeyMap = flat_map<ColIndex, ColKeyInfo>;
+
+/// Build a ColIndex → (class_name, col_name, uid) reverse map from the
+/// state variables registered for a given (scene, phase).
+[[nodiscard]] auto build_col_key_map(const SimulationLP& sim,
+                                     SceneIndex si,
+                                     PhaseIndex pi) -> ColKeyMap
+{
+  ColKeyMap map;
+  for (const auto& [key, svar] : sim.state_variables(si, pi)) {
+    map.try_emplace(svar.col(),
+                    ColKeyInfo {
+                        .class_name = key.class_name,
+                        .col_name = key.col_name,
+                        .uid = key.uid,
+                    });
+  }
+  return map;
+}
+
 /// Write a single cut's coefficients to an output stream.
 ///
-/// Format: col_name=coeff (name-based, portable across LP changes).
+/// Format: class:var:uid=coeff (structured key, portable without LP names).
+/// Non-state-variable columns (alpha) are written as @alpha=coeff.
 /// Coefficients are in fully physical space:
 ///   coeff_csv = LP_coeff * scale_obj / col_scale
 void write_cut_coefficients(std::ostream& ofs,
                             const StoredCut& cut,
-                            const LinearInterface& li)
+                            const LinearInterface& li,
+                            const ColKeyMap& col_keys)
 {
   const auto scale_obj = li.scale_objective();
-  const auto& names = li.col_index_to_name();
   for (const auto& [col, coeff] : cut.coefficients) {
     const auto scale = li.get_col_scale(col);
-    const auto col_sz = static_cast<size_t>(col);
-    const bool has_name = col_sz < names.size() && !names[col].empty();
-    if (has_name) {
-      // Name-based format (portable across LP structure changes)
-      ofs << "," << names[col] << "=" << (coeff * scale_obj / scale);
+    const auto phys_coeff = coeff * scale_obj / scale;
+    if (auto it = col_keys.find(col); it != col_keys.end()) {
+      const auto& [cls, var, uid] = it->second;
+      ofs << "," << cls << ":" << var << ":" << uid << "=" << phys_coeff;
     } else {
-      // Fallback to index-based format for unnamed columns
-      ofs << "," << col << ":" << (coeff * scale_obj / scale);
+      // Non-state-variable column (typically alpha)
+      ofs << ",@alpha=" << phys_coeff;
     }
   }
 }
@@ -212,6 +244,14 @@ auto save_cuts_csv(std::span<const StoredCut> cuts,
     // Build phase UID -> PhaseIndex lookup
     const auto phase_map = build_phase_uid_map(planning_lp);
 
+    // Build per-phase ColIndex → structured key reverse maps (cached).
+    const auto& sim = planning_lp.simulation();
+    flat_map<PhaseIndex, ColKeyMap> phase_col_keys;
+    for (const auto& [uid, pi] : phase_map) {
+      phase_col_keys.try_emplace(pi,
+                                 build_col_key_map(sim, SceneIndex {0}, pi));
+    }
+
     for (const auto& cut : cuts) {
       // Type column: 'o' = optimality, 'f' = feasibility
       const char type_char = (cut.type == CutType::Feasibility) ? 'f' : 'o';
@@ -231,7 +271,7 @@ auto save_cuts_csv(std::span<const StoredCut> cuts,
       if (pit != phase_map.end()) {
         const auto& li =
             planning_lp.system(SceneIndex {0}, pit->second).linear_interface();
-        write_cut_coefficients(ofs, cut, li);
+        write_cut_coefficients(ofs, cut, li, phase_col_keys[pit->second]);
       } else {
         SPDLOG_WARN(
             "save_cuts: unknown phase UID {} for cut '{}'; "
@@ -257,7 +297,7 @@ auto save_cuts_csv(std::span<const StoredCut> cuts,
 
 auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
                          SceneIndex scene_index,
-                         int scene_uid_val,
+                         SceneUid scene_uid,
                          const PlanningLP& planning_lp,
                          const std::string& directory)
     -> std::expected<void, Error>
@@ -265,10 +305,9 @@ auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
   try {
     std::filesystem::create_directories(directory);
 
-    const auto filepath =
-        (std::filesystem::path(directory)
-         / std::format(sddp_file::scene_cuts_fmt, scene_uid_val))
-            .string();
+    const auto filepath = (std::filesystem::path(directory)
+                           / std::format(sddp_file::scene_cuts_fmt, scene_uid))
+                              .string();
 
     std::ofstream ofs(filepath);
     if (!ofs.is_open()) {
@@ -290,6 +329,13 @@ auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
     // Build phase UID -> PhaseIndex lookup
     const auto phase_map = build_phase_uid_map(planning_lp);
 
+    // Build per-phase ColIndex → structured key reverse maps (cached).
+    const auto& sim = planning_lp.simulation();
+    flat_map<PhaseIndex, ColKeyMap> phase_col_keys;
+    for (const auto& [uid, pi] : phase_map) {
+      phase_col_keys.try_emplace(pi, build_col_key_map(sim, scene_index, pi));
+    }
+
     for (const auto& cut : cuts) {
       // Type column: 'o' = optimality, 'f' = feasibility
       const char type_char = (cut.type == CutType::Feasibility) ? 'f' : 'o';
@@ -305,7 +351,7 @@ auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
       if (pit != phase_map.end()) {
         const auto& li =
             planning_lp.system(scene_index, pit->second).linear_interface();
-        write_cut_coefficients(ofs, cut, li);
+        write_cut_coefficients(ofs, cut, li, phase_col_keys[pit->second]);
       } else {
         SPDLOG_WARN(
             "save_scene_cuts: unknown phase UID {} for cut "
@@ -319,7 +365,7 @@ auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
 
     SPDLOG_TRACE("SDDP: saved {} cuts for scene UID {} to {}",
                  cuts.size(),
-                 scene_uid_val,
+                 scene_uid,
                  filepath);
     return {};
 
@@ -327,7 +373,7 @@ auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
     return std::unexpected(Error {
         .code = ErrorCode::FileIOError,
         .message = std::format("Error saving scene UID {} cuts to {}: {}",
-                               scene_uid_val,
+                               scene_uid,
                                directory,
                                e.what()),
     });
@@ -336,11 +382,14 @@ auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
 
 // ─── Load functions ─────────────────────────────────────────────────────────
 
-auto load_cuts_csv(PlanningLP& planning_lp,
-                   const std::string& filepath,
-                   double scale_alpha,
-                   [[maybe_unused]] const LabelMaker& label_maker)
-    -> std::expected<CutLoadResult, Error>
+auto load_cuts_csv(
+    PlanningLP& planning_lp,
+    const std::string& filepath,
+    double scale_alpha,
+    [[maybe_unused]] const LabelMaker& label_maker,
+    const StrongIndexVector<SceneIndex,
+                            StrongIndexVector<PhaseIndex, PhaseStateInfo>>*
+        scene_phase_states) -> std::expected<CutLoadResult, Error>
 {
   const auto sa = scale_alpha;  // row scale for loaded cuts
   try {
@@ -418,9 +467,9 @@ auto load_cuts_csv(PlanningLP& planning_lp,
             filepath);
         continue;
       }
-      PhaseUid phase_val {};
+      PhaseUid phase_uid {};
       try {
-        phase_val = PhaseUid {std::stoi(token)};
+        phase_uid = PhaseUid {std::stoi(token)};
       } catch (const std::exception&) {
         SPDLOG_WARN(
             "SDDP load_cuts: malformed line {} in {}: "
@@ -441,9 +490,9 @@ auto load_cuts_csv(PlanningLP& planning_lp,
       }
       // scene is parsed but intentionally ignored: loaded cuts
       // are broadcast to all scenes as warm-start approximations.
-      [[maybe_unused]] int scene_val = 0;
+      [[maybe_unused]] SceneUid scene_uid {};
       try {
-        scene_val = std::stoi(token);
+        scene_uid = SceneUid {std::stoi(token)};
       } catch (const std::exception&) {
         SPDLOG_WARN(
             "SDDP load_cuts: malformed line {} in {}: "
@@ -467,7 +516,7 @@ auto load_cuts_csv(PlanningLP& planning_lp,
       // Skip duplicate (phase, name) pairs — these arise when
       // the CSV was saved with per-scene rows but loading
       // broadcasts each cut to every scene.
-      if (!loaded_keys.emplace(phase_val, cut_name).second) {
+      if (!loaded_keys.emplace(phase_uid, cut_name).second) {
         continue;
       }
 
@@ -518,26 +567,32 @@ auto load_cuts_csv(PlanningLP& planning_lp,
       };
 
       // Resolve the phase UID to a PhaseIndex
-      auto pit = phase_uid_to_index.find(phase_val);
+      auto pit = phase_uid_to_index.find(phase_uid);
       if (pit == phase_uid_to_index.end()) {
         SPDLOG_WARN(
             "SDDP load_cuts: unknown phase UID {} in {}, "
             "skipping cut '{}'",
-            phase_val,
+            phase_uid,
             filepath,
             cut_name);
         continue;
       }
       const auto phase_index = pit->second;
 
-      // Use scene 0 as representative for column name resolution
+      // Use scene 0 as representative for column resolution
       // (LP structure is identical across scenes).
       auto& li_ref =
           planning_lp.system(SceneIndex {0}, phase_index).linear_interface();
 
-      // Collect coefficients from CSV.  Two formats are supported:
-      //   name=coeff   (name-based, preferred — resolve by column name)
-      //   index:coeff  (legacy — validate index against current LP)
+      // State variable map for structured key resolution.
+      const auto& sv_map =
+          planning_lp.simulation().state_variables(SceneIndex {0}, phase_index);
+
+      // Collect coefficients from CSV.  Three formats are supported:
+      //   class:var:uid=coeff  (structured key — preferred, no LP names)
+      //   @alpha=coeff         (alpha column marker)
+      //   name=coeff           (legacy name-based — resolve by column name)
+      //   index:coeff          (legacy — validate index against current LP)
       struct ResolvedCoeff
       {
         ColIndex col;
@@ -547,26 +602,93 @@ auto load_cuts_csv(PlanningLP& planning_lp,
       bool cut_valid = true;
 
       while (std::getline(iss, token, ',')) {
-        // Try name-based format first (name=coeff)
         if (const auto eq = token.find('='); eq != std::string::npos) {
-          const auto col_name = token.substr(0, eq);
+          const auto key_part = token.substr(0, eq);
           const auto coeff = std::stod(token.substr(eq + 1));
-          const auto& name_map = li_ref.col_name_map();
-          auto it = name_map.find(col_name);
-          if (it != name_map.end()) {
-            resolved_coeffs.push_back({
-                .col = ColIndex {it->second},
-                .coeff = coeff,
-            });
+
+          if (key_part == "@alpha") {
+            // Alpha column — resolve via scene_phase_states if available
+            if (scene_phase_states != nullptr) {
+              const auto& states = (*scene_phase_states)[SceneIndex {0}];
+              if (phase_index < PhaseIndex {states.size()}) {
+                const auto alpha_col = states[phase_index].alpha_col;
+                if (alpha_col != ColIndex {unknown_index}) {
+                  resolved_coeffs.push_back({
+                      .col = alpha_col,
+                      .coeff = coeff,
+                  });
+                }
+              }
+            } else {
+              // No alpha info — try legacy name-based resolution
+              const auto& name_map = li_ref.col_name_map();
+              for (const auto& [nm, idx] : name_map) {
+                if (nm.starts_with("sddp_alpha_")) {
+                  resolved_coeffs.push_back({
+                      .col = ColIndex {idx},
+                      .coeff = coeff,
+                  });
+                  break;
+                }
+              }
+            }
+          } else if (std::ranges::count(key_part, ':') == 2) {
+            // Structured key format: class:var:uid
+            const auto c1 = key_part.find(':');
+            const auto c2 = key_part.find(':', c1 + 1);
+            const auto cls = key_part.substr(0, c1);
+            const auto var = key_part.substr(c1 + 1, c2 - c1 - 1);
+            const auto uid_str = key_part.substr(c2 + 1);
+            int uid_val = 0;
+            auto [ptr, ec] =
+                std::from_chars(uid_str.data(),
+                                uid_str.data() + uid_str.size(),  // NOLINT
+                                uid_val);
+            if (ec != std::errc {}) {
+              SPDLOG_WARN(
+                  "SDDP load_cuts: invalid uid '{}' in "
+                  "structured key for cut '{}'; skipping coeff",
+                  uid_str,
+                  cut_name);
+              continue;
+            }
+            bool found = false;
+            for (const auto& [key, svar] : sv_map) {
+              if (key.class_name == cls && key.col_name == var
+                  && key.uid == Uid {uid_val})
+              {
+                resolved_coeffs.push_back({
+                    .col = svar.col(),
+                    .coeff = coeff,
+                });
+                found = true;
+                break;
+              }
+            }
+            if (!found) {
+              SPDLOG_WARN(
+                  "SDDP load_cuts: structured key '{}' not "
+                  "found in state variables for cut '{}'; "
+                  "ignoring coefficient",
+                  key_part,
+                  cut_name);
+            }
           } else {
-            // Name not found in LP name map — warn and skip this
-            // coefficient (the LP structure may have changed since
-            // the cuts were saved).
-            SPDLOG_WARN(
-                "SDDP load_cuts: column '{}' not found in "
-                "current LP for cut '{}'; ignoring coefficient",
-                col_name,
-                cut_name);
+            // Legacy name-based format: name=coeff
+            const auto& name_map = li_ref.col_name_map();
+            auto it = name_map.find(key_part);
+            if (it != name_map.end()) {
+              resolved_coeffs.push_back({
+                  .col = ColIndex {it->second},
+                  .coeff = coeff,
+              });
+            } else {
+              SPDLOG_WARN(
+                  "SDDP load_cuts: column '{}' not found in "
+                  "current LP for cut '{}'; ignoring coefficient",
+                  key_part,
+                  cut_name);
+            }
           }
         }
         // Legacy format (index:coeff)
@@ -589,8 +711,6 @@ auto load_cuts_csv(PlanningLP& planning_lp,
             break;
           }
 
-          // Warn if the LP structure may have changed (column name
-          // available but index-based format was used)
           const auto& idx_names = li_ref.col_index_to_name();
           const auto fc = ColIndex {file_col};
           if (static_cast<size_t>(file_col) < idx_names.size()
@@ -873,7 +993,7 @@ auto load_boundary_cuts_csv(
 
       // Next column: scene UID
       std::getline(iss, token, ',');
-      const SceneUid scene_val {std::stoi(token)};
+      const SceneUid scene_uid {std::stoi(token)};
 
       // Next column: rhs
       std::getline(iss, token, ',');
@@ -886,7 +1006,7 @@ auto load_boundary_cuts_csv(
       raw_cuts.push_back(RawBoundaryCut {
           .name = std::move(cut_name),
           .iteration = iteration,
-          .scene_uid = scene_val,
+          .scene_uid = scene_uid,
           .rhs = rhs,
           .coeff_line = std::move(remainder),
       });
@@ -1251,23 +1371,23 @@ auto load_named_cuts_csv(
 
       // Column 2: scene UID
       std::getline(iss, token, ',');
-      [[maybe_unused]] const SceneUid scene_val {std::stoi(token)};
+      [[maybe_unused]] const SceneUid scene_uid {std::stoi(token)};
 
       // Column 3: phase UID
       std::getline(iss, token, ',');
-      const PhaseUid phase_val {std::stoi(token)};
+      const PhaseUid phase_uid {std::stoi(token)};
 
       // Column 4: rhs
       std::getline(iss, token, ',');
       const auto rhs = std::stod(token);
 
       // Resolve phase UID -> PhaseIndex
-      auto pit = phase_uid_to_index.find(phase_val);
+      auto pit = phase_uid_to_index.find(phase_uid);
       if (pit == phase_uid_to_index.end()) {
         SPDLOG_WARN(
             "Named cuts: unknown phase UID {} in '{}', "
             "skipping cut '{}'",
-            phase_val,
+            phase_uid,
             filepath,
             cut_name);
         continue;
@@ -1384,6 +1504,386 @@ auto load_named_cuts_csv(
             "Error loading named cuts from {}: {}", filepath, e.what()),
     });
   }
+}
+
+// ─── JSON save functions ────────────────────────────────────────────────────
+
+auto save_cuts_json(std::span<const StoredCut> cuts,
+                    const PlanningLP& planning_lp,
+                    const std::string& filepath) -> std::expected<void, Error>
+{
+  try {
+    const auto parent = std::filesystem::path(filepath).parent_path();
+    if (!parent.empty()) {
+      std::filesystem::create_directories(parent);
+    }
+
+    const auto& rep_li =
+        planning_lp.system(SceneIndex {0}, PhaseIndex {0}).linear_interface();
+    const auto scale_obj = rep_li.scale_objective();
+
+    const auto phase_map = build_phase_uid_map(planning_lp);
+    const auto& sim = planning_lp.simulation();
+
+    // Build per-phase ColKeyMap (cached)
+    flat_map<PhaseIndex, ColKeyMap> phase_col_keys;
+    for (const auto& [uid, pi] : phase_map) {
+      phase_col_keys.try_emplace(pi,
+                                 build_col_key_map(sim, SceneIndex {0}, pi));
+    }
+
+    // Build CutFileData
+    CutFileData file_data {
+        .version = 2,
+        .scale_objective = scale_obj,
+    };
+    file_data.cuts.reserve(cuts.size());
+
+    for (const auto& cut : cuts) {
+      CutEntry entry {
+          .type = (cut.type == CutType::Feasibility) ? "f" : "o",
+          .phase_uid = static_cast<int>(cut.phase_uid),
+          .scene_uid = static_cast<int>(cut.scene_uid),
+          .name = cut.name,
+          .rhs = cut.rhs * scale_obj,
+          .dual = cut.dual,
+      };
+
+      auto pit = phase_map.find(cut.phase_uid);
+      if (pit != phase_map.end()) {
+        const auto& li =
+            planning_lp.system(SceneIndex {0}, pit->second).linear_interface();
+        const auto& col_keys = phase_col_keys[pit->second];
+
+        for (const auto& [col, coeff] : cut.coefficients) {
+          const auto scale = li.get_col_scale(col);
+          const auto phys_coeff = coeff * scale_obj / scale;
+          if (auto it = col_keys.find(col); it != col_keys.end()) {
+            const auto& [cls, var, uid] = it->second;
+            entry.coefficients.push_back(CutCoeffEntry {
+                .key = std::format("{}:{}:{}", cls, var, uid),
+                .coeff = phys_coeff,
+            });
+          } else {
+            entry.coefficients.push_back(CutCoeffEntry {
+                .key = "@alpha",
+                .coeff = phys_coeff,
+            });
+          }
+        }
+      } else {
+        // Unknown phase — write raw index-based coefficients
+        for (const auto& [col, coeff] : cut.coefficients) {
+          entry.coefficients.push_back(CutCoeffEntry {
+              .key = std::format("@col:{}", static_cast<int>(col)),
+              .coeff = coeff * scale_obj,
+          });
+        }
+      }
+
+      file_data.cuts.push_back(std::move(entry));
+    }
+
+    std::ofstream ofs(filepath);
+    if (!ofs.is_open()) {
+      return std::unexpected(Error {
+          .code = ErrorCode::FileIOError,
+          .message =
+              std::format("Cannot open cut file for writing: {}", filepath),
+      });
+    }
+    ofs << daw::json::to_json(file_data) << '\n';
+
+    SPDLOG_TRACE("SDDP: saved {} cuts to {} (JSON)", cuts.size(), filepath);
+    return {};
+
+  } catch (const std::exception& e) {
+    return std::unexpected(Error {
+        .code = ErrorCode::FileIOError,
+        .message = std::format(
+            "Error saving cuts to {} (JSON): {}", filepath, e.what()),
+    });
+  }
+}
+
+auto save_scene_cuts_json(std::span<const StoredCut> cuts,
+                          [[maybe_unused]] SceneIndex scene_index,
+                          SceneUid scene_uid,
+                          const PlanningLP& planning_lp,
+                          const std::string& directory)
+    -> std::expected<void, Error>
+{
+  std::filesystem::create_directories(directory);
+  const auto filepath =
+      (std::filesystem::path(directory)
+       / std::format(sddp_file::scene_cuts_json_fmt, scene_uid))
+          .string();
+  return save_cuts_json(cuts, planning_lp, filepath);
+}
+
+// ─── JSON load function ────────────────────────────────────────────────────
+
+auto load_cuts_json(
+    PlanningLP& planning_lp,
+    const std::string& filepath,
+    double scale_alpha,
+    const StrongIndexVector<SceneIndex,
+                            StrongIndexVector<PhaseIndex, PhaseStateInfo>>*
+        scene_phase_states) -> std::expected<CutLoadResult, Error>
+{
+  try {
+    std::ifstream ifs(filepath);
+    if (!ifs.is_open()) {
+      return std::unexpected(Error {
+          .code = ErrorCode::FileIOError,
+          .message =
+              std::format("Cannot open cut file for reading: {}", filepath),
+      });
+    }
+
+    const std::string json_str(std::istreambuf_iterator<char>(ifs),
+                               std::istreambuf_iterator<char> {});
+
+    const auto file_data = daw::json::from_json<CutFileData>(json_str);
+    // scale_objective from file is informational; the LP's own
+    // scale_objective is used for coefficient conversion.
+    [[maybe_unused]] const auto scale_obj_file = file_data.scale_objective;
+
+    const auto& sim = planning_lp.simulation();
+    const auto num_scenes = static_cast<Index>(sim.scenes().size());
+    const auto& rep_li =
+        planning_lp.system(SceneIndex {0}, PhaseIndex {0}).linear_interface();
+    const auto scale_obj = rep_li.scale_objective();
+
+    const auto phase_uid_to_index = build_phase_uid_map(planning_lp);
+
+    // Track loaded (phase_uid, name) pairs to skip duplicates
+    std::set<std::pair<int, std::string>> loaded_keys;
+
+    CutLoadResult result {};
+
+    for (const auto& entry : file_data.cuts) {
+      if (!loaded_keys.emplace(entry.phase_uid, entry.name).second) {
+        continue;
+      }
+
+      result.max_iteration = std::max(result.max_iteration,
+                                      extract_iteration_from_name(entry.name));
+
+      auto pit = phase_uid_to_index.find(PhaseUid {entry.phase_uid});
+      if (pit == phase_uid_to_index.end()) {
+        SPDLOG_WARN(
+            "SDDP load_cuts_json: unknown phase UID {} for cut '{}'; "
+            "skipping",
+            entry.phase_uid,
+            entry.name);
+        continue;
+      }
+      const auto phase_index = pit->second;
+
+      // Build the LP row from physical RHS
+      auto row = SparseRow {
+          .lowb = entry.rhs / scale_obj,
+          .uppb = LinearProblem::DblMax,
+          .scale = scale_alpha,
+          .class_name = "Loaded",
+          .constraint_name = "cut",
+      };
+
+      // State variable map for structured key resolution
+      const auto& sv_map = sim.state_variables(SceneIndex {0}, phase_index);
+
+      // Resolve coefficients
+      bool cut_valid = true;
+      struct ResolvedCoeff
+      {
+        ColIndex col;
+        double coeff;
+      };
+      std::vector<ResolvedCoeff> resolved_coeffs;
+
+      for (const auto& [key, coeff] : entry.coefficients) {
+        if (key == "@alpha") {
+          // Alpha column
+          if (scene_phase_states != nullptr) {
+            const auto& states = (*scene_phase_states)[SceneIndex {0}];
+            if (phase_index < PhaseIndex {states.size()}) {
+              const auto alpha_col = states[phase_index].alpha_col;
+              if (alpha_col != ColIndex {unknown_index}) {
+                resolved_coeffs.push_back({
+                    .col = alpha_col,
+                    .coeff = coeff,
+                });
+              }
+            }
+          } else {
+            // Fallback: find alpha column by LP name
+            auto& li_ref = planning_lp.system(SceneIndex {0}, phase_index)
+                               .linear_interface();
+            const auto& name_map = li_ref.col_name_map();
+            for (const auto& [nm, idx] : name_map) {
+              if (nm.starts_with("sddp_alpha_")) {
+                resolved_coeffs.push_back({
+                    .col = ColIndex {idx},
+                    .coeff = coeff,
+                });
+                break;
+              }
+            }
+          }
+        } else if (std::ranges::count(key, ':') == 2) {
+          // Structured key: class:var:uid
+          const auto c1 = key.find(':');
+          const auto c2 = key.find(':', c1 + 1);
+          const auto cls = key.substr(0, c1);
+          const auto var = key.substr(c1 + 1, c2 - c1 - 1);
+          const auto uid_str = key.substr(c2 + 1);
+          int uid_val = 0;
+          auto [ptr, ec] =
+              std::from_chars(uid_str.data(),
+                              uid_str.data() + uid_str.size(),  // NOLINT
+                              uid_val);
+          if (ec != std::errc {}) {
+            SPDLOG_WARN(
+                "SDDP load_cuts_json: invalid uid '{}' in key for "
+                "cut '{}'; skipping coeff",
+                uid_str,
+                entry.name);
+            continue;
+          }
+          bool found = false;
+          for (const auto& [sv_key, svar] : sv_map) {
+            if (sv_key.class_name == cls && sv_key.col_name == var
+                && sv_key.uid == Uid {uid_val})
+            {
+              resolved_coeffs.push_back({
+                  .col = svar.col(),
+                  .coeff = coeff,
+              });
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            SPDLOG_WARN(
+                "SDDP load_cuts_json: key '{}' not found in state "
+                "variables for cut '{}'; ignoring coefficient",
+                key,
+                entry.name);
+          }
+        } else {
+          SPDLOG_WARN(
+              "SDDP load_cuts_json: unrecognized key '{}' in cut "
+              "'{}'; ignoring",
+              key,
+              entry.name);
+        }
+      }
+
+      if (!cut_valid) {
+        continue;
+      }
+
+      // Add resolved cut to all scenes
+      for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+        auto& li =
+            planning_lp.system(scene_index, phase_index).linear_interface();
+        auto scene_row = row;
+        scene_row.context = ScenePhaseContext {sim.scenes()[scene_index].uid(),
+                                               sim.phases()[phase_index].uid()};
+        for (const auto& [col, coeff] : resolved_coeffs) {
+          const auto scale = li.get_col_scale(col);
+          scene_row[col] = coeff * scale / scale_obj;
+        }
+        li.add_row(scene_row);
+      }
+      ++result.count;
+    }
+
+    SPDLOG_TRACE("SDDP: loaded {} cuts from {} (JSON)", result.count, filepath);
+    return result;
+
+  } catch (const daw::json::json_exception& e) {
+    return std::unexpected(Error {
+        .code = ErrorCode::InvalidInput,
+        .message = std::format(
+            "JSON parse error loading cuts from {}: {}", filepath, e.what()),
+    });
+  } catch (const std::exception& e) {
+    return std::unexpected(Error {
+        .code = ErrorCode::FileIOError,
+        .message = std::format(
+            "Error loading cuts from {} (JSON): {}", filepath, e.what()),
+    });
+  }
+}
+
+// ─── Format-dispatching functions ──────────────────────────────────────────
+
+auto save_cuts(std::span<const StoredCut> cuts,
+               const PlanningLP& planning_lp,
+               const std::string& filepath,
+               CutIOFormat format,
+               bool append_mode) -> std::expected<void, Error>
+{
+  if (format == CutIOFormat::json) {
+    // JSON does not support append mode — always overwrites
+    return save_cuts_json(cuts, planning_lp, filepath);
+  }
+  return save_cuts_csv(cuts, planning_lp, filepath, append_mode);
+}
+
+auto load_cuts(
+    PlanningLP& planning_lp,
+    const std::string& filepath,
+    double scale_alpha,
+    CutIOFormat format,
+    const LabelMaker& label_maker,
+    const StrongIndexVector<SceneIndex,
+                            StrongIndexVector<PhaseIndex, PhaseStateInfo>>*
+        scene_phase_states) -> std::expected<CutLoadResult, Error>
+{
+  // Determine file paths for both formats based on the given filepath
+  const auto path = std::filesystem::path(filepath);
+  const auto stem = path.stem().string();
+  const auto parent = path.parent_path();
+
+  const auto csv_path = (parent / (stem + ".csv")).string();
+  const auto json_path = (parent / (stem + ".json")).string();
+
+  // Try preferred format first, fall back to the other
+  if (format == CutIOFormat::json) {
+    if (std::filesystem::exists(json_path)) {
+      return load_cuts_json(
+          planning_lp, json_path, scale_alpha, scene_phase_states);
+    }
+    if (std::filesystem::exists(csv_path)) {
+      SPDLOG_INFO(
+          "SDDP load_cuts: JSON file not found, falling back to CSV: {}",
+          csv_path);
+      return load_cuts_csv(
+          planning_lp, csv_path, scale_alpha, label_maker, scene_phase_states);
+    }
+  } else {
+    if (std::filesystem::exists(csv_path)) {
+      return load_cuts_csv(
+          planning_lp, csv_path, scale_alpha, label_maker, scene_phase_states);
+    }
+    if (std::filesystem::exists(json_path)) {
+      SPDLOG_INFO(
+          "SDDP load_cuts: CSV file not found, falling back to JSON: {}",
+          json_path);
+      return load_cuts_json(
+          planning_lp, json_path, scale_alpha, scene_phase_states);
+    }
+  }
+
+  // Neither format exists
+  return std::unexpected(Error {
+      .code = ErrorCode::FileIOError,
+      .message = std::format(
+          "Cannot find cut file in any format: {} or {}", csv_path, json_path),
+  });
 }
 
 }  // namespace gtopt
