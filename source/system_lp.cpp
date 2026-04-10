@@ -120,6 +120,17 @@ constexpr auto add_to_lp(auto& collections,
                         scenario.uid(),
                         stage.uid(),
                         ex.what()));
+        // User-constraint failures propagate in strict/debug mode so the
+        // caller can surface non-convex rejections, unknown parameters,
+        // and similar author errors instead of silently dropping the
+        // constraint.  Other element types keep the original "log and
+        // continue" behavior.
+        if constexpr (std::is_same_v<T, UserConstraintLP>) {
+          const auto mode = system_context.options().constraint_mode();
+          if (mode == ConstraintMode::strict || mode == ConstraintMode::debug) {
+            throw;
+          }
+        }
         return false;
       }
     }
@@ -357,9 +368,17 @@ constexpr auto create_linear_interface(auto& collections,
   // warn about "missing objective function name" when writing .lp files.
   // Create the solver interface first so we can query its infinity value.
   LinearInterface li(flat_opts.solver_name);
-  li.set_lp_names_level(static_cast<int>(flat_opts.lp_names_level));
+
+  // Build the LabelMaker once from the effective lp_names_level and install
+  // it on both the LinearProblem (used during flatten() for colnm/rownm) and
+  // the LinearInterface (used for labels on any rows/cols added after
+  // load_flat()).  The LabelMaker travels by value through
+  // FlatLinearProblem::label_maker during load_flat().
+  const LabelMaker label_maker {flat_opts.lp_names_level};
+  li.set_label_maker(label_maker);
 
   LinearProblem lp(std::format("gtopt_s{}_p{}", scene.uid(), phase.uid()));
+  lp.set_label_maker(label_maker);
 
   // Set the target infinity from the solver backend so that add_col/add_row
   // normalize DblMax bounds before flattening, avoiding solver warnings.

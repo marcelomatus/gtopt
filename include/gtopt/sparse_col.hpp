@@ -58,6 +58,11 @@ struct SparseCol
   double uppb {DblMax};  ///< Physical upper bound (default: +infinity)
   double cost {0.0};  ///< Objective coefficient (default: 0.0)
   bool is_integer {false};  ///< is integer-constrained (default: false)
+  bool is_state {false};  ///< True when the column is a state variable: its
+                          ///< label must be generated at
+                          ///< `LpNamesLevel::minimal` so cascade/SDDP cut I/O
+                          ///< can identify the column by name.  Set via
+                          ///< `SystemContext::add_state_col()`.
   double scale {1.0};  ///< Physical-to-LP scale: physical_value = LP_value ×
                        ///< scale (default: 1.0 = no scaling)
 

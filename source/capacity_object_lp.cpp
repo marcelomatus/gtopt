@@ -62,7 +62,11 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
                 sv_key_p(scenario, *prev_stage, col_name));
             prev_svar)
         {
+          // Dependent state column: mirrors a state variable from the
+          // previous phase.  Marked is_state so its label is emitted at
+          // LpNamesLevel::minimal (SDDP cut I/O needs it).
           auto col = lp.add_col({
+              .is_state = true,
               .class_name = m_class_name_,
               .variable_name = col_name,
               .variable_uid = uid(),
@@ -85,17 +89,18 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   }
 
   const auto stg_ctx = make_stage_context(scenario.uid(), stage.uid());
-  const auto capainst_col = lp.add_col({
-      .lowb = stage_capacity,
-      .uppb = stage_capmax,
-      .cost = 0.0,
-      .class_name = m_class_name_,
-      .variable_name = CapainstName,
-      .variable_uid = uid(),
-      .context = stg_ctx,
-  });
-  sc.add_state_variable(
-      sv_key_p(scenario, stage, CapainstName), capainst_col, 0.0, 1.0, stg_ctx);
+  const auto capainst_col =
+      sc.add_state_col(lp,
+                       sv_key_p(scenario, stage, CapainstName),
+                       SparseCol {
+                           .lowb = stage_capacity,
+                           .uppb = stage_capmax,
+                           .cost = 0.0,
+                           .class_name = m_class_name_,
+                           .variable_name = CapainstName,
+                           .variable_uid = uid(),
+                           .context = stg_ctx,
+                       });
 
   SparseRow capainst_row;
   capainst_row.class_name = m_class_name_;
@@ -104,15 +109,16 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   capainst_row.context = stg_ctx;
   capainst_row[capainst_col] = -1;
 
-  const auto capacost_col = lp.add_col({
-      .cost = CostHelper::stage_ecost(stage, 1.0),
-      .class_name = m_class_name_,
-      .variable_name = CapacostName,
-      .variable_uid = uid(),
-      .context = stg_ctx,
-  });
-  sc.add_state_variable(
-      sv_key_p(scenario, stage, CapacostName), capacost_col, 0.0, 1.0, stg_ctx);
+  const auto capacost_col =
+      sc.add_state_col(lp,
+                       sv_key_p(scenario, stage, CapacostName),
+                       SparseCol {
+                           .cost = CostHelper::stage_ecost(stage, 1.0),
+                           .class_name = m_class_name_,
+                           .variable_name = CapacostName,
+                           .variable_uid = uid(),
+                           .context = stg_ctx,
+                       });
 
   SparseRow capacost_row;
   capacost_row.class_name = m_class_name_;

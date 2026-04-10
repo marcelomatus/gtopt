@@ -438,7 +438,7 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
               save_cuts_csv(filtered, *prev_lp, tmp_path.string());
 
           if (save_result.has_value()) {
-            const LabelMaker label_maker(current_lp->options());
+            const LabelMaker label_maker {current_lp->options().names_level()};
             const auto sa =
                 effective_scale_alpha(*current_lp, level_opts.scale_alpha);
             auto load_result =

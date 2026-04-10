@@ -24,21 +24,23 @@ namespace gtopt
 namespace
 {
 /// Check name uniqueness via map insertion (try_emplace pattern).
-/// Returns true if the name is a duplicate.
+/// Returns true if the name is a duplicate.  When `errors_on_dup` is true
+/// (LabelMaker::duplicates_are_errors() at cols_and_rows level) a
+/// std::runtime_error is thrown; otherwise a warning is logged and the
+/// function returns true.
 inline bool check_name_unique(LinearInterface::name_index_map_t& name_map,
                               const std::string& name,
                               int32_t index,
                               std::string_view entity_type,
-                              int level,
-                              int min_level = 0)
+                              bool errors_on_dup)
 {
-  if (level < min_level || name.empty()) {
+  if (name.empty()) {
     return false;
   }
 
   auto [it, inserted] = name_map.try_emplace(name, index);
   if (!inserted) {
-    if (level >= 2) {
+    if (errors_on_dup) {
       SPDLOG_ERROR("Duplicate LP {} name: {}", entity_type, name);
       throw std::runtime_error(
           std::format("Duplicate LP {} name: {}", entity_type, name));
@@ -489,6 +491,10 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   // Preserve VariableScaleMap for dynamic column auto-scaling.
   m_variable_scale_map_ = flat_lp.variable_scale_map;
 
+  // Preserve LabelMaker so dynamically added cols/rows after load_flat()
+  // use the same LpNamesLevel as the original flatten() call.
+  m_label_maker_ = flat_lp.label_maker;
+
   // Preserve coefficient statistics computed during flatten().
   m_stats_nnz_ = flat_lp.stats_nnz;
   m_stats_zeroed_ = flat_lp.stats_zeroed;
@@ -521,12 +527,12 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
     }
   };
 
-  if (m_lp_names_level_ >= 0 && !flat_lp.colnm.empty()) {
+  if (m_label_maker_.col_names_enabled() && !flat_lp.colnm.empty()) {
     build_name_map.template operator()<ColIndex>(
         flat_lp.colnm, m_col_names_, m_col_index_to_name_);
   }
 
-  if (m_lp_names_level_ >= 1 && !flat_lp.rownm.empty()) {
+  if (m_label_maker_.row_names_enabled() && !flat_lp.rownm.empty()) {
     build_name_map.template operator()<RowIndex>(
         flat_lp.rownm, m_row_names_, m_row_index_to_name_);
   }
@@ -548,12 +554,16 @@ ColIndex LinearInterface::add_col(const std::string& name,
                                   double colub)
 {
   const auto index = m_backend_->get_num_cols();
-  check_name_unique(m_col_names_, name, index, "column", m_lp_names_level_, 0);
+  check_name_unique(m_col_names_,
+                    name,
+                    index,
+                    "column",
+                    m_label_maker_.duplicates_are_errors());
 
   m_backend_->add_col(normalize_bound(collb), normalize_bound(colub), 0.0);
 
   const auto col = ColIndex {index};
-  if (m_lp_names_level_ >= 0 && !name.empty()) {
+  if (m_label_maker_.col_names_enabled() && !name.empty()) {
     if (m_col_index_to_name_.size() <= static_cast<size_t>(index)) {
       m_col_index_to_name_.resize(static_cast<size_t>(index) + 1);
     }
@@ -577,47 +587,24 @@ ColIndex LinearInterface::add_free_col(const std::string& name)
 ColIndex LinearInterface::add_col(const SparseCol& col)
 {
   ensure_backend();
-  // Resolve name: explicit name takes priority, then metadata-based generation.
-  // Skip label generation entirely when LP names are disabled — this avoids
-  // the hot-path cost of as_label_into during assembly when names will be
-  // discarded anyway (m_lp_names_level_ < 0).
-  const auto name = [&]() -> std::string
-  {
-    if (m_lp_names_level_ < 0) [[likely]] {
-      return {};
-    }
-    if (!col.name.empty()) {
-      return std::string(col.name);
-    }
-    if (!col.class_name.empty()
-        && !std::holds_alternative<std::monostate>(col.context))
-    {
-      return std::visit(
-          [&](const auto& ctx) -> std::string
-          {
-            if constexpr (std::is_same_v<std::remove_cvref_t<decltype(ctx)>,
-                                         std::monostate>)
-            {
-              return {};
-            } else {
-              return generate_lp_label(
-                  col.class_name, col.variable_name, col.variable_uid, ctx);
-            }
-          },
-          col.context);
-    }
-    return {};
-  }();
+  // Label generation delegated to LabelMaker.  Returns an empty string
+  // when LP column names are disabled (LpNamesLevel::none) or when the
+  // column lacks the metadata needed to produce a label.
+  const auto name = m_label_maker_.make_col_label(col);
 
   const auto [lowb, uppb] = normalize_bounds(col.lowb, col.uppb);
 
   const auto index = m_backend_->get_num_cols();
-  check_name_unique(m_col_names_, name, index, "column", m_lp_names_level_, 0);
+  check_name_unique(m_col_names_,
+                    name,
+                    index,
+                    "column",
+                    m_label_maker_.duplicates_are_errors());
 
   m_backend_->add_col(lowb, uppb, col.cost);
 
   const auto col_idx = ColIndex {index};
-  if (m_lp_names_level_ >= 0 && !name.empty()) {
+  if (!name.empty()) {
     if (m_col_index_to_name_.size() <= static_cast<size_t>(index)) {
       m_col_index_to_name_.resize(static_cast<size_t>(index) + 1);
     }
@@ -649,7 +636,8 @@ RowIndex LinearInterface::add_row(const std::string& name,
                                   const double rowub)
 {
   const auto index = m_backend_->get_num_rows();
-  check_name_unique(m_row_names_, name, index, "row", m_lp_names_level_, 1);
+  check_name_unique(
+      m_row_names_, name, index, "row", m_label_maker_.duplicates_are_errors());
 
   m_backend_->add_row(static_cast<int>(numberElements),
                       columns.data(),
@@ -658,7 +646,7 @@ RowIndex LinearInterface::add_row(const std::string& name,
                       normalize_bound(rowub));
 
   const auto row_idx = RowIndex {index};
-  if (m_lp_names_level_ >= 1 && !name.empty()) {
+  if (m_label_maker_.row_names_enabled() && !name.empty()) {
     if (m_row_index_to_name_.size() <= static_cast<size_t>(index)) {
       m_row_index_to_name_.resize(static_cast<size_t>(index) + 1);
     }
@@ -671,34 +659,10 @@ RowIndex LinearInterface::add_row(const std::string& name,
 RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
 {
   ensure_backend();
-  // Resolve name: generate from metadata when available.
-  // Skip label generation entirely when row names are disabled — this avoids
-  // the hot-path cost of as_label_into during assembly when names will be
-  // discarded anyway (m_lp_names_level_ < 1).
-  const auto name = [&]() -> std::string
-  {
-    if (m_lp_names_level_ < 1) [[likely]] {
-      return {};
-    }
-    if (!row.class_name.empty()
-        && !std::holds_alternative<std::monostate>(row.context))
-    {
-      return std::visit(
-          [&](const auto& ctx) -> std::string
-          {
-            if constexpr (std::is_same_v<std::remove_cvref_t<decltype(ctx)>,
-                                         std::monostate>)
-            {
-              return {};
-            } else {
-              return generate_lp_label(
-                  row.class_name, row.constraint_name, row.variable_uid, ctx);
-            }
-          },
-          row.context);
-    }
-    return {};
-  }();
+  // Label generation delegated to LabelMaker.  Returns an empty string
+  // when LP row names are disabled or the row lacks the metadata needed
+  // to produce a label.
+  const auto name = m_label_maker_.make_row_label(row);
 
   const auto rs = row.scale;
 
@@ -814,37 +778,14 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
       set_row_scale(row_idx, row.scale);
     }
 
-    if (m_lp_names_level_ >= 1) {
-      const auto name = [&]() -> std::string
-      {
-        if (!row.class_name.empty()
-            && !std::holds_alternative<std::monostate>(row.context))
-        {
-          return std::visit(
-              [&](const auto& ctx) -> std::string
-              {
-                if constexpr (std::is_same_v<std::remove_cvref_t<decltype(ctx)>,
-                                             std::monostate>)
-                {
-                  return {};
-                } else {
-                  return generate_lp_label(row.class_name,
-                                           row.constraint_name,
-                                           row.variable_uid,
-                                           ctx);
-                }
-              },
-              row.context);
-        }
-        return {};
-      }();
+    if (m_label_maker_.row_names_enabled()) {
+      const auto name = m_label_maker_.make_row_label(row);
 
       check_name_unique(m_row_names_,
                         name,
                         static_cast<int>(row_idx),
                         "row",
-                        m_lp_names_level_,
-                        1);
+                        m_label_maker_.duplicates_are_errors());
 
       if (!name.empty()) {
         if (m_row_index_to_name_.size() <= static_cast<size_t>(row_idx)) {
@@ -865,7 +806,7 @@ void LinearInterface::delete_rows(const std::span<const int> indices)
 
   m_backend_->delete_rows(static_cast<int>(indices.size()), indices.data());
 
-  if (m_lp_names_level_ >= 1) {
+  if (m_label_maker_.row_names_enabled()) {
     for (const auto idx : indices | std::views::reverse) {
       const auto pos = static_cast<ptrdiff_t>(idx);
       if (pos < std::ssize(m_row_index_to_name_)) {
@@ -878,7 +819,7 @@ void LinearInterface::delete_rows(const std::span<const int> indices)
 
 void LinearInterface::rebuild_row_name_maps()
 {
-  if (m_lp_names_level_ >= 2) {
+  if (m_label_maker_.duplicates_are_errors()) {
     m_row_names_.clear();
     m_row_names_.reserve(m_row_index_to_name_.size());
     for (const auto [i, name] : enumerate<RowIndex>(m_row_index_to_name_)) {
@@ -923,7 +864,7 @@ void LinearInterface::reset_from(const LinearInterface& source,
     m_backend_->set_row_upper(static_cast<int>(r), src_row_hi[r]);
   }
 
-  if (m_lp_names_level_ >= 1) {
+  if (m_label_maker_.row_names_enabled()) {
     m_row_index_to_name_.resize(static_cast<size_t>(nrows));
     rebuild_row_name_maps();
   }
@@ -1125,7 +1066,7 @@ void LinearInterface::push_names_to_solver() const
 
   const auto nrows = static_cast<size_t>(m_backend_->get_num_rows());
   std::vector<std::string> row_names(nrows);
-  if (m_lp_names_level_ >= 1) {
+  if (m_label_maker_.row_names_enabled()) {
     for (const auto [i, name] :
          enumerate<RowIndex>(m_row_index_to_name_ | std::views::take(nrows)))
     {
@@ -1148,7 +1089,7 @@ auto LinearInterface::write_lp(const std::string& filename) const
         .code = ErrorCode::InvalidInput,
         .message = std::format(
             "LP file '{}' not saved: row names are not available. "
-            "Set names_level >= only_cols to enable LP file output.",
+            "Set names_level >= cols_and_rows to enable LP file output.",
             filename),
     });
   }

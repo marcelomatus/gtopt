@@ -715,7 +715,11 @@ public:
     // discover and propagate the reservoir/battery state across phase
     // boundaries (gtopt-phase = PLP-stage).
     if (effective_usv) {
-      sc.add_state_variable(
+      // Register the already-added last-block energy column as a state
+      // variable (efin); sets is_state=true so LabelMaker emits its name
+      // at LpNamesLevel::minimal for SDDP cut I/O.
+      sc.add_state_col(
+          lp,
           // NOLINTNEXTLINE(readability-suspicious-call-argument)
           StateVariable::key(scenario, stage, cname, uid(), EfinName),
           prev_vc,

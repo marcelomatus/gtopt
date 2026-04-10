@@ -16,7 +16,7 @@
 #include <set>
 #include <vector>
 
-#include <gtopt/lp_context.hpp>
+#include <gtopt/label_maker.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_cut_sharing.hpp>
@@ -45,8 +45,7 @@ void SDDPCutStore::store_cut(SceneIndex scene_index,
                              SceneUid scene_uid_val,
                              PhaseUid phase_uid_val)
 {
-  auto cut_name = generate_lp_label(
-      cut.class_name, cut.constraint_name, cut.variable_uid, cut.context);
+  auto cut_name = LabelMaker::force_row_label(cut);
 
   StoredCut stored {
       .type = type,

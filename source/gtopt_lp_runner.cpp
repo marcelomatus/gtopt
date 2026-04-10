@@ -212,6 +212,17 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
       eff_names_level = LpNamesLevel::minimal;
     }
   }
+
+  // --lp-file and --lp-debug require *all* col+row names to be generated so
+  // the solver can write a readable .lp dump.  Bump the effective names
+  // level to cols_and_rows whenever LP file output is requested; this
+  // avoids silently emitting an .lp file with missing row names.
+  const bool needs_full_names = opts.lp_file.has_value() || opts.lp_debug;
+  if (needs_full_names
+      && (!eff_names_level || *eff_names_level < LpNamesLevel::cols_and_rows))
+  {
+    eff_names_level = LpNamesLevel::cols_and_rows;
+  }
   auto flat_opts = make_lp_matrix_options(
       eff_names_level,
       opts.matrix_eps,

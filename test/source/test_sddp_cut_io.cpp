@@ -300,7 +300,7 @@ TEST_CASE("load_cuts_csv returns error for nonexistent file")  // NOLINT
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto result = load_cuts_csv(
       planning_lp, "/tmp/gtopt_nonexistent_cuts.csv", 1.0, label_maker);
   CHECK_FALSE(result.has_value());
@@ -323,7 +323,7 @@ TEST_CASE("load_cuts_csv handles header-only file")  // NOLINT
     ofs << "phase,scene,name,rhs,coefficients\n";
   }
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto result = load_cuts_csv(planning_lp, tmp_file, 1.0, label_maker);
   REQUIRE(result.has_value());
   CHECK(result->count == 0);
@@ -351,7 +351,7 @@ TEST_CASE(
     ofs << "# Another comment\n";
   }
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto result = load_cuts_csv(planning_lp, tmp_file, 1.0, label_maker);
   REQUIRE(result.has_value());
   CHECK(result->count == 0);
@@ -376,7 +376,7 @@ TEST_CASE("load_cuts_csv skips cuts with unknown phase UID")  // NOLINT
     ofs << "999,1,unknown_phase_cut,100.0\n";
   }
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto result = load_cuts_csv(planning_lp, tmp_file, 1.0, label_maker);
   REQUIRE(result.has_value());
   // The cut should be skipped (unknown phase), so 0 loaded
@@ -405,7 +405,7 @@ TEST_CASE(
     ofs << "2,1,my_cut2,30.0,0:0.5\n";
   }
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto result = load_cuts_csv(planning_lp, tmp_file, 1.0, label_maker);
   REQUIRE(result.has_value());
   CHECK(result->count == 2);
@@ -440,7 +440,7 @@ TEST_CASE(
     ofs << "2,1,good_cut2,30.0,0:0.5\n";
   }
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto result = load_cuts_csv(planning_lp, tmp_file, 1.0, label_maker);
   REQUIRE(result.has_value());
   // Only the 2 valid lines should be loaded
@@ -561,7 +561,7 @@ TEST_CASE(
 
   // Load back into the same PlanningLP (which already has alpha columns
   // from the SDDP solve, so column indices from the saved cuts are valid)
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto load_result =
       load_scene_cuts_from_directory(planning_lp, tmp_dir, 1.0, label_maker);
   REQUIRE(load_result.has_value());
@@ -578,7 +578,7 @@ TEST_CASE(
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto result = load_scene_cuts_from_directory(
       planning_lp, "/tmp/gtopt_nonexistent_dir_xyz", 1.0, label_maker);
   REQUIRE(result.has_value());
@@ -609,7 +609,7 @@ TEST_CASE(
     std::filesystem::create_directories(tmp_dir / "scene_subdir");
   }
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto result = load_scene_cuts_from_directory(
       planning_lp, tmp_dir.string(), 1.0, label_maker);
   REQUIRE(result.has_value());
@@ -637,7 +637,7 @@ TEST_CASE(
     ofs << "1,1,combined_cut,25.0,0:1.0\n";
   }
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto result = load_scene_cuts_from_directory(
       planning_lp, tmp_dir.string(), 1.0, label_maker);
   REQUIRE(result.has_value());
@@ -656,7 +656,7 @@ TEST_CASE("load_boundary_cuts_csv noload mode returns 0")  // NOLINT
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::noload;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result = load_boundary_cuts_csv(
@@ -675,7 +675,7 @@ TEST_CASE(
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::separated;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result = load_boundary_cuts_csv(planning_lp,
@@ -708,7 +708,7 @@ TEST_CASE(
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::separated;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -747,7 +747,7 @@ TEST_CASE(
   opts.boundary_cuts_mode = BoundaryCutsMode::separated;
   opts.boundary_max_iterations = 0;  // no filtering
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -779,7 +779,7 @@ TEST_CASE(
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::combined;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -811,7 +811,7 @@ TEST_CASE(
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::separated;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -846,7 +846,7 @@ TEST_CASE("load_boundary_cuts_csv filters by max_iterations")  // NOLINT
   // Keep only the last 2 iterations (iterations 2 and 3)
   opts.boundary_max_iterations = 2;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -881,7 +881,7 @@ TEST_CASE(
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::separated;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -914,7 +914,7 @@ TEST_CASE(
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::combined;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -948,7 +948,7 @@ TEST_CASE(
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::combined;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -980,7 +980,7 @@ TEST_CASE(
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::combined;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -1013,7 +1013,7 @@ TEST_CASE(
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::combined;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -1046,7 +1046,7 @@ TEST_CASE(
   opts.alpha_min = -1e9;
   opts.alpha_max = 1e9;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   // Before loading, alpha_col should be unknown
@@ -1087,7 +1087,7 @@ TEST_CASE(
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::combined;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -1108,7 +1108,7 @@ TEST_CASE(
   PlanningLP planning_lp(std::move(planning));
 
   const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result = load_named_cuts_csv(planning_lp,
@@ -1139,7 +1139,7 @@ TEST_CASE(
   }
 
   const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -1169,7 +1169,7 @@ TEST_CASE(
   }
 
   const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -1201,7 +1201,7 @@ TEST_CASE(
   }
 
   const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -1239,7 +1239,7 @@ TEST_CASE(
   }
 
   const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -1267,7 +1267,7 @@ TEST_CASE("load_named_cuts_csv with empty body loads 0 cuts")  // NOLINT
   }
 
   const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -1296,7 +1296,7 @@ TEST_CASE(
   }
 
   const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -1326,7 +1326,7 @@ TEST_CASE(
   }
 
   const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -1356,7 +1356,7 @@ TEST_CASE(
   }
 
   const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -1386,7 +1386,7 @@ TEST_CASE(
   }
 
   const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -1419,7 +1419,7 @@ TEST_CASE(
   }
 
   const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -1451,7 +1451,7 @@ TEST_CASE(
   }
 
   const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -1488,7 +1488,7 @@ TEST_CASE(
   opts.boundary_cuts_mode = BoundaryCutsMode::separated;
   opts.boundary_max_iterations = 0;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -1520,7 +1520,7 @@ TEST_CASE(
   }
 
   const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -1551,7 +1551,7 @@ TEST_CASE(
     ofs << "2,1,cut_crlf2,30.0,0:0.5\r\n";
   }
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto result = load_cuts_csv(planning_lp, tmp_file, 1.0, label_maker);
   REQUIRE(result.has_value());
   CHECK(result->count == 2);
@@ -1582,7 +1582,7 @@ TEST_CASE(
   opts.boundary_cuts_mode = BoundaryCutsMode::separated;
   opts.boundary_max_iterations = 0;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -1613,7 +1613,7 @@ TEST_CASE(
   }
 
   const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {planning_lp.options().names_level()};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -1734,7 +1734,7 @@ TEST_CASE("save_cuts / load_cuts format dispatch with CSV")  // NOLINT
   PlanningLP planning_lp2(std::move(planning2));
 
   const auto scale_alpha = effective_scale_alpha(planning_lp2, 0.0);
-  const LabelMaker label_maker(planning_lp2.options());
+  const LabelMaker label_maker {planning_lp2.options().names_level()};
   auto load_result = load_cuts(
       planning_lp2, base_file, scale_alpha, CutIOFormat::csv, label_maker);
   REQUIRE(load_result.has_value());
@@ -1770,7 +1770,7 @@ TEST_CASE("save_cuts / load_cuts format dispatch with JSON")  // NOLINT
   PlanningLP planning_lp2(std::move(planning2));
 
   const auto scale_alpha = effective_scale_alpha(planning_lp2, 0.0);
-  const LabelMaker label_maker(planning_lp2.options());
+  const LabelMaker label_maker {planning_lp2.options().names_level()};
   auto load_result = load_cuts(
       planning_lp2, base_file, scale_alpha, CutIOFormat::json, label_maker);
   REQUIRE(load_result.has_value());
@@ -1806,7 +1806,7 @@ TEST_CASE("load_cuts falls back from JSON to CSV")  // NOLINT
   PlanningLP planning_lp2(std::move(planning2));
 
   const auto scale_alpha = effective_scale_alpha(planning_lp2, 0.0);
-  const LabelMaker label_maker(planning_lp2.options());
+  const LabelMaker label_maker {planning_lp2.options().names_level()};
   auto load_result = load_cuts(
       planning_lp2, csv_file, scale_alpha, CutIOFormat::json, label_maker);
   REQUIRE(load_result.has_value());
@@ -1843,7 +1843,7 @@ TEST_CASE("load_cuts falls back from CSV to JSON")  // NOLINT
   PlanningLP planning_lp2(std::move(planning2));
 
   const auto scale_alpha = effective_scale_alpha(planning_lp2, 0.0);
-  const LabelMaker label_maker(planning_lp2.options());
+  const LabelMaker label_maker {planning_lp2.options().names_level()};
   auto load_result = load_cuts(
       planning_lp2, json_file, scale_alpha, CutIOFormat::csv, label_maker);
   REQUIRE(load_result.has_value());
@@ -1897,7 +1897,7 @@ TEST_CASE("benchmark CSV vs JSON save/load with many cuts")  // NOLINT
   auto planning_csv = make_3phase_hydro_planning();
   PlanningLP plp_csv(std::move(planning_csv));
   const auto scale_alpha = effective_scale_alpha(plp_csv, 0.0);
-  const LabelMaker label_maker(plp_csv.options());
+  const LabelMaker label_maker {plp_csv.options().names_level()};
 
   const auto csv_load_t0 = std::chrono::steady_clock::now();
   auto csv_load = load_cuts_csv(plp_csv, csv_file, scale_alpha, label_maker);

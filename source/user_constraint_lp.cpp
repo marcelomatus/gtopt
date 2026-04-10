@@ -6,14 +6,20 @@
  * @copyright BSD-3-Clause
  */
 
+#include <algorithm>
+#include <cmath>
+#include <ranges>
+
 #include <gtopt/constraint_expr.hpp>
 #include <gtopt/constraint_parser.hpp>
 #include <gtopt/element_column_resolver.hpp>
 #include <gtopt/input_context.hpp>
+#include <gtopt/label_maker.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/planning_enums.hpp>
+#include <gtopt/sparse_col.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/user_constraint.hpp>
@@ -101,6 +107,399 @@ void apply_constraint_bounds(SparseRow& row, const ConstraintExpr& expr)
   }
 }
 
+// ── Row-building helper with F5/F7/F8 support ──────────────────────────────
+
+// LowerCtx bundles the ambient (scenario, stage, block) references and
+// the LP the row-builder writes into.  The const-ref members are
+// intentional: this struct is a strictly scoped, stack-allocated
+// "context bag" whose lifetime never outlives the single call that
+// creates it, so the normal concerns about const/ref data members
+// (copy/assign/lifetime surprises) do not apply here.  The NOLINT
+// below suppresses the corresponding guideline warning.
+// NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
+struct LowerCtx
+{
+  const SystemContext& sc;
+  const ScenarioLP& scenario;
+  const StageLP& stage;
+  const BlockLP& block;
+  const UserParamMap& param_map;
+  const UserConstraint& uc;
+  ConstraintType ctype {ConstraintType::LESS_EQUAL};
+  bool is_debug {false};
+  bool is_strict {false};
+  LinearProblem& lp;
+};
+// NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
+
+/// Sign constraint for an auxiliary lowering column.
+enum class AuxSign : std::uint8_t
+{
+  NonNegative,  ///< `t >= 0`   — used for `abs(x)` (t >= |x|)
+  Free,  ///< t free    — used for `min`/`max` auxiliary
+};
+
+struct BuildResult
+{
+  bool has_vars {false};
+  double param_shift {0.0};
+};
+
+// Evaluate an if-condition atom against the current (scenario, stage, block).
+// The operator/value logic lives in `gtopt::detail::eval_if_atom` so it
+// can be unit-tested without constructing an LP; this wrapper just
+// projects the named coordinate out of the lowering context.
+[[nodiscard]] bool eval_if_atom(const LowerCtx& ctx,
+                                const IfCondAtom& atom) noexcept
+{
+  uid_t coord_val = 0;
+  switch (atom.coord) {
+    case IfCondAtom::Coord::Scenario:
+      coord_val = value_of(ctx.scenario.uid());
+      break;
+    case IfCondAtom::Coord::Stage:
+      coord_val = value_of(ctx.stage.uid());
+      break;
+    case IfCondAtom::Coord::Block:
+      coord_val = value_of(ctx.block.uid());
+      break;
+  }
+  return detail::eval_if_atom(atom, coord_val);
+}
+
+// Fresh SparseRow that inherits identity/context from `row`.
+[[nodiscard]] SparseRow make_aux_row(const SparseRow& row)
+{
+  SparseRow aux;
+  aux.class_name = row.class_name;
+  aux.constraint_name = row.constraint_name;
+  aux.variable_uid = row.variable_uid;
+  aux.context = row.context;
+  return aux;
+}
+
+// Allocate a new auxiliary column named @p var_name for the user
+// constraint at the current block context.  `AuxSign::NonNegative`
+// yields a `t >= 0` column (used by `abs(x)` to satisfy `t >= |x|`);
+// `AuxSign::Free` yields an unbounded column (used by `min`/`max`).
+[[nodiscard]] ColIndex add_aux_col(LowerCtx& ctx,
+                                   const SparseRow& row,
+                                   std::string_view var_name,
+                                   AuxSign sign)
+{
+  SparseCol col;
+  col.lowb = (sign == AuxSign::NonNegative) ? 0.0 : -LinearProblem::DblMax;
+  col.uppb = LinearProblem::DblMax;
+  col.class_name = UserConstraintLP::ClassName.full_name();
+  col.variable_name = var_name;
+  col.variable_uid = row.variable_uid;
+  col.context = row.context;
+  return ctx.lp.add_col(std::move(col));
+}
+
+// Negate every coefficient in @p cmap in-place.  Small helper to
+// dedupe the `for (k,v) : cmap { negated[k] = -v; }` pattern that
+// appears in the abs and min lowerings.  Uses `std::views::values`
+// so the same code works across every `flat_map` backend gtopt may
+// use (boost, std::flat_map, std::map) regardless of whether the
+// iterator dereferences to a proxy pair or a plain one.
+void negate_cmap(SparseRow::cmap_t& cmap) noexcept
+{
+  for (double& v : std::views::values(cmap)) {
+    v = -v;
+  }
+}
+
+// Short, user-facing spelling of a ConstraintType for error messages.
+[[nodiscard]] constexpr std::string_view ctype_to_symbol(
+    ConstraintType ctype) noexcept
+{
+  switch (ctype) {
+    case ConstraintType::LESS_EQUAL:
+      return "<=";
+    case ConstraintType::GREATER_EQUAL:
+      return ">=";
+    case ConstraintType::EQUAL:
+      return "=";
+    case ConstraintType::RANGE:
+      return "range";
+  }
+  return "?";
+}
+
+// Reject nested nonlinear wrappers inside abs/min/max arguments (v1).
+void reject_nested_wrappers(const LowerCtx& ctx,
+                            const std::vector<ConstraintTerm>& terms,
+                            std::string_view outer)
+{
+  for (const auto& t : terms) {
+    if (t.abs_expr || t.minmax_expr || t.if_expr) {
+      throw std::runtime_error(
+          std::format("user_constraint '{}': nested abs/min/max/if inside "
+                      "{}(...) is not supported",
+                      ctx.uc.name,
+                      outer));
+    }
+  }
+}
+
+// Recursive row-builder.  Handles element / sum / param terms directly
+// and lowers `abs`, `min`/`max`, `if` wrappers into auxiliary columns
+// and helper rows on the fly.
+// NOLINTNEXTLINE(misc-no-recursion)
+BuildResult build_row_from_terms(LowerCtx& ctx,
+                                 const std::vector<ConstraintTerm>& terms,
+                                 double outer_coef,
+                                 SparseRow& row)
+{
+  BuildResult out;
+
+  for (const auto& term : terms) {
+    const double coef = outer_coef * term.coefficient;
+
+    if (term.element) {
+      const std::size_t before_col = row.size();
+      if (resolve_col_to_row(ctx.sc,
+                             ctx.scenario,
+                             ctx.stage,
+                             ctx.block,
+                             *term.element,
+                             coef,
+                             row,
+                             ctx.lp))
+      {
+        out.has_vars = true;
+        if (ctx.is_debug) {
+          spdlog::info(
+              "  user_constraint '{}' block {}: "
+              "element '{}.{}' added {} col(s), coeff={}",
+              ctx.uc.name,
+              ctx.block.uid(),
+              term.element->element_type,
+              term.element->attribute,
+              row.size() - before_col,
+              coef);
+        }
+      } else if (auto pval = resolve_single_param(
+                     ctx.sc, ctx.scenario, ctx.stage, ctx.block, *term.element))
+      {
+        out.param_shift += coef * *pval;
+        if (ctx.is_debug) {
+          spdlog::info(
+              "  user_constraint '{}' block {}: "
+              "data param value={} coeff={}",
+              ctx.uc.name,
+              ctx.block.uid(),
+              *pval,
+              coef);
+        }
+      }
+      continue;
+    }
+
+    if (term.sum_ref) {
+      const std::size_t before = row.size();
+      collect_sum_cols(ctx.sc,
+                       ctx.scenario,
+                       ctx.stage,
+                       ctx.block,
+                       *term.sum_ref,
+                       coef,
+                       row,
+                       ctx.lp);
+      if (row.size() > before) {
+        out.has_vars = true;
+        if (ctx.is_debug) {
+          spdlog::info(
+              "  user_constraint '{}' block {}: "
+              "sum resolved {} columns",
+              ctx.uc.name,
+              ctx.block.uid(),
+              row.size() - before);
+        }
+      }
+      continue;
+    }
+
+    if (term.param_name) {
+      if (auto pval = resolve_param(ctx.param_map, *term.param_name, ctx.stage))
+      {
+        out.param_shift += coef * *pval;
+        if (ctx.is_debug) {
+          spdlog::info(
+              "  user_constraint '{}' block {}: "
+              "param '{}' = {} coeff={}",
+              ctx.uc.name,
+              ctx.block.uid(),
+              *term.param_name,
+              *pval,
+              coef);
+        }
+      } else if (ctx.is_strict) {
+        throw std::runtime_error(
+            std::format("user_constraint '{}': unknown parameter '{}'",
+                        ctx.uc.name,
+                        *term.param_name));
+      } else {
+        SPDLOG_WARN(std::format(
+            "user_constraint '{}': unknown parameter '{}' — skipping term",
+            ctx.uc.name,
+            *term.param_name));
+      }
+      continue;
+    }
+
+    if (term.abs_expr) {
+      // abs(x) is a convex upper envelope — same convexity rules as max.
+      if (!detail::check_convexity(ConvexKind::UpperEnvelope, ctx.ctype, coef))
+      {
+        throw std::runtime_error(
+            std::format("user_constraint '{}': non-convex use of abs(...) — "
+                        "'c*abs(x)' requires c>0 with '<=' or c<0 with '>=' "
+                        "(got c={}, constraint='{}')",
+                        ctx.uc.name,
+                        coef,
+                        ctype_to_symbol(ctx.ctype)));
+      }
+      reject_nested_wrappers(ctx, term.abs_expr->inner, "abs");
+
+      // Resolve inner linear expression into a local row.
+      SparseRow inner_row = make_aux_row(row);
+      auto inner_res =
+          build_row_from_terms(ctx, term.abs_expr->inner, 1.0, inner_row);
+
+      if (inner_row.cmap.empty()) {
+        // Inner reduced to a pure constant — contribute |c| directly.
+        out.param_shift += coef * std::abs(inner_res.param_shift);
+        continue;
+      }
+
+      // NOLINTNEXTLINE(fuchsia-default-arguments-calls)
+      const auto t_idx = add_aux_col(ctx, row, "abs_aux", AuxSign::NonNegative);
+
+      // Row 1: inner_vars − t ≤ −inner_shift
+      SparseRow r1 = make_aux_row(row);
+      r1.cmap = inner_row.cmap;
+      r1.cmap[t_idx] = -1.0;
+      r1.less_equal(-inner_res.param_shift);
+      (void)ctx.lp.add_row(std::move(r1));
+
+      // Row 2: −inner_vars − t ≤ inner_shift
+      SparseRow r2 = make_aux_row(row);
+      r2.cmap = inner_row.cmap;
+      negate_cmap(r2.cmap);
+      r2.cmap[t_idx] = -1.0;
+      r2.less_equal(inner_res.param_shift);
+      (void)ctx.lp.add_row(std::move(r2));
+
+      row.cmap[t_idx] += coef;
+      out.has_vars = true;
+      if (ctx.is_debug) {
+        spdlog::info(
+            "  user_constraint '{}' block {}: abs(...) lowered "
+            "(aux col={}, inner_shift={}, coef={})",
+            ctx.uc.name,
+            ctx.block.uid(),
+            value_of(t_idx),
+            inner_res.param_shift,
+            coef);
+      }
+      continue;
+    }
+
+    if (term.minmax_expr) {
+      const bool is_max = term.minmax_expr->kind == MinMaxKind::Max;
+      const auto kind =
+          is_max ? ConvexKind::UpperEnvelope : ConvexKind::LowerEnvelope;
+      if (!detail::check_convexity(kind, ctx.ctype, coef)) {
+        const std::string_view op_name = is_max ? "max" : "min";
+        const std::string_view ok_op = is_max ? "<=" : ">=";
+        const std::string_view bad_op = is_max ? ">=" : "<=";
+        throw std::runtime_error(
+            std::format("user_constraint '{}': non-convex use of {}(...) — "
+                        "'c*{}(...)' requires c>0 with '{}' or c<0 with '{}' "
+                        "(got c={}, constraint='{}')",
+                        ctx.uc.name,
+                        op_name,
+                        op_name,
+                        ok_op,
+                        bad_op,
+                        coef,
+                        ctype_to_symbol(ctx.ctype)));
+      }
+
+      const auto t_idx =
+          add_aux_col(ctx, row, is_max ? "max_aux" : "min_aux", AuxSign::Free);
+
+      for (const auto& arg : term.minmax_expr->args) {
+        reject_nested_wrappers(ctx, arg, is_max ? "max" : "min");
+
+        SparseRow ar = make_aux_row(row);
+        auto arg_res = build_row_from_terms(ctx, arg, 1.0, ar);
+
+        if (is_max) {
+          // arg_vars + arg_shift ≤ t  ⟹  arg_vars − t ≤ −arg_shift
+          ar.cmap[t_idx] = -1.0;
+          ar.less_equal(-arg_res.param_shift);
+        } else {
+          // t ≤ arg_vars + arg_shift  ⟹  −arg_vars + t ≤ arg_shift
+          negate_cmap(ar.cmap);
+          ar.cmap[t_idx] = 1.0;
+          ar.less_equal(arg_res.param_shift);
+        }
+        (void)ctx.lp.add_row(std::move(ar));
+      }
+
+      row.cmap[t_idx] += coef;
+      out.has_vars = true;
+      if (ctx.is_debug) {
+        spdlog::info(
+            "  user_constraint '{}' block {}: {}(...) lowered "
+            "(aux col={}, {} arg(s), coef={})",
+            ctx.uc.name,
+            ctx.block.uid(),
+            is_max ? "max" : "min",
+            value_of(t_idx),
+            term.minmax_expr->args.size(),
+            coef);
+      }
+      continue;
+    }
+
+    if (term.if_expr) {
+      const bool cond = std::ranges::all_of(
+          term.if_expr->cond,
+          [&](const IfCondAtom& atom) { return eval_if_atom(ctx, atom); });
+      const auto& branch =
+          cond ? term.if_expr->then_branch : term.if_expr->else_branch;
+      auto sub = build_row_from_terms(ctx, branch, coef, row);
+      if (sub.has_vars) {
+        out.has_vars = true;
+      }
+      out.param_shift += sub.param_shift;
+      if (ctx.is_debug) {
+        std::string_view branch_label = "then";
+        if (!cond) {
+          branch_label = term.if_expr->else_branch.empty() ? "empty" : "else";
+        }
+        spdlog::info("  user_constraint '{}' block {}: if-cond {} → {} branch",
+                     ctx.uc.name,
+                     ctx.block.uid(),
+                     cond ? "true" : "false",
+                     branch_label);
+      }
+      continue;
+    }
+
+    // Pure constant term (no element/sum/param/wrapper).  Normally
+    // folded into RHS at parse time, but may survive inside an if-branch
+    // that still resolves to pure constants.
+    out.param_shift += coef;
+  }
+
+  return out;
+}
+
 }  // anonymous namespace
 
 // ── UserConstraintLP implementation ─────────────────────────────────────────
@@ -171,89 +570,22 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
     row.constraint_name = ConstraintName;
     row.context = make_block_context(scenario.uid(), stage.uid(), block.uid());
 
-    bool has_vars = false;
-    double param_shift = 0.0;
-    for (const auto& term : expr.terms) {
-      if (term.element) {
-        // Try LP variable first, then fall back to data parameter
-        if (auto resolved = resolve_single_col(
-                sc, scenario, stage, block, *term.element, lp))
-        {
-          row[resolved->col] += term.coefficient;
-          has_vars = true;
-          if (is_debug) {
-            spdlog::info(
-                "  user_constraint '{}' block {}: "
-                "col {} coeff={} scale={}",
-                uc.name,
-                block.uid(),
-                static_cast<int>(resolved->col),
-                term.coefficient,
-                resolved->scale);
-          }
-        } else if (auto pval = resolve_single_param(
-                       sc, scenario, stage, block, *term.element))
-        {
-          // Parameter term: accumulate coeff × value for RHS adjustment
-          param_shift += term.coefficient * *pval;
-          if (is_debug) {
-            spdlog::info(
-                "  user_constraint '{}' block {}: "
-                "data param value={} coeff={}",
-                uc.name,
-                block.uid(),
-                *pval,
-                term.coefficient);
-          }
-        }
-      } else if (term.sum_ref) {
-        const std::size_t before = row.size();
-        collect_sum_cols(sc,
-                         scenario,
-                         stage,
-                         block,
-                         *term.sum_ref,
-                         term.coefficient,
-                         row,
-                         lp);
-        if (row.size() > before) {
-          has_vars = true;
-          if (is_debug) {
-            spdlog::info(
-                "  user_constraint '{}' block {}: "
-                "sum resolved {} columns",
-                uc.name,
-                block.uid(),
-                row.size() - before);
-          }
-        }
-      } else if (term.param_name) {
-        // Named parameter reference
-        if (auto pval = resolve_param(param_map, *term.param_name, stage)) {
-          param_shift += term.coefficient * *pval;
-          if (is_debug) {
-            spdlog::info(
-                "  user_constraint '{}' block {}: "
-                "param '{}' = {} coeff={}",
-                uc.name,
-                block.uid(),
-                *term.param_name,
-                *pval,
-                term.coefficient);
-          }
-        } else if (is_strict) {
-          throw std::runtime_error(
-              std::format("user_constraint '{}': unknown parameter '{}'",
-                          uc.name,
-                          *term.param_name));
-        } else {
-          SPDLOG_WARN(std::format(
-              "user_constraint '{}': unknown parameter '{}' — skipping term",
-              uc.name,
-              *term.param_name));
-        }
-      }
-    }
+    LowerCtx lctx {
+        .sc = sc,
+        .scenario = scenario,
+        .stage = stage,
+        .block = block,
+        .param_map = param_map,
+        .uc = uc,
+        .ctype = expr.constraint_type,
+        .is_debug = is_debug,
+        .is_strict = is_strict,
+        .lp = lp,
+    };
+
+    const auto build_res = build_row_from_terms(lctx, expr.terms, 1.0, row);
+    const bool has_vars = build_res.has_vars;
+    const double param_shift = build_res.param_shift;
 
     if (!has_vars) {
       SPDLOG_DEBUG(
@@ -275,9 +607,13 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
       *adjusted_expr.upper_bound -= param_shift;
     }
     apply_constraint_bounds(row, adjusted_expr);
-    const auto row_name = generate_lp_label(
-        row.class_name, row.constraint_name, row.variable_uid, row.context);
     const auto row_nterms = row.size();
+    // Compute row_name lazily only when debug logging is enabled — otherwise
+    // we pay the label formatting cost for a string that is immediately
+    // dropped.  force_row_label ignores LpNamesLevel so the debug line is
+    // always populated even when solver row labels are disabled.
+    auto debug_row_name =
+        is_debug ? LabelMaker::force_row_label(row) : std::string {};
     const auto row_idx = lp.add_row(std::move(row));
     block_rows[block.uid()] = row_idx;
     if (is_debug) {
@@ -285,7 +621,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
           "  user_constraint '{}': row '{}' added (idx={}, "
           "{} terms, param_shift={})",
           uc.name,
-          row_name,
+          debug_row_name,
           row_idx,
           row_nterms,
           param_shift);

@@ -15,6 +15,7 @@
 
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/fmap.hpp>
+#include <gtopt/label_maker.hpp>
 #include <gtopt/work_pool.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
@@ -187,8 +188,7 @@ bool rescale_benders_cut(SparseRow& row,
   spdlog::warn(
       "rescale_benders_cut: cut '{}' max|coeff|={:.2e} exceeds "
       "threshold {:.2e}, rescaling by {:.2e}",
-      generate_lp_label(
-          row.class_name, row.constraint_name, row.variable_uid, row.context),
+      LabelMaker::force_row_label(row),
       max_coeff,
       cut_coeff_max,
       scale_factor);

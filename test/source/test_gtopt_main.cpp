@@ -910,7 +910,7 @@ TEST_CASE(  // NOLINT
       {
         "uid": 100,
         "name": "uc_gen_limit",
-        "expression": "generator(\"g1\").generation <= 150"
+        "expression": "generator('g1').generation <= 150"
       }
     ])";
   }

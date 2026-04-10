@@ -1052,28 +1052,23 @@ public:
   [[nodiscard]] std::string get_prob_name() const;
 
   /**
-   * @brief Sets the LP name uniqueness-check level.
+   * @brief Sets the LabelMaker used to generate and gate LP col/row labels.
    *
-   * Controls name tracking and duplicate detection for add_row()/add_col():
-   *   - 0: col names tracked, row names disabled
-   *   - 1: col + row names tracked, warn on duplicate names via spdlog
-   *   - 2: col + row names tracked + throw std::runtime_error on duplicates
+   * The LabelMaker carries the `LpNamesLevel` that controls which labels
+   * are produced for `add_col()` / `add_row()` and whether duplicate names
+   * are treated as errors.  It is normally installed automatically by
+   * `load_flat()` (which copies it from `FlatLinearProblem::label_maker`)
+   * but can also be set explicitly via this setter for tests or specialized
+   * callers.
    *
-   * Col name-to-index maps are populated at level >= 0.
-   * Row name-to-index maps are populated at level >= 1.
-   * The overhead is a single map insert per add_row/add_col call.
-   *
-   * @param level The LP name check level (matches names_level semantics)
+   * @param lm The LabelMaker to use (stored by value)
    */
-  void set_lp_names_level(int level) noexcept { m_lp_names_level_ = level; }
+  void set_label_maker(LabelMaker lm) noexcept { m_label_maker_ = lm; }
 
-  /**
-   * @brief Gets the current LP name uniqueness-check level.
-   * @return 0-2 level (see set_lp_names_level)
-   */
-  [[nodiscard]] constexpr int lp_names_level() const noexcept
+  /// @brief Returns the LabelMaker driving label generation for add_col/row.
+  [[nodiscard]] constexpr const LabelMaker& label_maker() const noexcept
   {
-    return m_lp_names_level_;
+    return m_label_maker_;
   }
 
   /// @name Name-to-index maps (col: level >= 0, row: level >= 1)
@@ -1233,7 +1228,7 @@ private:
   std::string m_solver_version_ {};  ///< Cached version for released backends
   SolverOptions m_last_solver_options_ {};  ///< Options from last solve
   std::string m_log_file_ {};
-  int m_lp_names_level_ {};  ///< LP name uniqueness-check level (0–2)
+  LabelMaker m_label_maker_ {};  ///< Label generator + level gate
 
   /// Name-to-index maps for duplicate detection and later lookup.
   /// Populated when lp_names_level >= 1.

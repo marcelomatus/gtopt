@@ -23,6 +23,8 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
+#include "log_capture.hpp"
+
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 // clang-format off
@@ -69,18 +71,18 @@ static constexpr std::string_view ieee4b_with_constraints_json = R"json({
       {
         "uid": 1,
         "name": "gen_pair_limit",
-        "expression": "generator(\"g1\").generation + generator(\"g2\").generation <= 300"
+        "expression": "generator('g1').generation + generator('g2').generation <= 300"
       },
       {
         "uid": 2,
         "name": "flow_bound",
-        "expression": "line(\"l1_2\").flow <= 200, for(stage in all, block in all)"
+        "expression": "line('l1_2').flow <= 200, for(stage in all, block in all)"
       },
       {
         "uid": 3,
         "name": "inactive_constraint",
         "active": false,
-        "expression": "generator(\"g1\").generation <= 10"
+        "expression": "generator('g1').generation <= 10"
       }
     ]
   }
@@ -132,16 +134,14 @@ TEST_CASE("User constraint - parse expressions from Planning JSON")
     auto expr = ConstraintParser::parse(uc.name, uc.expression);
 
     CHECK(expr.name == "flow_bound");
-    // `line.flow` is rewritten as `line.flowp - line.flown`, so the
-    // single-term original expression becomes two terms after parsing.
-    REQUIRE(expr.terms.size() == 2);
+    // `line.flow` is a registered compound attribute: the AST keeps a
+    // single term and row assembly later expands it into
+    // `+flowp - flown` via `resolve_col_to_row`.
+    REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].element.has_value());
     CHECK(expr.terms[0].element.value_or(ElementRef {}).element_type == "line");
-    CHECK(expr.terms[0].element.value_or(ElementRef {}).attribute == "flowp");
-    REQUIRE(expr.terms[1].element.has_value());
-    CHECK(expr.terms[1].element.value_or(ElementRef {}).element_type == "line");
-    CHECK(expr.terms[1].element.value_or(ElementRef {}).attribute == "flown");
-    CHECK(expr.terms[1].coefficient == doctest::Approx(-1.0));
+    CHECK(expr.terms[0].element.value_or(ElementRef {}).attribute == "flow");
+    CHECK(expr.terms[0].coefficient == doctest::Approx(1.0));
     CHECK(expr.domain.stages.is_all);
     CHECK(expr.domain.blocks.is_all);
   }
@@ -163,7 +163,7 @@ TEST_CASE("User constraint - merge preserves constraints")
         {
           "uid": 10,
           "name": "extra_limit",
-          "expression": "generator(\"g1\").generation >= 50"
+          "expression": "generator('g1').generation >= 50"
         }
       ]
     }
@@ -259,7 +259,7 @@ static constexpr std::string_view single_bus_uc_dual_json = R"json({
       {
         "uid": 1,
         "name": "gen_upper",
-        "expression": "generator(\"g1\").generation <= 80",
+        "expression": "generator('g1').generation <= 80",
         "constraint_type": "power"
       }
     ]
@@ -359,13 +359,13 @@ static constexpr std::string_view single_bus_uc_raw_json = R"json({
       {
         "uid": 2,
         "name": "gen_upper_raw",
-        "expression": "generator(\"g1\").generation <= 80",
+        "expression": "generator('g1').generation <= 80",
         "constraint_type": "raw"
       },
       {
         "uid": 3,
         "name": "gen_upper_unitless",
-        "expression": "generator(\"g1\").generation <= 80",
+        "expression": "generator('g1').generation <= 80",
         "constraint_type": "unitless"
       }
     ]
@@ -489,47 +489,47 @@ static constexpr std::string_view uc_multi_component_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_gen",
-        "expression": "generator(\"g1\").generation <= 250"
+        "expression": "generator('g1').generation <= 250"
       },
       {
         "uid": 2, "name": "uc_demand_load",
-        "expression": "demand(\"d1\").load <= 90"
+        "expression": "demand('d1').load <= 90"
       },
       {
         "uid": 3, "name": "uc_demand_fail",
-        "expression": "demand(\"d1\").fail <= 50"
+        "expression": "demand('d1').fail <= 50"
       },
       {
         "uid": 4, "name": "uc_line_flow",
-        "expression": "line(\"l1_2\").flow <= 200"
+        "expression": "line('l1_2').flow <= 200"
       },
       {
         "uid": 5, "name": "uc_line_flown",
-        "expression": "line(\"l1_2\").flown <= 200"
+        "expression": "line('l1_2').flown <= 200"
       },
       {
         "uid": 6, "name": "uc_bat_charge",
-        "expression": "battery(\"bat1\").charge <= 80"
+        "expression": "battery('bat1').charge <= 80"
       },
       {
         "uid": 7, "name": "uc_bat_discharge",
-        "expression": "battery(\"bat1\").discharge <= 80"
+        "expression": "battery('bat1').discharge <= 80"
       },
       {
         "uid": 8, "name": "uc_bat_energy",
-        "expression": "battery(\"bat1\").energy <= 45"
+        "expression": "battery('bat1').energy <= 45"
       },
       {
         "uid": 9, "name": "uc_bus_theta",
-        "expression": "bus(\"b1\").theta <= 10.0"
+        "expression": "bus('b1').theta <= 10.0"
       },
       {
         "uid": 10, "name": "uc_bus_angle",
-        "expression": "bus(\"b2\").angle >= -10.0"
+        "expression": "bus('b2').theta >= -10.0"
       },
       {
         "uid": 11, "name": "uc_gen_ge",
-        "expression": "generator(\"g1\").generation >= 10"
+        "expression": "generator('g1').generation >= 10"
       }
     ]
   }
@@ -589,11 +589,11 @@ static constexpr std::string_view uc_line_loss_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_lossp",
-        "expression": "line(\"l1_2\").lossp <= 50"
+        "expression": "line('l1_2').lossp <= 50"
       },
       {
         "uid": 2, "name": "uc_lossn",
-        "expression": "line(\"l1_2\").lossn <= 50"
+        "expression": "line('l1_2').lossn <= 50"
       }
     ]
   }
@@ -657,7 +657,7 @@ static constexpr std::string_view uc_sum_ref_json = R"json({
       },
       {
         "uid": 2, "name": "uc_sum_gen_list",
-        "expression": "sum(generator(\"g1\",\"g2\").generation) <= 280"
+        "expression": "sum(generator('g1','g2').generation) <= 280"
       },
       {
         "uid": 3, "name": "uc_sum_demand_all",
@@ -725,23 +725,23 @@ static constexpr std::string_view uc_domain_filter_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_stage_filter",
-        "expression": "generator(\"g1\").generation <= 150, for(stage in {1})"
+        "expression": "generator('g1').generation <= 150, for(stage in {1})"
       },
       {
         "uid": 2, "name": "uc_block_filter",
-        "expression": "generator(\"g1\").generation <= 180, for(block in {1,2})"
+        "expression": "generator('g1').generation <= 180, for(block in {1,2})"
       },
       {
         "uid": 3, "name": "uc_scenario_filter",
-        "expression": "generator(\"g1\").generation <= 160, for(scenario in {1})"
+        "expression": "generator('g1').generation <= 160, for(scenario in {1})"
       },
       {
         "uid": 4, "name": "uc_combo_filter",
-        "expression": "generator(\"g1\").generation <= 170, for(stage in {2}, block in {1,3}, scenario in {2})"
+        "expression": "generator('g1').generation <= 170, for(stage in {2}, block in {1,3}, scenario in {2})"
       },
       {
         "uid": 5, "name": "uc_block_range",
-        "expression": "generator(\"g1\").generation <= 190, for(block in 1..2)"
+        "expression": "generator('g1').generation <= 190, for(block in 1..2)"
       }
     ]
   }
@@ -827,39 +827,39 @@ static constexpr std::string_view uc_hydro_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_reservoir_volume",
-        "expression": "reservoir(\"rsv1\").volume <= 900"
+        "expression": "reservoir('rsv1').energy <= 900"
       },
       {
         "uid": 2, "name": "uc_reservoir_energy",
-        "expression": "reservoir(\"rsv1\").energy >= 100"
+        "expression": "reservoir('rsv1').energy >= 100"
       },
       {
         "uid": 3, "name": "uc_reservoir_drain",
-        "expression": "reservoir(\"rsv1\").drain <= 500"
+        "expression": "reservoir('rsv1').drain <= 500"
       },
       {
         "uid": 4, "name": "uc_reservoir_spill",
-        "expression": "reservoir(\"rsv1\").spill <= 500"
+        "expression": "reservoir('rsv1').drain <= 500"
       },
       {
         "uid": 5, "name": "uc_waterway_flow",
-        "expression": "waterway(\"ww1\").flow <= 400"
+        "expression": "waterway('ww1').flow <= 400"
       },
       {
         "uid": 6, "name": "uc_turbine_gen",
-        "expression": "turbine(\"tur1\").generation <= 180"
+        "expression": "turbine('tur1').generation <= 180"
       },
       {
         "uid": 7, "name": "uc_junction_drain",
-        "expression": "junction(\"j_down\").drain <= 1000"
+        "expression": "junction('j_down').drain <= 1000"
       },
       {
         "uid": 8, "name": "uc_flow_discharge",
-        "expression": "flow(\"inflow1\").discharge <= 50"
+        "expression": "flow('inflow1').flow <= 50"
       },
       {
         "uid": 9, "name": "uc_flow_flow",
-        "expression": "flow(\"inflow1\").flow <= 50"
+        "expression": "flow('inflow1').flow <= 50"
       }
     ]
   }
@@ -938,7 +938,7 @@ static constexpr std::string_view uc_hydro_sum_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_sum_reservoir",
-        "expression": "sum(reservoir(all).volume) <= 1500"
+        "expression": "sum(reservoir(all).energy) <= 1500"
       },
       {
         "uid": 2, "name": "uc_sum_waterway",
@@ -1025,7 +1025,7 @@ static constexpr std::string_view uc_reservoir_extraction_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_extraction",
-        "expression": "reservoir(\"rsv1\").extraction <= 300"
+        "expression": "reservoir('rsv1').extraction <= 300"
       }
     ]
   }
@@ -1075,15 +1075,15 @@ static constexpr std::string_view uc_unknown_ref_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_unknown_type",
-        "expression": "widget(\"w1\").power <= 100"
+        "expression": "widget('w1').power <= 100"
       },
       {
         "uid": 2, "name": "uc_unknown_attr",
-        "expression": "generator(\"g1\").foobar <= 100"
+        "expression": "generator('g1').foobar <= 100"
       },
       {
         "uid": 3, "name": "uc_nonexistent_element",
-        "expression": "generator(\"g_nonexistent\").generation <= 100"
+        "expression": "generator('g_nonexistent').generation <= 100"
       }
     ]
   }
@@ -1189,7 +1189,7 @@ static constexpr std::string_view uc_uid_ref_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_uid_prefix",
-        "expression": "generator(\"uid:1\").generation <= 180"
+        "expression": "generator('uid:1').generation <= 180"
       },
       {
         "uid": 2, "name": "uc_bare_int",
@@ -1251,7 +1251,7 @@ static constexpr std::string_view uc_energy_type_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_energy",
-        "expression": "battery(\"bat1\").energy <= 40",
+        "expression": "battery('bat1').energy <= 40",
         "constraint_type": "energy"
       }
     ]
@@ -1318,15 +1318,15 @@ static constexpr std::string_view uc_ge_eq_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_ge",
-        "expression": "generator(\"g1\").generation >= 10"
+        "expression": "generator('g1').generation >= 10"
       },
       {
         "uid": 2, "name": "uc_eq",
-        "expression": "generator(\"g2\").generation = 50"
+        "expression": "generator('g2').generation = 50"
       },
       {
         "uid": 3, "name": "uc_combined",
-        "expression": "generator(\"g1\").generation + generator(\"g2\").generation >= 70"
+        "expression": "generator('g1').generation + generator('g2').generation >= 70"
       }
     ]
   }
@@ -1376,11 +1376,11 @@ static constexpr std::string_view uc_coefficients_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_weighted",
-        "expression": "2*generator(\"g1\").generation + 3*generator(\"g2\").generation <= 500"
+        "expression": "2*generator('g1').generation + 3*generator('g2').generation <= 500"
       },
       {
         "uid": 2, "name": "uc_negative_coeff",
-        "expression": "generator(\"g1\").generation - generator(\"g2\").generation <= 100"
+        "expression": "generator('g1').generation - generator('g2').generation <= 100"
       }
     ]
   }
@@ -1432,11 +1432,11 @@ static constexpr std::string_view uc_type_filter_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_thermal_only",
-        "expression": "sum(generator(all, type=\"thermal\").generation) <= 150"
+        "expression": "sum(generator(all, type='thermal').generation) <= 150"
       },
       {
         "uid": 2, "name": "uc_solar_only",
-        "expression": "sum(generator(all, type=\"solar\").generation) <= 80"
+        "expression": "sum(generator(all, type='solar').generation) <= 80"
       }
     ]
   }
@@ -1449,6 +1449,59 @@ TEST_CASE("User constraint - sum with type filter")
   using namespace gtopt;
 
   auto planning = daw::json::from_json<Planning>(uc_type_filter_json);
+  PlanningLP planning_lp(std::move(planning));
+  auto result = planning_lp.resolve();
+
+  REQUIRE(result.has_value());
+}
+
+// clang-format off
+
+/// F4: sum with new-style `sum(... : pred and pred)` multi-predicate filter.
+/// Only generators of type=thermal at bus=1 are summed — here just g1.
+static constexpr std::string_view uc_f4_multi_pred_json = R"json({
+  "options": {
+    "annual_discount_rate": 0.0,
+    "lp_matrix_options": {"names_level": 1},
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "use_single_bus": true,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1000
+  },
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 1}],
+    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
+    "scenario_array": [{"uid": 1, "probability_factor": 1}]
+  },
+  "system": {
+    "name": "uc_f4_multi_pred",
+    "bus_array": [{"uid": 1, "name": "b1"}],
+    "generator_array": [
+      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 200, "gcost": 20,
+       "capacity": 200, "type": "thermal"},
+      {"uid": 2, "name": "g2", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 10,
+       "capacity": 100, "type": "solar"}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[80.0]]}
+    ],
+    "user_constraint_array": [
+      {
+        "uid": 1, "name": "uc_f4_thermal_at_b1",
+        "expression": "sum(generator(all : type='thermal' and bus=1).generation) <= 150"
+      }
+    ]
+  }
+})json";
+
+// clang-format on
+
+TEST_CASE("User constraint - F4 multi-predicate sum filter (new syntax)")
+{
+  using namespace gtopt;
+
+  auto planning = daw::json::from_json<Planning>(uc_f4_multi_pred_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -1496,7 +1549,7 @@ static constexpr std::string_view uc_bat_drain_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_bat_drain_alias",
-        "expression": "battery(\"bat1\").drain <= 10"
+        "expression": "battery('bat1').drain <= 10"
       }
     ]
   }
@@ -1573,11 +1626,11 @@ static constexpr std::string_view uc_converter_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_conv_discharge",
-        "expression": "converter(\"conv1\").discharge <= 150"
+        "expression": "converter('conv1').discharge <= 150"
       },
       {
         "uid": 2, "name": "uc_conv_charge",
-        "expression": "converter(\"conv1\").charge <= 80"
+        "expression": "converter('conv1').charge <= 80"
       },
       {
         "uid": 3, "name": "uc_sum_conv_all",
@@ -1662,11 +1715,11 @@ static constexpr std::string_view uc_seepage_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_filt_flow",
-        "expression": "seepage(\"filt1\").flow <= 80"
+        "expression": "seepage('filt1').flow <= 80"
       },
       {
         "uid": 2, "name": "uc_filt_attr",
-        "expression": "seepage(\"filt1\").seepage <= 90"
+        "expression": "seepage('filt1').seepage <= 90"
       },
       {
         "uid": 3, "name": "uc_sum_filt_all",
@@ -1737,35 +1790,35 @@ static constexpr std::string_view uc_reserve_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_rz_up",
-        "expression": "reserve_zone(\"rz1\").up <= 80"
+        "expression": "reserve_zone('rz1').up <= 80"
       },
       {
         "uid": 2, "name": "uc_rz_urequirement",
-        "expression": "reserve_zone(\"rz1\").urequirement <= 70"
+        "expression": "reserve_zone('rz1').up <= 70"
       },
       {
         "uid": 3, "name": "uc_rz_dn",
-        "expression": "reserve_zone(\"rz1\").dn <= 60"
+        "expression": "reserve_zone('rz1').dn <= 60"
       },
       {
         "uid": 4, "name": "uc_rz_drequirement",
-        "expression": "reserve_zone(\"rz1\").drequirement <= 50"
+        "expression": "reserve_zone('rz1').dn <= 50"
       },
       {
         "uid": 5, "name": "uc_rp_up",
-        "expression": "reserve_provision(\"rp1\").up <= 90"
+        "expression": "reserve_provision('rp1').up <= 90"
       },
       {
         "uid": 6, "name": "uc_rp_uprovision",
-        "expression": "reserve_provision(\"rp1\").uprovision <= 85"
+        "expression": "reserve_provision('rp1').up <= 85"
       },
       {
         "uid": 7, "name": "uc_rp_dn",
-        "expression": "reserve_provision(\"rp1\").dn <= 70"
+        "expression": "reserve_provision('rp1').dn <= 70"
       },
       {
         "uid": 8, "name": "uc_rp_dprovision",
-        "expression": "reserve_provision(\"rp1\").dprovision <= 65"
+        "expression": "reserve_provision('rp1').dn <= 65"
       },
       {
         "uid": 9, "name": "uc_sum_rz_all",
@@ -1827,7 +1880,7 @@ static constexpr std::string_view uc_range_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_range_bound",
-        "expression": "10 <= generator(\"g1\").generation <= 150"
+        "expression": "10 <= generator('g1').generation <= 150"
       }
     ]
   }
@@ -1879,55 +1932,55 @@ static constexpr std::string_view uc_demand_unknown_attr_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_demand_bogus_attr",
-        "expression": "demand(\"d1\").bogus_attr <= 100"
+        "expression": "demand('d1').bogus_attr <= 100"
       },
       {
         "uid": 2, "name": "uc_line_bogus_attr",
-        "expression": "line(\"nonexistent\").bogus <= 100"
+        "expression": "line('nonexistent').bogus <= 100"
       },
       {
         "uid": 3, "name": "uc_battery_bogus_attr",
-        "expression": "battery(\"nonexistent\").bogus <= 100"
+        "expression": "battery('nonexistent').bogus <= 100"
       },
       {
         "uid": 4, "name": "uc_reservoir_bogus_attr",
-        "expression": "reservoir(\"nonexistent\").bogus <= 100"
+        "expression": "reservoir('nonexistent').bogus <= 100"
       },
       {
         "uid": 5, "name": "uc_bus_bogus_attr",
-        "expression": "bus(\"nonexistent\").power <= 100"
+        "expression": "bus('nonexistent').power <= 100"
       },
       {
         "uid": 6, "name": "uc_junction_bogus",
-        "expression": "junction(\"nonexistent\").bogus <= 100"
+        "expression": "junction('nonexistent').bogus <= 100"
       },
       {
         "uid": 7, "name": "uc_flow_bogus",
-        "expression": "flow(\"nonexistent\").bogus <= 100"
+        "expression": "flow('nonexistent').bogus <= 100"
       },
       {
         "uid": 8, "name": "uc_waterway_bogus",
-        "expression": "waterway(\"nonexistent\").bogus <= 100"
+        "expression": "waterway('nonexistent').bogus <= 100"
       },
       {
         "uid": 9, "name": "uc_turbine_bogus",
-        "expression": "turbine(\"nonexistent\").bogus <= 100"
+        "expression": "turbine('nonexistent').bogus <= 100"
       },
       {
         "uid": 10, "name": "uc_converter_bogus",
-        "expression": "converter(\"nonexistent\").bogus <= 100"
+        "expression": "converter('nonexistent').bogus <= 100"
       },
       {
         "uid": 11, "name": "uc_seepage_bogus",
-        "expression": "seepage(\"nonexistent\").bogus <= 100"
+        "expression": "seepage('nonexistent').bogus <= 100"
       },
       {
         "uid": 12, "name": "uc_reserve_provision_bogus",
-        "expression": "reserve_provision(\"nonexistent\").bogus <= 100"
+        "expression": "reserve_provision('nonexistent').bogus <= 100"
       },
       {
         "uid": 13, "name": "uc_reserve_zone_bogus",
-        "expression": "reserve_zone(\"nonexistent\").bogus <= 100"
+        "expression": "reserve_zone('nonexistent').bogus <= 100"
       }
     ]
   }
@@ -1947,4 +2000,440 @@ TEST_CASE(
   // Should solve — all constraints with unknown/nonexistent refs are skipped
   auto result = planning_lp.resolve();
   REQUIRE(result.has_value());
+}
+
+// clang-format off
+
+/// Exercise the named-parameter (UserParamMap) resolution path in
+/// user_constraint_lp.cpp (resolve_param + param_shift accumulation for both
+/// scalar and monthly-indexed parameters).
+static constexpr std::string_view uc_named_param_json = R"json({
+  "options": {
+    "annual_discount_rate": 0.0,
+    "lp_matrix_options": {"names_level": 1},
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "use_single_bus": true,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1000
+  },
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 1}],
+    "stage_array": [{"uid": 1, "active": 1, "first_block": 0, "count_block": 1, "month": "april"}],
+    "scenario_array": [{"uid": 1, "probability_factor": 1}]
+  },
+  "system": {
+    "name": "uc_named_param",
+    "bus_array": [{"uid": 1, "name": "b1"}],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[80.0]]}
+    ],
+    "generator_array": [
+      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 500, "gcost": 20, "capacity": 500}
+    ],
+    "user_param_array": [
+      {"name": "pct_elec", "value": 35.0},
+      {"name": "irr_seasonal", "monthly": [0, 0, 0, 100, 100, 100, 100, 100, 100, 100, 0, 0]}
+    ],
+    "user_constraint_array": [
+      {
+        "uid": 1, "name": "uc_scalar_param",
+        "expression": "generator('g1').generation <= pct_elec + 200"
+      },
+      {
+        "uid": 2, "name": "uc_monthly_param",
+        "expression": "generator('g1').generation <= irr_seasonal + 150"
+      }
+    ]
+  }
+})json";
+
+// clang-format on
+
+TEST_CASE("User constraint - named parameter resolution (scalar + monthly)")
+{
+  using namespace gtopt;
+
+  auto planning = daw::json::from_json<Planning>(uc_named_param_json);
+  PlanningLP planning_lp(std::move(planning));
+
+  // Both constraints resolve their param references via UserParamMap;
+  // the resulting RHS leaves room for the 80 MW demand.
+  auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+}
+
+// clang-format off
+
+/// Same case but with constraint_mode = "normal" → the unknown parameter
+/// emits a warning and the term is skipped (no throw).
+static constexpr std::string_view uc_normal_unknown_param_json = R"json({
+  "options": {
+    "annual_discount_rate": 0.0,
+    "lp_matrix_options": {"names_level": 1},
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "use_single_bus": true,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1000,
+    "constraint_mode": "normal"
+  },
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 1}],
+    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
+    "scenario_array": [{"uid": 1, "probability_factor": 1}]
+  },
+  "system": {
+    "name": "uc_normal_unknown_param",
+    "bus_array": [{"uid": 1, "name": "b1"}],
+    "generator_array": [
+      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 200, "gcost": 20, "capacity": 200}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[80.0]]}
+    ],
+    "user_constraint_array": [
+      {
+        "uid": 1, "name": "uc_missing_param_normal",
+        "expression": "generator('g1').generation <= nonexistent_param + 180"
+      }
+    ]
+  }
+})json";
+
+// clang-format on
+
+TEST_CASE(
+    "User constraint - normal mode skips unknown named parameter with warning")
+{
+  using namespace gtopt;
+
+  auto planning = daw::json::from_json<Planning>(uc_normal_unknown_param_json);
+  PlanningLP planning_lp(std::move(planning));
+
+  // Should solve: the unresolved parameter term is simply skipped.
+  auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+}
+
+// ── F5: abs(x) lowering — end-to-end planning smoke tests ───────────────
+
+// clang-format off
+static constexpr std::string_view uc_abs_ok_json = R"json({
+  "options": {
+    "output_compression": "uncompressed",
+    "use_single_bus": true,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1
+  },
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 1}],
+    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1}],
+    "scenario_array": [{"uid": 1}]
+  },
+  "system": {
+    "name": "uc_abs_ok",
+    "bus_array": [{"uid": 1, "name": "b1"}],
+    "generator_array": [
+      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[50.0]]}
+    ],
+    "user_constraint_array": [
+      {
+        "uid": 1,
+        "name": "abs_cap",
+        "expression": "abs(generator('g1').generation - 50) <= 50"
+      }
+    ]
+  }
+})json";
+// clang-format on
+
+TEST_CASE("User constraint - F5 abs(x) lowering (convex <=) solves")
+{
+  using namespace gtopt;
+
+  auto planning = daw::json::from_json<Planning>(uc_abs_ok_json);
+  PlanningLP planning_lp(std::move(planning));
+
+  auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 1);
+}
+
+// clang-format off
+static constexpr std::string_view uc_abs_nonconvex_json = R"json({
+  "options": {
+    "output_compression": "uncompressed",
+    "use_single_bus": true,
+    "demand_fail_cost": 1000,
+    "constraint_mode": "strict"
+  },
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 1}],
+    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1}],
+    "scenario_array": [{"uid": 1}]
+  },
+  "system": {
+    "name": "uc_abs_bad",
+    "bus_array": [{"uid": 1, "name": "b1"}],
+    "generator_array": [
+      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[50.0]]}
+    ],
+    "user_constraint_array": [
+      {
+        "uid": 1,
+        "name": "abs_nonconvex",
+        "expression": "abs(generator('g1').generation) >= 10"
+      }
+    ]
+  }
+})json";
+// clang-format on
+
+TEST_CASE("User constraint - F5 non-convex abs(x) >= k is rejected")
+{
+  using namespace gtopt;
+
+  // With `constraint_mode: strict` (the default), a non-convex
+  // `abs(x) >= k` (c > 0) must surface as an exception during LP
+  // build so the author sees the problem instead of silently
+  // dropping a constraint that influences dispatch.
+  auto planning = daw::json::from_json<Planning>(uc_abs_nonconvex_json);
+  CHECK_THROWS_AS(PlanningLP(std::move(planning)),  // NOLINT
+                  std::runtime_error);
+}
+
+// ── F7: min/max(arg1, arg2, ...) lowering ───────────────────────────────
+
+// clang-format off
+static constexpr std::string_view uc_max_ok_json = R"json({
+  "options": {
+    "output_compression": "uncompressed",
+    "use_single_bus": true,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1
+  },
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 1}],
+    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1}],
+    "scenario_array": [{"uid": 1}]
+  },
+  "system": {
+    "name": "uc_max_ok",
+    "bus_array": [{"uid": 1, "name": "b1"}],
+    "generator_array": [
+      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100},
+      {"uid": 2, "name": "g2", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 10, "capacity": 100}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[120.0]]}
+    ],
+    "user_constraint_array": [
+      {
+        "uid": 1,
+        "name": "max_cap",
+        "expression": "max(generator('g1').generation, generator('g2').generation) <= 80"
+      }
+    ]
+  }
+})json";
+// clang-format on
+
+TEST_CASE("User constraint - F7 max(a,b) <= k lowers and solves")
+{
+  using namespace gtopt;
+
+  auto planning = daw::json::from_json<Planning>(uc_max_ok_json);
+  PlanningLP planning_lp(std::move(planning));
+
+  auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 1);
+}
+
+// clang-format off
+static constexpr std::string_view uc_min_ok_json = R"json({
+  "options": {
+    "output_compression": "uncompressed",
+    "use_single_bus": true,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1
+  },
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 1}],
+    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1}],
+    "scenario_array": [{"uid": 1}]
+  },
+  "system": {
+    "name": "uc_min_ok",
+    "bus_array": [{"uid": 1, "name": "b1"}],
+    "generator_array": [
+      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100},
+      {"uid": 2, "name": "g2", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 25, "capacity": 100}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[80.0]]}
+    ],
+    "user_constraint_array": [
+      {
+        "uid": 1,
+        "name": "min_floor",
+        "expression": "min(generator('g1').generation, generator('g2').generation) >= 5"
+      }
+    ]
+  }
+})json";
+// clang-format on
+
+TEST_CASE("User constraint - F7 min(a,b) >= k lowers and solves")
+{
+  using namespace gtopt;
+
+  auto planning = daw::json::from_json<Planning>(uc_min_ok_json);
+  PlanningLP planning_lp(std::move(planning));
+
+  auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 1);
+}
+
+// ── F8: if-then-else data-only conditional ──────────────────────────────
+
+// clang-format off
+static constexpr std::string_view uc_if_stage_json = R"json({
+  "options": {
+    "output_compression": "uncompressed",
+    "use_single_bus": true,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1
+  },
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 1}],
+    "stage_array": [
+      {"uid": 1, "first_block": 0, "count_block": 1},
+      {"uid": 2, "first_block": 0, "count_block": 1}
+    ],
+    "scenario_array": [{"uid": 1}]
+  },
+  "system": {
+    "name": "uc_if_stage",
+    "bus_array": [{"uid": 1, "name": "b1"}],
+    "generator_array": [
+      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[40.0], [40.0]]}
+    ],
+    "user_constraint_array": [
+      {
+        "uid": 1,
+        "name": "if_by_stage",
+        "expression": "if stage = 1 then (generator('g1').generation) else (generator('g1').generation) <= 60"
+      }
+    ]
+  }
+})json";
+// clang-format on
+
+TEST_CASE(
+    "User constraint - F8 if-then-else lowers per (scenario, stage, block)")
+{
+  using namespace gtopt;
+
+  auto planning = daw::json::from_json<Planning>(uc_if_stage_json);
+  PlanningLP planning_lp(std::move(planning));
+
+  auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 1);
+}
+
+// ── F5: error path — non-convex abs error text reaches spdlog ───────────
+
+TEST_CASE(
+    "User constraint - non-convex abs(x) surfaces a diagnostic on the logger")
+{
+  using namespace gtopt;
+
+  // Run the failing build under a log sink so we can verify the
+  // diagnostic's *content* (not just that something threw).  The
+  // catch re-throws the original exception in strict mode; the
+  // SystemLP boundary logs the error text via SPDLOG_ERROR on its
+  // way out.
+  gtopt::test::LogCapture logs;
+
+  auto planning = daw::json::from_json<Planning>(uc_abs_nonconvex_json);
+  CHECK_THROWS_AS(PlanningLP(std::move(planning)),  // NOLINT
+                  std::runtime_error);
+
+  // Message must name the offending feature ("abs") and the
+  // constraint name so the author can locate it.
+  CHECK(logs.contains("abs_nonconvex"));
+  CHECK(logs.contains("non-convex"));
+  CHECK(logs.contains("abs"));
+}
+
+// ── F5: abs() over a line.flow pseudo-attribute expands cleanly ─────────
+
+// clang-format off
+static constexpr std::string_view uc_abs_line_flow_json = R"json({
+  "options": {
+    "output_compression": "uncompressed",
+    "demand_fail_cost": 1000,
+    "scale_objective": 1
+  },
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 1}],
+    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1}],
+    "scenario_array": [{"uid": 1}]
+  },
+  "system": {
+    "name": "uc_abs_line_flow",
+    "bus_array": [
+      {"uid": 1, "name": "b1"},
+      {"uid": 2, "name": "b2"}
+    ],
+    "line_array": [
+      {"uid": 1, "name": "l1", "bus_a": "b1", "bus_b": "b2",
+       "reactance": 0.1, "tmax_ab": 100, "tmax_ba": 100}
+    ],
+    "generator_array": [
+      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100,
+       "gcost": 20, "capacity": 100}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": "b2", "lmax": [[50.0]]}
+    ],
+    "user_constraint_array": [
+      {
+        "uid": 1,
+        "name": "cap_abs_flow",
+        "expression": "abs(line('l1').flow) <= 100"
+      }
+    ]
+  }
+})json";
+// clang-format on
+
+TEST_CASE("User constraint - F5 abs(line.flow) lowers via flowp - flown")
+{
+  using namespace gtopt;
+
+  // line.flow is not a primitive LP column — it is expanded at parse
+  // time into `flowp − flown`.  Wrapping it in abs() must still lower
+  // correctly and produce a feasible LP.  This test locks that path
+  // so a future regression doesn't silently turn abs(line.flow) into
+  // a no-op.
+  auto planning = daw::json::from_json<Planning>(uc_abs_line_flow_json);
+  PlanningLP planning_lp(std::move(planning));
+
+  auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 1);
 }

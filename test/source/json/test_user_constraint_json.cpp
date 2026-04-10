@@ -23,7 +23,7 @@ TEST_CASE("UserConstraint JSON deserialization")
   std::string_view json_data = R"json({
     "uid": 1,
     "name": "gen_pair_limit",
-    "expression": "generator(\"TORO\").generation + generator(\"uid:23\").generation <= 300, for(stage in {4,5,6}, block in 1..30)"
+    "expression": "generator('TORO').generation + generator('uid:23').generation <= 300, for(stage in {4,5,6}, block in 1..30)"
   })json";
 
   const auto uc = daw::json::from_json<UserConstraint>(json_data);
@@ -42,11 +42,11 @@ TEST_CASE("UserConstraint JSON array deserialization")
     "uid": 1,
     "name": "limit1",
     "active": true,
-    "expression": "generator(\"G1\").generation <= 100"
+    "expression": "generator('G1').generation <= 100"
   },{
     "uid": 2,
     "name": "limit2",
-    "expression": "demand(\"D1\").load >= 50"
+    "expression": "demand('D1').load >= 50"
   }])json";
 
   auto constraints = daw::json::from_json_array<UserConstraint>(json_data);
@@ -89,7 +89,7 @@ TEST_CASE("UserConstraint constraint_type field — power")
   std::string_view json_data = R"({
     "uid": 10,
     "name": "gen_limit",
-    "expression": "generator(\"G1\").generation <= 100",
+    "expression": "generator('G1').generation <= 100",
     "constraint_type": "power"
   })";
 
@@ -105,7 +105,7 @@ TEST_CASE("UserConstraint constraint_type field — energy")
   std::string_view json_data = R"({
     "uid": 11,
     "name": "energy_limit",
-    "expression": "battery(\"B1\").energy <= 100",
+    "expression": "battery('B1').energy <= 100",
     "constraint_type": "energy"
   })";
 
@@ -121,7 +121,7 @@ TEST_CASE("UserConstraint constraint_type round-trip")
   const UserConstraint uc {
       .uid = 20,
       .name = "energy_cap",
-      .expression = "battery(\"bat\").energy <= 500",
+      .expression = "battery('bat').energy <= 500",
       .constraint_type = "energy",
   };
 
@@ -139,7 +139,7 @@ TEST_CASE("UserConstraint description field — absent is nullopt")
   std::string_view json_data = R"({
     "uid": 7,
     "name": "no_desc",
-    "expression": "generator(\"G1\").generation <= 100"
+    "expression": "generator('G1').generation <= 100"
   })";
 
   const auto uc = daw::json::from_json<UserConstraint>(json_data);
@@ -161,7 +161,7 @@ TEST_CASE("System JSON with user_constraint_array")
       {
         "uid": 1,
         "name": "gen_limit",
-        "expression": "generator(\"g1\").generation <= 100"
+        "expression": "generator('g1').generation <= 100"
       }
     ]
   })json";
@@ -236,7 +236,7 @@ TEST_CASE("UserConstraint constraint_type field — raw")
   std::string_view json_data = R"({
     "uid": 30,
     "name": "raw_limit",
-    "expression": "generator(\"G1\").generation <= 100",
+    "expression": "generator('G1').generation <= 100",
     "constraint_type": "raw"
   })";
 
@@ -255,7 +255,7 @@ TEST_CASE("UserConstraint constraint_type field — unitless")
   std::string_view json_data = R"({
     "uid": 31,
     "name": "unitless_limit",
-    "expression": "generator(\"G1\").generation <= 100",
+    "expression": "generator('G1').generation <= 100",
     "constraint_type": "unitless"
   })";
 

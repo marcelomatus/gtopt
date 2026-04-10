@@ -387,9 +387,10 @@ SolverTestResult test_name_maps(std::string_view solver)
   TestContext ctx;
   try {
     LinearInterface lp(solver);
-    lp.set_lp_names_level(1);
+    lp.set_label_maker(LabelMaker {LpNamesLevel::cols_and_rows});
 
-    TC_CHECK(ctx, lp.lp_names_level() == 1);
+    TC_CHECK(ctx,
+             lp.label_maker().names_level() == LpNamesLevel::cols_and_rows);
 
     const auto x1 = lp.add_col(SparseCol {
         .uppb = 10.0,
@@ -725,7 +726,7 @@ SolverTestResult test_write_lp(std::string_view solver)
   try {
     const auto flat = make_2x2_flat();
     LinearInterface lp(solver, flat);
-    lp.set_lp_names_level(1);
+    lp.set_label_maker(LabelMaker {LpNamesLevel::cols_and_rows});
     const auto ri4 = lp.initial_solve(SolverOptions {
         .log_level = 0,
     });

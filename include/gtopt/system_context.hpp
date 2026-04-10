@@ -24,7 +24,6 @@
  * - Manages active element filtering
  *
  * Inherits from:
- * - LabelMaker: For variable labeling/naming
  * - FlatHelper: For data flattening operations
  *
  * @note Thread safety: Not thread-safe - assumes single-threaded optimization
@@ -43,7 +42,6 @@
 #include <gtopt/element_traits.hpp>
 #include <gtopt/flat_helper.hpp>
 #include <gtopt/index_holder.hpp>
-#include <gtopt/label_maker.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/lp_element_types.hpp>
 #include <gtopt/overload.hpp>
@@ -61,8 +59,7 @@ class SystemLP;
 class SimulationLP;
 
 class SystemContext
-    : public LabelMaker
-    , public FlatHelper
+    : public FlatHelper
     , public CostHelper
 {
 public:
@@ -288,6 +285,48 @@ public:
         std::forward<Key>(key), col, scost, var_scale, std::move(context));
   }
 
+  /// Atomic helper: add a new state-variable column to the LP AND register
+  /// it in the state-variable map.  Sets `is_state = true` on the column so
+  /// LabelMaker emits its label at `LpNamesLevel::minimal` (cascade/SDDP
+  /// cut I/O needs it).  The column's `context` field is also used as the
+  /// StateVariable's context, keeping the two in sync.
+  ///
+  /// This is the preferred API for creating state variables — calling
+  /// `lp.add_col()` and `add_state_variable()` separately risks forgetting
+  /// one step and silently breaking cut I/O.
+  template<typename Key, typename Col>
+  auto add_state_col(LinearProblem& lp,
+                     Key&& key,
+                     Col&& col,
+                     double scost = 0.0,
+                     double var_scale = 1.0) -> ColIndex
+  {
+    col.is_state = true;
+    auto context = col.context;
+    const auto idx = lp.add_col(std::forward<Col>(col));
+    add_state_variable(
+        std::forward<Key>(key), idx, scost, var_scale, std::move(context));
+    return idx;
+  }
+
+  /// Atomic helper: mark an already-added column as a state variable AND
+  /// register it in the state-variable map.  Used when the state-variable
+  /// role is decided after the column was first added (e.g. storage_lp
+  /// registers the last block's energy column as efin after the whole
+  /// block loop is done).
+  template<typename Key>
+  void add_state_col(LinearProblem& lp,
+                     Key&& key,
+                     ColIndex col_idx,
+                     double scost,
+                     double var_scale,
+                     LpContext context)
+  {
+    lp.col_at(col_idx).is_state = true;
+    add_state_variable(
+        std::forward<Key>(key), col_idx, scost, var_scale, std::move(context));
+  }
+
   template<typename Key>
   [[nodiscard]] constexpr auto get_state_variable(Key&& key) const noexcept
   {
@@ -424,9 +463,6 @@ private:
 };
 
 }  // namespace gtopt
-
-static_assert(std::is_base_of_v<gtopt::LabelMaker, gtopt::SystemContext>,
-              "SystemContext must inherit from LabelMaker");
 
 static_assert(std::is_base_of_v<gtopt::FlatHelper, gtopt::SystemContext>,
               "SystemContext must inherit from FlatHelper");

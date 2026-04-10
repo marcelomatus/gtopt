@@ -77,23 +77,23 @@ static constexpr std::string_view resolver_diverse_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "gen_limit",
-        "expression": "generator(\"g1\").generation + generator(\"g2\").generation <= 400"
+        "expression": "generator('g1').generation + generator('g2').generation <= 400"
       },
       {
         "uid": 2, "name": "demand_load_limit",
-        "expression": "demand(\"d1\").load <= 100"
+        "expression": "demand('d1').load <= 100"
       },
       {
         "uid": 3, "name": "bat_charge_limit",
-        "expression": "battery(\"bat1\").charge <= 40"
+        "expression": "battery('bat1').charge <= 40"
       },
       {
         "uid": 4, "name": "bat_discharge_limit",
-        "expression": "battery(\"bat1\").discharge <= 40"
+        "expression": "battery('bat1').discharge <= 40"
       },
       {
         "uid": 5, "name": "waterway_flow_limit",
-        "expression": "waterway(\"ww1\").flow <= 80"
+        "expression": "waterway('ww1').flow <= 80"
       },
       {
         "uid": 6, "name": "sum_all_gens",
@@ -165,11 +165,11 @@ static constexpr std::string_view resolver_unknown_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "bad_element",
-        "expression": "generator(\"nonexistent\").generation <= 200"
+        "expression": "generator('nonexistent').generation <= 200"
       },
       {
         "uid": 2, "name": "bad_attribute",
-        "expression": "generator(\"g1\").bogus_attr <= 200"
+        "expression": "generator('g1').bogus_attr <= 200"
       }
     ]
   }
@@ -298,7 +298,7 @@ TEST_CASE(  // NOLINT
       "user_constraint_array": [
         {
           "uid": 1, "name": "bat_energy_upper",
-          "expression": "battery(\"bat1\").energy <= 80"
+          "expression": "battery('bat1').energy <= 80"
         }
       ]
     }
@@ -391,7 +391,7 @@ TEST_CASE(  // NOLINT
       "user_constraint_array": [
         {
           "uid": 1, "name": "bad_ref",
-          "expression": "generator(\"nonexistent\").generation <= 100"
+          "expression": "generator('nonexistent').generation <= 100"
         }
       ]
     }
@@ -447,7 +447,7 @@ TEST_CASE(  // NOLINT
       "user_constraint_array": [
         {
           "uid": 1, "name": "gen_capainst_limit",
-          "expression": "generator(\"g1\").capainst <= 300"
+          "expression": "generator('g1').capainst <= 300"
         }
       ]
     }
@@ -510,11 +510,11 @@ TEST_CASE(  // NOLINT
       "user_constraint_array": [
         {
           "uid": 1, "name": "bat_eini_lower",
-          "expression": "battery(\"bat1\").eini >= 10"
+          "expression": "battery('bat1').eini >= 10"
         },
         {
           "uid": 2, "name": "bat_efin_upper",
-          "expression": "battery(\"bat1\").efin <= 90"
+          "expression": "battery('bat1').efin <= 90"
         }
       ]
     }
@@ -581,11 +581,11 @@ TEST_CASE(  // NOLINT
       "user_constraint_array": [
         {
           "uid": 1, "name": "rsv_eini_lower",
-          "expression": "reservoir(\"rsv1\").eini >= 100"
+          "expression": "reservoir('rsv1').eini >= 100"
         },
         {
           "uid": 2, "name": "rsv_efin_upper",
-          "expression": "reservoir(\"rsv1\").efin <= 900"
+          "expression": "reservoir('rsv1').efin <= 900"
         }
       ]
     }
@@ -710,15 +710,15 @@ TEST_CASE(  // NOLINT
       "user_constraint_array": [
         {
           "uid": 1, "name": "vrt_eini_lower",
-          "expression": "volume_right(\"vrt1\").eini >= 10"
+          "expression": "volume_right('vrt1').eini >= 10"
         },
         {
           "uid": 2, "name": "vrt_efin_upper",
-          "expression": "volume_right(\"vrt1\").efin <= 90"
+          "expression": "volume_right('vrt1').efin <= 90"
         },
         {
           "uid": 3, "name": "vrt_volume_bound",
-          "expression": "volume_right(\"vrt1\").volume <= 80"
+          "expression": "volume_right('vrt1').energy <= 80"
         }
       ]
     }
@@ -794,11 +794,11 @@ static constexpr std::string_view resolver_scale_aware_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "vol_upper",
-        "expression": "reservoir(\"rsv1\").volume <= 5000"
+        "expression": "reservoir('rsv1').energy <= 5000"
       },
       {
         "uid": 2, "name": "gen_upper",
-        "expression": "generator(\"g1\").generation <= 250"
+        "expression": "generator('g1').generation <= 250"
       }
     ]
   }

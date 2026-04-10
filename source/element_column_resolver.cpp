@@ -142,15 +142,12 @@ namespace
     };
   }
 
-  // 3. Fallback: `bus.theta` / `bus.angle` are created lazily by
+  // 3. Fallback: `bus.theta` columns are created lazily by
   //    `LineLP::add_kirchhoff_rows` through `theta_cols_at` and are
   //    therefore not yet known to the registry at `BusLP::add_to_lp`
   //    time.  Keep the bespoke lookup so PAMPL expressions can still
   //    reference theta once the lines have populated the map.
-  if (ref.element_type == "bus"
-      && (ref.attribute == BusLP::ThetaName
-          || ref.attribute == BusLP::AngleName))
-  {
+  if (ref.element_type == "bus" && ref.attribute == BusLP::ThetaName) {
     try {
       const auto& bus_lp = sc.get_element(ObjectSingleId<BusLP> {single_id});
       if (auto col = bus_lp.lookup_theta_col(scenario, stage, buid)) {
@@ -170,6 +167,43 @@ namespace
   }
 
   return std::nullopt;
+}
+
+// ── Compound-aware row emission ──────────────────────────────────────────────
+
+bool resolve_col_to_row(const SystemContext& sc,
+                        const ScenarioLP& scenario,
+                        const StageLP& stage,
+                        const BlockLP& block,
+                        const ElementRef& ref,
+                        double base_coeff,
+                        SparseRow& row,
+                        const LinearProblem& lp)
+{
+  // 1. Compound path: class-level recipe of (coefficient, source_attribute).
+  if (const auto* legs = sc.find_ampl_compound(ref.element_type, ref.attribute))
+  {
+    bool emitted = false;
+    for (const auto& leg : *legs) {
+      ElementRef leg_ref = ref;
+      leg_ref.attribute = std::string {leg.source_attribute};
+      if (auto resolved =
+              resolve_single_col(sc, scenario, stage, block, leg_ref, lp))
+      {
+        row[resolved->col] += base_coeff * leg.coefficient;
+        emitted = true;
+      }
+    }
+    return emitted;
+  }
+
+  // 2. Single-column path: ordinary attribute.
+  if (auto resolved = resolve_single_col(sc, scenario, stage, block, ref, lp)) {
+    row[resolved->col] += base_coeff;
+    return true;
+  }
+
+  return false;
 }
 
 // ── Per-element parameter resolution ────────────────────────────────────────
@@ -332,6 +366,113 @@ namespace
   return std::nullopt;
 }
 
+// ── Sum predicate evaluation ────────────────────────────────────────────────
+
+namespace
+{
+
+/// Compare a metadata value against a predicate's RHS.  String-vs-number
+/// mismatches always return false (the predicate is unsatisfied).
+[[nodiscard]] bool eval_predicate(const SumPredicate& pred,
+                                  const AmplMetadataValue& value)
+{
+  using Op = SumPredicate::Op;
+
+  // Set membership: stringify both sides.
+  if (pred.op == Op::In) {
+    std::string s;
+    if (std::holds_alternative<std::string>(value)) {
+      s = std::get<std::string>(value);
+    } else {
+      s = std::format("{}", std::get<double>(value));
+    }
+    return std::ranges::find(pred.set_values, s) != pred.set_values.end();
+  }
+
+  // Numeric predicate.
+  if (pred.number_value.has_value()) {
+    if (!std::holds_alternative<double>(value)) {
+      return false;
+    }
+    const double lhs = std::get<double>(value);
+    const double rhs = *pred.number_value;
+    switch (pred.op) {
+      case Op::Eq:
+        return lhs == rhs;
+      case Op::Ne:
+        return lhs != rhs;
+      case Op::Lt:
+        return lhs < rhs;
+      case Op::Le:
+        return lhs <= rhs;
+      case Op::Gt:
+        return lhs > rhs;
+      case Op::Ge:
+        return lhs >= rhs;
+      default:
+        return false;
+    }
+  }
+
+  // String predicate.
+  if (pred.string_value.has_value()) {
+    if (!std::holds_alternative<std::string>(value)) {
+      return false;
+    }
+    const auto& lhs = std::get<std::string>(value);
+    const auto& rhs = *pred.string_value;
+    switch (pred.op) {
+      case Op::Eq:
+        return lhs == rhs;
+      case Op::Ne:
+        return lhs != rhs;
+      case Op::Lt:
+        return lhs < rhs;
+      case Op::Le:
+        return lhs <= rhs;
+      case Op::Gt:
+        return lhs > rhs;
+      case Op::Ge:
+        return lhs >= rhs;
+      default:
+        return false;
+    }
+  }
+
+  return false;
+}
+
+/// Return true iff the element identified by (class_name, element_uid)
+/// satisfies every predicate in @p filters (AND semantics).  An element
+/// with no registered metadata fails any non-empty filter list.
+[[nodiscard]] bool element_passes_filters(
+    const SystemContext& sc,
+    std::string_view class_name,
+    Uid element_uid,
+    const std::vector<SumPredicate>& filters)
+{
+  if (filters.empty()) {
+    return true;
+  }
+  const auto* metadata = sc.find_ampl_element_metadata(class_name, element_uid);
+  if (metadata == nullptr) {
+    return false;
+  }
+  for (const auto& pred : filters) {
+    auto it = std::ranges::find_if(
+        *metadata, [&](const auto& kv) { return kv.first == pred.attr; });
+    if (it == metadata->end()) {
+      return false;
+    }
+    if (!eval_predicate(pred, it->second)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+}  // namespace
+
 // ── Sum-reference resolution ─────────────────────────────────────────────────
 
 void collect_sum_cols(const SystemContext& sc,
@@ -343,7 +484,9 @@ void collect_sum_cols(const SystemContext& sc,
                       SparseRow& row,
                       const LinearProblem& lp)
 {
-  // Helper lambda: add one ElementRef to the row
+  // Helper lambda: add one ElementRef to the row.  Uses the compound-aware
+  // `resolve_col_to_row` so sums over a compound attribute (e.g.
+  // `sum(line(all).flow)`) correctly expand each leg.
   auto add_one = [&](const std::string& eid)
   {
     ElementRef ref;
@@ -351,198 +494,60 @@ void collect_sum_cols(const SystemContext& sc,
     ref.element_id = eid;
     ref.attribute = sum_ref.attribute;
 
-    if (auto resolved = resolve_single_col(sc, scenario, stage, block, ref, lp))
-    {
-      row[resolved->col] += base_coeff;
-    }
+    (void)resolve_col_to_row(
+        sc, scenario, stage, block, ref, base_coeff, row, lp);
   };
 
   if (sum_ref.all_elements) {
-    // Iterate over every element of the named type
-    // NOLINT(bugprone-branch-clone): each branch targets a different C++ type
-    // (GeneratorLP, DemandLP, etc.)
-    if (sum_ref.element_type == "generator") {  // NOLINT(bugprone-branch-clone)
-      for (const auto& gen : sc.elements<GeneratorLP>()) {
-        if (sum_ref.type_filter
-            && gen.object().type.value_or("") != *sum_ref.type_filter)
+    // Common pattern: iterate a collection, apply AND-of-predicates via
+    // the metadata registry, and emit `add_one` for each survivor.
+    auto iterate = [&]<typename LP>(std::string_view class_name)
+    {
+      for (const auto& el : sc.elements<LP>()) {
+        if (!element_passes_filters(sc, class_name, el.uid(), sum_ref.filters))
         {
           continue;
         }
-        add_one(as_label(gen.uid()));
+        add_one(as_label(el.uid()));
       }
+    };
+
+    // NOLINTBEGIN(bugprone-branch-clone): each branch targets a different
+    // C++ type (GeneratorLP, DemandLP, etc.).
+    if (sum_ref.element_type == "generator") {
+      iterate.template operator()<GeneratorLP>("generator");
     } else if (sum_ref.element_type == "demand") {
-      for (const auto& dem : sc.elements<DemandLP>()) {
-        if (sum_ref.type_filter
-            && dem.object().type.value_or("") != *sum_ref.type_filter)
-        {
-          continue;
-        }
-        add_one(as_label(dem.uid()));
-      }
+      iterate.template operator()<DemandLP>("demand");
     } else if (sum_ref.element_type == "line") {
-      for (const auto& ln : sc.elements<LineLP>()) {
-        if (sum_ref.type_filter
-            && ln.object().type.value_or("") != *sum_ref.type_filter)
-        {
-          continue;
-        }
-        add_one(as_label(ln.uid()));
-      }
+      iterate.template operator()<LineLP>("line");
     } else if (sum_ref.element_type == "battery") {
-      for (const auto& bat : sc.elements<BatteryLP>()) {
-        if (sum_ref.type_filter
-            && bat.object().type.value_or("") != *sum_ref.type_filter)
-        {
-          continue;
-        }
-        add_one(as_label(bat.uid()));
-      }
+      iterate.template operator()<BatteryLP>("battery");
     } else if (sum_ref.element_type == "reservoir") {
-      // NOLINT(bugprone-branch-clone): reservoir/waterway/turbine/converter
-      // don't have a `type` field
-      if (sum_ref.type_filter) {
-        SPDLOG_WARN(std::format(
-            "user_constraint sum({}): type_filter is not supported for "
-            "element type '{}' — filter ignored",
-            sum_ref.element_type,
-            sum_ref.element_type));
-      }
-      for (const auto& res : sc.elements<ReservoirLP>()) {
-        add_one(as_label(res.uid()));
-      }
-    } else if (sum_ref.element_type
-               == "waterway") {  // NOLINT(bugprone-branch-clone)
-      if (sum_ref.type_filter) {
-        SPDLOG_WARN(std::format(
-            "user_constraint sum({}): type_filter is not supported for "
-            "element type '{}' — filter ignored",
-            sum_ref.element_type,
-            sum_ref.element_type));
-      }
-      for (const auto& ww : sc.elements<WaterwayLP>()) {
-        add_one(as_label(ww.uid()));
-      }
-    } else if (sum_ref.element_type
-               == "turbine") {  // NOLINT(bugprone-branch-clone)
-      if (sum_ref.type_filter) {
-        SPDLOG_WARN(std::format(
-            "user_constraint sum({}): type_filter is not supported for "
-            "element type '{}' — filter ignored",
-            sum_ref.element_type,
-            sum_ref.element_type));
-      }
-      for (const auto& t : sc.elements<TurbineLP>()) {
-        add_one(as_label(t.uid()));
-      }
-    } else if (sum_ref.element_type
-               == "converter") {  // NOLINT(bugprone-branch-clone)
-      if (sum_ref.type_filter) {
-        SPDLOG_WARN(std::format(
-            "user_constraint sum({}): type_filter is not supported for "
-            "element type '{}' — filter ignored",
-            sum_ref.element_type,
-            sum_ref.element_type));
-      }
-      for (const auto& c : sc.elements<ConverterLP>()) {
-        add_one(as_label(c.uid()));
-      }
-    } else if (sum_ref.element_type
-               == "junction") {  // NOLINT(bugprone-branch-clone)
-      if (sum_ref.type_filter) {
-        SPDLOG_WARN(std::format(
-            "user_constraint sum({}): type_filter is not supported for "
-            "element type '{}' — filter ignored",
-            sum_ref.element_type,
-            sum_ref.element_type));
-      }
-      for (const auto& jun : sc.elements<JunctionLP>()) {
-        add_one(as_label(jun.uid()));
-      }
-    } else if (sum_ref.element_type
-               == "flow") {  // NOLINT(bugprone-branch-clone)
-      if (sum_ref.type_filter) {
-        SPDLOG_WARN(std::format(
-            "user_constraint sum({}): type_filter is not supported for "
-            "element type '{}' — filter ignored",
-            sum_ref.element_type,
-            sum_ref.element_type));
-      }
-      for (const auto& flw : sc.elements<FlowLP>()) {
-        add_one(as_label(flw.uid()));
-      }
-    } else if (sum_ref.element_type
-               == "flow_right") {  // NOLINT(bugprone-branch-clone)
-      if (sum_ref.type_filter) {
-        SPDLOG_WARN(std::format(
-            "user_constraint sum({}): type_filter is not supported for "
-            "element type '{}' — filter ignored",
-            sum_ref.element_type,
-            sum_ref.element_type));
-      }
-      for (const auto& frt : sc.elements<FlowRightLP>()) {
-        add_one(as_label(frt.uid()));
-      }
-    } else if (sum_ref.element_type
-               == "volume_right") {  // NOLINT(bugprone-branch-clone)
-      if (sum_ref.type_filter) {
-        SPDLOG_WARN(std::format(
-            "user_constraint sum({}): type_filter is not supported for "
-            "element type '{}' — filter ignored",
-            sum_ref.element_type,
-            sum_ref.element_type));
-      }
-      for (const auto& vrt : sc.elements<VolumeRightLP>()) {
-        add_one(as_label(vrt.uid()));
-      }
-    } else if (sum_ref.element_type
-               == "seepage") {  // NOLINT(bugprone-branch-clone)
-      if (sum_ref.type_filter) {
-        SPDLOG_WARN(std::format(
-            "user_constraint sum({}): type_filter is not supported for "
-            "element type '{}' — filter ignored",
-            sum_ref.element_type,
-            sum_ref.element_type));
-      }
-      for (const auto& fil : sc.elements<ReservoirSeepageLP>()) {
-        add_one(as_label(fil.uid()));
-      }
-    } else if (sum_ref.element_type
-               == "reserve_provision") {  // NOLINT(bugprone-branch-clone)
-      if (sum_ref.type_filter) {
-        SPDLOG_WARN(std::format(
-            "user_constraint sum({}): type_filter is not supported for "
-            "element type '{}' — filter ignored",
-            sum_ref.element_type,
-            sum_ref.element_type));
-      }
-      for (const auto& rp : sc.elements<ReserveProvisionLP>()) {
-        add_one(as_label(rp.uid()));
-      }
-    } else if (sum_ref.element_type
-               == "reserve_zone") {  // NOLINT(bugprone-branch-clone)
-      if (sum_ref.type_filter) {
-        SPDLOG_WARN(std::format(
-            "user_constraint sum({}): type_filter is not supported for "
-            "element type '{}' — filter ignored",
-            sum_ref.element_type,
-            sum_ref.element_type));
-      }
-      for (const auto& rz : sc.elements<ReserveZoneLP>()) {
-        add_one(as_label(rz.uid()));
-      }
-    } else if (sum_ref.element_type
-               == "bus") {  // NOLINT(bugprone-branch-clone)
-      if (sum_ref.type_filter) {
-        SPDLOG_WARN(std::format(
-            "user_constraint sum({}): type_filter is not supported for "
-            "element type '{}' — filter ignored",
-            sum_ref.element_type,
-            sum_ref.element_type));
-      }
-      for (const auto& bus : sc.elements<BusLP>()) {
-        add_one(as_label(bus.uid()));
-      }
+      iterate.template operator()<ReservoirLP>("reservoir");
+    } else if (sum_ref.element_type == "waterway") {
+      iterate.template operator()<WaterwayLP>("waterway");
+    } else if (sum_ref.element_type == "turbine") {
+      iterate.template operator()<TurbineLP>("turbine");
+    } else if (sum_ref.element_type == "converter") {
+      iterate.template operator()<ConverterLP>("converter");
+    } else if (sum_ref.element_type == "junction") {
+      iterate.template operator()<JunctionLP>("junction");
+    } else if (sum_ref.element_type == "flow") {
+      iterate.template operator()<FlowLP>("flow");
+    } else if (sum_ref.element_type == "flow_right") {
+      iterate.template operator()<FlowRightLP>("flow_right");
+    } else if (sum_ref.element_type == "volume_right") {
+      iterate.template operator()<VolumeRightLP>("volume_right");
+    } else if (sum_ref.element_type == "seepage") {
+      iterate.template operator()<ReservoirSeepageLP>("seepage");
+    } else if (sum_ref.element_type == "reserve_provision") {
+      iterate.template operator()<ReserveProvisionLP>("reserve_provision");
+    } else if (sum_ref.element_type == "reserve_zone") {
+      iterate.template operator()<ReserveZoneLP>("reserve_zone");
+    } else if (sum_ref.element_type == "bus") {
+      iterate.template operator()<BusLP>("bus");
     }
+    // NOLINTEND(bugprone-branch-clone)
   } else {
     for (const auto& eid : sum_ref.element_ids) {
       add_one(eid);

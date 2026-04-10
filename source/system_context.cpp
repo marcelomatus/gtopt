@@ -24,8 +24,7 @@ namespace gtopt
 {
 
 SystemContext::SystemContext(SimulationLP& simulation, SystemLP& system)
-    : LabelMaker(simulation.options())
-    , FlatHelper(simulation)
+    : FlatHelper(simulation)
     , CostHelper(
           simulation.options(), simulation.scenarios(), simulation.stages())
     , m_simulation_(simulation)

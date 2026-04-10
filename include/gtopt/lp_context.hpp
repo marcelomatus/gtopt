@@ -21,13 +21,10 @@
 
 #include <cstddef>
 #include <functional>
-#include <string>
-#include <string_view>
 #include <tuple>
 #include <variant>
 
 #include <gtopt/aperture.hpp>
-#include <gtopt/as_label.hpp>
 #include <gtopt/basic_types.hpp>
 #include <gtopt/block.hpp>
 #include <gtopt/iteration.hpp>
@@ -188,72 +185,10 @@ struct TupleHash
 // Generates LP column/row name strings from structured metadata.
 // Called lazily during flatten() or diagnostics -- NOT during add_col().
 //
-// Label format: "{class_short}_{variable}_{uid}_{ctx0}_{ctx1}_..."
-// Example:      "rsv_eini_1_0_1"  (class=rsv, var=eini, uid=1, scen=0, stg=1)
-
-/// Generate a column/row label from structured identity + context.
-/// @param class_name   Class name (e.g. "Reservoir", "Bus", "Generator")
-/// @param variable     Variable name (e.g. "eini", "theta", "fext")
-/// @param uid          Element UID
-/// @param context      Context tuple (e.g. {scenario_uid, stage_uid,
-/// block_uid})
-/// @return             Formatted label string (e.g. "reservoir_eini_1_0_1_2")
-template<typename Tuple, size_t... Is>
-[[nodiscard]] auto generate_lp_label_impl(std::string_view class_name,
-                                          std::string_view variable,
-                                          Uid uid,
-                                          const Tuple& context,
-                                          std::index_sequence<Is...> /*unused*/)
-    -> std::string
-{
-  return as_label(
-      lowercase(class_name), variable, uid, std::get<Is>(context)...);
-}
-
-template<typename... ContextUids>
-[[nodiscard]] auto generate_lp_label(std::string_view class_name,
-                                     std::string_view variable,
-                                     Uid uid,
-                                     const std::tuple<ContextUids...>& context)
-    -> std::string
-{
-  return generate_lp_label_impl(class_name,
-                                variable,
-                                uid,
-                                context,
-                                std::index_sequence_for<ContextUids...> {});
-}
-
-/// Generate a label without context (for context-free columns).
-[[nodiscard]] inline auto generate_lp_label(std::string_view class_name,
-                                            std::string_view variable,
-                                            Uid uid) -> std::string
-{
-  return as_label(lowercase(class_name), variable, uid);
-}
-
-/// Generate a label from a type-erased LpContext variant.
-/// Returns empty string when class_name is empty or context is monostate.
-[[nodiscard]] inline auto generate_lp_label(std::string_view class_name,
-                                            std::string_view variable,
-                                            Uid uid,
-                                            const LpContext& context)
-    -> std::string
-{
-  if (class_name.empty()) {
-    return {};
-  }
-  return std::visit(
-      [&](const auto& ctx) -> std::string
-      {
-        if constexpr (std::same_as<std::decay_t<decltype(ctx)>,
-                                   std::monostate>) {
-          return generate_lp_label(class_name, variable, uid);
-        } else {
-          return generate_lp_label(class_name, variable, uid, ctx);
-        }
-      },
-      context);
-}
+// Historical note: this header previously provided `generate_lp_label`
+// overloads for building LP row/column labels inline.  That mechanism has
+// been superseded by `gtopt::LabelMaker` (see <gtopt/label_maker.hpp>),
+// which consumes `SparseCol` / `SparseRow` directly, honors `LpNamesLevel`,
+// and is the single place in gtopt that formats LP labels.
 
 }  // namespace gtopt

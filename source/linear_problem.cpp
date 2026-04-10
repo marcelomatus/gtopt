@@ -419,79 +419,40 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
     }
   }
 
-  // Name vectors
+  // Name vectors — delegated to LabelMaker which honors LpNamesLevel and
+  // handles the `is_state` gating for minimal-level labels.  The same
+  // LabelMaker is copied into FlatLinearProblem so LinearInterface can
+  // continue generating labels for rows/cols added after load_flat().
+  //
+  // Fallback: if the caller did not explicitly install a LabelMaker via
+  // set_label_maker() (leaving it at LpNamesLevel::none), build an
+  // effective one from LpMatrixOptions::lp_names_level.
+  //
+  // Gating: flatten() populates colnm / rownm whenever the caller asks
+  // for them via `col_with_names` / `row_with_names`.  Per-entry label
+  // content is decided by LabelMaker, so an entry may be an empty
+  // string when the level disables it — callers never need to gate.
+  const LabelMaker effective_lm =
+      (m_label_maker_.names_level() == LpNamesLevel::none)
+      ? LabelMaker {opts.lp_names_level}
+      : m_label_maker_;
+
   using fp_name_vec_t = FlatLinearProblem::name_vec_t;
-
-  // Build column names: generate from structured metadata + context when
-  // available; leave empty otherwise.
-  // Generated labels use class_name (full_name, e.g. "Reservoir") which
-  // as_label lowercases to "reservoir_eini_1_0_1".
-  auto build_col_names = [](auto& source, bool /*move_names*/) -> fp_name_vec_t
-  {
-    fp_name_vec_t names;
-    names.reserve(source.size());
-
-    for (const auto& col : source) {
-      if (!col.class_name.empty()
-          && !std::holds_alternative<std::monostate>(col.context))
-      {
-        names.emplace_back(std::visit(
-            [&](const auto& ctx) -> std::string
-            {
-              if constexpr (std::is_same_v<std::remove_cvref_t<decltype(ctx)>,
-                                           std::monostate>)
-              {
-                return {};
-              } else {
-                return generate_lp_label(
-                    col.class_name, col.variable_name, col.variable_uid, ctx);
-              }
-            },
-            col.context));
-      } else {
-        names.emplace_back();
-      }
-    }
-    return names;
-  };
-
-  // Build row names: generate from metadata when available.
-  auto build_row_names = [](auto& source, bool /*move_names*/) -> fp_name_vec_t
-  {
-    fp_name_vec_t names;
-    names.reserve(source.size());
-    for (const auto& row : source) {
-      if (!row.class_name.empty()
-          && !std::holds_alternative<std::monostate>(row.context))
-      {
-        names.emplace_back(std::visit(
-            [&](const auto& ctx) -> std::string
-            {
-              if constexpr (std::is_same_v<std::remove_cvref_t<decltype(ctx)>,
-                                           std::monostate>)
-              {
-                return {};
-              } else {
-                return generate_lp_label(
-                    row.class_name, row.constraint_name, row.variable_uid, ctx);
-              }
-            },
-            row.context));
-      } else {
-        names.emplace_back();
-      }
-    }
-    return names;
-  };
 
   fp_name_vec_t colnm;
   if (opts.col_with_names || opts.col_with_name_map) [[unlikely]] {
-    colnm = build_col_names(cols, opts.move_names);
+    colnm.reserve(cols.size());
+    for (const auto& col : cols) {
+      colnm.emplace_back(effective_lm.make_col_label(col));
+    }
   }
 
   fp_name_vec_t rownm;
   if (opts.row_with_names || opts.row_with_name_map) [[unlikely]] {
-    rownm = build_row_names(rows, opts.move_names);
+    rownm.reserve(rows.size());
+    for (const auto& row : rows) {
+      rownm.emplace_back(effective_lm.make_row_label(row));
+    }
   }
 
   // Index name maps
@@ -755,6 +716,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       .stats_min_col_name = std::move(stats_min_col_name),
       .row_type_stats = std::move(row_type_stats_vec),
       .variable_scale_map = std::move(m_vsm_),
+      .label_maker = effective_lm,
   };
 }
 

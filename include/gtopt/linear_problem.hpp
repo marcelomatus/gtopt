@@ -18,6 +18,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include <gtopt/label_maker.hpp>
 #include <gtopt/lp_matrix_options.hpp>
 #include <gtopt/sparse_row.hpp>
 #include <gtopt/strong_index_vector.hpp>
@@ -113,6 +114,12 @@ struct FlatLinearProblem
   /// LinearInterface picks this up in load_flat() so dynamically
   /// added columns can be auto-scaled.
   VariableScaleMap variable_scale_map {};
+
+  /// LabelMaker copied from LinearProblem during flatten().
+  /// LinearInterface picks this up in load_flat() so dynamically
+  /// added columns and rows generate labels consistent with the
+  /// original names_level configuration.
+  LabelMaker label_maker {};
 };
 
 /**
@@ -172,6 +179,17 @@ public:
   [[nodiscard]] const VariableScaleMap& variable_scale_map() const noexcept
   {
     return m_vsm_;
+  }
+
+  /// Set the LabelMaker used to generate column/row labels during flatten().
+  /// The LabelMaker is copied into FlatLinearProblem so LinearInterface can
+  /// continue generating labels for dynamically added columns/rows.
+  void set_label_maker(LabelMaker lm) noexcept { m_label_maker_ = lm; }
+
+  /// Get the LabelMaker (default-constructed = names off if not set).
+  [[nodiscard]] const LabelMaker& label_maker() const noexcept
+  {
+    return m_label_maker_;
   }
 
   /**
@@ -381,6 +399,7 @@ private:
   size_t colints {};  ///< Number of integer variables
   double m_infinity_ {DblMax};  ///< Target infinity for bound normalization
   VariableScaleMap m_vsm_ {};  ///< Auto-scale map (owned copy)
+  LabelMaker m_label_maker_ {};  ///< Label generator (default = names off)
 };
 
 }  // namespace gtopt

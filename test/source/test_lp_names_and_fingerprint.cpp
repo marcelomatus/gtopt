@@ -179,7 +179,9 @@ TEST_CASE(  // NOLINT
   auto flat = lp.flatten(opts);
 
   LinearInterface li;
-  li.set_lp_names_level(static_cast<int>(LpNamesLevel::cols_and_rows));
+  // load_flat() copies the LabelMaker from flat.label_maker, which was
+  // populated during flatten() from the LinearProblem that make_simple_lp()
+  // already configured with LpNamesLevel::cols_and_rows.
   li.load_flat(flat);
 
   // row_index_to_name should be populated → write_lp passes the check

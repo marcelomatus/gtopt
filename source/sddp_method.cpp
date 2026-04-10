@@ -335,7 +335,7 @@ SDDPMethod::SDDPMethod(PlanningLP& planning_lp, SDDPOptions opts) noexcept
             }
             return ApertureDataCache {dir_path};
           }())
-    , m_label_maker_(planning_lp.options())
+    , m_label_maker_(planning_lp.options().names_level())
 {
 }
 

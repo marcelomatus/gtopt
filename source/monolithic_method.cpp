@@ -61,7 +61,7 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
         static_cast<std::size_t>(num_scenes),
         StrongIndexVector<PhaseIndex, PhaseStateInfo>(num_phases_bc));
 
-    const LabelMaker label_maker(planning_lp.options());
+    const LabelMaker label_maker {planning_lp.options().names_level()};
 
     auto bc_result = load_boundary_cuts_csv(planning_lp,
                                             boundary_cuts_file,

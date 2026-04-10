@@ -222,11 +222,11 @@ TEST_CASE("PlanningLP - Write LP file")
       .system = system,
   };
 
-  // Create flat options with lp_names_level=1 so row names are tracked.
+  // Create flat options with cols_and_rows so row names are tracked.
   LpMatrixOptions flat_options;
   flat_options.row_with_names = true;
   flat_options.row_with_name_map = true;
-  flat_options.lp_names_level = LpNamesLevel::only_cols;
+  flat_options.lp_names_level = LpNamesLevel::cols_and_rows;
 
   // Create planning_lp
   const PlanningLP planning_lp(planning, flat_options);
@@ -333,11 +333,11 @@ TEST_CASE("PlanningLP - Run with write_only flag")
       .system = system,
   };
 
-  // Create flat options with lp_names_level=1 so row names are tracked.
+  // Create flat options with cols_and_rows so row names are tracked.
   LpMatrixOptions flat_options;
   flat_options.row_with_names = true;
   flat_options.row_with_name_map = true;
-  flat_options.lp_names_level = LpNamesLevel::only_cols;
+  flat_options.lp_names_level = LpNamesLevel::cols_and_rows;
 
   // Create planning_lp
   PlanningLP planning_lp(planning, flat_options);
