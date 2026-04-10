@@ -46,6 +46,9 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
                             LinearProblem& lp)
 {
   static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr std::string_view ampl_class = "reservoir";
+
+  sc.register_ampl_element(ampl_class, id().second, uid());
 
   if (!is_active(stage)) {
     return true;
@@ -140,6 +143,56 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   // storing the indices for this scenario and stage
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   extraction_cols[st_key] = std::move(rcols);
+
+  // Register PAMPL-visible columns.
+  sc.add_ampl_variable(ampl_class,
+                       uid(),
+                       ExtractionName,
+                       scenario,
+                       stage,
+                       extraction_cols.at(st_key));
+
+  // Energy / volume aliases (storage balance variable).
+  const auto& ecols = energy_cols_at(scenario, stage);
+  sc.add_ampl_variable(
+      ampl_class, uid(), StorageBase::EnergyName, scenario, stage, ecols);
+  sc.add_ampl_variable(
+      ampl_class, uid(), StorageBase::VolumeName, scenario, stage, ecols);
+
+  // Spill / drain aliases — only when drain columns exist.
+  if (const auto* dcols = this->find_drain_cols(scenario, stage);
+      dcols != nullptr && !dcols->empty())
+  {
+    sc.add_ampl_variable(
+        ampl_class, uid(), StorageBase::SpillName, scenario, stage, *dcols);
+    sc.add_ampl_variable(
+        ampl_class, uid(), StorageBase::DrainName, scenario, stage, *dcols);
+  }
+
+  // Stage-level eini / efin.
+  sc.add_ampl_variable(ampl_class,
+                       uid(),
+                       StorageBase::EiniName,
+                       scenario,
+                       stage,
+                       eini_col_at(scenario, stage));
+  sc.add_ampl_variable(ampl_class,
+                       uid(),
+                       StorageBase::EfinName,
+                       scenario,
+                       stage,
+                       efin_col_at(scenario, stage));
+
+  // Optional soft_emin slack.
+  if (auto soft_col = soft_emin_col_at(scenario, stage)) {
+    sc.add_ampl_variable(ampl_class,
+                         uid(),
+                         StorageBase::SoftEminName,
+                         scenario,
+                         stage,
+                         *soft_col);
+  }
+
   return true;
 }
 

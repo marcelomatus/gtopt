@@ -34,6 +34,10 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
                        const StageLP& stage,
                        LinearProblem& lp)
 {
+  static constexpr std::string_view ampl_class = "flow";
+
+  sc.register_ampl_element(ampl_class, id().second, uid());
+
   if (!is_active(stage)) {
     return true;
   }
@@ -80,6 +84,18 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
   // storing the indices for this scenario and stage
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   flow_cols[st_key] = std::move(fcols);
+
+  // Register PAMPL-visible columns — "flow" and "discharge" alias.
+  if (!flow_cols.at(st_key).empty()) {
+    sc.add_ampl_variable(
+        ampl_class, uid(), FlowName, scenario, stage, flow_cols.at(st_key));
+    sc.add_ampl_variable(ampl_class,
+                         uid(),
+                         DischargeName,
+                         scenario,
+                         stage,
+                         flow_cols.at(st_key));
+  }
 
   return true;
 }

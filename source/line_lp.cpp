@@ -130,6 +130,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
                        const StageLP& stage,
                        LinearProblem& lp)
 {
+  static constexpr std::string_view ampl_class = "line";
+
   if (is_loop()) {
     return true;
   }
@@ -137,6 +139,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
   if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) {
     return false;
   }
+
+  sc.register_ampl_element(ampl_class, id().second, uid());
 
   if (!is_active(stage)) [[unlikely]] {
     return true;
@@ -251,6 +255,32 @@ bool LineLP::add_to_lp(SystemContext& sc,
   flown_cols[st_key] = std::move(fncols);
   lossp_cols[st_key] = std::move(lpcols);
   lossn_cols[st_key] = std::move(lncols);
+
+  // Register PAMPL-visible columns.
+  if (!flowp_cols.at(st_key).empty()) {
+    sc.add_ampl_variable(
+        ampl_class, uid(), FlowpName, scenario, stage, flowp_cols.at(st_key));
+  }
+  if (!flown_cols.at(st_key).empty()) {
+    sc.add_ampl_variable(
+        ampl_class, uid(), FlownName, scenario, stage, flown_cols.at(st_key));
+  }
+  if (!lossp_cols.at(st_key).empty()) {
+    sc.add_ampl_variable(
+        ampl_class, uid(), LosspName, scenario, stage, lossp_cols.at(st_key));
+  }
+  if (!lossn_cols.at(st_key).empty()) {
+    sc.add_ampl_variable(
+        ampl_class, uid(), LossnName, scenario, stage, lossn_cols.at(st_key));
+  }
+  if (capacity_col) {
+    sc.add_ampl_variable(ampl_class,
+                         uid(),
+                         CapacityObjectBase::CapainstName,
+                         scenario,
+                         stage,
+                         *capacity_col);
+  }
 
   return true;
 }

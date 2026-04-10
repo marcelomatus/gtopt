@@ -6,9 +6,9 @@
  * @copyright BSD-3-Clause
  */
 
+#include <algorithm>
 #include <charconv>
 #include <format>
-#include <ranges>
 
 #include <gtopt/as_label.hpp>
 #include <gtopt/battery_lp.hpp>
@@ -104,418 +104,71 @@ namespace
   const auto single_id = parse_element_id(ref.element_id);
   const BlockUid buid = block.uid();
 
-  // Local helper: collapse the common "find+check+build ResolvedCol" pattern
-  // used for every per-block column map below.  Returns nullopt when `buid`
-  // is not present (no bounds-throwing .at(), no duplicated lookups).
-  const auto resolve_from_map =
-      [&](const auto& cols) -> std::optional<ResolvedCol>
+  // 1. Convert element_id (Uid or Name) into a concrete Uid.  Names
+  //    are looked up via the AMPL element-name registry populated by
+  //    each element's `add_to_lp` on first invocation.
+  const auto uid_opt = [&]() -> std::optional<Uid>
   {
-    if (const auto it = cols.find(buid); it != cols.end()) {
-      return ResolvedCol {
-          .col = it->second,
-          .scale = lp.get_col_scale(it->second),
-      };
+    if (std::holds_alternative<Uid>(single_id)) {
+      return std::get<Uid>(single_id);
+    }
+    if (std::holds_alternative<Name>(single_id)) {
+      return sc.lookup_ampl_element_uid(ref.element_type,
+                                        std::get<Name>(single_id));
     }
     return std::nullopt;
-  };
+  }();
 
-  try {
-    // ── generator ────────────────────────────────────────────────────────
-    if (ref.element_type == "generator") {
-      const auto& gen = sc.get_element(ObjectSingleId<GeneratorLP> {single_id});
-      if (ref.attribute == GeneratorLP::GenerationName) {
-        return resolve_from_map(gen.generation_cols_at(scenario, stage));
-      }
-      if (ref.attribute == CapacityObjectBase::CapainstName
-          || ref.attribute == GeneratorLP::CapacityName)
-      {
-        // Stage-level capacity installation variable (expansion column).
-        // The same column is returned for every block in the stage.
-        if (auto col = gen.capacity_col_at(stage)) {
-          return ResolvedCol {
-              .col = *col,
-              .scale = lp.get_col_scale(*col),
-          };
-        }
-      }
-      return std::nullopt;
-    }
-
-    // ── demand ───────────────────────────────────────────────────────────
-    if (ref.element_type == "demand") {
-      const auto& dem = sc.get_element(ObjectSingleId<DemandLP> {single_id});
-      if (ref.attribute == DemandLP::LoadName) {
-        return resolve_from_map(dem.load_cols_at(scenario, stage));
-      }
-      if (ref.attribute == DemandLP::FailName) {
-        return resolve_from_map(dem.fail_cols_at(scenario, stage));
-      }
-      if (ref.attribute == CapacityObjectBase::CapainstName
-          || ref.attribute == DemandLP::CapacityName)
-      {
-        // Stage-level capacity installation variable.
-        if (auto col = dem.capacity_col_at(stage)) {
-          return ResolvedCol {
-              .col = *col,
-              .scale = lp.get_col_scale(*col),
-          };
-        }
-      }
-      return std::nullopt;
-    }
-
-    // ── line ─────────────────────────────────────────────────────────────
-    if (ref.element_type == "line") {
-      const auto& ln = sc.get_element(ObjectSingleId<LineLP> {single_id});
-      // Note: "flow" is not supported for lines — it is semantically
-      // (flowp - flown), not an alias.  Users must write
-      //   `line("X").flowp - line("X").flown`
-      // explicitly if they want net power flow.
-      if (ref.attribute == LineLP::FlowpName) {
-        return resolve_from_map(ln.flowp_cols_at(scenario, stage));
-      }
-      if (ref.attribute == LineLP::FlownName) {
-        return resolve_from_map(ln.flown_cols_at(scenario, stage));
-      }
-      if (ref.attribute == LineLP::LosspName) {
-        return resolve_from_map(ln.lossp_cols_at(scenario, stage));
-      }
-      if (ref.attribute == LineLP::LossnName) {
-        return resolve_from_map(ln.lossn_cols_at(scenario, stage));
-      }
-      if (ref.attribute == CapacityObjectBase::CapainstName) {
-        // Stage-level capacity installation variable.
-        if (auto col = ln.capacity_col_at(stage)) {
-          return ResolvedCol {
-              .col = *col,
-              .scale = lp.get_col_scale(*col),
-          };
-        }
-      }
-      return std::nullopt;
-    }
-
-    // ── battery ──────────────────────────────────────────────────────────
-    if (ref.element_type == "battery") {
-      const auto& bat = sc.get_element(ObjectSingleId<BatteryLP> {single_id});
-      if (ref.attribute == BatteryLP::ChargeName) {
-        return resolve_from_map(bat.finp_cols_at(scenario, stage));
-      }
-      if (ref.attribute == BatteryLP::DischargeName) {
-        return resolve_from_map(bat.fout_cols_at(scenario, stage));
-      }
-      if (ref.attribute == BatteryLP::EnergyName) {
-        return resolve_from_map(bat.energy_cols_at(scenario, stage));
-      }
-      if (ref.attribute == BatteryLP::SpillName
-          || ref.attribute == BatteryLP::DrainName)
-      {
-        return resolve_from_map(bat.drain_cols_at(scenario, stage));
-      }
-      if (ref.attribute == BatteryLP::EiniName) {
-        // Stage-level initial energy column (state variable).
-        // Same column for all blocks in the stage.
-        const auto col = bat.eini_col_at(scenario, stage);
-        return ResolvedCol {
-            .col = col,
-            .scale = lp.get_col_scale(col),
-        };
-      }
-      if (ref.attribute == BatteryLP::EfinName) {
-        // Stage-level final energy column.
-        // Same column for all blocks in the stage.
-        const auto col = bat.efin_col_at(scenario, stage);
-        return ResolvedCol {
-            .col = col,
-            .scale = lp.get_col_scale(col),
-        };
-      }
-      if (ref.attribute == BatteryLP::SoftEminName) {
-        // Stage-level soft minimum energy slack column.
-        // Returns nullopt when soft_emin is inactive for this stage.
-        if (auto col = bat.soft_emin_col_at(scenario, stage)) {
-          return ResolvedCol {
-              .col = *col,
-              .scale = lp.get_col_scale(*col),
-          };
-        }
-      }
-      if (ref.attribute == CapacityObjectBase::CapainstName
-          || ref.attribute == BatteryLP::CapacityName)
-      {
-        // Stage-level capacity installation variable.
-        if (auto col = bat.capacity_col_at(stage)) {
-          return ResolvedCol {
-              .col = *col,
-              .scale = lp.get_col_scale(*col),
-          };
-        }
-      }
-      return std::nullopt;
-    }
-
-    // ── reservoir ────────────────────────────────────────────────────────
-    if (ref.element_type == "reservoir") {
-      const auto& res = sc.get_element(ObjectSingleId<ReservoirLP> {single_id});
-      if (ref.attribute == ReservoirLP::VolumeName
-          || ref.attribute == ReservoirLP::EnergyName)
-      {
-        return resolve_from_map(res.energy_cols_at(scenario, stage));
-      }
-      if (ref.attribute == ReservoirLP::SpillName
-          || ref.attribute == ReservoirLP::DrainName)
-      {
-        return resolve_from_map(res.drain_cols_at(scenario, stage));
-      }
-      if (ref.attribute == ReservoirLP::ExtractionName) {
-        return resolve_from_map(res.extraction_cols_at(scenario, stage));
-      }
-      if (ref.attribute == ReservoirLP::EiniName) {
-        // Stage-level initial volume column (state variable).
-        const auto col = res.eini_col_at(scenario, stage);
-        return ResolvedCol {
-            .col = col,
-            .scale = lp.get_col_scale(col),
-        };
-      }
-      if (ref.attribute == ReservoirLP::EfinName) {
-        // Stage-level final volume column.
-        const auto col = res.efin_col_at(scenario, stage);
-        return ResolvedCol {
-            .col = col,
-            .scale = lp.get_col_scale(col),
-        };
-      }
-      if (ref.attribute == ReservoirLP::SoftEminName) {
-        // Stage-level soft minimum volume slack column.
-        if (auto col = res.soft_emin_col_at(scenario, stage)) {
-          return ResolvedCol {
-              .col = *col,
-              .scale = lp.get_col_scale(*col),
-          };
-        }
-      }
-      return std::nullopt;
-    }
-
-    // ── waterway ─────────────────────────────────────────────────────────
-    if (ref.element_type == "waterway") {
-      const auto& ww = sc.get_element(ObjectSingleId<WaterwayLP> {single_id});
-      if (ref.attribute == WaterwayLP::FlowName) {
-        return resolve_from_map(ww.flow_cols_at(scenario, stage));
-      }
-      return std::nullopt;
-    }
-
-    // ── turbine: delegate to the associated generator ────────────────────
-    if (ref.element_type == "turbine") {
-      const auto& turb = sc.get_element(ObjectSingleId<TurbineLP> {single_id});
-      if (ref.attribute == GeneratorLP::GenerationName) {
-        const auto& gen = sc.get_element(turb.generator_sid());
-        return resolve_from_map(gen.generation_cols_at(scenario, stage));
-      }
-      return std::nullopt;
-    }
-
-    // ── converter: charge → demand.load, discharge → generator.generation
-    if (ref.element_type == "converter") {
-      const auto& conv =
-          sc.get_element(ObjectSingleId<ConverterLP> {single_id});
-      if (ref.attribute == BatteryLP::DischargeName) {
-        const auto& gen = sc.get_element(conv.generator_sid());
-        return resolve_from_map(gen.generation_cols_at(scenario, stage));
-      }
-      if (ref.attribute == BatteryLP::ChargeName) {
-        const auto& dem = sc.get_element(conv.demand_sid());
-        return resolve_from_map(dem.load_cols_at(scenario, stage));
-      }
-      return std::nullopt;
-    }
-
-    // ── bus: voltage angle θ ─────────────────────────────────────────────
-    if (ref.element_type == "bus") {
-      const auto& bus_lp = sc.get_element(ObjectSingleId<BusLP> {single_id});
-      if (ref.attribute == BusLP::ThetaName
-          || ref.attribute == BusLP::AngleName)
-      {
-        if (auto col = bus_lp.lookup_theta_col(scenario, stage, buid)) {
-          // theta scale is stored in SparseCol::scale at column creation.
-          return ResolvedCol {
-              .col = *col,
-              .scale = lp.get_col_scale(*col),
-          };
-        }
-        return std::nullopt;
-      }
-      return std::nullopt;
-    }
-
-    // ── junction: drain variable ─────────────────────────────────────────
-    if (ref.element_type == "junction") {
-      const auto& jun = sc.get_element(ObjectSingleId<JunctionLP> {single_id});
-      if (ref.attribute == JunctionLP::DrainName) {
-        return resolve_from_map(jun.drain_cols_at(scenario, stage));
-      }
-      return std::nullopt;
-    }
-
-    // ── flow: discharge variable ─────────────────────────────────────────
-    if (ref.element_type == "flow") {
-      const auto& flw = sc.get_element(ObjectSingleId<FlowLP> {single_id});
-      if (ref.attribute == FlowLP::FlowName
-          || ref.attribute == FlowLP::DischargeName)
-      {
-        return resolve_from_map(flw.flow_cols_at(scenario, stage));
-      }
-      return std::nullopt;
-    }
-
-    // ── flow_right: water-rights flow variable ────────────────────────
-    if (ref.element_type == "flow_right") {
-      const auto& frt = sc.get_element(ObjectSingleId<FlowRightLP> {single_id});
-      if (ref.attribute == FlowRightLP::FlowName) {
-        return resolve_from_map(frt.flow_cols_at(scenario, stage));
-      }
-      if (ref.attribute == FlowRightLP::FailName) {
-        return resolve_from_map(frt.fail_cols_at(scenario, stage));
-      }
-      return std::nullopt;
-    }
-
-    // ── volume_right: water-rights extraction flow variable ──────────
-    if (ref.element_type == "volume_right") {
-      const auto& vrt =
-          sc.get_element(ObjectSingleId<VolumeRightLP> {single_id});
-      if (ref.attribute == VolumeRightLP::ExtractionName
-          || ref.attribute == VolumeRightLP::FlowName
-          || ref.attribute == VolumeRightLP::FoutName)
-      {
-        return resolve_from_map(vrt.extraction_cols_at(scenario, stage));
-      }
-      if (ref.attribute == VolumeRightLP::SavingName) {
-        return resolve_from_map(vrt.saving_cols_at(scenario, stage));
-      }
-      if (ref.attribute == VolumeRightLP::EnergyName
-          || ref.attribute == VolumeRightLP::VolumeName)
-      {
-        // Per-block accumulated rights volume column.
-        // "volume" is the domain-natural name for water rights;
-        // "energy" is the StorageLP base-class name — both resolve
-        // to the same LP column, consistent with reservoir and battery.
-        return resolve_from_map(vrt.energy_cols_at(scenario, stage));
-      }
-      if (ref.attribute == VolumeRightLP::EiniName) {
-        // Stage-level initial rights volume column (state variable).
-        // Enables PAMPL constraints to reference or set the initial
-        // accumulated volume at the start of a stage — critical for
-        // month-based reset of Maule/Laja volume rights.
-        const auto col = vrt.eini_col_at(scenario, stage);
-        return ResolvedCol {
-            .col = col,
-            .scale = lp.get_col_scale(col),
-        };
-      }
-      if (ref.attribute == VolumeRightLP::EfinName) {
-        // Stage-level final rights volume column.
-        const auto col = vrt.efin_col_at(scenario, stage);
-        return ResolvedCol {
-            .col = col,
-            .scale = lp.get_col_scale(col),
-        };
-      }
-      if (ref.attribute == VolumeRightLP::SoftEminName) {
-        // Stage-level soft minimum volume slack column.
-        if (auto col = vrt.soft_emin_col_at(scenario, stage)) {
-          return ResolvedCol {
-              .col = *col,
-              .scale = lp.get_col_scale(*col),
-          };
-        }
-      }
-      return std::nullopt;
-    }
-
-    // ── seepage: seepage flow variable ──────────────────────────────
-    if (ref.element_type == "seepage") {
-      const auto& fil =
-          sc.get_element(ObjectSingleId<ReservoirSeepageLP> {single_id});
-      if (ref.attribute == "flow" || ref.attribute == "seepage") {
-        const auto& cols = fil.seepage_cols_at(scenario, stage);
-        return resolve_from_map(cols);
-      }
-      return std::nullopt;
-    }
-
-    // ── reserve_provision: up/dn reserve provision column ────────────────
-    if (ref.element_type == "reserve_provision") {
-      const auto& rp =
-          sc.get_element(ObjectSingleId<ReserveProvisionLP> {single_id});
-      if (ref.attribute == "up" || ref.attribute == "uprovision"
-          || ref.attribute == "up_provision")
-      {
-        if (auto col = rp.lookup_up_provision_col(scenario, stage, buid)) {
-          return ResolvedCol {
-              .col = *col,
-              .scale = lp.get_col_scale(*col),
-          };
-        }
-        return std::nullopt;
-      }
-      if (ref.attribute == "dn" || ref.attribute == "down"
-          || ref.attribute == "dprovision" || ref.attribute == "dn_provision")
-      {
-        if (auto col = rp.lookup_dn_provision_col(scenario, stage, buid)) {
-          return ResolvedCol {
-              .col = *col,
-              .scale = lp.get_col_scale(*col),
-          };
-        }
-        return std::nullopt;
-      }
-      return std::nullopt;
-    }
-
-    // ── reserve_zone: up/dn requirement column ───────────────────────────
-    if (ref.element_type == "reserve_zone") {
-      const auto& rz =
-          sc.get_element(ObjectSingleId<ReserveZoneLP> {single_id});
-      if (ref.attribute == "up" || ref.attribute == "urequirement"
-          || ref.attribute == "up_requirement")
-      {
-        if (auto col = rz.lookup_urequirement_col(scenario, stage, buid)) {
-          return ResolvedCol {
-              .col = *col,
-              .scale = lp.get_col_scale(*col),
-          };
-        }
-        return std::nullopt;
-      }
-      if (ref.attribute == "dn" || ref.attribute == "down"
-          || ref.attribute == "drequirement"
-          || ref.attribute == "dn_requirement")
-      {
-        if (auto col = rz.lookup_drequirement_col(scenario, stage, buid)) {
-          return ResolvedCol {
-              .col = *col,
-              .scale = lp.get_col_scale(*col),
-          };
-        }
-        return std::nullopt;
-      }
-      return std::nullopt;
-    }
-
-  } catch (const std::exception& ex) {
-    SPDLOG_WARN(std::format("user_constraint: cannot resolve {}.{}('{}'): {}",
+  if (!uid_opt) {
+    SPDLOG_WARN(std::format("user_constraint: unknown {} name '{}'",
                             ref.element_type,
-                            ref.attribute,
-                            ref.element_id,
-                            ex.what()));
+                            ref.element_id));
     return std::nullopt;
   }
 
-  SPDLOG_WARN(std::format("user_constraint: unknown element type '{}'",
-                          ref.element_type));
+  // 2. Generic AMPL variable registry lookup — primary path.  All
+  //    migrated elements populate this map in their `add_to_lp`, so
+  //    we can look up the column without per-element-type dispatch.
+  if (const auto col = sc.find_ampl_col(ref.element_type,
+                                        *uid_opt,
+                                        ref.attribute,
+                                        scenario.uid(),
+                                        stage.uid(),
+                                        buid))
+  {
+    return ResolvedCol {
+        .col = *col,
+        .scale = lp.get_col_scale(*col),
+    };
+  }
+
+  // 3. Fallback: `bus.theta` / `bus.angle` are created lazily by
+  //    `LineLP::add_kirchhoff_rows` through `theta_cols_at` and are
+  //    therefore not yet known to the registry at `BusLP::add_to_lp`
+  //    time.  Keep the bespoke lookup so PAMPL expressions can still
+  //    reference theta once the lines have populated the map.
+  if (ref.element_type == "bus"
+      && (ref.attribute == BusLP::ThetaName
+          || ref.attribute == BusLP::AngleName))
+  {
+    try {
+      const auto& bus_lp = sc.get_element(ObjectSingleId<BusLP> {single_id});
+      if (auto col = bus_lp.lookup_theta_col(scenario, stage, buid)) {
+        return ResolvedCol {
+            .col = *col,
+            .scale = lp.get_col_scale(*col),
+        };
+      }
+    } catch (const std::exception& ex) {
+      SPDLOG_WARN(std::format("user_constraint: cannot resolve {}.{}('{}'): {}",
+                              ref.element_type,
+                              ref.attribute,
+                              ref.element_id,
+                              ex.what()));
+    }
+    return std::nullopt;
+  }
+
   return std::nullopt;
 }
 

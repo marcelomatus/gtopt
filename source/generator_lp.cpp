@@ -65,9 +65,15 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
+  static constexpr std::string_view ampl_class = "generator";
+
   if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) [[unlikely]] {
     return false;
   }
+
+  // Register element name once per element so PAMPL `generator("G1")`
+  // expressions can resolve names to uids.
+  sc.register_ampl_element(ampl_class, id().second, uid());
 
   if (!is_active(stage)) [[unlikely]] {
     return true;
@@ -150,9 +156,29 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   if (!gcols.empty()) {
     generation_cols[st_key] = std::move(gcols);
+    // Register PAMPL-visible columns with the variable registry.
+    sc.add_ampl_variable(ampl_class,
+                         guid,
+                         GenerationName,
+                         scenario,
+                         stage,
+                         generation_cols.at(st_key));
   }
   if (!crows.empty()) {
     capacity_rows[st_key] = std::move(crows);
+  }
+
+  // Stage-level capacity (capainst / capacity) — only when expansion column
+  // exists.
+  if (capacity_col) {
+    sc.add_ampl_variable(ampl_class,
+                         guid,
+                         CapacityObjectBase::CapainstName,
+                         scenario,
+                         stage,
+                         *capacity_col);
+    sc.add_ampl_variable(
+        ampl_class, guid, CapacityName, scenario, stage, *capacity_col);
   }
 
   return true;

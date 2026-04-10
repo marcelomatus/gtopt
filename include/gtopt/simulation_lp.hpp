@@ -14,6 +14,7 @@
 #pragma once
 
 #include <functional>
+#include <mutex>
 #include <utility>
 #include <vector>
 
@@ -45,11 +46,15 @@ class PlanningLP;
 class SimulationLP
 {
 public:
-  SimulationLP(SimulationLP&&) noexcept = default;
-  SimulationLP(const SimulationLP&) = default;
-
-  SimulationLP& operator=(SimulationLP&&) noexcept = default;
-  SimulationLP& operator=(const SimulationLP&) noexcept = default;
+  // SimulationLP holds a std::mutex (m_ampl_mutex_) to guard concurrent
+  // writes to the PAMPL variable registry during parallel scene builds
+  // in planning_lp.cpp.  The mutex makes the class neither copyable nor
+  // movable; callers (PlanningLP, tests) only ever construct it in-place,
+  // so the deletions below do not affect real usage.
+  SimulationLP(SimulationLP&&) = delete;
+  SimulationLP(const SimulationLP&) = delete;
+  SimulationLP& operator=(SimulationLP&&) = delete;
+  SimulationLP& operator=(const SimulationLP&) = delete;
   ~SimulationLP() noexcept = default;
 
   /**
@@ -249,9 +254,12 @@ public:
   /// @param element_uid element's Uid
   /// @param attribute   PAMPL attribute name ("generation", "flowp", ...)
   /// @param scenario_uid / stage_uid the (scenario, stage) this map is for
-  /// @param block_cols  reference to the element's BIndexHolder for this
-  ///                    (scenario, stage).  Stored by pointer — lifetime
-  ///                    must extend through the end of LP solving.
+  /// @param block_cols  the element's BIndexHolder for this (scenario,
+  ///                    stage).  Copied by value: elements hold
+  ///                    `STBIndexHolder`s whose outer flat_map
+  ///                    reallocates on every new (scenario, stage)
+  ///                    insert, which would dangle any pointer kept
+  ///                    here across later `add_to_lp` calls.
   void add_ampl_variable(std::string_view class_name,
                          Uid element_uid,
                          std::string_view attribute,
@@ -259,6 +267,7 @@ public:
                          StageUid stage_uid,
                          const BIndexHolder<ColIndex>& block_cols)
   {
+    const std::scoped_lock lock(m_ampl_mutex_);
     m_ampl_variables_.insert_or_assign(
         AmplVariableKey {
             .class_name = std::string {class_name},
@@ -268,7 +277,7 @@ public:
             .stage_uid = stage_uid,
         },
         AmplVariable {
-            .block_cols = &block_cols,
+            .block_cols = block_cols,
             .stage_col = ColIndex {unknown_index},
         });
   }
@@ -282,6 +291,7 @@ public:
                          StageUid stage_uid,
                          ColIndex stage_col)
   {
+    const std::scoped_lock lock(m_ampl_mutex_);
     m_ampl_variables_.insert_or_assign(
         AmplVariableKey {
             .class_name = std::string {class_name},
@@ -291,7 +301,7 @@ public:
             .stage_uid = stage_uid,
         },
         AmplVariable {
-            .block_cols = nullptr,
+            .block_cols = {},
             .stage_col = stage_col,
         });
   }
@@ -308,6 +318,7 @@ public:
       StageUid stage_uid,
       BlockUid block_uid) const
   {
+    const std::scoped_lock lock(m_ampl_mutex_);
     const auto it = m_ampl_variables_.find(AmplVariableKey {
         .class_name = std::string {class_name},
         .element_uid = element_uid,
@@ -327,6 +338,7 @@ public:
                              std::string_view element_name,
                              Uid element_uid)
   {
+    const std::scoped_lock lock(m_ampl_mutex_);
     m_ampl_element_names_.insert_or_assign(
         AmplElementNameKey {std::string {class_name},
                             std::string {element_name}},
@@ -337,6 +349,7 @@ public:
   [[nodiscard]] std::optional<Uid> lookup_ampl_element_uid(
       std::string_view class_name, std::string_view element_name) const
   {
+    const std::scoped_lock lock(m_ampl_mutex_);
     const auto it = m_ampl_element_names_.find(AmplElementNameKey {
         std::string {class_name}, std::string {element_name}});
     return (it != m_ampl_element_names_.end()) ? std::optional<Uid> {it->second}
@@ -356,6 +369,13 @@ private:
 
   // PAMPL variable registry — populated by each LP element's add_to_lp
   // and queried by element_column_resolver.cpp.
+  //
+  // Writes happen from multiple worker threads during parallel scene
+  // construction (see planning_lp.cpp: each scene's SystemLPs are built
+  // on a separate work-pool thread, and they all target the same
+  // SimulationLP).  A single mutex guards both maps.  Reads run after
+  // all builds complete, so they are not locked.
+  mutable std::mutex m_ampl_mutex_;
   AmplVariableMap m_ampl_variables_;
   AmplElementNameMap m_ampl_element_names_;
 };

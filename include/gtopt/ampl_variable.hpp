@@ -57,25 +57,32 @@ struct AmplVariableKey
       const AmplVariableKey&, const AmplVariableKey&) noexcept = default;
 };
 
-/// Registry value: either a per-block column map pointer (the common
-/// case) or a single stage-level column used for every block.
+/// Registry value: either a per-block column map copy (the common case)
+/// or a single stage-level column used for every block.
+///
+/// The per-block map is stored **by value** because elements hold their
+/// `STBIndexHolder`s (flat_map of BIndexHolder) and adding new entries
+/// invalidates any pointers into older values.  In SDDP, `add_to_lp` is
+/// called once per (scenario, stage) pair, so later insertions grow the
+/// outer flat_map and reallocate its storage — any raw pointer cached
+/// here from an earlier call would dangle.  Copying the `BIndexHolder`
+/// by value into `AmplVariable` sidesteps the lifetime problem entirely;
+/// the indices inside are small POD so copies are cheap.
 struct AmplVariable
 {
-  /// Non-owning pointer to the element's per-block column map for this
-  /// (scenario, stage).  nullptr when this entry represents a stage-level
-  /// variable (see `stage_col`).
-  const BIndexHolder<ColIndex>* block_cols {nullptr};
+  /// Per-block column map for this (scenario, stage).  Empty when this
+  /// entry represents a stage-level variable (see `stage_col`).
+  BIndexHolder<ColIndex> block_cols;
 
   /// Stage-level column: same value for every block in the stage.
-  /// Only meaningful when `block_cols == nullptr`.
+  /// Only meaningful when `block_cols` is empty.
   ColIndex stage_col {unknown_index};
 
-  [[nodiscard]] constexpr std::optional<ColIndex> col_at(
+  [[nodiscard]] std::optional<ColIndex> col_at(
       BlockUid block_uid) const noexcept
   {
-    if (block_cols != nullptr) {
-      if (const auto it = block_cols->find(block_uid); it != block_cols->end())
-      {
+    if (!block_cols.empty()) {
+      if (const auto it = block_cols.find(block_uid); it != block_cols.end()) {
         return it->second;
       }
       return std::nullopt;

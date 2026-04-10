@@ -192,6 +192,15 @@ public:
     return drain_cols.at({scenario.uid(), stage.uid()});
   }
 
+  /// Non-throwing lookup: returns a pointer to the drain/spill column map
+  /// for (scenario, stage), or nullptr when not present.
+  [[nodiscard]] constexpr const BIndexHolder<ColIndex>* find_drain_cols(
+      const ScenarioLP& scenario, const StageLP& stage) const noexcept
+  {
+    const auto it = drain_cols.find({scenario.uid(), stage.uid()});
+    return it != drain_cols.end() ? &it->second : nullptr;
+  }
+
   /// Return the soft-emin slack column for (scenario, stage), if it exists.
   ///
   /// The soft-emin slack is only created when `soft_emin > 0` and

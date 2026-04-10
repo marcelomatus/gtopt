@@ -38,6 +38,11 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
                                    const StageLP& stage,
                                    LinearProblem& lp)
 {
+  static constexpr std::string_view ampl_class = "seepage";
+  static constexpr std::string_view flow_alias = "flow";
+
+  sc.register_ampl_element(ampl_class, id().second, uid());
+
   if (!is_active(stage)) {
     return true;
   }
@@ -98,6 +103,23 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   seepage_rows[st_key] = std::move(frows);
   seepage_cols[st_key] = std::move(fcols);
+
+  // Register PAMPL-visible columns — "flow" and "seepage" both alias
+  // the waterway's flow column that the seepage row constrains.
+  if (!seepage_cols.at(st_key).empty()) {
+    sc.add_ampl_variable(ampl_class,
+                         uid(),
+                         SeepageName,
+                         scenario,
+                         stage,
+                         seepage_cols.at(st_key));
+    sc.add_ampl_variable(ampl_class,
+                         uid(),
+                         flow_alias,
+                         scenario,
+                         stage,
+                         seepage_cols.at(st_key));
+  }
 
   // Store the coefficient state for later updates
   m_states_[st_key] = ReservoirSeepageState {

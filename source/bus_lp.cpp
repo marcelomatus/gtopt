@@ -76,11 +76,21 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
   return theta_cols[st_key] = std::move(tblocks);
 }
 
-bool BusLP::add_to_lp(const SystemContext& /*sc*/,
+bool BusLP::add_to_lp(const SystemContext& sc,
                       const ScenarioLP& scenario,
                       const StageLP& stage,
                       LinearProblem& lp)
 {
+  static constexpr std::string_view ampl_class = "bus";
+
+  // Register the element name so PAMPL `bus("B1")` expressions can
+  // resolve to this uid.  Theta columns are lazy-created by lines that
+  // need Kirchhoff; the resolver retains a special-case fallback for
+  // `bus.theta`/`bus.angle` via `lookup_theta_col`, so we do NOT register
+  // a per-block variable here — `theta_cols` may still be empty at this
+  // point in the solve sequence.
+  sc.register_ampl_element(ampl_class, id().second, uid());
+
   if (!is_active(stage)) {
     return true;
   }

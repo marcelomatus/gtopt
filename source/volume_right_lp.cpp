@@ -55,6 +55,9 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
                               LinearProblem& lp)
 {
   static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr std::string_view ampl_class = "volume_right";
+
+  sc.register_ampl_element(ampl_class, id().second, uid());
 
   if (!is_active(stage)) {
     return true;
@@ -217,6 +220,66 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   extraction_cols_[st_key] = extraction_cols;
   if (!saving_cols.empty()) {
     saving_cols_[st_key] = saving_cols;
+  }
+
+  // Register PAMPL-visible columns.  "extraction", "flow" and "fout" all
+  // alias the same per-block extraction column map.
+  if (!extraction_cols_.at(st_key).empty()) {
+    sc.add_ampl_variable(ampl_class,
+                         uid(),
+                         ExtractionName,
+                         scenario,
+                         stage,
+                         extraction_cols_.at(st_key));
+    sc.add_ampl_variable(ampl_class,
+                         uid(),
+                         FlowName,
+                         scenario,
+                         stage,
+                         extraction_cols_.at(st_key));
+    sc.add_ampl_variable(ampl_class,
+                         uid(),
+                         FoutName,
+                         scenario,
+                         stage,
+                         extraction_cols_.at(st_key));
+  }
+  if (const auto it = saving_cols_.find(st_key);
+      it != saving_cols_.end() && !it->second.empty())
+  {
+    sc.add_ampl_variable(
+        ampl_class, uid(), SavingName, scenario, stage, it->second);
+  }
+
+  // Energy / volume aliases (StorageBase balance variable).
+  const auto& ecols = energy_cols_at(scenario, stage);
+  sc.add_ampl_variable(
+      ampl_class, uid(), StorageBase::EnergyName, scenario, stage, ecols);
+  sc.add_ampl_variable(
+      ampl_class, uid(), StorageBase::VolumeName, scenario, stage, ecols);
+
+  // Stage-level eini / efin (state variables).
+  sc.add_ampl_variable(ampl_class,
+                       uid(),
+                       StorageBase::EiniName,
+                       scenario,
+                       stage,
+                       eini_col_at(scenario, stage));
+  sc.add_ampl_variable(ampl_class,
+                       uid(),
+                       StorageBase::EfinName,
+                       scenario,
+                       stage,
+                       efin_col_at(scenario, stage));
+
+  // Optional soft_emin slack.
+  if (auto soft_col = soft_emin_col_at(scenario, stage)) {
+    sc.add_ampl_variable(ampl_class,
+                         uid(),
+                         StorageBase::SoftEminName,
+                         scenario,
+                         stage,
+                         *soft_col);
   }
 
   // Store bound rule state for update_lp
