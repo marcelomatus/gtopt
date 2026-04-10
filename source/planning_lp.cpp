@@ -234,6 +234,20 @@ auto PlanningLP::create_systems(System& system,
         std::string(SolverRegistry::instance().default_solver());
   }
 
+  // Propagate low-memory hint from planning options into flat_opts so
+  // SystemLP::create_lp can branch on it.  SDDP and cascade methods both
+  // honor `sddp_options.low_memory_mode`; the monolithic method leaves
+  // it at `off`.  When non-`off`, SystemLP defers the initial load_flat
+  // and the backend is reconstructed lazily on first use, saving one
+  // full backend population per (scene, phase).
+  if (resolved_opts.low_memory_mode == LowMemoryMode::off) {
+    const auto method = options.method_type_enum();
+    if (method == MethodType::sddp || method == MethodType::cascade) {
+      resolved_opts.low_memory_mode = options.sddp_low_memory();
+      resolved_opts.memory_codec = options.sddp_memory_codec();
+    }
+  }
+
   PlanningLP::scene_phase_systems_t all_systems(scenes.size());
 
   // Use the work pool to build scenes in parallel.  Each scene's phases
@@ -291,9 +305,19 @@ auto PlanningLP::create_systems(System& system,
   // After all add_to_lp calls, dispatch a single initial update_lp pass
   // so that volume-dependent LP elements are set from the reservoir eini
   // values before any solver is called.
-  for (auto& phase_systems : all_systems) {
-    for (auto& sys : phase_systems) {
-      std::ignore = sys.update_lp();
+  //
+  // Skipped under low-memory mode: each (scene, phase) backend is
+  // currently deferred (no load_flat called yet) and the very first
+  // solve pass already calls `dispatch_update_lp` after reconstructing
+  // the backend, so this pre-pass would only force a wasted
+  // reconstruct_backend → load_flat → set_col_*** roundtrip and then
+  // throw the bounds away on the next release.  See
+  // sddp_forward_pass.cpp's per-phase reconstruct + dispatch_update_lp.
+  if (resolved_opts.low_memory_mode == LowMemoryMode::off) {
+    for (auto& phase_systems : all_systems) {
+      for (auto& sys : phase_systems) {
+        std::ignore = sys.update_lp();
+      }
     }
   }
 

@@ -17,6 +17,8 @@
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/lp_matrix_enums.hpp>
+#include <gtopt/planning_enums.hpp>  // CompressionCodec
+#include <gtopt/sddp_enums.hpp>  // LowMemoryMode
 #include <gtopt/utils.hpp>
 
 namespace gtopt
@@ -59,6 +61,19 @@ struct LpMatrixOptions
                                  ///< coefficients (numerical conditioning).
                                  ///< Applied uniformly during flatten().
   std::string solver_name {};  ///< Solver backend name (empty = auto-detect)
+
+  /// Low-memory build hint.  When set to a non-`off` value, `SystemLP`'s
+  /// constructor skips the initial `LinearInterface::load_flat()` call and
+  /// installs the flat LP as a deferred snapshot instead — the solver
+  /// backend is reconstructed lazily on first use.  Used by SDDP and
+  /// cascade methods to avoid loading every (scene, phase) backend
+  /// upfront only to release it again before the first solve.
+  /// Default `off`: backend is loaded eagerly (current behavior).
+  LowMemoryMode low_memory_mode {LowMemoryMode::off};
+
+  /// Codec for the deferred snapshot when `low_memory_mode == compress`.
+  /// `auto_select` defers to `select_codec()` which prefers lz4.
+  CompressionCodec memory_codec {CompressionCodec::auto_select};
 
   /** @brief LP naming level (user-facing JSON/CLI option).
    *

@@ -256,6 +256,21 @@ public:
   /// based on the configured level.
   void save_snapshot(FlatLinearProblem flat_lp);
 
+  /// Install a flat LP snapshot **without** loading the backend.
+  ///
+  /// Used by `SystemLP::create_lp` when low-memory mode is enabled at
+  /// build time so the initial `load_flat()` call can be skipped: the
+  /// snapshot is recorded, optionally compressed (level `compress`), and
+  /// `m_backend_released_` is flipped on so the next user-driven
+  /// `add_col` / `add_row` / solve goes through `ensure_backend()` →
+  /// `reconstruct_backend()` (which performs the single
+  /// build-time `load_flat`).
+  ///
+  /// Pre-condition: `set_low_memory()` must have been called first with a
+  /// non-`off` mode — otherwise this would defeat the lazy reconstruction
+  /// path because `release_backend()` becomes a no-op.
+  void defer_initial_load(FlatLinearProblem flat_lp);
+
   /// Capture hot-start cuts (rows above base_numrows) into active_cuts.
   /// Call after all initialization (alpha vars, hot-start cuts) is done.
   void capture_hot_start_cuts();

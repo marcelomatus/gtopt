@@ -23,6 +23,7 @@
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/lp_fingerprint.hpp>
 #include <gtopt/map_reserve.hpp>
+#include <gtopt/memory_compress.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <spdlog/spdlog.h>
@@ -433,8 +434,28 @@ constexpr auto create_linear_interface(auto& collections,
 
   // Convert and store the flattened LP representation
   auto flat_lp = lp.flatten(flat_opts);
-  li.load_flat(flat_lp);
-  return std::tuple {std::move(li), std::move(fingerprint), std::move(flat_lp)};
+
+  // Branch on low_memory_mode:
+  //
+  //  * `off` (default): eagerly load the backend and stash the flat LP as
+  //    an inert snapshot — current behavior.
+  //
+  //  * `snapshot` / `compress`: skip the initial `load_flat()` entirely.
+  //    The snapshot is installed via `defer_initial_load`, which marks
+  //    the backend as released so the first user-driven access goes
+  //    through `ensure_backend()` → `reconstruct_backend()` → a single
+  //    `load_flat()`.  Saves one full backend population per
+  //    (scene, phase) under SDDP / cascade.
+  if (flat_opts.low_memory_mode != LowMemoryMode::off) {
+    li.set_low_memory(flat_opts.low_memory_mode,
+                      select_codec(flat_opts.memory_codec),
+                      /*cache_warm_start=*/false);
+    li.defer_initial_load(std::move(flat_lp));
+  } else {
+    li.load_flat(flat_lp);
+    li.save_snapshot(std::move(flat_lp));
+  }
+  return std::tuple {std::move(li), std::move(fingerprint)};
 }
 
 void create_collections(const auto& system_context,
@@ -621,14 +642,13 @@ void SystemLP::create_lp(const LpMatrixOptions& flat_opts_in)
   if (flat_opts.scale_objective == 1.0) {
     flat_opts.scale_objective = system_context().options().scale_objective();
   }
-  auto [li, fp, flat_lp] = create_linear_interface(
+  // create_linear_interface owns the snapshot installation: it either
+  // load_flats + save_snapshots eagerly (low_memory off) or installs the
+  // flat LP as a deferred snapshot via defer_initial_load (otherwise).
+  auto [li, fp] = create_linear_interface(
       collections(), system_context(), phase(), scene(), flat_opts);
   m_linear_interface_ = std::move(li);
   m_fingerprint_ = std::move(fp);
-
-  // Save the flat LP into LinearInterface for low-memory reconstruction.
-  // LinearInterface decides whether to keep it based on the configured level.
-  m_linear_interface_.save_snapshot(std::move(flat_lp));
 }
 
 SystemLP::SystemLP(const System& system,

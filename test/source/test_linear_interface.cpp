@@ -1905,6 +1905,86 @@ SimpleLp make_simple_lp()
 }
 }  // namespace
 
+TEST_CASE(
+    "LinearInterface — defer_initial_load skips eager backend load")  // NOLINT
+{
+  // Build a flat LP without ever calling load_flat on the LinearInterface,
+  // then install it via defer_initial_load.  The backend must report itself
+  // as released, and the cached numrows/numcols must already reflect the
+  // snapshot's dimensions so callers like save_base_numrows() get correct
+  // values without forcing a reconstruction.
+  LinearProblem lp;
+  const auto c1 = lp.add_col({
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 2.0,
+  });
+  const auto c2 = lp.add_col({
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 3.0,
+  });
+  const auto r = lp.add_row({
+      .lowb = 5.0,
+      .uppb = SparseRow::DblMax,
+  });
+  lp.set_coeff(r, c1, 1.0);
+  lp.set_coeff(r, c2, 1.0);
+
+  auto flat = lp.flatten({});
+  const auto expected_ncols = static_cast<size_t>(flat.ncols);
+  const auto expected_nrows = static_cast<size_t>(flat.nrows);
+
+  SUBCASE("snapshot mode: deferred load with cached row/col counts")
+  {
+    LinearInterface li;
+    li.set_low_memory(LowMemoryMode::snapshot);
+    li.defer_initial_load(FlatLinearProblem {flat});
+
+    // Backend must be marked released and never have been instantiated.
+    // Backend is marked released so the next user-driven access
+    // forces a single (and only) load_flat via ensure_backend().
+    CHECK(li.is_backend_released());
+
+    // Pre-seeded counts let save_base_numrows / get_numrows return the
+    // correct value while the backend is still released.
+    CHECK(li.get_numcols() == expected_ncols);
+    CHECK(li.get_numrows() == expected_nrows);
+
+    // First user access reconstructs the backend lazily and produces the
+    // optimal solution from the original flat LP.
+    li.reconstruct_backend();
+    CHECK_FALSE(li.is_backend_released());
+    CHECK(li.has_backend());
+    CHECK(li.get_numcols() == expected_ncols);
+    CHECK(li.get_numrows() == expected_nrows);
+
+    auto solve = li.resolve();
+    REQUIRE(solve.has_value());
+    REQUIRE(li.is_optimal());
+    // x1 + x2 >= 5; min 2x1 + 3x2 → choose x1=5, x2=0 → obj 10
+    CHECK(li.get_obj_value() == doctest::Approx(10.0));
+  }
+
+  SUBCASE("compress mode: snapshot is compressed at install time")
+  {
+    LinearInterface li;
+    li.set_low_memory(LowMemoryMode::compress, CompressionCodec::zstd);
+    li.defer_initial_load(FlatLinearProblem {flat});
+
+    CHECK(li.is_backend_released());
+    CHECK(li.get_numcols() == expected_ncols);
+    CHECK(li.get_numrows() == expected_nrows);
+
+    li.reconstruct_backend();
+    CHECK_FALSE(li.is_backend_released());
+
+    auto solve = li.resolve();
+    REQUIRE(solve.has_value());
+    CHECK(li.get_obj_value() == doctest::Approx(10.0));
+  }
+}
+
 TEST_CASE("LinearInterface — low_memory save_snapshot round-trip")  // NOLINT
 {
   auto [li, flat, x1, x2] = make_simple_lp();

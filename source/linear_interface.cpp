@@ -231,6 +231,33 @@ void LinearInterface::save_snapshot(FlatLinearProblem flat_lp)
   m_snapshot_.flat_lp = std::move(flat_lp);
 }
 
+void LinearInterface::defer_initial_load(FlatLinearProblem flat_lp)
+{
+  // Skip the initial load_flat() entirely: stash the snapshot,
+  // compress immediately if requested, and mark the backend as
+  // released so the next ensure_backend() call performs the (sole)
+  // load_flat via reconstruct_backend.
+  //
+  // Pre-seed the cached row/col counts from the flat LP itself so
+  // that callers like `save_base_numrows()` (which read
+  // `get_numrows()` while the backend is released) get correct
+  // values without having to force a reconstruction.
+  m_cached_numrows_ = static_cast<size_t>(flat_lp.nrows);
+  m_cached_numcols_ = static_cast<size_t>(flat_lp.ncols);
+
+  m_snapshot_.flat_lp = std::move(flat_lp);
+
+  if (m_low_memory_mode_ == LowMemoryMode::compress
+      && !m_snapshot_.is_compressed())
+  {
+    enable_compression();
+  }
+
+  // No backend was ever created, so there is nothing to free.
+  // Just flip the released flag so ensure_backend() reconstructs lazily.
+  m_backend_released_ = true;
+}
+
 void LinearInterface::capture_hot_start_cuts()
 {
   if (m_low_memory_mode_ == LowMemoryMode::off) {
