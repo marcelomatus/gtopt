@@ -38,6 +38,11 @@ public:
   static constexpr std::string_view CapacitypName {"capacityp"};
   static constexpr std::string_view CapacitynName {"capacityn"};
   static constexpr std::string_view ThetaName {"theta"};
+  /// Filter metadata keys published by `add_to_lp` for `sum(...)`
+  /// predicate matching.
+  static constexpr std::string_view TypeKey {"type"};
+  static constexpr std::string_view BusAKey {"bus_a"};
+  static constexpr std::string_view BusBKey {"bus_b"};
 
   using CapacityBase = CapacityObjectLP<Line>;
 

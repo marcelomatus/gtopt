@@ -44,10 +44,13 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     AmplElementMetadata metadata;
     metadata.reserve(2);
     if (const auto& t = demand().type) {
-      metadata.emplace_back("type", *t);
+      metadata.emplace_back(TypeKey, *t);
     }
-    metadata.emplace_back("bus",
-                          static_cast<double>(sc.get_bus(bus_sid()).uid()));
+    // Resolve via `sc.element<BusLP>` (handles both Uid and Name forms
+    // of the JSON-side `bus` SingleId variant — `std::get<Uid>` would
+    // throw if the JSON used a string name).
+    metadata.emplace_back(
+        BusKey, static_cast<double>(sc.element<BusLP>(bus_sid()).uid()));
     sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
   }
 

@@ -60,7 +60,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   // `System::expand_batteries()`), so we only register `type`.
   if (const auto& t = battery().type) {
     AmplElementMetadata metadata;
-    metadata.emplace_back("type", *t);
+    metadata.emplace_back(TypeKey, *t);
     sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
   }
 

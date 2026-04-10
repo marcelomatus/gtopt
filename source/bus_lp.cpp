@@ -52,7 +52,7 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
                 .lowb = *theta,
                 .uppb = *theta,
                 .class_name = ClassName.full_name(),
-                .variable_name = "theta",
+                .variable_name = ThetaName,
                 .variable_uid = uid(),
                 .context = ctx,
             });
@@ -63,7 +63,7 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
                 .lowb = -theta_bound,
                 .uppb = +theta_bound,
                 .class_name = ClassName.full_name(),
-                .variable_name = "theta",
+                .variable_name = ThetaName,
                 .variable_uid = uid(),
                 .context = ctx,
             });
@@ -94,7 +94,7 @@ bool BusLP::add_to_lp(const SystemContext& sc,
   // F9: register filter metadata for sum(...) predicates.
   if (const auto& t = bus().type) {
     AmplElementMetadata metadata;
-    metadata.emplace_back("type", *t);
+    metadata.emplace_back(TypeKey, *t);
     sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
   }
 

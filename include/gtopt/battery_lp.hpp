@@ -40,6 +40,10 @@ public:
   // "charge" resolves to finp_cols, "discharge" resolves to fout_cols.
   static constexpr std::string_view ChargeName {"charge"};
   static constexpr std::string_view DischargeName {"discharge"};
+  /// Filter metadata key published by `add_to_lp` for `sum(...)`
+  /// predicate matching.  Battery `bus` is optional, so only `type`
+  /// is registered (see `add_to_lp` for the rationale).
+  static constexpr std::string_view TypeKey {"type"};
 
   using CapacityBase = CapacityObjectLP<Battery>;
   using StorageBase = StorageLP<CapacityObjectLP<Battery>>;

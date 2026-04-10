@@ -153,12 +153,12 @@ bool ReserveZoneLP::add_to_lp(const SystemContext& sc,
   if (const auto it = ur.requirement_cols.find(st_key);
       it != ur.requirement_cols.end() && !it->second.empty())
   {
-    sc.add_ampl_variable(ampl_name, uid(), "up", scenario, stage, it->second);
+    sc.add_ampl_variable(ampl_name, uid(), UpName, scenario, stage, it->second);
   }
   if (const auto it = dr.requirement_cols.find(st_key);
       it != dr.requirement_cols.end() && !it->second.empty())
   {
-    sc.add_ampl_variable(ampl_name, uid(), "dn", scenario, stage, it->second);
+    sc.add_ampl_variable(ampl_name, uid(), DnName, scenario, stage, it->second);
   }
 
   return true;

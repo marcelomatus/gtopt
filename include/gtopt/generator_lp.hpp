@@ -30,6 +30,10 @@ public:
   static constexpr LPClassName ClassName {"Generator"};
   static constexpr std::string_view GenerationName {"generation"};
   static constexpr std::string_view CapacityName {"capacity"};
+  /// Filter metadata keys published by `add_to_lp` for `sum(...)`
+  /// predicate matching.
+  static constexpr std::string_view TypeKey {"type"};
+  static constexpr std::string_view BusKey {"bus"};
 
   using CapacityBase = CapacityObjectLP<Generator>;
 

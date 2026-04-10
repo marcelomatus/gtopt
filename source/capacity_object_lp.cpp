@@ -181,13 +181,21 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   capainst_rows[stage_uid] = lp.add_row(std::move(capainst_row.equal(dcap)));
   capacost_rows[stage_uid] = lp.add_row(std::move(capacost_row.equal(0.0)));
 
-  // Register the stage-level `capainst` column with the PAMPL variable
-  // registry so that user-constraint expressions like
-  // `generator("G1").capainst` resolve without each element having to
-  // register it individually.
+  // Register the stage-level capacity-expansion columns with the PAMPL
+  // variable registry so user-constraint expressions like
+  // `generator("G1").capainst` or `sum(g in generator(all : type="hydro"),
+  // g.capacost) <= budget` resolve without each element having to
+  // register them individually.
   if (!ampl_class.empty()) {
     sc.add_ampl_variable(
         ampl_class, uid(), CapainstName, scenario, stage, capainst_col);
+    sc.add_ampl_variable(
+        ampl_class, uid(), CapacostName, scenario, stage, capacost_col);
+    if (const auto it = expmod_cols.find(stage.uid()); it != expmod_cols.end())
+    {
+      sc.add_ampl_variable(
+          ampl_class, uid(), ExpmodName, scenario, stage, it->second);
+    }
   }
 
   return true;
