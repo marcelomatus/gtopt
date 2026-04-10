@@ -501,8 +501,10 @@ bool ConstraintParser::Parser::is_singleton_class(const std::string& name)
   // Singleton classes expose globally-scoped read-only scalars and are
   // parsed as `class.attribute` (no parens, no element id).  The set of
   // legal scalars is enforced by the resolver against the allow-list
-  // registered in `system_lp.cpp::register_all_ampl_element_names`.
-  return name == "options" || name == "system";
+  // registered in `system_lp.cpp::register_all_ampl_element_names`,
+  // except for `stage.*` whose values come from the active StageLP at
+  // resolution time (calendar metadata of the stage being assembled).
+  return name == "options" || name == "system" || name == "stage";
 }
 
 ConstraintExpr ConstraintParser::Parser::parse_constraint()

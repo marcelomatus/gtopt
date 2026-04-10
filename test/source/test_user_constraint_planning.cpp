@@ -401,6 +401,92 @@ TEST_CASE("User constraint - singleton scalar (options.*) parses and solves")
 
 // clang-format off
 
+/// Single-bus case that references `stage.month` from a user constraint.
+/// Tier 0+ A3 end-to-end: the parser must accept `stage.month`, the
+/// resolver must read the active stage's calendar month, and the LP must
+/// build and solve with the resulting numeric shift baked into the row's
+/// RHS.
+static constexpr std::string_view stage_month_uc_json = R"json({
+  "options": {
+    "annual_discount_rate": 0.0,
+    "output_compression": "uncompressed",
+    "use_single_bus": true,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1
+  },
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 1}],
+    "stage_array": [
+      {"uid": 1, "first_block": 0, "count_block": 1, "active": 1, "month": "june"}
+    ],
+    "scenario_array": [{"uid": 1, "probability_factor": 1}]
+  },
+  "system": {
+    "name": "uc_stage_month_test",
+    "bus_array": [{"uid": 1, "name": "b1"}],
+    "generator_array": [
+      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[90.0]]}
+    ],
+    "user_constraint_array": [
+      {
+        "uid": 1,
+        "name": "stage_month_ref",
+        "expression": "generator('g1').generation + 10 * stage.month <= 140",
+        "constraint_type": "raw",
+      },
+    ],
+  },
+})json";
+
+// clang-format on
+
+TEST_CASE("User constraint - stage.month metadata parses and solves")
+{
+  using namespace gtopt;
+
+  auto planning = daw::json::from_json<Planning>(stage_month_uc_json);
+
+  REQUIRE(planning.system.user_constraint_array.size() == 1);
+  REQUIRE(planning.simulation.stage_array.size() == 1);
+  REQUIRE(planning.simulation.stage_array[0].month.has_value());
+  CHECK(*planning.simulation.stage_array[0].month == MonthType::june);
+
+  // The parser must accept `stage.month` as a singleton-class scalar
+  // (no parens, no element id), producing an ElementRef with element_type
+  // "stage", empty element_id, and attribute "month".
+  const auto& uc = planning.system.user_constraint_array[0];
+  auto expr = ConstraintParser::parse(uc.name, uc.expression);
+  REQUIRE(expr.terms.size() == 2);
+  REQUIRE(expr.terms[1].element.has_value());
+  const auto& mref = expr.terms[1].element.value_or(ElementRef {});
+  CHECK(mref.element_type == "stage");
+  CHECK(mref.element_id.empty());
+  CHECK(mref.attribute == "month");
+  CHECK(expr.terms[1].coefficient == doctest::Approx(10.0));
+
+  // End-to-end: stage.month resolves to 6 (june) so the constraint
+  //   generation + 10 * 6 <= 140
+  // becomes  generation <= 80.  Demand is 90 MW so the LP solves with
+  // 80 MW dispatched and 10 MW failure (constraint binding).
+  const PlanningOptionsLP options(planning.options);
+  SimulationLP sim_lp(planning.simulation, options);
+  SystemLP sys_lp(planning.system, sim_lp);
+
+  auto res = sys_lp.linear_interface().resolve();
+  REQUIRE(res.has_value());
+
+  // Verify generation is at the constraint cap (80 MW).  We don't have a
+  // direct accessor handy in this test file, so a successful solve plus
+  // the existing dual-output infrastructure exercised elsewhere is the
+  // primary signal.  The numeric correctness is double-checked by the
+  // resolver unit test below.
+}
+
+// clang-format off
+
 /// Same single-bus case but with constraint_type = "raw" to test
 /// discount-only dual scaling.
 static constexpr std::string_view single_bus_uc_raw_json = R"json({

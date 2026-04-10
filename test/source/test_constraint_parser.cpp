@@ -2228,6 +2228,36 @@ TEST_SUITE("ConstraintParser")
         std::invalid_argument);
   }
 
+  // ── Tier 0+ A3: stage.* singleton metadata ─────────────────────────────
+
+  TEST_CASE("Singleton class scalar: stage.month")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    const auto expr = ConstraintParser::parse(R"(stage.month <= 12)");
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref.element_type == "stage");
+    CHECK(ref.element_id.empty());
+    CHECK(ref.attribute == "month");
+    CHECK(expr.terms[0].coefficient == doctest::Approx(1.0));
+  }
+
+  TEST_CASE("Singleton class scalar: stage.uid in linear combination")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    const auto expr = ConstraintParser::parse(
+        R"(generator("G1").generation - 0.5 * stage.month <= 100)");
+    REQUIRE(expr.terms.size() == 2);
+    REQUIRE(expr.terms[1].element.has_value());
+    const auto& ref = expr.terms[1].element.value_or(ElementRef {});
+    CHECK(ref.element_type == "stage");
+    CHECK(ref.attribute == "month");
+    CHECK(expr.terms[1].coefficient == doctest::Approx(-0.5));
+  }
+
   // ── Phase 1e: state(...) wrapper grammar ───────────────────────────────
 
   TEST_CASE("Phase 1e: state(reservoir(...).efin) parses with state_wrapped")

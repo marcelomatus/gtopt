@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <charconv>
 #include <format>
+#include <utility>
 
 #include <gtopt/as_label.hpp>
 #include <gtopt/battery_lp.hpp>
@@ -27,6 +28,7 @@
 #include <gtopt/reservoir_lp.hpp>
 #include <gtopt/reservoir_seepage_lp.hpp>
 #include <gtopt/single_id.hpp>
+#include <gtopt/stage_lp.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/turbine_lp.hpp>
@@ -222,11 +224,30 @@ bool resolve_col_to_row(const SystemContext& sc,
     const BlockLP& block,
     const ElementRef& ref)
 {
-  // ── singleton class scalar (options.*, system.*) ────────────────────
-  // No element id, no per-(stage, block) variation: query the
-  // class-level scalar registry populated by
-  // `system_lp.cpp::register_all_ampl_element_names`.
+  // ── singleton class scalar (options.*, system.*, stage.*) ───────────
+  // No element id, no element-level variation.  Most of these are
+  // immutable for the SimulationLP lifetime and live in the scalar
+  // registry, but `stage.*` reads metadata of the *active* stage and
+  // therefore has to be resolved against the StageLP argument.
   if (ref.element_id.empty()) {
+    if (ref.element_type == StageLP::ClassName) {
+      if (ref.attribute == StageLP::MonthName) {
+        const auto m = stage.month();
+        if (m.has_value()) {
+          return static_cast<double>(std::to_underlying(*m));
+        }
+        return std::nullopt;
+      }
+      if (ref.attribute == StageLP::UidName) {
+        return static_cast<double>(stage.uid());
+      }
+      if (ref.attribute == StageLP::DurationName) {
+        return stage.duration();
+      }
+      SPDLOG_WARN(std::format("user_constraint: unknown stage attribute '{}'",
+                              ref.attribute));
+      return std::nullopt;
+    }
     if (auto val = sc.find_ampl_scalar(ref.element_type, ref.attribute)) {
       return val;
     }
