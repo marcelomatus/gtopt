@@ -939,8 +939,11 @@ auto SDDPMethod::save_all_scene_cuts(const std::string& directory) const
 auto SDDPMethod::load_cuts(const std::string& filepath)
     -> std::expected<CutLoadResult, Error>
 {
-  return load_cuts_csv(
-      planning_lp(), filepath, m_options_.scale_alpha, m_label_maker_);
+  return load_cuts_csv(planning_lp(),
+                       filepath,
+                       m_options_.scale_alpha,
+                       m_label_maker_,
+                       &m_scene_phase_states_);
 }
 
 auto SDDPMethod::load_scene_cuts_from_directory(const std::string& directory)

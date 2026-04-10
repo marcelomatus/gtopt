@@ -438,11 +438,11 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
               save_cuts_csv(filtered, *prev_lp, tmp_path.string());
 
           if (save_result.has_value()) {
-            const LabelMaker label_maker {current_lp->options().names_level()};
-            const auto sa =
-                effective_scale_alpha(*current_lp, level_opts.scale_alpha);
-            auto load_result =
-                load_cuts_csv(*current_lp, tmp_path.string(), sa, label_maker);
+            // Route through the new solver so that the alpha column lookup
+            // table (m_scene_phase_states_) is passed to load_cuts_csv —
+            // otherwise @alpha resolution falls back to LP-name lookup,
+            // which fails when LP names are disabled.
+            auto load_result = current_solver->load_cuts(tmp_path.string());
 
             if (load_result.has_value()) {
               inherited_cut_count = load_result->count;
