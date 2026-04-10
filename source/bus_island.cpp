@@ -75,18 +75,20 @@ auto detect_islands_and_fix_references(Array<Bus>& buses,
 
   const auto kirchhoff_threshold = options.kirchhoff_threshold();
 
-  // Build UID → index and Name → index mappings for bus lookup
+  // Build UID → index and Name → index mappings for bus lookup.
+  // Use a hash map (not a dense vector sized by max-uid) because UIDs are
+  // arbitrary user-facing identifiers and can be sparse or very large —
+  // indexing a vector by UID risks huge over-allocation or OOM.
   const auto num_buses = buses.size();
   constexpr auto sentinel = std::numeric_limits<std::size_t>::max();
 
-  std::vector<std::size_t> uid_to_index(
-      static_cast<std::size_t>(std::ranges::max(buses, {}, &Bus::uid).uid + 1),
-      sentinel);
+  std::unordered_map<Uid, std::size_t> uid_to_index;
+  uid_to_index.reserve(num_buses);
   std::unordered_map<std::string, std::size_t> name_to_index;
 
   for (auto&& [idx, bus] : std::views::enumerate(buses)) {
     const auto i = static_cast<std::size_t>(idx);
-    uid_to_index[static_cast<std::size_t>(bus.uid)] = i;
+    uid_to_index[bus.uid] = i;
     if (!bus.name.empty()) {
       name_to_index[bus.name] = i;
     }
@@ -100,10 +102,10 @@ auto detect_islands_and_fix_references(Array<Bus>& buses,
         {
           using T = std::decay_t<decltype(v)>;
           if constexpr (std::is_same_v<T, Uid>) {
-            const auto u = static_cast<std::size_t>(v);
-            return u < uid_to_index.size() ? uid_to_index[u] : sentinel;
+            const auto it = uid_to_index.find(v);
+            return it != uid_to_index.end() ? it->second : sentinel;
           } else {
-            auto it = name_to_index.find(v);
+            const auto it = name_to_index.find(v);
             return it != name_to_index.end() ? it->second : sentinel;
           }
         },

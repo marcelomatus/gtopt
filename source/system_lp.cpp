@@ -257,8 +257,9 @@ void fix_stage_islands(const auto& collections,
 /// @brief Resolve a stage-indexed OptTRealFieldSched to a scalar value.
 ///
 /// Handles the three cases: scalar → return directly, vector → index by stage
-/// UID, FileSched → unsupported (returns 0).
-double resolve_stage_field(const OptTRealFieldSched& field, StageUid stage_uid)
+/// ordinal index (dense position), FileSched → unsupported (returns 0).
+double resolve_stage_field(const OptTRealFieldSched& field,
+                           StageIndex stage_index)
 {
   if (!field.has_value()) {
     return 0.0;
@@ -269,7 +270,7 @@ double resolve_stage_field(const OptTRealFieldSched& field, StageUid stage_uid)
   }
   if (std::holds_alternative<std::vector<Real>>(val)) {
     const auto& vec = std::get<std::vector<Real>>(val);
-    const auto sidx = static_cast<size_t>(stage_uid);
+    const auto sidx = static_cast<size_t>(stage_index);
     if (sidx < vec.size()) {
       return vec[sidx];
     }
@@ -298,8 +299,8 @@ void add_emission_cap(const auto& collections,
                       const StageLP& stage,
                       LinearProblem& lp)
 {
-  const auto stage_cap =
-      resolve_stage_field(system_context.options().emission_cap(), stage.uid());
+  const auto stage_cap = resolve_stage_field(
+      system_context.options().emission_cap(), stage.index());
   if (stage_cap <= 0.0) {
     return;
   }

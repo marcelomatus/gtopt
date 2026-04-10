@@ -110,7 +110,9 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       stage_emission_cost = std::get<Real>(ec);
     } else if (std::holds_alternative<std::vector<Real>>(ec)) {
       const auto& vec = std::get<std::vector<Real>>(ec);
-      const auto sidx = static_cast<size_t>(stage.uid());
+      // Stage-schedule arrays are indexed by ordinal stage position,
+      // not by the (arbitrary) stage UID.
+      const auto sidx = static_cast<size_t>(stage.index());
       if (sidx < vec.size()) {
         stage_emission_cost = vec[sidx];
       }
