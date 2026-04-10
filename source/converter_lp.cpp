@@ -32,13 +32,14 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  static constexpr std::string_view ampl_class = "converter";
+  static const auto ampl_name = std::string {ClassName.snake_case()};
 
-  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) [[unlikely]] {
+  if (!CapacityBase::add_to_lp(sc, ampl_name, scenario, stage, lp)) [[unlikely]]
+  {
     return false;
   }
 
-  sc.register_ampl_element(ampl_class, id().second, uid());
+  sc.register_ampl_element(ampl_name, id().second, uid());
 
   if (!is_active(stage)) [[unlikely]] {
     return true;
@@ -138,11 +139,11 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
   //   charge    -> demand.load
   if (!gen_cols.empty()) {
     sc.add_ampl_variable(
-        ampl_class, uid(), BatteryLP::DischargeName, scenario, stage, gen_cols);
+        ampl_name, uid(), BatteryLP::DischargeName, scenario, stage, gen_cols);
   }
   if (!demand_cols.empty()) {
     sc.add_ampl_variable(
-        ampl_class, uid(), BatteryLP::ChargeName, scenario, stage, demand_cols);
+        ampl_name, uid(), BatteryLP::ChargeName, scenario, stage, demand_cols);
   }
 
   return true;

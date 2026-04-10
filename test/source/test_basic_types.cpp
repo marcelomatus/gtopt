@@ -166,6 +166,52 @@ TEST_CASE("as_label basic functionality")
     CHECK(std::string(lowercase("Hello")) == "hello");
   }
 
+  SUBCASE("snake_case helper — eager std::string overload")
+  {
+    // Word boundaries around lower→upper and acronym+word transitions.
+    CHECK(snake_case(std::string {"GeneratorLP"}) == "generator_lp");
+    CHECK(snake_case(std::string {"HTTPResponse"}) == "http_response");
+    CHECK(snake_case(std::string {"XMLHttpRequest"}) == "xml_http_request");
+    CHECK(snake_case(std::string {"userID"}) == "user_id");
+    CHECK(snake_case(std::string {"Gen2Bus"}) == "gen2_bus");
+    // Already snake — unchanged.
+    CHECK(snake_case(std::string {"already_snake"}) == "already_snake");
+    CHECK(snake_case(std::string {"lower"}) == "lower");
+    // All caps acronym.
+    CHECK(snake_case(std::string {"HTTP"}) == "http");
+    // Single character and empty cases.
+    CHECK(snake_case(std::string {"A"}) == "a");
+    CHECK(snake_case(std::string {""}).empty());
+  }
+
+  SUBCASE("snake_case view with as_label")
+  {
+    // snake_case(string-like) returns a SnakeCaseView — no allocation
+    // until characters are copied out (e.g. by as_label or std::string()).
+    const std::string_view cn = "GeneratorLP";
+    CHECK(as_label(snake_case(cn), 1, 2) == "generator_lp_1_2");
+    CHECK(as_label(snake_case(cn)) == "generator_lp");
+    CHECK(as_label("Prefix", snake_case(cn), 42) == "Prefix_generator_lp_42");
+
+    // String literals produce a SnakeCaseView (lazy view into static
+    // storage)
+    CHECK(as_label(snake_case("HTTPResponse"), 3) == "http_response_3");
+
+    // SnakeCaseView comparison directly against string_view.
+    CHECK(snake_case("GeneratorLP") == "generator_lp");
+    CHECK(snake_case(std::string_view {"XMLHttpRequest"})
+          == "xml_http_request");
+
+    // Explicit conversion to std::string.
+    CHECK(std::string(snake_case("userID")) == "user_id");
+
+    // size() reports the exact output length — enabling as_label to
+    // reserve before copying.
+    CHECK(snake_case(std::string_view {"GeneratorLP"}).size()
+          == std::string_view {"generator_lp"}.size());
+    CHECK(snake_case(std::string_view {""}).empty());
+  }
+
   SUBCASE("long label")
   {
     CHECK(as_label("a", "b", "c", "d", "e") == "a_b_c_d_e");

@@ -41,6 +41,17 @@ struct LPClassName
     return lowercase(m_full_name);
   }
 
+  /// snake_case view of the full class name.  Returns a lazy, zero-copy
+  /// `SnakeCaseView` suitable for direct use in `as_label(...)` and
+  /// comparable against `std::string_view`.  Used to derive the canonical
+  /// PAMPL class name from the PascalCase `ClassName` without magic
+  /// strings: `"ReserveProvision" → "reserve_provision"`,
+  /// `"Generator" → "generator"`, etc.
+  [[nodiscard]] constexpr auto snake_case() const noexcept
+  {
+    return gtopt::snake_case(m_full_name);
+  }
+
   // NOLINTNEXTLINE(google-explicit-constructor,hicpp-explicit-conversions)
   constexpr operator std::string_view() const noexcept { return m_full_name; }
 

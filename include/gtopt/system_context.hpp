@@ -376,6 +376,42 @@ public:
     return simulation().lookup_ampl_element_uid(class_name, element_name);
   }
 
+  /// Register a compound PAMPL attribute at class level.
+  /// See `SimulationLP::add_ampl_compound`.
+  void add_ampl_compound(std::string_view class_name,
+                         std::string_view compound_name,
+                         std::vector<AmplCompoundLeg> legs) const
+  {
+    m_simulation_.get().add_ampl_compound(
+        class_name, compound_name, std::move(legs));
+  }
+
+  /// Look up a compound PAMPL attribute by (class, compound_name).
+  [[nodiscard]] const std::vector<AmplCompoundLeg>* find_ampl_compound(
+      std::string_view class_name,
+      std::string_view compound_name) const noexcept
+  {
+    return simulation().find_ampl_compound(class_name, compound_name);
+  }
+
+  /// Register filter metadata for one element (F9).
+  /// See `SimulationLP::register_ampl_element_metadata`.
+  void register_ampl_element_metadata(std::string_view class_name,
+                                      Uid element_uid,
+                                      AmplElementMetadata metadata) const
+  {
+    m_simulation_.get().register_ampl_element_metadata(
+        class_name, element_uid, std::move(metadata));
+  }
+
+  /// Look up an element's metadata bundle (F9).  Returns nullptr when
+  /// the element has no registered metadata.
+  [[nodiscard]] const AmplElementMetadata* find_ampl_element_metadata(
+      std::string_view class_name, Uid element_uid) const noexcept
+  {
+    return simulation().find_ampl_element_metadata(class_name, element_uid);
+  }
+
 private:
   std::reference_wrapper<SimulationLP> m_simulation_;
   std::reference_wrapper<SystemLP> m_system_;

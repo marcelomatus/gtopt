@@ -81,7 +81,7 @@ bool BusLP::add_to_lp(const SystemContext& sc,
                       const StageLP& stage,
                       LinearProblem& lp)
 {
-  static constexpr std::string_view ampl_class = "bus";
+  static const auto ampl_name = std::string {ClassName.snake_case()};
 
   // Register the element name so PAMPL `bus("B1")` expressions can
   // resolve to this uid.  Theta columns are lazy-created by lines that
@@ -89,7 +89,14 @@ bool BusLP::add_to_lp(const SystemContext& sc,
   // `bus.theta`/`bus.angle` via `lookup_theta_col`, so we do NOT register
   // a per-block variable here — `theta_cols` may still be empty at this
   // point in the solve sequence.
-  sc.register_ampl_element(ampl_class, id().second, uid());
+  sc.register_ampl_element(ampl_name, id().second, uid());
+
+  // F9: register filter metadata for sum(...) predicates.
+  if (const auto& t = bus().type) {
+    AmplElementMetadata metadata;
+    metadata.emplace_back("type", *t);
+    sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
+  }
 
   if (!is_active(stage)) {
     return true;

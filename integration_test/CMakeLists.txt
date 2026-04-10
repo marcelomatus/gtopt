@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.31.6)
 
-project(gtoptIntegrationTest LANGUAGES CXX)
+# LANGUAGES NONE — defer the C++ compiler probe.  In external-binary mode
+# (the common case) this sub-project compiles nothing, so requiring a working
+# clang/gcc at configure time would be pure friction.  enable_language(CXX)
+# is called below only if we fall through to the self-contained fallback.
+project(gtoptIntegrationTest LANGUAGES NONE)
 
 # ---- Shared cmake module path ----
 list(APPEND CMAKE_MODULE_PATH
@@ -8,37 +12,99 @@ list(APPEND CMAKE_MODULE_PATH
      "${CMAKE_CURRENT_LIST_DIR}/../cmake"
 )
 
-# ---- Build defaults ----
+# ---- Build defaults (language-agnostic) ----
 include(BuildTypeDefault)
-include(CxxStandard)
-include(Ccache)
-include(FastLinker)
 
 # ---- Options ----
 option(ENABLE_TEST_COVERAGE "Enable test coverage instrumentation" OFF)
 
-# ---- Compiler checks and tools ----
-include(CompilerCheck)
-include("${CMAKE_CURRENT_LIST_DIR}/../cmake/tools.cmake")
+# Absolute path to a prebuilt gtopt binary.  When non-empty, the gtopt
+# library and standalone sources are NOT compiled in this build tree — the
+# CTest cases invoke the external binary directly.  If left empty the
+# resolver below tries $ENV{GTOPT_BIN} and the conventional
+# ../build/standalone/gtopt location before falling back to a local build.
+set(GTOPT_BINARY "" CACHE FILEPATH
+    "Absolute path to a prebuilt gtopt binary (auto-detected if empty)")
 
-# ---- Dependencies ----
-option(CPM_USE_LOCAL_PACKAGES "Try find_package first" ON)
-include("${CMAKE_CURRENT_LIST_DIR}/../cmake/CPM.cmake")
+# ---- Resolve the gtopt binary to drive the tests ----
+# Precedence (first hit wins):
+#   1. GTOPT_BINARY explicitly set via -D or cache.
+#   2. Target 'gtoptStandalone' already defined (e.g. when included from
+#      all/CMakeLists.txt alongside standalone/).
+#   3. Auto-detection: $ENV{GTOPT_BIN}, then ../build/standalone/gtopt
+#      relative to this directory.
+#   4. Self-contained fallback: compile the standalone sources into this
+#      build tree so the sub-project remains usable from a fresh checkout.
+#
+# GTOPT_EXECUTABLE_FILE is consumed by add_e2e_case()/add_sddp_case() and
+# resolves to either a generator expression ($<TARGET_FILE:...>) or a
+# literal absolute path, transparently substituted into add_test() commands.
+set(_gtopt_mode "")
 
-if(NOT TARGET gtopt::gtopt)
-  CPMAddPackage(NAME gtopt SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/..")
+if(GTOPT_BINARY)
+  if(NOT EXISTS "${GTOPT_BINARY}")
+    message(FATAL_ERROR
+      "GTOPT_BINARY is set but does not exist: ${GTOPT_BINARY}")
+  endif()
+  set(GTOPT_EXECUTABLE_FILE "${GTOPT_BINARY}")
+  set(_gtopt_mode "explicit")
+elseif(TARGET gtoptStandalone)
+  set(GTOPT_EXECUTABLE_TARGET gtoptStandalone)
+  set(GTOPT_EXECUTABLE_FILE "$<TARGET_FILE:${GTOPT_EXECUTABLE_TARGET}>")
+  set(_gtopt_mode "in-tree target")
+else()
+  # Auto-detection.
+  set(_gtopt_candidates "")
+  if(DEFINED ENV{GTOPT_BIN})
+    list(APPEND _gtopt_candidates "$ENV{GTOPT_BIN}")
+  endif()
+  list(APPEND _gtopt_candidates
+       "${CMAKE_CURRENT_LIST_DIR}/../build/standalone/gtopt")
+
+  foreach(_c IN LISTS _gtopt_candidates)
+    if(EXISTS "${_c}" AND NOT IS_DIRECTORY "${_c}")
+      get_filename_component(GTOPT_BINARY "${_c}" REALPATH)
+      set(GTOPT_EXECUTABLE_FILE "${GTOPT_BINARY}")
+      set(_gtopt_mode "auto-detected")
+      break()
+    endif()
+  endforeach()
+  unset(_gtopt_candidates)
 endif()
 
-include(ClangFormat)
-
-# ---- Standalone binary (or reuse from parent) ----
-# When included from all/CMakeLists.txt the standalone binary is already
-# built as target 'gtoptStandalone'.  Reuse it to avoid recompilation.
-# GTOPT_EXECUTABLE_TARGET is consumed by add_e2e_case() to reference the
-# binary via $<TARGET_FILE:${GTOPT_EXECUTABLE_TARGET}>.
-if(TARGET gtoptStandalone)
-  set(GTOPT_EXECUTABLE_TARGET gtoptStandalone)
+if(_gtopt_mode STREQUAL "explicit")
+  message(STATUS
+    "Integration tests: using explicit GTOPT_BINARY=${GTOPT_BINARY}")
+elseif(_gtopt_mode STREQUAL "in-tree target")
+  message(STATUS
+    "Integration tests: reusing in-tree gtoptStandalone target "
+    "(no recompilation)")
+elseif(_gtopt_mode STREQUAL "auto-detected")
+  message(STATUS
+    "Integration tests: auto-detected prebuilt gtopt at ${GTOPT_BINARY} "
+    "(pass -DGTOPT_BINARY=/other/path to override, or remove the file to "
+    "force a local build)")
 else()
+  # Self-contained fallback — compile everything here.
+  message(STATUS
+    "Integration tests: no prebuilt gtopt found — compiling the binary "
+    "in this build tree")
+
+  enable_language(CXX)
+  include(CxxStandard)
+  include(Ccache)
+  include(FastLinker)
+  include(CompilerCheck)
+  include("${CMAKE_CURRENT_LIST_DIR}/../cmake/tools.cmake")
+
+  option(CPM_USE_LOCAL_PACKAGES "Try find_package first" ON)
+  include("${CMAKE_CURRENT_LIST_DIR}/../cmake/CPM.cmake")
+  if(NOT TARGET gtopt::gtopt)
+    CPMAddPackage(NAME gtopt SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/..")
+  endif()
+
+  include(ClangFormat)
+
   file(GLOB sources CONFIGURE_DEPENDS
        "${CMAKE_CURRENT_LIST_DIR}/../standalone/source/[a-zA-Z]*.cpp"
   )
@@ -51,6 +117,7 @@ else()
   )
 
   set(GTOPT_EXECUTABLE_TARGET ${PROJECT_NAME})
+  set(GTOPT_EXECUTABLE_FILE "$<TARGET_FILE:${GTOPT_EXECUTABLE_TARGET}>")
 
   include(Coverage)
   if(ENABLE_TEST_COVERAGE)
@@ -61,9 +128,16 @@ else()
   endif()
 endif()
 
+unset(_gtopt_mode)
+
 # ---- Ensure solver plugins are rebuilt before running tests ----
-include(GtoptPlugin)
-gtopt_require_solver_plugins(${GTOPT_EXECUTABLE_TARGET})
+# Only meaningful when we have an in-tree target to hang dependencies on.
+# In external/auto-detected mode the plugins live next to GTOPT_BINARY and
+# are managed by the build that produced it.
+if(DEFINED GTOPT_EXECUTABLE_TARGET)
+  include(GtoptPlugin)
+  gtopt_require_solver_plugins(${GTOPT_EXECUTABLE_TARGET})
+endif()
 
 # ---- Testing ----
 enable_testing()

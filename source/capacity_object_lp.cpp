@@ -18,6 +18,7 @@ namespace gtopt
 {
 
 bool CapacityObjectBase::add_to_lp(SystemContext& sc,
+                                   std::string_view ampl_class,
                                    const ScenarioLP& scenario,
                                    const StageLP& stage,
                                    LinearProblem& lp)
@@ -148,6 +149,15 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   const auto dcap = prev_stage_capacity - stage_capacity;
   capainst_rows[stage_uid] = lp.add_row(std::move(capainst_row.equal(dcap)));
   capacost_rows[stage_uid] = lp.add_row(std::move(capacost_row.equal(0.0)));
+
+  // Register the stage-level `capainst` column with the PAMPL variable
+  // registry so that user-constraint expressions like
+  // `generator("G1").capainst` resolve without each element having to
+  // register it individually.
+  if (!ampl_class.empty()) {
+    sc.add_ampl_variable(
+        ampl_class, uid(), CapainstName, scenario, stage, capainst_col);
+  }
 
   return true;
 }

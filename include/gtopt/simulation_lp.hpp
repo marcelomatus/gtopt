@@ -356,6 +356,78 @@ public:
                                                : std::nullopt;
   }
 
+  /// Register a compound PAMPL attribute for a class.  The compound
+  /// name resolves to the linear combination `Σ leg.coefficient *
+  /// <leg.source_attribute>` using the already-registered per-element
+  /// AMPL variables.  Registration is class-level (once per class
+  /// definition, not per element) — the compound "line.flow" is the
+  /// same recipe for every `LineLP`.
+  ///
+  /// Safe to call multiple times: the second call is a no-op if the
+  /// compound is already present.  This allows every `LineLP::add_to_lp`
+  /// invocation to register unconditionally without coordination.
+  void add_ampl_compound(std::string_view class_name,
+                         std::string_view compound_name,
+                         std::vector<AmplCompoundLeg> legs)
+  {
+    const std::scoped_lock lock(m_ampl_mutex_);
+    m_ampl_compounds_.try_emplace(
+        AmplCompoundKey {
+            .class_name = std::string {class_name},
+            .compound_name = compound_name,
+        },
+        std::move(legs));
+  }
+
+  /// Look up a compound attribute by (class, compound_name).  Returns
+  /// nullptr when the attribute is not a registered compound (most
+  /// attributes are ordinary single-column variables).
+  [[nodiscard]] const std::vector<AmplCompoundLeg>* find_ampl_compound(
+      std::string_view class_name,
+      std::string_view compound_name) const noexcept
+  {
+    const std::scoped_lock lock(m_ampl_mutex_);
+    const auto it = m_ampl_compounds_.find(AmplCompoundKey {
+        .class_name = std::string {class_name},
+        .compound_name = compound_name,
+    });
+    return (it != m_ampl_compounds_.end()) ? &it->second : nullptr;
+  }
+
+  // ── Element metadata registry (F9) ───────────────────────────────────
+  //
+  // Elements register a small `{key → value}` bundle so that
+  // multi-predicate `sum(...)` filters (F4) can evaluate predicates at
+  // row-assembly time without re-reading element-specific fields.
+  //
+  // Keys are `string_view`s into constexpr identifiers (e.g. "type",
+  // "bus", "zone", "cap") and values are either strings or numbers.
+  // Safe to call multiple times per element; the second call overwrites.
+  void register_ampl_element_metadata(std::string_view class_name,
+                                      Uid element_uid,
+                                      AmplElementMetadata metadata)
+  {
+    const std::scoped_lock lock(m_ampl_mutex_);
+    m_ampl_element_metadata_[AmplMetadataKey {
+        .class_name = std::string {class_name},
+        .element_uid = element_uid,
+    }] = std::move(metadata);
+  }
+
+  /// Look up an element's metadata bundle.  Returns nullptr when the
+  /// element hasn't registered any (e.g. a type without filter-relevant
+  /// fields).
+  [[nodiscard]] const AmplElementMetadata* find_ampl_element_metadata(
+      std::string_view class_name, Uid element_uid) const noexcept
+  {
+    const std::scoped_lock lock(m_ampl_mutex_);
+    const auto it = m_ampl_element_metadata_.find(AmplMetadataKey {
+        .class_name = std::string {class_name},
+        .element_uid = element_uid,
+    });
+    return (it != m_ampl_element_metadata_.end()) ? &it->second : nullptr;
+  }
+
 private:
   std::reference_wrapper<const Simulation> m_simulation_;
   std::reference_wrapper<const PlanningOptionsLP> m_options_;
@@ -378,6 +450,8 @@ private:
   mutable std::mutex m_ampl_mutex_;
   AmplVariableMap m_ampl_variables_;
   AmplElementNameMap m_ampl_element_names_;
+  AmplCompoundMap m_ampl_compounds_;
+  AmplElementMetadataMap m_ampl_element_metadata_;
 };
 
 }  // namespace gtopt

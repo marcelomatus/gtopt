@@ -71,6 +71,65 @@ namespace detail
   return c;
 }
 
+[[nodiscard]] constexpr bool is_ascii_upper(char c) noexcept
+{
+  return c >= 'A' && c <= 'Z';
+}
+
+[[nodiscard]] constexpr bool is_ascii_lower(char c) noexcept
+{
+  return c >= 'a' && c <= 'z';
+}
+
+[[nodiscard]] constexpr bool is_ascii_digit(char c) noexcept
+{
+  return c >= '0' && c <= '9';
+}
+
+// True when snake_case conversion should insert an underscore immediately
+// before the character at position @p i of @p sv (with @p i >= 1).
+//
+// Word-boundary rule (standard "HTTP + Response" interpretation):
+//   - sv[i] must be an uppercase letter
+//   - AND either the previous character is lower/digit (end of a lower run),
+//   - OR the previous is upper AND the next (if any) is lower — i.e. this
+//     upper letter is the first character of a new word following an
+//     acronym.
+//
+// Examples:
+//   "GeneratorLP"    → "generator_lp"
+//   "HTTPResponse"   → "http_response"
+//   "XMLHttpRequest" → "xml_http_request"
+//   "userID"         → "user_id"
+//   "Gen2Bus"        → "gen2_bus"
+[[nodiscard]] constexpr bool snake_needs_underscore_before(
+    std::string_view sv, std::size_t i) noexcept
+{
+  if (!is_ascii_upper(sv[i])) {
+    return false;
+  }
+  const char prev = sv[i - 1];
+  return is_ascii_lower(prev) || is_ascii_digit(prev)
+      || (is_ascii_upper(prev) && i + 1 < sv.size()
+          && is_ascii_lower(sv[i + 1]));
+}
+
+// Single-pass count of the number of characters the snake_case conversion
+// of @p sv would produce.  Used to size SnakeCaseView and to reserve() the
+// output buffer in the eager snake_case(std::string) overload.
+[[nodiscard]] constexpr std::size_t snake_case_size(
+    std::string_view sv) noexcept
+{
+  std::size_t n = 0;
+  for (std::size_t i = 0; i < sv.size(); ++i) {
+    if (i > 0 && snake_needs_underscore_before(sv, i)) {
+      ++n;
+    }
+    ++n;
+  }
+  return n;
+}
+
 // Improved concept for string-like types
 template<typename T>
 concept string_like = std::is_convertible_v<const T&, std::string_view>;
@@ -474,6 +533,148 @@ static_assert(detail::char_range<LowercaseView>,
               "LowercaseView must satisfy char_range");
 
 /**
+ * @brief Lazy, zero-copy view that yields the snake_case form of a string.
+ *
+ * Wraps a `std::string_view` and emits characters on the fly: every ASCII
+ * letter is lowercased (via `detail::to_lower_char`) and underscores are
+ * synthesised at word boundaries according to
+ * `detail::snake_needs_underscore_before`.  No heap allocation occurs until
+ * the caller copies the characters somewhere (e.g. inside `as_label()`).
+ *
+ * Because `SnakeCaseView` satisfies the `detail::char_range` concept it can
+ * be passed directly as an argument to `as_label()` and `as_label_into()`:
+ *
+ * @code{.cpp}
+ * std::string_view cn = "GeneratorLP";
+ * auto a = as_label(snake_case(cn), 1, 2); // "generator_lp_1_2"
+ * @endcode
+ *
+ * Word-boundary rule (sibling to Python's inflection library):
+ * @code
+ *   "GeneratorLP"    → "generator_lp"
+ *   "HTTPResponse"   → "http_response"
+ *   "XMLHttpRequest" → "xml_http_request"
+ *   "userID"         → "user_id"
+ *   "Gen2Bus"        → "gen2_bus"
+ * @endcode
+ *
+ * @note The view does NOT own the underlying string data.  It must not
+ *       outlive the object pointed to by the wrapped `string_view`.
+ */
+class SnakeCaseView
+{
+public:
+  // ── Iterator ──────────────────────────────────────────────────────────────
+  class iterator
+  {
+  public:
+    using value_type = char;
+    using difference_type = std::ptrdiff_t;
+    using reference = char;
+    using iterator_category = std::forward_iterator_tag;
+    using iterator_concept = std::forward_iterator_tag;
+
+    constexpr iterator() noexcept = default;
+    explicit constexpr iterator(std::string_view sv,
+                                std::size_t idx,
+                                bool emit_underscore) noexcept
+        : sv_(sv)
+        , idx_(idx)
+        , emit_underscore_(emit_underscore)
+    {
+    }
+
+    [[nodiscard]] constexpr char operator*() const noexcept
+    {
+      if (emit_underscore_) {
+        return '_';
+      }
+      return detail::to_lower_char(sv_[idx_]);
+    }
+
+    constexpr iterator& operator++() noexcept
+    {
+      if (emit_underscore_) {
+        // We just emitted a synthesised underscore; the next dereference
+        // must return the (lowercased) character at the current index.
+        emit_underscore_ = false;
+      } else {
+        ++idx_;
+        if (idx_ < sv_.size()
+            && detail::snake_needs_underscore_before(sv_, idx_))
+        {
+          emit_underscore_ = true;
+        }
+      }
+      return *this;
+    }
+    constexpr iterator operator++(int) noexcept
+    {
+      auto t = *this;
+      ++(*this);
+      return t;
+    }
+
+    [[nodiscard]] constexpr bool operator==(const iterator& o) const noexcept
+    {
+      return idx_ == o.idx_ && emit_underscore_ == o.emit_underscore_;
+    }
+
+  private:
+    std::string_view sv_;
+    std::size_t idx_ {0};
+    bool emit_underscore_ {false};
+  };
+
+  // ── SnakeCaseView interface ───────────────────────────────────────────────
+  using value_type = char;
+  using size_type = std::size_t;
+
+  constexpr SnakeCaseView() noexcept = default;
+  explicit constexpr SnakeCaseView(std::string_view sv) noexcept
+      : sv_(sv)
+      , size_(detail::snake_case_size(sv))
+  {
+  }
+
+  [[nodiscard]] constexpr iterator begin() const noexcept
+  {
+    return iterator(sv_, 0, /*emit_underscore=*/false);
+  }
+  [[nodiscard]] constexpr iterator end() const noexcept
+  {
+    return iterator(sv_, sv_.size(), /*emit_underscore=*/false);
+  }
+
+  [[nodiscard]] constexpr size_type size() const noexcept { return size_; }
+  [[nodiscard]] constexpr bool empty() const noexcept { return size_ == 0; }
+
+  /// Compare element-by-element (after snake_case conversion) with @p sv.
+  [[nodiscard]] bool operator==(std::string_view sv) const noexcept
+  {
+    return std::ranges::equal(*this, sv);
+  }
+
+  /// Materialise the view into a std::string.
+  [[nodiscard]] explicit operator std::string() const
+  {
+    std::string s;
+    s.reserve(size_);
+    std::ranges::copy(*this, std::back_inserter(s));
+    return s;
+  }
+
+private:
+  std::string_view sv_;
+  size_type size_ {0};
+};
+
+static_assert(detail::char_range<SnakeCaseView>,
+              "SnakeCaseView must satisfy char_range");
+static_assert(std::forward_iterator<SnakeCaseView::iterator>,
+              "SnakeCaseView::iterator must satisfy forward_iterator");
+
+/**
  * @brief Creates an empty label string
  *
  * @tparam sep Separator character (default '_')
@@ -652,6 +853,66 @@ template<detail::string_like T>
 {
   // NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
   return LowercaseView(std::string_view(std::forward<T>(sv)));
+  // NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
+}
+
+/**
+ * @brief Returns a snake_case copy of the given string (std::string overload).
+ *
+ * Eager counterpart of `snake_case(T&&)`.  Allocates a fresh `std::string`
+ * sized to the exact output length (via `detail::snake_case_size`) and
+ * writes lowercased characters with synthesised underscores at word
+ * boundaries.
+ *
+ * Unlike `lowercase(std::string)` this overload cannot transform in-place
+ * because the output is generally longer than the input (one extra
+ * character per inserted underscore).
+ *
+ * @param s An rvalue `std::string`.
+ * @return std::string The snake_case form of @p s.
+ *
+ * Example:
+ * @code{.cpp}
+ * auto lbl = snake_case(as_label("HTTPCode")); // "http_code"
+ * @endcode
+ */
+[[nodiscard]] inline std::string snake_case(std::string s)
+{
+  std::string out;
+  out.reserve(detail::snake_case_size(s));
+  for (std::size_t i = 0; i < s.size(); ++i) {
+    if (i > 0 && detail::snake_needs_underscore_before(s, i)) {
+      out.push_back('_');
+    }
+    out.push_back(detail::to_lower_char(s[i]));
+  }
+  return out;
+}
+
+/**
+ * @brief Returns a lazy, zero-copy snake_case view over a string-like value.
+ *
+ * Wraps the input as a `SnakeCaseView` that applies `to_lower_char` and
+ * synthesises word-boundary underscores on each character access.  No heap
+ * allocation occurs until `as_label()` (or another consumer) copies the
+ * characters out.
+ *
+ * @code{.cpp}
+ * std::string_view cn = "GeneratorLP";
+ * auto a = as_label(snake_case(cn), 1, 2); // "generator_lp_1_2"
+ * @endcode
+ *
+ * @param sv Any string-like value (string literal, `std::string_view`,
+ *           `LPClassName`, etc.) that is **not** a `std::string` rvalue.
+ * @return SnakeCaseView A lazy view; valid as long as the underlying data
+ *         lives (same lifetime rules as `std::string_view`).
+ */
+template<detail::string_like T>
+  requires(!std::same_as<std::remove_cvref_t<T>, std::string>)
+[[nodiscard]] constexpr SnakeCaseView snake_case(T&& sv) noexcept
+{
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
+  return SnakeCaseView(std::string_view(std::forward<T>(sv)));
   // NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
 }
 

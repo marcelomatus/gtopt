@@ -32,6 +32,8 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
+#include <vector>
 
 #include <gtopt/as_label.hpp>
 #include <gtopt/basic_types.hpp>
@@ -109,5 +111,60 @@ using AmplVariableMap = flat_map<AmplVariableKey, AmplVariable>;
 
 /// Name registry: (class_name, name) -> element uid.
 using AmplElementNameMap = flat_map<AmplElementNameKey, Uid>;
+
+// ── Compound attributes ─────────────────────────────────────────────────────
+
+/// One leg of a compound PAMPL attribute.  The compound is the sum
+/// `Σ coefficient * <source_attribute>` where each `source_attribute` is
+/// itself a registered `AmplVariable` of the same element.
+///
+/// Example: `line.flow = (+1, "flowp"), (-1, "flown")`.
+struct AmplCompoundLeg
+{
+  double coefficient {1.0};
+  std::string_view source_attribute;  ///< must be a registered AMPL attribute
+};
+
+/// Key identifying a class-level compound attribute.  Compounds are
+/// purely syntactic sugar over existing AMPL columns, so they are
+/// indexed by class + compound name only (not per-element).
+struct AmplCompoundKey
+{
+  std::string class_name;
+  std::string_view compound_name;
+
+  [[nodiscard]] friend auto operator<=>(
+      const AmplCompoundKey&, const AmplCompoundKey&) noexcept = default;
+};
+
+/// Compound-attribute registry: (class, compound_name) -> legs.
+using AmplCompoundMap = flat_map<AmplCompoundKey, std::vector<AmplCompoundLeg>>;
+
+// ── Element metadata registry (F9) ──────────────────────────────────────────
+
+/// Value stored against a metadata key.  Strings for categorical
+/// attributes (`type`, `bus`, `name`, `class_name`, …), doubles for
+/// numeric data (`uid`, `cap`, …).
+using AmplMetadataValue = std::variant<std::string, double>;
+
+/// Metadata bundle for one element: an ordered `(key, value)` list.
+/// Small enough that linear search beats a map.
+using AmplElementMetadata =
+    std::vector<std::pair<std::string_view, AmplMetadataValue>>;
+
+/// Lookup key for the per-element metadata registry.
+struct AmplMetadataKey
+{
+  std::string class_name;
+  Uid element_uid {unknown_uid};
+
+  [[nodiscard]] friend auto operator<=>(
+      const AmplMetadataKey&, const AmplMetadataKey&) noexcept = default;
+};
+
+/// Metadata registry: (class, uid) -> attribute bundle.  Populated by
+/// each element's `add_to_lp` so that `collect_sum_cols` can evaluate
+/// multi-predicate filters without re-reading the element's fields.
+using AmplElementMetadataMap = flat_map<AmplMetadataKey, AmplElementMetadata>;
 
 }  // namespace gtopt

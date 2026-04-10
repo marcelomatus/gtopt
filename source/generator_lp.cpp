@@ -65,15 +65,29 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  static constexpr std::string_view ampl_class = "generator";
+  static const auto ampl_name = std::string {ClassName.snake_case()};
 
-  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) [[unlikely]] {
+  if (!CapacityBase::add_to_lp(sc, ampl_name, scenario, stage, lp)) [[unlikely]]
+  {
     return false;
   }
 
   // Register element name once per element so PAMPL `generator("G1")`
   // expressions can resolve names to uids.
-  sc.register_ampl_element(ampl_class, id().second, uid());
+  sc.register_ampl_element(ampl_name, id().second, uid());
+
+  // Register filter metadata (F9) so `sum(generator(all : type="hydro")...)`
+  // predicates can be evaluated at row-assembly time.
+  {
+    AmplElementMetadata metadata;
+    metadata.reserve(2);
+    if (const auto& t = generator().type) {
+      metadata.emplace_back("type", *t);
+    }
+    metadata.emplace_back("bus",
+                          static_cast<double>(sc.get_bus(bus_sid()).uid()));
+    sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
+  }
 
   if (!is_active(stage)) [[unlikely]] {
     return true;
@@ -157,7 +171,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   if (!gcols.empty()) {
     generation_cols[st_key] = std::move(gcols);
     // Register PAMPL-visible columns with the variable registry.
-    sc.add_ampl_variable(ampl_class,
+    sc.add_ampl_variable(ampl_name,
                          guid,
                          GenerationName,
                          scenario,
@@ -168,18 +182,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     capacity_rows[st_key] = std::move(crows);
   }
 
-  // Stage-level capacity (capainst / capacity) — only when expansion column
-  // exists.
-  if (capacity_col) {
-    sc.add_ampl_variable(ampl_class,
-                         guid,
-                         CapacityObjectBase::CapainstName,
-                         scenario,
-                         stage,
-                         *capacity_col);
-    sc.add_ampl_variable(
-        ampl_class, guid, CapacityName, scenario, stage, *capacity_col);
-  }
+  // `capainst` is registered centrally by CapacityBase::add_to_lp.
 
   return true;
 }

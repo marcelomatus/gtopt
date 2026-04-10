@@ -130,17 +130,31 @@ bool LineLP::add_to_lp(SystemContext& sc,
                        const StageLP& stage,
                        LinearProblem& lp)
 {
-  static constexpr std::string_view ampl_class = "line";
+  static const auto ampl_name = std::string {ClassName.snake_case()};
 
   if (is_loop()) {
     return true;
   }
 
-  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) {
+  if (!CapacityBase::add_to_lp(sc, ampl_name, scenario, stage, lp)) {
     return false;
   }
 
-  sc.register_ampl_element(ampl_class, id().second, uid());
+  sc.register_ampl_element(ampl_name, id().second, uid());
+
+  // F9: register filter metadata for sum(...) predicates.
+  {
+    AmplElementMetadata metadata;
+    metadata.reserve(3);
+    if (const auto& t = line().type) {
+      metadata.emplace_back("type", *t);
+    }
+    metadata.emplace_back("bus_a",
+                          static_cast<double>(sc.get_bus(bus_a_sid()).uid()));
+    metadata.emplace_back("bus_b",
+                          static_cast<double>(sc.get_bus(bus_b_sid()).uid()));
+    sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
+  }
 
   if (!is_active(stage)) [[unlikely]] {
     return true;
@@ -259,28 +273,38 @@ bool LineLP::add_to_lp(SystemContext& sc,
   // Register PAMPL-visible columns.
   if (!flowp_cols.at(st_key).empty()) {
     sc.add_ampl_variable(
-        ampl_class, uid(), FlowpName, scenario, stage, flowp_cols.at(st_key));
+        ampl_name, uid(), FlowpName, scenario, stage, flowp_cols.at(st_key));
   }
   if (!flown_cols.at(st_key).empty()) {
     sc.add_ampl_variable(
-        ampl_class, uid(), FlownName, scenario, stage, flown_cols.at(st_key));
+        ampl_name, uid(), FlownName, scenario, stage, flown_cols.at(st_key));
   }
   if (!lossp_cols.at(st_key).empty()) {
     sc.add_ampl_variable(
-        ampl_class, uid(), LosspName, scenario, stage, lossp_cols.at(st_key));
+        ampl_name, uid(), LosspName, scenario, stage, lossp_cols.at(st_key));
   }
   if (!lossn_cols.at(st_key).empty()) {
     sc.add_ampl_variable(
-        ampl_class, uid(), LossnName, scenario, stage, lossn_cols.at(st_key));
+        ampl_name, uid(), LossnName, scenario, stage, lossn_cols.at(st_key));
   }
-  if (capacity_col) {
-    sc.add_ampl_variable(ampl_class,
-                         uid(),
-                         CapacityObjectBase::CapainstName,
-                         scenario,
-                         stage,
-                         *capacity_col);
-  }
+  // `capainst` is registered centrally by CapacityBase::add_to_lp.
+
+  // Register the `flow` compound attribute (class-level, idempotent).
+  // `line.flow` means `+1·flowp − 1·flown`.  The registration is a no-op
+  // after the first call for this class, so every LineLP::add_to_lp may
+  // execute it unconditionally.
+  sc.add_ampl_compound(ampl_name,
+                       FlowName,
+                       {
+                           AmplCompoundLeg {
+                               .coefficient = +1.0,
+                               .source_attribute = FlowpName,
+                           },
+                           AmplCompoundLeg {
+                               .coefficient = -1.0,
+                               .source_attribute = FlownName,
+                           },
+                       });
 
   return true;
 }

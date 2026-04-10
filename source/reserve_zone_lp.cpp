@@ -120,9 +120,9 @@ bool ReserveZoneLP::add_to_lp(const SystemContext& sc,
                               LinearProblem& lp)
 {
   static constexpr std::string_view cname = ClassName.full_name();
-  static constexpr std::string_view ampl_class = "reserve_zone";
+  static const auto ampl_name = std::string {ClassName.snake_case()};
 
-  sc.register_ampl_element(ampl_class, id().second, uid());
+  sc.register_ampl_element(ampl_name, id().second, uid());
 
   if (!is_active(stage)) {
     return true;
@@ -149,28 +149,18 @@ bool ReserveZoneLP::add_to_lp(const SystemContext& sc,
     return false;
   }
 
-  // Register PAMPL-visible requirement columns.  Each direction is
-  // exposed under all supported attribute aliases.
+  // Register PAMPL-visible requirement columns under the canonical
+  // `up` / `dn` spelling.
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   if (const auto it = ur.requirement_cols.find(st_key);
       it != ur.requirement_cols.end() && !it->second.empty())
   {
-    sc.add_ampl_variable(ampl_class, uid(), "up", scenario, stage, it->second);
-    sc.add_ampl_variable(
-        ampl_class, uid(), "urequirement", scenario, stage, it->second);
-    sc.add_ampl_variable(
-        ampl_class, uid(), "up_requirement", scenario, stage, it->second);
+    sc.add_ampl_variable(ampl_name, uid(), "up", scenario, stage, it->second);
   }
   if (const auto it = dr.requirement_cols.find(st_key);
       it != dr.requirement_cols.end() && !it->second.empty())
   {
-    sc.add_ampl_variable(ampl_class, uid(), "dn", scenario, stage, it->second);
-    sc.add_ampl_variable(
-        ampl_class, uid(), "down", scenario, stage, it->second);
-    sc.add_ampl_variable(
-        ampl_class, uid(), "drequirement", scenario, stage, it->second);
-    sc.add_ampl_variable(
-        ampl_class, uid(), "dn_requirement", scenario, stage, it->second);
+    sc.add_ampl_variable(ampl_name, uid(), "dn", scenario, stage, it->second);
   }
 
   return true;

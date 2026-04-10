@@ -46,15 +46,25 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
                           LinearProblem& lp)
 {
   static constexpr std::string_view cname = ClassName.full_name();
-  static constexpr std::string_view ampl_class = "battery";
+  static const auto ampl_name = std::string {ClassName.snake_case()};
   static constexpr double flow_conversion_rate = 1.0;
 
   // Add capacity-related variables and constraints
-  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) [[unlikely]] {
+  if (!CapacityBase::add_to_lp(sc, ampl_name, scenario, stage, lp)) [[unlikely]]
+  {
     return false;
   }
 
-  sc.register_ampl_element(ampl_class, id().second, uid());
+  sc.register_ampl_element(ampl_name, id().second, uid());
+
+  // F9: register filter metadata for sum(...) predicates.  Battery `bus`
+  // is optional (standalone batteries are decomposed by
+  // `System::expand_batteries()`), so we only register `type`.
+  if (const auto& t = battery().type) {
+    AmplElementMetadata metadata;
+    metadata.emplace_back("type", *t);
+    sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
+  }
 
   // Get capacity information
   auto&& [opt_capacity, capacity_col] = capacity_and_col(stage, lp);
@@ -106,6 +116,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
       .flow_scale = fs,
   };
   if (!StorageBase::add_to_lp(cname,
+                              ampl_name,
                               sc,
                               scenario,
                               stage,
@@ -131,67 +142,13 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   finp_cols[st_key] = std::move(finps);
   fout_cols[st_key] = std::move(fouts);
 
-  // Register PAMPL-visible columns.  StorageBase populates energy_cols /
-  // drain_cols / soft_emin / eini / efin during its add_to_lp above.
+  // Register battery-specific PAMPL columns.  Storage-generic variables
+  // (energy/drain/eini/efin/soft_emin) are registered centrally by
+  // StorageBase::add_to_lp; `capainst` by CapacityBase::add_to_lp.
   sc.add_ampl_variable(
-      ampl_class, uid(), ChargeName, scenario, stage, finp_cols.at(st_key));
+      ampl_name, uid(), ChargeName, scenario, stage, finp_cols.at(st_key));
   sc.add_ampl_variable(
-      ampl_class, uid(), DischargeName, scenario, stage, fout_cols.at(st_key));
-
-  // Energy / volume aliases.
-  const auto& ecols = energy_cols_at(scenario, stage);
-  sc.add_ampl_variable(
-      ampl_class, uid(), StorageBase::EnergyName, scenario, stage, ecols);
-
-  // Spill / drain — only when drain columns exist for this (scenario, stage).
-  if (const auto* dcols = this->find_drain_cols(scenario, stage);
-      dcols != nullptr && !dcols->empty())
-  {
-    sc.add_ampl_variable(
-        ampl_class, uid(), StorageBase::SpillName, scenario, stage, *dcols);
-    sc.add_ampl_variable(
-        ampl_class, uid(), StorageBase::DrainName, scenario, stage, *dcols);
-  }
-
-  // Stage-level eini / efin.
-  sc.add_ampl_variable(ampl_class,
-                       uid(),
-                       StorageBase::EiniName,
-                       scenario,
-                       stage,
-                       eini_col_at(scenario, stage));
-  sc.add_ampl_variable(ampl_class,
-                       uid(),
-                       StorageBase::EfinName,
-                       scenario,
-                       stage,
-                       efin_col_at(scenario, stage));
-
-  // Optional soft_emin slack.
-  if (auto soft_col = soft_emin_col_at(scenario, stage)) {
-    sc.add_ampl_variable(ampl_class,
-                         uid(),
-                         StorageBase::SoftEminName,
-                         scenario,
-                         stage,
-                         *soft_col);
-  }
-
-  // Stage-level capacity (capainst / capacity).
-  if (auto cap_col = capacity_col_at(stage)) {
-    sc.add_ampl_variable(ampl_class,
-                         uid(),
-                         CapacityObjectBase::CapainstName,
-                         scenario,
-                         stage,
-                         *cap_col);
-    sc.add_ampl_variable(ampl_class,
-                         uid(),
-                         StorageBase::CapacityName,
-                         scenario,
-                         stage,
-                         *cap_col);
-  }
+      ampl_name, uid(), DischargeName, scenario, stage, fout_cols.at(st_key));
 
   return true;
 }

@@ -22,9 +22,9 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
                            const StageLP& stage,
                            LinearProblem& lp)
 {
-  static constexpr std::string_view ampl_class = "junction";
+  static const auto ampl_name = std::string {ClassName.snake_case()};
 
-  sc.register_ampl_element(ampl_class, id().second, uid());
+  sc.register_ampl_element(ampl_name, id().second, uid());
 
   // Skip inactive junctions for this stage
   if (!is_active(stage)) {
@@ -79,7 +79,7 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
   // Register PAMPL-visible columns — drain only exists when enabled.
   if (!drain_cols.at(st_key).empty()) {
     sc.add_ampl_variable(
-        ampl_class, uid(), DrainName, scenario, stage, drain_cols.at(st_key));
+        ampl_name, uid(), DrainName, scenario, stage, drain_cols.at(st_key));
   }
 
   return true;

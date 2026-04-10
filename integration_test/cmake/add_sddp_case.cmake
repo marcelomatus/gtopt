@@ -13,6 +13,16 @@
 function(add_sddp_case case_name system_json)
   cmake_parse_arguments(ARG "" "MAX_ITERATIONS;TIMEOUT;CASE_DIR" "ALLOWED_EXIT_CODES;LABELS;EXTRA_SET" ${ARGN})
 
+  # Resolve the gtopt binary reference.  Prefer GTOPT_EXECUTABLE_FILE (may
+  # be a genex like $<TARGET_FILE:gtoptStandalone> or a literal path);
+  # fall back to GTOPT_EXECUTABLE_TARGET for backward compatibility.
+  if(NOT DEFINED GTOPT_EXECUTABLE_FILE)
+    if(NOT DEFINED GTOPT_EXECUTABLE_TARGET)
+      set(GTOPT_EXECUTABLE_TARGET "${PROJECT_NAME}")
+    endif()
+    set(GTOPT_EXECUTABLE_FILE "$<TARGET_FILE:${GTOPT_EXECUTABLE_TARGET}>")
+  endif()
+
   if(NOT DEFINED ARG_MAX_ITERATIONS)
     set(ARG_MAX_ITERATIONS 1)
   endif()
@@ -40,7 +50,7 @@ function(add_sddp_case case_name system_json)
   add_test(
     NAME e2e_${case_name}_sddp_solve
     COMMAND ${CMAKE_COMMAND}
-      -DGTOPT_BINARY=$<TARGET_FILE:${GTOPT_EXECUTABLE_TARGET}>
+      -DGTOPT_BINARY=${GTOPT_EXECUTABLE_FILE}
       -DINPUT_FILE=${input_file}
       -DOUTPUT_DIR=${test_output}
       -DWORKING_DIR=${case_dir}

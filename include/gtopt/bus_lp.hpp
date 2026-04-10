@@ -32,8 +32,6 @@ public:
   static constexpr LPClassName ClassName {"Bus"};
   static constexpr std::string_view BalanceName {"balance"};
   static constexpr std::string_view ThetaName {"theta"};
-  // PAMPL attribute alias: "angle" resolves to theta.
-  static constexpr std::string_view AngleName {"angle"};
 
   /// Constructs a BusLP from a Bus and input context
   /// @param pbus The bus to wrap

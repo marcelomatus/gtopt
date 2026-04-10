@@ -130,6 +130,10 @@ struct CapacityObjectBase
   /**
    * @brief Add capacity constraints to the linear problem
    * @param sc System context providing stage/scenario info
+   * @param ampl_class Canonical lowercase PAMPL class name ("generator",
+   *                   "demand", "line", "battery", "converter") — used to
+   *                   register the stage-level `capainst` column into the
+   *                   AMPL variable registry for user-constraint lookups.
    * @param scenario Current scenario
    * @param stage Current stage
    * @param lp Linear problem to modify
@@ -143,6 +147,7 @@ struct CapacityObjectBase
    * - Cost tracking equations
    */
   bool add_to_lp(SystemContext& sc,
+                 std::string_view ampl_class,
                  const ScenarioLP& scenario,
                  const StageLP& stage,
                  LinearProblem& lp);

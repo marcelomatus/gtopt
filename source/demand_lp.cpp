@@ -33,13 +33,25 @@ bool DemandLP::add_to_lp(SystemContext& sc,
                          const StageLP& stage,
                          LinearProblem& lp)
 {
-  static constexpr std::string_view ampl_class = "demand";
+  static const auto ampl_name = std::string {ClassName.snake_case()};
 
-  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) {
+  if (!CapacityBase::add_to_lp(sc, ampl_name, scenario, stage, lp)) {
     return false;
   }
 
-  sc.register_ampl_element(ampl_class, id().second, uid());
+  sc.register_ampl_element(ampl_name, id().second, uid());
+
+  // F9: register filter metadata so sum(...) predicates work.
+  {
+    AmplElementMetadata metadata;
+    metadata.reserve(2);
+    if (const auto& t = demand().type) {
+      metadata.emplace_back("type", *t);
+    }
+    metadata.emplace_back("bus",
+                          static_cast<double>(sc.get_bus(bus_sid()).uid()));
+    sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
+  }
 
   if (!is_active(stage)) [[unlikely]] {
     return true;
@@ -212,7 +224,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   if (!lcols.empty()) {
     load_cols[st_key] = std::move(lcols);
     sc.add_ampl_variable(
-        ampl_class, uid(), LoadName, scenario, stage, load_cols.at(st_key));
+        ampl_name, uid(), LoadName, scenario, stage, load_cols.at(st_key));
   }
   if (!crows.empty()) {
     capacity_rows[st_key] = std::move(crows);
@@ -222,20 +234,10 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     fail_cols[st_key] = std::move(fcols);
     balance_rows[st_key] = std::move(brows);
     sc.add_ampl_variable(
-        ampl_class, uid(), FailName, scenario, stage, fail_cols.at(st_key));
+        ampl_name, uid(), FailName, scenario, stage, fail_cols.at(st_key));
   }
 
-  // Stage-level capacity (capainst / capacity).
-  if (capacity_col) {
-    sc.add_ampl_variable(ampl_class,
-                         uid(),
-                         CapacityObjectBase::CapainstName,
-                         scenario,
-                         stage,
-                         *capacity_col);
-    sc.add_ampl_variable(
-        ampl_class, uid(), CapacityName, scenario, stage, *capacity_col);
-  }
+  // `capainst` is registered centrally by CapacityBase::add_to_lp.
 
   return true;
 }

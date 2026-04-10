@@ -47,9 +47,9 @@ public:
   static constexpr std::string_view ExtractionName {"extraction"};
   static constexpr std::string_view SavingName {"saving"};
   static constexpr std::string_view FailName {"fail"};
-  // PAMPL attribute aliases for extraction.
+  // PAMPL attribute alias: extraction is also exposed as `flow`, matching
+  // waterway/flow_right so constraint expressions can spell it either way.
   static constexpr std::string_view FlowName {"flow"};
-  static constexpr std::string_view FoutName {"fout"};
 
   using StorageBase = StorageLP<ObjectLP<VolumeRight>>;
 

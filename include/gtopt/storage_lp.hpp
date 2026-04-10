@@ -102,13 +102,9 @@ public:
   static constexpr std::string_view EnergyName {"energy"};
   static constexpr std::string_view SoftEminName {"soft_emin"};
   static constexpr std::string_view DrainName {"drain"};
-  static constexpr std::string_view VolumenName {"volumen"};
   static constexpr std::string_view EfinName {"efin"};
   static constexpr std::string_view CapacityName {"capacity"};
   static constexpr std::string_view SeminGeName {"semin_ge"};
-  // PAMPL attribute aliases: "volume" resolves to energy, "spill" to drain.
-  static constexpr std::string_view VolumeName {"volume"};
-  static constexpr std::string_view SpillName {"spill"};
 
   [[nodiscard]] constexpr auto&& storage(this auto&& self) noexcept
   {
@@ -370,6 +366,7 @@ public:
 
   template<typename SystemContextT>
   bool add_to_lp(std::string_view cname,
+                 std::string_view ampl_class,
                  SystemContextT& sc,
                  const ScenarioLP& scenario,
                  const StageLP& stage,
@@ -543,7 +540,7 @@ public:
       auto erow =
           SparseRow {
               .class_name = cname,
-              .constraint_name = VolumenName,
+              .constraint_name = EnergyName,
               .variable_uid = opts.variable_uid,
               .context =
                   make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -775,6 +772,28 @@ public:
       capacity_rows[stg_ctx] = std::move(crows);
     }
 
+    // ── Central PAMPL variable registration ──────────────────────────
+    // Register the generic storage variables (energy/drain/eini/efin/
+    // soft_emin) under the caller's canonical AMPL class name.  Callers
+    // that pass an empty ampl_class opt out and must register manually.
+    if (!ampl_class.empty()) {
+      sc.add_ampl_variable(
+          ampl_class, uid(), EnergyName, scenario, stage, energy_cols[stg_ctx]);
+      if (drain_cost) {
+        sc.add_ampl_variable(
+            ampl_class, uid(), DrainName, scenario, stage, drain_cols[stg_ctx]);
+      }
+      sc.add_ampl_variable(ampl_class, uid(), EiniName, scenario, stage, eicol);
+      sc.add_ampl_variable(
+          ampl_class, uid(), EfinName, scenario, stage, prev_vc);
+      if (const auto sit = soft_emin_slack_cols.find(stg_ctx);
+          sit != soft_emin_slack_cols.end())
+      {
+        sc.add_ampl_variable(
+            ampl_class, uid(), SoftEminName, scenario, stage, sit->second);
+      }
+    }
+
     return true;
   }
 
@@ -792,14 +811,14 @@ public:
     out.add_col_cost(cname, SiniName, pid, sini_cols);
     out.add_col_sol(cname, EfinName, pid, efin_cols);
     out.add_col_cost(cname, EfinName, pid, efin_cols);
-    out.add_col_sol(cname, VolumenName, pid, energy_cols);
-    out.add_col_cost(cname, VolumenName, pid, energy_cols);
+    out.add_col_sol(cname, EnergyName, pid, energy_cols);
+    out.add_col_cost(cname, EnergyName, pid, energy_cols);
 
     // Dual output: output_dual_scale = dc_stage_scale.
     // Row equilibration is already removed by get_row_dual().
     // This corrects the daily-cycle time-scaling (dc_stage_scale).
     // flatten() handles energy_scale via col_scale on coefficients.
-    out.add_row_dual(cname, VolumenName, pid, energy_rows, output_dual_scale);
+    out.add_row_dual(cname, EnergyName, pid, energy_rows, output_dual_scale);
 
     out.add_row_dual(cname, CapacityName, pid, capacity_rows);
     out.add_row_dual(cname, EfinName, pid, efin_rows);

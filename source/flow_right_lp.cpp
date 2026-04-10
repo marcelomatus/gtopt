@@ -40,9 +40,9 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  static constexpr std::string_view ampl_class = "flow_right";
+  static const auto ampl_name = std::string {ClassName.snake_case()};
 
-  sc.register_ampl_element(ampl_class, id().second, uid());
+  sc.register_ampl_element(ampl_name, id().second, uid());
 
   if (!is_active(stage)) {
     return true;
@@ -172,13 +172,13 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
   // Register PAMPL-visible columns.
   if (!flow_cols.at(st_key).empty()) {
     sc.add_ampl_variable(
-        ampl_class, uid(), FlowName, scenario, stage, flow_cols.at(st_key));
+        ampl_name, uid(), FlowName, scenario, stage, flow_cols.at(st_key));
   }
   if (const auto it = fail_cols.find(st_key);
       it != fail_cols.end() && !it->second.empty())
   {
     sc.add_ampl_variable(
-        ampl_class, uid(), FailName, scenario, stage, it->second);
+        ampl_name, uid(), FailName, scenario, stage, it->second);
   }
 
   // Store bound rule state for update_lp

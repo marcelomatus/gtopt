@@ -29,6 +29,8 @@ class LineLP : public CapacityObjectLP<Line>
 {
 public:
   static constexpr LPClassName ClassName {"Line"};
+  static constexpr std::string_view FlowName {
+      "flow"};  ///< compound: `flowp − flown`
   static constexpr std::string_view FlowpName {"flowp"};
   static constexpr std::string_view FlownName {"flown"};
   static constexpr std::string_view LosspName {"lossp"};

@@ -55,9 +55,9 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
                               LinearProblem& lp)
 {
   static constexpr std::string_view cname = ClassName.full_name();
-  static constexpr std::string_view ampl_class = "volume_right";
+  static const auto ampl_name = std::string {ClassName.snake_case()};
 
-  sc.register_ampl_element(ampl_class, id().second, uid());
+  sc.register_ampl_element(ampl_name, id().second, uid());
 
   if (!is_active(stage)) {
     return true;
@@ -172,6 +172,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   };
 
   if (!StorageBase::add_to_lp(cname,
+                              ampl_name,
                               sc,
                               scenario,
                               stage,
@@ -222,24 +223,20 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     saving_cols_[st_key] = saving_cols;
   }
 
-  // Register PAMPL-visible columns.  "extraction", "flow" and "fout" all
-  // alias the same per-block extraction column map.
+  // Register volume_right-specific PAMPL columns.  The canonical name is
+  // `extraction`; `flow` is kept as a convenience spelling that matches
+  // waterway/flow_right.  Storage-generic variables (energy/eini/efin/
+  // soft_emin) are registered centrally by StorageBase::add_to_lp.
   if (!extraction_cols_.at(st_key).empty()) {
-    sc.add_ampl_variable(ampl_class,
+    sc.add_ampl_variable(ampl_name,
                          uid(),
                          ExtractionName,
                          scenario,
                          stage,
                          extraction_cols_.at(st_key));
-    sc.add_ampl_variable(ampl_class,
+    sc.add_ampl_variable(ampl_name,
                          uid(),
                          FlowName,
-                         scenario,
-                         stage,
-                         extraction_cols_.at(st_key));
-    sc.add_ampl_variable(ampl_class,
-                         uid(),
-                         FoutName,
                          scenario,
                          stage,
                          extraction_cols_.at(st_key));
@@ -248,38 +245,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
       it != saving_cols_.end() && !it->second.empty())
   {
     sc.add_ampl_variable(
-        ampl_class, uid(), SavingName, scenario, stage, it->second);
-  }
-
-  // Energy / volume aliases (StorageBase balance variable).
-  const auto& ecols = energy_cols_at(scenario, stage);
-  sc.add_ampl_variable(
-      ampl_class, uid(), StorageBase::EnergyName, scenario, stage, ecols);
-  sc.add_ampl_variable(
-      ampl_class, uid(), StorageBase::VolumeName, scenario, stage, ecols);
-
-  // Stage-level eini / efin (state variables).
-  sc.add_ampl_variable(ampl_class,
-                       uid(),
-                       StorageBase::EiniName,
-                       scenario,
-                       stage,
-                       eini_col_at(scenario, stage));
-  sc.add_ampl_variable(ampl_class,
-                       uid(),
-                       StorageBase::EfinName,
-                       scenario,
-                       stage,
-                       efin_col_at(scenario, stage));
-
-  // Optional soft_emin slack.
-  if (auto soft_col = soft_emin_col_at(scenario, stage)) {
-    sc.add_ampl_variable(ampl_class,
-                         uid(),
-                         StorageBase::SoftEminName,
-                         scenario,
-                         stage,
-                         *soft_col);
+        ampl_name, uid(), SavingName, scenario, stage, it->second);
   }
 
   // Store bound rule state for update_lp

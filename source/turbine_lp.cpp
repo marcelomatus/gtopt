@@ -44,9 +44,9 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
                           const StageLP& stage,
                           LinearProblem& lp)
 {
-  static constexpr std::string_view ampl_class = "turbine";
+  static const auto ampl_name = std::string {ClassName.snake_case()};
 
-  sc.register_ampl_element(ampl_class, id().second, uid());
+  sc.register_ampl_element(ampl_name, id().second, uid());
 
   if (!is_active(stage)) {
     return true;
@@ -145,11 +145,11 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
   capacity_rows[st_key] = std::move(crows);
 
   // Register the turbine's "generation" attribute under the turbine's own
-  // uid + ampl_class, pointing at the associated generator's per-block
+  // uid + ampl_name, pointing at the associated generator's per-block
   // generation column map.  Safe: the generator's generation_cols map is
   // owned by the GeneratorLP instance and persists for the full solve.
   if (!gen_cols.empty()) {
-    sc.add_ampl_variable(ampl_class,
+    sc.add_ampl_variable(ampl_name,
                          uid(),
                          GeneratorLP::GenerationName,
                          scenario,
