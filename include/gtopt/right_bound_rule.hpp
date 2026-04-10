@@ -40,13 +40,50 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
+#include <cstdint>
+#include <optional>
+#include <span>
+#include <utility>
 #include <vector>
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/enum_option.hpp>
 #include <gtopt/single_id.hpp>
+#include <gtopt/stage_enums.hpp>
 
 namespace gtopt
 {
+
+/**
+ * @brief The driving axis for a `RightBoundRule` piecewise function.
+ *
+ * - `reservoir_volume` (default): the rule input is a referenced
+ *   reservoir's current volume in `hm³`.  This preserves the
+ *   Maule/Laja cushion-zone behaviour and is the only axis required by
+ *   existing test fixtures.
+ * - `stage_month`: the rule input is the calendar month of the active
+ *   stage (1=Jan..12=Dec).  Allows a single FlowRight/VolumeRight to
+ *   carry a 12-segment monthly modulation table directly, without
+ *   precomputing per-stage schedules.  Future: per-block axes such as
+ *   `demand_minus_inflow` for La Invernada conditional rules.
+ */
+enum class BoundRuleAxis : uint8_t
+{
+  reservoir_volume = 0,
+  stage_month = 1,
+};
+
+inline constexpr auto bound_rule_axis_entries =
+    std::to_array<EnumEntry<BoundRuleAxis>>({
+        {.name = "reservoir_volume", .value = BoundRuleAxis::reservoir_volume},
+        {.name = "stage_month", .value = BoundRuleAxis::stage_month},
+    });
+
+constexpr auto enum_entries(BoundRuleAxis /*tag*/) noexcept
+{
+  return std::span {bound_rule_axis_entries};
+}
 
 /**
  * @brief One segment of a piecewise-linear bound function
@@ -82,9 +119,14 @@ struct RightBoundSegment
 struct RightBoundRule
 {
   /// Reference reservoir whose volume drives the bound computation.
+  /// Required when `axis == BoundRuleAxis::reservoir_volume` (the
+  /// default).  Ignored when the axis does not consume reservoir state.
   SingleId reservoir {unknown_uid};
 
-  /// Piecewise-linear segments (sorted ascending by volume breakpoint).
+  /// Piecewise-linear segments (sorted ascending by the axis input).
+  /// The `volume` field is the segment's lower breakpoint regardless
+  /// of which axis is in use — it is the input value at which the
+  /// segment becomes active, not necessarily a reservoir volume.
   /// When empty, the bound rule has no effect.
   std::vector<RightBoundSegment> segments {};
 
@@ -94,6 +136,11 @@ struct RightBoundRule
 
   /// Minimum floor on the computed bound.  When unset, defaults to 0.
   OptReal floor {};
+
+  /// Axis driving the rule.  Defaults to `reservoir_volume` so that
+  /// existing fixtures (Laja, Maule) continue to use the source
+  /// reservoir's volume without explicit opt-in.
+  BoundRuleAxis axis {BoundRuleAxis::reservoir_volume};
 };
 
 // -- Piecewise-linear evaluation ----------------------------------------
@@ -150,6 +197,55 @@ struct RightBoundRule
   }
 
   return result;
+}
+
+/**
+ * @brief Resolve the rule's input value by axis dispatch.
+ *
+ * Each axis is sourced differently and the call sites in
+ * `FlowRightLP` / `VolumeRightLP` should not have to know about the
+ * dispatch table.  The reservoir-volume axis pulls from a caller-supplied
+ * callable so this header stays free of `SystemContext` coupling.
+ *
+ * @param rule              The configured rule.
+ * @param stage_month       Active stage's calendar month, when set.
+ * @param volume_getter     Callable returning the reservoir volume in
+ *                          `hm³`.  Invoked only when the axis is
+ *                          `reservoir_volume`, so the caller can defer
+ *                          any expensive lookup work behind it.
+ * @return The numeric input to feed into `evaluate_bound_rule`.  When
+ *         the active axis has no value (e.g. `stage_month` on a stage
+ *         without a month assignment) returns `0.0`, mirroring the
+ *         `value_or(0.0)` fallbacks already used elsewhere.
+ */
+template<typename VolumeGetter>
+[[nodiscard]] inline auto resolve_bound_rule_axis_value(
+    const RightBoundRule& rule,
+    const std::optional<MonthType>& stage_month,
+    VolumeGetter&& volume_getter) -> Real
+{
+  switch (rule.axis) {
+    case BoundRuleAxis::stage_month:
+      return stage_month.has_value()
+          ? static_cast<Real>(std::to_underlying(*stage_month))
+          : Real {0.0};
+    case BoundRuleAxis::reservoir_volume:
+      return std::forward<VolumeGetter>(volume_getter)();
+  }
+  return Real {0.0};
+}
+
+/**
+ * @brief Whether this axis depends on a reservoir reference.
+ *
+ * Call sites use this to skip the reservoir element lookup entirely
+ * when the configured axis does not consume reservoir state, so the
+ * `reservoir` field can be left unset on stage-month rules.
+ */
+[[nodiscard]] inline constexpr auto axis_uses_reservoir(
+    BoundRuleAxis axis) noexcept -> bool
+{
+  return axis == BoundRuleAxis::reservoir_volume;
 }
 
 }  // namespace gtopt

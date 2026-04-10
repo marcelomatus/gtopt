@@ -116,14 +116,26 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
   map_reserve(fcols, blocks.size());
   map_reserve(ffails, blocks.size());
 
-  // Evaluate initial bound rule if present
+  // Evaluate initial bound rule if present.  The axis dispatch is
+  // delegated to `resolve_bound_rule_axis_value` so this call site does
+  // not have to special-case each axis kind; the reservoir lookup is
+  // skipped entirely on axes that don't consume reservoir state.
   const auto& opt_rule = flow_right().bound_rule;
   auto initial_rule_bound = LinearProblem::DblMax;
   if (opt_rule.has_value()) {
-    const auto rsv_sid = ReservoirLPSId(opt_rule->reservoir);
-    const auto& rsv = sc.element<ReservoirLP>(rsv_sid);
-    const auto initial_volume = rsv.reservoir().eini.value_or(0.0);
-    initial_rule_bound = evaluate_bound_rule(*opt_rule, initial_volume);
+    const auto axis_value = resolve_bound_rule_axis_value(
+        *opt_rule,
+        stage.month(),
+        [&]() -> Real
+        {
+          if (!axis_uses_reservoir(opt_rule->axis)) {
+            return 0.0;
+          }
+          const auto rsv_sid = ReservoirLPSId(opt_rule->reservoir);
+          const auto& rsv = sc.element<ReservoirLP>(rsv_sid);
+          return rsv.reservoir().eini.value_or(0.0);
+        });
+    initial_rule_bound = evaluate_bound_rule(*opt_rule, axis_value);
   }
 
   for (auto&& block : blocks) {
@@ -314,19 +326,29 @@ int FlowRightLP::update_lp(SystemLP& sys,
 
   auto& li = sys.linear_interface();
   const auto& options = sys.options();
-  const auto rsv_sid = ReservoirLPSId(opt_rule->reservoir);
-  const auto& rsv = sys.element<ReservoirLP>(rsv_sid);
-  const auto default_volume = rsv.reservoir().eini.value_or(0.0);
 
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   auto& state = m_bound_states_.at(st_key);
 
-  const auto vini =
-      rsv.physical_eini(sys, scenario, stage, default_volume, rsv_sid);
-  const auto vfin = rsv.physical_efin(sys, scenario, stage, default_volume);
-  const Real volume = (vini + vfin) / 2.0;
+  // Resolve the rule's input value via the axis dispatcher.  Reservoir
+  // lookups are skipped entirely when the axis is not reservoir-driven,
+  // so a stage-month rule is allowed to leave `reservoir` unset.
+  const auto axis_value = resolve_bound_rule_axis_value(
+      *opt_rule,
+      stage.month(),
+      [&]() -> Real
+      {
+        const auto rsv_sid = ReservoirLPSId(opt_rule->reservoir);
+        const auto& rsv = sys.element<ReservoirLP>(rsv_sid);
+        const auto default_volume = rsv.reservoir().eini.value_or(0.0);
+        const auto vini =
+            rsv.physical_eini(sys, scenario, stage, default_volume, rsv_sid);
+        const auto vfin =
+            rsv.physical_efin(sys, scenario, stage, default_volume);
+        return (vini + vfin) / 2.0;
+      });
 
-  const auto new_bound = evaluate_bound_rule(*opt_rule, volume);
+  const auto new_bound = evaluate_bound_rule(*opt_rule, axis_value);
 
   if (new_bound == state.current_bound) {
     return 0;
@@ -363,9 +385,9 @@ int FlowRightLP::update_lp(SystemLP& sys,
 
   SPDLOG_TRACE(
       "FlowRightLP uid={}: updated bounds "
-      "(volume={:.1f}, bound={:.1f})",
+      "(axis_value={:.1f}, bound={:.1f})",
       uid(),
-      volume,
+      axis_value,
       new_bound);
 
   state.current_bound = new_bound;

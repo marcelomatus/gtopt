@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 #include <doctest/doctest.h>
+#include <gtopt/json/json_right_bound_rule.hpp>
 #include <gtopt/right_bound_rule.hpp>
+#include <gtopt/stage_enums.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -304,4 +306,178 @@ TEST_CASE("evaluate_bound_rule with both cap and floor")
   CHECK(evaluate_bound_rule(rule, 0.0) == doctest::Approx(50.0));
   CHECK(evaluate_bound_rule(rule, 200.0) == doctest::Approx(200.0));
   CHECK(evaluate_bound_rule(rule, 1000.0) == doctest::Approx(500.0));
+}
+
+// -- BoundRuleAxis (Tier 0+ A1 multi-axis) ------------------------------
+
+TEST_CASE("RightBoundRule default axis is reservoir_volume")
+{
+  const RightBoundRule rule;
+  CHECK(rule.axis == BoundRuleAxis::reservoir_volume);
+  CHECK(axis_uses_reservoir(rule.axis));
+}
+
+TEST_CASE("axis_uses_reservoir predicate")
+{
+  CHECK(axis_uses_reservoir(BoundRuleAxis::reservoir_volume));
+  CHECK_FALSE(axis_uses_reservoir(BoundRuleAxis::stage_month));
+}
+
+TEST_CASE("resolve_bound_rule_axis_value - reservoir_volume axis")
+{
+  const RightBoundRule rule {
+      .reservoir = SingleId {Uid {1}},
+      .axis = BoundRuleAxis::reservoir_volume,
+  };
+
+  // Volume getter is invoked exactly once for reservoir-volume axis.
+  int call_count = 0;
+  const auto value =
+      resolve_bound_rule_axis_value(rule,
+                                    std::optional<MonthType> {MonthType::june},
+                                    [&]() -> Real
+                                    {
+                                      ++call_count;
+                                      return 1234.5;
+                                    });
+
+  CHECK(value == doctest::Approx(1234.5));
+  CHECK(call_count == 1);
+}
+
+TEST_CASE("resolve_bound_rule_axis_value - stage_month axis")
+{
+  const RightBoundRule rule {
+      .axis = BoundRuleAxis::stage_month,
+  };
+
+  SUBCASE("with month set returns numeric month value")
+  {
+    // Volume getter is NOT invoked when axis is stage_month.
+    int call_count = 0;
+    const auto value = resolve_bound_rule_axis_value(
+        rule,
+        std::optional<MonthType> {MonthType::june},
+        [&]() -> Real
+        {
+          ++call_count;
+          return 0.0;
+        });
+
+    CHECK(value == doctest::Approx(6.0));
+    CHECK(call_count == 0);
+  }
+
+  SUBCASE("with no month falls back to 0.0")
+  {
+    const auto value = resolve_bound_rule_axis_value(
+        rule, std::optional<MonthType> {}, []() -> Real { return 0.0; });
+    CHECK(value == doctest::Approx(0.0));
+  }
+}
+
+TEST_CASE("evaluate_bound_rule - 12-segment monthly modulation")
+{
+  // A stage-month-driven rule encodes a 12-segment monthly modulation.
+  // Each segment becomes active when stage_month >= breakpoint, so the
+  // segment with breakpoint == month is the one selected.
+  RightBoundRule rule {
+      .axis = BoundRuleAxis::stage_month,
+  };
+  for (int m = 1; m <= 12; ++m) {
+    rule.segments.push_back(RightBoundSegment {
+        .volume = static_cast<Real>(m),
+        .slope = 0.0,
+        .constant = static_cast<Real>(100 * m),
+    });
+  }
+
+  // June -> 600, December -> 1200, January -> 100.
+  CHECK(evaluate_bound_rule(rule, 1.0) == doctest::Approx(100.0));
+  CHECK(evaluate_bound_rule(rule, 6.0) == doctest::Approx(600.0));
+  CHECK(evaluate_bound_rule(rule, 12.0) == doctest::Approx(1200.0));
+}
+
+// -- JSON wire format ---------------------------------------------------
+
+TEST_CASE("RightBoundRule JSON parse - default axis when omitted")
+{
+  constexpr std::string_view json = R"({
+    "reservoir": 9001,
+    "segments": [
+      {"volume": 0, "slope": 0, "constant": 570}
+    ],
+    "cap": 5000
+  })";
+
+  const auto rule = daw::json::from_json<RightBoundRule>(json);
+
+  CHECK(rule.axis == BoundRuleAxis::reservoir_volume);
+  CHECK(std::get<Uid>(rule.reservoir) == Uid {9001});
+  CHECK(rule.segments.size() == 1);
+}
+
+TEST_CASE("RightBoundRule JSON parse - explicit reservoir_volume axis")
+{
+  constexpr std::string_view json = R"({
+    "axis": "reservoir_volume",
+    "reservoir": 42,
+    "segments": [
+      {"volume": 0, "slope": 1.0, "constant": 0}
+    ]
+  })";
+
+  const auto rule = daw::json::from_json<RightBoundRule>(json);
+  CHECK(rule.axis == BoundRuleAxis::reservoir_volume);
+}
+
+TEST_CASE("RightBoundRule JSON parse - stage_month axis without reservoir")
+{
+  // stage_month rules are allowed to omit the reservoir reference.
+  constexpr std::string_view json = R"({
+    "axis": "stage_month",
+    "segments": [
+      {"volume": 1, "slope": 0, "constant": 100},
+      {"volume": 6, "slope": 0, "constant": 600},
+      {"volume": 12, "slope": 0, "constant": 1200}
+    ],
+    "cap": 2000
+  })";
+
+  const auto rule = daw::json::from_json<RightBoundRule>(json);
+
+  CHECK(rule.axis == BoundRuleAxis::stage_month);
+  CHECK(std::get<Uid>(rule.reservoir) == Uid {unknown_uid});
+  CHECK(rule.segments.size() == 3);
+  CHECK(rule.cap.value_or(0.0) == doctest::Approx(2000.0));
+}
+
+TEST_CASE("RightBoundRule JSON parse - invalid axis throws")
+{
+  constexpr std::string_view json = R"({
+    "axis": "not_a_real_axis",
+    "segments": []
+  })";
+
+  CHECK_THROWS([&] { (void)daw::json::from_json<RightBoundRule>(json); }());
+}
+
+TEST_CASE("RightBoundRule JSON round-trip preserves axis")
+{
+  const RightBoundRule original {
+      .segments =
+          {
+              {.volume = 1.0, .slope = 0.0, .constant = 100.0},
+              {.volume = 7.0, .slope = 0.0, .constant = 700.0},
+          },
+      .cap = 1500.0,
+      .axis = BoundRuleAxis::stage_month,
+  };
+
+  const auto json_str = daw::json::to_json(original);
+  const auto restored = daw::json::from_json<RightBoundRule>(json_str);
+
+  CHECK(restored.axis == BoundRuleAxis::stage_month);
+  CHECK(restored.segments.size() == 2);
+  CHECK(restored.cap.value_or(0.0) == doctest::Approx(1500.0));
 }
