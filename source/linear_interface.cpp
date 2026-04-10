@@ -264,6 +264,17 @@ void LinearInterface::capture_hot_start_cuts()
     return;
   }
 
+  // If the backend is still released (e.g., the last SDDP phase under
+  // low_memory mode never had alpha added and never received hot-start
+  // cuts), there is nothing live to capture and we must NOT flip
+  // `m_backend_released_` to false — doing so would leave the interface
+  // pointing at the empty default backend with stale cached counts,
+  // making subsequent get_numcols()/set_col_*** dereference an LP with
+  // 0 cols and segfault inside the solver.
+  if (m_backend_released_) {
+    return;
+  }
+
   const auto base = static_cast<int>(m_base_numrows_);
   const auto current = static_cast<int>(get_numrows());
   const auto ncols = static_cast<int>(get_numcols());

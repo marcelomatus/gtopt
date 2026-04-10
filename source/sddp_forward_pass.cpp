@@ -10,7 +10,6 @@
  * handling elastic fallback for infeasible phases.
  */
 
-#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <format>

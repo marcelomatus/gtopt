@@ -2244,6 +2244,91 @@ TEST_CASE("LinearInterface — low_memory capture_hot_start_cuts")  // NOLINT
 }
 
 TEST_CASE(
+    "LinearInterface — capture_hot_start_cuts is no-op on deferred backend")  // NOLINT
+{
+  // Regression: under low_memory mode, the SDDP forward pass installs an
+  // LP via defer_initial_load() and may never reconstruct the last phase's
+  // backend (it has no alpha column and no hot-start cuts).  In that state
+  // capture_hot_start_cuts() must early-return — flipping
+  // m_backend_released_ to false would leave the interface pointing at the
+  // empty default backend with stale cached counts, causing
+  // get_numcols()/set_col_***() to dereference an LP with 0 cols and
+  // segfault inside the solver on the next forward pass.
+  LinearProblem lp;
+  const auto c1 = lp.add_col({
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 2.0,
+  });
+  const auto c2 = lp.add_col({
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 3.0,
+  });
+  const auto r = lp.add_row({
+      .lowb = 5.0,
+      .uppb = SparseRow::DblMax,
+  });
+  lp.set_coeff(r, c1, 1.0);
+  lp.set_coeff(r, c2, 1.0);
+
+  auto flat = lp.flatten({});
+  const auto expected_ncols = static_cast<size_t>(flat.ncols);
+  const auto expected_nrows = static_cast<size_t>(flat.nrows);
+
+  SUBCASE("snapshot mode")
+  {
+    LinearInterface li;
+    li.set_low_memory(LowMemoryMode::snapshot);
+    li.defer_initial_load(FlatLinearProblem {flat});
+    li.save_base_numrows();
+
+    REQUIRE(li.is_backend_released());
+    REQUIRE(li.get_numcols() == expected_ncols);
+    REQUIRE(li.get_numrows() == expected_nrows);
+
+    // No live backend, no cuts to capture: must remain released.
+    li.capture_hot_start_cuts();
+
+    CHECK(li.is_backend_released());
+    CHECK(li.get_numcols() == expected_ncols);
+    CHECK(li.get_numrows() == expected_nrows);
+
+    // Subsequent reconstruct + solve still works correctly.
+    li.reconstruct_backend();
+    CHECK_FALSE(li.is_backend_released());
+    CHECK(li.get_numcols() == expected_ncols);
+    auto solve = li.resolve();
+    REQUIRE(solve.has_value());
+    CHECK(li.get_obj_value() == doctest::Approx(10.0));
+  }
+
+  SUBCASE("compress mode")
+  {
+    LinearInterface li;
+    li.set_low_memory(LowMemoryMode::compress, CompressionCodec::lz4);
+    li.defer_initial_load(FlatLinearProblem {flat});
+    li.save_base_numrows();
+
+    REQUIRE(li.is_backend_released());
+    REQUIRE(li.get_numcols() == expected_ncols);
+
+    li.capture_hot_start_cuts();
+
+    CHECK(li.is_backend_released());
+    CHECK(li.get_numcols() == expected_ncols);
+    CHECK(li.get_numrows() == expected_nrows);
+
+    li.reconstruct_backend();
+    CHECK_FALSE(li.is_backend_released());
+    CHECK(li.get_numcols() == expected_ncols);
+    auto solve = li.resolve();
+    REQUIRE(solve.has_value());
+    CHECK(li.get_obj_value() == doctest::Approx(10.0));
+  }
+}
+
+TEST_CASE(
     "LinearInterface — low_memory clone from reconstructed backend")  // NOLINT
 {
   auto [li, flat, x1, x2] = make_simple_lp();

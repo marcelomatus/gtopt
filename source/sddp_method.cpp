@@ -401,6 +401,16 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
   auto& phase_states = m_scene_phase_states_[scene_index];
 
   for (auto&& [phase_index, _ph] : enumerate<PhaseIndex>(phases)) {
+    // The last phase produces no outgoing links to a next phase, so we
+    // can skip it entirely.  This is also necessary under deferred
+    // initial-load (low_memory_mode != off): only non-last phases have
+    // their backend reconstructed by `initialize_alpha_variables` (via
+    // `add_col(alpha)`), so reading raw column bounds from the last
+    // phase would dereference a null backend.
+    if (phase_index == PhaseIndex {phases.size() - 1}) {
+      break;
+    }
+
     auto& state = phase_states[phase_index];
 
     // Read column bounds from the source phase LP
