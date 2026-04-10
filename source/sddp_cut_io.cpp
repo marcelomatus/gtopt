@@ -1694,7 +1694,7 @@ auto load_cuts_json(
       const auto& sv_map = sim.state_variables(SceneIndex {0}, phase_index);
 
       // Resolve coefficients
-      bool cut_valid = true;
+      const bool cut_valid = true;
       struct ResolvedCoeff
       {
         ColIndex col;

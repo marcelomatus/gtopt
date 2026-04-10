@@ -231,7 +231,7 @@ auto solve_apertures_for_phase(
           // thread-safe for concurrent reads)
           LinearInterface clone = [&]
           {
-            const std::lock_guard lock(*clone_mutex);
+            const std::scoped_lock lock(*clone_mutex);
             return phase_li.clone(forward_col_sol, forward_row_dual);
           }();
 

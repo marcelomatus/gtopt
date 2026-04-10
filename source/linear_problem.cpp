@@ -37,7 +37,7 @@ namespace
 [[nodiscard]] inline auto sqrt_ieee_halve(double x) noexcept -> double
 {
   auto bits = std::bit_cast<uint64_t>(x);
-  bits = (bits >> 1) + 0x1FF8'0000'0000'0000ULL;
+  bits = (bits >> 1U) + 0x1FF8'0000'0000'0000ULL;
   return std::bit_cast<double>(bits);
 }
 

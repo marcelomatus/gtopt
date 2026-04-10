@@ -81,9 +81,7 @@ auto save_state_csv(const PlanningLP& planning_lp,
             continue;
           }
           const auto phys_val = col_sol[ci];
-          const auto rc = c < static_cast<size_t>(col_rc.size())
-              ? static_cast<double>(col_rc[ci])
-              : 0.0;
+          const auto rc = c < col_rc.size() ? col_rc[ci] : 0.0;
 
           ofs << names[ci] << "," << phase_uid << "," << scene_uid << ","
               << phys_val << "," << rc << "\n";

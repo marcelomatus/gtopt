@@ -72,7 +72,8 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     const auto emin_col = stage_ecost
         ? lp.add_col({
               .uppb = *stage_emin,
-              .cost = -sc.stage_ecost(stage, *stage_ecost / stage.duration()),
+              .cost = -CostHelper::stage_ecost(stage,
+                                               *stage_ecost / stage.duration()),
               .class_name = ClassName.full_name(),
               .variable_name = EminName,
               .variable_uid = uid(),
@@ -131,7 +132,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
     if (stage_fcost) {
       const auto fcol = lp.add_col({
-          .cost = sc.block_ecost(scenario, stage, block, *stage_fcost),
+          .cost = CostHelper::block_ecost(scenario, stage, block, *stage_fcost),
           .class_name = ClassName.full_name(),
           .variable_name = FailName,
           .variable_uid = uid(),

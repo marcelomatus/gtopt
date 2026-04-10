@@ -104,7 +104,7 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   capainst_row[capainst_col] = -1;
 
   const auto capacost_col = lp.add_col({
-      .cost = sc.stage_ecost(stage, 1.0),
+      .cost = CostHelper::stage_ecost(stage, 1.0),
       .class_name = m_class_name_,
       .variable_name = CapacostName,
       .variable_uid = uid(),

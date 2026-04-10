@@ -114,7 +114,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     const auto gcol = lp.add_col({
         .lowb = block_pmin,
         .uppb = block_pmax,
-        .cost = sc.block_ecost(scenario, stage, block, stage_gcost),
+        .cost = CostHelper::block_ecost(scenario, stage, block, stage_gcost),
         .class_name = ClassName.full_name(),
         .variable_name = GenerationName,
         .variable_uid = guid,

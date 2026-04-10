@@ -204,7 +204,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
     const auto [block_tmax_ab, block_tmax_ba] = sc.block_maxmin_at(
         stage, block, tmax_ab, tmax_ba, stage_capacity, -stage_capacity);
     const auto block_tcost =
-        sc.block_ecost(scenario, stage, block, stage_tcost);
+        CostHelper::block_ecost(scenario, stage, block, stage_tcost);
 
     auto result = line_losses::add_block(loss_config,
                                          scenario,

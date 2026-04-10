@@ -19,7 +19,6 @@ using namespace gtopt;
 
 std::expected<void, Error> add_provision(
     const std::string_view cname,
-    const SystemContext& sc,
     const ScenarioLP& scenario,
     const StageLP& stage,
     LinearProblem& lp,
@@ -75,7 +74,7 @@ std::expected<void, Error> add_provision(
 
     const auto prov_col = lp.add_col({
         .uppb = block_rmax.value(),
-        .cost = sc.block_ecost(scenario, stage, block, stage_cost),
+        .cost = CostHelper::block_ecost(scenario, stage, block, stage_cost),
         .class_name = cname,
         .variable_name = pname,
         .variable_uid = uid,
@@ -257,7 +256,6 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
       }
 
       if (auto res = add_provision(cname,
-                                   sc,
                                    scenario,
                                    stage,
                                    lp,
@@ -278,7 +276,6 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
         return false;
       }
       if (auto res = add_provision(cname,
-                                   sc,
                                    scenario,
                                    stage,
                                    lp,

@@ -48,8 +48,8 @@ std::expected<void, Error> add_requirement(const std::string_view cname,
         ? lp.add_col({
               .lowb = 0.0,
               .uppb = block_rreq.value(),
-              .cost =
-                  -sc.block_ecost(scenario, stage, block, stage_rcost.value()),
+              .cost = -CostHelper::block_ecost(
+                  scenario, stage, block, stage_rcost.value()),
               .class_name = cname,
               .variable_name = rname,
               .variable_uid = uid,

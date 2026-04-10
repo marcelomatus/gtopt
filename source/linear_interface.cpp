@@ -102,6 +102,7 @@ void LinearInterface::cache_and_release()
   // The cache_warm_start flag only controls whether release_backend()
   // retains these vectors — cache_and_release() needs them for callers
   // that read solution data after resolve() returns.
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   m_cached_col_sol_.assign(m_backend_->col_solution(),
                            m_backend_->col_solution() + ncols);
   m_cached_col_cost_.assign(m_backend_->reduced_cost(),
@@ -109,6 +110,7 @@ void LinearInterface::cache_and_release()
   ensure_duals();
   m_cached_row_dual_.assign(m_backend_->row_price(),
                             m_backend_->row_price() + nrows);
+  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   m_cached_obj_value_ = m_backend_->obj_value();
   m_cached_kappa_ = m_backend_->get_kappa();
   m_cached_numrows_ = nrows;
@@ -130,6 +132,7 @@ void LinearInterface::cache_and_release()
   m_backend_released_ = true;
 }
 
+// NOLINTNEXTLINE(misc-no-recursion)
 void LinearInterface::ensure_backend()
 {
   if (!m_backend_released_) {
@@ -171,8 +174,10 @@ void LinearInterface::release_backend() noexcept
         const auto rd = get_row_dual_raw();
         m_cached_col_sol_.assign(cs.begin(), cs.end());
         m_cached_row_dual_.assign(rd.begin(), rd.end());
+        // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
         m_cached_col_cost_.assign(m_backend_->reduced_cost(),
                                   m_backend_->reduced_cost() + ncols);
+        // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
       } else {
         m_cached_col_sol_.clear();
         m_cached_col_sol_.shrink_to_fit();
@@ -194,8 +199,10 @@ void LinearInterface::release_backend() noexcept
     } else {
       clear_flat_lp_vectors(m_snapshot_.flat_lp);
     }
-  } catch (...) {
-    // Best-effort: proceed with release even if caching fails
+  } catch (...) {  // NOLINT(bugprone-empty-catch)
+    // Best-effort: proceed with release even if caching fails. The
+    // function is noexcept, so swallowing exceptions here is intentional —
+    // a failure to cache the solution must not break shutdown ordering.
   }
 
   m_backend_.reset();
@@ -256,6 +263,7 @@ void LinearInterface::capture_hot_start_cuts()
   m_backend_released_ = false;
 }
 
+// NOLINTNEXTLINE(misc-no-recursion)
 void LinearInterface::reconstruct_backend(std::span<const double> col_sol,
                                           std::span<const double> row_dual)
 {
@@ -565,6 +573,7 @@ ColIndex LinearInterface::add_free_col(const std::string& name)
   return add_col(name, -m_backend_->infinity(), m_backend_->infinity());
 }
 
+// NOLINTNEXTLINE(misc-no-recursion)
 ColIndex LinearInterface::add_col(const SparseCol& col)
 {
   ensure_backend();
@@ -713,6 +722,7 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
   return add_row(name, columns.size(), columns, elements, row.lowb, row.uppb);
 }
 
+// NOLINTNEXTLINE(misc-no-recursion)
 void LinearInterface::add_rows(const std::span<const SparseRow> rows,
                                const double eps)
 {

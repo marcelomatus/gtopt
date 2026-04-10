@@ -78,10 +78,10 @@ auto sha256(const std::string& input) -> std::string
 {
   // Pre-processing: convert input to padded message blocks
   auto msg_len = input.size();
-  uint64_t bit_len = msg_len * 8;
+  const uint64_t bit_len = msg_len * 8;
 
   // Pad: append 0x80, then zeros, then 64-bit big-endian length
-  size_t padded_len = ((msg_len + 9 + 63) / 64) * 64;
+  const size_t padded_len = ((msg_len + 9 + 63) / 64) * 64;
   std::vector<uint8_t> msg(padded_len, 0);
   std::memcpy(msg.data(), input.data(), msg_len);
   msg[msg_len] = 0x80;
@@ -247,7 +247,7 @@ auto json_escape(std::string_view s) -> std::string
 {
   std::string result;
   result.reserve(s.size());
-  for (char c : s) {
+  for (const char c : s) {
     if (c == '"' || c == '\\') {
       result += '\\';
     }

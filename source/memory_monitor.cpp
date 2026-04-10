@@ -42,9 +42,10 @@ double parse_proc_kb_line(std::string_view line) noexcept
   }
 
   uint64_t val = 0;
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   const auto [ptr, ec] =
       std::from_chars(data.data(), data.data() + data.size(), val);
+  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   if (ec != std::errc {}) {
     return 0.0;
   }

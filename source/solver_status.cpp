@@ -165,7 +165,7 @@ void write_solver_status(const std::string& filepath,
       }
       json += std::format("{:.6f}", r.scene_lower_bounds[si]);
     }
-    json += "]";
+    json += ']';
 
     // Per-scene iteration snapshot (async mode only)
     if (!r.scene_iterations.empty()) {
@@ -176,9 +176,9 @@ void write_solver_status(const std::string& filepath,
         }
         json += std::format("{}", r.scene_iterations[si]);
       }
-      json += "]";
+      json += ']';
     }
-    json += "\n";
+    json += '\n';
 
     json += (i + 1 < results.size()) ? "    },\n" : "    }\n";
   }
