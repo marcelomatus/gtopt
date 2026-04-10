@@ -14,6 +14,7 @@
 #include <limits>
 #include <span>
 
+#include <gtopt/cost_helper.hpp>
 #include <gtopt/index_holder.hpp>
 #include <gtopt/input_context.hpp>
 #include <gtopt/linear_interface.hpp>
@@ -495,6 +496,7 @@ public:
         // so that PlanningLP::resolve_scene_phases() and the SDDP forward pass
         // can propagate the trial value.
         const auto efin_key =
+            // NOLINTNEXTLINE(readability-suspicious-call-argument)
             StateVariable::key(scenario, *prev_stage, cname, uid(), EfinName);
         if (auto prev_efin = sc.get_state_variable(efin_key); prev_efin) {
           prev_efin->get().add_dependent_variable(scenario, stage, eicol);
@@ -605,7 +607,8 @@ public:
         const auto dcol = lp.add_col({
             .lowb = 0,
             .uppb = drain_capacity.value_or(LinearProblem::DblMax),
-            .cost = sc.block_ecost(scenario, stage, block, *drain_cost),
+            .cost =
+                CostHelper::block_ecost(scenario, stage, block, *drain_cost),
             .scale = flow_scale,
             .class_name = opts.class_name,
             .variable_name = DrainName,
@@ -716,6 +719,7 @@ public:
     // boundaries (gtopt-phase = PLP-stage).
     if (effective_usv) {
       sc.add_state_variable(
+          // NOLINTNEXTLINE(readability-suspicious-call-argument)
           StateVariable::key(scenario, stage, cname, uid(), EfinName),
           prev_vc,
           opts.scost,

@@ -38,7 +38,8 @@ struct LpMatrixOptions
                              ///< stats_min_abs. Defaults to 1e-10 for
                              ///< consistency with external LP analysis tools.
   bool col_with_names {
-      false};  ///< Include column names (state vars at level 0)
+      false,
+  };  ///< Include column names (state vars at level 0)
   bool row_with_names {false};  ///< Include row names (level >= 1)
   bool col_with_name_map {false};  ///< Include column name mapping (level >= 1)
   bool row_with_name_map {false};  ///< Include row name mapping

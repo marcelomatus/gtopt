@@ -52,7 +52,6 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
   }
 
   return add_profile_to_lp(ClassName.full_name(),
-                           sc,
                            scenario,
                            stage,
                            lp,
