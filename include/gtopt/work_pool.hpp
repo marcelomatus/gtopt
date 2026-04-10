@@ -71,7 +71,7 @@ struct WorkPoolConfig
   explicit WorkPoolConfig(
       int max_threads_ = static_cast<int>(std::thread::hardware_concurrency()),
       double max_cpu_threshold_ = 95.0,
-      double min_free_memory_mb_ = 4096.0,
+      double min_free_memory_mb_ = 2048.0,
       double max_memory_percent_ = 95.0,
       double max_process_rss_mb_ = 0.0,
       std::chrono::milliseconds scheduler_interval_ =
