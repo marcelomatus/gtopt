@@ -671,9 +671,28 @@ class GTOptWriter:
                             key,
                         )
 
+        def _dump_canonical_json(name: str, cfg: Dict[str, Any]) -> None:
+            """Persist the parser config dict as canonical Stage-1 output.
+
+            Per the irrigation pipeline redesign (Stage 1 → laja.json /
+            maule.json → Stage 2), plp2gtopt's only Maule/Laja
+            responsibility is producing the canonical agreement JSON.
+            The companion FlowRight/VolumeRight/UserConstraint emission
+            (Stage 2) still happens here for compatibility, but the
+            canonical artifact is now the source of truth.
+            """
+            if output_dir is None:
+                return
+            target = Path(output_dir) / f"{name}.json"
+            with open(target, "w", encoding="utf-8") as fh:
+                json.dump(cfg, fh, indent=2, sort_keys=False)
+                fh.write("\n")
+            _logger.info("%s: canonical agreement JSON → %s", name, target.name)
+
         # Laja convention
         laja_parser = self.parser.parsed_data.get("laja_parser")
         if laja_parser is not None:
+            _dump_canonical_json("laja", laja_parser.config)
             lw = LajaWriter(
                 laja_config=laja_parser.config,
                 stage_parser=stage_parser,
@@ -684,6 +703,7 @@ class GTOptWriter:
         # Maule convention
         maule_parser = self.parser.parsed_data.get("maule_parser")
         if maule_parser is not None:
+            _dump_canonical_json("maule", maule_parser.config)
             mw = MauleWriter(
                 maule_config=maule_parser.config,
                 stage_parser=stage_parser,

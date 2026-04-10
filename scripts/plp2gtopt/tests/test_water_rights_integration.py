@@ -71,8 +71,13 @@ class TestWaterRightsIntegration:
             f"plp2gtopt failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
         )
 
-        # Find the JSON file
-        json_files = list(output_dir.glob("*.json"))
+        # Find the planning JSON file (excluding laja.json / maule.json
+        # canonical agreement dumps that gtopt_writer also emits).
+        json_files = [
+            p
+            for p in output_dir.glob("*.json")
+            if p.name not in ("laja.json", "maule.json")
+        ]
         assert len(json_files) == 1, f"Expected 1 JSON file, got {json_files}"
 
         with open(json_files[0], encoding="utf-8") as f:
@@ -285,8 +290,13 @@ class TestGtoptLpBuild:
         )
         assert conv_result.returncode == 0, f"plp2gtopt failed: {conv_result.stderr}"
 
-        # Find the JSON file
-        json_files = list(output_dir.glob("*.json"))
+        # Find the planning JSON file (excluding laja.json / maule.json
+        # canonical agreement dumps that gtopt_writer also emits).
+        json_files = [
+            p
+            for p in output_dir.glob("*.json")
+            if p.name not in ("laja.json", "maule.json")
+        ]
         assert len(json_files) == 1
 
         # Set constraint_mode to normal in the JSON (some constraint
