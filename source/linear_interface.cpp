@@ -578,8 +578,14 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
 {
   ensure_backend();
   // Resolve name: explicit name takes priority, then metadata-based generation.
+  // Skip label generation entirely when LP names are disabled — this avoids
+  // the hot-path cost of as_label_into during assembly when names will be
+  // discarded anyway (m_lp_names_level_ < 0).
   const auto name = [&]() -> std::string
   {
+    if (m_lp_names_level_ < 0) [[likely]] {
+      return {};
+    }
     if (!col.name.empty()) {
       return std::string(col.name);
     }
@@ -666,8 +672,14 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
 {
   ensure_backend();
   // Resolve name: generate from metadata when available.
+  // Skip label generation entirely when row names are disabled — this avoids
+  // the hot-path cost of as_label_into during assembly when names will be
+  // discarded anyway (m_lp_names_level_ < 1).
   const auto name = [&]() -> std::string
   {
+    if (m_lp_names_level_ < 1) [[likely]] {
+      return {};
+    }
     if (!row.class_name.empty()
         && !std::holds_alternative<std::monostate>(row.context))
     {
