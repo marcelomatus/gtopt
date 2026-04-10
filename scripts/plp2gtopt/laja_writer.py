@@ -424,10 +424,10 @@ class LajaWriter:
 
         output_path = Path(output_path)
         output_path.mkdir(parents=True, exist_ok=True)
-        pampl_file = output_path / "laja_agreement.pampl"
+        pampl_file = output_path / "laja.pampl"
         pampl_file.write_text(rendered, encoding="utf-8")
 
-        return "laja_agreement.pampl"
+        return "laja.pampl"
 
     def to_json_dict(
         self,

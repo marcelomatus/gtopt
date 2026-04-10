@@ -375,10 +375,10 @@ class MauleWriter:
 
         output_path = Path(output_path)
         output_path.mkdir(parents=True, exist_ok=True)
-        pampl_file = output_path / "maule_agreement.pampl"
+        pampl_file = output_path / "maule.pampl"
         pampl_file.write_text(rendered, encoding="utf-8")
 
-        return "maule_agreement.pampl"
+        return "maule.pampl"
 
     def to_json_dict(
         self,

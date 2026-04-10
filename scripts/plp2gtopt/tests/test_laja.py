@@ -870,8 +870,8 @@ class TestLajaPamplGeneration:
         writer = LajaWriter(cfg)
         pampl_name = writer.generate_pampl(tmp_path)
 
-        assert pampl_name == "laja_agreement.pampl"
-        pampl_file = tmp_path / "laja_agreement.pampl"
+        assert pampl_name == "laja.pampl"
+        pampl_file = tmp_path / "laja.pampl"
         assert pampl_file.exists()
 
     def test_generate_pampl_contains_params(self, tmp_path):
@@ -879,7 +879,7 @@ class TestLajaPamplGeneration:
         writer = LajaWriter(cfg)
         writer.generate_pampl(tmp_path)
 
-        content = (tmp_path / "laja_agreement.pampl").read_text()
+        content = (tmp_path / "laja.pampl").read_text()
         assert "param irr_base = 100" in content
         assert "param elec_base = 0" in content
         assert "param vol_muerto = 0.0" in content
@@ -891,7 +891,7 @@ class TestLajaPamplGeneration:
         writer = LajaWriter(cfg)
         writer.generate_pampl(tmp_path)
 
-        content = (tmp_path / "laja_agreement.pampl").read_text()
+        content = (tmp_path / "laja.pampl").read_text()
         assert "param irr_usage[month]" in content
         assert "param elec_usage[month]" in content
         assert "param seasonal_1o_reg[month]" in content
@@ -901,7 +901,7 @@ class TestLajaPamplGeneration:
         writer = LajaWriter(cfg)
         writer.generate_pampl(tmp_path)
 
-        content = (tmp_path / "laja_agreement.pampl").read_text()
+        content = (tmp_path / "laja.pampl").read_text()
         assert "Laja Irrigation Agreement" in content
         assert "Convenio del Laja" in content
         assert "TEST_CENTRAL" in content
@@ -911,7 +911,7 @@ class TestLajaPamplGeneration:
         writer = LajaWriter(cfg)
         writer.generate_pampl(tmp_path)
 
-        content = (tmp_path / "laja_agreement.pampl").read_text()
+        content = (tmp_path / "laja.pampl").read_text()
         assert "District: D1" in content
 
     def test_to_json_dict_with_output_dir(self, tmp_path):
@@ -920,7 +920,7 @@ class TestLajaPamplGeneration:
         writer = LajaWriter(cfg)
         result = writer.to_json_dict(output_dir=tmp_path)
         assert "user_constraint_file" in result
-        assert result["user_constraint_file"] == "laja_agreement.pampl"
+        assert result["user_constraint_file"] == "laja.pampl"
         assert "user_constraint_array" not in result
 
     def test_to_json_dict_without_output_dir(self):

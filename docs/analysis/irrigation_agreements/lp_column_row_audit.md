@@ -649,7 +649,7 @@ PAMPL files support two declaration types:
 Therefore, any `param` line that is **not referenced by any constraint**
 is purely documentary — it has zero effect on the LP.
 
-### 4.2 Laja: `param` Declarations in `laja_agreement.pampl`
+### 4.2 Laja: `param` Declarations in `laja.pampl`
 
 | Template `param` | Referenced by any constraint? | LP effect |
 |---|---|---|
@@ -703,7 +703,7 @@ structure comes entirely from:
 2. **VolumeRight** entities (JSON) → state columns + balance rows + demand rows
 3. **`constraint laja_partition`** (PAMPL) → flow partition row
 
-### 4.3 Maule: `param` Declarations in `maule_agreement.pampl`
+### 4.3 Maule: `param` Declarations in `maule.pampl`
 
 Same pattern — the Maule template has ~40 `param` declarations, none of
 which are referenced by the constraints.

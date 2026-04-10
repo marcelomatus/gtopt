@@ -150,8 +150,8 @@ class TestWaterRightsIntegration:
         ucs = converted_case["system"].get("user_constraint_array", [])
         if not ucs:
             # Constraints are in PAMPL file — check file exists with content
-            pampl = converted_case["output_dir"] / "maule_agreement.pampl"
-            assert pampl.exists(), "maule_agreement.pampl not found"
+            pampl = converted_case["output_dir"] / "maule.pampl"
+            assert pampl.exists(), "maule.pampl not found"
             assert "constraint" in pampl.read_text(encoding="utf-8")
             return
         maule_ucs = [uc for uc in ucs if not uc["name"].startswith("laja_")]
@@ -206,8 +206,8 @@ class TestWaterRightsIntegration:
 
     def test_maule_pampl_generated(self, converted_case):
         """Maule PAMPL file is generated in output directory."""
-        pampl_file = converted_case["output_dir"] / "maule_agreement.pampl"
-        assert pampl_file.exists(), "maule_agreement.pampl not found"
+        pampl_file = converted_case["output_dir"] / "maule.pampl"
+        assert pampl_file.exists(), "maule.pampl not found"
         content = pampl_file.read_text(encoding="utf-8")
         assert "constraint" in content, "PAMPL file has no constraints"
         assert "param" in content, "PAMPL file has no params"

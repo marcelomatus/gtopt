@@ -821,7 +821,7 @@ def add_general_arguments(
             "emit irrigation agreement entities (RightJunction, FlowRight, "
             "VolumeRight, UserConstraint) from plplajam.dat and "
             "plpmaulen.dat when present.  Also generates PAMPL parameter "
-            "files (laja_agreement.pampl, maule_agreement.pampl). "
+            "files (laja.pampl, maule.pampl). "
             "(default: %(default)s)"
         ),
     )

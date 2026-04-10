@@ -787,8 +787,8 @@ collisions:
 {
   "system": {
     "user_constraint_files": [
-      "laja_agreement.pampl",
-      "maule_agreement.pampl"
+      "laja.pampl",
+      "maule.pampl"
     ]
   }
 }

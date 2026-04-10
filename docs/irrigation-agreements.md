@@ -339,8 +339,8 @@ multiple PAMPL files independently:
 {
   "system": {
     "user_constraint_files": [
-      "laja_agreement.pampl",
-      "maule_agreement.pampl"
+      "laja.pampl",
+      "maule.pampl"
     ]
   }
 }
@@ -964,8 +964,8 @@ VolumeRight, UserConstraint, and PAMPL entities.
 The converter produces:
 - `system.json` — contains `flow_right_array`, `volume_right_array`, and
   `user_constraint_files` pointing to the PAMPL files
-- `laja_agreement.pampl` — Laja constraint definitions and parameters
-- `maule_agreement.pampl` — Maule constraint definitions and parameters
+- `laja.pampl` — Laja constraint definitions and parameters
+- `maule.pampl` — Maule constraint definitions and parameters
 
 ### 11.3 Running with LP Debug
 
