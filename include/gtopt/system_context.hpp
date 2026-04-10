@@ -333,6 +333,27 @@ public:
     return simulation().state_variable(std::forward<Key>(key));
   }
 
+  /// Queue a deferred dependent-variable link to be resolved later by
+  /// the per-scene tightening pass.  Use this in element `add_to_lp`
+  /// instead of calling `get_state_variable(prev_key)->add_dependent_variable`
+  /// directly: under parallel phase construction within a scene, the
+  /// previous phase's `StateVariable` may not yet exist when phase N+1
+  /// runs, and concurrent vector growth on its dependent-variable list
+  /// would race.
+  ///
+  /// `prev_key` identifies the producing `StateVariable` in the previous
+  /// phase (its `lp_key.scene_index` / `lp_key.phase_index` are the
+  /// previous phase's identity, set by the caller via
+  /// `StateVariable::key(scenario, *prev_stage, ...)`).  `here_col` is
+  /// the dependent column just added to *this* phase's LP — its
+  /// `(scene, phase)` identity is taken from the bound `SystemLP`, so
+  /// the caller need not pass it explicitly.
+  ///
+  /// Defined out-of-line in `system_context.cpp` because reaching
+  /// `system().scene()` / `system().phase()` and `system().defer_state_link`
+  /// requires the full `system_lp.hpp` definition.
+  void defer_state_link(StateVariable::Key prev_key, ColIndex here_col) const;
+
   // ── PAMPL / user-constraint variable registry forwarders ────────────────
   //
   // Each LP element calls these from `add_to_lp` once per (scenario, stage)

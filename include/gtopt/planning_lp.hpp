@@ -47,6 +47,23 @@ private:
                              const LpMatrixOptions& flat_opts)
       -> scene_phase_systems_t;
 
+  /// Resolve the deferred state-variable links recorded by every phase
+  /// in `phase_systems` during its `add_to_lp` pass.  Each
+  /// `PendingStateLink` names a producer `StateVariable` from a previous
+  /// phase (via `prev_key`) and a dependent column added to a later
+  /// phase; this pass looks the producer up in `simulation`'s registry
+  /// and calls `add_dependent_variable` on it.
+  ///
+  /// Runs after a scene's parallel phase build joins.  Within a single
+  /// scene the producer's `StateVariable` is guaranteed to exist by the
+  /// time tightening starts (all phases are built), so the lookup is
+  /// race-free.  Different scenes touch disjoint `StateVariable`s, so
+  /// multiple scene tasks may run their tightening pass concurrently.
+  ///
+  /// Drains each system's `pending_state_links()` vector as it goes.
+  static void tighten_scene_phase_links(phase_systems_t& phase_systems,
+                                        SimulationLP& simulation);
+
   /// Compute adaptive scale_theta from median line reactance when not
   /// explicitly set.  Mutates `planning.options.scale_theta` in-place so
   /// that PlanningOptionsLP picks up the computed value.

@@ -489,22 +489,16 @@ public:
           .context = stg_ctx,
       });
       if (effective_usv && !opts.skip_state_link) {
-        // Link as DependentVariable of the previous phase's efin StateVariable
-        // so that PlanningLP::resolve_scene_phases() and the SDDP forward pass
-        // can propagate the trial value.
-        const auto efin_key =
+        // Queue a deferred dependent-variable link to the previous
+        // phase's efin StateVariable.  Resolution happens in the
+        // per-scene tightening pass after parallel phase build joins
+        // (see PlanningLP::tighten_scene_phase_links).  Calling
+        // `prev_efin->add_dependent_variable` here directly would race
+        // with phase N's add_to_lp under parallel phase construction.
+        sc.defer_state_link(
             // NOLINTNEXTLINE(readability-suspicious-call-argument)
-            StateVariable::key(scenario, *prev_stage, cname, uid(), EfinName);
-        if (auto prev_efin = sc.get_state_variable(efin_key); prev_efin) {
-          prev_efin->get().add_dependent_variable(scenario, stage, eicol);
-        } else {
-          SPDLOG_WARN(
-              "StorageLP: no efin StateVariable found for cross-phase sini "
-              "linking (class='{}' uid={} phase boundary). "
-              "Reservoir/battery state will NOT be coupled across this phase.",
-              cname,
-              static_cast<int>(uid()));
-        }
+            StateVariable::key(scenario, *prev_stage, cname, uid(), EfinName),
+            eicol);
       } else if (effective_usv && opts.skip_state_link) {
         SPDLOG_TRACE(
             "StorageLP: skipping state link at phase boundary "

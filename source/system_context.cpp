@@ -140,4 +140,15 @@ const AmplElementMetadata* SystemContext::find_ampl_element_metadata(
                                                  element_uid);
 }
 
+void SystemContext::defer_state_link(StateVariable::Key prev_key,
+                                     ColIndex here_col) const
+{
+  m_system_.get().defer_state_link(prev_key,
+                                   LPKey {
+                                       .scene_index = system().scene().index(),
+                                       .phase_index = system().phase().index(),
+                                   },
+                                   here_col);
+}
+
 }  // namespace gtopt

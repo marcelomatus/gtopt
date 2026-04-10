@@ -384,6 +384,22 @@ private:
   LpFingerprint m_fingerprint_;
   std::optional<ObjectSingleId<BusLP>> m_single_bus_id_ {};
 
+  /// Deferred dependent-variable links recorded during this phase's
+  /// `add_to_lp` pass.  Under parallel phase construction within a
+  /// scene, phase N+1 cannot safely call `add_dependent_variable` on
+  /// phase N's `StateVariable` (it may not yet exist, and concurrent
+  /// vector growth is not thread-safe).  Instead, the dependent side
+  /// records a `PendingStateLink` here, and a sequential tightening
+  /// pass over `phase_systems[scene_index]` resolves each link after
+  /// the parallel build joins.  Storage lives on `SystemLP` (not on
+  /// `SimulationLP`) because every link is intra-scene by construction
+  /// — there is no cross-scene access pattern, and partitioning a
+  /// centralized registry by scene would be needless indirection.
+  ///
+  /// Written by exactly one thread (the phase task that owns this
+  /// `SystemLP`); drained by exactly one thread during tightening.
+  std::vector<PendingStateLink> m_pending_state_links_;
+
   /// Transient pointer to the previous phase's LinearInterface, set by
   /// dispatch_update_lp() before calling update_lp().  Allows update_lp
   /// elements to look up the previous phase's efin when computing vini
@@ -401,6 +417,32 @@ public:
   [[nodiscard]] constexpr const SystemLP* prev_phase_sys() const noexcept
   {
     return m_prev_phase_sys_;
+  }
+
+  // ── Deferred state-variable linking ───────────────────────────────────
+  //
+  // See `m_pending_state_links_` for the rationale.  Called from element
+  // `add_to_lp` (via `SystemContext::defer_state_link`) when phase N+1
+  // would otherwise call `add_dependent_variable` on phase N's
+  // `StateVariable` directly.  The `here_key` carries this phase's
+  // `(scene, phase)` identity so the tightening pass can construct the
+  // dependent `LPVariable` without re-deriving it from `*this`.
+
+  void defer_state_link(StateVariable::Key prev_key,
+                        LPKey here_key,
+                        ColIndex here_col)
+  {
+    m_pending_state_links_.emplace_back(PendingStateLink {
+        .prev_key = prev_key,
+        .here_key = here_key,
+        .here_col = here_col,
+    });
+  }
+
+  template<typename Self>
+  [[nodiscard]] constexpr auto&& pending_state_links(this Self&& self) noexcept
+  {
+    return std::forward<Self>(self).m_pending_state_links_;
   }
 
   // ── Low-memory mode API (thin forwarding to LinearInterface) ──────────

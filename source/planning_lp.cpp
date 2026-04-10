@@ -168,6 +168,40 @@ void PlanningLP::auto_scale_reservoirs(Planning& planning)
   }
 }
 
+void PlanningLP::tighten_scene_phase_links(phase_systems_t& phase_systems,
+                                           SimulationLP& simulation)
+{
+  for (auto& sys : phase_systems) {
+    auto& links = sys.pending_state_links();
+    for (const auto& link : links) {
+      auto prev_var = simulation.state_variable(link.prev_key);
+      if (prev_var) {
+        prev_var->get().add_dependent_variable(link.here_key, link.here_col);
+      } else {
+        // Producer-side StateVariable was never registered: the previous
+        // phase's element either didn't run or chose not to publish an
+        // efin/state column for this (scenario, stage).  Mirrors the
+        // build-time warning that lived in storage_lp.hpp before the
+        // deferred-linking refactor — kept here so cross-phase coupling
+        // gaps remain visible.
+        SPDLOG_WARN(
+            "tighten_scene_phase_links: no producer StateVariable for "
+            "deferred link (class='{}' col='{}' uid={} prev_stage_uid={} "
+            "scene={} prev_phase={}). Cross-phase state coupling will be "
+            "missing for this element.",
+            link.prev_key.class_name,
+            link.prev_key.col_name,
+            static_cast<int>(link.prev_key.uid),
+            static_cast<int>(link.prev_key.stage_uid),
+            static_cast<int>(link.prev_key.lp_key.scene_index),
+            static_cast<int>(link.prev_key.lp_key.phase_index));
+      }
+    }
+    links.clear();
+    links.shrink_to_fit();
+  }
+}
+
 auto PlanningLP::create_systems(System& system,
                                 SimulationLP& simulation,
                                 const PlanningOptionsLP& options,
@@ -233,6 +267,14 @@ auto PlanningLP::create_systems(System& system,
             phase_systems.emplace_back(
                 system, simulation, phase, scene, resolved_opts);
           }
+
+          // Resolve any deferred cross-phase state-variable links
+          // queued by this scene's phases.  Runs inside the scene
+          // task so that different scenes' tightening passes can
+          // overlap and so that linking happens before the per-scene
+          // update_lp pass below sees the dependent columns.
+          tighten_scene_phase_links(phase_systems, simulation);
+
           all_systems[scene_index] = std::move(phase_systems);
         });
     if (!result.has_value()) {
