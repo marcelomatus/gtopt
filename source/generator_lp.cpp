@@ -72,10 +72,6 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     return false;
   }
 
-  // Register element name once per element so PAMPL `generator("G1")`
-  // expressions can resolve names to uids.
-  sc.register_ampl_element(ampl_name, id().second, uid());
-
   // Register filter metadata (F9) so `sum(generator(all : type="hydro")...)`
   // predicates can be evaluated at row-assembly time.
   {

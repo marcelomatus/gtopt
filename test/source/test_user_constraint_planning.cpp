@@ -329,6 +329,78 @@ TEST_CASE("User constraint - constraint_type field preserved")
 
 // clang-format off
 
+/// Single-bus case that references `options.scale_objective` as a
+/// scalar parameter inside a user constraint expression.  Phase 1d
+/// end-to-end check: the parser must accept `options.scale_objective`,
+/// the resolver must look it up via `find_ampl_scalar`, and the LP
+/// must build and solve.
+static constexpr std::string_view singleton_scalar_uc_json = R"json({
+  "options": {
+    "annual_discount_rate": 0.0,
+    "output_compression": "uncompressed",
+    "use_single_bus": true,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1
+  },
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 1}],
+    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
+    "scenario_array": [{"uid": 1, "probability_factor": 1}]
+  },
+  "system": {
+    "name": "uc_singleton_scalar_test",
+    "bus_array": [{"uid": 1, "name": "b1"}],
+    "generator_array": [
+      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[90.0]]}
+    ],
+    "user_constraint_array": [
+      {
+        "uid": 1,
+        "name": "scalar_ref",
+        "expression": "generator('g1').generation + options.scale_objective <= 81",
+        "constraint_type": "raw"
+      }
+    ]
+  }
+})json";
+
+// clang-format on
+
+TEST_CASE("User constraint - singleton scalar (options.*) parses and solves")
+{
+  using namespace gtopt;
+
+  auto planning = daw::json::from_json<Planning>(singleton_scalar_uc_json);
+
+  REQUIRE(planning.system.user_constraint_array.size() == 1);
+  const auto& uc = planning.system.user_constraint_array[0];
+
+  // The parser produces an ElementRef with empty element_id and the
+  // singleton class name in element_type.
+  auto expr = ConstraintParser::parse(uc.name, uc.expression);
+  REQUIRE(expr.terms.size() == 2);
+  REQUIRE(expr.terms[1].element.has_value());
+  const auto& scalar_ref = expr.terms[1].element.value_or(ElementRef {});
+  CHECK(scalar_ref.element_type == "options");
+  CHECK(scalar_ref.element_id.empty());
+  CHECK(scalar_ref.attribute == "scale_objective");
+
+  // End-to-end: build and solve.  With scale_objective=1, the constraint
+  // resolves to `generation + 1 <= 81` ⇒ generation <= 80.  Demand is
+  // 90 MW so the LP solves with 80 MW dispatched and 10 MW fail.
+  const PlanningOptionsLP options(planning.options);
+  SimulationLP sim_lp(planning.simulation, options);
+  SystemLP sys_lp(planning.system, sim_lp);
+
+  auto res = sys_lp.linear_interface().resolve();
+  REQUIRE(res.has_value());
+}
+
+// clang-format off
+
 /// Same single-bus case but with constraint_type = "raw" to test
 /// discount-only dual scaling.
 static constexpr std::string_view single_bus_uc_raw_json = R"json({

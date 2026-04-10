@@ -2171,4 +2171,146 @@ TEST_SUITE("ConstraintParser")
                         R"(if stage = 1 (generator('G').generation) <= 10)")),
                     std::invalid_argument);
   }
+
+  // ── Phase 1d: singleton-class scalars ──────────────────────────────────
+
+  TEST_CASE("Singleton class scalar: options.scale_objective")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    const auto expr =
+        ConstraintParser::parse(R"(options.scale_objective <= 1000)");
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref.element_type == "options");
+    CHECK(ref.element_id.empty());
+    CHECK(ref.attribute == "scale_objective");
+    CHECK(expr.terms[0].coefficient == doctest::Approx(1.0));
+  }
+
+  TEST_CASE("Singleton class scalar with coefficient")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    const auto expr = ConstraintParser::parse(
+        R"(2.5 * options.annual_discount_rate + generator("G1").generation <= 100)");
+    REQUIRE(expr.terms.size() == 2);
+
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& opt_ref = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(opt_ref.element_type == "options");
+    CHECK(opt_ref.element_id.empty());
+    CHECK(opt_ref.attribute == "annual_discount_rate");
+    CHECK(expr.terms[0].coefficient == doctest::Approx(2.5));
+
+    REQUIRE(expr.terms[1].element.has_value());
+    const auto& gen_ref = expr.terms[1].element.value_or(ElementRef {});
+    CHECK(gen_ref.element_type == "generator");
+    CHECK(gen_ref.element_id == "G1");
+  }
+
+  TEST_CASE("Singleton class without dot is rejected")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    CHECK_THROWS_AS(
+        static_cast<void>(ConstraintParser::parse(R"(options <= 100)")),
+        std::invalid_argument);
+  }
+
+  TEST_CASE("Singleton class with dot but no attribute is rejected")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    CHECK_THROWS_AS(
+        static_cast<void>(ConstraintParser::parse(R"(options. <= 100)")),
+        std::invalid_argument);
+  }
+
+  // ── Phase 1e: state(...) wrapper grammar ───────────────────────────────
+
+  TEST_CASE("Phase 1e: state(reservoir(...).efin) parses with state_wrapped")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    const auto expr =
+        ConstraintParser::parse(R"(state(reservoir("R1").efin) <= 100)");
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref.element_type == "reservoir");
+    CHECK(ref.element_id == "R1");
+    CHECK(ref.attribute == "efin");
+    CHECK(ref.state_wrapped);
+    CHECK(expr.terms[0].coefficient == doctest::Approx(1.0));
+  }
+
+  TEST_CASE("Phase 1e: bare element ref keeps state_wrapped == false")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    const auto expr = ConstraintParser::parse(R"(reservoir("R1").efin <= 100)");
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref = expr.terms[0].element.value_or(ElementRef {});
+    CHECK_FALSE(ref.state_wrapped);
+  }
+
+  TEST_CASE("Phase 1e: state(...) participates in linear combinations")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    const auto expr = ConstraintParser::parse(
+        R"(2 * state(reservoir("R1").efin) - reservoir("R2").eini <= 50)");
+    REQUIRE(expr.terms.size() == 2);
+
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& wrapped = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(wrapped.state_wrapped);
+    CHECK(wrapped.element_id == "R1");
+    CHECK(expr.terms[0].coefficient == doctest::Approx(2.0));
+
+    REQUIRE(expr.terms[1].element.has_value());
+    const auto& bare = expr.terms[1].element.value_or(ElementRef {});
+    CHECK_FALSE(bare.state_wrapped);
+    CHECK(bare.element_id == "R2");
+    CHECK(expr.terms[1].coefficient == doctest::Approx(-1.0));
+  }
+
+  TEST_CASE("Phase 1e: nested state(state(...)) is rejected")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
+                        R"(state(state(reservoir("R1").efin)) <= 0)")),
+                    std::invalid_argument);
+  }
+
+  TEST_CASE("Phase 1e: state(<numeric literal>) is rejected")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    CHECK_THROWS_AS(
+        static_cast<void>(ConstraintParser::parse(R"(state(42) <= 0)")),
+        std::invalid_argument);
+  }
+
+  TEST_CASE("Phase 1e: state(sum(...)) is rejected")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
+                        R"(state(sum(reservoir(all).efin)) <= 0)")),
+                    std::invalid_argument);
+  }
+
+  TEST_CASE("Phase 1e: state without parens is rejected")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
+                        R"(state reservoir("R1").efin <= 0)")),
+                    std::invalid_argument);
+  }
 }

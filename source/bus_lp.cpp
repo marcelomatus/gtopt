@@ -83,13 +83,13 @@ bool BusLP::add_to_lp(const SystemContext& sc,
 {
   static const auto ampl_name = std::string {ClassName.snake_case()};
 
-  // Register the element name so PAMPL `bus("B1")` expressions can
-  // resolve to this uid.  Theta columns are lazy-created by lines that
-  // need Kirchhoff; the resolver retains a special-case fallback for
-  // `bus.theta`/`bus.angle` via `lookup_theta_col`, so we do NOT register
-  // a per-block variable here — `theta_cols` may still be empty at this
-  // point in the solve sequence.
-  sc.register_ampl_element(ampl_name, id().second, uid());
+  // Theta columns are lazy-created by lines that need Kirchhoff; the
+  // resolver retains a special-case fallback for `bus.theta`/`bus.angle`
+  // via `lookup_theta_col`, so we do NOT register a per-block variable
+  // here — `theta_cols` may still be empty at this point in the solve
+  // sequence.  The element-name registration is hoisted into
+  // `system_lp.cpp::register_all_ampl_element_names` (runs once per
+  // SimulationLP via std::call_once from the SystemLP constructor).
 
   // F9: register filter metadata for sum(...) predicates.
   if (const auto& t = bus().type) {

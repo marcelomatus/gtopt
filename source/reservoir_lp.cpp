@@ -48,8 +48,6 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   static constexpr std::string_view cname = ClassName.full_name();
   static const auto ampl_name = std::string {ClassName.snake_case()};
 
-  sc.register_ampl_element(ampl_name, id().second, uid());
-
   if (!is_active(stage)) {
     return true;
   }

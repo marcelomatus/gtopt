@@ -177,6 +177,13 @@ auto PlanningLP::create_systems(System& system,
   system.expand_batteries();
   system.expand_reservoir_constraints();
   system.setup_reference_bus(options);
+
+  // Note: AMPL element-name and compound registries are populated by
+  // SystemLP's constructor under std::call_once on
+  // SimulationLP::ampl_registry_flag(), so the registry is filled
+  // exactly once regardless of whether construction goes through
+  // PlanningLP or directly via tests.
+
   auto&& scenes = simulation.scenes();
   auto&& phases = simulation.phases();
 

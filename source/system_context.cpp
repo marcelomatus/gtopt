@@ -60,4 +60,84 @@ auto SystemContext::get_bus(const ObjectSingleId<BusLP>& id) const
   }
 }
 
+// ── PAMPL forwarders that need the full SystemLP definition ─────────────
+//
+// These can't live in the header because reaching `system().scene()` /
+// `system().phase()` requires `system_lp.hpp`, which would create a
+// circular include with `system_context.hpp`.
+
+void SystemContext::add_ampl_variable(
+    std::string_view class_name,
+    Uid element_uid,
+    std::string_view attribute,
+    const ScenarioLP& scenario,
+    const StageLP& stage,
+    const BIndexHolder<ColIndex>& block_cols) const
+{
+  m_simulation_.get().add_ampl_variable(system().scene().index(),
+                                        system().phase().index(),
+                                        class_name,
+                                        element_uid,
+                                        attribute,
+                                        scenario.uid(),
+                                        stage.uid(),
+                                        block_cols);
+}
+
+void SystemContext::add_ampl_variable(std::string_view class_name,
+                                      Uid element_uid,
+                                      std::string_view attribute,
+                                      const ScenarioLP& scenario,
+                                      const StageLP& stage,
+                                      ColIndex stage_col) const
+{
+  m_simulation_.get().add_ampl_variable(system().scene().index(),
+                                        system().phase().index(),
+                                        class_name,
+                                        element_uid,
+                                        attribute,
+                                        scenario.uid(),
+                                        stage.uid(),
+                                        stage_col);
+}
+
+std::optional<ColIndex> SystemContext::find_ampl_col(
+    std::string_view class_name,
+    Uid element_uid,
+    std::string_view attribute,
+    ScenarioUid scenario_uid,
+    StageUid stage_uid,
+    BlockUid block_uid) const
+{
+  return simulation().find_ampl_col(system().scene().index(),
+                                    system().phase().index(),
+                                    class_name,
+                                    element_uid,
+                                    attribute,
+                                    scenario_uid,
+                                    stage_uid,
+                                    block_uid);
+}
+
+void SystemContext::register_ampl_element_metadata(
+    std::string_view class_name,
+    Uid element_uid,
+    AmplElementMetadata metadata) const
+{
+  m_simulation_.get().register_ampl_element_metadata(system().scene().index(),
+                                                     system().phase().index(),
+                                                     class_name,
+                                                     element_uid,
+                                                     std::move(metadata));
+}
+
+const AmplElementMetadata* SystemContext::find_ampl_element_metadata(
+    std::string_view class_name, Uid element_uid) const noexcept
+{
+  return simulation().find_ampl_element_metadata(system().scene().index(),
+                                                 system().phase().index(),
+                                                 class_name,
+                                                 element_uid);
+}
+
 }  // namespace gtopt

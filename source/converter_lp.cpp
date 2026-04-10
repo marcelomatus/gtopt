@@ -39,8 +39,6 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
     return false;
   }
 
-  sc.register_ampl_element(ampl_name, id().second, uid());
-
   if (!is_active(stage)) [[unlikely]] {
     return true;
   }

@@ -28,6 +28,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -44,6 +45,22 @@
 
 namespace gtopt
 {
+
+/// Tag on each registered AMPL variable distinguishing ordinary LP
+/// columns from state-backed columns that bridge phases via the
+/// state-variable subsystem.  The user-constraint DSL will use this in
+/// Phase 2 to validate `state(...)` wrappers: the parser asserts
+/// authorial intent by requiring `state(elem.efin)` and the resolver
+/// checks that the referenced entry's `kind == StateBacked`.
+///
+/// Default is `Regular`: elements that want the state-backed tag call
+/// `SystemContext::add_ampl_state_variable` (same shape as
+/// `add_ampl_variable`) once the Phase 2 API lands.
+enum class AmplVariableKind : std::uint8_t
+{
+  Regular,  ///< Ordinary LP column scoped to this (scene, phase)
+  StateBacked,  ///< Also a StateVariable — cross-phase bridge
+};
 
 /// Key identifying a PAMPL-visible variable at a specific
 /// (element, attribute, scenario, stage) granularity.
@@ -79,6 +96,11 @@ struct AmplVariable
   /// Stage-level column: same value for every block in the stage.
   /// Only meaningful when `block_cols` is empty.
   ColIndex stage_col {unknown_index};
+
+  /// Regular LP column or state-backed column.  Default is Regular;
+  /// state-backed entries will be set by the Phase 2
+  /// `add_ampl_state_variable` API.
+  AmplVariableKind kind {AmplVariableKind::Regular};
 
   [[nodiscard]] std::optional<ColIndex> col_at(
       BlockUid block_uid) const noexcept
@@ -139,6 +161,30 @@ struct AmplCompoundKey
 
 /// Compound-attribute registry: (class, compound_name) -> legs.
 using AmplCompoundMap = flat_map<AmplCompoundKey, std::vector<AmplCompoundLeg>>;
+
+// ── Scalar parameter registry (Phase 1d) ────────────────────────────────────
+
+/// Key identifying a class-level scalar parameter.  "Singleton classes"
+/// like `options` and `system` expose globally-scoped read-only constants
+/// that PAMPL constraints may reference as `options.scale_objective`,
+/// `system.n_stages`, etc.  No element_uid, no (scenario, stage) tuple
+/// — the value is the same for every row.
+struct AmplScalarKey
+{
+  std::string class_name;  ///< "options", "system", ...
+  std::string_view attribute;  ///< "annual_discount_rate", "scale_objective"
+
+  [[nodiscard]] friend auto operator<=>(
+      const AmplScalarKey&, const AmplScalarKey&) noexcept = default;
+};
+
+/// Scalar registry: (class, attribute) -> resolved double value.
+///
+/// Values are cached at registration time (once per `SimulationLP` under
+/// `std::call_once`) so the resolver path is a pure read.  Options are
+/// immutable for the lifetime of a `SimulationLP`, which is what makes
+/// the cache-by-value approach safe.
+using AmplScalarMap = flat_map<AmplScalarKey, double>;
 
 // ── Element metadata registry (F9) ──────────────────────────────────────────
 

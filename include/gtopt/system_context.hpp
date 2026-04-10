@@ -343,28 +343,26 @@ public:
   // constants on each `*LP` class (e.g. `GeneratorLP::GenerationName`).
 
   /// Register a per-block column map (e.g., generator.generation).
-  /// Stores a pointer to `block_cols`; the element must keep it alive
-  /// for the rest of the solve.
+  /// Stores a copy of `block_cols`; the element need not keep it alive.
   ///
   /// Marked `const` (logical-const): the underlying `SimulationLP` is
   /// held via `reference_wrapper`, so const SystemContext methods may
   /// still mutate the simulation's ampl variable registry.  This lets
   /// elements whose `add_to_lp` takes `const SystemContext&` register
   /// their PAMPL-visible columns without signature churn.
+  ///
+  /// Routes to the per-(scene, phase) cell of the current SystemLP —
+  /// `system().scene().index()` / `system().phase().index()` — so the
+  /// write needs no synchronization (one writer per cell, sequential
+  /// across phases within a scene).  Defined out-of-line in
+  /// `system_context.cpp` because reaching the SystemLP accessors
+  /// requires the full `system_lp.hpp` definition.
   void add_ampl_variable(std::string_view class_name,
                          Uid element_uid,
                          std::string_view attribute,
                          const ScenarioLP& scenario,
                          const StageLP& stage,
-                         const BIndexHolder<ColIndex>& block_cols) const
-  {
-    m_simulation_.get().add_ampl_variable(class_name,
-                                          element_uid,
-                                          attribute,
-                                          scenario.uid(),
-                                          stage.uid(),
-                                          block_cols);
-  }
+                         const BIndexHolder<ColIndex>& block_cols) const;
 
   /// Register a stage-level scalar column (e.g., eini, efin, capainst).
   void add_ampl_variable(std::string_view class_name,
@@ -372,57 +370,26 @@ public:
                          std::string_view attribute,
                          const ScenarioLP& scenario,
                          const StageLP& stage,
-                         ColIndex stage_col) const
-  {
-    m_simulation_.get().add_ampl_variable(class_name,
-                                          element_uid,
-                                          attribute,
-                                          scenario.uid(),
-                                          stage.uid(),
-                                          stage_col);
-  }
-
-  /// Register an element's name so that `generator("G1")` resolves
-  /// "G1" to its Uid.  Call once per element (constructor or first
-  /// `add_to_lp`).
-  void register_ampl_element(std::string_view class_name,
-                             std::string_view element_name,
-                             Uid element_uid) const
-  {
-    m_simulation_.get().register_ampl_element(
-        class_name, element_name, element_uid);
-  }
+                         ColIndex stage_col) const;
 
   /// Look up a registered variable column.  Returns nullopt if the
   /// (class, uid, attribute, scenario, stage, block) combination was
-  /// never registered.
+  /// never registered.  Reads from the current SystemLP's
+  /// `(scene, phase)` cell — the resolver always queries within the
+  /// LP that owns the row being assembled.
   [[nodiscard]] std::optional<ColIndex> find_ampl_col(
       std::string_view class_name,
       Uid element_uid,
       std::string_view attribute,
       ScenarioUid scenario_uid,
       StageUid stage_uid,
-      BlockUid block_uid) const
-  {
-    return simulation().find_ampl_col(
-        class_name, element_uid, attribute, scenario_uid, stage_uid, block_uid);
-  }
+      BlockUid block_uid) const;
 
   /// Resolve an element name to its Uid within a class.
   [[nodiscard]] std::optional<Uid> lookup_ampl_element_uid(
       std::string_view class_name, std::string_view element_name) const
   {
     return simulation().lookup_ampl_element_uid(class_name, element_name);
-  }
-
-  /// Register a compound PAMPL attribute at class level.
-  /// See `SimulationLP::add_ampl_compound`.
-  void add_ampl_compound(std::string_view class_name,
-                         std::string_view compound_name,
-                         std::vector<AmplCompoundLeg> legs) const
-  {
-    m_simulation_.get().add_ampl_compound(
-        class_name, compound_name, std::move(legs));
   }
 
   /// Look up a compound PAMPL attribute by (class, compound_name).
@@ -433,23 +400,25 @@ public:
     return simulation().find_ampl_compound(class_name, compound_name);
   }
 
+  /// Look up a class-level scalar (e.g. `options.scale_objective`).
+  /// Returns nullopt when the (class, attribute) pair is not in the
+  /// allow-list registered by `system_lp.cpp::register_all_ampl_element_names`.
+  [[nodiscard]] std::optional<double> find_ampl_scalar(
+      std::string_view class_name, std::string_view attribute) const noexcept
+  {
+    return simulation().find_ampl_scalar(class_name, attribute);
+  }
+
   /// Register filter metadata for one element (F9).
   /// See `SimulationLP::register_ampl_element_metadata`.
   void register_ampl_element_metadata(std::string_view class_name,
                                       Uid element_uid,
-                                      AmplElementMetadata metadata) const
-  {
-    m_simulation_.get().register_ampl_element_metadata(
-        class_name, element_uid, std::move(metadata));
-  }
+                                      AmplElementMetadata metadata) const;
 
   /// Look up an element's metadata bundle (F9).  Returns nullptr when
   /// the element has no registered metadata.
   [[nodiscard]] const AmplElementMetadata* find_ampl_element_metadata(
-      std::string_view class_name, Uid element_uid) const noexcept
-  {
-    return simulation().find_ampl_element_metadata(class_name, element_uid);
-  }
+      std::string_view class_name, Uid element_uid) const noexcept;
 
 private:
   std::reference_wrapper<SimulationLP> m_simulation_;

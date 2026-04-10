@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <format>
+#include <mutex>
 #include <unordered_map>
 
 #include <gtopt/bus_island.hpp>
@@ -511,6 +512,103 @@ void create_collections(const auto& system_context,
 #endif
 }
 
+/// Hoisted AMPL element-name + compound registration.
+///
+/// Element names and class-level compound recipes are
+/// (scene, phase)-independent: each element has the same name in every
+/// LP, and `line.flow = +flowp − flown` is the same recipe everywhere.
+/// Populating these registries from inside the per-element `add_to_lp`
+/// would require a mutex on the parallel scene-build loop, even though
+/// every scene would write the identical entries.
+///
+/// Instead this helper runs once per `SimulationLP` via `std::call_once`
+/// from the `SystemLP` constructor (see below).  That gives the registry
+/// a single deterministic populate step regardless of whether the
+/// `SystemLP` is built through `PlanningLP::create_systems` (parallel
+/// across scenes) or directly by tests that construct one `SimulationLP`
+/// + `SystemLP` pair.
+template<typename LP, typename Array>
+void register_element_names(SimulationLP& sim, const Array& arr)
+{
+  const auto class_name = std::string {LP::ClassName.snake_case()};
+  for (const auto& obj : arr) {
+    sim.register_ampl_element(class_name, obj.name, obj.uid);
+  }
+}
+
+void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
+{
+  register_element_names<BatteryLP>(sim, sys.battery_array);
+  register_element_names<BusLP>(sim, sys.bus_array);
+  register_element_names<ConverterLP>(sim, sys.converter_array);
+  register_element_names<DemandLP>(sim, sys.demand_array);
+  register_element_names<FlowLP>(sim, sys.flow_array);
+  register_element_names<FlowRightLP>(sim, sys.flow_right_array);
+  register_element_names<GeneratorLP>(sim, sys.generator_array);
+  register_element_names<JunctionLP>(sim, sys.junction_array);
+  register_element_names<LineLP>(sim, sys.line_array);
+  register_element_names<ReserveProvisionLP>(sim, sys.reserve_provision_array);
+  register_element_names<ReserveZoneLP>(sim, sys.reserve_zone_array);
+  register_element_names<ReservoirLP>(sim, sys.reservoir_array);
+  register_element_names<TurbineLP>(sim, sys.turbine_array);
+  register_element_names<VolumeRightLP>(sim, sys.volume_right_array);
+  register_element_names<WaterwayLP>(sim, sys.waterway_array);
+
+  // Intentional exception: ReservoirSeepageLP is exposed at the AMPL
+  // level under "seepage", not the snake-case of its class name
+  // ("reservoir_seepage").  Mirrors the constraint/variable name
+  // emitted by `source/reservoir_seepage_lp.cpp`.
+  {
+    const auto class_name = std::string {ReservoirSeepageLP::SeepageName};
+    for (const auto& obj : sys.reservoir_seepage_array) {
+      sim.register_ampl_element(class_name, obj.name, obj.uid);
+    }
+  }
+
+  // Class-level compound: `line.flow = +flowp − flown`.
+  // Registered once globally; the resolver expands it per-(uid, block).
+  {
+    const auto line_class = std::string {LineLP::ClassName.snake_case()};
+    sim.add_ampl_compound(line_class,
+                          LineLP::FlowName,
+                          {
+                              AmplCompoundLeg {
+                                  .coefficient = +1.0,
+                                  .source_attribute = LineLP::FlowpName,
+                              },
+                              AmplCompoundLeg {
+                                  .coefficient = -1.0,
+                                  .source_attribute = LineLP::FlownName,
+                              },
+                          });
+  }
+
+  // ── options.* scalar allow-list (Phase 1d) ────────────────────────────
+  //
+  // Explicit allow-list (not full-open): only fields that are intended
+  // to be referenceable from PAMPL user-constraints are exposed.  Bools
+  // are surfaced as 0.0 / 1.0 so the constraint DSL can use them as
+  // ordinary numeric coefficients.  Cached by value at registration —
+  // options are immutable for the SimulationLP lifetime.
+  {
+    static constexpr std::string_view options_class = "options";
+    const auto& opts = sim.options();
+    sim.add_ampl_scalar(
+        options_class, "annual_discount_rate", opts.annual_discount_rate());
+    sim.add_ampl_scalar(
+        options_class, "scale_objective", opts.scale_objective());
+    sim.add_ampl_scalar(options_class, "scale_theta", opts.scale_theta());
+    sim.add_ampl_scalar(
+        options_class, "kirchhoff_threshold", opts.kirchhoff_threshold());
+    sim.add_ampl_scalar(
+        options_class, "use_kirchhoff", opts.use_kirchhoff() ? 1.0 : 0.0);
+    sim.add_ampl_scalar(
+        options_class, "use_single_bus", opts.use_single_bus() ? 1.0 : 0.0);
+    sim.add_ampl_scalar(
+        options_class, "use_line_losses", opts.use_line_losses() ? 1.0 : 0.0);
+  }
+}
+
 }  // namespace
 
 namespace gtopt
@@ -543,6 +641,15 @@ SystemLP::SystemLP(const System& system,
     , m_phase_(std::move(phase))
     , m_scene_(std::move(scene))
 {
+  // Populate the SimulationLP-wide AMPL element-name and compound
+  // registries exactly once, before any per-(scene, phase) build runs.
+  // The std::call_once flag is owned by SimulationLP, so this works
+  // both under PlanningLP's parallel scene loop (only the first SystemLP
+  // built actually does the work; the rest pass through) and for tests
+  // that build a single SimulationLP/SystemLP pair directly.
+  std::call_once(simulation.ampl_registry_flag(),
+                 [&] { register_all_ampl_element_names(simulation, system); });
+
   // m_collections_ is default-constructed (valid, empty) before this point.
   // Populate it in-place so that each sub-collection is visible to
   // InputContext::element_index as soon as it is built, allowing later

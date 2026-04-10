@@ -39,8 +39,6 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     return false;
   }
 
-  sc.register_ampl_element(ampl_name, id().second, uid());
-
   // F9: register filter metadata so sum(...) predicates work.
   {
     AmplElementMetadata metadata;

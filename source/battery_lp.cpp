@@ -55,8 +55,6 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
     return false;
   }
 
-  sc.register_ampl_element(ampl_name, id().second, uid());
-
   // F9: register filter metadata for sum(...) predicates.  Battery `bus`
   // is optional (standalone batteries are decomposed by
   // `System::expand_batteries()`), so we only register `type`.

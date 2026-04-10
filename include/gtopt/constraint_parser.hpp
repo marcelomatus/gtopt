@@ -173,6 +173,7 @@ private:
     void expect(TokenType type, std::string_view hint);
     [[nodiscard]] bool match(TokenType type);
     [[nodiscard]] static bool is_element_type(const std::string& name);
+    [[nodiscard]] static bool is_singleton_class(const std::string& name);
 
     [[noreturn]] void error_at(std::size_t column,
                                const std::string& message,
@@ -192,6 +193,11 @@ private:
     /// Parse `abs(linear_expr)` (F5).  Called when the current token is
     /// the `abs` identifier.  Rejects nested `abs(abs(...))`.
     [[nodiscard]] std::vector<ConstraintTerm> parse_abs_expr();
+    /// Parse `state(element_ref)` (Phase 1e).  Called when the current
+    /// token is the `state` identifier.  The argument must be a single
+    /// element reference (no sums, no nesting).  Sets `state_wrapped`
+    /// on the resulting `ElementRef`.
+    [[nodiscard]] std::vector<ConstraintTerm> parse_state_expr();
     /// Parse `max(arg1, arg2, ...)` or `min(arg1, arg2, ...)` (F7).
     /// Called when the current token is `max` or `min`.
     [[nodiscard]] std::vector<ConstraintTerm> parse_minmax_expr(

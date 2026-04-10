@@ -140,8 +140,6 @@ bool LineLP::add_to_lp(SystemContext& sc,
     return false;
   }
 
-  sc.register_ampl_element(ampl_name, id().second, uid());
-
   // F9: register filter metadata for sum(...) predicates.
   {
     AmplElementMetadata metadata;
@@ -288,23 +286,9 @@ bool LineLP::add_to_lp(SystemContext& sc,
         ampl_name, uid(), LossnName, scenario, stage, lossn_cols.at(st_key));
   }
   // `capainst` is registered centrally by CapacityBase::add_to_lp.
-
-  // Register the `flow` compound attribute (class-level, idempotent).
-  // `line.flow` means `+1·flowp − 1·flown`.  The registration is a no-op
-  // after the first call for this class, so every LineLP::add_to_lp may
-  // execute it unconditionally.
-  sc.add_ampl_compound(ampl_name,
-                       FlowName,
-                       {
-                           AmplCompoundLeg {
-                               .coefficient = +1.0,
-                               .source_attribute = FlowpName,
-                           },
-                           AmplCompoundLeg {
-                               .coefficient = -1.0,
-                               .source_attribute = FlownName,
-                           },
-                       });
+  // The `line.flow` compound (+1·flowp − 1·flown) is registered once
+  // per SimulationLP by `system_lp.cpp::register_all_ampl_element_names`
+  // (called via std::call_once from the SystemLP constructor).
 
   return true;
 }

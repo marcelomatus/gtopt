@@ -101,6 +101,13 @@ namespace
     const ElementRef& ref,
     const LinearProblem& lp)
 {
+  // Singleton-class scalars (`options.*`, `system.*`) carry no element
+  // id and resolve to a constant numeric, never to an LP column — leave
+  // them to `resolve_single_param`'s scalar branch.
+  if (ref.element_id.empty()) {
+    return std::nullopt;
+  }
+
   const auto single_id = parse_element_id(ref.element_id);
   const BlockUid buid = block.uid();
 
@@ -215,6 +222,20 @@ bool resolve_col_to_row(const SystemContext& sc,
     const BlockLP& block,
     const ElementRef& ref)
 {
+  // ── singleton class scalar (options.*, system.*) ────────────────────
+  // No element id, no per-(stage, block) variation: query the
+  // class-level scalar registry populated by
+  // `system_lp.cpp::register_all_ampl_element_names`.
+  if (ref.element_id.empty()) {
+    if (auto val = sc.find_ampl_scalar(ref.element_type, ref.attribute)) {
+      return val;
+    }
+    SPDLOG_WARN(std::format("user_constraint: unknown scalar {}.{}",
+                            ref.element_type,
+                            ref.attribute));
+    return std::nullopt;
+  }
+
   const auto single_id = parse_element_id(ref.element_id);
   const auto suid = stage.uid();
   const auto buid = block.uid();
