@@ -293,6 +293,31 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
               *pval,
               coef);
         }
+      } else if (ctx.is_strict) {
+        // The element ref resolved neither as an LP column (no
+        // matching variable in the AMPL registry) nor as a data
+        // parameter — most commonly a typo, an inactive element, or
+        // a missing element.  Silent skipping here is the most
+        // insidious failure mode: the constraint becomes vacuously
+        // satisfied while the LP still solves.
+        throw std::runtime_error(std::format(
+            "user_constraint '{}': cannot resolve element reference "
+            "'{}({}).{}' (block {}) — element is missing or inactive, "
+            "or attribute is not a registered LP variable or parameter",
+            ctx.uc.name,
+            term.element->element_type,
+            term.element->element_id,
+            term.element->attribute,
+            ctx.block.uid()));
+      } else {
+        SPDLOG_WARN(std::format(
+            "user_constraint '{}': cannot resolve element reference "
+            "'{}({}).{}' (block {}) — skipping term",
+            ctx.uc.name,
+            term.element->element_type,
+            term.element->element_id,
+            term.element->attribute,
+            ctx.block.uid()));
       }
       continue;
     }

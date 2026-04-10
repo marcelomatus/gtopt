@@ -146,7 +146,8 @@ static constexpr std::string_view resolver_unknown_json = R"json({
     "output_compression": "uncompressed",
     "use_single_bus": true,
     "demand_fail_cost": 1000,
-    "scale_objective": 1000
+    "scale_objective": 1000,
+    "constraint_mode": "normal"
   },
   "simulation": {
     "block_array": [{"uid": 1, "duration": 1}],
@@ -369,7 +370,8 @@ TEST_CASE(  // NOLINT
   static constexpr std::string_view bad_ref_json = R"json({
     "options": {
       "demand_fail_cost": 1000,
-      "use_single_bus": true
+      "use_single_bus": true,
+      "constraint_mode": "normal"
     },
     "simulation": {
       "block_array": [{"uid": 1, "duration": 1}],
