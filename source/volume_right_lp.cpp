@@ -86,7 +86,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
 
   // Evaluate initial bound rule if present
   const auto& opt_rule = volume_right().bound_rule;
-  auto initial_rule_bound = std::numeric_limits<Real>::max();
+  auto initial_rule_bound = LinearProblem::DblMax;
   if (opt_rule.has_value()) {
     const auto rsv_sid = ReservoirLPSId(opt_rule->reservoir);
     const auto& rsv = sc.element<ReservoirLP>(rsv_sid);

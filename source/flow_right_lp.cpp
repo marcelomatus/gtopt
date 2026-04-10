@@ -25,6 +25,68 @@
 namespace gtopt
 {
 
+namespace
+{
+
+struct BlockBounds
+{
+  Real lowb;
+  Real uppb;
+};
+
+/// Compute the per-block flow column bounds from the per-block schedule
+/// values and an optional bound-rule cap.  Shared by `add_to_lp` (initial
+/// construction) and `update_lp` (volume-dependent re-clamping) so the
+/// two stay in sync — historically `update_lp` only patched the upper
+/// bound, which left fixed-mode FlowRights with `lowb > uppb` whenever
+/// the rule shrank the cap below the original discharge value.
+///
+/// `rule_bound` is `LinearProblem::DblMax` when no rule is configured, so
+/// the `std::min` calls below are no-ops in that case.
+BlockBounds compute_block_bounds(Real block_discharge,
+                                 Real block_fmax,
+                                 Real block_fail_cost,
+                                 Real rule_bound)
+{
+  // Variable mode: fmax > 0 and discharge == 0 -> [0, fmax]
+  // Fixed mode (default):                       [discharge, discharge]
+  auto lowb =
+      (block_fmax > 0.0 && block_discharge == 0.0) ? 0.0 : block_discharge;
+  auto uppb = (block_fmax > 0.0 && block_discharge == 0.0) ? block_fmax
+                                                           : block_discharge;
+
+  // Apply bound-rule cap (no-op when rule_bound == DblMax).
+  uppb = std::min(uppb, rule_bound);
+  lowb = std::min(lowb, uppb);
+
+  // When a fail variable is active and there is a target discharge,
+  // relax the lower bound to 0 so the optimizer can under-deliver
+  // when constrained.  The deficit coupling row captures the shortfall.
+  if (block_fail_cost > 0.0 && block_discharge > 0.0) {
+    lowb = 0.0;
+  }
+  return BlockBounds {.lowb = lowb, .uppb = uppb};
+}
+
+/// Resolve the effective per-block fail cost: per-element schedule wins,
+/// otherwise fall back to the global `hydro_fail_cost` ($/m³) converted
+/// to $/(m³/s) for this block via `× duration[h] × 3600`.
+Real resolve_block_fail_cost(Real sched_fail_cost,
+                             Real block_duration_hours,
+                             const auto& options)
+{
+  if (sched_fail_cost > 0.0) {
+    return sched_fail_cost;
+  }
+  const auto global_fc = options.hydro_fail_cost().value_or(0.0);
+  if (global_fc > 0.0) {
+    return global_fc * block_duration_hours * 3600.0;
+  }
+  return 0.0;
+}
+
+}  // namespace
+
 FlowRightLP::FlowRightLP(const FlowRight& pflow, const InputContext& ic)
     : ObjectLP<FlowRight>(pflow, ic, ClassName)
     , discharge(ic, ClassName, id(), std::move(flow_right().discharge))
@@ -56,7 +118,7 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
 
   // Evaluate initial bound rule if present
   const auto& opt_rule = flow_right().bound_rule;
-  auto initial_rule_bound = std::numeric_limits<Real>::max();
+  auto initial_rule_bound = LinearProblem::DblMax;
   if (opt_rule.has_value()) {
     const auto rsv_sid = ReservoirLPSId(opt_rule->reservoir);
     const auto& rsv = sc.element<ReservoirLP>(rsv_sid);
@@ -71,40 +133,20 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
         discharge.at(scenario.uid(), stage.uid(), block.uid());
     const auto block_fmax = fmax_sched.at(stage.uid(), buid).value_or(0.0);
 
-    // Determine flow column bounds:
-    // - Variable mode: fmax > 0 and discharge == 0 -> [0, fmax]
-    // - Fixed mode (default): [discharge, discharge]
-    auto lowb =
-        (block_fmax > 0.0 && block_discharge == 0.0) ? 0.0 : block_discharge;
-    auto uppb = (block_fmax > 0.0 && block_discharge == 0.0) ? block_fmax
-                                                             : block_discharge;
+    // Resolve fail_cost (per-element schedule, falling back to global
+    // hydro_fail_cost converted from $/m³ to $/(m³/s)).
+    const auto block_fail_cost = resolve_block_fail_cost(
+        fail_cost_sched.at(stage.uid(), buid).value_or(0.0),
+        block.duration(),
+        options);
 
-    // Apply bound rule cap to upper bound
-    if (opt_rule.has_value()) {
-      uppb = std::min(uppb, initial_rule_bound);
-      lowb = std::min(lowb, uppb);
-    }
+    // Compute final flow column bounds.  Helper handles variable/fixed
+    // mode selection, bound-rule cap, and deficit relaxation in one
+    // place so update_lp() can apply identical logic on re-clamp.
+    const auto [lowb, uppb] = compute_block_bounds(
+        block_discharge, block_fmax, block_fail_cost, initial_rule_bound);
 
-    // Deficit variable: penalized in objective when demand unmet.
-    // Per-element fail_cost (already in $/flow-unit) takes precedence.
-    // Falls back to global hydro_fail_cost ($/m³) × duration × 3600
-    // to convert from $/m³ to $/(m³/s) for the block.
-    auto block_fail_cost = fail_cost_sched.at(stage.uid(), buid).value_or(0.0);
-    if (block_fail_cost == 0.0) {
-      const auto global_fc = options.hydro_fail_cost().value_or(0.0);
-      if (global_fc > 0.0) {
-        block_fail_cost = global_fc * block.duration() * 3600.0;
-      }
-    }
-
-    // When fail_cost is active and there is a target discharge,
-    // relax the flow lower bound to 0 so the optimizer can
-    // under-deliver when constrained (junction balance, bound rule).
-    // The deficit coupling constraint below captures the shortfall.
     const bool has_deficit = block_fail_cost > 0.0 && block_discharge > 0.0;
-    if (has_deficit) {
-      lowb = 0.0;
-    }
 
     // Use value: negative objective coefficient on the flow variable
     // (benefit — positive use_value incentivizes flow).
@@ -271,6 +313,7 @@ int FlowRightLP::update_lp(SystemLP& sys,
   }
 
   auto& li = sys.linear_interface();
+  const auto& options = sys.options();
   const auto rsv_sid = ReservoirLPSId(opt_rule->reservoir);
   const auto& rsv = sys.element<ReservoirLP>(rsv_sid);
   const auto default_volume = rsv.reservoir().eini.value_or(0.0);
@@ -292,10 +335,29 @@ int FlowRightLP::update_lp(SystemLP& sys,
   int total = 0;
   const auto& my_fcols = flow_cols.at(st_key);
 
-  for (const auto& [buid, col] : my_fcols) {
-    const auto block_fmax =
-        fmax_sched.at(stage.uid(), buid).value_or(new_bound);
-    li.set_col_upp(col, std::min(block_fmax, new_bound));
+  // Re-clamp every block via the same helper used in add_to_lp so that
+  // both column bounds (not just upper) are updated consistently when
+  // the rule output shrinks below the original discharge value.
+  for (auto&& block : stage.blocks()) {
+    const auto buid = block.uid();
+    const auto fcol_it = my_fcols.find(buid);
+    if (fcol_it == my_fcols.end()) {
+      continue;
+    }
+
+    const auto block_discharge =
+        discharge.at(scenario.uid(), stage.uid(), buid);
+    const auto block_fmax = fmax_sched.at(stage.uid(), buid).value_or(0.0);
+    const auto block_fail_cost = resolve_block_fail_cost(
+        fail_cost_sched.at(stage.uid(), buid).value_or(0.0),
+        block.duration(),
+        options);
+
+    const auto [lowb, uppb] = compute_block_bounds(
+        block_discharge, block_fmax, block_fail_cost, new_bound);
+
+    li.set_col_low(fcol_it->second, lowb);
+    li.set_col_upp(fcol_it->second, uppb);
     ++total;
   }
 

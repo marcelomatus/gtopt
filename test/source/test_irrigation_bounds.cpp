@@ -12,6 +12,7 @@
  */
 
 #include <doctest/doctest.h>
+#include <gtopt/flow_right_lp.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
@@ -1597,4 +1598,184 @@ TEST_CASE(  // NOLINT
     REQUIRE(result.has_value());
     CHECK(result.value() == 0);
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Regression test for the bound_rule lower-bound bug.
+//
+// Before the compute_block_bounds() refactor, FlowRightLP set both lowb and
+// uppb in add_to_lp via inline logic and then update_lp only patched uppb on
+// re-clamp.  In a fixed-mode FlowRight where the bound_rule cap shrinks below
+// the original discharge value, the result was lowb > uppb → infeasible.
+//
+// add_to_lp itself already clamped lowb to uppb when the rule fired, so this
+// test exercises that path through the now-shared helper.  The same helper is
+// used by update_lp, so a passing test here implies update_lp is consistent.
+// ─────────────────────────────────────────────────────────────────────────────
+TEST_CASE(  // NOLINT
+    "FlowRight bound_rule clamps both lower and upper bounds in fixed mode")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .lmax = 50.0,
+          .capacity = 50.0,
+      },
+  };
+
+  const Array<Junction> junction_array = {
+      {
+          .uid = Uid {1},
+          .name = "j_up",
+      },
+      {
+          .uid = Uid {2},
+          .name = "j_down",
+          .drain = true,
+      },
+  };
+
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 500.0,
+      },
+  };
+
+  // Reservoir at v=300 — below the rule's 500 breakpoint, so the
+  // rule's first segment (constant=5) fires.
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 3000.0,
+          .emin = 0.0,
+          .emax = 3000.0,
+          .eini = 300.0,
+      },
+  };
+
+  // Fixed-mode FlowRight: discharge = 20, no fmax.  The bound_rule
+  // returns 5 at v=300 (below the 500 breakpoint), so the cap (5) is
+  // strictly tighter than the discharge target (20).
+  //
+  // Without the lowb clamp this would yield lowb=20, uppb=5 → infeasible.
+  // With the helper, both bounds become 5.
+  const Array<FlowRight> flow_right_array = {
+      {
+          .uid = Uid {1},
+          .name = "tight_irrig",
+          .junction = Uid {1},
+          .direction = -1,
+          .discharge = 20.0,
+          .bound_rule =
+              RightBoundRule {
+                  .reservoir = Uid {1},
+                  .segments =
+                      {
+                          {
+                              .volume = 0.0,
+                              .slope = 0.0,
+                              .constant = 5.0,
+                          },
+                          {
+                              .volume = 500.0,
+                              .slope = 0.0,
+                              .constant = 200.0,
+                          },
+                      },
+              },
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  const System system = {
+      .name = "FlowRightTightClampTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .reservoir_array = reservoir_array,
+      .flow_right_array = flow_right_array,
+  };
+
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  const auto& fr_lp = system_lp.elements<FlowRightLP>().front();
+  const auto& scenarios = system_lp.scene().scenarios();
+  const auto& stages = system_lp.phase().stages();
+  REQUIRE(!scenarios.empty());
+  REQUIRE(!stages.empty());
+
+  const auto& flow_cols = fr_lp.flow_cols_at(scenarios[0], stages[0]);
+  REQUIRE(!flow_cols.empty());
+  const auto fcol = flow_cols.begin()->second;
+
+  auto& lp = system_lp.linear_interface();
+  const auto col_low = lp.get_col_low();
+  const auto col_upp = lp.get_col_upp();
+
+  // Both bounds collapse to the rule's clamped value of 5.  Pre-fix,
+  // lowb would have been left at the discharge value of 20, producing
+  // an infeasible LP (lowb > uppb).
+  CHECK(col_low[static_cast<size_t>(fcol)] == doctest::Approx(5.0));
+  CHECK(col_upp[static_cast<size_t>(fcol)] == doctest::Approx(5.0));
+
+  // The LP itself must remain feasible — this is the canary that
+  // catches a regression of the lower-bound bug end-to-end.
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
 }
