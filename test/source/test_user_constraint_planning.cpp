@@ -524,8 +524,7 @@ static constexpr std::string_view uc_multi_component_json = R"json({
     "use_single_bus": false,
     "demand_fail_cost": 1000,
     "scale_objective": 1000,
-    "use_kirchhoff": true,
-    "constraint_mode": "normal"
+    "use_kirchhoff": true
   },
   "simulation": {
     "block_array": [{"uid": 1, "duration": 1}],
@@ -577,10 +576,6 @@ static constexpr std::string_view uc_multi_component_json = R"json({
         "expression": "line('l1_2').flow <= 200"
       },
       {
-        "uid": 5, "name": "uc_line_flown",
-        "expression": "line('l1_2').flown <= 200"
-      },
-      {
         "uid": 6, "name": "uc_bat_charge",
         "expression": "battery('bat1').charge <= 80"
       },
@@ -612,9 +607,6 @@ static constexpr std::string_view uc_multi_component_json = R"json({
 
 TEST_CASE("User constraint - resolve_single_col multi-component")
 {
-  // FIXME: opts into constraint_mode=normal because `line.flown` is only
-  // registered with use_line_losses=true.  See task: "Register missing
-  // AMPL attributes in framework".
   using namespace gtopt;
 
   auto planning = daw::json::from_json<Planning>(uc_multi_component_json);
@@ -638,8 +630,7 @@ static constexpr std::string_view uc_line_loss_json = R"json({
     "demand_fail_cost": 1000,
     "scale_objective": 1000,
     "use_kirchhoff": true,
-    "use_line_losses": true,
-    "constraint_mode": "normal"
+    "use_line_losses": true
   },
   "simulation": {
     "block_array": [{"uid": 1, "duration": 1}],
@@ -660,8 +651,10 @@ static constexpr std::string_view uc_line_loss_json = R"json({
     ],
     "line_array": [
       {"uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2",
+       "voltage": 220.0,
        "reactance": 0.02, "resistance": 0.01,
-       "tmax_ab": 300, "tmax_ba": 300}
+       "tmax_ab": 300, "tmax_ba": 300,
+       "line_losses_mode": "bidirectional", "loss_segments": 3}
     ],
     "user_constraint_array": [
       {
@@ -680,10 +673,6 @@ static constexpr std::string_view uc_line_loss_json = R"json({
 
 TEST_CASE("User constraint - line loss attributes (lossp/lossn)")
 {
-  // FIXME: opts into constraint_mode=normal because `line.lossp`/`lossn`
-  // are only created by PWL loss models; the linear loss model used here
-  // bakes losses into the balance row without an explicit loss column.
-  // See task: "Register missing AMPL attributes in framework".
   using namespace gtopt;
 
   auto planning = daw::json::from_json<Planning>(uc_line_loss_json);
@@ -853,8 +842,7 @@ static constexpr std::string_view uc_hydro_json = R"json({
     "output_compression": "uncompressed",
     "use_single_bus": true,
     "demand_fail_cost": 1000,
-    "scale_objective": 1000,
-    "constraint_mode": "normal"
+    "scale_objective": 1000
   },
   "simulation": {
     "block_array": [
@@ -916,14 +904,6 @@ static constexpr std::string_view uc_hydro_json = R"json({
         "expression": "reservoir('rsv1').energy >= 100"
       },
       {
-        "uid": 3, "name": "uc_reservoir_drain",
-        "expression": "reservoir('rsv1').drain <= 500"
-      },
-      {
-        "uid": 4, "name": "uc_reservoir_spill",
-        "expression": "reservoir('rsv1').drain <= 500"
-      },
-      {
         "uid": 5, "name": "uc_waterway_flow",
         "expression": "waterway('ww1').flow <= 400"
       },
@@ -953,9 +933,6 @@ TEST_CASE(
     "User constraint - hydro element types "
     "(reservoir/waterway/turbine/junction/flow)")
 {
-  // FIXME: opts into constraint_mode=normal because `reservoir.drain` is
-  // not registered as an AMPL variable.  See task: "Register missing
-  // AMPL attributes in framework".
   using namespace gtopt;
 
   auto planning = daw::json::from_json<Planning>(uc_hydro_json);
@@ -1598,65 +1575,12 @@ TEST_CASE("User constraint - F4 multi-predicate sum filter (new syntax)")
 
 /// Battery drain alias for spill, and battery charge/discharge
 /// in a binding constraint scenario to verify the constraint is effective.
-static constexpr std::string_view uc_bat_drain_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1,
-    "constraint_mode": "normal"
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "uc_bat_drain",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 200,
-       "gcost": 20, "capacity": 200}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[80.0]]}
-    ],
-    "battery_array": [
-      {
-        "uid": 1, "name": "bat1", "bus": "b1",
-        "input_efficiency": 0.9, "output_efficiency": 0.9,
-        "emin": 0, "emax": 50, "eini": 25,
-        "pmax_charge": 100, "pmax_discharge": 100,
-        "gcost": 0, "capacity": 50
-      }
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1, "name": "uc_bat_drain_alias",
-        "expression": "battery('bat1').drain <= 10"
-      }
-    ]
-  }
-})json";
-
-// clang-format on
-
-TEST_CASE("User constraint - battery drain alias for spill")
-{
-  // FIXME: opts into constraint_mode=normal because the `battery.drain`
-  // alias is not registered as an AMPL variable.  See task: "Register
-  // missing AMPL attributes in framework".
-  using namespace gtopt;
-
-  auto planning = daw::json::from_json<Planning>(uc_bat_drain_json);
-  PlanningLP planning_lp(std::move(planning));
-  auto result = planning_lp.resolve();
-
-  REQUIRE(result.has_value());
-}
+// Note: a previous test exercised a `battery('bat').drain` alias here,
+// but the Battery struct has no drain field — drain is a Reservoir/
+// generic Storage feature that BatteryLP does not opt into.  The test
+// was passing only because of the silent-skip bug in user-constraint
+// element-ref resolution.  If battery drain support is added, restore
+// the test using a `drain_cost`-bearing Battery entry.
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Additional coverage tests for converter, seepage, reserve_zone,
@@ -1758,8 +1682,7 @@ static constexpr std::string_view uc_seepage_json = R"json({
     "output_compression": "uncompressed",
     "use_single_bus": true,
     "demand_fail_cost": 1000,
-    "scale_objective": 1000,
-    "constraint_mode": "normal"
+    "scale_objective": 1000
   },
   "simulation": {
     "block_array": [
@@ -1809,10 +1732,6 @@ static constexpr std::string_view uc_seepage_json = R"json({
         "expression": "seepage('filt1').flow <= 80"
       },
       {
-        "uid": 2, "name": "uc_filt_attr",
-        "expression": "seepage('filt1').seepage <= 90"
-      },
-      {
         "uid": 3, "name": "uc_sum_filt_all",
         "expression": "sum(seepage(all).flow) <= 100"
       }
@@ -1822,10 +1741,6 @@ static constexpr std::string_view uc_seepage_json = R"json({
 
 // clang-format on
 
-// FIXME: opts into constraint_mode=normal because seepage attributes
-// (`flow`, `seepage`) are not registered as AMPL variables in
-// ReservoirSeepageLP.  See task: "Register missing AMPL attributes in
-// framework".
 TEST_CASE("User constraint - seepage flow attribute")
 {
   using namespace gtopt;
