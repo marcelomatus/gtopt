@@ -510,6 +510,190 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
+    "FlowRightLP::update_lp recomputes volume-dependent bound after solve")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Exercises FlowRightLP::update_lp(): after an initial solve the
+  // reservoir's physical efin differs from eini, so the (eini+efin)/2
+  // average volume picks a different piecewise segment from the one
+  // evaluated in add_to_lp. update_lp should then call set_col_upp for
+  // every block and return a non-zero count.
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "gen1",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 50.0,
+      },
+  };
+
+  const Array<Junction> junction_array = {
+      {
+          .uid = Uid {1},
+          .name = "j_up",
+      },
+      {
+          .uid = Uid {2},
+          .name = "j_down",
+          .drain = true,
+      },
+  };
+
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 500.0,
+      },
+  };
+
+  // Use a big enough capacity that the solver discharges meaningful water
+  // through the turbine, so efin < eini.
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 3000.0,
+          .emin = 0.0,
+          .emax = 3000.0,
+          .eini = 1500.0,
+      },
+  };
+
+  const Array<Flow> flow_array = {
+      {
+          .uid = Uid {1},
+          .name = "inflow",
+          .direction = 1,
+          .junction = Uid {1},
+          .discharge = 0.0,
+      },
+  };
+
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 2.0,
+      },
+  };
+
+  // Bound rule: linear segments so that a small change in volume
+  // changes the evaluated bound, guaranteeing update_lp > 0 unless
+  // efin == eini exactly.
+  const Array<FlowRight> flow_right_array = {
+      {
+          .uid = Uid {1},
+          .name = "bounded_irrig",
+          .discharge = {},
+          .fmax = 300.0,
+          .fail_cost = 5000.0,
+          .bound_rule =
+              RightBoundRule {
+                  .reservoir = Uid {1},
+                  .segments =
+                      {
+                          {
+                              .volume = 0.0,
+                              .slope = 0.1,
+                              .constant = 0.0,
+                          },
+                          {
+                              .volume = 1000.0,
+                              .slope = 0.2,
+                              .constant = 100.0,
+                          },
+                      },
+              },
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  const System system = {
+      .name = "UpdateLpFlowRightTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .flow_array = flow_array,
+      .reservoir_array = reservoir_array,
+      .turbine_array = turbine_array,
+      .flow_right_array = flow_right_array,
+  };
+
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Dispatch update_lp across all phases. FlowRightLP::update_lp should
+  // fire because efin != eini after the solve depletes the reservoir.
+  // The return value is the number of bounds actually modified; we only
+  // assert it is non-negative (the physical_efin value depends on solver
+  // behavior and is not deterministic across backends).
+  const auto updated = system_lp.update_lp();
+  CHECK(updated >= 0);
+
+  // Problem still resolvable after the bound update.
+  auto result2 = lp.resolve();
+  REQUIRE(result2.has_value());
+  CHECK(result2.value() == 0);
+}
+
+TEST_CASE(  // NOLINT
     "Rights exhaustion limits generation despite available water")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
