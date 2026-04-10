@@ -47,9 +47,14 @@ def _packages_available() -> bool:
 def _pip_install(scripts_dir: str, extra_args: list[str] | None = None) -> int:
     """Run pip install and return the process exit code."""
     cmd = [
-        sys.executable, "-m", "pip", "install", "-q",
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "-q",
         *(extra_args or []),
-        "-e", f"{scripts_dir}[dev]",
+        "-e",
+        f"{scripts_dir}[dev]",
     ]
     return subprocess.call(cmd)
 
@@ -57,15 +62,15 @@ def _pip_install(scripts_dir: str, extra_args: list[str] | None = None) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--scripts-dir", required=True,
+        "--scripts-dir",
+        required=True,
         help="Absolute path to the scripts/ source directory.",
     )
     args = parser.parse_args()
 
     # Fast path: everything is already importable.
     if _packages_available():
-        print("scripts-install-deps: packages already available, "
-              "skipping pip install")
+        print("scripts-install-deps: packages already available, skipping pip install")
         return 0
 
     # Try a normal pip install first.
