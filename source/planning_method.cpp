@@ -150,6 +150,10 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       // Wire async scene spread (0 = synchronous, default)
       sddp_opts.max_async_spread = options.sddp_max_async_spread();
 
+      // Wire work pool resource limits
+      sddp_opts.pool_cpu_factor = options.sddp_pool_cpu_factor();
+      sddp_opts.pool_memory_limit_mb = options.sddp_pool_memory_limit_mb();
+
       // Wire solve_timeout from forward solver's time_limit (if set)
       {
         const auto fwd_solver = options.sddp_forward_solver_options();
@@ -273,6 +277,10 @@ std::unique_ptr<PlanningMethod> make_planning_method(
 
       // Wire warm_start from SddpOptions config (default: true)
       sddp_opts.warm_start = options.sddp_warm_start();
+
+      // Wire work pool resource limits
+      sddp_opts.pool_cpu_factor = options.sddp_pool_cpu_factor();
+      sddp_opts.pool_memory_limit_mb = options.sddp_pool_memory_limit_mb();
 
       // Wire solve_timeout from forward solver's time_limit (if set)
       {

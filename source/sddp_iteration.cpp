@@ -57,7 +57,8 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
   //               Only created when apertures or lp_debug are active to
   //               avoid idle threads.
   const auto pool_start = std::chrono::steady_clock::now();
-  auto sddp_pool = make_sddp_work_pool();
+  auto sddp_pool = make_sddp_work_pool(m_options_.pool_cpu_factor,
+                                       m_options_.pool_memory_limit_mb);
   const bool need_aux_pool =
       (!m_options_.apertures || !m_options_.apertures->empty())
       || !m_options_.log_directory.empty();

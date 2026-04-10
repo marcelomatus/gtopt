@@ -148,6 +148,17 @@ struct MainOptions
    * Trades CPU time for significant memory savings. */
   std::optional<std::string> low_memory_mode {};
 
+  // ---- resource limits ----
+  /** @brief Process memory limit for work pool throttling.
+   * Accepts an absolute value in MB, or a string with suffix:
+   * "300M" (megabytes), "5G" (gigabytes).  0 = no limit (default). */
+  std::optional<std::string> memory_limit {};
+
+  /** @brief SDDP work pool CPU over-commit factor.
+   * Multiplied by hardware_concurrency to set max pool threads.
+   * Default 4.0 — extra threads compensate for clone mutex blocking. */
+  std::optional<double> sddp_cpu_factor {};
+
   // ---- solver selection ----
   /** @brief LP solver backend name ("clp", "cbc", "cplex", "highs").
    * When empty, auto-detects from available plugins. */

@@ -434,6 +434,16 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// solver options at construction time (backward takes precedence).
   std::optional<SolverOptions> backward_solver_options {};
 
+  /// SDDP work pool CPU over-commit factor.  Multiplied by
+  /// hardware_concurrency to set max pool threads.  Default 4.0 — extra
+  /// threads keep CPUs busy while others block on the clone mutex.
+  double pool_cpu_factor {4.0};
+
+  /// Process memory limit in MB for the SDDP work pool.
+  /// When non-zero, the pool blocks task dispatch if process RSS exceeds
+  /// this value.  0 = no limit (default).
+  double pool_memory_limit_mb {0.0};
+
   /// Maximum iteration spread between fastest and slowest scene when
   /// cut_sharing == none and multiple scenes exist.  When > 0, the
   /// solver runs scenes asynchronously: each scene progresses through

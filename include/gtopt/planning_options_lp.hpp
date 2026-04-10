@@ -934,6 +934,18 @@ public:
     return m_options_.sddp_options.max_async_spread.value_or(0);
   }
 
+  /** @brief SDDP work pool CPU over-commit factor (default: 4.0). */
+  [[nodiscard]] constexpr auto sddp_pool_cpu_factor() const
+  {
+    return m_options_.sddp_options.pool_cpu_factor.value_or(4.0);
+  }
+
+  /** @brief SDDP work pool memory limit in MB (0 = no limit). */
+  [[nodiscard]] constexpr auto sddp_pool_memory_limit_mb() const
+  {
+    return m_options_.sddp_options.pool_memory_limit_mb.value_or(0.0);
+  }
+
   /** @brief How update_lp elements obtain reservoir/battery volume between
    *  phases (affects seepage, production factor, discharge limit only).
    *  Default: warm_start (no cross-phase lookup). */

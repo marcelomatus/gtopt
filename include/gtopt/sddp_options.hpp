@@ -365,6 +365,18 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   OptInt backward_max_fallbacks {};
 
+  /** @brief SDDP work pool CPU over-commit factor.
+   *  Multiplied by hardware_concurrency to set max pool threads.
+   *  Default 4.0 — extra threads keep CPUs busy while others block on
+   *  the clone mutex. */
+  OptReal pool_cpu_factor {};
+
+  /** @brief Process memory limit in MB for the SDDP work pool.
+   *  When non-zero, the pool blocks task dispatch if process RSS exceeds
+   *  this value.  Accepts values parsed by parse_memory_size (e.g. 5G).
+   *  0 = no limit (default). */
+  OptReal pool_memory_limit_mb {};
+
   /** @brief Maximum iteration spread between fastest and slowest scene
    *  when cut_sharing is none and multiple scenes exist.
    *
@@ -450,6 +462,8 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(forward_max_fallbacks, opts.forward_max_fallbacks);
     merge_opt(backward_max_fallbacks, opts.backward_max_fallbacks);
     merge_opt(max_async_spread, opts.max_async_spread);
+    merge_opt(pool_cpu_factor, opts.pool_cpu_factor);
+    merge_opt(pool_memory_limit_mb, opts.pool_memory_limit_mb);
     if (opts.forward_solver_options.has_value()) {
       if (forward_solver_options.has_value()) {
         forward_solver_options->merge(*opts.forward_solver_options);

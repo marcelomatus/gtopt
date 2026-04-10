@@ -87,6 +87,49 @@ template<typename T>
 }
 
 /**
+ * @brief Parse a memory size string into megabytes.
+ *
+ * Accepts a plain number (interpreted as MB) or a number with suffix:
+ * "M"/"MB" for megabytes, "G"/"GB" for gigabytes.
+ * Examples: "4096", "300M", "5G", "1.5GB".
+ *
+ * @param s The string to parse.
+ * @return Size in megabytes.
+ * @throws cli::parse_error on unrecognised input.
+ */
+[[nodiscard]] inline double parse_memory_size(const std::string& s)
+{
+  if (s.empty()) {
+    return 0.0;
+  }
+  double value = 0.0;
+  size_t pos = 0;
+  try {
+    value = std::stod(s, &pos);
+  } catch (...) {
+    throw cli::parse_error(
+        std::format("invalid memory size: '{}' (expected number with optional "
+                    "M/G suffix)",
+                    s));
+  }
+  auto suffix = s.substr(pos);
+  // Strip leading whitespace
+  while (!suffix.empty() && suffix.front() == ' ') {
+    suffix.erase(suffix.begin());
+  }
+  if (suffix.empty() || suffix == "M" || suffix == "MB" || suffix == "m"
+      || suffix == "mb")
+  {
+    return value;  // already in MB
+  }
+  if (suffix == "G" || suffix == "GB" || suffix == "g" || suffix == "gb") {
+    return value * 1024.0;
+  }
+  throw cli::parse_error(std::format(
+      "invalid memory size suffix: '{}' (expected M, MB, G, or GB)", suffix));
+}
+
+/**
  * @brief Create the command-line options description for the gtopt application
  *
  * @return po::options_description The options description containing all
@@ -163,7 +206,15 @@ template<typename T>
        po::value<std::string>().implicit_value("snapshot"),
        "SDDP low-memory mode: off, snapshot (release solver + keep flat LP), "
        "compress (release solver + compress flat LP)")  //
+      ("memory-limit",
+       po::value<std::string>(),
+       "process memory limit for work pool throttling "
+       "(e.g. 4096, 300M, 5G)")  //
+      ("cpu-factor",
+       po::value<double>(),
+       "work pool thread over-commit factor (default: 4.0)")  //
       // ---- deprecated options (hidden from help, still parsed) ----
+      ("sddp-cpu-factor", po::value<double>(), "")  //
       ("input-directory,D", po::value<std::string>(), "")  //
       ("input-format,F", po::value<std::string>(), "")  //
       ("output-directory,d", po::value<std::string>(), "")  //
@@ -474,6 +525,15 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
         require_enum<LowMemoryMode>("low-memory", *opts.low_memory_mode);
   }
 
+  if (opts.memory_limit) {
+    planning.options.sddp_options.pool_memory_limit_mb =
+        parse_memory_size(*opts.memory_limit);
+  }
+
+  if (opts.sddp_cpu_factor) {
+    planning.options.sddp_options.pool_cpu_factor = opts.sddp_cpu_factor;
+  }
+
   // CLI solver shortcuts → solver_options
   if (opts.algorithm) {
     planning.options.solver_options.algorithm =
@@ -599,6 +659,10 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .sddp_num_apertures = get_opt<int>(vm, "sddp-num-apertures"),
       .recover = get_opt<bool>(vm, "recover"),
       .low_memory_mode = get_opt<std::string>(vm, "low-memory"),
+      .memory_limit = get_opt<std::string>(vm, "memory-limit"),
+      .sddp_cpu_factor =
+          get_opt<double>(vm, "cpu-factor")
+              .or_else([&] { return get_opt<double>(vm, "sddp-cpu-factor"); }),
       .solver = get_opt<std::string>(vm, "solver"),
       .algorithm = [&]() -> std::optional<int>
       {
@@ -738,6 +802,11 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   opts.sddp_cut_coeff_mode = get_str("sddp-cut-coeff-mode");
   opts.sddp_num_apertures = get_int("sddp-num-apertures");
   opts.low_memory_mode = get_str("low-memory");
+  opts.memory_limit = get_str("memory-limit");
+  opts.sddp_cpu_factor = get_dbl("cpu-factor");
+  if (!opts.sddp_cpu_factor) {
+    opts.sddp_cpu_factor = get_dbl("sddp-cpu-factor");
+  }
 
   // Solver
   opts.solver = get_str("solver");
@@ -885,6 +954,8 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.sddp_cut_coeff_mode, defaults.sddp_cut_coeff_mode);
   merge(opts.sddp_num_apertures, defaults.sddp_num_apertures);
   merge(opts.low_memory_mode, defaults.low_memory_mode);
+  merge(opts.memory_limit, defaults.memory_limit);
+  merge(opts.sddp_cpu_factor, defaults.sddp_cpu_factor);
   merge(opts.solver, defaults.solver);
   merge(opts.algorithm, defaults.algorithm);
   merge(opts.threads, defaults.threads);

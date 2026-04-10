@@ -65,11 +65,12 @@ namespace gtopt
  * Both MonolithicMethod and SDDPMethod (auxiliary pool) use this factory.
  *
  * @param cpu_factor  Over-commit factor applied to hardware_concurrency.
- *                    Default 1.25 (25 % more threads than physical cores).
+ *                    Default 2.0 — extra threads compensate for mutex
+ *                    contention during LP clone operations.
  * @return A started AdaptiveWorkPool (heap-allocated, non-movable).
  */
 [[nodiscard]] inline std::unique_ptr<AdaptiveWorkPool> make_solver_work_pool(
-    double cpu_factor = 1.25)
+    double cpu_factor = 2.0)
 {
   WorkPoolConfig pool_config {};
   pool_config.name = "SolverWorkPool";
