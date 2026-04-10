@@ -695,8 +695,8 @@ def test_handle_key_stop_via_s(tmp_path: Path):
     assert (tmp_path / "output" / "sddp_stop_request.json").is_file()
 
 
-def test_system_stats_not_loaded_on_start(tmp_path: Path):
-    """System stats are NOT loaded on start — they are lazy-loaded on 'i' key."""
+def test_system_stats_loaded_on_start(tmp_path: Path):
+    """System stats are eagerly loaded on start() so method is displayed from the first frame."""
     json_path = _make_planning_json(tmp_path)
     case_dir = json_path.parent
 
@@ -709,8 +709,9 @@ def test_system_stats_not_loaded_on_start(tmp_path: Path):
     time.sleep(0.2)
     display.stop()
 
-    # Stats should NOT be loaded at startup (lazy-loaded on 'i' key press)
-    assert display._system_stats.get("elements") is None
+    # Stats are loaded eagerly at startup for immediate display
+    assert display._system_stats.get("elements") is not None
+    assert display._system_stats.get("method") == "sddp"
 
 
 def test_system_stats_lazy_loaded_on_i_key(tmp_path: Path):
